@@ -9,7 +9,12 @@ const DeferredFace = @import("main.zig").DeferredFace;
 const log = std.log.named(.discovery);
 
 /// Discover implementation for the compile options.
-pub const Discover = if (options.fontconfig) Fontconfig else void;
+pub const Discover = if (options.fontconfig)
+    Fontconfig
+else if (options.coretext)
+    CoreText
+else
+    void;
 
 /// Descriptor is used to search for fonts. The only required field
 /// is "family". The rest are ignored unless they're set to a non-zero

@@ -79,6 +79,13 @@ pub fn name(self: DeferredFace) ![:0]const u8 {
             return (try fc.pattern.get(.fullname, 0)).string;
     }
 
+    if (options.coretext) {
+        if (self.ct) |ct| {
+            const display_name = ct.font.copyDisplayName();
+            return display_name.cstringPtr(.utf8) orelse "<unsupported internal encoding>";
+        }
+    }
+
     return "TODO: built-in font names";
 }
 
@@ -93,6 +100,11 @@ pub fn load(
 
     if (options.fontconfig) {
         try self.loadFontconfig(lib, size);
+        return;
+    }
+
+    if (options.coretext) {
+        try self.loadCoreText(lib, size);
         return;
     }
 
@@ -114,6 +126,45 @@ fn loadFontconfig(
     const face_index = (try fc.pattern.get(.index, 0)).integer;
 
     self.face = try Face.initFile(lib, filename, face_index, size);
+}
+
+fn loadCoreText(
+    self: *DeferredFace,
+    lib: Library,
+    size: Face.DesiredSize,
+) !void {
+    assert(self.face == null);
+    const ct = self.ct.?;
+
+    // Get the URL for the font so we can get the filepath
+    const url = ct.font.copyAttribute(.url);
+    defer url.release();
+
+    // Get the path from the URL
+    const path = url.copyPath() orelse return error.FontHasNoFile;
+    defer path.release();
+
+    // URL decode the path
+    const blank = try macos.foundation.String.createWithBytes("", .utf8, false);
+    defer blank.release();
+    const decoded = try macos.foundation.URL.createStringByReplacingPercentEscapes(
+        path,
+        blank,
+    );
+    defer decoded.release();
+
+    // Decode into a c string. 1024 bytes should be enough for anybody.
+    var buf: [1024]u8 = undefined;
+    const path_slice = decoded.cstring(buf[0..1023], .utf8) orelse
+        return error.FontPathCantDecode;
+
+    // Freetype requires null-terminated. We always leave space at
+    // the end for a zero so we set that up here.
+    buf[path_slice.len] = 0;
+
+    // TODO: face index 0 is not correct long term and we should switch
+    // to using CoreText for rendering, too.
+    self.face = try Face.initFile(lib, buf[0..path_slice.len :0], 0, size);
 }
 
 /// Returns true if this face can satisfy the given codepoint and
@@ -149,6 +200,20 @@ pub fn hasCodepoint(self: DeferredFace, cp: u32, p: ?Presentation) bool {
             }
 
             return true;
+        }
+    }
+
+    // If we are using coretext, we check the loaded CT font.
+    if (options.coretext) {
+        if (self.ct) |ct| {
+            // Turn UTF-32 into UTF-16 for CT API
+            var unichars: [2]u16 = undefined;
+            const pair = macos.foundation.stringGetSurrogatePairForLongCharacter(cp, &unichars);
+            const len: usize = if (pair) 2 else 1;
+
+            // Get our glyphs
+            var glyphs = [2]macos.graphics.Glyph{ 0, 0 };
+            return ct.font.getGlyphsForCharacters(unichars[0..len], glyphs[0..len]);
         }
     }
 
@@ -192,6 +257,37 @@ test "fontconfig" {
     };
     defer def.deinit();
     try testing.expect(!def.loaded());
+
+    // Verify we can get the name
+    const n = try def.name();
+    try testing.expect(n.len > 0);
+
+    // Load it and verify it works
+    try def.load(lib, .{ .points = 12 });
+    try testing.expect(def.hasCodepoint(' ', null));
+    try testing.expect(def.face.?.glyphIndex(' ') != null);
+}
+
+test "coretext" {
+    if (!options.coretext) return error.SkipZigTest;
+
+    const discovery = @import("main.zig").discovery;
+    const testing = std.testing;
+
+    // Load freetype
+    var lib = try Library.init();
+    defer lib.deinit();
+
+    // Get a deferred face from fontconfig
+    var def = def: {
+        var fc = discovery.CoreText.init();
+        var it = try fc.discover(.{ .family = "Monaco", .size = 12 });
+        defer it.deinit();
+        break :def (try it.next()).?;
+    };
+    defer def.deinit();
+    try testing.expect(!def.loaded());
+    try testing.expect(def.hasCodepoint(' ', null));
 
     // Verify we can get the name
     const n = try def.name();

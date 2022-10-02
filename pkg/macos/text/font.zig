@@ -31,6 +31,20 @@ pub const Font = opaque {
             @intCast(c_long, chars.len),
         );
     }
+
+    pub fn copyAttribute(self: *Font, comptime attr: text.FontAttribute) attr.Value() {
+        return @intToPtr(attr.Value(), @ptrToInt(c.CTFontCopyAttribute(
+            @ptrCast(c.CTFontRef, self),
+            @ptrCast(c.CFStringRef, attr.key()),
+        )));
+    }
+
+    pub fn copyDisplayName(self: *Font) *foundation.String {
+        return @intToPtr(
+            *foundation.String,
+            @ptrToInt(c.CTFontCopyDisplayName(@ptrCast(c.CTFontRef, self))),
+        );
+    }
 };
 
 test {
