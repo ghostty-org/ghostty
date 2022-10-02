@@ -17,6 +17,7 @@ const system_sdk = @import("vendor/mach/libs/glfw/system_sdk.zig");
 
 // Build options, see the build options help for more info.
 var tracy: bool = false;
+var enable_coretext: bool = false;
 var enable_fontconfig: bool = false;
 
 pub fn build(b: *std.build.Builder) !void {
@@ -37,6 +38,12 @@ pub fn build(b: *std.build.Builder) !void {
         "tracy",
         "Enable Tracy integration (default true in Debug on Linux)",
     ) orelse (mode == .Debug and target.isLinux());
+
+    enable_coretext = b.option(
+        bool,
+        "coretext",
+        "Enable coretext for font discovery (default true on macOS)",
+    ) orelse target.isDarwin();
 
     enable_fontconfig = b.option(
         bool,
@@ -65,6 +72,7 @@ pub fn build(b: *std.build.Builder) !void {
     const exe = b.addExecutable("ghostty", "src/main.zig");
     const exe_options = b.addOptions();
     exe_options.addOption(bool, "tracy_enabled", tracy);
+    exe_options.addOption(bool, "coretext", enable_coretext);
     exe_options.addOption(bool, "fontconfig", enable_fontconfig);
 
     // Exe

@@ -14,8 +14,10 @@ pub const Discover = discovery.Discover;
 
 /// Build options
 pub const options: struct {
+    coretext: bool = false,
     fontconfig: bool = false,
 } = .{
+    .coretext = build_options.coretext,
     .fontconfig = build_options.fontconfig,
 };
 

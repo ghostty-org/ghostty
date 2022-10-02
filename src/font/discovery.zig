@@ -1,6 +1,8 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const fontconfig = @import("fontconfig");
+const macos = @import("macos");
 const options = @import("main.zig").options;
 const DeferredFace = @import("main.zig").DeferredFace;
 
@@ -56,6 +58,70 @@ pub const Descriptor = struct {
         ));
 
         return pat;
+    }
+
+    /// Convert to Core Text font descriptor to use for lookup or
+    /// conversion to a specific font.
+    pub fn toCoreTextDescriptor(self: Descriptor) !*macos.text.FontDescriptor {
+        const attrs = try macos.foundation.MutableDictionary.create(0);
+        defer attrs.release();
+
+        // Family is always set
+        const family = try macos.foundation.String.createWithBytes(self.family, .utf8, false);
+        defer family.release();
+        attrs.setValue(
+            macos.text.FontAttribute.family_name.key(),
+            family,
+        );
+
+        // Set our size attribute if set
+        if (self.size > 0) {
+            const size32 = @intCast(i32, self.size);
+            const size = try macos.foundation.Number.create(
+                .sint32,
+                &size32,
+            );
+            defer size.release();
+            attrs.setValue(
+                macos.text.FontAttribute.size.key(),
+                size,
+            );
+        }
+
+        // Build our traits. If we set any, then we store it in the attributes
+        // otherwise we do nothing. We determine this by setting up the packed
+        // struct, converting to an int, and checking if it is non-zero.
+        const traits: macos.text.FontSymbolicTraits = .{
+            .bold = self.bold,
+            .italic = self.italic,
+        };
+        const traits_cval = traits.cval();
+        if (traits_cval > 0) {
+            // Setting traits is a pain. We have to create a nested dictionary
+            // of the symbolic traits value, and set that in our attributes.
+            const traits_num = try macos.foundation.Number.create(
+                .sint32,
+                @ptrCast(*const i32, &traits_cval),
+            );
+            defer traits_num.release();
+
+            const traits_dict = try macos.foundation.MutableDictionary.create(0);
+            defer traits_dict.release();
+            traits_dict.setValue(
+                macos.text.FontTraitKey.symbolic.key(),
+                traits_num,
+            );
+
+            attrs.setValue(
+                macos.text.FontAttribute.traits.key(),
+                traits_dict,
+            );
+        }
+
+        return try macos.text.FontDescriptor.createWithAttributes(@ptrCast(
+            *macos.foundation.Dictionary,
+            attrs,
+        ));
     }
 };
 
@@ -134,7 +200,74 @@ pub const Fontconfig = struct {
     };
 };
 
-test {
+pub const CoreText = struct {
+    pub fn init() CoreText {
+        // Required for the "interface" but does nothing for CoreText.
+        return .{};
+    }
+
+    pub fn deinit(self: *CoreText) void {
+        _ = self;
+    }
+
+    /// Discover fonts from a descriptor. This returns an iterator that can
+    /// be used to build up the deferred fonts.
+    pub fn discover(self: *const CoreText, desc: Descriptor) !DiscoverIterator {
+        _ = self;
+
+        // Build our pattern that we'll search for
+        const ct_desc = try desc.toCoreTextDescriptor();
+        defer ct_desc.release();
+
+        // Our descriptors have to be in an array
+        const desc_arr = try macos.foundation.Array.create(
+            macos.text.FontDescriptor,
+            &[_]*const macos.text.FontDescriptor{ct_desc},
+        );
+        defer desc_arr.release();
+
+        // Build our collection
+        const set = try macos.text.FontCollection.createWithFontDescriptors(desc_arr);
+        defer set.release();
+        const list = set.createMatchingFontDescriptors();
+        errdefer list.release();
+
+        return DiscoverIterator{
+            .list = list,
+            .i = 0,
+        };
+    }
+
+    pub const DiscoverIterator = struct {
+        list: *macos.foundation.Array,
+        i: usize,
+
+        pub fn deinit(self: *DiscoverIterator) void {
+            self.list.release();
+            self.* = undefined;
+        }
+
+        pub fn next(self: *DiscoverIterator) !?DeferredFace {
+            if (self.i >= self.list.getCount()) return null;
+
+            // Create our font. We need a size to initialize it so we use size
+            // 12 but we will alter the size later.
+            const desc = self.list.getValueAtIndex(macos.text.FontDescriptor, self.i);
+            const font = try macos.text.Font.createWithFontDescriptor(desc, 12);
+            errdefer font.release();
+
+            // Increment after we return
+            defer self.i += 1;
+
+            return DeferredFace{
+                .face = null,
+                .ct = .{ .font = font },
+            };
+        }
+    };
+};
+
+test "fontconfig" {
     if (!options.fontconfig) return error.SkipZigTest;
 
     const testing = std.testing;
@@ -145,4 +278,21 @@ test {
     while (try it.next()) |face| {
         try testing.expect(!face.loaded());
     }
+}
+
+test "core text" {
+    if (!options.coretext) return error.SkipZigTest;
+
+    const testing = std.testing;
+
+    var ct = CoreText.init();
+    defer ct.deinit();
+    var it = try ct.discover(.{ .family = "Monaco", .size = 12 });
+    defer it.deinit();
+    var count: usize = 0;
+    while (try it.next()) |face| {
+        count += 1;
+        try testing.expect(!face.loaded());
+    }
+    try testing.expect(count > 0);
 }

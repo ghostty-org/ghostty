@@ -9,6 +9,7 @@ const DeferredFace = @This();
 const std = @import("std");
 const assert = std.debug.assert;
 const fontconfig = @import("fontconfig");
+const macos = @import("macos");
 const options = @import("main.zig").options;
 const Library = @import("main.zig").Library;
 const Face = @import("main.zig").Face;
@@ -19,6 +20,9 @@ face: ?Face = null,
 
 /// Fontconfig
 fc: if (options.fontconfig) ?Fontconfig else void = if (options.fontconfig) null else {},
+
+/// CoreText
+ct: if (options.coretext) ?CoreText else void = if (options.coretext) null else {},
 
 /// Fontconfig specific data. This is only present if building with fontconfig.
 pub const Fontconfig = struct {
@@ -38,6 +42,17 @@ pub const Fontconfig = struct {
     }
 };
 
+/// CoreText specific data. This is only present when building with CoreText.
+pub const CoreText = struct {
+    /// The initialized font
+    font: *macos.text.Font,
+
+    pub fn deinit(self: *CoreText) void {
+        self.font.release();
+        self.* = undefined;
+    }
+};
+
 /// Initialize a deferred face that is already pre-loaded. The deferred face
 /// takes ownership over the loaded face, deinit will deinit the loaded face.
 pub fn initLoaded(face: Face) DeferredFace {
@@ -47,6 +62,7 @@ pub fn initLoaded(face: Face) DeferredFace {
 pub fn deinit(self: *DeferredFace) void {
     if (self.face) |*face| face.deinit();
     if (options.fontconfig) if (self.fc) |*fc| fc.deinit();
+    if (options.coretext) if (self.ct) |*ct| ct.deinit();
     self.* = undefined;
 }
 
