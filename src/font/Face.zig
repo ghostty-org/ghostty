@@ -270,6 +270,11 @@ pub const Metrics = struct {
     /// thickness in pixels.
     underline_position: f32,
     underline_thickness: f32,
+
+    /// The position and thickness of a strikethrough. Same units/style
+    /// as the underline fields.
+    strikethrough_position: f32,
+    strikethrough_thickness: f32,
 };
 
 /// Calculate the metrics associated with a face. This is not public because
@@ -358,13 +363,30 @@ fn calcMetrics(face: freetype.Face) Metrics {
         face.handle.*.underline_thickness,
     ));
 
-    // log.warn("METRICS={} width={d} height={d} baseline={d} underline_pos={d} underline_thickness={d}", .{
+    // The strikethrough position. We use the position provided by the
+    // font if it exists otherwise we calculate a best guess.
+    const strikethrough: struct {
+        pos: f32,
+        thickness: f32,
+    } = if (face.getSfntTable(.os2)) |os2| .{
+        .pos = fontUnitsToPxY(face, @maximum(
+            0,
+            @intCast(i32, size_metrics.ascender) - os2.yStrikeoutPosition,
+        )),
+        .thickness = @maximum(1, fontUnitsToPxY(face, os2.yStrikeoutSize)),
+    } else .{
+        .pos = cell_baseline * 0.6,
+        .thickness = underline_thickness,
+    };
+
+    // log.warn("METRICS={} width={d} height={d} baseline={d} underline_pos={d} underline_thickness={d} strikethrough={}", .{
     //     size_metrics,
     //     cell_width,
     //     cell_height,
     //     cell_height - cell_baseline,
     //     underline_position,
     //     underline_thickness,
+    //     strikethrough,
     // });
 
     return .{
@@ -373,6 +395,8 @@ fn calcMetrics(face: freetype.Face) Metrics {
         .cell_baseline = cell_baseline,
         .underline_position = underline_position,
         .underline_thickness = underline_thickness,
+        .strikethrough_position = strikethrough.pos,
+        .strikethrough_thickness = strikethrough.thickness,
     };
 }
 
