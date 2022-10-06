@@ -138,6 +138,7 @@ const GPUCellMode = enum(u8) {
     cursor_rect_hollow = 4,
     cursor_bar = 5,
     underline = 6,
+    strikethrough = 8,
 
     // Non-exhaustive because masks change it
     _,
@@ -180,6 +181,8 @@ pub fn init(alloc: Allocator, font_group: *font.GroupCache) !Grid {
     try program.setUniform("cell_size", @Vector(2, f32){ metrics.cell_width, metrics.cell_height });
     try program.setUniform("underline_position", metrics.underline_position);
     try program.setUniform("underline_thickness", metrics.underline_thickness);
+    try program.setUniform("strikethrough_position", metrics.strikethrough_position);
+    try program.setUniform("strikethrough_thickness", metrics.strikethrough_thickness);
 
     // Set all of our texture indexes
     try program.setUniform("text", 0);
@@ -538,6 +541,7 @@ pub fn updateCell(
         if (colors.bg != null) i += 1;
         if (!cell.empty()) i += 1;
         if (cell.attrs.underline) i += 1;
+        if (cell.attrs.strikethrough) i += 1;
         break :needed i;
     };
     if (self.cells.items.len + needed > self.cells.capacity) return false;
@@ -610,6 +614,29 @@ pub fn updateCell(
     if (cell.attrs.underline) {
         self.cells.appendAssumeCapacity(.{
             .mode = .underline,
+            .grid_col = @intCast(u16, x),
+            .grid_row = @intCast(u16, y),
+            .grid_width = cell.widthLegacy(),
+            .glyph_x = 0,
+            .glyph_y = 0,
+            .glyph_width = 0,
+            .glyph_height = 0,
+            .glyph_offset_x = 0,
+            .glyph_offset_y = 0,
+            .fg_r = colors.fg.r,
+            .fg_g = colors.fg.g,
+            .fg_b = colors.fg.b,
+            .fg_a = alpha,
+            .bg_r = 0,
+            .bg_g = 0,
+            .bg_b = 0,
+            .bg_a = 0,
+        });
+    }
+
+    if (cell.attrs.strikethrough) {
+        self.cells.appendAssumeCapacity(.{
+            .mode = .strikethrough,
             .grid_col = @intCast(u16, x),
             .grid_row = @intCast(u16, y),
             .grid_width = cell.widthLegacy(),

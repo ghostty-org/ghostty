@@ -164,6 +164,7 @@ pub const Cell = struct {
         faint: bool = false,
         underline: bool = false,
         inverse: bool = false,
+        strikethrough: bool = false,
 
         /// True if this is a wide character. This char takes up
         /// two cells. The following cell ALWAYS is a space.

@@ -11,6 +11,7 @@ const uint MODE_CURSOR_RECT = 3u;
 const uint MODE_CURSOR_RECT_HOLLOW = 4u;
 const uint MODE_CURSOR_BAR = 5u;
 const uint MODE_UNDERLINE = 6u;
+const uint MODE_STRIKETHROUGH = 8u;
 
 // The grid coordinates (x, y) where x < columns and y < rows
 layout (location = 0) in vec2 grid_coord;
@@ -59,6 +60,8 @@ uniform vec2 cell_size;
 uniform mat4 projection;
 uniform float underline_position;
 uniform float underline_thickness;
+uniform float strikethrough_position;
+uniform float strikethrough_thickness;
 
 /********************************************************************
  * Modes
@@ -207,6 +210,22 @@ void main() {
         // underline, and that is our position. We also float it slightly
         // above the bottom.
         cell_pos = cell_pos + underline_offset - (underline_size * position);
+
+        gl_Position = projection * vec4(cell_pos, cell_z, 1.0);
+        color = fg_color_in / 255.0;
+        break;
+
+    case MODE_STRIKETHROUGH:
+        // Strikethrough Y value is just our thickness
+        vec2 strikethrough_size = vec2(cell_size_scaled.x, strikethrough_thickness);
+
+        // Position the strikethrough where we are told to
+        vec2 strikethrough_offset = vec2(cell_size_scaled.x, strikethrough_position) ;
+
+        // Go to the bottom of the cell, take away the size of the
+        // strikethrough, and that is our position. We also float it slightly
+        // above the bottom.
+        cell_pos = cell_pos + strikethrough_offset - (strikethrough_size * position);
 
         gl_Position = projection * vec4(cell_pos, cell_z, 1.0);
         color = fg_color_in / 255.0;

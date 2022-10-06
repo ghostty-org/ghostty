@@ -365,6 +365,14 @@ pub fn setAttribute(self: *Terminal, attr: sgr.Attribute) !void {
             self.screen.cursor.pen.attrs.inverse = false;
         },
 
+        .strikethrough => {
+            self.screen.cursor.pen.attrs.strikethrough = true;
+        },
+
+        .reset_strikethrough => {
+            self.screen.cursor.pen.attrs.strikethrough = false;
+        },
+
         .direct_color_fg => |rgb| {
             self.screen.cursor.pen.attrs.has_fg = true;
             self.screen.cursor.pen.fg = .{

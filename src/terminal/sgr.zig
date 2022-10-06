@@ -34,6 +34,10 @@ pub const Attribute = union(enum) {
     inverse: void,
     reset_inverse: void,
 
+    /// Strikethrough the text.
+    strikethrough: void,
+    reset_strikethrough: void,
+
     /// Set foreground color as RGB values.
     direct_color_fg: RGB,
 
@@ -99,7 +103,11 @@ pub const Parser = struct {
 
             7 => return Attribute{ .inverse = {} },
 
+            9 => return Attribute{ .strikethrough = {} },
+
             27 => return Attribute{ .reset_inverse = {} },
+
+            29 => return Attribute{ .reset_strikethrough = {} },
 
             30...37 => return Attribute{
                 .@"8_fg" = @intToEnum(color.Name, slice[0] - 30),
@@ -225,6 +233,18 @@ test "sgr: inverse" {
     {
         const v = testParse(&[_]u16{27});
         try testing.expect(v == .reset_inverse);
+    }
+}
+
+test "sgr: strikethrough" {
+    {
+        const v = testParse(&[_]u16{9});
+        try testing.expect(v == .strikethrough);
+    }
+
+    {
+        const v = testParse(&[_]u16{29});
+        try testing.expect(v == .reset_strikethrough);
     }
 }
 

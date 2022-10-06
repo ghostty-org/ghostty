@@ -31,7 +31,7 @@ const uint MODE_CURSOR_RECT = 3u;
 const uint MODE_CURSOR_RECT_HOLLOW = 4u;
 const uint MODE_CURSOR_BAR = 5u;
 const uint MODE_UNDERLINE = 6u;
-const uint MODE_WIDE_MASK = 128u; // 0b1000_0000
+const uint MODE_STRIKETHROUGH = 8u;
 
 void main() {
     float a;
@@ -95,6 +95,10 @@ void main() {
         break;
 
     case MODE_UNDERLINE:
+        out_FragColor = color;
+        break;
+
+    case MODE_STRIKETHROUGH:
         out_FragColor = color;
         break;
     }
