@@ -75,6 +75,36 @@ pub const Face = struct {
             @bitCast(i32, load_flags),
         ));
     }
+
+    /// Return a pointer to a given SFNT table stored within a face.
+    pub fn getSfntTable(self: Face, comptime tag: SfntTag) ?*tag.DataType() {
+        const T = tag.DataType();
+        return @ptrCast(?*T, @alignCast(@alignOf(T), c.FT_Get_Sfnt_Table(
+            self.handle,
+            @enumToInt(tag),
+        )));
+    }
+};
+
+/// An enumeration to specify indices of SFNT tables loaded and parsed by
+/// FreeType during initialization of an SFNT font. Used in the
+/// FT_Get_Sfnt_Table API function.
+pub const SfntTag = enum(c_int) {
+    head = c.FT_SFNT_HEAD,
+    maxp = c.FT_SFNT_MAXP,
+    os2 = c.FT_SFNT_OS2,
+    hhea = c.FT_SFNT_HHEA,
+    vhea = c.FT_SFNT_VHEA,
+    post = c.FT_SFNT_POST,
+    pclt = c.FT_SFNT_PCLT,
+
+    /// The data type for a given sfnt tag.
+    pub fn DataType(self: SfntTag) type {
+        return switch (self) {
+            .os2 => c.TT_OS2,
+            else => unreachable, // As-needed...
+        };
+    }
 };
 
 /// An enumeration to specify character sets supported by charmaps. Used in the
@@ -158,4 +188,8 @@ test "loading memory font" {
     // Try loading
     const idx = face.getCharIndex('A').?;
     try face.loadGlyph(idx, .{});
+
+    // Try getting a truetype table
+    const os2 = face.getSfntTable(.os2);
+    try testing.expect(os2 != null);
 }
