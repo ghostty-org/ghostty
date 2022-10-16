@@ -12,6 +12,7 @@ const Allocator = std.mem.Allocator;
 const Grid = @import("Grid.zig");
 const glfw = @import("glfw");
 const gl = @import("opengl.zig");
+const imgui = @import("imgui");
 const libuv = @import("libuv");
 const Pty = @import("Pty.zig");
 const font = @import("font/main.zig");
@@ -22,6 +23,7 @@ const max_timer = @import("max_timer.zig");
 const terminal = @import("terminal/main.zig");
 const Config = @import("config.zig").Config;
 const input = @import("input.zig");
+const DevMode = @import("DevMode.zig");
 
 const RenderTimer = max_timer.MaxTimer(renderTimerCallback);
 
@@ -44,6 +46,9 @@ window: glfw.Window,
 
 /// The glfw mouse cursor handle.
 cursor: glfw.Cursor,
+
+/// Imgui context
+imgui_ctx: if (DevMode.enabled) *imgui.Context else void,
 
 /// Whether the window is currently focused
 focused: bool,
@@ -475,7 +480,10 @@ pub fn create(alloc: Allocator, loop: libuv.Loop, config: *const Config) !*Windo
         .bg_g = @intToFloat(f32, config.background.g) / 255.0,
         .bg_b = @intToFloat(f32, config.background.b) / 255.0,
         .bg_a = 1.0,
+
+        .imgui_ctx = if (!DevMode.enabled) void else try imgui.Context.create(),
     };
+    errdefer if (DevMode.enabled) self.imgui_ctx.destroy();
 
     // Setup our callbacks and user data
     window.setUserPointer(self);
@@ -499,10 +507,37 @@ pub fn create(alloc: Allocator, loop: libuv.Loop, config: *const Config) !*Windo
         @intCast(i32, window_size.height),
     );
 
+    // Load imgui. This must be done LAST because it has to be done after
+    // all our GLFW setup is complete.
+    if (DevMode.enabled) {
+        const io = try imgui.IO.get();
+        io.cval().IniFilename = "ghostty_dev_mode.ini";
+
+        // On Mac imgui handles scaling automatically just fine. On Linux
+        // and other platforms we need to apply a scaling factor.
+        if (builtin.os.tag != .macos) io.cval().FontGlobalScale = content_scale.x_scale;
+
+        const style = try imgui.Style.get();
+        style.colorsDark();
+
+        assert(imgui.ImplGlfw.initForOpenGL(
+            @ptrCast(*imgui.ImplGlfw.GLFWWindow, window.handle),
+            true,
+        ));
+        assert(imgui.ImplOpenGL3.init("#version 330 core"));
+    }
+
     return self;
 }
 
 pub fn destroy(self: *Window) void {
+    if (DevMode.enabled) {
+        // Uninitialize imgui
+        imgui.ImplOpenGL3.shutdown();
+        imgui.ImplGlfw.shutdown();
+        self.imgui_ctx.destroy();
+    }
+
     // Deinitialize the pty. This closes the pty handles. This should
     // cause a close in the our subprocess so just wait for that.
     self.pty.deinit();
@@ -747,6 +782,7 @@ fn keyCallback(
                 .F10 => .f10,
                 .F11 => .f11,
                 .F12 => .f12,
+                .grave_accent => .grave_accent,
                 else => .invalid,
             },
         };
@@ -795,6 +831,11 @@ fn keyCallback(
                             log.err("error queueing write in keyCallback err={}", .{err});
                     }
                 },
+
+                .toggle_dev_mode => if (DevMode.enabled) {
+                    DevMode.instance.visible = !DevMode.instance.visible;
+                    win.render_timer.schedule() catch unreachable;
+                } else log.warn("dev mode was not compiled into this binary", .{}),
             }
 
             // Bindings always result in us ignoring the char if printable
@@ -1109,6 +1150,13 @@ fn mouseButtonCallback(
 
     const win = window.getUserPointer(Window) orelse return;
 
+    // If our dev mode window is visible then we always schedule a render on
+    // cursor move because the cursor might touch our windows.
+    if (DevMode.enabled and DevMode.instance.visible) {
+        win.render_timer.schedule() catch |err|
+            log.err("error scheduling render timer in cursorPosCallback err={}", .{err});
+    }
+
     // Convert glfw button to input button
     const button: input.MouseButton = switch (glfw_button) {
         .left => .left,
@@ -1185,6 +1233,13 @@ fn cursorPosCallback(
     defer tracy.end();
 
     const win = window.getUserPointer(Window) orelse return;
+
+    // If our dev mode window is visible then we always schedule a render on
+    // cursor move because the cursor might touch our windows.
+    if (DevMode.enabled and DevMode.instance.visible) {
+        win.render_timer.schedule() catch |err|
+            log.err("error scheduling render timer in cursorPosCallback err={}", .{err});
+    }
 
     // Do a mouse report
     if (win.terminal.modes.mouse_event != .none) {
@@ -1524,6 +1579,12 @@ fn renderTimerCallback(t: *libuv.Timer) void {
         log.err("error rendering grid: {}", .{err});
         return;
     };
+
+    if (DevMode.enabled and DevMode.instance.visible) {
+        DevMode.instance.update();
+        const data = DevMode.instance.render() catch unreachable;
+        imgui.ImplOpenGL3.renderDrawData(data);
+    }
 
     // Swap
     win.window.swapBuffers() catch |err| {

@@ -120,6 +120,13 @@ pub const Config = struct {
         try result.keybind.set.put(alloc, .{ .key = .f11 }, .{ .csi = "23~" });
         try result.keybind.set.put(alloc, .{ .key = .f12 }, .{ .csi = "24~" });
 
+        // Dev Mode
+        try result.keybind.set.put(
+            alloc,
+            .{ .key = .grave_accent, .mods = .{ .shift = true, .super = true } },
+            .{ .toggle_dev_mode = 0 },
+        );
+
         return result;
     }
 

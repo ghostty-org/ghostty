@@ -6,6 +6,7 @@ const glfw = @import("vendor/mach/libs/glfw/build.zig");
 const fontconfig = @import("pkg/fontconfig/build.zig");
 const freetype = @import("pkg/freetype/build.zig");
 const harfbuzz = @import("pkg/harfbuzz/build.zig");
+const imgui = @import("pkg/imgui/build.zig");
 const libxml2 = @import("vendor/zig-libxml2/libxml2.zig");
 const libuv = @import("pkg/libuv/build.zig");
 const libpng = @import("pkg/libpng/build.zig");
@@ -189,6 +190,7 @@ fn addDeps(
     if (enable_fontconfig) step.addPackage(fontconfig.pkg);
     step.addPackage(freetype.pkg);
     step.addPackage(harfbuzz.pkg);
+    step.addPackage(imgui.pkg);
     step.addPackage(glfw.pkg);
     step.addPackage(libuv.pkg);
     step.addPackage(utf8proc.pkg);
@@ -214,10 +216,15 @@ fn addDeps(
     _ = try utf8proc.link(b, step);
 
     // Glfw
-    try glfw.link(b, step, .{
-        .metal = false,
-        .opengl = false, // Found at runtime
+    const glfw_opts: glfw.Options = .{ .metal = false, .opengl = false };
+    try glfw.link(b, step, glfw_opts);
+
+    // Imgui
+    const imgui_backends = [_][]const u8{ "glfw", "opengl3" };
+    const imgui_step = try imgui.link(b, step, .{
+        .backends = &imgui_backends,
     });
+    try glfw.link(b, imgui_step, glfw_opts);
 
     // Dynamic link
     if (!static) {

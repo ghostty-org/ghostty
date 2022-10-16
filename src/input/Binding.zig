@@ -140,6 +140,9 @@ pub const Action = union(enum) {
     /// Copy and paste.
     copy_to_clipboard: Void,
     paste_from_clipboard: Void,
+
+    /// Dev mode
+    toggle_dev_mode: Void,
 };
 
 /// Trigger is the associated key state that can trigger an action.

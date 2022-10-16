@@ -49,6 +49,9 @@ pub const Key = enum {
     y,
     z,
 
+    // other
+    grave_accent, // `
+
     // control
     up,
     down,
