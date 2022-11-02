@@ -177,6 +177,7 @@ test {
 
     // TODO
     _ = @import("config.zig");
+    _ = @import("homedir.zig");
     _ = @import("passwd.zig");
     _ = @import("cli_args.zig");
     _ = @import("lru.zig");
