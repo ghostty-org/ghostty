@@ -76,7 +76,7 @@ pub fn main() !void {
             var iter = cli_args.lineIterator(buf_reader.reader());
             try cli_args.parse(Config, alloc, &config, &iter);
         } else |err| switch (err) {
-            error.FileNotFound => std.log.debug(
+            error.FileNotFound => std.log.info(
                 "homedir config not found, not loading path={s}",
                 .{home_config_path},
             ),
