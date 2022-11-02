@@ -8,6 +8,7 @@ const harfbuzz = @import("harfbuzz");
 const macos = @import("macos");
 const tracy = @import("tracy");
 const renderer = @import("renderer.zig");
+const xdg = @import("xdg.zig");
 
 const App = @import("App.zig");
 const cli_args = @import("cli_args.zig");
@@ -58,23 +59,48 @@ pub fn main() !void {
         break :alloc tracy_alloc.allocator();
     };
 
-    // Parse the config from the CLI args
-    var config = config: {
-        var result = try Config.default(alloc);
-        errdefer result.deinit();
-        var iter = try std.process.argsWithAllocator(alloc);
-        defer iter.deinit();
-        try cli_args.parse(Config, alloc, &result, &iter);
-        break :config result;
-    };
+    // Try reading our config
+    var config = try Config.default(alloc);
     defer config.deinit();
 
-    // Parse the config files
+    // If we have a configuration file in our home directory, parse that first.
+    const cwd = std.fs.cwd();
+    {
+        const home_config_path = try xdg.config(alloc, .{ .subdir = "ghostty/config" });
+        defer alloc.free(home_config_path);
+
+        if (cwd.openFile(home_config_path, .{})) |file| {
+            defer file.close();
+
+            var buf_reader = std.io.bufferedReader(file.reader());
+            var iter = cli_args.lineIterator(buf_reader.reader());
+            try cli_args.parse(Config, alloc, &config, &iter);
+        } else |err| switch (err) {
+            error.FileNotFound => std.log.debug(
+                "homedir config not found, not loading path={s}",
+                .{home_config_path},
+            ),
+
+            else => std.log.warn(
+                "error reading homedir config file, not loading err={} path={s}",
+                .{ err, home_config_path },
+            ),
+        }
+    }
+
+    // Parse the config from the CLI args
+    {
+        var iter = try std.process.argsWithAllocator(alloc);
+        defer iter.deinit();
+        try cli_args.parse(Config, alloc, &config, &iter);
+    }
+
+    // Parse the config files that were added from our file and CLI args.
+    // TODO(mitchellh): we should parse the files form the homedir first
     // TODO(mitchellh): support nesting (config-file in a config file)
     // TODO(mitchellh): detect cycles when nesting
     if (config.@"config-file".list.items.len > 0) {
         const len = config.@"config-file".list.items.len;
-        const cwd = std.fs.cwd();
         for (config.@"config-file".list.items) |path| {
             var file = try cwd.openFile(path, .{});
             defer file.close();
@@ -91,6 +117,7 @@ pub fn main() !void {
                 return error.ConfigFileInConfigFile;
         }
     }
+    try config.finalize();
     std.log.info("config={}", .{config});
 
     // We want to log all our errors
@@ -179,6 +206,7 @@ test {
     _ = @import("config.zig");
     _ = @import("homedir.zig");
     _ = @import("passwd.zig");
+    _ = @import("xdg.zig");
     _ = @import("cli_args.zig");
     _ = @import("lru.zig");
 }

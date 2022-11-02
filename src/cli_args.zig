@@ -60,8 +60,6 @@ pub fn parse(comptime T: type, alloc: Allocator, dst: *T, iter: anytype) !void {
             try parseIntoField(T, arena_alloc, dst, key, value);
         }
     }
-
-    if (@hasDecl(T, "finalize")) try dst.finalize();
 }
 
 /// Parse a single key/value pair into the destination type T.
@@ -193,28 +191,6 @@ test "parse: simple" {
     try testing.expectEqualStrings("84", data.a);
     try testing.expect(data.b);
     try testing.expect(!data.@"b-f");
-}
-
-test "parse: finalize" {
-    const testing = std.testing;
-
-    var data: struct {
-        a: []const u8 = "",
-        _arena: ?ArenaAllocator = null,
-
-        pub fn finalize(self: *@This()) !void {
-            self.a = "YO";
-        }
-    } = .{};
-    defer if (data._arena) |arena| arena.deinit();
-
-    var iter = try std.process.ArgIteratorGeneral(.{}).init(
-        testing.allocator,
-        "--a=42",
-    );
-    defer iter.deinit();
-    try parse(@TypeOf(data), testing.allocator, &data, &iter);
-    try testing.expectEqualStrings("YO", data.a);
 }
 
 test "parseIntoField: string" {
