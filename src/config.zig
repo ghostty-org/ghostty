@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const inputpkg = @import("input.zig");
 const passwd = @import("passwd.zig");
+const terminal = @import("terminal/main.zig");
 
 const log = std.log.scoped(.config);
 
@@ -344,6 +345,49 @@ pub const Color = struct {
         try testing.expectEqual(Color{ .r = 10, .g = 11, .b = 12 }, try Color.fromHex("#0A0B0C"));
         try testing.expectEqual(Color{ .r = 10, .g = 11, .b = 12 }, try Color.fromHex("0A0B0C"));
         try testing.expectEqual(Color{ .r = 255, .g = 255, .b = 255 }, try Color.fromHex("FFFFFF"));
+    }
+};
+
+/// Palette is the 256 color palette for 256-color mode. This is still
+/// used by many terminal applications.
+pub const Palette = struct {
+    const Self = @This();
+
+    /// The actual value that is updated as we parse.
+    value: terminal.color.Palette = terminal.color.default,
+
+    pub const Error = error{
+        InvalidFormat,
+    };
+
+    pub fn parseCLI(
+        self: *Self,
+        input: ?[]const u8,
+    ) !void {
+        const value = input orelse return error.ValueRequired;
+        const eqlIdx = std.mem.indexOf(u8, value, "=") orelse
+            return Error.InvalidFormat;
+
+        const key = try std.fmt.parseInt(u8, value[0..eqlIdx], 10);
+        const rgb = try Color.parseCLI(value[eqlIdx + 1 ..]);
+        self.value[key] = .{ .r = rgb.r, .g = rgb.g, .b = rgb.b };
+    }
+
+    test "parseCLI" {
+        const testing = std.testing;
+
+        var p: Self = .{};
+        try p.parseCLI("0=#AABBCC");
+        try testing.expect(p.value[0].r == 0xAA);
+        try testing.expect(p.value[0].g == 0xBB);
+        try testing.expect(p.value[0].b == 0xCC);
+    }
+
+    test "parseCLI overflow" {
+        const testing = std.testing;
+
+        var p: Self = .{};
+        try testing.expectError(error.Overflow, p.parseCLI("256=#AABBCC"));
     }
 };
 
