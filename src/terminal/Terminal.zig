@@ -60,6 +60,9 @@ scrolling_region: ScrollingRegion,
 /// The charset state
 charset: CharsetState = .{},
 
+/// The color palette to use
+color_palette: color.Palette = color.default,
+
 /// The previous printed character. This is used for the repeat previous
 /// char CSI (ESC [ <n> b).
 previous_char: ?u21 = null,
@@ -429,12 +432,12 @@ pub fn setAttribute(self: *Terminal, attr: sgr.Attribute) !void {
 
         .@"8_fg" => |n| {
             self.screen.cursor.pen.attrs.has_fg = true;
-            self.screen.cursor.pen.fg = color.default[@enumToInt(n)];
+            self.screen.cursor.pen.fg = self.color_palette[@enumToInt(n)];
         },
 
         .@"8_bg" => |n| {
             self.screen.cursor.pen.attrs.has_bg = true;
-            self.screen.cursor.pen.bg = color.default[@enumToInt(n)];
+            self.screen.cursor.pen.bg = self.color_palette[@enumToInt(n)];
         },
 
         .reset_fg => self.screen.cursor.pen.attrs.has_fg = false,
@@ -443,22 +446,22 @@ pub fn setAttribute(self: *Terminal, attr: sgr.Attribute) !void {
 
         .@"8_bright_fg" => |n| {
             self.screen.cursor.pen.attrs.has_fg = true;
-            self.screen.cursor.pen.fg = color.default[@enumToInt(n)];
+            self.screen.cursor.pen.fg = self.color_palette[@enumToInt(n)];
         },
 
         .@"8_bright_bg" => |n| {
             self.screen.cursor.pen.attrs.has_bg = true;
-            self.screen.cursor.pen.bg = color.default[@enumToInt(n)];
+            self.screen.cursor.pen.bg = self.color_palette[@enumToInt(n)];
         },
 
         .@"256_fg" => |idx| {
             self.screen.cursor.pen.attrs.has_fg = true;
-            self.screen.cursor.pen.fg = color.default[idx];
+            self.screen.cursor.pen.fg = self.color_palette[idx];
         },
 
         .@"256_bg" => |idx| {
             self.screen.cursor.pen.attrs.has_bg = true;
-            self.screen.cursor.pen.bg = color.default[idx];
+            self.screen.cursor.pen.bg = self.color_palette[idx];
         },
 
         .unknown => return error.InvalidAttribute,

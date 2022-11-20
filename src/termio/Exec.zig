@@ -107,8 +107,13 @@ pub fn init(alloc: Allocator, opts: termio.Options) !Exec {
     log.info("started subcommand path={s} pid={?}", .{ path, cmd.pid });
 
     // Create our terminal
-    var term = try terminal.Terminal.init(alloc, opts.grid_size.columns, opts.grid_size.rows);
+    var term = try terminal.Terminal.init(
+        alloc,
+        opts.grid_size.columns,
+        opts.grid_size.rows,
+    );
     errdefer term.deinit(alloc);
+    term.color_palette = opts.config.palette.value;
 
     return Exec{
         .alloc = alloc,

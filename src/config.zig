@@ -36,6 +36,16 @@ pub const Config = struct {
     /// Foreground color for the window.
     foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 
+    /// Color palette for the 256 color form that many terminal applications
+    /// use. The syntax of this configuration is "N=HEXCODE" where "n"
+    /// is 0 to 255 (for the 256 colors) and HEXCODE is a typical RGB
+    /// color code such as "#AABBCC". The 0 to 255 correspond to the
+    /// terminal color table.
+    ///
+    /// For definitions on all the codes:
+    /// https://www.ditig.com/256-colors-cheat-sheet
+    palette: Palette = .{},
+
     /// The command to run, usually a shell. If this is not an absolute path,
     /// it'll be looked up in the PATH. If this is not set, a default will
     /// be looked up from your system. The rules for the default lookup are:
