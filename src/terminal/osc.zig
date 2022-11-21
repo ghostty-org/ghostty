@@ -326,11 +326,7 @@ pub const Parser = struct {
                 else => self.state = .invalid,
             },
 
-            .string => {
-                // Complete once we receive one character since we have
-                // at least SOME value for the expected string value.
-                self.complete = true;
-            },
+            .string => self.complete = true,
         }
     }
 
@@ -352,6 +348,10 @@ pub const Parser = struct {
         }
     }
 
+    fn endString(self: *Parser) void {
+        self.temp_state.str.* = self.buf[self.buf_start..self.buf_idx];
+    }
+
     /// End the sequence and return the command, if any. If the return value
     /// is null, then no valid command was found.
     pub fn end(self: *Parser) ?Command {
@@ -364,7 +364,7 @@ pub const Parser = struct {
         switch (self.state) {
             .semantic_exit_code => self.endSemanticExitCode(),
             .semantic_option_value => self.endSemanticOptionValue(),
-            .string => self.temp_state.str.* = self.buf[self.buf_start..self.buf_idx],
+            .string => self.endString(),
             else => {},
         }
 

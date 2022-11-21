@@ -567,6 +567,31 @@ test "osc: change window title" {
 
         const cmd = a[0].?.osc_dispatch;
         try testing.expect(cmd == .change_window_title);
+        try testing.expectEqualStrings("abc", cmd.change_window_title);
+    }
+}
+
+test "osc: change window title (end in esc)" {
+    var p = init();
+    _ = p.next(0x1B);
+    _ = p.next(']');
+    _ = p.next('0');
+    _ = p.next(';');
+    _ = p.next('a');
+    _ = p.next('b');
+    _ = p.next('c');
+
+    {
+        const a = p.next(0x1B);
+        _ = p.next('\\');
+        try testing.expect(p.state == .ground);
+        try testing.expect(a[0].? == .osc_dispatch);
+        try testing.expect(a[1] == null);
+        try testing.expect(a[2] == null);
+
+        const cmd = a[0].?.osc_dispatch;
+        try testing.expect(cmd == .change_window_title);
+        try testing.expectEqualStrings("abc", cmd.change_window_title);
     }
 }
 
