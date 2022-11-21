@@ -829,6 +829,12 @@ const StreamHandler = struct {
             return;
         }
 
-        unreachable;
+        // Write clipboard contents
+        _ = self.window_mailbox.push(.{
+            .clipboard_write = try Window.Message.WriteReq.init(
+                self.alloc,
+                data,
+            ),
+        }, .{ .forever = {} });
     }
 };

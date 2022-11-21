@@ -1,9 +1,14 @@
 const App = @import("../App.zig");
 const Window = @import("../Window.zig");
 const renderer = @import("../renderer.zig");
+const termio = @import("../termio.zig");
 
 /// The message types that can be sent to a single window.
 pub const Message = union(enum) {
+    /// Represents a write request. Magic number comes from the max size
+    /// we want this union to be.
+    pub const WriteReq = termio.MessageData(u8, 256);
+
     /// Set the title of the window.
     /// TODO: we should change this to a "WriteReq" style structure in
     /// the termio message so that we can more efficiently send strings
@@ -15,6 +20,9 @@ pub const Message = union(enum) {
 
     /// Read the clipboard and write to the pty.
     clipboard_read: u8,
+
+    /// Write the clipboard contents.
+    clipboard_write: WriteReq,
 };
 
 /// A window mailbox.

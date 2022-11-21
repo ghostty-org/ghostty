@@ -594,6 +594,15 @@ pub fn handleMessage(self: *Window, msg: Message) !void {
         .cell_size => |size| try self.setCellSize(size),
 
         .clipboard_read => |kind| try self.clipboardRead(kind),
+
+        .clipboard_write => |req| switch (req) {
+            .small => |v| try self.clipboardWrite(v.data[0..v.len]),
+            .stable => |v| try self.clipboardWrite(v),
+            .alloc => |v| {
+                defer v.alloc.free(v.data);
+                try self.clipboardWrite(v.data);
+            },
+        },
     }
 }
 
@@ -608,13 +617,14 @@ fn clipboardRead(self: *const Window, kind: u8) !void {
     // This must hold the base64 encoded data PLUS the OSC code surrounding it.
     const enc = std.base64.standard.Encoder;
     const size = enc.calcSize(data.len);
-    var buf = try self.alloc.alloc(u8, size + 8); // 8 for OSC
+    var buf = try self.alloc.alloc(u8, size + 9); // const for OSC
     defer self.alloc.free(buf);
 
     // Wrap our data with the OSC code
     const prefix = try std.fmt.bufPrint(buf, "\x1b]52;{c};", .{kind});
     assert(prefix.len == 7);
-    buf[buf.len - 1] = '\x1b';
+    buf[buf.len - 2] = '\x1b';
+    buf[buf.len - 1] = '\\';
 
     // Do the base64 encoding
     const encoded = enc.encode(buf[prefix.len..], data);
@@ -625,6 +635,25 @@ fn clipboardRead(self: *const Window, kind: u8) !void {
         buf,
     ), .{ .forever = {} });
     self.io_thread.wakeup.send() catch {};
+}
+
+fn clipboardWrite(self: *const Window, data: []const u8) !void {
+    const dec = std.base64.standard.Decoder;
+
+    // Build buffer
+    const size = try dec.calcSizeForSlice(data);
+    var buf = try self.alloc.allocSentinel(u8, size, 0);
+    defer self.alloc.free(buf);
+    buf[buf.len] = 0;
+
+    // Decode
+    try dec.decode(buf, data);
+    assert(buf[buf.len] == 0);
+
+    glfw.setClipboardString(buf) catch |err| {
+        log.err("error setting clipboard string err={}", .{err});
+        return;
+    };
 }
 
 /// Change the cell size for the terminal grid. This can happen as
