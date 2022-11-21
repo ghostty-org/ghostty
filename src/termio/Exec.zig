@@ -815,4 +815,20 @@ const StreamHandler = struct {
             .set_title = buf,
         }, .{ .forever = {} });
     }
+
+    pub fn clipboardContents(self: *StreamHandler, kind: u8, data: []const u8) !void {
+        // Note: we ignore the "kind" field and always use the primary clipboard.
+        // iTerm also appears to do this but other terminals seem to only allow
+        // certain. Let's investigate more.
+
+        // Get clipboard contents
+        if (data.len == 1 and data[0] == '?') {
+            _ = self.window_mailbox.push(.{
+                .clipboard_read = kind,
+            }, .{ .forever = {} });
+            return;
+        }
+
+        unreachable;
+    }
 };

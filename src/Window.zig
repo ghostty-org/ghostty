@@ -592,7 +592,39 @@ pub fn handleMessage(self: *Window, msg: Message) !void {
         },
 
         .cell_size => |size| try self.setCellSize(size),
+
+        .clipboard_read => |kind| try self.clipboardRead(kind),
     }
+}
+
+fn clipboardRead(self: *const Window, kind: u8) !void {
+    const data = glfw.getClipboardString() catch |err| {
+        log.warn("error reading clipboard: {}", .{err});
+        return;
+    };
+
+    // Even if the clipboard data is empty we reply, since presumably
+    // the client app is expecting a reply. We first allocate our buffer.
+    // This must hold the base64 encoded data PLUS the OSC code surrounding it.
+    const enc = std.base64.standard.Encoder;
+    const size = enc.calcSize(data.len);
+    var buf = try self.alloc.alloc(u8, size + 8); // 8 for OSC
+    defer self.alloc.free(buf);
+
+    // Wrap our data with the OSC code
+    const prefix = try std.fmt.bufPrint(buf, "\x1b]52;{c};", .{kind});
+    assert(prefix.len == 7);
+    buf[buf.len - 1] = '\x1b';
+
+    // Do the base64 encoding
+    const encoded = enc.encode(buf[prefix.len..], data);
+    assert(encoded.len == size);
+
+    _ = self.io_thread.mailbox.push(try termio.Message.writeReq(
+        self.alloc,
+        buf,
+    ), .{ .forever = {} });
+    self.io_thread.wakeup.send() catch {};
 }
 
 /// Change the cell size for the terminal grid. This can happen as

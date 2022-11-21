@@ -12,6 +12,9 @@ pub const Message = union(enum) {
 
     /// Change the cell size.
     cell_size: renderer.CellSize,
+
+    /// Read the clipboard and write to the pty.
+    clipboard_read: u8,
 };
 
 /// A window mailbox.

@@ -464,6 +464,12 @@ pub fn Stream(comptime Handler: type) type {
                     } else log.warn("unimplemented OSC callback: {}", .{cmd});
                 },
 
+                .clipboard_contents => |clip| {
+                    if (@hasDecl(T, "clipboardContents")) {
+                        try self.handler.clipboardContents(clip.kind, clip.data);
+                    } else log.warn("unimplemented OSC callback: {}", .{cmd});
+                },
+
                 else => if (@hasDecl(T, "oscUnimplemented"))
                     try self.handler.oscUnimplemented(cmd)
                 else
