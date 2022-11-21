@@ -141,6 +141,12 @@ pub const Config = struct {
     /// specified in the configuration "font-size" will be used.
     @"window-inherit-font-size": bool = true,
 
+    /// Whether to allow programs running in the terminal to read/write to
+    /// the system clipboard (OSC 52, for googling). The default is to
+    /// disallow clipboard reading but allow writing.
+    @"clipboard-read": bool = false,
+    @"clipboard-write": bool = true,
+
     /// Additional configuration files to read.
     @"config-file": RepeatableString = .{},
 

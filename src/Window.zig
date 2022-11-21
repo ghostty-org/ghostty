@@ -607,6 +607,11 @@ pub fn handleMessage(self: *Window, msg: Message) !void {
 }
 
 fn clipboardRead(self: *const Window, kind: u8) !void {
+    if (!self.config.@"clipboard-read") {
+        log.info("application attempted to read clipboard, but 'clipboard-read' setting is off", .{});
+        return;
+    }
+
     const data = glfw.getClipboardString() catch |err| {
         log.warn("error reading clipboard: {}", .{err});
         return;
@@ -638,6 +643,11 @@ fn clipboardRead(self: *const Window, kind: u8) !void {
 }
 
 fn clipboardWrite(self: *const Window, data: []const u8) !void {
+    if (!self.config.@"clipboard-write") {
+        log.info("application attempted to write clipboard, but 'clipboard-write' setting is off", .{});
+        return;
+    }
+
     const dec = std.base64.standard.Decoder;
 
     // Build buffer
