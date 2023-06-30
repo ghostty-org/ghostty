@@ -116,7 +116,7 @@ pub fn MessageData(comptime Elem: type, comptime small_size: comptime_int) type 
                         return Self{
                             .small = .{
                                 .data = buf,
-                                .len = @intCast(u8, data.len),
+                                .len = @as(u8, @intCast(data.len)),
                             },
                         };
                     }

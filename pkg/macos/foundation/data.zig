@@ -5,14 +5,14 @@ const c = @import("c.zig");
 
 pub const Data = opaque {
     pub fn createWithBytesNoCopy(data: []const u8) Allocator.Error!*Data {
-        return @ptrFromInt(
+        return @as(
             ?*Data,
-            @intFromPtr(c.CFDataCreateWithBytesNoCopy(
+            @ptrFromInt(@intFromPtr(c.CFDataCreateWithBytesNoCopy(
                 null,
                 data.ptr,
-                @intCast(c_long, data.len),
+                @as(c_long, @intCast(data.len)),
                 c.kCFAllocatorNull,
-            )),
+            ))),
         ) orelse error.OutOfMemory;
     }
 

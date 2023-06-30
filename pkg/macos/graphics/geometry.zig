@@ -5,7 +5,7 @@ pub const Point = extern struct {
     y: c.CGFloat,
 
     pub fn cval(self: Point) c.struct_CGPoint {
-        return @bitCast(c.struct_CGPoint, self);
+        return @as(c.struct_CGPoint, @bitCast(self));
     }
 };
 
@@ -14,11 +14,11 @@ pub const Rect = extern struct {
     size: Size,
 
     pub fn init(x: f64, y: f64, width: f64, height: f64) Rect {
-        return @bitCast(Rect, c.CGRectMake(x, y, width, height));
+        return @as(Rect, @bitCast(c.CGRectMake(x, y, width, height)));
     }
 
     pub fn cval(self: Rect) c.struct_CGRect {
-        return @bitCast(c.struct_CGRect, self);
+        return @as(c.struct_CGRect, @bitCast(self));
     }
 
     pub fn isNull(self: Rect) bool {
@@ -31,6 +31,6 @@ pub const Size = extern struct {
     height: c.CGFloat,
 
     pub fn cval(self: Size) c.struct_CGSize {
-        return @bitCast(c.struct_CGSize, self);
+        return @as(c.struct_CGSize, @bitCast(self));
     }
 };

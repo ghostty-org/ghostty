@@ -9,40 +9,40 @@ const c = @import("c.zig");
 pub fn Context(comptime T: type) type {
     return struct {
         pub fn release(self: *T) void {
-            c.CGContextRelease(@ptrCast(c.CGContextRef, self));
+            c.CGContextRelease(@as(c.CGContextRef, @ptrCast(self)));
         }
 
         pub fn setLineWidth(self: *T, width: f64) void {
             c.CGContextSetLineWidth(
-                @ptrCast(c.CGContextRef, self),
+                @as(c.CGContextRef, @ptrCast(self)),
                 width,
             );
         }
 
         pub fn setAllowsAntialiasing(self: *T, v: bool) void {
             c.CGContextSetAllowsAntialiasing(
-                @ptrCast(c.CGContextRef, self),
+                @as(c.CGContextRef, @ptrCast(self)),
                 v,
             );
         }
 
         pub fn setShouldAntialias(self: *T, v: bool) void {
             c.CGContextSetShouldAntialias(
-                @ptrCast(c.CGContextRef, self),
+                @as(c.CGContextRef, @ptrCast(self)),
                 v,
             );
         }
 
         pub fn setShouldSmoothFonts(self: *T, v: bool) void {
             c.CGContextSetShouldSmoothFonts(
-                @ptrCast(c.CGContextRef, self),
+                @as(c.CGContextRef, @ptrCast(self)),
                 v,
             );
         }
 
         pub fn setGrayFillColor(self: *T, gray: f64, alpha: f64) void {
             c.CGContextSetGrayFillColor(
-                @ptrCast(c.CGContextRef, self),
+                @as(c.CGContextRef, @ptrCast(self)),
                 gray,
                 alpha,
             );
@@ -50,7 +50,7 @@ pub fn Context(comptime T: type) type {
 
         pub fn setGrayStrokeColor(self: *T, gray: f64, alpha: f64) void {
             c.CGContextSetGrayStrokeColor(
-                @ptrCast(c.CGContextRef, self),
+                @as(c.CGContextRef, @ptrCast(self)),
                 gray,
                 alpha,
             );
@@ -58,7 +58,7 @@ pub fn Context(comptime T: type) type {
 
         pub fn setRGBFillColor(self: *T, r: f64, g: f64, b: f64, alpha: f64) void {
             c.CGContextSetRGBFillColor(
-                @ptrCast(c.CGContextRef, self),
+                @as(c.CGContextRef, @ptrCast(self)),
                 r,
                 g,
                 b,
@@ -68,21 +68,21 @@ pub fn Context(comptime T: type) type {
 
         pub fn setTextDrawingMode(self: *T, mode: TextDrawingMode) void {
             c.CGContextSetTextDrawingMode(
-                @ptrCast(c.CGContextRef, self),
+                @as(c.CGContextRef, @ptrCast(self)),
                 @intFromEnum(mode),
             );
         }
 
         pub fn setTextMatrix(self: *T, matrix: graphics.AffineTransform) void {
             c.CGContextSetTextMatrix(
-                @ptrCast(c.CGContextRef, self),
+                @as(c.CGContextRef, @ptrCast(self)),
                 matrix.cval(),
             );
         }
 
         pub fn setTextPosition(self: *T, x: f64, y: f64) void {
             c.CGContextSetTextPosition(
-                @ptrCast(c.CGContextRef, self),
+                @as(c.CGContextRef, @ptrCast(self)),
                 x,
                 y,
             );
@@ -90,8 +90,8 @@ pub fn Context(comptime T: type) type {
 
         pub fn fillRect(self: *T, rect: graphics.Rect) void {
             c.CGContextFillRect(
-                @ptrCast(c.CGContextRef, self),
-                @bitCast(c.CGRect, rect),
+                @as(c.CGContextRef, @ptrCast(self)),
+                @as(c.CGRect, @bitCast(rect)),
             );
         }
     };

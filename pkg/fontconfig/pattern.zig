@@ -11,11 +11,11 @@ const Weight = @import("main.zig").Weight;
 
 pub const Pattern = opaque {
     pub fn create() *Pattern {
-        return @ptrCast(*Pattern, c.FcPatternCreate());
+        return @as(*Pattern, @ptrCast(c.FcPatternCreate()));
     }
 
     pub fn parse(str: [:0]const u8) *Pattern {
-        return @ptrCast(*Pattern, c.FcNameParse(str.ptr));
+        return @as(*Pattern, @ptrCast(c.FcNameParse(str.ptr)));
     }
 
     pub fn destroy(self: *Pattern) void {
@@ -37,12 +37,12 @@ pub const Pattern = opaque {
 
     pub fn get(self: *Pattern, prop: Property, id: u32) Error!Value {
         var val: c.struct__FcValue = undefined;
-        try @enumFromInt(Result, c.FcPatternGet(
+        try @as(Result, @enumFromInt(c.FcPatternGet(
             self.cval(),
             prop.cval().ptr,
-            @intCast(c_int, id),
+            @as(c_int, @intCast(id)),
             &val,
-        )).toError();
+        ))).toError();
 
         return Value.init(&val);
     }
@@ -52,7 +52,7 @@ pub const Pattern = opaque {
     }
 
     pub fn filter(self: *Pattern, os: *const ObjectSet) *Pattern {
-        return @ptrCast(*Pattern, c.FcPatternFilter(self.cval(), os.cval()));
+        return @as(*Pattern, @ptrCast(c.FcPatternFilter(self.cval(), os.cval())));
     }
 
     pub fn objectIterator(self: *Pattern) ObjectIterator {
@@ -64,7 +64,7 @@ pub const Pattern = opaque {
     }
 
     pub inline fn cval(self: *Pattern) *c.struct__FcPattern {
-        return @ptrCast(*c.struct__FcPattern, self);
+        return @as(*c.struct__FcPattern, @ptrCast(self));
     }
 
     pub const ObjectIterator = struct {
@@ -95,7 +95,7 @@ pub const Pattern = opaque {
 
             return c.FcPatternIterNext(
                 self.pat,
-                @ptrCast([*c]c.struct__FcPatternIter, &self.iter),
+                @as([*c]c.struct__FcPatternIter, @ptrCast(&self.iter)),
             ) == c.FcTrue;
         }
 
@@ -107,7 +107,7 @@ pub const Pattern = opaque {
         }
 
         pub fn valueLen(self: *ObjectIterator) usize {
-            return @intCast(usize, c.FcPatternIterValueCount(self.pat, &self.iter.?));
+            return @as(usize, @intCast(c.FcPatternIterValueCount(self.pat, &self.iter.?)));
         }
 
         pub fn valueIterator(self: *ObjectIterator) ValueIterator {
@@ -139,8 +139,8 @@ pub const Pattern = opaque {
             self.id += 1;
 
             return Entry{
-                .result = @enumFromInt(Result, result),
-                .binding = @enumFromInt(ValueBinding, binding),
+                .result = @as(Result, @enumFromInt(result)),
+                .binding = @as(ValueBinding, @enumFromInt(binding)),
                 .value = Value.init(&value),
             };
         }

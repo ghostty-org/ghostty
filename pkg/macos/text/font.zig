@@ -8,25 +8,25 @@ const c = @import("c.zig");
 
 pub const Font = opaque {
     pub fn createWithFontDescriptor(desc: *text.FontDescriptor, size: f32) Allocator.Error!*Font {
-        return @ptrFromInt(
+        return @as(
             ?*Font,
-            @intFromPtr(c.CTFontCreateWithFontDescriptor(
-                @ptrCast(c.CTFontDescriptorRef, desc),
+            @ptrFromInt(@intFromPtr(c.CTFontCreateWithFontDescriptor(
+                @as(c.CTFontDescriptorRef, @ptrCast(desc)),
                 size,
                 null,
-            )),
+            ))),
         ) orelse Allocator.Error.OutOfMemory;
     }
 
     pub fn copyWithAttributes(self: *Font, size: f32, attrs: ?*text.FontDescriptor) Allocator.Error!*Font {
-        return @ptrFromInt(
+        return @as(
             ?*Font,
-            @intFromPtr(c.CTFontCreateCopyWithAttributes(
-                @ptrCast(c.CTFontRef, self),
+            @ptrFromInt(@intFromPtr(c.CTFontCreateCopyWithAttributes(
+                @as(c.CTFontRef, @ptrCast(self)),
                 size,
                 null,
-                @ptrCast(c.CTFontDescriptorRef, attrs),
-            )),
+                @as(c.CTFontDescriptorRef, @ptrCast(attrs)),
+            ))),
         ) orelse Allocator.Error.OutOfMemory;
     }
 
@@ -37,10 +37,10 @@ pub const Font = opaque {
     pub fn getGlyphsForCharacters(self: *Font, chars: []const u16, glyphs: []graphics.Glyph) bool {
         assert(chars.len == glyphs.len);
         return c.CTFontGetGlyphsForCharacters(
-            @ptrCast(c.CTFontRef, self),
+            @as(c.CTFontRef, @ptrCast(self)),
             chars.ptr,
             glyphs.ptr,
-            @intCast(c_long, chars.len),
+            @as(c_long, @intCast(chars.len)),
         );
     }
 
@@ -52,11 +52,11 @@ pub const Font = opaque {
     ) void {
         assert(positions.len == glyphs.len);
         c.CTFontDrawGlyphs(
-            @ptrCast(c.CTFontRef, self),
+            @as(c.CTFontRef, @ptrCast(self)),
             glyphs.ptr,
-            @ptrCast([*]const c.struct_CGPoint, positions.ptr),
+            @as([*]const c.struct_CGPoint, @ptrCast(positions.ptr)),
             glyphs.len,
-            @ptrCast(c.CGContextRef, context),
+            @as(c.CGContextRef, @ptrCast(context)),
         );
     }
 
@@ -67,13 +67,13 @@ pub const Font = opaque {
         rects: ?[]graphics.Rect,
     ) graphics.Rect {
         if (rects) |s| assert(glyphs.len == s.len);
-        return @bitCast(graphics.Rect, c.CTFontGetBoundingRectsForGlyphs(
-            @ptrCast(c.CTFontRef, self),
+        return @as(graphics.Rect, @bitCast(c.CTFontGetBoundingRectsForGlyphs(
+            @as(c.CTFontRef, @ptrCast(self)),
             @intFromEnum(orientation),
             glyphs.ptr,
-            @ptrCast(?[*]c.struct_CGRect, if (rects) |s| s.ptr else null),
-            @intCast(c_long, glyphs.len),
-        ));
+            @as(?[*]c.struct_CGRect, @ptrCast(if (rects) |s| s.ptr else null)),
+            @as(c_long, @intCast(glyphs.len)),
+        )));
     }
 
     pub fn getAdvancesForGlyphs(
@@ -84,56 +84,56 @@ pub const Font = opaque {
     ) f64 {
         if (advances) |s| assert(glyphs.len == s.len);
         return c.CTFontGetAdvancesForGlyphs(
-            @ptrCast(c.CTFontRef, self),
+            @as(c.CTFontRef, @ptrCast(self)),
             @intFromEnum(orientation),
             glyphs.ptr,
-            @ptrCast(?[*]c.struct_CGSize, if (advances) |s| s.ptr else null),
-            @intCast(c_long, glyphs.len),
+            @as(?[*]c.struct_CGSize, @ptrCast(if (advances) |s| s.ptr else null)),
+            @as(c_long, @intCast(glyphs.len)),
         );
     }
 
     pub fn copyAttribute(self: *Font, comptime attr: text.FontAttribute) attr.Value() {
-        return @ptrFromInt(attr.Value(), @intFromPtr(c.CTFontCopyAttribute(
-            @ptrCast(c.CTFontRef, self),
-            @ptrCast(c.CFStringRef, attr.key()),
-        )));
+        return @as(attr.Value(), @ptrFromInt(@intFromPtr(c.CTFontCopyAttribute(
+            @as(c.CTFontRef, @ptrCast(self)),
+            @as(c.CFStringRef, @ptrCast(attr.key())),
+        ))));
     }
 
     pub fn copyDisplayName(self: *Font) *foundation.String {
-        return @ptrFromInt(
+        return @as(
             *foundation.String,
-            @intFromPtr(c.CTFontCopyDisplayName(@ptrCast(c.CTFontRef, self))),
+            @ptrFromInt(@intFromPtr(c.CTFontCopyDisplayName(@as(c.CTFontRef, @ptrCast(self))))),
         );
     }
 
     pub fn getSymbolicTraits(self: *Font) text.FontSymbolicTraits {
-        return @bitCast(text.FontSymbolicTraits, c.CTFontGetSymbolicTraits(
-            @ptrCast(c.CTFontRef, self),
-        ));
+        return @as(text.FontSymbolicTraits, @bitCast(c.CTFontGetSymbolicTraits(
+            @as(c.CTFontRef, @ptrCast(self)),
+        )));
     }
 
     pub fn getAscent(self: *Font) f64 {
-        return c.CTFontGetAscent(@ptrCast(c.CTFontRef, self));
+        return c.CTFontGetAscent(@as(c.CTFontRef, @ptrCast(self)));
     }
 
     pub fn getDescent(self: *Font) f64 {
-        return c.CTFontGetDescent(@ptrCast(c.CTFontRef, self));
+        return c.CTFontGetDescent(@as(c.CTFontRef, @ptrCast(self)));
     }
 
     pub fn getLeading(self: *Font) f64 {
-        return c.CTFontGetLeading(@ptrCast(c.CTFontRef, self));
+        return c.CTFontGetLeading(@as(c.CTFontRef, @ptrCast(self)));
     }
 
     pub fn getBoundingBox(self: *Font) graphics.Rect {
-        return @bitCast(graphics.Rect, c.CTFontGetBoundingBox(@ptrCast(c.CTFontRef, self)));
+        return @as(graphics.Rect, @bitCast(c.CTFontGetBoundingBox(@as(c.CTFontRef, @ptrCast(self)))));
     }
 
     pub fn getUnderlinePosition(self: *Font) f64 {
-        return c.CTFontGetUnderlinePosition(@ptrCast(c.CTFontRef, self));
+        return c.CTFontGetUnderlinePosition(@as(c.CTFontRef, @ptrCast(self)));
     }
 
     pub fn getUnderlineThickness(self: *Font) f64 {
-        return c.CTFontGetUnderlineThickness(@ptrCast(c.CTFontRef, self));
+        return c.CTFontGetUnderlineThickness(@as(c.CTFontRef, @ptrCast(self)));
     }
 };
 

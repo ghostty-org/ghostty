@@ -82,7 +82,7 @@ pub const Face = struct {
         // to what the user requested. Otherwise, we can choose an arbitrary
         // pixel size.
         if (face.isScalable()) {
-            const size_26dot6 = @intCast(i32, size.points << 6); // mult by 64
+            const size_26dot6 = @as(i32, @intCast(size.points << 6)); // mult by 64
             try face.setCharSize(0, size_26dot6, size.xdpi, size.ydpi);
         } else try selectSizeNearest(face, size.pixels());
     }
@@ -94,8 +94,8 @@ pub const Face = struct {
         var best_i: i32 = 0;
         var best_diff: i32 = 0;
         while (i < face.handle.*.num_fixed_sizes) : (i += 1) {
-            const width = face.handle.*.available_sizes[@intCast(usize, i)].width;
-            const diff = @intCast(i32, size) - @intCast(i32, width);
+            const width = face.handle.*.available_sizes[@as(usize, @intCast(i))].width;
+            const diff = @as(i32, @intCast(size)) - @as(i32, @intCast(width));
             if (i == 0 or diff < best_diff) {
                 best_diff = diff;
                 best_i = i;
@@ -175,7 +175,7 @@ pub const Face = struct {
             break :blk try func(alloc, bitmap_ft);
         } else null;
         defer if (bitmap_converted) |bm| {
-            const len = @intCast(usize, bm.pitch) * @intCast(usize, bm.rows);
+            const len = @as(usize, @intCast(bm.pitch)) * @as(usize, @intCast(bm.rows));
             alloc.free(bm.buffer[0..len]);
         };
 
@@ -195,23 +195,23 @@ pub const Face = struct {
             var result = bm;
             result.rows = max;
             result.width = (result.rows * bm.width) / bm.rows;
-            result.pitch = @intCast(c_int, result.width) * atlas.format.depth();
+            result.pitch = @as(c_int, @intCast(result.width)) * atlas.format.depth();
 
             const buf = try alloc.alloc(
                 u8,
-                @intCast(usize, result.pitch) * @intCast(usize, result.rows),
+                @as(usize, @intCast(result.pitch)) * @as(usize, @intCast(result.rows)),
             );
             result.buffer = buf.ptr;
             errdefer alloc.free(buf);
 
             if (resize.stbir_resize_uint8(
                 bm.buffer,
-                @intCast(c_int, bm.width),
-                @intCast(c_int, bm.rows),
+                @as(c_int, @intCast(bm.width)),
+                @as(c_int, @intCast(bm.rows)),
                 bm.pitch,
                 result.buffer,
-                @intCast(c_int, result.width),
-                @intCast(c_int, result.rows),
+                @as(c_int, @intCast(result.width)),
+                @as(c_int, @intCast(result.rows)),
                 result.pitch,
                 atlas.format.depth(),
             ) == 0) {
@@ -223,7 +223,7 @@ pub const Face = struct {
             break :resized result;
         };
         defer if (bitmap_resized) |bm| {
-            const len = @intCast(usize, bm.pitch) * @intCast(usize, bm.rows);
+            const len = @as(usize, @intCast(bm.pitch)) * @as(usize, @intCast(bm.rows));
             alloc.free(bm.buffer[0..len]);
         };
 
@@ -242,14 +242,14 @@ pub const Face = struct {
         const glyph_metrics = if (bitmap_resized) |bm| metrics: {
             // Our ratio for the resize
             const ratio = ratio: {
-                const new = @floatFromInt(f64, bm.rows);
-                const old = @floatFromInt(f64, bitmap_original.rows);
+                const new = @as(f64, @floatFromInt(bm.rows));
+                const old = @as(f64, @floatFromInt(bitmap_original.rows));
                 break :ratio new / old;
             };
 
             var copy = glyph.*;
-            copy.bitmap_top = @intFromFloat(c_int, @round(@floatFromInt(f64, copy.bitmap_top) * ratio));
-            copy.bitmap_left = @intFromFloat(c_int, @round(@floatFromInt(f64, copy.bitmap_left) * ratio));
+            copy.bitmap_top = @as(c_int, @intFromFloat(@round(@as(f64, @floatFromInt(copy.bitmap_top)) * ratio)));
+            copy.bitmap_left = @as(c_int, @intFromFloat(@round(@as(f64, @floatFromInt(copy.bitmap_left)) * ratio)));
             break :metrics copy;
         } else glyph.*;
 
@@ -296,7 +296,7 @@ pub const Face = struct {
                 while (i < bitmap.rows) : (i += 1) {
                     fastmem.copy(u8, dst_ptr, src_ptr[0 .. bitmap.width * depth]);
                     dst_ptr = dst_ptr[tgt_w * depth ..];
-                    src_ptr += @intCast(usize, bitmap.pitch);
+                    src_ptr += @as(usize, @intCast(bitmap.pitch));
                 }
                 break :buffer temp;
             } else bitmap.buffer[0..(tgt_w * tgt_h * depth)];
@@ -318,14 +318,14 @@ pub const Face = struct {
             // NOTE(mitchellh): I don't know if this is right, this doesn't
             // _feel_ right, but it makes all my limited test cases work.
             if (self.face.hasColor() and !self.face.isScalable()) {
-                break :offset_y @intCast(c_int, tgt_h);
+                break :offset_y @as(c_int, @intCast(tgt_h));
             }
 
             // The Y offset is the offset of the top of our bitmap PLUS our
             // baseline calculation. The baseline calculation is so that everything
             // is properly centered when we render it out into a monospace grid.
             // Note: we add here because our X/Y is actually reversed, adding goes UP.
-            break :offset_y glyph_metrics.bitmap_top + @intFromFloat(c_int, self.metrics.cell_baseline);
+            break :offset_y glyph_metrics.bitmap_top + @as(c_int, @intFromFloat(self.metrics.cell_baseline));
         };
 
         // Store glyph metadata
@@ -343,15 +343,15 @@ pub const Face = struct {
     /// Convert 16.6 pixel format to pixels based on the scale factor of the
     /// current font size.
     fn unitsToPxY(self: Face, units: i32) i32 {
-        return @intCast(i32, freetype.mulFix(
+        return @as(i32, @intCast(freetype.mulFix(
             units,
-            @intCast(i32, self.face.handle.*.size.*.metrics.y_scale),
-        ) >> 6);
+            @as(i32, @intCast(self.face.handle.*.size.*.metrics.y_scale)),
+        ) >> 6));
     }
 
     /// Convert 26.6 pixel format to f32
     fn f26dot6ToFloat(v: freetype.c.FT_F26Dot6) f32 {
-        return @floatFromInt(f32, v >> 6);
+        return @as(f32, @floatFromInt(v >> 6));
     }
 
     /// Calculate the metrics associated with a face. This is not public because
@@ -398,8 +398,8 @@ pub const Face = struct {
                 if (face.getCharIndex('_')) |glyph_index| {
                     if (face.loadGlyph(glyph_index, .{ .render = true })) {
                         var res: f32 = f26dot6ToFloat(size_metrics.ascender);
-                        res -= @floatFromInt(f32, face.handle.*.glyph.*.bitmap_top);
-                        res += @floatFromInt(f32, face.handle.*.glyph.*.bitmap.rows);
+                        res -= @as(f32, @floatFromInt(face.handle.*.glyph.*.bitmap_top));
+                        res += @as(f32, @floatFromInt(face.handle.*.glyph.*.bitmap.rows));
                         break :underscore res;
                     } else |_| {
                         // Ignore the error since we just fall back below
@@ -425,16 +425,16 @@ pub const Face = struct {
         const underline_position = underline_pos: {
             // The ascender is already scaled for scalable fonts, but the
             // underline position is not.
-            const ascender_px = @intCast(i32, size_metrics.ascender) >> 6;
+            const ascender_px = @as(i32, @intCast(size_metrics.ascender)) >> 6;
             const declared_px = freetype.mulFix(
                 face.handle.*.underline_position,
-                @intCast(i32, face.handle.*.size.*.metrics.y_scale),
+                @as(i32, @intCast(face.handle.*.size.*.metrics.y_scale)),
             ) >> 6;
 
             // We use the declared underline position if its available
             const declared = ascender_px - declared_px;
             if (declared > 0)
-                break :underline_pos @floatFromInt(f32, declared);
+                break :underline_pos @as(f32, @floatFromInt(declared));
 
             // If we have no declared underline position, we go slightly under the
             // cell height (mainly: non-scalable fonts, i.e. emoji)
@@ -453,13 +453,13 @@ pub const Face = struct {
         } = if (face.getSfntTable(.os2)) |os2| .{
             .pos = pos: {
                 // Ascender is scaled, strikeout pos is not
-                const ascender_px = @intCast(i32, size_metrics.ascender) >> 6;
+                const ascender_px = @as(i32, @intCast(size_metrics.ascender)) >> 6;
                 const declared_px = freetype.mulFix(
                     os2.yStrikeoutPosition,
-                    @intCast(i32, face.handle.*.size.*.metrics.y_scale),
+                    @as(i32, @intCast(face.handle.*.size.*.metrics.y_scale)),
                 ) >> 6;
 
-                break :pos @floatFromInt(f32, ascender_px - declared_px);
+                break :pos @as(f32, @floatFromInt(ascender_px - declared_px));
             },
             .thickness = @max(@as(f32, 1), fontUnitsToPxY(face, os2.yStrikeoutSize)),
         } else .{
@@ -490,8 +490,8 @@ pub const Face = struct {
 
     /// Convert freetype "font units" to pixels using the Y scale.
     fn fontUnitsToPxY(face: freetype.Face, x: i32) f32 {
-        const mul = freetype.mulFix(x, @intCast(i32, face.handle.*.size.*.metrics.y_scale));
-        const div = @floatFromInt(f32, mul) / 64;
+        const mul = freetype.mulFix(x, @as(i32, @intCast(face.handle.*.size.*.metrics.y_scale)));
+        const div = @as(f32, @floatFromInt(mul)) / 64;
         return @ceil(div);
     }
 };

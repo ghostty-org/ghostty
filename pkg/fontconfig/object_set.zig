@@ -4,7 +4,7 @@ const Property = @import("main.zig").Property;
 
 pub const ObjectSet = opaque {
     pub fn create() *ObjectSet {
-        return @ptrCast(*ObjectSet, c.FcObjectSetCreate());
+        return @as(*ObjectSet, @ptrCast(c.FcObjectSetCreate()));
     }
 
     pub fn destroy(self: *ObjectSet) void {
@@ -16,9 +16,9 @@ pub const ObjectSet = opaque {
     }
 
     pub inline fn cval(self: *ObjectSet) *c.struct__FcObjectSet {
-        return @ptrCast(
+        return @as(
             *c.struct__FcObjectSet,
-            @alignCast(@alignOf(c.struct__FcObjectSet), self),
+            @ptrCast(@alignCast(@alignOf(c.struct__FcObjectSet), self)),
         );
     }
 };

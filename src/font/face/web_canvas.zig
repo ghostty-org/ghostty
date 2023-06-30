@@ -352,7 +352,7 @@ pub const Face = struct {
             // If we are a normal glyph then we are a single codepoint and
             // we just UTF8 encode it as-is.
             if (glyph_index < grapheme_start) {
-                const utf8_len = try std.unicode.utf8Encode(@intCast(u21, glyph_index), &utf8);
+                const utf8_len = try std.unicode.utf8Encode(@as(u21, @intCast(glyph_index)), &utf8);
                 break :glyph_str js.string(utf8[0..utf8_len]);
             }
 
@@ -370,14 +370,14 @@ pub const Face = struct {
         // Get the width and height of the render
         const metrics = try measure_ctx.call(js.Object, "measureText", .{glyph_str});
         errdefer metrics.deinit();
-        const width: u32 = @intFromFloat(u32, @ceil(width: {
+        const width: u32 = @as(u32, @intFromFloat(@ceil(width: {
             // We prefer the bounding box since it is tighter but certain
             // text such as emoji do not have a bounding box set so we use
             // the full run width instead.
             const bounding_right = try metrics.get(f32, "actualBoundingBoxRight");
             if (bounding_right > 0) break :width bounding_right;
             break :width try metrics.get(f32, "width");
-        })) + 1;
+        }))) + 1;
 
         const left = try metrics.get(f32, "actualBoundingBoxLeft");
         const asc = try metrics.get(f32, "actualBoundingBoxAscent");
@@ -389,7 +389,7 @@ pub const Face = struct {
         const broken_bbox = asc + desc < 0.001;
 
         // Height is our ascender + descender for this char
-        const height = if (!broken_bbox) @intFromFloat(u32, @ceil(asc + desc)) + 1 else width;
+        const height = if (!broken_bbox) @as(u32, @intFromFloat(@ceil(asc + desc))) + 1 else width;
 
         // Note: width and height both get "+ 1" added to them above. This
         // is important so that there is a 1px border around the glyph to avoid
@@ -435,7 +435,7 @@ pub const Face = struct {
         try ctx.call(void, "fillText", .{
             glyph_str,
             left + 1,
-            if (!broken_bbox) asc + 1 else @floatFromInt(f32, height),
+            if (!broken_bbox) asc + 1 else @as(f32, @floatFromInt(height)),
         });
 
         // Read the image data and get it into a []u8 on our side
@@ -449,7 +449,7 @@ pub const Face = struct {
 
             // Allocate our local memory to copy the data to.
             const len = try src_array.get(u32, "length");
-            var bitmap = try alloc.alloc(u8, @intCast(usize, len));
+            var bitmap = try alloc.alloc(u8, @as(usize, @intCast(len)));
             errdefer alloc.free(bitmap);
 
             // Create our target Uint8Array that we can use to copy from src.
@@ -501,7 +501,7 @@ pub const Wasm = struct {
             alloc,
             ptr[0..len],
             .{ .points = pts },
-            @enumFromInt(font.Presentation, presentation),
+            @as(font.Presentation, @enumFromInt(presentation)),
         );
         errdefer face.deinit();
 

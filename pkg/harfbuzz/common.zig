@@ -196,16 +196,16 @@ pub const Language = struct {
         return .{
             .handle = c.hb_language_from_string(
                 str.ptr,
-                @intCast(c_int, str.len),
+                @as(c_int, @intCast(str.len)),
             ),
         };
     }
 
     /// Converts an hb_language_t to a string.
     pub fn toString(self: Language) [:0]const u8 {
-        return std.mem.span(@ptrCast(
+        return std.mem.span(@as(
             [*:0]const u8,
-            c.hb_language_to_string(self.handle),
+            @ptrCast(c.hb_language_to_string(self.handle)),
         ));
     }
 
@@ -231,16 +231,16 @@ pub const Feature = extern struct {
         var f: c.hb_feature_t = undefined;
         return if (c.hb_feature_from_string(
             str.ptr,
-            @intCast(c_int, str.len),
+            @as(c_int, @intCast(str.len)),
             &f,
         ) > 0)
-            @bitCast(Feature, f)
+            @as(Feature, @bitCast(f))
         else
             null;
     }
 
     pub fn toString(self: *Feature, buf: []u8) void {
-        c.hb_feature_to_string(self, buf.ptr, @intCast(c_uint, buf.len));
+        c.hb_feature_to_string(self, buf.ptr, @as(c_uint, @intCast(buf.len)));
     }
 };
 

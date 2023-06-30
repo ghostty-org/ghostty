@@ -348,8 +348,8 @@ fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
 
                 // If this is our first time seeing a parameter, we track
                 // the separator used so that we can't mix separators later.
-                if (self.params_idx == 0) self.params_sep = @enumFromInt(ParamSepState, c);
-                if (@enumFromInt(ParamSepState, c) != self.params_sep) self.params_sep = .mixed;
+                if (self.params_idx == 0) self.params_sep = @as(ParamSepState, @enumFromInt(c));
+                if (@as(ParamSepState, @enumFromInt(c)) != self.params_sep) self.params_sep = .mixed;
 
                 // Set param final value
                 self.params[self.params_idx] = self.param_acc;

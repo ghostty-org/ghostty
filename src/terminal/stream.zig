@@ -45,7 +45,7 @@ pub fn Stream(comptime Handler: type) type {
         /// Process the next character and call any callbacks if necessary.
         pub fn next(self: *Self, c: u8) !void {
             const tracy = trace(@src());
-            tracy.value(@intCast(u64, c));
+            tracy.value(@as(u64, @intCast(c)));
             defer tracy.end();
 
             // log.debug("char: {c}", .{c});
@@ -70,10 +70,10 @@ pub fn Stream(comptime Handler: type) type {
 
         pub fn execute(self: *Self, c: u8) !void {
             const tracy = trace(@src());
-            tracy.value(@intCast(u64, c));
+            tracy.value(@as(u64, @intCast(c)));
             defer tracy.end();
 
-            switch (@enumFromInt(ansi.C0, c)) {
+            switch (@as(ansi.C0, @enumFromInt(c))) {
                 .NUL => {},
 
                 .ENQ => if (@hasDecl(T, "enquiry"))
@@ -229,9 +229,9 @@ pub fn Stream(comptime Handler: type) type {
                                 return;
                             }
 
-                            break :mode @enumFromInt(
+                            break :mode @as(
                                 csi.EraseDisplay,
-                                action.params[0],
+                                @enumFromInt(action.params[0]),
                             );
                         },
                         else => {
@@ -252,9 +252,9 @@ pub fn Stream(comptime Handler: type) type {
                                 return;
                             }
 
-                            break :mode @enumFromInt(
+                            break :mode @as(
                                 csi.EraseLine,
-                                action.params[0],
+                                @enumFromInt(action.params[0]),
                             );
                         },
                         else => {
@@ -422,7 +422,7 @@ pub fn Stream(comptime Handler: type) type {
                 // TODO: test
                 'g' => if (@hasDecl(T, "tabClear")) try self.handler.tabClear(
                     switch (action.params.len) {
-                        1 => @enumFromInt(csi.TabClear, action.params[0]),
+                        1 => @as(csi.TabClear, @enumFromInt(action.params[0])),
                         else => {
                             log.warn("invalid tab clear command: {}", .{action});
                             return;
@@ -433,13 +433,13 @@ pub fn Stream(comptime Handler: type) type {
                 // SM - Set Mode
                 'h' => if (@hasDecl(T, "setMode")) {
                     for (action.params) |mode|
-                        try self.handler.setMode(@enumFromInt(ansi.Mode, mode), true);
+                        try self.handler.setMode(@as(ansi.Mode, @enumFromInt(mode)), true);
                 } else log.warn("unimplemented CSI callback: {}", .{action}),
 
                 // RM - Reset Mode
                 'l' => if (@hasDecl(T, "setMode")) {
                     for (action.params) |mode|
-                        try self.handler.setMode(@enumFromInt(ansi.Mode, mode), false);
+                        try self.handler.setMode(@as(ansi.Mode, @enumFromInt(mode)), false);
                 } else log.warn("unimplemented CSI callback: {}", .{action}),
 
                 // SGR - Select Graphic Rendition
@@ -455,7 +455,7 @@ pub fn Stream(comptime Handler: type) type {
                 // TODO: test
                 'n' => if (@hasDecl(T, "deviceStatusReport")) try self.handler.deviceStatusReport(
                     switch (action.params.len) {
-                        1 => @enumFromInt(ansi.DeviceStatusReq, action.params[0]),
+                        1 => @as(ansi.DeviceStatusReq, @enumFromInt(action.params[0])),
                         else => {
                             log.warn("invalid erase characters command: {}", .{action});
                             return;
@@ -468,7 +468,7 @@ pub fn Stream(comptime Handler: type) type {
                 'q' => if (@hasDecl(T, "setCursorStyle")) try self.handler.setCursorStyle(
                     switch (action.params.len) {
                         0 => ansi.CursorStyle.default,
-                        1 => @enumFromInt(ansi.CursorStyle, action.params[0]),
+                        1 => @as(ansi.CursorStyle, @enumFromInt(action.params[0])),
                         else => {
                             log.warn("invalid set curor style command: {}", .{action});
                             return;
@@ -505,7 +505,7 @@ pub fn Stream(comptime Handler: type) type {
                             break :decsasd false;
 
                         try self.handler.setActiveStatusDisplay(
-                            @enumFromInt(ansi.StatusDisplay, action.params[0]),
+                            @as(ansi.StatusDisplay, @enumFromInt(action.params[0])),
                         );
                         break :decsasd true;
                     };
@@ -799,10 +799,10 @@ test "stream: cursor right (CUF)" {
 
 test "stream: set mode (SM) and reset mode (RM)" {
     const H = struct {
-        mode: ansi.Mode = @enumFromInt(ansi.Mode, 0),
+        mode: ansi.Mode = @as(ansi.Mode, @enumFromInt(0)),
 
         pub fn setMode(self: *@This(), mode: ansi.Mode, v: bool) !void {
-            self.mode = @enumFromInt(ansi.Mode, 0);
+            self.mode = @as(ansi.Mode, @enumFromInt(0));
             if (v) self.mode = mode;
         }
     };
@@ -812,5 +812,5 @@ test "stream: set mode (SM) and reset mode (RM)" {
     try testing.expectEqual(@as(ansi.Mode, .origin), s.handler.mode);
 
     try s.nextSlice("\x1B[?6l");
-    try testing.expectEqual(@enumFromInt(ansi.Mode, 0), s.handler.mode);
+    try testing.expectEqual(@as(ansi.Mode, @enumFromInt(0)), s.handler.mode);
 }

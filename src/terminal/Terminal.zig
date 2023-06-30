@@ -627,7 +627,7 @@ pub fn print(self: *Terminal, c: u21) !void {
 
         const grapheme_break = brk: {
             var state: i32 = 0;
-            var cp1 = @intCast(u21, prev.cell.char);
+            var cp1 = @as(u21, @intCast(prev.cell.char));
             if (prev.cell.attrs.grapheme) {
                 var it = row.codepointIterator(prev.x);
                 while (it.next()) |cp2| {
@@ -754,7 +754,7 @@ fn printCell(self: *Terminal, unmapped_c: u21) *Screen.Cell {
 
         // Get our lookup table and map it
         const table = set.table();
-        break :c @intCast(u21, table[@intCast(u8, unmapped_c)]);
+        break :c @as(u21, @intCast(table[@as(u8, @intCast(unmapped_c))]));
     };
 
     const row = self.screen.getRow(.{ .active = self.screen.cursor.y });
@@ -790,7 +790,7 @@ fn printCell(self: *Terminal, unmapped_c: u21) *Screen.Cell {
 
     // Write
     cell.* = self.screen.cursor.pen;
-    cell.char = @intCast(u32, c);
+    cell.char = @as(u32, @intCast(c));
     return cell;
 }
 

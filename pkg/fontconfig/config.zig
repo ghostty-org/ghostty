@@ -10,11 +10,11 @@ const MatchKind = @import("main.zig").MatchKind;
 
 pub const Config = opaque {
     pub fn destroy(self: *Config) void {
-        c.FcConfigDestroy(@ptrCast(*c.struct__FcConfig, self));
+        c.FcConfigDestroy(@as(*c.struct__FcConfig, @ptrCast(self)));
     }
 
     pub fn fontList(self: *Config, pat: *Pattern, os: *ObjectSet) *FontSet {
-        return @ptrCast(*FontSet, c.FcFontList(self.cval(), pat.cval(), os.cval()));
+        return @as(*FontSet, @ptrCast(c.FcFontList(self.cval(), pat.cval(), os.cval())));
     }
 
     pub fn fontSort(
@@ -24,21 +24,21 @@ pub const Config = opaque {
         charset: ?[*]*CharSet,
     ) FontSortResult {
         var result: FontSortResult = undefined;
-        result.fs = @ptrCast(*FontSet, c.FcFontSort(
+        result.fs = @as(*FontSet, @ptrCast(c.FcFontSort(
             self.cval(),
             pat.cval(),
             if (trim) c.FcTrue else c.FcFalse,
-            @ptrCast([*c]?*c.struct__FcCharSet, charset),
-            @ptrCast([*c]c_uint, &result.result),
-        ));
+            @as([*c]?*c.struct__FcCharSet, @ptrCast(charset)),
+            @as([*c]c_uint, @ptrCast(&result.result)),
+        )));
 
         return result;
     }
 
     pub fn fontRenderPrepare(self: *Config, pat: *Pattern, font: *Pattern) Error!*Pattern {
-        return @ptrCast(
+        return @as(
             ?*Pattern,
-            c.FcFontRenderPrepare(self.cval(), pat.cval(), font.cval()),
+            @ptrCast(c.FcFontRenderPrepare(self.cval(), pat.cval(), font.cval())),
         ) orelse Error.FontconfigFailed;
     }
 
@@ -51,7 +51,7 @@ pub const Config = opaque {
     }
 
     pub inline fn cval(self: *Config) *c.struct__FcConfig {
-        return @ptrCast(*c.struct__FcConfig, self);
+        return @as(*c.struct__FcConfig, @ptrCast(self));
     }
 };
 

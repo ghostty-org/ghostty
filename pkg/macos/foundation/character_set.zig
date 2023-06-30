@@ -8,19 +8,19 @@ pub const CharacterSet = opaque {
     pub fn createWithCharactersInString(
         str: *foundation.String,
     ) Allocator.Error!*CharacterSet {
-        return @ptrFromInt(?*CharacterSet, @intFromPtr(c.CFCharacterSetCreateWithCharactersInString(
+        return @as(?*CharacterSet, @ptrFromInt(@intFromPtr(c.CFCharacterSetCreateWithCharactersInString(
             null,
-            @ptrCast(c.CFStringRef, str),
-        ))) orelse Allocator.Error.OutOfMemory;
+            @as(c.CFStringRef, @ptrCast(str)),
+        )))) orelse Allocator.Error.OutOfMemory;
     }
 
     pub fn createWithCharactersInRange(
         range: foundation.Range,
     ) Allocator.Error!*CharacterSet {
-        return @ptrFromInt(?*CharacterSet, @intFromPtr(c.CFCharacterSetCreateWithCharactersInRange(
+        return @as(?*CharacterSet, @ptrFromInt(@intFromPtr(c.CFCharacterSetCreateWithCharactersInRange(
             null,
             range.cval(),
-        ))) orelse Allocator.Error.OutOfMemory;
+        )))) orelse Allocator.Error.OutOfMemory;
     }
 
     pub fn release(self: *CharacterSet) void {

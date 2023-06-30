@@ -149,8 +149,8 @@ pub const Surface = struct {
             .core_surface = undefined,
             .nsview = objc.Object.fromId(opts.nsview),
             .content_scale = .{
-                .x = @floatCast(f32, opts.scale_factor),
-                .y = @floatCast(f32, opts.scale_factor),
+                .x = @as(f32, @floatCast(opts.scale_factor)),
+                .y = @as(f32, @floatCast(opts.scale_factor)),
             },
             .size = .{ .width = 800, .height = 600 },
             .cursor_pos = .{ .x = 0, .y = 0 },
@@ -263,8 +263,8 @@ pub const Surface = struct {
 
     pub fn updateContentScale(self: *Surface, x: f64, y: f64) void {
         self.content_scale = .{
-            .x = @floatCast(f32, x),
-            .y = @floatCast(f32, y),
+            .x = @as(f32, @floatCast(x)),
+            .y = @as(f32, @floatCast(y)),
         };
     }
 
@@ -314,8 +314,8 @@ pub const Surface = struct {
     pub fn cursorPosCallback(self: *Surface, x: f64, y: f64) void {
         // Convert our unscaled x/y to scaled.
         self.cursor_pos = self.cursorPosToPixels(.{
-            .x = @floatCast(f32, x),
-            .y = @floatCast(f32, y),
+            .x = @as(f32, @floatCast(x)),
+            .y = @as(f32, @floatCast(y)),
         }) catch |err| {
             log.err(
                 "error converting cursor pos to scaled pixels in cursor pos callback err={}",
@@ -479,7 +479,7 @@ pub const CAPI = struct {
             action,
             key,
             unmapped_key,
-            @bitCast(input.Mods, @truncate(u8, @bitCast(c_uint, mods))),
+            @as(input.Mods, @bitCast(@as(u8, @truncate(@as(c_uint, @bitCast(mods)))))),
         );
     }
 
@@ -498,7 +498,7 @@ pub const CAPI = struct {
         surface.mouseButtonCallback(
             action,
             button,
-            @bitCast(input.Mods, @truncate(u8, @bitCast(c_uint, mods))),
+            @as(input.Mods, @bitCast(@as(u8, @truncate(@as(c_uint, @bitCast(mods)))))),
         );
     }
 
@@ -516,7 +516,7 @@ pub const CAPI = struct {
         surface.scrollCallback(
             x,
             y,
-            @bitCast(input.ScrollMods, @truncate(u8, @bitCast(c_uint, scroll_mods))),
+            @as(input.ScrollMods, @bitCast(@as(u8, @truncate(@as(c_uint, @bitCast(scroll_mods)))))),
         );
     }
 

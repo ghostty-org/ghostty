@@ -54,7 +54,7 @@ pub const Blob = struct {
     pub fn create(data: []const u8, mode: MemoryMode) Error!Blob {
         const handle = c.hb_blob_create_or_fail(
             data.ptr,
-            @intCast(c_uint, data.len),
+            @as(c_uint, @intCast(data.len)),
             @intFromEnum(mode),
             null,
             null,
@@ -83,14 +83,14 @@ pub const Blob = struct {
         const Callback = struct {
             pub fn callback(data: ?*anyopaque) callconv(.C) void {
                 @call(.{ .modifier = .always_inline }, destroycb, .{
-                    @ptrCast(?*T, @alignCast(@alignOf(T), data)),
+                    @as(?*T, @ptrCast(@alignCast(data))),
                 });
             }
         };
 
         return c.hb_blob_set_user_data(
             self.handle,
-            @ptrCast([*c]c.hb_user_data_key_t, key),
+            @as([*c]c.hb_user_data_key_t, @ptrCast(key)),
             ptr,
             if (destroycb != null) Callback.callback else null,
             if (replace) 1 else 0,
@@ -106,11 +106,11 @@ pub const Blob = struct {
     ) ?*T {
         const opt = c.hb_blob_get_user_data(
             self.handle,
-            @ptrCast([*c]c.hb_user_data_key_t, key),
+            @as([*c]c.hb_user_data_key_t, @ptrCast(key)),
         );
 
         if (opt) |ptr|
-            return @ptrCast(?*T, @alignCast(@alignOf(T), ptr))
+            return @as(?*T, @ptrCast(@alignCast(ptr)))
         else
             return null;
     }

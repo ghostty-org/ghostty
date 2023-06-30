@@ -54,7 +54,7 @@ pub const Binding = struct {
         data: anytype,
     ) !void {
         const info = dataInfo(data);
-        glad.context.BufferSubData.?(@intFromEnum(b.target), @intCast(c_long, offset), info.size, info.ptr);
+        glad.context.BufferSubData.?(@intFromEnum(b.target), @as(c_long, @intCast(offset)), info.size, info.ptr);
         try errors.getError();
     }
 
@@ -76,7 +76,7 @@ pub const Binding = struct {
         size: usize,
         usage: Usage,
     ) !void {
-        glad.context.BufferData.?(@intFromEnum(b.target), @intCast(c_long, size), null, @intFromEnum(usage));
+        glad.context.BufferData.?(@intFromEnum(b.target), @as(c_long, @intCast(size)), null, @intFromEnum(usage));
         try errors.getError();
     }
 
@@ -91,7 +91,7 @@ pub const Binding = struct {
                     .ptr = data,
                 },
                 .Slice => .{
-                    .size = @intCast(isize, @sizeOf(ptr.child) * data.len),
+                    .size = @as(isize, @intCast(@sizeOf(ptr.child) * data.len)),
                     .ptr = data.ptr,
                 },
                 else => {
@@ -169,7 +169,7 @@ pub const Binding = struct {
     ) !void {
         const normalized_c: c.GLboolean = if (normalized) c.GL_TRUE else c.GL_FALSE;
         const offsetPtr = if (offset > 0)
-            @ptrFromInt(*const anyopaque, offset)
+            @as(*const anyopaque, @ptrFromInt(offset))
         else
             null;
 
@@ -186,7 +186,7 @@ pub const Binding = struct {
         offset: usize,
     ) !void {
         const offsetPtr = if (offset > 0)
-            @ptrFromInt(*const anyopaque, offset)
+            @as(*const anyopaque, @ptrFromInt(offset))
         else
             null;
 

@@ -72,17 +72,17 @@ pub const Face = struct {
         return intToError(c.FT_Load_Glyph(
             self.handle,
             glyph_index,
-            @bitCast(i32, load_flags),
+            @as(i32, @bitCast(load_flags)),
         ));
     }
 
     /// Return a pointer to a given SFNT table stored within a face.
     pub fn getSfntTable(self: Face, comptime tag: SfntTag) ?*tag.DataType() {
         const T = tag.DataType();
-        return @ptrCast(?*T, @alignCast(@alignOf(T), c.FT_Get_Sfnt_Table(
+        return @as(?*T, @ptrCast(@alignCast(c.FT_Get_Sfnt_Table(
             self.handle,
             @intFromEnum(tag),
-        )));
+        ))));
     }
 };
 
@@ -163,7 +163,7 @@ pub const LoadFlags = packed struct {
     test "bitcast" {
         const testing = std.testing;
         const cval: i32 = c.FT_LOAD_RENDER | c.FT_LOAD_PEDANTIC | c.FT_LOAD_COLOR;
-        const flags = @bitCast(LoadFlags, cval);
+        const flags = @as(LoadFlags, @bitCast(cval));
         try testing.expect(!flags.no_hinting);
         try testing.expect(flags.render);
         try testing.expect(flags.pedantic);

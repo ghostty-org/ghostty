@@ -317,7 +317,7 @@ pub const Wasm = struct {
         const atlas = init(
             alloc,
             size,
-            @enumFromInt(Format, format),
+            @as(Format, @enumFromInt(format)),
         ) catch return null;
         const result = alloc.create(Atlas) catch return null;
         result.* = atlas;
@@ -449,7 +449,7 @@ pub const Wasm = struct {
         // Draw it
         try ctx.call(void, "putImageData", .{ image_data, 0, 0 });
 
-        const id = @bitCast(js.Ref, @intFromEnum(canvas.value)).id;
+        const id = @as(js.Ref, @bitCast(@intFromEnum(canvas.value))).id;
         return id;
     }
 
@@ -561,7 +561,7 @@ test "writing RGB data" {
     });
 
     // 33 because of the 1px border and so on
-    const depth = @intCast(usize, atlas.format.depth());
+    const depth = @as(usize, @intCast(atlas.format.depth()));
     try testing.expectEqual(@as(u8, 1), atlas.data[33 * depth]);
     try testing.expectEqual(@as(u8, 2), atlas.data[33 * depth + 1]);
     try testing.expectEqual(@as(u8, 3), atlas.data[33 * depth + 2]);
@@ -591,7 +591,7 @@ test "grow RGB" {
 
     // Our top left skips the first row (size * depth) and the first
     // column (depth) for the 1px border.
-    const depth = @intCast(usize, atlas.format.depth());
+    const depth = @as(usize, @intCast(atlas.format.depth()));
     var tl = (atlas.size * depth) + depth;
     try testing.expectEqual(@as(u8, 10), atlas.data[tl]);
     try testing.expectEqual(@as(u8, 11), atlas.data[tl + 1]);

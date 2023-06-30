@@ -42,7 +42,7 @@ pub const Face = struct {
     /// adjusted to the final size for final load.
     pub fn initFontCopy(base: *macos.text.Font, size: font.face.DesiredSize) !Face {
         // Create a copy
-        const ct_font = try base.copyWithAttributes(@floatFromInt(f32, size.points), null);
+        const ct_font = try base.copyWithAttributes(@as(f32, @floatFromInt(size.points)), null);
         errdefer ct_font.release();
 
         var hb_font = try harfbuzz.coretext.createFont(ct_font);
@@ -90,7 +90,7 @@ pub const Face = struct {
         // to decode down into exactly one glyph ID.
         if (pair) assert(glyphs[1] == 0);
 
-        return @intCast(u32, glyphs[0]);
+        return @as(u32, @intCast(glyphs[0]));
     }
 
     /// Render a glyph using the glyph index. The rendered glyph is stored in the
@@ -109,14 +109,14 @@ pub const Face = struct {
 
         _ = max_height;
 
-        var glyphs = [_]macos.graphics.Glyph{@intCast(macos.graphics.Glyph, glyph_index)};
+        var glyphs = [_]macos.graphics.Glyph{@as(macos.graphics.Glyph, @intCast(glyph_index))};
 
         // Get the bounding rect for this glyph to determine the width/height
         // of the bitmap. We use the rounded up width/height of the bounding rect.
         var bounding: [1]macos.graphics.Rect = undefined;
         _ = self.font.getBoundingRectForGlyphs(.horizontal, &glyphs, &bounding);
-        const glyph_width = @intFromFloat(u32, @ceil(bounding[0].size.width));
-        const glyph_height = @intFromFloat(u32, @ceil(bounding[0].size.height));
+        const glyph_width = @as(u32, @intFromFloat(@ceil(bounding[0].size.width)));
+        const glyph_height = @as(u32, @intFromFloat(@ceil(bounding[0].size.height)));
 
         // Width and height. Note the padding doubling is because we want
         // the padding on both sides (top/bottom, left/right).
@@ -195,17 +195,17 @@ pub const Face = struct {
             // by default below the line. We have to add height (glyph height)
             // so that we shift the glyph UP to be on the line, then we add our
             // baseline offset to move the glyph further UP to match the baseline.
-            break :offset_y @intCast(i32, height) + @intFromFloat(i32, @ceil(baseline_with_offset));
+            break :offset_y @as(i32, @intCast(height)) + @as(i32, @intFromFloat(@ceil(baseline_with_offset)));
         };
 
         return font.Glyph{
             .width = glyph_width,
             .height = glyph_height,
-            .offset_x = @intFromFloat(i32, @ceil(bounding[0].origin.x)),
+            .offset_x = @as(i32, @intFromFloat(@ceil(bounding[0].origin.x))),
             .offset_y = offset_y,
             .atlas_x = region.x + padding,
             .atlas_y = region.y + padding,
-            .advance_x = @floatCast(f32, advances[0].width),
+            .advance_x = @as(f32, @floatCast(advances[0].width)),
         };
     }
 
@@ -241,7 +241,7 @@ pub const Face = struct {
                 max = @max(advances[i].width, max);
             }
 
-            break :cell_width @floatCast(f32, max);
+            break :cell_width @as(f32, @floatCast(max));
         };
 
         // Calculate the cell height by using CoreText's layout engine
@@ -270,7 +270,7 @@ pub const Face = struct {
             // Create our framesetter with our string. This is used to
             // emit "frames" for the layout.
             const fs = try macos.text.Framesetter.createWithAttributedString(
-                @ptrCast(*macos.foundation.AttributedString, string),
+                @as(*macos.foundation.AttributedString, @ptrCast(string)),
             );
             defer fs.release();
 
@@ -280,7 +280,7 @@ pub const Face = struct {
             defer path.release();
             const frame = try fs.createFrame(
                 macos.foundation.Range.init(0, 0),
-                @ptrCast(*macos.graphics.Path, path),
+                @as(*macos.graphics.Path, @ptrCast(path)),
                 null,
             );
             defer frame.release();
@@ -305,8 +305,8 @@ pub const Face = struct {
             //std.log.warn("ascent={} descent={} leading={}", .{ ascent, descent, leading });
 
             break :metrics .{
-                .height = @floatCast(f32, points[0].y - points[1].y),
-                .ascent = @floatCast(f32, ascent),
+                .height = @as(f32, @floatCast(points[0].y - points[1].y)),
+                .ascent = @as(f32, @floatCast(ascent)),
             };
         };
 
@@ -314,8 +314,8 @@ pub const Face = struct {
         const cell_height = layout_metrics.height;
         const cell_baseline = layout_metrics.ascent;
         const underline_position = @ceil(layout_metrics.ascent -
-            @floatCast(f32, ct_font.getUnderlinePosition()));
-        const underline_thickness = @ceil(@floatCast(f32, ct_font.getUnderlineThickness()));
+            @as(f32, @floatCast(ct_font.getUnderlinePosition())));
+        const underline_thickness = @ceil(@as(f32, @floatCast(ct_font.getUnderlineThickness())));
         const strikethrough_position = cell_baseline * 0.6;
         const strikethrough_thickness = underline_thickness;
 

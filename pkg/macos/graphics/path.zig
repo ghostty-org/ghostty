@@ -10,12 +10,12 @@ pub const Path = opaque {
         rect: graphics.Rect,
         transform: ?*const graphics.AffineTransform,
     ) Allocator.Error!*Path {
-        return @ptrFromInt(
+        return @as(
             ?*Path,
-            @intFromPtr(c.CGPathCreateWithRect(
+            @ptrFromInt(@intFromPtr(c.CGPathCreateWithRect(
                 rect.cval(),
-                @ptrCast(?[*]const c.struct_CGAffineTransform, transform),
-            )),
+                @as(?[*]const c.struct_CGAffineTransform, @ptrCast(transform)),
+            ))),
         ) orelse Allocator.Error.OutOfMemory;
     }
 
@@ -26,9 +26,9 @@ pub const Path = opaque {
 
 pub const MutablePath = opaque {
     pub fn create() Allocator.Error!*MutablePath {
-        return @ptrFromInt(
+        return @as(
             ?*MutablePath,
-            @intFromPtr(c.CGPathCreateMutable()),
+            @ptrFromInt(@intFromPtr(c.CGPathCreateMutable())),
         ) orelse Allocator.Error.OutOfMemory;
     }
 
@@ -42,8 +42,8 @@ pub const MutablePath = opaque {
         rect: graphics.Rect,
     ) void {
         c.CGPathAddRect(
-            @ptrCast(c.CGMutablePathRef, self),
-            @ptrCast(?[*]const c.struct_CGAffineTransform, transform),
+            @as(c.CGMutablePathRef, @ptrCast(self)),
+            @as(?[*]const c.struct_CGAffineTransform, @ptrCast(transform)),
             rect.cval(),
         );
     }

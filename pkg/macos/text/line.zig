@@ -8,11 +8,11 @@ const c = @import("c.zig");
 
 pub const Line = opaque {
     pub fn createWithAttributedString(str: *foundation.AttributedString) Allocator.Error!*Line {
-        return @ptrFromInt(
+        return @as(
             ?*Line,
-            @intFromPtr(c.CTLineCreateWithAttributedString(
-                @ptrCast(c.CFAttributedStringRef, str),
-            )),
+            @ptrFromInt(@intFromPtr(c.CTLineCreateWithAttributedString(
+                @as(c.CFAttributedStringRef, @ptrCast(str)),
+            ))),
         ) orelse Allocator.Error.OutOfMemory;
     }
 
@@ -21,9 +21,9 @@ pub const Line = opaque {
     }
 
     pub fn getGlyphCount(self: *Line) usize {
-        return @intCast(usize, c.CTLineGetGlyphCount(
-            @ptrCast(c.CTLineRef, self),
-        ));
+        return @as(usize, @intCast(c.CTLineGetGlyphCount(
+            @as(c.CTLineRef, @ptrCast(self)),
+        )));
     }
 
     pub fn getBoundsWithOptions(
@@ -39,9 +39,9 @@ pub const Line = opaque {
         // C ABI issue happening.
         var result: graphics.Rect = undefined;
         zig_cabi_CTLineGetBoundsWithOptions(
-            @ptrCast(c.CTLineRef, self),
+            @as(c.CTLineRef, @ptrCast(self)),
             opts.cval(),
-            @ptrCast(*c.CGRect, &result),
+            @as(*c.CGRect, @ptrCast(&result)),
         );
 
         return result;
@@ -61,7 +61,7 @@ pub const Line = opaque {
         leading: ?*f64,
     ) f64 {
         return c.CTLineGetTypographicBounds(
-            @ptrCast(c.CTLineRef, self),
+            @as(c.CTLineRef, @ptrCast(self)),
             ascent,
             descent,
             leading,
@@ -79,7 +79,7 @@ pub const LineBoundsOptions = packed struct {
     _padding: u58 = 0,
 
     pub fn cval(self: LineBoundsOptions) c.CTLineBoundsOptions {
-        return @bitCast(c.CTLineBoundsOptions, self);
+        return @as(c.CTLineBoundsOptions, @bitCast(self));
     }
 
     test {
@@ -97,7 +97,7 @@ pub const LineBoundsOptions = packed struct {
             .use_optical_bounds = true,
         };
 
-        try std.testing.expectEqual(actual, @bitCast(c.CTLineBoundsOptions, expected));
+        try std.testing.expectEqual(actual, @as(c.CTLineBoundsOptions, @bitCast(expected)));
     }
 };
 
@@ -129,7 +129,7 @@ test "line" {
         font,
     );
 
-    const line = try Line.createWithAttributedString(@ptrCast(*foundation.AttributedString, str));
+    const line = try Line.createWithAttributedString(@as(*foundation.AttributedString, @ptrCast(str)));
     defer line.release();
 
     try testing.expectEqual(@as(usize, 5), line.getGlyphCount());

@@ -73,8 +73,8 @@ pub const Fixed = enum(i32) {
 
     pub fn init(v: anytype) Fixed {
         return switch (@TypeOf(v)) {
-            comptime_int, i32, u32 => @enumFromInt(Fixed, v << 16),
-            f64 => @enumFromInt(Fixed, @intFromFloat(i32, v * 65536)),
+            comptime_int, i32, u32 => @as(Fixed, @enumFromInt(v << 16)),
+            f64 => @as(Fixed, @enumFromInt(@as(i32, @intFromFloat(v * 65536)))),
             else => {
                 @compileLog(@TypeOf(v));
                 @compileError("unsupported type");

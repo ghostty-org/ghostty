@@ -228,7 +228,7 @@ pub const Cell = struct {
         } });
 
         // We're empty if we have no char AND we have no styling
-        return self.char == 0 and @bitCast(AttrInt, self.attrs) == 0;
+        return self.char == 0 and @as(AttrInt, @bitCast(self.attrs)) == 0;
     }
 
     /// The width of the cell.
@@ -967,7 +967,7 @@ pub fn getRow(self: *Screen, index: RowIndex) Row {
     if (row.storage[0].header.id == 0) {
         const Id = @TypeOf(self.next_row_id);
         const id = self.next_row_id;
-        self.next_row_id +%= @intCast(Id, self.cols);
+        self.next_row_id +%= @as(Id, @intCast(self.cols));
 
         // Store the header
         row.storage[0].header.id = id;
@@ -1463,7 +1463,7 @@ fn scrollDelta(self: *Screen, delta: isize, grow: bool) !void {
     // If we're scrolling up, then we just subtract and we're done.
     // We just clamp at 0 which blocks us from scrolling off the top.
     if (delta < 0) {
-        self.viewport -|= @intCast(usize, -delta);
+        self.viewport -|= @as(usize, @intCast(-delta));
         return;
     }
 
@@ -1472,7 +1472,7 @@ fn scrollDelta(self: *Screen, delta: isize, grow: bool) !void {
     if (!grow) {
         self.viewport = @min(
             self.history,
-            self.viewport + @intCast(usize, delta),
+            self.viewport + @as(usize, @intCast(delta)),
         );
         return;
     }
@@ -1480,7 +1480,7 @@ fn scrollDelta(self: *Screen, delta: isize, grow: bool) !void {
     // Add our delta to our viewport. If we're less than the max currently
     // allowed to scroll to the bottom (the end of the history), then we
     // have space and we just return.
-    self.viewport += @intCast(usize, delta);
+    self.viewport += @as(usize, @intCast(delta));
     if (self.viewport <= self.history) return;
 
     // If our viewport is past the top of our history then we potentially need
@@ -1614,7 +1614,7 @@ pub fn selectionString(
 
                 var buf: [4]u8 = undefined;
                 const char = if (cell.cell.char > 0) cell.cell.char else ' ';
-                count += try std.unicode.utf8Encode(@intCast(u21, char), &buf);
+                count += try std.unicode.utf8Encode(@as(u21, @intCast(char)), &buf);
             }
         }
 
@@ -1658,7 +1658,7 @@ pub fn selectionString(
                     cell.attrs.wide_spacer_tail) continue;
 
                 const char = if (cell.char > 0) cell.char else ' ';
-                buf_i += try std.unicode.utf8Encode(@intCast(u21, char), buf[buf_i..]);
+                buf_i += try std.unicode.utf8Encode(@as(u21, @intCast(char)), buf[buf_i..]);
             }
 
             // If this row is not soft-wrapped, add a newline
@@ -2293,7 +2293,7 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
             if (grapheme.cell) |prev_cell| {
                 const grapheme_break = brk: {
                     var state: i32 = 0;
-                    var cp1 = @intCast(u21, prev_cell.char);
+                    var cp1 = @as(u21, @intCast(prev_cell.char));
                     if (prev_cell.attrs.grapheme) {
                         var it = row.codepointIterator(grapheme.x);
                         while (it.next()) |cp2| {
@@ -2348,7 +2348,7 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
         switch (width) {
             1 => {
                 const cell = row.getCellPtr(x);
-                cell.char = @intCast(u32, c);
+                cell.char = @as(u32, @intCast(c));
 
                 grapheme.x = x;
                 grapheme.cell = cell;
@@ -2373,7 +2373,7 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
 
                 {
                     const cell = row.getCellPtr(x);
-                    cell.char = @intCast(u32, c);
+                    cell.char = @as(u32, @intCast(c));
                     cell.attrs.wide = true;
 
                     grapheme.x = x;
@@ -2422,7 +2422,7 @@ pub fn testString(self: *Screen, alloc: Allocator, tag: RowIndexTag) ![]const u8
         while (cells.next()) |cell| {
             // TODO: handle character after null
             if (cell.char > 0) {
-                i += try std.unicode.utf8Encode(@intCast(u21, cell.char), buf[i..]);
+                i += try std.unicode.utf8Encode(@as(u21, @intCast(cell.char)), buf[i..]);
             }
         }
     }

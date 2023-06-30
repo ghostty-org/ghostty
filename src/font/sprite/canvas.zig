@@ -31,8 +31,8 @@ pub const Box = struct {
         return .{
             .x = tl_x,
             .y = tl_y,
-            .width = @intCast(u32, br_x - tl_x),
-            .height = @intCast(u32, br_y - tl_y),
+            .width = @as(u32, @intCast(br_x - tl_x)),
+            .height = @as(u32, @intCast(br_y - tl_y)),
         };
     }
 };
@@ -68,16 +68,16 @@ pub const Color = enum(u8) {
     fn pixmanColor(self: Color) pixman.Color {
         // pixman uses u16 for color while our color value is u8 so we
         // scale it up proportionally.
-        const max = @floatFromInt(f32, std.math.maxInt(u8));
-        const max_u16 = @floatFromInt(f32, std.math.maxInt(u16));
-        const unscaled = @floatFromInt(f32, @intFromEnum(self));
-        const scaled = @intFromFloat(u16, (unscaled * max_u16) / max);
+        const max = @as(f32, @floatFromInt(std.math.maxInt(u8)));
+        const max_u16 = @as(f32, @floatFromInt(std.math.maxInt(u16)));
+        const unscaled = @as(f32, @floatFromInt(@intFromEnum(self)));
+        const scaled = @as(u16, @intFromFloat((unscaled * max_u16) / max));
         return .{ .red = 0, .green = 0, .blue = 0, .alpha = scaled };
     }
 
     fn cssColor(self: Color, buf: []u8) ![]u8 {
         return try std.fmt.bufPrint(buf, "rgba(0, 0, 0, {:.2})", .{
-            @floatFromInt(f32, @intFromEnum(self)) / 255,
+            @as(f32, @floatFromInt(@intFromEnum(self))) / 255,
         });
     }
 };
@@ -144,8 +144,8 @@ const WebCanvasImpl = struct {
         const ctx = self.context(color) catch return;
         defer ctx.deinit();
         ctx.call(void, "fillRect", .{
-            @intCast(u32, v.x),
-            @intCast(u32, v.y),
+            @as(u32, @intCast(v.x)),
+            @as(u32, @intCast(v.y)),
             v.width,
             v.height,
         }) catch return;
@@ -235,7 +235,7 @@ const WebCanvasImpl = struct {
 
             // Allocate our local memory to copy the data to.
             const len = try src_array.get(u32, "length");
-            var bitmap = try alloc.alloc(u8, @intCast(usize, len));
+            var bitmap = try alloc.alloc(u8, @as(usize, @intCast(len)));
             errdefer alloc.free(bitmap);
 
             // Create our target Uint8Array that we can use to copy from src.
@@ -304,7 +304,7 @@ const PixmanImpl = struct {
         // for boxes are always 8bpp
         const format: pixman.FormatCode = .a8;
         const stride = format.strideForWidth(width);
-        const len = @intCast(usize, stride * @intCast(c_int, height));
+        const len = @as(usize, @intCast(stride * @as(c_int, @intCast(height))));
 
         // Allocate our buffer. pixman uses []u32 so we divide our length
         // by 4 since u32 / u8 = 4.
@@ -315,8 +315,8 @@ const PixmanImpl = struct {
         // Create the image we'll draw to
         const img = try pixman.Image.createBitsNoClear(
             format,
-            @intCast(c_int, width),
-            @intCast(c_int, height),
+            @as(c_int, @intCast(width)),
+            @as(c_int, @intCast(height)),
             data.ptr,
             stride,
         );
@@ -338,18 +338,15 @@ const PixmanImpl = struct {
     pub fn writeAtlas(self: *Canvas, alloc: Allocator, atlas: *font.Atlas) !font.Atlas.Region {
         assert(atlas.format == .greyscale);
 
-        const width = @intCast(u32, self.image.getWidth());
-        const height = @intCast(u32, self.image.getHeight());
+        const width = @as(u32, @intCast(self.image.getWidth()));
+        const height = @as(u32, @intCast(self.image.getHeight()));
         const region = try atlas.reserve(alloc, width, height);
         if (region.width > 0 and region.height > 0) {
             const depth = atlas.format.depth();
 
             // Convert our []u32 to []u8 since we use 8bpp formats
             const stride = self.image.getStride();
-            const data = @alignCast(
-                @alignOf(u8),
-                @ptrCast([*]u8, self.data.ptr)[0 .. self.data.len * 4],
-            );
+            const data = @as([*]u8, @ptrCast(self.data.ptr))[0 .. self.data.len * 4];
 
             // We can avoid a buffer copy if our atlas width and bitmap
             // width match and the bitmap pitch is just the width (meaning
@@ -365,7 +362,7 @@ const PixmanImpl = struct {
                 while (i < height) : (i += 1) {
                     std.mem.copy(u8, dst_ptr, src_ptr[0 .. width * depth]);
                     dst_ptr = dst_ptr[width * depth ..];
-                    src_ptr += @intCast(usize, stride);
+                    src_ptr += @as(usize, @intCast(stride));
                 }
                 break :buffer temp;
             } else data[0..(width * height * depth)];
@@ -385,10 +382,10 @@ const PixmanImpl = struct {
     pub fn rect(self: *Canvas, v: Rect, color: Color) void {
         const boxes = &[_]pixman.Box32{
             .{
-                .x1 = @intCast(i32, v.x),
-                .y1 = @intCast(i32, v.y),
-                .x2 = @intCast(i32, v.x + @intCast(i32, v.width)),
-                .y2 = @intCast(i32, v.y + @intCast(i32, v.height)),
+                .x1 = @as(i32, @intCast(v.x)),
+                .y1 = @as(i32, @intCast(v.y)),
+                .x2 = @as(i32, @intCast(v.x + @as(i32, @intCast(v.width)))),
+                .y2 = @as(i32, @intCast(v.y + @as(i32, @intCast(v.height)))),
             },
         };
 
@@ -448,10 +445,10 @@ const PixmanImpl = struct {
             0,
             0,
             0,
-            @intCast(i16, dest.x),
-            @intCast(i16, dest.y),
-            @intCast(u16, dest.width),
-            @intCast(u16, dest.height),
+            @as(i16, @intCast(dest.x)),
+            @as(i16, @intCast(dest.y)),
+            @as(u16, @intCast(dest.width)),
+            @as(u16, @intCast(dest.height)),
         );
     }
 };

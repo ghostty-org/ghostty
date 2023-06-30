@@ -92,7 +92,7 @@ pub const Shaper = struct {
             // we can't have any more information to do anything else.
             1 => {
                 self.cell_buf[0] = .{
-                    .x = @intCast(u16, clusters[0]),
+                    .x = @as(u16, @intCast(clusters[0])),
                     .glyph_index = codepoints[0],
                 };
 
@@ -110,7 +110,7 @@ pub const Shaper = struct {
         // This means we can render things like skin tone emoji but
         // we can't render things like single glyph "=>".
         var break_state: i32 = 0;
-        var cp1 = @intCast(u21, codepoints[0]);
+        var cp1 = @as(u21, @intCast(codepoints[0]));
 
         var start: usize = 0;
         var i: usize = 1;
@@ -121,7 +121,7 @@ pub const Shaper = struct {
             // break. This isn't strictly true but its how terminals
             // work today.
             const grapheme_break = i == codepoints.len or blk: {
-                const cp2 = @intCast(u21, codepoints[i]);
+                const cp2 = @as(u21, @intCast(codepoints[i]));
                 defer cp1 = cp2;
 
                 break :blk utf8proc.graphemeBreakStateful(
@@ -144,7 +144,7 @@ pub const Shaper = struct {
                 // If we have only a single codepoint then just render it
                 // as-is.
                 1 => self.cell_buf[cur] = .{
-                    .x = @intCast(u16, clusters[start]),
+                    .x = @as(u16, @intCast(clusters[start])),
                     .glyph_index = codepoints[start],
                 },
 
@@ -161,7 +161,7 @@ pub const Shaper = struct {
                             var acc: usize = 0;
                             for (cluster_points) |cp| {
                                 acc += try std.unicode.utf8CodepointSequenceLength(
-                                    @intCast(u21, cp),
+                                    @as(u21, @intCast(cp)),
                                 );
                             }
 
@@ -173,7 +173,7 @@ pub const Shaper = struct {
                         var buf_i: usize = 0;
                         for (cluster_points) |cp| {
                             buf_i += try std.unicode.utf8Encode(
-                                @intCast(u21, cp),
+                                @as(u21, @intCast(cp)),
                                 buf[buf_i..],
                             );
                         }
@@ -186,7 +186,7 @@ pub const Shaper = struct {
                     const index = try face.graphemeGlyphIndex(cluster);
 
                     self.cell_buf[cur] = .{
-                        .x = @intCast(u16, clusters[start]),
+                        .x = @as(u16, @intCast(clusters[start])),
                         .glyph_index = index,
                     };
                 },

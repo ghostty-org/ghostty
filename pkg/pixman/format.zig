@@ -87,7 +87,7 @@ pub const FormatCode = enum(c_uint) {
     /// Calculates a valid stride for the bpp and width. Based on Cairo.
     pub fn strideForWidth(self: FormatCode, width: u32) c_int {
         const alignment = @sizeOf(u32);
-        const val = @intCast(c_int, (self.bpp() * width + 7) / 8);
+        const val = @as(c_int, @intCast((self.bpp() * width + 7) / 8));
         return val + (alignment - 1) & -alignment;
     }
 
@@ -96,7 +96,7 @@ pub const FormatCode = enum(c_uint) {
         const val = @intFromEnum(self);
         const v1 = val >> ofs;
         const v2 = @as(c_uint, 1) << num;
-        const v3 = @intCast(u5, (val >> 22) & 3);
+        const v3 = @as(u5, @intCast((val >> 22) & 3));
         return ((v1 & (v2 - 1)) << v3);
     }
 };

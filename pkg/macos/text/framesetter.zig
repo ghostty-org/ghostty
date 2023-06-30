@@ -8,11 +8,11 @@ const c = @import("c.zig");
 
 pub const Framesetter = opaque {
     pub fn createWithAttributedString(str: *foundation.AttributedString) Allocator.Error!*Framesetter {
-        return @ptrFromInt(
+        return @as(
             ?*Framesetter,
-            @intFromPtr(c.CTFramesetterCreateWithAttributedString(
-                @ptrCast(c.CFAttributedStringRef, str),
-            )),
+            @ptrFromInt(@intFromPtr(c.CTFramesetterCreateWithAttributedString(
+                @as(c.CFAttributedStringRef, @ptrCast(str)),
+            ))),
         ) orelse Allocator.Error.OutOfMemory;
     }
 
@@ -26,14 +26,14 @@ pub const Framesetter = opaque {
         path: *graphics.Path,
         attrs: ?*foundation.Dictionary,
     ) !*text.Frame {
-        return @ptrFromInt(
+        return @as(
             ?*text.Frame,
-            @intFromPtr(c.CTFramesetterCreateFrame(
-                @ptrCast(c.CTFramesetterRef, self),
-                @bitCast(c.CFRange, range),
-                @ptrCast(c.CGPathRef, path),
-                @ptrCast(c.CFDictionaryRef, attrs),
-            )),
+            @ptrFromInt(@intFromPtr(c.CTFramesetterCreateFrame(
+                @as(c.CTFramesetterRef, @ptrCast(self)),
+                @as(c.CFRange, @bitCast(range)),
+                @as(c.CGPathRef, @ptrCast(path)),
+                @as(c.CFDictionaryRef, @ptrCast(attrs)),
+            ))),
         ) orelse error.FrameCreateFailed;
     }
 };
@@ -47,7 +47,7 @@ test {
         str.replaceString(foundation.Range.init(0, 0), rep);
     }
 
-    const fs = try Framesetter.createWithAttributedString(@ptrCast(*foundation.AttributedString, str));
+    const fs = try Framesetter.createWithAttributedString(@as(*foundation.AttributedString, @ptrCast(str)));
     defer fs.release();
 
     const path = try graphics.Path.createWithRect(graphics.Rect.init(0, 0, 100, 200), null);

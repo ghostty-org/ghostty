@@ -126,7 +126,7 @@ pub fn start(self: *Command, alloc: Allocator) !void {
     const pid = try std.os.fork();
     if (pid != 0) {
         // Parent, return immediately.
-        self.pid = @intCast(i32, pid);
+        self.pid = @as(i32, @intCast(pid));
         return;
     }
 
@@ -202,7 +202,7 @@ pub fn setData(self: *Command, pointer: ?*anyopaque) void {
 /// Returns command->data.
 pub fn getData(self: Command, comptime DT: type) ?*DT {
     return if (self.data) |ptr|
-        @ptrCast(?*DT, @alignCast(@alignOf(DT), ptr))
+        @as(?*DT, @ptrCast(@alignCast(ptr)))
     else
         null;
 }

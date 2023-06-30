@@ -107,7 +107,7 @@ pub const Descriptor = struct {
 
         // Set our size attribute if set
         if (self.size > 0) {
-            const size32 = @intCast(i32, self.size);
+            const size32 = @as(i32, @intCast(self.size));
             const size = try macos.foundation.Number.create(
                 .sint32,
                 &size32,
@@ -132,7 +132,7 @@ pub const Descriptor = struct {
             // of the symbolic traits value, and set that in our attributes.
             const traits_num = try macos.foundation.Number.create(
                 .sint32,
-                @ptrCast(*const i32, &traits_cval),
+                @as(*const i32, @ptrCast(&traits_cval)),
             );
             defer traits_num.release();
 
@@ -149,9 +149,9 @@ pub const Descriptor = struct {
             );
         }
 
-        return try macos.text.FontDescriptor.createWithAttributes(@ptrCast(
+        return try macos.text.FontDescriptor.createWithAttributes(@as(
             *macos.foundation.Dictionary,
-            attrs,
+            @ptrCast(attrs),
         ));
     }
 };
@@ -292,7 +292,7 @@ pub const CoreText = struct {
                 const attrs = original.copyAttributes();
                 defer attrs.release();
                 break :desc try macos.text.FontDescriptor.createWithAttributes(
-                    @ptrCast(*macos.foundation.Dictionary, attrs),
+                    @as(*macos.foundation.Dictionary, @ptrCast(attrs)),
                 );
             };
             defer desc.release();

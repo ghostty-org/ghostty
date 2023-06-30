@@ -5,16 +5,16 @@ const Allocator = std.mem.Allocator;
 
 pub const IO = opaque {
     pub fn get() Allocator.Error!*IO {
-        return @ptrCast(
+        return @as(
             ?*IO,
-            c.igGetIO(),
+            @ptrCast(c.igGetIO()),
         ) orelse Allocator.Error.OutOfMemory;
     }
 
     pub inline fn cval(self: *IO) *c.ImGuiIO {
-        return @ptrCast(
+        return @as(
             *c.ImGuiIO,
-            @alignCast(@alignOf(c.ImGuiIO), self),
+            @ptrCast(@alignCast(self)),
         );
     }
 };

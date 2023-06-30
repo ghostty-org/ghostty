@@ -164,7 +164,7 @@ pub const FlatpakHostCommand = struct {
                 "(uub)",
                 pid,
                 sig,
-                @intCast(c_int, @intFromBool(pg)),
+                @as(c_int, @intCast(@intFromBool(pg))),
             ),
             c.G_VARIANT_TYPE("()"),
             c.G_DBUS_CALL_FLAGS_NONE,
@@ -273,7 +273,7 @@ pub const FlatpakHostCommand = struct {
             }
         }
         const args = c.g_ptr_array_free(args_ptr, 0);
-        defer c.g_free(@ptrCast(?*anyopaque, args));
+        defer c.g_free(@as(?*anyopaque, @ptrCast(args)));
 
         // Get the cwd in case we don't have ours set. A small optimization
         // would be to do this only if we need it but this isn't a
@@ -362,7 +362,7 @@ pub const FlatpakHostCommand = struct {
         params: ?*c.GVariant,
         ud: ?*anyopaque,
     ) callconv(.C) void {
-        const self = @ptrCast(*FlatpakHostCommand, @alignCast(@alignOf(FlatpakHostCommand), ud));
+        const self = @as(*FlatpakHostCommand, @ptrCast(@alignCast(ud)));
         const state = state: {
             self.state_mutex.lock();
             defer self.state_mutex.unlock();

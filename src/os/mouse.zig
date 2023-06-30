@@ -16,7 +16,7 @@ pub fn clickInterval() ?u32 {
 
         // Get the interval and convert to ms
         const interval = NSEvent.msgSend(f64, objc.sel("doubleClickInterval"), .{});
-        const ms = @intFromFloat(u32, @ceil(interval * 1000));
+        const ms = @as(u32, @intFromFloat(@ceil(interval * 1000)));
         return ms;
     }
 

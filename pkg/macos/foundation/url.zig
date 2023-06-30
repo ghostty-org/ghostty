@@ -17,14 +17,14 @@ pub const URL = opaque {
         style: URLPathStyle,
         dir: bool,
     ) Allocator.Error!*URL {
-        return @ptrFromInt(
+        return @as(
             ?*URL,
-            @intFromPtr(c.CFURLCreateWithFileSystemPath(
+            @ptrFromInt(@intFromPtr(c.CFURLCreateWithFileSystemPath(
                 null,
-                @ptrCast(c.CFStringRef, path),
+                @as(c.CFStringRef, @ptrCast(path)),
                 @intFromEnum(style),
                 if (dir) 1 else 0,
-            )),
+            ))),
         ) orelse error.OutOfMemory;
     }
 

@@ -266,14 +266,14 @@ pub const Wasm = struct {
 
     /// Presentation is negative for doesn't matter.
     export fn group_cache_index_for_codepoint(self: *GroupCache, cp: u32, style: u16, p: i16) i16 {
-        const presentation = if (p < 0) null else @enumFromInt(Presentation, p);
+        const presentation = if (p < 0) null else @as(Presentation, @enumFromInt(p));
         if (self.indexForCodepoint(
             alloc,
             cp,
-            @enumFromInt(Style, style),
+            @as(Style, @enumFromInt(style)),
             presentation,
         )) |idx| {
-            return @intCast(i16, @bitCast(u8, idx orelse return -1));
+            return @as(i16, @intCast(@as(u8, @bitCast(idx orelse return -1))));
         } else |err| {
             log.warn("error getting index for codepoint from group cache size err={}", .{err});
             return -1;
@@ -298,7 +298,7 @@ pub const Wasm = struct {
         cp: u32,
         max_height_: u16,
     ) !*Glyph {
-        const idx = @bitCast(Group.FontIndex, @intCast(u8, idx_));
+        const idx = @as(Group.FontIndex, @bitCast(@as(u8, @intCast(idx_))));
         const max_height = if (max_height_ <= 0) null else max_height_;
         const glyph = try self.renderGlyph(alloc, idx, cp, max_height);
 

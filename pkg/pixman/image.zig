@@ -10,25 +10,25 @@ pub const Image = opaque {
         bits: [*]u32,
         stride: c_int,
     ) pixman.Error!*Image {
-        return @ptrCast(?*Image, c.pixman_image_create_bits_no_clear(
+        return @as(?*Image, @ptrCast(c.pixman_image_create_bits_no_clear(
             @intFromEnum(format),
             width,
             height,
             bits,
             stride,
-        )) orelse return pixman.Error.PixmanFailure;
+        ))) orelse return pixman.Error.PixmanFailure;
     }
 
     pub fn createSolidFill(
         color: pixman.Color,
     ) pixman.Error!*Image {
-        return @ptrCast(?*Image, c.pixman_image_create_solid_fill(
-            @ptrCast(*const c.pixman_color_t, &color),
-        )) orelse return pixman.Error.PixmanFailure;
+        return @as(?*Image, @ptrCast(c.pixman_image_create_solid_fill(
+            @as(*const c.pixman_color_t, @ptrCast(&color)),
+        ))) orelse return pixman.Error.PixmanFailure;
     }
 
     pub fn unref(self: *Image) bool {
-        return c.pixman_image_unref(@ptrCast(*c.pixman_image_t, self)) == 1;
+        return c.pixman_image_unref(@as(*c.pixman_image_t, @ptrCast(self))) == 1;
     }
 
     /// A variant of getDataUnsafe that sets the length of the slice to
@@ -39,24 +39,24 @@ pub const Image = opaque {
         const height = self.getHeight();
         const stride = self.getStride();
         const ptr = self.getDataUnsafe();
-        const len = @intCast(usize, height * stride);
+        const len = @as(usize, @intCast(height * stride));
         return ptr[0..len];
     }
 
     pub fn getDataUnsafe(self: *Image) [*]u32 {
-        return c.pixman_image_get_data(@ptrCast(*c.pixman_image_t, self));
+        return c.pixman_image_get_data(@as(*c.pixman_image_t, @ptrCast(self)));
     }
 
     pub fn getHeight(self: *Image) c_int {
-        return c.pixman_image_get_height(@ptrCast(*c.pixman_image_t, self));
+        return c.pixman_image_get_height(@as(*c.pixman_image_t, @ptrCast(self)));
     }
 
     pub fn getWidth(self: *Image) c_int {
-        return c.pixman_image_get_width(@ptrCast(*c.pixman_image_t, self));
+        return c.pixman_image_get_width(@as(*c.pixman_image_t, @ptrCast(self)));
     }
 
     pub fn getStride(self: *Image) c_int {
-        return c.pixman_image_get_stride(@ptrCast(*c.pixman_image_t, self));
+        return c.pixman_image_get_stride(@as(*c.pixman_image_t, @ptrCast(self)));
     }
 
     pub fn fillBoxes(
@@ -67,10 +67,10 @@ pub const Image = opaque {
     ) pixman.Error!void {
         if (c.pixman_image_fill_boxes(
             @intFromEnum(op),
-            @ptrCast(*c.pixman_image_t, self),
-            @ptrCast(*const c.pixman_color_t, &color),
-            @intCast(c_int, boxes.len),
-            @ptrCast([*c]const c.pixman_box32_t, boxes.ptr),
+            @as(*c.pixman_image_t, @ptrCast(self)),
+            @as(*const c.pixman_color_t, @ptrCast(&color)),
+            @as(c_int, @intCast(boxes.len)),
+            @as([*c]const c.pixman_box32_t, @ptrCast(boxes.ptr)),
         ) == 0) return pixman.Error.PixmanFailure;
     }
 
@@ -82,10 +82,10 @@ pub const Image = opaque {
     ) pixman.Error!void {
         if (c.pixman_image_fill_rectangles(
             @intFromEnum(op),
-            @ptrCast(*c.pixman_image_t, self),
-            @ptrCast(*const c.pixman_color_t, &color),
-            @intCast(c_int, rects.len),
-            @ptrCast([*c]const c.pixman_rectangle16_t, rects.ptr),
+            @as(*c.pixman_image_t, @ptrCast(self)),
+            @as(*const c.pixman_color_t, @ptrCast(&color)),
+            @as(c_int, @intCast(rects.len)),
+            @as([*c]const c.pixman_rectangle16_t, @ptrCast(rects.ptr)),
         ) == 0) return pixman.Error.PixmanFailure;
     }
 
@@ -96,8 +96,8 @@ pub const Image = opaque {
         y_off: c_int,
     ) void {
         c.pixman_rasterize_trapezoid(
-            @ptrCast(*c.pixman_image_t, self),
-            @ptrCast(*const c.pixman_trapezoid_t, &trap),
+            @as(*c.pixman_image_t, @ptrCast(self)),
+            @as(*const c.pixman_trapezoid_t, @ptrCast(&trap)),
             x_off,
             y_off,
         );
@@ -119,9 +119,9 @@ pub const Image = opaque {
     ) void {
         c.pixman_image_composite(
             @intFromEnum(op),
-            @ptrCast(*c.pixman_image_t, src),
-            @ptrCast(?*c.pixman_image_t, mask),
-            @ptrCast(*c.pixman_image_t, self),
+            @as(*c.pixman_image_t, @ptrCast(src)),
+            @as(?*c.pixman_image_t, @ptrCast(mask)),
+            @as(*c.pixman_image_t, @ptrCast(self)),
             src_x,
             src_y,
             mask_x,
@@ -146,15 +146,15 @@ pub const Image = opaque {
     ) void {
         c.pixman_composite_triangles(
             @intFromEnum(op),
-            @ptrCast(*c.pixman_image_t, src),
-            @ptrCast(*c.pixman_image_t, self),
+            @as(*c.pixman_image_t, @ptrCast(src)),
+            @as(*c.pixman_image_t, @ptrCast(self)),
             @intFromEnum(mask_format),
             x_src,
             y_src,
             x_dst,
             y_dst,
-            @intCast(c_int, tris.len),
-            @ptrCast([*c]const c.pixman_triangle_t, tris.ptr),
+            @as(c_int, @intCast(tris.len)),
+            @as([*c]const c.pixman_triangle_t, @ptrCast(tris.ptr)),
         );
     }
 };
@@ -168,7 +168,7 @@ test "create and destroy" {
     const format: pixman.FormatCode = .g1;
     const stride = format.strideForWidth(width);
 
-    const len = height * @intCast(usize, stride);
+    const len = height * @as(usize, @intCast(stride));
     var data = try alloc.alloc(u32, len);
     defer alloc.free(data);
     @memset(data, 0);
@@ -190,7 +190,7 @@ test "fill boxes a1" {
     const stride = format.strideForWidth(width);
 
     // Image
-    const len = height * @intCast(usize, stride);
+    const len = height * @as(usize, @intCast(stride));
     var data = try alloc.alloc(u32, len);
     defer alloc.free(data);
     @memset(data, 0);

@@ -4,7 +4,7 @@ const c = @import("c.zig");
 
 pub const CharSet = opaque {
     pub fn create() *CharSet {
-        return @ptrCast(*CharSet, c.FcCharSetCreate());
+        return @as(*CharSet, @ptrCast(c.FcCharSetCreate()));
     }
 
     pub fn destroy(self: *CharSet) void {
@@ -20,16 +20,16 @@ pub const CharSet = opaque {
     }
 
     pub inline fn cval(self: *CharSet) *c.struct__FcCharSet {
-        return @ptrCast(
+        return @as(
             *c.struct__FcCharSet,
-            self,
+            @ptrCast(self),
         );
     }
 
     pub inline fn cvalConst(self: *const CharSet) *const c.struct__FcCharSet {
-        return @ptrCast(
+        return @as(
             *const c.struct__FcCharSet,
-            self,
+            @ptrCast(self),
         );
     }
 };

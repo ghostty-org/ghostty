@@ -5,21 +5,21 @@ const c = @import("c.zig");
 
 pub const ColorSpace = opaque {
     pub fn createDeviceGray() Allocator.Error!*ColorSpace {
-        return @ptrFromInt(
+        return @as(
             ?*ColorSpace,
-            @intFromPtr(c.CGColorSpaceCreateDeviceGray()),
+            @ptrFromInt(@intFromPtr(c.CGColorSpaceCreateDeviceGray())),
         ) orelse Allocator.Error.OutOfMemory;
     }
 
     pub fn createDeviceRGB() Allocator.Error!*ColorSpace {
-        return @ptrFromInt(
+        return @as(
             ?*ColorSpace,
-            @intFromPtr(c.CGColorSpaceCreateDeviceRGB()),
+            @ptrFromInt(@intFromPtr(c.CGColorSpaceCreateDeviceRGB())),
         ) orelse Allocator.Error.OutOfMemory;
     }
 
     pub fn release(self: *ColorSpace) void {
-        c.CGColorSpaceRelease(@ptrCast(c.CGColorSpaceRef, self));
+        c.CGColorSpaceRelease(@as(c.CGColorSpaceRef, @ptrCast(self)));
     }
 };
 

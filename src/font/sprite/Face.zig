@@ -72,7 +72,7 @@ pub fn renderGlyph(
         .underline => try underline.renderGlyph(
             alloc,
             atlas,
-            @enumFromInt(Sprite, cp),
+            @as(Sprite, @enumFromInt(cp)),
             self.width,
             self.height,
             self.underline_position,
@@ -88,7 +88,7 @@ const Kind = enum {
 
     pub fn init(cp: u32) ?Kind {
         return switch (cp) {
-            Sprite.start...Sprite.end => switch (@enumFromInt(Sprite, cp)) {
+            Sprite.start...Sprite.end => switch (@as(Sprite, @enumFromInt(cp))) {
                 .underline,
                 .underline_double,
                 .underline_dotted,

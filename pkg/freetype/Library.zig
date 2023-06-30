@@ -50,7 +50,7 @@ pub fn initMemoryFace(self: Library, data: []const u8, index: i32) Error!Face {
     try intToError(c.FT_New_Memory_Face(
         self.handle,
         data.ptr,
-        @intCast(c_long, data.len),
+        @as(c_long, @intCast(data.len)),
         index,
         &face.handle,
     ));

@@ -27,6 +27,6 @@ export fn terminal_free(ptr: ?*Terminal) void {
 
 export fn terminal_print(ptr: ?*Terminal, char: u32) void {
     if (ptr) |t| {
-        t.print(@intCast(u21, char)) catch return;
+        t.print(@as(u21, @intCast(char))) catch return;
     }
 }

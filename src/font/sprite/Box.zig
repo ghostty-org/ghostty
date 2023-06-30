@@ -66,7 +66,7 @@ pub fn renderGlyph(
     // Our coordinates start at the BOTTOM for our renderers so we have to
     // specify an offset of the full height because we rendered a full size
     // cell.
-    const offset_y = @intCast(i32, self.height);
+    const offset_y = @as(i32, @intCast(self.height));
 
     return font.Glyph{
         .width = self.width,
@@ -75,7 +75,7 @@ pub fn renderGlyph(
         .offset_y = offset_y,
         .atlas_x = region.x,
         .atlas_y = region.y,
-        .advance_x = @floatFromInt(f32, self.width),
+        .advance_x = @as(f32, @floatFromInt(self.width)),
     };
 }
 
@@ -1065,27 +1065,27 @@ fn draw_light_diagonal_upper_right_to_lower_left(self: Box, canvas: *font.sprite
     const thick_px = Thickness.light.height(self.thickness);
     canvas.trapezoid(.{
         .top = 0,
-        .bottom = @intCast(i32, self.height),
+        .bottom = @as(i32, @intCast(self.height)),
         .left = .{
             .p1 = .{
-                .x = @intFromFloat(i32, @floatFromInt(f64, self.width) - @floatFromInt(f64, thick_px) / 2),
+                .x = @as(i32, @intFromFloat(@as(f64, @floatFromInt(self.width)) - @as(f64, @floatFromInt(thick_px)) / 2)),
                 .y = 0,
             },
 
             .p2 = .{
-                .x = @intFromFloat(i32, 0 - @floatFromInt(f64, thick_px) / 2),
-                .y = @intCast(i32, self.height),
+                .x = @as(i32, @intFromFloat(0 - @as(f64, @floatFromInt(thick_px)) / 2)),
+                .y = @as(i32, @intCast(self.height)),
             },
         },
         .right = .{
             .p1 = .{
-                .x = @intFromFloat(i32, @floatFromInt(f64, self.width) + @floatFromInt(f64, thick_px) / 2),
+                .x = @as(i32, @intFromFloat(@as(f64, @floatFromInt(self.width)) + @as(f64, @floatFromInt(thick_px)) / 2)),
                 .y = 0,
             },
 
             .p2 = .{
-                .x = @intFromFloat(i32, 0 + @floatFromInt(f64, thick_px) / 2),
-                .y = @intCast(i32, self.height),
+                .x = @as(i32, @intFromFloat(0 + @as(f64, @floatFromInt(thick_px)) / 2)),
+                .y = @as(i32, @intCast(self.height)),
             },
         },
     });
@@ -1095,27 +1095,27 @@ fn draw_light_diagonal_upper_left_to_lower_right(self: Box, canvas: *font.sprite
     const thick_px = Thickness.light.height(self.thickness);
     canvas.trapezoid(.{
         .top = 0,
-        .bottom = @intCast(i32, self.height),
+        .bottom = @as(i32, @intCast(self.height)),
         .left = .{
             .p1 = .{
-                .x = @intFromFloat(i32, 0 - @floatFromInt(f64, thick_px) / 2),
+                .x = @as(i32, @intFromFloat(0 - @as(f64, @floatFromInt(thick_px)) / 2)),
                 .y = 0,
             },
 
             .p2 = .{
-                .x = @intFromFloat(i32, @floatFromInt(f64, self.width) - @floatFromInt(f64, thick_px) / 2),
-                .y = @intCast(i32, self.height),
+                .x = @as(i32, @intFromFloat(@as(f64, @floatFromInt(self.width)) - @as(f64, @floatFromInt(thick_px)) / 2)),
+                .y = @as(i32, @intCast(self.height)),
             },
         },
         .right = .{
             .p1 = .{
-                .x = @intFromFloat(i32, 0 + @floatFromInt(f64, thick_px) / 2),
+                .x = @as(i32, @intFromFloat(0 + @as(f64, @floatFromInt(thick_px)) / 2)),
                 .y = 0,
             },
 
             .p2 = .{
-                .x = @intFromFloat(i32, @floatFromInt(f64, self.width) + @floatFromInt(f64, thick_px) / 2),
-                .y = @intCast(i32, self.height),
+                .x = @as(i32, @intFromFloat(@as(f64, @floatFromInt(self.width)) + @as(f64, @floatFromInt(thick_px)) / 2)),
+                .y = @as(i32, @intCast(self.height)),
             },
         },
     });
@@ -1194,7 +1194,7 @@ fn draw_lower_three_eighths_block(self: Box, canvas: *font.sprite.Canvas) void {
     self.rect(
         canvas,
         0,
-        self.height - @intFromFloat(u32, @round(3 * @floatFromInt(f64, self.height) / 8)),
+        self.height - @as(u32, @intFromFloat(@round(3 * @as(f64, @floatFromInt(self.height)) / 8))),
         self.width,
         self.height,
     );
@@ -1204,7 +1204,7 @@ fn draw_lower_half_block(self: Box, canvas: *font.sprite.Canvas) void {
     self.rect(
         canvas,
         0,
-        self.height - @intFromFloat(u32, @round(@floatFromInt(f64, self.height) / 2)),
+        self.height - @as(u32, @intFromFloat(@round(@as(f64, @floatFromInt(self.height)) / 2))),
         self.width,
         self.height,
     );
@@ -1214,7 +1214,7 @@ fn draw_lower_five_eighths_block(self: Box, canvas: *font.sprite.Canvas) void {
     self.rect(
         canvas,
         0,
-        self.height - @intFromFloat(u32, @round(5 * @floatFromInt(f64, self.height) / 8)),
+        self.height - @as(u32, @intFromFloat(@round(5 * @as(f64, @floatFromInt(self.height)) / 8))),
         self.width,
         self.height,
     );
@@ -1224,7 +1224,7 @@ fn draw_lower_three_quarters_block(self: Box, canvas: *font.sprite.Canvas) void 
     self.rect(
         canvas,
         0,
-        self.height - @intFromFloat(u32, @round(3 * @floatFromInt(f64, self.height) / 4)),
+        self.height - @as(u32, @intFromFloat(@round(3 * @as(f64, @floatFromInt(self.height)) / 4))),
         self.width,
         self.height,
     );
@@ -1234,7 +1234,7 @@ fn draw_lower_seven_eighths_block(self: Box, canvas: *font.sprite.Canvas) void {
     self.rect(
         canvas,
         0,
-        self.height - @intFromFloat(u32, @round(7 * @floatFromInt(f64, self.height) / 8)),
+        self.height - @as(u32, @intFromFloat(@round(7 * @as(f64, @floatFromInt(self.height)) / 8))),
         self.width,
         self.height,
     );
@@ -1246,7 +1246,7 @@ fn draw_upper_one_quarter_block(self: Box, canvas: *font.sprite.Canvas) void {
         0,
         0,
         self.width,
-        @intFromFloat(u32, @round(@floatFromInt(f64, self.height) / 4)),
+        @as(u32, @intFromFloat(@round(@as(f64, @floatFromInt(self.height)) / 4))),
     );
 }
 
@@ -1256,7 +1256,7 @@ fn draw_upper_three_eighths_block(self: Box, canvas: *font.sprite.Canvas) void {
         0,
         0,
         self.width,
-        @intFromFloat(u32, @round(3 * @floatFromInt(f64, self.height) / 8)),
+        @as(u32, @intFromFloat(@round(3 * @as(f64, @floatFromInt(self.height)) / 8))),
     );
 }
 
@@ -1266,7 +1266,7 @@ fn draw_upper_five_eighths_block(self: Box, canvas: *font.sprite.Canvas) void {
         0,
         0,
         self.width,
-        @intFromFloat(u32, @round(5 * @floatFromInt(f64, self.height) / 8)),
+        @as(u32, @intFromFloat(@round(5 * @as(f64, @floatFromInt(self.height)) / 8))),
     );
 }
 
@@ -1276,7 +1276,7 @@ fn draw_upper_three_quarters_block(self: Box, canvas: *font.sprite.Canvas) void 
         0,
         0,
         self.width,
-        @intFromFloat(u32, @round(3 * @floatFromInt(f64, self.height) / 4)),
+        @as(u32, @intFromFloat(@round(3 * @as(f64, @floatFromInt(self.height)) / 4))),
     );
 }
 
@@ -1286,7 +1286,7 @@ fn draw_upper_seven_eighths_block(self: Box, canvas: *font.sprite.Canvas) void {
         0,
         0,
         self.width,
-        @intFromFloat(u32, @round(7 * @floatFromInt(f64, self.height) / 8)),
+        @as(u32, @intFromFloat(@round(7 * @as(f64, @floatFromInt(self.height)) / 8))),
     );
 }
 
@@ -1299,7 +1299,7 @@ fn draw_left_seven_eighths_block(self: Box, canvas: *font.sprite.Canvas) void {
         canvas,
         0,
         0,
-        @intFromFloat(u32, @round(7 * @floatFromInt(f64, self.width) / 8)),
+        @as(u32, @intFromFloat(@round(7 * @as(f64, @floatFromInt(self.width)) / 8))),
         self.height,
     );
 }
@@ -1309,7 +1309,7 @@ fn draw_left_three_quarters_block(self: Box, canvas: *font.sprite.Canvas) void {
         canvas,
         0,
         0,
-        @intFromFloat(u32, @round(3 * @floatFromInt(f64, self.width) / 4)),
+        @as(u32, @intFromFloat(@round(3 * @as(f64, @floatFromInt(self.width)) / 4))),
         self.height,
     );
 }
@@ -1319,7 +1319,7 @@ fn draw_left_five_eighths_block(self: Box, canvas: *font.sprite.Canvas) void {
         canvas,
         0,
         0,
-        @intFromFloat(u32, @round(5 * @floatFromInt(f64, self.width) / 8)),
+        @as(u32, @intFromFloat(@round(5 * @as(f64, @floatFromInt(self.width)) / 8))),
         self.height,
     );
 }
@@ -1329,7 +1329,7 @@ fn draw_left_half_block(self: Box, canvas: *font.sprite.Canvas) void {
         canvas,
         0,
         0,
-        @intFromFloat(u32, @round(@floatFromInt(f64, self.width) / 2)),
+        @as(u32, @intFromFloat(@round(@as(f64, @floatFromInt(self.width)) / 2))),
         self.height,
     );
 }
@@ -1339,7 +1339,7 @@ fn draw_left_three_eighths_block(self: Box, canvas: *font.sprite.Canvas) void {
         canvas,
         0,
         0,
-        @intFromFloat(u32, @round(3 * @floatFromInt(f64, self.width) / 8)),
+        @as(u32, @intFromFloat(@round(3 * @as(f64, @floatFromInt(self.width)) / 8))),
         self.height,
     );
 }
@@ -1349,14 +1349,14 @@ fn draw_left_one_quarter_block(self: Box, canvas: *font.sprite.Canvas) void {
         canvas,
         0,
         0,
-        @intFromFloat(u32, @round(@floatFromInt(f64, self.width) / 4)),
+        @as(u32, @intFromFloat(@round(@as(f64, @floatFromInt(self.width)) / 4))),
         self.height,
     );
 }
 
 fn draw_vertical_one_eighth_block_n(self: Box, canvas: *font.sprite.Canvas, n: u32) void {
-    const x = @intFromFloat(u32, @round(@floatFromInt(f64, n) * @floatFromInt(f64, self.width) / 8));
-    const w = @intFromFloat(u32, @round(@floatFromInt(f64, self.width) / 8));
+    const x = @as(u32, @intFromFloat(@round(@as(f64, @floatFromInt(n)) * @as(f64, @floatFromInt(self.width)) / 8)));
+    const w = @as(u32, @intFromFloat(@round(@as(f64, @floatFromInt(self.width)) / 8)));
     self.rect(canvas, x, 0, x + w, self.height);
 }
 
@@ -1367,7 +1367,7 @@ fn draw_left_one_eighth_block(self: Box, canvas: *font.sprite.Canvas) void {
 fn draw_right_half_block(self: Box, canvas: *font.sprite.Canvas) void {
     self.rect(
         canvas,
-        @intFromFloat(u32, @round(@floatFromInt(f64, self.width) / 2)),
+        @as(u32, @intFromFloat(@round(@as(f64, @floatFromInt(self.width)) / 2))),
         0,
         self.width,
         self.height,
@@ -1378,9 +1378,9 @@ fn draw_pixman_shade(self: Box, canvas: *font.sprite.Canvas, v: u16) void {
     canvas.rect((font.sprite.Box{
         .x1 = 0,
         .y1 = 0,
-        .x2 = @intCast(i32, self.width),
-        .y2 = @intCast(i32, self.height),
-    }).rect(), @enumFromInt(font.sprite.Color, v));
+        .x2 = @as(i32, @intCast(self.width)),
+        .y2 = @as(i32, @intCast(self.height)),
+    }).rect(), @as(font.sprite.Color, @enumFromInt(v)));
 }
 
 fn draw_light_shade(self: Box, canvas: *font.sprite.Canvas) void {
@@ -1396,8 +1396,8 @@ fn draw_dark_shade(self: Box, canvas: *font.sprite.Canvas) void {
 }
 
 fn draw_horizontal_one_eighth_block_n(self: Box, canvas: *font.sprite.Canvas, n: u32) void {
-    const y = @intFromFloat(u32, @round(@floatFromInt(f64, n) * @floatFromInt(f64, self.height) / 8));
-    const h = @intFromFloat(u32, @round(@floatFromInt(f64, self.height) / 8));
+    const y = @as(u32, @intFromFloat(@round(@as(f64, @floatFromInt(n)) * @as(f64, @floatFromInt(self.height)) / 8)));
+    const h = @as(u32, @intFromFloat(@round(@as(f64, @floatFromInt(self.height)) / 8)));
     self.rect(canvas, 0, y, self.width, y + h);
 }
 
@@ -1408,7 +1408,7 @@ fn draw_upper_one_eighth_block(self: Box, canvas: *font.sprite.Canvas) void {
 fn draw_right_one_eighth_block(self: Box, canvas: *font.sprite.Canvas) void {
     self.rect(
         canvas,
-        self.width - @intFromFloat(u32, @round(@floatFromInt(f64, self.width) / 8)),
+        self.width - @as(u32, @intFromFloat(@round(@as(f64, @floatFromInt(self.width)) / 8))),
         0,
         self.width,
         self.height,
@@ -1450,7 +1450,7 @@ fn draw_horizontal_one_eighth_1358_block(self: Box, canvas: *font.sprite.Canvas)
 fn draw_right_one_quarter_block(self: Box, canvas: *font.sprite.Canvas) void {
     self.rect(
         canvas,
-        self.width - @intFromFloat(u32, @round(@floatFromInt(f64, self.width) / 4)),
+        self.width - @as(u32, @intFromFloat(@round(@as(f64, @floatFromInt(self.width)) / 4))),
         0,
         self.width,
         self.height,
@@ -1460,7 +1460,7 @@ fn draw_right_one_quarter_block(self: Box, canvas: *font.sprite.Canvas) void {
 fn draw_right_three_quarters_block(self: Box, canvas: *font.sprite.Canvas) void {
     self.rect(
         canvas,
-        self.width - @intFromFloat(u32, @round(3 * @floatFromInt(f64, self.width) / 4)),
+        self.width - @as(u32, @intFromFloat(@round(3 * @as(f64, @floatFromInt(self.width)) / 4))),
         0,
         self.width,
         self.height,
@@ -1470,7 +1470,7 @@ fn draw_right_three_quarters_block(self: Box, canvas: *font.sprite.Canvas) void 
 fn draw_right_three_eighths_block(self: Box, canvas: *font.sprite.Canvas) void {
     self.rect(
         canvas,
-        self.width - @intFromFloat(u32, @round(3 * @floatFromInt(f64, self.width) / 8)),
+        self.width - @as(u32, @intFromFloat(@round(3 * @as(f64, @floatFromInt(self.width)) / 8))),
         0,
         self.width,
         self.height,
@@ -1480,7 +1480,7 @@ fn draw_right_three_eighths_block(self: Box, canvas: *font.sprite.Canvas) void {
 fn draw_right_five_eighths_block(self: Box, canvas: *font.sprite.Canvas) void {
     self.rect(
         canvas,
-        self.width - @intFromFloat(u32, @round(5 * @floatFromInt(f64, self.width) / 8)),
+        self.width - @as(u32, @intFromFloat(@round(5 * @as(f64, @floatFromInt(self.width)) / 8))),
         0,
         self.width,
         self.height,
@@ -1490,7 +1490,7 @@ fn draw_right_five_eighths_block(self: Box, canvas: *font.sprite.Canvas) void {
 fn draw_right_seven_eighths_block(self: Box, canvas: *font.sprite.Canvas) void {
     self.rect(
         canvas,
-        self.width - @intFromFloat(u32, @round(7 * @floatFromInt(f64, self.width) / 8)),
+        self.width - @as(u32, @intFromFloat(@round(7 * @as(f64, @floatFromInt(self.width)) / 8))),
         0,
         self.width,
         self.height,
@@ -1502,18 +1502,18 @@ fn quad_upper_left(self: Box, canvas: *font.sprite.Canvas) void {
         canvas,
         0,
         0,
-        @intFromFloat(u32, @ceil(@floatFromInt(f64, self.width) / 2)),
-        @intFromFloat(u32, @ceil(@floatFromInt(f64, self.height) / 2)),
+        @as(u32, @intFromFloat(@ceil(@as(f64, @floatFromInt(self.width)) / 2))),
+        @as(u32, @intFromFloat(@ceil(@as(f64, @floatFromInt(self.height)) / 2))),
     );
 }
 
 fn quad_upper_right(self: Box, canvas: *font.sprite.Canvas) void {
     self.rect(
         canvas,
-        @intFromFloat(u32, @floor(@floatFromInt(f64, self.width) / 2)),
+        @as(u32, @intFromFloat(@floor(@as(f64, @floatFromInt(self.width)) / 2))),
         0,
         self.width,
-        @intFromFloat(u32, @ceil(@floatFromInt(f64, self.height) / 2)),
+        @as(u32, @intFromFloat(@ceil(@as(f64, @floatFromInt(self.height)) / 2))),
     );
 }
 
@@ -1521,8 +1521,8 @@ fn quad_lower_left(self: Box, canvas: *font.sprite.Canvas) void {
     self.rect(
         canvas,
         0,
-        @intFromFloat(u32, @floor(@floatFromInt(f64, self.height) / 2)),
-        @intFromFloat(u32, @ceil(@floatFromInt(f64, self.width) / 2)),
+        @as(u32, @intFromFloat(@floor(@as(f64, @floatFromInt(self.height)) / 2))),
+        @as(u32, @intFromFloat(@ceil(@as(f64, @floatFromInt(self.width)) / 2))),
         self.height,
     );
 }
@@ -1530,8 +1530,8 @@ fn quad_lower_left(self: Box, canvas: *font.sprite.Canvas) void {
 fn quad_lower_right(self: Box, canvas: *font.sprite.Canvas) void {
     self.rect(
         canvas,
-        @intFromFloat(u32, @floor(@floatFromInt(f64, self.width) / 2)),
-        @intFromFloat(u32, @floor(@floatFromInt(f64, self.height) / 2)),
+        @as(u32, @intFromFloat(@floor(@as(f64, @floatFromInt(self.width)) / 2))),
+        @as(u32, @intFromFloat(@floor(@as(f64, @floatFromInt(self.height)) / 2))),
         self.width,
         self.height,
     );
@@ -1755,8 +1755,8 @@ fn draw_sextant(self: Box, canvas: *font.sprite.Canvas, cp: u32) void {
 
 fn xHalfs(self: Box) [2]u32 {
     return .{
-        @intFromFloat(u32, @round(@floatFromInt(f64, self.width) / 2)),
-        @intFromFloat(u32, @floatFromInt(f64, self.width) / 2),
+        @as(u32, @intFromFloat(@round(@as(f64, @floatFromInt(self.width)) / 2))),
+        @as(u32, @intFromFloat(@as(f64, @floatFromInt(self.width)) / 2)),
     };
 }
 
@@ -2116,9 +2116,9 @@ fn draw_wedge_triangle(self: Box, canvas: *font.sprite.Canvas, cp: u32) !void {
     }
 
     canvas.triangle(.{
-        .p1 = .{ .x = @intCast(i32, p1_x), .y = @intCast(i32, p1_y) },
-        .p2 = .{ .x = @intCast(i32, p2_x), .y = @intCast(i32, p2_y) },
-        .p3 = .{ .x = @intCast(i32, p3_x), .y = @intCast(i32, p3_y) },
+        .p1 = .{ .x = @as(i32, @intCast(p1_x)), .y = @as(i32, @intCast(p1_y)) },
+        .p2 = .{ .x = @as(i32, @intCast(p2_x)), .y = @as(i32, @intCast(p2_y)) },
+        .p3 = .{ .x = @as(i32, @intCast(p3_x)), .y = @as(i32, @intCast(p3_y)) },
     }, .on);
 }
 
@@ -2147,16 +2147,16 @@ fn draw_wedge_triangle_and_box(self: Box, canvas: *font.sprite.Canvas, cp: u32) 
     const box: font.sprite.Box = switch (cp) {
         0x1fb46, 0x1fb51 => .{
             .x1 = 0,
-            .y1 = @intCast(i32, y_thirds[1]),
-            .x2 = @intCast(i32, self.width),
-            .y2 = @intCast(i32, self.height),
+            .y1 = @as(i32, @intCast(y_thirds[1])),
+            .x2 = @as(i32, @intCast(self.width)),
+            .y2 = @as(i32, @intCast(self.height)),
         },
 
         0x1fb5c, 0x1fb67 => .{
             .x1 = 0,
             .y1 = 0,
-            .x2 = @intCast(i32, self.width),
-            .y2 = @intCast(i32, y_thirds[0]),
+            .x2 = @as(i32, @intCast(self.width)),
+            .y2 = @as(i32, @intCast(y_thirds[0])),
         },
 
         else => unreachable,
@@ -2191,7 +2191,7 @@ fn draw_light_arc(
     // thickness/2.) whose centers are on its edge. This means to get the
     // radius of the quartercircle, we add the exact half thickness to the
     // radius of the inner circle.
-    var c_r: f64 = @floatFromInt(f64, circle_inner_edge) + @floatFromInt(f64, thick_pixels) / 2;
+    var c_r: f64 = @as(f64, @floatFromInt(circle_inner_edge)) + @as(f64, @floatFromInt(thick_pixels)) / 2;
 
     // We need to draw short lines from the end of the quartercircle to the
     // box-edges, store one endpoint (the other is the edge of the
@@ -2305,16 +2305,16 @@ fn draw_light_arc(
     // As the quartercircle ends (vertically) in the middle of a pixel, an
     // uneven number helps hit that exactly.
     {
-        var i: f64 = @floatFromInt(f64, y_min) * 16;
-        while (i <= @floatFromInt(f64, y_max) * 16) : (i += 1) {
+        var i: f64 = @as(f64, @floatFromInt(y_min)) * 16;
+        while (i <= @as(f64, @floatFromInt(y_max)) * 16) : (i += 1) {
             const y = i / 16;
             const x = x: {
                 // circle_hemisphere * sqrt(c_r2 - (y - c_y) * (y - c_y)) + c_x;
-                const hemi = @floatFromInt(f64, circle_hemisphere);
-                const y_part = y - @floatFromInt(f64, c_y);
+                const hemi = @as(f64, @floatFromInt(circle_hemisphere));
+                const y_part = y - @as(f64, @floatFromInt(c_y));
                 const y_squared = y_part * y_part;
                 const sqrt = @sqrt(c_r2 - y_squared);
-                const f_c_x = @floatFromInt(f64, c_x);
+                const f_c_x = @as(f64, @floatFromInt(c_x));
 
                 // We need to detect overflows and just skip this i
                 const a = hemi * sqrt;
@@ -2326,15 +2326,15 @@ fn draw_light_arc(
                 break :x b;
             };
 
-            const row = @intFromFloat(i32, @round(y));
-            const col = @intFromFloat(i32, @round(x));
+            const row = @as(i32, @intFromFloat(@round(y)));
+            const col = @as(i32, @intFromFloat(@round(x)));
             if (col < 0) continue;
 
             // rectangle big enough to fit entire circle with radius thick/2.
-            const row1 = row - @intCast(i32, thick / 2 + 1);
-            const row2 = row + @intCast(i32, thick / 2 + 1);
-            const col1 = col - @intCast(i32, thick / 2 + 1);
-            const col2 = col + @intCast(i32, thick / 2 + 1);
+            const row1 = row - @as(i32, @intCast(thick / 2 + 1));
+            const row2 = row + @as(i32, @intCast(thick / 2 + 1));
+            const col1 = col - @as(i32, @intCast(thick / 2 + 1));
+            const col2 = col + @as(i32, @intCast(thick / 2 + 1));
 
             const row_start = @min(row1, row2);
             const row_end = @max(row1, row2);
@@ -2348,14 +2348,14 @@ fn draw_light_arc(
             // this is accomplished by rejecting pixels where the distance from
             // their center to x,y is greater than thick/2.
             var r: i32 = @max(row_start, 0);
-            const r_end = @max(@min(row_end, @intCast(i32, height)), 0);
+            const r_end = @max(@min(row_end, @as(i32, @intCast(height))), 0);
             while (r < r_end) : (r += 1) {
-                const r_midpoint = @floatFromInt(f64, r) + 0.5;
+                const r_midpoint = @as(f64, @floatFromInt(r)) + 0.5;
 
                 var c: i32 = @max(col_start, 0);
-                const c_end = @max(@min(col_end, @intCast(i32, width)), 0);
+                const c_end = @max(@min(col_end, @as(i32, @intCast(width))), 0);
                 while (c < c_end) : (c += 1) {
-                    const c_midpoint = @floatFromInt(f64, c) + 0.5;
+                    const c_midpoint = @as(f64, @floatFromInt(c)) + 0.5;
 
                     // vector from point on quartercircle to midpoint of the current pixel.
                     const center_midpoint_x = c_midpoint - x;
@@ -2364,10 +2364,10 @@ fn draw_light_arc(
                     // distance from current point to circle-center.
                     const dist = @sqrt(center_midpoint_x * center_midpoint_x + center_midpoint_y * center_midpoint_y);
                     // skip if midpoint of pixel is outside the circle.
-                    if (dist > @floatFromInt(f64, thick) / 2) continue;
+                    if (dist > @as(f64, @floatFromInt(thick)) / 2) continue;
 
                     // Set our pixel
-                    const idx = @intCast(usize, r * @intCast(i32, width) + c);
+                    const idx = @as(usize, @intCast(r * @as(i32, @intCast(width)) + c));
                     ss_data[idx] = 0xFF;
                 }
             }
@@ -2390,15 +2390,15 @@ fn draw_light_arc(
                     }
                 }
 
-                const average = @intCast(u8, @min(total / (supersample * supersample), 0xff));
+                const average = @as(u8, @intCast(@min(total / (supersample * supersample), 0xff)));
                 canvas.rect(
                     .{
-                        .x = @intCast(i32, c),
-                        .y = @intCast(i32, r),
+                        .x = @as(i32, @intCast(c)),
+                        .y = @as(i32, @intCast(r)),
                         .width = 1,
                         .height = 1,
                     },
-                    @enumFromInt(font.sprite.Color, average),
+                    @as(font.sprite.Color, @enumFromInt(average)),
                 );
             }
         }
@@ -2649,10 +2649,10 @@ fn vline(
     thickness_px: u32,
 ) void {
     canvas.rect((font.sprite.Box{
-        .x1 = @intCast(i32, @min(@max(x, 0), self.width)),
-        .x2 = @intCast(i32, @min(@max(x + thickness_px, 0), self.width)),
-        .y1 = @intCast(i32, @min(@max(y1, 0), self.height)),
-        .y2 = @intCast(i32, @min(@max(y2, 0), self.height)),
+        .x1 = @as(i32, @intCast(@min(@max(x, 0), self.width))),
+        .x2 = @as(i32, @intCast(@min(@max(x + thickness_px, 0), self.width))),
+        .y1 = @as(i32, @intCast(@min(@max(y1, 0), self.height))),
+        .y2 = @as(i32, @intCast(@min(@max(y2, 0), self.height))),
     }).rect(), .on);
 }
 
@@ -2665,10 +2665,10 @@ fn hline(
     thickness_px: u32,
 ) void {
     canvas.rect((font.sprite.Box{
-        .x1 = @intCast(i32, @min(@max(x1, 0), self.width)),
-        .x2 = @intCast(i32, @min(@max(x2, 0), self.width)),
-        .y1 = @intCast(i32, @min(@max(y, 0), self.height)),
-        .y2 = @intCast(i32, @min(@max(y + thickness_px, 0), self.height)),
+        .x1 = @as(i32, @intCast(@min(@max(x1, 0), self.width))),
+        .x2 = @as(i32, @intCast(@min(@max(x2, 0), self.width))),
+        .y1 = @as(i32, @intCast(@min(@max(y, 0), self.height))),
+        .y2 = @as(i32, @intCast(@min(@max(y + thickness_px, 0), self.height))),
     }).rect(), .on);
 }
 
@@ -2681,10 +2681,10 @@ fn rect(
     y2: u32,
 ) void {
     canvas.rect((font.sprite.Box{
-        .x1 = @intCast(i32, @min(@max(x1, 0), self.width)),
-        .y1 = @intCast(i32, @min(@max(y1, 0), self.height)),
-        .x2 = @intCast(i32, @min(@max(x2, 0), self.width)),
-        .y2 = @intCast(i32, @min(@max(y2, 0), self.height)),
+        .x1 = @as(i32, @intCast(@min(@max(x1, 0), self.width))),
+        .y1 = @as(i32, @intCast(@min(@max(y1, 0), self.height))),
+        .x2 = @as(i32, @intCast(@min(@max(x2, 0), self.width))),
+        .y2 = @as(i32, @intCast(@min(@max(y2, 0), self.height))),
     }).rect(), .on);
 }
 

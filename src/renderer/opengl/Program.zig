@@ -81,7 +81,7 @@ pub inline fn setUniform(
 ) !void {
     const loc = glad.context.GetUniformLocation.?(
         p.id,
-        @ptrCast([*c]const u8, n.ptr),
+        @as([*c]const u8, @ptrCast(n.ptr)),
     );
     if (loc < 0) {
         return error.UniformNameInvalid;
@@ -99,7 +99,7 @@ pub inline fn setUniform(
             loc,
             1,
             c.GL_FALSE,
-            @ptrCast([*c]const f32, &value),
+            @as([*c]const f32, @ptrCast(&value)),
         ),
         else => unreachable,
     }

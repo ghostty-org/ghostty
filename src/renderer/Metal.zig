@@ -213,10 +213,10 @@ pub fn init(alloc: Allocator, options: renderer.Options) !Metal {
 
     // Set the sprite font up
     options.font_group.group.sprite = font.sprite.Face{
-        .width = @intFromFloat(u32, metrics.cell_width),
-        .height = @intFromFloat(u32, metrics.cell_height),
+        .width = @as(u32, @intFromFloat(metrics.cell_width)),
+        .height = @as(u32, @intFromFloat(metrics.cell_height)),
         .thickness = 2,
-        .underline_position = @intFromFloat(u32, metrics.underline_position),
+        .underline_position = @as(u32, @intFromFloat(metrics.underline_position)),
     };
 
     // Create the font shaper. We initially create a shaper that can support
@@ -238,8 +238,8 @@ pub fn init(alloc: Allocator, options: renderer.Options) !Metal {
             objc.Object,
             objc.sel("newBufferWithBytes:length:options:"),
             .{
-                @ptrCast(*const anyopaque, &data),
-                @intCast(c_ulong, data.len * @sizeOf(u16)),
+                @as(*const anyopaque, @ptrCast(&data)),
+                @as(c_ulong, @intCast(data.len * @sizeOf(u16))),
                 MTLResourceStorageModeShared,
             },
         );
@@ -254,7 +254,7 @@ pub fn init(alloc: Allocator, options: renderer.Options) !Metal {
             objc.Object,
             objc.sel("newBufferWithLength:options:"),
             .{
-                @intCast(c_ulong, prealloc * @sizeOf(GPUCell)),
+                @as(c_ulong, @intCast(prealloc * @sizeOf(GPUCell))),
                 MTLResourceStorageModeShared,
             },
         );
@@ -269,7 +269,7 @@ pub fn init(alloc: Allocator, options: renderer.Options) !Metal {
             objc.Object,
             objc.sel("newBufferWithLength:options:"),
             .{
-                @intCast(c_ulong, prealloc * @sizeOf(GPUCell)),
+                @as(c_ulong, @intCast(prealloc * @sizeOf(GPUCell))),
                 MTLResourceStorageModeShared,
             },
         );
@@ -362,7 +362,7 @@ pub fn finalizeSurfaceInit(self: *const Metal, surface: *apprt.Surface) !void {
 
         apprt.embedded => .{
             .view = surface.nsview,
-            .scaleFactor = @floatCast(f64, surface.content_scale.x),
+            .scaleFactor = @as(f64, @floatCast(surface.content_scale.x)),
         },
 
         else => @compileError("unsupported apprt for metal"),
@@ -384,7 +384,7 @@ pub fn initDevMode(self: *const Metal, surface: *apprt.Surface) !void {
     if (DevMode.enabled) {
         // Initialize for our window
         assert(imgui.ImplGlfw.initForOther(
-            @ptrCast(*imgui.ImplGlfw.GLFWWindow, surface.window.handle),
+            @as(*imgui.ImplGlfw.GLFWWindow, @ptrCast(surface.window.handle)),
             true,
         ));
         assert(imgui.ImplMetal.init(self.device.value));
@@ -480,10 +480,10 @@ pub fn setFontSize(self: *Metal, size: font.face.DesiredSize) !void {
 
     // Set the sprite font up
     self.font_group.group.sprite = font.sprite.Face{
-        .width = @intFromFloat(u32, self.cell_size.width),
-        .height = @intFromFloat(u32, self.cell_size.height),
+        .width = @as(u32, @intFromFloat(self.cell_size.width)),
+        .height = @as(u32, @intFromFloat(self.cell_size.height)),
         .thickness = 2,
-        .underline_position = @intFromFloat(u32, metrics.underline_position),
+        .underline_position = @as(u32, @intFromFloat(metrics.underline_position)),
     };
 
     // Notify the window that the cell size changed.
@@ -622,9 +622,9 @@ pub fn render(
                 attachment.setProperty("storeAction", @intFromEnum(MTLStoreAction.store));
                 attachment.setProperty("texture", texture);
                 attachment.setProperty("clearColor", MTLClearColor{
-                    .red = @floatFromInt(f32, critical.bg.r) / 255,
-                    .green = @floatFromInt(f32, critical.bg.g) / 255,
-                    .blue = @floatFromInt(f32, critical.bg.b) / 255,
+                    .red = @as(f32, @floatFromInt(critical.bg.r)) / 255,
+                    .green = @as(f32, @floatFromInt(critical.bg.g)) / 255,
+                    .blue = @as(f32, @floatFromInt(critical.bg.b)) / 255,
                     .alpha = 1.0,
                 });
             }
@@ -651,7 +651,7 @@ pub fn render(
             void,
             objc.sel("setVertexBytes:length:atIndex:"),
             .{
-                @ptrCast(*const anyopaque, &self.uniforms),
+                @as(*const anyopaque, @ptrCast(&self.uniforms)),
                 @as(c_ulong, @sizeOf(@TypeOf(self.uniforms))),
                 @as(c_ulong, 1),
             },
@@ -771,8 +771,8 @@ pub fn setScreenSize(self: *Metal, dim: renderer.ScreenSize) !void {
 
     // Set the size of the drawable surface to the bounds
     self.swapchain.setProperty("drawableSize", macos.graphics.Size{
-        .width = @floatFromInt(f64, dim.width),
-        .height = @floatFromInt(f64, dim.height),
+        .width = @as(f64, @floatFromInt(dim.width)),
+        .height = @as(f64, @floatFromInt(dim.height)),
     });
 
     // Setup our uniforms
@@ -780,8 +780,8 @@ pub fn setScreenSize(self: *Metal, dim: renderer.ScreenSize) !void {
     self.uniforms = .{
         .projection_matrix = math.ortho2d(
             -1 * padding.left,
-            @floatFromInt(f32, padded_dim.width) + padding.right,
-            @floatFromInt(f32, padded_dim.height) + padding.bottom,
+            @as(f32, @floatFromInt(padded_dim.width)) + padding.right,
+            @as(f32, @floatFromInt(padded_dim.height)) + padding.bottom,
             -1 * padding.top,
         ),
         .cell_size = .{ self.cell_size.width, self.cell_size.height },
@@ -836,7 +836,7 @@ fn rebuildCells(
             y == screen.cursor.y)
         {
             for (self.cells.items[start_i..]) |cell| {
-                if (cell.grid_pos[0] == @floatFromInt(f32, screen.cursor.x) and
+                if (cell.grid_pos[0] == @as(f32, @floatFromInt(screen.cursor.x)) and
                     cell.mode == .fg)
                 {
                     cursor_cell = cell;
@@ -986,7 +986,7 @@ pub fn updateCell(
     if (colors.bg) |rgb| {
         self.cells_bg.appendAssumeCapacity(.{
             .mode = .bg,
-            .grid_pos = .{ @floatFromInt(f32, x), @floatFromInt(f32, y) },
+            .grid_pos = .{ @as(f32, @floatFromInt(x)), @as(f32, @floatFromInt(y)) },
             .cell_width = cell.widthLegacy(),
             .color = .{ rgb.r, rgb.g, rgb.b, alpha },
         });
@@ -999,7 +999,7 @@ pub fn updateCell(
             self.alloc,
             shaper_run.font_index,
             shaper_cell.glyph_index,
-            @intFromFloat(u16, @ceil(self.cell_size.height)),
+            @as(u16, @intFromFloat(@ceil(self.cell_size.height))),
         );
 
         // If we're rendering a color font, we use the color atlas
@@ -1011,7 +1011,7 @@ pub fn updateCell(
 
         self.cells.appendAssumeCapacity(.{
             .mode = mode,
-            .grid_pos = .{ @floatFromInt(f32, x), @floatFromInt(f32, y) },
+            .grid_pos = .{ @as(f32, @floatFromInt(x)), @as(f32, @floatFromInt(y)) },
             .cell_width = cell.widthLegacy(),
             .color = .{ colors.fg.r, colors.fg.g, colors.fg.b, alpha },
             .glyph_pos = .{ glyph.atlas_x, glyph.atlas_y },
@@ -1041,7 +1041,7 @@ pub fn updateCell(
 
         self.cells.appendAssumeCapacity(.{
             .mode = .fg,
-            .grid_pos = .{ @floatFromInt(f32, x), @floatFromInt(f32, y) },
+            .grid_pos = .{ @as(f32, @floatFromInt(x)), @as(f32, @floatFromInt(y)) },
             .cell_width = cell.widthLegacy(),
             .color = .{ color.r, color.g, color.b, alpha },
             .glyph_pos = .{ glyph.atlas_x, glyph.atlas_y },
@@ -1053,7 +1053,7 @@ pub fn updateCell(
     if (cell.attrs.strikethrough) {
         self.cells.appendAssumeCapacity(.{
             .mode = .strikethrough,
-            .grid_pos = .{ @floatFromInt(f32, x), @floatFromInt(f32, y) },
+            .grid_pos = .{ @as(f32, @floatFromInt(x)), @as(f32, @floatFromInt(y)) },
             .cell_width = cell.widthLegacy(),
             .color = .{ colors.fg.r, colors.fg.g, colors.fg.b, alpha },
         });
@@ -1095,8 +1095,8 @@ fn addCursor(self: *Metal, screen: *terminal.Screen) void {
     self.cells.appendAssumeCapacity(.{
         .mode = .fg,
         .grid_pos = .{
-            @floatFromInt(f32, screen.cursor.x),
-            @floatFromInt(f32, screen.cursor.y),
+            @as(f32, @floatFromInt(screen.cursor.x)),
+            @as(f32, @floatFromInt(screen.cursor.y)),
         },
         .cell_width = if (cell.attrs.wide) 2 else 1,
         .color = .{ color.r, color.g, color.b, 0xFF },
@@ -1128,7 +1128,7 @@ fn syncCells(
             objc.Object,
             objc.sel("newBufferWithLength:options:"),
             .{
-                @intCast(c_ulong, size * @sizeOf(GPUCell)),
+                @as(c_ulong, @intCast(size * @sizeOf(GPUCell))),
                 MTLResourceStorageModeShared,
             },
         );
@@ -1145,7 +1145,7 @@ fn syncCells(
     };
 
     const src = src: {
-        const ptr = @ptrCast([*]const u8, cells.items.ptr);
+        const ptr = @as([*]const u8, @ptrCast(cells.items.ptr));
         break :src ptr[0..req_bytes];
     };
 
@@ -1172,8 +1172,8 @@ fn syncAtlasTexture(device: objc.Object, atlas: *const font.Atlas, texture: *obj
         MTLRegion{
             .origin = .{ .x = 0, .y = 0, .z = 0 },
             .size = .{
-                .width = @intCast(c_ulong, atlas.size),
-                .height = @intCast(c_ulong, atlas.size),
+                .width = @as(c_ulong, @intCast(atlas.size)),
+                .height = @as(c_ulong, @intCast(atlas.size)),
                 .depth = 1,
             },
         },
@@ -1440,8 +1440,8 @@ fn initAtlasTexture(device: objc.Object, atlas: *const font.Atlas) !objc.Object 
 
     // Set our properties
     desc.setProperty("pixelFormat", @intFromEnum(pixel_format));
-    desc.setProperty("width", @intCast(c_ulong, atlas.size));
-    desc.setProperty("height", @intCast(c_ulong, atlas.size));
+    desc.setProperty("width", @as(c_ulong, @intCast(atlas.size)));
+    desc.setProperty("height", @as(c_ulong, @intCast(atlas.size)));
 
     // Initialize
     const id = device.msgSend(
@@ -1462,9 +1462,9 @@ fn deinitMTLResource(obj: objc.Object) void {
 fn checkError(err_: ?*anyopaque) !void {
     if (err_) |err| {
         const nserr = objc.Object.fromId(err);
-        const str = @ptrCast(
+        const str = @as(
             *macos.foundation.String,
-            nserr.getProperty(?*anyopaque, "localizedDescription").?,
+            @ptrCast(nserr.getProperty(?*anyopaque, "localizedDescription").?),
         );
 
         log.err("metal error={s}", .{str.cstringPtr(.ascii).?});

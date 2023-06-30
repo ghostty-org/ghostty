@@ -4,9 +4,9 @@ const Allocator = std.mem.Allocator;
 
 pub const Style = opaque {
     pub fn get() Allocator.Error!*Style {
-        return @ptrCast(
+        return @as(
             ?*Style,
-            c.igGetStyle(),
+            @ptrCast(c.igGetStyle()),
         ) orelse Allocator.Error.OutOfMemory;
     }
 
@@ -27,9 +27,9 @@ pub const Style = opaque {
     }
 
     pub inline fn cval(self: *Style) *c.ImGuiStyle {
-        return @ptrCast(
+        return @as(
             *c.ImGuiStyle,
-            @alignCast(@alignOf(c.ImGuiStyle), self),
+            @ptrCast(@alignCast(self)),
         );
     }
 };

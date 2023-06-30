@@ -48,8 +48,8 @@ pub const ScreenSize = struct {
     /// Subtract padding from the screen size.
     pub fn subPadding(self: ScreenSize, padding: Padding) ScreenSize {
         return .{
-            .width = self.width -| @intFromFloat(u32, padding.left + padding.right),
-            .height = self.height -| @intFromFloat(u32, padding.top + padding.bottom),
+            .width = self.width -| @as(u32, @intFromFloat(padding.left + padding.right)),
+            .height = self.height -| @as(u32, @intFromFloat(padding.top + padding.bottom)),
         };
     }
 };
@@ -71,8 +71,8 @@ pub const GridSize = struct {
     /// Update the columns/rows for the grid based on the given screen and
     /// cell size.
     pub fn update(self: *GridSize, screen: ScreenSize, cell: CellSize) void {
-        self.columns = @max(1, @intFromFloat(Unit, @floatFromInt(f32, screen.width) / cell.width));
-        self.rows = @max(1, @intFromFloat(Unit, @floatFromInt(f32, screen.height) / cell.height));
+        self.columns = @max(1, @as(Unit, @intFromFloat(@as(f32, @floatFromInt(screen.width)) / cell.width)));
+        self.rows = @max(1, @as(Unit, @intFromFloat(@as(f32, @floatFromInt(screen.height)) / cell.height)));
     }
 };
 
@@ -87,12 +87,12 @@ pub const Padding = struct {
     /// for the given grid and cell sizes.
     pub fn balanced(screen: ScreenSize, grid: GridSize, cell: CellSize) Padding {
         // The size of our full grid
-        const grid_width = @floatFromInt(f32, grid.columns) * cell.width;
-        const grid_height = @floatFromInt(f32, grid.rows) * cell.height;
+        const grid_width = @as(f32, @floatFromInt(grid.columns)) * cell.width;
+        const grid_height = @as(f32, @floatFromInt(grid.rows)) * cell.height;
 
         // The empty space to the right of a line and bottom of the last row
-        const space_right = @floatFromInt(f32, screen.width) - grid_width;
-        const space_bot = @floatFromInt(f32, screen.height) - grid_height;
+        const space_right = @as(f32, @floatFromInt(screen.width)) - grid_width;
+        const space_bot = @as(f32, @floatFromInt(screen.height)) - grid_height;
 
         // The left/right padding is just an equal split.
         const padding_right = @floor(space_right / 2);

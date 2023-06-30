@@ -61,7 +61,7 @@ fn genTable() Table {
     // anywhere transitions
     const stateInfo = @typeInfo(State);
     inline for (stateInfo.Enum.fields) |field| {
-        const source = @enumFromInt(State, field.value);
+        const source = @as(State, @enumFromInt(field.value));
 
         // anywhere => ground
         single(&result, 0x18, source, .ground, .execute);
@@ -357,7 +357,7 @@ fn genTable() Table {
     var final: Table = undefined;
     for (0..final.len) |i| {
         for (0..final[0].len) |j| {
-            final[i][j] = result[i][j] orelse transition(@enumFromInt(State, j), .none);
+            final[i][j] = result[i][j] orelse transition(@as(State, @enumFromInt(j)), .none);
         }
     }
 

@@ -70,7 +70,7 @@ pub fn toHostOwned(ptr: anytype) ![*]u8 {
     const info = @typeInfo(@TypeOf(ptr)).Pointer;
     const T = info.child;
     const size = @sizeOf(T);
-    const casted = @ptrFromInt([*]u8, @intFromPtr(ptr));
+    const casted = @as([*]u8, @ptrFromInt(@intFromPtr(ptr)));
 
     // Store the information about it
     try allocs.putNoClobber(alloc, casted, size);
@@ -81,14 +81,14 @@ pub fn toHostOwned(ptr: anytype) ![*]u8 {
 
 /// Returns true if the value is host owned.
 pub fn isHostOwned(ptr: anytype) bool {
-    const casted = @ptrFromInt([*]u8, @intFromPtr(ptr));
+    const casted = @as([*]u8, @ptrFromInt(@intFromPtr(ptr)));
     return allocs.contains(casted);
 }
 
 /// Convert a pointer back to a module-owned value. The caller is expected
 /// to cast or have the valid pointer for alloc calls.
 pub fn toModuleOwned(ptr: anytype) void {
-    const casted = @ptrFromInt([*]u8, @intFromPtr(ptr));
+    const casted = @as([*]u8, @ptrFromInt(@intFromPtr(ptr)));
     _ = allocs.remove(casted);
 }
 

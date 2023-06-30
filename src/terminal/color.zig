@@ -8,7 +8,7 @@ pub const default: Palette = default: {
     // Named values
     var i: u8 = 0;
     while (i < 16) : (i += 1) {
-        result[i] = Name.default(@enumFromInt(Name, i)) catch unreachable;
+        result[i] = Name.default(@as(Name, @enumFromInt(i))) catch unreachable;
     }
 
     // Cube
@@ -111,6 +111,6 @@ test "palette: default" {
     // Safety check
     var i: u8 = 0;
     while (i < 16) : (i += 1) {
-        try testing.expectEqual(Name.default(@enumFromInt(Name, i)), default[i]);
+        try testing.expectEqual(Name.default(@as(Name, @enumFromInt(i))), default[i]);
     }
 }

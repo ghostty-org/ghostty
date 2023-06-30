@@ -6,19 +6,19 @@ const c = @import("c.zig");
 
 pub const FontCollection = opaque {
     pub fn createFromAvailableFonts() Allocator.Error!*FontCollection {
-        return @ptrFromInt(
+        return @as(
             ?*FontCollection,
-            @intFromPtr(c.CTFontCollectionCreateFromAvailableFonts(null)),
+            @ptrFromInt(@intFromPtr(c.CTFontCollectionCreateFromAvailableFonts(null))),
         ) orelse Allocator.Error.OutOfMemory;
     }
 
     pub fn createWithFontDescriptors(descs: *foundation.Array) Allocator.Error!*FontCollection {
-        return @ptrFromInt(
+        return @as(
             ?*FontCollection,
-            @intFromPtr(c.CTFontCollectionCreateWithFontDescriptors(
-                @ptrCast(c.CFArrayRef, descs),
+            @ptrFromInt(@intFromPtr(c.CTFontCollectionCreateWithFontDescriptors(
+                @as(c.CFArrayRef, @ptrCast(descs)),
                 null,
-            )),
+            ))),
         ) orelse Allocator.Error.OutOfMemory;
     }
 
@@ -28,10 +28,10 @@ pub const FontCollection = opaque {
 
     pub fn createMatchingFontDescriptors(self: *FontCollection) *foundation.Array {
         const result = c.CTFontCollectionCreateMatchingFontDescriptors(
-            @ptrCast(c.CTFontCollectionRef, self),
+            @as(c.CTFontCollectionRef, @ptrCast(self)),
         );
         if (result) |ptr| {
-            return @ptrFromInt(*foundation.Array, @intFromPtr(ptr));
+            return @as(*foundation.Array, @ptrFromInt(@intFromPtr(ptr)));
         }
 
         // If we have no results, we create an empty array. This is not

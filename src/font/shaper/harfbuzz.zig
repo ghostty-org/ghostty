@@ -101,7 +101,7 @@ pub const Shaper = struct {
 
         for (info, 0..) |v, i| {
             self.cell_buf[i] = .{
-                .x = @intCast(u16, v.cluster),
+                .x = @as(u16, @intCast(v.cluster)),
                 .glyph_index = v.codepoint,
             };
 

@@ -33,7 +33,7 @@ const prealloc_count = prealloc_columns / unit_bits;
 const masks = blk: {
     var res: [unit_bits]Unit = undefined;
     for (res, 0..) |_, i| {
-        res[i] = @shlExact(@as(Unit, 1), @intCast(u3, i));
+        res[i] = @shlExact(@as(Unit, 1), @as(u3, @intCast(i)));
     }
 
     break :blk res;

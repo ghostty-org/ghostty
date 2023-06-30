@@ -5,16 +5,16 @@ const c = @import("c.zig");
 
 pub const FontDescriptor = opaque {
     pub fn createWithNameAndSize(name: *foundation.String, size: f64) Allocator.Error!*FontDescriptor {
-        return @ptrFromInt(
+        return @as(
             ?*FontDescriptor,
-            @intFromPtr(c.CTFontDescriptorCreateWithNameAndSize(@ptrCast(c.CFStringRef, name), size)),
+            @ptrFromInt(@intFromPtr(c.CTFontDescriptorCreateWithNameAndSize(@as(c.CFStringRef, @ptrCast(name)), size))),
         ) orelse Allocator.Error.OutOfMemory;
     }
 
     pub fn createWithAttributes(dict: *foundation.Dictionary) Allocator.Error!*FontDescriptor {
-        return @ptrFromInt(
+        return @as(
             ?*FontDescriptor,
-            @intFromPtr(c.CTFontDescriptorCreateWithAttributes(@ptrCast(c.CFDictionaryRef, dict))),
+            @ptrFromInt(@intFromPtr(c.CTFontDescriptorCreateWithAttributes(@as(c.CFDictionaryRef, @ptrCast(dict))))),
         ) orelse Allocator.Error.OutOfMemory;
     }
 
@@ -22,12 +22,12 @@ pub const FontDescriptor = opaque {
         original: *FontDescriptor,
         dict: *foundation.Dictionary,
     ) Allocator.Error!*FontDescriptor {
-        return @ptrFromInt(
+        return @as(
             ?*FontDescriptor,
-            @intFromPtr(c.CTFontDescriptorCreateCopyWithAttributes(
-                @ptrCast(c.CTFontDescriptorRef, original),
-                @ptrCast(c.CFDictionaryRef, dict),
-            )),
+            @ptrFromInt(@intFromPtr(c.CTFontDescriptorCreateCopyWithAttributes(
+                @as(c.CTFontDescriptorRef, @ptrCast(original)),
+                @as(c.CFDictionaryRef, @ptrCast(dict)),
+            ))),
         ) orelse Allocator.Error.OutOfMemory;
     }
 
@@ -36,16 +36,16 @@ pub const FontDescriptor = opaque {
     }
 
     pub fn copyAttribute(self: *FontDescriptor, comptime attr: FontAttribute) attr.Value() {
-        return @ptrFromInt(attr.Value(), @intFromPtr(c.CTFontDescriptorCopyAttribute(
-            @ptrCast(c.CTFontDescriptorRef, self),
-            @ptrCast(c.CFStringRef, attr.key()),
-        )));
+        return @as(attr.Value(), @ptrFromInt(@intFromPtr(c.CTFontDescriptorCopyAttribute(
+            @as(c.CTFontDescriptorRef, @ptrCast(self)),
+            @as(c.CFStringRef, @ptrCast(attr.key())),
+        ))));
     }
 
     pub fn copyAttributes(self: *FontDescriptor) *foundation.Dictionary {
-        return @ptrFromInt(*foundation.Dictionary, @intFromPtr(c.CTFontDescriptorCopyAttributes(
-            @ptrCast(c.CTFontDescriptorRef, self),
-        )));
+        return @as(*foundation.Dictionary, @ptrFromInt(@intFromPtr(c.CTFontDescriptorCopyAttributes(
+            @as(c.CTFontDescriptorRef, @ptrCast(self)),
+        ))));
     }
 };
 
@@ -76,7 +76,7 @@ pub const FontAttribute = enum {
     downloaded,
 
     pub fn key(self: FontAttribute) *foundation.String {
-        return @ptrFromInt(*foundation.String, @intFromPtr(switch (self) {
+        return @as(*foundation.String, @ptrFromInt(@intFromPtr(switch (self) {
             .url => c.kCTFontURLAttribute,
             .name => c.kCTFontNameAttribute,
             .display_name => c.kCTFontDisplayNameAttribute,
@@ -101,7 +101,7 @@ pub const FontAttribute = enum {
             .enabled => c.kCTFontEnabledAttribute,
             .downloadable => c.kCTFontDownloadableAttribute,
             .downloaded => c.kCTFontDownloadedAttribute,
-        }));
+        })));
     }
 
     pub fn Value(comptime self: FontAttribute) type {
@@ -141,12 +141,12 @@ pub const FontTraitKey = enum {
     slant,
 
     pub fn key(self: FontTraitKey) *foundation.String {
-        return @ptrFromInt(*foundation.String, @intFromPtr(switch (self) {
+        return @as(*foundation.String, @ptrFromInt(@intFromPtr(switch (self) {
             .symbolic => c.kCTFontSymbolicTrait,
             .weight => c.kCTFontWeightTrait,
             .width => c.kCTFontWidthTrait,
             .slant => c.kCTFontSlantTrait,
-        }));
+        })));
     }
 
     pub fn Value(self: FontTraitKey) type {
@@ -176,11 +176,11 @@ pub const FontSymbolicTraits = packed struct {
     pub fn init(num: *foundation.Number) FontSymbolicTraits {
         var raw: i32 = undefined;
         _ = num.getValue(.sint32, &raw);
-        return @bitCast(FontSymbolicTraits, raw);
+        return @as(FontSymbolicTraits, @bitCast(raw));
     }
 
     pub fn cval(self: FontSymbolicTraits) c.CTFontSymbolicTraits {
-        return @bitCast(c.CTFontSymbolicTraits, self);
+        return @as(c.CTFontSymbolicTraits, @bitCast(self));
     }
 
     test {
@@ -197,7 +197,7 @@ pub const FontSymbolicTraits = packed struct {
             .expanded = true,
         };
 
-        try std.testing.expectEqual(actual, @bitCast(c.CTFontSymbolicTraits, expected));
+        try std.testing.expectEqual(actual, @as(c.CTFontSymbolicTraits, @bitCast(expected)));
     }
 
     test "number" {

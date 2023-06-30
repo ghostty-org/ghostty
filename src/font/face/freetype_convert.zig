@@ -55,20 +55,20 @@ pub fn monoToGreyscale(alloc: Allocator, bm: Bitmap) Allocator.Error!Bitmap {
         while (j > 0) : (j -= 1) {
             var bit: u4 = 8;
             while (bit > 0) : (bit -= 1) {
-                const mask = @as(u8, 1) << @intCast(u3, bit - 1);
+                const mask = @as(u8, 1) << @as(u3, @intCast(bit - 1));
                 const bitval: u8 = if (bm.buffer[source_i + (j - 1)] & mask > 0) 0xFF else 0;
                 buf[target_i] = bitval;
                 target_i += 1;
             }
         }
 
-        source_i += @intCast(usize, bm.pitch);
+        source_i += @as(usize, @intCast(bm.pitch));
     }
 
     var copy = bm;
     copy.buffer = buf.ptr;
     copy.pixel_mode = freetype.c.FT_PIXEL_MODE_GRAY;
-    copy.pitch = @intCast(c_int, bm.width);
+    copy.pitch = @as(c_int, @intCast(bm.width));
     return copy;
 }
 
@@ -86,7 +86,7 @@ test "mono to greyscale" {
         .rows = 1,
         .width = 8,
         .pitch = 1,
-        .buffer = @ptrCast([*c]u8, &mono_data),
+        .buffer = @as([*c]u8, @ptrCast(&mono_data)),
         .num_grays = 0,
         .pixel_mode = freetype.c.FT_PIXEL_MODE_MONO,
         .palette_mode = 0,

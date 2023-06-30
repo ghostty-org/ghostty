@@ -5,7 +5,7 @@ const Pattern = @import("pattern.zig").Pattern;
 
 pub const FontSet = opaque {
     pub fn create() *FontSet {
-        return @ptrCast(*FontSet, c.FcFontSetCreate());
+        return @as(*FontSet, @ptrCast(c.FcFontSetCreate()));
     }
 
     pub fn destroy(self: *FontSet) void {
@@ -16,8 +16,8 @@ pub const FontSet = opaque {
         const empty: [0]*Pattern = undefined;
         const s = self.cval();
         if (s.fonts == null) return &empty;
-        const ptr = @ptrCast([*]*Pattern, @alignCast(@alignOf(*Pattern), s.fonts));
-        const len = @intCast(usize, s.nfont);
+        const ptr = @as([*]*Pattern, @ptrCast(@alignCast(@alignOf(*Pattern), s.fonts)));
+        const len = @as(usize, @intCast(s.nfont));
         return ptr[0..len];
     }
 
@@ -30,9 +30,9 @@ pub const FontSet = opaque {
     }
 
     pub inline fn cval(self: *FontSet) *c.struct__FcFontSet {
-        return @ptrCast(
+        return @as(
             *c.struct__FcFontSet,
-            @alignCast(@alignOf(c.struct__FcFontSet), self),
+            @ptrCast(@alignCast(@alignOf(c.struct__FcFontSet), self)),
         );
     }
 };

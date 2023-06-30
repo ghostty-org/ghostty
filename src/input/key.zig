@@ -17,9 +17,9 @@ pub const Mods = packed struct(u8) {
     // For our own understanding
     test {
         const testing = std.testing;
-        try testing.expectEqual(@bitCast(u8, Mods{}), @as(u8, 0b0));
+        try testing.expectEqual(@as(u8, @bitCast(Mods{})), @as(u8, 0b0));
         try testing.expectEqual(
-            @bitCast(u8, Mods{ .shift = true }),
+            @as(u8, @bitCast(Mods{ .shift = true })),
             @as(u8, 0b0000_0001),
         );
     }

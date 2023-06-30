@@ -5,16 +5,16 @@ const Allocator = std.mem.Allocator;
 
 pub const DrawData = opaque {
     pub fn get() Allocator.Error!*DrawData {
-        return @ptrCast(
+        return @as(
             ?*DrawData,
-            c.igGetDrawData(),
+            @ptrCast(c.igGetDrawData()),
         ) orelse Allocator.Error.OutOfMemory;
     }
 
     pub inline fn cval(self: *DrawData) *c.ImGuiDrawData {
-        return @ptrCast(
+        return @as(
             *c.ImGuiDrawData,
-            @alignCast(@alignOf(c.ImGuiDrawData), self),
+            @ptrCast(@alignCast(self)),
         );
     }
 };

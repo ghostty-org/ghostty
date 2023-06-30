@@ -43,7 +43,7 @@ pub fn renderGlyph(
     // Our coordinates start at the BOTTOM for our renderers so we have to
     // specify an offset of the full height because we rendered a full size
     // cell.
-    const offset_y = @intCast(i32, height);
+    const offset_y = @as(i32, @intCast(height));
 
     return font.Glyph{
         .width = width,
@@ -52,7 +52,7 @@ pub fn renderGlyph(
         .offset_y = offset_y,
         .atlas_x = region.x,
         .atlas_y = region.y,
-        .advance_x = @floatFromInt(f32, width),
+        .advance_x = @as(f32, @floatFromInt(width)),
     };
 }
 
@@ -80,7 +80,7 @@ const Draw = struct {
         // Ensure we never overflow out of bounds on the canvas
         const y_max = self.height -| 1;
         const bottom = @min(self.pos + self.thickness, y_max);
-        const y = @intCast(i32, bottom - self.thickness);
+        const y = @as(i32, @intCast(bottom - self.thickness));
 
         canvas.rect(.{
             .x = 0,
@@ -104,14 +104,14 @@ const Draw = struct {
 
         canvas.rect(.{
             .x = 0,
-            .y = @intCast(i32, top),
+            .y = @as(i32, @intCast(top)),
             .width = self.width,
             .height = self.thickness,
         }, .on);
 
         canvas.rect(.{
             .x = 0,
-            .y = @intCast(i32, bottom),
+            .y = @as(i32, @intCast(bottom)),
             .width = self.width,
             .height = self.thickness,
         }, .on);
@@ -130,8 +130,8 @@ const Draw = struct {
             const x = @min(i * dot_width, self.width - 1);
             const width = @min(self.width - 1 - x, dot_width);
             canvas.rect(.{
-                .x = @intCast(i32, i * dot_width),
-                .y = @intCast(i32, y),
+                .x = @as(i32, @intCast(i * dot_width)),
+                .y = @as(i32, @intCast(y)),
                 .width = width,
                 .height = self.thickness,
             }, .on);
@@ -151,8 +151,8 @@ const Draw = struct {
             const x = @min(i * dash_width, self.width - 1);
             const width = @min(self.width - 1 - x, dash_width);
             canvas.rect(.{
-                .x = @intCast(i32, x),
-                .y = @intCast(i32, y),
+                .x = @as(i32, @intCast(x)),
+                .y = @as(i32, @intCast(y)),
                 .width = width,
                 .height = self.thickness,
             }, .on);
@@ -178,24 +178,24 @@ const Draw = struct {
         // The full heightof the wave can be from the bottom to the
         // underline position. We also calculate our starting y which is
         // slightly below our descender since our wave will move about that.
-        const wave_height = @floatFromInt(f64, y_max - pos);
+        const wave_height = @as(f64, @floatFromInt(y_max - pos));
         const half_height = wave_height / 4;
-        const y = pos + @intFromFloat(u32, half_height);
+        const y = pos + @as(u32, @intFromFloat(half_height));
 
-        const x_factor = (2 * std.math.pi) / @floatFromInt(f64, self.width);
+        const x_factor = (2 * std.math.pi) / @as(f64, @floatFromInt(self.width));
         var x: u32 = 0;
         while (x < self.width) : (x += 1) {
-            const vertical = @intFromFloat(
+            const vertical = @as(
                 u32,
-                (-1 * half_height) * @sin(@floatFromInt(f64, x) * x_factor) + half_height,
+                @intFromFloat((-1 * half_height) * @sin(@as(f64, @floatFromInt(x)) * x_factor) + half_height),
             );
 
             var row: u32 = 0;
             while (row < self.thickness) : (row += 1) {
                 const y1 = @min(row + y + vertical, y_max);
                 canvas.rect(.{
-                    .x = @intCast(i32, x),
-                    .y = @intCast(i32, y1),
+                    .x = @as(i32, @intCast(x)),
+                    .y = @as(i32, @intCast(y1)),
                     .width = 1,
                     .height = 1,
                 }, .on);

@@ -106,7 +106,7 @@ const Impl = struct {
                 log2_ptr_align: u8,
                 ret_addr: usize,
             ) ?[*]u8 {
-                const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
+                const self = @as(*Self, @ptrCast(@alignCast(ctx)));
                 const result = self.parent.rawAlloc(len, log2_ptr_align, ret_addr);
                 if (result) |data| {
                     if (len != 0) {
@@ -128,7 +128,7 @@ const Impl = struct {
                 new_len: usize,
                 ret_addr: usize,
             ) bool {
-                const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
+                const self = @as(*Self, @ptrCast(@alignCast(ctx)));
                 if (self.parent.rawResize(buf, log2_buf_align, new_len, ret_addr)) {
                     if (name) |n| {
                         freeNamed(buf.ptr, n);
@@ -152,7 +152,7 @@ const Impl = struct {
                 log2_buf_align: u8,
                 ret_addr: usize,
             ) void {
-                const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
+                const self = @as(*Self, @ptrCast(@alignCast(ctx)));
                 self.parent.rawFree(buf, log2_buf_align, ret_addr);
 
                 if (buf.len != 0) {

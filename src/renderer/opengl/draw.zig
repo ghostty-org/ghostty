@@ -16,7 +16,7 @@ pub fn drawArrays(mode: c.GLenum, first: c.GLint, count: c.GLsizei) !void {
 }
 
 pub fn drawElements(mode: c.GLenum, count: c.GLsizei, typ: c.GLenum, offset: usize) !void {
-    const offsetPtr = if (offset == 0) null else @ptrFromInt(*const anyopaque, offset);
+    const offsetPtr = if (offset == 0) null else @as(*const anyopaque, @ptrFromInt(offset));
     glad.context.DrawElements.?(mode, count, typ, offsetPtr);
     try errors.getError();
 }
@@ -27,7 +27,7 @@ pub fn drawElementsInstanced(
     typ: c.GLenum,
     primcount: usize,
 ) !void {
-    glad.context.DrawElementsInstanced.?(mode, count, typ, null, @intCast(c.GLsizei, primcount));
+    glad.context.DrawElementsInstanced.?(mode, count, typ, null, @as(c.GLsizei, @intCast(primcount)));
     try errors.getError();
 }
 

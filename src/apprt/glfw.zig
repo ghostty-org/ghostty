@@ -291,8 +291,8 @@ pub const Surface = struct {
             };
             const physical_size = monitor.getPhysicalSize();
             const video_mode = monitor.getVideoMode() orelse return glfw.mustGetErrorCode();
-            const physical_x_dpi = @floatFromInt(f32, video_mode.getWidth()) / (@floatFromInt(f32, physical_size.width_mm) / 25.4);
-            const physical_y_dpi = @floatFromInt(f32, video_mode.getHeight()) / (@floatFromInt(f32, physical_size.height_mm) / 25.4);
+            const physical_x_dpi = @as(f32, @floatFromInt(video_mode.getWidth())) / (@as(f32, @floatFromInt(physical_size.width_mm)) / 25.4);
+            const physical_y_dpi = @as(f32, @floatFromInt(video_mode.getHeight())) / (@as(f32, @floatFromInt(physical_size.height_mm)) / 25.4);
             log.debug("physical dpi x={} y={}", .{
                 physical_x_dpi,
                 physical_y_dpi,
@@ -463,8 +463,8 @@ pub const Surface = struct {
         const unscaled_pos = self.window.getCursorPos();
         const pos = try self.cursorPosToPixels(unscaled_pos);
         return apprt.CursorPos{
-            .x = @floatCast(f32, pos.xpos),
-            .y = @floatCast(f32, pos.ypos),
+            .x = @as(f32, @floatCast(pos.xpos)),
+            .y = @as(f32, @floatCast(pos.ypos)),
         };
     }
 
@@ -512,8 +512,8 @@ pub const Surface = struct {
         if (fb_size.width == size.width and fb_size.height == size.height)
             return pos;
 
-        const x_scale = @floatFromInt(f64, fb_size.width) / @floatFromInt(f64, size.width);
-        const y_scale = @floatFromInt(f64, fb_size.height) / @floatFromInt(f64, size.height);
+        const x_scale = @as(f64, @floatFromInt(fb_size.width)) / @as(f64, @floatFromInt(size.width));
+        const y_scale = @as(f64, @floatFromInt(fb_size.height)) / @as(f64, @floatFromInt(size.height));
         return .{
             .xpos = pos.xpos * x_scale,
             .ypos = pos.ypos * y_scale,
@@ -564,7 +564,7 @@ pub const Surface = struct {
         defer tracy.end();
 
         // Convert our glfw types into our input types
-        const mods = @bitCast(input.Mods, glfw_mods);
+        const mods = @as(input.Mods, @bitCast(glfw_mods));
         const action: input.Action = switch (glfw_action) {
             .release => .release,
             .press => .press,
@@ -764,8 +764,8 @@ pub const Surface = struct {
         };
 
         core_win.cursorPosCallback(.{
-            .x = @floatCast(f32, pos.xpos),
-            .y = @floatCast(f32, pos.ypos),
+            .x = @as(f32, @floatCast(pos.xpos)),
+            .y = @as(f32, @floatCast(pos.ypos)),
         }) catch |err| {
             log.err("error in cursor pos callback err={}", .{err});
             return;
@@ -784,7 +784,7 @@ pub const Surface = struct {
         const core_win = window.getUserPointer(CoreSurface) orelse return;
 
         // Convert glfw button to input button
-        const mods = @bitCast(input.Mods, glfw_mods);
+        const mods = @as(input.Mods, @bitCast(glfw_mods));
         const button: input.MouseButton = switch (glfw_button) {
             .left => .left,
             .right => .right,
