@@ -164,7 +164,7 @@ pub const FlatpakHostCommand = struct {
                 "(uub)",
                 pid,
                 sig,
-                @as(c_int, @intCast(@intFromBool(pg))),
+                @intCast(@intFromBool(pg)),
             ),
             c.G_VARIANT_TYPE("()"),
             c.G_DBUS_CALL_FLAGS_NONE,
@@ -247,9 +247,9 @@ pub const FlatpakHostCommand = struct {
         // Build our arguments for the file descriptors.
         const fd_builder = c.g_variant_builder_new(c.G_VARIANT_TYPE("a{uh}"));
         defer c.g_variant_builder_unref(fd_builder);
-        c.g_variant_builder_add(fd_builder, "{uh}", @as(c_int, 0), self.stdin);
-        c.g_variant_builder_add(fd_builder, "{uh}", @as(c_int, 1), self.stdout);
-        c.g_variant_builder_add(fd_builder, "{uh}", @as(c_int, 2), self.stderr);
+        c.g_variant_builder_add(fd_builder, "{uh}", 0, self.stdin);
+        c.g_variant_builder_add(fd_builder, "{uh}", 1, self.stdout);
+        c.g_variant_builder_add(fd_builder, "{uh}", 2, self.stderr);
 
         // Build our env vars
         const env_builder = c.g_variant_builder_new(c.G_VARIANT_TYPE("a{ss}"));
@@ -273,7 +273,7 @@ pub const FlatpakHostCommand = struct {
             }
         }
         const args = c.g_ptr_array_free(args_ptr, 0);
-        defer c.g_free(@as(?*anyopaque, @ptrCast(args)));
+        defer c.g_free(@ptrCast(args));
 
         // Get the cwd in case we don't have ours set. A small optimization
         // would be to do this only if we need it but this isn't a
@@ -288,7 +288,7 @@ pub const FlatpakHostCommand = struct {
             args,
             c.g_variant_builder_end(fd_builder),
             c.g_variant_builder_end(env_builder),
-            @as(c_int, 0),
+            0,
         );
         _ = c.g_variant_ref_sink(params); // take ownership
         defer c.g_variant_unref(params);

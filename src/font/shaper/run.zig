@@ -118,7 +118,7 @@ pub const RunIterator = struct {
             if (font_idx.int() != current_font.int()) break;
 
             // Continue with our run
-            try self.hooks.addCodepoint(cell.char, @as(u32, @intCast(cluster)));
+            try self.hooks.addCodepoint(cell.char, @intCast(cluster));
 
             // If this cell is part of a grapheme cluster, add all the grapheme
             // data points.
@@ -126,7 +126,7 @@ pub const RunIterator = struct {
                 var it = self.row.codepointIterator(j);
                 while (it.next()) |cp| {
                     if (cp == 0xFE0E or cp == 0xFE0F) continue;
-                    try self.hooks.addCodepoint(cp, @as(u32, @intCast(cluster)));
+                    try self.hooks.addCodepoint(cp, @intCast(cluster));
                 }
             }
         }
@@ -138,8 +138,8 @@ pub const RunIterator = struct {
         defer self.i = j;
 
         return TextRun{
-            .offset = @as(u16, @intCast(self.i)),
-            .cells = @as(u16, @intCast(j - self.i)),
+            .offset = @intCast(self.i),
+            .cells = @intCast(j - self.i),
             .group = self.group,
             .font_index = current_font,
         };

@@ -143,7 +143,7 @@ pub const FontIndex = packed struct(u8) {
 
     /// Convert to int
     pub fn int(self: FontIndex) u8 {
-        return @as(u8, @bitCast(self));
+        return @bitCast(self);
     }
 
     /// Returns true if this is a "special" index which doesn't map to
@@ -151,7 +151,7 @@ pub const FontIndex = packed struct(u8) {
     /// this font.
     pub fn special(self: FontIndex) ?Special {
         if (self.idx < Special.start) return null;
-        return @as(Special, @enumFromInt(self.idx));
+        return @enumFromInt(self.idx);
     }
 
     test {
@@ -223,7 +223,7 @@ fn indexForCodepointExact(self: Group, cp: u32, style: Style, p: ?Presentation) 
         if (deferred.hasCodepoint(cp, p)) {
             return FontIndex{
                 .style = style,
-                .idx = @as(FontIndex.IndexInt, @intCast(i)),
+                .idx = @intCast(i),
             };
         }
     }
@@ -247,7 +247,7 @@ pub fn presentationFromIndex(self: Group, index: FontIndex) !font.Presentation {
 /// fonts (i.e. box glyphs) do not have a face.
 pub fn faceFromIndex(self: Group, index: FontIndex) !*Face {
     if (index.special() != null) return error.SpecialHasNoFace;
-    const deferred = &self.faces.get(index.style).items[@as(usize, @intCast(index.idx))];
+    const deferred = &self.faces.get(index.style).items[@intCast(index.idx)];
     try deferred.load(self.lib, self.size);
     return &deferred.face.?;
 }
@@ -280,7 +280,7 @@ pub fn renderGlyph(
         ),
     };
 
-    const face = &self.faces.get(index.style).items[@as(usize, @intCast(index.idx))];
+    const face = &self.faces.get(index.style).items[@intCast(index.idx)];
     try face.load(self.lib, self.size);
     return try face.face.?.renderGlyph(alloc, atlas, glyph_index, max_height);
 }
@@ -327,15 +327,15 @@ pub const Wasm = struct {
 
         // Set details for our sprite font
         self.sprite = font.sprite.Face{
-            .width = @as(u32, @intFromFloat(metrics.cell_width)),
-            .height = @as(u32, @intFromFloat(metrics.cell_height)),
+            .width = @intFromFloat(metrics.cell_width),
+            .height = @intFromFloat(metrics.cell_height),
             .thickness = 2,
-            .underline_position = @as(u32, @intFromFloat(metrics.underline_position)),
+            .underline_position = @intFromFloat(metrics.underline_position),
         };
     }
 
     export fn group_add_face(self: *Group, style: u16, face: *font.DeferredFace) void {
-        return self.addFace(alloc, @as(Style, @enumFromInt(style)), face.*) catch |err| {
+        return self.addFace(alloc, @enumFromInt(style), face.*) catch |err| {
             log.warn("error adding face to group err={}", .{err});
             return;
         };
@@ -350,13 +350,13 @@ pub const Wasm = struct {
 
     /// Presentation is negative for doesn't matter.
     export fn group_index_for_codepoint(self: *Group, cp: u32, style: u16, p: i16) i16 {
-        const presentation = if (p < 0) null else @as(Presentation, @enumFromInt(p));
+        const presentation: ?Presentation = if (p < 0) null else @enumFromInt(p);
         const idx = self.indexForCodepoint(
             cp,
-            @as(Style, @enumFromInt(style)),
+            @enumFromInt(style),
             presentation,
         ) orelse return -1;
-        return @as(i16, @intCast(@as(u8, @bitCast(idx))));
+        return @intCast(@as(u8, @bitCast(idx)));
     }
 
     export fn group_render_glyph(

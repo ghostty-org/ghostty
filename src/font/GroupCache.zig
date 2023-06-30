@@ -266,14 +266,14 @@ pub const Wasm = struct {
 
     /// Presentation is negative for doesn't matter.
     export fn group_cache_index_for_codepoint(self: *GroupCache, cp: u32, style: u16, p: i16) i16 {
-        const presentation = if (p < 0) null else @as(Presentation, @enumFromInt(p));
+        const presentation: ?Presentation = if (p < 0) null else @enumFromInt(p);
         if (self.indexForCodepoint(
             alloc,
             cp,
-            @as(Style, @enumFromInt(style)),
+            @enumFromInt(style),
             presentation,
         )) |idx| {
-            return @as(i16, @intCast(@as(u8, @bitCast(idx orelse return -1))));
+            return @intCast(@as(u8, @bitCast(idx orelse return -1)));
         } else |err| {
             log.warn("error getting index for codepoint from group cache size err={}", .{err});
             return -1;

@@ -352,7 +352,7 @@ pub const Face = struct {
             // If we are a normal glyph then we are a single codepoint and
             // we just UTF8 encode it as-is.
             if (glyph_index < grapheme_start) {
-                const utf8_len = try std.unicode.utf8Encode(@as(u21, @intCast(glyph_index)), &utf8);
+                const utf8_len = try std.unicode.utf8Encode(@intCast(glyph_index), &utf8);
                 break :glyph_str js.string(utf8[0..utf8_len]);
             }
 
@@ -424,8 +424,8 @@ pub const Face = struct {
         // Draw background
         try ctx.set("fillStyle", js.string("transparent"));
         try ctx.call(void, "fillRect", .{
-            @as(u32, 0),
-            @as(u32, 0),
+            0,
+            0,
             width,
             height,
         });
@@ -449,7 +449,7 @@ pub const Face = struct {
 
             // Allocate our local memory to copy the data to.
             const len = try src_array.get(u32, "length");
-            var bitmap = try alloc.alloc(u8, @as(usize, @intCast(len)));
+            var bitmap = try alloc.alloc(u8, @intCast(len));
             errdefer alloc.free(bitmap);
 
             // Create our target Uint8Array that we can use to copy from src.
@@ -501,7 +501,7 @@ pub const Wasm = struct {
             alloc,
             ptr[0..len],
             .{ .points = pts },
-            @as(font.Presentation, @enumFromInt(presentation)),
+            @enumFromInt(presentation),
         );
         errdefer face.deinit();
 

@@ -72,7 +72,7 @@ pub fn renderGlyph(
         .underline => try underline.renderGlyph(
             alloc,
             atlas,
-            @as(Sprite, @enumFromInt(cp)),
+            @enumFromInt(cp),
             self.width,
             self.height,
             self.underline_position,

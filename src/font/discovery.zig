@@ -149,10 +149,7 @@ pub const Descriptor = struct {
             );
         }
 
-        return try macos.text.FontDescriptor.createWithAttributes(@as(
-            *macos.foundation.Dictionary,
-            @ptrCast(attrs),
-        ));
+        return try macos.text.FontDescriptor.createWithAttributes(@ptrCast(attrs));
     }
 };
 
@@ -291,9 +288,7 @@ pub const CoreText = struct {
                 // the descriptor removes the charset restriction. This is tested.
                 const attrs = original.copyAttributes();
                 defer attrs.release();
-                break :desc try macos.text.FontDescriptor.createWithAttributes(
-                    @as(*macos.foundation.Dictionary, @ptrCast(attrs)),
-                );
+                break :desc try macos.text.FontDescriptor.createWithAttributes(@ptrCast(attrs));
             };
             defer desc.release();
 

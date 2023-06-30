@@ -317,7 +317,7 @@ pub const Wasm = struct {
         const atlas = init(
             alloc,
             size,
-            @as(Format, @enumFromInt(format)),
+            @enumFromInt(format),
         ) catch return null;
         const result = alloc.create(Atlas) catch return null;
         result.* = atlas;

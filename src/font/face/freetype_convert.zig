@@ -62,7 +62,7 @@ pub fn monoToGreyscale(alloc: Allocator, bm: Bitmap) Allocator.Error!Bitmap {
             }
         }
 
-        source_i += @as(usize, @intCast(bm.pitch));
+        source_i += @intCast(bm.pitch);
     }
 
     var copy = bm;
@@ -86,7 +86,7 @@ test "mono to greyscale" {
         .rows = 1,
         .width = 8,
         .pitch = 1,
-        .buffer = @as([*c]u8, @ptrCast(&mono_data)),
+        .buffer = @ptrCast(&mono_data),
         .num_grays = 0,
         .pixel_mode = freetype.c.FT_PIXEL_MODE_MONO,
         .palette_mode = 0,

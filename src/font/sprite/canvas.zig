@@ -31,8 +31,8 @@ pub const Box = struct {
         return .{
             .x = tl_x,
             .y = tl_y,
-            .width = @as(u32, @intCast(br_x - tl_x)),
-            .height = @as(u32, @intCast(br_y - tl_y)),
+            .width = @intCast(br_x - tl_x),
+            .height = @intCast(br_y - tl_y),
         };
     }
 };
@@ -235,7 +235,7 @@ const WebCanvasImpl = struct {
 
             // Allocate our local memory to copy the data to.
             const len = try src_array.get(u32, "length");
-            var bitmap = try alloc.alloc(u8, @as(usize, @intCast(len)));
+            var bitmap = try alloc.alloc(u8, @intCast(len));
             errdefer alloc.free(bitmap);
 
             // Create our target Uint8Array that we can use to copy from src.
@@ -315,8 +315,8 @@ const PixmanImpl = struct {
         // Create the image we'll draw to
         const img = try pixman.Image.createBitsNoClear(
             format,
-            @as(c_int, @intCast(width)),
-            @as(c_int, @intCast(height)),
+            @intCast(width),
+            @intCast(height),
             data.ptr,
             stride,
         );
@@ -382,10 +382,10 @@ const PixmanImpl = struct {
     pub fn rect(self: *Canvas, v: Rect, color: Color) void {
         const boxes = &[_]pixman.Box32{
             .{
-                .x1 = @as(i32, @intCast(v.x)),
-                .y1 = @as(i32, @intCast(v.y)),
-                .x2 = @as(i32, @intCast(v.x + @as(i32, @intCast(v.width)))),
-                .y2 = @as(i32, @intCast(v.y + @as(i32, @intCast(v.height)))),
+                .x1 = @intCast(v.x),
+                .y1 = @intCast(v.y),
+                .x2 = @intCast(v.x + @as(i32, @intCast(v.width))),
+                .y2 = @intCast(v.y + @as(i32, @intCast(v.height))),
             },
         };
 
@@ -445,10 +445,10 @@ const PixmanImpl = struct {
             0,
             0,
             0,
-            @as(i16, @intCast(dest.x)),
-            @as(i16, @intCast(dest.y)),
-            @as(u16, @intCast(dest.width)),
-            @as(u16, @intCast(dest.height)),
+            @intCast(dest.x),
+            @intCast(dest.y),
+            @intCast(dest.width),
+            @intCast(dest.height),
         );
     }
 };

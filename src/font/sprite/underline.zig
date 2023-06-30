@@ -52,7 +52,7 @@ pub fn renderGlyph(
         .offset_y = offset_y,
         .atlas_x = region.x,
         .atlas_y = region.y,
-        .advance_x = @as(f32, @floatFromInt(width)),
+        .advance_x = @floatFromInt(width),
     };
 }
 
@@ -104,14 +104,14 @@ const Draw = struct {
 
         canvas.rect(.{
             .x = 0,
-            .y = @as(i32, @intCast(top)),
+            .y = @intCast(top),
             .width = self.width,
             .height = self.thickness,
         }, .on);
 
         canvas.rect(.{
             .x = 0,
-            .y = @as(i32, @intCast(bottom)),
+            .y = @intCast(bottom),
             .width = self.width,
             .height = self.thickness,
         }, .on);
@@ -130,8 +130,8 @@ const Draw = struct {
             const x = @min(i * dot_width, self.width - 1);
             const width = @min(self.width - 1 - x, dot_width);
             canvas.rect(.{
-                .x = @as(i32, @intCast(i * dot_width)),
-                .y = @as(i32, @intCast(y)),
+                .x = @intCast(i * dot_width),
+                .y = @intCast(y),
                 .width = width,
                 .height = self.thickness,
             }, .on);
@@ -151,8 +151,8 @@ const Draw = struct {
             const x = @min(i * dash_width, self.width - 1);
             const width = @min(self.width - 1 - x, dash_width);
             canvas.rect(.{
-                .x = @as(i32, @intCast(x)),
-                .y = @as(i32, @intCast(y)),
+                .x = @intCast(x),
+                .y = @intCast(y),
                 .width = width,
                 .height = self.thickness,
             }, .on);
@@ -194,8 +194,8 @@ const Draw = struct {
             while (row < self.thickness) : (row += 1) {
                 const y1 = @min(row + y + vertical, y_max);
                 canvas.rect(.{
-                    .x = @as(i32, @intCast(x)),
-                    .y = @as(i32, @intCast(y1)),
+                    .x = @intCast(x),
+                    .y = @intCast(y1),
                     .width = 1,
                     .height = 1,
                 }, .on);

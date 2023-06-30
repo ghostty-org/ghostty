@@ -94,7 +94,7 @@ pub const Face = struct {
         var best_i: i32 = 0;
         var best_diff: i32 = 0;
         while (i < face.handle.*.num_fixed_sizes) : (i += 1) {
-            const width = face.handle.*.available_sizes[@as(usize, @intCast(i))].width;
+            const width = face.handle.*.available_sizes[@intCast(i)].width;
             const diff = @as(i32, @intCast(size)) - @as(i32, @intCast(width));
             if (i == 0 or diff < best_diff) {
                 best_diff = diff;
@@ -206,12 +206,12 @@ pub const Face = struct {
 
             if (resize.stbir_resize_uint8(
                 bm.buffer,
-                @as(c_int, @intCast(bm.width)),
-                @as(c_int, @intCast(bm.rows)),
+                @intCast(bm.width),
+                @intCast(bm.rows),
                 bm.pitch,
                 result.buffer,
-                @as(c_int, @intCast(result.width)),
-                @as(c_int, @intCast(result.rows)),
+                @intCast(result.width),
+                @intCast(result.rows),
                 result.pitch,
                 atlas.format.depth(),
             ) == 0) {
@@ -242,8 +242,8 @@ pub const Face = struct {
         const glyph_metrics = if (bitmap_resized) |bm| metrics: {
             // Our ratio for the resize
             const ratio = ratio: {
-                const new = @as(f64, @floatFromInt(bm.rows));
-                const old = @as(f64, @floatFromInt(bitmap_original.rows));
+                const new: f64 = @floatFromInt(bm.rows);
+                const old: f64 = @floatFromInt(bitmap_original.rows);
                 break :ratio new / old;
             };
 
@@ -308,7 +308,7 @@ pub const Face = struct {
             atlas.set(region, buffer);
         }
 
-        const offset_y = offset_y: {
+        const offset_y: c_int = offset_y: {
             // For non-scalable colorized fonts, we assume they are pictographic
             // and just center the glyph. So far this has only applied to emoji
             // fonts. Emoji fonts don't always report a correct ascender/descender
@@ -318,7 +318,7 @@ pub const Face = struct {
             // NOTE(mitchellh): I don't know if this is right, this doesn't
             // _feel_ right, but it makes all my limited test cases work.
             if (self.face.hasColor() and !self.face.isScalable()) {
-                break :offset_y @as(c_int, @intCast(tgt_h));
+                break :offset_y @intCast(tgt_h);
             }
 
             // The Y offset is the offset of the top of our bitmap PLUS our
@@ -343,15 +343,15 @@ pub const Face = struct {
     /// Convert 16.6 pixel format to pixels based on the scale factor of the
     /// current font size.
     fn unitsToPxY(self: Face, units: i32) i32 {
-        return @as(i32, @intCast(freetype.mulFix(
+        return @intCast(freetype.mulFix(
             units,
-            @as(i32, @intCast(self.face.handle.*.size.*.metrics.y_scale)),
-        ) >> 6));
+            @intCast(self.face.handle.*.size.*.metrics.y_scale),
+        ) >> 6);
     }
 
     /// Convert 26.6 pixel format to f32
     fn f26dot6ToFloat(v: freetype.c.FT_F26Dot6) f32 {
-        return @as(f32, @floatFromInt(v >> 6));
+        return @floatFromInt(v >> 6);
     }
 
     /// Calculate the metrics associated with a face. This is not public because
@@ -398,8 +398,8 @@ pub const Face = struct {
                 if (face.getCharIndex('_')) |glyph_index| {
                     if (face.loadGlyph(glyph_index, .{ .render = true })) {
                         var res: f32 = f26dot6ToFloat(size_metrics.ascender);
-                        res -= @as(f32, @floatFromInt(face.handle.*.glyph.*.bitmap_top));
-                        res += @as(f32, @floatFromInt(face.handle.*.glyph.*.bitmap.rows));
+                        res -= @floatFromInt(face.handle.*.glyph.*.bitmap_top);
+                        res += @floatFromInt(face.handle.*.glyph.*.bitmap.rows);
                         break :underscore res;
                     } else |_| {
                         // Ignore the error since we just fall back below
@@ -422,19 +422,19 @@ pub const Face = struct {
 
         // The underline position. This is a value from the top where the
         // underline should go.
-        const underline_position = underline_pos: {
+        const underline_position: f32 = underline_pos: {
             // The ascender is already scaled for scalable fonts, but the
             // underline position is not.
             const ascender_px = @as(i32, @intCast(size_metrics.ascender)) >> 6;
             const declared_px = freetype.mulFix(
                 face.handle.*.underline_position,
-                @as(i32, @intCast(face.handle.*.size.*.metrics.y_scale)),
+                @intCast(face.handle.*.size.*.metrics.y_scale),
             ) >> 6;
 
             // We use the declared underline position if its available
             const declared = ascender_px - declared_px;
             if (declared > 0)
-                break :underline_pos @as(f32, @floatFromInt(declared));
+                break :underline_pos @floatFromInt(declared);
 
             // If we have no declared underline position, we go slightly under the
             // cell height (mainly: non-scalable fonts, i.e. emoji)
@@ -459,7 +459,7 @@ pub const Face = struct {
                     @as(i32, @intCast(face.handle.*.size.*.metrics.y_scale)),
                 ) >> 6;
 
-                break :pos @as(f32, @floatFromInt(ascender_px - declared_px));
+                break :pos @floatFromInt(ascender_px - declared_px);
             },
             .thickness = @max(@as(f32, 1), fontUnitsToPxY(face, os2.yStrikeoutSize)),
         } else .{

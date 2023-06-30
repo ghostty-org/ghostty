@@ -75,7 +75,7 @@ pub fn renderGlyph(
         .offset_y = offset_y,
         .atlas_x = region.x,
         .atlas_y = region.y,
-        .advance_x = @as(f32, @floatFromInt(self.width)),
+        .advance_x = @floatFromInt(self.width),
     };
 }
 

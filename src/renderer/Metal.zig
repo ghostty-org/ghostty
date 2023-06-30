@@ -213,10 +213,10 @@ pub fn init(alloc: Allocator, options: renderer.Options) !Metal {
 
     // Set the sprite font up
     options.font_group.group.sprite = font.sprite.Face{
-        .width = @as(u32, @intFromFloat(metrics.cell_width)),
-        .height = @as(u32, @intFromFloat(metrics.cell_height)),
+        .width = @intFromFloat(metrics.cell_width),
+        .height = @intFromFloat(metrics.cell_height),
         .thickness = 2,
-        .underline_position = @as(u32, @intFromFloat(metrics.underline_position)),
+        .underline_position = @intFromFloat(metrics.underline_position),
     };
 
     // Create the font shaper. We initially create a shaper that can support
@@ -362,7 +362,7 @@ pub fn finalizeSurfaceInit(self: *const Metal, surface: *apprt.Surface) !void {
 
         apprt.embedded => .{
             .view = surface.nsview,
-            .scaleFactor = @as(f64, @floatCast(surface.content_scale.x)),
+            .scaleFactor = @floatCast(surface.content_scale.x),
         },
 
         else => @compileError("unsupported apprt for metal"),
@@ -383,10 +383,7 @@ pub fn finalizeSurfaceInit(self: *const Metal, surface: *apprt.Surface) !void {
 pub fn initDevMode(self: *const Metal, surface: *apprt.Surface) !void {
     if (DevMode.enabled) {
         // Initialize for our window
-        assert(imgui.ImplGlfw.initForOther(
-            @as(*imgui.ImplGlfw.GLFWWindow, @ptrCast(surface.window.handle)),
-            true,
-        ));
+        assert(imgui.ImplGlfw.initForOther(@ptrCast(surface.window.handle), true));
         assert(imgui.ImplMetal.init(self.device.value));
     }
 }
@@ -480,10 +477,10 @@ pub fn setFontSize(self: *Metal, size: font.face.DesiredSize) !void {
 
     // Set the sprite font up
     self.font_group.group.sprite = font.sprite.Face{
-        .width = @as(u32, @intFromFloat(self.cell_size.width)),
-        .height = @as(u32, @intFromFloat(self.cell_size.height)),
+        .width = @intFromFloat(self.cell_size.width),
+        .height = @intFromFloat(self.cell_size.height),
         .thickness = 2,
-        .underline_position = @as(u32, @intFromFloat(metrics.underline_position)),
+        .underline_position = @intFromFloat(metrics.underline_position),
     };
 
     // Notify the window that the cell size changed.
@@ -771,8 +768,8 @@ pub fn setScreenSize(self: *Metal, dim: renderer.ScreenSize) !void {
 
     // Set the size of the drawable surface to the bounds
     self.swapchain.setProperty("drawableSize", macos.graphics.Size{
-        .width = @as(f64, @floatFromInt(dim.width)),
-        .height = @as(f64, @floatFromInt(dim.height)),
+        .width = @floatFromInt(dim.width),
+        .height = @floatFromInt(dim.height),
     });
 
     // Setup our uniforms
@@ -999,7 +996,7 @@ pub fn updateCell(
             self.alloc,
             shaper_run.font_index,
             shaper_cell.glyph_index,
-            @as(u16, @intFromFloat(@ceil(self.cell_size.height))),
+            @intFromFloat(@ceil(self.cell_size.height)),
         );
 
         // If we're rendering a color font, we use the color atlas
@@ -1172,12 +1169,12 @@ fn syncAtlasTexture(device: objc.Object, atlas: *const font.Atlas, texture: *obj
         MTLRegion{
             .origin = .{ .x = 0, .y = 0, .z = 0 },
             .size = .{
-                .width = @as(c_ulong, @intCast(atlas.size)),
-                .height = @as(c_ulong, @intCast(atlas.size)),
+                .width = @intCast(atlas.size),
+                .height = @intCast(atlas.size),
                 .depth = 1,
             },
         },
-        @as(c_ulong, 0),
+        0,
         atlas.data.ptr,
         @as(c_ulong, atlas.format.depth() * atlas.size),
     );
