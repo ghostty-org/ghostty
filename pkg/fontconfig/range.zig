@@ -8,9 +8,6 @@ pub const Range = opaque {
     }
 
     pub inline fn cval(self: *Range) *c.struct__FcRange {
-        return @as(
-            *c.struct__FcRange,
-            @ptrCast(self),
-        );
+        return @ptrCast(self);
     }
 };

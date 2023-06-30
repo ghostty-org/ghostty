@@ -10,11 +10,11 @@ const MatchKind = @import("main.zig").MatchKind;
 
 pub const Config = opaque {
     pub fn destroy(self: *Config) void {
-        c.FcConfigDestroy(@as(*c.struct__FcConfig, @ptrCast(self)));
+        c.FcConfigDestroy(@ptrCast(self));
     }
 
     pub fn fontList(self: *Config, pat: *Pattern, os: *ObjectSet) *FontSet {
-        return @as(*FontSet, @ptrCast(c.FcFontList(self.cval(), pat.cval(), os.cval())));
+        return @ptrCast(c.FcFontList(self.cval(), pat.cval(), os.cval()));
     }
 
     pub fn fontSort(
@@ -24,13 +24,13 @@ pub const Config = opaque {
         charset: ?[*]*CharSet,
     ) FontSortResult {
         var result: FontSortResult = undefined;
-        result.fs = @as(*FontSet, @ptrCast(c.FcFontSort(
+        result.fs = @ptrCast(c.FcFontSort(
             self.cval(),
             pat.cval(),
             if (trim) c.FcTrue else c.FcFalse,
-            @as([*c]?*c.struct__FcCharSet, @ptrCast(charset)),
-            @as([*c]c_uint, @ptrCast(&result.result)),
-        )));
+            @ptrCast(charset),
+            @ptrCast(&result.result),
+        ));
 
         return result;
     }
@@ -51,7 +51,7 @@ pub const Config = opaque {
     }
 
     pub inline fn cval(self: *Config) *c.struct__FcConfig {
-        return @as(*c.struct__FcConfig, @ptrCast(self));
+        return @ptrCast(self);
     }
 };
 
