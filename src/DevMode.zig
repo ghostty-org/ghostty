@@ -97,8 +97,8 @@ pub fn update(self: *const DevMode) !void {
                 if (imgui.treeNode("Atlas: Greyscale", .{ .default_open = true })) {
                     defer imgui.treePop();
                     const atlas = &surface.font_group.atlas_greyscale;
-                    const tex = switch (Renderer) {
-                        renderer.OpenGL => @as(usize, @intCast(surface.renderer.texture.id)),
+                    const tex: usize = switch (Renderer) {
+                        renderer.OpenGL => @intCast(surface.renderer.texture.id),
                         renderer.Metal => @intFromPtr(surface.renderer.texture_greyscale.value),
                         else => @compileError("renderer unsupported, add it!"),
                     };
@@ -108,8 +108,8 @@ pub fn update(self: *const DevMode) !void {
                 if (imgui.treeNode("Atlas: Color (Emoji)", .{ .default_open = true })) {
                     defer imgui.treePop();
                     const atlas = &surface.font_group.atlas_color;
-                    const tex = switch (Renderer) {
-                        renderer.OpenGL => @as(usize, @intCast(surface.renderer.texture_color.id)),
+                    const tex: usize = switch (Renderer) {
+                        renderer.OpenGL => @intCast(surface.renderer.texture_color.id),
                         renderer.Metal => @intFromPtr(surface.renderer.texture_color.value),
                         else => @compileError("renderer unsupported, add it!"),
                     };
@@ -166,10 +166,10 @@ fn atlasInfo(self: *const DevMode, atlas: *font.Atlas, tex: ?usize) !void {
 
     if (tex) |id| {
         imgui.c.igImage(
-            @as(*anyopaque, @ptrFromInt(id)),
+            @ptrFromInt(id),
             .{
-                .x = @as(f32, @floatFromInt(atlas.size)),
-                .y = @as(f32, @floatFromInt(atlas.size)),
+                .x = @floatFromInt(atlas.size),
+                .y = @floatFromInt(atlas.size),
             },
             .{ .x = 0, .y = 0 },
             .{ .x = 1, .y = 1 },

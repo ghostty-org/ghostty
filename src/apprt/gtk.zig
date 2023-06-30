@@ -94,7 +94,7 @@ pub const App = struct {
         if (c.g_application_register(
             gapp,
             null,
-            @as([*c][*c]c.GError, @ptrCast(&err_)),
+            @ptrCast(&err_),
         ) == 0) {
             if (err_) |err| {
                 log.warn("error registering application: {s}", .{err.message});
@@ -213,20 +213,20 @@ pub const App = struct {
             "Quit Ghostty?",
         );
         c.gtk_message_dialog_format_secondary_text(
-            @as(*c.GtkMessageDialog, @ptrCast(alert)),
+            @ptrCast(alert),
             "All active terminal sessions will be terminated.",
         );
 
         // We want the "yes" to appear destructive.
         const yes_widget = c.gtk_dialog_get_widget_for_response(
-            @as(*c.GtkDialog, @ptrCast(alert)),
+            @ptrCast(alert),
             c.GTK_RESPONSE_YES,
         );
         c.gtk_widget_add_css_class(yes_widget, "destructive-action");
 
         // We want the "no" to be the default action
         c.gtk_dialog_set_default_response(
-            @as(*c.GtkDialog, @ptrCast(alert)),
+            @ptrCast(alert),
             c.GTK_RESPONSE_NO,
         );
 
@@ -243,7 +243,7 @@ pub const App = struct {
         _ = ud;
 
         // Close the alert window
-        c.gtk_window_destroy(@as(*c.GtkWindow, @ptrCast(alert)));
+        c.gtk_window_destroy(@ptrCast(alert));
 
         // If we didn't confirm then we're done
         if (response != c.GTK_RESPONSE_YES) return;
@@ -254,8 +254,8 @@ pub const App = struct {
         c.g_list_foreach(list, struct {
             fn callback(data: c.gpointer, _: c.gpointer) callconv(.C) void {
                 const ptr = data orelse return;
-                const widget = @as(*c.GtkWidget, @ptrCast(@alignCast(ptr)));
-                const window = @as(*c.GtkWindow, @ptrCast(widget));
+                const widget: *c.GtkWidget = @ptrCast(@alignCast(ptr));
+                const window: *c.GtkWindow = @ptrCast(widget);
                 c.gtk_window_destroy(window);
             }
         }.callback, null);
@@ -296,7 +296,7 @@ const Window = struct {
 
         // Create the window
         const window = c.gtk_application_window_new(app.app);
-        const gtk_window = @as(*c.GtkWindow, @ptrCast(window));
+        const gtk_window: *c.GtkWindow = @ptrCast(window);
         errdefer c.gtk_window_destroy(gtk_window);
         self.window = gtk_window;
         c.gtk_window_set_title(gtk_window, "Ghostty");
@@ -307,7 +307,7 @@ const Window = struct {
 
         // Create a notebook to hold our tabs.
         const notebook_widget = c.gtk_notebook_new();
-        const notebook = @as(*c.GtkNotebook, @ptrCast(notebook_widget));
+        const notebook: *c.GtkNotebook = @ptrCast(notebook_widget);
         self.notebook = notebook;
         c.gtk_notebook_set_tab_pos(notebook, c.GTK_POS_TOP);
         c.gtk_notebook_set_scrollable(notebook, 1);
@@ -356,8 +356,8 @@ const Window = struct {
         const gl_area = c.gtk_gl_area_new();
         try surface.init(self.app, .{
             .window = self,
-            .gl_area = @as(*c.GtkGLArea, @ptrCast(gl_area)),
-            .title_label = @as(*c.GtkLabel, @ptrCast(label_text)),
+            .gl_area = @ptrCast(gl_area),
+            .title_label = @ptrCast(label_text),
         });
         errdefer surface.deinit();
         const page_idx = c.gtk_notebook_append_page(self.notebook, gl_area, label_box_widget);
@@ -377,9 +377,9 @@ const Window = struct {
         // Set the userdata of the close button so it points to this page.
         const page = c.gtk_notebook_get_page(self.notebook, gl_area) orelse
             return error.GtkNotebookPageNotFound;
-        c.g_object_set_data(@as(*c.GObject, @ptrCast(label_close)), TAB_CLOSE_SURFACE, surface);
-        c.g_object_set_data(@as(*c.GObject, @ptrCast(label_close)), TAB_CLOSE_PAGE, page);
-        c.g_object_set_data(@as(*c.GObject, @ptrCast(gl_area)), TAB_CLOSE_PAGE, page);
+        c.g_object_set_data(@ptrCast(label_close), TAB_CLOSE_SURFACE, surface);
+        c.g_object_set_data(@ptrCast(label_close), TAB_CLOSE_PAGE, page);
+        c.g_object_set_data(@ptrCast(gl_area), TAB_CLOSE_PAGE, page);
 
         // Switch to the new tab
         c.gtk_notebook_set_current_page(self.notebook, page_idx);
@@ -415,12 +415,12 @@ const Window = struct {
     /// Close the surface. This surface must be definitely part of this window.
     fn closeSurface(self: *Window, surface: *Surface) void {
         assert(surface.window == self);
-        self.closeTab(getNotebookPage(@as(*c.GObject, @ptrCast(surface.gl_area))) orelse return);
+        self.closeTab(getNotebookPage(@ptrCast(surface.gl_area)) orelse return);
     }
 
     /// Go to the previous tab for a surface.
     fn gotoPreviousTab(self: *Window, surface: *Surface) void {
-        const page = getNotebookPage(@as(*c.GObject, @ptrCast(surface.gl_area))) orelse return;
+        const page = getNotebookPage(@ptrCast(surface.gl_area)) orelse return;
         const page_idx = getNotebookPageIndex(page);
 
         // The next index is the previous or we wrap around.
@@ -438,7 +438,7 @@ const Window = struct {
 
     /// Go to the next tab for a surface.
     fn gotoNextTab(self: *Window, surface: *Surface) void {
-        const page = getNotebookPage(@as(*c.GObject, @ptrCast(surface.gl_area))) orelse return;
+        const page = getNotebookPage(@ptrCast(surface.gl_area)) orelse return;
         const page_idx = getNotebookPageIndex(page);
         const max = c.gtk_notebook_get_n_pages(self.notebook) -| 1;
         const next_idx = if (page_idx < max) page_idx + 1 else 0;
@@ -476,9 +476,9 @@ const Window = struct {
 
     fn gtkTabCloseClick(btn: *c.GtkButton, ud: ?*anyopaque) callconv(.C) void {
         _ = ud;
-        const surface = @as(*Surface, @ptrCast(@alignCast(
-            c.g_object_get_data(@as(*c.GObject, @ptrCast(btn)), TAB_CLOSE_SURFACE) orelse return,
-        )));
+        const surface: *Surface = @ptrCast(@alignCast(
+            c.g_object_get_data(@ptrCast(btn), TAB_CLOSE_SURFACE) orelse return,
+        ));
 
         surface.core_surface.close();
     }
@@ -497,20 +497,20 @@ const Window = struct {
             "Close this window?",
         );
         c.gtk_message_dialog_format_secondary_text(
-            @as(*c.GtkMessageDialog, @ptrCast(alert)),
+            @ptrCast(alert),
             "All terminal sessions in this window will be terminated.",
         );
 
         // We want the "yes" to appear destructive.
         const yes_widget = c.gtk_dialog_get_widget_for_response(
-            @as(*c.GtkDialog, @ptrCast(alert)),
+            @ptrCast(alert),
             c.GTK_RESPONSE_YES,
         );
         c.gtk_widget_add_css_class(yes_widget, "destructive-action");
 
         // We want the "no" to be the default action
         c.gtk_dialog_set_default_response(
-            @as(*c.GtkDialog, @ptrCast(alert)),
+            @ptrCast(alert),
             c.GTK_RESPONSE_NO,
         );
 
@@ -525,7 +525,7 @@ const Window = struct {
         response: c.gint,
         ud: ?*anyopaque,
     ) callconv(.C) void {
-        c.gtk_window_destroy(@as(*c.GtkWindow, @ptrCast(alert)));
+        c.gtk_window_destroy(@ptrCast(alert));
         if (response == c.GTK_RESPONSE_YES) {
             const self = userdataSelf(ud.?);
             c.gtk_window_destroy(self.window);
@@ -546,9 +546,9 @@ const Window = struct {
     /// Get the GtkNotebookPage for the given object. You must be sure the
     /// object has the notebook page property set.
     fn getNotebookPage(obj: *c.GObject) ?*c.GtkNotebookPage {
-        return @as(*c.GtkNotebookPage, @ptrCast(@alignCast(
+        return @ptrCast(@alignCast(
             c.g_object_get_data(obj, TAB_CLOSE_PAGE) orelse return null,
-        )));
+        ));
     }
 
     fn getNotebookPageIndex(page: *c.GtkNotebookPage) c_int {
@@ -556,7 +556,7 @@ const Window = struct {
         defer c.g_value_unset(&value);
         _ = c.g_value_init(&value, c.G_TYPE_INT);
         c.g_object_get_property(
-            @as(*c.GObject, @ptrCast(@alignCast(page))),
+            @ptrCast(@alignCast(page)),
             "position",
             &value,
         );
@@ -565,7 +565,7 @@ const Window = struct {
     }
 
     fn userdataSelf(ud: *anyopaque) *Window {
-        return @as(*Window, @ptrCast(@alignCast(ud)));
+        return @ptrCast(@alignCast(ud));
     }
 };
 
@@ -640,7 +640,7 @@ pub const Surface = struct {
         const im_context = c.gtk_im_multicontext_new();
         errdefer c.g_object_unref(im_context);
         c.gtk_event_controller_key_set_im_context(
-            @as(*c.GtkEventControllerKey, @ptrCast(ec_key)),
+            @ptrCast(ec_key),
             im_context,
         );
 
@@ -654,14 +654,8 @@ pub const Surface = struct {
         // Clicks
         const gesture_click = c.gtk_gesture_click_new();
         errdefer c.g_object_unref(gesture_click);
-        c.gtk_gesture_single_set_button(@as(
-            *c.GtkGestureSingle,
-            @ptrCast(gesture_click),
-        ), 0);
-        c.gtk_widget_add_controller(widget, @as(
-            *c.GtkEventController,
-            @ptrCast(gesture_click),
-        ));
+        c.gtk_gesture_single_set_button(@ptrCast(gesture_click), 0);
+        c.gtk_widget_add_controller(widget, @ptrCast(gesture_click));
 
         // Mouse movement
         const ec_motion = c.gtk_event_controller_motion_new();
@@ -776,7 +770,7 @@ pub const Surface = struct {
             "Close this terminal?",
         );
         c.gtk_message_dialog_format_secondary_text(
-            @as(*c.GtkMessageDialog, @ptrCast(alert)),
+            @ptrCast(alert),
             "There is still a running process in the terminal. " ++
                 "Closing the terminal will kill this process. " ++
                 "Are you sure you want to close the terminal?" ++
@@ -785,14 +779,14 @@ pub const Surface = struct {
 
         // We want the "yes" to appear destructive.
         const yes_widget = c.gtk_dialog_get_widget_for_response(
-            @as(*c.GtkDialog, @ptrCast(alert)),
+            @ptrCast(alert),
             c.GTK_RESPONSE_YES,
         );
         c.gtk_widget_add_css_class(yes_widget, "destructive-action");
 
         // We want the "no" to be the default action
         c.gtk_dialog_set_default_response(
-            @as(*c.GtkDialog, @ptrCast(alert)),
+            @ptrCast(alert),
             c.GTK_RESPONSE_NO,
         );
 
@@ -859,10 +853,7 @@ pub const Surface = struct {
     }
 
     pub fn getClipboardString(self: *Surface) ![:0]const u8 {
-        const clipboard = c.gtk_widget_get_clipboard(@as(
-            *c.GtkWidget,
-            @ptrCast(self.gl_area),
-        ));
+        const clipboard = c.gtk_widget_get_clipboard(@ptrCast(self.gl_area));
 
         const content = c.gdk_clipboard_get_content(clipboard) orelse {
             // On my machine, this NEVER works, so we fallback to glfw's
@@ -882,10 +873,7 @@ pub const Surface = struct {
     }
 
     pub fn setClipboardString(self: *const Surface, val: [:0]const u8) !void {
-        const clipboard = c.gtk_widget_get_clipboard(@as(
-            *c.GtkWidget,
-            @ptrCast(self.gl_area),
-        ));
+        const clipboard = c.gtk_widget_get_clipboard(@ptrCast(self.gl_area));
 
         c.gdk_clipboard_set_text(clipboard, val.ptr);
     }
@@ -954,8 +942,8 @@ pub const Surface = struct {
         }
 
         self.size = .{
-            .width = @as(u32, @intCast(width)),
-            .height = @as(u32, @intCast(height)),
+            .width = @intCast(width),
+            .height = @intCast(height),
         };
 
         // Call the primary callback.
@@ -986,10 +974,7 @@ pub const Surface = struct {
         ud: ?*anyopaque,
     ) callconv(.C) void {
         const self = userdataSelf(ud.?);
-        const button = translateMouseButton(c.gtk_gesture_single_get_current_button(@as(
-            *c.GtkGestureSingle,
-            @ptrCast(gesture),
-        )));
+        const button = translateMouseButton(c.gtk_gesture_single_get_current_button(@ptrCast(gesture)));
 
         // If we don't have focus, grab it.
         const gl_widget = @as(*c.GtkWidget, @ptrCast(self.gl_area));
@@ -1010,11 +995,7 @@ pub const Surface = struct {
         _: c.gdouble,
         ud: ?*anyopaque,
     ) callconv(.C) void {
-        const button = translateMouseButton(c.gtk_gesture_single_get_current_button(@as(
-            *c.GtkGestureSingle,
-            @ptrCast(gesture),
-        )));
-
+        const button = translateMouseButton(c.gtk_gesture_single_get_current_button(@ptrCast(gesture)));
         const self = userdataSelf(ud.?);
         self.core_surface.mouseButtonCallback(.release, button, .{}) catch |err| {
             log.err("error in key callback err={}", .{err});
@@ -1031,7 +1012,7 @@ pub const Surface = struct {
         const self = userdataSelf(ud.?);
         self.cursor_pos = .{
             .x = @max(@as(f32, 0), @as(f32, @floatCast(x))),
-            .y = @as(f32, @floatCast(y)),
+            .y = @floatCast(y),
         };
 
         self.core_surface.cursorPosCallback(self.cursor_pos) catch |err| {
@@ -1065,7 +1046,7 @@ pub const Surface = struct {
         ud: ?*anyopaque,
     ) callconv(.C) c.gboolean {
         const self = userdataSelf(ud.?);
-        const display = c.gtk_widget_get_display(@as(*c.GtkWidget, @ptrCast(self.gl_area))).?;
+        const display = c.gtk_widget_get_display(@ptrCast(self.gl_area)).?;
 
         // We want to use only the key that corresponds to the hardware key.
         // I suspect this logic is actually wrong for customized keyboards,
@@ -1085,7 +1066,7 @@ pub const Surface = struct {
         // that assumption is true.
         const keyval = keyval: {
             if (found > 0) {
-                for (keys[0..@as(usize, @intCast(keys_len))], 0..) |key, i| {
+                for (keys[0..@intCast(keys_len)], 0..) |key, i| {
                     if (key.group == 0 and key.level == 0)
                         break :keyval keyvals[i];
                 }
@@ -1181,7 +1162,7 @@ pub const Surface = struct {
         response: c.gint,
         ud: ?*anyopaque,
     ) callconv(.C) void {
-        c.gtk_window_destroy(@as(*c.GtkWindow, @ptrCast(alert)));
+        c.gtk_window_destroy(@ptrCast(alert));
         if (response == c.GTK_RESPONSE_YES) {
             const self = userdataSelf(ud.?);
             self.window.closeSurface(self);
@@ -1189,7 +1170,7 @@ pub const Surface = struct {
     }
 
     fn userdataSelf(ud: *anyopaque) *Surface {
-        return @as(*Surface, @ptrCast(@alignCast(ud)));
+        return @ptrCast(@alignCast(ud));
     }
 };
 

@@ -463,8 +463,8 @@ pub const Surface = struct {
         const unscaled_pos = self.window.getCursorPos();
         const pos = try self.cursorPosToPixels(unscaled_pos);
         return apprt.CursorPos{
-            .x = @as(f32, @floatCast(pos.xpos)),
-            .y = @as(f32, @floatCast(pos.ypos)),
+            .x = @floatCast(pos.xpos),
+            .y = @floatCast(pos.ypos),
         };
     }
 
@@ -564,7 +564,7 @@ pub const Surface = struct {
         defer tracy.end();
 
         // Convert our glfw types into our input types
-        const mods = @as(input.Mods, @bitCast(glfw_mods));
+        const mods: input.Mods = @bitCast(glfw_mods);
         const action: input.Action = switch (glfw_action) {
             .release => .release,
             .press => .press,
@@ -764,8 +764,8 @@ pub const Surface = struct {
         };
 
         core_win.cursorPosCallback(.{
-            .x = @as(f32, @floatCast(pos.xpos)),
-            .y = @as(f32, @floatCast(pos.ypos)),
+            .x = @floatCast(pos.xpos),
+            .y = @floatCast(pos.ypos),
         }) catch |err| {
             log.err("error in cursor pos callback err={}", .{err});
             return;
@@ -784,7 +784,7 @@ pub const Surface = struct {
         const core_win = window.getUserPointer(CoreSurface) orelse return;
 
         // Convert glfw button to input button
-        const mods = @as(input.Mods, @bitCast(glfw_mods));
+        const mods: input.Mods = @bitCast(glfw_mods);
         const button: input.MouseButton = switch (glfw_button) {
             .left => .left,
             .right => .right,

@@ -55,7 +55,7 @@ pub fn open(size: winsize) !Pty {
         &slave_fd,
         null,
         null,
-        @as([*c]c.struct_winsize, @ptrCast(&sizeCopy)),
+        @ptrCast(&sizeCopy),
     ) < 0)
         return error.OpenptyFailed;
     errdefer {

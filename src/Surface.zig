@@ -200,8 +200,8 @@ pub fn init(
     // The font size we desire along with the DPI determined for the surface
     const font_size: font.face.DesiredSize = .{
         .points = config.@"font-size",
-        .xdpi = @as(u16, @intFromFloat(x_dpi)),
-        .ydpi = @as(u16, @intFromFloat(y_dpi)),
+        .xdpi = @intFromFloat(x_dpi),
+        .ydpi = @intFromFloat(y_dpi),
     };
 
     // Find all the fonts for this surface
@@ -429,8 +429,8 @@ pub fn init(
     // Set a minimum size that is cols=10 h=4. This matches Mac's Terminal.app
     // but is otherwise somewhat arbitrary.
     try rt_surface.setSizeLimits(.{
-        .width = @as(u32, @intFromFloat(cell_size.width * 10)),
-        .height = @as(u32, @intFromFloat(cell_size.height * 4)),
+        .width = @intFromFloat(cell_size.width * 10),
+        .height = @intFromFloat(cell_size.height * 4),
     }, null);
 
     // Call our size callback which handles all our retina setup
@@ -447,10 +447,10 @@ pub fn init(
         dev_io.cval().IniFilename = "ghostty_dev_mode.ini";
 
         // Add our built-in fonts so it looks slightly better
-        const dev_atlas = @as(*imgui.FontAtlas, @ptrCast(dev_io.cval().Fonts));
+        const dev_atlas: *imgui.FontAtlas = @ptrCast(dev_io.cval().Fonts);
         dev_atlas.addFontFromMemoryTTF(
             face_ttf,
-            @as(f32, @floatFromInt(font_size.pixels())),
+            @floatFromInt(font_size.pixels()),
         );
 
         // Default dark style
@@ -662,7 +662,7 @@ pub fn imePoint(self: *const Surface) apprt.IMEPos {
 
     const x: f64 = x: {
         // Simple x * cell width gives the top-left corner
-        var x: f64 = @as(f64, @floatCast(@as(f32, @floatFromInt(cursor.x)) * self.cell_size.width));
+        var x: f64 = @floatCast(@as(f32, @floatFromInt(cursor.x)) * self.cell_size.width);
 
         // We want the midpoint
         x += self.cell_size.width / 2;
@@ -675,7 +675,7 @@ pub fn imePoint(self: *const Surface) apprt.IMEPos {
 
     const y: f64 = y: {
         // Simple x * cell width gives the top-left corner
-        var y: f64 = @as(f64, @floatCast(@as(f32, @floatFromInt(cursor.y)) * self.cell_size.height));
+        var y: f64 = @floatCast(@as(f32, @floatFromInt(cursor.y)) * self.cell_size.height);
 
         // We want the bottom
         y += self.cell_size.height;
@@ -1157,8 +1157,8 @@ pub fn keyCallback(
 
         // Handle non-printables
         const char: u8 = char: {
-            const mods_int = @as(u8, @bitCast(mods));
-            const ctrl_only = @as(u8, @bitCast(input.Mods{ .ctrl = true }));
+            const mods_int: u8 = @bitCast(mods);
+            const ctrl_only: u8 = @bitCast(input.Mods{ .ctrl = true });
 
             // If we're only pressing control, check if this is a character
             // we convert to a non-printable.
@@ -1200,18 +1200,18 @@ pub fn keyCallback(
             }
 
             // Otherwise, we don't care what modifiers we press we do this.
-            break :char @as(u8, switch (key) {
+            break :char switch (key) {
                 .backspace => 0x7F,
                 .enter => '\r',
                 .tab => '\t',
                 .escape => 0x1B,
                 else => 0,
-            });
+            };
         };
         if (char > 0) {
             // Ask our IO thread to write the data
             var data: termio.Message.WriteReq.Small.Array = undefined;
-            data[0] = @as(u8, @intCast(char));
+            data[0] = @intCast(char);
             _ = self.io_thread.mailbox.push(.{
                 .write_small = .{
                     .data = data,
@@ -1337,8 +1337,8 @@ pub fn scrollCallback(
         self.mouse.pending_scroll_y = poff - (amount * cell_size);
 
         break :y .{
-            .delta_unsigned = @as(usize, @intFromFloat(@fabs(amount))),
-            .delta = @as(isize, @intFromFloat(amount)),
+            .delta_unsigned = @intFromFloat(@fabs(amount)),
+            .delta = @intFromFloat(amount),
         };
     };
 
@@ -1362,8 +1362,8 @@ pub fn scrollCallback(
         self.mouse.pending_scroll_x = poff - (amount * cell_size);
 
         break :x .{
-            .delta_unsigned = @as(usize, @intFromFloat(@fabs(amount))),
-            .delta = @as(isize, @intFromFloat(amount)),
+            .delta_unsigned = @intFromFloat(@fabs(amount)),
+            .delta = @intFromFloat(amount),
         };
     };
 
@@ -1549,14 +1549,14 @@ fn mouseReport(
 
             // UTF-8 encode the x/y
             var i: usize = 4;
-            i += try std.unicode.utf8Encode(@as(u21, @intCast(32 + viewport_point.x + 1)), data[i..]);
-            i += try std.unicode.utf8Encode(@as(u21, @intCast(32 + viewport_point.y + 1)), data[i..]);
+            i += try std.unicode.utf8Encode(@intCast(32 + viewport_point.x + 1), data[i..]);
+            i += try std.unicode.utf8Encode(@intCast(32 + viewport_point.y + 1), data[i..]);
 
             // Ask our IO thread to write the data
             _ = self.io_thread.mailbox.push(.{
                 .write_small = .{
                     .data = data,
-                    .len = @as(u8, @intCast(i)),
+                    .len = @intCast(i),
                 },
             }, .{ .forever = {} });
         },
@@ -1579,7 +1579,7 @@ fn mouseReport(
             _ = self.io_thread.mailbox.push(.{
                 .write_small = .{
                     .data = data,
-                    .len = @as(u8, @intCast(resp.len)),
+                    .len = @intCast(resp.len),
                 },
             }, .{ .forever = {} });
         },
@@ -1598,7 +1598,7 @@ fn mouseReport(
             _ = self.io_thread.mailbox.push(.{
                 .write_small = .{
                     .data = data,
-                    .len = @as(u8, @intCast(resp.len)),
+                    .len = @intCast(resp.len),
                 },
             }, .{ .forever = {} });
         },
@@ -1621,7 +1621,7 @@ fn mouseReport(
             _ = self.io_thread.mailbox.push(.{
                 .write_small = .{
                     .data = data,
-                    .len = @as(u8, @intCast(resp.len)),
+                    .len = @intCast(resp.len),
                 },
             }, .{ .forever = {} });
         },
@@ -1652,8 +1652,8 @@ pub fn mouseButtonCallback(
     }
 
     // Always record our latest mouse state
-    self.mouse.click_state[@as(usize, @intCast(@intFromEnum(button)))] = action;
-    self.mouse.mods = @as(input.Mods, @bitCast(mods));
+    self.mouse.click_state[@intCast(@intFromEnum(button))] = action;
+    self.mouse.mods = @bitCast(mods);
 
     // Shift-click continues the previous mouse state if we have a selection.
     // cursorPosCallback will also do a mouse report so we don't need to do any
@@ -1815,7 +1815,7 @@ pub fn cursorPosCallback(
         // since the spec (afaict) does not say...
         const button: ?input.MouseButton = button: for (self.mouse.click_state, 0..) |state, i| {
             if (state == .press)
-                break :button @as(input.MouseButton, @enumFromInt(i));
+                break :button @enumFromInt(i);
         } else null;
 
         try self.mouseReport(button, .motion, self.mouse.mods, pos);
@@ -1835,7 +1835,7 @@ pub fn cursorPosCallback(
     // up. The amount we scroll up is dependent on how negative we are.
     // Note: one day, we can change this from distance to time based if we want.
     //log.warn("CURSOR POS: {} {}", .{ pos, self.screen_size });
-    const max_y = @as(f32, @floatFromInt(self.screen_size.height));
+    const max_y: f32 = @floatFromInt(self.screen_size.height);
     if (pos.y < 0 or pos.y > max_y) {
         const delta: isize = if (pos.y < 0) -1 else 1;
         try self.io.terminal.scrollViewport(.{ .delta = delta });
@@ -2022,8 +2022,8 @@ fn posToViewport(self: Surface, xpos: f64, ypos: f64) terminal.point.Viewport {
     return .{
         .x = if (xpos < 0) 0 else x: {
             // Our cell is the mouse divided by cell width
-            const cell_width = @as(f64, @floatCast(self.cell_size.width));
-            const x = @as(usize, @intFromFloat(xpos / cell_width));
+            const cell_width: f64 = @floatCast(self.cell_size.width);
+            const x: usize = @intFromFloat(xpos / cell_width);
 
             // Can be off the screen if the user drags it out, so max
             // it out on our available columns
@@ -2031,8 +2031,8 @@ fn posToViewport(self: Surface, xpos: f64, ypos: f64) terminal.point.Viewport {
         },
 
         .y = if (ypos < 0) 0 else y: {
-            const cell_height = @as(f64, @floatCast(self.cell_size.height));
-            const y = @as(usize, @intFromFloat(ypos / cell_height));
+            const cell_height: f64 = @floatCast(self.cell_size.height);
+            const y: usize = @intFromFloat(ypos / cell_height);
             break :y @min(y, self.grid_size.rows - 1);
         },
     };

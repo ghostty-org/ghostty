@@ -126,7 +126,7 @@ pub fn start(self: *Command, alloc: Allocator) !void {
     const pid = try std.os.fork();
     if (pid != 0) {
         // Parent, return immediately.
-        self.pid = @as(i32, @intCast(pid));
+        self.pid = @intCast(pid);
         return;
     }
 
@@ -201,10 +201,7 @@ pub fn setData(self: *Command, pointer: ?*anyopaque) void {
 
 /// Returns command->data.
 pub fn getData(self: Command, comptime DT: type) ?*DT {
-    return if (self.data) |ptr|
-        @as(?*DT, @ptrCast(@alignCast(ptr)))
-    else
-        null;
+    return if (self.data) |ptr| @ptrCast(@alignCast(ptr)) else null;
 }
 
 /// Search for "cmd" in the PATH and return the absolute path. This will
