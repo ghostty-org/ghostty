@@ -12,10 +12,7 @@ pub const IO = opaque {
     }
 
     pub inline fn cval(self: *IO) *c.ImGuiIO {
-        return @as(
-            *c.ImGuiIO,
-            @ptrCast(@alignCast(self)),
-        );
+        return @ptrCast(@alignCast(self));
     }
 };
 

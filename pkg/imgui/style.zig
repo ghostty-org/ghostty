@@ -27,9 +27,6 @@ pub const Style = opaque {
     }
 
     pub inline fn cval(self: *Style) *c.ImGuiStyle {
-        return @as(
-            *c.ImGuiStyle,
-            @ptrCast(@alignCast(self)),
-        );
+        return @ptrCast(@alignCast(self));
     }
 };

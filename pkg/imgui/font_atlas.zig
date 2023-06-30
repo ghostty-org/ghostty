@@ -17,8 +17,8 @@ pub const FontAtlas = opaque {
 
         _ = c.ImFontAtlas_AddFontFromMemoryTTF(
             self.cval(),
-            @as(?*anyopaque, @ptrFromInt(@intFromPtr(data.ptr))),
-            @as(c_int, @intCast(data.len)),
+            @ptrFromInt(@intFromPtr(data.ptr)),
+            @intCast(data.len),
             size_px,
             cfg,
             null,
@@ -26,9 +26,6 @@ pub const FontAtlas = opaque {
     }
 
     pub inline fn cval(self: *FontAtlas) *c.ImFontAtlas {
-        return @as(
-            *c.ImFontAtlas,
-            @ptrCast(@alignCast(self)),
-        );
+        return @ptrCast(@alignCast(self));
     }
 };

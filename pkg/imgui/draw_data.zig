@@ -12,9 +12,6 @@ pub const DrawData = opaque {
     }
 
     pub inline fn cval(self: *DrawData) *c.ImGuiDrawData {
-        return @as(
-            *c.ImGuiDrawData,
-            @ptrCast(@alignCast(self)),
-        );
+        return @ptrCast(@alignCast(self));
     }
 };

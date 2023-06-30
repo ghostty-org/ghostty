@@ -19,10 +19,7 @@ pub const Context = opaque {
     }
 
     pub inline fn cval(self: *Context) *c.ImGuiContext {
-        return @as(
-            *c.ImGuiContext,
-            @ptrCast(@alignCast(self)),
-        );
+        return @ptrCast(@alignCast(self));
     }
 };
 

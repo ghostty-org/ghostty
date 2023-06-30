@@ -27,14 +27,14 @@ pub const tableHeadersRow = c.igTableHeadersRow;
 pub const tableNextColumn = c.igTableNextColumn;
 
 pub fn showDemoWindow(open: ?*bool) void {
-    c.igShowDemoWindow(@as([*c]bool, @ptrCast(if (open) |v| v else null)));
+    c.igShowDemoWindow(@ptrCast(if (open) |v| v else null));
 }
 
 pub fn begin(name: [:0]const u8, open: ?*bool, flags: WindowFlags) bool {
     return c.igBegin(
         name.ptr,
-        @as([*c]bool, @ptrCast(if (open) |v| v else null)),
-        @as(c_int, @bitCast(flags)),
+        @ptrCast(if (open) |v| v else null),
+        @bitCast(flags),
     );
 }
 
@@ -45,14 +45,14 @@ pub fn collapsingHeader(
 ) bool {
     return c.igCollapsingHeader_BoolPtr(
         label.ptr,
-        @as([*c]bool, @ptrCast(if (visible) |v| v else null)),
-        @as(c_int, @bitCast(flags)),
+        @ptrCast(if (visible) |v| v else null),
+        @bitCast(flags),
     );
 }
 
 pub fn isItemHovered(flags: HoveredFlags) bool {
     return c.igIsItemHovered(
-        @as(c_int, @bitCast(flags)),
+        @bitCast(flags),
     );
 }
 
@@ -62,7 +62,7 @@ pub fn treeNode(
 ) bool {
     return c.igTreeNodeEx_Str(
         label.ptr,
-        @as(c_int, @bitCast(flags)),
+        @bitCast(flags),
     );
 }
 
@@ -74,7 +74,7 @@ pub fn beginTable(
     return c.igBeginTable(
         id.ptr,
         cols,
-        @as(c_int, @bitCast(flags)),
+        @bitCast(flags),
         .{ .x = 0, .y = 0 },
         0,
     );
@@ -91,7 +91,7 @@ pub fn tableSetupColumn(
 ) void {
     c.igTableSetupColumn(
         label.ptr,
-        @as(c_int, @bitCast(flags)),
+        @bitCast(flags),
         init_size,
         0,
     );
@@ -108,7 +108,7 @@ pub fn inputTextMultiline(
         buf.ptr,
         buf.len,
         size,
-        @as(c_int, @bitCast(flags)),
+        @bitCast(flags),
         null,
         null,
     );
