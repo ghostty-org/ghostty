@@ -10,7 +10,7 @@ pub const CharacterSet = opaque {
     ) Allocator.Error!*CharacterSet {
         return @as(?*CharacterSet, @ptrFromInt(@intFromPtr(c.CFCharacterSetCreateWithCharactersInString(
             null,
-            @as(c.CFStringRef, @ptrCast(str)),
+            @ptrCast(str),
         )))) orelse Allocator.Error.OutOfMemory;
     }
 

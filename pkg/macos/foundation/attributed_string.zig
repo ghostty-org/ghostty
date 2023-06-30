@@ -11,19 +11,13 @@ pub const AttributedString = opaque {
     }
 
     pub fn getLength(self: *AttributedString) usize {
-        return @as(
-            usize,
-            @intCast(c.CFAttributedStringGetLength(@as(c.CFAttributedStringRef, @ptrCast(self)))),
-        );
+        return @intCast(c.CFAttributedStringGetLength(@ptrCast(self)));
     }
 
     pub fn getString(self: *AttributedString) *foundation.String {
-        return @as(
-            *foundation.String,
-            @ptrFromInt(@intFromPtr(
-                c.CFAttributedStringGetString(@as(c.CFAttributedStringRef, @ptrCast(self))),
-            )),
-        );
+        return @ptrFromInt(@intFromPtr(
+            c.CFAttributedStringGetString(@ptrCast(self)),
+        ));
     }
 };
 
@@ -33,7 +27,7 @@ pub const MutableAttributedString = opaque {
             ?*MutableAttributedString,
             @ptrFromInt(@intFromPtr(c.CFAttributedStringCreateMutable(
                 null,
-                @as(c.CFIndex, @intCast(cap)),
+                @intCast(cap),
             ))),
         ) orelse Allocator.Error.OutOfMemory;
     }
@@ -48,9 +42,9 @@ pub const MutableAttributedString = opaque {
         replacement: *foundation.String,
     ) void {
         c.CFAttributedStringReplaceString(
-            @as(c.CFMutableAttributedStringRef, @ptrCast(self)),
+            @ptrCast(self),
             range.cval(),
-            @as(c.CFStringRef, @ptrCast(replacement)),
+            @ptrCast(replacement),
         );
     }
 
@@ -69,9 +63,9 @@ pub const MutableAttributedString = opaque {
             key;
 
         c.CFAttributedStringSetAttribute(
-            @as(c.CFMutableAttributedStringRef, @ptrCast(self)),
+            @ptrCast(self),
             range.cval(),
-            @as(c.CFStringRef, @ptrCast(key_arg)),
+            @ptrCast(key_arg),
             value,
         );
     }

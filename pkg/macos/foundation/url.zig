@@ -21,7 +21,7 @@ pub const URL = opaque {
             ?*URL,
             @ptrFromInt(@intFromPtr(c.CFURLCreateWithFileSystemPath(
                 null,
-                @as(c.CFStringRef, @ptrCast(path)),
+                @ptrCast(path),
                 @intFromEnum(style),
                 if (dir) 1 else 0,
             ))),

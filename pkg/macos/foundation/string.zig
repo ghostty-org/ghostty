@@ -13,7 +13,7 @@ pub const String = opaque {
         return @as(?*String, @ptrFromInt(@intFromPtr(c.CFStringCreateWithBytes(
             null,
             bs.ptr,
-            @as(c_long, @intCast(bs.len)),
+            @intCast(bs.len),
             @intFromEnum(encoding),
             @intFromBool(external),
         )))) orelse Allocator.Error.OutOfMemory;
@@ -24,13 +24,13 @@ pub const String = opaque {
     }
 
     pub fn getLength(self: *String) usize {
-        return @as(usize, @intCast(c.CFStringGetLength(@as(c.CFStringRef, @ptrCast(self)))));
+        return @intCast(c.CFStringGetLength(@ptrCast(self)));
     }
 
     pub fn hasPrefix(self: *String, prefix: *String) bool {
         return c.CFStringHasPrefix(
-            @as(c.CFStringRef, @ptrCast(self)),
-            @as(c.CFStringRef, @ptrCast(prefix)),
+            @ptrCast(self),
+            @ptrCast(prefix),
         ) == 1;
     }
 
@@ -39,21 +39,18 @@ pub const String = opaque {
         other: *String,
         options: StringComparison,
     ) foundation.ComparisonResult {
-        return @as(
-            foundation.ComparisonResult,
-            @enumFromInt(c.CFStringCompare(
-                @as(c.CFStringRef, @ptrCast(self)),
-                @as(c.CFStringRef, @ptrCast(other)),
-                @as(c_ulong, @intCast(@as(c_int, @bitCast(options)))),
-            )),
-        );
+        return @enumFromInt(c.CFStringCompare(
+            @ptrCast(self),
+            @ptrCast(other),
+            @intCast(@as(c_int, @bitCast(options))),
+        ));
     }
 
     pub fn cstring(self: *String, buf: []u8, encoding: StringEncoding) ?[]const u8 {
         if (c.CFStringGetCString(
-            @as(c.CFStringRef, @ptrCast(self)),
+            @ptrCast(self),
             buf.ptr,
-            @as(c_long, @intCast(buf.len)),
+            @intCast(buf.len),
             @intFromEnum(encoding),
         ) == 0) return null;
         return std.mem.sliceTo(buf, 0);
@@ -61,7 +58,7 @@ pub const String = opaque {
 
     pub fn cstringPtr(self: *String, encoding: StringEncoding) ?[:0]const u8 {
         const ptr = c.CFStringGetCStringPtr(
-            @as(c.CFStringRef, @ptrCast(self)),
+            @ptrCast(self),
             @intFromEnum(encoding),
         );
         if (ptr == null) return null;

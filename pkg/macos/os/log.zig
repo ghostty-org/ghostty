@@ -20,7 +20,7 @@ pub const Log = opaque {
 
     pub fn typeEnabled(self: *Log, typ: LogType) bool {
         return c.os_log_type_enabled(
-            @as(c.os_log_t, @ptrCast(self)),
+            @ptrCast(self),
             @intFromEnum(typ),
         );
     }

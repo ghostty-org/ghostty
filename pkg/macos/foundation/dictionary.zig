@@ -17,9 +17,9 @@ pub const Dictionary = opaque {
 
         return @as(?*Dictionary, @ptrFromInt(@intFromPtr(c.CFDictionaryCreate(
             null,
-            @as([*c]?*const anyopaque, @ptrCast(if (keys) |slice| slice.ptr else null)),
-            @as([*c]?*const anyopaque, @ptrCast(if (values) |slice| slice.ptr else null)),
-            @as(c.CFIndex, @intCast(if (keys) |slice| slice.len else 0)),
+            @ptrCast(if (keys) |slice| slice.ptr else null),
+            @ptrCast(if (values) |slice| slice.ptr else null),
+            @intCast(if (keys) |slice| slice.len else 0),
             &c.kCFTypeDictionaryKeyCallBacks,
             &c.kCFTypeDictionaryValueCallBacks,
         )))) orelse Allocator.Error.OutOfMemory;
@@ -30,14 +30,14 @@ pub const Dictionary = opaque {
     }
 
     pub fn getCount(self: *Dictionary) usize {
-        return @as(usize, @intCast(c.CFDictionaryGetCount(@as(c.CFDictionaryRef, @ptrCast(self)))));
+        return @intCast(c.CFDictionaryGetCount(@ptrCast(self)));
     }
 
     pub fn getValue(self: *Dictionary, comptime V: type, key: ?*const anyopaque) ?*V {
-        return @as(?*V, @ptrFromInt(@intFromPtr(c.CFDictionaryGetValue(
-            @as(c.CFDictionaryRef, @ptrCast(self)),
+        return @ptrFromInt(@intFromPtr(c.CFDictionaryGetValue(
+            @ptrCast(self),
             key,
-        ))));
+        )));
     }
 };
 
@@ -45,7 +45,7 @@ pub const MutableDictionary = opaque {
     pub fn create(cap: usize) Allocator.Error!*MutableDictionary {
         return @as(?*MutableDictionary, @ptrFromInt(@intFromPtr(c.CFDictionaryCreateMutable(
             null,
-            @as(c.CFIndex, @intCast(cap)),
+            @intCast(cap),
             &c.kCFTypeDictionaryKeyCallBacks,
             &c.kCFTypeDictionaryValueCallBacks,
         )))) orelse Allocator.Error.OutOfMemory;
@@ -54,8 +54,8 @@ pub const MutableDictionary = opaque {
     pub fn createMutableCopy(cap: usize, src: *Dictionary) Allocator.Error!*MutableDictionary {
         return @as(?*MutableDictionary, @ptrFromInt(@intFromPtr(c.CFDictionaryCreateMutableCopy(
             null,
-            @as(c.CFIndex, @intCast(cap)),
-            @as(c.CFDictionaryRef, @ptrCast(src)),
+            @intCast(cap),
+            @ptrCast(src),
         )))) orelse Allocator.Error.OutOfMemory;
     }
 
@@ -65,7 +65,7 @@ pub const MutableDictionary = opaque {
 
     pub fn setValue(self: *MutableDictionary, key: ?*const anyopaque, value: ?*const anyopaque) void {
         c.CFDictionarySetValue(
-            @as(c.CFMutableDictionaryRef, @ptrCast(self)),
+            @ptrCast(self),
             key,
             value,
         );

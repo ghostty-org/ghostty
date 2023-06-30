@@ -11,7 +11,7 @@ pub const Framesetter = opaque {
         return @as(
             ?*Framesetter,
             @ptrFromInt(@intFromPtr(c.CTFramesetterCreateWithAttributedString(
-                @as(c.CFAttributedStringRef, @ptrCast(str)),
+                @ptrCast(str),
             ))),
         ) orelse Allocator.Error.OutOfMemory;
     }
@@ -29,10 +29,10 @@ pub const Framesetter = opaque {
         return @as(
             ?*text.Frame,
             @ptrFromInt(@intFromPtr(c.CTFramesetterCreateFrame(
-                @as(c.CTFramesetterRef, @ptrCast(self)),
-                @as(c.CFRange, @bitCast(range)),
-                @as(c.CGPathRef, @ptrCast(path)),
-                @as(c.CFDictionaryRef, @ptrCast(attrs)),
+                @ptrCast(self),
+                @bitCast(range),
+                @ptrCast(path),
+                @ptrCast(attrs),
             ))),
         ) orelse error.FrameCreateFailed;
     }
@@ -47,7 +47,7 @@ test {
         str.replaceString(foundation.Range.init(0, 0), rep);
     }
 
-    const fs = try Framesetter.createWithAttributedString(@as(*foundation.AttributedString, @ptrCast(str)));
+    const fs = try Framesetter.createWithAttributedString(@ptrCast(str));
     defer fs.release();
 
     const path = try graphics.Path.createWithRect(graphics.Rect.init(0, 0, 100, 200), null);

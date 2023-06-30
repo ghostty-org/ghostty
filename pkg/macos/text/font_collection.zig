@@ -16,7 +16,7 @@ pub const FontCollection = opaque {
         return @as(
             ?*FontCollection,
             @ptrFromInt(@intFromPtr(c.CTFontCollectionCreateWithFontDescriptors(
-                @as(c.CFArrayRef, @ptrCast(descs)),
+                @ptrCast(descs),
                 null,
             ))),
         ) orelse Allocator.Error.OutOfMemory;
@@ -27,12 +27,8 @@ pub const FontCollection = opaque {
     }
 
     pub fn createMatchingFontDescriptors(self: *FontCollection) *foundation.Array {
-        const result = c.CTFontCollectionCreateMatchingFontDescriptors(
-            @as(c.CTFontCollectionRef, @ptrCast(self)),
-        );
-        if (result) |ptr| {
-            return @as(*foundation.Array, @ptrFromInt(@intFromPtr(ptr)));
-        }
+        const result = c.CTFontCollectionCreateMatchingFontDescriptors(@ptrCast(self));
+        if (result) |ptr| return @ptrFromInt(@intFromPtr(ptr));
 
         // If we have no results, we create an empty array. This is not
         // exactly matching the Mac API. We can fix this later if we want

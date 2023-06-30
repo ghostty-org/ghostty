@@ -6,8 +6,8 @@ pub const Array = opaque {
     pub fn create(comptime T: type, values: []*const T) Allocator.Error!*Array {
         return CFArrayCreate(
             null,
-            @as([*]*const anyopaque, @ptrCast(values.ptr)),
-            @as(usize, @intCast(values.len)),
+            @ptrCast(values.ptr),
+            @intCast(values.len),
             null,
         ) orelse error.OutOfMemory;
     }
@@ -24,7 +24,7 @@ pub const Array = opaque {
     /// constness so that further API calls work correctly. The Foundation
     /// API doesn't properly mark things const/non-const.
     pub fn getValueAtIndex(self: *Array, comptime T: type, idx: usize) *T {
-        return @as(*T, @ptrCast(CFArrayGetValueAtIndex(self, idx)));
+        return @ptrCast(CFArrayGetValueAtIndex(self, idx));
     }
 
     pub extern "c" fn CFArrayCreate(

@@ -11,10 +11,10 @@ pub const Range = extern struct {
     length: c.CFIndex,
 
     pub fn init(loc: usize, len: usize) Range {
-        return @as(Range, @bitCast(c.CFRangeMake(@as(c_long, @intCast(loc)), @as(c_long, @intCast(len)))));
+        return @bitCast(c.CFRangeMake(@intCast(loc), @intCast(len)));
     }
 
     pub fn cval(self: Range) c.CFRange {
-        return @as(c.CFRange, @bitCast(self));
+        return @bitCast(self);
     }
 };

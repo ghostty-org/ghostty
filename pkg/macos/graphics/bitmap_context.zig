@@ -20,12 +20,12 @@ pub const BitmapContext = opaque {
         return @as(
             ?*BitmapContext,
             @ptrFromInt(@intFromPtr(c.CGBitmapContextCreate(
-                @as(?*anyopaque, @ptrCast(if (data) |d| d.ptr else null)),
+                @ptrCast(if (data) |d| d.ptr else null),
                 width,
                 height,
                 bits_per_component,
                 bytes_per_row,
-                @as(c.CGColorSpaceRef, @ptrCast(space)),
+                @ptrCast(space),
                 opts,
             ))),
         ) orelse Allocator.Error.OutOfMemory;

@@ -11,7 +11,7 @@ pub const Line = opaque {
         return @as(
             ?*Line,
             @ptrFromInt(@intFromPtr(c.CTLineCreateWithAttributedString(
-                @as(c.CFAttributedStringRef, @ptrCast(str)),
+                @ptrCast(str),
             ))),
         ) orelse Allocator.Error.OutOfMemory;
     }
@@ -21,9 +21,9 @@ pub const Line = opaque {
     }
 
     pub fn getGlyphCount(self: *Line) usize {
-        return @as(usize, @intCast(c.CTLineGetGlyphCount(
-            @as(c.CTLineRef, @ptrCast(self)),
-        )));
+        return @intCast(c.CTLineGetGlyphCount(
+            @ptrCast(self),
+        ));
     }
 
     pub fn getBoundsWithOptions(
@@ -39,9 +39,9 @@ pub const Line = opaque {
         // C ABI issue happening.
         var result: graphics.Rect = undefined;
         zig_cabi_CTLineGetBoundsWithOptions(
-            @as(c.CTLineRef, @ptrCast(self)),
+            @ptrCast(self),
             opts.cval(),
-            @as(*c.CGRect, @ptrCast(&result)),
+            @ptrCast(&result),
         );
 
         return result;
@@ -61,7 +61,7 @@ pub const Line = opaque {
         leading: ?*f64,
     ) f64 {
         return c.CTLineGetTypographicBounds(
-            @as(c.CTLineRef, @ptrCast(self)),
+            @ptrCast(self),
             ascent,
             descent,
             leading,
@@ -79,7 +79,7 @@ pub const LineBoundsOptions = packed struct {
     _padding: u58 = 0,
 
     pub fn cval(self: LineBoundsOptions) c.CTLineBoundsOptions {
-        return @as(c.CTLineBoundsOptions, @bitCast(self));
+        return @bitCast(self);
     }
 
     test {

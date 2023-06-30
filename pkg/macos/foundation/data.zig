@@ -10,7 +10,7 @@ pub const Data = opaque {
             @ptrFromInt(@intFromPtr(c.CFDataCreateWithBytesNoCopy(
                 null,
                 data.ptr,
-                @as(c_long, @intCast(data.len)),
+                @intCast(data.len),
                 c.kCFAllocatorNull,
             ))),
         ) orelse error.OutOfMemory;

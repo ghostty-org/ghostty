@@ -19,7 +19,7 @@ pub const ColorSpace = opaque {
     }
 
     pub fn release(self: *ColorSpace) void {
-        c.CGColorSpaceRelease(@as(c.CGColorSpaceRef, @ptrCast(self)));
+        c.CGColorSpaceRelease(@ptrCast(self));
     }
 };
 

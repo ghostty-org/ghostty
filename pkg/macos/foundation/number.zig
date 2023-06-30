@@ -17,7 +17,7 @@ pub const Number = opaque {
 
     pub fn getValue(self: *Number, comptime t: NumberType, ptr: *t.ValueType()) bool {
         return c.CFNumberGetValue(
-            @as(c.CFNumberRef, @ptrCast(self)),
+            @ptrCast(self),
             @intFromEnum(t),
             ptr,
         ) == 1;

@@ -14,7 +14,7 @@ pub const Path = opaque {
             ?*Path,
             @ptrFromInt(@intFromPtr(c.CGPathCreateWithRect(
                 rect.cval(),
-                @as(?[*]const c.struct_CGAffineTransform, @ptrCast(transform)),
+                @ptrCast(transform),
             ))),
         ) orelse Allocator.Error.OutOfMemory;
     }
@@ -42,8 +42,8 @@ pub const MutablePath = opaque {
         rect: graphics.Rect,
     ) void {
         c.CGPathAddRect(
-            @as(c.CGMutablePathRef, @ptrCast(self)),
-            @as(?[*]const c.struct_CGAffineTransform, @ptrCast(transform)),
+            @ptrCast(self),
+            @ptrCast(transform),
             rect.cval(),
         );
     }

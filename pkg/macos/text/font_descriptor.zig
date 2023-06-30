@@ -7,14 +7,14 @@ pub const FontDescriptor = opaque {
     pub fn createWithNameAndSize(name: *foundation.String, size: f64) Allocator.Error!*FontDescriptor {
         return @as(
             ?*FontDescriptor,
-            @ptrFromInt(@intFromPtr(c.CTFontDescriptorCreateWithNameAndSize(@as(c.CFStringRef, @ptrCast(name)), size))),
+            @ptrFromInt(@intFromPtr(c.CTFontDescriptorCreateWithNameAndSize(@ptrCast(name), size))),
         ) orelse Allocator.Error.OutOfMemory;
     }
 
     pub fn createWithAttributes(dict: *foundation.Dictionary) Allocator.Error!*FontDescriptor {
         return @as(
             ?*FontDescriptor,
-            @ptrFromInt(@intFromPtr(c.CTFontDescriptorCreateWithAttributes(@as(c.CFDictionaryRef, @ptrCast(dict))))),
+            @ptrFromInt(@intFromPtr(c.CTFontDescriptorCreateWithAttributes(@ptrCast(dict)))),
         ) orelse Allocator.Error.OutOfMemory;
     }
 
@@ -25,8 +25,8 @@ pub const FontDescriptor = opaque {
         return @as(
             ?*FontDescriptor,
             @ptrFromInt(@intFromPtr(c.CTFontDescriptorCreateCopyWithAttributes(
-                @as(c.CTFontDescriptorRef, @ptrCast(original)),
-                @as(c.CFDictionaryRef, @ptrCast(dict)),
+                @ptrCast(original),
+                @ptrCast(dict),
             ))),
         ) orelse Allocator.Error.OutOfMemory;
     }
@@ -36,16 +36,16 @@ pub const FontDescriptor = opaque {
     }
 
     pub fn copyAttribute(self: *FontDescriptor, comptime attr: FontAttribute) attr.Value() {
-        return @as(attr.Value(), @ptrFromInt(@intFromPtr(c.CTFontDescriptorCopyAttribute(
-            @as(c.CTFontDescriptorRef, @ptrCast(self)),
-            @as(c.CFStringRef, @ptrCast(attr.key())),
-        ))));
+        return @ptrFromInt(@intFromPtr(c.CTFontDescriptorCopyAttribute(
+            @ptrCast(self),
+            @ptrCast(attr.key()),
+        )));
     }
 
     pub fn copyAttributes(self: *FontDescriptor) *foundation.Dictionary {
-        return @as(*foundation.Dictionary, @ptrFromInt(@intFromPtr(c.CTFontDescriptorCopyAttributes(
-            @as(c.CTFontDescriptorRef, @ptrCast(self)),
-        ))));
+        return @ptrFromInt(@intFromPtr(c.CTFontDescriptorCopyAttributes(
+            @ptrCast(self),
+        )));
     }
 };
 

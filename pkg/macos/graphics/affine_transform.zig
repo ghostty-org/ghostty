@@ -11,10 +11,10 @@ pub const AffineTransform = extern struct {
     ty: c.CGFloat,
 
     pub fn identity() AffineTransform {
-        return @as(AffineTransform, @bitCast(c.CGAffineTransformIdentity));
+        return @bitCast(c.CGAffineTransformIdentity);
     }
 
     pub fn cval(self: AffineTransform) c.struct_CGAffineTransform {
-        return @as(c.struct_CGAffineTransform, @bitCast(self));
+        return @bitCast(self);
     }
 };
