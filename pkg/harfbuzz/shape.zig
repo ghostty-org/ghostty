@@ -12,9 +12,7 @@ const Feature = @import("common.zig").Feature;
 pub fn shape(font: Font, buf: Buffer, features: ?[]const Feature) void {
     const hb_feats: [*c]const c.hb_feature_t = feats: {
         if (features) |fs| {
-            if (fs.len > 0) {
-                break :feats @as([*]const c.hb_feature_t, @ptrCast(fs.ptr));
-            }
+            if (fs.len > 0) break :feats @ptrCast(fs.ptr);
         }
 
         break :feats null;
@@ -24,6 +22,6 @@ pub fn shape(font: Font, buf: Buffer, features: ?[]const Feature) void {
         font.handle,
         buf.handle,
         hb_feats,
-        if (features) |f| @as(c_uint, @intCast(f.len)) else 0,
+        if (features) |f| @intCast(f.len) else 0,
     );
 }

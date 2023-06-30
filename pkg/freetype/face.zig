@@ -72,17 +72,16 @@ pub const Face = struct {
         return intToError(c.FT_Load_Glyph(
             self.handle,
             glyph_index,
-            @as(i32, @bitCast(load_flags)),
+            @bitCast(load_flags),
         ));
     }
 
     /// Return a pointer to a given SFNT table stored within a face.
     pub fn getSfntTable(self: Face, comptime tag: SfntTag) ?*tag.DataType() {
-        const T = tag.DataType();
-        return @as(?*T, @ptrCast(@alignCast(c.FT_Get_Sfnt_Table(
+        return @ptrCast(@alignCast(c.FT_Get_Sfnt_Table(
             self.handle,
             @intFromEnum(tag),
-        ))));
+        )));
     }
 };
 

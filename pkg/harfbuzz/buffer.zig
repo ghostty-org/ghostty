@@ -45,7 +45,7 @@ pub const Buffer = struct {
     /// Fetches the type of buffer contents. Buffers are either empty, contain
     /// characters (before shaping), or contain glyphs (the result of shaping).
     pub fn getContentType(self: Buffer) ContentType {
-        return @as(ContentType, @enumFromInt(c.hb_buffer_get_content_type(self.handle)));
+        return @enumFromInt(c.hb_buffer_get_content_type(self.handle));
     }
 
     /// Appends a character with the Unicode value of codepoint to buffer,
@@ -76,9 +76,9 @@ pub const Buffer = struct {
         c.hb_buffer_add_codepoints(
             self.handle,
             text.ptr,
-            @as(c_int, @intCast(text.len)),
+            @intCast(text.len),
             0,
-            @as(c_int, @intCast(text.len)),
+            @intCast(text.len),
         );
     }
 
@@ -90,9 +90,9 @@ pub const Buffer = struct {
         c.hb_buffer_add_utf32(
             self.handle,
             text.ptr,
-            @as(c_int, @intCast(text.len)),
+            @intCast(text.len),
             0,
-            @as(c_int, @intCast(text.len)),
+            @intCast(text.len),
         );
     }
 
@@ -104,9 +104,9 @@ pub const Buffer = struct {
         c.hb_buffer_add_utf16(
             self.handle,
             text.ptr,
-            @as(c_int, @intCast(text.len)),
+            @intCast(text.len),
             0,
-            @as(c_int, @intCast(text.len)),
+            @intCast(text.len),
         );
     }
 
@@ -118,9 +118,9 @@ pub const Buffer = struct {
         c.hb_buffer_add_utf8(
             self.handle,
             text.ptr,
-            @as(c_int, @intCast(text.len)),
+            @intCast(text.len),
             0,
-            @as(c_int, @intCast(text.len)),
+            @intCast(text.len),
         );
     }
 
@@ -130,9 +130,9 @@ pub const Buffer = struct {
         c.hb_buffer_add_latin1(
             self.handle,
             text.ptr,
-            @as(c_int, @intCast(text.len)),
+            @intCast(text.len),
             0,
-            @as(c_int, @intCast(text.len)),
+            @intCast(text.len),
         );
     }
 
@@ -149,7 +149,7 @@ pub const Buffer = struct {
 
     /// See hb_buffer_set_direction()
     pub fn getDirection(self: Buffer) Direction {
-        return @as(Direction, @enumFromInt(c.hb_buffer_get_direction(self.handle)));
+        return @enumFromInt(c.hb_buffer_get_direction(self.handle));
     }
 
     /// Sets the script of buffer to script.
@@ -167,7 +167,7 @@ pub const Buffer = struct {
 
     /// See hb_buffer_set_script()
     pub fn getScript(self: Buffer) Script {
-        return @as(Script, @enumFromInt(c.hb_buffer_get_script(self.handle)));
+        return @enumFromInt(c.hb_buffer_get_script(self.handle));
     }
 
     /// Sets the language of buffer to language .
@@ -192,10 +192,7 @@ pub const Buffer = struct {
     /// long as buffer contents are not modified.
     pub fn getGlyphInfos(self: Buffer) []GlyphInfo {
         var length: u32 = 0;
-        const ptr = @as(
-            [*c]GlyphInfo,
-            @ptrCast(c.hb_buffer_get_glyph_infos(self.handle, &length)),
-        );
+        const ptr: [*c]GlyphInfo = @ptrCast(c.hb_buffer_get_glyph_infos(self.handle, &length));
         return ptr[0..length];
     }
 
@@ -210,7 +207,7 @@ pub const Buffer = struct {
         var length: u32 = 0;
 
         if (c.hb_buffer_get_glyph_positions(self.handle, &length)) |positions| {
-            const ptr = @as([*]GlyphPosition, @ptrCast(positions));
+            const ptr: [*]GlyphPosition = @ptrCast(positions);
             return ptr[0..length];
         }
 

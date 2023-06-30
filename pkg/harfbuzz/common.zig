@@ -194,10 +194,7 @@ pub const Language = struct {
     /// hb_language_t.
     pub fn fromString(str: []const u8) Language {
         return .{
-            .handle = c.hb_language_from_string(
-                str.ptr,
-                @as(c_int, @intCast(str.len)),
-            ),
+            .handle = c.hb_language_from_string(str.ptr, @intCast(str.len)),
         };
     }
 
@@ -231,16 +228,16 @@ pub const Feature = extern struct {
         var f: c.hb_feature_t = undefined;
         return if (c.hb_feature_from_string(
             str.ptr,
-            @as(c_int, @intCast(str.len)),
+            @intCast(str.len),
             &f,
         ) > 0)
-            @as(Feature, @bitCast(f))
+            @bitCast(f)
         else
             null;
     }
 
     pub fn toString(self: *Feature, buf: []u8) void {
-        c.hb_feature_to_string(self, buf.ptr, @as(c_uint, @intCast(buf.len)));
+        c.hb_feature_to_string(self, buf.ptr, @intCast(buf.len));
     }
 };
 
