@@ -27,7 +27,7 @@ pub fn drawElementsInstanced(
     typ: c.GLenum,
     primcount: usize,
 ) !void {
-    glad.context.DrawElementsInstanced.?(mode, count, typ, null, @as(c.GLsizei, @intCast(primcount)));
+    glad.context.DrawElementsInstanced.?(mode, count, typ, null, @intCast(primcount));
     try errors.getError();
 }
 

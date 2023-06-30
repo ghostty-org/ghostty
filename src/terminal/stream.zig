@@ -229,10 +229,7 @@ pub fn Stream(comptime Handler: type) type {
                                 return;
                             }
 
-                            break :mode @as(
-                                csi.EraseDisplay,
-                                @enumFromInt(action.params[0]),
-                            );
+                            break :mode @enumFromInt(action.params[0]);
                         },
                         else => {
                             log.warn("invalid erase display command: {}", .{action});
@@ -252,10 +249,7 @@ pub fn Stream(comptime Handler: type) type {
                                 return;
                             }
 
-                            break :mode @as(
-                                csi.EraseLine,
-                                @enumFromInt(action.params[0]),
-                            );
+                            break :mode @enumFromInt(action.params[0]);
                         },
                         else => {
                             log.warn("invalid erase line command: {}", .{action});
@@ -422,7 +416,7 @@ pub fn Stream(comptime Handler: type) type {
                 // TODO: test
                 'g' => if (@hasDecl(T, "tabClear")) try self.handler.tabClear(
                     switch (action.params.len) {
-                        1 => @as(csi.TabClear, @enumFromInt(action.params[0])),
+                        1 => @enumFromInt(action.params[0]),
                         else => {
                             log.warn("invalid tab clear command: {}", .{action});
                             return;
@@ -433,13 +427,13 @@ pub fn Stream(comptime Handler: type) type {
                 // SM - Set Mode
                 'h' => if (@hasDecl(T, "setMode")) {
                     for (action.params) |mode|
-                        try self.handler.setMode(@as(ansi.Mode, @enumFromInt(mode)), true);
+                        try self.handler.setMode(@enumFromInt(mode), true);
                 } else log.warn("unimplemented CSI callback: {}", .{action}),
 
                 // RM - Reset Mode
                 'l' => if (@hasDecl(T, "setMode")) {
                     for (action.params) |mode|
-                        try self.handler.setMode(@as(ansi.Mode, @enumFromInt(mode)), false);
+                        try self.handler.setMode(@enumFromInt(mode), false);
                 } else log.warn("unimplemented CSI callback: {}", .{action}),
 
                 // SGR - Select Graphic Rendition
@@ -455,7 +449,7 @@ pub fn Stream(comptime Handler: type) type {
                 // TODO: test
                 'n' => if (@hasDecl(T, "deviceStatusReport")) try self.handler.deviceStatusReport(
                     switch (action.params.len) {
-                        1 => @as(ansi.DeviceStatusReq, @enumFromInt(action.params[0])),
+                        1 => @enumFromInt(action.params[0]),
                         else => {
                             log.warn("invalid erase characters command: {}", .{action});
                             return;
@@ -468,7 +462,7 @@ pub fn Stream(comptime Handler: type) type {
                 'q' => if (@hasDecl(T, "setCursorStyle")) try self.handler.setCursorStyle(
                     switch (action.params.len) {
                         0 => ansi.CursorStyle.default,
-                        1 => @as(ansi.CursorStyle, @enumFromInt(action.params[0])),
+                        1 => @enumFromInt(action.params[0]),
                         else => {
                             log.warn("invalid set curor style command: {}", .{action});
                             return;
@@ -504,9 +498,7 @@ pub fn Stream(comptime Handler: type) type {
                         if (!@hasDecl(T, "setActiveStatusDisplay"))
                             break :decsasd false;
 
-                        try self.handler.setActiveStatusDisplay(
-                            @as(ansi.StatusDisplay, @enumFromInt(action.params[0])),
-                        );
+                        try self.handler.setActiveStatusDisplay(@enumFromInt(action.params[0]));
                         break :decsasd true;
                     };
 

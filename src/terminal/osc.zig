@@ -397,7 +397,7 @@ pub const Parser = struct {
 
     fn endSemanticExitCode(self: *Parser) void {
         switch (self.command) {
-            .end_of_command => |*v| v.exit_code = @as(u8, @truncate(self.temp_state.num)),
+            .end_of_command => |*v| v.exit_code = @truncate(self.temp_state.num),
             else => {},
         }
     }

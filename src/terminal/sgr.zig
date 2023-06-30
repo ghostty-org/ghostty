@@ -186,7 +186,7 @@ pub const Parser = struct {
             29 => return Attribute{ .reset_strikethrough = {} },
 
             30...37 => return Attribute{
-                .@"8_fg" = @as(color.Name, @enumFromInt(slice[0] - 30)),
+                .@"8_fg" = @enumFromInt(slice[0] - 30),
             },
 
             38 => if (slice.len >= 5 and slice[1] == 2) {
@@ -199,22 +199,22 @@ pub const Parser = struct {
                 // it isn't, the behavior is undefined so we just... truncate it.
                 return Attribute{
                     .direct_color_fg = .{
-                        .r = @as(u8, @truncate(rgb[0])),
-                        .g = @as(u8, @truncate(rgb[1])),
-                        .b = @as(u8, @truncate(rgb[2])),
+                        .r = @truncate(rgb[0]),
+                        .g = @truncate(rgb[1]),
+                        .b = @truncate(rgb[2]),
                     },
                 };
             } else if (slice.len >= 2 and slice[1] == 5) {
                 self.idx += 2;
                 return Attribute{
-                    .@"256_fg" = @as(u8, @truncate(slice[2])),
+                    .@"256_fg" = @truncate(slice[2]),
                 };
             },
 
             39 => return Attribute{ .reset_fg = {} },
 
             40...47 => return Attribute{
-                .@"8_bg" = @as(color.Name, @enumFromInt(slice[0] - 40)),
+                .@"8_bg" = @enumFromInt(slice[0] - 40),
             },
 
             48 => if (slice.len >= 5 and slice[1] == 2) {
@@ -231,15 +231,15 @@ pub const Parser = struct {
                 // it isn't, the behavior is undefined so we just... truncate it.
                 return Attribute{
                     .direct_color_bg = .{
-                        .r = @as(u8, @truncate(rgb[0])),
-                        .g = @as(u8, @truncate(rgb[1])),
-                        .b = @as(u8, @truncate(rgb[2])),
+                        .r = @truncate(rgb[0]),
+                        .g = @truncate(rgb[1]),
+                        .b = @truncate(rgb[2]),
                     },
                 };
             } else if (slice.len >= 2 and slice[1] == 5) {
                 self.idx += 2;
                 return Attribute{
-                    .@"256_bg" = @as(u8, @truncate(slice[2])),
+                    .@"256_bg" = @truncate(slice[2]),
                 };
             },
 
@@ -259,9 +259,9 @@ pub const Parser = struct {
                 // it isn't, the behavior is undefined so we just... truncate it.
                 return Attribute{
                     .underline_color = .{
-                        .r = @as(u8, @truncate(rgb[0])),
-                        .g = @as(u8, @truncate(rgb[1])),
-                        .b = @as(u8, @truncate(rgb[2])),
+                        .r = @truncate(rgb[0]),
+                        .g = @truncate(rgb[1]),
+                        .b = @truncate(rgb[2]),
                     },
                 };
             },
@@ -270,11 +270,11 @@ pub const Parser = struct {
 
             90...97 => return Attribute{
                 // 82 instead of 90 to offset to "bright" colors
-                .@"8_bright_fg" = @as(color.Name, @enumFromInt(slice[0] - 82)),
+                .@"8_bright_fg" = @enumFromInt(slice[0] - 82),
             },
 
             100...107 => return Attribute{
-                .@"8_bright_bg" = @as(color.Name, @enumFromInt(slice[0] - 92)),
+                .@"8_bright_bg" = @enumFromInt(slice[0] - 92),
             },
 
             else => {},

@@ -54,7 +54,7 @@ pub const Binding = struct {
         data: anytype,
     ) !void {
         const info = dataInfo(data);
-        glad.context.BufferSubData.?(@intFromEnum(b.target), @as(c_long, @intCast(offset)), info.size, info.ptr);
+        glad.context.BufferSubData.?(@intFromEnum(b.target), @intCast(offset), info.size, info.ptr);
         try errors.getError();
     }
 
@@ -76,7 +76,7 @@ pub const Binding = struct {
         size: usize,
         usage: Usage,
     ) !void {
-        glad.context.BufferData.?(@intFromEnum(b.target), @as(c_long, @intCast(size)), null, @intFromEnum(usage));
+        glad.context.BufferData.?(@intFromEnum(b.target), @intCast(size), null, @intFromEnum(usage));
         try errors.getError();
     }
 
@@ -91,7 +91,7 @@ pub const Binding = struct {
                     .ptr = data,
                 },
                 .Slice => .{
-                    .size = @as(isize, @intCast(@sizeOf(ptr.child) * data.len)),
+                    .size = @intCast(@sizeOf(ptr.child) * data.len),
                     .ptr = data.ptr,
                 },
                 else => {

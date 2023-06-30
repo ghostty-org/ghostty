@@ -1614,7 +1614,7 @@ pub fn selectionString(
 
                 var buf: [4]u8 = undefined;
                 const char = if (cell.cell.char > 0) cell.cell.char else ' ';
-                count += try std.unicode.utf8Encode(@as(u21, @intCast(char)), &buf);
+                count += try std.unicode.utf8Encode(@intCast(char), &buf);
             }
         }
 
@@ -1658,7 +1658,7 @@ pub fn selectionString(
                     cell.attrs.wide_spacer_tail) continue;
 
                 const char = if (cell.char > 0) cell.char else ' ';
-                buf_i += try std.unicode.utf8Encode(@as(u21, @intCast(char)), buf[buf_i..]);
+                buf_i += try std.unicode.utf8Encode(@intCast(char), buf[buf_i..]);
             }
 
             // If this row is not soft-wrapped, add a newline
@@ -2348,7 +2348,7 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
         switch (width) {
             1 => {
                 const cell = row.getCellPtr(x);
-                cell.char = @as(u32, @intCast(c));
+                cell.char = @intCast(c);
 
                 grapheme.x = x;
                 grapheme.cell = cell;
@@ -2373,7 +2373,7 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
 
                 {
                     const cell = row.getCellPtr(x);
-                    cell.char = @as(u32, @intCast(c));
+                    cell.char = @intCast(c);
                     cell.attrs.wide = true;
 
                     grapheme.x = x;
@@ -2422,7 +2422,7 @@ pub fn testString(self: *Screen, alloc: Allocator, tag: RowIndexTag) ![]const u8
         while (cells.next()) |cell| {
             // TODO: handle character after null
             if (cell.char > 0) {
-                i += try std.unicode.utf8Encode(@as(u21, @intCast(cell.char)), buf[i..]);
+                i += try std.unicode.utf8Encode(@intCast(cell.char), buf[i..]);
             }
         }
     }

@@ -310,7 +310,7 @@ pub fn resize(self: *Terminal, alloc: Allocator, cols_req: usize, rows: usize) !
     // columns depending on if mode 3 is set or not.
     // TODO: test
     const cols: usize = if (self.modes.deccolm_supported)
-        @as(usize, if (self.modes.deccolm) 132 else 80)
+        if (self.modes.deccolm) 132 else 80
     else
         cols_req;
 
@@ -735,7 +735,7 @@ fn printCell(self: *Terminal, unmapped_c: u21) *Screen.Cell {
     // const tracy = trace(@src());
     // defer tracy.end();
 
-    const c = c: {
+    const c: u21 = c: {
         // TODO: non-utf8 handling, gr
 
         // If we're single shifting, then we use the key exactly once.
@@ -754,7 +754,7 @@ fn printCell(self: *Terminal, unmapped_c: u21) *Screen.Cell {
 
         // Get our lookup table and map it
         const table = set.table();
-        break :c @as(u21, @intCast(table[@as(u8, @intCast(unmapped_c))]));
+        break :c @intCast(table[@intCast(unmapped_c)]);
     };
 
     const row = self.screen.getRow(.{ .active = self.screen.cursor.y });
@@ -790,7 +790,7 @@ fn printCell(self: *Terminal, unmapped_c: u21) *Screen.Cell {
 
     // Write
     cell.* = self.screen.cursor.pen;
-    cell.char = @as(u32, @intCast(c));
+    cell.char = @intCast(c);
     return cell;
 }
 

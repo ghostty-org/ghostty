@@ -91,7 +91,7 @@ const max_u8 = std.math.maxInt(u8);
 fn initTable() [max_u8]u16 {
     var result: [max_u8]u16 = undefined;
     var i: usize = 0;
-    while (i < max_u8) : (i += 1) result[i] = @as(u16, @intCast(i));
+    while (i < max_u8) : (i += 1) result[i] = @intCast(i);
     assert(i == max_u8);
     return result;
 }

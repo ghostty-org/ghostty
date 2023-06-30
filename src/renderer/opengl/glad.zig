@@ -18,10 +18,7 @@ pub fn load(getProcAddress: anytype) !c_int {
 
     const res = switch (@TypeOf(getProcAddress)) {
         // glfw
-        GlfwFn => c.gladLoadGLContext(&context, @as(
-            *const fn ([*c]const u8) callconv(.C) ?GlProc,
-            @ptrCast(getProcAddress),
-        )),
+        GlfwFn => c.gladLoadGLContext(&context, @ptrCast(getProcAddress)),
 
         // null proc address means that we are just loading the globally
         // pointed gl functions

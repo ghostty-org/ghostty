@@ -8,7 +8,7 @@ pub fn len() !u32 {
     var n: c.GLint = undefined;
     glad.context.GetIntegerv.?(c.GL_NUM_EXTENSIONS, &n);
     try errors.getError();
-    return @as(u32, @intCast(n));
+    return @intCast(n);
 }
 
 /// Returns an iterator for the extensions.

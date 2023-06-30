@@ -8,7 +8,7 @@ pub const default: Palette = default: {
     // Named values
     var i: u8 = 0;
     while (i < 16) : (i += 1) {
-        result[i] = Name.default(@as(Name, @enumFromInt(i))) catch unreachable;
+        result[i] = Name.default(@enumFromInt(i)) catch unreachable;
     }
 
     // Cube
