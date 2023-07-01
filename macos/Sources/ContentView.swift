@@ -11,6 +11,11 @@ struct ContentView: View {
     // if we show the quit confirmation or not.
     @State private var window: NSWindow?
     
+    // This is the dialog to ask user whether they want to quit.
+    // We're using an NSAlert instead of a SwiftUI confirmationDialog because
+    // SwiftUI's dialog don't support accepting the default action on return.
+    @ObservedObject var dialogPresenter = QuitConfirmationDialogPresenter()
+
     var body: some View {
         switch ghostty.readiness {
         case .loading:
@@ -35,21 +40,11 @@ struct ContentView: View {
             Ghostty.TerminalSplit(onClose: Self.closeWindow)
                 .ghosttyApp(ghostty.app!)
                 .background(WindowAccessor(window: $window))
-                .confirmationDialog(
-                    "Quit Ghostty?",
-                    isPresented: confirmQuitting) {
-                        Button("Close Ghostty", role: .destructive) {
-                            NSApplication.shared.reply(toApplicationShouldTerminate: true)
-                        }
-                        .keyboardShortcut(.defaultAction)
-                        
-                        Button("Cancel", role: .cancel) {
-                            NSApplication.shared.reply(toApplicationShouldTerminate: false)
-                        }
-                        .keyboardShortcut(.cancelAction)
-                    } message: {
-                        Text("All terminal sessions will be terminated.")
-                    }
+                .onChange(of: confirmQuitting.wrappedValue) { value in
+                    guard value else { return }
+                    dialogPresenter.showDialog()
+                    self.appDelegate.confirmQuit = false
+                }
         }
     }
     

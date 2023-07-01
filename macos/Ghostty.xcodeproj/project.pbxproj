@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		859D96B92A504517003B74CA /* QuitConfirmationDialogPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859D96B82A504517003B74CA /* QuitConfirmationDialogPresenter.swift */; };
 		A535B9DA299C569B0017E2E4 /* ErrorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A535B9D9299C569B0017E2E4 /* ErrorView.swift */; };
 		A55685E029A03A9F004303CE /* AppError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A55685DF29A03A9F004303CE /* AppError.swift */; };
 		A55B7BB629B6F47F0055DE60 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A55B7BB529B6F47F0055DE60 /* AppState.swift */; };
@@ -26,6 +27,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		859D96B82A504517003B74CA /* QuitConfirmationDialogPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuitConfirmationDialogPresenter.swift; sourceTree = "<group>"; };
 		A535B9D9299C569B0017E2E4 /* ErrorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorView.swift; sourceTree = "<group>"; };
 		A55685DF29A03A9F004303CE /* AppError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppError.swift; sourceTree = "<group>"; };
 		A55B7BB529B6F47F0055DE60 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
@@ -71,6 +73,7 @@
 				A59444F629A2ED5200725BBA /* SettingsView.swift */,
 				A5CEAFFE29C2410700646FDA /* Backport.swift */,
 				A5FECBD629D1FC3900022361 /* ContentView.swift */,
+				859D96B82A504517003B74CA /* QuitConfirmationDialogPresenter.swift */,
 				A5FECBD829D2010400022361 /* WindowAccessor.swift */,
 			);
 			path = Sources;
@@ -210,6 +213,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				859D96B92A504517003B74CA /* QuitConfirmationDialogPresenter.swift in Sources */,
 				A55B7BBC29B6FC330055DE60 /* SurfaceView.swift in Sources */,
 				A59444F729A2ED5200725BBA /* SettingsView.swift in Sources */,
 				A5FECBD729D1FC3900022361 /* ContentView.swift in Sources */,
