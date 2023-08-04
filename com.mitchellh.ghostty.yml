@@ -5,6 +5,8 @@ sdk: org.gnome.Sdk
 default-branch: tip
 command: ghostty
 build-options:
+  build-args:
+    - --share=network
   append-path: /app/tmp/zig
   strip: false
   no-debuginfo: true
