@@ -134,16 +134,20 @@ The currently support shell integration features in Ghostty:
 
 #### Shell Integration Installation and Verification
 
-**On macOS,** Ghostty will automatically inject the shell integration code for `zsh` and
+Ghostty will automatically inject the shell integration code for `zsh` and
 `fish`. Other shells are not supported. You can also manually load them
 in many cases (see `src/shell-integration`). **If you want to disable this feature,**
 set `shell-integration = none` in your configuration file.
 
-**On Linux,** automatic shell integration requires that you set the
-`GHOSTTY_RESOURCES_DIR` environment variable to point to the
-`zig-out/share` directory after building Ghostty from source.
-To validate this directory the file `$GHOSTTY_RESOURCES_DIR/terminfo/ghostty.terminfo`
-should exist.
+**For the automatic shell integration to work,** Ghostty must either be run
+from the macOS app bundle or be installed in a location where the contents of
+`zig-out/share` are available somewhere above the directory where Ghostty
+is running from. On Linux, this should automatically work if you run from
+the `zig-out` directory tree structure (a standard FHS-style tree).
+
+You may also manually set the `GHOSTTY_RESOURCES_DIR` to point to the
+`zig-out/share` contents. To validate this directory the file
+`$GHOSTTY_RESOURCES_DIR/terminfo/ghostty.terminfo` should exist.
 
 To verify shell integration is working, look for the following log lines:
 
