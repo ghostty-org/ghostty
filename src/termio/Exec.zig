@@ -534,14 +534,20 @@ const Subprocess = struct {
         // Get our bundled resources directory, if it exists. We use this
         // for terminfo, shell-integration, etc.
         const resources_key = "GHOSTTY_RESOURCES_DIR";
-        const resources_dir = if (env.get(resources_key)) |dir| dir: {
-            log.info("using Ghostty resources dir from env var: {s}", .{dir});
-            break :dir dir;
-        } else if (try resourcesDir(alloc)) |dir| dir: {
-            log.info("found Ghostty resources dir: {s}", .{dir});
-            try env.put(resources_key, dir);
-            break :dir dir;
-        } else dir: {
+        const resources_dir = dir: {
+            if (env.get(resources_key)) |dir| {
+                if (dir.len > 0) {
+                    log.info("using Ghostty resources dir from env var: {s}", .{dir});
+                    break :dir dir;
+                }
+            }
+
+            if (try resourcesDir(alloc)) |dir| {
+                log.info("found Ghostty resources dir: {s}", .{dir});
+                try env.put(resources_key, dir);
+                break :dir dir;
+            }
+
             log.warn("Ghostty resources dir not found, some features disabled", .{});
             break :dir null;
         };
@@ -853,7 +859,7 @@ const Subprocess = struct {
     /// an arena or something similar.
     fn terminfoDir(alloc: Allocator, base: ?[]const u8) !?[]const u8 {
         const dir = base orelse return null;
-        return try tryDir(alloc, dir, "terminfo");
+        return try tryDir(alloc, dir, "terminfo", "");
     }
 
     /// Gets the directory to the bundled resources directory, if it
@@ -862,9 +868,9 @@ const Subprocess = struct {
     /// The memory returned can't be easily freed so the alloc should be
     /// an arena or something similar.
     fn resourcesDir(alloc: Allocator) !?[]const u8 {
-        // We only support Mac lookups right now because the terminfo
-        // DB can be embedded directly in the App bundle.
-        if (comptime !builtin.target.isDarwin()) return null;
+        // This is the sentinel value we look for in the path to know
+        // we've found the resources directory.
+        const sentinel = "terminfo/67/ghostty";
 
         // Get the path to our running binary
         var exe_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
@@ -874,7 +880,18 @@ const Subprocess = struct {
         // bundle as we expect it.
         while (std.fs.path.dirname(exe)) |dir| {
             exe = dir;
-            if (try tryDir(alloc, dir, "Contents/Resources")) |v| {
+
+            // On MacOS, we look for the app bundle path.
+            if (comptime builtin.target.isDarwin()) {
+                if (try tryDir(alloc, dir, "Contents/Resources", sentinel)) |v| {
+                    return v;
+                }
+            }
+
+            // On all platforms, we look for a /usr/share style path. This
+            // is valid even on Mac since there is nothing that requires
+            // Ghostty to be in an app bundle.
+            if (try tryDir(alloc, dir, "share", sentinel)) |v| {
                 return v;
             }
         }
@@ -882,18 +899,20 @@ const Subprocess = struct {
         return null;
     }
 
-    /// Little helper to check if the "base/sub" directory exists and
-    /// if so, duplicate the path and return it.
+    /// Little helper to check if the "base/sub/suffix" directory exists and
+    /// if so, duplicate the "base/sub" path and return it.
     fn tryDir(
         alloc: Allocator,
         base: []const u8,
         sub: []const u8,
+        suffix: []const u8,
     ) !?[]const u8 {
         var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-        const path = try std.fmt.bufPrint(&buf, "{s}/{s}", .{ base, sub });
+        const path = try std.fmt.bufPrint(&buf, "{s}/{s}/{s}", .{ base, sub, suffix });
 
         if (std.fs.accessAbsolute(path, .{})) {
-            return try alloc.dupe(u8, path);
+            const len = path.len - suffix.len - 1;
+            return try alloc.dupe(u8, path[0..len]);
         } else |_| {
             // Folder doesn't exist. If a different error happens its okay
             // we just ignore it and move on.
