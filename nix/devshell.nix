@@ -76,7 +76,6 @@ in mkShell rec {
     nodejs
 
     # Testing
-    gdb
     parallel
     python3
     tracy
@@ -90,6 +89,7 @@ in mkShell rec {
     debugedit
     flatpak-builder
 
+    gdb
     valgrind
     wraptest
   ];
