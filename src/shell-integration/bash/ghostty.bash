@@ -36,16 +36,16 @@ function __ghostty_precmd() {
       _GHOSTTY_SAVE_PS2="$PS2"
 
       # Marks
-      PS1=$PS1'\[\e]133;B\a\]'
-      PS2=$PS2'\[\e]133;B\a\]'
+      PS1=$PS1'\e]133;B\a'
+      PS2=$PS2'\e]133;B\a'
 
       # Cursor
-      PS1=$PS1'\[\e[5 q\]'
-      PS0=$PS0'\[\e[0 q\]'
+      PS1=$PS1'\e[5 q'
+      PS0=$PS0'\e[0 q'
 
       # Command
       PS0=$PS0'$(__ghostty_get_current_command)'
-      PS1=$PS1'\[\e]2;$PWD\a\]'
+      PS1=$PS1'\e]2;$PWD\a'
     fi
 
     if test "$_ghostty_executing" != ""; then
