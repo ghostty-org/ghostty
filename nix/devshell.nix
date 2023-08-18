@@ -1,5 +1,6 @@
 { mkShell, lib, stdenv
 
+, bashInteractive
 , debugedit
 , flatpak-builder
 , gdb
@@ -85,6 +86,10 @@ in mkShell rec {
     wabt
     wasmtime
   ] ++ lib.optionals stdenv.isLinux [
+    # My nix shell environment installs the non-interactive version
+    # by default so we have to include this.
+    bashInteractive
+
     # Flatpak builds
     debugedit
     flatpak-builder
