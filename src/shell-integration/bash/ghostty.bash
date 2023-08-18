@@ -32,23 +32,24 @@ function __ghostty_get_current_command() {
 function __ghostty_precmd() {
     local ret="$?"
     if test "$_ghostty_executing" != "0"; then
+      _GHOSTTY_SAVE_PS0="$PS0"
       _GHOSTTY_SAVE_PS1="$PS1"
       _GHOSTTY_SAVE_PS2="$PS2"
 
       # Marks
-      PS1=$PS1'\e]133;B\a'
-      PS2=$PS2'\e]133;B\a'
+      PS1=$PS1'\[\e]133;B\a\]'
+      PS2=$PS2'\[\e]133;B\a\]'
 
       # Cursor
-      PS1=$PS1'\e[5 q'
-      PS0=$PS0'\e[0 q'
+      PS1=$PS1'\[\e[5 q\]'
+      PS0=$PS0'\[\e[0 q\]'
 
       # Command
       PS0=$PS0'$(__ghostty_get_current_command)'
-      PS1=$PS1'\e]2;$PWD\a'
+      PS1=$PS1'\[\e]2;$PWD\a\]'
     fi
 
-    if test "$_ghostty_executing" != ""; then
+    if test "$_ghostty_executing" != "0"; then
       builtin printf "\033]133;D;%s;aid=%s\007" "$ret" "$BASHPID"
     fi
 
@@ -65,6 +66,7 @@ function __ghostty_precmd() {
 }
 
 function __ghostty_preexec() {
+    PS0="$_GHOSTTY_SAVE_PS0"
     PS1="$_GHOSTTY_SAVE_PS1"
     PS2="$_GHOSTTY_SAVE_PS2"
     builtin printf "\033]133;C;\007"
