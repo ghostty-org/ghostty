@@ -74,9 +74,20 @@ pub const Face = struct {
     /// but sometimes allocation isn't required and a static string is
     /// returned.
     pub fn name(self: *const Face, buf: []u8) Allocator.Error![]const u8 {
-        // TODO
-        _ = self;
+        // We don't use this today but its possible the table below
+        // returns UTF-16 in which case we'd want to use this for conversion.
         _ = buf;
+
+        const count = self.face.getSfntNameCount();
+
+        // We look for the font family entry.
+        for (0..count) |i| {
+            const entry = self.face.getSfntName(i) catch continue;
+            if (entry.name_id == freetype.c.TT_NAME_ID_FONT_FAMILY) {
+                return entry.string[0..entry.string_len];
+            }
+        }
+
         return "";
     }
 

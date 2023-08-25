@@ -83,6 +83,18 @@ pub const Face = struct {
             @intFromEnum(tag),
         )));
     }
+
+    /// Retrieve the number of name strings in the SFNT ‘name’ table.
+    pub fn getSfntNameCount(self: Face) usize {
+        return @intCast(c.FT_Get_Sfnt_Name_Count(self.handle));
+    }
+
+    /// Retrieve a string of the SFNT ‘name’ table for a given index.
+    pub fn getSfntName(self: Face, i: usize) Error!c.FT_SfntName {
+        var name: c.FT_SfntName = undefined;
+        const res = c.FT_Get_Sfnt_Name(self.handle, @intCast(i), &name);
+        return if (intToError(res)) |_| name else |err| err;
+    }
 };
 
 /// An enumeration to specify indices of SFNT tables loaded and parsed by
