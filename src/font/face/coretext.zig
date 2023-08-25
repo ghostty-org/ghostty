@@ -87,6 +87,19 @@ pub const Face = struct {
         return try initFontCopy(ct_font, .{ .points = 0 });
     }
 
+    /// Returns the font name. If allocation is required, buf will be used,
+    /// but sometimes allocation isn't required and a static string is
+    /// returned.
+    pub fn name(self: *const Face, buf: []u8) Allocator.Error![]const u8 {
+        const display_name = self.font.copyDisplayName();
+        if (display_name.cstringPtr(.utf8)) |str| return str;
+
+        // "NULL if the internal storage of theString does not allow
+        // this to be returned efficiently." In this case, we need
+        // to allocate.
+        return display_name.cstring(buf, .utf8) orelse error.OutOfMemory;
+    }
+
     /// Resize the font in-place. If this succeeds, the caller is responsible
     /// for clearing any glyph caches, font atlas data, etc.
     pub fn setSize(self: *Face, size: font.face.DesiredSize) !void {

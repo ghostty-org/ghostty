@@ -12,6 +12,7 @@ const Library = font.Library;
 const Style = font.Style;
 const Presentation = font.Presentation;
 const terminal = @import("../../terminal/main.zig");
+const quirks = @import("../../quirks.zig");
 
 const log = std.log.scoped(.font_shaper);
 
@@ -29,15 +30,15 @@ pub const Shaper = struct {
 
     const FeatureList = std.ArrayList(harfbuzz.Feature);
 
+    // These features are hardcoded to always be on by default. Users
+    // can turn them off by setting the features to "-liga" for example.
+    const hardcoded_features = [_][]const u8{ "dlig", "liga" };
+
     /// The cell_buf argument is the buffer to use for storing shaped results.
     /// This should be at least the number of columns in the terminal.
     pub fn init(alloc: Allocator, opts: font.shape.Options) !Shaper {
         // Parse all the features we want to use. We use
         var hb_feats = hb_feats: {
-            // These features are hardcoded to always be on by default. Users
-            // can turn them off by setting the features to "-liga" for example.
-            const hardcoded_features = [_][]const u8{ "dlig", "liga" };
-
             var list = try FeatureList.initCapacity(alloc, opts.features.len + hardcoded_features.len);
             errdefer list.deinit();
 
@@ -107,7 +108,14 @@ pub const Shaper = struct {
         // fonts, the codepoint == glyph_index so we don't need to run any shaping.
         if (run.font_index.special() == null) {
             const face = try run.group.group.faceFromIndex(run.font_index);
-            harfbuzz.shape(face.hb_font, self.hb_buf, self.hb_feats.items);
+            const i = if (!quirks.disableDefaultFontFeatures(face)) 0 else i: {
+                // If we are disabling default font features we just offset
+                // our features by the hardcoded items because always
+                // add those at the beginning.
+                break :i hardcoded_features.len;
+            };
+
+            harfbuzz.shape(face.hb_font, self.hb_buf, self.hb_feats.items[i..]);
         }
 
         // If our buffer is empty, we short-circuit the rest of the work
