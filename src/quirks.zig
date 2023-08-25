@@ -19,6 +19,9 @@ pub fn disableDefaultFontFeatures(face: *const font.Face) bool {
         error.OutOfMemory => return false,
     };
 
+    // Menlo and Monaco both have a default ligature of "fi" that looks
+    // really bad in terminal grids, so we want to disable ligatures
+    // by default for these faces.
     return std.mem.eql(u8, name, "Menlo") or
         std.mem.eql(u8, name, "Monaco");
 }
