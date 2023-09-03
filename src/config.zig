@@ -284,6 +284,10 @@ pub const Config = struct {
     /// The default value is "detect".
     @"shell-integration": ShellIntegration = .detect,
 
+    /// X11 WM_CLASS
+    /// currently only affects glfw backend on linux + X11
+    class: [:0]const u8 = "ghostty",
+
     /// If anything other than false, fullscreen mode on macOS will not use the
     /// native fullscreen, but make the window fullscreen without animations and
     /// using a new space. It's faster than the native fullscreen mode since it
