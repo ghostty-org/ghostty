@@ -577,7 +577,7 @@ const Window = struct {
         const self = userdataSelf(ud.?);
 
         if (self.app.core_app.surfaces.items.len == 1) {
-            log.debug("Exiting without promt - only a single surface registered", .{});
+            log.debug("Exiting without prompt - only a single surface registered", .{});
             c.gtk_window_destroy(self.window);
             return true;
         }
