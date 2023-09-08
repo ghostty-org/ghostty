@@ -489,7 +489,7 @@ pub fn glfwWindowHints(config: *const configpkg.Config) glfw.Window.Hints {
         .context_version_major = 3,
         .context_version_minor = 3,
         .x11_instance_name = "ghostty",
-        .x11_class_name = config.class,
+        .x11_class_name = config.@"x11-wm-class",
         .opengl_profile = .opengl_core_profile,
         .opengl_forward_compat = true,
         .cocoa_graphics_switching = builtin.os.tag == .macos,
