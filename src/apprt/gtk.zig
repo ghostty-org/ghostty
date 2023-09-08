@@ -576,6 +576,12 @@ const Window = struct {
         log.debug("window close request", .{});
         const self = userdataSelf(ud.?);
 
+        if (self.app.core_app.surfaces.items.len == 1) {
+            log.debug("Exiting without promt - only a single surface registered", .{});
+            c.gtk_window_destroy(self.window);
+            return true;
+        }
+
         // Setup our basic message
         const alert = c.gtk_message_dialog_new(
             self.window,
