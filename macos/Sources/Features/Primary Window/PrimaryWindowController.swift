@@ -1,6 +1,6 @@
 import Cocoa
 
-class PrimaryWindowController: NSWindowController {
+class PrimaryWindowController: NSWindowController, NSWindowDelegate {
     // This is used to programmatically control tabs.
     weak var windowManager: PrimaryWindowManager?
     
@@ -20,5 +20,13 @@ class PrimaryWindowController: NSWindowController {
         if let window = self.window {
             window.contentView = nil
         }
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        self.windowManager?.indexTabs()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        self.windowManager?.indexTabs()
     }
 }

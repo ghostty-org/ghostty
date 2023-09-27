@@ -164,6 +164,7 @@ class PrimaryWindowManager {
         
         let managed = ManagedWindow(windowController: windowController, window: window, closePublisher: pubClose)
         managedWindows.append(managed)
+        window.delegate = windowController
 
         return managed
     }
@@ -176,6 +177,23 @@ class PrimaryWindowManager {
         if let focusedWindow = NSApplication.shared.keyWindow {
             let frame = focusedWindow.frame
             Self.lastCascadePoint = NSPoint(x: frame.minX, y: frame.maxY)
+        }
+    }
+
+    /// Update the accessory view of the first 9 tabs. This is called when the
+    /// key window changes and when a window is closed.
+    func indexTabs() {
+        if let windows = self.mainWindow?.tabbedWindows {
+            for (index, window) in windows.enumerated().prefix(9) {
+                let string = " ⌘\(index + 1) "
+                let attributes: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.labelFont(ofSize: 0),
+                    .foregroundColor: window.isKeyWindow ? NSColor.labelColor : NSColor.secondaryLabelColor,
+                ]
+                let attributedString = NSAttributedString(string: string, attributes: attributes)
+                let text = NSTextField(labelWithAttributedString: attributedString)
+                window.tab.accessoryView = text
+            }
         }
     }
 }
