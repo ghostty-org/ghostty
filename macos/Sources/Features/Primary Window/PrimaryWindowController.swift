@@ -23,10 +23,13 @@ class PrimaryWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
-        self.windowManager?.indexTabs()
+        self.windowManager?.relabelTabs()
     }
 
     func windowWillClose(_ notification: Notification) {
-        self.windowManager?.indexTabs()
+        // Tabs must be relabeled when a window is closed because this event
+        // does not fire the "windowDidBecomeKey" event on the newly focused
+        // window
+        self.windowManager?.relabelTabs()
     }
 }

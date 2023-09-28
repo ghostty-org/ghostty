@@ -180,9 +180,10 @@ class PrimaryWindowManager {
         }
     }
 
-    /// Update the accessory view of the first 9 tabs. This is called when the
-    /// key window changes and when a window is closed.
-    func indexTabs() {
+    /// Update the accessory view of each tab according to the keyboard
+    /// shortcut that activates it (if any). This is called when the key window
+    /// changes and when a window is closed.
+    func relabelTabs() {
         if let windows = self.mainWindow?.tabbedWindows {
             for (index, window) in windows.enumerated().prefix(9) {
                 let string = " ⌘\(index + 1) "
