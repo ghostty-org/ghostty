@@ -7,6 +7,28 @@ extension Ghostty {
         return Self.keyToEquivalent[key]
     }
 
+    static func keyEquivalent(key: ghostty_input_key_e, mods: ghostty_input_mods_e) -> String? {
+        guard var key = Self.keyEquivalent(key: key) else { return nil }
+        let flags = Self.eventModifierFlags(mods: mods)
+        if flags.contains(.command) {
+            key = "⌘\(key)"
+        }
+
+        if flags.contains(.shift) {
+            key = "⇧\(key)"
+        }
+
+        if flags.contains(.option) {
+            key = "⌥\(key)"
+        }
+
+        if flags.contains(.control) {
+            key = "⌃\(key)"
+        }
+
+        return key
+    }
+
     /// Returns the event modifier flags set for the Ghostty mods enum.
     static func eventModifierFlags(mods: ghostty_input_mods_e) -> NSEvent.ModifierFlags {
         var flags = NSEvent.ModifierFlags(rawValue: 0);
