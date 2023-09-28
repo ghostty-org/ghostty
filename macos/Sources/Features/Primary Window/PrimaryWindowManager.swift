@@ -184,17 +184,22 @@ class PrimaryWindowManager {
     /// shortcut that activates it (if any). This is called when the key window
     /// changes and when a window is closed.
     func relabelTabs() {
-        if let windows = self.mainWindow?.tabbedWindows {
-            for (index, window) in windows.enumerated().prefix(9) {
-                let string = " ⌘\(index + 1) "
-                let attributes: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.labelFont(ofSize: 0),
-                    .foregroundColor: window.isKeyWindow ? NSColor.labelColor : NSColor.secondaryLabelColor,
-                ]
-                let attributedString = NSAttributedString(string: string, attributes: attributes)
-                let text = NSTextField(labelWithAttributedString: attributedString)
-                window.tab.accessoryView = text
+        guard let windows = self.mainWindow?.tabbedWindows else { return }
+        guard let cfg = ghostty.config else { return }
+        for (index, window) in windows.enumerated().prefix(9) {
+            let action = "goto_tab:\(index + 1)"
+            let trigger = ghostty_config_trigger(cfg, action, UInt(action.count))
+            guard let equiv = Ghostty.keyEquivalent(key: trigger.key, mods: trigger.mods) else {
+                continue
             }
+
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.labelFont(ofSize: 0),
+                .foregroundColor: window.isKeyWindow ? NSColor.labelColor : NSColor.secondaryLabelColor,
+            ]
+            let attributedString = NSAttributedString(string: " \(equiv) ", attributes: attributes)
+            let text = NSTextField(labelWithAttributedString: attributedString)
+            window.tab.accessoryView = text
         }
     }
 }
