@@ -1061,7 +1061,7 @@ pub fn scrollCallback(
         // If the new offset is less than a single unit of scroll, we save
         // the new pending value and do not scroll yet.
         const cell_size: f64 = @floatFromInt(self.cell_size.height);
-        if (@fabs(poff) < cell_size) {
+        if (@abs(poff) < cell_size) {
             self.mouse.pending_scroll_y = poff;
             break :y .{};
         }
@@ -1072,7 +1072,7 @@ pub fn scrollCallback(
 
         break :y .{
             .sign = if (yoff > 0) 1 else -1,
-            .delta_unsigned = @intFromFloat(@fabs(amount)),
+            .delta_unsigned = @intFromFloat(@abs(amount)),
             .delta = @intFromFloat(amount),
         };
     };
@@ -1088,7 +1088,7 @@ pub fn scrollCallback(
 
         const poff = self.mouse.pending_scroll_x + (xoff * -1);
         const cell_size: f64 = @floatFromInt(self.cell_size.width);
-        if (@fabs(poff) < cell_size) {
+        if (@abs(poff) < cell_size) {
             self.mouse.pending_scroll_x = poff;
             break :x .{};
         }
@@ -1097,7 +1097,7 @@ pub fn scrollCallback(
         self.mouse.pending_scroll_x = poff - (amount * cell_size);
 
         break :x .{
-            .delta_unsigned = @intFromFloat(@fabs(amount)),
+            .delta_unsigned = @intFromFloat(@abs(amount)),
             .delta = @intFromFloat(amount),
         };
     };
