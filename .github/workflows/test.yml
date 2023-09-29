@@ -2,8 +2,8 @@ on:
   pull_request:
   push:
     branches:
-      - 'main'
-      - 'mitchellh/**'
+      - "main"
+      - "mitchellh/**"
 
 name: Test
 jobs:
