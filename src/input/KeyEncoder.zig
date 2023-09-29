@@ -280,7 +280,17 @@ fn legacy(
     // If we have alt-pressed and alt-esc-prefix is enabled, then
     // we need to prefix the utf8 sequence with an esc.
     if (binding_mods.alt and self.alt_esc_prefix) {
-        return try std.fmt.bufPrint(buf, "\x1B{s}", .{utf8});
+        const view = try std.unicode.Utf8View.init(utf8);
+        var it = view.iterator();
+        if (it.nextCodepoint()) |cp| {
+            if (cp < 0x7F) {
+                return try std.fmt.bufPrint(buf, "\x1B{u}", .{cp});
+            }
+        }
+        // If we get here we either don't have valid unicode, or we have a
+        // non-ascii character. In either case, print the string without an
+        // escape
+        return try std.fmt.bufPrint(buf, "{s}", .{utf8});
     }
 
     return try copyToBuf(buf, utf8);
@@ -997,6 +1007,36 @@ test "legacy: ctrl+alt+c" {
 
     const actual = try enc.legacy(&buf);
     try testing.expectEqualStrings("\x1b\x03", actual);
+}
+
+test "legacy: alt+c" {
+    var buf: [128]u8 = undefined;
+    var enc: KeyEncoder = .{
+        .event = .{
+            .key = .c,
+            .utf8 = "c",
+            .mods = .{ .alt = true },
+        },
+        .alt_esc_prefix = true,
+    };
+
+    const actual = try enc.legacy(&buf);
+    try testing.expectEqualStrings("\x1Bc", actual);
+}
+
+test "legacy: alt+ф" {
+    var buf: [128]u8 = undefined;
+    var enc: KeyEncoder = .{
+        .event = .{
+            .key = .f,
+            .utf8 = "ф",
+            .mods = .{ .alt = true },
+        },
+        .alt_esc_prefix = true,
+    };
+
+    const actual = try enc.legacy(&buf);
+    try testing.expectEqualStrings("ф", actual);
 }
 
 test "legacy: ctrl+c" {
