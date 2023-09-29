@@ -298,154 +298,45 @@ pub const Key = enum(c_int) {
     /// are independent of the physical key.
     pub fn fromASCII(ch: u8) ?Key {
         return switch (ch) {
-            'a' => .a,
-            'b' => .b,
-            'c' => .c,
-            'd' => .d,
-            'e' => .e,
-            'f' => .f,
-            'g' => .g,
-            'h' => .h,
-            'i' => .i,
-            'j' => .j,
-            'k' => .k,
-            'l' => .l,
-            'm' => .m,
-            'n' => .n,
-            'o' => .o,
-            'p' => .p,
-            'q' => .q,
-            'r' => .r,
-            's' => .s,
-            't' => .t,
-            'u' => .u,
-            'v' => .v,
-            'w' => .w,
-            'x' => .x,
-            'y' => .y,
-            'z' => .z,
-            '0' => .zero,
-            '1' => .one,
-            '2' => .two,
-            '3' => .three,
-            '4' => .four,
-            '5' => .five,
-            '6' => .six,
-            '7' => .seven,
-            '8' => .eight,
-            '9' => .nine,
-            ';' => .semicolon,
-            ' ' => .space,
-            '\'' => .apostrophe,
-            ',' => .comma,
-            '`' => .grave_accent,
-            '.' => .period,
-            '/' => .slash,
-            '-' => .minus,
-            '=' => .equal,
-            '[' => .left_bracket,
-            ']' => .right_bracket,
-            '\\' => .backslash,
-            else => null,
+            inline else => |comptime_ch| {
+                return comptime result: {
+                    @setEvalBranchQuota(10_000);
+                    for (codepoint_map) |entry| {
+                        if (entry[0] == @as(u21, @intCast(comptime_ch))) {
+                            break :result entry[1];
+                        }
+                    }
+
+                    break :result null;
+                };
+            },
         };
     }
 
     /// True if this key represents a printable character.
     pub fn printable(self: Key) bool {
         return switch (self) {
-            .a,
-            .b,
-            .c,
-            .d,
-            .e,
-            .f,
-            .g,
-            .h,
-            .i,
-            .j,
-            .k,
-            .l,
-            .m,
-            .n,
-            .o,
-            .p,
-            .q,
-            .r,
-            .s,
-            .t,
-            .u,
-            .v,
-            .w,
-            .x,
-            .y,
-            .z,
-            .zero,
-            .one,
-            .two,
-            .three,
-            .four,
-            .five,
-            .six,
-            .seven,
-            .eight,
-            .nine,
-            .semicolon,
-            .space,
-            .apostrophe,
-            .comma,
-            .grave_accent,
-            .period,
-            .slash,
-            .minus,
-            .equal,
-            .left_bracket,
-            .right_bracket,
-            .backslash,
-            .kp_0,
-            .kp_1,
-            .kp_2,
-            .kp_3,
-            .kp_4,
-            .kp_5,
-            .kp_6,
-            .kp_7,
-            .kp_8,
-            .kp_9,
-            .kp_decimal,
-            .kp_divide,
-            .kp_multiply,
-            .kp_subtract,
-            .kp_add,
-            .kp_equal,
-            => true,
+            inline else => |tag| {
+                return comptime result: {
+                    @setEvalBranchQuota(10_000);
+                    for (codepoint_map) |entry| {
+                        if (entry[1] == tag) break :result true;
+                    }
 
-            else => false,
+                    break :result false;
+                };
+            },
         };
     }
 
     /// Returns true if this is a keypad key.
     pub fn keypad(self: Key) bool {
         return switch (self) {
-            .kp_0,
-            .kp_1,
-            .kp_2,
-            .kp_3,
-            .kp_4,
-            .kp_5,
-            .kp_6,
-            .kp_7,
-            .kp_8,
-            .kp_9,
-            .kp_decimal,
-            .kp_divide,
-            .kp_multiply,
-            .kp_subtract,
-            .kp_add,
-            .kp_enter,
-            .kp_equal,
-            => true,
-
-            else => false,
+            inline else => |tag| {
+                const name = @tagName(tag);
+                const result = comptime std.mem.startsWith(u8, name, "kp_");
+                return result;
+            },
         };
     }
 
@@ -453,71 +344,92 @@ pub const Key = enum(c_int) {
     // printable
     pub fn codepoint(self: Key) ?u21 {
         return switch (self) {
-            .a => 'a',
-            .b => 'b',
-            .c => 'c',
-            .d => 'd',
-            .e => 'e',
-            .f => 'f',
-            .g => 'g',
-            .h => 'h',
-            .i => 'i',
-            .j => 'j',
-            .k => 'k',
-            .l => 'l',
-            .m => 'm',
-            .n => 'n',
-            .o => 'o',
-            .p => 'p',
-            .q => 'q',
-            .r => 'r',
-            .s => 's',
-            .t => 't',
-            .u => 'u',
-            .v => 'v',
-            .w => 'w',
-            .x => 'x',
-            .y => 'y',
-            .z => 'z',
-            .zero => '0',
-            .one => '1',
-            .two => '2',
-            .three => '3',
-            .four => '4',
-            .five => '5',
-            .six => '6',
-            .seven => '7',
-            .eight => '8',
-            .nine => '9',
-            .semicolon => ';',
-            .space => ' ',
-            .apostrophe => '\'',
-            .comma => ',',
-            .grave_accent => '`',
-            .period => '.',
-            .slash => '/',
-            .minus => '-',
-            .equal => '=',
-            .left_bracket => '[',
-            .right_bracket => ']',
-            .backslash => '\\',
-            .kp_0 => '0',
-            .kp_1 => '1',
-            .kp_2 => '2',
-            .kp_3 => '3',
-            .kp_4 => '4',
-            .kp_5 => '5',
-            .kp_6 => '6',
-            .kp_7 => '7',
-            .kp_8 => '8',
-            .kp_9 => '9',
-            .kp_decimal => '.',
-            .kp_divide => '/',
-            .kp_multiply => '*',
-            .kp_subtract => '-',
-            .kp_add => '+',
-            .kp_equal => '=',
-            else => null,
+            inline else => |tag| {
+                return comptime result: {
+                    @setEvalBranchQuota(10_000);
+                    for (codepoint_map) |entry| {
+                        if (entry[1] == tag) break :result entry[0];
+                    }
+
+                    break :result null;
+                };
+            },
         };
     }
+
+    test "keypad keys" {
+        const testing = std.testing;
+        try testing.expect(Key.kp_0.keypad());
+        try testing.expect(!Key.one.keypad());
+    }
+
+    const codepoint_map: []const struct { u21, Key } = &.{
+        .{ 'a', .a },
+        .{ 'b', .b },
+        .{ 'c', .c },
+        .{ 'd', .d },
+        .{ 'e', .e },
+        .{ 'f', .f },
+        .{ 'g', .g },
+        .{ 'h', .h },
+        .{ 'i', .i },
+        .{ 'j', .j },
+        .{ 'k', .k },
+        .{ 'l', .l },
+        .{ 'm', .m },
+        .{ 'n', .n },
+        .{ 'o', .o },
+        .{ 'p', .p },
+        .{ 'q', .q },
+        .{ 'r', .r },
+        .{ 's', .s },
+        .{ 't', .t },
+        .{ 'u', .u },
+        .{ 'v', .v },
+        .{ 'w', .w },
+        .{ 'x', .x },
+        .{ 'y', .y },
+        .{ 'z', .z },
+        .{ '0', .zero },
+        .{ '1', .one },
+        .{ '2', .two },
+        .{ '3', .three },
+        .{ '4', .four },
+        .{ '5', .five },
+        .{ '6', .six },
+        .{ '7', .seven },
+        .{ '8', .eight },
+        .{ '9', .nine },
+        .{ ';', .semicolon },
+        .{ ' ', .space },
+        .{ '\'', .apostrophe },
+        .{ ',', .comma },
+        .{ '`', .grave_accent },
+        .{ '.', .period },
+        .{ '/', .slash },
+        .{ '-', .minus },
+        .{ '=', .equal },
+        .{ '[', .left_bracket },
+        .{ ']', .right_bracket },
+        .{ '\\', .backslash },
+
+        // Keypad entries. We just assume keypad with the kp_ prefix
+        // so that has some special meaning. These must also always be last.
+        .{ '0', .kp_0 },
+        .{ '1', .kp_1 },
+        .{ '2', .kp_2 },
+        .{ '3', .kp_3 },
+        .{ '4', .kp_4 },
+        .{ '5', .kp_5 },
+        .{ '6', .kp_6 },
+        .{ '7', .kp_7 },
+        .{ '8', .kp_8 },
+        .{ '9', .kp_9 },
+        .{ '.', .kp_decimal },
+        .{ '/', .kp_divide },
+        .{ '*', .kp_multiply },
+        .{ '-', .kp_subtract },
+        .{ '+', .kp_add },
+        .{ '=', .kp_equal },
+    };
 };

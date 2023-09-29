@@ -158,10 +158,8 @@ fn kitty(
             }
 
             // Set the base layout key
-            {
-                if (self.event.key.codepoint()) |base| {
-                    if (base != seq.key) seq.alternates[1] = base;
-                }
+            if (self.event.key.codepoint()) |base| {
+                if (base != seq.key) seq.alternates[1] = base;
             }
         }
 
@@ -591,9 +589,7 @@ const KittySequence = struct {
         // Key section
         try writer.print("\x1B[{d}", .{self.key});
         // Write our alternates
-        if (self.alternates[0]) |shifted| {
-            try writer.print(":{d}", .{shifted});
-        }
+        if (self.alternates[0]) |shifted| try writer.print(":{d}", .{shifted});
         if (self.alternates[1]) |base| {
             if (self.alternates[0] == null) {
                 try writer.print("::{d}", .{base});
