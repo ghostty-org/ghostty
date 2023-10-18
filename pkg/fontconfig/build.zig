@@ -25,7 +25,11 @@ pub fn build(b: *std.Build) !void {
         lib.linkLibrary(freetype_dep.artifact("freetype"));
     }
     if (libxml2_enabled) {
-        const libxml2_dep = b.dependency("libxml2", .{ .target = target, .optimize = optimize });
+        const libxml2_dep = b.dependency("libxml2", .{
+            .target = target,
+            .optimize = optimize,
+            .iconv = !target.isWindows(),
+        });
         lib.linkLibrary(libxml2_dep.artifact("xml2"));
     }
 
@@ -40,13 +44,13 @@ pub fn build(b: *std.Build) !void {
         "-DHAVE_STDLIB_H",
         "-DHAVE_STRING_H",
         "-DHAVE_UNISTD_H",
-        "-DHAVE_SYS_STATVFS_H",
+        // "-DHAVE_SYS_STATVFS_H",
         "-DHAVE_SYS_PARAM_H",
-        "-DHAVE_SYS_MOUNT_H",
+        // "-DHAVE_SYS_MOUNT_H",
 
-        "-DHAVE_LINK",
+        // "-DHAVE_LINK",
         "-DHAVE_MKSTEMP",
-        "-DHAVE_MKOSTEMP",
+        // "-DHAVE_MKOSTEMP",
         "-DHAVE__MKTEMP_S",
         "-DHAVE_MKDTEMP",
         "-DHAVE_GETOPT",
@@ -54,15 +58,15 @@ pub fn build(b: *std.Build) !void {
         //"-DHAVE_GETPROGNAME",
         //"-DHAVE_GETEXECNAME",
         "-DHAVE_RAND",
-        "-DHAVE_RANDOM",
-        "-DHAVE_LRAND48",
+        // "-DHAVE_RANDOM",
+        // "-DHAVE_LRAND48",
         //"-DHAVE_RANDOM_R",
-        "-DHAVE_RAND_R",
-        "-DHAVE_READLINK",
-        "-DHAVE_FSTATVFS",
+        // "-DHAVE_RAND_R",
+        // "-DHAVE_READLINK",
+        // "-DHAVE_FSTATVFS",
         "-DHAVE_FSTATFS",
-        "-DHAVE_LSTAT",
-        "-DHAVE_MMAP",
+        // "-DHAVE_LSTAT",
+        // "-DHAVE_MMAP",
         "-DHAVE_VPRINTF",
 
         "-DHAVE_FT_GET_BDF_PROPERTY",

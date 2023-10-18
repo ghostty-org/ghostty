@@ -355,6 +355,7 @@ test "createNullDelimitedEnvMap" {
 }
 
 test "Command: pre exec" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
     var cmd: Command = .{
         .path = "/usr/bin/env",
         .args = &.{ "/usr/bin/env", "-v" },
@@ -375,6 +376,7 @@ test "Command: pre exec" {
 }
 
 test "Command: redirect stdout to file" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
     var td = try TempDir.init();
     defer td.deinit();
     var stdout = try td.dir.createFile("stdout.txt", .{ .read = true });
@@ -400,6 +402,7 @@ test "Command: redirect stdout to file" {
 }
 
 test "Command: custom env vars" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
     var td = try TempDir.init();
     defer td.deinit();
     var stdout = try td.dir.createFile("stdout.txt", .{ .read = true });
@@ -430,6 +433,7 @@ test "Command: custom env vars" {
 }
 
 test "Command: custom working directory" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
     var td = try TempDir.init();
     defer td.deinit();
     var stdout = try td.dir.createFile("stdout.txt", .{ .read = true });

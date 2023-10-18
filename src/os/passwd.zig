@@ -138,6 +138,7 @@ pub fn get(alloc: Allocator) !Entry {
 }
 
 test {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
     const testing = std.testing;
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
