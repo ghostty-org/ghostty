@@ -130,7 +130,7 @@ pub const ghostty: Source = .{
         .{ .name = "PE", .value = .{ .string = "\\E[201~" } },
 
         // Mouse
-        .{ .name = "XM", .value = .{ .string = "\\E[?1006;1004;1000%?%p1%{1}%=%th%el%;" } },
+        .{ .name = "XM", .value = .{ .string = "\\E[?1006;1000%?%p1%{1}%=%th%el%;" } },
         .{ .name = "xm", .value = .{ .string = "\\E[<%i%p3%d;%p1%d;%p2%d;%?%p4%tM%em%;" } },
 
         // Secondary device attributes request / response
