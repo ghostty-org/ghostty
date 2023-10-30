@@ -140,6 +140,7 @@ The currently supported shell integration features in Ghostty:
 - The cursor at the prompt is turned into a bar.
 - The `jump_to_prompt` keybinding can be used to scroll the terminal window
   forward and back through prompts.
+- Ctrl+triple-click with the cursor in an output region selects the entire output.
 
 #### Shell Integration Installation and Verification
 
