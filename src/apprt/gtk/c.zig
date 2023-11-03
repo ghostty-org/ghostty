@@ -1,5 +1,6 @@
 const c = @cImport({
     @cInclude("gtk/gtk.h");
+    @cInclude("libadwaita-1/adwaita.h");
 });
 
 pub usingnamespace c;
