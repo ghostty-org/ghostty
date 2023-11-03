@@ -4,10 +4,6 @@
     .paths = .{""},
     .dependencies = .{
         // Zig libs
-        .glfw = .{
-            .url = "https://pkg.machengine.org/glfw/14181bd28aa65915262ac3b4549bbd2dc70bbaa5.tar.gz",
-            .hash = "1220c6bb317ae3948b95161b9706777dde0509e72e8b35b62b92898aef801897d904",
-        },
         .libxev = .{
             .url = "https://github.com/mitchellh/libxev/archive/5ecbc871f3bfa80fb7bf0fa853866cb93b99bc18.tar.gz",
             .hash = "1220416854e424601ecc9814afb461a5dc9cf95db5917d82f794594a58ffc723b82c",
@@ -43,13 +39,5 @@
 
         // System headers
         .apple_sdk = .{ .path = "./pkg/apple-sdk" },
-        .vulkan_headers = .{
-            .url = "https://pkg.machengine.org/vulkan-headers/fc495148a910ac7817ce0ec2d5948231806f2ac0.tar.gz",
-            .hash = "12209aeba80369fa8638b82179b47e6742adb98a3a5b01bc518565504a922baad3e4",
-        },
-        .x11_headers = .{
-            .url = "https://pkg.machengine.org/x11-headers/26d12e9fc0d893085bcb711088a4a19afdff1adc.tar.gz",
-            .hash = "1220371a61d8bb57fce8ee1741f623cc19b0edd7d1b4adc9918663f8a7ef08aa4f3f",
-        },
     },
 }

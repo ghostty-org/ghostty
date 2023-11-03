@@ -714,7 +714,9 @@ fn addDeps(
 
     // We always require the system SDK so that our system headers are available.
     // This makes things like `os/log.h` available for cross-compiling.
-    try addSystemSDK(b, step);
+    if (step.target.isDarwin()) {
+        try @import("apple_sdk").addPaths(b, step);
+    }
 
     // We always need the Zig packages
     // TODO: This can't be the right way to use the new Zig modules system,
@@ -812,17 +814,8 @@ fn addDeps(
             .none => {},
 
             .glfw => {
-                const glfw_dep = b.dependency("glfw", .{
-                    .target = step.target,
-                    .optimize = step.optimize,
-                    .x11 = step.target.isLinux(),
-                    .wayland = step.target.isLinux(),
-                    .metal = step.target.isDarwin(),
-                });
-
                 step.addModule("glfw", mach_glfw_dep.module("mach-glfw"));
-                step.linkLibrary(mach_glfw_dep.artifact("mach-glfw"));
-                step.linkLibrary(glfw_dep.artifact("glfw"));
+                @import("mach_glfw").link(mach_glfw_dep.builder, step);
             },
 
             .gtk => {
@@ -833,31 +826,6 @@ fn addDeps(
     }
 
     return static_libs;
-}
-
-/// Adds the proper system headers for the target.
-fn addSystemSDK(
-    b: *std.Build,
-    step: *std.Build.CompileStep,
-) !void {
-    if (step.target.isDarwin()) {
-        try @import("apple_sdk").addPaths(b, step);
-    }
-
-    if (step.target.isLinux()) {
-        step.linkLibrary(b.dependency("x11_headers", .{
-            .target = step.target,
-            .optimize = step.optimize,
-        }).artifact("x11-headers"));
-    }
-
-    // GLFW requires these on all platforms so we just add them here. It
-    // doesn't hurt to add them if we don't use GLFW since they're all
-    // namespaced.
-    step.linkLibrary(b.dependency("vulkan_headers", .{
-        .target = step.target,
-        .optimize = step.optimize,
-    }).artifact("vulkan-headers"));
 }
 
 fn benchSteps(
