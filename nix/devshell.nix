@@ -120,6 +120,7 @@ in mkShell rec {
     libXrandr
 
     # Only needed for GTK builds
+    libadwaita
     gtk4
     glib
   ];
