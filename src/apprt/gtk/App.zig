@@ -59,22 +59,22 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
     var config = try Config.load(core_app.alloc);
     errdefer config.deinit();
 
-    // Retrieve the style manager
-    var style_manager = c.adw_style_manager_get_default();
-
-    // Set the style based on our configuration file
-    c.adw_style_manager_set_color_scheme(style_manager, switch (config.@"window-theme") {
-        .system => c.ADW_COLOR_SCHEME_PREFER_LIGHT,
-        .dark => c.ADW_COLOR_SCHEME_FORCE_DARK,
-        .light => c.ADW_COLOR_SCHEME_FORCE_LIGHT,
-    });
-
     // If we had configuration errors, then log them.
     if (!config._errors.empty()) {
         for (config._errors.list.items) |err| {
             log.warn("configuration error: {s}", .{err.message});
         }
     }
+
+    // Set the style based on our configuration file
+    c.adw_style_manager_set_color_scheme(
+        c.adw_style_manager_get_default(),
+        switch (config.@"window-theme") {
+            .system => c.ADW_COLOR_SCHEME_PREFER_LIGHT,
+            .dark => c.ADW_COLOR_SCHEME_FORCE_DARK,
+            .light => c.ADW_COLOR_SCHEME_FORCE_LIGHT,
+        },
+    );
 
     // The "none" cursor is used for hiding the cursor
     const cursor_none = c.gdk_cursor_new_from_name("none", null);
