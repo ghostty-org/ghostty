@@ -28,6 +28,7 @@
 , freetype
 , glib
 , gtk4
+, libadwaita
 , harfbuzz
 , libpng
 , libGL
@@ -59,6 +60,7 @@ let
     libXi
     libXrandr
 
+    libadwaita
     gtk4
     glib
   ];
