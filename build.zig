@@ -814,6 +814,7 @@ fn addDeps(
 
             .gtk => {
                 step.linkSystemLibrary2("gtk4", dynamic_link_opts);
+                step.linkSystemLibrary2("adwaita-1", dynamic_link_opts);
             },
         }
     }
