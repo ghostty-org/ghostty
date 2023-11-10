@@ -1,6 +1,7 @@
 const std = @import("std");
 const inputpkg = @import("../input.zig");
 const args = @import("args.zig");
+const help = @import("help.zig");
 const Arena = std.heap.ArenaAllocator;
 const Allocator = std.mem.Allocator;
 const Config = @import("../config/Config.zig");
@@ -9,6 +10,7 @@ pub const Options = struct {
     /// If true, print out the default keybinds instead of the ones
     /// configured in the config file.
     default: bool = false,
+    help: bool = false,
 
     pub fn deinit(self: Options) void {
         _ = self;
@@ -35,10 +37,14 @@ pub fn run(alloc: Allocator) !u8 {
         try args.parse(Options, alloc, &opts, &iter);
     }
 
+    const stdout = std.io.getStdOut().writer();
+    if (opts.help) {
+        try help.searchActionsAst("list-keybinds", alloc, &stdout);
+    }
+
     var config = if (opts.default) try Config.default(alloc) else try Config.load(alloc);
     defer config.deinit();
 
-    const stdout = std.io.getStdOut().writer();
     var iter = config.keybind.set.bindings.iterator();
     while (iter.next()) |next| {
         const keys = next.key_ptr.*;

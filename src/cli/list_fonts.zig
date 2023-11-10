@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const args = @import("args.zig");
 const font = @import("../font/main.zig");
+const help = @import("help.zig");
 
 const log = std.log.scoped(.list_fonts);
 
@@ -21,6 +22,8 @@ pub const Config = struct {
     /// match the given styles will be listed.
     bold: bool = false,
     italic: bool = false,
+
+    help: bool = false,
 
     pub fn deinit(self: *Config) void {
         if (self._arena) |arena| arena.deinit();
@@ -77,6 +80,9 @@ fn runArgs(alloc_gpa: Allocator, argsIter: anytype) !u8 {
 
     const stdout = std.io.getStdOut().writer();
 
+    if (config.help) {
+        try help.searchActionsAst("list-fonts", alloc, &stdout);
+    }
     // We'll be putting our fonts into a list categorized by family
     // so it is easier to read the output.
     var families = std.ArrayList([]const u8).init(alloc);

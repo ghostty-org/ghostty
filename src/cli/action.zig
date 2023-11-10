@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const list_fonts = @import("list_fonts.zig");
 const version = @import("version.zig");
 const list_keybinds = @import("list_keybinds.zig");
+const help = @import("help.zig");
 
 /// Special commands that can be invoked via CLI flags. These are all
 /// invoked by using `+<action>` as a CLI flag. The only exception is
@@ -17,6 +18,9 @@ pub const Action = enum {
 
     /// List available keybinds
     @"list-keybinds",
+
+    /// List general or config/actions help information
+    help,
 
     pub const Error = error{
         /// Multiple actions were detected. You can specify at most one
@@ -41,6 +45,7 @@ pub const Action = enum {
             // Special case, --version always outputs the version no
             // matter what, no matter what other args exist.
             if (std.mem.eql(u8, arg, "--version")) return .version;
+            if (std.mem.eql(u8, arg, "--help")) return .help;
 
             // Commands must start with "+"
             if (arg.len == 0 or arg[0] != '+') continue;
@@ -54,7 +59,8 @@ pub const Action = enum {
     /// Run the action. This returns the exit code to exit with.
     pub fn run(self: Action, alloc: Allocator) !u8 {
         return switch (self) {
-            .version => try version.run(),
+            .version => try version.run(alloc),
+            .help => try help.run(alloc),
             .@"list-fonts" => try list_fonts.run(alloc),
             .@"list-keybinds" => try list_keybinds.run(alloc),
         };
