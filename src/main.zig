@@ -64,29 +64,30 @@ pub fn main() !MainReturn {
     }
 
     // Execute our action if we have one
-    if (state.action) |action| {
-        std.log.info("executing CLI action={}", .{action});
-        std.os.exit(action.run(alloc) catch |err| err: {
-            std.log.err("CLI action failed error={}", .{err});
-            break :err 1;
-        });
+    if (state.action_xtra) |action_x| {
+        var retcode: u8 = 0;
+        std.log.info("executing CLI action = {}", .{action_x});
+        if (action_x.action == .help) {
+            const stdout = std.io.getStdOut().writer();
+            retcode = action_x.help(alloc, stdout) catch |err| err: {
+                std.log.err("CLI action '{s}' failed error={}",
+                    .{@tagName(action_x.action), err});
+                break :err 1;
+            };
+        } else { 
+            retcode = action_x.run(alloc) catch |err| err: {
+                std.log.err("CLI action '{s}' failed error={}",
+                    .{@tagName(action_x.action), err});
+                break :err 1;
+            };
+        }
+        std.os.exit(retcode);
         return;
     }
 
     if (comptime build_config.app_runtime == .none) {
         const stdout = std.io.getStdOut().writer();
-        try stdout.print("Usage: ghostty +<action> [flags]\n\n", .{});
-        try stdout.print(
-            \\This is the Ghostty helper CLI that accompanies the graphical Ghostty app.
-            \\To launch the terminal directly, please launch the graphical app
-            \\(i.e. Ghostty.app on macOS). This CLI can be used to perform various
-            \\actions such as inspecting the version, listing fonts, etc.
-            \\
-            \\We don't have proper help output yet, sorry! Please refer to the
-            \\source code or Discord community for help for now. We'll fix this in time.
-        ,
-            .{},
-        );
+        try stdout.print("{s}\n", .{cli.welcome_msg});
 
         std.os.exit(0);
     }
@@ -171,7 +172,7 @@ pub const GlobalState = struct {
     gpa: ?GPA,
     alloc: std.mem.Allocator,
     tracy: if (tracy.enabled) ?tracy.Allocator(null) else void,
-    action: ?cli.Action,
+    action_xtra: ?cli.ActionXtra,
     logging: Logging,
 
     /// Where logging should go
@@ -189,7 +190,7 @@ pub const GlobalState = struct {
             .gpa = null,
             .alloc = undefined,
             .tracy = undefined,
-            .action = null,
+            .action_xtra = null,
             .logging = .{ .stderr = {} },
         };
         errdefer self.deinit();
@@ -226,12 +227,12 @@ pub const GlobalState = struct {
         };
 
         // We first try to parse any action that we may be executing.
-        self.action = try cli.Action.detectCLI(self.alloc);
+        self.action_xtra = try cli.Action.detectCLI(self.alloc);
 
         // If we have an action executing, we disable logging by default
         // since we write to stderr we don't want logs messing up our
         // output.
-        if (self.action != null) self.logging = .{ .disabled = {} };
+        if (self.action_xtra != null) self.logging = .{ .disabled = {} };
 
         // For lib mode we always disable stderr logging by default.
         if (comptime build_config.app_runtime == .none) {

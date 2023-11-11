@@ -144,3 +144,41 @@ fn runArgs(alloc_gpa: Allocator, argsIter: anytype) !u8 {
 
     return 0;
 }
+
+pub fn help(
+    alloc: Allocator, // in case of dynamically generated help
+    writer: anytype, // duck-typing, print to any writer including ArrayList
+    short: bool // short one-line (<68 letters, no NL) or long (unlimited size) help
+) !u8 {
+    _ = alloc;
+    if (short) {
+        try writer.print("SHORT help for +list-fonts action", .{});
+    } else {
+        try writer.print(
+            \\Usage:
+            \\  ghostty +list-fonts [option ...]
+            \\
+            \\The list-fonts action is used to list all the available fonts for Ghostty.
+            \\This uses the exact same font discovery mechanism Ghostty uses to find
+            \\fonts to use.
+            \\
+            \\When executed with no arguments, this will list all available fonts,
+            \\sorted by family name, then font name. If a family name is given
+            \\with "--family", the sorting will be disabled and the results instead
+            \\will be shown in the same priority order Ghostty would use to pick a
+            \\font.
+            \\
+            \\The "--family" option can be used to filter results to a specific family.
+            \\The family handling is identical to the "font-familiy" set of Ghostty
+            \\configuration values, so this can be used to debug why your desired font
+            \\may not be loading.
+            \\
+            \\The "--bold" and "--italic" options can be used to filter results to
+            \\specific styles. It is not guaranteed that only those styles are returned,
+            \\it will just prioriiize fonts that match those styles.
+            \\
+            , .{});
+    }
+
+    return 22;
+}

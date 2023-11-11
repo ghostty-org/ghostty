@@ -48,3 +48,33 @@ pub fn run(alloc: Allocator) !u8 {
 
     return 0;
 }
+
+pub fn help(
+    alloc: Allocator, // in case of dynamically generated help
+    writer: anytype, // duck-typing, print to any writer including ArrayList
+    short: bool // short one-line (<68 letters, no NL) or long (unlimited size) help
+) !u8 {
+    _ = alloc;
+    if (short) {
+        try writer.print("SHORT help for +list-keybinds action", .{});
+    } else {
+        try writer.print(
+            \\Usage:
+            \\  ghostty +list-keybinds [option]
+            \\
+            \\The "list-keybinds" command is used to list all the available keybinds
+            \\for Ghostty.
+            \\
+            \\When executed without any arguments this will list the current keybinds
+            \\loaded by the config file. If no config file is found or there aren't any
+            \\changes to the keybinds it will print out the default ones configured for
+            \\Ghostty
+            \\
+            \\The "--default" option will print out all the default keybinds
+            \\configured for Ghostty.
+            \\
+            , .{});
+    }
+
+    return 33;
+}
