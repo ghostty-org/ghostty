@@ -33,16 +33,25 @@ pub fn preprocessShaderFile(path: []const u8, customFilterPath: ?[]const u8) ![:
                 const completePath = try std.fmt.bufPrint(&bufPath, "{s}{s}", .{ home_config_path, customPath });
 
                 std.log.info("shaderFile:{s}", .{completePath});
-                var includeFile = try std.fs.cwd().openFile(completePath, .{}); // Todo: Might not be the right root folder
-                defer includeFile.close();
+                var includeFileErrUnion = std.fs.cwd().openFile(completePath, .{}); // Todo: Might not be the right root folder
+                if (includeFileErrUnion) |includeFile| {
+                    defer includeFile.close();
 
-                var bufReaderInclude = std.io.bufferedReader(includeFile.reader());
-                var includeReader = bufReaderInclude.reader();
-                var bufInclude: [256]u8 = undefined;
-                while (try includeReader.readUntilDelimiterOrEof(&bufInclude, '\n')) |lineInclude| {
-                    try preprocessedShader.appendSlice(lineInclude);
-                    try preprocessedShader.append('\n');
+                    var bufReaderInclude = std.io.bufferedReader(includeFile.reader());
+                    var includeReader = bufReaderInclude.reader();
+                    var bufInclude: [256]u8 = undefined;
+                    while (try includeReader.readUntilDelimiterOrEof(&bufInclude, '\n')) |lineInclude| {
+                        try preprocessedShader.appendSlice(lineInclude);
+                        try preprocessedShader.append('\n');
+                    }
+                } else |fileErr| {
+                    try preprocessedShader.appendSlice("void CustomFilterFrag(in out vec4 out_FragColor){}");
+                    std.log.err("Could not find file:{s} err:{}", .{ completePath, fileErr });
                 }
+            } else {
+                // the shader need this function declared so the custom injection can have
+                // function decladed outside the main() scope
+                try preprocessedShader.appendSlice("void CustomFilterFrag(in out vec4 out_FragColor){}");
             }
         } else {
             try preprocessedShader.appendSlice(line);
