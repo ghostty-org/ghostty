@@ -18,6 +18,7 @@ const gl = @import("opengl/main.zig");
 const trace = @import("tracy").trace;
 const math = @import("../math.zig");
 const Surface = @import("../Surface.zig");
+const preprocessShaderFile = @import("glslPreprocessor.zig").preprocessShaderFile;
 
 const log = std.log.scoped(.grid);
 
@@ -237,6 +238,7 @@ pub const DerivedConfig = struct {
     foreground: terminal.color.RGB,
     selection_background: ?terminal.color.RGB,
     selection_foreground: ?terminal.color.RGB,
+    custom_shader_path: ?[]const u8,
 
     pub fn init(
         alloc_gpa: Allocator,
@@ -285,6 +287,8 @@ pub const DerivedConfig = struct {
                 bg.toTerminalRGB()
             else
                 null,
+
+            .custom_shader_path = config.@"custom-shader-path",
         };
     }
 
@@ -307,7 +311,7 @@ pub fn init(alloc: Allocator, options: renderer.Options) !OpenGL {
         options.config.font_thicken,
     );
 
-    var gl_state = try GLState.init(options.font_group);
+    var gl_state = try GLState.init(options.font_group, options.config);
     errdefer gl_state.deinit();
 
     return OpenGL{
@@ -426,7 +430,7 @@ pub fn displayRealize(self: *OpenGL) !void {
     );
 
     // Make our new state
-    var gl_state = try GLState.init(self.font_group);
+    var gl_state = try GLState.init(self.font_group, self.config);
     errdefer gl_state.deinit();
 
     // Unrealize if we have to
@@ -1506,7 +1510,7 @@ const GLState = struct {
     texture: gl.Texture,
     texture_color: gl.Texture,
 
-    pub fn init(font_group: *font.GroupCache) !GLState {
+    pub fn init(font_group: *font.GroupCache, derivedConfig: DerivedConfig) !GLState {
         // Blending for text. We use GL_ONE here because we should be using
         // premultiplied alpha for all our colors in our fragment shaders.
         // This avoids having a blurry border where transparency is expected on
@@ -1514,10 +1518,16 @@ const GLState = struct {
         try gl.enable(gl.c.GL_BLEND);
         try gl.blendFunc(gl.c.GL_ONE, gl.c.GL_ONE_MINUS_SRC_ALPHA);
 
+        //TODO: handle default
+        var fragSource = try preprocessShaderFile(
+            "./src/renderer/shaders/cell.f.glsl",
+            derivedConfig.custom_shader_path,
+        );
+
         // Shader
         const program = try gl.Program.createVF(
             @embedFile("shaders/cell.v.glsl"),
-            @embedFile("shaders/cell.f.glsl"),
+            fragSource,
         );
 
         // Set our cell dimensions

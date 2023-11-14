@@ -634,6 +634,10 @@ keybind: Keybinds = .{},
 /// from working properly. https://github.com/vim/vim/pull/13211 fixes this.
 term: []const u8 = "xterm-ghostty",
 
+/// This is a path to a file containing shader code that is injected at the end
+/// of the main fragment shaders. src/renderer/shaders/cell.f.glsl
+@"custom-shader-path": ?[]const u8 = null,
+
 /// This is set by the CLI parser for deinit.
 _arena: ?ArenaAllocator = null,
 

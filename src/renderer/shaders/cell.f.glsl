@@ -29,6 +29,8 @@ const uint MODE_FG = 2u;
 const uint MODE_FG_COLOR = 7u;
 const uint MODE_STRIKETHROUGH = 8u;
 
+#include customFragfilter
+
 void main() {
     float a;
 
@@ -51,4 +53,6 @@ void main() {
         out_FragColor = color;
         break;
     }
+
+    CustomFilterFrag(out_FragColor);
 }
