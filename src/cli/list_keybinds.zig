@@ -1,7 +1,6 @@
 const std = @import("std");
 const inputpkg = @import("../input.zig");
 const args = @import("args.zig");
-const help = @import("help.zig");
 const Arena = std.heap.ArenaAllocator;
 const Allocator = std.mem.Allocator;
 const Config = @import("../config/Config.zig");

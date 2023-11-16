@@ -3,7 +3,6 @@ const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const args = @import("args.zig");
 const font = @import("../font/main.zig");
-const help = @import("help.zig");
 const Generated = @import("generate");
 
 const log = std.log.scoped(.list_fonts);

@@ -4,7 +4,6 @@ const build_config = @import("../build_config.zig");
 const xev = @import("xev");
 const renderer = @import("../renderer.zig");
 const args = @import("args.zig");
-const help = @import("help.zig");
 const Allocator = std.mem.Allocator;
 const Generated = @import("generate");
 
