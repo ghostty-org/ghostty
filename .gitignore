@@ -14,3 +14,4 @@ test/ghostty
 test/cases/**/*.actual.png
 
 glad.zip
+generated.zig

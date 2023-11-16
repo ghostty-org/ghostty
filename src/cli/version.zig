@@ -6,6 +6,7 @@ const renderer = @import("../renderer.zig");
 const args = @import("args.zig");
 const help = @import("help.zig");
 const Allocator = std.mem.Allocator;
+const Generated = @import("generate");
 
 pub const Options = struct { help: bool = false, version: bool = false };
 
@@ -13,6 +14,7 @@ pub const Options = struct { help: bool = false, version: bool = false };
 /// about Ghostty.
 pub fn run(alloc: Allocator) !u8 {
     var opts: Options = .{};
+    var gen: Generated = .{};
 
     {
         var iter = try std.process.argsWithAllocator(alloc);
@@ -23,7 +25,7 @@ pub fn run(alloc: Allocator) !u8 {
     const stdout = std.io.getStdOut().writer();
 
     if (opts.help) {
-        try help.searchActionsAst("version", alloc, &stdout);
+        try stdout.print("{s}", .{gen.version});
         return 0;
     }
 

@@ -4,6 +4,7 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 const args = @import("args.zig");
 const font = @import("../font/main.zig");
 const help = @import("help.zig");
+const Generated = @import("generate");
 
 const log = std.log.scoped(.list_fonts);
 
@@ -58,6 +59,9 @@ pub fn run(alloc: Allocator) !u8 {
 fn runArgs(alloc_gpa: Allocator, argsIter: anytype) !u8 {
     var config: Config = .{};
     defer config.deinit();
+
+    var gen: Generated = .{};
+
     try args.parse(Config, alloc_gpa, &config, argsIter);
 
     // Use an arena for all our memory allocs
@@ -81,7 +85,7 @@ fn runArgs(alloc_gpa: Allocator, argsIter: anytype) !u8 {
     const stdout = std.io.getStdOut().writer();
 
     if (config.help) {
-        try help.searchActionsAst("list-fonts", alloc, &stdout);
+        try stdout.print("{s}", .{gen.@"list-fonts"});
     }
     // We'll be putting our fonts into a list categorized by family
     // so it is easier to read the output.

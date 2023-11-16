@@ -5,6 +5,7 @@ const help = @import("help.zig");
 const Arena = std.heap.ArenaAllocator;
 const Allocator = std.mem.Allocator;
 const Config = @import("../config/Config.zig");
+const Generated = @import("generate");
 
 pub const Options = struct {
     /// If true, print out the default keybinds instead of the ones
@@ -31,6 +32,8 @@ pub fn run(alloc: Allocator) !u8 {
     var opts: Options = .{};
     defer opts.deinit();
 
+    var gen: Generated = .{};
+
     {
         var iter = try std.process.argsWithAllocator(alloc);
         defer iter.deinit();
@@ -39,7 +42,7 @@ pub fn run(alloc: Allocator) !u8 {
 
     const stdout = std.io.getStdOut().writer();
     if (opts.help) {
-        try help.searchActionsAst("list-keybinds", alloc, &stdout);
+        try stdout.print("{s}", .{gen.@"list-keybinds"});
     }
 
     var config = if (opts.default) try Config.default(alloc) else try Config.load(alloc);
