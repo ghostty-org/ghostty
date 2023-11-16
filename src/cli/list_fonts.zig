@@ -48,7 +48,7 @@ pub const Config = struct {
 ///
 /// The "--bold" and "--italic" arguments can be used to filter results to
 /// specific styles. It is not guaranteed that only those styles are returned,
-/// it will just prioriiize fonts that match those styles.
+/// it will just prioritize fonts that match those styles.
 pub fn run(alloc: Allocator) !u8 {
     var iter = try std.process.argsWithAllocator(alloc);
     defer iter.deinit();
@@ -85,6 +85,7 @@ fn runArgs(alloc_gpa: Allocator, argsIter: anytype) !u8 {
 
     if (config.help) {
         try stdout.print("{s}", .{gen.@"list-fonts"});
+        return 0;
     }
     // We'll be putting our fonts into a list categorized by family
     // so it is easier to read the output.

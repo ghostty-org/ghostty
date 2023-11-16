@@ -42,6 +42,7 @@ pub fn run(alloc: Allocator) !u8 {
     const stdout = std.io.getStdOut().writer();
     if (opts.help) {
         try stdout.print("{s}", .{gen.@"list-keybinds"});
+        return 0;
     }
 
     var config = if (opts.default) try Config.default(alloc) else try Config.load(alloc);

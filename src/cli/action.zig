@@ -45,7 +45,9 @@ pub const Action = enum {
             // Special case, --version always outputs the version no
             // matter what, no matter what other args exist.
             if (std.mem.eql(u8, arg, "--version")) return .version;
-            if (std.mem.eql(u8, arg, "--help")) return .help;
+            if (std.mem.eql(u8, arg, "--help")) {
+                if (pending == null) return .help;
+            }
 
             // Commands must start with "+"
             if (arg.len == 0 or arg[0] != '+') continue;
