@@ -183,6 +183,12 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 /// https://www.ditig.com/256-colors-cheat-sheet
 palette: Palette = .{},
 
+/// Minimum contrast between the foreground and background colors of a cell
+/// in percent, where the contrast between black and white is 100%.
+/// (colors aren't linear; I suggest setting no higher than around 15 or 20%)
+/// 0 disables.
+@"min-contrast": u7 = 0,
+
 /// The color of the cursor. If this is not set, a default will be chosen.
 @"cursor-color": ?Color = null,
 
