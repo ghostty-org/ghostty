@@ -59,7 +59,7 @@ fn runArgs(alloc_gpa: Allocator, argsIter: anytype) !u8 {
     var config: Config = .{};
     defer config.deinit();
 
-    var gen: Generated = .{};
+    const gen: Generated = .{};
 
     try args.parse(Config, alloc_gpa, &config, argsIter);
 

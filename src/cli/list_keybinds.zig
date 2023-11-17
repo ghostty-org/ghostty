@@ -31,7 +31,7 @@ pub fn run(alloc: Allocator) !u8 {
     var opts: Options = .{};
     defer opts.deinit();
 
-    var gen: Generated = .{};
+    const gen: Generated = .{};
 
     {
         var iter = try std.process.argsWithAllocator(alloc);

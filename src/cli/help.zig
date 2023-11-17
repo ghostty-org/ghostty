@@ -9,7 +9,7 @@ const Config = @import("../config/Config.zig");
 const Token = std.zig.Token;
 
 pub fn run(alloc: Allocator) !u8 {
-    var generated: Generated = .{};
+    const generated: Generated = .{};
 
     const stdout = std.io.getStdOut().writer();
     const args = try std.process.argsAlloc(alloc);
@@ -57,7 +57,7 @@ fn parseArgKey(arg: []const u8) []const u8 {
     }
 
     if (std.mem.startsWith(u8, arg, "+")) {
-        var key = arg[1..];
+        const key = arg[1..];
 
         return key;
     }

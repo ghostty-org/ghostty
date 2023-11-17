@@ -13,7 +13,7 @@ pub const Options = struct { help: bool = false, version: bool = false };
 /// about Ghostty.
 pub fn run(alloc: Allocator) !u8 {
     var opts: Options = .{};
-    var gen: Generated = .{};
+    const gen: Generated = .{};
 
     {
         var iter = try std.process.argsWithAllocator(alloc);
