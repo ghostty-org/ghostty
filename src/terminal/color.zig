@@ -120,6 +120,130 @@ pub const RGB = struct {
         return (pair[0] + 0.05) / (pair[1] + 0.05);
     }
 
+    /// If the contrast between self and fg is less than min_contrast_pct percent,
+    /// adjust fg's color away from self until it is at least that
+    /// else leave unchanged
+    pub fn minContrastWith(self: RGB, fg: RGB, min_contrast_pct: u7) RGB {
+        if (min_contrast_pct == 0) return fg;
+        var increase: bool = self.luminance() < fg.luminance();
+        return self.minContrastColor(min_contrast_pct, increase);
+    }
+
+    /// Binary search in the specified direction for the color with the
+    /// specified minimum contrast percentage
+    pub fn minContrastColor(self: RGB, min_contrast_pct: u7, increase: bool) RGB {
+        const min_contrast: f64 = @as(f64, @floatFromInt(min_contrast_pct)) / 5 + 1;
+        // std.log.info("minConstrastColor({}, {}, {})", .{ self, min_contrast, increase });
+
+        const black_or_white = RGB{
+            .r = if (increase) 255 else 0,
+            .g = if (increase) 255 else 0,
+            .b = if (increase) 255 else 0,
+        };
+        const max_contrast = self.contrast(black_or_white);
+        if (max_contrast <= min_contrast) {
+            // std.log.info("max_contrast is {}, so returning {}", .{ max_contrast, black_or_white });
+            return black_or_white;
+        }
+
+        // ideally we could compute the color, but color math is hard, so search instead
+        var left: RGB = if (increase) self.clone() else black_or_white;
+        var right = if (increase) black_or_white else self.clone();
+        while (left.cmp(right) == .lt) {
+            const mid = left.colorHalfwayToward(right);
+            const mid_contrast = self.contrast(mid);
+            // std.log.info("left: {} right: {} mid: {} with contrast {}", .{ left, right, mid, mid_contrast });
+            if (mid.eql(left) or mid.eql(right)) break;
+            if (mid_contrast == min_contrast) {
+                // std.log.info("Exact contrast found! How unlikely! returning {}", .{mid});
+                return mid;
+            } else if (mid_contrast < min_contrast) {
+                // std.log.info("contrast too low", .{});
+                if (increase) {
+                    // std.log.info("changing left", .{});
+                    left = mid;
+                } else {
+                    // std.log.info("changing right", .{});
+                    right = mid;
+                }
+            } else {
+                // std.log.info("contrast too high", .{});
+                if (increase) {
+                    // std.log.info("changing right", .{});
+                    right = mid;
+                } else {
+                    // std.log.info("changing left", .{});
+                    left = mid;
+                }
+            }
+        }
+        // std.log.info("Contrast found. returning {}", .{if (increase) right else left});
+        return if (increase) right else left;
+    }
+
+    fn cmp(self: RGB, other: RGB) ?std.math.Order {
+        if (self.eql(other)) {
+            return .eq;
+        }
+        if (self.r <= other.r and
+            self.g <= other.g and
+            self.b <= other.b)
+        {
+            return .lt;
+        }
+        if (self.r >= other.r and
+            self.g >= other.g and
+            self.b >= other.b)
+        {
+            return .gt;
+        }
+        return null;
+    }
+
+    fn avg(a: u8, b: u8) u8 {
+        return @intCast((@as(u9, a) + @as(u9, b)) / 2);
+    }
+
+    fn colorHalfwayToward(self: RGB, other: RGB) RGB {
+        return RGB{
+            .r = avg(self.r, other.r),
+            .g = avg(self.g, other.g),
+            .b = avg(self.b, other.b),
+        };
+    }
+
+    fn clone(self: RGB) RGB {
+        return RGB{
+            .r = self.r,
+            .g = self.g,
+            .b = self.b,
+        };
+    }
+
+    test "colorHalfwayToward" {
+        const black = RGB{ .r = 0, .g = 0, .b = 0 };
+        const red = RGB{ .r = 128, .g = 0, .b = 0 };
+        const green = RGB{ .r = 0, .g = 128, .b = 0 };
+        const white = RGB{ .r = 255, .g = 255, .b = 255 };
+        const grey = RGB{ .r = 215, .g = 215, .b = 215 };
+
+        try std.testing.expectEqual(RGB{ .r = 64, .g = 0, .b = 0 }, black.colorHalfwayToward(red));
+        try std.testing.expectEqual(RGB{ .r = 0, .g = 64, .b = 0 }, black.colorHalfwayToward(green));
+        try std.testing.expectEqual(RGB{ .r = 235, .g = 235, .b = 235 }, grey.colorHalfwayToward(white));
+    }
+
+    test "find color with minimum contrast" {
+        const black = RGB{ .r = 0, .g = 0, .b = 0 };
+        const grey = RGB{ .r = 127, .g = 127, .b = 127 };
+
+        try std.testing.expectEqual(RGB{ .r = 137, .g = 137, .b = 137 }, black.minContrastColor(25, true));
+        try std.testing.expectEqual(RGB{ .r = 188, .g = 188, .b = 188 }, black.minContrastColor(50, true));
+        try std.testing.expectEqual(RGB{ .r = 225, .g = 225, .b = 225 }, black.minContrastColor(75, true));
+
+        try std.testing.expectEqual(RGB{ .r = 8, .g = 8, .b = 8 }, grey.minContrastColor(20, false));
+        try std.testing.expectEqual(RGB{ .r = 255, .g = 255, .b = 255 }, grey.minContrastColor(15, true));
+    }
+
     /// Calculates luminance based on the W3C formula. This returns a
     /// normalized value between 0 and 1 where 0 is black and 1 is white.
     ///
