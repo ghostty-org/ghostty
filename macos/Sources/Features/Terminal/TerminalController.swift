@@ -39,8 +39,7 @@ class TerminalController: NSWindowController, NSWindowDelegate,
         super.init(window: nil)
         
         // Initialize our initial surface.
-        guard let ghostty_app = ghostty.app else { preconditionFailure("app must be loaded") }
-        self.surfaceTree = .leaf(.init(ghostty_app, base))
+        self.surfaceTree = .leaf(.init(ghostty, base))
         
         // Setup our notifications for behaviors
         let center = NotificationCenter.default

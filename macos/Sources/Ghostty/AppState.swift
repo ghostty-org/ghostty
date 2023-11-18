@@ -124,6 +124,9 @@ extension Ghostty {
             _ = ghostty_config_get(config, &v, key, UInt(key.count))
             return v;
         }
+
+        /// Lookup table between surface IDs and surface views
+        var surfaceLookup: NSMapTable<NSUUID, SurfaceView> = .init(valueOptions: [.weakMemory])
         
         init() {
             // Initialize ghostty global state. This happens once per process.
@@ -588,9 +591,9 @@ extension Ghostty {
         /// Handle a received user notification. This is called when a user notification is clicked or dismissed by the user
         func handleUserNotification(response: UNNotificationResponse) {
             let userInfo = response.notification.request.content.userInfo
-            guard let address = userInfo["address"] as? Int else { return }
-            guard let userdata = UnsafeMutableRawPointer(bitPattern: address) else { return }
-            let surface = Ghostty.AppState.surfaceUserdata(from: userdata)
+            guard let uuidString = userInfo["surface"] as? String else { return }
+            let uuid = NSUUID(uuidString: uuidString)
+            guard let surface = self.surfaceLookup.object(forKey: uuid) else { return }
 
             switch (response.actionIdentifier) {
             case UNNotificationDefaultActionIdentifier, Ghostty.userNotificationActionShow:
@@ -607,10 +610,9 @@ extension Ghostty {
         /// Determine if a given notification should be presented to the user when Ghostty is running in the foreground.
         func shouldPresentNotification(notification: UNNotification) -> Bool {
             let userInfo = notification.request.content.userInfo
-            guard let address = userInfo["address"] as? Int else { return false }
-            guard let userdata = UnsafeMutableRawPointer(bitPattern: address) else { return false }
-            let surface = Ghostty.AppState.surfaceUserdata(from: userdata)
-
+            guard let uuidString = userInfo["surface"] as? String else { return false }
+            let uuid = NSUUID(uuidString: uuidString)
+            guard let surface = self.surfaceLookup.object(forKey: uuid) else { return false }
             guard let window = surface.window else { return false }
             return !window.isKeyWindow || !surface.focused
         }

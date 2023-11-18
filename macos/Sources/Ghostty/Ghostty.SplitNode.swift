@@ -92,13 +92,17 @@ extension Ghostty {
         }
 
         class Leaf: ObservableObject, Equatable, Hashable {
-            let app: ghostty_app_t
+            /// Reference to the global app state
+            let app: Ghostty.AppState
+
+            /// The surface view associated with this leaf node
             @Published var surface: SurfaceView
 
+            /// The parent container of this node. Nil if this is the root node
             weak var parent: SplitNode.Container?
 
             /// Initialize a new leaf which creates a new terminal surface.
-            init(_ app: ghostty_app_t, _ baseConfig: SurfaceConfiguration?) {
+            init(_ app: Ghostty.AppState, _ baseConfig: SurfaceConfiguration?) {
                 self.app = app
                 self.surface = SurfaceView(app, baseConfig)
             }
@@ -106,19 +110,19 @@ extension Ghostty {
             // MARK: - Hashable
             
             func hash(into hasher: inout Hasher) {
-                hasher.combine(app)
                 hasher.combine(surface)
             }
             
             // MARK: - Equatable
             
             static func == (lhs: Leaf, rhs: Leaf) -> Bool {
-                return lhs.app == rhs.app && lhs.surface === rhs.surface
+                return lhs.surface === rhs.surface
             }
         }
 
         class Container: ObservableObject, Equatable, Hashable {
-            let app: ghostty_app_t
+            /// Reference to the global app state
+            let app: Ghostty.AppState
             let direction: SplitViewDirection
 
             @Published var topLeft: SplitNode
@@ -127,6 +131,7 @@ extension Ghostty {
 
             var resizeEvent: PassthroughSubject<Double, Never> = .init()
 
+            /// The parent container of this node. Nil if this is the root node
             weak var parent: SplitNode.Container?
 
             /// A container is always initialized from some prior leaf because a split has to originate
@@ -199,7 +204,6 @@ extension Ghostty {
             // MARK: - Hashable
             
             func hash(into hasher: inout Hasher) {
-                hasher.combine(app)
                 hasher.combine(direction)
                 hasher.combine(topLeft)
                 hasher.combine(bottomRight)
@@ -208,8 +212,7 @@ extension Ghostty {
             // MARK: - Equatable
             
             static func == (lhs: Container, rhs: Container) -> Bool {
-                return lhs.app == rhs.app &&
-                    lhs.direction == rhs.direction &&
+                return lhs.direction == rhs.direction &&
                     lhs.topLeft == rhs.topLeft &&
                     lhs.bottomRight == rhs.bottomRight
             }

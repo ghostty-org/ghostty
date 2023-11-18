@@ -9,12 +9,10 @@ extension Ghostty {
         @FocusedValue(\.ghosttySurfaceTitle) private var surfaceTitle: String?
 
         var body: some View {
-            if let app = self.ghostty.app {
-                SurfaceForApp(app) { surfaceView in
-                    SurfaceWrapper(surfaceView: surfaceView)
-                }
-                .navigationTitle(surfaceTitle ?? "Ghostty")
+            SurfaceForApp(self.ghostty) { surfaceView in
+                SurfaceWrapper(surfaceView: surfaceView)
             }
+            .navigationTitle(surfaceTitle ?? "Ghostty")
         }
     }
 
@@ -24,7 +22,7 @@ extension Ghostty {
 
         @StateObject private var surfaceView: SurfaceView
 
-        init(_ app: ghostty_app_t, @ViewBuilder content: @escaping ((SurfaceView) -> Content)) {
+        init(_ app: Ghostty.AppState, @ViewBuilder content: @escaping ((SurfaceView) -> Content)) {
             _surfaceView = StateObject(wrappedValue: SurfaceView(app, nil))
             self.content = content
         }
@@ -49,6 +47,7 @@ extension Ghostty {
         // Maintain whether our window has focus (is key) or not
         @State private var windowFocus: Bool = true
 
+        // Reference to the global app state
         @EnvironmentObject private var ghostty: Ghostty.AppState
 
         // This is true if the terminal is considered "focused". The terminal is focused if
@@ -249,6 +248,9 @@ extension Ghostty {
         // resized in discrete steps of a single cell.
         @Published var cellSize: NSSize = .zero
 
+        /// Reference to the global app state
+        private let ghostty: Ghostty.AppState
+
         // An initial size to request for a window. This will only affect
         // then the view is moved to a new window.
         var initialSize: NSSize? = nil
@@ -280,6 +282,9 @@ extension Ghostty {
         // Notification identifiers associated with this surface
         var notificationIdentifiers: Set<String> = []
         
+        /// Unique ID per surface
+        let uuid: NSUUID = .init()
+
         private(set) var surface: ghostty_surface_t?
         var error: Error? = nil
 
@@ -308,7 +313,8 @@ extension Ghostty {
             case pendingHidden
         }
 
-        init(_ app: ghostty_app_t, _ baseConfig: SurfaceConfiguration?) {
+        init(_ ghostty: Ghostty.AppState, _ baseConfig: SurfaceConfiguration?) {
+            self.ghostty = ghostty
             self.markedText = NSMutableAttributedString()
 
             // Initialize with some default frame size. The important thing is that this
@@ -319,7 +325,8 @@ extension Ghostty {
             // Setup our surface. This will also initialize all the terminal IO.
             let surface_cfg = baseConfig ?? SurfaceConfiguration()
             var surface_cfg_c = surface_cfg.ghosttyConfig(view: self)
-            guard let surface = ghostty_surface_new(app, &surface_cfg_c) else {
+            guard let ghostty_app = ghostty.app else { preconditionFailure("app must be loaded") }
+            guard let surface = ghostty_surface_new(ghostty_app, &surface_cfg_c) else {
                 self.error = AppError.surfaceCreateError
                 return
             }
@@ -355,6 +362,9 @@ extension Ghostty {
             // Remove any notifications associated with this surface
             let identifiers = Array(self.notificationIdentifiers)
             UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: identifiers)
+
+            // Remove this surface from the lookup table
+            self.ghostty.surfaceLookup.removeObject(forKey: self.uuid)
 
             guard let surface = self.surface else { return }
             ghostty_surface_free(surface)
@@ -1018,16 +1028,11 @@ extension Ghostty {
             content.body = body
             content.sound = UNNotificationSound.default
             content.categoryIdentifier = Ghostty.userNotificationCategory
+            content.userInfo = ["surface": self.uuid.uuidString]
 
-            // The userInfo must conform to NSSecureCoding, which SurfaceView
-            // does not. So instead we pass an integer representation of the
-            // SurfaceView's address, which is reconstructed back into a
-            // SurfaceView if the notification is clicked. This is safe to do
-            // so long as the SurfaceView removes all of its notifications when
-            // it closes so that there are no dangling pointers.
-            content.userInfo = [
-                "address": Int(bitPattern: Unmanaged.passUnretained(self).toOpaque()),
-            ]
+            // Add our UUID to the lookup table so that we can associate the
+            // notification with this surface
+            ghostty.surfaceLookup.setObject(self, forKey: self.uuid)
 
             let uuid = UUID().uuidString
             let request = UNNotificationRequest(
