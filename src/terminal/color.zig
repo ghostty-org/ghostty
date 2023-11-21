@@ -93,6 +93,86 @@ pub const Name = enum(u8) {
     }
 };
 
+///  HSL color representation used for minimum contrast calculations
+const HSL = struct {
+    h: u9 = 0, // 0-360
+    s: f32 = 0, // 0-1
+    l: f32 = 0, // 0-1
+
+    pub fn fromRGB(rgb: RGB) HSL {
+        const r: f32 = @as(f32, @floatFromInt(rgb.r)) / 255.0;
+        const g: f32 = @as(f32, @floatFromInt(rgb.g)) / 255.0;
+        const b: f32 = @as(f32, @floatFromInt(rgb.b)) / 255.0;
+
+        const max_val: f32 = @max(@max(r, g), b);
+        const min_val: f32 = @min(@min(r, g), b);
+
+        var h: f32 = 0; // undefined, but commonly set to 0
+        var s: f32 = 0;
+        const lum: f32 = (max_val + min_val) / 2;
+
+        if (max_val != min_val) {
+            const delta = max_val - min_val;
+            s = delta / (1 - @abs(2 * lum - 1));
+
+            if (max_val == r) {
+                h = (g - b) / delta;
+            } else if (max_val == g) {
+                h = 2 + (b - r) / delta;
+            } else if (max_val == b) {
+                // h = 60 * (4 + (r - g) / delta)
+                h = 4 + (r - g) / delta;
+            }
+            h *= 60;
+        }
+
+        return HSL{
+            // .h = (h + 360.0) % 360, // Ensure the hue is in the range [0, 360]
+            .h = @intFromFloat(@mod(h + 360.0, 360)), // Ensure the hue is in the range [0, 360]
+            .s = s,
+            .l = lum,
+        };
+    }
+
+    fn hue_to_rgb(p: f32, q: f32, t: f32) u8 {
+        var mul: f32 = 0;
+        if (t < 1 / 6) {
+            mul = p + (q - p) * 6 * t;
+        } else if (t < 0.5) {
+            mul = q;
+        } else if (t < 2 / 3) {
+            mul = p + (q - p) * (2 / 3 - t) * 6;
+        } else {
+            mul = p;
+        }
+        return @intFromFloat(mul * 255);
+    }
+
+    pub fn toRGB(self: HSL) RGB {
+        if (self.s == 0) {
+            // no saturation, so greyscale
+            const lum: u8 = @intFromFloat(self.l * 255);
+            return RGB{ .r = lum, .g = lum, .b = lum };
+        }
+
+        var q: f32 = 0;
+        if (self.l < 0.5) {
+            q = self.l * (1 + self.s);
+        } else {
+            q = self.l + self.s - self.l * self.s;
+        }
+
+        const p = 2 * self.l - q;
+        const h: f32 = @as(f32, @floatFromInt(self.h)) / 255.0;
+
+        return RGB{
+            .r = hue_to_rgb(p, q, h + 1 / 3),
+            .g = hue_to_rgb(p, q, h),
+            .b = hue_to_rgb(p, q, h - 1 / 3),
+        };
+    }
+};
+
 /// RGB
 pub const RGB = struct {
     r: u8 = 0,
@@ -125,7 +205,7 @@ pub const RGB = struct {
     /// else leave unchanged
     pub fn minContrastWith(self: RGB, fg: RGB, min_contrast_pct: u7) RGB {
         if (min_contrast_pct == 0) return fg;
-        var increase: bool = self.luminance() < fg.luminance();
+        const increase: bool = self.luminance() < fg.luminance();
         return self.minContrastColor(min_contrast_pct, increase);
     }
 
@@ -242,6 +322,59 @@ pub const RGB = struct {
 
         try std.testing.expectEqual(RGB{ .r = 8, .g = 8, .b = 8 }, grey.minContrastColor(20, false));
         try std.testing.expectEqual(RGB{ .r = 255, .g = 255, .b = 255 }, grey.minContrastColor(15, true));
+    }
+
+    pub fn minContrastWithViaHSL(self: RGB, fg: RGB, min_contrast_pct: u7) RGB {
+        if (min_contrast_pct == 0) return fg;
+
+        const min_contrast: f32 = @as(f32, @floatFromInt(min_contrast_pct)) / 100.0 / 0.7;
+        const bg_hsl = HSL.fromRGB(self);
+        var fg_hsl = HSL.fromRGB(fg);
+
+        if (min_contrast < @abs(bg_hsl.l - fg_hsl.l)) {
+            std.log.warn("min contrast {d:0.2} already achieved: bg Lum: {d:0.2} fg Lum: {d:0.2}", .{ min_contrast, bg_hsl.l, fg_hsl.l });
+            return fg;
+        }
+        std.log.warn("min contrast {d:0.2} not achieved: bg Lum: {d:0.2} fg Lum: {d:0.2}", .{ min_contrast, bg_hsl.l, fg_hsl.l });
+
+        if (fg_hsl.l > bg_hsl.l) {
+            fg_hsl.l = bg_hsl.l + min_contrast;
+            if (fg_hsl.l > 1) {
+                // not enough contrast by increasing, try decreasing
+                fg_hsl.l = bg_hsl.l - min_contrast;
+            }
+            if (fg_hsl.l < 0) {
+                // can't get full contrast that way either, so use maximum available contrast
+                fg_hsl.l = if (bg_hsl.l >= 0.5) 0 else 1;
+            }
+        } else {
+            fg_hsl.l = bg_hsl.l - min_contrast;
+            if (fg_hsl.l < 0) {
+                // not enough contrast by decreasing, try increasing
+                fg_hsl.l = bg_hsl.l + min_contrast;
+            }
+            if (fg_hsl.l > 1) {
+                // can't get full contrast that way either, so use maximum available contrast
+                fg_hsl.l = if (bg_hsl.l >= 0.5) 0 else 1;
+            }
+        }
+        const new_fg = fg_hsl.toRGB();
+        std.log.warn("new fg Lum: {d:0.2} results in new fg {}", .{ fg_hsl.l, new_fg });
+        return new_fg;
+    }
+
+    test "find color with minimum contrast via HSL" {
+        const black = RGB{ .r = 0, .g = 0, .b = 0 };
+        const dkgrey = RGB{ .r = 64, .g = 64, .b = 64 };
+
+        // std.log.warn("\nref lums: black: {d:0.2} dkgrey: {d:0.2} grey: {d:0.2} ltgrey: {d:0.2}", .{ black.luminance(), dkgrey.luminance(), grey.luminance(), ltgrey.luminance() });
+        var other = black.minContrastWithViaHSL(dkgrey, 50);
+        std.log.warn("dkgrey on black to 50% gets {} with lum: {d:0.2}", .{ other, other.luminance() });
+        try std.testing.expectApproxEqAbs(@as(f64, 0.5), @abs(black.minContrastWithViaHSL(dkgrey, 50).luminance() - black.luminance()), 0.05);
+
+        other = black.minContrastWithViaHSL(dkgrey, 25);
+        std.log.warn("dkgrey on black to 25% gets {} with lum: {d:0.2}", .{ other, other.luminance() });
+        try std.testing.expectApproxEqAbs(@as(f64, 0.25), @abs(black.minContrastWithViaHSL(dkgrey, 25).luminance() - black.luminance()), 0.05);
     }
 
     /// Calculates luminance based on the W3C formula. This returns a
