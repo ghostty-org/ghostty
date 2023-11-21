@@ -831,6 +831,12 @@ fn generateHelpStep(b: *std.Build, exe: *std.Build.Step.Compile) void {
 
     const output = generate_step.addOutputFileArg("generated.zig");
 
+    if (builtin.target.isDarwin()) {
+        const generated = b.option([]const u8, "generated", "generated help file") orelse "generated";
+        const write_file = b.addWriteFiles();
+        write_file.addCopyFile(output, generated);
+    }
+
     exe.step.dependOn(&generate_step.step);
     exe.addAnonymousModule("generate", .{ .source_file = output });
 }
