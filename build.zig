@@ -451,6 +451,9 @@ pub fn build(b: *std.Build) !void {
             lib.linkLibC();
             lib.addOptions("build_options", exe_options);
 
+            // Add the generated file
+            generateHelpStep(b, lib);
+
             // Create a single static lib with all our dependencies merged
             var lib_list = try addDeps(b, lib, true);
             try lib_list.append(lib.getEmittedBin());
