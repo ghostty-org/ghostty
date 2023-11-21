@@ -9,7 +9,6 @@ const font = @import("src/font/main.zig");
 const renderer = @import("src/renderer.zig");
 const terminfo = @import("src/terminfo/main.zig");
 const WasmTarget = @import("src/os/wasm/target.zig").Target;
-const LibGenerate = @import("src/build/LibGenerate.zig");
 const LibtoolStep = @import("src/build/LibtoolStep.zig");
 const LipoStep = @import("src/build/LipoStep.zig");
 const XCFrameworkStep = @import("src/build/XCFrameworkStep.zig");
@@ -191,13 +190,6 @@ pub fn build(b: *std.Build) !void {
     // Add our benchmarks
     try benchSteps(b, target, optimize, emit_bench);
 
-    {
-        var generated = try LibGenerate.init(b.allocator);
-        defer generated.deinit();
-        try generated.searchConfigAst();
-        try generated.searchActionsAst();
-    }
-
     // We only build an exe if we have a runtime set.
     const exe_: ?*std.Build.Step.Compile = if (app_runtime != .none) b.addExecutable(.{
         .name = "ghostty",
@@ -223,9 +215,11 @@ pub fn build(b: *std.Build) !void {
     // Exe
     if (exe_) |exe| {
         exe.addOptions("build_options", exe_options);
-
         // Add the shared dependencies
         _ = try addDeps(b, exe, static);
+
+        // Generate the help file.
+        generateHelpStep(b, exe);
 
         // If we're in NixOS but not in the shell environment then we issue
         // a warning because the rpath may not be setup properly.
@@ -289,8 +283,6 @@ pub fn build(b: *std.Build) !void {
             b.installFile("dist/macos/Info.plist", "Ghostty.app/Contents/Info.plist");
             b.installFile("dist/macos/Ghostty.icns", "Ghostty.app/Contents/Resources/Ghostty.icns");
         }
-
-        exe.addAnonymousModule("generate", .{ .source_file = .{ .path = "src/build/generated.zig" } });
     }
 
     // Shell-integration
@@ -823,6 +815,21 @@ fn addDeps(
     }
 
     return static_libs;
+}
+
+fn generateHelpStep(b: *std.Build, exe: *std.Build.Step.Compile) void {
+    const generate = b.addExecutable(.{
+        .name = "generate_help",
+        .root_source_file = .{ .path = "src/generate_help.zig" },
+    });
+
+    const generate_step = b.addRunArtifact(generate);
+    generate_step.step.dependOn(&generate.step);
+
+    const output = generate_step.addOutputFileArg("generated.zig");
+
+    exe.step.dependOn(&generate_step.step);
+    exe.addAnonymousModule("generate", .{ .source_file = output });
 }
 
 fn benchSteps(
