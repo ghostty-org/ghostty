@@ -1249,11 +1249,11 @@ pub fn keyCallback(
 
     // If our event is any keypress that isn't a modifier and we generated
     // some data to send to the pty, then we move the viewport down to the
-    // bottom. If we generated literal text, then we also clear the selection.
+    // bottom. Clear the selection as well.
     if (!event.key.modifier()) {
         self.renderer_state.mutex.lock();
         defer self.renderer_state.mutex.unlock();
-        if (event.utf8.len > 0) self.setSelection(null);
+        self.setSelection(null);
         try self.io.terminal.scrollViewport(.{ .bottom = {} });
         try self.queueRender();
     }
