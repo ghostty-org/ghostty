@@ -2278,13 +2278,17 @@ fn selectionSliceString(
             const start_idx = row_i * (self.cols + 1);
             if (start_idx >= slice.len) break;
 
-            // Our end index is usually a full row, but if we're the final
-            // row then we just use the length.
-            const end_idx = @min(slice.len, start_idx + self.cols + 1);
+            const end_idx = if (slices.sel.rectangle)
+                // Rectangle select: calculate end with bottom offset.
+                start_idx + slices.bot_offset + 2 // think "column count" + 1
+            else
+                // Normal select: our end index is usually a full row, but if
+                // we're the final row then we just use the length.
+                @min(slice.len, start_idx + self.cols + 1);
 
-            // We may have to skip some cells from the beginning if we're
-            // the first row.
-            var skip: usize = if (row_count == 0) slices.top_offset else 0;
+            // We may have to skip some cells from the beginning if we're the
+            // first row, of if we're using rectangle select.
+            var skip: usize = if (row_count == 0 or slices.sel.rectangle) slices.top_offset else 0;
 
             // If we have runtime safety we need to initialize the row
             // so that the proper union tag is set. In release modes we
@@ -2334,8 +2338,9 @@ fn selectionSliceString(
                 }
             }
 
-            // If this row is not soft-wrapped, add a newline
-            if (!row.header().flags.wrap) {
+            // If this row is not soft-wrapped or if we're using rectangle
+            // select, add a newline
+            if (!row.header().flags.wrap or slices.sel.rectangle) {
                 try strbuilder.append('\n');
                 if (mapbuilder) |b| {
                     try b.append(.{
@@ -2373,6 +2378,12 @@ const SelectionSlices = struct {
     // Top offset can be used to determine if a newline is required by
     // seeing if the cell index plus the offset cleanly divides by screen cols.
     top_offset: usize,
+
+    // Our bottom offset is used in rectangle select to always determine the
+    // maximum cell in a given row.
+    bot_offset: usize,
+
+    // Our selection storage cell chunks.
     top: []StorageCell,
     bot: []StorageCell,
 };
@@ -2388,6 +2399,7 @@ fn selectionSlices(self: *Screen, sel_raw: Selection) SelectionSlices {
         .rows = 0,
         .sel = sel_raw,
         .top_offset = 0,
+        .bot_offset = 0,
         .top = self.storage.storage[0..0],
         .bot = self.storage.storage[0..0],
     };
@@ -2428,6 +2440,7 @@ fn selectionSlices(self: *Screen, sel_raw: Selection) SelectionSlices {
     // Get the true "top" and "bottom"
     const sel_top = sel.topLeft();
     const sel_bot = sel.bottomRight();
+    const sel_isRect = sel.rectangle;
 
     // We get the slices for the full top and bottom (inclusive).
     const sel_top_offset = self.rowOffset(.{ .screen = sel_top.y });
@@ -2441,8 +2454,9 @@ fn selectionSlices(self: *Screen, sel_raw: Selection) SelectionSlices {
     // bottom of the storage, then from the top.
     return .{
         .rows = sel_bot.y - sel_top.y + 1,
-        .sel = .{ .start = sel_top, .end = sel_bot },
+        .sel = .{ .start = sel_top, .end = sel_bot, .rectangle = sel_isRect },
         .top_offset = sel_top.x,
+        .bot_offset = sel_bot.x,
         .top = slices[0],
         .bot = slices[1],
     };
@@ -5348,6 +5362,105 @@ test "Screen: selectionString with zero width joiner" {
         try testing.expectEqualStrings(expected, contents);
     }
 }
+
+test "Screen: selectionString, rectangle, basic" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 30, 0);
+    defer s.deinit();
+    const str = 
+        \\Lorem ipsum dolor
+        \\sit amet, consectetur
+        \\adipiscing elit, sed do
+        \\eiusmod tempor incididunt
+        \\ut labore et dolore
+    ;
+    const sel = Selection{
+        .start = .{ .x = 2, .y = 1 },
+        .end = .{ .x = 6, .y = 3 },
+        .rectangle = true,
+    };
+    const expected = 
+        \\t ame
+        \\ipisc
+        \\usmod
+    ;
+    try s.testWriteString(str);
+
+    const contents = try s.selectionString(alloc, sel, true);
+    defer alloc.free(contents);
+    try testing.expectEqualStrings(expected, contents);
+}
+
+test "Screen: selectionString, rectangle, w/EOL" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 30, 0);
+    defer s.deinit();
+    const str = 
+        \\Lorem ipsum dolor
+        \\sit amet, consectetur
+        \\adipiscing elit, sed do
+        \\eiusmod tempor incididunt
+        \\ut labore et dolore
+    ;
+    const sel = Selection{
+        .start = .{ .x = 12, .y = 0 },
+        .end = .{ .x = 26, .y = 4 },
+        .rectangle = true,
+    };
+    const expected = 
+        \\dolor
+        \\nsectetur
+        \\lit, sed do
+        \\or incididunt
+        \\ dolore
+    ;
+    try s.testWriteString(str);
+
+    const contents = try s.selectionString(alloc, sel, true);
+    defer alloc.free(contents);
+    try testing.expectEqualStrings(expected, contents);
+}
+
+test "Screen: selectionString, rectangle, more complex w/breaks" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 8, 30, 0);
+    defer s.deinit();
+    const str = 
+        \\Lorem ipsum dolor
+        \\sit amet, consectetur
+        \\adipiscing elit, sed do
+        \\eiusmod tempor incididunt
+        \\ut labore et dolore
+        \\
+        \\magna aliqua. Ut enim
+        \\ad minim veniam, quis
+    ;
+    const sel = Selection{
+        .start = .{ .x = 11, .y = 2 },
+        .end = .{ .x = 26, .y = 7 },
+        .rectangle = true,
+    };
+    const expected = 
+        \\elit, sed do
+        \\por incididunt
+        \\t dolore
+        \\
+        \\a. Ut enim
+        \\niam, quis
+    ;
+    try s.testWriteString(str);
+
+    const contents = try s.selectionString(alloc, sel, true);
+    defer alloc.free(contents);
+    try testing.expectEqualStrings(expected, contents);
+}
+
 
 test "Screen: dirty with getCellPtr" {
     const testing = std.testing;

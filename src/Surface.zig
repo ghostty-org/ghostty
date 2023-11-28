@@ -2209,6 +2209,17 @@ pub fn cursorPosCallback(
     }
 }
 
+// Checks to see if super is on in mods (MacOS) or ctrl. We use this for
+// rectangle select along with alt.
+//
+// Not to be confused with ctrlOrSuper in Config.
+fn ctrlOrSuper(mods: input.Mods) bool {
+    if (comptime builtin.target.isDarwin()) {
+        return mods.super;
+    }
+    return mods.ctrl;
+}
+
 /// Double-click dragging moves the selection one "word" at a time.
 fn dragLeftClickDouble(
     self: *Surface,
@@ -2238,11 +2249,13 @@ fn dragLeftClickDouble(
         self.setSelection(.{
             .start = word_current.start,
             .end = word_start.end,
+            .rectangle = ctrlOrSuper(self.mouse.mods) and self.mouse.mods.alt,
         });
     } else {
         self.setSelection(.{
             .start = word_start.start,
             .end = word_current.end,
+            .rectangle = ctrlOrSuper(self.mouse.mods) and self.mouse.mods.alt,
         });
     }
 }
@@ -2330,6 +2343,7 @@ fn dragLeftClickSingle(
         self.setSelection(if (selected) .{
             .start = screen_point,
             .end = screen_point,
+            .rectangle = ctrlOrSuper(self.mouse.mods) and self.mouse.mods.alt,
         } else null);
 
         return;
@@ -2369,7 +2383,11 @@ fn dragLeftClickSingle(
             }
         };
 
-        self.setSelection(.{ .start = start, .end = screen_point });
+        self.setSelection(.{
+            .start = start,
+            .end = screen_point,
+            .rectangle = ctrlOrSuper(self.mouse.mods) and self.mouse.mods.alt,
+        });
         return;
     }
 
