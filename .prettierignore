@@ -10,3 +10,6 @@ macos/
 
 # website dev run
 website/.next
+
+# shaders
+*.frag

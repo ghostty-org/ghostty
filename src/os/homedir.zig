@@ -22,7 +22,7 @@ fn homeUnix(buf: []u8) !?[]u8 {
     // First: if we have a HOME env var, then we use that.
     if (std.os.getenv("HOME")) |result| {
         if (buf.len < result.len) return Error.BufferTooSmall;
-        std.mem.copy(u8, buf, result);
+        @memcpy(buf[0..result.len], result);
         return buf[0..result.len];
     }
 
@@ -46,7 +46,7 @@ fn homeUnix(buf: []u8) !?[]u8 {
         if (run.term == .Exited and run.term.Exited == 0) {
             const result = trimSpace(run.stdout);
             if (buf.len < result.len) return Error.BufferTooSmall;
-            std.mem.copy(u8, buf, result);
+            @memcpy(buf[0..result.len], result);
             return buf[0..result.len];
         }
     }
@@ -56,7 +56,7 @@ fn homeUnix(buf: []u8) !?[]u8 {
     const pw = try passwd.get(fba.allocator());
     if (pw.home) |result| {
         if (buf.len < result.len) return Error.BufferTooSmall;
-        std.mem.copy(u8, buf, result);
+        @memcpy(buf[0..result.len], result);
         return buf[0..result.len];
     }
 
@@ -71,7 +71,7 @@ fn homeUnix(buf: []u8) !?[]u8 {
     if (run.term == .Exited and run.term.Exited == 0) {
         const result = trimSpace(run.stdout);
         if (buf.len < result.len) return Error.BufferTooSmall;
-        std.mem.copy(u8, buf, result);
+        @memcpy(buf[0..result.len], result);
         return buf[0..result.len];
     }
 

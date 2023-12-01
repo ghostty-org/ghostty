@@ -49,7 +49,7 @@ pub fn CircBuf(comptime T: type, comptime default: T) type {
 
         /// Initialize a new circular buffer that can store size elements.
         pub fn init(alloc: Allocator, size: usize) !Self {
-            var buf = try alloc.alloc(T, size);
+            const buf = try alloc.alloc(T, size);
             @memset(buf, default);
 
             return Self{
@@ -93,7 +93,7 @@ pub fn CircBuf(comptime T: type, comptime default: T) type {
 
         /// Resize the buffer to the given size (larger or smaller).
         /// If larger, new values will be set to the default value.
-        pub fn resize(self: *Self, alloc: Allocator, size: usize) !void {
+        pub fn resize(self: *Self, alloc: Allocator, size: usize) Allocator.Error!void {
             // Rotate to zero so it is aligned.
             try self.rotateToZero(alloc);
 
@@ -116,7 +116,7 @@ pub fn CircBuf(comptime T: type, comptime default: T) type {
         }
 
         /// Rotate the data so that it is zero-aligned.
-        fn rotateToZero(self: *Self, alloc: Allocator) !void {
+        fn rotateToZero(self: *Self, alloc: Allocator) Allocator.Error!void {
             // TODO: this does this in the worst possible way by allocating.
             // rewrite to not allocate, its possible, I'm just lazy right now.
 

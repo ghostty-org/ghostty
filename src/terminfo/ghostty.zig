@@ -151,6 +151,12 @@ pub const ghostty: Source = .{
         .{ .name = "clear", .value = .{ .string = "\\E[H\\E[2J" } },
         .{ .name = "E3", .value = .{ .string = "\\E[3J" } },
 
+        // Focus reporting. Introduced in ncurses 6.4-20231028
+        .{ .name = "fe", .value = .{ .string = "\\E[?1004h" } },
+        .{ .name = "fd", .value = .{ .string = "\\E[?1004l" } },
+        .{ .name = "kxIN", .value = .{ .string = "\\E[I" } },
+        .{ .name = "kxOUT", .value = .{ .string = "\\E[O" } },
+
         // These are all capabilities that should be pretty straightforward
         // and map to input sequences.
         .{ .name = "bel", .value = .{ .string = "^G" } },

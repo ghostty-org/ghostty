@@ -144,6 +144,52 @@ pub const App = struct {
         return &self.config;
     }
 
+    /// Toggle the window to fullscreen mode.
+    pub fn toggleFullscreen(self: *App, surface: *Surface) void {
+        _ = self;
+        const win = surface.window;
+
+        if (surface.isFullscreen()) {
+            win.setMonitor(
+                null,
+                @intCast(surface.monitor_dims.position_x),
+                @intCast(surface.monitor_dims.position_y),
+                surface.monitor_dims.width,
+                surface.monitor_dims.height,
+                0,
+            );
+            return;
+        }
+
+        const monitor = win.getMonitor() orelse monitor: {
+            log.warn("window had null monitor, getting primary monitor", .{});
+            break :monitor glfw.Monitor.getPrimary() orelse {
+                log.warn("window could not get any monitor. will not perform action", .{});
+                return;
+            };
+        };
+
+        const video_mode = monitor.getVideoMode() orelse {
+            log.warn("failed to get video mode. will not perform action", .{});
+            return;
+        };
+
+        const position = win.getPos();
+        const size = surface.getSize() catch {
+            log.warn("failed to get window size. will not perform fullscreen action", .{});
+            return;
+        };
+
+        surface.monitor_dims = .{
+            .width = size.width,
+            .height = size.height,
+            .position_x = position.x,
+            .position_y = position.y,
+        };
+
+        win.setMonitor(monitor, 0, 0, video_mode.getWidth(), video_mode.getHeight(), 0);
+    }
+
     /// Create a new window for the app.
     pub fn newWindow(self: *App, parent_: ?*CoreSurface) !void {
         _ = try self.newSurface(parent_);
@@ -245,7 +291,7 @@ pub const App = struct {
         tabbing_id: *macos.foundation.String,
 
         pub fn init() !Darwin {
-            const NSWindow = objc.Class.getClass("NSWindow").?;
+            const NSWindow = objc.getClass("NSWindow").?;
             NSWindow.msgSend(void, objc.sel("setAllowsAutomaticWindowTabbing:"), .{true});
 
             // Our tabbing ID allows all of our windows to group together
@@ -265,6 +311,15 @@ pub const App = struct {
             self.* = undefined;
         }
     };
+};
+
+/// These are used to keep track of the original monitor values so that we can
+/// safely toggle on and off of fullscreen.
+const MonitorDimensions = struct {
+    width: u32,
+    height: u32,
+    position_x: i64,
+    position_y: i64,
 };
 
 /// Surface represents the drawable surface for glfw. In glfw, a surface
@@ -297,17 +352,21 @@ pub const Surface = struct {
     /// (GLFW guarantees that charCallback is called after keyCallback).
     key_event: ?input.KeyEvent = null,
 
+    /// The monitor dimensions so we can toggle fullscreen on and off.
+    monitor_dims: MonitorDimensions,
+
     pub const Options = struct {};
 
     /// Initialize the surface into the given self pointer. This gives a
     /// stable pointer to the destination that can be used for callbacks.
     pub fn init(self: *Surface, app: *App) !void {
+
         // Create our window
         const win = glfw.Window.create(
             640,
             480,
             "ghostty",
-            null,
+            if (app.config.fullscreen) glfw.Monitor.getPrimary() else null,
             null,
             Renderer.glfwWindowHints(&app.config),
         ) orelse return glfw.mustGetErrorCode();
@@ -320,8 +379,8 @@ pub const Surface = struct {
                 log.warn("window had null monitor, getting primary monitor", .{});
                 break :monitor glfw.Monitor.getPrimary().?;
             };
-            const physical_size = monitor.getPhysicalSize();
             const video_mode = monitor.getVideoMode() orelse return glfw.mustGetErrorCode();
+            const physical_size = monitor.getPhysicalSize();
             const physical_x_dpi = @as(f32, @floatFromInt(video_mode.getWidth())) / (@as(f32, @floatFromInt(physical_size.width_mm)) / 25.4);
             const physical_y_dpi = @as(f32, @floatFromInt(video_mode.getHeight())) / (@as(f32, @floatFromInt(physical_size.height_mm)) / 25.4);
             log.debug("physical dpi x={} y={}", .{
@@ -355,12 +414,24 @@ pub const Surface = struct {
         win.setMouseButtonCallback(mouseButtonCallback);
         win.setDropCallback(dropCallback);
 
+        const dimensions: MonitorDimensions = dimensions: {
+            const pos = win.getPos();
+            const size = win.getFramebufferSize();
+            break :dimensions .{
+                .width = size.width,
+                .height = size.height,
+                .position_x = pos.x,
+                .position_y = pos.y,
+            };
+        };
+
         // Build our result
         self.* = .{
             .app = app,
             .window = win,
             .cursor = null,
             .core_surface = undefined,
+            .monitor_dims = dimensions,
         };
         errdefer self.* = undefined;
 
@@ -445,6 +516,15 @@ pub const Surface = struct {
     /// Create a new tab in the window containing this surface.
     pub fn newTab(self: *Surface) !void {
         try self.app.newTab(&self.core_surface);
+    }
+
+    /// Checks if the glfw window is in fullscreen.
+    pub fn isFullscreen(self: *Surface) bool {
+        return self.window.getMonitor() != null;
+    }
+
+    pub fn toggleFullscreen(self: *Surface, _: Config.NonNativeFullscreen) void {
+        self.app.toggleFullscreen(self);
     }
 
     /// Close this surface.
@@ -576,9 +656,9 @@ pub const Surface = struct {
         state: apprt.ClipboardRequest,
     ) !void {
         // GLFW can read clipboards immediately so just do that.
-        const str: []const u8 = switch (clipboard_type) {
+        const str: [:0]const u8 = switch (clipboard_type) {
             .standard => glfw.getClipboardString() orelse return glfw.mustGetErrorCode(),
-            .selection => selection: {
+            .selection, .primary => selection: {
                 // Not supported except on Linux
                 if (comptime builtin.os.tag != .linux) break :selection "";
 
@@ -598,11 +678,13 @@ pub const Surface = struct {
         self: *const Surface,
         val: [:0]const u8,
         clipboard_type: apprt.Clipboard,
+        confirm: bool,
     ) !void {
+        _ = confirm;
         _ = self;
         switch (clipboard_type) {
             .standard => glfw.setClipboardString(val),
-            .selection => {
+            .selection, .primary => {
                 // Not supported except on Linux
                 if (comptime builtin.os.tag != .linux) return;
                 glfwNative.setX11SelectionString(val.ptr);

@@ -62,6 +62,10 @@ pub fn init(self: *Window, app: *App) !void {
     c.gtk_window_set_title(gtk_window, "Ghostty");
     c.gtk_window_set_default_size(gtk_window, 1000, 600);
 
+    // GTK4 grabs F10 input by default to focus the menubar icon. We want
+    // to disable this so that terminal programs can capture F10 (such as htop)
+    c.gtk_window_set_handle_menubar_accel(gtk_window, 0);
+
     // If we don't have the icon then we'll try to add our resources dir
     // to the search path and see if we can find it there.
     self.icon = try icon.appIcon(self.app, window);
@@ -75,20 +79,24 @@ pub fn init(self: *Window, app: *App) !void {
     // Use the new GTK4 header bar. We only create a header bar if we have
     // window decorations.
     if (app.config.@"window-decoration") {
-        const header = c.gtk_header_bar_new();
-        c.gtk_window_set_titlebar(gtk_window, header);
-        {
-            const btn = c.gtk_menu_button_new();
-            c.gtk_widget_set_tooltip_text(btn, "Main Menu");
-            c.gtk_menu_button_set_icon_name(@ptrCast(btn), "open-menu-symbolic");
-            c.gtk_menu_button_set_menu_model(@ptrCast(btn), @ptrCast(@alignCast(app.menu)));
-            c.gtk_header_bar_pack_end(@ptrCast(header), btn);
-        }
-        {
-            const btn = c.gtk_button_new_from_icon_name("tab-new-symbolic");
-            c.gtk_widget_set_tooltip_text(btn, "New Tab");
-            c.gtk_header_bar_pack_end(@ptrCast(header), btn);
-            _ = c.g_signal_connect_data(btn, "clicked", c.G_CALLBACK(&gtkTabNewClick), self, null, c.G_CONNECT_DEFAULT);
+        // gtk-titlebar can also be used to disable the header bar (but keep
+        // the window manager's decorations).
+        if (app.config.@"gtk-titlebar") {
+            const header = c.gtk_header_bar_new();
+            c.gtk_window_set_titlebar(gtk_window, header);
+            {
+                const btn = c.gtk_menu_button_new();
+                c.gtk_widget_set_tooltip_text(btn, "Main Menu");
+                c.gtk_menu_button_set_icon_name(@ptrCast(btn), "open-menu-symbolic");
+                c.gtk_menu_button_set_menu_model(@ptrCast(btn), @ptrCast(@alignCast(app.menu)));
+                c.gtk_header_bar_pack_end(@ptrCast(header), btn);
+            }
+            {
+                const btn = c.gtk_button_new_from_icon_name("tab-new-symbolic");
+                c.gtk_widget_set_tooltip_text(btn, "New Tab");
+                c.gtk_header_bar_pack_end(@ptrCast(header), btn);
+                _ = c.g_signal_connect_data(btn, "clicked", c.G_CALLBACK(&gtkTabNewClick), self, null, c.G_CONNECT_DEFAULT);
+            }
         }
     } else {
         // Hide window decoration if configured. This has to happen before
@@ -200,6 +208,16 @@ pub fn newTab(self: *Window, parent_: ?*CoreSurface) !void {
         c.gtk_widget_set_halign(label_box_widget, c.GTK_ALIGN_FILL);
         c.gtk_widget_set_hexpand(label_text, 1);
         c.gtk_widget_set_halign(label_text, c.GTK_ALIGN_FILL);
+
+        // This ensures that tabs are always equal width. If they're too
+        // long, they'll be truncated with an ellipsis.
+        c.gtk_label_set_max_width_chars(@ptrCast(label_text), 1);
+        c.gtk_label_set_ellipsize(@ptrCast(label_text), c.PANGO_ELLIPSIZE_END);
+
+        // We need to set a minimum width so that at a certain point
+        // the notebook will have an arrow button rather than shrinking tabs
+        // to an unreadably small size.
+        c.gtk_widget_set_size_request(@ptrCast(label_text), 100, 1);
     }
 
     const label_close_widget = c.gtk_button_new_from_icon_name("window-close");

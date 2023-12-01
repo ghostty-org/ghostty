@@ -26,6 +26,7 @@ pub const Terminal = @import("Terminal.zig");
 pub const Parser = @import("Parser.zig");
 pub const Selection = @import("Selection.zig");
 pub const Screen = @import("Screen.zig");
+pub const StringMap = @import("StringMap.zig");
 pub const Stream = stream.Stream;
 pub const Cursor = Screen.Cursor;
 pub const CursorStyleReq = ansi.CursorStyle;

@@ -253,3 +253,20 @@ fragment float4 image_fragment(
   uint4 rgba = image.sample(textureSampler, in.tex_coord);
   return float4(rgba) / 255.0f;
 }
+
+//-------------------------------------------------------------------
+// Post Shader
+//-------------------------------------------------------------------
+#pragma mark - Post Shader
+
+struct PostVertexOut {
+    float4 position [[ position ]];
+};
+
+constant float2 post_pos[4] = { {-1,-1}, {1,-1}, {-1,1}, {1,1 } };
+
+vertex PostVertexOut post_vertex(uint id [[ vertex_id ]]) {
+    PostVertexOut out;
+    out.position = float4(post_pos[id], 0, 1);
+    return out;
+}

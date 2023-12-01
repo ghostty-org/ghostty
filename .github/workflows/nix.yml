@@ -1,0 +1,32 @@
+on: [push, pull_request]
+name: Nix
+jobs:
+  check-zig-cache-hash:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Setup Nix
+        uses: cachix/install-nix-action@v24
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - name: Check Zig cache hash
+        run: nix develop -c ./nix/build-support/check-zig-cache-hash.sh
+#
+# NOTE: Build is disabled until we resolve dependency build speeds.
+#   build:
+#     needs: check-zig-cache-hash
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+#       - name: Setup Nix
+#         uses: cachix/install-nix-action@v24
+#         with:
+#           nix_path: nixpkgs=channel:nixos-unstable
+#       - name: Setup Nix cache
+#         uses: DeterminateSystems/magic-nix-cache-action@main
+#         with:
+#           diagnostic-endpoint: "" # disable telemetry
+#       - name: Run build
+#         run: nix build .

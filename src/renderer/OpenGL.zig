@@ -7,6 +7,9 @@ const glfw = @import("glfw");
 const assert = std.debug.assert;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
+const link = @import("link.zig");
+const shadertoy = @import("shadertoy.zig");
 const apprt = @import("../apprt.zig");
 const configpkg = @import("../config.zig");
 const font = @import("../font/main.zig");
@@ -14,10 +17,18 @@ const imgui = @import("imgui");
 const renderer = @import("../renderer.zig");
 const terminal = @import("../terminal/main.zig");
 const Terminal = terminal.Terminal;
-const gl = @import("opengl/main.zig");
+const gl = @import("opengl");
 const trace = @import("tracy").trace;
 const math = @import("../math.zig");
 const Surface = @import("../Surface.zig");
+
+const CellProgram = @import("opengl/CellProgram.zig");
+const ImageProgram = @import("opengl/ImageProgram.zig");
+const gl_image = @import("opengl/image.zig");
+const custom = @import("opengl/custom.zig");
+const Image = gl_image.Image;
+const ImageMap = gl_image.ImageMap;
+const ImagePlacementList = std.ArrayListUnmanaged(gl_image.Placement);
 
 const log = std.log.scoped(.grid);
 
@@ -45,8 +56,8 @@ screen_size: ?renderer.ScreenSize,
 
 /// The current set of cells to render. Each set of cells goes into
 /// a separate shader call.
-cells_bg: std.ArrayListUnmanaged(GPUCell),
-cells: std.ArrayListUnmanaged(GPUCell),
+cells_bg: std.ArrayListUnmanaged(CellProgram.Cell),
+cells: std.ArrayListUnmanaged(CellProgram.Cell),
 
 /// The size of the cells list that was sent to the GPU. This is used
 /// to detect when the cells array was reallocated/resized and handle that
@@ -67,6 +78,18 @@ font_shaper: font.Shaper,
 /// True if the window is focused
 focused: bool,
 
+/// The actual foreground color. May differ from the config foreground color if
+/// changed by a terminal application
+foreground_color: terminal.color.RGB,
+
+/// The actual background color. May differ from the config background color if
+/// changed by a terminal application
+background_color: terminal.color.RGB,
+
+/// The actual cursor color. May differ from the config cursor color if changed
+/// by a terminal application
+cursor_color: ?terminal.color.RGB,
+
 /// Padding options
 padding: renderer.Options.Padding,
 
@@ -86,12 +109,21 @@ draw_mutex: DrawMutex = drawMutexZero,
 /// terminal is in reversed mode.
 draw_background: terminal.color.RGB,
 
+/// The images that we may render.
+images: ImageMap = .{},
+image_placements: ImagePlacementList = .{},
+image_bg_end: u32 = 0,
+image_text_end: u32 = 0,
+
 /// Defererred OpenGL operation to update the screen size.
 const SetScreenSize = struct {
     size: renderer.ScreenSize,
 
-    fn apply(self: SetScreenSize, r: *const OpenGL) !void {
-        const gl_state = r.gl_state orelse return error.OpenGLUninitialized;
+    fn apply(self: SetScreenSize, r: *OpenGL) !void {
+        const gl_state: *GLState = if (r.gl_state) |*v|
+            v
+        else
+            return error.OpenGLUninitialized;
 
         // Apply our padding
         const padding = if (r.padding.balance)
@@ -118,17 +150,27 @@ const SetScreenSize = struct {
         );
 
         // Update the projection uniform within our shader
-        try gl_state.program.setUniform(
-            "projection",
+        inline for (.{ "cell_program", "image_program" }) |name| {
+            const program = @field(gl_state, name);
+            const bind = try program.program.use();
+            defer bind.unbind();
+            try program.program.setUniform(
+                "projection",
 
-            // 2D orthographic projection with the full w/h
-            math.ortho2d(
-                -1 * @as(f32, @floatFromInt(padding.left)),
-                @floatFromInt(padded_size.width + padding.right),
-                @floatFromInt(padded_size.height + padding.bottom),
-                -1 * @as(f32, @floatFromInt(padding.top)),
-            ),
-        );
+                // 2D orthographic projection with the full w/h
+                math.ortho2d(
+                    -1 * @as(f32, @floatFromInt(padding.left)),
+                    @floatFromInt(padded_size.width + padding.right),
+                    @floatFromInt(padded_size.height + padding.bottom),
+                    -1 * @as(f32, @floatFromInt(padding.top)),
+                ),
+            );
+        }
+
+        // Update our custom shader resolution
+        if (gl_state.custom) |*custom_state| {
+            try custom_state.setScreenSize(self.size);
+        }
     }
 };
 
@@ -138,75 +180,29 @@ const SetFontSize = struct {
     fn apply(self: SetFontSize, r: *const OpenGL) !void {
         const gl_state = r.gl_state orelse return error.OpenGLUninitialized;
 
-        try gl_state.program.setUniform(
-            "cell_size",
-            @Vector(2, f32){
-                @floatFromInt(self.metrics.cell_width),
-                @floatFromInt(self.metrics.cell_height),
-            },
-        );
-        try gl_state.program.setUniform(
+        inline for (.{ "cell_program", "image_program" }) |name| {
+            const program = @field(gl_state, name);
+            const bind = try program.program.use();
+            defer bind.unbind();
+            try program.program.setUniform(
+                "cell_size",
+                @Vector(2, f32){
+                    @floatFromInt(self.metrics.cell_width),
+                    @floatFromInt(self.metrics.cell_height),
+                },
+            );
+        }
+
+        const bind = try gl_state.cell_program.program.use();
+        defer bind.unbind();
+        try gl_state.cell_program.program.setUniform(
             "strikethrough_position",
             @as(f32, @floatFromInt(self.metrics.strikethrough_position)),
         );
-        try gl_state.program.setUniform(
+        try gl_state.cell_program.program.setUniform(
             "strikethrough_thickness",
             @as(f32, @floatFromInt(self.metrics.strikethrough_thickness)),
         );
-    }
-};
-
-/// The raw structure that maps directly to the buffer sent to the vertex shader.
-/// This must be "extern" so that the field order is not reordered by the
-/// Zig compiler.
-const GPUCell = extern struct {
-    /// vec2 grid_coord
-    grid_col: u16,
-    grid_row: u16,
-
-    /// vec2 glyph_pos
-    glyph_x: u32 = 0,
-    glyph_y: u32 = 0,
-
-    /// vec2 glyph_size
-    glyph_width: u32 = 0,
-    glyph_height: u32 = 0,
-
-    /// vec2 glyph_size
-    glyph_offset_x: i32 = 0,
-    glyph_offset_y: i32 = 0,
-
-    /// vec4 fg_color_in
-    fg_r: u8,
-    fg_g: u8,
-    fg_b: u8,
-    fg_a: u8,
-
-    /// vec4 bg_color_in
-    bg_r: u8,
-    bg_g: u8,
-    bg_b: u8,
-    bg_a: u8,
-
-    /// uint mode
-    mode: GPUCellMode,
-
-    /// The width in grid cells that a rendering takes.
-    grid_width: u8,
-};
-
-const GPUCellMode = enum(u8) {
-    bg = 1,
-    fg = 2,
-    fg_color = 7,
-    strikethrough = 8,
-
-    // Non-exhaustive because masks change it
-    _,
-
-    /// Apply a mask to the mode.
-    pub fn mask(self: GPUCellMode, m: GPUCellMode) GPUCellMode {
-        return @enumFromInt(@intFromEnum(self) | @intFromEnum(m));
     }
 };
 
@@ -214,8 +210,10 @@ const GPUCellMode = enum(u8) {
 /// configuration. This must be exported so that we don't need to
 /// pass around Config pointers which makes memory management a pain.
 pub const DerivedConfig = struct {
+    arena: ArenaAllocator,
+
     font_thicken: bool,
-    font_features: std.ArrayList([]const u8),
+    font_features: std.ArrayListUnmanaged([]const u8),
     font_styles: font.Group.StyleStatus,
     cursor_color: ?terminal.color.RGB,
     cursor_text: ?terminal.color.RGB,
@@ -225,23 +223,36 @@ pub const DerivedConfig = struct {
     foreground: terminal.color.RGB,
     selection_background: ?terminal.color.RGB,
     selection_foreground: ?terminal.color.RGB,
+    invert_selection_fg_bg: bool,
+    custom_shaders: std.ArrayListUnmanaged([]const u8),
+    custom_shader_animation: bool,
+    links: link.Set,
 
     pub fn init(
         alloc_gpa: Allocator,
         config: *const configpkg.Config,
     ) !DerivedConfig {
+        var arena = ArenaAllocator.init(alloc_gpa);
+        errdefer arena.deinit();
+        const alloc = arena.allocator();
+
+        // Copy our shaders
+        const custom_shaders = try config.@"custom-shader".value.list.clone(alloc);
+
         // Copy our font features
-        var font_features = features: {
-            var clone = try config.@"font-feature".list.clone(alloc_gpa);
-            break :features clone.toManaged(alloc_gpa);
-        };
-        errdefer font_features.deinit();
+        const font_features = try config.@"font-feature".list.clone(alloc);
 
         // Get our font styles
         var font_styles = font.Group.StyleStatus.initFill(true);
         font_styles.set(.bold, config.@"font-style-bold" != .false);
         font_styles.set(.italic, config.@"font-style-italic" != .false);
         font_styles.set(.bold_italic, config.@"font-style-bold-italic" != .false);
+
+        // Our link configs
+        const links = try link.Set.fromConfig(
+            alloc,
+            config.link.links.items,
+        );
 
         return .{
             .background_opacity = @max(0, @min(1, config.@"background-opacity")),
@@ -263,6 +274,7 @@ pub const DerivedConfig = struct {
 
             .background = config.background.toTerminalRGB(),
             .foreground = config.foreground.toTerminalRGB(),
+            .invert_selection_fg_bg = config.@"selection-invert-fg-bg",
 
             .selection_background = if (config.@"selection-background") |bg|
                 bg.toTerminalRGB()
@@ -273,11 +285,19 @@ pub const DerivedConfig = struct {
                 bg.toTerminalRGB()
             else
                 null,
+
+            .custom_shaders = custom_shaders,
+            .custom_shader_animation = config.@"custom-shader-animation",
+            .links = links,
+
+            .arena = arena,
         };
     }
 
     pub fn deinit(self: *DerivedConfig) void {
-        self.font_features.deinit();
+        const alloc = self.arena.allocator();
+        self.links.deinit(alloc);
+        self.arena.deinit();
     }
 };
 
@@ -295,7 +315,7 @@ pub fn init(alloc: Allocator, options: renderer.Options) !OpenGL {
         options.config.font_thicken,
     );
 
-    var gl_state = try GLState.init(options.font_group);
+    var gl_state = try GLState.init(alloc, options.config, options.font_group);
     errdefer gl_state.deinit();
 
     return OpenGL{
@@ -310,6 +330,9 @@ pub fn init(alloc: Allocator, options: renderer.Options) !OpenGL {
         .font_shaper = shaper,
         .draw_background = options.config.background,
         .focused = true,
+        .foreground_color = options.config.foreground,
+        .background_color = options.config.background,
+        .cursor_color = options.config.cursor_color,
         .padding = options.padding,
         .surface_mailbox = options.surface_mailbox,
         .deferred_font_size = .{ .metrics = metrics },
@@ -319,7 +342,14 @@ pub fn init(alloc: Allocator, options: renderer.Options) !OpenGL {
 pub fn deinit(self: *OpenGL) void {
     self.font_shaper.deinit();
 
-    if (self.gl_state) |*v| v.deinit();
+    {
+        var it = self.images.iterator();
+        while (it.next()) |kv| kv.value_ptr.deinit(self.alloc);
+        self.images.deinit(self.alloc);
+    }
+    self.image_placements.deinit(self.alloc);
+
+    if (self.gl_state) |*v| v.deinit(self.alloc);
 
     self.cells.deinit(self.alloc);
     self.cells_bg.deinit(self.alloc);
@@ -393,7 +423,7 @@ pub fn displayUnrealized(self: *OpenGL) void {
     defer if (single_threaded_draw) self.draw_mutex.unlock();
 
     if (self.gl_state) |*v| {
-        v.deinit();
+        v.deinit(self.alloc);
         self.gl_state = null;
     }
 }
@@ -411,11 +441,11 @@ pub fn displayRealize(self: *OpenGL) !void {
     );
 
     // Make our new state
-    var gl_state = try GLState.init(self.font_group);
+    var gl_state = try GLState.init(self.alloc, self.config, self.font_group);
     errdefer gl_state.deinit();
 
     // Unrealize if we have to
-    if (self.gl_state) |*v| v.deinit();
+    if (self.gl_state) |*v| v.deinit(self.alloc);
 
     // Set our new state
     self.gl_state = gl_state;
@@ -489,6 +519,13 @@ pub fn threadExit(self: *const OpenGL) void {
     }
 }
 
+/// True if our renderer has animations so that a higher frequency
+/// timer is used.
+pub fn hasAnimations(self: *const OpenGL) bool {
+    const state = self.gl_state orelse return false;
+    return state.custom != null and self.config.custom_shader_animation;
+}
+
 /// Callback when the focus changes for the terminal this is rendering.
 ///
 /// Must be called on the render thread.
@@ -559,17 +596,20 @@ fn resetFontMetrics(
 }
 
 /// The primary render callback that is completely thread-safe.
-pub fn render(
+pub fn updateFrame(
     self: *OpenGL,
     surface: *apprt.Surface,
     state: *renderer.State,
     cursor_blink_visible: bool,
 ) !void {
+    _ = surface;
+
     // Data we extract out of the critical area.
     const Critical = struct {
         gl_bg: terminal.color.RGB,
         selection: ?terminal.Selection,
         screen: terminal.Screen,
+        mouse: renderer.State.Mouse,
         preedit: ?renderer.State.Preedit,
         cursor_style: ?renderer.CursorStyle,
     };
@@ -586,15 +626,15 @@ pub fn render(
         }
 
         // Swap bg/fg if the terminal is reversed
-        const bg = self.config.background;
-        const fg = self.config.foreground;
+        const bg = self.background_color;
+        const fg = self.foreground_color;
         defer {
-            self.config.background = bg;
-            self.config.foreground = fg;
+            self.background_color = bg;
+            self.foreground_color = fg;
         }
         if (state.terminal.modes.get(.reverse_colors)) {
-            self.config.background = fg;
-            self.config.foreground = bg;
+            self.background_color = fg;
+            self.foreground_color = bg;
         }
 
         // We used to share terminal state, but we've since learned through
@@ -626,10 +666,18 @@ pub fn render(
             cursor_blink_visible,
         );
 
+        // If we have Kitty graphics data, we enter a SLOW SLOW SLOW path.
+        // We only do this if the Kitty image state is dirty meaning only if
+        // it changes.
+        if (state.terminal.screen.kitty_images.dirty) {
+            try self.prepKittyGraphics(state.terminal);
+        }
+
         break :critical .{
-            .gl_bg = self.config.background,
+            .gl_bg = self.background_color,
             .selection = selection,
             .screen = screen_copy,
+            .mouse = state.mouse,
             .preedit = if (cursor_style != null) state.preedit else null,
             .cursor_style = cursor_style,
         };
@@ -648,22 +696,165 @@ pub fn render(
         try self.rebuildCells(
             critical.selection,
             &critical.screen,
+            critical.mouse,
             critical.preedit,
             critical.cursor_style,
         );
     }
+}
 
-    // We're out of the critical path now. Let's render. We only render if
-    // we're not single threaded. If we're single threaded we expect the
-    // runtime to call draw.
-    if (single_threaded_draw) return;
+/// This goes through the Kitty graphic placements and accumulates the
+/// placements we need to render on our viewport. It also ensures that
+/// the visible images are loaded on the GPU.
+fn prepKittyGraphics(
+    self: *OpenGL,
+    t: *terminal.Terminal,
+) !void {
+    const storage = &t.screen.kitty_images;
+    defer storage.dirty = false;
 
-    try self.draw();
+    // We always clear our previous placements no matter what because
+    // we rebuild them from scratch.
+    self.image_placements.clearRetainingCapacity();
 
-    // Swap our window buffers
-    switch (apprt.runtime) {
-        else => @compileError("unsupported runtime"),
-        apprt.glfw => surface.window.swapBuffers(),
+    // Go through our known images and if there are any that are no longer
+    // in use then mark them to be freed.
+    //
+    // This never conflicts with the below because a placement can't
+    // reference an image that doesn't exist.
+    {
+        var it = self.images.iterator();
+        while (it.next()) |kv| {
+            if (storage.imageById(kv.key_ptr.*) == null) {
+                kv.value_ptr.markForUnload();
+            }
+        }
+    }
+
+    // The top-left and bottom-right corners of our viewport in screen
+    // points. This lets us determine offsets and containment of placements.
+    const top = (terminal.point.Viewport{}).toScreen(&t.screen);
+    const bot = (terminal.point.Viewport{
+        .x = t.screen.cols - 1,
+        .y = t.screen.rows - 1,
+    }).toScreen(&t.screen);
+
+    // Go through the placements and ensure the image is loaded on the GPU.
+    var it = storage.placements.iterator();
+    while (it.next()) |kv| {
+        // Find the image in storage
+        const p = kv.value_ptr;
+        const image = storage.imageById(kv.key_ptr.image_id) orelse {
+            log.warn(
+                "missing image for placement, ignoring image_id={}",
+                .{kv.key_ptr.image_id},
+            );
+            continue;
+        };
+
+        // If the selection isn't within our viewport then skip it.
+        const rect = p.rect(image, t);
+        if (rect.top_left.y > bot.y) continue;
+        if (rect.bottom_right.y < top.y) continue;
+
+        // If the top left is outside the viewport we need to calc an offset
+        // so that we render (0, 0) with some offset for the texture.
+        const offset_y: u32 = if (rect.top_left.y < t.screen.viewport) offset_y: {
+            const offset_cells = t.screen.viewport - rect.top_left.y;
+            const offset_pixels = offset_cells * self.cell_size.height;
+            break :offset_y @intCast(offset_pixels);
+        } else 0;
+
+        // If we already know about this image then do nothing
+        const gop = try self.images.getOrPut(self.alloc, kv.key_ptr.image_id);
+        if (!gop.found_existing) {
+            // Copy the data into the pending state.
+            const data = try self.alloc.dupe(u8, image.data);
+            errdefer self.alloc.free(data);
+
+            // Store it in the map
+            const pending: Image.Pending = .{
+                .width = image.width,
+                .height = image.height,
+                .data = data.ptr,
+            };
+
+            gop.value_ptr.* = switch (image.format) {
+                .rgb => .{ .pending_rgb = pending },
+                .rgba => .{ .pending_rgba = pending },
+                .png => unreachable, // should be decoded by now
+            };
+        }
+
+        // Convert our screen point to a viewport point
+        const viewport = p.point.toViewport(&t.screen);
+
+        // Calculate the source rectangle
+        const source_x = @min(image.width, p.source_x);
+        const source_y = @min(image.height, p.source_y + offset_y);
+        const source_width = if (p.source_width > 0)
+            @min(image.width - source_x, p.source_width)
+        else
+            image.width;
+        const source_height = if (p.source_height > 0)
+            @min(image.height, p.source_height)
+        else
+            image.height -| offset_y;
+
+        // Calculate the width/height of our image.
+        const dest_width = if (p.columns > 0) p.columns * self.cell_size.width else source_width;
+        const dest_height = if (p.rows > 0) p.rows * self.cell_size.height else source_height;
+
+        // Accumulate the placement
+        if (image.width > 0 and image.height > 0) {
+            try self.image_placements.append(self.alloc, .{
+                .image_id = kv.key_ptr.image_id,
+                .x = @intCast(p.point.x),
+                .y = @intCast(viewport.y),
+                .z = p.z,
+                .width = dest_width,
+                .height = dest_height,
+                .cell_offset_x = p.x_offset,
+                .cell_offset_y = p.y_offset,
+                .source_x = source_x,
+                .source_y = source_y,
+                .source_width = source_width,
+                .source_height = source_height,
+            });
+        }
+    }
+
+    // Sort the placements by their Z value.
+    std.mem.sortUnstable(
+        gl_image.Placement,
+        self.image_placements.items,
+        {},
+        struct {
+            fn lessThan(
+                ctx: void,
+                lhs: gl_image.Placement,
+                rhs: gl_image.Placement,
+            ) bool {
+                _ = ctx;
+                return lhs.z < rhs.z or (lhs.z == rhs.z and lhs.image_id < rhs.image_id);
+            }
+        }.lessThan,
+    );
+
+    // Find our indices
+    self.image_bg_end = 0;
+    self.image_text_end = 0;
+    const bg_limit = std.math.minInt(i32) / 2;
+    for (self.image_placements.items, 0..) |p, i| {
+        if (self.image_bg_end == 0 and p.z >= bg_limit) {
+            self.image_bg_end = @intCast(i);
+        }
+        if (self.image_text_end == 0 and p.z >= 0) {
+            self.image_text_end = @intCast(i);
+        }
+    }
+    if (self.image_text_end == 0) {
+        self.image_text_end = @intCast(self.image_placements.items.len);
     }
 }
 
@@ -678,6 +869,7 @@ pub fn rebuildCells(
     self: *OpenGL,
     term_selection: ?terminal.Selection,
     screen: *terminal.Screen,
+    mouse: renderer.State.Mouse,
     preedit: ?renderer.State.Preedit,
     cursor_style_: ?renderer.CursorStyle,
 ) !void {
@@ -700,13 +892,37 @@ pub fn rebuildCells(
         (screen.rows * screen.cols * 2) + 1,
     );
 
+    // Create an arena for all our temporary allocations while rebuilding
+    var arena = ArenaAllocator.init(self.alloc);
+    defer arena.deinit();
+    const arena_alloc = arena.allocator();
+
     // We've written no data to the GPU, refresh it all
     self.gl_cells_written = 0;
+
+    // Create our match set for the links.
+    var link_match_set = try self.config.links.matchSet(
+        arena_alloc,
+        screen,
+        mouse.point orelse .{},
+    );
+
+    // Determine our x/y range for preedit. We don't want to render anything
+    // here because we will render the preedit separately.
+    const preedit_range: ?struct {
+        y: usize,
+        x: [2]usize,
+    } = if (preedit) |preedit_v| preedit: {
+        break :preedit .{
+            .y = screen.cursor.y,
+            .x = preedit_v.range(screen.cursor.x, screen.cols - 1),
+        };
+    } else null;
 
     // This is the cell that has [mode == .fg] and is underneath our cursor.
     // We keep track of it so that we can invert the colors so the character
     // remains visible.
-    var cursor_cell: ?GPUCell = null;
+    var cursor_cell: ?CellProgram.Cell = null;
 
     // Build each cell
     var rowIter = screen.rowIterator(.viewport);
@@ -774,10 +990,39 @@ pub fn rebuildCells(
         );
         while (try iter.next(self.alloc)) |run| {
             for (try self.font_shaper.shape(run)) |shaper_cell| {
+                // If this cell falls within our preedit range then we skip it.
+                // We do this so we don't have conflicting data on the same
+                // cell.
+                if (preedit_range) |range| {
+                    if (range.y == y and
+                        shaper_cell.x >= range.x[0] and
+                        shaper_cell.x <= range.x[1])
+                    {
+                        continue;
+                    }
+                }
+
+                // It this cell is within our hint range then we need to
+                // underline it.
+                const cell: terminal.Screen.Cell = cell: {
+                    var cell = row.getCell(shaper_cell.x);
+
+                    // If our links contain this cell then we want to
+                    // underline it.
+                    if (link_match_set.orderedContains(.{
+                        .x = shaper_cell.x,
+                        .y = y,
+                    })) {
+                        cell.attrs.underline = .single;
+                    }
+
+                    break :cell cell;
+                };
+
                 if (self.updateCell(
                     term_selection,
                     screen,
-                    row.getCell(shaper_cell.x),
+                    cell,
                     shaper_cell,
                     run,
                     shaper_cell.x,
@@ -801,44 +1046,41 @@ pub fn rebuildCells(
     // Add the cursor at the end so that it overlays everything. If we have
     // a cursor cell then we invert the colors on that and add it in so
     // that we can always see it.
-    if (cursor_style_) |cursor_style| {
-        const real_cursor_cell = self.addCursor(screen, cursor_style);
-
+    if (cursor_style_) |cursor_style| cursor_style: {
         // If we have a preedit, we try to render the preedit text on top
         // of the cursor.
-        if (preedit) |preedit_v| preedit: {
-            if (preedit_v.codepoint > 0) {
-                // We try to base on the cursor cell but if its not there
-                // we use the actual cursor and if thats not there we give
-                // up on preedit rendering.
-                var cell: GPUCell = cursor_cell orelse
-                    (real_cursor_cell orelse break :preedit).*;
-                cell.fg_r = 0;
-                cell.fg_g = 0;
-                cell.fg_b = 0;
-                cell.fg_a = 255;
+        if (preedit) |preedit_v| {
+            const range = preedit_range.?;
+            var x = range.x[0];
+            for (preedit_v.codepoints[0..preedit_v.len]) |cp| {
+                self.addPreeditCell(cp, x, range.y) catch |err| {
+                    log.warn("error building preedit cell, will be invalid x={} y={}, err={}", .{
+                        x,
+                        range.y,
+                        err,
+                    });
+                };
 
-                // If preedit rendering succeeded then we don't want to
-                // re-render the underlying cell fg
-                if (self.updateCellChar(&cell, preedit_v.codepoint)) {
-                    cursor_cell = null;
-                    self.cells.appendAssumeCapacity(cell);
-                }
+                x += if (cp.wide) 2 else 1;
             }
+
+            // Preedit hides the cursor
+            break :cursor_style;
         }
 
+        _ = self.addCursor(screen, cursor_style);
         if (cursor_cell) |*cell| {
             if (cell.mode == .fg) {
                 if (self.config.cursor_text) |txt| {
-                    cell.fg_r = txt.r;
-                    cell.fg_g = txt.g;
-                    cell.fg_b = txt.b;
-                    cell.fg_a = 255;
+                    cell.r = txt.r;
+                    cell.g = txt.g;
+                    cell.b = txt.b;
+                    cell.a = 255;
                 } else {
-                    cell.fg_r = 0;
-                    cell.fg_g = 0;
-                    cell.fg_b = 0;
-                    cell.fg_a = 255;
+                    cell.r = 0;
+                    cell.g = 0;
+                    cell.b = 0;
+                    cell.a = 255;
                 }
             }
             self.cells.appendAssumeCapacity(cell.*);
@@ -852,14 +1094,89 @@ pub fn rebuildCells(
     }
 }
 
+fn addPreeditCell(
+    self: *OpenGL,
+    cp: renderer.State.Preedit.Codepoint,
+    x: usize,
+    y: usize,
+) !void {
+    // Preedit is rendered inverted
+    const bg = self.foreground_color;
+    const fg = self.background_color;
+
+    // Get the font for this codepoint.
+    const font_index = if (self.font_group.indexForCodepoint(
+        self.alloc,
+        @intCast(cp.codepoint),
+        .regular,
+        .text,
+    )) |index| index orelse return else |_| return;
+
+    // Get the font face so we can get the glyph
+    const face = self.font_group.group.faceFromIndex(font_index) catch |err| {
+        log.warn("error getting face for font_index={} err={}", .{ font_index, err });
+        return;
+    };
+
+    // Use the face to now get the glyph index
+    const glyph_index = face.glyphIndex(@intCast(cp.codepoint)) orelse return;
+
+    // Render the glyph for our preedit text
+    const glyph = self.font_group.renderGlyph(
+        self.alloc,
+        font_index,
+        glyph_index,
+        .{},
+    ) catch |err| {
+        log.warn("error rendering preedit glyph err={}", .{err});
+        return;
+    };
+
+    // Add our opaque background cell
+    self.cells_bg.appendAssumeCapacity(.{
+        .mode = .bg,
+        .grid_col = @intCast(x),
+        .grid_row = @intCast(y),
+        .grid_width = if (cp.wide) 2 else 1,
+        .glyph_x = 0,
+        .glyph_y = 0,
+        .glyph_width = 0,
+        .glyph_height = 0,
+        .glyph_offset_x = 0,
+        .glyph_offset_y = 0,
+        .r = bg.r,
+        .g = bg.g,
+        .b = bg.b,
+        .a = 255,
+    });
+
+    // Add our text
+    self.cells.appendAssumeCapacity(.{
+        .mode = .fg,
+        .grid_col = @intCast(x),
+        .grid_row = @intCast(y),
+        .grid_width = if (cp.wide) 2 else 1,
+        .glyph_x = glyph.atlas_x,
+        .glyph_y = glyph.atlas_y,
+        .glyph_width = glyph.width,
+        .glyph_height = glyph.height,
+        .glyph_offset_x = glyph.offset_x,
+        .glyph_offset_y = glyph.offset_y,
+        .r = fg.r,
+        .g = fg.g,
+        .b = fg.b,
+        .a = 255,
+    });
+}
+
 fn addCursor(
     self: *OpenGL,
     screen: *terminal.Screen,
     cursor_style: renderer.CursorStyle,
-) ?*const GPUCell {
+) ?*const CellProgram.Cell {
     // Add the cursor. We render the cursor over the wide character if
     // we're on the wide characer tail.
-    const cell, const x = cell: {
+    const wide, const x = cell: {
         // The cursor goes over the screen cursor position.
         const cell = screen.getCell(
             .active,
@@ -867,7 +1184,7 @@ fn addCursor(
             screen.cursor.x,
         );
         if (!cell.attrs.wide_spacer_tail or screen.cursor.x == 0)
-            break :cell .{ cell, screen.cursor.x };
+            break :cell .{ cell.attrs.wide, screen.cursor.x };
 
         // If we're part of a wide character, we move the cursor back to
         // the actual character.
@@ -875,10 +1192,10 @@ fn addCursor(
             .active,
             screen.cursor.y,
             screen.cursor.x - 1,
-        ), screen.cursor.x - 1 };
+        ).attrs.wide, screen.cursor.x - 1 };
     };
 
-    const color = self.config.cursor_color orelse self.config.foreground;
+    const color = self.cursor_color orelse self.foreground_color;
     const alpha: u8 = if (!self.focused) 255 else alpha: {
         const alpha = 255 * self.config.cursor_opacity;
         break :alpha @intFromFloat(@ceil(alpha));
@@ -895,7 +1212,7 @@ fn addCursor(
         self.alloc,
         font.sprite_index,
         @intFromEnum(sprite),
-        .{ .cell_width = if (cell.attrs.wide) 2 else 1 },
+        .{ .cell_width = if (wide) 2 else 1 },
     ) catch |err| {
         log.warn("error rendering cursor glyph err={}", .{err});
         return null;
@@ -905,15 +1222,11 @@ fn addCursor(
         .mode = .fg,
         .grid_col = @intCast(x),
         .grid_row = @intCast(screen.cursor.y),
-        .grid_width = if (cell.attrs.wide) 2 else 1,
-        .fg_r = color.r,
-        .fg_g = color.g,
-        .fg_b = color.b,
-        .fg_a = alpha,
-        .bg_r = 0,
-        .bg_g = 0,
-        .bg_b = 0,
-        .bg_a = 0,
+        .grid_width = if (wide) 2 else 1,
+        .r = color.r,
+        .g = color.g,
+        .b = color.b,
+        .a = alpha,
         .glyph_x = glyph.atlas_x,
         .glyph_y = glyph.atlas_y,
         .glyph_width = glyph.width,
@@ -923,47 +1236,6 @@ fn addCursor(
     });
 
     return &self.cells.items[self.cells.items.len - 1];
-}
-
-/// Updates cell with the the given character. This returns true if the
-/// cell was successfully updated.
-fn updateCellChar(self: *OpenGL, cell: *GPUCell, cp: u21) bool {
-    // Get the font index for this codepoint
-    const font_index = if (self.font_group.indexForCodepoint(
-        self.alloc,
-        @intCast(cp),
-        .regular,
-        .text,
-    )) |index| index orelse return false else |_| return false;
-
-    // Get the font face so we can get the glyph
-    const face = self.font_group.group.faceFromIndex(font_index) catch |err| {
-        log.warn("error getting face for font_index={} err={}", .{ font_index, err });
-        return false;
-    };
-
-    // Use the face to now get the glyph index
-    const glyph_index = face.glyphIndex(@intCast(cp)) orelse return false;
-
-    // Render the glyph for our preedit text
-    const glyph = self.font_group.renderGlyph(
-        self.alloc,
-        font_index,
-        glyph_index,
-        .{},
-    ) catch |err| {
-        log.warn("error rendering preedit glyph err={}", .{err});
-        return false;
-    };
-
-    // Update the cell glyph
-    cell.glyph_x = glyph.atlas_x;
-    cell.glyph_y = glyph.atlas_y;
-    cell.glyph_width = glyph.width;
-    cell.glyph_height = glyph.height;
-    cell.glyph_offset_x = glyph.offset_x;
-    cell.glyph_offset_y = glyph.offset_y;
-    return true;
 }
 
 /// Update a single cell. The bool returns whether the cell was updated
@@ -1008,31 +1280,39 @@ pub fn updateCell(
 
     // The colors for the cell.
     const colors: BgFg = colors: {
-        // If we are selected, we our colors are just inverted fg/bg
-        var selection_res: ?BgFg = if (selected) .{
-            .bg = self.config.selection_background orelse self.config.foreground,
-            .fg = self.config.selection_foreground orelse self.config.background,
-        } else null;
-
-        const res: BgFg = selection_res orelse if (!cell.attrs.inverse) .{
+        // The normal cell result
+        const cell_res: BgFg = if (!cell.attrs.inverse) .{
             // In normal mode, background and fg match the cell. We
             // un-optionalize the fg by defaulting to our fg color.
             .bg = if (cell.attrs.has_bg) cell.bg else null,
-            .fg = if (cell.attrs.has_fg) cell.fg else self.config.foreground,
+            .fg = if (cell.attrs.has_fg) cell.fg else self.foreground_color,
         } else .{
             // In inverted mode, the background MUST be set to something
             // (is never null) so it is either the fg or default fg. The
             // fg is either the bg or default background.
-            .bg = if (cell.attrs.has_fg) cell.fg else self.config.foreground,
-            .fg = if (cell.attrs.has_bg) cell.bg else self.config.background,
+            .bg = if (cell.attrs.has_fg) cell.fg else self.foreground_color,
+            .fg = if (cell.attrs.has_bg) cell.bg else self.background_color,
         };
+
+        // If we are selected, we our colors are just inverted fg/bg
+        const selection_res: ?BgFg = if (selected) .{
+            .bg = if (self.config.invert_selection_fg_bg)
+                cell_res.fg
+            else
+                self.config.selection_background orelse self.foreground_color,
+            .fg = if (self.config.invert_selection_fg_bg)
+                cell_res.bg orelse self.background_color
+            else
+                self.config.selection_foreground orelse self.background_color,
+        } else null;
 
         // If the cell is "invisible" then we just make fg = bg so that
         // the cell is transparent but still copy-able.
+        const res: BgFg = selection_res orelse cell_res;
         if (cell.attrs.invisible) {
             break :colors BgFg{
                 .bg = res.bg,
-                .fg = res.bg orelse self.config.background,
+                .fg = res.bg orelse self.background_color,
             };
         }
 
@@ -1060,22 +1340,24 @@ pub fn updateCell(
         // in an attempt to make transparency look the best for various
         // situations. See inline comments.
         const bg_alpha: u8 = bg_alpha: {
-            if (self.config.background_opacity >= 1) break :bg_alpha alpha;
+            const default: u8 = 255;
+
+            if (self.config.background_opacity >= 1) break :bg_alpha default;
 
             // If we're selected, we do not apply background opacity
-            if (selected) break :bg_alpha alpha;
+            if (selected) break :bg_alpha default;
 
             // If we're reversed, do not apply background opacity
-            if (cell.attrs.inverse) break :bg_alpha alpha;
+            if (cell.attrs.inverse) break :bg_alpha default;
 
             // If we have a background and its not the default background
             // then we apply background opacity
-            if (cell.attrs.has_bg and !std.meta.eql(rgb, self.config.background)) {
-                break :bg_alpha alpha;
+            if (cell.attrs.has_bg and !std.meta.eql(rgb, self.background_color)) {
+                break :bg_alpha default;
             }
 
             // We apply background opacity.
-            var bg_alpha: f64 = @floatFromInt(alpha);
+            var bg_alpha: f64 = @floatFromInt(default);
             bg_alpha *= self.config.background_opacity;
             bg_alpha = @ceil(bg_alpha);
             break :bg_alpha @intFromFloat(bg_alpha);
@@ -1092,14 +1374,10 @@ pub fn updateCell(
             .glyph_height = 0,
             .glyph_offset_x = 0,
             .glyph_offset_y = 0,
-            .fg_r = 0,
-            .fg_g = 0,
-            .fg_b = 0,
-            .fg_a = 0,
-            .bg_r = rgb.r,
-            .bg_g = rgb.g,
-            .bg_b = rgb.b,
-            .bg_a = bg_alpha,
+            .r = rgb.r,
+            .g = rgb.g,
+            .b = rgb.b,
+            .a = bg_alpha,
         });
     }
 
@@ -1118,7 +1396,7 @@ pub fn updateCell(
 
         // If we're rendering a color font, we use the color atlas
         const presentation = try self.font_group.group.presentationFromIndex(shaper_run.font_index);
-        const mode: GPUCellMode = switch (presentation) {
+        const mode: CellProgram.CellMode = switch (presentation) {
             .text => .fg,
             .emoji => .fg_color,
         };
@@ -1134,14 +1412,10 @@ pub fn updateCell(
             .glyph_height = glyph.height,
             .glyph_offset_x = glyph.offset_x,
             .glyph_offset_y = glyph.offset_y,
-            .fg_r = colors.fg.r,
-            .fg_g = colors.fg.g,
-            .fg_b = colors.fg.b,
-            .fg_a = alpha,
-            .bg_r = 0,
-            .bg_g = 0,
-            .bg_b = 0,
-            .bg_a = 0,
+            .r = colors.fg.r,
+            .g = colors.fg.g,
+            .b = colors.fg.b,
+            .a = alpha,
         });
     }
 
@@ -1175,14 +1449,10 @@ pub fn updateCell(
             .glyph_height = underline_glyph.height,
             .glyph_offset_x = underline_glyph.offset_x,
             .glyph_offset_y = underline_glyph.offset_y,
-            .fg_r = color.r,
-            .fg_g = color.g,
-            .fg_b = color.b,
-            .fg_a = alpha,
-            .bg_r = 0,
-            .bg_g = 0,
-            .bg_b = 0,
-            .bg_a = 0,
+            .r = color.r,
+            .g = color.g,
+            .b = color.b,
+            .a = alpha,
         });
     }
 
@@ -1198,14 +1468,10 @@ pub fn updateCell(
             .glyph_height = 0,
             .glyph_offset_x = 0,
             .glyph_offset_y = 0,
-            .fg_r = colors.fg.r,
-            .fg_g = colors.fg.g,
-            .fg_b = colors.fg.b,
-            .fg_a = alpha,
-            .bg_r = 0,
-            .bg_g = 0,
-            .bg_b = 0,
-            .bg_a = 0,
+            .r = colors.fg.r,
+            .g = colors.fg.g,
+            .b = colors.fg.b,
+            .a = alpha,
         });
     }
 
@@ -1298,11 +1564,11 @@ fn flushAtlas(self: *OpenGL) !void {
                 atlas.resized = false;
                 try texbind.image2D(
                     0,
-                    .Red,
+                    .red,
                     @intCast(atlas.size),
                     @intCast(atlas.size),
                     0,
-                    .Red,
+                    .red,
                     .UnsignedByte,
                     atlas.data.ptr,
                 );
@@ -1313,7 +1579,7 @@ fn flushAtlas(self: *OpenGL) !void {
                     0,
                     @intCast(atlas.size),
                     @intCast(atlas.size),
-                    .Red,
+                    .red,
                     .UnsignedByte,
                     atlas.data.ptr,
                 );
@@ -1332,11 +1598,11 @@ fn flushAtlas(self: *OpenGL) !void {
                 atlas.resized = false;
                 try texbind.image2D(
                     0,
-                    .RGBA,
+                    .rgba,
                     @intCast(atlas.size),
                     @intCast(atlas.size),
                     0,
-                    .BGRA,
+                    .bgra,
                     .UnsignedByte,
                     atlas.data.ptr,
                 );
@@ -1347,7 +1613,7 @@ fn flushAtlas(self: *OpenGL) !void {
                     0,
                     @intCast(atlas.size),
                     @intCast(atlas.size),
-                    .BGRA,
+                    .bgra,
                     .UnsignedByte,
                     atlas.data.ptr,
                 );
@@ -1358,18 +1624,91 @@ fn flushAtlas(self: *OpenGL) !void {
 
 /// Render renders the current cell state. This will not modify any of
 /// the cells.
-pub fn draw(self: *OpenGL) !void {
+pub fn drawFrame(self: *OpenGL, surface: *apprt.Surface) !void {
     const t = trace(@src());
     defer t.end();
 
     // If we're in single-threaded more we grab a lock since we use shared data.
     if (single_threaded_draw) self.draw_mutex.lock();
     defer if (single_threaded_draw) self.draw_mutex.unlock();
-    const gl_state = self.gl_state orelse return;
+    const gl_state: *GLState = if (self.gl_state) |*v| v else return;
 
+    // Go through our images and see if we need to setup any textures.
+    {
+        var image_it = self.images.iterator();
+        while (image_it.next()) |kv| {
+            switch (kv.value_ptr.*) {
+                .ready => {},
+
+                .pending_rgb,
+                .pending_rgba,
+                => try kv.value_ptr.upload(self.alloc),
+
+                .unload_pending,
+                .unload_ready,
+                => {
+                    kv.value_ptr.deinit(self.alloc);
+                    self.images.removeByPtr(kv.key_ptr);
+                },
+            }
+        }
+    }
+
+    // Draw our terminal cells
+    try self.drawCellProgram(gl_state);
+
+    // Draw our custom shaders
+    if (gl_state.custom) |*custom_state| {
+        try self.drawCustomPrograms(custom_state);
+    }
+
+    // Swap our window buffers
+    switch (apprt.runtime) {
+        apprt.glfw => surface.window.swapBuffers(),
+        apprt.gtk => {},
+        else => @compileError("unsupported runtime"),
+    }
+}
+
+/// Draw the custom shaders.
+fn drawCustomPrograms(
+    self: *OpenGL,
+    custom_state: *custom.State,
+) !void {
+    _ = self;
+
+    // Bind our state that is global to all custom shaders
+    const custom_bind = try custom_state.bind();
+    defer custom_bind.unbind();
+
+    // Setup the new frame
+    try custom_state.newFrame();
+
+    // Go through each custom shader and draw it.
+    for (custom_state.programs) |program| {
+        // Bind our cell program state, buffers
+        const bind = try program.bind();
+        defer bind.unbind();
+        try bind.draw();
+    }
+}
+
+/// Runs the cell program (shaders) to draw the terminal grid.
+fn drawCellProgram(
+    self: *OpenGL,
+    gl_state: *const GLState,
+) !void {
     // Try to flush our atlas, this will only do something if there
     // are changes to the atlas.
     try self.flushAtlas();
+
+    // If we have custom shaders, then we draw to the custom
+    // shader framebuffer.
+    const fbobind: ?gl.Framebuffer.Binding = fbobind: {
+        const state = gl_state.custom orelse break :fbobind null;
+        break :fbobind try state.fbo.bind(.framebuffer);
+    };
+    defer if (fbobind) |v| v.unbind();
 
     // Clear the surface
     gl.clearColor(
@@ -1379,31 +1718,6 @@ pub fn draw(self: *OpenGL) !void {
         @floatCast(self.config.background_opacity),
     );
     gl.clear(gl.c.GL_COLOR_BUFFER_BIT);
-
-    // Setup our VAO
-    try gl_state.vao.bind();
-    defer gl.VertexArray.unbind() catch null;
-
-    // Bind EBO
-    var ebobind = try gl_state.ebo.bind(.ElementArrayBuffer);
-    defer ebobind.unbind();
-
-    // Bind VBO and set data
-    var binding = try gl_state.vbo.bind(.ArrayBuffer);
-    defer binding.unbind();
-
-    // Bind our textures
-    try gl.Texture.active(gl.c.GL_TEXTURE0);
-    var texbind = try gl_state.texture.bind(.@"2D");
-    defer texbind.unbind();
-
-    try gl.Texture.active(gl.c.GL_TEXTURE1);
-    var texbind1 = try gl_state.texture_color.bind(.@"2D");
-    defer texbind1.unbind();
-
-    // Pick our shader to use
-    const pbind = try gl_state.program.use();
-    defer pbind.unbind();
 
     // If we have deferred operations, run them.
     if (self.deferred_screen_size) |v| {
@@ -1415,8 +1729,85 @@ pub fn draw(self: *OpenGL) !void {
         self.deferred_font_size = null;
     }
 
-    try self.drawCells(binding, self.cells_bg);
-    try self.drawCells(binding, self.cells);
+    // Draw background images first
+    try self.drawImages(
+        gl_state,
+        self.image_placements.items[0..self.image_bg_end],
+    );
+
+    // Draw our background
+    try self.drawCells(gl_state, self.cells_bg);
+
+    // Then draw images under text
+    try self.drawImages(
+        gl_state,
+        self.image_placements.items[self.image_bg_end..self.image_text_end],
+    );
+
+    // Drag foreground
+    try self.drawCells(gl_state, self.cells);
+
+    // Draw remaining images
+    try self.drawImages(
+        gl_state,
+        self.image_placements.items[self.image_text_end..],
+    );
+}
+
+/// Runs the image program to draw images.
+fn drawImages(
+    self: *OpenGL,
+    gl_state: *const GLState,
+    placements: []const gl_image.Placement,
+) !void {
+    if (placements.len == 0) return;
+
+    // Bind our image program
+    const bind = try gl_state.image_program.bind();
+    defer bind.unbind();
+
+    // For each placement we need to bind the texture
+    for (placements) |p| {
+        // Get the image and image texture
+        const image = self.images.get(p.image_id) orelse {
+            log.warn("image not found for placement image_id={}", .{p.image_id});
+            continue;
+        };
+
+        const texture = switch (image) {
+            .ready => |t| t,
+            else => {
+                log.warn("image not ready for placement image_id={}", .{p.image_id});
+                continue;
+            },
+        };
+
+        // Bind the texture
+        try gl.Texture.active(gl.c.GL_TEXTURE0);
+        var texbind = try texture.bind(.@"2D");
+        defer texbind.unbind();
+
+        // Setup our data
+        try bind.vbo.setData(ImageProgram.Input{
+            .grid_col = @intCast(p.x),
+            .grid_row = @intCast(p.y),
+            .cell_offset_x = p.cell_offset_x,
+            .cell_offset_y = p.cell_offset_y,
+            .source_x = p.source_x,
+            .source_y = p.source_y,
+            .source_width = p.source_width,
+            .source_height = p.source_height,
+            .dest_width = p.width,
+            .dest_height = p.height,
+        }, .static_draw);
+
+        try gl.drawElementsInstanced(
+            gl.c.GL_TRIANGLES,
+            6,
+            gl.c.GL_UNSIGNED_BYTE,
+            1,
+        );
+    }
 }
 
 /// Loads some set of cell data into our buffer and issues a draw call.
@@ -1426,14 +1817,27 @@ pub fn draw(self: *OpenGL) !void {
 /// we'll have a draw call per-shader.
 fn drawCells(
     self: *OpenGL,
-    binding: gl.Buffer.Binding,
-    cells: std.ArrayListUnmanaged(GPUCell),
+    gl_state: *const GLState,
+    cells: std.ArrayListUnmanaged(CellProgram.Cell),
 ) !void {
     // If we have no cells to render, then we render nothing.
     if (cells.items.len == 0) return;
 
     // Todo: get rid of this completely
     self.gl_cells_written = 0;
+
+    // Bind our cell program state, buffers
+    const bind = try gl_state.cell_program.bind();
+    defer bind.unbind();
+
+    // Bind our textures
+    try gl.Texture.active(gl.c.GL_TEXTURE0);
+    var texbind = try gl_state.texture.bind(.@"2D");
+    defer texbind.unbind();
+
+    try gl.Texture.active(gl.c.GL_TEXTURE1);
+    var texbind1 = try gl_state.texture_color.bind(.@"2D");
+    defer texbind1.unbind();
 
     // Our allocated buffer on the GPU is smaller than our capacity.
     // We reallocate a new buffer with the full new capacity.
@@ -1443,9 +1847,9 @@ fn drawCells(
             cells.capacity,
         });
 
-        try binding.setDataNullManual(
-            @sizeOf(GPUCell) * cells.capacity,
-            .StaticDraw,
+        try bind.vbo.setDataNullManual(
+            @sizeOf(CellProgram.Cell) * cells.capacity,
+            .static_draw,
         );
 
         self.gl_cells_size = cells.capacity;
@@ -1456,7 +1860,7 @@ fn drawCells(
     if (self.gl_cells_written < cells.items.len) {
         const data = cells.items[self.gl_cells_written..];
         // log.info("sending {} cells to GPU", .{data.len});
-        try binding.setSubData(self.gl_cells_written * @sizeOf(GPUCell), data);
+        try bind.vbo.setSubData(self.gl_cells_written * @sizeOf(CellProgram.Cell), data);
 
         self.gl_cells_written += data.len;
         assert(data.len > 0);
@@ -1475,88 +1879,48 @@ fn drawCells(
 /// easy to create/destroy these as a set in situations i.e. where the
 /// OpenGL context is replaced.
 const GLState = struct {
-    program: gl.Program,
-    vao: gl.VertexArray,
-    ebo: gl.Buffer,
-    vbo: gl.Buffer,
+    cell_program: CellProgram,
+    image_program: ImageProgram,
     texture: gl.Texture,
     texture_color: gl.Texture,
+    custom: ?custom.State,
 
-    pub fn init(font_group: *font.GroupCache) !GLState {
+    pub fn init(
+        alloc: Allocator,
+        config: DerivedConfig,
+        font_group: *font.GroupCache,
+    ) !GLState {
+        var arena = ArenaAllocator.init(alloc);
+        defer arena.deinit();
+        const arena_alloc = arena.allocator();
+
+        // Load our custom shaders
+        const custom_state: ?custom.State = custom: {
+            const shaders: []const [:0]const u8 = shadertoy.loadFromFiles(
+                arena_alloc,
+                config.custom_shaders.items,
+                .glsl,
+            ) catch |err| err: {
+                log.warn("error loading custom shaders err={}", .{err});
+                break :err &.{};
+            };
+            if (shaders.len == 0) break :custom null;
+
+            break :custom custom.State.init(
+                alloc,
+                shaders,
+            ) catch |err| err: {
+                log.warn("error initializing custom shaders err={}", .{err});
+                break :err null;
+            };
+        };
+
         // Blending for text. We use GL_ONE here because we should be using
         // premultiplied alpha for all our colors in our fragment shaders.
         // This avoids having a blurry border where transparency is expected on
         // pixels.
         try gl.enable(gl.c.GL_BLEND);
         try gl.blendFunc(gl.c.GL_ONE, gl.c.GL_ONE_MINUS_SRC_ALPHA);
-
-        // Shader
-        const program = try gl.Program.createVF(
-            @embedFile("shaders/cell.v.glsl"),
-            @embedFile("shaders/cell.f.glsl"),
-        );
-
-        // Set our cell dimensions
-        const pbind = try program.use();
-        defer pbind.unbind();
-
-        // Set all of our texture indexes
-        try program.setUniform("text", 0);
-        try program.setUniform("text_color", 1);
-
-        // Setup our VAO
-        const vao = try gl.VertexArray.create();
-        errdefer vao.destroy();
-        try vao.bind();
-        defer gl.VertexArray.unbind() catch null;
-
-        // Element buffer (EBO)
-        const ebo = try gl.Buffer.create();
-        errdefer ebo.destroy();
-        var ebobind = try ebo.bind(.ElementArrayBuffer);
-        defer ebobind.unbind();
-        try ebobind.setData([6]u8{
-            0, 1, 3, // Top-left triangle
-            1, 2, 3, // Bottom-right triangle
-        }, .StaticDraw);
-
-        // Vertex buffer (VBO)
-        const vbo = try gl.Buffer.create();
-        errdefer vbo.destroy();
-        var vbobind = try vbo.bind(.ArrayBuffer);
-        defer vbobind.unbind();
-        var offset: usize = 0;
-        try vbobind.attributeAdvanced(0, 2, gl.c.GL_UNSIGNED_SHORT, false, @sizeOf(GPUCell), offset);
-        offset += 2 * @sizeOf(u16);
-        try vbobind.attributeAdvanced(1, 2, gl.c.GL_UNSIGNED_INT, false, @sizeOf(GPUCell), offset);
-        offset += 2 * @sizeOf(u32);
-        try vbobind.attributeAdvanced(2, 2, gl.c.GL_UNSIGNED_INT, false, @sizeOf(GPUCell), offset);
-        offset += 2 * @sizeOf(u32);
-        try vbobind.attributeAdvanced(3, 2, gl.c.GL_INT, false, @sizeOf(GPUCell), offset);
-        offset += 2 * @sizeOf(i32);
-        try vbobind.attributeAdvanced(4, 4, gl.c.GL_UNSIGNED_BYTE, false, @sizeOf(GPUCell), offset);
-        offset += 4 * @sizeOf(u8);
-        try vbobind.attributeAdvanced(5, 4, gl.c.GL_UNSIGNED_BYTE, false, @sizeOf(GPUCell), offset);
-        offset += 4 * @sizeOf(u8);
-        try vbobind.attributeIAdvanced(6, 1, gl.c.GL_UNSIGNED_BYTE, @sizeOf(GPUCell), offset);
-        offset += 1 * @sizeOf(u8);
-        try vbobind.attributeIAdvanced(7, 1, gl.c.GL_UNSIGNED_BYTE, @sizeOf(GPUCell), offset);
-        try vbobind.enableAttribArray(0);
-        try vbobind.enableAttribArray(1);
-        try vbobind.enableAttribArray(2);
-        try vbobind.enableAttribArray(3);
-        try vbobind.enableAttribArray(4);
-        try vbobind.enableAttribArray(5);
-        try vbobind.enableAttribArray(6);
-        try vbobind.enableAttribArray(7);
-        try vbobind.attributeDivisor(0, 1);
-        try vbobind.attributeDivisor(1, 1);
-        try vbobind.attributeDivisor(2, 1);
-        try vbobind.attributeDivisor(3, 1);
-        try vbobind.attributeDivisor(4, 1);
-        try vbobind.attributeDivisor(5, 1);
-        try vbobind.attributeDivisor(6, 1);
-        try vbobind.attributeDivisor(7, 1);
 
         // Build our texture
         const tex = try gl.Texture.create();
@@ -1569,11 +1933,11 @@ const GLState = struct {
             try texbind.parameter(.MagFilter, gl.c.GL_LINEAR);
             try texbind.image2D(
                 0,
-                .Red,
+                .red,
                 @intCast(font_group.atlas_greyscale.size),
                 @intCast(font_group.atlas_greyscale.size),
                 0,
-                .Red,
+                .red,
                 .UnsignedByte,
                 font_group.atlas_greyscale.data.ptr,
             );
@@ -1590,32 +1954,38 @@ const GLState = struct {
             try texbind.parameter(.MagFilter, gl.c.GL_LINEAR);
             try texbind.image2D(
                 0,
-                .RGBA,
+                .rgba,
                 @intCast(font_group.atlas_color.size),
                 @intCast(font_group.atlas_color.size),
                 0,
-                .BGRA,
+                .bgra,
                 .UnsignedByte,
                 font_group.atlas_color.data.ptr,
             );
         }
 
+        // Build our cell renderer
+        const cell_program = try CellProgram.init();
+        errdefer cell_program.deinit();
+
+        // Build our image renderer
+        const image_program = try ImageProgram.init();
+        errdefer image_program.deinit();
+
         return .{
-            .program = program,
-            .vao = vao,
-            .ebo = ebo,
-            .vbo = vbo,
+            .cell_program = cell_program,
+            .image_program = image_program,
             .texture = tex,
             .texture_color = tex_color,
+            .custom = custom_state,
         };
     }
 
-    pub fn deinit(self: *GLState) void {
+    pub fn deinit(self: *GLState, alloc: Allocator) void {
+        if (self.custom) |v| v.deinit(alloc);
         self.texture.destroy();
         self.texture_color.destroy();
-        self.vbo.destroy();
-        self.ebo.destroy();
-        self.vao.destroy();
-        self.program.destroy();
+        self.image_program.deinit();
+        self.cell_program.deinit();
     }
 };

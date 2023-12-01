@@ -4,7 +4,9 @@ const Allocator = std.mem.Allocator;
 const build_config = @import("build_config.zig");
 const options = @import("build_options");
 const glfw = @import("glfw");
+const glslang = @import("glslang");
 const macos = @import("macos");
+const oni = @import("oniguruma");
 const tracy = @import("tracy");
 const cli = @import("cli.zig");
 const internal_os = @import("os/main.zig");
@@ -174,6 +176,10 @@ pub const GlobalState = struct {
     action: ?cli.Action,
     logging: Logging,
 
+    /// The app resources directory, equivalent to zig-out/share when we build
+    /// from source. This is null if we can't detect it.
+    resources_dir: ?[]const u8,
+
     /// Where logging should go
     pub const Logging = union(enum) {
         disabled: void,
@@ -191,6 +197,7 @@ pub const GlobalState = struct {
             .tracy = undefined,
             .action = null,
             .logging = .{ .stderr = {} },
+            .resources_dir = null,
         };
         errdefer self.deinit();
 
@@ -267,11 +274,24 @@ pub const GlobalState = struct {
         // We need to make sure the process locale is set properly. Locale
         // affects a lot of behaviors in a shell.
         try internal_os.ensureLocale(self.alloc);
+
+        // Initialize glslang for shader compilation
+        try glslang.init();
+
+        // Initialize oniguruma for regex
+        try oni.init(&.{oni.Encoding.utf8});
+
+        // Find our resources directory once for the app so every launch
+        // hereafter can use this cached value.
+        self.resources_dir = try internal_os.resourcesDir(self.alloc);
+        errdefer if (self.resources_dir) |dir| self.alloc.free(dir);
     }
 
     /// Cleans up the global state. This doesn't _need_ to be called but
     /// doing so in dev modes will check for memory leaks.
     pub fn deinit(self: *GlobalState) void {
+        if (self.resources_dir) |dir| self.alloc.free(dir);
+
         if (self.gpa) |*value| {
             // We want to ensure that we deinit the GPA because this is
             // the point at which it will output if there were safety violations.

@@ -21,20 +21,18 @@ layout (location = 2) in vec2 glyph_size;
 // Offset of the top-left corner of the glyph when rendered in a rect.
 layout (location = 3) in vec2 glyph_offset;
 
-// The background color for this cell in RGBA (0 to 1.0)
-layout (location = 4) in vec4 fg_color_in;
-
-// The background color for this cell in RGBA (0 to 1.0)
-layout (location = 5) in vec4 bg_color_in;
+// The color for this cell in RGBA (0 to 1.0). Background or foreground
+// depends on mode.
+layout (location = 4) in vec4 color_in;
 
 // The mode of this shader. The mode determines what fields are used,
 // what the output will be, etc. This shader is capable of executing in
 // multiple "modes" so that we can share some logic and so that we can draw
 // the entire terminal grid in a single GPU pass.
-layout (location = 6) in uint mode_in;
+layout (location = 5) in uint mode_in;
 
 // The width in cells of this item.
-layout (location = 7) in uint grid_width;
+layout (location = 6) in uint grid_width;
 
 // The background or foreground color for the fragment, depending on
 // whether this is a background or foreground pass.
@@ -117,7 +115,7 @@ void main() {
         cell_pos = cell_pos + cell_size_scaled * position;
 
         gl_Position = projection * vec4(cell_pos, cell_z, 1.0);
-        color = bg_color_in / 255.0;
+        color = color_in / 255.0;
         break;
 
     case MODE_FG:
@@ -150,7 +148,7 @@ void main() {
         glyph_tex_coords = glyph_tex_pos + glyph_tex_size * position;
 
         // Set our foreground color output
-        color = fg_color_in / 255.;
+        color = color_in / 255.;
         break;
 
     case MODE_STRIKETHROUGH:
@@ -166,7 +164,7 @@ void main() {
         cell_pos = cell_pos + strikethrough_offset - (strikethrough_size * position);
 
         gl_Position = projection * vec4(cell_pos, cell_z, 1.0);
-        color = fg_color_in / 255.0;
+        color = color_in / 255.0;
         break;
     }
 }

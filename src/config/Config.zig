@@ -7,12 +7,14 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
+const global_state = &@import("../main.zig").state;
 const fontpkg = @import("../font/main.zig");
 const inputpkg = @import("../input.zig");
 const terminal = @import("../terminal/main.zig");
 const internal_os = @import("../os/main.zig");
 const cli = @import("../cli.zig");
 
+const url = @import("url.zig");
 const Key = @import("key.zig").Key;
 const KeyValue = @import("key.zig").Value;
 const ErrorList = @import("ErrorList.zig");
@@ -153,6 +155,26 @@ const c = @cImport({
 @"adjust-strikethrough-position": ?MetricModifier = null,
 @"adjust-strikethrough-thickness": ?MetricModifier = null,
 
+/// A named theme to use. The available themes are currently hardcoded to
+/// the themes that ship with Ghostty. On macOS, this list is in the
+/// `Ghostty.app/Contents/Resources/themes` directory. On Linux, this
+/// list is in the `share/ghostty/themes` directory (wherever you installed
+/// the Ghostty "share" directory.
+///
+/// To see a list of available themes, run `ghostty +list-themes`.
+///
+/// Any additional colors specified via background, foreground, palette,
+/// etc. will override the colors specified in the theme.
+///
+/// This configuration can be changed at runtime, but the new theme will
+/// only affect new cells. Existing colored cells will not be updated.
+/// Therefore, after changing the theme, you should restart any running
+/// programs to ensure they get the new colors.
+///
+/// A future update will allow custom themes to be installed in
+/// certain directories.
+theme: ?[]const u8 = null,
+
 /// Background color for the window.
 background: Color = .{ .r = 0x28, .g = 0x2C, .b = 0x34 },
 
@@ -164,6 +186,14 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 /// and foreground (note: not to be confused with the cell bg/fg).
 @"selection-foreground": ?Color = null,
 @"selection-background": ?Color = null,
+
+/// Swap the foreground and background colors of cells for selection.
+/// This option overrides the "selection-foreground" and "selection-background"
+/// options.
+///
+/// If you select across cells with differing foregrounds and backgrounds,
+/// the selection color will vary across the selection.
+@"selection-invert-fg-bg": bool = false,
 
 /// Color palette for the 256 color form that many terminal applications
 /// use. The syntax of this configuration is "N=HEXCODE" where "n"
@@ -278,6 +308,16 @@ palette: Palette = .{},
 ///   - SHELL environment variable
 ///   - passwd entry (user information)
 ///
+/// The command is the path to only the binary to run. This cannot
+/// also contain arguments, because Ghostty does not perform any
+/// shell string parsing. To provide additional arguments, use the
+/// "command-arg" configuration (repeated for multiple arguments).
+///
+/// If you're using the `ghostty` CLI there is also a shortcut
+/// to run a command with argumens directly: you can use the `-e`
+/// flag. For example: `ghostty -e fish --with --custom --args`.
+/// This is just shorthand for specifying "command" and
+/// "command-arg" in the configuration.
 command: ?[]const u8 = null,
 
 /// A single argument to pass to the command. This can be repeated to
@@ -289,6 +329,28 @@ command: ?[]const u8 = null,
 /// set by Ghostty to be the command (possibly with a hyphen-prefix to
 /// indicate that it is a login shell, depending on the OS).
 @"command-arg": RepeatableString = .{},
+
+/// Match a regular expression against the terminal text and associate
+/// clicking it with an action. This can be used to match URLs, file paths,
+/// etc. Actions can be opening using the system opener (i.e. "open" or
+/// "xdg-open") or executing any arbitrary binding action.
+///
+/// Links that are configured earlier take precedence over links that
+/// are configured later.
+///
+/// A default link that matches a URL and opens it in the system opener
+/// always exists. This can be disabled using "link-url".
+///
+/// TODO: This can't currently be set!
+link: RepeatableLink = .{},
+
+/// Enable URL matching. URLs are matched on hover and open using the
+/// default system application for the linked URL.
+///
+/// The URL matcher is always lowest priority of any configured links
+/// (see "link"). If you want to customize URL matching, use "link"
+/// and disable this.
+@"link-url": bool = true,
 
 /// Start new windows in fullscreen. This setting applies to new
 /// windows and does not apply to tabs, splits, etc. However, this
@@ -304,15 +366,30 @@ fullscreen: bool = false,
 /// set title escape sequences programs (such as Neovim) may send.
 title: ?[:0]const u8 = null,
 
-/// The setting that will change the application class value. This value is
-/// often used with Linux window managers to change behavior (such as
-/// floating vs tiled). If you don't know what this is, don't set it.
+/// The setting that will change the application class value.
+///
+/// This controls the class field of the WM_CLASS X11 property (when running
+/// under X11), and the Wayland application ID (when running under Wayland).
+///
+/// Note that changing this value between invocations will create new, separate
+/// instances, of Ghostty when running with --gtk-single-instance=true. See
+/// that option for more details.
 ///
 /// The class name must follow the GTK requirements defined here:
 /// https://docs.gtk.org/gio/type_func.Application.id_is_valid.html
 ///
+/// The default is "com.mitchellh.ghostty".
+///
 /// This only affects GTK builds.
 class: ?[:0]const u8 = null,
+
+/// This controls the instance name field of the WM_CLASS X11 property when
+/// running under X11. It has no effect otherwise.
+///
+/// The default is "ghostty".
+///
+/// This only affects GTK builds.
+@"x11-instance-name": ?[:0]const u8 = null,
 
 /// The directory to change to after starting the command.
 ///
@@ -454,11 +531,20 @@ keybind: Keybinds = .{},
 /// Currently only supported on macOS.
 @"window-step-resize": bool = false,
 
+/// When enabled, the full GTK titlebar is displayed instead of your window
+/// manager's simple titlebar. The behavior of this option will vary with your
+/// window manager.
+///
+/// This option does nothing when window-decoration is false or when running
+/// under MacOS.
+@"gtk-titlebar": bool = true,
+
 /// Whether to allow programs running in the terminal to read/write to
 /// the system clipboard (OSC 52, for googling). The default is to
-/// disallow clipboard reading but allow writing.
-@"clipboard-read": bool = false,
-@"clipboard-write": bool = true,
+/// allow clipboard reading after prompting the user and allow writing
+/// unconditionally.
+@"clipboard-read": ClipboardAccess = .ask,
+@"clipboard-write": ClipboardAccess = .allow,
 
 /// Trims trailing whitespace on data that is copied to the clipboard.
 /// This does not affect data sent to the clipboard via "clipboard-write".
@@ -467,8 +553,6 @@ keybind: Keybinds = .{},
 /// Require confirmation before pasting text that appears unsafe. This helps
 /// prevent a "copy/paste attack" where a user may accidentally execute unsafe
 /// commands by pasting text with newlines.
-///
-/// This currently only works on Linux (GTK).
 @"clipboard-paste-protection": bool = true,
 
 /// If true, bracketed pastes will be considered safe. By default,
@@ -503,8 +587,15 @@ keybind: Keybinds = .{},
 /// is determined by the OS settings. On every other platform it is 500ms.
 @"click-repeat-interval": u32 = 0,
 
-/// Additional configuration files to read.
-@"config-file": RepeatableString = .{},
+/// Additional configuration files to read. This configuration can be repeated
+/// to read multiple configuration files. Configuration files themselves can
+/// load more configuration files. Paths are relative to the file containing
+/// the `config-file` directive. For command-line arguments, paths are
+/// relative to the current working directory.
+///
+/// Cycles are not allowed. If a cycle is detected, an error will be logged
+/// and the configuration file will be ignored.
+@"config-file": RepeatablePath = .{},
 
 /// Confirms that a surface should be closed before closing it. This defaults
 /// to true. If set to false, surfaces will close without any confirmation.
@@ -551,15 +642,16 @@ keybind: Keybinds = .{},
 @"shell-integration-features": ShellIntegrationFeatures = .{},
 
 /// Sets the reporting format for OSC sequences that request color information.
-/// Ghostty currently supports OSC 10 (foreground) and OSC 11 (background) queries,
-/// and by default the reported values are scaled-up RGB values, where each component
-/// are 16 bits. This is how most terminals report these values. However, some legacy
-/// applications may require 8-bit, unscaled, components. We also support turning off
-/// reporting alltogether. The components are lowercase hex values.
+/// Ghostty currently supports OSC 10 (foreground), OSC 11 (background), and OSC
+/// 4 (256 color palette) queries, and by default the reported values are
+/// scaled-up RGB values, where each component are 16 bits. This is how most
+/// terminals report these values. However, some legacy applications may require
+/// 8-bit, unscaled, components. We also support turning off reporting
+/// alltogether. The components are lowercase hex values.
 ///
 /// Allowable values are:
 ///
-///   * "none" - OSC 10/11 queries receive no reply
+///   * "none" - OSC 4/10/11 queries receive no reply
 ///   * "8-bit" - Color components are return unscaled, i.e. rr/gg/bb
 ///   * "16-bit" - Color components are returned scaled, e.g. rrrr/gggg/bbbb
 ///
@@ -573,6 +665,46 @@ keybind: Keybinds = .{},
 /// if you know you need KAM, you know. If you don't know if you
 /// need KAM, you don't need it.
 @"vt-kam-allowed": bool = false,
+
+/// Custom shaders to run after the default shaders. This is a file path
+/// to a GLSL-syntax shader for all platforms.
+///
+/// WARNING: Invalid shaders can cause Ghostty to become unusable such as by
+/// causing the window to be completely black. If this happens, you can
+/// unset this configuration to disable the shader.
+///
+/// On Linux, this requires OpenGL 4.2. Ghostty typically only requires
+/// OpenGL 3.3, but custom shaders push that requirement up to 4.2.
+///
+/// The shader API is identical to the Shadertoy API: you specify a `mainImage`
+/// function and the available uniforms match Shadertoy. The iChannel0 uniform
+/// is a texture containing the rendered terminal screen.
+///
+/// If the shader fails to compile, the shader will be ignored. Any errors
+/// related to shader compilation will not show up as configuration errors
+/// and only show up in the log, since shader compilation happens after
+/// configuration loading on the dedicated render thread.  For interactive
+/// development, use Shadertoy.com.
+///
+/// This can be repeated multiple times to load multiple shaders. The shaders
+/// will be run in the order they are specified.
+///
+/// Changing this value at runtime and reloading the configuration will only
+/// affect new windows, tabs, and splits.
+@"custom-shader": RepeatablePath = .{},
+
+/// If true (default), the focused terminal surface will run an animation
+/// loop when custom shaders are used. This uses slightly more CPU (generally
+/// less than 10%) but allows the shader to animate. This only runs if there
+/// are custom shaders.
+///
+/// If this is set to false, the terminal and custom shader will only render
+/// when the terminal is updated. This is more efficient but the shader will
+/// not animate.
+///
+/// This value can be changed at runtime and will affect all currently
+/// open terminals.
+@"custom-shader-animation": bool = true,
 
 /// If anything other than false, fullscreen mode on macOS will not use the
 /// native fullscreen, but make the window fullscreen without animations and
@@ -619,6 +751,24 @@ keybind: Keybinds = .{},
 /// which is the old style.
 @"gtk-wide-tabs": bool = true,
 
+/// If true (default), Ghostty will enable libadwaita theme support. This
+/// will make `window-theme` work properly and will also allow Ghostty to
+/// properly respond to system theme changes, light/dark mode changing, etc.
+/// This requires a GTK4 desktop with a GTK4 theme.
+///
+/// If you are running GTK3 or have a GTK3 theme, you may have to set this
+/// to false to get your theme picked up properly. Having this set to true
+/// with GTK3 should not cause any problems, but it may not work exactly as
+/// expected.
+///
+/// This configuration only has an effect if Ghostty was built with
+/// libadwaita support.
+@"gtk-adwaita": bool = true,
+
+/// If true (default), applications running in the terminal can show desktop
+/// notifications using certain escape sequences such as OSC 9 or OSC 777.
+@"desktop-notifications": bool = true,
+
 /// This will be used to set the TERM environment variable.
 /// HACK: We set this with an "xterm" prefix because vim uses that to enable key
 /// protocols (specifically this will enable 'modifyOtherKeys'), among other
@@ -634,6 +784,10 @@ _arena: ?ArenaAllocator = null,
 /// by callers. It is only underscore-prefixed so it can't be set by the
 /// configuration file.
 _errors: ErrorList = .{},
+
+/// The inputs that built up this configuration. This is used to reload
+/// the configuration if we have to.
+_inputs: std.ArrayListUnmanaged([]const u8) = .{},
 
 pub fn deinit(self: *Config) void {
     if (self._arena) |arena| arena.deinit();
@@ -850,6 +1004,13 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
             .{ .key = .i, .mods = .{ .shift = true, .ctrl = true } },
             .{ .inspector = .toggle },
         );
+
+        // Terminal
+        try result.keybind.set.put(
+            alloc,
+            .{ .key = .a, .mods = .{ .shift = true, .ctrl = true } },
+            .{ .select_all = {} },
+        );
     }
     {
         // Cmd+N for goto tab N
@@ -866,7 +1027,17 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
 
             try result.keybind.set.put(
                 alloc,
-                .{ .key = @enumFromInt(i), .mods = mods },
+                .{
+                    .key = @enumFromInt(i),
+                    .mods = mods,
+
+                    // On macOS, we use the physical key for tab changing so
+                    // that this works across all keyboard layouts. This may
+                    // want to be true on other platforms as well but this
+                    // is definitely true on macOS so we just do it here for
+                    // now (#817)
+                    .physical = builtin.target.isDarwin(),
+                },
                 .{ .goto_tab = (i - start) + 1 },
             );
         }
@@ -903,6 +1074,11 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
             alloc,
             .{ .key = .k, .mods = .{ .super = true } },
             .{ .clear_screen = {} },
+        );
+        try result.keybind.set.put(
+            alloc,
+            .{ .key = .a, .mods = .{ .super = true } },
+            .{ .select_all = {} },
         );
 
         // Viewport scrolling
@@ -1051,6 +1227,13 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
         );
     }
 
+    // Add our default link for URL detection
+    try result.link.links.append(alloc, .{
+        .regex = url.regex,
+        .action = .{ .open = {} },
+        .highlight = .{ .hover = {} },
+    });
+
     return result;
 }
 
@@ -1069,29 +1252,40 @@ fn ctrlOrSuper(mods: inputpkg.Mods) inputpkg.Mods {
     return copy;
 }
 
-/// Load the configuration from the default file locations. Currently,
-/// this loads from $XDG_CONFIG_HOME/ghostty/config.
+/// Load configuration from an iterator that yields values that look like
+/// command-line arguments, i.e. `--key=value`.
+pub fn loadIter(
+    self: *Config,
+    alloc: Allocator,
+    iter: anytype,
+) !void {
+    try cli.args.parse(Config, alloc, self, iter);
+}
+
+/// Load the configuration from the default configuration file. The default
+/// configuration file is at `$XDG_CONFIG_HOME/ghostty/config`.
 pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
-    const home_config_path = try internal_os.xdg.config(alloc, .{ .subdir = "ghostty/config" });
-    defer alloc.free(home_config_path);
+    const config_path = try internal_os.xdg.config(alloc, .{ .subdir = "ghostty/config" });
+    defer alloc.free(config_path);
 
     const cwd = std.fs.cwd();
-    if (cwd.openFile(home_config_path, .{})) |file| {
+    if (cwd.openFile(config_path, .{})) |file| {
         defer file.close();
-        std.log.info("reading configuration file path={s}", .{home_config_path});
+        std.log.info("reading configuration file path={s}", .{config_path});
 
         var buf_reader = std.io.bufferedReader(file.reader());
         var iter = cli.args.lineIterator(buf_reader.reader());
-        try cli.args.parse(Config, alloc, self, &iter);
+        try self.loadIter(alloc, &iter);
+        try self.expandPaths(std.fs.path.dirname(config_path).?);
     } else |err| switch (err) {
         error.FileNotFound => std.log.info(
             "homedir config not found, not loading path={s}",
-            .{home_config_path},
+            .{config_path},
         ),
 
         else => std.log.warn(
-            "error reading homedir config file, not loading err={} path={s}",
-            .{ err, home_config_path },
+            "error reading config file, not loading err={} path={s}",
+            .{ err, config_path },
         ),
     }
 }
@@ -1108,20 +1302,48 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
     // Parse the config from the CLI args
     var iter = try std.process.argsWithAllocator(alloc_gpa);
     defer iter.deinit();
-    try cli.args.parse(Config, alloc_gpa, self, &iter);
+    try self.loadIter(alloc_gpa, &iter);
+
+    // Config files loaded from the CLI args are relative to pwd
+    if (self.@"config-file".value.list.items.len > 0) {
+        var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        try self.expandPaths(try std.fs.cwd().realpath(".", &buf));
+    }
 }
 
 /// Load and parse the config files that were added in the "config-file" key.
-pub fn loadRecursiveFiles(self: *Config, alloc: Allocator) !void {
-    // TODO(mitchellh): support nesting (config-file in a config file)
-    // TODO(mitchellh): detect cycles when nesting
-
-    if (self.@"config-file".list.items.len == 0) return;
-
+pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
+    if (self.@"config-file".value.list.items.len == 0) return;
     const arena_alloc = self._arena.?.allocator();
+
+    // Keeps track of loaded files to prevent cycles.
+    var loaded = std.StringHashMap(void).init(alloc_gpa);
+    defer loaded.deinit();
+
     const cwd = std.fs.cwd();
-    const len = self.@"config-file".list.items.len;
-    for (self.@"config-file".list.items) |path| {
+    var i: usize = 0;
+    while (i < self.@"config-file".value.list.items.len) : (i += 1) {
+        const path = self.@"config-file".value.list.items[i];
+
+        // Error paths
+        if (path.len == 0) continue;
+
+        // All paths should already be absolute at this point because
+        // they're fixed up after each load.
+        assert(std.fs.path.isAbsolute(path));
+
+        // We must only load a unique file once
+        if (try loaded.fetchPut(path, {}) != null) {
+            try self._errors.add(arena_alloc, .{
+                .message = try std.fmt.allocPrintZ(
+                    arena_alloc,
+                    "config-file {s}: cycle detected",
+                    .{path},
+                ),
+            });
+            continue;
+        }
+
         var file = cwd.openFile(path, .{}) catch |err| {
             try self._errors.add(arena_alloc, .{
                 .message = try std.fmt.allocPrintZ(
@@ -1134,26 +1356,108 @@ pub fn loadRecursiveFiles(self: *Config, alloc: Allocator) !void {
         };
         defer file.close();
 
+        log.info("loading config-file path={s}", .{path});
         var buf_reader = std.io.bufferedReader(file.reader());
         var iter = cli.args.lineIterator(buf_reader.reader());
-        try cli.args.parse(Config, alloc, self, &iter);
+        try self.loadIter(alloc_gpa, &iter);
+        try self.expandPaths(std.fs.path.dirname(path).?);
+    }
+}
 
-        // We don't currently support adding more config files to load
-        // from within a loaded config file. This can be supported
-        // later.
-        if (self.@"config-file".list.items.len > len) {
-            try self._errors.add(arena_alloc, .{
-                .message = try std.fmt.allocPrintZ(
-                    arena_alloc,
-                    "config-file cannot be used in a config-file. Found in {s}",
-                    .{path},
-                ),
-            });
+/// Expand the relative paths in config-files to be absolute paths
+/// relative to the base directory.
+fn expandPaths(self: *Config, base: []const u8) !void {
+    const arena_alloc = self._arena.?.allocator();
+    inline for (@typeInfo(Config).Struct.fields) |field| {
+        if (field.type == RepeatablePath) {
+            try @field(self, field.name).expand(
+                arena_alloc,
+                base,
+                &self._errors,
+            );
         }
     }
 }
 
+fn loadTheme(self: *Config, theme: []const u8) !void {
+    const alloc = self._arena.?.allocator();
+    const resources_dir = global_state.resources_dir orelse {
+        try self._errors.add(alloc, .{
+            .message = "no resources directory found, themes will not work",
+        });
+        return;
+    };
+
+    const path = try std.fs.path.join(alloc, &.{
+        resources_dir,
+        "themes",
+        theme,
+    });
+
+    const cwd = std.fs.cwd();
+    var file = cwd.openFile(path, .{}) catch |err| {
+        switch (err) {
+            error.FileNotFound => try self._errors.add(alloc, .{
+                .message = try std.fmt.allocPrintZ(
+                    alloc,
+                    "theme \"{s}\" not found, path={s}",
+                    .{ theme, path },
+                ),
+            }),
+
+            else => try self._errors.add(alloc, .{
+                .message = try std.fmt.allocPrintZ(
+                    alloc,
+                    "failed to load theme \"{s}\": {}",
+                    .{ theme, err },
+                ),
+            }),
+        }
+        return;
+    };
+    defer file.close();
+
+    // From this point onwards, we load the theme and do a bit of a dance
+    // to achive two separate goals:
+    //
+    //   (1) We want the theme to be loaded and our existing config to
+    //       override the theme. So we need to load the theme and apply
+    //       our config on top of it.
+    //
+    //   (2) We want to free existing memory that we aren't using anymore
+    //       as a result of reloading the configuration.
+    //
+    // Point 2 is strictly a result of aur approach to point 1.
+
+    // Keep track of our input length prior ot loading the theme
+    // so that we can replay the previous config to override values.
+    const input_len = self._inputs.items.len;
+
+    // Load into a new configuration so that we can free the existing memory.
+    const alloc_gpa = self._arena.?.child_allocator;
+    var new_config = try default(alloc_gpa);
+    errdefer new_config.deinit();
+
+    // Load our theme
+    var buf_reader = std.io.bufferedReader(file.reader());
+    var iter = cli.args.lineIterator(buf_reader.reader());
+    try new_config.loadIter(alloc_gpa, &iter);
+
+    // Replay our previous inputs so that we can override values
+    // from the theme.
+    var slice_it = cli.args.sliceIterator(self._inputs.items[0..input_len]);
+    try new_config.loadIter(alloc_gpa, &slice_it);
+
+    // Success, swap our new config in and free the old.
+    self.deinit();
+    self.* = new_config;
+}
+
 pub fn finalize(self: *Config) !void {
+    // We always load the theme first because it may set other fields
+    // in our config.
+    if (self.theme) |theme| try self.loadTheme(theme);
+
     // If we have a font-family set and don't set the others, default
     // the others to the font family. This way, if someone does
     // --font-family=foo, then we try to get the stylized versions of
@@ -1268,6 +1572,10 @@ pub fn finalize(self: *Config) !void {
     // Minimmum window size
     if (self.@"window-width" > 0) self.@"window-width" = @max(10, self.@"window-width");
     if (self.@"window-height" > 0) self.@"window-height" = @max(4, self.@"window-height");
+
+    // If URLs are disabled, cut off the first link. The first link is
+    // always the URL matcher.
+    if (!self.@"link-url") self.link.links.items = self.link.links.items[1..];
 }
 
 /// Callback for src/cli/args.zig to allow us to handle special cases
@@ -1781,6 +2089,69 @@ pub const RepeatableString = struct {
     }
 };
 
+/// RepeatablePath is like repeatable string but represents a path value.
+/// The difference is that when loading the configuration any values for
+/// this will be automatically expanded relative to the path of the config
+/// file.
+pub const RepeatablePath = struct {
+    const Self = @This();
+
+    value: RepeatableString = .{},
+
+    pub fn parseCLI(self: *Self, alloc: Allocator, input: ?[]const u8) !void {
+        return self.value.parseCLI(alloc, input);
+    }
+
+    /// Deep copy of the struct. Required by Config.
+    pub fn clone(self: *const Self, alloc: Allocator) !Self {
+        return .{
+            .value = try self.value.clone(alloc),
+        };
+    }
+
+    /// Compare if two of our value are requal. Required by Config.
+    pub fn equal(self: Self, other: Self) bool {
+        return self.value.equal(other.value);
+    }
+
+    /// Expand all the paths relative to the base directory.
+    pub fn expand(
+        self: *Self,
+        alloc: Allocator,
+        base: []const u8,
+        errors: *ErrorList,
+    ) !void {
+        assert(std.fs.path.isAbsolute(base));
+        var dir = try std.fs.cwd().openDir(base, .{});
+        defer dir.close();
+
+        for (self.value.list.items, 0..) |path, i| {
+            // If it is already absolute we can ignore it.
+            if (path.len == 0 or std.fs.path.isAbsolute(path)) continue;
+
+            // If it isn't absolute, we need to make it absolute relative
+            // to the base.
+            const abs = dir.realpathAlloc(alloc, path) catch |err| {
+                try errors.add(alloc, .{
+                    .message = try std.fmt.allocPrintZ(
+                        alloc,
+                        "error resolving config-file {s}: {}",
+                        .{ path, err },
+                    ),
+                });
+                self.value.list.items[i] = "";
+                continue;
+            };
+
+            log.debug(
+                "expanding config-file path relative={s} abs={s}",
+                .{ path, abs },
+            );
+            self.value.list.items[i] = abs;
+        }
+    }
+};
+
 /// FontVariation is a repeatable configuration value that sets a single
 /// font variation value. Font variations are configurations for what
 /// are often called "variable fonts." The font files usually end in
@@ -1878,7 +2249,7 @@ pub const Keybinds = struct {
 
     pub fn parseCLI(self: *Keybinds, alloc: Allocator, input: ?[]const u8) !void {
         var copy: ?[]u8 = null;
-        var value = value: {
+        const value = value: {
             const value = input orelse return error.ValueRequired;
 
             // If we don't have a colon, use the value as-is, no copy
@@ -1890,7 +2261,7 @@ pub const Keybinds = struct {
             const buf = try alloc.alloc(u8, value.len);
             copy = buf;
 
-            std.mem.copy(u8, buf, value);
+            @memcpy(buf, value);
             break :value buf;
         };
         errdefer if (copy) |v| alloc.free(v);
@@ -2186,6 +2557,34 @@ pub const FontStyle = union(enum) {
     }
 };
 
+/// See "link" for documentation.
+pub const RepeatableLink = struct {
+    const Self = @This();
+
+    links: std.ArrayListUnmanaged(inputpkg.Link) = .{},
+
+    pub fn parseCLI(self: *Self, alloc: Allocator, input_: ?[]const u8) !void {
+        _ = self;
+        _ = alloc;
+        _ = input_;
+        return error.NotImplemented;
+    }
+
+    /// Deep copy of the struct. Required by Config.
+    pub fn clone(self: *const Self, alloc: Allocator) !Self {
+        _ = self;
+        _ = alloc;
+        return .{};
+    }
+
+    /// Compare if two of our value are requal. Required by Config.
+    pub fn equal(self: Self, other: Self) bool {
+        _ = self;
+        _ = other;
+        return true;
+    }
+};
+
 /// Options for copy on select behavior.
 pub const CopyOnSelect = enum {
     /// Disables copy on select entirely.
@@ -2212,7 +2611,7 @@ pub const ShellIntegrationFeatures = packed struct {
     cursor: bool = true,
 };
 
-/// OSC 10 and 11 default color reporting format.
+/// OSC 4, 10, 11, and 12 default color reporting format.
 pub const OSCColorReportFormat = enum {
     none,
     @"8-bit",
@@ -2239,4 +2638,11 @@ pub const MouseShiftCapture = enum {
     true,
     always,
     never,
+};
+
+/// How to treat requests to write to or read from the clipboard
+pub const ClipboardAccess = enum {
+    allow,
+    deny,
+    ask,
 };

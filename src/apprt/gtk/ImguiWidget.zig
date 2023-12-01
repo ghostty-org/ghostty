@@ -6,7 +6,7 @@ const assert = std.debug.assert;
 const cimgui = @import("cimgui");
 const c = @import("c.zig");
 const key = @import("key.zig");
-const gl = @import("../../renderer/opengl/main.zig");
+const gl = @import("opengl");
 const input = @import("../../input.zig");
 
 const log = std.log.scoped(.gtk_imgui_widget);

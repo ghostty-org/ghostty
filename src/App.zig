@@ -41,10 +41,6 @@ mailbox: Mailbox.Queue,
 /// Set to true once we're quitting. This never goes false again.
 quit: bool,
 
-/// The app resources directory, equivalent to zig-out/share when we build
-/// from source. This is null if we can't detect it.
-resources_dir: ?[]const u8 = null,
-
 /// Font discovery mechanism. This is only safe to use from the main thread.
 /// This is lazily initialized on the first call to fontDiscover so do
 /// not access this directly.
@@ -59,17 +55,11 @@ pub fn create(
     var app = try alloc.create(App);
     errdefer alloc.destroy(app);
 
-    // Find our resources directory once for the app so every launch
-    // hereafter can use this cached value.
-    const resources_dir = try internal_os.resourcesDir(alloc);
-    errdefer if (resources_dir) |dir| alloc.free(dir);
-
     app.* = .{
         .alloc = alloc,
         .surfaces = .{},
         .mailbox = .{},
         .quit = false,
-        .resources_dir = resources_dir,
     };
     errdefer app.surfaces.deinit(alloc);
 
@@ -81,7 +71,6 @@ pub fn destroy(self: *App) void {
     for (self.surfaces.items) |surface| surface.deinit();
     self.surfaces.deinit(self.alloc);
 
-    if (self.resources_dir) |dir| self.alloc.free(dir);
     if (comptime font.Discover != void) {
         if (self.font_discover) |*v| v.deinit();
     }

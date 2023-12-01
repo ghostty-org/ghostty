@@ -36,6 +36,12 @@ typedef enum {
 } ghostty_clipboard_e;
 
 typedef enum {
+    GHOSTTY_CLIPBOARD_REQUEST_PASTE,
+    GHOSTTY_CLIPBOARD_REQUEST_OSC_52_READ,
+    GHOSTTY_CLIPBOARD_REQUEST_OSC_52_WRITE,
+} ghostty_clipboard_request_e;
+
+typedef enum {
     GHOSTTY_SPLIT_RIGHT,
     GHOSTTY_SPLIT_DOWN
 } ghostty_split_direction_e;
@@ -293,6 +299,14 @@ typedef enum {
 } ghostty_input_key_e;
 
 typedef struct {
+    ghostty_input_action_e action;
+    ghostty_input_mods_e mods;
+    uint32_t keycode;
+    const char *text;
+    bool composing;
+} ghostty_input_key_s;
+
+typedef struct {
     ghostty_input_key_e key;
     ghostty_input_mods_e mods;
     bool physical;
@@ -332,8 +346,8 @@ typedef void (*ghostty_runtime_set_title_cb)(void *, const char *);
 typedef void (*ghostty_runtime_set_mouse_shape_cb)(void *, ghostty_mouse_shape_e);
 typedef void (*ghostty_runtime_set_mouse_visibility_cb)(void *, bool);
 typedef void (*ghostty_runtime_read_clipboard_cb)(void *, ghostty_clipboard_e, void *);
-typedef void (*ghostty_runtime_confirm_read_clipboard_cb)(void *, const char*, void *);
-typedef void (*ghostty_runtime_write_clipboard_cb)(void *, const char *, ghostty_clipboard_e);
+typedef void (*ghostty_runtime_confirm_read_clipboard_cb)(void *, const char*, void *, ghostty_clipboard_request_e);
+typedef void (*ghostty_runtime_write_clipboard_cb)(void *, const char *, ghostty_clipboard_e, bool);
 typedef void (*ghostty_runtime_new_split_cb)(void *, ghostty_split_direction_e, ghostty_surface_config_s);
 typedef void (*ghostty_runtime_new_tab_cb)(void *, ghostty_surface_config_s);
 typedef void (*ghostty_runtime_new_window_cb)(void *, ghostty_surface_config_s);
@@ -348,6 +362,7 @@ typedef void (*ghostty_runtime_toggle_fullscreen_cb)(void *, ghostty_non_native_
 typedef void (*ghostty_runtime_set_initial_window_size_cb)(void *, uint32_t, uint32_t);
 typedef void (*ghostty_runtime_render_inspector_cb)(void *);
 typedef void (*ghostty_runtime_set_cell_size_cb)(void *, uint32_t, uint32_t);
+typedef void (*ghostty_runtime_show_desktop_notification_cb)(void *, const char *, const char *);
 
 typedef struct {
     void *userdata;
@@ -374,6 +389,7 @@ typedef struct {
     ghostty_runtime_set_initial_window_size_cb set_initial_window_size_cb;
     ghostty_runtime_render_inspector_cb render_inspector_cb;
     ghostty_runtime_set_cell_size_cb set_cell_size_cb;
+    ghostty_runtime_show_desktop_notification_cb show_desktop_notification_cb;
 } ghostty_runtime_config_s;
 
 //-------------------------------------------------------------------
@@ -414,7 +430,8 @@ void ghostty_surface_refresh(ghostty_surface_t);
 void ghostty_surface_set_content_scale(ghostty_surface_t, double, double);
 void ghostty_surface_set_focus(ghostty_surface_t, bool);
 void ghostty_surface_set_size(ghostty_surface_t, uint32_t, uint32_t);
-void ghostty_surface_key(ghostty_surface_t, ghostty_input_action_e, uint32_t, ghostty_input_mods_e);
+ghostty_input_mods_e ghostty_surface_key_translation_mods(ghostty_surface_t, ghostty_input_mods_e);
+void ghostty_surface_key(ghostty_surface_t, ghostty_input_key_s);
 void ghostty_surface_text(ghostty_surface_t, const char *, uintptr_t);
 void ghostty_surface_mouse_button(ghostty_surface_t, ghostty_input_mouse_state_e, ghostty_input_mouse_button_e, ghostty_input_mods_e);
 void ghostty_surface_mouse_pos(ghostty_surface_t, double, double);

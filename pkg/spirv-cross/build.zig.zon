@@ -1,0 +1,11 @@
+.{
+    .name = "spirv-cross",
+    .version = "13.1.1",
+    .paths = .{""},
+    .dependencies = .{
+        .spirv_cross = .{
+            .url = "https://github.com/KhronosGroup/SPIRV-Cross/archive/4818f7e7ef7b7078a3a7a5a52c4a338e0dda22f4.tar.gz",
+            .hash = "1220b2d8a6cff1926ef28a29e312a0a503b555ebc2f082230b882410f49e672ac9c6",
+        },
+    },
+}

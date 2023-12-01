@@ -19,6 +19,7 @@ const Allocator = std.mem.Allocator;
 const font = @import("../main.zig");
 const Sprite = font.sprite.Sprite;
 const Box = @import("Box.zig");
+const Powerline = @import("Powerline.zig");
 const underline = @import("underline.zig");
 
 const log = std.log.scoped(.font_sprite);
@@ -85,6 +86,16 @@ pub fn renderGlyph(
             self.underline_position,
             self.thickness,
         ),
+
+        .powerline => powerline: {
+            const f: Powerline = .{
+                .width = width,
+                .height = self.height,
+                .thickness = self.thickness,
+            };
+
+            break :powerline try f.renderGlyph(alloc, atlas, cp);
+        },
     };
 }
 
@@ -92,6 +103,7 @@ pub fn renderGlyph(
 const Kind = enum {
     box,
     underline,
+    powerline,
 
     pub fn init(cp: u32) ?Kind {
         return switch (cp) {
@@ -113,6 +125,7 @@ const Kind = enum {
             0x2500...0x257F, // "Box Drawing" block
             0x2580...0x259F, // "Block Elements" block
             0x2800...0x28FF, // "Braille" block
+
             0x1FB00...0x1FB3B, // "Symbols for Legacy Computing" block
             0x1FB3C...0x1FB40,
             0x1FB47...0x1FB4B,
@@ -132,6 +145,15 @@ const Kind = enum {
             0x1FB9A,
             0x1FB9B,
             => .box,
+
+            // Powerline fonts
+            0xE0B0,
+            0xE0B2,
+            0xE0B8,
+            0xE0BA,
+            0xE0BC,
+            0xE0BE,
+            => .powerline,
 
             else => null,
         };

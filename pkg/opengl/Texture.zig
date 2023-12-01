@@ -7,9 +7,27 @@ const glad = @import("glad.zig");
 
 id: c.GLuint,
 
-pub inline fn active(target: c.GLenum) !void {
+pub fn active(target: c.GLenum) !void {
     glad.context.ActiveTexture.?(target);
     try errors.getError();
+}
+
+/// Create a single texture.
+pub fn create() !Texture {
+    var id: c.GLuint = undefined;
+    glad.context.GenTextures.?(1, &id);
+    return .{ .id = id };
+}
+
+/// glBindTexture
+pub fn bind(v: Texture, target: Target) !Binding {
+    glad.context.BindTexture.?(@intFromEnum(target), v.id);
+    try errors.getError();
+    return .{ .target = target };
+}
+
+pub fn destroy(v: Texture) void {
+    glad.context.DeleteTextures.?(1, &v.id);
 }
 
 /// Enun for possible texture binding targets.
@@ -48,8 +66,9 @@ pub const Parameter = enum(c_uint) {
 
 /// Internal format enum for texture images.
 pub const InternalFormat = enum(c_int) {
-    Red = c.GL_RED,
-    RGBA = c.GL_RGBA,
+    red = c.GL_RED,
+    rgb = c.GL_RGB,
+    rgba = c.GL_RGBA,
 
     // There are so many more that I haven't filled in.
     _,
@@ -57,8 +76,10 @@ pub const InternalFormat = enum(c_int) {
 
 /// Format for texture images
 pub const Format = enum(c_uint) {
-    Red = c.GL_RED,
-    BGRA = c.GL_BGRA,
+    red = c.GL_RED,
+    rgb = c.GL_RGB,
+    rgba = c.GL_RGBA,
+    bgra = c.GL_BGRA,
 
     // There are so many more that I haven't filled in.
     _,
@@ -75,9 +96,8 @@ pub const DataType = enum(c_uint) {
 pub const Binding = struct {
     target: Target,
 
-    pub inline fn unbind(b: *Binding) void {
+    pub fn unbind(b: *const Binding) void {
         glad.context.BindTexture.?(@intFromEnum(b.target), 0);
-        b.* = undefined;
     }
 
     pub fn generateMipmap(b: Binding) void {
@@ -143,21 +163,3 @@ pub const Binding = struct {
         );
     }
 };
-
-/// Create a single texture.
-pub inline fn create() !Texture {
-    var id: c.GLuint = undefined;
-    glad.context.GenTextures.?(1, &id);
-    return Texture{ .id = id };
-}
-
-/// glBindTexture
-pub inline fn bind(v: Texture, target: Target) !Binding {
-    glad.context.BindTexture.?(@intFromEnum(target), v.id);
-    try errors.getError();
-    return Binding{ .target = target };
-}
-
-pub inline fn destroy(v: Texture) void {
-    glad.context.DeleteTextures.?(1, &v.id);
-}

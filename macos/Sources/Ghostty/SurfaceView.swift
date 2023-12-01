@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 import GhosttyKit
 
 extension Ghostty {
@@ -275,15 +276,21 @@ extension Ghostty {
                 }
             }
         }
+
+        // Notification identifiers associated with this surface
+        var notificationIdentifiers: Set<String> = []
         
         private(set) var surface: ghostty_surface_t?
         var error: Error? = nil
 
         private var markedText: NSMutableAttributedString
         private var mouseEntered: Bool = false
-        private var focused: Bool = true
+        private(set) var focused: Bool = true
         private var cursor: NSCursor = .iBeam
         private var cursorVisible: CursorVisibility = .visible
+        
+        // This is set to non-null during keyDown to accumulate insertText contents
+        private var keyTextAccumulator: [String]? = nil
 
         // We need to support being a first responder so that we can get input events
         override var acceptsFirstResponder: Bool { return true }
@@ -345,6 +352,10 @@ extension Ghostty {
         /// Ghostty resources while references may still be held to this view. I've found that SwiftUI
         /// tends to hold this view longer than it should so we free the expensive stuff explicitly.
         func close() {
+            // Remove any notifications associated with this surface
+            let identifiers = Array(self.notificationIdentifiers)
+            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: identifiers)
+
             guard let surface = self.surface else { return }
             ghostty_surface_free(surface)
             self.surface = nil
@@ -722,18 +733,84 @@ extension Ghostty {
         }
 
         override func keyDown(with event: NSEvent) {
-            let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
-            keyAction(action, event: event)
+            guard let surface = self.surface else { 
+                self.interpretKeyEvents([event])
+                return
+            }
+            
+            // We need to translate the mods (maybe) to handle configs such as option-as-alt
+            let translationModsGhostty = Ghostty.eventModifierFlags(
+                mods: ghostty_surface_key_translation_mods(
+                    surface,
+                    Ghostty.ghosttyMods(event.modifierFlags)
+                )
+            )
+            
+            // There are hidden bits set in our event that matter for certain dead keys
+            // so we can't use translationModsGhostty directly. Instead, we just check
+            // for exact states and set them.
+            var translationMods = event.modifierFlags
+            for flag in [NSEvent.ModifierFlags.shift, .control, .option, .command] {
+                if (translationModsGhostty.contains(flag)) {
+                    translationMods.insert(flag)
+                } else {
+                    translationMods.remove(flag)
+                }
+            }
 
-            // We specifically DO NOT call interpretKeyEvents because ghostty_surface_key
-            // automatically handles all key translation, and we don't handle any commands
-            // currently.
-            //
-            // It is possible that in the future we'll have to modify ghostty_surface_key
-            // and the embedding API so that we can call this because macOS needs to do
-            // some things with certain keys. I'm not sure. For now this works.
-            //
-            // self.interpretKeyEvents([event])
+            // If the translation modifiers are not equal to our original modifiers
+            // then we need to construct a new NSEvent. If they are equal we reuse the
+            // old one. IMPORTANT: we MUST reuse the old event if they're equal because
+            // this keeps things like Korean input working. There must be some object
+            // equality happening in AppKit somewhere because this is required.
+            let translationEvent: NSEvent
+            if (translationMods == event.modifierFlags) {
+                translationEvent = event
+            } else {
+                translationEvent = NSEvent.keyEvent(
+                    with: event.type,
+                    location: event.locationInWindow,
+                    modifierFlags: translationMods,
+                    timestamp: event.timestamp,
+                    windowNumber: event.windowNumber,
+                    context: nil,
+                    characters: event.characters(byApplyingModifiers: translationMods) ?? "",
+                    charactersIgnoringModifiers: event.charactersIgnoringModifiers ?? "",
+                    isARepeat: event.isARepeat,
+                    keyCode: event.keyCode
+                ) ?? event
+            }
+            
+            // By setting this to non-nil, we note that we'rein a keyDown event. From here,
+            // we call interpretKeyEvents so that we can handle complex input such as Korean
+            // language.
+            keyTextAccumulator = []
+            defer { keyTextAccumulator = nil }
+            self.interpretKeyEvents([translationEvent])
+
+            let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
+            
+            // If we have text, then we've composed a character, send that down. We do this
+            // first because if we completed a preedit, the text will be available here
+            // AND we'll have a preedit.
+            var handled: Bool = false
+            if let list = keyTextAccumulator, list.count > 0 {
+                handled = true
+                for text in list {
+                    keyAction(action, event: event, text: text)
+                }
+            }
+            
+            // If we have marked text, we're in a preedit state. Send that down.
+            if (markedText.length > 0) {
+                handled = true
+                keyAction(action, event: event, preedit: markedText.string)
+            }
+            
+            if (!handled) {
+                // No text or anything, we want to handle this manually.
+                keyAction(action, event: event)
+            }
         }
 
         override func keyUp(with event: NSEvent) {
@@ -764,8 +841,41 @@ extension Ghostty {
 
         private func keyAction(_ action: ghostty_input_action_e, event: NSEvent) {
             guard let surface = self.surface else { return }
-            let mods = Ghostty.ghosttyMods(event.modifierFlags)
-            ghostty_surface_key(surface, action, UInt32(event.keyCode), mods)
+            
+            var key_ev = ghostty_input_key_s()
+            key_ev.action = action
+            key_ev.mods = Ghostty.ghosttyMods(event.modifierFlags)
+            key_ev.keycode = UInt32(event.keyCode)
+            key_ev.text = nil
+            key_ev.composing = false
+            ghostty_surface_key(surface, key_ev)
+        }
+        
+        private func keyAction(_ action: ghostty_input_action_e, event: NSEvent, preedit: String) {
+            guard let surface = self.surface else { return }
+
+            preedit.withCString { ptr in
+                var key_ev = ghostty_input_key_s()
+                key_ev.action = action
+                key_ev.mods = Ghostty.ghosttyMods(event.modifierFlags)
+                key_ev.keycode = UInt32(event.keyCode)
+                key_ev.text = ptr
+                key_ev.composing = true
+                ghostty_surface_key(surface, key_ev)
+            }
+        }
+        
+        private func keyAction(_ action: ghostty_input_action_e, event: NSEvent, text: String) {
+            guard let surface = self.surface else { return }
+
+            text.withCString { ptr in
+                var key_ev = ghostty_input_key_s()
+                key_ev.action = action
+                key_ev.mods = Ghostty.ghosttyMods(event.modifierFlags)
+                key_ev.keycode = UInt32(event.keyCode)
+                key_ev.text = ptr
+                ghostty_surface_key(surface, key_ev)
+            }
         }
 
         // MARK: Menu Handlers
@@ -873,6 +983,17 @@ extension Ghostty {
                 return
             }
             
+            // If insertText is called, our preedit must be over.
+            unmarkText()
+            
+            // If we have an accumulator we're in another key event so we just
+            // accumulate and return.
+            if var acc = keyTextAccumulator {
+                acc.append(chars)
+                keyTextAccumulator = acc
+                return
+            }
+            
             let len = chars.utf8CString.count
             if (len == 0) { return }
             
@@ -887,6 +1008,52 @@ extension Ghostty {
             // we may want to make some of this work.
 
             print("SEL: \(selector)")
+        }
+
+        /// Show a user notification and associate it with this surface
+        func showUserNotification(title: String, body: String) {
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.subtitle = self.title
+            content.body = body
+            content.sound = UNNotificationSound.default
+            content.categoryIdentifier = Ghostty.userNotificationCategory
+
+            // The userInfo must conform to NSSecureCoding, which SurfaceView
+            // does not. So instead we pass an integer representation of the
+            // SurfaceView's address, which is reconstructed back into a
+            // SurfaceView if the notification is clicked. This is safe to do
+            // so long as the SurfaceView removes all of its notifications when
+            // it closes so that there are no dangling pointers.
+            content.userInfo = [
+                "address": Int(bitPattern: Unmanaged.passUnretained(self).toOpaque()),
+            ]
+
+            let uuid = UUID().uuidString
+            let request = UNNotificationRequest(
+                identifier: uuid,
+                content: content,
+                trigger: nil
+            )
+
+            UNUserNotificationCenter.current().add(request) { error in
+                if let error = error {
+                    AppDelegate.logger.error("Error scheduling user notification: \(error)")
+                    return
+                }
+
+                self.notificationIdentifiers.insert(uuid)
+            }
+        }
+
+        /// Handle a user notification click
+        func handleUserNotification(notification: UNNotification, focus: Bool) {
+            let id = notification.request.identifier
+            guard self.notificationIdentifiers.remove(id) != nil else { return }
+            if focus {
+                self.window?.makeKeyAndOrderFront(self)
+                Ghostty.moveFocus(to: self)
+            }
         }
     }
 }

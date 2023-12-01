@@ -7,6 +7,7 @@ pub const function_keys = @import("input/function_keys.zig");
 pub const keycodes = @import("input/keycodes.zig");
 pub const kitty = @import("input/kitty.zig");
 pub const Binding = @import("input/Binding.zig");
+pub const Link = @import("input/Link.zig");
 pub const KeyEncoder = @import("input/KeyEncoder.zig");
 pub const InspectorMode = Binding.Action.InspectorMode;
 pub const SplitDirection = Binding.Action.SplitDirection;

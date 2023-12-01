@@ -454,7 +454,7 @@ pub const Rect = struct {
 /// Easy base64 encoding function.
 fn testB64(alloc: Allocator, data: []const u8) ![]const u8 {
     const B64Encoder = std.base64.standard.Encoder;
-    var b64 = try alloc.alloc(u8, B64Encoder.calcSize(data.len));
+    const b64 = try alloc.alloc(u8, B64Encoder.calcSize(data.len));
     errdefer alloc.free(b64);
     return B64Encoder.encode(b64, data);
 }
@@ -462,7 +462,7 @@ fn testB64(alloc: Allocator, data: []const u8) ![]const u8 {
 /// Easy base64 decoding function.
 fn testB64Decode(alloc: Allocator, data: []const u8) ![]const u8 {
     const B64Decoder = std.base64.standard.Decoder;
-    var result = try alloc.alloc(u8, try B64Decoder.calcSizeForSlice(data));
+    const result = try alloc.alloc(u8, try B64Decoder.calcSizeForSlice(data));
     errdefer alloc.free(result);
     try B64Decoder.decode(result, data);
     return result;

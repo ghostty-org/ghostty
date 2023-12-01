@@ -60,7 +60,9 @@ pub fn Stream(comptime Handler: type) type {
             for (actions) |action_opt| {
                 const action = action_opt orelse continue;
 
-                // log.info("action: {}", .{action});
+                // if (action != .print) {
+                //     log.info("action: {}", .{action});
+                // }
 
                 // If this handler handles everything manually then we do nothing
                 // if it can be processed.
@@ -292,7 +294,10 @@ pub fn Stream(comptime Handler: type) type {
 
                     const mode_: ?csi.EraseDisplay = switch (action.params.len) {
                         0 => .below,
-                        1 => if (action.params[0] <= 3) @enumFromInt(action.params[0]) else null,
+                        1 => if (action.params[0] <= 3)
+                            std.meta.intToEnum(csi.EraseDisplay, action.params[0]) catch null
+                        else
+                            null,
                         else => null,
                     };
 
@@ -988,6 +993,10 @@ pub fn Stream(comptime Handler: type) type {
                     } else log.warn("unimplemented OSC callback: {}", .{cmd});
                 },
 
+                .change_window_icon => |icon| {
+                    log.info("OSC 1 (change icon) received and ignored icon={s}", .{icon});
+                },
+
                 .clipboard_contents => |clip| {
                     if (@hasDecl(T, "clipboardContents")) {
                         try self.handler.clipboardContents(clip.kind, clip.data);
@@ -1045,17 +1054,33 @@ pub fn Stream(comptime Handler: type) type {
                     } else log.warn("unimplemented OSC callback: {}", .{cmd});
                 },
 
-                .report_default_color => |v| {
-                    if (@hasDecl(T, "reportDefaultColor")) {
-                        try self.handler.reportDefaultColor(v.kind, v.terminator);
+                .report_color => |v| {
+                    if (@hasDecl(T, "reportColor")) {
+                        try self.handler.reportColor(v.kind, v.terminator);
                         return;
                     } else log.warn("unimplemented OSC callback: {}", .{cmd});
                 },
 
-                else => if (@hasDecl(T, "oscUnimplemented"))
-                    try self.handler.oscUnimplemented(cmd)
-                else
-                    log.warn("unimplemented OSC command: {}", .{cmd}),
+                .set_color => |v| {
+                    if (@hasDecl(T, "setColor")) {
+                        try self.handler.setColor(v.kind, v.value);
+                        return;
+                    } else log.warn("unimplemented OSC callback: {}", .{cmd});
+                },
+
+                .reset_color => |v| {
+                    if (@hasDecl(T, "resetColor")) {
+                        try self.handler.resetColor(v.kind, v.value);
+                        return;
+                    } else log.warn("unimplemented OSC callback: {}", .{cmd});
+                },
+
+                .show_desktop_notification => |v| {
+                    if (@hasDecl(T, "showDesktopNotification")) {
+                        try self.handler.showDesktopNotification(v.title, v.body);
+                        return;
+                    } else log.warn("unimplemented OSC callback: {}", .{cmd});
+                },
             }
 
             // Fall through for when we don't have a handler.

@@ -2,7 +2,7 @@
 <h1>
 <p align="center">
   <img src="https://user-images.githubusercontent.com/1299/199110421-9ff5fc30-a244-441e-9882-26070662adf9.png" alt="Logo" width="100">
-  <br>ghostty
+  <br>Ghostty
 </h1>
   <p align="center">
     GPU-accelerated terminal emulator pushing modern features.
@@ -22,25 +22,26 @@
 
 ## About
 
-ghostty is a cross-platform, GPU-accelerated terminal emulator that aims to
+Ghostty is a cross-platform, GPU-accelerated terminal emulator that aims to
 push the boundaries of what is possible with a terminal emulator by exposing
 modern, opt-in features that enable CLI tool developers to build more feature
 rich, interactive applications.
 
 There are a number of excellent terminal emulator options that exist
-today. The unique goal of ghostty is to have a platform for experimenting
+today. The unique goal of Ghostty is to have a platform for experimenting
 with modern, optional, non-standards-compliant features to enhance the
 capabilities of CLI applications. We aim to be the best in this category,
 and competitive in the rest.
 
-While aiming for this ambitious goal, ghostty is a fully standards compliant
+While aiming for this ambitious goal, Ghostty is a fully standards compliant
 terminal emulator that aims to remain compatible with all existing shells
 and software. You can use this as a drop-in replacement for your existing
 terminal emulator.
 
-**Project Status:** Beta. Ghostty implements most of the baseline features
-you'd expect for a terminal you can work in every day. We're still missing
-things, but I've been using it full time since April 2022.
+**Project Status:** Ghostty is still in beta but implements most of the
+features you'd expect for a daily driver. We currently have hundreds of active
+beta users using Ghostty as their primary terminal. See more in
+[Roadmap and Status](#roadmap-and-status).
 
 ## Download
 
@@ -98,10 +99,12 @@ palette = 7=#a89984
 palette = 15=#fbf1c7
 ```
 
-The available keys and valid values are not easily documented yet, but they
-are easily visible if you're mildly comfortable with Zig. The available keys
-are just the keys (verbatim) in the [Config structure](https://github.com/mitchellh/ghostty/blob/main/src/config/Config.zig).
-The keys are documented there, too.
+While the set of config keys and values are not yet documented, they are
+discoverable in the [Config structure](https://github.com/mitchellh/ghostty/blob/main/src/config/Config.zig).
+The available keys are the keys verbatim, and their possible values are typically
+documented in the comments. You also can search for the
+[public config files](https://github.com/search?q=path%3Aghostty%2Fconfig&type=code)
+of many Ghostty users for examples and inspiration.
 
 #### Configuration Errors
 
@@ -125,6 +128,39 @@ as if the configuration had not been set, so this is the best place to look
 if something isn't working.
 
 Eventually, we'll have a better mechanism for showing errors to the user.
+
+### Themes
+
+Ghostty ships with 300+ built-in themes (from
+[iTerm2 Color Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes)).
+You can configure Ghostty to use any of these themes using the `theme`
+configuration. Example:
+
+```
+theme = Solarized Dark - Patched
+```
+
+You can find a list of built-in themes using the `+list-themes` action:
+
+```
+$ ghostty +list-themes
+...
+```
+
+On macOS, the themes are built-in to the `Ghostty.app` bundle. On Linux,
+theme support requires a valid Ghostty resources dir ("share" directory).
+More details about how to validate the resources directory on Linux
+is covered in the [shell integration section](#shell-integration-installation-and-verification).
+
+Any custom color configuration (`palette`, `background`, `foreground`, etc.)
+in your configuration files will override the theme settings. This can be
+used to load a theme and fine-tune specific colors to your liking.
+
+**Interested in contributing a new theme or updating an existing theme?**
+Please send theme changes upstream to the
+[iTerm2 Color Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes))
+repository. Ghostty periodically updates the themes from this source.
+_Do not send theme changes to the Ghostty project directly_.
 
 ### Shell Integration
 
@@ -323,16 +359,18 @@ a work-in-progress. Similar improvements will follow with Linux.
 
 ## Developing Ghostty
 
-Ghostty is built using both the [Zig](https://ziglang.org/) programming
-language as well as the Zig build system. At a minimum, Zig and Git must be installed.
-For [Nix](https://nixos.org/) users, a `shell.nix` is available which includes
-all the necessary dependencies pinned to exact versions.
+To build Ghostty, you only need [Zig](https://ziglang.org/) installed.
+
+The official development environment is defined by Nix. You do not need
+to use Nix to develop Ghostty, but the Nix environment is the environment
+which runs CI tests and builds release artifacts. Any development work on
+Ghostty must pass within these Nix environments.
 
 **Note: Zig nightly is required.** Ghostty is built against the nightly
-releases of Zig. I plan on stabilizing on a release version when I get
-closer to generally releasing this to ease downstream packagers. During
-development, I'm sticking to nightly Zig. You can find binary releases of nightly builds
-on the [Zig downloads page](https://ziglang.org/download/).
+releases of Zig while it is still in beta. I plan on stabilizing on a release
+version when I get closer to generally releasing this to ease downstream
+packagers. You can find binary releases of nightly builds on the
+[Zig downloads page](https://ziglang.org/download/).
 
 With Zig installed, a binary can be built using `zig build`:
 
@@ -360,7 +398,7 @@ Other useful commands:
 - `zig build run -Dconformance=<name>` runs a conformance test case from
   the `conformance` directory. The `name` is the name of the file. This runs
   in the current running terminal emulator so if you want to check the
-  behavior of this project, you must run this command in ghostty.
+  behavior of this project, you must run this command in Ghostty.
 
 ### Compiling a Release Build
 
@@ -460,9 +498,74 @@ modifying anything Prettier will lint, you may want to install it locally and
 run this from the repo root before you commit:
 
 ```
-npm install -g prettier
 prettier --write .
 ```
 
-Or simply install one of the many Prettier extensions out there for your
-editor of choice.
+Make sure your Prettier version matches the version of in [devshell.nix](https://github.com/mitchellh/ghostty/blob/main/nix/devshell.nix).
+
+### Nix Package
+
+> [!WARNING]
+> The Nix package currently depends on versions of LLVM and Zig that are
+> currently not in cache.nixos.org and will be built from source. This can take
+> a very long time, especially in situations where CPU is at a premium. Most
+> people should follow the instructions in [Developing
+> Ghostty](#developing-ghostty) instead.
+
+There is a functional Nix package that can be used in the `flake.nix` file
+(`packages.ghostty`). It can be used in NixOS configurations and otherwise
+built off of (however, please heed the above warning).
+
+Below is a sample on how to add it to a NixOS overlay:
+
+```nix
+{
+  inputs = {
+    nixpkgs.url = github:NixOS/nixpkgs/nixos-unstable;
+
+    # NOTE: This will require your git SSH access to the repo
+    ghostty = {
+      url = git+ssh://git@github.com/mitchellh/ghostty;
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
+
+  outputs = { nixpkgs, ghostty, ... }: {
+    nixosConfigurations.nixos = nixpkgs.lib.nixosSystem {
+      modules = [
+        {
+          nixpkgs.overlays = [
+            (final: prev: {
+              ghostty = ghostty.packages.${prev.system}.ghostty;
+            })
+          ];
+        }
+
+        # Other modules here...
+      ];
+    };
+  };
+}
+```
+
+You can also test the build of the nix package at any time by running `nix build .`
+
+#### Updating the Zig Cache Fixed-Output Derivation Hash
+
+The Nix package depends on a [fixed-output
+derivation](https://nixos.org/manual/nix/stable/language/advanced-attributes.html#adv-attr-outputHash)
+that manages the Zig package cache. This allows the package to be built in the
+Nix sandbox.
+
+Occasionally (usually when `build.zig.zon` is updated), the hash that
+identifies the cache will need to be updated. There are jobs that monitor the
+hash in CI, and builds will fail if it drifts.
+
+To update it, you can run the following in the repository root:
+
+```
+./nix/build-support/check-zig-cache-hash.sh --update
+```
+
+This will write out the `nix/zig_cache_hash.nix` file with the updated hash
+that can then be committed and pushed to fix the builds.

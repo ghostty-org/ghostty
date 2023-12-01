@@ -75,8 +75,17 @@ scrolling_region: ScrollingRegion,
 /// The last reported pwd, if any.
 pwd: std.ArrayList(u8),
 
-/// The color palette to use
-color_palette: color.Palette = color.default,
+/// The default color palette. This is only modified by changing the config file
+/// and is used to reset the palette when receiving an OSC 104 command.
+default_palette: color.Palette = color.default,
+
+/// The color palette to use. The mask indicates which palette indices have been
+/// modified with OSC 4
+color_palette: struct {
+    const Mask = std.StaticBitSet(@typeInfo(color.Palette).Array.len);
+    colors: color.Palette = color.default,
+    mask: Mask = Mask.initEmpty(),
+} = .{},
 
 /// The previous printed character. This is used for the repeat previous
 /// char CSI (ESC [ <n> b).
@@ -229,6 +238,9 @@ pub fn alternateScreen(
     // Clear our selection
     self.screen.selection = null;
 
+    // Mark kitty images as dirty so they redraw
+    self.screen.kitty_images.dirty = true;
+
     if (options.clear_on_enter) {
         self.eraseDisplay(alloc, .complete, false);
     }
@@ -260,6 +272,9 @@ pub fn primaryScreen(
     // Clear our selection
     self.screen.selection = null;
 
+    // Mark kitty images as dirty so they redraw
+    self.screen.kitty_images.dirty = true;
+
     // Restore the cursor from the primary screen
     if (options.cursor_save) self.restoreCursor();
 }
@@ -281,39 +296,36 @@ pub fn deccolm(self: *Terminal, alloc: Allocator, mode: DeccolmMode) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    // TODO: test
-
-    // We need to support this. This corresponds to xterm's private mode 40
-    // bit. If the mode "?40" is set, then "?3" (DECCOLM) is supported. This
-    // doesn't exactly match VT100 semantics but modern terminals no longer
-    // blindly accept mode 3 since its so weird in modern practice.
-    if (!self.modes.get(.enable_mode_3)) return;
+    // If DEC mode 40 isn't enabled, then this is ignored. We also make
+    // sure that we don't have deccolm set because we want to fully ignore
+    // set mode.
+    if (!self.modes.get(.enable_mode_3)) {
+        self.modes.set(.@"132_column", false);
+        return;
+    }
 
     // Enable it
     self.modes.set(.@"132_column", mode == .@"132_cols");
 
-    // Resize -- we can set cols to 0 because deccolm will force it
-    try self.resize(alloc, 0, self.rows);
+    // Resize to the requested size
+    try self.resize(
+        alloc,
+        switch (mode) {
+            .@"132_cols" => 132,
+            .@"80_cols" => 80,
+        },
+        self.rows,
+    );
 
-    // TODO: do not clear screen flag mode
+    // Erase our display and move our cursor.
     self.eraseDisplay(alloc, .complete, false);
     self.setCursorPos(1, 1);
-
-    // TODO: left/right margins
 }
 
 /// Resize the underlying terminal.
-pub fn resize(self: *Terminal, alloc: Allocator, cols_req: usize, rows: usize) !void {
+pub fn resize(self: *Terminal, alloc: Allocator, cols: usize, rows: usize) !void {
     const tracy = trace(@src());
     defer tracy.end();
-
-    // If we have deccolm supported then we are fixed at either 80 or 132
-    // columns depending on if mode 3 is set or not.
-    // TODO: test
-    const cols: usize = if (self.modes.get(.enable_mode_3))
-        if (self.modes.get(.@"132_column")) 132 else 80
-    else
-        cols_req;
 
     // If our cols/rows didn't change then we're done
     if (self.cols == cols and self.rows == rows) return;
@@ -560,12 +572,12 @@ pub fn setAttribute(self: *Terminal, attr: sgr.Attribute) !void {
 
         .@"8_fg" => |n| {
             self.screen.cursor.pen.attrs.has_fg = true;
-            self.screen.cursor.pen.fg = self.color_palette[@intFromEnum(n)];
+            self.screen.cursor.pen.fg = self.color_palette.colors[@intFromEnum(n)];
         },
 
         .@"8_bg" => |n| {
             self.screen.cursor.pen.attrs.has_bg = true;
-            self.screen.cursor.pen.bg = self.color_palette[@intFromEnum(n)];
+            self.screen.cursor.pen.bg = self.color_palette.colors[@intFromEnum(n)];
         },
 
         .reset_fg => self.screen.cursor.pen.attrs.has_fg = false,
@@ -574,22 +586,22 @@ pub fn setAttribute(self: *Terminal, attr: sgr.Attribute) !void {
 
         .@"8_bright_fg" => |n| {
             self.screen.cursor.pen.attrs.has_fg = true;
-            self.screen.cursor.pen.fg = self.color_palette[@intFromEnum(n)];
+            self.screen.cursor.pen.fg = self.color_palette.colors[@intFromEnum(n)];
         },
 
         .@"8_bright_bg" => |n| {
             self.screen.cursor.pen.attrs.has_bg = true;
-            self.screen.cursor.pen.bg = self.color_palette[@intFromEnum(n)];
+            self.screen.cursor.pen.bg = self.color_palette.colors[@intFromEnum(n)];
         },
 
         .@"256_fg" => |idx| {
             self.screen.cursor.pen.attrs.has_fg = true;
-            self.screen.cursor.pen.fg = self.color_palette[idx];
+            self.screen.cursor.pen.fg = self.color_palette.colors[idx];
         },
 
         .@"256_bg" => |idx| {
             self.screen.cursor.pen.attrs.has_bg = true;
-            self.screen.cursor.pen.bg = self.color_palette[idx];
+            self.screen.cursor.pen.bg = self.color_palette.colors[idx];
         },
 
         .unknown => return error.InvalidAttribute,
@@ -764,7 +776,14 @@ pub fn print(self: *Terminal, c: u21) !void {
 
     // Determine the width of this character so we can handle
     // non-single-width characters properly.
-    const width: usize = @intCast(@max(0, ziglyph.display_width.codePointWidth(c, .half)));
+    const width: usize = @intCast(@min(
+        @max(0, ziglyph.display_width.codePointWidth(c, .half)),
+        2,
+    ));
+
+    // Note: it is possible to have a width of "3" and a width of "-1"
+    // from ziglyph. We should look into those cases and handle them
+    // appropriately.
     assert(width <= 2);
     // log.debug("c={x} width={}", .{ c, width });
 
@@ -985,7 +1004,7 @@ pub fn decaln(self: *Terminal) !void {
     };
 
     // Our pen has the letter E
-    var pen: Screen.Cell = .{ .char = 'E' };
+    const pen: Screen.Cell = .{ .char = 'E' };
 
     // Fill with Es, does not move cursor.
     for (0..self.rows) |y| {
@@ -1138,7 +1157,57 @@ pub fn eraseDisplay(
     const protected = self.screen.protected_mode == .iso or protected_req;
 
     switch (mode) {
+        .scroll_complete => {
+            self.screen.scroll(.{ .clear = {} }) catch |err| {
+                log.warn("scroll clear failed, doing a normal clear err={}", .{err});
+                self.eraseDisplay(alloc, .complete, protected_req);
+                return;
+            };
+
+            // Unsets pending wrap state
+            self.screen.cursor.pending_wrap = false;
+
+            // Clear all Kitty graphics state for this screen
+            self.screen.kitty_images.delete(alloc, self, .{ .all = true });
+        },
+
         .complete => {
+            // If we're on the primary screen and our last non-empty row is
+            // a prompt, then we do a scroll_complete instead. This is a
+            // heuristic to get the generally desirable behavior that ^L
+            // at a prompt scrolls the screen contents prior to clearing.
+            // Most shells send `ESC [ H ESC [ 2 J` so we can't just check
+            // our current cursor position. See #905
+            if (self.active_screen == .primary) at_prompt: {
+                // Go from the bottom of the viewport up and see if we're
+                // at a prompt.
+                const viewport_max = Screen.RowIndexTag.viewport.maxLen(&self.screen);
+                for (0..viewport_max) |y| {
+                    const bottom_y = viewport_max - y - 1;
+                    const row = self.screen.getRow(.{ .viewport = bottom_y });
+                    if (row.isEmpty()) continue;
+                    switch (row.getSemanticPrompt()) {
+                        // If we're at a prompt or input area, then we are at a prompt.
+                        .prompt,
+                        .prompt_continuation,
+                        .input,
+                        => break,
+
+                        // If we have command output, then we're most certainly not
+                        // at a prompt.
+                        .command => break :at_prompt,
+
+                        // If we don't know, we keep searching.
+                        .unknown => {},
+                    }
+                } else break :at_prompt;
+
+                self.screen.scroll(.{ .clear = {} }) catch {
+                    // If we fail, we just fall back to doing a normal clear
+                    // so we don't worry about the error.
+                };
+            }
+
             var it = self.screen.rowIterator(.active);
             while (it.next()) |row| {
                 row.setWrapped(false);
@@ -2101,6 +2170,20 @@ test "Terminal: fullReset with a non-empty pen" {
     try testing.expect(cell.fg.eql(.{}));
 }
 
+test "Terminal: fullReset origin mode" {
+    var t = try init(testing.allocator, 10, 10);
+    defer t.deinit(testing.allocator);
+
+    t.setCursorPos(3, 5);
+    t.modes.set(.origin, true);
+    t.fullReset(testing.allocator);
+
+    // Origin mode should be reset and the cursor should be moved
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
+    try testing.expect(!t.modes.get(.origin));
+}
+
 test "Terminal: input with no control characters" {
     var t = try init(testing.allocator, 80, 80);
     defer t.deinit(testing.allocator);
@@ -2110,7 +2193,7 @@ test "Terminal: input with no control characters" {
     try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
     try testing.expectEqual(@as(usize, 5), t.screen.cursor.x);
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("hello", str);
     }
@@ -2161,7 +2244,7 @@ test "Terminal: print over wide spacer tail" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings(" X", str);
     }
@@ -2192,7 +2275,7 @@ test "Terminal: zero width chars with grapheme clustering can be put in their ow
     try t.print(0x7F); // zero-width control character
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("x", str);
     }
@@ -2217,7 +2300,7 @@ test "Terminal: VS15 to make narrow character" {
     try t.print(0xFE0E); // VS15 to make narrow
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("⛈︎", str);
     }
@@ -2242,7 +2325,7 @@ test "Terminal: VS16 to make wide character with mode 2027" {
     try t.print(0xFE0F); // VS16 to make wide
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("❤️", str);
     }
@@ -2269,7 +2352,7 @@ test "Terminal: VS16 repeated with mode 2027" {
     try t.print(0xFE0F); // VS16 to make wide
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("❤️❤️", str);
     }
@@ -2300,7 +2383,7 @@ test "Terminal: VS16 doesn't make character with 2027 disabled" {
     try t.print(0xFE0F); // VS16 to make wide
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("❤️", str);
     }
@@ -2414,7 +2497,7 @@ test "Terminal: soft wrap" {
     try testing.expectEqual(@as(usize, 1), t.screen.cursor.y);
     try testing.expectEqual(@as(usize, 2), t.screen.cursor.x);
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("hel\nlo", str);
     }
@@ -2434,7 +2517,7 @@ test "Terminal: print writes to bottom if scrolled" {
     try t.index();
     try t.index();
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("", str);
     }
@@ -2442,7 +2525,7 @@ test "Terminal: print writes to bottom if scrolled" {
     // Scroll to the top
     try t.scrollViewport(.{ .top = {} });
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("hello", str);
     }
@@ -2451,7 +2534,7 @@ test "Terminal: print writes to bottom if scrolled" {
     try t.print('A');
     try t.scrollViewport(.{ .bottom = {} });
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\nA", str);
     }
@@ -2475,7 +2558,7 @@ test "Terminal: print charset" {
     t.configureCharset(.G0, .dec_special);
     try t.print('`');
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("```◆", str);
     }
@@ -2495,7 +2578,7 @@ test "Terminal: print charset outside of ASCII" {
     try t.print('`');
     try t.print(0x1F600);
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("◆ ", str);
     }
@@ -2515,7 +2598,7 @@ test "Terminal: print invoke charset" {
     t.invokeCharset(.GL, .G0, false);
     try t.print('`');
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("`◆◆`", str);
     }
@@ -2533,7 +2616,7 @@ test "Terminal: print invoke charset single" {
     try t.print('`');
     try t.print('`');
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("`◆`", str);
     }
@@ -2550,7 +2633,7 @@ test "Terminal: print right margin wrap" {
     try t.printString("XY");
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("1234X6789\n  Y", str);
     }
@@ -2567,7 +2650,7 @@ test "Terminal: print right margin outside" {
     try t.printString("XY");
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("12345XY89", str);
     }
@@ -2584,7 +2667,7 @@ test "Terminal: print right margin outside wrap" {
     try t.printString("XY");
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("123456789X\n  Y", str);
     }
@@ -2602,7 +2685,7 @@ test "Terminal: linefeed and carriage return" {
     try testing.expectEqual(@as(usize, 1), t.screen.cursor.y);
     try testing.expectEqual(@as(usize, 5), t.screen.cursor.x);
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("hello\nworld", str);
     }
@@ -2629,7 +2712,7 @@ test "Terminal: linefeed mode automatic carriage return" {
     try t.linefeed();
     try t.print('X');
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("123456\nX", str);
     }
@@ -2688,7 +2771,7 @@ test "Terminal: backspace" {
     try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
     try testing.expectEqual(@as(usize, 5), t.screen.cursor.x);
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("helly", str);
     }
@@ -2727,7 +2810,7 @@ test "Terminal: horizontal tabs starting on tabstop" {
     try t.print('A');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("        X       A", str);
     }
@@ -2746,7 +2829,7 @@ test "Terminal: horizontal tabs with right margin" {
     try t.print('A');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("X    A", str);
     }
@@ -2787,7 +2870,7 @@ test "Terminal: horizontal tabs back starting on tabstop" {
     try t.print('A');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("A       X", str);
     }
@@ -2807,7 +2890,7 @@ test "Terminal: horizontal tabs with left margin in origin mode" {
     try t.print('A');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("  AX", str);
     }
@@ -2827,7 +2910,7 @@ test "Terminal: horizontal tab back with cursor before left margin" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("X", str);
     }
@@ -2845,7 +2928,7 @@ test "Terminal: cursorPos resets wrap" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("XBCDE", str);
     }
@@ -2860,7 +2943,7 @@ test "Terminal: cursorPos off the screen" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\n\n\n\n    X", str);
     }
@@ -2878,7 +2961,7 @@ test "Terminal: cursorPos relative to origin" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\n\nX", str);
     }
@@ -2898,7 +2981,7 @@ test "Terminal: cursorPos relative to origin with left/right" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\n\n  X", str);
     }
@@ -2918,7 +3001,7 @@ test "Terminal: cursorPos limits with full scroll region" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\n\n\n    X", str);
     }
@@ -2992,7 +3075,7 @@ test "Terminal: setTopAndBottomMargin simple" {
     try t.scrollDown(1);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\nABC\nDEF\nGHI", str);
     }
@@ -3014,7 +3097,7 @@ test "Terminal: setTopAndBottomMargin top only" {
     try t.scrollDown(1);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC\n\nDEF\nGHI", str);
     }
@@ -3036,7 +3119,7 @@ test "Terminal: setTopAndBottomMargin top and bottom" {
     try t.scrollDown(1);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\nABC\nGHI", str);
     }
@@ -3058,7 +3141,7 @@ test "Terminal: setTopAndBottomMargin top equal to bottom" {
     try t.scrollDown(1);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\nABC\nDEF\nGHI", str);
     }
@@ -3081,7 +3164,7 @@ test "Terminal: setLeftAndRightMargin simple" {
     t.eraseChars(1);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings(" BC\nDEF\nGHI", str);
     }
@@ -3107,7 +3190,7 @@ test "Terminal: setLeftAndRightMargin left only" {
     try t.insertLines(1);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("A\nDBC\nGEF\n HI", str);
     }
@@ -3131,7 +3214,7 @@ test "Terminal: setLeftAndRightMargin left and right" {
     try t.insertLines(1);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("  C\nABF\nDEI\nGH", str);
     }
@@ -3155,7 +3238,7 @@ test "Terminal: setLeftAndRightMargin left equal right" {
     try t.insertLines(1);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\nABC\nDEF\nGHI", str);
     }
@@ -3179,7 +3262,7 @@ test "Terminal: setLeftAndRightMargin mode 69 unset" {
     try t.insertLines(1);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\nABC\nDEF\nGHI", str);
     }
@@ -3214,7 +3297,7 @@ test "Terminal: deleteLines" {
     try testing.expectEqual(@as(usize, 2), t.screen.cursor.y);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("A\nE\nD", str);
     }
@@ -3250,7 +3333,7 @@ test "Terminal: deleteLines with scroll region" {
     // try testing.expectEqual(@as(usize, 2), t.screen.cursor.y);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("E\nC\n\nD", str);
     }
@@ -3286,7 +3369,7 @@ test "Terminal: deleteLines with scroll region, large count" {
     // try testing.expectEqual(@as(usize, 2), t.screen.cursor.y);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("E\n\n\nD", str);
     }
@@ -3314,7 +3397,7 @@ test "Terminal: deleteLines with scroll region, cursor outside of region" {
     try t.deleteLines(1);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("A\nB\nC\nD", str);
     }
@@ -3332,7 +3415,7 @@ test "Terminal: deleteLines resets wrap" {
     try t.print('B');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("B", str);
     }
@@ -3354,7 +3437,7 @@ test "Terminal: deleteLines simple" {
     try t.deleteLines(1);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC\nGHI", str);
     }
@@ -3378,7 +3461,7 @@ test "Terminal: deleteLines left/right scroll region" {
     try t.deleteLines(1);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC123\nDHI756\nG   89", str);
     }
@@ -3421,7 +3504,7 @@ test "Terminal: deleteLines left/right scroll region from top" {
     try t.deleteLines(1);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("AEF423\nDHI756\nG   89", str);
     }
@@ -3445,7 +3528,7 @@ test "Terminal: deleteLines left/right scroll region high count" {
     try t.deleteLines(100);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC123\nD   56\nG   89", str);
     }
@@ -3467,7 +3550,7 @@ test "Terminal: insertLines simple" {
     try t.insertLines(1);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC\n\nDEF\nGHI", str);
     }
@@ -3490,7 +3573,7 @@ test "Terminal: insertLines outside of scroll region" {
     try t.insertLines(1);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC\nDEF\nGHI", str);
     }
@@ -3516,7 +3599,7 @@ test "Terminal: insertLines top/bottom scroll region" {
     try t.insertLines(1);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC\n\nDEF\n123", str);
     }
@@ -3540,7 +3623,7 @@ test "Terminal: insertLines left/right scroll region" {
     try t.insertLines(1);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC123\nD   56\nGEF489\n HI7", str);
     }
@@ -3573,7 +3656,7 @@ test "Terminal: insertLines" {
     try t.insertLines(2);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("A\n\n\nB\nC", str);
     }
@@ -3616,7 +3699,7 @@ test "Terminal: insertLines with scroll region" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("X\nA\nC\nD\nE", str);
     }
@@ -3649,7 +3732,7 @@ test "Terminal: insertLines more than remaining" {
     try t.insertLines(20);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("A", str);
     }
@@ -3667,7 +3750,7 @@ test "Terminal: insertLines resets wrap" {
     try t.print('B');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("B\nABCDE", str);
     }
@@ -3694,7 +3777,7 @@ test "Terminal: reverseIndex" {
     try t.linefeed();
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("A\nBD\nC", str);
     }
@@ -3727,7 +3810,7 @@ test "Terminal: reverseIndex from the top" {
     try t.linefeed();
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("E\nD\nA\nB", str);
     }
@@ -3760,7 +3843,7 @@ test "Terminal: reverseIndex top of scrolling region" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\nX\nA\nB\nC", str);
     }
@@ -3781,7 +3864,7 @@ test "Terminal: reverseIndex top of screen" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("X\nA\nB\nC", str);
     }
@@ -3802,7 +3885,7 @@ test "Terminal: reverseIndex not top of screen" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("X\nB\nC", str);
     }
@@ -3823,7 +3906,7 @@ test "Terminal: reverseIndex top/bottom margins" {
     try t.reverseIndex();
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("A\n\nB", str);
     }
@@ -3844,7 +3927,7 @@ test "Terminal: reverseIndex outside top/bottom margins" {
     try t.reverseIndex();
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("A\nB\nC", str);
     }
@@ -3866,7 +3949,7 @@ test "Terminal: reverseIndex left/right margins" {
     try t.reverseIndex();
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("A\nDBC\nGEF\n HI", str);
     }
@@ -3888,7 +3971,7 @@ test "Terminal: reverseIndex outside left/right margins" {
     try t.reverseIndex();
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC\nDEF\nGHI", str);
     }
@@ -3903,7 +3986,7 @@ test "Terminal: index" {
     try t.print('A');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\nA", str);
     }
@@ -3922,7 +4005,7 @@ test "Terminal: index from the bottom" {
     try t.print('B');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\n\n\nA\nB", str);
     }
@@ -3951,7 +4034,7 @@ test "Terminal: index from the bottom outside of scroll region" {
     try t.print('B');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\n\n\n\nAB", str);
     }
@@ -3967,7 +4050,7 @@ test "Terminal: index no scroll region, top of screen" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("A\n X", str);
     }
@@ -3984,7 +4067,7 @@ test "Terminal: index bottom of primary screen" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\n\n\nA\n X", str);
     }
@@ -4006,7 +4089,7 @@ test "Terminal: index bottom of primary screen background sgr" {
     try t.index();
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\n\n\nA", str);
         for (0..5) |x| {
@@ -4027,7 +4110,7 @@ test "Terminal: index inside scroll region" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("A\n X", str);
     }
@@ -4047,7 +4130,7 @@ test "Terminal: index bottom of scroll region" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\nA\n X\nB", str);
     }
@@ -4068,7 +4151,7 @@ test "Terminal: index bottom of primary screen with scroll region" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\n\nA\n\nX", str);
     }
@@ -4089,7 +4172,7 @@ test "Terminal: index outside left/right margin" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\n\nX A", str);
     }
@@ -4117,7 +4200,7 @@ test "Terminal: index inside left/right margin" {
     try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("AAAAAA\nAAAAAA\n   AAA", str);
     }
@@ -4139,7 +4222,7 @@ test "Terminal: DECALN" {
     try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("EE\nEE", str);
     }
@@ -4157,7 +4240,7 @@ test "Terminal: decaln reset margins" {
     try t.scrollDown(1);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\nEEE\nEEE", str);
     }
@@ -4181,7 +4264,7 @@ test "Terminal: decaln preserves color" {
     try t.scrollDown(1);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\nEEE\nEEE", str);
         const cell = t.screen.getCell(.active, 0, 0);
@@ -4204,7 +4287,7 @@ test "Terminal: insertBlanks" {
     t.insertBlanks(2);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("  ABC", str);
         const cell = t.screen.getCell(.active, 0, 0);
@@ -4226,7 +4309,7 @@ test "Terminal: insertBlanks pushes off end" {
     t.insertBlanks(2);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("  A", str);
     }
@@ -4246,7 +4329,7 @@ test "Terminal: insertBlanks more than size" {
     t.insertBlanks(5);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("", str);
     }
@@ -4262,7 +4345,7 @@ test "Terminal: insertBlanks no scroll region, fits" {
     t.insertBlanks(2);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("  ABC", str);
     }
@@ -4284,7 +4367,7 @@ test "Terminal: insertBlanks preserves background sgr" {
     t.insertBlanks(2);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("  ABC", str);
         const cell = t.screen.getCell(.active, 0, 0);
@@ -4303,7 +4386,7 @@ test "Terminal: insertBlanks shift off screen" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("  X A", str);
     }
@@ -4320,7 +4403,7 @@ test "Terminal: insertBlanks split multi-cell character" {
     t.insertBlanks(1);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings(" 123", str);
     }
@@ -4340,7 +4423,7 @@ test "Terminal: insertBlanks inside left/right scroll region" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("  X A", str);
     }
@@ -4361,7 +4444,7 @@ test "Terminal: insertBlanks outside left/right scroll region" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("   ABX", str);
     }
@@ -4380,7 +4463,7 @@ test "Terminal: insertBlanks left/right scroll region large count" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("  X", str);
     }
@@ -4397,7 +4480,7 @@ test "Terminal: insert mode with space" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("hXello", str);
     }
@@ -4414,7 +4497,7 @@ test "Terminal: insert mode doesn't wrap pushed characters" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("hXell", str);
     }
@@ -4430,7 +4513,7 @@ test "Terminal: insert mode does nothing at the end of the line" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("hello\nX", str);
     }
@@ -4447,7 +4530,7 @@ test "Terminal: insert mode with wide characters" {
     try t.print('😀'); // 0x1F600
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("h😀el", str);
     }
@@ -4463,7 +4546,7 @@ test "Terminal: insert mode with wide characters at end" {
     try t.print('😀'); // 0x1F600
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("well\n😀", str);
     }
@@ -4481,7 +4564,7 @@ test "Terminal: insert mode pushing off wide character" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("X123", str);
     }
@@ -4554,7 +4637,7 @@ test "Terminal: deleteChars" {
 
     try t.deleteChars(2);
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ADE", str);
 
@@ -4573,7 +4656,7 @@ test "Terminal: deleteChars zero count" {
 
     try t.deleteChars(0);
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABCDE", str);
     }
@@ -4589,7 +4672,7 @@ test "Terminal: deleteChars more than half" {
 
     try t.deleteChars(3);
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("AE", str);
     }
@@ -4605,7 +4688,7 @@ test "Terminal: deleteChars more than line width" {
 
     try t.deleteChars(10);
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("A", str);
     }
@@ -4621,7 +4704,7 @@ test "Terminal: deleteChars should shift left" {
 
     try t.deleteChars(1);
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ACDE", str);
     }
@@ -4639,7 +4722,7 @@ test "Terminal: deleteChars resets wrap" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABCDX", str);
     }
@@ -4655,7 +4738,7 @@ test "Terminal: deleteChars simple operation" {
     try t.deleteChars(2);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("AB23", str);
     }
@@ -4677,7 +4760,7 @@ test "Terminal: deleteChars background sgr" {
     try t.deleteChars(2);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("AB23", str);
         for (t.cols - 2..t.cols) |x| {
@@ -4700,7 +4783,7 @@ test "Terminal: deleteChars outside scroll region" {
     try testing.expect(t.screen.cursor.pending_wrap);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC123", str);
     }
@@ -4718,7 +4801,7 @@ test "Terminal: deleteChars inside scroll region" {
     try t.deleteChars(1);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC2 3", str);
     }
@@ -4734,7 +4817,7 @@ test "Terminal: deleteChars split wide character" {
     try t.deleteChars(1);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("A 123", str);
     }
@@ -4752,7 +4835,7 @@ test "Terminal: deleteChars split wide character tail" {
     try t.print('0');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("0", str);
     }
@@ -4770,7 +4853,7 @@ test "Terminal: eraseChars resets wrap" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABCDX", str);
     }
@@ -4787,7 +4870,7 @@ test "Terminal: eraseChars simple operation" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("X C", str);
     }
@@ -4804,7 +4887,7 @@ test "Terminal: eraseChars minimum one" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("XBC", str);
     }
@@ -4820,7 +4903,7 @@ test "Terminal: eraseChars beyond screen edge" {
     t.eraseChars(10);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("  A", str);
     }
@@ -4842,7 +4925,7 @@ test "Terminal: eraseChars preserves background sgr" {
     t.eraseChars(2);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("  C", str);
         {
@@ -4868,7 +4951,7 @@ test "Terminal: eraseChars wide character" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("X BC", str);
     }
@@ -4885,7 +4968,7 @@ test "Terminal: eraseChars protected attributes respected with iso" {
     t.eraseChars(2);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC", str);
     }
@@ -4904,7 +4987,7 @@ test "Terminal: eraseChars protected attributes ignored with dec most recent" {
     t.eraseChars(2);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("  C", str);
     }
@@ -4921,7 +5004,7 @@ test "Terminal: eraseChars protected attributes ignored with dec set" {
     t.eraseChars(2);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("  C", str);
     }
@@ -5023,7 +5106,7 @@ test "Terminal: saveCursor position" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("B   AX", str);
     }
@@ -5043,7 +5126,7 @@ test "Terminal: saveCursor pending wrap state" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("B   A\nX", str);
     }
@@ -5063,7 +5146,7 @@ test "Terminal: saveCursor origin mode" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("X", str);
     }
@@ -5081,7 +5164,7 @@ test "Terminal: saveCursor resize" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("    X", str);
     }
@@ -5113,7 +5196,7 @@ test "Terminal: eraseLine simple erase right" {
     t.eraseLine(.right, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("AB", str);
     }
@@ -5131,7 +5214,7 @@ test "Terminal: eraseLine resets wrap" {
     try t.print('B');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABCDB", str);
     }
@@ -5153,7 +5236,7 @@ test "Terminal: eraseLine right preserves background sgr" {
     t.eraseLine(.right, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("A", str);
         for (1..5) |x| {
@@ -5175,7 +5258,7 @@ test "Terminal: eraseLine right wide character" {
     t.eraseLine(.right, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("AB", str);
     }
@@ -5192,7 +5275,7 @@ test "Terminal: eraseLine right protected attributes respected with iso" {
     t.eraseLine(.right, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC", str);
     }
@@ -5211,7 +5294,7 @@ test "Terminal: eraseLine right protected attributes ignored with dec most recen
     t.eraseLine(.right, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("A", str);
     }
@@ -5228,7 +5311,7 @@ test "Terminal: eraseLine right protected attributes ignored with dec set" {
     t.eraseLine(.right, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("A", str);
     }
@@ -5247,7 +5330,7 @@ test "Terminal: eraseLine right protected requested" {
     t.eraseLine(.right, true);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("123  X", str);
     }
@@ -5263,7 +5346,7 @@ test "Terminal: eraseLine simple erase left" {
     t.eraseLine(.left, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("   DE", str);
     }
@@ -5281,7 +5364,7 @@ test "Terminal: eraseLine left resets wrap" {
     try t.print('B');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("    B", str);
     }
@@ -5303,7 +5386,7 @@ test "Terminal: eraseLine left preserves background sgr" {
     t.eraseLine(.left, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("  CDE", str);
         for (0..2) |x| {
@@ -5325,7 +5408,7 @@ test "Terminal: eraseLine left wide character" {
     t.eraseLine(.left, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("    DE", str);
     }
@@ -5342,7 +5425,7 @@ test "Terminal: eraseLine left protected attributes respected with iso" {
     t.eraseLine(.left, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC", str);
     }
@@ -5361,7 +5444,7 @@ test "Terminal: eraseLine left protected attributes ignored with dec most recent
     t.eraseLine(.left, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("  C", str);
     }
@@ -5378,7 +5461,7 @@ test "Terminal: eraseLine left protected attributes ignored with dec set" {
     t.eraseLine(.left, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("  C", str);
     }
@@ -5397,7 +5480,7 @@ test "Terminal: eraseLine left protected requested" {
     t.eraseLine(.left, true);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("     X  9", str);
     }
@@ -5419,7 +5502,7 @@ test "Terminal: eraseLine complete preserves background sgr" {
     t.eraseLine(.complete, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("", str);
         for (0..5) |x| {
@@ -5440,7 +5523,7 @@ test "Terminal: eraseLine complete protected attributes respected with iso" {
     t.eraseLine(.complete, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC", str);
     }
@@ -5459,7 +5542,7 @@ test "Terminal: eraseLine complete protected attributes ignored with dec most re
     t.eraseLine(.complete, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("", str);
     }
@@ -5476,7 +5559,7 @@ test "Terminal: eraseLine complete protected attributes ignored with dec set" {
     t.eraseLine(.complete, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("", str);
     }
@@ -5495,7 +5578,7 @@ test "Terminal: eraseLine complete protected requested" {
     t.eraseLine(.complete, true);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("     X", str);
     }
@@ -5517,7 +5600,7 @@ test "Terminal: eraseDisplay simple erase below" {
     t.eraseDisplay(alloc, .below, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC\nD", str);
     }
@@ -5546,7 +5629,7 @@ test "Terminal: eraseDisplay erase below preserves SGR bg" {
     t.eraseDisplay(alloc, .below, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC\nD", str);
         for (1..5) |x| {
@@ -5572,7 +5655,7 @@ test "Terminal: eraseDisplay below split multi-cell" {
     t.eraseDisplay(alloc, .below, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("AB橋C\nDE", str);
     }
@@ -5595,7 +5678,7 @@ test "Terminal: eraseDisplay below protected attributes respected with iso" {
     t.eraseDisplay(alloc, .below, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC\nDEF\nGHI", str);
     }
@@ -5620,7 +5703,7 @@ test "Terminal: eraseDisplay below protected attributes ignored with dec most re
     t.eraseDisplay(alloc, .below, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC\nD", str);
     }
@@ -5643,7 +5726,7 @@ test "Terminal: eraseDisplay below protected attributes ignored with dec set" {
     t.eraseDisplay(alloc, .below, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC\nD", str);
     }
@@ -5665,7 +5748,7 @@ test "Terminal: eraseDisplay simple erase above" {
     t.eraseDisplay(alloc, .above, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\n  F\nGHI", str);
     }
@@ -5688,7 +5771,7 @@ test "Terminal: eraseDisplay below protected attributes respected with force" {
     t.eraseDisplay(alloc, .below, true);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC\nDEF\nGHI", str);
     }
@@ -5717,7 +5800,7 @@ test "Terminal: eraseDisplay erase above preserves SGR bg" {
     t.eraseDisplay(alloc, .above, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\n  F\nGHI", str);
         for (0..2) |x| {
@@ -5743,7 +5826,7 @@ test "Terminal: eraseDisplay above split multi-cell" {
     t.eraseDisplay(alloc, .above, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\n    F\nGH橋I", str);
     }
@@ -5766,7 +5849,7 @@ test "Terminal: eraseDisplay above protected attributes respected with iso" {
     t.eraseDisplay(alloc, .above, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC\nDEF\nGHI", str);
     }
@@ -5791,7 +5874,7 @@ test "Terminal: eraseDisplay above protected attributes ignored with dec most re
     t.eraseDisplay(alloc, .above, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\n  F\nGHI", str);
     }
@@ -5814,7 +5897,7 @@ test "Terminal: eraseDisplay above protected attributes ignored with dec set" {
     t.eraseDisplay(alloc, .above, false);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\n  F\nGHI", str);
     }
@@ -5837,7 +5920,7 @@ test "Terminal: eraseDisplay above protected attributes respected with force" {
     t.eraseDisplay(alloc, .above, true);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC\nDEF\nGHI", str);
     }
@@ -5978,7 +6061,7 @@ test "Terminal: eraseDisplay protected complete" {
     t.eraseDisplay(alloc, .complete, true);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\n     X", str);
     }
@@ -6000,7 +6083,7 @@ test "Terminal: eraseDisplay protected below" {
     t.eraseDisplay(alloc, .below, true);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("A\n123  X", str);
     }
@@ -6014,6 +6097,23 @@ test "Terminal: eraseDisplay protected above" {
     try t.print('A');
     t.carriageReturn();
     try t.linefeed();
+    t.eraseDisplay(alloc, .scroll_complete, false);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("", str);
+    }
+}
+
+test "Terminal: eraseDisplay scroll complete" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 10, 3);
+    defer t.deinit(alloc);
+
+    try t.print('A');
+    t.carriageReturn();
+    try t.linefeed();
     for ("123456789") |c| try t.print(c);
     t.setCursorPos(t.screen.cursor.y + 1, 6);
     t.setProtectedMode(.dec);
@@ -6022,7 +6122,7 @@ test "Terminal: eraseDisplay protected above" {
     t.eraseDisplay(alloc, .above, true);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\n     X  9", str);
     }
@@ -6040,7 +6140,7 @@ test "Terminal: cursorLeft no wrap" {
     t.cursorLeft(10);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("A\nB", str);
     }
@@ -6058,7 +6158,7 @@ test "Terminal: cursorLeft unsets pending wrap state" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABCDX", str);
     }
@@ -6076,7 +6176,7 @@ test "Terminal: cursorLeft unsets pending wrap state with longer jump" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABXDE", str);
     }
@@ -6096,7 +6196,7 @@ test "Terminal: cursorLeft reverse wrap" {
     try testing.expect(t.screen.cursor.pending_wrap);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABCDX\n1", str);
     }
@@ -6118,7 +6218,7 @@ test "Terminal: cursorLeft reverse wrap with no soft wrap" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABCDE\nX", str);
     }
@@ -6136,7 +6236,7 @@ test "Terminal: cursorLeft reverse wrap before left margin" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\n\nX", str);
     }
@@ -6158,7 +6258,7 @@ test "Terminal: cursorLeft extended reverse wrap" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABCDX\n1", str);
     }
@@ -6180,7 +6280,7 @@ test "Terminal: cursorLeft extended reverse wrap bottom wraparound" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABCDE\n1\n    X", str);
     }
@@ -6203,7 +6303,7 @@ test "Terminal: cursorLeft extended reverse wrap is priority if both set" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABCDE\n1\n    X", str);
     }
@@ -6251,7 +6351,7 @@ test "Terminal: cursorDown basic" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("A\n\n\n\n X", str);
     }
@@ -6268,7 +6368,7 @@ test "Terminal: cursorDown above bottom scroll margin" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("A\n\n X", str);
     }
@@ -6286,7 +6386,7 @@ test "Terminal: cursorDown below bottom scroll margin" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("A\n\n\n\nX", str);
     }
@@ -6304,7 +6404,7 @@ test "Terminal: cursorDown resets wrap" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABCDE\n    X", str);
     }
@@ -6321,7 +6421,7 @@ test "Terminal: cursorUp basic" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings(" X\n\nA", str);
     }
@@ -6339,7 +6439,7 @@ test "Terminal: cursorUp below top scroll margin" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\n X\nA", str);
     }
@@ -6358,7 +6458,7 @@ test "Terminal: cursorUp above top scroll margin" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("X\n\nA", str);
     }
@@ -6376,7 +6476,7 @@ test "Terminal: cursorUp resets wrap" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABCDX", str);
     }
@@ -6394,7 +6494,7 @@ test "Terminal: cursorRight resets wrap" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABCDX", str);
     }
@@ -6409,7 +6509,7 @@ test "Terminal: cursorRight to the edge of screen" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("    X", str);
     }
@@ -6425,7 +6525,7 @@ test "Terminal: cursorRight left of right margin" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("  X", str);
     }
@@ -6442,7 +6542,7 @@ test "Terminal: cursorRight right of right margin" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("    X", str);
     }
@@ -6466,7 +6566,7 @@ test "Terminal: scrollDown simple" {
     try testing.expectEqual(cursor, t.screen.cursor);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\nABC\nDEF\nGHI", str);
     }
@@ -6491,7 +6591,7 @@ test "Terminal: scrollDown outside of scroll region" {
     try testing.expectEqual(cursor, t.screen.cursor);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC\nDEF\n\nGHI", str);
     }
@@ -6517,7 +6617,7 @@ test "Terminal: scrollDown left/right scroll region" {
     try testing.expectEqual(cursor, t.screen.cursor);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("A   23\nDBC156\nGEF489\n HI7", str);
     }
@@ -6543,7 +6643,7 @@ test "Terminal: scrollDown outside of left/right scroll region" {
     try testing.expectEqual(cursor, t.screen.cursor);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("A   23\nDBC156\nGEF489\n HI7", str);
     }
@@ -6564,7 +6664,7 @@ test "Terminal: scrollDown preserves pending wrap" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\n    A\n    B\nX   C", str);
     }
@@ -6588,7 +6688,7 @@ test "Terminal: scrollUp simple" {
     try testing.expectEqual(cursor, t.screen.cursor);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("DEF\nGHI", str);
     }
@@ -6611,7 +6711,7 @@ test "Terminal: scrollUp top/bottom scroll region" {
     try t.scrollUp(1);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC\nGHI", str);
     }
@@ -6637,7 +6737,7 @@ test "Terminal: scrollUp left/right scroll region" {
     try testing.expectEqual(cursor, t.screen.cursor);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("AEF423\nDHI756\nG   89", str);
     }
@@ -6658,7 +6758,7 @@ test "Terminal: scrollUp preserves pending wrap" {
     try t.print('X');
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("    B\n    C\n\nX", str);
     }
@@ -6676,7 +6776,7 @@ test "Terminal: scrollUp full top/bottom region" {
     try t.scrollUp(4);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("top", str);
     }
@@ -6696,7 +6796,7 @@ test "Terminal: scrollUp full top/bottomleft/right scroll region" {
     try t.scrollUp(4);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("top\n\n\n\nA   E", str);
     }
@@ -6734,7 +6834,7 @@ test "Terminal: printRepeat simple" {
     try t.printRepeat(1);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("AA", str);
     }
@@ -6749,7 +6849,7 @@ test "Terminal: printRepeat wrap" {
     try t.printRepeat(1);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("    A\nA", str);
     }
@@ -6763,8 +6863,85 @@ test "Terminal: printRepeat no previous character" {
     try t.printRepeat(1);
 
     {
-        var str = try t.plainString(testing.allocator);
+        const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("", str);
     }
+}
+
+test "Terminal: DECCOLM without DEC mode 40" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.modes.set(.@"132_column", true);
+    try t.deccolm(alloc, .@"132_cols");
+    try testing.expectEqual(@as(usize, 5), t.cols);
+    try testing.expectEqual(@as(usize, 5), t.rows);
+    try testing.expect(!t.modes.get(.@"132_column"));
+}
+
+test "Terminal: DECCOLM unset" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.modes.set(.enable_mode_3, true);
+    try t.deccolm(alloc, .@"80_cols");
+    try testing.expectEqual(@as(usize, 80), t.cols);
+    try testing.expectEqual(@as(usize, 5), t.rows);
+}
+
+test "Terminal: DECCOLM resets pending wrap" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    for ("ABCDE") |c| try t.print(c);
+    try testing.expect(t.screen.cursor.pending_wrap);
+
+    t.modes.set(.enable_mode_3, true);
+    try t.deccolm(alloc, .@"80_cols");
+    try testing.expectEqual(@as(usize, 80), t.cols);
+    try testing.expectEqual(@as(usize, 5), t.rows);
+    try testing.expect(!t.screen.cursor.pending_wrap);
+}
+
+test "Terminal: DECCOLM preserves SGR bg" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    const pen: Screen.Cell = .{
+        .bg = .{ .r = 0xFF, .g = 0x00, .b = 0x00 },
+        .attrs = .{ .has_bg = true },
+    };
+
+    t.screen.cursor.pen = pen;
+    t.modes.set(.enable_mode_3, true);
+    try t.deccolm(alloc, .@"80_cols");
+
+    {
+        const cell = t.screen.getCell(.active, 0, 0);
+        try testing.expectEqual(pen, cell);
+    }
+}
+
+test "Terminal: DECCOLM resets scroll region" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.modes.set(.enable_left_and_right_margin, true);
+    t.setTopAndBottomMargin(2, 3);
+    t.setLeftAndRightMargin(3, 5);
+
+    t.modes.set(.enable_mode_3, true);
+    try t.deccolm(alloc, .@"80_cols");
+
+    try testing.expect(t.modes.get(.enable_left_and_right_margin));
+    try testing.expectEqual(@as(usize, 0), t.scrolling_region.top);
+    try testing.expectEqual(@as(usize, 4), t.scrolling_region.bottom);
+    try testing.expectEqual(@as(usize, 0), t.scrolling_region.left);
+    try testing.expectEqual(@as(usize, 79), t.scrolling_region.right);
 }

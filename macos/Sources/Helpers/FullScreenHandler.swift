@@ -83,7 +83,7 @@ class FullScreenHandler {
                 object: window)
             NotificationCenter.default.addObserver(
                 self,
-                selector: #selector(FullScreenHandler.unHideMenu),
+                selector: #selector(FullScreenHandler.onDidResignMain),
                 name: NSWindow.didResignMainNotification,
                 object: window)
         }
@@ -105,8 +105,16 @@ class FullScreenHandler {
         NSApp.presentationOptions.insert(.autoHideMenuBar)
     }
     
-    @objc func unHideMenu() {
-        NSApp.presentationOptions.remove(.autoHideMenuBar)
+    @objc func onDidResignMain(_ notification: Notification) {
+        guard let resigningWindow = notification.object as? NSWindow else { return }
+        guard let mainWindow = NSApplication.shared.mainWindow else { return }
+        
+        // We're only unhiding the menu bar, if the focus shifted within our application.
+        // In that case, `mainWindow` is the window of our application the focus shifted
+        // to.
+        if !resigningWindow.isEqual(mainWindow) {
+            NSApp.presentationOptions.remove(.autoHideMenuBar)
+        }
     }
     
     @objc func hideDock() {

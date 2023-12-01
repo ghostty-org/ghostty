@@ -241,6 +241,24 @@ pub const VTEvent = struct {
                 try alloc.dupeZ(u8, @tagName(value)),
             ),
 
+            .Union => |u| {
+                const Tag = u.tag_type orelse @compileError("Unions must have a tag");
+                const tag_name = @tagName(@as(Tag, value));
+                inline for (u.fields) |field| {
+                    if (std.mem.eql(u8, field.name, tag_name)) {
+                        const s = if (field.type == void)
+                            try alloc.dupeZ(u8, tag_name)
+                        else
+                            try std.fmt.allocPrintZ(alloc, "{s}={}", .{
+                                tag_name,
+                                @field(value, field.name),
+                            });
+
+                        try md.put(key, s);
+                    }
+                }
+            },
+
             else => switch (Value) {
                 u8 => try md.put(
                     key,

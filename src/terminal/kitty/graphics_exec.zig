@@ -35,12 +35,6 @@ pub fn execute(
         return null;
     }
 
-    // Only Metal supports rendering the images, right now.
-    if (comptime renderer.Renderer != renderer.Metal) {
-        log.warn("kitty graphics not supported on this renderer", .{});
-        return null;
-    }
-
     log.debug("executing kitty graphics command: quiet={} control={}", .{
         cmd.quiet,
         cmd.control,

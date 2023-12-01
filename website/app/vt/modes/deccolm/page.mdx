@@ -1,0 +1,70 @@
+import VTMode from "@/components/VTMode";
+
+# Select 80 or 132 Columns per Page (DECCOLM)
+
+<VTMode value={3} />
+
+Sets the screen to 132 columns if set or 80 columns if unset.
+
+This requires [`132COLS` (DEC mode 40)](/vt/modes/132cols) to be set
+to have any effect. If `132COLS` is not set, then setting or unsetting
+this mode does nothing.
+
+When this mode changes, the screen is resized to the given column amount,
+performing reflow if necessary. If the GUI window is too narrow or too wide,
+it is typically resized to fit the explicit column count or a scrollbar is
+used. If the GUI window is manually resized (i.e. with the mouse), the column
+width of DECCOLM is not enforced.
+
+The scroll margins are reset to their default values given the new screen size.
+The cursor is moved to the top-left. The screen is erased using
+[erase display (ED) with command 2](/vt/ed).
+
+## Validation
+
+### DECCOLM V-1: Disabled
+
+```bash
+printf "ABC\n"
+printf "\033[?40l" # disable mode 3
+printf "\033[?3h"
+printf "X"
+```
+
+```
+|ABC_____|
+|Xc______|
+|________|
+```
+
+The command should be completely ignored.
+
+### DECCOLM V-2: Unset (80 Column)
+
+```bash
+printf "ABC\n"
+printf "\033[?40h" # enable mode 3
+printf "\033[?3l" # unset the mode
+printf "X"
+```
+
+```
+|X_______|
+```
+
+The screen should be 80 columns wide.
+
+### DECCOLM V-3: Set (132 Column)
+
+```bash
+printf "ABC\n"
+printf "\033[?40h" # enable mode 3
+printf "\033[?3h"
+printf "X"
+```
+
+```
+|X_______|
+```
+
+The screen should be 132 columns wide.

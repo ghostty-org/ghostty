@@ -124,7 +124,7 @@ pub fn reserve(self: *Atlas, alloc: Allocator, width: u32, height: u32) !Region 
     if (width == 0 and height == 0) return region;
 
     // Find the location in our nodes list to insert the new node for this region.
-    var best_idx: usize = best_idx: {
+    const best_idx: usize = best_idx: {
         var best_height: u32 = std.math.maxInt(u32);
         var best_width: u32 = best_height;
         var chosen: ?usize = null;
@@ -395,7 +395,7 @@ pub const Wasm = struct {
         defer ctx.deinit();
 
         // We need to draw pixels so this is format dependent.
-        var buf: []u8 = switch (self.format) {
+        const buf: []u8 = switch (self.format) {
             // RGBA is the native ImageData format
             .rgba => self.data,
 
@@ -454,7 +454,7 @@ pub const Wasm = struct {
     }
 
     test "happy path" {
-        var atlas = atlas_new(512, @intFromEnum(Format.greyscale)).?;
+        const atlas = atlas_new(512, @intFromEnum(Format.greyscale)).?;
         defer atlas_free(atlas);
 
         const reg = atlas_reserve(atlas, 2, 2).?;

@@ -241,7 +241,7 @@ const WebCanvasImpl = struct {
 
             // Allocate our local memory to copy the data to.
             const len = try src_array.get(u32, "length");
-            var bitmap = try alloc.alloc(u8, @intCast(len));
+            const bitmap = try alloc.alloc(u8, @intCast(len));
             errdefer alloc.free(bitmap);
 
             // Create our target Uint8Array that we can use to copy from src.
@@ -314,7 +314,7 @@ const PixmanImpl = struct {
 
         // Allocate our buffer. pixman uses []u32 so we divide our length
         // by 4 since u32 / u8 = 4.
-        var data = try alloc.alloc(u32, len / 4);
+        const data = try alloc.alloc(u32, len / 4);
         errdefer alloc.free(data);
         @memset(data, 0);
 
@@ -385,12 +385,12 @@ const PixmanImpl = struct {
 
             // If we need to copy the data, we copy it into a temporary buffer.
             const buffer = if (needs_copy) buffer: {
-                var temp = try alloc.alloc(u8, width * height * depth);
+                const temp = try alloc.alloc(u8, width * height * depth);
                 var dst_ptr = temp;
                 var src_ptr = data.ptr;
                 var i: usize = 0;
                 while (i < height) : (i += 1) {
-                    std.mem.copy(u8, dst_ptr, src_ptr[0 .. width * depth]);
+                    @memcpy(dst_ptr[0 .. width * depth], src_ptr[0 .. width * depth]);
                     dst_ptr = dst_ptr[width * depth ..];
                     src_ptr += @as(usize, @intCast(stride));
                 }

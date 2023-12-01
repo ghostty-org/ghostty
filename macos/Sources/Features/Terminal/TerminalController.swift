@@ -6,7 +6,7 @@ import GhosttyKit
 /// The terminal controller is an NSWindowController that maps 1:1 to a terminal window.
 class TerminalController: NSWindowController, NSWindowDelegate, 
                           TerminalViewDelegate, TerminalViewModel,
-                          PasteProtectionViewDelegate
+                          ClipboardConfirmationViewDelegate
 {
     override var windowNibName: NSNib.Name? { "Terminal" }
     
@@ -19,9 +19,12 @@ class TerminalController: NSWindowController, NSWindowDelegate,
     /// The surface tree for this window.
     @Published var surfaceTree: Ghostty.SplitNode? = nil {
         didSet {
-            // If our surface tree becomes nil then it means all our surfaces
-            // have closed, so we also close the window.
-            if (surfaceTree == nil) { lastSurfaceDidClose() }
+            // If our surface tree becomes nil then ensure all surfaces
+            // in the old tree have closed and then close the window.
+            if (surfaceTree == nil) {
+                oldValue?.close()
+                lastSurfaceDidClose()
+            }
         }
     }
     
@@ -31,8 +34,17 @@ class TerminalController: NSWindowController, NSWindowDelegate,
     /// True when an alert is active so we don't overlap multiple.
     private var alert: NSAlert? = nil
     
-    /// The paste protection window, if shown.
-    private var pasteProtection: PasteProtectionController? = nil
+    /// The clipboard confirmation window, if shown.
+    private var clipboardConfirmation: ClipboardConfirmationController? = nil
+
+    /// This is set to true when we care about frame changes. This is a small optimization since
+    /// this controller registers a listener for ALL frame change notifications and this lets us bail
+    /// early if we don't care.
+    private var tabListenForFrame: Bool = false
+    
+    /// This is the hash value of the last tabGroup.windows array. We use this to detect order
+    /// changes in the list.
+    private var tabWindowsHash: Int = 0
     
     init(_ ghostty: Ghostty.AppState, withBaseConfig base: Ghostty.SurfaceConfiguration? = nil) {
         self.ghostty = ghostty
@@ -56,8 +68,13 @@ class TerminalController: NSWindowController, NSWindowDelegate,
             object: nil)
         center.addObserver(
             self,
-            selector: #selector(onConfirmUnsafePaste),
-            name: Ghostty.Notification.confirmUnsafePaste,
+            selector: #selector(onConfirmClipboardRequest),
+            name: Ghostty.Notification.confirmClipboard,
+            object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(onFrameDidChange),
+            name: NSView.frameDidChangeNotification,
             object: nil)
     }
     
@@ -70,13 +87,23 @@ class TerminalController: NSWindowController, NSWindowDelegate,
         let center = NotificationCenter.default
         center.removeObserver(self)
     }
+    
+    //MARK: - Methods
 
     /// Update the accessory view of each tab according to the keyboard
     /// shortcut that activates it (if any). This is called when the key window
     /// changes and when a window is closed.
     func relabelTabs() {
+        // Reset this to false. It'll be set back to true later.
+        tabListenForFrame = false
+        
         guard let windows = self.window?.tabbedWindows else { return }
         guard let cfg = ghostty.config else { return }
+
+        // We only listen for frame changes if we have more than 1 window,
+        // otherwise the accessory view doesn't matter.
+        tabListenForFrame = windows.count > 1
+        
         for (index, window) in windows.enumerated().prefix(9) {
             let action = "goto_tab:\(index + 1)"
             let trigger = ghostty_config_trigger(cfg, action, UInt(action.count))
@@ -90,8 +117,25 @@ class TerminalController: NSWindowController, NSWindowDelegate,
             ]
             let attributedString = NSAttributedString(string: " \(equiv) ", attributes: attributes)
             let text = NSTextField(labelWithAttributedString: attributedString)
+            text.setContentCompressionResistancePriority(.windowSizeStayPut, for: .horizontal)
+            text.postsFrameChangedNotifications = true
             window.tab.accessoryView = text
         }
+    }
+    
+    @objc private func onFrameDidChange(_ notification: NSNotification) {
+        // This is a huge hack to set the proper shortcut for tab selection
+        // on tab reordering using the mouse. There is no event, delegate, etc.
+        // as far as I can tell for when a tab is manually reordered with the
+        // mouse in a macOS-native tab group, so the way we detect it is setting
+        // the accessoryView "postsFrameChangedNotification" to true, listening
+        // for the view frame to change, comparing the windows list, and
+        // relabeling the tabs.
+        guard tabListenForFrame else { return }
+        guard let v = self.window?.tabbedWindows?.hashValue else { return }
+        guard tabWindowsHash != v else { return }
+        tabWindowsHash = v
+        self.relabelTabs()
     }
 
     //MARK: - NSWindowController
@@ -106,10 +150,6 @@ class TerminalController: NSWindowController, NSWindowDelegate,
 
         // If window decorations are disabled, remove our title
         if (!ghostty.windowDecorations) { window.styleMask.remove(.titled) }
-        
-        // If we aren't in full screen, then we want to disable tabbing (see comment
-        // in the delegate function)
-        if (!window.styleMask.contains(.fullScreen)) { disableTabbing() }
         
         // Terminals typically operate in sRGB color space and macOS defaults
         // to "native" which is typically P3. There is a lot more resources
@@ -126,6 +166,23 @@ class TerminalController: NSWindowController, NSWindowDelegate,
             viewModel: self,
             delegate: self
         ))
+        
+        // If the user tabbing preference is always, then macOS automatically tabs
+        // all new windows. Ghostty handles its own tabbing so we DONT want this behavior.
+        // This detects this scenario and undoes it.
+        //
+        // We don't run this logic in fullscreen because in fullscreen this will end up
+        // removing the window and putting it into its own dedicated fullscreen, which is not
+        // the expected or desired behavior of anyone I've found.
+        if (NSWindow.userTabbingPreference == .always &&
+            !window.styleMask.contains(.fullScreen)) {
+            // If we have more than 1 window in our tab group we know we're a new window.
+            // Since Ghostty manages tabbing manually this will never be more than one
+            // at this point in the AppKit lifecycle (we add to the group after this).
+            if let tabGroup = window.tabGroup, tabGroup.windows.count > 1 {
+                window.tabGroup?.removeWindow(window)
+            }
+        }
     }
     
     // Shows the "+" button in the tab bar, responds to that click.
@@ -188,27 +245,6 @@ class TerminalController: NSWindowController, NSWindowDelegate,
 
     func windowDidBecomeKey(_ notification: Notification) {
         self.relabelTabs()
-    }
-    
-    func windowWillExitFullScreen(_ notification: Notification) {
-        // See comment in this function
-        disableTabbing()
-    }
-    
-    func windowWillEnterFullScreen(_ notification: Notification) {
-        // We re-enable the automatic tabbing mode when we enter full screen otherwise
-        // every new tab also enters a new screen.
-        guard let window = self.window else { return }
-        window.tabbingMode = .automatic
-    }
-    
-    private func disableTabbing() {
-        // For new windows, explicitly disallow tabbing with other windows.
-        // This overrides the value of userTabbingPreference. Rationale:
-        // Ghostty provides separate "New Tab" and "New Window" actions so
-        // there's no reason to make "New Window" open in a tab.
-        guard let window = self.window else { return }
-        window.tabbingMode = .disallowed;
     }
 
     //MARK: - First Responder
@@ -345,28 +381,36 @@ class TerminalController: NSWindowController, NSWindowDelegate,
         self.window?.close()
     }
     
-    //MARK: - Paste Protection
+    //MARK: - Clipboard Confirmation
     
-    func pasteProtectionComplete(_ action: PasteProtectionView.Action) {
-        // End our paste protection no matter what
-        guard let pp = self.pasteProtection else { return }
-        self.pasteProtection = nil
-        
+    func clipboardConfirmationComplete(_ action: ClipboardConfirmationView.Action, _ request: Ghostty.ClipboardRequest) {
+        // End our clipboard confirmation no matter what
+        guard let cc = self.clipboardConfirmation else { return }
+        self.clipboardConfirmation = nil
+
         // Close the sheet
-        if let ppWindow = pp.window {
-            window?.endSheet(ppWindow)
+        if let ccWindow = cc.window {
+            window?.endSheet(ccWindow)
         }
-        
-        let str: String
-        switch (action) {
-        case .cancel:
-            str = ""
-            
-        case .paste:
-            str = pp.contents
+
+        switch (request) {
+        case .osc_52_write:
+            guard case .confirm = action else { break }
+            let pb = NSPasteboard.general
+            pb.declareTypes([.string], owner: nil)
+            pb.setString(cc.contents, forType: .string)
+        case .osc_52_read, .paste:
+            let str: String
+            switch (action) {
+            case .cancel:
+                str = ""
+
+            case .confirm:
+                str = cc.contents
+            }
+
+            Ghostty.AppState.completeClipboardRequest(cc.surface, data: str, state: cc.state, confirmed: true)
         }
-        
-        Ghostty.AppState.completeClipboardRequest(pp.surface, data: str, state: pp.state, confirmed: true)
     }
     
     //MARK: - Notifications
@@ -428,7 +472,7 @@ class TerminalController: NSWindowController, NSWindowDelegate,
         }
     }
     
-    @objc private func onConfirmUnsafePaste(notification: SwiftUI.Notification) {
+    @objc private func onConfirmClipboardRequest(notification: SwiftUI.Notification) {
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
         guard target == self.focusedSurface else { return }
         guard let surface = target.surface else { return }
@@ -437,23 +481,25 @@ class TerminalController: NSWindowController, NSWindowDelegate,
         guard let window = self.window else { return }
         
         // Check whether we use non-native fullscreen
-        guard let str = notification.userInfo?[Ghostty.Notification.UnsafePasteStrKey] as? String else { return }
-        guard let state = notification.userInfo?[Ghostty.Notification.UnsafePasteStateKey] as? UnsafeMutableRawPointer? else { return }
+        guard let str = notification.userInfo?[Ghostty.Notification.ConfirmClipboardStrKey] as? String else { return }
+        guard let state = notification.userInfo?[Ghostty.Notification.ConfirmClipboardStateKey] as? UnsafeMutableRawPointer? else { return }
+        guard let request = notification.userInfo?[Ghostty.Notification.ConfirmClipboardRequestKey] as? Ghostty.ClipboardRequest else { return }
         
-        // If we already have a paste protection view up, we ignore this request.
+        // If we already have a clipboard confirmation view up, we ignore this request.
         // This shouldn't be possible...
-        guard self.pasteProtection == nil else {
+        guard self.clipboardConfirmation == nil else {
             Ghostty.AppState.completeClipboardRequest(surface, data: "", state: state, confirmed: true)
             return
         }
         
         // Show our paste confirmation
-        self.pasteProtection = PasteProtectionController(
+        self.clipboardConfirmation = ClipboardConfirmationController(
             surface: surface,
             contents: str,
+            request: request,
             state: state,
             delegate: self
         )
-        window.beginSheet(self.pasteProtection!.window!)
+        window.beginSheet(self.clipboardConfirmation!.window!)
     }
 }

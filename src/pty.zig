@@ -132,7 +132,7 @@ const WindowsPty = struct {
     pub const Fd = windows.HANDLE;
 
     // Process-wide counter for pipe names
-    var pipe_name_counter = std.atomic.Atomic(u32).init(1);
+    var pipe_name_counter = std.atomic.Value(u32).init(1);
 
     out_pipe: windows.HANDLE,
     in_pipe: windows.HANDLE,

@@ -1,7 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const ziglyph = @import("ziglyph");
 const font = @import("../main.zig");
 const shape = @import("../shape.zig");
 const terminal = @import("../../terminal/main.zig");
@@ -118,11 +117,9 @@ pub const RunIterator = struct {
             } else emoji: {
                 // If we're not a grapheme, our individual char could be
                 // an emoji so we want to check if we expect emoji presentation.
-                if (ziglyph.emoji.isEmojiPresentation(@intCast(cell.char))) {
-                    break :emoji .emoji;
-                }
-
-                break :emoji .text;
+                // The font group indexForCodepoint we use below will do this
+                // automatically.
+                break :emoji null;
             };
 
             // If our cursor is on this line then we break the run around the
@@ -216,6 +213,7 @@ pub const RunIterator = struct {
             if (cell.attrs.grapheme) {
                 var it = self.row.codepointIterator(j);
                 while (it.next()) |cp| {
+                    // Do not send presentation modifiers
                     if (cp == 0xFE0E or cp == 0xFE0F) continue;
                     try self.hooks.addCodepoint(cp, @intCast(cluster));
                 }
@@ -272,7 +270,7 @@ pub const RunIterator = struct {
 
         while (it.next()) |cp| {
             // Ignore Emoji ZWJs
-            if (cp == 0xFE0E or cp == 0xFE0F) continue;
+            if (cp == 0xFE0E or cp == 0xFE0F or cp == 0x200D) continue;
 
             // Find a font that supports this codepoint. If none support this
             // then the whole grapheme can't be rendered so we return null.
@@ -291,7 +289,7 @@ pub const RunIterator = struct {
             it.reset();
             while (it.next()) |cp| {
                 // Ignore Emoji ZWJs
-                if (cp == 0xFE0E or cp == 0xFE0F) continue;
+                if (cp == 0xFE0E or cp == 0xFE0F or cp == 0x200D) continue;
                 if (!self.group.group.hasCodepoint(idx, cp, presentation)) break;
             } else {
                 // If the while completed, then we have a candidate that

@@ -120,7 +120,7 @@ pub fn HashMap(
             // reusing the node we would've evicted.
             var node = if (!evict) try alloc.create(Queue.Node) else node: {
                 // Our first node is the least recently used.
-                var least_used = self.queue.first.?;
+                const least_used = self.queue.first.?;
 
                 // Move our least recently used to the end to make
                 // it the most recently used.
@@ -186,7 +186,7 @@ pub fn HashMap(
 
             var i: Map.Size = 0;
             while (i < delta) : (i += 1) {
-                var node = self.queue.first.?;
+                const node = self.queue.first.?;
                 evicted[i] = node.data.value;
                 self.queue.remove(node);
                 _ = self.map.remove(node.data.key);

@@ -1,0 +1,64 @@
+import VTMode from "@/components/VTMode";
+
+# Origin (DECOM)
+
+<VTMode value={6} />
+
+Changes the origin of grid coordinates to be relative to the current scroll
+region.
+
+When set or unset, this invokes [Cursor Position (CUP)](/vt/cup) with row 1 and
+column 1. If origin mode is set, this will position the cursor to the
+top-left location of the current scroll region. If origin mode is not set,
+this will position the cursor to the top-left location of the screen. The
+cursor position will be set even if the origin mode is _unchanged_.
+
+The following commands are affected by origin mode. Please see their
+respective documentation for details on how origin mode impacts their
+behavior.
+
+- [Carriage Return (CR)](/vt/cr)
+- [Cursor Position Set (CUP)](/vt/cup)
+- [Cursor Position Report (CPR)](/vt/cpr)
+- [Save Cursor (DECSC)](/vt/decsc)
+- [Restore Cursor (DECRC)](/vt/decrc)
+- [Horizontal Position Absolute (HPA)](/vt/hpa)
+- [Vertical Position Absolute (VPA)](/vt/vpa)
+- [Horizontal Position Relative (HPR)](/vt/hpr)
+- [Vertical Position Relative (VPR)](/vt/vpr)
+- [Cursor Backward Tabulation (CBT)](/vt/cbt)
+- [Screen Alignment Test (DECALN)](/vt/decaln)
+- [Full Reset (RIS)](/vt/ris)
+- [Soft Reset (DECSTR)](/vt/decstr)
+
+## Validation
+
+### DECOM V-1: Unset No Margins
+
+```bash
+printf "\033[H"
+printf "\033[2J"
+printf "ABC\n"
+printf "\033[?6l"
+printf "X"
+```
+
+```
+|XBC_____|
+|________|
+```
+
+### DECOM V-1: Set No Margins
+
+```bash
+printf "\033[H"
+printf "\033[2J"
+printf "ABC\n"
+printf "\033[?6h"
+printf "X"
+```
+
+```
+|XBC_____|
+|________|
+```

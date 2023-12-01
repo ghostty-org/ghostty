@@ -10,6 +10,7 @@ const glfw = @import("glfw");
 const objc = @import("objc");
 const macos = @import("macos");
 const imgui = @import("imgui");
+const glslang = @import("glslang");
 const apprt = @import("../apprt.zig");
 const configpkg = @import("../config.zig");
 const font = @import("../font/main.zig");
@@ -17,13 +18,17 @@ const terminal = @import("../terminal/main.zig");
 const renderer = @import("../renderer.zig");
 const math = @import("../math.zig");
 const Surface = @import("../Surface.zig");
+const link = @import("link.zig");
+const shadertoy = @import("shadertoy.zig");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
 const Terminal = terminal.Terminal;
 
 const mtl = @import("metal/api.zig");
 const mtl_buffer = @import("metal/buffer.zig");
 const mtl_image = @import("metal/image.zig");
+const mtl_sampler = @import("metal/sampler.zig");
 const mtl_shaders = @import("metal/shaders.zig");
 const Image = mtl_image.Image;
 const ImageMap = mtl_image.ImageMap;
@@ -64,6 +69,22 @@ padding: renderer.Options.Padding,
 /// True if the window is focused
 focused: bool,
 
+/// The actual foreground color. May differ from the config foreground color if
+/// changed by a terminal application
+foreground_color: terminal.color.RGB,
+
+/// The actual background color. May differ from the config background color if
+/// changed by a terminal application
+background_color: terminal.color.RGB,
+
+/// The actual cursor color. May differ from the config cursor color if changed
+/// by a terminal application
+cursor_color: ?terminal.color.RGB,
+
+/// The current frame background color. This is only updated during
+/// the updateFrame method.
+current_background_color: terminal.color.RGB,
+
 /// The current set of cells to render. This is rebuilt on every frame
 /// but we keep this around so that we don't reallocate. Each set of
 /// cells goes into a separate shader.
@@ -96,12 +117,31 @@ swapchain: objc.Object, // CAMetalLayer
 texture_greyscale: objc.Object, // MTLTexture
 texture_color: objc.Object, // MTLTexture
 
+/// Custom shader state. This is only set if we have custom shaders.
+custom_shader_state: ?CustomShaderState = null,
+
+pub const CustomShaderState = struct {
+    /// The screen texture that we render the terminal to. If we don't have
+    /// custom shaders, we render directly to the drawable.
+    screen_texture: objc.Object, // MTLTexture
+    sampler: mtl_sampler.Sampler,
+    uniforms: mtl_shaders.PostUniforms,
+    last_frame_time: std.time.Instant,
+
+    pub fn deinit(self: *CustomShaderState) void {
+        deinitMTLResource(self.screen_texture);
+        self.sampler.deinit();
+    }
+};
+
 /// The configuration for this renderer that is derived from the main
 /// configuration. This must be exported so that we don't need to
 /// pass around Config pointers which makes memory management a pain.
 pub const DerivedConfig = struct {
+    arena: ArenaAllocator,
+
     font_thicken: bool,
-    font_features: std.ArrayList([]const u8),
+    font_features: std.ArrayListUnmanaged([]const u8),
     font_styles: font.Group.StyleStatus,
     cursor_color: ?terminal.color.RGB,
     cursor_opacity: f64,
@@ -111,23 +151,36 @@ pub const DerivedConfig = struct {
     foreground: terminal.color.RGB,
     selection_background: ?terminal.color.RGB,
     selection_foreground: ?terminal.color.RGB,
+    invert_selection_fg_bg: bool,
+    custom_shaders: std.ArrayListUnmanaged([]const u8),
+    custom_shader_animation: bool,
+    links: link.Set,
 
     pub fn init(
         alloc_gpa: Allocator,
         config: *const configpkg.Config,
     ) !DerivedConfig {
+        var arena = ArenaAllocator.init(alloc_gpa);
+        errdefer arena.deinit();
+        const alloc = arena.allocator();
+
+        // Copy our shaders
+        const custom_shaders = try config.@"custom-shader".value.list.clone(alloc);
+
         // Copy our font features
-        var font_features = features: {
-            var clone = try config.@"font-feature".list.clone(alloc_gpa);
-            break :features clone.toManaged(alloc_gpa);
-        };
-        errdefer font_features.deinit();
+        const font_features = try config.@"font-feature".list.clone(alloc);
 
         // Get our font styles
         var font_styles = font.Group.StyleStatus.initFill(true);
         font_styles.set(.bold, config.@"font-style-bold" != .false);
         font_styles.set(.italic, config.@"font-style-italic" != .false);
         font_styles.set(.bold_italic, config.@"font-style-bold-italic" != .false);
+
+        // Our link configs
+        const links = try link.Set.fromConfig(
+            alloc,
+            config.link.links.items,
+        );
 
         return .{
             .background_opacity = @max(0, @min(1, config.@"background-opacity")),
@@ -149,6 +202,7 @@ pub const DerivedConfig = struct {
 
             .background = config.background.toTerminalRGB(),
             .foreground = config.foreground.toTerminalRGB(),
+            .invert_selection_fg_bg = config.@"selection-invert-fg-bg",
 
             .selection_background = if (config.@"selection-background") |bg|
                 bg.toTerminalRGB()
@@ -159,11 +213,19 @@ pub const DerivedConfig = struct {
                 bg.toTerminalRGB()
             else
                 null,
+
+            .custom_shaders = custom_shaders,
+            .custom_shader_animation = config.@"custom-shader-animation",
+            .links = links,
+
+            .arena = arena,
         };
     }
 
     pub fn deinit(self: *DerivedConfig) void {
-        self.font_features.deinit();
+        const alloc = self.arena.allocator();
+        self.links.deinit(alloc);
+        self.arena.deinit();
     }
 };
 
@@ -185,11 +247,15 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
 }
 
 pub fn init(alloc: Allocator, options: renderer.Options) !Metal {
+    var arena = ArenaAllocator.init(alloc);
+    defer arena.deinit();
+    const arena_alloc = arena.allocator();
+
     // Initialize our metal stuff
     const device = objc.Object.fromId(mtl.MTLCreateSystemDefaultDevice());
     const queue = device.msgSend(objc.Object, objc.sel("newCommandQueue"), .{});
     const swapchain = swapchain: {
-        const CAMetalLayer = objc.Class.getClass("CAMetalLayer").?;
+        const CAMetalLayer = objc.getClass("CAMetalLayer").?;
         const swapchain = CAMetalLayer.msgSend(objc.Object, objc.sel("layer"), .{});
         swapchain.setProperty("device", device.value);
         swapchain.setProperty("opaque", options.config.background_opacity >= 1);
@@ -238,9 +304,50 @@ pub fn init(alloc: Allocator, options: renderer.Options) !Metal {
     });
     errdefer buf_instance.deinit();
 
+    // Load our custom shaders
+    const custom_shaders: []const [:0]const u8 = shadertoy.loadFromFiles(
+        arena_alloc,
+        options.config.custom_shaders.items,
+        .msl,
+    ) catch |err| err: {
+        log.warn("error loading custom shaders err={}", .{err});
+        break :err &.{};
+    };
+
+    // If we have custom shaders then setup our state
+    var custom_shader_state: ?CustomShaderState = state: {
+        if (custom_shaders.len == 0) break :state null;
+
+        // Build our sampler for our texture
+        var sampler = try mtl_sampler.Sampler.init(device);
+        errdefer sampler.deinit();
+
+        break :state .{
+            // Resolution and screen texture will be fixed up by first
+            // call to setScreenSize. This happens before any draw call.
+            .screen_texture = undefined,
+            .sampler = sampler,
+            .uniforms = .{
+                .resolution = .{ 0, 0, 1 },
+                .time = 1,
+                .time_delta = 1,
+                .frame_rate = 1,
+                .frame = 1,
+                .channel_time = [1][4]f32{.{ 0, 0, 0, 0 }} ** 4,
+                .channel_resolution = [1][4]f32{.{ 0, 0, 0, 0 }} ** 4,
+                .mouse = .{ 0, 0, 0, 0 },
+                .date = .{ 0, 0, 0, 0 },
+                .sample_rate = 1,
+            },
+
+            .last_frame_time = try std.time.Instant.now(),
+        };
+    };
+    errdefer if (custom_shader_state) |*state| state.deinit();
+
     // Initialize our shaders
-    var shaders = try Shaders.init(device);
-    errdefer shaders.deinit();
+    var shaders = try Shaders.init(alloc, device, custom_shaders);
+    errdefer shaders.deinit(alloc);
 
     // Font atlas textures
     const texture_greyscale = try initAtlasTexture(device, &options.font_group.atlas_greyscale);
@@ -254,6 +361,10 @@ pub fn init(alloc: Allocator, options: renderer.Options) !Metal {
         .screen_size = null,
         .padding = options.padding,
         .focused = true,
+        .foreground_color = options.config.foreground,
+        .background_color = options.config.background,
+        .cursor_color = options.config.cursor_color,
+        .current_background_color = options.config.background,
 
         // Render state
         .cells_bg = .{},
@@ -281,6 +392,7 @@ pub fn init(alloc: Allocator, options: renderer.Options) !Metal {
         .swapchain = swapchain,
         .texture_greyscale = texture_greyscale,
         .texture_color = texture_color,
+        .custom_shader_state = custom_shader_state,
     };
 }
 
@@ -306,7 +418,9 @@ pub fn deinit(self: *Metal) void {
     deinitMTLResource(self.texture_color);
     self.queue.msgSend(void, objc.sel("release"), .{});
 
-    self.shaders.deinit();
+    if (self.custom_shader_state) |*state| state.deinit();
+
+    self.shaders.deinit(self.alloc);
 
     self.* = undefined;
 }
@@ -365,6 +479,13 @@ pub fn threadExit(self: *const Metal) void {
     _ = self;
 
     // Metal requires no per-thread state.
+}
+
+/// True if our renderer has animations so that a higher frequency
+/// timer is used.
+pub fn hasAnimations(self: *const Metal) bool {
+    return self.custom_shader_state != null and
+        self.config.custom_shader_animation;
 }
 
 /// Returns the grid size for a given screen size. This is safe to call
@@ -431,8 +552,8 @@ pub fn setFontSize(self: *Metal, size: font.face.DesiredSize) !void {
     }, .{ .forever = {} });
 }
 
-/// The primary render callback that is completely thread-safe.
-pub fn render(
+/// Update the frame data.
+pub fn updateFrame(
     self: *Metal,
     surface: *apprt.Surface,
     state: *renderer.State,
@@ -445,6 +566,7 @@ pub fn render(
         bg: terminal.color.RGB,
         selection: ?terminal.Selection,
         screen: terminal.Screen,
+        mouse: renderer.State.Mouse,
         preedit: ?renderer.State.Preedit,
         cursor_style: ?renderer.CursorStyle,
     };
@@ -461,15 +583,15 @@ pub fn render(
         }
 
         // Swap bg/fg if the terminal is reversed
-        const bg = self.config.background;
-        const fg = self.config.foreground;
+        const bg = self.background_color;
+        const fg = self.foreground_color;
         defer {
-            self.config.background = bg;
-            self.config.foreground = fg;
+            self.background_color = bg;
+            self.foreground_color = fg;
         }
         if (state.terminal.modes.get(.reverse_colors)) {
-            self.config.background = fg;
-            self.config.foreground = bg;
+            self.background_color = fg;
+            self.foreground_color = bg;
         }
 
         // We used to share terminal state, but we've since learned through
@@ -509,39 +631,27 @@ pub fn render(
         }
 
         break :critical .{
-            .bg = self.config.background,
+            .bg = self.background_color,
             .selection = selection,
             .screen = screen_copy,
+            .mouse = state.mouse,
             .preedit = if (cursor_style != null) state.preedit else null,
             .cursor_style = cursor_style,
         };
     };
     defer critical.screen.deinit();
 
-    // @autoreleasepool {}
-    const pool = objc.AutoreleasePool.init();
-    defer pool.deinit();
-
     // Build our GPU cells
     try self.rebuildCells(
         critical.selection,
         &critical.screen,
+        critical.mouse,
         critical.preedit,
         critical.cursor_style,
     );
 
-    // Get our drawable (CAMetalDrawable)
-    const drawable = self.swapchain.msgSend(objc.Object, objc.sel("nextDrawable"), .{});
-
-    // If our font atlas changed, sync the texture data
-    if (self.font_group.atlas_greyscale.modified) {
-        try syncAtlasTexture(self.device, &self.font_group.atlas_greyscale, &self.texture_greyscale);
-        self.font_group.atlas_greyscale.modified = false;
-    }
-    if (self.font_group.atlas_color.modified) {
-        try syncAtlasTexture(self.device, &self.font_group.atlas_color, &self.texture_color);
-        self.font_group.atlas_color.modified = false;
-    }
+    // Update our background color
+    self.current_background_color = critical.bg;
 
     // Go through our images and see if we need to setup any textures.
     {
@@ -563,6 +673,45 @@ pub fn render(
             }
         }
     }
+}
+
+/// Draw the frame to the screen.
+pub fn drawFrame(self: *Metal, surface: *apprt.Surface) !void {
+    _ = surface;
+
+    // If we have custom shaders, update the animation time.
+    if (self.custom_shader_state) |*state| {
+        const now = std.time.Instant.now() catch state.last_frame_time;
+        const since_ns: f32 = @floatFromInt(now.since(state.last_frame_time));
+        state.uniforms.time = since_ns / std.time.ns_per_s;
+        state.uniforms.time_delta = since_ns / std.time.ns_per_s;
+    }
+
+    // @autoreleasepool {}
+    const pool = objc.AutoreleasePool.init();
+    defer pool.deinit();
+
+    // Get our drawable (CAMetalDrawable)
+    const drawable = self.swapchain.msgSend(objc.Object, objc.sel("nextDrawable"), .{});
+
+    // Get our screen texture. If we don't have a dedicated screen texture
+    // then we just use the drawable texture.
+    const screen_texture = if (self.custom_shader_state) |state|
+        state.screen_texture
+    else tex: {
+        const texture = drawable.msgSend(objc.c.id, objc.sel("texture"), .{});
+        break :tex objc.Object.fromId(texture);
+    };
+
+    // If our font atlas changed, sync the texture data
+    if (self.font_group.atlas_greyscale.modified) {
+        try syncAtlasTexture(self.device, &self.font_group.atlas_greyscale, &self.texture_greyscale);
+        self.font_group.atlas_greyscale.modified = false;
+    }
+    if (self.font_group.atlas_color.modified) {
+        try syncAtlasTexture(self.device, &self.font_group.atlas_color, &self.texture_color);
+        self.font_group.atlas_color.modified = false;
+    }
 
     // Command buffer (MTLCommandBuffer)
     const buffer = self.queue.msgSend(objc.Object, objc.sel("commandBuffer"), .{});
@@ -570,7 +719,71 @@ pub fn render(
     {
         // MTLRenderPassDescriptor
         const desc = desc: {
-            const MTLRenderPassDescriptor = objc.Class.getClass("MTLRenderPassDescriptor").?;
+            const MTLRenderPassDescriptor = objc.getClass("MTLRenderPassDescriptor").?;
+            const desc = MTLRenderPassDescriptor.msgSend(
+                objc.Object,
+                objc.sel("renderPassDescriptor"),
+                .{},
+            );
+
+            // Set our color attachment to be our drawable surface.
+            const attachments = objc.Object.fromId(desc.getProperty(?*anyopaque, "colorAttachments"));
+            {
+                const attachment = attachments.msgSend(
+                    objc.Object,
+                    objc.sel("objectAtIndexedSubscript:"),
+                    .{@as(c_ulong, 0)},
+                );
+
+                // Texture is a property of CAMetalDrawable but if you run
+                // Ghostty in XCode in debug mode it returns a CaptureMTLDrawable
+                // which ironically doesn't implement CAMetalDrawable as a
+                // property so we just send a message.
+                //const texture = drawable.msgSend(objc.c.id, objc.sel("texture"), .{});
+                attachment.setProperty("loadAction", @intFromEnum(mtl.MTLLoadAction.clear));
+                attachment.setProperty("storeAction", @intFromEnum(mtl.MTLStoreAction.store));
+                attachment.setProperty("texture", screen_texture.value);
+                attachment.setProperty("clearColor", mtl.MTLClearColor{
+                    .red = @as(f32, @floatFromInt(self.current_background_color.r)) / 255,
+                    .green = @as(f32, @floatFromInt(self.current_background_color.g)) / 255,
+                    .blue = @as(f32, @floatFromInt(self.current_background_color.b)) / 255,
+                    .alpha = self.config.background_opacity,
+                });
+            }
+
+            break :desc desc;
+        };
+
+        // MTLRenderCommandEncoder
+        const encoder = buffer.msgSend(
+            objc.Object,
+            objc.sel("renderCommandEncoderWithDescriptor:"),
+            .{desc.value},
+        );
+        defer encoder.msgSend(void, objc.sel("endEncoding"), .{});
+
+        // Draw background images first
+        try self.drawImagePlacements(encoder, self.image_placements.items[0..self.image_bg_end]);
+
+        // Then draw background cells
+        try self.drawCells(encoder, &self.buf_cells_bg, self.cells_bg);
+
+        // Then draw images under text
+        try self.drawImagePlacements(encoder, self.image_placements.items[self.image_bg_end..self.image_text_end]);
+
+        // Then draw fg cells
+        try self.drawCells(encoder, &self.buf_cells, self.cells);
+
+        // Then draw remaining images
+        try self.drawImagePlacements(encoder, self.image_placements.items[self.image_text_end..]);
+    }
+
+    // If we have custom shaders AND we have a screen texture, then we
+    // render the custom shaders.
+    if (self.custom_shader_state) |state| {
+        // MTLRenderPassDescriptor
+        const desc = desc: {
+            const MTLRenderPassDescriptor = objc.getClass("MTLRenderPassDescriptor").?;
             const desc = MTLRenderPassDescriptor.msgSend(
                 objc.Object,
                 objc.sel("renderPassDescriptor"),
@@ -595,10 +808,10 @@ pub fn render(
                 attachment.setProperty("storeAction", @intFromEnum(mtl.MTLStoreAction.store));
                 attachment.setProperty("texture", texture);
                 attachment.setProperty("clearColor", mtl.MTLClearColor{
-                    .red = @as(f32, @floatFromInt(critical.bg.r)) / 255,
-                    .green = @as(f32, @floatFromInt(critical.bg.g)) / 255,
-                    .blue = @as(f32, @floatFromInt(critical.bg.b)) / 255,
-                    .alpha = self.config.background_opacity,
+                    .red = 0,
+                    .green = 0,
+                    .blue = 0,
+                    .alpha = 1,
                 });
             }
 
@@ -613,24 +826,68 @@ pub fn render(
         );
         defer encoder.msgSend(void, objc.sel("endEncoding"), .{});
 
-        // Draw background images first
-        try self.drawImagePlacements(encoder, self.image_placements.items[0..self.image_bg_end]);
-
-        // Then draw background cells
-        try self.drawCells(encoder, &self.buf_cells_bg, self.cells_bg);
-
-        // Then draw images under text
-        try self.drawImagePlacements(encoder, self.image_placements.items[0..self.image_text_end]);
-
-        // Then draw fg cells
-        try self.drawCells(encoder, &self.buf_cells, self.cells);
-
-        // Then draw remaining images
-        try self.drawImagePlacements(encoder, self.image_placements.items[self.image_text_end..]);
+        for (self.shaders.post_pipelines) |pipeline| {
+            try self.drawPostShader(encoder, pipeline, &state);
+        }
     }
 
     buffer.msgSend(void, objc.sel("presentDrawable:"), .{drawable.value});
     buffer.msgSend(void, objc.sel("commit"), .{});
+}
+
+fn drawPostShader(
+    self: *Metal,
+    encoder: objc.Object,
+    pipeline: objc.Object,
+    state: *const CustomShaderState,
+) !void {
+    _ = self;
+
+    // Use our custom shader pipeline
+    encoder.msgSend(
+        void,
+        objc.sel("setRenderPipelineState:"),
+        .{pipeline.value},
+    );
+
+    // Set our sampler
+    encoder.msgSend(
+        void,
+        objc.sel("setFragmentSamplerState:atIndex:"),
+        .{ state.sampler.sampler.value, @as(c_ulong, 0) },
+    );
+
+    // Set our uniforms
+    encoder.msgSend(
+        void,
+        objc.sel("setFragmentBytes:length:atIndex:"),
+        .{
+            @as(*const anyopaque, @ptrCast(&state.uniforms)),
+            @as(c_ulong, @sizeOf(@TypeOf(state.uniforms))),
+            @as(c_ulong, 0),
+        },
+    );
+
+    // Screen texture
+    encoder.msgSend(
+        void,
+        objc.sel("setFragmentTexture:atIndex:"),
+        .{
+            state.screen_texture.value,
+            @as(c_ulong, 0),
+        },
+    );
+
+    // Draw!
+    encoder.msgSend(
+        void,
+        objc.sel("drawPrimitives:vertexStart:vertexCount:"),
+        .{
+            @intFromEnum(mtl.MTLPrimitiveType.triangle_strip),
+            @as(c_ulong, 0),
+            @as(c_ulong, 4),
+        },
+    );
 }
 
 fn drawImagePlacements(
@@ -971,6 +1228,9 @@ fn prepKittyGraphics(
             self.image_text_end = @intCast(i);
         }
     }
+    if (self.image_text_end == 0) {
+        self.image_text_end = @intCast(self.image_placements.items.len);
+    }
 }
 
 /// Update the configuration.
@@ -1053,6 +1313,51 @@ pub fn setScreenSize(
     self.cells.clearAndFree(self.alloc);
     self.cells_bg.clearAndFree(self.alloc);
 
+    // If we have custom shaders then we update the state
+    if (self.custom_shader_state) |*state| {
+        // Only free our previous texture if this isn't our first
+        // time setting the custom shader state.
+        if (state.uniforms.resolution[0] > 0) {
+            deinitMTLResource(state.screen_texture);
+        }
+
+        state.uniforms.resolution = .{
+            @floatFromInt(dim.width),
+            @floatFromInt(dim.height),
+            1,
+        };
+
+        state.screen_texture = screen_texture: {
+            // This texture is the size of our drawable but supports being a
+            // render target AND reading so that the custom shaders can read from it.
+            const desc = init: {
+                const Class = objc.getClass("MTLTextureDescriptor").?;
+                const id_alloc = Class.msgSend(objc.Object, objc.sel("alloc"), .{});
+                const id_init = id_alloc.msgSend(objc.Object, objc.sel("init"), .{});
+                break :init id_init;
+            };
+            desc.setProperty("pixelFormat", @intFromEnum(mtl.MTLPixelFormat.bgra8unorm));
+            desc.setProperty("width", @as(c_ulong, @intCast(dim.width)));
+            desc.setProperty("height", @as(c_ulong, @intCast(dim.height)));
+            desc.setProperty(
+                "usage",
+                @intFromEnum(mtl.MTLTextureUsage.render_target) |
+                    @intFromEnum(mtl.MTLTextureUsage.shader_read) |
+                    @intFromEnum(mtl.MTLTextureUsage.shader_write),
+            );
+
+            // If we fail to create the texture, then we just don't have a screen
+            // texture and our custom shaders won't run.
+            const id = self.device.msgSend(
+                ?*anyopaque,
+                objc.sel("newTextureWithDescriptor:"),
+                .{desc},
+            ) orelse return error.MetalFailed;
+
+            break :screen_texture objc.Object.fromId(id);
+        };
+    }
+
     log.debug("screen size screen={} grid={}, cell={}", .{ dim, grid_size, self.cell_size });
 }
 
@@ -1063,6 +1368,7 @@ fn rebuildCells(
     self: *Metal,
     term_selection: ?terminal.Selection,
     screen: *terminal.Screen,
+    mouse: renderer.State.Mouse,
     preedit: ?renderer.State.Preedit,
     cursor_style_: ?renderer.CursorStyle,
 ) !void {
@@ -1079,6 +1385,30 @@ fn rebuildCells(
         // + 1 for cursor
         (screen.rows * screen.cols * 2) + 1,
     );
+
+    // Create an arena for all our temporary allocations while rebuilding
+    var arena = ArenaAllocator.init(self.alloc);
+    defer arena.deinit();
+    const arena_alloc = arena.allocator();
+
+    // Create our match set for the links.
+    var link_match_set = try self.config.links.matchSet(
+        arena_alloc,
+        screen,
+        mouse.point orelse .{},
+    );
+
+    // Determine our x/y range for preedit. We don't want to render anything
+    // here because we will render the preedit separately.
+    const preedit_range: ?struct {
+        y: usize,
+        x: [2]usize,
+    } = if (preedit) |preedit_v| preedit: {
+        break :preedit .{
+            .y = screen.cursor.y,
+            .x = preedit_v.range(screen.cursor.x, screen.cols - 1),
+        };
+    } else null;
 
     // This is the cell that has [mode == .fg] and is underneath our cursor.
     // We keep track of it so that we can invert the colors so the character
@@ -1160,10 +1490,39 @@ fn rebuildCells(
         );
         while (try iter.next(self.alloc)) |run| {
             for (try self.font_shaper.shape(run)) |shaper_cell| {
+                // If this cell falls within our preedit range then we skip it.
+                // We do this so we don't have conflicting data on the same
+                // cell.
+                if (preedit_range) |range| {
+                    if (range.y == y and
+                        shaper_cell.x >= range.x[0] and
+                        shaper_cell.x <= range.x[1])
+                    {
+                        continue;
+                    }
+                }
+
+                // It this cell is within our hint range then we need to
+                // underline it.
+                const cell: terminal.Screen.Cell = cell: {
+                    var cell = row.getCell(shaper_cell.x);
+
+                    // If our links contain this cell then we want to
+                    // underline it.
+                    if (link_match_set.orderedContains(.{
+                        .x = shaper_cell.x,
+                        .y = y,
+                    })) {
+                        cell.attrs.underline = .single;
+                    }
+
+                    break :cell cell;
+                };
+
                 if (self.updateCell(
                     term_selection,
                     screen,
-                    row.getCell(shaper_cell.x),
+                    cell,
                     shaper_cell,
                     run,
                     shaper_cell.x,
@@ -1187,29 +1546,29 @@ fn rebuildCells(
     // Add the cursor at the end so that it overlays everything. If we have
     // a cursor cell then we invert the colors on that and add it in so
     // that we can always see it.
-    if (cursor_style_) |cursor_style| {
-        const real_cursor_cell = self.addCursor(screen, cursor_style);
-
+    if (cursor_style_) |cursor_style| cursor_style: {
         // If we have a preedit, we try to render the preedit text on top
         // of the cursor.
-        if (preedit) |preedit_v| preedit: {
-            if (preedit_v.codepoint > 0) {
-                // We try to base on the cursor cell but if its not there
-                // we use the actual cursor and if thats not there we give
-                // up on preedit rendering.
-                var cell: mtl_shaders.Cell = cursor_cell orelse
-                    (real_cursor_cell orelse break :preedit).*;
-                cell.color = .{ 0, 0, 0, 255 };
+        if (preedit) |preedit_v| {
+            const range = preedit_range.?;
+            var x = range.x[0];
+            for (preedit_v.codepoints[0..preedit_v.len]) |cp| {
+                self.addPreeditCell(cp, x, range.y) catch |err| {
+                    log.warn("error building preedit cell, will be invalid x={} y={}, err={}", .{
+                        x,
+                        range.y,
+                        err,
+                    });
+                };
 
-                // If preedit rendering succeeded then we don't want to
-                // re-render the underlying cell fg
-                if (self.updateCellChar(&cell, preedit_v.codepoint)) {
-                    cursor_cell = null;
-                    self.cells.appendAssumeCapacity(cell);
-                }
+                x += if (cp.wide) 2 else 1;
             }
+
+            // Preedit hides the cursor
+            break :cursor_style;
         }
 
+        _ = self.addCursor(screen, cursor_style);
         if (cursor_cell) |*cell| {
             if (cell.mode == .fg) {
                 cell.color = if (self.config.cursor_text) |txt|
@@ -1265,31 +1624,39 @@ pub fn updateCell(
 
     // The colors for the cell.
     const colors: BgFg = colors: {
-        // If we are selected, we our colors are just inverted fg/bg
-        var selection_res: ?BgFg = if (selected) .{
-            .bg = self.config.selection_background orelse self.config.foreground,
-            .fg = self.config.selection_foreground orelse self.config.background,
-        } else null;
-
-        const res: BgFg = selection_res orelse if (!cell.attrs.inverse) .{
+        // The normal cell result
+        const cell_res: BgFg = if (!cell.attrs.inverse) .{
             // In normal mode, background and fg match the cell. We
             // un-optionalize the fg by defaulting to our fg color.
             .bg = if (cell.attrs.has_bg) cell.bg else null,
-            .fg = if (cell.attrs.has_fg) cell.fg else self.config.foreground,
+            .fg = if (cell.attrs.has_fg) cell.fg else self.foreground_color,
         } else .{
             // In inverted mode, the background MUST be set to something
             // (is never null) so it is either the fg or default fg. The
             // fg is either the bg or default background.
-            .bg = if (cell.attrs.has_fg) cell.fg else self.config.foreground,
-            .fg = if (cell.attrs.has_bg) cell.bg else self.config.background,
+            .bg = if (cell.attrs.has_fg) cell.fg else self.foreground_color,
+            .fg = if (cell.attrs.has_bg) cell.bg else self.background_color,
         };
+
+        // If we are selected, we our colors are just inverted fg/bg
+        const selection_res: ?BgFg = if (selected) .{
+            .bg = if (self.config.invert_selection_fg_bg)
+                cell_res.fg
+            else
+                self.config.selection_background orelse self.foreground_color,
+            .fg = if (self.config.invert_selection_fg_bg)
+                cell_res.bg orelse self.background_color
+            else
+                self.config.selection_foreground orelse self.background_color,
+        } else null;
 
         // If the cell is "invisible" then we just make fg = bg so that
         // the cell is transparent but still copy-able.
+        const res: BgFg = selection_res orelse cell_res;
         if (cell.attrs.invisible) {
             break :colors BgFg{
                 .bg = res.bg,
-                .fg = res.bg orelse self.config.background,
+                .fg = res.bg orelse self.background_color,
             };
         }
 
@@ -1306,22 +1673,24 @@ pub fn updateCell(
         // in an attempt to make transparency look the best for various
         // situations. See inline comments.
         const bg_alpha: u8 = bg_alpha: {
-            if (self.config.background_opacity >= 1) break :bg_alpha alpha;
+            const default: u8 = 255;
+
+            if (self.config.background_opacity >= 1) break :bg_alpha default;
 
             // If we're selected, we do not apply background opacity
-            if (selected) break :bg_alpha alpha;
+            if (selected) break :bg_alpha default;
 
             // If we're reversed, do not apply background opacity
-            if (cell.attrs.inverse) break :bg_alpha alpha;
+            if (cell.attrs.inverse) break :bg_alpha default;
 
             // If we have a background and its not the default background
             // then we apply background opacity
-            if (cell.attrs.has_bg and !std.meta.eql(rgb, self.config.background)) {
-                break :bg_alpha alpha;
+            if (cell.attrs.has_bg and !std.meta.eql(rgb, self.background_color)) {
+                break :bg_alpha default;
             }
 
             // We apply background opacity.
-            var bg_alpha: f64 = @floatFromInt(alpha);
+            var bg_alpha: f64 = @floatFromInt(default);
             bg_alpha *= self.config.background_opacity;
             bg_alpha = @ceil(bg_alpha);
             break :bg_alpha @intFromFloat(bg_alpha);
@@ -1415,7 +1784,7 @@ fn addCursor(
 ) ?*const mtl_shaders.Cell {
     // Add the cursor. We render the cursor over the wide character if
     // we're on the wide characer tail.
-    const cell, const x = cell: {
+    const wide, const x = cell: {
         // The cursor goes over the screen cursor position.
         const cell = screen.getCell(
             .active,
@@ -1423,7 +1792,7 @@ fn addCursor(
             screen.cursor.x,
         );
         if (!cell.attrs.wide_spacer_tail or screen.cursor.x == 0)
-            break :cell .{ cell, screen.cursor.x };
+            break :cell .{ cell.attrs.wide, screen.cursor.x };
 
         // If we're part of a wide character, we move the cursor back to
         // the actual character.
@@ -1431,10 +1800,10 @@ fn addCursor(
             .active,
             screen.cursor.y,
             screen.cursor.x - 1,
-        ), screen.cursor.x - 1 };
+        ).attrs.wide, screen.cursor.x - 1 };
     };
 
-    const color = self.config.cursor_color orelse self.config.foreground;
+    const color = self.cursor_color orelse self.foreground_color;
     const alpha: u8 = if (!self.focused) 255 else alpha: {
         const alpha = 255 * self.config.cursor_opacity;
         break :alpha @intFromFloat(@ceil(alpha));
@@ -1451,7 +1820,7 @@ fn addCursor(
         self.alloc,
         font.sprite_index,
         @intFromEnum(sprite),
-        .{ .cell_width = if (cell.attrs.wide) 2 else 1 },
+        .{ .cell_width = if (wide) 2 else 1 },
     ) catch |err| {
         log.warn("error rendering cursor glyph err={}", .{err});
         return null;
@@ -1463,7 +1832,7 @@ fn addCursor(
             @as(f32, @floatFromInt(x)),
             @as(f32, @floatFromInt(screen.cursor.y)),
         },
-        .cell_width = if (cell.attrs.wide) 2 else 1,
+        .cell_width = if (wide) 2 else 1,
         .color = .{ color.r, color.g, color.b, alpha },
         .glyph_pos = .{ glyph.atlas_x, glyph.atlas_y },
         .glyph_size = .{ glyph.width, glyph.height },
@@ -1473,25 +1842,32 @@ fn addCursor(
     return &self.cells.items[self.cells.items.len - 1];
 }
 
-/// Updates cell with the the given character. This returns true if the
-/// cell was successfully updated.
-fn updateCellChar(self: *Metal, cell: *mtl_shaders.Cell, cp: u21) bool {
-    // Get the font index for this codepoint
+fn addPreeditCell(
+    self: *Metal,
+    cp: renderer.State.Preedit.Codepoint,
+    x: usize,
+    y: usize,
+) !void {
+    // Preedit is rendered inverted
+    const bg = self.foreground_color;
+    const fg = self.background_color;
+
+    // Get the font for this codepoint.
     const font_index = if (self.font_group.indexForCodepoint(
         self.alloc,
-        @intCast(cp),
+        @intCast(cp.codepoint),
         .regular,
         .text,
-    )) |index| index orelse return false else |_| return false;
+    )) |index| index orelse return else |_| return;
 
     // Get the font face so we can get the glyph
     const face = self.font_group.group.faceFromIndex(font_index) catch |err| {
         log.warn("error getting face for font_index={} err={}", .{ font_index, err });
-        return false;
+        return;
     };
 
     // Use the face to now get the glyph index
-    const glyph_index = face.glyphIndex(@intCast(cp)) orelse return false;
+    const glyph_index = face.glyphIndex(@intCast(cp.codepoint)) orelse return;
 
     // Render the glyph for our preedit text
     const glyph = self.font_group.renderGlyph(
@@ -1501,14 +1877,27 @@ fn updateCellChar(self: *Metal, cell: *mtl_shaders.Cell, cp: u21) bool {
         .{},
     ) catch |err| {
         log.warn("error rendering preedit glyph err={}", .{err});
-        return false;
+        return;
     };
 
-    // Update the cell glyph
-    cell.glyph_pos = .{ glyph.atlas_x, glyph.atlas_y };
-    cell.glyph_size = .{ glyph.width, glyph.height };
-    cell.glyph_offset = .{ glyph.offset_x, glyph.offset_y };
-    return true;
+    // Add our opaque background cell
+    self.cells_bg.appendAssumeCapacity(.{
+        .mode = .bg,
+        .grid_pos = .{ @as(f32, @floatFromInt(x)), @as(f32, @floatFromInt(y)) },
+        .cell_width = if (cp.wide) 2 else 1,
+        .color = .{ bg.r, bg.g, bg.b, 255 },
+    });
+
+    // Add our text
+    self.cells.appendAssumeCapacity(.{
+        .mode = .fg,
+        .grid_pos = .{ @as(f32, @floatFromInt(x)), @as(f32, @floatFromInt(y)) },
+        .cell_width = if (cp.wide) 2 else 1,
+        .color = .{ fg.r, fg.g, fg.b, 255 },
+        .glyph_pos = .{ glyph.atlas_x, glyph.atlas_y },
+        .glyph_size = .{ glyph.width, glyph.height },
+        .glyph_offset = .{ glyph.offset_x, glyph.offset_y },
+    });
 }
 
 /// Sync the atlas data to the given texture. This copies the bytes
@@ -1554,7 +1943,7 @@ fn initAtlasTexture(device: objc.Object, atlas: *const font.Atlas) !objc.Object 
 
     // Create our descriptor
     const desc = init: {
-        const Class = objc.Class.getClass("MTLTextureDescriptor").?;
+        const Class = objc.getClass("MTLTextureDescriptor").?;
         const id_alloc = Class.msgSend(objc.Object, objc.sel("alloc"), .{});
         const id_init = id_alloc.msgSend(objc.Object, objc.sel("init"), .{});
         break :init id_init;

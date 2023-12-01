@@ -28,7 +28,7 @@ pub const Data = opaque {
 test {
     //const testing = std.testing;
 
-    var raw = "hello world";
+    const raw = "hello world";
     const data = try Data.createWithBytesNoCopy(raw);
     defer data.release();
 }

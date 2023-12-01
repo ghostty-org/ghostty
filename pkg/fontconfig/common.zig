@@ -89,7 +89,7 @@ pub const Property = enum {
 
                     // Build our string
                     var name: [replaced.len:0]u8 = undefined;
-                    std.mem.copy(u8, &name, replaced);
+                    @memcpy(&name, replaced);
                     name[replaced.len] = 0;
                     break :name &name;
                 };

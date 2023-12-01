@@ -9,6 +9,7 @@ Keywords=terminal;tty;pty;
 StartupNotify=true
 Terminal=false
 Actions=new-window;
+X-GNOME-UsesNotifications=true
 
 [Desktop Action new-window]
 Name=New Window

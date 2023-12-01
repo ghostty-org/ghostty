@@ -302,7 +302,7 @@ pub const Face = struct {
         }
 
         // Set our context font
-        var font_val = try std.fmt.allocPrint(
+        const font_val = try std.fmt.allocPrint(
             self.alloc,
             "{d}px {s}",
             .{ self.size.points, self.font_str },
@@ -450,7 +450,7 @@ pub const Face = struct {
 
             // Allocate our local memory to copy the data to.
             const len = try src_array.get(u32, "length");
-            var bitmap = try alloc.alloc(u8, @intCast(len));
+            const bitmap = try alloc.alloc(u8, @intCast(len));
             errdefer alloc.free(bitmap);
 
             // Create our target Uint8Array that we can use to copy from src.
@@ -506,7 +506,7 @@ pub const Wasm = struct {
         );
         errdefer face.deinit();
 
-        var result = try alloc.create(Face);
+        const result = try alloc.create(Face);
         errdefer alloc.destroy(result);
         result.* = face;
         return result;

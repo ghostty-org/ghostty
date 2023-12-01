@@ -34,15 +34,16 @@
 		A59FB5D12AE0DEA7009128F3 /* MetalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59FB5D02AE0DEA7009128F3 /* MetalView.swift */; };
 		A5A1F8852A489D6800D1E8BC /* terminfo in Resources */ = {isa = PBXBuildFile; fileRef = A5A1F8842A489D6800D1E8BC /* terminfo */; };
 		A5B30539299BEAAB0047F10C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5B30538299BEAAB0047F10C /* Assets.xcassets */; };
+		A5CB04382B0F1C1C009ED217 /* themes in Resources */ = {isa = PBXBuildFile; fileRef = A5CB04372B0F1C1C009ED217 /* themes */; };
 		A5CDF1912AAF9A5800513312 /* ConfigurationErrors.xib in Resources */ = {isa = PBXBuildFile; fileRef = A5CDF1902AAF9A5800513312 /* ConfigurationErrors.xib */; };
 		A5CDF1932AAF9E0800513312 /* ConfigurationErrorsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5CDF1922AAF9E0800513312 /* ConfigurationErrorsController.swift */; };
 		A5CDF1952AAFA19600513312 /* ConfigurationErrorsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5CDF1942AAFA19600513312 /* ConfigurationErrorsView.swift */; };
 		A5CEAFDC29B8009000646FDA /* SplitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5CEAFDB29B8009000646FDA /* SplitView.swift */; };
 		A5CEAFDE29B8058B00646FDA /* SplitView.Divider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5CEAFDD29B8058B00646FDA /* SplitView.Divider.swift */; };
 		A5CEAFFF29C2410700646FDA /* Backport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5CEAFFE29C2410700646FDA /* Backport.swift */; };
-		A5E112932AF73E6E00C6E0C2 /* PasteProtection.xib in Resources */ = {isa = PBXBuildFile; fileRef = A5E112922AF73E6E00C6E0C2 /* PasteProtection.xib */; };
-		A5E112952AF73E8A00C6E0C2 /* PasteProtectionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E112942AF73E8A00C6E0C2 /* PasteProtectionController.swift */; };
-		A5E112972AF7401B00C6E0C2 /* PasteProtectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E112962AF7401B00C6E0C2 /* PasteProtectionView.swift */; };
+		A5E112932AF73E6E00C6E0C2 /* ClipboardConfirmation.xib in Resources */ = {isa = PBXBuildFile; fileRef = A5E112922AF73E6E00C6E0C2 /* ClipboardConfirmation.xib */; };
+		A5E112952AF73E8A00C6E0C2 /* ClipboardConfirmationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E112942AF73E8A00C6E0C2 /* ClipboardConfirmationController.swift */; };
+		A5E112972AF7401B00C6E0C2 /* ClipboardConfirmationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E112962AF7401B00C6E0C2 /* ClipboardConfirmationView.swift */; };
 		A5FEB3002ABB69450068369E /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FEB2FF2ABB69450068369E /* main.swift */; };
 /* End PBXBuildFile section */
 
@@ -76,6 +77,7 @@
 		A5B30531299BEAAA0047F10C /* Ghostty.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Ghostty.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A5B30538299BEAAB0047F10C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A5B3053D299BEAAB0047F10C /* Ghostty.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Ghostty.entitlements; sourceTree = "<group>"; };
+		A5CB04372B0F1C1C009ED217 /* themes */ = {isa = PBXFileReference; lastKnownFileType = folder; name = themes; path = "../zig-out/share/themes"; sourceTree = "<group>"; };
 		A5CDF1902AAF9A5800513312 /* ConfigurationErrors.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = ConfigurationErrors.xib; sourceTree = "<group>"; };
 		A5CDF1922AAF9E0800513312 /* ConfigurationErrorsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigurationErrorsController.swift; sourceTree = "<group>"; };
 		A5CDF1942AAFA19600513312 /* ConfigurationErrorsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigurationErrorsView.swift; sourceTree = "<group>"; };
@@ -83,9 +85,9 @@
 		A5CEAFDD29B8058B00646FDA /* SplitView.Divider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitView.Divider.swift; sourceTree = "<group>"; };
 		A5CEAFFE29C2410700646FDA /* Backport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Backport.swift; sourceTree = "<group>"; };
 		A5D495A1299BEC7E00DD1313 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = GhosttyKit.xcframework; sourceTree = "<group>"; };
-		A5E112922AF73E6E00C6E0C2 /* PasteProtection.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = PasteProtection.xib; sourceTree = "<group>"; };
-		A5E112942AF73E8A00C6E0C2 /* PasteProtectionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteProtectionController.swift; sourceTree = "<group>"; };
-		A5E112962AF7401B00C6E0C2 /* PasteProtectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteProtectionView.swift; sourceTree = "<group>"; };
+		A5E112922AF73E6E00C6E0C2 /* ClipboardConfirmation.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = ClipboardConfirmation.xib; sourceTree = "<group>"; };
+		A5E112942AF73E8A00C6E0C2 /* ClipboardConfirmationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardConfirmationController.swift; sourceTree = "<group>"; };
+		A5E112962AF7401B00C6E0C2 /* ClipboardConfirmationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardConfirmationView.swift; sourceTree = "<group>"; };
 		A5FEB2FF2ABB69450068369E /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -107,7 +109,7 @@
 			children = (
 				A56D58872ACDE6BE00508D2C /* Services */,
 				A59630982AEE1C4400D64628 /* Terminal */,
-				A5E112912AF73E4D00C6E0C2 /* Paste Protection */,
+				A5E112912AF73E4D00C6E0C2 /* ClipboardConfirmation */,
 				A534263E2A7DCC5800EBB7A2 /* Settings */,
 			);
 			path = Features;
@@ -198,6 +200,7 @@
 		A5B30528299BEAAA0047F10C = {
 			isa = PBXGroup;
 			children = (
+				A5CB04372B0F1C1C009ED217 /* themes */,
 				A571AB1C2A206FC600248498 /* Ghostty-Info.plist */,
 				A5B30538299BEAAB0047F10C /* Assets.xcassets */,
 				A5B3053D299BEAAB0047F10C /* Ghostty.entitlements */,
@@ -234,14 +237,14 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
-		A5E112912AF73E4D00C6E0C2 /* Paste Protection */ = {
+		A5E112912AF73E4D00C6E0C2 /* ClipboardConfirmation */ = {
 			isa = PBXGroup;
 			children = (
-				A5E112922AF73E6E00C6E0C2 /* PasteProtection.xib */,
-				A5E112942AF73E8A00C6E0C2 /* PasteProtectionController.swift */,
-				A5E112962AF7401B00C6E0C2 /* PasteProtectionView.swift */,
+				A5E112922AF73E6E00C6E0C2 /* ClipboardConfirmation.xib */,
+				A5E112942AF73E8A00C6E0C2 /* ClipboardConfirmationController.swift */,
+				A5E112962AF7401B00C6E0C2 /* ClipboardConfirmationView.swift */,
 			);
-			path = "Paste Protection";
+			path = ClipboardConfirmation;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -302,11 +305,12 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A5CB04382B0F1C1C009ED217 /* themes in Resources */,
 				A545D1A22A5772CE006E0AE4 /* shell-integration in Resources */,
 				A596309A2AEE1C6400D64628 /* Terminal.xib in Resources */,
 				A5A1F8852A489D6800D1E8BC /* terminfo in Resources */,
 				A5CDF1912AAF9A5800513312 /* ConfigurationErrors.xib in Resources */,
-				A5E112932AF73E6E00C6E0C2 /* PasteProtection.xib in Resources */,
+				A5E112932AF73E6E00C6E0C2 /* ClipboardConfirmation.xib in Resources */,
 				A5B30539299BEAAB0047F10C /* Assets.xcassets in Resources */,
 				857F63812A5E64F200CA4815 /* MainMenu.xib in Resources */,
 			);
@@ -342,11 +346,11 @@
 				A55685E029A03A9F004303CE /* AppError.swift in Sources */,
 				A535B9DA299C569B0017E2E4 /* ErrorView.swift in Sources */,
 				A5CEAFFF29C2410700646FDA /* Backport.swift in Sources */,
-				A5E112952AF73E8A00C6E0C2 /* PasteProtectionController.swift in Sources */,
+				A5E112952AF73E8A00C6E0C2 /* ClipboardConfirmationController.swift in Sources */,
 				8503D7C72A549C66006CFF3D /* FullScreenHandler.swift in Sources */,
 				A596309E2AEE1D6C00D64628 /* TerminalView.swift in Sources */,
 				A5CEAFDE29B8058B00646FDA /* SplitView.Divider.swift in Sources */,
-				A5E112972AF7401B00C6E0C2 /* PasteProtectionView.swift in Sources */,
+				A5E112972AF7401B00C6E0C2 /* ClipboardConfirmationView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

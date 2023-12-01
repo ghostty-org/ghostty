@@ -1,3 +1,4 @@
+const apprt = @import("../apprt.zig");
 const App = @import("../App.zig");
 const Surface = @import("../Surface.zig");
 const renderer = @import("../renderer.zig");
@@ -24,10 +25,13 @@ pub const Message = union(enum) {
     cell_size: renderer.CellSize,
 
     /// Read the clipboard and write to the pty.
-    clipboard_read: u8,
+    clipboard_read: apprt.Clipboard,
 
     /// Write the clipboard contents.
-    clipboard_write: WriteReq,
+    clipboard_write: struct {
+        clipboard_type: apprt.Clipboard,
+        req: WriteReq,
+    },
 
     /// Change the configuration to the given configuration. The pointer is
     /// not valid after receiving this message so any config must be used
@@ -41,6 +45,15 @@ pub const Message = union(enum) {
     /// The child process running in the surface has exited. This may trigger
     /// a surface close, it may not.
     child_exited: void,
+
+    /// Show a desktop notification.
+    desktop_notification: struct {
+        /// Desktop notification title.
+        title: [63:0]u8,
+
+        /// Desktop notification body.
+        body: [255:0]u8,
+    },
 };
 
 /// A surface mailbox.

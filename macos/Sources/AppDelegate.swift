@@ -1,8 +1,9 @@
 import AppKit
+import UserNotifications
 import OSLog
 import GhosttyKit
 
-class AppDelegate: NSObject, ObservableObject, NSApplicationDelegate, GhosttyAppStateDelegate {
+class AppDelegate: NSObject, ObservableObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, GhosttyAppStateDelegate {
     // The application logger. We should probably move this at some point to a dedicated
     // class/struct but for now it lives here! 🤷‍♂️
     static let logger = Logger(
@@ -87,6 +88,22 @@ class AppDelegate: NSObject, ObservableObject, NSApplicationDelegate, GhosttyApp
         // Register our service provider. This must happen after everything
         // else is initialized.
         NSApp.servicesProvider = ServiceProvider()
+
+        // Configure user notifications
+        let actions = [
+            UNNotificationAction(identifier: Ghostty.userNotificationActionShow, title: "Show")
+        ]
+
+        let center = UNUserNotificationCenter.current()
+        center.setNotificationCategories([
+            UNNotificationCategory(
+                identifier: Ghostty.userNotificationCategory,
+                actions: actions,
+                intentIdentifiers: [],
+                options: [.customDismissAction]
+            )
+        ])
+        center.delegate = self
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -248,7 +265,28 @@ class AppDelegate: NSObject, ObservableObject, NSApplicationDelegate, GhosttyApp
     private func focusedSurface() -> ghostty_surface_t? {
         return terminalManager.focusedSurface?.surface
     }
-    
+
+    //MARK: - UNUserNotificationCenterDelegate
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive: UNNotificationResponse,
+        withCompletionHandler: () -> Void
+    ) {
+        ghostty.handleUserNotification(response: didReceive)
+        withCompletionHandler()
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent: UNNotification,
+        withCompletionHandler: (UNNotificationPresentationOptions) -> Void
+    ) {
+        let shouldPresent = ghostty.shouldPresentNotification(notification: willPresent)
+        let options: UNNotificationPresentationOptions = shouldPresent ? [.banner, .sound] : []
+        withCompletionHandler(options)
+    }
+
     //MARK: - GhosttyAppStateDelegate
     
     func configDidReload(_ state: Ghostty.AppState) {

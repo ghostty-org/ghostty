@@ -69,12 +69,22 @@ grid_size: renderer.GridSize,
 /// it when a CSI q with default is called.
 default_cursor_style: terminal.Cursor.Style,
 default_cursor_blink: ?bool,
+default_cursor_color: ?terminal.color.RGB,
 
-/// Default foreground color for OSC 10 reporting.
+/// Actual cursor color
+cursor_color: ?terminal.color.RGB,
+
+/// Default foreground color as set by the config file
 default_foreground_color: terminal.color.RGB,
 
-/// Default background color for OSC 11 reporting.
+/// Default background color as set by the config file
 default_background_color: terminal.color.RGB,
+
+/// Actual foreground color
+foreground_color: terminal.color.RGB,
+
+/// Actual background color
+background_color: terminal.color.RGB,
 
 /// The OSC 10/11 reply style.
 osc_color_report_format: configpkg.Config.OSCColorReportFormat,
@@ -90,6 +100,7 @@ pub const DerivedConfig = struct {
     image_storage_limit: usize,
     cursor_style: terminal.Cursor.Style,
     cursor_blink: ?bool,
+    cursor_color: ?configpkg.Config.Color,
     foreground: configpkg.Config.Color,
     background: configpkg.Config.Color,
     osc_color_report_format: configpkg.Config.OSCColorReportFormat,
@@ -106,6 +117,7 @@ pub const DerivedConfig = struct {
             .image_storage_limit = config.@"image-storage-limit",
             .cursor_style = config.@"cursor-style",
             .cursor_blink = config.@"cursor-style-blink",
+            .cursor_color = config.@"cursor-color",
             .foreground = config.foreground,
             .background = config.background,
             .osc_color_report_format = config.@"osc-color-report-format",
@@ -132,7 +144,8 @@ pub fn init(alloc: Allocator, opts: termio.Options) !Exec {
         opts.grid_size.rows,
     );
     errdefer term.deinit(alloc);
-    term.color_palette = opts.config.palette;
+    term.default_palette = opts.config.palette;
+    term.color_palette.colors = opts.config.palette;
 
     // Set the image size limits
     try term.screen.kitty_images.setLimit(alloc, opts.config.image_storage_limit);
@@ -169,8 +182,18 @@ pub fn init(alloc: Allocator, opts: termio.Options) !Exec {
         .grid_size = opts.grid_size,
         .default_cursor_style = opts.config.cursor_style,
         .default_cursor_blink = opts.config.cursor_blink,
+        .default_cursor_color = if (opts.config.cursor_color) |col|
+            col.toTerminalRGB()
+        else
+            null,
+        .cursor_color = if (opts.config.cursor_color) |col|
+            col.toTerminalRGB()
+        else
+            null,
         .default_foreground_color = config.foreground.toTerminalRGB(),
         .default_background_color = config.background.toTerminalRGB(),
+        .foreground_color = config.foreground.toTerminalRGB(),
+        .background_color = config.background.toTerminalRGB(),
         .osc_color_report_format = config.osc_color_report_format,
         .data = null,
     };
@@ -236,8 +259,12 @@ pub fn threadEnter(self: *Exec, thread: *termio.Thread) !ThreadData {
                 .grid_size = &self.grid_size,
                 .default_cursor_style = self.default_cursor_style,
                 .default_cursor_blink = self.default_cursor_blink,
+                .default_cursor_color = self.default_cursor_color,
+                .cursor_color = self.cursor_color,
                 .default_foreground_color = self.default_foreground_color,
                 .default_background_color = self.default_background_color,
+                .foreground_color = self.foreground_color,
+                .background_color = self.background_color,
                 .osc_color_report_format = self.osc_color_report_format,
             },
 
@@ -320,13 +347,29 @@ pub fn changeConfig(self: *Exec, config: *DerivedConfig) !void {
     //   - command, working-directory: we never restart the underlying
     //   process so we don't care or need to know about these.
 
-    // Update the palette. Note this will only apply to new colors drawn
+    // Update the default palette. Note this will only apply to new colors drawn
     // since we decode all palette colors to RGB on usage.
-    self.terminal.color_palette = config.palette;
+    self.terminal.default_palette = config.palette;
+
+    // Update the active palette, except for any colors that were modified with
+    // OSC 4
+    for (0..config.palette.len) |i| {
+        if (!self.terminal.color_palette.mask.isSet(i)) {
+            self.terminal.color_palette.colors[i] = config.palette[i];
+        }
+    }
 
     // Update our default cursor style
     self.default_cursor_style = config.cursor_style;
     self.default_cursor_blink = config.cursor_blink;
+    self.default_cursor_color = if (config.cursor_color) |col|
+        col.toTerminalRGB()
+    else
+        null;
+
+    // Update default foreground and background colors
+    self.default_foreground_color = config.foreground.toTerminalRGB();
+    self.default_background_color = config.background.toTerminalRGB();
 
     // If we have event data, then update our active stream too
     if (self.data) |data| {
@@ -408,22 +451,24 @@ pub fn clearScreen(self: *Exec, history: bool) !void {
         if (self.terminal.active_screen == .alternate) return;
 
         // Clear our scrollback
-        if (history) try self.terminal.screen.clear(.history);
+        if (history) self.terminal.eraseDisplay(self.alloc, .scrollback, false);
 
-        // If we're not at a prompt, we clear the screen manually using
-        // the terminal screen state. If we are at a prompt, we send
-        // form-feed so that the shell can repaint the entire screen.
+        // If we're not at a prompt, we just delete above the cursor.
         if (!self.terminal.cursorIsAtPrompt()) {
-            // Clear above the cursor
             try self.terminal.screen.clear(.above_cursor);
-
-            // Exit
             return;
         }
+
+        // At a prompt, we want to first fully clear the screen, and then after
+        // send a FF (0x0C) to the shell so that it can repaint the screen.
+        // Mark the current row as a not a prompt so we can properly
+        // clear the full screen in the next eraseDisplay call.
+        self.terminal.markSemanticPrompt(.command);
+        assert(!self.terminal.cursorIsAtPrompt());
+        self.terminal.eraseDisplay(self.alloc, .complete, false);
     }
 
     // If we reached here it means we're at a prompt, so we send a form-feed.
-    assert(self.terminal.cursorIsAtPrompt());
     try self.queueWrite(&[_]u8{0x0C}, false);
 }
 
@@ -679,13 +724,28 @@ const Subprocess = struct {
         const alloc = arena.allocator();
 
         // Determine the path to the binary we're executing
+        const default_path = switch (builtin.os.tag) {
+            .windows => "cmd.exe",
+            else => "sh",
+        };
         const path = try Command.expandPath(
             alloc,
-            opts.full_config.command orelse switch (builtin.os.tag) {
-                .windows => "cmd.exe",
-                else => "sh",
-            },
-        ) orelse return error.CommandNotFound;
+            opts.full_config.command orelse default_path,
+        ) orelse path: {
+            // If we had a command specified, try to at least fall
+            // back to a default value like "sh" so that Ghostty
+            // launches.
+            if (opts.full_config.command) |command| {
+                log.warn("unable to find command, fallbacking back to default command={s}", .{command});
+                if (try Command.expandPath(
+                    alloc,
+                    default_path,
+                )) |path| break :path path;
+            }
+
+            log.warn("unable to find default command to launch, exiting", .{});
+            return error.CommandNotFound;
+        };
 
         // On macOS, we launch the program as a login shell. This is a Mac-specific
         // behavior (see other terminals). Terminals in general should NOT be
@@ -702,7 +762,7 @@ const Subprocess = struct {
             // Copy it with a hyphen so its a login shell
             const argv0_buf = try alloc.alloc(u8, argv0.len + 1);
             argv0_buf[0] = '-';
-            std.mem.copy(u8, argv0_buf[1..], argv0);
+            @memcpy(argv0_buf[1..], argv0);
             break :argv0 argv0_buf;
         } else null;
 
@@ -797,7 +857,7 @@ const Subprocess = struct {
 
         // We have to copy the cwd because there is no guarantee that
         // pointers in full_config remain valid.
-        var cwd: ?[]u8 = if (opts.full_config.@"working-directory") |cwd|
+        const cwd: ?[]u8 = if (opts.full_config.@"working-directory") |cwd|
             try alloc.dupe(u8, cwd)
         else
             null;
@@ -1326,8 +1386,23 @@ const StreamHandler = struct {
     default_cursor: bool = true,
     default_cursor_style: terminal.Cursor.Style,
     default_cursor_blink: ?bool,
+    default_cursor_color: ?terminal.color.RGB,
+
+    /// Actual cursor color. This can be changed with OSC 12.
+    cursor_color: ?terminal.color.RGB,
+
+    /// The default foreground and background color are those set by the user's
+    /// config file. These can be overridden by terminal applications using OSC
+    /// 10 and OSC 11, respectively.
     default_foreground_color: terminal.color.RGB,
     default_background_color: terminal.color.RGB,
+
+    /// The actual foreground and background color. Normally this will be the
+    /// same as the default foreground and background color, unless changed by a
+    /// terminal application.
+    foreground_color: terminal.color.RGB,
+    background_color: terminal.color.RGB,
+
     osc_color_report_format: configpkg.Config.OSCColorReportFormat,
 
     pub fn deinit(self: *StreamHandler) void {
@@ -1340,7 +1415,34 @@ const StreamHandler = struct {
     }
 
     inline fn messageWriter(self: *StreamHandler, msg: termio.Message) void {
-        _ = self.ev.writer_mailbox.push(msg, .{ .forever = {} });
+        // Try to write to the mailbox with an instant timeout. This is the
+        // fast path because we can queue without a lock.
+        if (self.ev.writer_mailbox.push(msg, .{ .instant = {} }) == 0) {
+            // If we enter this conditional, the mailbox is full. We wake up
+            // the writer thread so that it can process messages to clear up
+            // space. However, the writer thread may require the renderer
+            // lock so we need to unlock.
+            self.ev.writer_wakeup.notify() catch |err| {
+                log.warn("failed to wake up writer, data will be dropped err={}", .{err});
+                return;
+            };
+
+            // Unlock the renderer state so the writer thread can acquire it.
+            // Then try to queue our message before continuing. This is a very
+            // slow path because we are having a lot of contention for data.
+            // But this only gets triggered in certain pathological cases.
+            //
+            // Note that writes themselves don't require a lock, but there
+            // are other messages in the writer mailbox (resize, focus) that
+            // could acquire the lock. This is why we have to release our lock
+            // here.
+            self.ev.renderer_state.mutex.unlock();
+            defer self.ev.renderer_state.mutex.lock();
+            _ = self.ev.writer_mailbox.push(msg, .{ .forever = {} });
+        }
+
+        // Normally, we just flag this true to wake up the writer thread
+        // once per batch of data.
         self.writer_messaged = true;
     }
 
@@ -1646,10 +1748,18 @@ const StreamHandler = struct {
 
         // And then some modes require additional processing.
         switch (mode) {
+            // Just noting here that autorepeat has no effect on
+            // the terminal. xterm ignores this mode and so do we.
+            // We know about just so that we don't log that it is
+            // an unknown mode.
+            .autorepeat => {},
+
             // Schedule a render since we changed colors
             .reverse_colors => try self.queueRender(),
 
-            // Origin resets cursor pos
+            // Origin resets cursor pos. This is called whether or not
+            // we're enabling or disabling origin mode and whether or
+            // not the value changed.
             .origin => self.terminal.setCursorPos(1, 1),
 
             .enable_left_and_right_margin => if (!enabled) {
@@ -1996,7 +2106,7 @@ const StreamHandler = struct {
                 build_config.version_string,
             },
         );
-        var msg = try termio.Message.writeReq(self.alloc, resp);
+        const msg = try termio.Message.writeReq(self.alloc, resp);
         self.messageWriter(msg);
     }
 
@@ -2010,7 +2120,7 @@ const StreamHandler = struct {
             return;
         }
 
-        std.mem.copy(u8, &buf, title);
+        @memcpy(buf[0..title.len], title);
         buf[title.len] = 0;
 
         // Mark that we've seen a title
@@ -2036,20 +2146,30 @@ const StreamHandler = struct {
         // iTerm also appears to do this but other terminals seem to only allow
         // certain. Let's investigate more.
 
+        const clipboard_type: apprt.Clipboard = switch (kind) {
+            'c' => .standard,
+            's' => .selection,
+            'p' => .primary,
+            else => .standard,
+        };
+
         // Get clipboard contents
         if (data.len == 1 and data[0] == '?') {
             _ = self.ev.surface_mailbox.push(.{
-                .clipboard_read = kind,
+                .clipboard_read = clipboard_type,
             }, .{ .forever = {} });
             return;
         }
 
         // Write clipboard contents
         _ = self.ev.surface_mailbox.push(.{
-            .clipboard_write = try apprt.surface.Message.WriteReq.init(
-                self.alloc,
-                data,
-            ),
+            .clipboard_write = .{
+                .req = try apprt.surface.Message.WriteReq.init(
+                    self.alloc,
+                    data,
+                ),
+                .clipboard_type = clipboard_type,
+            },
         }, .{ .forever = {} });
     }
 
@@ -2150,49 +2270,178 @@ const StreamHandler = struct {
         }
     }
 
-    /// Implements OSC 10 and OSC 11, which reports default foreground and
-    /// background color respectively.
-    pub fn reportDefaultColor(
+    /// Implements OSC 4, OSC 10, and OSC 11, which reports palette color,
+    /// default foreground color, and background color respectively.
+    pub fn reportColor(
         self: *StreamHandler,
-        kind: terminal.osc.Command.DefaultColorKind,
+        kind: terminal.osc.Command.ColorKind,
         terminator: terminal.osc.Terminator,
     ) !void {
         if (self.osc_color_report_format == .none) return;
 
         const color = switch (kind) {
-            .foreground => self.default_foreground_color,
-            .background => self.default_background_color,
+            .palette => |i| self.terminal.color_palette.colors[i],
+            .foreground => self.foreground_color,
+            .background => self.background_color,
+            .cursor => self.cursor_color orelse self.foreground_color,
         };
 
         var msg: termio.Message = .{ .write_small = .{} };
         const resp = switch (self.osc_color_report_format) {
-            .@"16-bit" => try std.fmt.bufPrint(
-                &msg.write_small.data,
-                "\x1B]{s};rgb:{x:0>4}/{x:0>4}/{x:0>4}{s}",
-                .{
-                    kind.code(),
-                    @as(u16, color.r) * 257,
-                    @as(u16, color.g) * 257,
-                    @as(u16, color.b) * 257,
-                    terminator.string(),
-                },
-            ),
+            .@"16-bit" => switch (kind) {
+                .palette => |i| try std.fmt.bufPrint(
+                    &msg.write_small.data,
+                    "\x1B]{s};{d};rgb:{x:0>4}/{x:0>4}/{x:0>4}{s}",
+                    .{
+                        kind.code(),
+                        i,
+                        @as(u16, color.r) * 257,
+                        @as(u16, color.g) * 257,
+                        @as(u16, color.b) * 257,
+                        terminator.string(),
+                    },
+                ),
+                else => try std.fmt.bufPrint(
+                    &msg.write_small.data,
+                    "\x1B]{s};rgb:{x:0>4}/{x:0>4}/{x:0>4}{s}",
+                    .{
+                        kind.code(),
+                        @as(u16, color.r) * 257,
+                        @as(u16, color.g) * 257,
+                        @as(u16, color.b) * 257,
+                        terminator.string(),
+                    },
+                ),
+            },
 
-            .@"8-bit" => try std.fmt.bufPrint(
-                &msg.write_small.data,
-                "\x1B]{s};rgb:{x:0>2}/{x:0>2}/{x:0>2}{s}",
-                .{
-                    kind.code(),
-                    @as(u16, color.r),
-                    @as(u16, color.g),
-                    @as(u16, color.b),
-                    terminator.string(),
-                },
-            ),
-
+            .@"8-bit" => switch (kind) {
+                .palette => |i| try std.fmt.bufPrint(
+                    &msg.write_small.data,
+                    "\x1B]{s};{d};rgb:{x:0>2}/{x:0>2}/{x:0>2}{s}",
+                    .{
+                        kind.code(),
+                        i,
+                        @as(u16, color.r),
+                        @as(u16, color.g),
+                        @as(u16, color.b),
+                        terminator.string(),
+                    },
+                ),
+                else => try std.fmt.bufPrint(
+                    &msg.write_small.data,
+                    "\x1B]{s};rgb:{x:0>2}/{x:0>2}/{x:0>2}{s}",
+                    .{
+                        kind.code(),
+                        @as(u16, color.r),
+                        @as(u16, color.g),
+                        @as(u16, color.b),
+                        terminator.string(),
+                    },
+                ),
+            },
             .none => unreachable, // early return above
         };
         msg.write_small.len = @intCast(resp.len);
         self.messageWriter(msg);
+    }
+
+    pub fn setColor(
+        self: *StreamHandler,
+        kind: terminal.osc.Command.ColorKind,
+        value: []const u8,
+    ) !void {
+        const color = try terminal.color.RGB.parse(value);
+
+        switch (kind) {
+            .palette => |i| {
+                self.terminal.color_palette.colors[i] = color;
+                self.terminal.color_palette.mask.set(i);
+            },
+            .foreground => {
+                self.foreground_color = color;
+                _ = self.ev.renderer_mailbox.push(.{
+                    .foreground_color = color,
+                }, .{ .forever = {} });
+            },
+            .background => {
+                self.background_color = color;
+                _ = self.ev.renderer_mailbox.push(.{
+                    .background_color = color,
+                }, .{ .forever = {} });
+            },
+            .cursor => {
+                self.cursor_color = color;
+                _ = self.ev.renderer_mailbox.push(.{
+                    .cursor_color = color,
+                }, .{ .forever = {} });
+            },
+        }
+    }
+
+    pub fn resetColor(
+        self: *StreamHandler,
+        kind: terminal.osc.Command.ColorKind,
+        value: []const u8,
+    ) !void {
+        switch (kind) {
+            .palette => {
+                const mask = &self.terminal.color_palette.mask;
+                if (value.len == 0) {
+                    // Find all bit positions in the mask which are set and
+                    // reset those indices to the default palette
+                    var it = mask.iterator(.{});
+                    while (it.next()) |i| {
+                        self.terminal.color_palette.colors[i] = self.terminal.default_palette[i];
+                        mask.unset(i);
+                    }
+                } else {
+                    var it = std.mem.tokenizeScalar(u8, value, ';');
+                    while (it.next()) |param| {
+                        // Skip invalid parameters
+                        const i = std.fmt.parseUnsigned(u8, param, 10) catch continue;
+                        if (mask.isSet(i)) {
+                            self.terminal.color_palette.colors[i] = self.terminal.default_palette[i];
+                            mask.unset(i);
+                        }
+                    }
+                }
+            },
+            .foreground => {
+                self.foreground_color = self.default_foreground_color;
+                _ = self.ev.renderer_mailbox.push(.{
+                    .foreground_color = self.foreground_color,
+                }, .{ .forever = {} });
+            },
+            .background => {
+                self.background_color = self.default_background_color;
+                _ = self.ev.renderer_mailbox.push(.{
+                    .background_color = self.background_color,
+                }, .{ .forever = {} });
+            },
+            .cursor => {
+                self.cursor_color = self.default_cursor_color;
+                _ = self.ev.renderer_mailbox.push(.{
+                    .cursor_color = self.cursor_color,
+                }, .{ .forever = {} });
+            },
+        }
+    }
+
+    pub fn showDesktopNotification(
+        self: *StreamHandler,
+        title: []const u8,
+        body: []const u8,
+    ) !void {
+        var message = apprt.surface.Message{ .desktop_notification = undefined };
+
+        const title_len = @min(title.len, message.desktop_notification.title.len);
+        @memcpy(message.desktop_notification.title[0..title_len], title[0..title_len]);
+        message.desktop_notification.title[title_len] = 0;
+
+        const body_len = @min(body.len, message.desktop_notification.body.len);
+        @memcpy(message.desktop_notification.body[0..body_len], body[0..body_len]);
+        message.desktop_notification.body[body_len] = 0;
+
+        _ = self.ev.surface_mailbox.push(message, .{ .forever = {} });
     }
 };

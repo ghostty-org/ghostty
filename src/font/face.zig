@@ -87,8 +87,6 @@ pub const RenderOptions = struct {
     thicken: bool = false,
 };
 
-pub const Foo = if (options.backend == .coretext) coretext.Face else void;
-
 test {
     @import("std").testing.refAllDecls(@This());
 }

@@ -9,6 +9,7 @@ pub usingnamespace @import("homedir.zig");
 pub usingnamespace @import("locale.zig");
 pub usingnamespace @import("macos_version.zig");
 pub usingnamespace @import("mouse.zig");
+pub usingnamespace @import("open.zig");
 pub usingnamespace @import("pipe.zig");
 pub usingnamespace @import("resourcesdir.zig");
 pub const TempDir = @import("TempDir.zig");

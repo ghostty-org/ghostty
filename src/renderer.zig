@@ -15,6 +15,7 @@ const WasmTarget = @import("os/wasm/target.zig").Target;
 pub usingnamespace @import("renderer/cursor.zig");
 pub usingnamespace @import("renderer/message.zig");
 pub usingnamespace @import("renderer/size.zig");
+pub const shadertoy = @import("renderer/shadertoy.zig");
 pub const Metal = @import("renderer/Metal.zig");
 pub const OpenGL = @import("renderer/OpenGL.zig");
 pub const WebGL = @import("renderer/WebGL.zig");

@@ -67,8 +67,8 @@ test "SegmentedPool" {
     try testing.expectEqual(@as(usize, 2), list.available);
 
     // Get to capacity
-    var v1 = try list.get();
-    var v2 = try list.get();
+    const v1 = try list.get();
+    const v2 = try list.get();
     try testing.expect(v1 != v2);
     try testing.expectError(error.OutOfValues, list.get());
 
@@ -77,13 +77,13 @@ test "SegmentedPool" {
 
     // Put a value back
     list.put();
-    var temp = try list.get();
+    const temp = try list.get();
     try testing.expect(v1 == temp);
     try testing.expect(temp.* == 42);
     try testing.expectError(error.OutOfValues, list.get());
 
     // Grow
-    var v3 = try list.getGrow(testing.allocator);
+    const v3 = try list.getGrow(testing.allocator);
     try testing.expect(v1 != v3 and v2 != v3);
     _ = try list.get();
     try testing.expectError(error.OutOfValues, list.get());

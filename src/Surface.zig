@@ -20,6 +20,9 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
+const oni = @import("oniguruma");
+const ziglyph = @import("ziglyph");
+const main = @import("main.zig");
 const renderer = @import("renderer.zig");
 const termio = @import("termio.zig");
 const objc = @import("objc");
@@ -69,6 +72,12 @@ renderer_thr: std.Thread,
 
 /// Mouse state.
 mouse: Mouse,
+
+/// The hash value of the last keybinding trigger that we performed. This
+/// is only set if the last key input matched a keybinding, consumed it,
+/// and performed it. This is used to prevent sending release/repeat events
+/// for handled bindings.
+last_binding_trigger: u64 = 0,
 
 /// The terminal IO handler.
 io: termio.Impl,
@@ -129,6 +138,13 @@ const Mouse = struct {
 
     /// True if the mouse is hidden
     hidden: bool = false,
+
+    /// True if the mouse position is currently over a link.
+    over_link: bool = false,
+
+    /// The last x/y in the cursor position for links. We use this to
+    /// only process link hover events when the mouse actually moves cells.
+    link_point: ?terminal.point.Viewport = null,
 };
 
 /// The configuration that a surface has, this is copied from the main
@@ -139,13 +155,14 @@ const DerivedConfig = struct {
     /// For docs for these, see the associated config they are derived from.
     original_font_size: u8,
     keybind: configpkg.Keybinds,
-    clipboard_read: bool,
-    clipboard_write: bool,
+    clipboard_read: configpkg.ClipboardAccess,
+    clipboard_write: configpkg.ClipboardAccess,
     clipboard_trim_trailing_spaces: bool,
     clipboard_paste_protection: bool,
     clipboard_paste_bracketed_safe: bool,
     copy_on_select: configpkg.CopyOnSelect,
     confirm_close_surface: bool,
+    desktop_notifications: bool,
     mouse_interval: u64,
     mouse_hide_while_typing: bool,
     mouse_shift_capture: configpkg.MouseShiftCapture,
@@ -156,11 +173,37 @@ const DerivedConfig = struct {
     window_padding_y: u32,
     window_padding_balance: bool,
     title: ?[:0]const u8,
+    links: []const Link,
+
+    const Link = struct {
+        regex: oni.Regex,
+        action: input.Link.Action,
+    };
 
     pub fn init(alloc_gpa: Allocator, config: *const configpkg.Config) !DerivedConfig {
         var arena = ArenaAllocator.init(alloc_gpa);
         errdefer arena.deinit();
         const alloc = arena.allocator();
+
+        // Build all of our links
+        const links = links: {
+            var links = std.ArrayList(Link).init(alloc);
+            defer links.deinit();
+            for (config.link.links.items) |link| {
+                var regex = try link.oniRegex();
+                errdefer regex.deinit();
+                try links.append(.{
+                    .regex = regex,
+                    .action = link.action,
+                });
+            }
+
+            break :links try links.toOwnedSlice();
+        };
+        errdefer {
+            for (links) |*link| link.regex.deinit();
+            alloc.free(links);
+        }
 
         return .{
             .original_font_size = config.@"font-size",
@@ -172,6 +215,7 @@ const DerivedConfig = struct {
             .clipboard_paste_bracketed_safe = config.@"clipboard-paste-bracketed-safe",
             .copy_on_select = config.@"copy-on-select",
             .confirm_close_surface = config.@"confirm-close-surface",
+            .desktop_notifications = config.@"desktop-notifications",
             .mouse_interval = config.@"click-repeat-interval" * 1_000_000, // 500ms
             .mouse_hide_while_typing = config.@"mouse-hide-while-typing",
             .mouse_shift_capture = config.@"mouse-shift-capture",
@@ -182,6 +226,7 @@ const DerivedConfig = struct {
             .window_padding_y = config.@"window-padding-y",
             .window_padding_balance = config.@"window-padding-balance",
             .title = config.title,
+            .links = links,
 
             // Assignments happen sequentially so we have to do this last
             // so that the memory is captured from allocs above.
@@ -348,11 +393,11 @@ pub fn init(
         // Our built-in font will be used as a backup
         _ = try group.addFace(
             .regular,
-            .{ .loaded = try font.Face.init(font_lib, face_ttf, group.faceOptions()) },
+            .{ .fallback_loaded = try font.Face.init(font_lib, face_ttf, group.faceOptions()) },
         );
         _ = try group.addFace(
             .bold,
-            .{ .loaded = try font.Face.init(font_lib, face_bold_ttf, group.faceOptions()) },
+            .{ .fallback_loaded = try font.Face.init(font_lib, face_bold_ttf, group.faceOptions()) },
         );
 
         // Auto-italicize if we have to.
@@ -363,11 +408,11 @@ pub fn init(
         if (builtin.os.tag != .macos or font.Discover == void) {
             _ = try group.addFace(
                 .regular,
-                .{ .loaded = try font.Face.init(font_lib, face_emoji_ttf, group.faceOptions()) },
+                .{ .fallback_loaded = try font.Face.init(font_lib, face_emoji_ttf, group.faceOptions()) },
             );
             _ = try group.addFace(
                 .regular,
-                .{ .loaded = try font.Face.init(font_lib, face_emoji_text_ttf, group.faceOptions()) },
+                .{ .fallback_loaded = try font.Face.init(font_lib, face_emoji_text_ttf, group.faceOptions()) },
             );
         }
 
@@ -421,7 +466,7 @@ pub fn init(
     );
 
     // The mutex used to protect our renderer state.
-    var mutex = try alloc.create(std.Thread.Mutex);
+    const mutex = try alloc.create(std.Thread.Mutex);
     mutex.* = .{};
     errdefer alloc.destroy(mutex);
 
@@ -442,7 +487,7 @@ pub fn init(
         .padding = padding,
         .full_config = config,
         .config = try termio.Impl.DerivedConfig.init(alloc, config),
-        .resources_dir = app.resources_dir,
+        .resources_dir = main.state.resources_dir,
         .renderer_state = &self.renderer_state,
         .renderer_wakeup = render_thread.wakeup,
         .renderer_mailbox = render_thread.mailbox,
@@ -603,7 +648,7 @@ pub fn activateInspector(self: *Surface) !void {
     if (self.inspector != null) return;
 
     // Setup the inspector
-    var ptr = try self.alloc.create(inspector.Inspector);
+    const ptr = try self.alloc.create(inspector.Inspector);
     errdefer self.alloc.destroy(ptr);
     ptr.* = try inspector.Inspector.init(self);
     self.inspector = ptr;
@@ -687,21 +732,21 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
 
         .cell_size => |size| try self.setCellSize(size),
 
-        .clipboard_read => |kind| {
-            if (!self.config.clipboard_read) {
-                log.info("application attempted to read clipboard, but 'clipboard-read' setting is off", .{});
+        .clipboard_read => |clipboard| {
+            if (self.config.clipboard_read == .deny) {
+                log.info("application attempted to read clipboard, but 'clipboard-read' is set to deny", .{});
                 return;
             }
 
-            try self.startClipboardRequest(.standard, .{ .osc_52 = kind });
+            try self.startClipboardRequest(.standard, .{ .osc_52_read = clipboard });
         },
 
-        .clipboard_write => |req| switch (req) {
-            .small => |v| try self.clipboardWrite(v.data[0..v.len], .standard),
-            .stable => |v| try self.clipboardWrite(v, .standard),
+        .clipboard_write => |w| switch (w.req) {
+            .small => |v| try self.clipboardWrite(v.data[0..v.len], w.clipboard_type),
+            .stable => |v| try self.clipboardWrite(v, w.clipboard_type),
             .alloc => |v| {
                 defer v.alloc.free(v.data);
-                try self.clipboardWrite(v.data, .standard);
+                try self.clipboardWrite(v.data, w.clipboard_type);
             },
         },
 
@@ -711,6 +756,17 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
         .child_exited => {
             self.child_exited = true;
             self.close();
+        },
+
+        .desktop_notification => |notification| {
+            if (!self.config.desktop_notifications) {
+                log.info("application attempted to display a desktop notification, but 'desktop-notifications' is disabled", .{});
+                return;
+            }
+
+            const title = std.mem.sliceTo(&notification.title, 0);
+            const body = std.mem.sliceTo(&notification.body, 0);
+            try self.showDesktopNotification(title, body);
         },
     }
 }
@@ -821,8 +877,8 @@ pub fn imePoint(self: *const Surface) apprt.IMEPos {
 }
 
 fn clipboardWrite(self: *const Surface, data: []const u8, loc: apprt.Clipboard) !void {
-    if (!self.config.clipboard_write) {
-        log.info("application attempted to write clipboard, but 'clipboard-write' setting is off", .{});
+    if (self.config.clipboard_write == .deny) {
+        log.info("application attempted to write clipboard, but 'clipboard-write' is set to deny", .{});
         return;
     }
 
@@ -855,7 +911,11 @@ fn clipboardWrite(self: *const Surface, data: []const u8, loc: apprt.Clipboard) 
     };
     assert(buf[buf.len] == 0);
 
-    self.rt_surface.setClipboardString(buf, loc) catch |err| {
+    // When clipboard-write is "ask" a prompt is displayed to the user asking
+    // them to confirm the clipboard access. Each app runtime handles this
+    // differently.
+    const confirm = self.config.clipboard_write == .ask;
+    self.rt_surface.setClipboardString(buf, loc, confirm) catch |err| {
         log.err("error setting clipboard string err={}", .{err});
         return;
     };
@@ -890,7 +950,7 @@ fn setSelection(self: *Surface, sel_: ?terminal.Selection) void {
         }
     }
 
-    var buf = self.io.terminal.screen.selectionString(
+    const buf = self.io.terminal.screen.selectionString(
         self.alloc,
         sel,
         self.config.clipboard_trim_trailing_spaces,
@@ -900,7 +960,7 @@ fn setSelection(self: *Surface, sel_: ?terminal.Selection) void {
     };
     defer self.alloc.free(buf);
 
-    self.rt_surface.setClipboardString(buf, clipboard) catch |err| {
+    self.rt_surface.setClipboardString(buf, clipboard, false) catch |err| {
         log.err("error setting clipboard string err={}", .{err});
         return;
     };
@@ -1020,12 +1080,51 @@ fn resize(self: *Surface, size: renderer.ScreenSize) !void {
 /// The core surface will NOT reset the preedit state on charCallback or
 /// keyCallback and we rely completely on the apprt implementation to track
 /// the preedit state correctly.
-pub fn preeditCallback(self: *Surface, preedit: ?u21) !void {
+///
+/// The preedit input must be UTF-8 encoded.
+pub fn preeditCallback(self: *Surface, preedit_: ?[]const u8) !void {
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
-    self.renderer_state.preedit = if (preedit) |v| .{
-        .codepoint = v,
-    } else null;
+
+    // We always clear our prior preedit
+    self.renderer_state.preedit = null;
+
+    // If we have no text, we're done. We queue a render in case we cleared
+    // a prior preedit (likely).
+    const text = preedit_ orelse {
+        try self.queueRender();
+        return;
+    };
+
+    // We convert the UTF-8 text to codepoints.
+    const view = try std.unicode.Utf8View.init(text);
+    var it = view.iterator();
+
+    // Allocate the codepoints slice
+    var preedit: renderer.State.Preedit = .{};
+    while (it.nextCodepoint()) |cp| {
+        const width = ziglyph.display_width.codePointWidth(cp, .half);
+
+        // I've never seen a preedit text with a zero-width character. In
+        // theory its possible but we can't really handle it right now.
+        // Let's just ignore it.
+        if (width <= 0) continue;
+
+        preedit.codepoints[preedit.len] = .{ .codepoint = cp, .wide = width >= 2 };
+        preedit.len += 1;
+
+        // This is a strange edge case. We have a generous buffer for
+        // preedit text but if we exceed it, we just truncate.
+        if (preedit.len >= preedit.codepoints.len) {
+            log.warn("preedit text is longer than our buffer, truncating", .{});
+            break;
+        }
+    }
+
+    // If we have no codepoints, then we're done.
+    if (preedit.len == 0) return;
+
+    self.renderer_state.preedit = preedit;
     try self.queueRender();
 }
 
@@ -1036,7 +1135,7 @@ pub fn keyCallback(
     self: *Surface,
     event: input.KeyEvent,
 ) !bool {
-    // log.debug("keyCallback event={}", .{event});
+    // log.debug("text keyCallback event={}", .{event});
 
     // Setup our inspector event if we have an inspector.
     var insp_ev: ?inspector.key.Event = if (self.inspector != null) ev: {
@@ -1066,7 +1165,7 @@ pub fn keyCallback(
     // Before encoding, we see if we have any keybindings for this
     // key. Those always intercept before any encoding tasks.
     binding: {
-        const binding_action: input.Binding.Action, const consumed = action: {
+        const binding_action: input.Binding.Action, const binding_trigger: input.Binding.Trigger, const consumed = action: {
             const binding_mods = event.mods.binding();
             var trigger: input.Binding.Trigger = .{
                 .mods = binding_mods,
@@ -1076,6 +1175,7 @@ pub fn keyCallback(
             const set = self.config.keybind.set;
             if (set.get(trigger)) |v| break :action .{
                 v,
+                trigger,
                 set.getConsumed(trigger),
             };
 
@@ -1083,6 +1183,7 @@ pub fn keyCallback(
             trigger.physical = true;
             if (set.get(trigger)) |v| break :action .{
                 v,
+                trigger,
                 set.getConsumed(trigger),
             };
 
@@ -1092,16 +1193,26 @@ pub fn keyCallback(
         // We only execute the binding on press/repeat but we still consume
         // the key on release so that we don't send any release events.
         log.debug("key event binding consumed={} action={}", .{ consumed, binding_action });
-        const performed = if (event.action == .press or event.action == .repeat)
-            try self.performBindingAction(binding_action)
-        else
-            false;
+        const performed = if (event.action == .press or event.action == .repeat) press: {
+            self.last_binding_trigger = 0;
+            break :press try self.performBindingAction(binding_action);
+        } else false;
 
         // If we consume this event, then we are done. If we don't consume
         // it, we processed the action but we still want to process our
         // encodings, too.
         if (consumed and performed) {
+            self.last_binding_trigger = binding_trigger.hash();
             if (insp_ev) |*ev| ev.binding = binding_action;
+            return true;
+        }
+
+        // If we have a previous binding trigger and it matches this one,
+        // then we handled the down event so we don't want to send any further
+        // events.
+        if (self.last_binding_trigger > 0 and
+            self.last_binding_trigger == binding_trigger.hash())
+        {
             return true;
         }
     }
@@ -1119,6 +1230,18 @@ pub fn keyCallback(
         event.utf8.len > 0)
     {
         self.hideMouse();
+    }
+
+    // If our mouse modifiers change, we run a cursor position event.
+    // This handles the scenario where URL highlighting should be
+    // toggled for example.
+    if (!self.mouse.mods.equal(event.mods)) mouse_mods: {
+        // We set this to null to force link reprocessing since
+        // mod changes can affect link highlighting.
+        self.mouse.link_point = null;
+        self.mouse.mods = event.mods;
+        const pos = self.rt_surface.getCursorPos() catch break :mouse_mods;
+        self.cursorPosCallback(pos) catch {};
     }
 
     // When we are in the middle of a mouse event and we press shift,
@@ -1145,6 +1268,7 @@ pub fn keyCallback(
         const t = &self.io.terminal;
         break :enc .{
             .event = event,
+            .macos_option_as_alt = self.config.macos_option_as_alt,
             .alt_esc_prefix = t.modes.get(.alt_esc_prefix),
             .cursor_key_application = t.modes.get(.cursor_keys),
             .keypad_key_application = t.modes.get(.keypad_keys),
@@ -1173,11 +1297,11 @@ pub fn keyCallback(
 
     // If our event is any keypress that isn't a modifier and we generated
     // some data to send to the pty, then we move the viewport down to the
-    // bottom. If we generated literal text, then we also clear the selection.
+    // bottom. We also clear the selection for any key other then modifiers.
     if (!event.key.modifier()) {
         self.renderer_state.mutex.lock();
         defer self.renderer_state.mutex.unlock();
-        if (event.utf8.len > 0) self.setSelection(null);
+        self.setSelection(null);
         try self.io.terminal.scrollViewport(.{ .bottom = {} });
         try self.queueRender();
     }
@@ -1338,6 +1462,10 @@ pub fn scrollCallback(
             self.io.terminal.modes.get(.mouse_alternate_scroll))
         {
             if (y.delta_unsigned > 0) {
+                // When we send mouse events as cursor keys we always
+                // clear the selection.
+                self.setSelection(null);
+
                 const seq = if (y.delta < 0) "\x1bOA" else "\x1bOB";
                 for (0..y.delta_unsigned) |_| {
                     _ = self.io_thread.mailbox.push(.{
@@ -1761,6 +1889,18 @@ pub fn mouseButtonCallback(
         }
     }
 
+    // Handle link clicking. We want to do this before we do mouse
+    // reporting or any other mouse handling because a successfully
+    // clicked link will swallow the event.
+    if (button == .left and action == .release and self.mouse.over_link) {
+        const pos = try self.rt_surface.getCursorPos();
+        if (self.processLinks(pos)) |processed| {
+            if (processed) return;
+        } else |err| {
+            log.warn("error processing links err={}", .{err});
+        }
+    }
+
     // Report mouse events if enabled
     {
         self.renderer_state.mutex.lock();
@@ -1889,6 +2029,65 @@ pub fn mouseButtonCallback(
     }
 }
 
+/// Returns the link at the given cursor position, if any.
+fn linkAtPos(
+    self: *Surface,
+    pos: apprt.CursorPos,
+) !?struct {
+    DerivedConfig.Link,
+    terminal.Selection,
+} {
+    // If we have no configured links we can save a lot of work
+    if (self.config.links.len == 0) return null;
+
+    // Convert our cursor position to a screen point.
+    const mouse_pt = mouse_pt: {
+        const viewport_point = self.posToViewport(pos.x, pos.y);
+        break :mouse_pt viewport_point.toScreen(&self.io.terminal.screen);
+    };
+
+    // Get the line we're hovering over.
+    const line = self.io.terminal.screen.getLine(mouse_pt) orelse
+        return null;
+    const strmap = try line.stringMap(self.alloc);
+    defer strmap.deinit(self.alloc);
+
+    // Go through each link and see if we clicked it
+    for (self.config.links) |link| {
+        var it = strmap.searchIterator(link.regex);
+        while (true) {
+            var match = (try it.next()) orelse break;
+            defer match.deinit();
+            const sel = match.selection();
+            if (!sel.contains(mouse_pt)) continue;
+            return .{ link, sel };
+        }
+    }
+
+    return null;
+}
+
+/// Attempt to invoke the action of any link that is under the
+/// given position.
+///
+/// Requires the renderer state mutex is held.
+fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
+    const link, const sel = try self.linkAtPos(pos) orelse return false;
+    switch (link.action) {
+        .open => {
+            const str = try self.io.terminal.screen.selectionString(
+                self.alloc,
+                sel,
+                false,
+            );
+            defer self.alloc.free(str);
+            try internal_os.open(self.alloc, str);
+        },
+    }
+
+    return true;
+}
+
 pub fn cursorPosCallback(
     self: *Surface,
     pos: apprt.CursorPos,
@@ -1899,18 +2098,29 @@ pub fn cursorPosCallback(
     // Always show the mouse again if it is hidden
     if (self.mouse.hidden) self.showMouse();
 
+    // The mouse position in the viewport
+    const pos_vp = self.posToViewport(pos.x, pos.y);
+
+    // We always reset the over link status because it will be reprocessed
+    // below. But we need the old value to know if we need to undo mouse
+    // shape changes.
+    const over_link = self.mouse.over_link;
+    self.mouse.over_link = false;
+
     // We are reading/writing state for the remainder
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
+
+    // Update our mouse state. We set this to null initially because we only
+    // want to set it when we're not selecting or doing any other mouse
+    // event.
+    self.renderer_state.mouse.point = null;
 
     // If we have an inspector, we need to always record position information
     if (self.inspector) |insp| {
         insp.mouse.last_xpos = pos.x;
         insp.mouse.last_ypos = pos.y;
-
-        const point = self.posToViewport(pos.x, pos.y);
-        insp.mouse.last_point = point.toScreen(&self.io.terminal.screen);
-
+        insp.mouse.last_point = pos_vp.toScreen(&self.io.terminal.screen);
         try self.queueRender();
     }
 
@@ -1918,7 +2128,6 @@ pub fn cursorPosCallback(
     if (self.io.terminal.flags.mouse_event != .none) report: {
         // Shift overrides mouse "grabbing" in the window, taken from Kitty.
         if (self.mouse.mods.shift and
-            self.mouse.click_state[@intFromEnum(input.MouseButton.left)] == .press and
             !self.mouseShiftCapture(false)) break :report;
 
         // We use the first mouse button we find pressed in order to report
@@ -1930,42 +2139,85 @@ pub fn cursorPosCallback(
 
         try self.mouseReport(button, .motion, self.mouse.mods, pos);
 
+        // If we were previously over a link, we need to queue a
+        // render to undo the link state.
+        if (over_link) try self.queueRender();
+
         // If we're doing mouse motion tracking, we do not support text
         // selection.
         return;
     }
 
-    // If the cursor isn't clicked currently, it doesn't matter
-    if (self.mouse.click_state[@intFromEnum(input.MouseButton.left)] != .press) return;
+    // Handle cursor position for text selection
+    if (self.mouse.click_state[@intFromEnum(input.MouseButton.left)] == .press) {
+        // All roads lead to requiring a re-render at this point.
+        try self.queueRender();
 
-    // All roads lead to requiring a re-render at this point.
-    try self.queueRender();
+        // If our y is negative, we're above the window. In this case, we scroll
+        // up. The amount we scroll up is dependent on how negative we are.
+        // Note: one day, we can change this from distance to time based if we want.
+        //log.warn("CURSOR POS: {} {}", .{ pos, self.screen_size });
+        const max_y: f32 = @floatFromInt(self.screen_size.height);
+        if (pos.y < 0 or pos.y > max_y) {
+            const delta: isize = if (pos.y < 0) -1 else 1;
+            try self.io.terminal.scrollViewport(.{ .delta = delta });
 
-    // If our y is negative, we're above the window. In this case, we scroll
-    // up. The amount we scroll up is dependent on how negative we are.
-    // Note: one day, we can change this from distance to time based if we want.
-    //log.warn("CURSOR POS: {} {}", .{ pos, self.screen_size });
-    const max_y: f32 = @floatFromInt(self.screen_size.height);
-    if (pos.y < 0 or pos.y > max_y) {
-        const delta: isize = if (pos.y < 0) -1 else 1;
-        try self.io.terminal.scrollViewport(.{ .delta = delta });
+            // TODO: We want a timer or something to repeat while we're still
+            // at this cursor position. Right now, the user has to jiggle their
+            // mouse in order to scroll.
+        }
 
-        // TODO: We want a timer or something to repeat while we're still
-        // at this cursor position. Right now, the user has to jiggle their
-        // mouse in order to scroll.
+        // Convert to points
+        const screen_point = pos_vp.toScreen(&self.io.terminal.screen);
+
+        // Handle dragging depending on click count
+        switch (self.mouse.left_click_count) {
+            1 => self.dragLeftClickSingle(screen_point, pos.x),
+            2 => self.dragLeftClickDouble(screen_point),
+            3 => self.dragLeftClickTriple(screen_point),
+            else => unreachable,
+        }
+
+        return;
     }
 
-    // Convert to points
-    const viewport_point = self.posToViewport(pos.x, pos.y);
-    const screen_point = viewport_point.toScreen(&self.io.terminal.screen);
+    // Handle link hovering
+    if (self.mouse.link_point) |last_vp| {
+        // If our last link viewport point is unchanged, then don't process
+        // links. This avoids constantly reprocessing regular expressions
+        // for every pixel change.
+        if (last_vp.eql(pos_vp)) {
+            // We have to restore old values that are always cleared
+            if (over_link) {
+                self.mouse.over_link = over_link;
+                self.renderer_state.mouse.point = pos_vp;
+            }
 
-    // Handle dragging depending on click count
-    switch (self.mouse.left_click_count) {
-        1 => self.dragLeftClickSingle(screen_point, pos.x),
-        2 => self.dragLeftClickDouble(screen_point),
-        3 => self.dragLeftClickTriple(screen_point),
-        else => unreachable,
+            return;
+        }
     }
+    self.mouse.link_point = pos_vp;
+
+    if (try self.linkAtPos(pos)) |_| {
+        self.renderer_state.mouse.point = pos_vp;
+        self.mouse.over_link = true;
+        try self.rt_surface.setMouseShape(.pointer);
+        try self.queueRender();
+    } else if (over_link) {
+        try self.rt_surface.setMouseShape(self.io.terminal.mouse_shape);
+        try self.queueRender();
+    }
+}
+
+// Checks to see if super is on in mods (MacOS) or ctrl. We use this for
+// rectangle select along with alt.
+//
+// Not to be confused with ctrlOrSuper in Config.
+fn ctrlOrSuper(mods: input.Mods) bool {
+    if (comptime builtin.target.isDarwin()) {
+        return mods.super;
+    }
+    return mods.ctrl;
 }
 
 /// Double-click dragging moves the selection one "word" at a time.
@@ -1973,24 +2225,39 @@ fn dragLeftClickDouble(
     self: *Surface,
     screen_point: terminal.point.ScreenPoint,
 ) void {
-    // Get the word under our current point. If there isn't a word, do nothing.
-    const word = self.io.terminal.screen.selectWord(screen_point) orelse return;
-
-    // Get our selection to grow it. If we don't have a selection, start it now.
-    // We may not have a selection if we started our dbl-click in an area
-    // that had no data, then we dragged our mouse into an area with data.
-    var sel = self.io.terminal.screen.selectWord(self.mouse.left_click_point) orelse {
-        self.setSelection(word);
+    // Get the word closest to our starting click.
+    const word_start = self.io.terminal.screen.selectWordBetween(
+        self.mouse.left_click_point,
+        screen_point,
+    ) orelse {
+        self.setSelection(null);
         return;
     };
 
-    // Grow our selection
+    // Get the word closest to our current point.
+    const word_current = self.io.terminal.screen.selectWordBetween(
+        screen_point,
+        self.mouse.left_click_point,
+    ) orelse {
+        self.setSelection(null);
+        return;
+    };
+
+    // If our current mouse position is before the starting position,
+    // then the seletion start is the word nearest our current position.
     if (screen_point.before(self.mouse.left_click_point)) {
-        sel.start = word.start;
+        self.setSelection(.{
+            .start = word_current.start,
+            .end = word_start.end,
+            .rectangle = ctrlOrSuper(self.mouse.mods) and self.mouse.mods.alt,
+        });
     } else {
-        sel.end = word.end;
+        self.setSelection(.{
+            .start = word_start.start,
+            .end = word_current.end,
+            .rectangle = ctrlOrSuper(self.mouse.mods) and self.mouse.mods.alt,
+        });
     }
-    self.setSelection(sel);
 }
 
 /// Triple-click dragging moves the selection one "line" at a time.
@@ -2076,6 +2343,7 @@ fn dragLeftClickSingle(
         self.setSelection(if (selected) .{
             .start = screen_point,
             .end = screen_point,
+            .rectangle = ctrlOrSuper(self.mouse.mods) and self.mouse.mods.alt,
         } else null);
 
         return;
@@ -2115,7 +2383,11 @@ fn dragLeftClickSingle(
             }
         };
 
-        self.setSelection(.{ .start = start, .end = screen_point });
+        self.setSelection(.{
+            .start = start,
+            .end = screen_point,
+            .rectangle = ctrlOrSuper(self.mouse.mods) and self.mouse.mods.alt,
+        });
         return;
     }
 
@@ -2205,7 +2477,11 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             // If you split it across two then the shell can interpret it
             // as two literals.
             var buf: [128]u8 = undefined;
-            const full_data = try std.fmt.bufPrint(&buf, "\x1b{s}{s}", .{ if (action == .csi) "[" else "", data });
+            const full_data = switch (action) {
+                .csi => try std.fmt.bufPrint(&buf, "\x1b[{s}", .{data}),
+                .esc => try std.fmt.bufPrint(&buf, "\x1b{s}", .{data}),
+                else => unreachable,
+            };
             _ = self.io_thread.mailbox.push(try termio.Message.writeReq(
                 self.alloc,
                 full_data,
@@ -2213,6 +2489,34 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             try self.io_thread.wakeup.notify();
 
             // CSI/ESC triggers a scroll.
+            {
+                self.renderer_state.mutex.lock();
+                defer self.renderer_state.mutex.unlock();
+                self.scrollToBottom() catch |err| {
+                    log.warn("error scrolling to bottom err={}", .{err});
+                };
+            }
+        },
+
+        .text => |data| {
+            // For text we always allocate just because its easier to
+            // handle all cases that way.
+            const buf = try self.alloc.alloc(u8, data.len);
+            defer self.alloc.free(buf);
+            const text = configpkg.string.parse(buf, data) catch |err| {
+                log.warn(
+                    "error parsing text binding text={s} err={}",
+                    .{ data, err },
+                );
+                return true;
+            };
+            _ = self.io_thread.mailbox.push(try termio.Message.writeReq(
+                self.alloc,
+                text,
+            ), .{ .forever = {} });
+            try self.io_thread.wakeup.notify();
+
+            // Text triggers a scroll.
             {
                 self.renderer_state.mutex.lock();
                 defer self.renderer_state.mutex.unlock();
@@ -2256,7 +2560,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             // We can read from the renderer state without holding
             // the lock because only we will write to this field.
             if (self.io.terminal.screen.selection) |sel| {
-                var buf = self.io.terminal.screen.selectionString(
+                const buf = self.io.terminal.screen.selectionString(
                     self.alloc,
                     sel,
                     self.config.clipboard_trim_trailing_spaces,
@@ -2266,7 +2570,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 };
                 defer self.alloc.free(buf);
 
-                self.rt_surface.setClipboardString(buf, .standard) catch |err| {
+                self.rt_surface.setClipboardString(buf, .standard, false) catch |err| {
                     log.err("error setting clipboard string err={}", .{err});
                     return true;
                 };
@@ -2476,6 +2780,14 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             } else log.warn("runtime doesn't implement toggleFullscreen", .{});
         },
 
+        .select_all => {
+            const sel = self.io.terminal.screen.selectAll();
+            if (sel) |s| {
+                self.setSelection(s);
+                try self.queueRender();
+            }
+        },
+
         .inspector => |mode| {
             if (@hasDecl(apprt.Surface, "controlInspector")) {
                 self.rt_surface.controlInspector(mode);
@@ -2496,19 +2808,37 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
 /// only be called once for each request. The data is immediately copied so
 /// it is safe to free the data after this call.
 ///
-/// If "allow_unsafe" is false, then the data is checked for "safety" prior.
-/// If unsafe data is detected, this will return error.UnsafePaste. Unsafe
-/// data is defined as data that contains newlines, though this definition
-/// may change later to detect other scenarios.
+/// If `confirmed` is true then any clipboard confirmation prompts are skipped:
+///
+///   - For "regular" pasting this means that unsafe pastes are allowed. Unsafe
+///     data is defined as data that contains newlines, though this definition
+///     may change later to detect other scenarios.
+///
+///   - For OSC 52 reads and writes no prompt is shown to the user if
+///     `confirmed` is true.
+///
+/// If `confirmed` is false then this may return either an UnsafePaste or
+/// UnauthorizedPaste error, depending on the type of clipboard request.
 pub fn completeClipboardRequest(
     self: *Surface,
     req: apprt.ClipboardRequest,
-    data: []const u8,
-    allow_unsafe: bool,
+    data: [:0]const u8,
+    confirmed: bool,
 ) !void {
     switch (req) {
-        .paste => try self.completeClipboardPaste(data, allow_unsafe),
-        .osc_52 => |kind| try self.completeClipboardReadOSC52(data, kind),
+        .paste => try self.completeClipboardPaste(data, confirmed),
+
+        .osc_52_read => |clipboard| try self.completeClipboardReadOSC52(
+            data,
+            clipboard,
+            confirmed,
+        ),
+
+        .osc_52_write => |clipboard| try self.rt_surface.setClipboardString(
+            data,
+            clipboard,
+            !confirmed,
+        ),
     }
 }
 
@@ -2521,13 +2851,16 @@ fn startClipboardRequest(
 ) !void {
     switch (req) {
         .paste => {}, // always allowed
-        .osc_52 => if (!self.config.clipboard_read) {
+        .osc_52_read => if (self.config.clipboard_read == .deny) {
             log.info(
-                "application attempted to read clipboard, but 'clipboard-read' setting is off",
+                "application attempted to read clipboard, but 'clipboard-read' is set to deny",
                 .{},
             );
             return;
         },
+
+        // No clipboard write code paths travel through this function
+        .osc_52_write => unreachable,
     }
 
     try self.rt_surface.clipboardRequest(loc, req);
@@ -2622,7 +2955,21 @@ fn completeClipboardPaste(
     try self.io_thread.wakeup.notify();
 }
 
-fn completeClipboardReadOSC52(self: *Surface, data: []const u8, kind: u8) !void {
+fn completeClipboardReadOSC52(
+    self: *Surface,
+    data: []const u8,
+    clipboard_type: apprt.Clipboard,
+    confirmed: bool,
+) !void {
+    // We should never get here if clipboard-read is set to deny
+    assert(self.config.clipboard_read != .deny);
+
+    // If clipboard-read is set to ask and we haven't confirmed with the user,
+    // do that now
+    if (self.config.clipboard_read == .ask and !confirmed) {
+        return error.UnauthorizedPaste;
+    }
+
     // Even if the clipboard data is empty we reply, since presumably
     // the client app is expecting a reply. We first allocate our buffer.
     // This must hold the base64 encoded data PLUS the OSC code surrounding it.
@@ -2630,6 +2977,12 @@ fn completeClipboardReadOSC52(self: *Surface, data: []const u8, kind: u8) !void 
     const size = enc.calcSize(data.len);
     var buf = try self.alloc.alloc(u8, size + 9); // const for OSC
     defer self.alloc.free(buf);
+
+    const kind: u8 = switch (clipboard_type) {
+        .standard => 'c',
+        .selection => 's',
+        .primary => 'p',
+    };
 
     // Wrap our data with the OSC code
     const prefix = try std.fmt.bufPrint(buf, "\x1b]52;{c};", .{kind});
@@ -2646,6 +2999,12 @@ fn completeClipboardReadOSC52(self: *Surface, data: []const u8, kind: u8) !void 
         buf,
     ), .{ .forever = {} });
     self.io_thread.wakeup.notify() catch {};
+}
+
+fn showDesktopNotification(self: *Surface, title: [:0]const u8, body: [:0]const u8) !void {
+    if (@hasDecl(apprt.Surface, "showDesktopNotification")) {
+        try self.rt_surface.showDesktopNotification(title, body);
+    } else log.warn("runtime doesn't support desktop notifications", .{});
 }
 
 pub const face_ttf = @embedFile("font/res/FiraCode-Regular.ttf");

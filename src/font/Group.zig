@@ -13,6 +13,7 @@ const Group = @This();
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
+const ziglyph = @import("ziglyph");
 
 const font = @import("main.zig");
 const DeferredFace = @import("main.zig").DeferredFace;
@@ -62,6 +63,20 @@ const DescriptorCache = std.HashMapUnmanaged(
     std.hash_map.default_max_load_percentage,
 );
 
+/// The requested presentation for a codepoint.
+const PresentationMode = union(enum) {
+    /// The codepoint has an explicit presentation that is required,
+    /// i.e. VS15/V16.
+    explicit: Presentation,
+
+    /// The codepoint has no explicit presentation and we should use
+    /// the presentation from the UCd.
+    default: Presentation,
+
+    /// The codepoint can be any presentation.
+    any: void,
+};
+
 /// The allocator for this group
 alloc: Allocator,
 
@@ -104,16 +119,74 @@ descriptor_cache: DescriptorCache = .{},
 /// terminal rendering will look wrong.
 sprite: ?font.sprite.Face = null,
 
-/// A face in a group can be deferred or loaded.
+/// A face in a group can be deferred or loaded. A deferred face
+/// is not yet fully loaded and only represents the font descriptor
+/// and usually uses less resources. A loaded face is fully parsed,
+/// ready to rasterize, and usually uses more resources than a
+/// deferred version.
+///
+/// A face can also be a "fallback" variant that is still either
+/// deferred or loaded. Today, there is only one different between
+/// fallback and non-fallback (or "explicit") faces: the handling
+/// of emoji presentation.
+///
+/// For explicit faces, when an explicit emoji presentation is
+/// not requested, we will use any glyph for that codepoint found
+/// even if the font presentation does not match the UCD
+/// (Unicode Character Database) value. When an explicit presentation
+/// is requested (via either VS15/V16), that is always honored.
+/// The reason we do this is because we assume that if a user
+/// explicitly chosen a font face (hence it is "explicit" and
+/// not "fallback"), they want to use any glyphs possible within that
+/// font face. Fallback fonts on the other hand are picked as a
+/// last resort, so we should prefer exactness if possible.
 pub const GroupFace = union(enum) {
     deferred: DeferredFace, // Not loaded
-    loaded: Face, // Loaded
+    loaded: Face, // Loaded, explicit use
+
+    // The same as deferred/loaded but fallback font semantics (see large
+    // comment above GroupFace).
+    fallback_deferred: DeferredFace,
+    fallback_loaded: Face,
 
     pub fn deinit(self: *GroupFace) void {
         switch (self.*) {
-            .deferred => |*v| v.deinit(),
-            .loaded => |*v| v.deinit(),
+            inline .deferred,
+            .loaded,
+            .fallback_deferred,
+            .fallback_loaded,
+            => |*v| v.deinit(),
         }
+    }
+
+    /// True if this face satisfies the given codepoint and presentation.
+    fn hasCodepoint(self: GroupFace, cp: u32, p_mode: PresentationMode) bool {
+        return switch (self) {
+            // Non-fallback fonts require explicit presentation matching but
+            // otherwise don't care about presentation
+            .deferred => |v| switch (p_mode) {
+                .explicit => |p| v.hasCodepoint(cp, p),
+                .default, .any => v.hasCodepoint(cp, null),
+            },
+
+            .loaded => |face| switch (p_mode) {
+                .explicit => |p| face.presentation == p and face.glyphIndex(cp) != null,
+                .default, .any => face.glyphIndex(cp) != null,
+            },
+
+            // Fallback fonts require exact presentation matching.
+            .fallback_deferred => |v| switch (p_mode) {
+                .explicit, .default => |p| v.hasCodepoint(cp, p),
+                .any => v.hasCodepoint(cp, null),
+            },
+
+            .fallback_loaded => |face| switch (p_mode) {
+                .explicit,
+                .default,
+                => |p| face.presentation == p and face.glyphIndex(cp) != null,
+                .any => face.glyphIndex(cp) != null,
+            },
+        };
     }
 };
 
@@ -222,8 +295,8 @@ pub fn setSize(self: *Group, size: font.face.DesiredSize) !void {
     var it = self.faces.iterator();
     while (it.next()) |entry| {
         for (entry.value.items) |*elem| switch (elem.*) {
-            .deferred => continue,
-            .loaded => |*f| try f.setSize(self.faceOptions()),
+            .deferred, .fallback_deferred => continue,
+            .loaded, .fallback_loaded => |*f| try f.setSize(self.faceOptions()),
         };
     }
 }
@@ -286,9 +359,44 @@ pub const FontIndex = packed struct(FontIndex.Backing) {
 ///
 /// Optionally, a presentation format can be specified. This presentation
 /// format will be preferred but if it can't be found in this format,
-/// any text format will be accepted. If presentation is null, any presentation
-/// is allowed. This func will NOT determine the default presentation for
+/// any format will be accepted. If presentation is null, the UCD
+/// (Unicode Character Database) will be used to determine the default
+/// presentation for the codepoint.
 /// a code point.
+///
+/// This logic is relatively complex so the exact algorithm is documented
+/// here. If this gets out of sync with the code, ask questions.
+///
+///   1. If a font style is requested that is disabled (i.e. bold),
+///      we start over with the regular font style. The regular font style
+///      cannot be disabled, but it can be replaced with a stylized font
+///      face.
+///
+///   2. If there is a codepoint override for the codepoint, we satisfy
+///      that requirement if we can, no matter what style or presentation.
+///
+///   3. If this is a sprite codepoint (such as an underline), then the
+///      sprite font always is the result.
+///
+///   4. If the exact style and presentation request can be satisfied by
+///      one of our loaded fonts, we return that value. We search loaded
+///      fonts in the order they're added to the group, so the caller must
+///      set the priority order.
+///
+///   5. If the style isn't regular, we restart this process at this point
+///      but with the regular style. This lets us fall back to regular with
+///      our loaded fonts before trying a fallback. We'd rather show a regular
+///      version of a codepoint from a loaded font than find a new font in
+///      the correct style because styles in other fonts often change
+///      metrics like glyph widths.
+///
+///   6. If the style is regular, and font discovery is enabled, we look
+///      for a fallback font to satisfy our request.
+///
+///   7. Finally, as a last resort, we fall back to restarting this whole
+///      process with a regular font face satisfying ANY presentation for
+///      the codepoint. If this fails, we return null.
+///
 pub fn indexForCodepoint(
     self: *Group,
     cp: u32,
@@ -315,8 +423,20 @@ pub fn indexForCodepoint(
         }
     }
 
+    // Build our presentation mode. If we don't have an explicit presentation
+    // given then we use the UCD (Unicode Character Database) to determine
+    // the default presentation. Note there is some inefficiency here because
+    // we'll do this muliple times if we recurse, but this is a cached function
+    // call higher up (GroupCache) so this should be rare.
+    const p_mode: PresentationMode = if (p) |v| .{ .explicit = v } else .{
+        .default = if (ziglyph.emoji.isEmojiPresentation(@intCast(cp)))
+            .emoji
+        else
+            .text,
+    };
+
     // If we can find the exact value, then return that.
-    if (self.indexForCodepointExact(cp, style, p)) |value| return value;
+    if (self.indexForCodepointExact(cp, style, p_mode)) |value| return value;
 
     // If we're not a regular font style, try looking for a regular font
     // that will satisfy this request. Blindly looking for unmatched styled
@@ -339,23 +459,29 @@ pub fn indexForCodepoint(
             defer disco_it.deinit();
 
             while (true) {
-                const face_ = disco_it.next() catch |err| {
+                var deferred_face = (disco_it.next() catch |err| {
                     log.warn("fallback search failed with error err={}", .{err});
                     break;
-                };
-                const face = face_ orelse break;
+                }) orelse break;
 
                 // Discovery is supposed to only return faces that have our
                 // codepoint but we can't search presentation in discovery so
                 // we have to check it here.
-                if (!face.hasCodepoint(cp, p)) continue;
+                const face: GroupFace = .{ .fallback_deferred = deferred_face };
+                if (!face.hasCodepoint(cp, p_mode)) {
+                    deferred_face.deinit();
+                    continue;
+                }
 
                 var buf: [256]u8 = undefined;
                 log.info("found codepoint 0x{x} in fallback face={s}", .{
                     cp,
-                    face.name(&buf) catch "<error>",
+                    deferred_face.name(&buf) catch "<error>",
                 });
-                return self.addFace(style, .{ .deferred = face }) catch break :discover;
+                return self.addFace(style, face) catch {
+                    deferred_face.deinit();
+                    break :discover;
+                };
             }
 
             log.debug("no fallback face found for cp={x}", .{cp});
@@ -365,21 +491,18 @@ pub fn indexForCodepoint(
     // If this is already regular, we're done falling back.
     if (style == .regular and p == null) return null;
 
-    // For non-regular fonts, we fall back to regular with no presentation
-    return self.indexForCodepointExact(cp, .regular, null);
+    // For non-regular fonts, we fall back to regular with any presentation
+    return self.indexForCodepointExact(cp, .regular, .{ .any = {} });
 }
 
-fn indexForCodepointExact(self: Group, cp: u32, style: Style, p: ?Presentation) ?FontIndex {
+fn indexForCodepointExact(
+    self: Group,
+    cp: u32,
+    style: Style,
+    p_mode: PresentationMode,
+) ?FontIndex {
     for (self.faces.get(style).items, 0..) |elem, i| {
-        const has_cp = switch (elem) {
-            .deferred => |v| v.hasCodepoint(cp, p),
-            .loaded => |face| loaded: {
-                if (p) |desired| if (face.presentation != desired) break :loaded false;
-                break :loaded face.glyphIndex(cp) != null;
-            },
-        };
-
-        if (has_cp) {
+        if (elem.hasCodepoint(cp, p_mode)) {
             return FontIndex{
                 .style = style,
                 .idx = @intCast(i),
@@ -446,18 +569,16 @@ fn indexForCodepointOverride(self: *Group, cp: u32) !?FontIndex {
 }
 
 /// Check if a specific font index has a specific codepoint. This does not
-/// necessarily force the font to load.
+/// necessarily force the font to load. The presentation value "p" will
+/// verify the Emoji representation matches if it is non-null. If "p" is
+/// null then any presentation will be accepted.
 pub fn hasCodepoint(self: *Group, index: FontIndex, cp: u32, p: ?Presentation) bool {
     const list = self.faces.getPtr(index.style);
     if (index.idx >= list.items.len) return false;
-    const item = list.items[index.idx];
-    return switch (item) {
-        .deferred => |v| v.hasCodepoint(cp, p),
-        .loaded => |face| loaded: {
-            if (p) |desired| if (face.presentation != desired) break :loaded false;
-            break :loaded face.glyphIndex(cp) != null;
-        },
-    };
+    return list.items[index.idx].hasCodepoint(
+        cp,
+        if (p) |v| .{ .explicit = v } else .{ .any = {} },
+    );
 }
 
 /// Returns the presentation for a specific font index. This is useful for
@@ -479,14 +600,23 @@ pub fn faceFromIndex(self: *Group, index: FontIndex) !*Face {
     const list = self.faces.getPtr(index.style);
     const item = &list.items[index.idx];
     return switch (item.*) {
-        .deferred => |*d| deferred: {
+        inline .deferred, .fallback_deferred => |*d, tag| deferred: {
             const face = try d.load(self.lib, self.faceOptions());
             d.deinit();
-            item.* = .{ .loaded = face };
-            break :deferred &item.loaded;
+            item.* = switch (tag) {
+                .deferred => .{ .loaded = face },
+                .fallback_deferred => .{ .fallback_loaded = face },
+                else => unreachable,
+            };
+
+            break :deferred switch (tag) {
+                .deferred => &item.loaded,
+                .fallback_deferred => &item.fallback_loaded,
+                else => unreachable,
+            };
         },
 
-        .loaded => |*f| f,
+        .loaded, .fallback_loaded => |*f| f,
     };
 }
 
@@ -538,7 +668,7 @@ pub const Wasm = struct {
         var group = try Group.init(alloc, .{}, .{ .points = pts });
         errdefer group.deinit();
 
-        var result = try alloc.create(Group);
+        const result = try alloc.create(Group);
         errdefer alloc.destroy(result);
         result.* = group;
         return result;
@@ -625,7 +755,7 @@ pub const Wasm = struct {
             .max_height = max_height,
         });
 
-        var result = try alloc.create(Glyph);
+        const result = try alloc.create(Glyph);
         errdefer alloc.destroy(result);
         result.* = glyph;
         return result;
@@ -932,5 +1062,107 @@ test "faceFromIndex returns pointer" {
         const face1 = try group.faceFromIndex(idx);
         const face2 = try group.faceFromIndex(idx);
         try testing.expectEqual(@intFromPtr(face1), @intFromPtr(face2));
+    }
+}
+
+test "indexFromCodepoint: prefer emoji in non-fallback font" {
+    // CoreText can't load Noto
+    if (font.options.backend == .coretext) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const testCozette = @import("test.zig").fontCozette;
+    const testEmoji = @import("test.zig").fontEmoji;
+
+    var atlas_greyscale = try font.Atlas.init(alloc, 512, .greyscale);
+    defer atlas_greyscale.deinit(alloc);
+
+    var lib = try Library.init();
+    defer lib.deinit();
+
+    var group = try init(alloc, lib, .{ .points = 12 });
+    defer group.deinit();
+
+    _ = try group.addFace(
+        .regular,
+        .{ .loaded = try Face.init(
+            lib,
+            testCozette,
+            .{ .size = .{ .points = 12 } },
+        ) },
+    );
+    _ = try group.addFace(
+        .regular,
+        .{ .fallback_loaded = try Face.init(
+            lib,
+            testEmoji,
+            .{ .size = .{ .points = 12 } },
+        ) },
+    );
+
+    // The "alien" emoji is default emoji presentation but present
+    // in Cozette as text. Since Cozette isn't a fallback, we shoulod
+    // load it from there.
+    {
+        const idx = group.indexForCodepoint(0x1F47D, .regular, null).?;
+        try testing.expectEqual(Style.regular, idx.style);
+        try testing.expectEqual(@as(FontIndex.IndexInt, 0), idx.idx);
+    }
+
+    // If we specifically request emoji, we should find it in the fallback.
+    {
+        const idx = group.indexForCodepoint(0x1F47D, .regular, .emoji).?;
+        try testing.expectEqual(Style.regular, idx.style);
+        try testing.expectEqual(@as(FontIndex.IndexInt, 1), idx.idx);
+    }
+}
+
+test "indexFromCodepoint: prefer emoji with correct presentation" {
+    // CoreText can't load Noto
+    if (font.options.backend == .coretext) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const testCozette = @import("test.zig").fontCozette;
+    const testEmoji = @import("test.zig").fontEmoji;
+
+    var atlas_greyscale = try font.Atlas.init(alloc, 512, .greyscale);
+    defer atlas_greyscale.deinit(alloc);
+
+    var lib = try Library.init();
+    defer lib.deinit();
+
+    var group = try init(alloc, lib, .{ .points = 12 });
+    defer group.deinit();
+
+    _ = try group.addFace(
+        .regular,
+        .{ .loaded = try Face.init(
+            lib,
+            testEmoji,
+            .{ .size = .{ .points = 12 } },
+        ) },
+    );
+    _ = try group.addFace(
+        .regular,
+        .{ .loaded = try Face.init(
+            lib,
+            testCozette,
+            .{ .size = .{ .points = 12 } },
+        ) },
+    );
+
+    // Check that we check the default presentation
+    {
+        const idx = group.indexForCodepoint(0x1F47D, .regular, null).?;
+        try testing.expectEqual(Style.regular, idx.style);
+        try testing.expectEqual(@as(FontIndex.IndexInt, 0), idx.idx);
+    }
+
+    // If we specifically request text
+    {
+        const idx = group.indexForCodepoint(0x1F47D, .regular, .text).?;
+        try testing.expectEqual(Style.regular, idx.style);
+        try testing.expectEqual(@as(FontIndex.IndexInt, 1), idx.idx);
     }
 }

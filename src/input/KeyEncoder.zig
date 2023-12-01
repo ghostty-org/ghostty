@@ -6,9 +6,11 @@
 const KeyEncoder = @This();
 
 const std = @import("std");
+const builtin = @import("builtin");
 const testing = std.testing;
 
 const key = @import("key.zig");
+const config = @import("../config.zig");
 const function_keys = @import("function_keys.zig");
 const terminal = @import("../terminal/main.zig");
 const KittyEntry = @import("kitty.zig").Entry;
@@ -20,6 +22,7 @@ const log = std.log.scoped(.key_encoder);
 event: key.KeyEvent,
 
 /// The state of various modes of a terminal that impact encoding.
+macos_option_as_alt: config.OptionAsAlt = .false,
 alt_esc_prefix: bool = false,
 cursor_key_application: bool = false,
 keypad_key_application: bool = false,
@@ -82,6 +85,15 @@ fn kitty(
             }
 
             return "";
+        }
+
+        // IME confirmation still sends an enter key so if we have enter
+        // and UTF8 text we just send it directly since we assume that is
+        // whats happening.
+        if (self.event.key == .enter and
+            self.event.utf8.len > 0)
+        {
+            return try copyToBuf(buf, self.event.utf8);
         }
 
         // If we're reporting all then we always send CSI sequences.
@@ -163,7 +175,29 @@ fn kitty(
             }
         }
 
-        if (self.kitty_flags.report_associated) {
+        if (self.kitty_flags.report_associated) associated: {
+            if (comptime builtin.target.isDarwin()) {
+                // macOS has special logic because alt+key can produce unicode
+                // characters. If we are treating option as alt, then we do NOT
+                // report associated text. If we are not treating alt as alt,
+                // we do.
+                if (switch (self.macos_option_as_alt) {
+                    .left => all_mods.sides.alt == .left,
+                    .right => all_mods.sides.alt == .right,
+                    .true => true,
+
+                    // This is the main weird one. If we are NOT treating
+                    // option as alt, we still want to prevent text if we
+                    // have modifiers set WITHOUT alt. If alt is present,
+                    // macOS will handle generating the unicode character.
+                    // If alt is not present, we want to suppress.
+                    .false => !seq.mods.alt and seq.mods.preventsText(),
+                }) break :associated;
+            } else {
+                // If any modifiers are present, we don't report associated text.
+                if (seq.mods.preventsText()) break :associated;
+            }
+
             seq.text = self.event.utf8;
         }
 
@@ -201,7 +235,16 @@ fn legacy(
         self.cursor_key_application,
         self.keypad_key_application,
         self.modify_other_keys_state_2,
-    )) |sequence| return copyToBuf(buf, sequence);
+    )) |sequence| pc_style: {
+        // If we're pressing enter and have UTF-8 text, we probably are
+        // clearing a dead key state. This happens specifically on macOS.
+        // We have a unit test for this.
+        if (self.event.key == .enter and self.event.utf8.len > 0) {
+            break :pc_style;
+        }
+
+        return copyToBuf(buf, sequence);
+    }
 
     // If we match a control sequence, we output that directly. For
     // ctrlSeq we have to use all mods because we want it to only
@@ -220,9 +263,16 @@ fn legacy(
         return buf[0..1];
     }
 
-    // If we have no UTF8 text then at this point there is nothing to do.
+    // If we have no UTF8 text then the only possibility is the
+    // alt-prefix handling of unshifted codepoints... so we process that.
     const utf8 = self.event.utf8;
-    if (utf8.len == 0) return "";
+    if (utf8.len == 0) {
+        if (try self.legacyAltPrefix(binding_mods, all_mods)) |byte| {
+            return try std.fmt.bufPrint(buf, "\x1B{c}", .{byte});
+        }
+
+        return "";
+    }
 
     // In modify other keys state 2, we send the CSI 27 sequence
     // for any char with a modifier. Ctrl sequences like Ctrl+a
@@ -290,15 +340,54 @@ fn legacy(
 
     // If we have alt-pressed and alt-esc-prefix is enabled, then
     // we need to prefix the utf8 sequence with an esc.
-    if (binding_mods.alt and
-        self.alt_esc_prefix and
-        utf8.len == 1 and
-        utf8[0] < 0x7F)
-    {
-        return try std.fmt.bufPrint(buf, "\x1B{u}", .{utf8[0]});
+    if (try self.legacyAltPrefix(binding_mods, all_mods)) |byte| {
+        return try std.fmt.bufPrint(buf, "\x1B{c}", .{byte});
     }
 
     return try copyToBuf(buf, utf8);
+}
+
+fn legacyAltPrefix(
+    self: *const KeyEncoder,
+    binding_mods: key.Mods,
+    mods: key.Mods,
+) !?u8 {
+    // This only takes effect with alt pressed
+    if (!binding_mods.alt or !self.alt_esc_prefix) return null;
+
+    // On macOS, we only handle option like alt in certain
+    // circumstances. Otherwise, macOS does a unicode translation
+    // and we allow that to happen.
+    if (comptime builtin.target.isDarwin()) {
+        switch (self.macos_option_as_alt) {
+            .false => return null,
+            .left => if (mods.sides.alt == .right) return null,
+            .right => if (mods.sides.alt == .left) return null,
+            .true => {},
+        }
+    }
+
+    // Otherwise, we require utf8 to already have the byte represented.
+    const utf8 = self.event.utf8;
+    if (utf8.len == 1) {
+        if (std.math.cast(u8, utf8[0])) |byte| {
+            return byte;
+        }
+    }
+
+    // If UTF8 isn't set, we will allow unshifted codepoints through.
+    if (self.event.unshifted_codepoint > 0) {
+        if (std.math.cast(
+            u8,
+            self.event.unshifted_codepoint,
+        )) |byte| {
+            return byte;
+        }
+    }
+
+    // Else, we can't figure out the byte to alt-prefix so we
+    // exit this handling.
+    return null;
 }
 
 /// A helper to memcpy a src value to a buffer and return the result.
@@ -516,6 +605,18 @@ const KittyMods = packed struct(u8) {
             .caps_lock = mods.caps_lock,
             .num_lock = mods.num_lock,
         };
+    }
+
+    /// Returns true if the modifiers prevent printable text.
+    ///
+    /// Note on macOS: this logic alone is not enough, since you must
+    /// consider macos_option_as_alt. See the Kitty encoder for more details.
+    pub fn preventsText(self: KittyMods) bool {
+        return self.alt or
+            self.ctrl or
+            self.super or
+            self.hyper or
+            self.meta;
     }
 
     /// Returns the raw int value of this packed struct.
@@ -1100,6 +1201,96 @@ test "kitty: left shift with report all" {
     try testing.expectEqualStrings("\x1b[57441u", actual);
 }
 
+test "kitty: report associated with alt text on macOS with option" {
+    if (comptime !builtin.target.isDarwin()) return error.SkipZigTest;
+
+    var buf: [128]u8 = undefined;
+    var enc: KeyEncoder = .{
+        .event = .{
+            .key = .w,
+            .mods = .{ .alt = true },
+            .utf8 = "∑",
+            .unshifted_codepoint = 119,
+        },
+        .kitty_flags = .{
+            .disambiguate = true,
+            .report_all = true,
+            .report_alternates = true,
+            .report_associated = true,
+        },
+        .macos_option_as_alt = .false,
+    };
+
+    const actual = try enc.kitty(&buf);
+    try testing.expectEqualStrings("\x1b[119;3;8721u", actual);
+}
+
+test "kitty: report associated with alt text on macOS with alt" {
+    if (comptime !builtin.target.isDarwin()) return error.SkipZigTest;
+
+    var buf: [128]u8 = undefined;
+    var enc: KeyEncoder = .{
+        .event = .{
+            .key = .w,
+            .mods = .{ .alt = true },
+            .utf8 = "∑",
+            .unshifted_codepoint = 119,
+        },
+        .kitty_flags = .{
+            .disambiguate = true,
+            .report_all = true,
+            .report_alternates = true,
+            .report_associated = true,
+        },
+        .macos_option_as_alt = .true,
+    };
+
+    const actual = try enc.kitty(&buf);
+    try testing.expectEqualStrings("\x1b[119;3u", actual);
+}
+
+test "kitty: report associated with modifiers" {
+    var buf: [128]u8 = undefined;
+    var enc: KeyEncoder = .{
+        .event = .{
+            .key = .j,
+            .mods = .{ .ctrl = true },
+            .utf8 = "j",
+            .unshifted_codepoint = 106,
+        },
+        .kitty_flags = .{
+            .disambiguate = true,
+            .report_all = true,
+            .report_alternates = true,
+            .report_associated = true,
+        },
+    };
+
+    const actual = try enc.kitty(&buf);
+    try testing.expectEqualStrings("\x1b[106;5u", actual);
+}
+
+test "kitty: report associated" {
+    var buf: [128]u8 = undefined;
+    var enc: KeyEncoder = .{
+        .event = .{
+            .key = .j,
+            .mods = .{ .shift = true },
+            .utf8 = "J",
+            .unshifted_codepoint = 106,
+        },
+        .kitty_flags = .{
+            .disambiguate = true,
+            .report_all = true,
+            .report_alternates = true,
+            .report_associated = true,
+        },
+    };
+
+    const actual = try enc.kitty(&buf);
+    try testing.expectEqualStrings("\x1b[106:74;2;74u", actual);
+}
+
 test "kitty: alternates omit control characters" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
@@ -1117,6 +1308,39 @@ test "kitty: alternates omit control characters" {
 
     const actual = try enc.kitty(&buf);
     try testing.expectEqualStrings("\x1b[3~", actual);
+}
+
+test "kitty: enter with utf8 (dead key state)" {
+    var buf: [128]u8 = undefined;
+    var enc: KeyEncoder = .{
+        .event = .{
+            .key = .enter,
+            .utf8 = "A",
+            .unshifted_codepoint = 0x0D,
+        },
+        .kitty_flags = .{
+            .disambiguate = true,
+            .report_alternates = true,
+            .report_all = true,
+        },
+    };
+
+    const actual = try enc.kitty(&buf);
+    try testing.expectEqualStrings("A", actual);
+}
+
+test "legacy: enter with utf8 (dead key state)" {
+    var buf: [128]u8 = undefined;
+    var enc: KeyEncoder = .{
+        .event = .{
+            .key = .enter,
+            .utf8 = "A",
+            .unshifted_codepoint = 0x0D,
+        },
+    };
+
+    const actual = try enc.legacy(&buf);
+    try testing.expectEqualStrings("A", actual);
 }
 
 test "legacy: ctrl+alt+c" {
@@ -1141,10 +1365,65 @@ test "legacy: alt+c" {
             .mods = .{ .alt = true },
         },
         .alt_esc_prefix = true,
+        .macos_option_as_alt = .true,
     };
 
     const actual = try enc.legacy(&buf);
     try testing.expectEqualStrings("\x1Bc", actual);
+}
+
+test "legacy: alt+e only unshifted" {
+    var buf: [128]u8 = undefined;
+    var enc: KeyEncoder = .{
+        .event = .{
+            .key = .e,
+            .unshifted_codepoint = 'e',
+            .mods = .{ .alt = true },
+        },
+        .alt_esc_prefix = true,
+        .macos_option_as_alt = .true,
+    };
+
+    const actual = try enc.legacy(&buf);
+    try testing.expectEqualStrings("\x1Be", actual);
+}
+
+test "legacy: alt+x macos" {
+    if (comptime !builtin.target.isDarwin()) return error.SkipZigTest;
+
+    var buf: [128]u8 = undefined;
+    var enc: KeyEncoder = .{
+        .event = .{
+            .key = .c,
+            .utf8 = "≈",
+            .unshifted_codepoint = 'c',
+            .mods = .{ .alt = true },
+        },
+        .alt_esc_prefix = true,
+        .macos_option_as_alt = .true,
+    };
+
+    const actual = try enc.legacy(&buf);
+    try testing.expectEqualStrings("\x1Bc", actual);
+}
+
+test "legacy: shift+alt+. macos" {
+    if (comptime !builtin.target.isDarwin()) return error.SkipZigTest;
+
+    var buf: [128]u8 = undefined;
+    var enc: KeyEncoder = .{
+        .event = .{
+            .key = .period,
+            .utf8 = ">",
+            .unshifted_codepoint = '.',
+            .mods = .{ .alt = true, .shift = true },
+        },
+        .alt_esc_prefix = true,
+        .macos_option_as_alt = .true,
+    };
+
+    const actual = try enc.legacy(&buf);
+    try testing.expectEqualStrings("\x1B>", actual);
 }
 
 test "legacy: alt+ф" {

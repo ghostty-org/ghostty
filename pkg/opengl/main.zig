@@ -17,6 +17,7 @@ pub usingnamespace @import("draw.zig");
 
 pub const ext = @import("extensions.zig");
 pub const Buffer = @import("Buffer.zig");
+pub const Framebuffer = @import("Framebuffer.zig");
 pub const Program = @import("Program.zig");
 pub const Shader = @import("Shader.zig");
 pub const Texture = @import("Texture.zig");

@@ -827,7 +827,8 @@ test "osc: 112 incomplete sequence" {
         try testing.expect(a[2] == null);
 
         const cmd = a[0].?.osc_dispatch;
-        try testing.expect(cmd == .reset_cursor_color);
+        try testing.expect(cmd == .reset_color);
+        try testing.expectEqual(cmd.reset_color.kind, .cursor);
     }
 }
 

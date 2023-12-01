@@ -15,6 +15,11 @@ const ScreenPoint = point.ScreenPoint;
 start: ScreenPoint,
 end: ScreenPoint,
 
+/// Whether or not this selection refers to a rectangle, rather than whole
+/// lines of a buffer. In this mode, start and end refer to the top left and
+/// bottom right of the rectangle, or vice versa if the selection is backwards.
+rectangle: bool = false,
+
 /// Converts a selection screen points to viewport points (still typed
 /// as ScreenPoints) if the selection is present within the viewport
 /// of the screen.
@@ -31,6 +36,7 @@ pub fn toViewport(self: Selection, screen: *const Screen) ?Selection {
     return Selection{
         .start = .{ .x = start.x, .y = start.y },
         .end = .{ .x = end.x, .y = end.y },
+        .rectangle = self.rectangle,
     };
 }
 
@@ -50,6 +56,11 @@ pub fn contains(self: Selection, p: ScreenPoint) bool {
 
     // Honestly there is probably way more efficient boolean logic here.
     // Look back at this in the future...
+
+    // If we're in rectangle select, we can short-circuit with an easy check
+    // here
+    if (self.rectangle)
+        return p.y >= tl.y and p.y <= br.y and p.x >= tl.x and p.x <= br.x;
 
     // If tl/br are same line
     if (tl.y == br.y) return p.y == tl.y and
@@ -100,6 +111,14 @@ pub fn containedRow(self: Selection, screen: *const Screen, p: ScreenPoint) ?Sel
     const tl = self.topLeft();
     const br = self.bottomRight();
     if (p.y < tl.y or p.y > br.y) return null;
+
+    // Rectangle case: we can return early as the x range will always be the
+    // same. We've already validated that the row is in the selection.
+    if (self.rectangle) return .{
+        .start = .{ .y = p.y, .x = tl.x },
+        .end = .{ .y = p.y, .x = br.x },
+        .rectangle = true,
+    };
 
     if (p.y == tl.y) {
         // If the selection is JUST this line, return it as-is.
@@ -154,8 +173,8 @@ pub fn ordered(self: Selection, desired: Order) Selection {
     const tl = self.topLeft();
     const br = self.bottomRight();
     return switch (desired) {
-        .forward => .{ .start = tl, .end = br },
-        .reverse => .{ .start = br, .end = tl },
+        .forward => .{ .start = tl, .end = br, .rectangle = self.rectangle },
+        .reverse => .{ .start = br, .end = tl, .rectangle = self.rectangle },
     };
 }
 
@@ -212,6 +231,78 @@ test "Selection: contains" {
     }
 }
 
+test "Selection: contains, rectangle" {
+    const testing = std.testing;
+    {
+        const sel: Selection = .{
+            .start = .{ .x = 3, .y = 3 },
+            .end = .{ .x = 7, .y = 9 },
+            .rectangle = true,
+        };
+
+        try testing.expect(sel.contains(.{ .x = 5, .y = 6 })); // Center
+        try testing.expect(sel.contains(.{ .x = 3, .y = 6 })); // Left border
+        try testing.expect(sel.contains(.{ .x = 7, .y = 6 })); // Right border
+        try testing.expect(sel.contains(.{ .x = 5, .y = 3 })); // Top border
+        try testing.expect(sel.contains(.{ .x = 5, .y = 9 })); // Bottom border
+
+        try testing.expect(!sel.contains(.{ .x = 5, .y = 2 })); // Above center
+        try testing.expect(!sel.contains(.{ .x = 5, .y = 10 })); // Below center
+        try testing.expect(!sel.contains(.{ .x = 2, .y = 6 })); // Left center
+        try testing.expect(!sel.contains(.{ .x = 8, .y = 6 })); // Right center
+        try testing.expect(!sel.contains(.{ .x = 8, .y = 3 })); // Just right of top right
+        try testing.expect(!sel.contains(.{ .x = 2, .y = 9 })); // Just left of bottom left
+
+        try testing.expect(!sel.containsRow(.{ .x = 1, .y = 1 }));
+        try testing.expect(sel.containsRow(.{ .x = 1, .y = 3 })); // x does not matter
+        try testing.expect(sel.containsRow(.{ .x = 1, .y = 6 }));
+        try testing.expect(sel.containsRow(.{ .x = 5, .y = 9 }));
+        try testing.expect(!sel.containsRow(.{ .x = 5, .y = 10 }));
+    }
+
+    // Reverse
+    {
+        const sel: Selection = .{
+            .start = .{ .x = 7, .y = 9 },
+            .end = .{ .x = 3, .y = 3 },
+            .rectangle = true,
+        };
+
+        try testing.expect(sel.contains(.{ .x = 5, .y = 6 })); // Center
+        try testing.expect(sel.contains(.{ .x = 3, .y = 6 })); // Left border
+        try testing.expect(sel.contains(.{ .x = 7, .y = 6 })); // Right border
+        try testing.expect(sel.contains(.{ .x = 5, .y = 3 })); // Top border
+        try testing.expect(sel.contains(.{ .x = 5, .y = 9 })); // Bottom border
+
+        try testing.expect(!sel.contains(.{ .x = 5, .y = 2 })); // Above center
+        try testing.expect(!sel.contains(.{ .x = 5, .y = 10 })); // Below center
+        try testing.expect(!sel.contains(.{ .x = 2, .y = 6 })); // Left center
+        try testing.expect(!sel.contains(.{ .x = 8, .y = 6 })); // Right center
+        try testing.expect(!sel.contains(.{ .x = 8, .y = 3 })); // Just right of top right
+        try testing.expect(!sel.contains(.{ .x = 2, .y = 9 })); // Just left of bottom left
+
+        try testing.expect(!sel.containsRow(.{ .x = 1, .y = 1 }));
+        try testing.expect(sel.containsRow(.{ .x = 1, .y = 3 })); // x does not matter
+        try testing.expect(sel.containsRow(.{ .x = 1, .y = 6 }));
+        try testing.expect(sel.containsRow(.{ .x = 5, .y = 9 }));
+        try testing.expect(!sel.containsRow(.{ .x = 5, .y = 10 }));
+    }
+
+    // Single line
+    // NOTE: This is the same as normal selection but we just do it for brevity
+    {
+        const sel: Selection = .{
+            .start = .{ .x = 5, .y = 1 },
+            .end = .{ .x = 10, .y = 1 },
+            .rectangle = true,
+        };
+
+        try testing.expect(sel.contains(.{ .x = 6, .y = 1 }));
+        try testing.expect(!sel.contains(.{ .x = 2, .y = 1 }));
+        try testing.expect(!sel.contains(.{ .x = 12, .y = 1 }));
+    }
+}
+
 test "Selection: containedRow" {
     const testing = std.testing;
     var screen = try Screen.init(testing.allocator, 5, 10, 0);
@@ -242,6 +333,39 @@ test "Selection: containedRow" {
         try testing.expectEqual(Selection{
             .start = .{ .x = 0, .y = 2 },
             .end = .{ .x = screen.cols - 1, .y = 2 },
+        }, sel.containedRow(&screen, .{ .x = 2, .y = 2 }).?);
+    }
+
+    // Rectangle
+    {
+        const sel: Selection = .{
+            .start = .{ .x = 3, .y = 1 },
+            .end = .{ .x = 6, .y = 3 },
+            .rectangle = true,
+        };
+
+        // Not contained
+        try testing.expect(sel.containedRow(&screen, .{ .x = 1, .y = 4 }) == null);
+
+        // Start line
+        try testing.expectEqual(Selection{
+            .start = .{ .x = 3, .y = 1 },
+            .end = .{ .x = 6, .y = 1 },
+            .rectangle = true,
+        }, sel.containedRow(&screen, .{ .x = 1, .y = 1 }).?);
+
+        // End line
+        try testing.expectEqual(Selection{
+            .start = .{ .x = 3, .y = 3 },
+            .end = .{ .x = 6, .y = 3 },
+            .rectangle = true,
+        }, sel.containedRow(&screen, .{ .x = 2, .y = 3 }).?);
+
+        // Middle line
+        try testing.expectEqual(Selection{
+            .start = .{ .x = 3, .y = 2 },
+            .end = .{ .x = 6, .y = 2 },
+            .rectangle = true,
         }, sel.containedRow(&screen, .{ .x = 2, .y = 2 }).?);
     }
 

@@ -4,6 +4,10 @@ pub const EraseDisplay = enum(u8) {
     above = 1,
     complete = 2,
     scrollback = 3,
+
+    /// This is an extension added by Kitty to move the viewport into the
+    /// scrollback and then erase the display.
+    scroll_complete = 22,
 };
 
 // Modes for the EL CSI command.

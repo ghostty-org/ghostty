@@ -43,7 +43,7 @@ test "fc-match" {
         const fonts = result.fs.fonts();
         try testing.expect(fonts.len > 0);
         for (fonts) |font| {
-            var pat_prep = try cfg.fontRenderPrepare(pat, font);
+            const pat_prep = try cfg.fontRenderPrepare(pat, font);
             try testing.expect(fs.add(pat_prep));
         }
         result.fs.destroy();

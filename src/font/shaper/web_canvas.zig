@@ -239,13 +239,13 @@ pub const Wasm = struct {
     }
 
     fn shaper_new_(cap: usize) !*Shaper {
-        var cell_buf = try alloc.alloc(font.shape.Cell, cap);
+        const cell_buf = try alloc.alloc(font.shape.Cell, cap);
         errdefer alloc.free(cell_buf);
 
         var shaper = try Shaper.init(alloc, .{ .cell_buf = cell_buf });
         errdefer shaper.deinit();
 
-        var result = try alloc.create(Shaper);
+        const result = try alloc.create(Shaper);
         errdefer alloc.destroy(result);
         result.* = shaper;
         return result;

@@ -2,6 +2,7 @@ const std = @import("std");
 
 const App = @import("App.zig");
 const c = @import("c.zig");
+const global_state = &@import("../../main.zig").state;
 
 const log = std.log.scoped(.gtk_icon);
 
@@ -28,7 +29,7 @@ pub fn appIcon(app: *App, widget: *c.GtkWidget) !Icon {
     // to the search path and see if we can find it there.
     const icon_theme = c.gtk_icon_theme_get_for_display(c.gtk_widget_get_display(widget));
     if (c.gtk_icon_theme_has_icon(icon_theme, icon_name) == 0) icon: {
-        const base = app.core_app.resources_dir orelse {
+        const base = global_state.resources_dir orelse {
             log.info("gtk app missing Ghostty icon and no resources dir detected", .{});
             log.info("gtk app will not have Ghostty icon", .{});
             break :icon;

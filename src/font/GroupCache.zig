@@ -244,7 +244,7 @@ pub const Wasm = struct {
         var gc = try GroupCache.init(alloc, group.*);
         errdefer gc.deinit(alloc);
 
-        var result = try alloc.create(GroupCache);
+        const result = try alloc.create(GroupCache);
         errdefer alloc.destroy(result);
         result.* = gc;
         return result;
@@ -304,7 +304,7 @@ pub const Wasm = struct {
             .max_height = max_height,
         });
 
-        var result = try alloc.create(Glyph);
+        const result = try alloc.create(Glyph);
         errdefer alloc.destroy(result);
         result.* = glyph;
         return result;

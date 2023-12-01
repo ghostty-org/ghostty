@@ -130,7 +130,7 @@ pub fn MessageData(comptime Elem: type, comptime small_size: comptime_int) type 
                     // If it fits in our small request, do that.
                     if (data.len <= Small.Max) {
                         var buf: Small.Array = undefined;
-                        std.mem.copy(Elem, &buf, data);
+                        @memcpy(buf[0..data.len], data);
                         return Self{
                             .small = .{
                                 .data = buf,
@@ -140,7 +140,7 @@ pub fn MessageData(comptime Elem: type, comptime small_size: comptime_int) type 
                     }
 
                     // Otherwise, allocate
-                    var buf = try alloc.dupe(Elem, data);
+                    const buf = try alloc.dupe(Elem, data);
                     errdefer alloc.free(buf);
                     return Self{
                         .alloc = .{

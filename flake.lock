@@ -176,6 +176,22 @@
         "type": "github"
       }
     },
+    "nixpkgs-zig-0-12": {
+      "locked": {
+        "lastModified": 1700381855,
+        "narHash": "sha256-2iN7PIsz7zcGU+va5eUZwNEmBnDGr+sUgoWhpsT5xtw=",
+        "owner": "vancluever",
+        "repo": "nixpkgs",
+        "rev": "d986dbb50cea7804e544ebd77342a2498e399166",
+        "type": "github"
+      },
+      "original": {
+        "owner": "vancluever",
+        "ref": "vancluever-zig-0-12",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
     "nixpkgs_2": {
       "locked": {
         "lastModified": 1689088367,
@@ -214,6 +230,7 @@
         "flake-utils": "flake-utils",
         "nixpkgs": "nixpkgs",
         "nixpkgs-unstable": "nixpkgs-unstable",
+        "nixpkgs-zig-0-12": "nixpkgs-zig-0-12",
         "zig": "zig",
         "zls-master": "zls-master"
       }
@@ -240,11 +257,11 @@
         "nixpkgs": "nixpkgs_2"
       },
       "locked": {
-        "lastModified": 1699099634,
-        "narHash": "sha256-MUgYJnQhAi1FiW3hvYkGGFbhXKTZFzA7r0YumkW9nHc=",
+        "lastModified": 1701259715,
+        "narHash": "sha256-k323e7C01XaVyvzprw6Lay51V1quKzkPOsrbEtkV390=",
         "owner": "mitchellh",
         "repo": "zig-overlay",
-        "rev": "12362cbfa1e097b3591bb3ffbee53fd8b4dc2b86",
+        "rev": "3b7938f44a345b12f70f0e34d5492b75e4005767",
         "type": "github"
       },
       "original": {

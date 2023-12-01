@@ -80,6 +80,11 @@ pub const ScreenPoint = struct {
             (self.y == other.y and self.x < other.x);
     }
 
+    /// Returns if two points are equal.
+    pub fn eql(self: ScreenPoint, other: ScreenPoint) bool {
+        return self.x == other.x and self.y == other.y;
+    }
+
     /// Returns true if this screen point is currently in the active viewport.
     pub fn inViewport(self: ScreenPoint, screen: *const Screen) bool {
         return self.y >= screen.viewport and
@@ -104,6 +109,62 @@ pub const ScreenPoint = struct {
         return .{ .x = self.x, .y = self.y - screen.viewport };
     }
 
+    /// Returns a screen point iterator. This will iterate over all of
+    /// of the points in a screen in a given direction one by one.
+    ///
+    /// The iterator is only valid as long as the screen is not resized.
+    pub fn iterator(
+        self: ScreenPoint,
+        screen: *const Screen,
+        dir: Direction,
+    ) Iterator {
+        return .{ .screen = screen, .current = self, .direction = dir };
+    }
+
+    pub const Iterator = struct {
+        screen: *const Screen,
+        current: ?ScreenPoint,
+        direction: Direction,
+
+        pub fn next(self: *Iterator) ?ScreenPoint {
+            const current = self.current orelse return null;
+            self.current = switch (self.direction) {
+                .left_up => left_up: {
+                    if (current.x == 0) {
+                        if (current.y == 0) break :left_up null;
+                        break :left_up .{
+                            .x = self.screen.cols - 1,
+                            .y = current.y - 1,
+                        };
+                    }
+
+                    break :left_up .{
+                        .x = current.x - 1,
+                        .y = current.y,
+                    };
+                },
+
+                .right_down => right_down: {
+                    if (current.x == self.screen.cols - 1) {
+                        const max = self.screen.rows + self.screen.max_scrollback;
+                        if (current.y == max - 1) break :right_down null;
+                        break :right_down .{
+                            .x = 0,
+                            .y = current.y + 1,
+                        };
+                    }
+
+                    break :right_down .{
+                        .x = current.x + 1,
+                        .y = current.y,
+                    };
+                },
+            };
+
+            return current;
+        }
+    };
+
     test "before" {
         const testing = std.testing;
 
@@ -111,7 +172,54 @@ pub const ScreenPoint = struct {
         try testing.expect(p.before(.{ .x = 6, .y = 2 }));
         try testing.expect(p.before(.{ .x = 3, .y = 3 }));
     }
+
+    test "iterator" {
+        const testing = std.testing;
+        const alloc = testing.allocator;
+
+        var s = try Screen.init(alloc, 5, 5, 0);
+        defer s.deinit();
+
+        // Back from the first line
+        {
+            var pt: ScreenPoint = .{ .x = 1, .y = 0 };
+            var it = pt.iterator(&s, .left_up);
+            try testing.expectEqual(ScreenPoint{ .x = 1, .y = 0 }, it.next().?);
+            try testing.expectEqual(ScreenPoint{ .x = 0, .y = 0 }, it.next().?);
+            try testing.expect(it.next() == null);
+        }
+
+        // Back from second line
+        {
+            var pt: ScreenPoint = .{ .x = 1, .y = 1 };
+            var it = pt.iterator(&s, .left_up);
+            try testing.expectEqual(ScreenPoint{ .x = 1, .y = 1 }, it.next().?);
+            try testing.expectEqual(ScreenPoint{ .x = 0, .y = 1 }, it.next().?);
+            try testing.expectEqual(ScreenPoint{ .x = 4, .y = 0 }, it.next().?);
+        }
+
+        // Forward last line
+        {
+            var pt: ScreenPoint = .{ .x = 3, .y = 4 };
+            var it = pt.iterator(&s, .right_down);
+            try testing.expectEqual(ScreenPoint{ .x = 3, .y = 4 }, it.next().?);
+            try testing.expectEqual(ScreenPoint{ .x = 4, .y = 4 }, it.next().?);
+            try testing.expect(it.next() == null);
+        }
+
+        // Forward not last line
+        {
+            var pt: ScreenPoint = .{ .x = 3, .y = 3 };
+            var it = pt.iterator(&s, .right_down);
+            try testing.expectEqual(ScreenPoint{ .x = 3, .y = 3 }, it.next().?);
+            try testing.expectEqual(ScreenPoint{ .x = 4, .y = 3 }, it.next().?);
+            try testing.expectEqual(ScreenPoint{ .x = 0, .y = 4 }, it.next().?);
+        }
+    }
 };
+
+/// Direction that points can go.
+pub const Direction = enum { left_up, right_down };
 
 test {
     std.testing.refAllDecls(@This());

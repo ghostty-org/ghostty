@@ -389,7 +389,7 @@ pub const Face = struct {
 
             // If we need to copy the data, we copy it into a temporary buffer.
             const buffer = if (needs_copy) buffer: {
-                var temp = try alloc.alloc(u8, tgt_w * tgt_h * depth);
+                const temp = try alloc.alloc(u8, tgt_w * tgt_h * depth);
                 var dst_ptr = temp;
                 var src_ptr = bitmap.buffer;
                 var i: usize = 0;

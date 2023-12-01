@@ -24,7 +24,7 @@ const build_options = @import("build_options");
 const Surface = @import("Surface.zig");
 const Window = @import("Window.zig");
 const ConfigErrorsWindow = @import("ConfigErrorsWindow.zig");
-const UnsafePasteWindow = @import("UnsafePasteWindow.zig");
+const ClipboardConfirmationWindow = @import("ClipboardConfirmationWindow.zig");
 const c = @import("c.zig");
 const inspector = @import("inspector.zig");
 const key = @import("key.zig");
@@ -49,17 +49,14 @@ menu: ?*c.GMenu = null,
 /// The configuration errors window, if it is currently open.
 config_errors_window: ?*ConfigErrorsWindow = null,
 
-/// The unsafe paste window, if it is currently open.
-unsafe_paste_window: ?*UnsafePasteWindow = null,
+/// The clipboard confirmation window, if it is currently open.
+clipboard_confirmation_window: ?*ClipboardConfirmationWindow = null,
 
 /// This is set to false when the main loop should exit.
 running: bool = true,
 
 pub fn init(core_app: *CoreApp, opts: Options) !App {
     _ = opts;
-
-    // Initialize libadwaita
-    if (build_options.libadwaita) c.adw_init();
 
     // Load our configuration
     var config = try Config.load(core_app.alloc);
@@ -72,8 +69,10 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
         }
     }
 
-    // Set the style based on our configuration file
-    if (build_options.libadwaita) {
+    // Initialize libadwaita
+    if (build_options.libadwaita and config.@"gtk-adwaita") {
+        log.debug("initializing libadwaita", .{});
+        c.adw_init();
         c.adw_style_manager_set_color_scheme(
             c.adw_style_manager_get_default(),
             switch (config.@"window-theme") {
@@ -155,6 +154,35 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
             c.g_error_free(err);
         }
         return error.GtkApplicationRegisterFailed;
+    }
+
+    const display = c.gdk_display_get_default();
+    if (c.g_type_check_instance_is_a(@ptrCast(@alignCast(display)), c.gdk_x11_display_get_type()) != 0) {
+        // Set the X11 window class property (WM_CLASS) if are are on an X11
+        // display.
+        //
+        // Note that we also set the program name here using g_set_prgname.
+        // This is how the instance name field for WM_CLASS is derived when
+        // calling gdk_x11_display_set_program_class; there does not seem to be
+        // a way to set it directly. It does not look like this is being set by
+        // our other app initialization routines currently, but since we're
+        // currently deriving its value from x11-instance-name effectively, I
+        // feel like gating it behind an X11 check is better intent.
+        //
+        // This makes the property show up like so when using xprop:
+        //
+        //     WM_CLASS(STRING) = "ghostty", "com.mitchellh.ghostty"
+        //
+        // Append "-debug" on both when using the debug build.
+        //
+        const prgname = if (config.@"x11-instance-name") |pn|
+            pn
+        else if (builtin.mode == .Debug)
+            "ghostty-debug"
+        else
+            "ghostty";
+        c.g_set_prgname(prgname);
+        c.gdk_x11_display_set_program_class(display, app_id);
     }
 
     // This just calls the "activate" signal but its part of the normal

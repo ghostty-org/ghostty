@@ -67,6 +67,11 @@ pub fn parse(comptime T: type, alloc: Allocator, dst: *T, iter: anytype) !void {
     };
 
     while (iter.next()) |arg| {
+        // If an _inputs fields exist we keep track of the inputs.
+        if (@hasField(T, "_inputs")) {
+            try dst._inputs.append(arena_alloc, try arena_alloc.dupe(u8, arg));
+        }
+
         // Do manual parsing if we have a hook for it.
         if (@hasDecl(T, "parseManuallyHook")) {
             if (!try dst.parseManuallyHook(arena_alloc, arg, iter)) return;
@@ -199,14 +204,14 @@ fn parseIntoField(
                 []const u8 => value: {
                     const slice = value orelse return error.ValueRequired;
                     const buf = try alloc.alloc(u8, slice.len);
-                    mem.copy(u8, buf, slice);
+                    @memcpy(buf, slice);
                     break :value buf;
                 },
 
                 [:0]const u8 => value: {
                     const slice = value orelse return error.ValueRequired;
                     const buf = try alloc.allocSentinel(u8, slice.len, 0);
-                    mem.copy(u8, buf, slice);
+                    @memcpy(buf, slice);
                     buf[slice.len] = 0;
                     break :value buf;
                 },
@@ -381,6 +386,30 @@ test "parse: error tracking" {
     try testing.expect(!data._errors.empty());
 }
 
+test "parse: input tracking" {
+    const testing = std.testing;
+
+    var data: struct {
+        a: []const u8 = "",
+        b: enum { one } = .one,
+
+        _arena: ?ArenaAllocator = null,
+        _errors: ErrorList = .{},
+        _inputs: std.ArrayListUnmanaged([]const u8) = .{},
+    } = .{};
+    defer if (data._arena) |arena| arena.deinit();
+
+    var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        testing.allocator,
+        "--what --a=42",
+    );
+    defer iter.deinit();
+    try parse(@TypeOf(data), testing.allocator, &data, &iter);
+    try testing.expect(data._arena != null);
+    try testing.expect(data._inputs.items.len == 2);
+    try testing.expectEqualStrings("--what", data._inputs.items[0]);
+    try testing.expectEqualStrings("--a=42", data._inputs.items[1]);
+}
 test "parseIntoField: ignore underscore-prefixed fields" {
     const testing = std.testing;
     var arena = ArenaAllocator.init(testing.allocator);
@@ -680,7 +709,7 @@ pub fn LineIterator(comptime ReaderType: type) type {
                     // Trim any whitespace around it
                     const trim = std.mem.trim(u8, entry, whitespace);
                     if (trim.len != entry.len) {
-                        std.mem.copy(u8, entry, trim);
+                        std.mem.copyForwards(u8, entry, trim);
                         entry = entry[0..trim.len];
                     }
 
@@ -708,9 +737,9 @@ pub fn LineIterator(comptime ReaderType: type) type {
 
                         const len = key.len + value.len + 1;
                         if (entry.len != len) {
-                            std.mem.copy(u8, entry, key);
+                            std.mem.copyForwards(u8, entry, key);
                             entry[key.len] = '=';
-                            std.mem.copy(u8, entry[key.len + 1 ..], value);
+                            std.mem.copyForwards(u8, entry[key.len + 1 ..], value);
                             entry = entry[0..len];
                         }
                     }
@@ -730,6 +759,25 @@ pub fn LineIterator(comptime ReaderType: type) type {
 // Constructs a LineIterator (see docs for that).
 pub fn lineIterator(reader: anytype) LineIterator(@TypeOf(reader)) {
     return .{ .r = reader };
+}
+
+/// An iterator valid for arg parsing from a slice.
+pub const SliceIterator = struct {
+    const Self = @This();
+
+    slice: []const []const u8,
+    idx: usize = 0,
+
+    pub fn next(self: *Self) ?[]const u8 {
+        if (self.idx >= self.slice.len) return null;
+        defer self.idx += 1;
+        return self.slice[self.idx];
+    }
+};
+
+/// Construct a SliceIterator from a slice.
+pub fn sliceIterator(slice: []const []const u8) SliceIterator {
+    return .{ .slice = slice };
 }
 
 test "LineIterator" {

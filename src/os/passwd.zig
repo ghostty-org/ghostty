@@ -123,14 +123,14 @@ pub fn get(alloc: Allocator) !Entry {
     if (pw.pw_shell) |ptr| {
         const source = std.mem.sliceTo(ptr, 0);
         const sh = try alloc.alloc(u8, source.len);
-        std.mem.copy(u8, sh, source);
+        @memcpy(sh, source);
         result.shell = sh;
     }
 
     if (pw.pw_dir) |ptr| {
         const source = std.mem.sliceTo(ptr, 0);
         const dir = try alloc.alloc(u8, source.len);
-        std.mem.copy(u8, dir, source);
+        @memcpy(dir, source);
         result.home = dir;
     }
 

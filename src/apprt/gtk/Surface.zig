@@ -13,7 +13,7 @@ const CoreSurface = @import("../../Surface.zig");
 
 const App = @import("App.zig");
 const Window = @import("Window.zig");
-const UnsafePasteWindow = @import("UnsafePasteWindow.zig");
+const ClipboardConfirmationWindow = @import("ClipboardConfirmationWindow.zig");
 const inspector = @import("inspector.zig");
 const gtk_key = @import("key.zig");
 const c = @import("c.zig");
@@ -97,7 +97,6 @@ im_len: u7 = 0,
 
 pub fn init(self: *Surface, app: *App, opts: Options) !void {
     const widget = @as(*c.GtkWidget, @ptrCast(opts.gl_area));
-    c.gtk_widget_set_cursor_from_name(@ptrCast(opts.gl_area), "text");
     c.gtk_gl_area_set_required_version(opts.gl_area, 3, 3);
     c.gtk_gl_area_set_has_stencil_buffer(opts.gl_area, 0);
     c.gtk_gl_area_set_has_depth_buffer(opts.gl_area, 0);
@@ -167,6 +166,9 @@ pub fn init(self: *Surface, app: *App, opts: Options) !void {
         .im_context = im_context,
     };
     errdefer self.* = undefined;
+
+    // Set our default mouse shape
+    try self.setMouseShape(.text);
 
     // GL events
     _ = c.g_signal_connect_data(opts.gl_area, "realize", c.G_CALLBACK(&gtkRealize), self, null, c.G_CONNECT_DEFAULT);
@@ -252,7 +254,7 @@ pub fn deinit(self: *Surface) void {
 }
 
 fn render(self: *Surface) !void {
-    try self.core_surface.renderer.draw();
+    try self.core_surface.renderer.drawFrame(self);
 }
 
 /// Queue the inspector to render if we have one.
@@ -515,9 +517,22 @@ pub fn setClipboardString(
     self: *const Surface,
     val: [:0]const u8,
     clipboard_type: apprt.Clipboard,
+    confirm: bool,
 ) !void {
-    const clipboard = getClipboard(@ptrCast(self.gl_area), clipboard_type);
-    c.gdk_clipboard_set_text(clipboard, val.ptr);
+    if (!confirm) {
+        const clipboard = getClipboard(@ptrCast(self.gl_area), clipboard_type);
+        c.gdk_clipboard_set_text(clipboard, val.ptr);
+        return;
+    }
+
+    ClipboardConfirmationWindow.create(
+        self.app,
+        val,
+        self.core_surface,
+        .{ .osc_52_write = clipboard_type },
+    ) catch |window_err| {
+        log.err("failed to create clipboard confirmation window err={}", .{window_err});
+    };
 }
 
 const ClipboardRequest = struct {
@@ -554,15 +569,17 @@ fn gtkClipboardRead(
         str,
         false,
     ) catch |err| switch (err) {
-        error.UnsafePaste => {
+        error.UnsafePaste,
+        error.UnauthorizedPaste,
+        => {
             // Create a dialog and ask the user if they want to paste anyway.
-            UnsafePasteWindow.create(
+            ClipboardConfirmationWindow.create(
                 self.app,
                 str,
                 self.core_surface,
                 req.state,
             ) catch |window_err| {
-                log.err("failed to create unsafe paste window err={}", .{window_err});
+                log.err("failed to create clipboard confirmation window err={}", .{window_err});
             };
             return;
         },
@@ -574,11 +591,55 @@ fn gtkClipboardRead(
 fn getClipboard(widget: *c.GtkWidget, clipboard: apprt.Clipboard) ?*c.GdkClipboard {
     return switch (clipboard) {
         .standard => c.gtk_widget_get_clipboard(widget),
-        .selection => c.gtk_widget_get_primary_clipboard(widget),
+        .selection, .primary => c.gtk_widget_get_primary_clipboard(widget),
     };
 }
 pub fn getCursorPos(self: *const Surface) !apprt.CursorPos {
     return self.cursor_pos;
+}
+
+pub fn showDesktopNotification(
+    self: *Surface,
+    title: []const u8,
+    body: []const u8,
+) !void {
+    // Set a default title if we don't already have one
+    const t = switch (title.len) {
+        0 => "Ghostty",
+        else => title,
+    };
+    const notif = c.g_notification_new(t.ptr);
+    defer c.g_object_unref(notif);
+    c.g_notification_set_body(notif, body.ptr);
+
+    // Find our icon in the current icon theme. Not pretty, but the builtin GIO
+    // method "g_themed_icon_new" doesn't search XDG_DATA_DIRS, so any install
+    // not in /usr/share will be unable to find an icon
+    const display = c.gdk_display_get_default();
+    const theme = c.gtk_icon_theme_get_for_display(display);
+    const icon = c.gtk_icon_theme_lookup_icon(
+        theme,
+        "com.mitchellh.ghostty",
+        null,
+        48,
+        1, // Window scale
+        c.GTK_TEXT_DIR_LTR,
+        0,
+    );
+    defer c.g_object_unref(icon);
+    // Get the filepath of the icon we found
+    const file = c.gtk_icon_paintable_get_file(icon);
+    defer c.g_object_unref(file);
+    // Create a GIO icon
+    const gicon = c.g_file_icon_new(file);
+    defer c.g_object_unref(gicon);
+    c.g_notification_set_icon(notif, gicon);
+
+    const g_app: *c.GApplication = @ptrCast(self.app.app);
+
+    // We set the notification ID to the body content. If the content is the
+    // same, this notification may replace a previous notification
+    c.g_application_send_notification(g_app, body.ptr, notif);
 }
 
 fn gtkRealize(area: *c.GtkGLArea, ud: ?*anyopaque) callconv(.C) void {
@@ -599,6 +660,11 @@ fn gtkRealize(area: *c.GtkGLArea, ud: ?*anyopaque) callconv(.C) void {
         log.err("surface failed to realize: {}", .{err});
         return;
     };
+
+    // When we have a realized surface, we also attach our input method context.
+    // We do this here instead of init because this allows us to relase the ref
+    // to the GLArea when we unrealized.
+    c.gtk_im_context_set_client_widget(self.im_context, @ptrCast(self.gl_area));
 }
 
 /// This is called when the underlying OpenGL resources must be released.
@@ -608,6 +674,9 @@ fn gtkUnrealize(area: *c.GtkGLArea, ud: ?*anyopaque) callconv(.C) void {
 
     const self = userdataSelf(ud.?);
     self.core_surface.renderer.displayUnrealized();
+
+    // See gtkRealize for why we do this here.
+    c.gtk_im_context_set_client_widget(self.im_context, null);
 }
 
 /// render signal
@@ -843,7 +912,6 @@ fn keyEvent(
     ud: ?*anyopaque,
 ) bool {
     const self = userdataSelf(ud.?);
-    const mods = translateMods(gtk_mods);
     const keyval_unicode = c.gdk_keyval_to_unicode(keyval);
     const event = c.gtk_event_controller_get_current_event(@ptrCast(ec_key));
 
@@ -865,6 +933,17 @@ fn keyEvent(
 
     // We only want to send the event through the IM context if we're a press
     if (action == .press or action == .repeat) {
+        // This can trigger an input method so we need to notify the im context
+        // where the cursor is so it can render the dropdowns in the correct
+        // place.
+        const ime_point = self.core_surface.imePoint();
+        c.gtk_im_context_set_cursor_location(self.im_context, &.{
+            .x = @intFromFloat(ime_point.x),
+            .y = @intFromFloat(ime_point.y),
+            .width = 1,
+            .height = 1,
+        });
+
         // We mark that we're in a keypress event. We use this in our
         // IM commit callback to determine if we need to send a char callback
         // to the core surface or not.
@@ -873,27 +952,30 @@ fn keyEvent(
 
         // Pass the event through the IM controller to handle dead key states.
         // Filter is true if the event was handled by the IM controller.
-        _ = c.gtk_im_context_filter_keypress(self.im_context, event) != 0;
+        const im_handled = c.gtk_im_context_filter_keypress(self.im_context, event) != 0;
+        // log.warn("im_handled={} im_len={} im_composing={}", .{ im_handled, self.im_len, self.im_composing });
 
         // If this is a dead key, then we're composing a character and
         // we need to set our proper preedit state.
         if (self.im_composing) preedit: {
             const text = self.im_buf[0..self.im_len];
-            const view = std.unicode.Utf8View.init(text) catch |err| {
-                log.warn("cannot build utf8 view over input: {}", .{err});
-                break :preedit;
-            };
-            var it = view.iterator();
-
-            const cp: u21 = it.nextCodepoint() orelse 0;
-            self.core_surface.preeditCallback(cp) catch |err| {
+            self.core_surface.preeditCallback(text) catch |err| {
                 log.err("error in preedit callback err={}", .{err});
                 break :preedit;
             };
+
+            // If we're composing then we don't want to send the key
+            // event to the core surface so we always return immediately.
+            if (im_handled) return true;
         } else {
             // If we aren't composing, then we set our preedit to
             // empty no matter what.
             self.core_surface.preeditCallback(null) catch {};
+
+            // If the IM handled this and we have no text, then we just
+            // return because this probably just changed the input method
+            // or something.
+            if (im_handled and self.im_len == 0) return true;
         }
     }
 
@@ -902,6 +984,57 @@ fn keyEvent(
     const physical_key = keycode: for (input.keycodes.entries) |entry| {
         if (entry.native == keycode) break :keycode entry.key;
     } else .invalid;
+
+    // Get our modifiers. We have to translate modifier-only presses here
+    // to state in the mods manually because GTK only does it AFTER the press
+    // event.
+    const mods = mods: {
+        var mods = translateMods(gtk_mods);
+        switch (physical_key) {
+            .left_shift => {
+                mods.shift = action == .press;
+                if (mods.shift) mods.sides.shift = .left;
+            },
+
+            .right_shift => {
+                mods.shift = action == .press;
+                if (mods.shift) mods.sides.shift = .right;
+            },
+
+            .left_control => {
+                mods.ctrl = action == .press;
+                if (mods.ctrl) mods.sides.ctrl = .left;
+            },
+
+            .right_control => {
+                mods.ctrl = action == .press;
+                if (mods.ctrl) mods.sides.ctrl = .right;
+            },
+
+            .left_alt => {
+                mods.alt = action == .press;
+                if (mods.alt) mods.sides.alt = .left;
+            },
+
+            .right_alt => {
+                mods.alt = action == .press;
+                if (mods.alt) mods.sides.alt = .right;
+            },
+
+            .left_super => {
+                mods.super = action == .press;
+                if (mods.super) mods.sides.super = .left;
+            },
+
+            .right_super => {
+                mods.super = action == .press;
+                if (mods.super) mods.sides.super = .right;
+            },
+
+            else => {},
+        }
+        break :mods mods;
+    };
 
     // Get our consumed modifiers
     const consumed_mods: input.Mods = consumed: {
@@ -1004,6 +1137,7 @@ fn gtkInputPreeditStart(
     // Mark that we are now composing a string with a dead key state.
     // We'll record the string in the preedit-changed callback.
     self.im_composing = true;
+    self.im_len = 0;
 }
 
 fn gtkInputPreeditChanged(
@@ -1019,6 +1153,12 @@ fn gtkInputPreeditChanged(
     defer c.g_free(buf);
     const str = std.mem.sliceTo(buf, 0);
 
+    // If our string becomes empty we ignore this. This can happen after
+    // a commit event when the preedit is being cleared and we don't want
+    // to set im_len to zero. This is safe because preeditstart always sets
+    // im_len to zero.
+    if (str.len == 0) return;
+
     // Copy the preedit string into the im_buf. This is safe because
     // commit will always overwrite this.
     self.im_len = @intCast(@min(self.im_buf.len, str.len));
@@ -1033,7 +1173,6 @@ fn gtkInputPreeditEnd(
     const self = userdataSelf(ud.?);
     if (!self.in_keypress) return;
     self.im_composing = false;
-    self.im_len = 0;
 }
 
 fn gtkInputCommit(
@@ -1052,7 +1191,7 @@ fn gtkInputCommit(
             @memcpy(self.im_buf[0..str.len], str);
             self.im_len = @intCast(str.len);
 
-            // log.debug("input commit: {x}", .{self.im_buf[0]});
+            // log.debug("input commit len={}", .{self.im_len});
         } else {
             log.warn("not enough buffer space for input method commit", .{});
         }
@@ -1079,6 +1218,11 @@ fn gtkInputCommit(
 
 fn gtkFocusEnter(_: *c.GtkEventControllerFocus, ud: ?*anyopaque) callconv(.C) void {
     const self = userdataSelf(ud.?);
+
+    // Notify our IM context
+    c.gtk_im_context_focus_in(self.im_context);
+
+    // Notify our surface
     self.core_surface.focusCallback(true) catch |err| {
         log.err("error in focus callback err={}", .{err});
         return;
@@ -1087,6 +1231,10 @@ fn gtkFocusEnter(_: *c.GtkEventControllerFocus, ud: ?*anyopaque) callconv(.C) vo
 
 fn gtkFocusLeave(_: *c.GtkEventControllerFocus, ud: ?*anyopaque) callconv(.C) void {
     const self = userdataSelf(ud.?);
+
+    // Notify our IM context
+    c.gtk_im_context_focus_out(self.im_context);
+
     self.core_surface.focusCallback(false) catch |err| {
         log.err("error in focus callback err={}", .{err});
         return;

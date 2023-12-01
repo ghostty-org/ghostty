@@ -22,13 +22,21 @@ pub const Options = struct {
 pub fn config(alloc: Allocator, opts: Options) ![]u8 {
     // First check the env var. On Windows we have to allocate so this tracks
     // both whether we have the env var and whether we own it.
+    // on Windows we treat `LOCALAPPDATA` as a fallback for `XDG_CONFIG_HOME`
     const env_, const owned = switch (builtin.os.tag) {
         else => .{ std.os.getenv("XDG_CONFIG_HOME"), false },
         .windows => windows: {
             if (std.process.getEnvVarOwned(alloc, "XDG_CONFIG_HOME")) |env| {
                 break :windows .{ env, true };
             } else |err| switch (err) {
-                error.EnvironmentVariableNotFound => break :windows .{ null, false },
+                error.EnvironmentVariableNotFound => {
+                    if (std.process.getEnvVarOwned(alloc, "LOCALAPPDATA")) |env| {
+                        break :windows .{ env, true };
+                    } else |err2| switch (err2) {
+                        error.EnvironmentVariableNotFound => break :windows .{ null, false },
+                        else => return err,
+                    }
+                },
                 else => return err,
             }
         },

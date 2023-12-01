@@ -7,7 +7,7 @@ const objc = @import("objc");
 pub fn macosVersionAtLeast(major: i64, minor: i64, patch: i64) bool {
     assert(builtin.target.isDarwin());
 
-    const NSProcessInfo = objc.Class.getClass("NSProcessInfo").?;
+    const NSProcessInfo = objc.getClass("NSProcessInfo").?;
     const info = NSProcessInfo.msgSend(objc.Object, objc.sel("processInfo"), .{});
     return info.msgSend(bool, objc.sel("isOperatingSystemAtLeastVersion:"), .{
         NSOperatingSystemVersion{ .major = major, .minor = minor, .patch = patch },

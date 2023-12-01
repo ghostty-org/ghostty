@@ -1,0 +1,11 @@
+.{
+    .name = "glslang",
+    .version = "13.1.1",
+    .paths = .{""},
+    .dependencies = .{
+        .glslang = .{
+            .url = "https://github.com/KhronosGroup/glslang/archive/refs/tags/13.1.1.tar.gz",
+            .hash = "1220481fe19def1172cd0728743019c0f440181a6342b62d03e24d05c70141516799",
+        },
+    },
+}

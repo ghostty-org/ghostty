@@ -215,7 +215,7 @@ test "Tabstops: count on 80" {
     defer t.deinit(testing.allocator);
 
     // Count the tabstops
-    var count: usize = count: {
+    const count: usize = count: {
         var v: usize = 0;
         var i: usize = 0;
         while (i < 80) : (i += 1) {

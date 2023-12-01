@@ -15,6 +15,7 @@ const App = @import("../App.zig");
 const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.renderer_thread);
 
+const DRAW_INTERVAL = 33; // 30 FPS
 const CURSOR_BLINK_INTERVAL = 600;
 
 /// The type used for sending messages to the IO thread. For now this is
@@ -42,6 +43,13 @@ stop_c: xev.Completion = .{},
 /// The timer used for rendering
 render_h: xev.Timer,
 render_c: xev.Completion = .{},
+
+/// The timer used for draw calls. Draw calls don't update from the
+/// terminal state so they're much cheaper. They're used for animation
+/// and are paused when the terminal is not focused.
+draw_h: xev.Timer,
+draw_c: xev.Completion = .{},
+draw_active: bool = false,
 
 /// The timer used for cursor blinking
 cursor_h: xev.Timer,
@@ -100,6 +108,10 @@ pub fn init(
     var render_h = try xev.Timer.init();
     errdefer render_h.deinit();
 
+    // Draw timer, see comments.
+    var draw_h = try xev.Timer.init();
+    errdefer draw_h.deinit();
+
     // Setup a timer for blinking the cursor
     var cursor_timer = try xev.Timer.init();
     errdefer cursor_timer.deinit();
@@ -114,6 +126,7 @@ pub fn init(
         .wakeup = wakeup_h,
         .stop = stop_h,
         .render_h = render_h,
+        .draw_h = draw_h,
         .cursor_h = cursor_timer,
         .surface = surface,
         .renderer = renderer_impl,
@@ -129,6 +142,7 @@ pub fn deinit(self: *Thread) void {
     self.stop.deinit();
     self.wakeup.deinit();
     self.render_h.deinit();
+    self.draw_h.deinit();
     self.cursor_h.deinit();
     self.loop.deinit();
 
@@ -172,32 +186,41 @@ fn threadMain_(self: *Thread) !void {
         cursorTimerCallback,
     );
 
-    // If we are using tracy, then we setup a prepare handle so that
-    // we can mark the frame.
-    // TODO
-    // var frame_h: libuv.Prepare = if (!tracy.enabled) undefined else frame_h: {
-    //     const alloc_ptr = self.loop.getData(Allocator).?;
-    //     const alloc = alloc_ptr.*;
-    //     const h = try libuv.Prepare.init(alloc, self.loop);
-    //     h.setData(self);
-    //     try h.start(prepFrameCallback);
-    //
-    //     break :frame_h h;
-    // };
-    // defer if (tracy.enabled) {
-    //     frame_h.close((struct {
-    //         fn callback(h: *libuv.Prepare) void {
-    //             const alloc_h = h.loop().getData(Allocator).?.*;
-    //             h.deinit(alloc_h);
-    //         }
-    //     }).callback);
-    //     _ = self.loop.run(.nowait) catch {};
-    // };
+    // Start the draw timer
+    self.startDrawTimer();
 
     // Run
     log.debug("starting renderer thread", .{});
     defer log.debug("starting renderer thread shutdown", .{});
     _ = try self.loop.run(.until_done);
+}
+
+fn startDrawTimer(self: *Thread) void {
+    // If our renderer doesn't suppoort animations then we never run this.
+    if (!@hasDecl(renderer.Renderer, "hasAnimations")) return;
+    if (!self.renderer.hasAnimations()) return;
+
+    // Set our active state so it knows we're running. We set this before
+    // even checking the active state in case we have a pending shutdown.
+    self.draw_active = true;
+
+    // If our draw timer is already active, then we don't have to do anything.
+    if (self.draw_c.state() == .active) return;
+
+    // Start the timer which loops
+    self.draw_h.run(
+        &self.loop,
+        &self.draw_c,
+        DRAW_INTERVAL,
+        Thread,
+        self,
+        drawCallback,
+    );
+}
+
+fn stopDrawTimer(self: *Thread) void {
+    // This will stop the draw on the next iteration.
+    self.draw_active = false;
 }
 
 /// Drain the mailbox.
@@ -213,6 +236,9 @@ fn drainMailbox(self: *Thread) !void {
                 try self.renderer.setFocus(v);
 
                 if (!v) {
+                    // Stop the draw timer
+                    self.stopDrawTimer();
+
                     // If we're not focused, then we stop the cursor blink
                     if (self.cursor_c.state() == .active and
                         self.cursor_c_cancel.state() == .dead)
@@ -227,6 +253,9 @@ fn drainMailbox(self: *Thread) !void {
                         );
                     }
                 } else {
+                    // Start the draw timer
+                    self.startDrawTimer();
+
                     // If we're focused, we immediately show the cursor again
                     // and then restart the timer.
                     if (self.cursor_c.state() != .active) {
@@ -262,6 +291,18 @@ fn drainMailbox(self: *Thread) !void {
                 try self.renderer.setFontSize(size);
             },
 
+            .foreground_color => |color| {
+                self.renderer.foreground_color = color;
+            },
+
+            .background_color => |color| {
+                self.renderer.background_color = color;
+            },
+
+            .cursor_color => |color| {
+                self.renderer.cursor_color = color;
+            },
+
             .resize => |v| {
                 try self.renderer.setScreenSize(v.screen_size, v.padding);
             },
@@ -269,6 +310,11 @@ fn drainMailbox(self: *Thread) !void {
             .change_config => |config| {
                 defer config.alloc.destroy(config.ptr);
                 try self.renderer.changeConfig(config.ptr);
+
+                // Stop and start the draw timer to capture the new
+                // hasAnimations value.
+                self.stopDrawTimer();
+                self.startDrawTimer();
             },
 
             .inspector => |v| self.flags.has_inspector = v,
@@ -313,6 +359,41 @@ fn wakeupCallback(
     return .rearm;
 }
 
+fn drawCallback(
+    self_: ?*Thread,
+    _: *xev.Loop,
+    _: *xev.Completion,
+    r: xev.Timer.RunError!void,
+) xev.CallbackAction {
+    _ = r catch unreachable;
+    const t = self_ orelse {
+        // This shouldn't happen so we log it.
+        log.warn("render callback fired without data set", .{});
+        return .disarm;
+    };
+
+    // If we're doing single-threaded GPU calls then we just wake up the
+    // app thread to redraw at this point.
+    if (renderer.Renderer == renderer.OpenGL and
+        renderer.OpenGL.single_threaded_draw)
+    {
+        _ = t.app_mailbox.push(
+            .{ .redraw_surface = t.surface },
+            .{ .instant = {} },
+        );
+    } else {
+        t.renderer.drawFrame(t.surface) catch |err|
+            log.warn("error drawing err={}", .{err});
+    }
+
+    // Only continue if we're still active
+    if (t.draw_active) {
+        t.draw_h.run(&t.loop, &t.draw_c, DRAW_INTERVAL, Thread, t, drawCallback);
+    }
+
+    return .disarm;
+}
+
 fn renderCallback(
     self_: ?*Thread,
     _: *xev.Loop,
@@ -334,7 +415,8 @@ fn renderCallback(
         _ = t.app_mailbox.push(.{ .redraw_inspector = t.surface }, .{ .instant = {} });
     }
 
-    t.renderer.render(
+    // Update our frame data
+    t.renderer.updateFrame(
         t.surface,
         t.state,
         t.flags.cursor_blink_visible,
@@ -347,7 +429,12 @@ fn renderCallback(
         renderer.OpenGL.single_threaded_draw)
     {
         _ = t.app_mailbox.push(.{ .redraw_surface = t.surface }, .{ .instant = {} });
+        return .disarm;
     }
+
+    // Draw
+    t.renderer.drawFrame(t.surface) catch |err|
+        log.warn("error drawing err={}", .{err});
 
     return .disarm;
 }

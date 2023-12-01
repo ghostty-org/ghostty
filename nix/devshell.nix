@@ -6,6 +6,7 @@
 , ncurses
 , nodejs
 , nodePackages
+, oniguruma
 , parallel
 , pkg-config
 , python3
@@ -52,6 +53,7 @@ let
     freetype
     harfbuzz
     libpng
+    oniguruma
     pixman
     zlib
 
@@ -111,6 +113,7 @@ in mkShell rec {
     freetype
     harfbuzz
     libpng
+    oniguruma
     pixman
     zlib
 

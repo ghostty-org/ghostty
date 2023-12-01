@@ -310,7 +310,7 @@ pub fn wait(self: Command, block: bool) !Exit {
         }
 
         var exit_code: windows.DWORD = undefined;
-        var has_code = windows.kernel32.GetExitCodeProcess(self.pid.?, &exit_code) != 0;
+        const has_code = windows.kernel32.GetExitCodeProcess(self.pid.?, &exit_code) != 0;
         if (!has_code) {
             return windows.unexpectedError(windows.kernel32.GetLastError());
         }
@@ -374,9 +374,9 @@ pub fn expandPath(alloc: Allocator, cmd: []const u8) !?[]u8 {
         if (path_buf.len < path_len) return error.PathTooLong;
 
         // Copy in the full path
-        mem.copy(u8, &path_buf, search_path);
+        @memcpy(path_buf[0..search_path.len], search_path);
         path_buf[search_path.len] = std.fs.path.sep;
-        mem.copy(u8, path_buf[search_path.len + 1 ..], cmd);
+        @memcpy(path_buf[search_path.len + 1 ..][0..cmd.len], cmd);
         path_buf[path_len] = 0;
         const full_path = path_buf[0..path_len :0];
 
@@ -440,9 +440,9 @@ fn createNullDelimitedEnvMap(arena: mem.Allocator, env_map: *const EnvMap) ![:nu
     var i: usize = 0;
     while (it.next()) |pair| : (i += 1) {
         const env_buf = try arena.allocSentinel(u8, pair.key_ptr.len + pair.value_ptr.len + 1, 0);
-        mem.copy(u8, env_buf, pair.key_ptr.*);
+        @memcpy(env_buf[0..pair.key_ptr.len], pair.key_ptr.*);
         env_buf[pair.key_ptr.len] = '=';
-        mem.copy(u8, env_buf[pair.key_ptr.len + 1 ..], pair.value_ptr.*);
+        @memcpy(env_buf[pair.key_ptr.len + 1 ..], pair.value_ptr.*);
         envp_buf[i] = env_buf.ptr;
     }
     std.debug.assert(i == envp_count);

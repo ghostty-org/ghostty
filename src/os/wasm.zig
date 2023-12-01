@@ -94,7 +94,7 @@ pub fn toModuleOwned(ptr: anytype) void {
 
 test "basics" {
     const testing = std.testing;
-    var buf = malloc(32).?;
+    const buf = malloc(32).?;
     try testing.expect(allocs.size == 1);
     free(buf);
     try testing.expect(allocs.size == 0);
@@ -104,7 +104,7 @@ test "toHostOwned" {
     const testing = std.testing;
 
     const Point = struct { x: u32 = 0, y: u32 = 0 };
-    var p = try alloc.create(Point);
+    const p = try alloc.create(Point);
     errdefer alloc.destroy(p);
     const ptr = try toHostOwned(p);
     try testing.expect(allocs.size == 1);

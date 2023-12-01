@@ -68,10 +68,11 @@ pub const App = struct {
             SurfaceUD,
             [*:0]const u8,
             *apprt.ClipboardRequest,
+            apprt.ClipboardRequestType,
         ) callconv(.C) void,
 
         /// Write the clipboard value.
-        write_clipboard: *const fn (SurfaceUD, [*:0]const u8, c_int) callconv(.C) void,
+        write_clipboard: *const fn (SurfaceUD, [*:0]const u8, c_int, bool) callconv(.C) void,
 
         /// Create a new split view. If the embedder doesn't support split
         /// views then this can be null.
@@ -116,6 +117,9 @@ pub const App = struct {
 
         /// Called when the cell size changes.
         set_cell_size: ?*const fn (SurfaceUD, u32, u32) callconv(.C) void = null,
+
+        /// Show a desktop notification to the user.
+        show_desktop_notification: ?*const fn (SurfaceUD, [*:0]const u8, [*:0]const u8) void = null,
     };
 
     /// Special values for the goto_tab callback.
@@ -244,6 +248,20 @@ pub const Surface = struct {
         working_directory: [*:0]const u8 = "",
     };
 
+    /// This is the key event sent for ghostty_surface_key.
+    pub const KeyEvent = struct {
+        /// The three below are absolutely required.
+        action: input.Action,
+        mods: input.Mods,
+        keycode: u32,
+
+        /// Optionally, the embedder can handle text translation and send
+        /// the text value here. If text is non-nil, it is assumed that the
+        /// embedder also handles dead key states and sets composing as necessary.
+        text: ?[:0]const u8,
+        composing: bool,
+    };
+
     pub fn init(self: *Surface, app: *App, opts: Options) !void {
         const nsview = objc.Object.fromId(opts.nsview orelse
             return error.NSViewMustBeSet);
@@ -338,7 +356,7 @@ pub const Surface = struct {
         if (self.inspector) |v| return v;
 
         const alloc = self.app.core_app.alloc;
-        var inspector = try alloc.create(Inspector);
+        const inspector = try alloc.create(Inspector);
         errdefer alloc.destroy(inspector);
         inspector.* = try Inspector.init(self);
         self.inspector = inspector;
@@ -459,7 +477,7 @@ pub const Surface = struct {
     ) bool {
         return switch (clipboard_type) {
             .standard => true,
-            .selection => self.app.opts.supports_selection_clipboard,
+            .selection, .primary => self.app.opts.supports_selection_clipboard,
         };
     }
 
@@ -492,18 +510,21 @@ pub const Surface = struct {
     ) void {
         const alloc = self.app.core_app.alloc;
 
-        // Attempt to complete the request, but if its unsafe we may request
+        // Attempt to complete the request, but we may request
         // confirmation.
         self.core_surface.completeClipboardRequest(
             state.*,
             str,
             confirmed,
         ) catch |err| switch (err) {
-            error.UnsafePaste => {
+            error.UnsafePaste,
+            error.UnauthorizedPaste,
+            => {
                 self.app.opts.confirm_read_clipboard(
                     self.opts.userdata,
                     str.ptr,
                     state,
+                    state.*,
                 );
 
                 return;
@@ -512,8 +533,8 @@ pub const Surface = struct {
             else => log.err("error completing clipboard request err={}", .{err}),
         };
 
-        // We don't defer this because the unsafe paste route preserves
-        // the clipboard request.
+        // We don't defer this because the clipboard confirmation route
+        // preserves the clipboard request.
         alloc.destroy(state);
     }
 
@@ -521,11 +542,13 @@ pub const Surface = struct {
         self: *const Surface,
         val: [:0]const u8,
         clipboard_type: apprt.Clipboard,
+        confirm: bool,
     ) !void {
         self.app.opts.write_clipboard(
             self.opts.userdata,
             val.ptr,
             @intCast(@intFromEnum(clipboard_type)),
+            confirm,
         );
     }
 
@@ -625,10 +648,12 @@ pub const Surface = struct {
 
     pub fn keyCallback(
         self: *Surface,
-        action: input.Action,
-        keycode: u32,
-        mods: input.Mods,
+        event: KeyEvent,
     ) !void {
+        const action = event.action;
+        const keycode = event.keycode;
+        const mods = event.mods;
+
         // True if this is a key down event
         const is_down = action == .press or action == .repeat;
 
@@ -636,15 +661,14 @@ pub const Surface = struct {
         // then we strip the alt modifier from the mods for translation.
         const translate_mods = translate_mods: {
             var translate_mods = mods;
-            switch (self.app.config.@"macos-option-as-alt") {
-                .false => {},
-                .true => translate_mods.alt = false,
-                .left => if (mods.sides.alt == .left) {
-                    translate_mods.alt = false;
-                },
-                .right => if (mods.sides.alt == .right) {
-                    translate_mods.alt = false;
-                },
+            if (comptime builtin.target.isDarwin()) {
+                const strip = switch (self.app.config.@"macos-option-as-alt") {
+                    .false => false,
+                    .true => mods.alt,
+                    .left => mods.sides.alt == .left,
+                    .right => mods.sides.alt == .right,
+                };
+                if (strip) translate_mods.alt = false;
             }
 
             // On macOS we strip ctrl because UCKeyTranslate
@@ -666,7 +690,12 @@ pub const Surface = struct {
         // the raw keycode.
         var buf: [128]u8 = undefined;
         const result: input.Keymap.Translation = if (is_down) translate: {
-            const result = try self.app.keymap.translate(
+            // If the event provided us with text, then we use this as a result
+            // and do not do manual translation.
+            const result: input.Keymap.Translation = if (event.text) |text| .{
+                .text = text,
+                .composing = event.composing,
+            } else try self.app.keymap.translate(
                 &buf,
                 &self.keymap_state,
                 @intCast(keycode),
@@ -676,14 +705,7 @@ pub const Surface = struct {
             // If this is a dead key, then we're composing a character and
             // we need to set our proper preedit state.
             if (result.composing) {
-                const view = std.unicode.Utf8View.init(result.text) catch |err| {
-                    log.warn("cannot build utf8 view over input: {}", .{err});
-                    return;
-                };
-                var it = view.iterator();
-
-                const cp: u21 = it.nextCodepoint() orelse 0;
-                self.core_surface.preeditCallback(cp) catch |err| {
+                self.core_surface.preeditCallback(result.text) catch |err| {
                     log.err("error in preedit callback err={}", .{err});
                     return;
                 };
@@ -912,6 +934,20 @@ pub const Surface = struct {
     fn cursorPosToPixels(self: *const Surface, pos: apprt.CursorPos) !apprt.CursorPos {
         const scale = try self.getContentScale();
         return .{ .x = pos.x * scale.x, .y = pos.y * scale.y };
+    }
+
+    /// Show a desktop notification.
+    pub fn showDesktopNotification(
+        self: *const Surface,
+        title: [:0]const u8,
+        body: [:0]const u8,
+    ) !void {
+        const func = self.app.opts.show_desktop_notification orelse {
+            log.info("runtime embedder does not support show_desktop_notification", .{});
+            return;
+        };
+
+        func(self.opts.userdata, title, body);
     }
 };
 
@@ -1165,6 +1201,29 @@ pub const Inspector = struct {
 pub const CAPI = struct {
     const global = &@import("../main.zig").state;
 
+    /// This is the same as Surface.KeyEvent but this is the raw C API version.
+    const KeyEvent = extern struct {
+        action: input.Action,
+        mods: c_int,
+        keycode: u32,
+        text: ?[*:0]const u8,
+        composing: bool,
+
+        /// Convert to surface key event.
+        fn keyEvent(self: KeyEvent) Surface.KeyEvent {
+            return .{
+                .action = self.action,
+                .mods = @bitCast(@as(
+                    input.Mods.Backing,
+                    @truncate(@as(c_uint, @bitCast(self.mods))),
+                )),
+                .keycode = self.keycode,
+                .text = if (self.text) |ptr| std.mem.sliceTo(ptr, 0) else null,
+                .composing = self.composing,
+            };
+        }
+    };
+
     /// Create a new app.
     export fn ghostty_app_new(
         opts: *const apprt.runtime.App.Options,
@@ -1298,6 +1357,24 @@ pub const CAPI = struct {
         surface.focusCallback(focused);
     }
 
+    /// Filter the mods if necessary. This handles settings such as
+    /// `macos-option-as-alt`. The filtered mods should be used for
+    /// key translation but should NOT be sent back via the `_key`
+    /// function -- the original mods should be used for that.
+    export fn ghostty_surface_key_translation_mods(
+        surface: *Surface,
+        mods_raw: c_int,
+    ) c_int {
+        const mods: input.Mods = @bitCast(@as(
+            input.Mods.Backing,
+            @truncate(@as(c_uint, @bitCast(mods_raw))),
+        ));
+        const result = mods.translation(
+            surface.core_surface.config.macos_option_as_alt,
+        );
+        return @intCast(@as(input.Mods.Backing, @bitCast(result)));
+    }
+
     /// Send this for raw keypresses (i.e. the keyDown event on macOS).
     /// This will handle the keymap translation and send the appropriate
     /// key and char events.
@@ -1307,18 +1384,9 @@ pub const CAPI = struct {
     /// with a keypress, i.e. IME keyboard.
     export fn ghostty_surface_key(
         surface: *Surface,
-        action: input.Action,
-        keycode: u32,
-        c_mods: c_int,
+        event: KeyEvent,
     ) void {
-        surface.keyCallback(
-            action,
-            keycode,
-            @bitCast(@as(
-                input.Mods.Backing,
-                @truncate(@as(c_uint, @bitCast(c_mods))),
-            )),
-        ) catch |err| {
+        surface.keyCallback(event.keyEvent()) catch |err| {
             log.err("error processing key event err={}", .{err});
             return;
         };

@@ -190,6 +190,17 @@ const keymap: []const RawEntry = &.{
     .{ c.GDK_KEY_KP_Enter, .kp_enter },
     .{ c.GDK_KEY_KP_Equal, .kp_equal },
 
+    // These are all just aliases to the non-kp variants because Ghostty
+    // core doesn't distinguish between them currently.
+    .{ c.GDK_KEY_KP_Home, .home },
+    .{ c.GDK_KEY_KP_End, .end },
+    .{ c.GDK_KEY_KP_Page_Up, .page_up },
+    .{ c.GDK_KEY_KP_Page_Down, .page_down },
+    .{ c.GDK_KEY_KP_Up, .up },
+    .{ c.GDK_KEY_KP_Down, .down },
+    .{ c.GDK_KEY_KP_Right, .right },
+    .{ c.GDK_KEY_KP_Left, .left },
+
     .{ c.GDK_KEY_Shift_L, .left_shift },
     .{ c.GDK_KEY_Control_L, .left_control },
     .{ c.GDK_KEY_Alt_L, .left_alt },

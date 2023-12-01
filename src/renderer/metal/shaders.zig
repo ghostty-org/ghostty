@@ -12,10 +12,31 @@ const log = std.log.scoped(.metal);
 /// This contains the state for the shaders used by the Metal renderer.
 pub const Shaders = struct {
     library: objc.Object,
+
+    /// The cell shader is the shader used to render the terminal cells.
+    /// It is a single shader that is used for both the background and
+    /// foreground.
     cell_pipeline: objc.Object,
+
+    /// The image shader is the shader used to render images for things
+    /// like the Kitty image protocol.
     image_pipeline: objc.Object,
 
-    pub fn init(device: objc.Object) !Shaders {
+    /// Custom shaders to run against the final drawable texture. This
+    /// can be used to apply a lot of effects. Each shader is run in sequence
+    /// against the output of the previous shader.
+    post_pipelines: []const objc.Object,
+
+    /// Initialize our shader set.
+    ///
+    /// "post_shaders" is an optional list of postprocess shaders to run
+    /// against the final drawable texture. This is an array of shader source
+    /// code, not file paths.
+    pub fn init(
+        alloc: Allocator,
+        device: objc.Object,
+        post_shaders: []const [:0]const u8,
+    ) !Shaders {
         const library = try initLibrary(device);
         errdefer library.msgSend(void, objc.sel("release"), .{});
 
@@ -25,17 +46,44 @@ pub const Shaders = struct {
         const image_pipeline = try initImagePipeline(device, library);
         errdefer image_pipeline.msgSend(void, objc.sel("release"), .{});
 
+        const post_pipelines: []const objc.Object = initPostPipelines(
+            alloc,
+            device,
+            library,
+            post_shaders,
+        ) catch |err| err: {
+            // If an error happens while building postprocess shaders we
+            // want to just not use any postprocess shaders since we don't
+            // want to block Ghostty from working.
+            log.warn("error initializing postprocess shaders err={}", .{err});
+            break :err &.{};
+        };
+        errdefer if (post_pipelines.len > 0) {
+            for (post_pipelines) |pipeline| pipeline.msgSend(void, objc.sel("release"), .{});
+            alloc.free(post_pipelines);
+        };
+
         return .{
             .library = library,
             .cell_pipeline = cell_pipeline,
             .image_pipeline = image_pipeline,
+            .post_pipelines = post_pipelines,
         };
     }
 
-    pub fn deinit(self: *Shaders) void {
+    pub fn deinit(self: *Shaders, alloc: Allocator) void {
+        // Release our primary shaders
         self.cell_pipeline.msgSend(void, objc.sel("release"), .{});
         self.image_pipeline.msgSend(void, objc.sel("release"), .{});
         self.library.msgSend(void, objc.sel("release"), .{});
+
+        // Release our postprocess shaders
+        if (self.post_pipelines.len > 0) {
+            for (self.post_pipelines) |pipeline| {
+                pipeline.msgSend(void, objc.sel("release"), .{});
+            }
+            alloc.free(self.post_pipelines);
+        }
     }
 };
 
@@ -79,6 +127,23 @@ pub const Uniforms = extern struct {
     strikethrough_thickness: f32,
 };
 
+/// The uniforms used for custom postprocess shaders.
+pub const PostUniforms = extern struct {
+    // Note: all of the explicit aligmnments are copied from the
+    // MSL developer reference just so that we can be sure that we got
+    // it all exactly right.
+    resolution: [3]f32 align(16),
+    time: f32 align(4),
+    time_delta: f32 align(4),
+    frame_rate: f32 align(4),
+    frame: i32 align(4),
+    channel_time: [4][4]f32 align(16),
+    channel_resolution: [4][4]f32 align(16),
+    mouse: [4]f32 align(16),
+    date: [4]f32 align(16),
+    sample_rate: f32 align(4),
+};
+
 /// Initialize the MTLLibrary. A MTLLibrary is a collection of shaders.
 fn initLibrary(device: objc.Object) !objc.Object {
     // Hardcoded since this file isn't meant to be reusable.
@@ -103,6 +168,129 @@ fn initLibrary(device: objc.Object) !objc.Object {
     try checkError(err);
 
     return library;
+}
+
+/// Initialize our custom shader pipelines. The shaders argument is a
+/// set of shader source code, not file paths.
+fn initPostPipelines(
+    alloc: Allocator,
+    device: objc.Object,
+    library: objc.Object,
+    shaders: []const [:0]const u8,
+) ![]const objc.Object {
+    // If we have no shaders, do nothing.
+    if (shaders.len == 0) return &.{};
+
+    // Keeps track of how many shaders we successfully wrote.
+    var i: usize = 0;
+
+    // Initialize our result set. If any error happens, we undo everything.
+    var pipelines = try alloc.alloc(objc.Object, shaders.len);
+    errdefer {
+        for (pipelines[0..i]) |pipeline| {
+            pipeline.msgSend(void, objc.sel("release"), .{});
+        }
+        alloc.free(pipelines);
+    }
+
+    // Build each shader. Note we don't use "0.." to build our index
+    // because we need to keep track of our length to clean up above.
+    for (shaders) |source| {
+        pipelines[i] = try initPostPipeline(device, library, source);
+        i += 1;
+    }
+
+    return pipelines;
+}
+
+/// Initialize a single custom shader pipeline from shader source.
+fn initPostPipeline(
+    device: objc.Object,
+    library: objc.Object,
+    data: [:0]const u8,
+) !objc.Object {
+    // Create our library which has the shader source
+    const post_library = library: {
+        const source = try macos.foundation.String.createWithBytes(
+            data,
+            .utf8,
+            false,
+        );
+        defer source.release();
+
+        var err: ?*anyopaque = null;
+        const post_library = device.msgSend(
+            objc.Object,
+            objc.sel("newLibraryWithSource:options:error:"),
+            .{ source, @as(?*anyopaque, null), &err },
+        );
+        try checkError(err);
+        errdefer post_library.msgSend(void, objc.sel("release"), .{});
+
+        break :library post_library;
+    };
+    defer post_library.msgSend(void, objc.sel("release"), .{});
+
+    // Get our vertex and fragment functions
+    const func_vert = func_vert: {
+        const str = try macos.foundation.String.createWithBytes(
+            "post_vertex",
+            .utf8,
+            false,
+        );
+        defer str.release();
+
+        const ptr = library.msgSend(?*anyopaque, objc.sel("newFunctionWithName:"), .{str});
+        break :func_vert objc.Object.fromId(ptr.?);
+    };
+    const func_frag = func_frag: {
+        const str = try macos.foundation.String.createWithBytes(
+            "main0",
+            .utf8,
+            false,
+        );
+        defer str.release();
+
+        const ptr = post_library.msgSend(?*anyopaque, objc.sel("newFunctionWithName:"), .{str});
+        break :func_frag objc.Object.fromId(ptr.?);
+    };
+    defer func_vert.msgSend(void, objc.sel("release"), .{});
+    defer func_frag.msgSend(void, objc.sel("release"), .{});
+
+    // Create our descriptor
+    const desc = init: {
+        const Class = objc.getClass("MTLRenderPipelineDescriptor").?;
+        const id_alloc = Class.msgSend(objc.Object, objc.sel("alloc"), .{});
+        const id_init = id_alloc.msgSend(objc.Object, objc.sel("init"), .{});
+        break :init id_init;
+    };
+    defer desc.msgSend(void, objc.sel("release"), .{});
+    desc.setProperty("vertexFunction", func_vert);
+    desc.setProperty("fragmentFunction", func_frag);
+
+    // Set our color attachment
+    const attachments = objc.Object.fromId(desc.getProperty(?*anyopaque, "colorAttachments"));
+    {
+        const attachment = attachments.msgSend(
+            objc.Object,
+            objc.sel("objectAtIndexedSubscript:"),
+            .{@as(c_ulong, 0)},
+        );
+
+        // Value is MTLPixelFormatBGRA8Unorm
+        attachment.setProperty("pixelFormat", @as(c_ulong, 80));
+    }
+
+    // Make our state
+    var err: ?*anyopaque = null;
+    const pipeline_state = device.msgSend(
+        objc.Object,
+        objc.sel("newRenderPipelineStateWithDescriptor:error:"),
+        .{ desc, &err },
+    );
+    try checkError(err);
+
+    return pipeline_state;
 }
 
 /// Initialize the cell render pipeline for our shader library.
@@ -130,6 +318,8 @@ fn initCellPipeline(device: objc.Object, library: objc.Object) !objc.Object {
         const ptr = library.msgSend(?*anyopaque, objc.sel("newFunctionWithName:"), .{str});
         break :func_frag objc.Object.fromId(ptr.?);
     };
+    defer func_vert.msgSend(void, objc.sel("release"), .{});
+    defer func_frag.msgSend(void, objc.sel("release"), .{});
 
     // Create the vertex descriptor. The vertex descriptor describes the
     // data layout of the vertex inputs. We use indexed (or "instanced")
@@ -137,7 +327,7 @@ fn initCellPipeline(device: objc.Object, library: objc.Object) !objc.Object {
     // Cell as input.
     const vertex_desc = vertex_desc: {
         const desc = init: {
-            const Class = objc.Class.getClass("MTLVertexDescriptor").?;
+            const Class = objc.getClass("MTLVertexDescriptor").?;
             const id_alloc = Class.msgSend(objc.Object, objc.sel("alloc"), .{});
             const id_init = id_alloc.msgSend(objc.Object, objc.sel("init"), .{});
             break :init id_init;
@@ -239,14 +429,16 @@ fn initCellPipeline(device: objc.Object, library: objc.Object) !objc.Object {
 
         break :vertex_desc desc;
     };
+    defer vertex_desc.msgSend(void, objc.sel("release"), .{});
 
     // Create our descriptor
     const desc = init: {
-        const Class = objc.Class.getClass("MTLRenderPipelineDescriptor").?;
+        const Class = objc.getClass("MTLRenderPipelineDescriptor").?;
         const id_alloc = Class.msgSend(objc.Object, objc.sel("alloc"), .{});
         const id_init = id_alloc.msgSend(objc.Object, objc.sel("init"), .{});
         break :init id_init;
     };
+    defer desc.msgSend(void, objc.sel("release"), .{});
 
     // Set our properties
     desc.setProperty("vertexFunction", func_vert);
@@ -284,6 +476,7 @@ fn initCellPipeline(device: objc.Object, library: objc.Object) !objc.Object {
         .{ desc, &err },
     );
     try checkError(err);
+    errdefer pipeline_state.msgSend(void, objc.sel("release"), .{});
 
     return pipeline_state;
 }
@@ -313,6 +506,8 @@ fn initImagePipeline(device: objc.Object, library: objc.Object) !objc.Object {
         const ptr = library.msgSend(?*anyopaque, objc.sel("newFunctionWithName:"), .{str});
         break :func_frag objc.Object.fromId(ptr.?);
     };
+    defer func_vert.msgSend(void, objc.sel("release"), .{});
+    defer func_frag.msgSend(void, objc.sel("release"), .{});
 
     // Create the vertex descriptor. The vertex descriptor describes the
     // data layout of the vertex inputs. We use indexed (or "instanced")
@@ -320,7 +515,7 @@ fn initImagePipeline(device: objc.Object, library: objc.Object) !objc.Object {
     // Image as input.
     const vertex_desc = vertex_desc: {
         const desc = init: {
-            const Class = objc.Class.getClass("MTLVertexDescriptor").?;
+            const Class = objc.getClass("MTLVertexDescriptor").?;
             const id_alloc = Class.msgSend(objc.Object, objc.sel("alloc"), .{});
             const id_init = id_alloc.msgSend(objc.Object, objc.sel("init"), .{});
             break :init id_init;
@@ -389,14 +584,16 @@ fn initImagePipeline(device: objc.Object, library: objc.Object) !objc.Object {
 
         break :vertex_desc desc;
     };
+    defer vertex_desc.msgSend(void, objc.sel("release"), .{});
 
     // Create our descriptor
     const desc = init: {
-        const Class = objc.Class.getClass("MTLRenderPipelineDescriptor").?;
+        const Class = objc.getClass("MTLRenderPipelineDescriptor").?;
         const id_alloc = Class.msgSend(objc.Object, objc.sel("alloc"), .{});
         const id_init = id_alloc.msgSend(objc.Object, objc.sel("init"), .{});
         break :init id_init;
     };
+    defer desc.msgSend(void, objc.sel("release"), .{});
 
     // Set our properties
     desc.setProperty("vertexFunction", func_vert);

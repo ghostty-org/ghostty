@@ -218,7 +218,7 @@ pub const Image = union(enum) {
     fn initTexture(p: Pending, device: objc.Object) !objc.Object {
         // Create our descriptor
         const desc = init: {
-            const Class = objc.Class.getClass("MTLTextureDescriptor").?;
+            const Class = objc.getClass("MTLTextureDescriptor").?;
             const id_alloc = Class.msgSend(objc.Object, objc.sel("alloc"), .{});
             const id_init = id_alloc.msgSend(objc.Object, objc.sel("init"), .{});
             break :init id_init;

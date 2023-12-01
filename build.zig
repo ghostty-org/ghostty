@@ -19,7 +19,7 @@ const Version = @import("src/build/Version.zig");
 // but we liberally update it. In the future, we'll be more careful about
 // using released versions so that package managers can integrate better.
 comptime {
-    const required_zig = "0.12.0-dev.983+78f2ae7f2";
+    const required_zig = "0.12.0-dev.1754+2a3226453";
     const current_zig = builtin.zig_version;
     const min_zig = std.SemanticVersion.parse(required_zig) catch unreachable;
     if (current_zig.order(min_zig) == .lt) {
@@ -143,14 +143,14 @@ pub fn build(b: *std.Build) !void {
         break :patch_rpath env.get("LD_LIBRARY_PATH");
     };
 
-    var version_string = b.option(
+    const version_string = b.option(
         []const u8,
         "version-string",
         "A specific version string to use for the build. " ++
             "If not specified, git will be used. This must be a semantic version.",
     );
 
-    var version: std.SemanticVersion = if (version_string) |v|
+    const version: std.SemanticVersion = if (version_string) |v|
         try std.SemanticVersion.parse(v)
     else version: {
         const vsn = try Version.detect(b);
@@ -291,6 +291,29 @@ pub fn build(b: *std.Build) !void {
             .source_dir = .{ .path = "src/shell-integration" },
             .install_dir = .{ .custom = "share" },
             .install_subdir = "shell-integration",
+            .exclude_extensions = &.{".md"},
+        });
+        b.getInstallStep().dependOn(&install.step);
+
+        if (target.isDarwin() and exe_ != null) {
+            const mac_install = b.addInstallDirectory(options: {
+                var copy = install.options;
+                copy.install_dir = .{
+                    .custom = "Ghostty.app/Contents/Resources",
+                };
+                break :options copy;
+            });
+            b.getInstallStep().dependOn(&mac_install.step);
+        }
+    }
+
+    // Themes
+    {
+        const upstream = b.dependency("iterm2_themes", .{});
+        const install = b.addInstallDirectory(.{
+            .source_dir = upstream.path("ghostty"),
+            .install_dir = .{ .custom = "share" },
+            .install_subdir = "themes",
             .exclude_extensions = &.{".md"},
         });
         b.getInstallStep().dependOn(&install.step);
@@ -597,7 +620,7 @@ pub fn build(b: *std.Build) !void {
     // Tests
     {
         const test_step = b.step("test", "Run all tests");
-        var test_filter = b.option([]const u8, "test-filter", "Filter for test");
+        const test_filter = b.option([]const u8, "test-filter", "Filter for test");
 
         const main_test = b.addTest(.{
             .name = "ghostty-test",
@@ -651,6 +674,14 @@ fn addDeps(
         .optimize = step.optimize,
         .@"enable-libpng" = true,
     });
+    const glslang_dep = b.dependency("glslang", .{
+        .target = step.target,
+        .optimize = step.optimize,
+    });
+    const spirv_cross_dep = b.dependency("spirv_cross", .{
+        .target = step.target,
+        .optimize = step.optimize,
+    });
     const mach_glfw_dep = b.dependency("mach_glfw", .{
         .target = step.target,
         .optimize = step.optimize,
@@ -663,6 +694,11 @@ fn addDeps(
         .target = step.target,
         .optimize = step.optimize,
     });
+    const oniguruma_dep = b.dependency("oniguruma", .{
+        .target = step.target,
+        .optimize = step.optimize,
+    });
+    const opengl_dep = b.dependency("opengl", .{});
     const pixman_dep = b.dependency("pixman", .{
         .target = step.target,
         .optimize = step.optimize,
@@ -725,9 +761,13 @@ fn addDeps(
         "fontconfig",
         fontconfig_dep.module("fontconfig"),
     );
+    step.addModule("oniguruma", oniguruma_dep.module("oniguruma"));
     step.addModule("freetype", freetype_dep.module("freetype"));
+    step.addModule("glslang", glslang_dep.module("glslang"));
+    step.addModule("spirv_cross", spirv_cross_dep.module("spirv_cross"));
     step.addModule("harfbuzz", harfbuzz_dep.module("harfbuzz"));
     step.addModule("xev", libxev_dep.module("xev"));
+    step.addModule("opengl", opengl_dep.module("opengl"));
     step.addModule("pixman", pixman_dep.module("pixman"));
     step.addModule("ziglyph", ziglyph_dep.module("ziglyph"));
 
@@ -751,6 +791,14 @@ fn addDeps(
         try static_libs.append(tracy_dep.artifact("tracy").getEmittedBin());
     }
 
+    // Glslang
+    step.linkLibrary(glslang_dep.artifact("glslang"));
+    try static_libs.append(glslang_dep.artifact("glslang").getEmittedBin());
+
+    // Spirv-Cross
+    step.linkLibrary(spirv_cross_dep.artifact("spirv_cross"));
+    try static_libs.append(spirv_cross_dep.artifact("spirv_cross").getEmittedBin());
+
     // Dynamic link
     if (!static) {
         step.addIncludePath(freetype_dep.path(""));
@@ -758,6 +806,7 @@ fn addDeps(
         step.linkSystemLibrary2("freetype2", dynamic_link_opts);
         step.linkSystemLibrary2("harfbuzz", dynamic_link_opts);
         step.linkSystemLibrary2("libpng", dynamic_link_opts);
+        step.linkSystemLibrary2("oniguruma", dynamic_link_opts);
         step.linkSystemLibrary2("pixman-1", dynamic_link_opts);
         step.linkSystemLibrary2("zlib", dynamic_link_opts);
 
@@ -768,6 +817,9 @@ fn addDeps(
 
     // Other dependencies, we may dynamically link
     if (static) {
+        step.linkLibrary(oniguruma_dep.artifact("oniguruma"));
+        try static_libs.append(oniguruma_dep.artifact("oniguruma").getEmittedBin());
+
         step.linkLibrary(zlib_dep.artifact("z"));
         try static_libs.append(zlib_dep.artifact("z").getEmittedBin());
 
@@ -852,7 +904,7 @@ fn benchSteps(
 ) !void {
     // Open the directory ./src/bench
     const c_dir_path = (comptime root()) ++ "/src/bench";
-    var c_dir = try fs.openIterableDirAbsolute(c_dir_path, .{});
+    var c_dir = try fs.openDirAbsolute(c_dir_path, .{ .iterate = true });
     defer c_dir.close();
 
     // Go through and add each as a step
@@ -895,7 +947,7 @@ fn conformanceSteps(
 
     // Open the directory ./conformance
     const c_dir_path = (comptime root()) ++ "/conformance";
-    var c_dir = try fs.openIterableDirAbsolute(c_dir_path, .{});
+    var c_dir = try fs.openDirAbsolute(c_dir_path, .{ .iterate = true });
     defer c_dir.close();
 
     // Go through and add each as a step

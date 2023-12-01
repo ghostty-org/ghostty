@@ -70,7 +70,7 @@ fn setLangFromCocoa() void {
     defer pool.deinit();
 
     // The classes we're going to need.
-    const NSLocale = objc.Class.getClass("NSLocale") orelse {
+    const NSLocale = objc.getClass("NSLocale") orelse {
         log.err("NSLocale class not found. Locale may be incorrect.", .{});
         return;
     };

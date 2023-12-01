@@ -169,7 +169,7 @@ test "create and destroy" {
     const stride = format.strideForWidth(width);
 
     const len = height * @as(usize, @intCast(stride));
-    var data = try alloc.alloc(u32, len);
+    const data = try alloc.alloc(u32, len);
     defer alloc.free(data);
     @memset(data, 0);
     const img = try Image.createBitsNoClear(.g1, width, height, data.ptr, stride);
@@ -191,7 +191,7 @@ test "fill boxes a1" {
 
     // Image
     const len = height * @as(usize, @intCast(stride));
-    var data = try alloc.alloc(u32, len);
+    const data = try alloc.alloc(u32, len);
     defer alloc.free(data);
     @memset(data, 0);
     const img = try Image.createBitsNoClear(format, width, height, data.ptr, stride);

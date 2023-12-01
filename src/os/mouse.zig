@@ -9,7 +9,7 @@ const log = std.log.scoped(.os);
 pub fn clickInterval() ?u32 {
     // On macOS, we can ask the system.
     if (comptime builtin.target.isDarwin()) {
-        const NSEvent = objc.Class.getClass("NSEvent") orelse {
+        const NSEvent = objc.getClass("NSEvent") orelse {
             log.err("NSEvent class not found. Can't get click interval.", .{});
             return null;
         };

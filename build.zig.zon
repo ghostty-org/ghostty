@@ -5,24 +5,24 @@
     .dependencies = .{
         // Zig libs
         .libxev = .{
-            .url = "https://github.com/mitchellh/libxev/archive/1b46c2d6f32754a3029d1863275dd0f877163831.tar.gz",
-            .hash = "12208dc0796bffa6ea9edb60193108e34f835f35fc152e853717aca2b13ba17f3be2",
+            .url = "https://github.com/mitchellh/libxev/archive/7eada4333c36b3e16f4dc2abad707149ef7b6de5.tar.gz",
+            .hash = "1220be2c7b3f3a07b9150720140c7038f454a9ce0cbc5d303767c1e4a50856ec1b01",
         },
         .mach_glfw = .{
-            .url = "https://github.com/hexops/mach-glfw/archive/16dc95cc7f74ebbbdd848d9a2c3cc4afc5717708.tar.gz",
-            .hash = "12202da6b8e9024c653f5d67f55a8065b401c42b3c08b69333d95400fe85d6019a59",
+            .url = "https://github.com/hexops/mach-glfw/archive/577220552e1b31c4496d2e0df2fb5fbc9287b966.tar.gz",
+            .hash = "12204779ba2f14b46f569110f774d5c3f48b7a105b6717e668bc410710bceae62072",
         },
         .zig_objc = .{
-            .url = "https://github.com/mitchellh/zig-objc/archive/146a50bb018d8e1ac5b9a1454d9db9a5eba5361f.tar.gz",
-            .hash = "12209f62dae4fccae478f5bd5670725c55308d8d985506110ba122ee2fb5e73122e0",
+            .url = "https://github.com/mitchellh/zig-objc/archive/10e552bd37c2f61b9f570d5ceb145165c6f1854b.tar.gz",
+            .hash = "122045926c2a90c61ca2ce907cc83a91ede0d49c989209fff2e2db421a88caf88e91",
         },
         .zig_js = .{
             .url = "https://github.com/mitchellh/zig-js/archive/60ac42ab137461cdba2b38cc6c5e16376470aae6.tar.gz",
             .hash = "1220319b42fbc0116f3f198343256018e9f1da9483cef259201afe4ebab0ce0d8f6a",
         },
         .ziglyph = .{
-            .url = "https://codeberg.org/dude_the_builder/ziglyph/archive/v0.11.2.tar.gz",
-            .hash = "1220c45655c6f107ca129a558ace8fb3c57afcd7290694c8c4a2d74df40f8c9a8937",
+            .url = "https://codeberg.org/dude_the_builder/ziglyph/archive/ef6a97e3e6d31786e4c5152abb8393f32ce52279.tar.gz",
+            .hash = "1220847f934ea57e90ffb4d447a43e37ff4dce2aab23c84513dfff591376350ffd31",
         },
 
         // C libs
@@ -32,11 +32,21 @@
         .harfbuzz = .{ .path = "./pkg/harfbuzz" },
         .libpng = .{ .path = "./pkg/libpng" },
         .macos = .{ .path = "./pkg/macos" },
+        .oniguruma = .{ .path = "./pkg/oniguruma" },
+        .opengl = .{ .path = "./pkg/opengl" },
         .pixman = .{ .path = "./pkg/pixman" },
         .tracy = .{ .path = "./pkg/tracy" },
         .zlib = .{ .path = "./pkg/zlib" },
 
-        // System headers
+        // Shader translation
+        .glslang = .{ .path = "./pkg/glslang" },
+        .spirv_cross = .{ .path = "./pkg/spirv-cross" },
+
+        // Other
         .apple_sdk = .{ .path = "./pkg/apple-sdk" },
+        .iterm2_themes = .{
+            .url = "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/53acae071801e0de6ed160315869abb9bdaf20fa.tar.gz",
+            .hash = "12201575c5a2b21c2e110593773040cddcd357544038092d18bd98fc5a2141354bbd",
+        },
     },
 }

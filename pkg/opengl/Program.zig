@@ -11,23 +11,22 @@ const glad = @import("glad.zig");
 
 id: c.GLuint,
 
-const Binding = struct {
-    pub inline fn unbind(_: Binding) void {
+pub const Binding = struct {
+    pub fn unbind(_: Binding) void {
         glad.context.UseProgram.?(0);
     }
 };
 
-pub inline fn create() !Program {
+pub fn create() !Program {
     const id = glad.context.CreateProgram.?();
     if (id == 0) try errors.mustError();
-
     log.debug("program created id={}", .{id});
-    return Program{ .id = id };
+    return .{ .id = id };
 }
 
 /// Create a program from a vertex and fragment shader source. This will
 /// compile and link the vertex and fragment shader.
-pub inline fn createVF(vsrc: [:0]const u8, fsrc: [:0]const u8) !Program {
+pub fn createVF(vsrc: [:0]const u8, fsrc: [:0]const u8) !Program {
     const vs = try Shader.create(c.GL_VERTEX_SHADER);
     try vs.setSourceAndCompile(vsrc);
     defer vs.destroy();
@@ -44,12 +43,18 @@ pub inline fn createVF(vsrc: [:0]const u8, fsrc: [:0]const u8) !Program {
     return p;
 }
 
-pub inline fn attachShader(p: Program, s: Shader) !void {
+pub fn destroy(p: Program) void {
+    assert(p.id != 0);
+    glad.context.DeleteProgram.?(p.id);
+    log.debug("program destroyed id={}", .{p.id});
+}
+
+pub fn attachShader(p: Program, s: Shader) !void {
     glad.context.AttachShader.?(p.id, s.id);
     try errors.getError();
 }
 
-pub inline fn link(p: Program) !void {
+pub fn link(p: Program) !void {
     glad.context.LinkProgram.?(p.id);
 
     // Check if linking succeeded
@@ -67,14 +72,23 @@ pub inline fn link(p: Program) !void {
     return error.CompileFailed;
 }
 
-pub inline fn use(p: Program) !Binding {
+pub fn use(p: Program) !Binding {
     glad.context.UseProgram.?(p.id);
     try errors.getError();
-    return Binding{};
+    return .{};
+}
+
+pub fn uniformBlockBinding(
+    self: Program,
+    index: c.GLuint,
+    binding: c.GLuint,
+) !void {
+    glad.context.UniformBlockBinding.?(self.id, index, binding);
+    try errors.getError();
 }
 
 /// Requires the program is currently in use.
-pub inline fn setUniform(
+pub fn setUniform(
     p: Program,
     n: [:0]const u8,
     value: anytype,
@@ -115,14 +129,8 @@ pub inline fn setUniform(
 //
 // NOTE(mitchellh): we can add a dynamic version that uses an allocator
 // if we ever need it.
-pub inline fn getInfoLog(s: Program) [512]u8 {
+pub fn getInfoLog(s: Program) [512]u8 {
     var msg: [512]u8 = undefined;
     glad.context.GetProgramInfoLog.?(s.id, msg.len, null, &msg);
     return msg;
-}
-
-pub inline fn destroy(p: Program) void {
-    assert(p.id != 0);
-    glad.context.DeleteProgram.?(p.id);
-    log.debug("program destroyed id={}", .{p.id});
 }
