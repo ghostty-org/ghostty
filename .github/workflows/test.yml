@@ -37,7 +37,7 @@ jobs:
         run: nix develop -c zig build -Dstatic=true -Dapp-runtime=glfw -Dtarget=${{ matrix.target }}
 
   build-macos:
-    runs-on: macos-12
+    runs-on: ghcr.io/cirruslabs/macos-sonoma-xcode:latest
     needs: test
     env:
       # Needed for macos SDK

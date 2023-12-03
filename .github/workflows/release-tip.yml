@@ -31,7 +31,7 @@ jobs:
         )
       }}
 
-    runs-on: macos-12
+    runs-on: ghcr.io/cirruslabs/macos-sonoma-xcode:latest
     timeout-minutes: 90
     env:
       # Needed for macos SDK
