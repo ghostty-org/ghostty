@@ -408,9 +408,9 @@ pub fn build(b: *std.Build) !void {
 
         // Desktop file so that we have an icon and other metadata
         if (flatpak) {
-            b.installFile("dist/linux/app-flatpak.desktop", "share/applications/com.mitchellh.ghostty.desktop");
+            b.installFile("dist/linux/app-flatpak.desktop", "share/applications/mitchellh-com.ghostty.desktop");
         } else {
-            b.installFile("dist/linux/app.desktop", "share/applications/com.mitchellh.ghostty.desktop");
+            b.installFile("dist/linux/app.desktop", "share/applications/mitchellh-com.ghostty.desktop");
         }
 
         // Various icons that our application can use, including the icon
