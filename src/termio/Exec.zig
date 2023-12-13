@@ -868,6 +868,9 @@ const Subprocess = struct {
         // The execution path
         const final_path = if (internal_os.isFlatpak()) args[0] else path;
 
+        // Set SHELL to match the path
+        try env.put("SHELL", final_path);
+
         // Setup our shell integration, if we can.
         const shell_integrated: ?shell_integration.Shell = shell: {
             const force: ?shell_integration.Shell = switch (opts.full_config.@"shell-integration") {
