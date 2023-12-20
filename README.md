@@ -493,13 +493,14 @@ This app will be not be signed or notarized.
 [Official continuous builds are available](https://github.com/mitchellh/ghostty/releases/tag/tip)
 that are both signed and notarized.
 
-Note that this is a debug build. If you build a release build, you'll have
-to either manually disable "Library Validation" for the release target or
-you'll have to manually configure the Xcode project to use a valid macOS
-developer signing key. We currently don't support any way to do this from
-the command line so you'll have to open Xcode graphically. If you want a release
-build, I highly recommend you use
+Note that this is a debug build. If you want a release build, I highly recommend you use
 [the official continuous builds](https://github.com/mitchellh/ghostty/releases/tag/tip).
+
+If you build a release build, you'll have to do one of these manual steps:
+
+- disable "Library Validation" for the release target
+- configure the Xcode project to use a valid macOS developer signing key
+- run `codesign --force -s <signing identity>  macos/build/Release/Ghostty.app`
 
 If Ghostty is crashing on launch with an error about codesigning, you've
 probably built a release build without applying the requirements in the previous
