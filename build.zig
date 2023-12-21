@@ -656,6 +656,7 @@ fn addDeps(
     const js_dep = b.dependency("zig_js", .{ .target = step.target, .optimize = step.optimize });
     const libxev_dep = b.dependency("libxev", .{ .target = step.target, .optimize = step.optimize });
     const objc_dep = b.dependency("zig_objc", .{ .target = step.target, .optimize = step.optimize });
+    const tinyvg_dep = b.dependency("tinyvg", .{ .target = step.target, .optimize = step.optimize });
 
     const fontconfig_dep = b.dependency("fontconfig", .{
         .target = step.target,
@@ -761,6 +762,7 @@ fn addDeps(
     step.addModule("xev", libxev_dep.module("xev"));
     step.addModule("opengl", opengl_dep.module("opengl"));
     step.addModule("pixman", pixman_dep.module("pixman"));
+    step.addModule("tvg", tinyvg_dep.module("tvg"));
     step.addModule("ziglyph", ziglyph_dep.module("ziglyph"));
 
     // Mac Stuff

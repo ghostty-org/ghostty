@@ -8,6 +8,7 @@
 const Powerline = @This();
 
 const std = @import("std");
+const tvg = @import("tvg");
 const Allocator = std.mem.Allocator;
 
 const font = @import("../main.zig");
@@ -102,6 +103,11 @@ fn draw(self: Powerline, alloc: Allocator, canvas: *font.sprite.Canvas, cp: u32)
         0xE0D2,
         0xE0D4,
         => try self.draw_trapezoid_top_bottom(canvas, cp),
+
+        // TVG glyphs
+        0xE0C0,
+        0xE0C2,
+        => try self.draw_tvg_glyph(alloc, canvas, cp),
 
         else => return error.InvalidCodepoint,
     }
@@ -510,6 +516,32 @@ fn draw_trapezoid_top_bottom(self: Powerline, canvas: *font.sprite.Canvas, cp: u
     canvas.trapezoid(t_bottom);
 }
 
+/// Draws glyphs that are represented by embedded TinyVG. These are the complex
+/// glyphs that can't be drawn with simple geometry, e.g. fire, pixelated,
+/// lego, waveform, honeycomb.
+fn draw_tvg_glyph(self: Powerline, alloc: Allocator, canvas: *font.sprite.Canvas, cp: u32) !void {
+    const src = switch (cp) {
+        0xE0C0 => @embedFile("../res/powerline/e0c0.tvg"),
+        0xE0C2 => @embedFile("../res/powerline/e0c2.tvg"),
+        else => unreachable,
+    };
+
+    var image = try tvg.rendering.renderBuffer(
+        alloc,
+        alloc,
+        .{
+            .size = .{ .width = self.width, .height = self.height },
+        },
+        .x4,
+        src,
+    );
+    defer image.deinit(alloc);
+    for (image.pixels, 0..) |*c, i| {
+        if (c.r != 0 or c.g != 0 or c.b != 0)
+            canvas.pixel(@intCast(i % self.width), @intCast(i / self.width), @enumFromInt(c.a));
+    }
+}
+
 test "all" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -523,6 +555,8 @@ test "all" {
         0xE0BE,
         0xE0B4,
         0xE0B6,
+        0xE0C0,
+        0xE0C2,
         0xE0D2,
         0xE0D4,
     };

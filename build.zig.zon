@@ -24,8 +24,10 @@
             .url = "https://codeberg.org/dude_the_builder/ziglyph/archive/ef6a97e3e6d31786e4c5152abb8393f32ce52279.tar.gz",
             .hash = "1220847f934ea57e90ffb4d447a43e37ff4dce2aab23c84513dfff591376350ffd31",
         },
-
-        // C libs
+        .tinyvg = .{
+            .url = "https://github.com/vancluever/tinyvg-sdk/archive/257eaf6bb176e7bf6a34f5bb822d7d8478a39017.tar.gz",
+            .hash = "1220cf4729ab09d8bb99a27f8843dfedc9460b157665f2806884070e0b34d6befb6c",
+        },
         .cimgui = .{ .path = "./pkg/cimgui" },
         .fontconfig = .{ .path = "./pkg/fontconfig" },
         .freetype = .{ .path = "./pkg/freetype" },

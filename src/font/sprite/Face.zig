@@ -60,7 +60,9 @@ pub fn renderGlyph(
     }
 
     // We adjust our sprite width based on the cell width.
-    const width = switch (opts.cell_width orelse 1) {
+    const width = if (isPowerlineDouble(cp))
+        self.width * 2
+    else switch (opts.cell_width orelse 1) {
         0, 1 => self.width,
         else => |width| self.width * width,
     };
@@ -181,6 +183,8 @@ const Kind = enum {
             0xE0BA,
             0xE0BC,
             0xE0BE,
+            0xE0C0,
+            0xE0C2,
             0xE0D2,
             0xE0D4,
             => .powerline,
@@ -189,3 +193,16 @@ const Kind = enum {
         };
     }
 };
+
+/// Returns true if a codepoint is a double-width glyph.
+///
+/// This is a subset of the powerline fonts that need to render at 2x width
+/// while preserving 1x cell width.
+fn isPowerlineDouble(cp: u32) bool {
+    return switch (cp) {
+        0xE0C0,
+        0xE0C2,
+        => true,
+        else => false,
+    };
+}

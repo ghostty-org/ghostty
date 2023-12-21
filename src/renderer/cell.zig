@@ -45,9 +45,9 @@ pub fn fgMode(
                 break :text .normal;
             }
 
-            // We exempt the Powerline range from this since they exhibit
-            // box-drawing behavior and should not be constrained.
-            if (isPowerline(cell.char)) {
+            // We exempt the Powerline single-character range from this since
+            // they exhibit box-drawing behavior and should not be constrained.
+            if (isPowerlineSingle(cell.char)) {
                 break :text .normal;
             }
 
@@ -76,10 +76,11 @@ pub fn fgMode(
     };
 }
 
-// Returns true if the codepoint is a part of the Powerline range.
-fn isPowerline(char: u32) bool {
+// Returns true if the codepoint is a part of the Powerline range and is
+// single-cell.
+fn isPowerlineSingle(char: u32) bool {
     return switch (char) {
-        0xE0B0...0xE0C8, 0xE0CA, 0xE0CC...0xE0D2, 0xE0D4 => true,
+        0xE0B0...0xE0BF, 0xE0D2, 0xE0D4 => true,
         else => false,
     };
 }
