@@ -613,13 +613,16 @@ keybind: Keybinds = .{},
 /// Whether to automatically copy selected text to the clipboard. "true"
 /// will only copy on systems that support a selection clipboard.
 ///
-/// The value "clipboard" will copy to the system clipboard, making this
-/// work on macOS. Note that middle-click will also paste from the system
-/// clipboard in this case.
+/// The value "clipboard" will copy to the system clipboard, making this work
+/// on macOS (and is the default there). Note that middle-click will also paste
+/// from the system clipboard in this case.
 ///
 /// Note that if this is disabled, middle-click paste will also be
 /// disabled.
-@"copy-on-select": CopyOnSelect = .true,
+@"copy-on-select": CopyOnSelect = if (builtin.target.isDarwin())
+    .clipboard
+else
+    .true,
 
 /// The time in milliseconds between clicks to consider a click a repeat
 /// (double, triple, etc.) or an entirely new single click. A value of
