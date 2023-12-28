@@ -70,7 +70,7 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
     }
 
     // Initialize libadwaita
-    if (build_options.libadwaita and config.@"gtk-adwaita") {
+    if (build_options.app_runtime == .libadwaita) {
         log.debug("initializing libadwaita", .{});
         c.adw_init();
         c.adw_style_manager_set_color_scheme(

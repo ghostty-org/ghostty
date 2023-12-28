@@ -29,6 +29,7 @@ pub const runtime = switch (build_config.artifact) {
         .none => none,
         .glfw => glfw,
         .gtk => gtk,
+        .libadwaita => gtk,
     },
     .lib => embedded,
     .wasm_module => browser,
@@ -52,6 +53,10 @@ pub const Runtime = enum {
 
     /// GTK-backed. Rich windowed application. GTK is dynamically linked.
     gtk,
+
+    /// libadwaita-backed (GTK). Rich windowed application. GTK and libadwaita
+    /// are dynamically linked.
+    libadwaita,
 
     pub fn default(target: std.zig.CrossTarget) Runtime {
         // The Linux default is GTK because it is full featured.

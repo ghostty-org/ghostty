@@ -40,7 +40,6 @@ var flatpak: bool = false;
 var app_runtime: apprt.Runtime = .none;
 var renderer_impl: renderer.Impl = .opengl;
 var font_backend: font.Backend = .freetype;
-var libadwaita: bool = false;
 
 pub fn build(b: *std.Build) !void {
     const optimize = b.standardOptimizeOption(.{});
@@ -88,12 +87,6 @@ pub fn build(b: *std.Build) !void {
         "app-runtime",
         "The app runtime to use. Not all values supported on all platforms.",
     ) orelse apprt.Runtime.default(target);
-
-    libadwaita = b.option(
-        bool,
-        "gtk-libadwaita",
-        "Enables the use of libadwaita when using the gtk rendering backend.",
-    ) orelse true;
 
     renderer_impl = b.option(
         renderer.Impl,
@@ -211,7 +204,6 @@ pub fn build(b: *std.Build) !void {
     exe_options.addOption(apprt.Runtime, "app_runtime", app_runtime);
     exe_options.addOption(font.Backend, "font_backend", font_backend);
     exe_options.addOption(renderer.Impl, "renderer", renderer_impl);
-    exe_options.addOption(bool, "libadwaita", libadwaita);
 
     // Exe
     if (exe_) |exe| {
@@ -873,7 +865,11 @@ fn addDeps(
 
             .gtk => {
                 step.linkSystemLibrary2("gtk4", dynamic_link_opts);
-                if (libadwaita) step.linkSystemLibrary2("adwaita-1", dynamic_link_opts);
+            },
+
+            .libadwaita => {
+                step.linkSystemLibrary2("gtk4", dynamic_link_opts);
+                step.linkSystemLibrary2("adwaita-1", dynamic_link_opts);
             },
         }
     }

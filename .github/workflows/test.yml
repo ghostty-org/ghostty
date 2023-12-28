@@ -159,7 +159,10 @@ jobs:
         run: nix develop -c zig build -Dapp-runtime=none test
 
       - name: Test GTK Build
-        run: nix develop -c zig build -Dapp-runtime=gtk -Dgtk-libadwaita=true
+        run: nix develop -c zig build -Dapp-runtime=gtk
+
+      - name: Test libadaita Build
+        run: nix develop -c zig build -Dapp-runtime=libadwaita
 
       - name: Test GLFW Build
         run: nix develop -c zig build -Dapp-runtime=glfw
