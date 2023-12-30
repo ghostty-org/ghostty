@@ -382,6 +382,11 @@ palette: Palette = .{},
 /// If additional arguments are provided, the command will be executed
 /// using "/bin/sh -c". Ghostty does not do any shell command parsing.
 ///
+/// WARNING: executables with spaces in the path will generate a
+/// configuration error although the command may work. Commands that
+/// use other shell features like quotes, backslash escaping,
+/// or variable substitution may cause issues as well.
+///
 /// If you're using the `ghostty` CLI there is also a shortcut
 /// to run a command with argumens directly: you can use the `-e`
 /// flag. For example: `ghostty -e fish --with --custom --args`.
@@ -1707,42 +1712,7 @@ pub fn finalize(self: *Config) !void {
         }
     }
 
-    if (self.command) |command| {
-        // If the path is not absolute then we want to expand it. We use our
-        // current path because our current path is what will be available
-        // to our termio launcher.
-        if (!std.fs.path.isAbsolute(command)) {
-            const expanded = Command.expandPath(alloc, command) catch |err| expanded: {
-                log.warn("failed to expand command path={s} err={}", .{ command, err });
-                break :expanded null;
-            };
-
-            if (expanded) |v| {
-                self.command = v;
-            } else {
-                // If the command is not found on the path, we put an error
-                // but we still allow the command to remain unchanged and try
-                // to launch it later.
-                try self._errors.add(alloc, .{
-                    .message = try std.fmt.allocPrintZ(
-                        alloc,
-                        "command {s}: not found on PATH, use an absolute path",
-                        .{command},
-                    ),
-                });
-            }
-        } else {
-            std.fs.accessAbsolute(command, .{}) catch {
-                try self._errors.add(alloc, .{
-                    .message = try std.fmt.allocPrintZ(
-                        alloc,
-                        "command {s}: file not found",
-                        .{command},
-                    ),
-                });
-            };
-        }
-    }
+    try self.finalizeCommand();
 
     // If we have the special value "inherit" then set it to null which
     // does the same. In the future we should change to a tagged union.
@@ -1766,6 +1736,141 @@ pub fn finalize(self: *Config) !void {
     // If URLs are disabled, cut off the first link. The first link is
     // always the URL matcher.
     if (!self.@"link-url") self.link.links.items = self.link.links.items[1..];
+}
+
+/// Check the "command" configuration so that warnings can be issued
+/// if the executable cannot be found.
+pub fn finalizeCommand(self: *Config) !void {
+    const alloc = self._arena.?.allocator();
+
+    if (self.command) |command| {
+        var executable = command;
+        var arguments: []const u8 = "";
+        // WARNING: executables with spaces in the path will not be handled properly,
+        // nor will commands that use other shell features like quotes, backslash escaping,
+        // or variable substitution.
+        if (std.mem.indexOf(u8, command, " ")) |index| {
+            executable = command[0..index];
+            arguments = command[index..];
+        }
+        // If the path is not absolute then we want to expand it. We use our
+        // current path because our current path is what will be available
+        // to our termio launcher.
+        if (!std.fs.path.isAbsolute(executable)) {
+            const expanded = Command.expandPath(alloc, executable) catch |err| expanded: {
+                log.warn("failed to expand command path={s} err={}", .{ executable, err });
+                break :expanded null;
+            };
+
+            if (expanded) |new_executable| {
+                var new_command = try alloc.alloc(u8, new_executable.len + arguments.len);
+                @memcpy(new_command[0..new_executable.len], new_executable);
+                @memcpy(new_command[new_executable.len..], arguments);
+                self.command = new_command;
+            } else {
+                // If the command is not found on the path, we put an error
+                // but we still allow the command to remain unchanged and try
+                // to launch it later.
+                try self._errors.add(alloc, .{
+                    .message = try std.fmt.allocPrintZ(
+                        alloc,
+                        "command {s}: not found on PATH, use an absolute path",
+                        .{executable},
+                    ),
+                });
+            }
+        } else {
+            std.fs.accessAbsolute(executable, .{}) catch {
+                try self._errors.add(alloc, .{
+                    .message = try std.fmt.allocPrintZ(
+                        alloc,
+                        "command {s}: file not found",
+                        .{executable},
+                    ),
+                });
+            };
+        }
+    }
+}
+
+test "finalizeCommand-1" {
+    var config = try default(std.testing.allocator);
+    defer config.deinit();
+    try std.testing.expect(config.command == null);
+    try config.finalizeCommand();
+    try std.testing.expect(config._errors.empty());
+    try std.testing.expect(config.command == null);
+}
+
+test "finalizeCommand-2" {
+    var config = try default(std.testing.allocator);
+    defer config.deinit();
+    try std.testing.expect(config.command == null);
+    config.command = "sh";
+    try config.finalizeCommand();
+    try std.testing.expect(config._errors.empty());
+    const len = config.command.?.len;
+    try std.testing.expectEqualStrings("/sh", config.command.?[len - 3 ..]);
+}
+
+test "finalizeCommand-3" {
+    var config = try default(std.testing.allocator);
+    defer config.deinit();
+    try std.testing.expect(config.command == null);
+    config.command = "sh -c 'echo 1 2 3'";
+    const old_length = config.command.?.len;
+    try config.finalizeCommand();
+    try std.testing.expect(config._errors.empty());
+    const new_length = config.command.?.len;
+    // only check the end of the string, as (especially with NixOS) the path that the
+    // executable is actually is found in can be unpredictable
+    try std.testing.expectEqualStrings("/sh -c 'echo 1 2 3'", config.command.?[new_length - old_length - 1 ..]);
+}
+
+test "finalizeCommand-4" {
+    var config = try default(std.testing.allocator);
+    defer config.deinit();
+    try std.testing.expect(config.command == null);
+    config.command = "/bin/sh -c 'echo 1 2 3'";
+    try config.finalizeCommand();
+    try std.testing.expect(config._errors.empty());
+    try std.testing.expectEqualStrings("/bin/sh -c 'echo 1 2 3'", config.command.?);
+}
+
+test "finalizeCommand-5" {
+    var config = try default(std.testing.allocator);
+    defer config.deinit();
+    try std.testing.expect(config.command == null);
+    config.command = "nosuchcommand";
+    try config.finalizeCommand();
+    try std.testing.expect(!config._errors.empty());
+    try std.testing.expect(config._errors.list.items.len == 1);
+    try std.testing.expectEqualStrings("nosuchcommand", config.command.?);
+    try std.testing.expectEqualStrings("command nosuchcommand: not found on PATH, use an absolute path", config._errors.list.items[0].message);
+}
+
+test "finalizeCommand-6" {
+    var config = try default(std.testing.allocator);
+    defer config.deinit();
+    try std.testing.expect(config.command == null);
+    config.command = "nosuchcommand 1 2 3 4";
+    try config.finalizeCommand();
+    try std.testing.expect(!config._errors.empty());
+    try std.testing.expect(config._errors.list.items.len == 1);
+    try std.testing.expectEqualStrings("nosuchcommand 1 2 3 4", config.command.?);
+    try std.testing.expectEqualStrings("command nosuchcommand: not found on PATH, use an absolute path", config._errors.list.items[0].message);
+}
+
+test "finalizeCommand-7" {
+    var config = try default(std.testing.allocator);
+    defer config.deinit();
+    try std.testing.expect(config.command == null);
+    config.command = "/bin/nosuchcommand 1 2 3 4";
+    try config.finalizeCommand();
+    try std.testing.expect(!config._errors.empty());
+    try std.testing.expect(config._errors.list.items.len == 1);
+    try std.testing.expectEqualStrings("/bin/nosuchcommand 1 2 3 4", config.command.?);
+    try std.testing.expectEqualStrings("command /bin/nosuchcommand: file not found", config._errors.list.items[0].message);
 }
 
 /// Callback for src/cli/args.zig to allow us to handle special cases
