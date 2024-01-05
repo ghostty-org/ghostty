@@ -86,10 +86,8 @@ pub const Action = union(enum) {
         intermediates: []u8,
         params: []u16,
         final: u8,
-        sep: Sep,
-
-        /// The separator used for CSI params.
-        pub const Sep = enum { semicolon, colon };
+        // a map of which params are subparams
+        subs: std.StaticBitSet(MAX_PARAMS),
 
         // Implement formatter for logging
         pub fn format(
@@ -187,20 +185,11 @@ pub const Action = union(enum) {
     }
 };
 
-/// Keeps track of the parameter sep used for CSI params. We allow colons
-/// to be used ONLY by the 'm' CSI action.
-const ParamSepState = enum(u8) {
-    none = 0,
-    semicolon = ';',
-    colon = ':',
-    mixed = 1,
-};
-
 /// Maximum number of intermediate characters during parsing. This is
 /// 4 because we also use the intermediates array for UTF8 decoding which
 /// can be at most 4 bytes.
 const MAX_INTERMEDIATE = 4;
-const MAX_PARAMS = 16;
+pub const MAX_PARAMS = 16;
 
 /// Current state of the state machine
 state: State = .ground,
@@ -212,9 +201,14 @@ intermediates_idx: u8 = 0,
 /// Param tracking, building
 params: [MAX_PARAMS]u16 = undefined,
 params_idx: u8 = 0,
-params_sep: ParamSepState = .none,
 param_acc: u16 = 0,
 param_acc_idx: u8 = 0,
+// subparams is an bitset of which params are subparameters. A subparameter is
+// any parameter that was preceded by a ':' delimiter. We don't need to reset
+// this when we clear. Every bit will be explicitly set based on the delimiter
+// except for the first, but there is no codepath which allows setting the first
+// bit
+subparams: std.StaticBitSet(MAX_PARAMS) = .{ .mask = 0 },
 
 /// Parser for OSC sequences
 osc_parser: osc.Parser = .{},
@@ -363,14 +357,17 @@ fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
                 // Ignore too many parameters
                 if (self.params_idx >= MAX_PARAMS) break :param null;
 
-                // If this is our first time seeing a parameter, we track
-                // the separator used so that we can't mix separators later.
-                if (self.params_idx == 0) self.params_sep = @enumFromInt(c);
-                if (@as(ParamSepState, @enumFromInt(c)) != self.params_sep) self.params_sep = .mixed;
-
                 // Set param final value
                 self.params[self.params_idx] = self.param_acc;
                 self.params_idx += 1;
+
+                // set the subparam state of our *next* param. We already know
+                // based on the delimiter what kind it will be. A subparameter
+                // is always preceded by a colon. We have to check length again
+                // because we are operating on the already-incremented index
+                if (self.params_idx < MAX_PARAMS) {
+                    self.subparams.setValue(self.params_idx, c == ':');
+                }
 
                 // Reset current param value to 0
                 self.param_acc = 0;
@@ -411,14 +408,7 @@ fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
                     .intermediates = self.intermediates[0..self.intermediates_idx],
                     .params = self.params[0..self.params_idx],
                     .final = c,
-                    .sep = switch (self.params_sep) {
-                        .none, .semicolon => .semicolon,
-                        .colon => .colon,
-
-                        // There is nothing that treats mixed separators specially
-                        // afaik so we just treat it as a semicolon.
-                        .mixed => .semicolon,
-                    },
+                    .subs = self.subparams,
                 },
             };
 
@@ -438,7 +428,6 @@ fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
 fn clear(self: *Parser) void {
     self.intermediates_idx = 0;
     self.params_idx = 0;
-    self.params_sep = .none;
     self.param_acc = 0;
     self.param_acc_idx = 0;
 }
@@ -545,10 +534,11 @@ test "csi: SGR ESC [ 38 : 2 m" {
 
         const d = a[1].?.csi_dispatch;
         try testing.expect(d.final == 'm');
-        try testing.expect(d.sep == .colon);
         try testing.expect(d.params.len == 2);
         try testing.expectEqual(@as(u16, 38), d.params[0]);
         try testing.expectEqual(@as(u16, 2), d.params[1]);
+        try testing.expect(!d.subs.isSet(0));
+        try testing.expect(d.subs.isSet(1));
     }
 }
 
@@ -619,13 +609,17 @@ test "csi: SGR ESC [ 48 : 2 m" {
 
         const d = a[1].?.csi_dispatch;
         try testing.expect(d.final == 'm');
-        try testing.expect(d.sep == .colon);
         try testing.expect(d.params.len == 5);
         try testing.expectEqual(@as(u16, 48), d.params[0]);
         try testing.expectEqual(@as(u16, 2), d.params[1]);
         try testing.expectEqual(@as(u16, 240), d.params[2]);
         try testing.expectEqual(@as(u16, 143), d.params[3]);
         try testing.expectEqual(@as(u16, 104), d.params[4]);
+        try testing.expect(!d.subs.isSet(0));
+        try testing.expect(d.subs.isSet(1));
+        try testing.expect(d.subs.isSet(2));
+        try testing.expect(d.subs.isSet(3));
+        try testing.expect(d.subs.isSet(4));
     }
 }
 
@@ -646,10 +640,11 @@ test "csi: SGR ESC [4:3m colon" {
 
         const d = a[1].?.csi_dispatch;
         try testing.expect(d.final == 'm');
-        try testing.expect(d.sep == .colon);
         try testing.expect(d.params.len == 2);
         try testing.expectEqual(@as(u16, 4), d.params[0]);
         try testing.expectEqual(@as(u16, 3), d.params[1]);
+        try testing.expect(!d.subs.isSet(0));
+        try testing.expect(d.subs.isSet(1));
     }
 }
 
@@ -672,7 +667,6 @@ test "csi: SGR with many blank and colon" {
 
         const d = a[1].?.csi_dispatch;
         try testing.expect(d.final == 'm');
-        try testing.expect(d.sep == .colon);
         try testing.expect(d.params.len == 6);
         try testing.expectEqual(@as(u16, 58), d.params[0]);
         try testing.expectEqual(@as(u16, 2), d.params[1]);
@@ -680,6 +674,12 @@ test "csi: SGR with many blank and colon" {
         try testing.expectEqual(@as(u16, 240), d.params[3]);
         try testing.expectEqual(@as(u16, 143), d.params[4]);
         try testing.expectEqual(@as(u16, 104), d.params[5]);
+        try testing.expect(!d.subs.isSet(0));
+        try testing.expect(d.subs.isSet(1));
+        try testing.expect(d.subs.isSet(2));
+        try testing.expect(d.subs.isSet(3));
+        try testing.expect(d.subs.isSet(4));
+        try testing.expect(d.subs.isSet(5));
     }
 }
 

@@ -3,6 +3,7 @@
 const std = @import("std");
 const testing = std.testing;
 const color = @import("color.zig");
+const MAX_PARAMS = @import("Parser.zig").MAX_PARAMS;
 
 /// Attribute type for SGR
 pub const Attribute = union(enum) {
@@ -90,10 +91,8 @@ pub const Attribute = union(enum) {
 /// Parser parses the attributes from a list of SGR parameters.
 pub const Parser = struct {
     params: []const u16,
+    subs: std.StaticBitSet(MAX_PARAMS) = .{ .mask = 0 },
     idx: usize = 0,
-
-    /// True if the separator is a colon
-    colon: bool = false,
 
     /// Next returns the next attribute or null if there are no more attributes.
     pub fn next(self: *Parser) ?Attribute {
@@ -120,39 +119,31 @@ pub const Parser = struct {
 
             3 => return Attribute{ .italic = {} },
 
-            4 => blk: {
-                if (self.colon) {
-                    switch (slice.len) {
-                        // 0 is unreachable because we're here and we read
-                        // an element to get here.
-                        0 => unreachable,
+            4 => {
+                // If we are the last attribute, no need to go further. It's a
+                // single underline. The slice will always be at least 1 in
+                // length but we guard against a '0' case anyways
+                if (slice.len <= 1) return Attribute{ .underline = .single };
 
-                        // 1 is possible if underline is the last element.
-                        1 => return Attribute{ .underline = .single },
+                // Check if our next param is a subparam, return early if it's
+                // not
+                if (!self.subs.isSet(self.idx)) return Attribute{ .underline = .single };
 
-                        // 2 means we have a specific underline style.
-                        2 => {
-                            self.idx += 1;
-                            switch (slice[1]) {
-                                0 => return Attribute{ .reset_underline = {} },
-                                1 => return Attribute{ .underline = .single },
-                                2 => return Attribute{ .underline = .double },
-                                3 => return Attribute{ .underline = .curly },
-                                4 => return Attribute{ .underline = .dotted },
-                                5 => return Attribute{ .underline = .dashed },
+                // The next param is a subparam. Consume it and set
+                // our underline style
+                self.idx += 1;
+                switch (slice[1]) {
+                    0 => return Attribute{ .reset_underline = {} },
+                    1 => return Attribute{ .underline = .single },
+                    2 => return Attribute{ .underline = .double },
+                    3 => return Attribute{ .underline = .curly },
+                    4 => return Attribute{ .underline = .dotted },
+                    5 => return Attribute{ .underline = .dashed },
 
-                                // For unknown underline styles, just render
-                                // a single underline.
-                                else => return Attribute{ .underline = .single },
-                            }
-                        },
-
-                        // Colon-separated must only be 2.
-                        else => break :blk,
-                    }
+                    // For unknown underline styles, just render
+                    // a single underline.
+                    else => return Attribute{ .underline = .single },
                 }
-
-                return Attribute{ .underline = .single };
             },
 
             5 => return Attribute{ .blink = {} },
@@ -279,117 +270,149 @@ pub const Parser = struct {
     }
 };
 
-fn testParse(params: []const u16) Attribute {
-    var p: Parser = .{ .params = params };
-    return p.next().?;
-}
-
-fn testParseColon(params: []const u16) Attribute {
-    var p: Parser = .{ .params = params, .colon = true };
+fn testParse(params: []const u16, subs: []const bool) Attribute {
+    std.debug.assert(params.len == subs.len);
+    var bits = std.StaticBitSet(MAX_PARAMS).initEmpty();
+    for (subs, 0..) |v, i| {
+        bits.setValue(i, v);
+    }
+    var p: Parser = .{ .params = params, .subs = bits };
     return p.next().?;
 }
 
 test "sgr: Parser" {
-    try testing.expect(testParse(&[_]u16{}) == .unset);
-    try testing.expect(testParse(&[_]u16{0}) == .unset);
+    try testing.expect(testParse(&[_]u16{}, &[_]bool{}) == .unset);
+    try testing.expect(testParse(&[_]u16{0}, &[_]bool{false}) == .unset);
 
     {
-        const v = testParse(&[_]u16{ 38, 2, 40, 44, 52 });
+        const v = testParse(
+            &[_]u16{ 38, 2, 40, 44, 52 },
+            &[_]bool{ false, true, true, true, true },
+        );
         try testing.expect(v == .direct_color_fg);
         try testing.expectEqual(@as(u8, 40), v.direct_color_fg.r);
         try testing.expectEqual(@as(u8, 44), v.direct_color_fg.g);
         try testing.expectEqual(@as(u8, 52), v.direct_color_fg.b);
     }
 
-    try testing.expect(testParse(&[_]u16{ 38, 2, 44, 52 }) == .unknown);
+    try testing.expect(testParse(
+        &[_]u16{ 38, 2, 44, 52 },
+        &[_]bool{ false, true, true, true },
+    ) == .unknown);
 
     {
-        const v = testParse(&[_]u16{ 48, 2, 40, 44, 52 });
+        const v = testParse(
+            &[_]u16{ 48, 2, 40, 44, 52 },
+            &[_]bool{ false, true, true, true, true },
+        );
         try testing.expect(v == .direct_color_bg);
         try testing.expectEqual(@as(u8, 40), v.direct_color_bg.r);
         try testing.expectEqual(@as(u8, 44), v.direct_color_bg.g);
         try testing.expectEqual(@as(u8, 52), v.direct_color_bg.b);
     }
 
-    try testing.expect(testParse(&[_]u16{ 48, 2, 44, 52 }) == .unknown);
+    try testing.expect(testParse(
+        &[_]u16{ 48, 2, 44, 52 },
+        &[_]bool{ false, true, true, true },
+    ) == .unknown);
 }
 
 test "sgr: Parser multiple" {
-    var p: Parser = .{ .params = &[_]u16{ 0, 38, 2, 40, 44, 52 } };
+    var p: Parser = .{
+        .params = &[_]u16{ 0, 38, 2, 40, 44, 52 },
+    };
+    p.subs.setRangeValue(.{ .start = 2, .end = p.params.len }, true);
     try testing.expect(p.next().? == .unset);
     try testing.expect(p.next().? == .direct_color_fg);
     try testing.expect(p.next() == null);
     try testing.expect(p.next() == null);
 }
 
+test "sgr: Parser multiple with mixed delimiters" {
+    var p: Parser = .{
+        .params = &[_]u16{ 4, 2, 1 },
+    };
+    p.subs.set(1);
+    {
+        const v = testParse(&[_]u16{ 4, 2 }, &[_]bool{ false, true });
+        try testing.expect(v == .underline);
+        try testing.expect(v.underline == .double);
+    }
+    const v = p.next().?;
+    try testing.expect(v == .underline);
+    try testing.expect(v.underline == .double);
+    try testing.expect(p.next().? == .bold);
+    try testing.expect(p.next() == null);
+}
+
 test "sgr: bold" {
     {
-        const v = testParse(&[_]u16{1});
+        const v = testParse(&[_]u16{1}, &[_]bool{false});
         try testing.expect(v == .bold);
     }
 
     {
-        const v = testParse(&[_]u16{22});
+        const v = testParse(&[_]u16{22}, &[_]bool{false});
         try testing.expect(v == .reset_bold);
     }
 }
 
 test "sgr: italic" {
     {
-        const v = testParse(&[_]u16{3});
+        const v = testParse(&[_]u16{3}, &[_]bool{false});
         try testing.expect(v == .italic);
     }
 
     {
-        const v = testParse(&[_]u16{23});
+        const v = testParse(&[_]u16{23}, &[_]bool{false});
         try testing.expect(v == .reset_italic);
     }
 }
 
 test "sgr: underline" {
     {
-        const v = testParse(&[_]u16{4});
+        const v = testParse(&[_]u16{4}, &[_]bool{false});
         try testing.expect(v == .underline);
     }
 
     {
-        const v = testParse(&[_]u16{24});
+        const v = testParse(&[_]u16{24}, &[_]bool{false});
         try testing.expect(v == .reset_underline);
     }
 }
 
 test "sgr: underline styles" {
     {
-        const v = testParseColon(&[_]u16{ 4, 2 });
+        const v = testParse(&[_]u16{ 4, 2 }, &[_]bool{ false, true });
         try testing.expect(v == .underline);
         try testing.expect(v.underline == .double);
     }
 
     {
-        const v = testParseColon(&[_]u16{ 4, 0 });
+        const v = testParse(&[_]u16{ 4, 0 }, &[_]bool{ false, true });
         try testing.expect(v == .reset_underline);
     }
 
     {
-        const v = testParseColon(&[_]u16{ 4, 1 });
+        const v = testParse(&[_]u16{ 4, 1 }, &[_]bool{ false, true });
         try testing.expect(v == .underline);
         try testing.expect(v.underline == .single);
     }
 
     {
-        const v = testParseColon(&[_]u16{ 4, 3 });
+        const v = testParse(&[_]u16{ 4, 3 }, &[_]bool{ false, true });
         try testing.expect(v == .underline);
         try testing.expect(v.underline == .curly);
     }
 
     {
-        const v = testParseColon(&[_]u16{ 4, 4 });
+        const v = testParse(&[_]u16{ 4, 4 }, &[_]bool{ false, true });
         try testing.expect(v == .underline);
         try testing.expect(v.underline == .dotted);
     }
 
     {
-        const v = testParseColon(&[_]u16{ 4, 5 });
+        const v = testParse(&[_]u16{ 4, 5 }, &[_]bool{ false, true });
         try testing.expect(v == .underline);
         try testing.expect(v.underline == .dashed);
     }
@@ -397,47 +420,49 @@ test "sgr: underline styles" {
 
 test "sgr: blink" {
     {
-        const v = testParse(&[_]u16{5});
+        const v = testParse(&[_]u16{5}, &[_]bool{false});
         try testing.expect(v == .blink);
     }
 
     {
-        const v = testParse(&[_]u16{6});
+        const v = testParse(&[_]u16{6}, &[_]bool{false});
         try testing.expect(v == .blink);
     }
 
     {
-        const v = testParse(&[_]u16{25});
+        const v = testParse(&[_]u16{25}, &[_]bool{false});
         try testing.expect(v == .reset_blink);
     }
 }
 
 test "sgr: inverse" {
     {
-        const v = testParse(&[_]u16{7});
+        const v = testParse(&[_]u16{7}, &[_]bool{false});
         try testing.expect(v == .inverse);
     }
 
     {
-        const v = testParse(&[_]u16{27});
+        const v = testParse(&[_]u16{27}, &[_]bool{false});
         try testing.expect(v == .reset_inverse);
     }
 }
 
 test "sgr: strikethrough" {
     {
-        const v = testParse(&[_]u16{9});
+        const v = testParse(&[_]u16{9}, &[_]bool{false});
         try testing.expect(v == .strikethrough);
     }
 
     {
-        const v = testParse(&[_]u16{29});
+        const v = testParse(&[_]u16{29}, &[_]bool{false});
         try testing.expect(v == .reset_strikethrough);
     }
 }
 
 test "sgr: 8 color" {
-    var p: Parser = .{ .params = &[_]u16{ 31, 43, 90, 103 } };
+    var p: Parser = .{
+        .params = &[_]u16{ 31, 43, 90, 103 },
+    };
 
     {
         const v = p.next().?;
@@ -465,21 +490,34 @@ test "sgr: 8 color" {
 }
 
 test "sgr: 256 color" {
-    var p: Parser = .{ .params = &[_]u16{ 38, 5, 161, 48, 5, 236 } };
+    var p: Parser = .{
+        .params = &[_]u16{ 38, 5, 161, 48, 5, 236 },
+    };
+    p.subs.set(1);
+    p.subs.set(2);
+    p.subs.set(4);
+    p.subs.set(5);
     try testing.expect(p.next().? == .@"256_fg");
     try testing.expect(p.next().? == .@"256_bg");
     try testing.expect(p.next() == null);
 }
 
 test "sgr: 256 color underline" {
-    var p: Parser = .{ .params = &[_]u16{ 58, 5, 9 } };
+    var p: Parser = .{
+        .params = &[_]u16{ 58, 5, 9 },
+    };
+    p.subs.set(1);
+    p.subs.set(2);
     try testing.expect(p.next().? == .@"256_underline_color");
     try testing.expect(p.next() == null);
 }
 
 test "sgr: 24-bit bg color" {
     {
-        const v = testParseColon(&[_]u16{ 48, 2, 1, 2, 3 });
+        const v = testParse(
+            &[_]u16{ 48, 2, 1, 2, 3 },
+            &[_]bool{ false, true, true, true, true },
+        );
         try testing.expect(v == .direct_color_bg);
         try testing.expectEqual(@as(u8, 1), v.direct_color_bg.r);
         try testing.expectEqual(@as(u8, 2), v.direct_color_bg.g);
@@ -489,7 +527,10 @@ test "sgr: 24-bit bg color" {
 
 test "sgr: underline color" {
     {
-        const v = testParseColon(&[_]u16{ 58, 2, 1, 2, 3 });
+        const v = testParse(
+            &[_]u16{ 58, 2, 1, 2, 3 },
+            &[_]bool{ false, true, true, true, true },
+        );
         try testing.expect(v == .underline_color);
         try testing.expectEqual(@as(u8, 1), v.underline_color.r);
         try testing.expectEqual(@as(u8, 2), v.underline_color.g);
@@ -497,7 +538,10 @@ test "sgr: underline color" {
     }
 
     {
-        const v = testParseColon(&[_]u16{ 58, 2, 0, 1, 2, 3 });
+        const v = testParse(
+            &[_]u16{ 58, 2, 0, 1, 2, 3 },
+            &[_]bool{ false, true, true, true, true, true },
+        );
         try testing.expect(v == .underline_color);
         try testing.expectEqual(@as(u8, 1), v.underline_color.r);
         try testing.expectEqual(@as(u8, 2), v.underline_color.g);
@@ -506,12 +550,16 @@ test "sgr: underline color" {
 }
 
 test "sgr: reset underline color" {
-    var p: Parser = .{ .params = &[_]u16{59} };
+    var p: Parser = .{
+        .params = &[_]u16{59},
+    };
     try testing.expect(p.next().? == .reset_underline_color);
 }
 
 test "sgr: invisible" {
-    var p: Parser = .{ .params = &[_]u16{ 8, 28 } };
+    var p: Parser = .{
+        .params = &[_]u16{ 8, 28 },
+    };
     try testing.expect(p.next().? == .invisible);
     try testing.expect(p.next().? == .reset_invisible);
 }
@@ -520,6 +568,8 @@ test "sgr: underline, bg, and fg" {
     var p: Parser = .{
         .params = &[_]u16{ 4, 38, 2, 255, 247, 219, 48, 2, 242, 93, 147, 4 },
     };
+    p.subs.setRangeValue(.{ .start = 2, .end = 6 }, true);
+    p.subs.setRangeValue(.{ .start = 7, .end = 11 }, true);
     {
         const v = p.next().?;
         try testing.expect(v == .underline);
@@ -548,12 +598,18 @@ test "sgr: underline, bg, and fg" {
 
 test "sgr: direct color fg missing color" {
     // This used to crash
-    var p: Parser = .{ .params = &[_]u16{ 38, 5 }, .colon = false };
+    var p: Parser = .{
+        .params = &[_]u16{ 38, 5 },
+    };
+    p.subs.set(1);
     while (p.next()) |_| {}
 }
 
 test "sgr: direct color bg missing color" {
     // This used to crash
-    var p: Parser = .{ .params = &[_]u16{ 48, 5 }, .colon = false };
+    var p: Parser = .{
+        .params = &[_]u16{ 48, 5 },
+    };
+    p.subs.set(1);
     while (p.next()) |_| {}
 }
