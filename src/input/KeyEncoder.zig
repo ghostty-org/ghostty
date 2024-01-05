@@ -34,7 +34,7 @@ pub fn encode(
     self: *const KeyEncoder,
     buf: []u8,
 ) ![]const u8 {
-    // log.debug("encode {}", .{self.*});
+    log.debug("encode {}", .{self.*});
 
     if (self.kitty_flags.int() != 0) return try self.kitty(buf);
     return try self.legacy(buf);

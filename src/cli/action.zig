@@ -5,6 +5,7 @@ const list_fonts = @import("list_fonts.zig");
 const version = @import("version.zig");
 const list_keybinds = @import("list_keybinds.zig");
 const list_themes = @import("list_themes.zig");
+const show_keys = @import("show_keys.zig");
 
 /// Special commands that can be invoked via CLI flags. These are all
 /// invoked by using `+<action>` as a CLI flag. The only exception is
@@ -21,6 +22,9 @@ pub const Action = enum {
 
     /// List available themes
     @"list-themes",
+
+    /// Show raw keypress encodings
+    @"show-keys",
 
     pub const Error = error{
         /// Multiple actions were detected. You can specify at most one
@@ -62,6 +66,7 @@ pub const Action = enum {
             .@"list-fonts" => try list_fonts.run(alloc),
             .@"list-keybinds" => try list_keybinds.run(alloc),
             .@"list-themes" => try list_themes.run(alloc),
+            .@"show-keys" => try show_keys.run(alloc),
         };
     }
 };
