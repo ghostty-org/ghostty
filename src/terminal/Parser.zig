@@ -422,19 +422,6 @@ fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
                 },
             };
 
-            // We only allow colon or mixed separators for the 'm' command.
-            switch (self.params_sep) {
-                .none => {},
-                .semicolon => {},
-                .colon, .mixed => if (c != 'm') {
-                    log.warn(
-                        "CSI colon or mixed separators only allowed for 'm' command, got: {}",
-                        .{result},
-                    );
-                    break :csi_dispatch null;
-                },
-            }
-
             break :csi_dispatch result;
         },
         .esc_dispatch => Action{
@@ -694,19 +681,6 @@ test "csi: SGR with many blank and colon" {
         try testing.expectEqual(@as(u16, 143), d.params[4]);
         try testing.expectEqual(@as(u16, 104), d.params[5]);
     }
-}
-
-test "csi: colon for non-m final" {
-    var p = init();
-    _ = p.next(0x1B);
-    for ("[38:2h") |c| {
-        const a = p.next(c);
-        try testing.expect(a[0] == null);
-        try testing.expect(a[1] == null);
-        try testing.expect(a[2] == null);
-    }
-
-    try testing.expect(p.state == .ground);
 }
 
 test "csi: request mode decrqm" {
