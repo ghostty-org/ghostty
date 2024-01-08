@@ -7,7 +7,7 @@
     # We want to stay as up to date as possible but need to be careful that the
     # glibc versions used by our dependencies from Nix are compatible with the
     # system glibc that the user is building for.
-    nixpkgs-stable.url = "github:nixos/nixpkgs/release-23.11";
+    nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-23.11";
 
     # This is a nixpkgs mirror (based off of master) that contains
     # patches for Zig 0.12 (master/nightly).
