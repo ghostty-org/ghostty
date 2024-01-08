@@ -1,22 +1,24 @@
-on: [push, pull_request]
+---
+on:
+  - push
+  - pull_request
 name: Test
 jobs:
   build:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
-
-        target: [
-            aarch64-linux,
-            x86_64-linux,
-            x86-windows-gnu,
-            x86_64-windows-gnu,
+        os:
+          - ubuntu-latest
+        target:
+          - aarch64-linux
+          - x86_64-linux
+          - x86-windows-gnu
+          - x86_64-windows-gnu
             # We don't support cross-compiling to macOS because the macOS build
             # requires xcode due to the swift harness.
-            #aarch64-macos,
-            #x86_64-macos,
-          ]
+            # aarch64-macos,
+            # x86_64-macos,
     runs-on: ${{ matrix.os }}
     needs: test
     env:
@@ -26,39 +28,70 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Install Nix and use that to run our tests so our environment matches exactly.
+        # Install Nix and use that to run our tests so our environment matches exactly.
       - uses: cachix/install-nix-action@v24
         with:
           nix_path: nixpkgs=channel:nixos-unstable
       - uses: cachix/cachix-action@v13
         with:
           name: ghostty
-          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
-      # Cross-compile the binary. We always use static building for this
-      # because its the only way to access the headers.
+        # Cross-compile the binary. We always use static building for this
+        # because its the only way to access the headers.
       - name: Test Build
         run: nix develop -c zig build -Dstatic=true -Dapp-runtime=glfw -Dtarget=${{ matrix.target }}
-
-  build-nix:
+  build-nix-23-05:
     runs-on: ubuntu-latest
     needs: test
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Install Nix and use that to run our tests so our environment matches exactly.
+        # Install Nix and use that to run our tests so our environment matches exactly.
       - uses: cachix/install-nix-action@v24
         with:
           nix_path: nixpkgs=channel:nixos-unstable
       - uses: cachix/cachix-action@v13
         with:
           name: ghostty
-          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - name: Test package build on NixOS 23.05
+        run: nix build .#ghostty-23-05
+  build-nix-23-11:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Test NixOS package build
-        run: nix build .#ghostty
+        # Install Nix and use that to run our tests so our environment matches exactly.
+      - uses: cachix/install-nix-action@v24
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@v13
+        with:
+          name: ghostty
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - name: Test package build on NixOS 23.11
+        run: nix build .#ghostty-23-11
+  build-nix-unstable:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
+        # Install Nix and use that to run our tests so our environment matches exactly.
+      - uses: cachix/install-nix-action@v24
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@v13
+        with:
+          name: ghostty
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - name: Test package build on NixOS Unstable
+        run: nix build .#ghostty-unstable
   build-macos:
     runs-on: ghcr.io/cirruslabs/macos-ventura-xcode:latest
     needs: test
@@ -69,26 +102,25 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Install Nix and use that to run our tests so our environment matches exactly.
+        # Install Nix and use that to run our tests so our environment matches exactly.
       - uses: cachix/install-nix-action@v24
         with:
           nix_path: nixpkgs=channel:nixos-unstable
       - uses: cachix/cachix-action@v13
         with:
           name: ghostty
-          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
-      # GhosttyKit is the framework that is built from Zig for our native
-      # Mac app to access.
+        # GhosttyKit is the framework that is built from Zig for our native
+        # Mac app to access.
       - name: Build GhosttyKit
         run: nix develop -c zig build -Dstatic=true
 
-      # The native app is built with native XCode tooling. This also does
-      # codesigning. IMPORTANT: this must NOT run in a Nix environment.
-      # Nix breaks xcodebuild so this has to be run outside.
+        # The native app is built with native XCode tooling. This also does
+        # codesigning. IMPORTANT: this must NOT run in a Nix environment.
+        # Nix breaks xcodebuild so this has to be run outside.
       - name: Build Ghostty.app
         run: cd macos && xcodebuild
-
   build-windows:
     runs-on: windows-2019
     # this will not stop other jobs from running
@@ -98,10 +130,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # This could be from a script if we wanted to but inlining here for now
-      # in one place.
-      # Using powershell so that we do not need to install WSL components. Also,
-      # WSLv1 is only installed on Github runners.
+        # This could be from a script if we wanted to but inlining here for now
+        # in one place.
+        # Using powershell so that we do not need to install WSL components. Also,
+        # WSLv1 is only installed on Github runners.
       - name: Install zig
         shell: pwsh
         run: |
@@ -118,7 +150,6 @@ jobs:
           Rename-Item -Path ".\$version" -NewName ".\zig"
           Write-Host "Zig installed."
           ./zig/zig.exe version
-
       - name: Generate build testing script
         shell: pwsh
         run: |
@@ -131,42 +162,34 @@ jobs:
           # Write the script content to a file
           $scriptContent | Set-Content -Path $scriptPath
           Write-Host "Script generated at: $scriptPath"
-
       - name: Test Windows
         shell: pwsh
         run: .\zigbuild.ps1 -ErrorAction SiltentlyContinue
-
       - name: Dump logs
         shell: pwsh
         run: Get-Content -Path ".\build.log"
-
   test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Install Nix and use that to run our tests so our environment matches exactly.
+        # Install Nix and use that to run our tests so our environment matches exactly.
       - uses: cachix/install-nix-action@v24
         with:
           nix_path: nixpkgs=channel:nixos-unstable
       - uses: cachix/cachix-action@v13
         with:
           name: ghostty
-          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
-
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: test
         run: nix develop -c zig build -Dapp-runtime=none test
-
       - name: Test GTK Build
         run: nix develop -c zig build -Dapp-runtime=gtk -Dgtk-libadwaita=true
-
       - name: Test GLFW Build
         run: nix develop -c zig build -Dapp-runtime=glfw
-
       - name: Test Dynamic Build
         run: nix develop -c zig build -Dstatic=false
-
   prettier:
     runs-on: ubuntu-latest
     steps:
@@ -177,10 +200,9 @@ jobs:
       - uses: cachix/cachix-action@v13
         with:
           name: ghostty
-          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: prettier check
         run: nix develop -c prettier --check .
-
   alejandra:
     runs-on: ubuntu-latest
     steps:
@@ -191,6 +213,6 @@ jobs:
       - uses: cachix/cachix-action@v13
         with:
           name: ghostty
-          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: alejandra check
         run: nix develop -c alejandra --check .
