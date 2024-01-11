@@ -1812,6 +1812,74 @@ pub fn parseManuallyHook(self: *Config, alloc: Allocator, arg: []const u8, iter:
     return true;
 }
 
+fn _formatConfig(comptime T: type, comptime name: []const u8, value: T, writer: anytype) !void {
+    switch (@typeInfo(T)) {
+        .Int => {
+            try writer.print("{s}={d}\n", .{ name, value });
+        },
+        .Float => {
+            try writer.print("{s}={d}\n", .{ name, value });
+        },
+        .Bool => {
+            try writer.print("{s}={}\n", .{ name, value });
+        },
+        .Struct => {
+            if (@hasDecl(T, "formatConfig")) {
+                var prefix: [name.len + 1]u8 = undefined;
+                @memcpy(prefix[0..name.len], name);
+                prefix[name.len] = '=';
+                try value.formatConfig(writer, &prefix);
+            } else {
+                @compileError("configuration setting " ++ name ++ " (" ++ @typeName(T) ++ ") is not supported by formatConfig");
+            }
+        },
+        .Enum => {
+            try writer.print("{s}={s}\n", .{
+                name,
+                @tagName(value),
+            });
+        },
+        .Pointer => {
+            switch (T) {
+                []const u8, [:0]const u8 => {
+                    try writer.print("{s}={s}\n", .{ name, value });
+                },
+                else => {
+                    @compileError("configuration setting '" ++ name ++ "' (" ++ @typeName(T) ++ ") is not supported by formatConfig");
+                },
+            }
+        },
+        .Optional => {
+            if (value) |v| {
+                try _formatConfig(@TypeOf(v), name, v, writer);
+            } else {
+                try writer.print("{s}=\n", .{name});
+            }
+        },
+        .Union => {
+            if (@hasDecl(T, "formatConfig")) {
+                var prefix: [name.len + 1]u8 = undefined;
+                @memcpy(prefix[0..name.len], name);
+                prefix[name.len] = '=';
+                try value.formatConfig(writer, &prefix);
+            } else {
+                @compileError("configuration setting " ++ name ++ " (" ++ @typeName(T) ++ ") is not supported by formatConfig");
+            }
+        },
+        else => {
+            @compileError("configuration setting " ++ name ++ " (" ++ @typeName(T) ++ ") is not supported by formatConfig");
+        },
+    }
+}
+
+/// Format the config.
+pub fn formatConfig(self: Config, writer: anytype) !void {
+    inline for (@typeInfo(Config).Struct.fields) |field| {
+        if (field.name[0] == '_') continue;
+        try _formatConfig(field.type, field.name, @field(self, field.name), writer);
+    }
+}
+
 /// Create a shallow copy of this config. This will share all the memory
 /// allocated with the previous config but will have a new arena for
 /// any changes or new allocations. The config should have `deinit`
@@ -2188,6 +2256,10 @@ pub const Color = packed struct(u24) {
         return result;
     }
 
+    pub fn formatConfig(self: Color, writer: anytype, prefix: ?[]const u8) !void {
+        try writer.print("{s}#{x:0>2}{x:0>2}{x:0>2}\n", .{ prefix orelse "", self.r, self.g, self.b });
+    }
+
     test "fromHex" {
         const testing = std.testing;
 
@@ -2199,6 +2271,18 @@ pub const Color = packed struct(u24) {
 
     test "parseCLI from name" {
         try std.testing.expectEqual(Color{ .r = 0, .g = 0, .b = 0 }, try Color.parseCLI("black"));
+    }
+
+    test "formatConfig-0" {
+        var color: Color = .{ .r = 10, .g = 11, .b = 12 };
+
+        var buffer: [16]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        const writer = fbs.writer();
+
+        try color.formatConfig(writer, "a=");
+
+        try std.testing.expectEqualSlices(u8, "a=#0a0b0c\n", fbs.getWritten());
     }
 };
 
@@ -2233,6 +2317,15 @@ pub const Palette = struct {
         return std.meta.eql(self, other);
     }
 
+    pub fn formatConfig(self: Palette, writer: anytype, prefix: ?[]const u8) !void {
+        for (0.., self.value) |k, v| {
+            try writer.print(
+                "{s}{d}=#{x:0>2}{x:0>2}{x:0>2}\n",
+                .{ prefix orelse "", k, v.r, v.g, v.b },
+            );
+        }
+    }
+
     test "parseCLI" {
         const testing = std.testing;
 
@@ -2248,6 +2341,18 @@ pub const Palette = struct {
 
         var p: Self = .{};
         try testing.expectError(error.Overflow, p.parseCLI("256=#AABBCC"));
+    }
+
+    test "formatConfig-0" {
+        var list: Self = .{};
+
+        var buffer: [256 * 15]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        const writer = fbs.writer();
+
+        try list.formatConfig(writer, "a=");
+
+        try std.testing.expectEqualSlices(u8, "a=0=#1d1f21\n", fbs.getWritten()[0..12]);
     }
 };
 
@@ -2296,6 +2401,16 @@ pub const RepeatableString = struct {
         } else return true;
     }
 
+    pub fn formatConfig(self: Self, writer: anytype, prefix: ?[]const u8) !void {
+        if (self.list.items.len == 0 and prefix != null) {
+            try writer.print("{s}\n", .{prefix orelse ""});
+            return;
+        }
+        for (self.list.items) |i| {
+            try writer.print("{s}{s}\n", .{ prefix orelse "", i });
+        }
+    }
+
     test "parseCLI" {
         const testing = std.testing;
         var arena = ArenaAllocator.init(testing.allocator);
@@ -2309,6 +2424,57 @@ pub const RepeatableString = struct {
 
         try list.parseCLI(alloc, "");
         try testing.expectEqual(@as(usize, 0), list.list.items.len);
+    }
+
+    test "formatConfig-0" {
+        var list: Self = .{};
+
+        var buffer: [16]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        const writer = fbs.writer();
+
+        try list.formatConfig(writer, "a=");
+
+        try std.testing.expectEqualSlices(u8, "a=\n", fbs.getWritten());
+    }
+
+    test "formatConfig-1" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var list: Self = .{};
+
+        try list.list.append(alloc, "A");
+
+        var buffer: [16]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        const writer = fbs.writer();
+
+        try list.formatConfig(writer, "a=");
+
+        try std.testing.expectEqualSlices(u8, "a=A\n", fbs.getWritten());
+    }
+
+    test "formatConfig-2" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var list: Self = .{};
+
+        try list.list.append(alloc, "A");
+        try list.list.append(alloc, "B");
+
+        var buffer: [16]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        const writer = fbs.writer();
+
+        try list.formatConfig(writer, "a=");
+
+        try std.testing.expectEqualSlices(u8, "a=A\na=B\n", fbs.getWritten());
     }
 };
 
@@ -2374,6 +2540,16 @@ pub const RepeatablePath = struct {
             self.value.list.items[i] = try alloc.dupeZ(u8, abs);
         }
     }
+
+    pub fn formatConfig(self: Self, writer: anytype, prefix: ?[]const u8) !void {
+        if (self.value.list.items.len == 0 and prefix != null) {
+            try writer.print("{s}\n", .{prefix orelse ""});
+            return;
+        }
+        for (self.value.list.items) |i| {
+            try writer.print("{s}{s}\n", .{ prefix orelse "", i });
+        }
+    }
 };
 
 /// FontVariation is a repeatable configuration value that sets a single
@@ -2422,6 +2598,23 @@ pub const RepeatableFontVariation = struct {
         for (itemsA, itemsB) |a, b| {
             if (!std.meta.eql(a, b)) return false;
         } else return true;
+    }
+
+    pub fn formatConfig(self: Self, writer: anytype, prefix: ?[]const u8) !void {
+        if (self.list.items.len == 0 and prefix != null) {
+            try writer.print("{s}\n", .{prefix.?});
+            return;
+        }
+        for (self.list.items) |i| {
+            try writer.print(
+                "{s}{s}={d}\n",
+                .{
+                    prefix orelse "",
+                    i.id.str(),
+                    i.value,
+                },
+            );
+        }
     }
 
     test "parseCLI" {
@@ -2552,6 +2745,19 @@ pub const Keybinds = struct {
         var set: Keybinds = .{};
         try set.parseCLI(alloc, "shift+a=copy_to_clipboard");
         try set.parseCLI(alloc, "shift+a=csi:hello");
+    }
+
+    pub fn formatConfig(self: Keybinds, writer: anytype, prefix: ?[]const u8) !void {
+        if (self.set.bindings.size == 0 and prefix != null) {
+            try writer.print("{s}\n", .{prefix.?});
+            return;
+        }
+        var iter = self.set.bindings.iterator();
+        while (iter.next()) |next| {
+            const k = next.key_ptr.*;
+            const v = next.value_ptr.*;
+            try writer.print("{s}{}={}\n", .{ prefix orelse "", k, v });
+        }
     }
 };
 
@@ -2700,6 +2906,39 @@ pub const RepeatableCodepointMap = struct {
         }
     };
 
+    pub fn formatConfig(self: RepeatableCodepointMap, writer: anytype, prefix: ?[]const u8) !void {
+        if (self.map.list.len == 0 and prefix != null) {
+            try writer.print("{s}\n", .{prefix.?});
+            return;
+        }
+        const ranges = self.map.list.items(.range);
+        const descriptors = self.map.list.items(.descriptor);
+        for (ranges, 0..) |range, forward_i| {
+            const i = ranges.len - forward_i - 1;
+            const descriptor = descriptors[i];
+            if (range[0] == range[1]) {
+                try writer.print(
+                    "{s}U+{X:0>4}={s}\n",
+                    .{
+                        prefix orelse "",
+                        range[0],
+                        descriptor.family orelse "",
+                    },
+                );
+            } else {
+                try writer.print(
+                    "{s}U+{X:0>4}-U{X:0>4}={s}\n",
+                    .{
+                        prefix orelse "",
+                        range[0],
+                        range[1],
+                        descriptor.family orelse "",
+                    },
+                );
+            }
+        }
+    }
+
     test "parseCLI" {
         const testing = std.testing;
         var arena = ArenaAllocator.init(testing.allocator);
@@ -2774,6 +3013,20 @@ pub const FontStyle = union(enum) {
         };
     }
 
+    pub fn formatConfig(self: Self, writer: anytype, prefix: ?[]const u8) !void {
+        switch (self) {
+            .default => {
+                try writer.print("{s}default\n", .{prefix orelse ""});
+            },
+            .false => {
+                try writer.print("{s}false\n", .{prefix orelse ""});
+            },
+            .name => |v| {
+                try writer.print("{s}{s}\n", .{ prefix orelse "", v });
+            },
+        }
+    }
+
     test "parseCLI" {
         const testing = std.testing;
         var arena = ArenaAllocator.init(testing.allocator);
@@ -2789,6 +3042,18 @@ pub const FontStyle = union(enum) {
 
         try p.parseCLI(alloc, "bold");
         try testing.expectEqualStrings("bold", p.name);
+    }
+
+    test "formatConfig-0" {
+        const style: Self = .default;
+
+        var buffer: [16]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        const writer = fbs.writer();
+
+        try style.formatConfig(writer, "a=");
+
+        try std.testing.expectEqualSlices(u8, "a=default\n", fbs.getWritten());
     }
 };
 
@@ -2818,6 +3083,16 @@ pub const RepeatableLink = struct {
         _ = other;
         return true;
     }
+
+    pub fn formatConfig(self: Self, writer: anytype, prefix: ?[]const u8) !void {
+        if (self.links.items.len == 0 and prefix != null) {
+            try writer.print("{s}\n", .{prefix.?});
+            return;
+        }
+        for (self.links.items) |i| {
+            try writer.print("{s}={s}\n", .{ prefix orelse "", i.regex });
+        }
+    }
 };
 
 /// Options for copy on select behavior.
@@ -2843,7 +3118,54 @@ pub const ShellIntegration = enum {
 
 /// Shell integration features
 pub const ShellIntegrationFeatures = packed struct {
+    const Self = @This();
+
     cursor: bool = true,
+
+    pub fn formatConfig(self: Self, writer: anytype, prefix: ?[]const u8) !void {
+        const info = @typeInfo(Self);
+        inline for (info.Struct.fields) |field| {
+            switch (@typeInfo(field.type)) {
+                .Bool => {
+                    try writer.print(
+                        "{s}{s}{s}\n",
+                        .{
+                            prefix orelse "",
+                            if (@field(self, field.name)) "" else "no-",
+                            field.name,
+                        },
+                    );
+                },
+                else => {
+                    @compileError("Don't know how to handle non-bool field on ShellIntegrationFeatures");
+                },
+            }
+        }
+    }
+
+    test "formatConfig-false" {
+        const value: Self = .{ .cursor = false };
+
+        var buffer: [16]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        const writer = fbs.writer();
+
+        try value.formatConfig(writer, "a=");
+
+        try std.testing.expectEqualSlices(u8, "a=no-cursor\n", fbs.getWritten());
+    }
+
+    test "formatConfig-true" {
+        const value: Self = .{ .cursor = true };
+
+        var buffer: [16]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        const writer = fbs.writer();
+
+        try value.formatConfig(writer, "a=");
+
+        try std.testing.expectEqualSlices(u8, "a=cursor\n", fbs.getWritten());
+    }
 };
 
 /// OSC 4, 10, 11, and 12 default color reporting format.

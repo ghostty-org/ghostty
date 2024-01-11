@@ -140,6 +140,37 @@ pub const Modifier = union(enum) {
             },
         };
     }
+
+    pub fn formatConfig(self: Modifier, writer: anytype, prefix: ?[]const u8) !void {
+        switch (self) {
+            .percent => |v| {
+                try writer.print("{s}{d}%\n", .{ prefix orelse "", v });
+            },
+            .absolute => |v| {
+                try writer.print("{s}{d}\n", .{ prefix orelse "", v });
+            },
+        }
+    }
+
+    test "formatConfig-percent" {
+        var buffer: [16]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        const writer = fbs.writer();
+
+        const value: Modifier = .{ .percent = 50 };
+        try value.formatConfig(writer, "a=");
+        try std.testing.expectEqualSlices(u8, "a=50%\n", fbs.getWritten());
+    }
+
+    test "formatConfig-absolute" {
+        var buffer: [16]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        const writer = fbs.writer();
+
+        const value: Modifier = .{ .absolute = 50 };
+        try value.formatConfig(writer, "a=");
+        try std.testing.expectEqualSlices(u8, "a=50\n", fbs.getWritten());
+    }
 };
 
 /// Key is an enum of all the available metrics keys.
