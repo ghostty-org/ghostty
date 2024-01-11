@@ -39,12 +39,7 @@ pub fn run(alloc: Allocator) !u8 {
     defer config.deinit();
 
     const stdout = std.io.getStdOut().writer();
-    var iter = config.keybind.set.bindings.iterator();
-    while (iter.next()) |next| {
-        const keys = next.key_ptr.*;
-        const value = next.value_ptr.*;
-        try stdout.print("{}={}\n", .{ keys, value });
-    }
+    try config.keybind.formatConfig(stdout, "keybind=");
 
     return 0;
 }
