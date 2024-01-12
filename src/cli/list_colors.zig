@@ -8,7 +8,7 @@ pub const Options = struct {
     }
 };
 
-/// The "list-colors" command is used to list all the named RGB colors in
+/// The `list-colors` command is used to list all the named RGB colors in
 /// Ghostty.
 pub fn run(alloc: std.mem.Allocator) !u8 {
     var opts: Options = .{};

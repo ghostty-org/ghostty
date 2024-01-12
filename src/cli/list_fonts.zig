@@ -3,6 +3,8 @@ const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const args = @import("args.zig");
 const font = @import("../font/main.zig");
+const help_strings = @import("help_strings"){};
+const ErrorList = @import("../config/ErrorList.zig");
 
 const log = std.log.scoped(.list_fonts);
 
@@ -22,45 +24,58 @@ pub const Config = struct {
     bold: bool = false,
     italic: bool = false,
 
+    help: bool = false,
+
+    _errors: ErrorList = .{},
+
     pub fn deinit(self: *Config) void {
         if (self._arena) |arena| arena.deinit();
         self.* = undefined;
     }
 };
 
-/// The list-fonts command is used to list all the available fonts for Ghostty.
+/// The `list-fonts` command is used to list all the available fonts for Ghostty.
 /// This uses the exact same font discovery mechanism Ghostty uses to find
 /// fonts to use.
 ///
 /// When executed with no arguments, this will list all available fonts,
 /// sorted by family name, then font name. If a family name is given
-/// with "--family", the sorting will be disabled and the results instead
+/// with `--family`, the sorting will be disabled and the results instead
 /// will be shown in the same priority order Ghostty would use to pick a
 /// font.
 ///
-/// The "--family" argument can be used to filter results to a specific family.
-/// The family handling is identical to the "font-familiy" set of Ghostty
+/// The `--family` argument can be used to filter results to a specific family.
+/// The family handling is identical to the `font-familiy` set of Ghostty
 /// configuration values, so this can be used to debug why your desired font
 /// may not be loading.
 ///
-/// The "--bold" and "--italic" arguments can be used to filter results to
+/// The `--bold` and `--italic` arguments can be used to filter results to
 /// specific styles. It is not guaranteed that only those styles are returned,
-/// it will just prioriiize fonts that match those styles.
-pub fn run(alloc: Allocator) !u8 {
-    var iter = try std.process.argsWithAllocator(alloc);
-    defer iter.deinit();
-    return try runArgs(alloc, &iter);
-}
-
-fn runArgs(alloc_gpa: Allocator, argsIter: anytype) !u8 {
+/// it will just prioritize fonts that match those styles.
+pub fn run(alloc_gpa: Allocator) !u8 {
     var config: Config = .{};
     defer config.deinit();
-    try args.parse(Config, alloc_gpa, &config, argsIter);
 
-    // Use an arena for all our memory allocs
-    var arena = ArenaAllocator.init(alloc_gpa);
-    defer arena.deinit();
-    const alloc = arena.allocator();
+    {
+        var iter = try std.process.argsWithAllocator(alloc_gpa);
+        defer iter.deinit();
+        try args.parse(Config, alloc_gpa, &config, &iter);
+    }
+
+    const stdout = std.io.getStdOut().writer();
+
+    if (config.help) {
+        try stdout.print("{s}", .{help_strings.@"+list-fonts"});
+        return 0;
+    }
+
+    if (!config._errors.empty()) {
+        const stderr = std.io.getStdErr().writer();
+        for (config._errors.list.items) |err| {
+            try stderr.print("error: {s}\n", .{err.message});
+        }
+        return 1;
+    }
 
     // Its possible to build Ghostty without font discovery!
     if (comptime font.Discover == void) {
@@ -75,7 +90,10 @@ fn runArgs(alloc_gpa: Allocator, argsIter: anytype) !u8 {
         return 1;
     }
 
-    const stdout = std.io.getStdOut().writer();
+    // Use an arena for all our memory allocs
+    var arena = ArenaAllocator.init(alloc_gpa);
+    defer arena.deinit();
+    const alloc = arena.allocator();
 
     // We'll be putting our fonts into a list categorized by family
     // so it is easier to read the output.

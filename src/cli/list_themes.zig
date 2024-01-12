@@ -1,18 +1,28 @@
 const std = @import("std");
 const inputpkg = @import("../input.zig");
 const args = @import("args.zig");
-const Arena = std.heap.ArenaAllocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
 const Allocator = std.mem.Allocator;
-const Config = @import("../config/Config.zig");
 const global_state = &@import("../main.zig").state;
+const help_strings = @import("help_strings"){};
+const ErrorList = @import("../config/ErrorList.zig");
 
 pub const Options = struct {
+    /// This is set by the CLI parser for deinit.
+    _arena: ?ArenaAllocator = null,
+
+    /// print help for action
+    help: bool = false,
+
+    _errors: ErrorList = .{},
+
     pub fn deinit(self: Options) void {
-        _ = self;
+        if (self._arena) |arena| arena.deinit();
+        // self.* = undefined;
     }
 };
 
-/// The "list-themes" command is used to list all the available themes
+/// The `list-themes` command is used to list all the available themes
 /// for Ghostty.
 ///
 /// Themes require that Ghostty have access to the resources directory.
@@ -33,6 +43,18 @@ pub fn run(alloc: Allocator) !u8 {
 
     const stderr = std.io.getStdErr().writer();
     const stdout = std.io.getStdOut().writer();
+
+    if (opts.help) {
+        try stdout.print("{s}", .{help_strings.@"+list-fonts"});
+        return 0;
+    }
+
+    if (!opts._errors.empty()) {
+        for (opts._errors.list.items) |err| {
+            try stderr.print("error: {s}\n", .{err.message});
+        }
+        return 1;
+    }
 
     const resources_dir = global_state.resources_dir orelse {
         try stderr.print("Could not find the Ghostty resources directory. Please ensure " ++

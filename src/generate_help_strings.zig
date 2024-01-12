@@ -60,6 +60,7 @@ pub fn searchConfigAst(alloc: std.mem.Allocator, output: std.fs.File) !void {
 
 fn actionPath(comptime action: Action) []const u8 {
     return switch (action) {
+        .help => "cli/help.zig",
         .version => "cli/version.zig",
         .@"list-fonts" => "cli/list_fonts.zig",
         .@"list-keybinds" => "cli/list_keybinds.zig",
