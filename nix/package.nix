@@ -23,6 +23,7 @@
   ncurses,
   pkg-config,
   zig_0_12,
+  pandoc,
   revision ? "dirty",
 }: let
   # The Zig hook has no way to select the release type without actual
@@ -90,6 +91,7 @@ in
     nativeBuildInputs = [
       git
       ncurses
+      pandoc
       pkg-config
       zig012Hook
       wrapGAppsHook4

@@ -45,6 +45,7 @@
   pixman,
   zlib,
   alejandra,
+  pandoc,
 }: let
   # See package.nix. Keep in sync.
   rpathLibs =
@@ -80,6 +81,7 @@ in
         # For builds
         llvmPackages_latest.llvm
         ncurses
+        pandoc
         pkg-config
         scdoc
         zig

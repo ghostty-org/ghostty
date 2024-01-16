@@ -197,7 +197,7 @@ pub fn build(b: *std.Build) !void {
         .{version},
     ));
 
-    createHelp(b);
+    createHelp(b, version);
 
     // Exe
     if (exe_) |exe| {
@@ -1063,7 +1063,7 @@ var generate_help_step: *std.Build.Step.Run = undefined;
 var help_strings: std.Build.LazyPath = undefined;
 
 /// Generate help files
-fn createHelp(b: *std.Build) void {
+fn createHelp(b: *std.Build, version: std.SemanticVersion) void {
     const generate_help = b.addExecutable(.{
         .name = "generate_help",
         .root_source_file = .{ .path = "src/generate_help_strings.zig" },
@@ -1079,6 +1079,115 @@ fn createHelp(b: *std.Build) void {
         const generated = b.option([]const u8, "help_strings", "generated help file") orelse "help_strings";
         const write_file = b.addWriteFiles();
         help_strings = write_file.addCopyFile(help_strings, generated);
+    }
+
+    const manpages = [_]struct {
+        name: []const u8,
+        section: []const u8,
+    }{
+        .{
+            .name = "ghostty",
+            .section = "1",
+        },
+        .{
+            .name = "ghostty",
+            .section = "5",
+        },
+    };
+
+    inline for (manpages) |manpage| {
+        const generate_markdown = b.addExecutable(.{
+            .name = "generate_" ++ manpage.name ++ "_" ++ manpage.section ++ "_markdown",
+            .root_source_file = .{
+                .path = "src/generate_" ++ manpage.name ++ "_" ++ manpage.section ++ "_markdown.zig",
+            },
+            .target = b.host,
+        });
+
+        const generate_markdown_step = b.addRunArtifact(generate_markdown);
+
+        var markdown_output = generate_markdown_step.addOutputFileArg(manpage.name ++ "." ++ manpage.section ++ ".md");
+
+        if (builtin.target.isDarwin()) {
+            const generated = b.option(
+                []const u8,
+                manpage.name ++ "_" ++ manpage.section ++ "_markdown",
+                "generated markdown manpage",
+            ) orelse manpage.name ++ "." ++ manpage.section ++ ".md";
+            const write_file = b.addWriteFiles();
+            markdown_output = write_file.addCopyFile(markdown_output, generated);
+        }
+
+        generate_markdown_step.step.dependOn(&generate_help_step.step);
+        const generate_markdown_options = b.addOptions();
+        generate_markdown_options.addOption(std.SemanticVersion, "version", version);
+        generate_markdown.root_module.addOptions("build_options", generate_markdown_options);
+        generate_markdown.root_module.addAnonymousImport("help_strings", .{ .root_source_file = help_strings });
+
+        b.getInstallStep().dependOn(&b.addInstallFile(
+            markdown_output,
+            "share/ghostty/doc/" ++ manpage.name ++ "." ++ manpage.section ++ ".md",
+        ).step);
+
+        const generate_html = b.addSystemCommand(&.{"pandoc"});
+        generate_html.step.dependOn(&generate_markdown_step.step);
+        generate_html.addArgs(
+            &.{
+                "--standalone",
+                "--from",
+                "markdown",
+                "--to",
+                "html",
+                "--output",
+            },
+        );
+        var html_output = generate_html.addOutputFileArg(manpage.name ++ "." ++ manpage.section ++ ".html");
+        generate_html.addFileArg(markdown_output);
+
+        if (builtin.target.isDarwin()) {
+            const generated = b.option(
+                []const u8,
+                manpage.name ++ "_" ++ manpage.section ++ "_html",
+                "generated html manpage",
+            ) orelse manpage.name ++ "." ++ manpage.section ++ ".html";
+            const write_file = b.addWriteFiles();
+            html_output = write_file.addCopyFile(html_output, generated);
+        }
+
+        b.getInstallStep().dependOn(&b.addInstallFile(
+            html_output,
+            "share/ghostty/doc/" ++ manpage.name ++ "." ++ manpage.section ++ ".html",
+        ).step);
+
+        const generate_manpage = b.addSystemCommand(&.{"pandoc"});
+        generate_manpage.step.dependOn(&generate_markdown_step.step);
+        generate_manpage.addArgs(
+            &.{
+                "--standalone",
+                "--from",
+                "markdown",
+                "--to",
+                "man",
+                "--output",
+            },
+        );
+        var manpage_output = generate_manpage.addOutputFileArg(manpage.name ++ "." ++ manpage.section);
+        generate_manpage.addFileArg(markdown_output);
+
+        if (builtin.target.isDarwin()) {
+            const generated = b.option(
+                []const u8,
+                manpage.name ++ "_" ++ manpage.section,
+                "generated manpage",
+            ) orelse manpage.name ++ "." ++ manpage.section;
+            const write_file = b.addWriteFiles();
+            manpage_output = write_file.addCopyFile(manpage_output, generated);
+        }
+
+        b.getInstallStep().dependOn(&b.addInstallFile(
+            manpage_output,
+            "share/man/man" ++ manpage.section ++ "/" ++ manpage.name ++ "." ++ manpage.section,
+        ).step);
     }
 }
 
