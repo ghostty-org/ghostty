@@ -197,6 +197,8 @@ pub fn build(b: *std.Build) !void {
         .{version},
     ));
 
+    createHelp(b);
+
     // Exe
     if (exe_) |exe| {
         exe.root_module.addOptions("build_options", exe_options);
@@ -1052,7 +1054,40 @@ fn addDeps(
         }
     }
 
+    addHelp(step);
+
     return static_libs;
+}
+
+var generate_help_step: *std.Build.Step.Run = undefined;
+var help_strings: std.Build.LazyPath = undefined;
+
+/// Generate help files
+fn createHelp(b: *std.Build) void {
+    const generate_help = b.addExecutable(.{
+        .name = "generate_help",
+        .root_source_file = .{ .path = "src/generate_help_strings.zig" },
+        .target = b.host,
+    });
+
+    generate_help_step = b.addRunArtifact(generate_help);
+    generate_help_step.step.dependOn(&generate_help.step);
+
+    help_strings = generate_help_step.addOutputFileArg("help_strings.zig");
+
+    if (builtin.target.isDarwin()) {
+        const generated = b.option([]const u8, "help_strings", "generated help file") orelse "help_strings";
+        const write_file = b.addWriteFiles();
+        help_strings = write_file.addCopyFile(help_strings, generated);
+    }
+}
+
+/// Add the generated help files to the build.
+fn addHelp(step: *std.Build.Step.Compile) void {
+    step.step.dependOn(&generate_help_step.step);
+    step.root_module.addAnonymousImport("help_strings", .{
+        .root_source_file = help_strings,
+    });
 }
 
 fn benchSteps(

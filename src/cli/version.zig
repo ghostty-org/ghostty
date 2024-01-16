@@ -4,6 +4,8 @@ const build_config = @import("../build_config.zig");
 const xev = @import("xev");
 const renderer = @import("../renderer.zig");
 
+/// The `version` command is used to display information
+/// about Ghostty.
 pub fn run() !u8 {
     const stdout = std.io.getStdOut().writer();
     try stdout.print("Ghostty {s}\n\n", .{build_config.version_string});
