@@ -520,6 +520,8 @@ class: ?[:0]const u8 = null,
 ///   - "csi:text" - Send a CSI sequence. i.e. "csi:A" sends "cursor up".
 ///   - "esc:text" - Send an Escape sequence. i.e. "esc:d" deletes to the
 ///     end of the word to the right.
+///   - "text:text" - Send a raw text string. i.e. "text:\x01" sends hex
+///     01 or "text:\x05" sends 0x05.
 ///
 /// Some notes for the action:
 ///
