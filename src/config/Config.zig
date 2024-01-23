@@ -1662,10 +1662,13 @@ fn loadTheme(self: *Config, theme: []const u8) !void {
     var iter = cli.args.lineIterator(buf_reader.reader());
     try new_config.loadIter(alloc_gpa, &iter);
 
+    const config_path = try internal_os.xdg.config(alloc, .{ .subdir = "ghostty/config" });
+
     // Replay our previous inputs so that we can override values
     // from the theme.
     var slice_it = cli.args.sliceIterator(self._inputs.items[0..input_len]);
     try new_config.loadIter(alloc_gpa, &slice_it);
+    try new_config.expandPaths(std.fs.path.dirname(config_path).?);
 
     // Success, swap our new config in and free the old.
     self.deinit();
