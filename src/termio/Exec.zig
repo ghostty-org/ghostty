@@ -2849,4 +2849,21 @@ const StreamHandler = struct {
 
         self.surfaceMessageWriter(message);
     }
+
+    /// Send our version number in the style of rxterm-unicode.
+    pub fn reportTerminalVersion(self: *StreamHandler, terminator: terminal.osc.Terminator) !void {
+        var msg: termio.Message = .{ .write_small = .{} };
+        const resp = try std.fmt.bufPrint(
+            &msg.write_small.data,
+            "\x1B]702;{s};{d};{d}{s}",
+            .{
+                "ghostty",
+                build_config.version.major,
+                build_config.version.minor,
+                terminator.string(),
+            },
+        );
+        msg.write_small.len = @intCast(resp.len);
+        self.messageWriter(msg);
+    }
 };

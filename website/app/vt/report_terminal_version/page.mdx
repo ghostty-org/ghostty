@@ -1,0 +1,32 @@
+import VTSequence from "@/components/VTSequence";
+
+# Report Terminal Version
+
+<)VTSequence sequence={["OSC", "7", "0", "2" ";", "?", "ST"]} />
+
+When the terminal emulator receives this sequence, it responds with a corresponding sequence
+that includes the name of the terminal emulator and it's version.
+
+<)VTSequence sequence={["OSC", "7", "0", "2" ";", "PN", ";", P1", ";", "P2", "ST"]} />
+
+Parameter N is the name of the emulator. Parameter 1 is the major version of
+the emulator. Parameter 2 is the minor version of the emulator. See the `rxvt`
+documentaion[^2] and the Terminal Guide[^1] GitHub project for more information.
+
+[^1]: http://pod.tst.eu/http://cvs.schmorp.de/rxvt-unicode/doc/rxvt.7.pod
+[^2]: https://terminalguide.namepad.de/seq/osc-702/
+
+## Validation
+
+### Report Terminal Version
+
+```bash
+printf "\033]702;?\033\\"
+```
+
+<Image src="uxrvt.png" alt="Results of 'report terminal version in urxvt'" />
+
+<Image
+  src="ghostty.png"
+  alt="Results of 'report terminal version in ghostty'"
+/>

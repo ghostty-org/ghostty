@@ -1076,6 +1076,14 @@ pub fn Stream(comptime Handler: type) type {
                         return;
                     } else log.warn("unimplemented OSC callback: {}", .{cmd});
                 },
+
+                // OSC 702 - report terminal version
+                .report_terminal_version => |v| {
+                    if (@hasDecl(T, "reportTerminalVersion")) {
+                        try self.handler.reportTerminalVersion(v.terminator);
+                        return;
+                    } else log.warn("unimplemented OSC callback: {}", .{cmd});
+                },
             }
 
             // Fall through for when we don't have a handler.

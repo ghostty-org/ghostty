@@ -133,6 +133,11 @@ pub const Command = union(enum) {
         body: []const u8,
     },
 
+    /// OSC 702 - report terminal version
+    report_terminal_version: struct {
+        terminator: Terminator = .st,
+    },
+
     pub const ColorKind = union(enum) {
         palette: u8,
         foreground,
@@ -237,6 +242,7 @@ pub const Parser = struct {
         @"5",
         @"52",
         @"7",
+        @"70",
         @"77",
         @"777",
         @"9",
@@ -269,6 +275,10 @@ pub const Parser = struct {
 
         // Reset color palette index
         reset_color_palette_index,
+
+        // OSC 702 - report terminal version
+        report_terminal_version_start,
+        report_terminal_version_end,
 
         // rxvt extension. Only used for OSC 777 and only the value "notify" is
         // supported
@@ -533,7 +543,26 @@ pub const Parser = struct {
                     self.temp_state = .{ .str = &self.command.report_pwd.value };
                     self.buf_start = self.buf_idx;
                 },
+                '0' => self.state = .@"70",
                 '7' => self.state = .@"77",
+                else => self.state = .invalid,
+            },
+
+            .@"70" => switch (c) {
+                '2' => self.state = .report_terminal_version_start,
+                else => self.state = .invalid,
+            },
+
+            .report_terminal_version_start => switch (c) {
+                ';' => self.state = .report_terminal_version_end,
+                else => self.state = .invalid,
+            },
+
+            .report_terminal_version_end => switch (c) {
+                '?' => {
+                    self.command = .{ .report_terminal_version = .{} };
+                    self.complete = true;
+                },
                 else => self.state = .invalid,
             },
 
@@ -852,6 +881,7 @@ pub const Parser = struct {
 
         switch (self.command) {
             .report_color => |*c| c.terminator = Terminator.init(terminator_ch),
+            .report_terminal_version => |*c| c.terminator = Terminator.init(terminator_ch),
             else => {},
         }
 
