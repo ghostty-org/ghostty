@@ -452,6 +452,9 @@ pub fn build(b: *std.Build) !void {
         b.installFile("images/icons/icon_32x32@2x@2x.png", "share/icons/hicolor/32x32@2/apps/com.mitchellh.ghostty.png");
         b.installFile("images/icons/icon_128x128@2x@2x.png", "share/icons/hicolor/128x128@2/apps/com.mitchellh.ghostty.png");
         b.installFile("images/icons/icon_256x256@2x@2x.png", "share/icons/hicolor/256x256@2/apps/com.mitchellh.ghostty.png");
+
+        // Tell Gnome Shell that we are a search provider
+        b.installFile("dist/linux/search-provider.ini", "share/gnome-shell/search/providers/ghostty-search-provider.ini");
     }
 
     // libghostty (non-Darwin)

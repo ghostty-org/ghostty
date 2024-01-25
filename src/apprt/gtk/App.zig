@@ -29,6 +29,7 @@ const c = @import("c.zig");
 const inspector = @import("inspector.zig");
 const key = @import("key.zig");
 const x11 = @import("x11.zig");
+const dbus = @import("dbus.zig");
 const testing = std.testing;
 
 const log = std.log.scoped(.gtk);
@@ -58,6 +59,15 @@ running: bool = true,
 
 /// Xkb state (X11 only). Will be null on Wayland.
 x11_xkb: ?x11.Xkb = null,
+
+// D-Bus connection
+dbus_connection: ?*c.GDBusConnection = null,
+
+// D-Bus name owner ID
+dbus_name_owner_id: ?c.guint = null,
+
+// D-Bus Gnome Shell search provider object ID
+dbus_gnome_shell_search_provider_object_id: ?c.guint = null,
 
 pub fn init(core_app: *CoreApp, opts: Options) !App {
     _ = opts;
@@ -240,6 +250,8 @@ pub fn terminate(self: *App) void {
     if (self.cursor_none) |cursor| c.g_object_unref(cursor);
     if (self.menu) |menu| c.g_object_unref(menu);
 
+    try dbus.deinit(self);
+
     self.config.deinit();
 }
 
@@ -342,6 +354,8 @@ pub fn run(self: *App) !void {
     self.syncConfigChanges() catch |err| {
         log.warn("error handling configuration changes err={}", .{err});
     };
+
+    try dbus.init(self);
 
     while (self.running) {
         _ = c.g_main_context_iteration(self.ctx, 1);

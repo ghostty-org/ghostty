@@ -924,6 +924,12 @@ keybind: Keybinds = .{},
 /// libadwaita support.
 @"gtk-adwaita": bool = true,
 
+///
+@"gtk-dbus-integration": bool = true,
+
+///
+@"gtk-dbus-integration-features": GTKDBusIntegrationFeatures = .{},
+
 /// If `true` (default), applications running in the terminal can show desktop
 /// notifications using certain escape sequences such as OSC 9 or OSC 777.
 @"desktop-notifications": bool = true,
@@ -3241,6 +3247,12 @@ pub const GtkSingleInstance = enum {
     desktop,
     false,
     true,
+};
+
+/// GTK D-Bus integration features
+pub const GTKDBusIntegrationFeatures = packed struct {
+    @"gnome-shell-search": bool = true,
+    @"background-apps": bool = true,
 };
 
 /// See mouse-shift-capture
