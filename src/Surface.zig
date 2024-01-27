@@ -1293,10 +1293,10 @@ pub fn keyCallback(
         const sel = sel: {
             const old_sel = screen.selection orelse break :adjust_selection;
             break :sel old_sel.adjust(&screen, switch (event.key) {
-                .left => .left,
-                .right => .right,
-                .up => .up,
-                .down => .down,
+                .left => if (event.mods.super) .super_left else .left,
+                .right => if (event.mods.super) .super_right else .right,
+                .up => if (event.mods.super) .super_up else .up,
+                .down => if (event.mods.super) .super_down else .down,
                 .page_up => .page_up,
                 .page_down => .page_down,
                 .home => .home,

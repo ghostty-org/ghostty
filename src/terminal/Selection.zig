@@ -232,6 +232,10 @@ pub const Adjustment = enum {
     end,
     page_up,
     page_down,
+    super_left,
+    super_right,
+    super_up,
+    super_down,
 };
 
 /// Adjust the selection by some given adjustment. An adjustment allows
@@ -248,57 +252,174 @@ pub fn adjust(self: Selection, screen: *Screen, adjustment: Adjustment) Selectio
     // top/bottom visually. So this results in the right behavior
     // whether the user drags up or down.
     switch (adjustment) {
-        .up => if (result.end.y == 0) {
-            result.end.x = 0;
-        } else {
-            result.end.y -= 1;
+        .up, .super_up => |adj| blk: {
+            if (result.end.y == 0) {
+                result.end.x = 0;
+                break :blk;
+            }
+
+            break :blk switch (adj) {
+                .up => result.end.y -= 1,
+                .super_up => {
+                    var y = result.end.y - 1;
+                    var row = screen.getRow(.{ .screen = y });
+
+                    // A paragraph is a continuous block of text separated by empty rows.
+                    result.end.y = select_paragraph: {
+                        while (row.isEmpty()) {
+                            if (y == 0) break :select_paragraph 0;
+
+                            y -= 1;
+                            row = screen.getRow(.{ .screen = y });
+                        }
+
+                        while (!row.isEmpty()) {
+                            if (y == 0) break :select_paragraph 0;
+
+                            y -= 1;
+                            row = screen.getRow(.{ .screen = y });
+                        }
+
+                        break :select_paragraph y;
+                    };
+
+                    result.end.x = 0;
+                },
+                else => unreachable,
+            };
         },
 
-        .down => if (result.end.y >= screen_end) {
-            result.end.y = screen_end;
-            result.end.x = screen.cols - 1;
-        } else {
-            result.end.y += 1;
+        .down, .super_down => |adj| blk: {
+            if (result.end.y >= screen_end) {
+                result.end.y = screen_end;
+                result.end.x = screen.cols - 1;
+                break :blk;
+            }
+
+            break :blk switch (adj) {
+                .down => result.end.y += 1,
+                .super_down => {
+                    var y = result.end.y + 1;
+                    var row = screen.getRow(.{ .screen = y });
+
+                    // A paragraph is a continuous block of text separated by empty rows.
+                    result.end.y = select_paragraph: {
+                        while (row.isEmpty()) {
+                            if (y >= screen_end) break :select_paragraph screen_end;
+
+                            y += 1;
+                            row = screen.getRow(.{ .screen = y });
+                        }
+
+                        while (!row.isEmpty()) {
+                            if (y >= screen_end) break :select_paragraph screen_end;
+
+                            y += 1;
+                            row = screen.getRow(.{ .screen = y });
+                        }
+
+                        break :select_paragraph y;
+                    };
+
+                    result.end.x = screen.cols - 1;
+                },
+                else => unreachable,
+            };
         },
 
-        .left => {
+        .left, .super_left => |adj| {
+            const whitespace = &[_]u32{ ' ', '\t' };
+
             // Step left, wrapping to the next row up at the start of each new line,
             // until we find a non-empty cell.
-            //
             // This iterator emits the start point first, throw it out.
             var iterator = result.end.iterator(screen, .left_up);
             _ = iterator.next();
             while (iterator.next()) |next| {
-                if (screen.getCell(
-                    .screen,
-                    next.y,
-                    next.x,
-                ).char != 0) {
-                    result.end = next;
-                    break;
-                }
+                const cell = screen.getCell(.screen, next.y, next.x);
+                if (cell.empty()) continue;
+
+                break switch (adj) {
+                    .left => result.end = next,
+                    .super_left => {
+                        if (std.mem.indexOfAny(u32, whitespace, &[_]u32{cell.char}) != null) continue;
+
+                        const next_word = screen.selectWord(next);
+                        if (next_word) |nw| {
+                            switch (result.order()) {
+                                // If the current selection is in the forward order and we move left,
+                                // the word is "deselected". We need to, therefore, consume the iterator
+                                // equal to the length of the deselected word.
+                                // Then set the end of the next word to the end of the selection.
+                                // Otherwise, we can just set the end of the selection to the start of the word.
+                                .forward => {
+                                    const word_start = (nw.start.x + nw.start.y) + (screen.cols * nw.start.y);
+                                    const word_end = (nw.end.x + nw.end.y) + (screen.cols * nw.end.y);
+                                    const result_end = (result.end.x + result.end.y) + (screen.cols * result.end.y);
+
+                                    if (word_start <= result_end and result_end <= word_end) {
+                                        const offset = word_end - result_end;
+                                        const len = (word_end - word_start) - offset;
+                                        for (0..len) |_| _ = iterator.next();
+                                        continue;
+                                    }
+                                    result.end = nw.end;
+                                },
+                                else => result.end = nw.start,
+                            }
+                        }
+                    },
+                    else => unreachable,
+                };
             }
         },
 
-        .right => {
+        .right, .super_right => |adj| {
+            const whitespace = &[_]u32{ ' ', '\t' };
             // Step right, wrapping to the next row down at the start of each new line,
             // until we find a non-empty cell.
             var iterator = result.end.iterator(screen, .right_down);
             _ = iterator.next();
             while (iterator.next()) |next| {
                 if (next.y > screen_end) break;
-                if (screen.getCell(
-                    .screen,
-                    next.y,
-                    next.x,
-                ).char != 0) {
-                    if (next.y > screen_end) {
-                        result.end.y = screen_end;
-                    } else {
-                        result.end = next;
-                    }
-                    break;
-                }
+
+                const cell = screen.getCell(.screen, next.y, next.x);
+                if (cell.empty()) continue;
+                if (next.y > screen_end) result.end.y = screen_end;
+
+                break switch (adj) {
+                    .right => result.end = next,
+                    .super_right => {
+                        // Only select non-whitespace words
+                        if (std.mem.indexOfAny(u32, whitespace, &[_]u32{cell.char}) != null) continue;
+
+                        const next_word = screen.selectWord(next);
+                        if (next_word) |nw| {
+                            switch (result.order()) {
+                                // If the current selection is in the reverse order and we move right,
+                                // the word is "deselected". We need to, therefore, consume the iterator
+                                // equal to the length of the deselected word.
+                                // Then set the start of the next word to the end of the selection.
+                                // Otherwise, we can just set the end of the selection to the end of the word.
+                                .reverse => {
+                                    const word_start = (nw.start.x + nw.start.y) + (screen.cols * nw.start.y);
+                                    const word_end = (nw.end.x + nw.end.y) + (screen.cols * nw.end.y);
+                                    const result_end = (result.end.x + result.end.y) + (screen.cols * result.end.y);
+
+                                    if (word_start <= result_end and result_end <= word_end) {
+                                        const offset = word_end - result_end;
+                                        const len = (word_end - word_start) - offset;
+                                        for (0..len) |_| _ = iterator.next();
+                                        continue;
+                                    }
+                                    result.end = nw.start;
+                                },
+                                else => result.end = nw.end,
+                            }
+                        }
+                    },
+                    else => unreachable,
+                };
             }
         },
 
