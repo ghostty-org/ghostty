@@ -342,16 +342,16 @@ pub fn adjust(self: Selection, screen: *Screen, adjustment: Adjustment) Selectio
                 break switch (adj) {
                     .left => result.end = next,
                     .super_left => {
+                        // Select only non-whitespace characters.
                         if (std.mem.indexOfAny(u32, whitespace, &[_]u32{cell.char}) != null) continue;
 
                         const next_word = screen.selectWord(next);
                         if (next_word) |nw| {
                             switch (result.order()) {
                                 // If the current selection is in the forward order and we move left,
-                                // the word is "deselected". We need to, therefore, consume the iterator
+                                // the word is "deselected". We need to move the iterator forward
                                 // equal to the length of the deselected word.
                                 // Then set the end of the next word to the end of the selection.
-                                // Otherwise, we can just set the end of the selection to the start of the word.
                                 .forward => {
                                     const word_start = (nw.start.x + nw.start.y) + (screen.cols * nw.start.y);
                                     const word_end = (nw.end.x + nw.end.y) + (screen.cols * nw.end.y);
@@ -397,10 +397,9 @@ pub fn adjust(self: Selection, screen: *Screen, adjustment: Adjustment) Selectio
                         if (next_word) |nw| {
                             switch (result.order()) {
                                 // If the current selection is in the reverse order and we move right,
-                                // the word is "deselected". We need to, therefore, consume the iterator
+                                // the word is "deselected". We need to move the iterator forward
                                 // equal to the length of the deselected word.
                                 // Then set the start of the next word to the end of the selection.
-                                // Otherwise, we can just set the end of the selection to the end of the word.
                                 .reverse => {
                                     const word_start = (nw.start.x + nw.start.y) + (screen.cols * nw.start.y);
                                     const word_end = (nw.end.x + nw.end.y) + (screen.cols * nw.end.y);
