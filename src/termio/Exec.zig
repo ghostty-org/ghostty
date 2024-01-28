@@ -2072,6 +2072,15 @@ const StreamHandler = struct {
         const code: u8 = code: {
             const mode = terminal.modes.modeFromInt(mode_raw, ansi) orelse break :code 0;
             if (self.terminal.modes.get(mode)) break :code 1;
+
+            // If we're in forced grapheme cluster mode regardless of
+            // the terminal mode setting, then we always report that.
+            if (mode == .grapheme_cluster and
+                self.terminal.flags.default_grapheme_cluster)
+            {
+                break :code 1;
+            }
+
             break :code 2;
         };
 
