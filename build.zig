@@ -204,6 +204,28 @@ pub fn build(b: *std.Build) !void {
     // Add our benchmarks
     try benchSteps(b, target, optimize, config, emit_bench);
 
+    // TODO: temporary simd tester binary
+    {
+        const simd_exe = b.addExecutable(.{
+            .name = "simd",
+            .root_source_file = .{ .path = "src/simd/main.zig" },
+            .target = target,
+            .optimize = optimize,
+        });
+
+        {
+            const simd_install = b.addInstallArtifact(simd_exe, .{});
+            const step = b.step("simd", "Build the simd test exe");
+            step.dependOn(&simd_install.step);
+        }
+
+        {
+            const simd_run = b.addRunArtifact(simd_exe);
+            const step = b.step("simd-run", "Run the app");
+            step.dependOn(&simd_run.step);
+        }
+    }
+
     // We only build an exe if we have a runtime set.
     const exe_: ?*std.Build.Step.Compile = if (config.app_runtime != .none) b.addExecutable(.{
         .name = "ghostty",

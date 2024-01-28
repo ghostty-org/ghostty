@@ -12,6 +12,7 @@
   parallel,
   pkg-config,
   python3,
+  qemu,
   scdoc,
   tracy,
   valgrind,
@@ -109,6 +110,10 @@ in
         # My nix shell environment installs the non-interactive version
         # by default so we have to include this.
         bashInteractive
+
+        # Used for testing SIMD codegen. This is Linux only because the macOS
+        # build only has the qemu-system files.
+        qemu
 
         gdb
         valgrind
