@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const isa = @import("isa.zig");
 const aarch64 = @import("aarch64.zig");
 
 // Note this is a reimplementation of std.mem.indexOfScalar. The Zig stdlib
@@ -91,7 +92,7 @@ fn testIndexOf(func: *const IndexOf) !void {
 }
 
 test "indexOf neon" {
-    // TODO: use ISA detection here
-    if (comptime builtin.cpu.arch != .aarch64) return error.SkipZigTest;
-    try testIndexOf(&indexOfNeon);
+    if (comptime !isa.possible(.neon)) return error.SkipZigTest;
+    const set = isa.detect();
+    if (set.contains(.neon)) try testIndexOf(&indexOfNeon);
 }
