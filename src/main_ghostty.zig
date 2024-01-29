@@ -307,6 +307,7 @@ test {
     _ = @import("inspector/main.zig");
     _ = @import("terminal/main.zig");
     _ = @import("terminfo/main.zig");
+    _ = @import("simd/main.zig");
 
     // TODO
     _ = @import("blocking_queue.zig");
