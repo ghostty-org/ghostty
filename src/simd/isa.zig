@@ -142,7 +142,6 @@ inline fn hasMask(input: u32, mask: u32) bool {
 /// will not be included on x86_64.
 pub fn funcMap(
     comptime Func: type,
-    comptime name: []const u8,
     v: ISA,
     comptime map: anytype,
 ) *const Func {
@@ -153,7 +152,12 @@ pub fn funcMap(
 
             // Find the entry for this tag and return the function.
             inline for (map) |entry| {
-                if (entry[0] == tag) return @field(entry[1], name);
+                if (entry[0] == tag) {
+                    // If we return &entry[1] directly the compiler crashes:
+                    // https://github.com/ziglang/zig/issues/18754
+                    const func = entry[1];
+                    return &func;
+                }
             } else unreachable;
         },
     }

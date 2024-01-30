@@ -9,10 +9,10 @@ pub const Count = fn ([]const u8) usize;
 
 /// Returns the count function for the given ISA.
 pub fn countFunc(v: isa.ISA) *const Count {
-    return isa.funcMap(Count, "count", v, .{
-        .{ .avx2, Scalar }, // todo
-        .{ .neon, Neon },
-        .{ .scalar, Scalar },
+    return isa.funcMap(Count, v, .{
+        .{ .avx2, Scalar.count }, // todo
+        .{ .neon, Neon.count },
+        .{ .scalar, Scalar.count },
     });
 }
 
