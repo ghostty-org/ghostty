@@ -22,8 +22,16 @@ pub fn utf8ValidateNeon(input: []const u8) bool {
 }
 
 pub const Neon = struct {
+    /// The previous input in a vector. This is required because to check
+    /// the validity of a UTF-8 byte, we need to sometimes know previous
+    /// state if it the first byte is a continuation byte.
     prev_input: @Vector(16, u8),
+
+    /// The current error status. Once an error is set, it is never unset.
     prev_error: @Vector(16, u8),
+
+    /// The current incomplete status. This is non-zero if the last chunk
+    /// requires more bytes to be valid UTF-8.
     prev_incomplete: @Vector(16, u8),
 
     pub fn init() Neon {
@@ -34,13 +42,21 @@ pub const Neon = struct {
         };
     }
 
+    /// Validate a chunk of UTF-8 data. This function is designed to be
+    /// called multiple times with successive chunks of data. When the
+    /// data is complete, you must call `finalize` to check for any
+    /// remaining errors.
     pub fn validate(self: *Neon, input: []const u8) void {
+        // Break up our input into 16 byte chunks, and process each chunk
+        // separately. The size of a Neon register is 16 bytes.
         var i: usize = 0;
         while (i + 16 <= input.len) : (i += 16) {
             const input_vec = aarch64.vld1q_u8(input[i..]);
             self.next(input_vec);
         }
 
+        // If we have any data remaining, we pad it with zeroes since that
+        // is valid UTF-8, and then treat it like a normal block.
         if (i < input.len) {
             const remaining = input.len - i;
             assert(remaining < 16);
@@ -54,11 +70,24 @@ pub const Neon = struct {
         }
     }
 
+    /// Call to finalize the validation (EOF is reached).
+    pub fn finalize(self: *Neon) void {
+        // Its possible for our last chunk to end expecting more
+        // continuation bytes.
+        self.prev_error = aarch64.vorrq_u8(self.prev_error, self.prev_incomplete);
+    }
+
+    /// Returns true if there are any errors.
     pub fn hasErrors(self: *Neon) bool {
         return aarch64.vmaxvq_u8(self.prev_error) != 0;
     }
 
-    pub fn next(self: *Neon, input_vec: @Vector(16, u8)) void {
+    /// Process a single vector of input.
+    ///
+    /// This function generally isn't called directly, but it is very useful
+    /// if you want to compose this validation with other SIMD operations
+    /// and already have your data in a SIMD register.
+    pub fn process(self: *Neon, input_vec: @Vector(16, u8)) void {
         // If all we have is ASCII, then we can skip the rest.
         if (aarch64.vmaxvq_u8(input_vec) <= 0b10000000) {
             self.prev_error = aarch64.vorrq_u8(self.prev_error, self.prev_incomplete);
@@ -95,6 +124,7 @@ pub const Neon = struct {
             break :incomplete aarch64.vld1q_u8(&bytes);
         });
 
+        // Debug all the vector registers:
         // std.log.warn("input={}", .{input_vec});
         // std.log.warn("prev_input={}", .{self.prev_input});
         // std.log.warn("prev1={}", .{prev1});
@@ -222,6 +252,7 @@ const OVERLONG_4: u8 = 1 << 6;
 const CARRY: u8 = TOO_SHORT | TOO_LONG | TWO_CONTS; // These all have ____ in byte 1 .
 
 /// Generic test function so we can test against multiple implementations.
+/// This is initially copied from the Zig stdlib but may be expanded.
 fn testValidate(func: *const Validate) !void {
     const testing = std.testing;
     try testing.expect(func("hello friends!!!"));
