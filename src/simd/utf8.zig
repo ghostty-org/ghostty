@@ -21,6 +21,10 @@ pub fn utf8ValidateNeon(input: []const u8) bool {
     return !neon.hasErrors();
 }
 
+pub fn utf8ValidateScalar(input: []const u8) bool {
+    return std.unicode.utf8ValidateSlice(input);
+}
+
 pub const Neon = struct {
     /// The previous input in a vector. This is required because to check
     /// the validity of a UTF-8 byte, we need to sometimes know previous
@@ -52,7 +56,7 @@ pub const Neon = struct {
         var i: usize = 0;
         while (i + 16 <= input.len) : (i += 16) {
             const input_vec = aarch64.vld1q_u8(input[i..]);
-            self.next(input_vec);
+            self.process(input_vec);
         }
 
         // If we have any data remaining, we pad it with zeroes since that
@@ -66,7 +70,7 @@ pub const Neon = struct {
             @memset(buf[remaining..], 0);
 
             const input_vec = aarch64.vld1q_u8(&buf);
-            self.next(input_vec);
+            self.process(input_vec);
         }
     }
 
