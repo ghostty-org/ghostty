@@ -4,6 +4,36 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
+pub inline fn vaddlvq_u8(v: @Vector(16, u8)) u16 {
+    const result = asm (
+        \\ uaddlv %[ret:h], %[v].16b
+        : [ret] "=w" (-> @Vector(8, u16)),
+        : [v] "w" (v),
+    );
+
+    return result[0];
+}
+
+pub inline fn vaddvq_u8(v: @Vector(16, u8)) u8 {
+    const result = asm (
+        \\ addv %[ret:b], %[v].16b
+        : [ret] "=w" (-> @Vector(16, u8)),
+        : [v] "w" (v),
+    );
+
+    return result[0];
+}
+
+pub inline fn vaddv_u8(v: @Vector(8, u8)) u8 {
+    const result = asm (
+        \\ addv %[ret:b], %[v].8b
+        : [ret] "=w" (-> @Vector(8, u8)),
+        : [v] "w" (v),
+    );
+
+    return result[0];
+}
+
 pub inline fn vandq_u8(a: @Vector(16, u8), b: @Vector(16, u8)) @Vector(16, u8) {
     return asm (
         \\ and %[ret].16b, %[a].16b, %[b].16b
@@ -31,12 +61,45 @@ pub inline fn vcgeq_u8(a: @Vector(16, u8), b: @Vector(16, u8)) @Vector(16, u8) {
     );
 }
 
+pub inline fn vcgtq_s8(a: @Vector(16, i8), b: @Vector(16, i8)) @Vector(16, u8) {
+    return asm (
+        \\ cmgt %[ret].16b, %[a].16b, %[b].16b
+        : [ret] "=w" (-> @Vector(16, u8)),
+        : [a] "w" (a),
+          [b] "w" (b),
+    );
+}
+
 pub inline fn vcgtq_u8(a: @Vector(16, u8), b: @Vector(16, u8)) @Vector(16, u8) {
     return asm (
         \\ cmhi %[ret].16b, %[a].16b, %[b].16b
         : [ret] "=w" (-> @Vector(16, u8)),
         : [a] "w" (a),
           [b] "w" (b),
+    );
+}
+
+pub inline fn vcnt_u8(v: @Vector(8, u8)) @Vector(8, u8) {
+    return asm (
+        \\ cnt %[ret].8b, %[v].8b
+        : [ret] "=w" (-> @Vector(8, u8)),
+        : [v] "w" (v),
+    );
+}
+
+pub inline fn vcreate_u8(v: u64) @Vector(8, u8) {
+    return asm (
+        \\ ins %[ret].D[0], %[value]
+        : [ret] "=w" (-> @Vector(8, u8)),
+        : [value] "r" (v),
+    );
+}
+
+pub inline fn vdupq_n_s8(v: i8) @Vector(16, i8) {
+    return asm (
+        \\ dup %[ret].16b, %[value:w]
+        : [ret] "=w" (-> @Vector(16, i8)),
+        : [value] "r" (v),
     );
 }
 
@@ -73,6 +136,15 @@ pub inline fn vget_lane_u64(v: @Vector(1, u64)) u64 {
         \\ umov %[ret], %[v].d[0]
         : [ret] "=r" (-> u64),
         : [v] "w" (v),
+    );
+}
+
+pub inline fn vgetq_lane_u64(v: @Vector(2, u64), n: u1) u64 {
+    return asm (
+        \\ umov %[ret], %[v].d[%[n]]
+        : [ret] "=r" (-> u64),
+        : [v] "w" (v),
+          [n] "I" (n),
     );
 }
 

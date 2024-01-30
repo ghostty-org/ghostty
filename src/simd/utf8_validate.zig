@@ -4,26 +4,26 @@ const assert = std.debug.assert;
 const isa = @import("isa.zig");
 const aarch64 = @import("aarch64.zig");
 
-const Validate = @TypeOf(utf8Validate);
+const Validate = fn ([]const u8) bool;
 
 // All of the work in this file is based heavily on the work of
 // Daniel Lemire and John Keiser. Their original work can be found here:
 // - https://arxiv.org/pdf/2010.03090.pdf
 // - https://simdutf.github.io/simdutf/ (MIT License)
 
-pub fn utf8Validate(input: []const u8) bool {
-    return utf8ValidateNeon(input);
+pub fn validateFunc(v: isa.ISA) *const Validate {
+    return switch (v) {
+        .avx2 => &Scalar.validate, // todo
+        .neon => &Neon.validate,
+        .scalar => &Scalar.validate,
+    };
 }
 
-pub fn utf8ValidateNeon(input: []const u8) bool {
-    var neon = Neon.init();
-    neon.validate(input);
-    return !neon.hasErrors();
-}
-
-pub fn utf8ValidateScalar(input: []const u8) bool {
-    return std.unicode.utf8ValidateSlice(input);
-}
+pub const Scalar = struct {
+    pub fn validate(input: []const u8) bool {
+        return std.unicode.utf8ValidateSlice(input);
+    }
+};
 
 pub const Neon = struct {
     /// The previous input in a vector. This is required because to check
@@ -46,11 +46,17 @@ pub const Neon = struct {
         };
     }
 
+    pub fn validate(input: []const u8) bool {
+        var neon = Neon.init();
+        neon.feed(input);
+        return !neon.hasErrors();
+    }
+
     /// Validate a chunk of UTF-8 data. This function is designed to be
     /// called multiple times with successive chunks of data. When the
     /// data is complete, you must call `finalize` to check for any
     /// remaining errors.
-    pub fn validate(self: *Neon, input: []const u8) void {
+    pub fn feed(self: *Neon, input: []const u8) void {
         // Break up our input into 16 byte chunks, and process each chunk
         // separately. The size of a Neon register is 16 bytes.
         var i: usize = 0;
@@ -288,8 +294,8 @@ fn testValidate(func: *const Validate) !void {
     try testing.expect(!func("\xed\xbf\xbf"));
 }
 
-test "utf8Validate neon" {
-    if (comptime !isa.possible(.neon)) return error.SkipZigTest;
-    const set = isa.detect();
-    if (set.contains(.neon)) try testValidate(&utf8ValidateNeon);
+test "validate" {
+    const v = isa.detect();
+    var it = v.iterator();
+    while (it.next()) |isa_v| try testValidate(validateFunc(isa_v));
 }

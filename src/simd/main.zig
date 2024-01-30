@@ -1,7 +1,8 @@
 const std = @import("std");
 
 pub const isa = @import("isa.zig");
-pub const utf8 = @import("utf8.zig");
+pub const utf8_count = @import("utf8_count.zig");
+pub const utf8_validate = @import("utf8_validate.zig");
 pub const index_of = @import("index_of.zig");
 
 // TODO: temporary, only for zig build simd to inspect disasm easily
