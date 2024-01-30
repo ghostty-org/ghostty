@@ -12,11 +12,11 @@ const Validate = fn ([]const u8) bool;
 // - https://simdutf.github.io/simdutf/ (MIT License)
 
 pub fn validateFunc(v: isa.ISA) *const Validate {
-    return switch (v) {
-        .avx2 => &Scalar.validate, // todo
-        .neon => &Neon.validate,
-        .scalar => &Scalar.validate,
-    };
+    return isa.funcMap(Validate, "validate", v, .{
+        .{ .avx2, Scalar }, // todo
+        .{ .neon, Neon },
+        .{ .scalar, Scalar },
+    });
 }
 
 pub const Scalar = struct {

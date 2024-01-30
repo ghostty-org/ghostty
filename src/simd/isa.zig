@@ -120,13 +120,43 @@ fn detectX86(set: *Set) void {
 }
 
 /// Check if a bit is set at the given offset
-pub inline fn hasBit(input: u32, offset: u5) bool {
+inline fn hasBit(input: u32, offset: u5) bool {
     return (input >> offset) & 1 != 0;
 }
 
 /// Checks if a mask exactly matches the input
-pub inline fn hasMask(input: u32, mask: u32) bool {
+inline fn hasMask(input: u32, mask: u32) bool {
     return (input & mask) == mask;
+}
+
+/// This is a helper to provide a runtime lookup map for the ISA to
+/// the proper function implementation. Func is the function type,
+/// and map is an array of tuples of the form (ISA, Struct) where
+/// Struct has a decl named `name` that is a Func.
+///
+/// The slightly awkward parameters are to ensure that functions
+/// are only analyzed for possible ISAs for the target.
+///
+/// This will ensure that impossible ISAs for the build target are
+/// not included so they're not analyzed. For example, a NEON implementation
+/// will not be included on x86_64.
+pub fn funcMap(
+    comptime Func: type,
+    comptime name: []const u8,
+    v: ISA,
+    comptime map: anytype,
+) *const Func {
+    switch (v) {
+        inline else => |tag| {
+            // If this tag isn't possible, compile no code for this case.
+            if (comptime !possible(tag)) unreachable;
+
+            // Find the entry for this tag and return the function.
+            inline for (map) |entry| {
+                if (entry[0] == tag) return @field(entry[1], name);
+            } else unreachable;
+        },
+    }
 }
 
 test "detect" {
