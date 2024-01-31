@@ -4,12 +4,12 @@ const assert = std.debug.assert;
 const isa = @import("isa.zig");
 const aarch64 = @import("aarch64.zig");
 
-const Validate = fn ([]const u8) bool;
-
 // All of the work in this file is based heavily on the work of
 // Daniel Lemire and John Keiser. Their original work can be found here:
 // - https://arxiv.org/pdf/2010.03090.pdf
 // - https://simdutf.github.io/simdutf/ (MIT License)
+
+pub const Validate = fn ([]const u8) bool;
 
 pub fn validateFunc(v: isa.ISA) *const Validate {
     return isa.funcMap(Validate, v, .{
