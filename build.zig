@@ -1003,6 +1003,11 @@ fn addDeps(
     step.addIncludePath(.{ .path = "src/stb" });
     step.addCSourceFiles(.{ .files = &.{"src/stb/stb.c"} });
 
+    // C++ files
+    step.linkLibCpp();
+    step.addIncludePath(.{ .path = "src/simd" });
+    step.addCSourceFiles(.{ .files = &.{"src/simd/simdutf_c.cpp"} });
+
     // If we're building a lib we have some different deps
     const lib = step.kind == .lib;
 
