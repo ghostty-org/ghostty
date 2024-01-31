@@ -219,13 +219,15 @@ pub const App = struct {
         surface.queueInspectorRender();
     }
 
-    pub fn newWindow(self: *App, parent: ?*CoreSurface) !void {
+    pub fn newWindow(self: *App, opts: struct { parent: ?*CoreSurface = null, config: ?*Config = null }) !void {
         _ = self;
+
+        if (opts.config != null) log.warn("embdded library does not support creating a new window with a custom config", .{});
 
         // Right now we only support creating a new window with a parent
         // through this code.
         // The other case is handled by the embedding runtime.
-        if (parent) |surface| {
+        if (opts.parent) |surface| {
             try surface.rt_surface.newWindow();
         }
     }
