@@ -188,9 +188,22 @@ pub fn deinit(self: *Window) void {
 }
 
 /// Add a new tab to this window.
-pub fn newTab(self: *Window, parent: ?*CoreSurface) !void {
+pub fn newTab(
+    self: *Window,
+    opts: struct {
+        parent: ?*CoreSurface = null,
+        config: ?*configpkg.Config = null,
+    },
+) !void {
     const alloc = self.app.core_app.alloc;
-    _ = try Tab.create(alloc, self, parent);
+    _ = try Tab.create(
+        alloc,
+        self,
+        .{
+            .parent = opts.parent,
+            .config = opts.config,
+        },
+    );
 
     // TODO: When this is triggered through a GTK action, the new surface
     // redraws correctly. When it's triggered through keyboard shortcuts, it

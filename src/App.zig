@@ -245,7 +245,12 @@ pub fn newWindow(self: *App, rt_app: *apprt.App, msg: Message.NewWindow) !void {
             null;
     } else null;
 
-    try rt_app.newWindow(parent);
+    try rt_app.newWindow(.{ .parent = parent, .config = msg.config });
+
+    if (msg.config) |config| {
+        config.deinit();
+        self.alloc.destroy(config);
+    }
 }
 
 /// Start quitting
@@ -311,8 +316,11 @@ pub const Message = union(enum) {
     redraw_inspector: *apprt.Surface,
 
     const NewWindow = struct {
-        /// The parent surface
+        /// The parent surface.
         parent: ?*Surface = null,
+        /// Configuration to use for the new window. Will be deinitialized and
+        /// deallocated once the new window has been intialized.
+        config: ?*Config = null,
     };
 };
 

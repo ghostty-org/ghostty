@@ -88,6 +88,7 @@ pub const DerivedConfig = struct {
     abnormal_runtime_threshold_ms: u32,
     wait_after_command: bool,
     enquiry_response: []const u8,
+    command: ?[]const u8 = null,
 
     pub fn init(
         alloc_gpa: Allocator,
@@ -111,6 +112,7 @@ pub const DerivedConfig = struct {
             .abnormal_runtime_threshold_ms = config.@"abnormal-command-exit-runtime",
             .wait_after_command = config.@"wait-after-command",
             .enquiry_response = try alloc.dupe(u8, config.@"enquiry-response"),
+            .command = if (config.command) |command| try alloc.dupe(u8, command) else null,
 
             // This has to be last so that we copy AFTER the arena allocations
             // above happen (Zig assigns in order).
@@ -1003,7 +1005,7 @@ const Subprocess = struct {
                 const cmd = try std.fmt.allocPrint(
                     alloc,
                     "exec -l {s}",
-                    .{opts.full_config.command orelse default_path},
+                    .{opts.config.command orelse default_path},
                 );
 
                 // The reason for executing login this way is unclear. This
@@ -1094,7 +1096,7 @@ const Subprocess = struct {
                 try args.append("-c");
             }
 
-            try args.append(opts.full_config.command orelse default_path);
+            try args.append(opts.config.command orelse default_path);
             break :args try args.toOwnedSlice();
         };
 

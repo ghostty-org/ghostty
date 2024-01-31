@@ -32,6 +32,9 @@ pub const Options = struct {
     /// The parent surface to inherit settings such as font size, working
     /// directory, etc. from.
     parent: ?*CoreSurface = null,
+
+    /// A custom config to use in the surface.
+    config: ?*configpkg.Config = null,
 };
 
 /// The container that this surface is directly attached to.
@@ -215,6 +218,9 @@ realized: bool = false,
 /// True if this surface had a parent to start with.
 parent_surface: bool = false,
 
+/// Custom config to use for this surface.
+config: ?*configpkg.Config,
+
 /// The GUI container that this surface has been attached to. This
 /// dictates some behaviors such as new splits, etc.
 container: Container = .{ .none = {} },
@@ -336,6 +342,7 @@ pub fn init(self: *Surface, app: *App, opts: Options) !void {
 
     // Inherit the parent's font size if we have a parent.
     const font_size: ?font.face.DesiredSize = font_size: {
+        if (opts.config) |config| if (!config.@"window-inherit-font-size") break :font_size null;
         if (!app.config.@"window-inherit-font-size") break :font_size null;
         const parent = opts.parent orelse break :font_size null;
         break :font_size parent.font_size;
@@ -350,6 +357,7 @@ pub fn init(self: *Surface, app: *App, opts: Options) !void {
         .core_surface = undefined,
         .font_size = font_size,
         .parent_surface = opts.parent != null,
+        .config = opts.config,
         .size = .{ .width = 800, .height = 600 },
         .cursor_pos = .{ .x = 0, .y = 0 },
         .im_context = im_context,
@@ -396,8 +404,9 @@ fn realize(self: *Surface) !void {
     errdefer self.app.core_app.deleteSurface(self);
 
     // Get our new surface config
-    var config = try apprt.surface.newConfig(self.app.core_app, &self.app.config);
+    var config = if (self.config) |config| try apprt.surface.newConfig(self.app.core_app, config) else try apprt.surface.newConfig(self.app.core_app, &self.app.config);
     defer config.deinit();
+
     if (!self.parent_surface) {
         // A hack, see the "parent_surface" field for more information.
         config.@"working-directory" = self.app.config.@"working-directory";
@@ -417,6 +426,10 @@ fn realize(self: *Surface) !void {
     if (self.font_size) |size| {
         self.core_surface.setFontSize(size);
     }
+
+    // The Config struct is going to be cleaned up so make it harder for us to
+    // make a mistake.
+    self.config = null;
 
     // Note we're realized
     self.realized = true;
@@ -605,7 +618,7 @@ pub fn newTab(self: *Surface) !void {
         return;
     };
 
-    try window.newTab(&self.core_surface);
+    try window.newTab(.{ .parent = &self.core_surface });
 }
 
 pub fn hasTabs(self: *const Surface) bool {
