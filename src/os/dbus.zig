@@ -1,0 +1,30 @@
+const std = @import("std");
+const builtin = @import("builtin");
+const build_config = @import("../build_config.zig");
+
+const c = @cImport({
+    @cInclude("unistd.h");
+});
+
+/// Returns true if the program was launched by D-Bus activation.
+///
+/// On Linux GTK, this returns true if the program was launched using D-Bus
+/// activation. It will return false if Ghostty was launched any other way.
+///
+/// For other platforms and app runtimes, this returns false.
+pub fn launchedByDBusActivation() bool {
+    return switch (builtin.os.tag) {
+
+        // On Linux, D-Bus activation sets `DBUS_STARTER_ADDRESS` and
+        // `DBUS_STARTER_BUS_TYPE`. If these environment variables are present
+        // (no matter the value) we were launched by D-Bus activation.
+        .linux => linux: {
+            _ = std.os.getenv("DBUS_STARTER_ADDRESS") orelse break :linux false;
+            _ = std.os.getenv("DBUS_STARTER_BUS_TYPE") orelse break :linux false;
+            break :linux true;
+        },
+
+        // No other system supports D-Bus so always return false.
+        else => false,
+    };
+}

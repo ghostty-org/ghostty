@@ -1,15 +1,20 @@
 [Desktop Entry]
+Version=1.0
 Name=Ghostty
 Type=Application
 Comment=A terminal emulator
-Exec=ghostty
+TryExec=ghostty
+Exec=ghostty %F
 Icon=com.mitchellh.ghostty
 Categories=System;TerminalEmulator;
 Keywords=terminal;tty;pty;
 StartupNotify=true
+StartupWMClass=com.mitchellh.ghostty
 Terminal=false
 Actions=new-window;
 X-GNOME-UsesNotifications=true
+DBusActivatable=true
+MimeType=text/*;application/x-sh;application/x-shellscript;
 
 [Desktop Action new-window]
 Name=New Window

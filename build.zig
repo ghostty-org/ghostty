@@ -439,6 +439,7 @@ pub fn build(b: *std.Build) !void {
             b.installFile("dist/linux/app-flatpak.desktop", "share/applications/com.mitchellh.ghostty.desktop");
         } else {
             b.installFile("dist/linux/app.desktop", "share/applications/com.mitchellh.ghostty.desktop");
+            b.installFile("dist/linux/app.service", "share/dbus-1/services/com.mitchellh.ghostty.service");
         }
 
         // Various icons that our application can use, including the icon

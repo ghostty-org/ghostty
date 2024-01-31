@@ -969,6 +969,15 @@ const Subprocess = struct {
             env.remove("GHOSTTY_MAC_APP");
         }
 
+        // On Linux, remove some environment variables that are set when Ghostty
+        // is launched from a `.desktop` file or by D-Bus activation.
+        if (comptime builtin.os.tag == .linux) {
+            env.remove("GIO_LAUNCHED_DESKTOP_FILE");
+            env.remove("GIO_LAUNCHED_DESKTOP_FILE_PID");
+            env.remove("DBUS_STARTER_ADDRESS");
+            env.remove("DBUS_STARTER_BUS_TYPE");
+        }
+
         // Build our args list
         const args = args: {
             const cap = 9; // the most we'll ever use

@@ -141,6 +141,10 @@ in
         else "$out/share/terminfo"
       }
 
+      sed -ie "s@^Exec=.*ghostty@Exec=$out/bin/ghostty@" $out/share/applications/*.desktop
+      sed -ie "s@^TryExec=.*ghostty@TryExec=$out/bin/ghostty@" $out/share/applications/*.desktop
+      sed -ie "s@^Exec=.*ghostty@Exec=$out/bin/ghostty@" $out/share/dbus-1/services/*.service
+
       mkdir -p "$out/nix-support"
 
       mkdir -p "$terminfo/share"

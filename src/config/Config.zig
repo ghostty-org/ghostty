@@ -410,6 +410,25 @@ palette: Palette = .{},
 /// fish --with --custom --args`.
 command: ?[]const u8 = null,
 
+/// A command to use to open/edit text files in a terminal window (using
+/// something like Helix, Vim, NeoVim, Emacs, or Nano). If this is not set,
+/// Ghostty will check the `EDITOR` environment variable for the command. If
+/// the `EDITOR` environment variable is not set, Ghostty will fall back to `vi`
+/// (similar to how many Linux/Unix systems operate).
+///
+/// This command will be used to open/edit files when Ghostty receives a signal
+/// from the operating system to open a file. Currently implemented on the GTK
+/// runtime only.
+///
+/// The command may contain additional arguments besides the path to the
+/// editor's binary. The files that are to be opened will be added to the end of
+/// the command. For example, if `editor` was set to `emacs -nx` and you tried
+/// to open `README` and `hello.c` in your home directory, the final command
+/// would look like
+///
+///     emacs -nx /home/user/README /home/user/hello.c
+editor: ?[]const u8 = null,
+
 /// If true, keep the terminal open after the command exits. Normally, the
 /// terminal window closes when the running command (such as a shell) exits.
 /// With this true, the terminal window will stay open until any keypress is
@@ -903,19 +922,20 @@ keybind: Keybinds = .{},
 /// This does not work with GLFW builds.
 @"macos-option-as-alt": OptionAsAlt = .false,
 
-/// If true, the Ghostty GTK application will run in single-instance mode:
-/// each new `ghostty` process launched will result in a new window if there
-/// is already a running process.
+/// If `true`, the Ghostty GTK application will run in single-instance mode:
+/// each new `ghostty` process launched will result in a new window if there is
+/// already a running process.
 ///
-/// If false, each new ghostty process will launch a separate application.
+/// If `false`, each new ghostty process will launch a separate application.
 ///
-/// The default value is `desktop` which will default to `true` if Ghostty
-/// detects it was launched from the `.desktop` file such as an app launcher.
-/// If Ghostty is launched from the command line, it will default to `false`.
+/// The default value is `detect` which will default to `true` if Ghostty
+/// detects that it was launched from the `.desktop` file such as an app
+/// launcher (like Gnome Shell)  or by D-Bus activation. If Ghostty is launched
+/// from the command line, it will default to `false`.
 ///
 /// Note that debug builds of Ghostty have a separate single-instance ID
 /// so you can test single instance without conflicting with release builds.
-@"gtk-single-instance": GtkSingleInstance = .desktop,
+@"gtk-single-instance": GtkSingleInstance = .detect,
 
 /// If `true` (default), then the Ghostty GTK tabs will be "wide." Wide tabs
 /// are the new typical Gnome style where tabs fill their available space.
@@ -3335,7 +3355,7 @@ pub const WindowColorspace = enum {
 
 /// See gtk-single-instance
 pub const GtkSingleInstance = enum {
-    desktop,
+    detect,
     false,
     true,
 };

@@ -561,6 +561,29 @@ on the search path for a lot of software (such as Gnome and KDE) and
 installing into a prefix with `-p` sets up a directory structure to ensure
 all features of Ghostty work.
 
+### Linux D-Bus Debugging Tips
+
+The GTK runtime uses D-Bus behind the scenes for sending signals and other features. Debug and release
+builds use different names and paths on the D-Bus bus so that they can run simultaneously.
+
+| Type of Build | NAME                        | PATH                         |
+| ------------- | --------------------------- | ---------------------------- |
+| Release       | com.mitchellh.ghostty       | /com/mitchellh/ghostty       |
+| Debug         | com.mitchellh.ghostty-debug | /com/mitchellh/ghostty_debug |
+|               |                             |                              |
+
+- Introspect
+
+      gdbus introspect --session --dest ${NAME} --object-path ${PATH}
+
+- Monitor
+
+      gdbus monitor --session --dest ${NAME}
+
+- Send Ghostty an `open` signal.
+
+      gdbus call --session --dest ${NAME} --object-path ${PATH} --method org.gtk.Application.Open "['file:///home/user/ghostty/README.md']" "" "[]"
+
 ### Mac `.app`
 
 To build the official, fully featured macOS application, you must

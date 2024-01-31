@@ -80,12 +80,12 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
     const single_instance = switch (config.@"gtk-single-instance") {
         .true => true,
         .false => false,
-        .desktop => internal_os.launchedFromDesktop(),
+        .detect => internal_os.launchedFromDesktop() or internal_os.launchedByDBusActivation(),
     };
 
     // Setup the flags for our application.
     const app_flags: c.GApplicationFlags = app_flags: {
-        var flags: c.GApplicationFlags = c.G_APPLICATION_DEFAULT_FLAGS;
+        var flags: c.GApplicationFlags = c.G_APPLICATION_DEFAULT_FLAGS | c.G_APPLICATION_HANDLES_OPEN;
         if (!single_instance) flags |= c.G_APPLICATION_NON_UNIQUE;
         break :app_flags flags;
     };
@@ -143,10 +143,45 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
     };
 
     errdefer c.g_object_unref(app);
+
+    // The `startup` signal is sent to Ghostty to tell us to go ahead and
+    // perform any initialization tasks.
+    _ = c.g_signal_connect_data(
+        app,
+        "startup",
+        c.G_CALLBACK(&gtkStartup),
+        core_app,
+        null,
+        c.G_CONNECT_DEFAULT,
+    );
+
+    // The `shutdown` signal is sent to Ghostty to tell us to perform any
+    // de-initalization tasks before shutting down.
+    _ = c.g_signal_connect_data(
+        app,
+        "shutdown",
+        c.G_CALLBACK(&gtkShutdown),
+        core_app,
+        null,
+        c.G_CONNECT_DEFAULT,
+    );
+
+    // The `activate` signal is used when Ghostty is first launched and when a
+    // secondary Ghostty is launched and requests a new window.
     _ = c.g_signal_connect_data(
         app,
         "activate",
         c.G_CALLBACK(&gtkActivate),
+        core_app,
+        null,
+        c.G_CONNECT_DEFAULT,
+    );
+
+    // The `open` signal is used when GTK wants Ghostty to open some files.
+    _ = c.g_signal_connect_data(
+        app,
+        "open",
+        c.G_CALLBACK(&gtkOpen),
         core_app,
         null,
         c.G_CONNECT_DEFAULT,
@@ -210,10 +245,12 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
         break :x11_xkb try x11.Xkb.init(display);
     };
 
-    // This just calls the "activate" signal but its part of the normal
-    // startup routine so we just call it:
+    // This just calls the `activate` signal but its part of the normal startup
+    // routine so we just call it, but only if we were not launched by D-Bus
+    // activation. D-Bus activation will send it's own `activate` signal later.
     // https://gitlab.gnome.org/GNOME/glib/-/blob/bd2ccc2f69ecfd78ca3f34ab59e42e2b462bad65/gio/gapplication.c#L2302
-    c.g_application_activate(gapp);
+    if (!internal_os.launchedByDBusActivation())
+        c.g_application_activate(gapp);
 
     return .{
         .core_app = core_app,
@@ -469,17 +506,113 @@ fn gtkQuitConfirmation(
     self.quitNow();
 }
 
-/// This is called by the "activate" signal. This is sent on program
-/// startup and also when a secondary instance launches and requests
-/// a new window.
+/// This is called by the `startup` signal. A no-op for now.
+fn gtkStartup(app: *c.GtkApplication, ud: ?*anyopaque) callconv(.C) void {
+    _ = app;
+    _ = ud;
+    log.debug("received startup signal", .{});
+}
+
+/// This is called by the `shutdown` signal. A no-op for now.
+fn gtkShutdown(app: *c.GtkApplication, ud: ?*anyopaque) callconv(.C) void {
+    _ = app;
+    _ = ud;
+
+    log.debug("received shutdown signal", .{});
+}
+
+/// This is called by the `activate` signal. This is sent on program startup and
+/// also when a secondary instance launches and requests a new window.
 fn gtkActivate(app: *c.GtkApplication, ud: ?*anyopaque) callconv(.C) void {
     _ = app;
+
+    log.debug("received activate signal", .{});
 
     const core_app: *CoreApp = @ptrCast(@alignCast(ud orelse return));
 
     // Queue a new window
     _ = core_app.mailbox.push(.{
         .new_window = .{},
+    }, .{ .forever = {} });
+}
+
+/// This is called by the `open` signal. This is sent if the user asks to open
+/// some files in Ghostty. The files will be opened in the editor of your choice
+/// (see the `editor` configuration option).
+fn gtkOpen(app: *c.GtkApplication, files: [*c]*c.GFile, n_files: c.gint, hint: [*c]c.gchar, ud: ?*anyopaque) callconv(.C) void {
+    _ = app;
+
+    log.debug("received open signal", .{});
+    log.debug("open signal gave us a hint: '{s}'", .{hint});
+
+    if (n_files < 1) {
+        log.warn("not opening a window to edit {d}", .{n_files});
+        return;
+    }
+
+    const core_app: *CoreApp = @ptrCast(@alignCast(ud orelse return));
+
+    // hide our memory management sins in an arena
+    var arena = std.heap.ArenaAllocator.init(core_app.alloc);
+    defer arena.deinit();
+
+    const alloc = arena.allocator();
+
+    var args: []const u8 = "";
+
+    // read out files and
+    for (0..@intCast(n_files)) |i| {
+        const path = c.g_file_get_path(files[i]);
+        defer c.g_free(path);
+        if (i == 0)
+            args = std.fmt.allocPrint(alloc, "{s}", .{path}) catch |err| {
+                log.err("unable to build argument list for editor command: {}", .{err});
+                return;
+            }
+        else
+            args = std.fmt.allocPrint(alloc, "{s} {s}", .{ args, path }) catch |err| {
+                log.err("unable to build argument list for editor command: {}", .{err});
+                return;
+            };
+    }
+
+    // create a new config and load config files/command line args
+    const config = core_app.alloc.create(Config) catch |err| {
+        log.err("unable to create new config: {}", .{err});
+        return;
+    };
+    config.* = Config.load(core_app.alloc) catch |err| {
+        log.err("unable to load config: {}", .{err});
+        return;
+    };
+
+    // figure out what our editor is
+    const editor = editor: {
+        if (config.editor) |editor| break :editor editor;
+        switch (builtin.os.tag) {
+            .windows => {
+                if (std.os.getenvW(std.unicode.utf8ToUtf16LeStringLiteral("EDITOR"))) |win_editor| {
+                    const editor = try std.unicode.utf16leToUtf8Alloc(alloc, win_editor);
+                    break :editor editor;
+                }
+            },
+            else => if (std.os.getenv("EDITOR")) |editor| break :editor editor,
+        }
+        break :editor "vi";
+    };
+
+    config.command = std.fmt.allocPrint(config._arena.?.allocator(), "{s} {s}", .{ editor, args }) catch |err| {
+        log.err("unable to create editor command: {}", .{err});
+        return;
+    };
+
+    log.debug("open signal editor command: {s}", .{config.command.?});
+
+    // Queue command to open files
+    _ = core_app.mailbox.push(.{
+        .new_window = .{
+            .config = config,
+        },
     }, .{ .forever = {} });
 }
 
@@ -517,6 +650,18 @@ fn gtkActionQuit(
     };
 }
 
+fn gtkActionNewWindow(
+    _: *c.GSimpleAction,
+    _: *c.GVariant,
+    ud: ?*anyopaque,
+) callconv(.C) void {
+    log.debug("received new window action", .{});
+    const self: *App = @ptrCast(@alignCast(ud orelse return));
+    _ = self.core_app.mailbox.push(.{
+        .new_window = .{},
+    }, .{ .forever = {} });
+}
+
 /// This is called to setup the action map that this application supports.
 /// This should be called only once on startup.
 fn initActions(self: *App) void {
@@ -524,6 +669,7 @@ fn initActions(self: *App) void {
         .{ "quit", &gtkActionQuit },
         .{ "open_config", &gtkActionOpenConfig },
         .{ "reload_config", &gtkActionReloadConfig },
+        .{ "new-window", &gtkActionNewWindow },
     };
 
     inline for (actions) |entry| {
