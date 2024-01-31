@@ -196,8 +196,9 @@ pub const App = struct {
     }
 
     /// Create a new window for the app.
-    pub fn newWindow(self: *App, parent_: ?*CoreSurface) !void {
-        _ = try self.newSurface(parent_);
+    pub fn newWindow(self: *App, opts: struct { parent: ?*CoreSurface = null, config: ?*Config = null }) !void {
+        if (opts.config != null) log.warn("glfw runtime does not support custom per-surface configs", .{});
+        _ = try self.newSurface(opts.parent);
     }
 
     /// Create a new tab in the parent surface.
