@@ -989,8 +989,6 @@ _replay_steps: std.ArrayListUnmanaged(Replay.Step) = .{},
 pub fn deinit(self: *Config) void {
     if (self._arena) |arena| arena.deinit();
     self.* = undefined;
-    // set _arena to null so we don't deinit it again
-    self._arena = null;
 }
 
 /// Load the configuration according to the default rules:
