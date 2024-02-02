@@ -266,7 +266,10 @@ pub fn openFiles(self: *App, rt_app: *apprt.App, msg: Message.OpenFiles) !void {
     // clone the config so that we can add our custom command
     const config = try self.alloc.create(Config);
     defer self.alloc.destroy(config);
-    config.* = try apprt.surface.newConfig(self, &rt_app.config);
+    if (@typeInfo(@TypeOf(rt_app.config)) == .Pointer)
+        config.* = try apprt.surface.newConfig(self, rt_app.config)
+    else
+        config.* = try apprt.surface.newConfig(self, &rt_app.config);
     defer config.deinit();
 
     // use the arena in the cloned config to make sure that everything is
