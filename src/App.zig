@@ -188,6 +188,7 @@ fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
             .reload_config => try self.reloadConfig(rt_app),
             .open_config => try self.openConfig(rt_app),
             .new_window => |msg| try self.newWindow(rt_app, msg),
+            .open_files => |msg| try self.openFiles(rt_app, msg),
             .close => |surface| try self.closeSurface(surface),
             .quit => try self.setQuit(),
             .surface_message => |msg| try self.surfaceMessage(msg.surface, msg.message),
@@ -253,6 +254,54 @@ pub fn newWindow(self: *App, rt_app: *apprt.App, msg: Message.NewWindow) !void {
     }
 }
 
+/// open files in a new window
+pub fn openFiles(self: *App, rt_app: *apprt.App, msg: Message.OpenFiles) !void {
+    defer msg.arena.deinit();
+
+    if (!@hasDecl(apprt.App, "newWindow")) {
+        log.warn("openFiles is not supported by this runtime", .{});
+        return;
+    }
+
+    // clone the config so that we can add our custom command
+    const config = try self.alloc.create(Config);
+    defer self.alloc.destroy(config);
+    config.* = try apprt.surface.newConfig(self, &rt_app.config);
+    defer config.deinit();
+
+    // use the arena in the cloned config to make sure that everything is
+    // cleaned up
+    const alloc = config._arena.?.allocator();
+
+    // figure out what our editor is
+    const editor = editor: {
+        if (config.editor) |editor| break :editor editor;
+        switch (builtin.os.tag) {
+            .windows => {
+                if (std.os.getenvW(std.unicode.utf8ToUtf16LeStringLiteral("EDITOR"))) |win_editor| {
+                    const editor = try std.unicode.utf16leToUtf8Alloc(alloc, win_editor);
+                    break :editor editor;
+                }
+            },
+            else => if (std.os.getenv("EDITOR")) |editor| break :editor editor,
+        }
+        break :editor "vi";
+    };
+
+    // build the command
+    config.command = try std.fmt.allocPrint(
+        alloc,
+        "{s} {s}",
+        .{
+            editor,
+            try std.mem.join(alloc, " ", msg.files),
+        },
+    );
+
+    // tell the runtime to create a new command with our custom config
+    try rt_app.newWindow(.{ .config = config });
+}
+
 /// Start quitting
 pub fn setQuit(self: *App) !void {
     if (self.quit) return;
@@ -292,6 +341,9 @@ pub const Message = union(enum) {
     /// Create a new terminal window.
     new_window: NewWindow,
 
+    /// Open files in a new terminal window.
+    open_files: OpenFiles,
+
     /// Close a surface. This notifies the runtime that a surface
     /// should close.
     close: *Surface,
@@ -321,6 +373,11 @@ pub const Message = union(enum) {
         /// Configuration to use for the new window. Will be deinitialized and
         /// deallocated once the new window has been intialized.
         config: ?*Config = null,
+    };
+
+    const OpenFiles = struct {
+        arena: std.heap.ArenaAllocator,
+        files: [][]const u8,
     };
 };
 

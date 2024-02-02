@@ -98,7 +98,6 @@ pub fn main() !MainReturn {
 
     // Create our runtime app
     var app_runtime = try apprt.App.init(app, .{});
-    defer if (@typeInfo(@TypeOf(app_runtime)) == .Pointer) alloc.destroy(app_runtime);
     defer app_runtime.terminate();
 
     // Run the GUI event loop

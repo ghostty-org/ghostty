@@ -11,11 +11,11 @@ Keywords=terminal;tty;pty;
 StartupNotify=true
 StartupWMClass=com.mitchellh.ghostty
 Terminal=false
-Actions=new-window;
+Actions=new_window;
 X-GNOME-UsesNotifications=true
 DBusActivatable=true
 MimeType=text/*;application/x-sh;application/x-shellscript;
 
-[Desktop Action new-window]
+[Desktop Action new_window]
 Name=New Window
 Exec=ghostty

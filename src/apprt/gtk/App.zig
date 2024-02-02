@@ -60,33 +60,25 @@ running: bool = true,
 /// Xkb state (X11 only). Will be null on Wayland.
 x11_xkb: ?x11.Xkb = null,
 
-pub fn init(core_app: *CoreApp, opts: Options) !*App {
+pub fn init(core_app: *CoreApp, opts: Options) !App {
     _ = opts;
 
-    var app = try core_app.alloc.create(App);
-    errdefer core_app.alloc.destroy(app);
-
-    app.*.core_app = core_app;
-    app.*.menu = null;
-    app.*.config_errors_window = null;
-    app.*.clipboard_confirmation_window = null;
-
     // Load our configuration
-    app.*.config = try Config.load(core_app.alloc);
-    errdefer app.config.deinit();
+    var config = try Config.load(core_app.alloc);
+    errdefer config.deinit();
 
     // If we had configuration errors, then log them.
-    if (!app.config._errors.empty()) {
-        for (app.config._errors.list.items) |err| {
+    if (!config._errors.empty()) {
+        for (config._errors.list.items) |err| {
             log.warn("configuration error: {s}", .{err.message});
         }
     }
 
     // The "none" cursor is used for hiding the cursor
-    app.*.cursor_none = c.gdk_cursor_new_from_name("none", null);
-    errdefer if (app.*.cursor_none) |cursor| c.g_object_unref(cursor);
+    const cursor_none = c.gdk_cursor_new_from_name("none", null);
+    errdefer if (cursor_none) |cursor| c.g_object_unref(cursor);
 
-    const single_instance = switch (app.config.@"gtk-single-instance") {
+    const single_instance = switch (config.@"gtk-single-instance") {
         .true => true,
         .false => false,
         .detect => internal_os.launchedFromDesktop() or internal_os.launchedByDBusActivation(),
@@ -103,7 +95,7 @@ pub fn init(core_app: *CoreApp, opts: Options) !*App {
     // We append "-debug" to the ID if we're in debug mode so that we
     // can develop Ghostty in Ghostty.
     const app_id: [:0]const u8 = app_id: {
-        if (app.config.class) |class| {
+        if (config.class) |class| {
             if (isValidAppId(class)) {
                 break :app_id class;
             } else {
@@ -116,8 +108,8 @@ pub fn init(core_app: *CoreApp, opts: Options) !*App {
     };
 
     // Create our GTK Application which encapsulates our process.
-    app.*.app = app: {
-        const adwaita = build_options.libadwaita and app.config.@"gtk-adwaita";
+    const gtk_app: *c.GtkApplication = app: {
+        const adwaita = build_options.libadwaita and config.@"gtk-adwaita";
 
         log.debug("creating GTK application id={s} single-instance={} adwaita={}", .{
             app_id,
@@ -141,7 +133,7 @@ pub fn init(core_app: *CoreApp, opts: Options) !*App {
         const style_manager = c.adw_application_get_style_manager(adw_app);
         c.adw_style_manager_set_color_scheme(
             style_manager,
-            switch (app.config.@"window-theme") {
+            switch (config.@"window-theme") {
                 .system => c.ADW_COLOR_SCHEME_PREFER_LIGHT,
                 .dark => c.ADW_COLOR_SCHEME_FORCE_DARK,
                 .light => c.ADW_COLOR_SCHEME_FORCE_LIGHT,
@@ -151,25 +143,25 @@ pub fn init(core_app: *CoreApp, opts: Options) !*App {
         break :app @ptrCast(adw_app);
     };
 
-    errdefer c.g_object_unref(app.app);
+    errdefer c.g_object_unref(gtk_app);
 
     // The `activate` signal is used when Ghostty is first launched and when a
     // secondary Ghostty is launched and requests a new window.
     _ = c.g_signal_connect_data(
-        app.app,
+        gtk_app,
         "activate",
         c.G_CALLBACK(&gtkActivate),
-        app,
+        core_app,
         null,
         c.G_CONNECT_DEFAULT,
     );
 
     // The `open` signal is used when GTK wants Ghostty to open some files.
     _ = c.g_signal_connect_data(
-        app.app,
+        gtk_app,
         "open",
         c.G_CALLBACK(&gtkOpen),
-        app,
+        core_app,
         null,
         c.G_CONNECT_DEFAULT,
     );
@@ -177,11 +169,11 @@ pub fn init(core_app: *CoreApp, opts: Options) !*App {
     // We don't use g_application_run, we want to manually control the loop so
     // we have to do the same things the run function does:
     // https://github.com/GNOME/glib/blob/a8e8b742e7926e33eb635a8edceac74cf239d6ed/gio/gapplication.c#L2533
-    app.*.ctx = c.g_main_context_default() orelse return error.GtkContextFailed;
-    if (c.g_main_context_acquire(app.ctx) == 0) return error.GtkContextAcquireFailed;
-    errdefer c.g_main_context_release(app.ctx);
+    const ctx = c.g_main_context_default() orelse return error.GtkContextFailed;
+    if (c.g_main_context_acquire(ctx) == 0) return error.GtkContextAcquireFailed;
+    errdefer c.g_main_context_release(ctx);
 
-    const g_app = @as(*c.GApplication, @ptrCast(app.app));
+    const g_app = @as(*c.GApplication, @ptrCast(gtk_app));
     var err_: ?*c.GError = null;
     if (c.g_application_register(
         g_app,
@@ -198,7 +190,7 @@ pub fn init(core_app: *CoreApp, opts: Options) !*App {
     // Perform all X11 initialization. This ultimately returns the X11
     // keyboard state but the block does more than that (i.e. setting up
     // WM_CLASS).
-    app.*.x11_xkb = x11_xkb: {
+    const x11_xkb = x11_xkb: {
         const display = c.gdk_display_get_default();
         if (!x11.is_display(display)) break :x11_xkb null;
 
@@ -219,7 +211,7 @@ pub fn init(core_app: *CoreApp, opts: Options) !*App {
         //
         // Append "-debug" on both when using the debug build.
         //
-        const prgname = if (app.config.@"x11-instance-name") |pn|
+        const prgname = if (config.@"x11-instance-name") |pn|
             pn
         else if (builtin.mode == .Debug)
             "ghostty-debug"
@@ -239,9 +231,18 @@ pub fn init(core_app: *CoreApp, opts: Options) !*App {
     if (!internal_os.launchedByDBusActivation())
         c.g_application_activate(g_app);
 
-    app.*.running = c.g_application_get_is_remote(g_app) == 0;
-
-    return app;
+    return .{
+        .core_app = core_app,
+        .app = gtk_app,
+        .config = config,
+        .ctx = ctx,
+        .cursor_none = cursor_none,
+        .x11_xkb = x11_xkb,
+        // If we are NOT the primary instance, then we never want to run.
+        // This means that another instance of the GTK app is running and
+        // our "activate" call above will open a window.
+        .running = c.g_application_get_is_remote(g_app) == 0,
+    };
 }
 
 // Terminate the application. The application will not be restarted after
@@ -484,30 +485,15 @@ fn gtkQuitConfirmation(
     self.quitNow();
 }
 
-/// This is called by the `startup` signal. A no-op for now.
-fn gtkStartup(app: *c.GtkApplication, ud: ?*anyopaque) callconv(.C) void {
-    _ = app;
-    _ = ud;
-    log.debug("received startup signal", .{});
-}
-
-/// This is called by the `shutdown` signal. A no-op for now.
-fn gtkShutdown(app: *c.GtkApplication, ud: ?*anyopaque) callconv(.C) void {
-    _ = app;
-    _ = ud;
-
-    log.debug("received shutdown signal", .{});
-}
-
 /// This is called by the `activate` signal. This is sent on program startup and
 /// also when a secondary instance launches and requests a new window.
 fn gtkActivate(_: *c.GtkApplication, ud: ?*anyopaque) callconv(.C) void {
     log.debug("received activate signal", .{});
 
-    const app: *App = @ptrCast(@alignCast(ud orelse return));
+    const core_app: *CoreApp = @ptrCast(@alignCast(ud orelse return));
 
     // Queue a new window
-    _ = app.core_app.mailbox.push(.{
+    _ = core_app.mailbox.push(.{
         .new_window = .{},
     }, .{ .forever = {} });
 }
@@ -524,68 +510,39 @@ fn gtkOpen(_: *c.GtkApplication, files: [*c]*c.GFile, n_files: c.gint, hint: [*c
         return;
     }
 
-    const app: *App = @ptrCast(@alignCast(ud orelse return));
+    const core_app: *CoreApp = @ptrCast(@alignCast(ud orelse return));
 
     // hide our memory management sins in an arena
-    var arena = std.heap.ArenaAllocator.init(app.core_app.alloc);
-    defer arena.deinit();
+    var arena = std.heap.ArenaAllocator.init(core_app.alloc);
+    errdefer arena.deinit();
 
     const alloc = arena.allocator();
+    errdefer alloc.deinit();
 
-    var args: []const u8 = "";
+    var list = std.ArrayList([]const u8).init(alloc);
+    errdefer list.deinit();
 
-    // read out files and
+    // read out files and add them to a list
     for (0..@intCast(n_files)) |i| {
         const path = c.g_file_get_path(files[i]);
         defer c.g_free(path);
-        if (i == 0)
-            args = std.fmt.allocPrint(alloc, "{s}", .{path}) catch |err| {
-                log.err("unable to build argument list for editor command: {}", .{err});
-                return;
-            }
-        else
-            args = std.fmt.allocPrint(alloc, "{s} {s}", .{ args, path }) catch |err| {
-                log.err("unable to build argument list for editor command: {}", .{err});
-                return;
-            };
+        list.append(alloc.dupe(u8, std.mem.span(path)) catch |err| {
+            log.err("unable to copy path: {}", .{err});
+            return;
+        }) catch |err| {
+            log.err("unable to build list: {}", .{err});
+            return;
+        };
     }
 
-    // create a new config and load config files/command line args
-    const config = app.core_app.alloc.create(Config) catch |err| {
-        log.err("unable to create new config: {}", .{err});
-        return;
-    };
-    config.* = apprt.surface.newConfig(app.core_app, &app.config) catch |err| {
-        log.err("unable to load config: {}", .{err});
-        return;
-    };
-
-    // figure out what our editor is
-    const editor = editor: {
-        if (config.editor) |editor| break :editor editor;
-        switch (builtin.os.tag) {
-            .windows => {
-                if (std.os.getenvW(std.unicode.utf8ToUtf16LeStringLiteral("EDITOR"))) |win_editor| {
-                    const editor = try std.unicode.utf16leToUtf8Alloc(alloc, win_editor);
-                    break :editor editor;
-                }
-            },
-            else => if (std.os.getenv("EDITOR")) |editor| break :editor editor,
-        }
-        break :editor "vi";
-    };
-
-    config.command = std.fmt.allocPrint(config._arena.?.allocator(), "{s} {s}", .{ editor, args }) catch |err| {
-        log.err("unable to create editor command: {}", .{err});
-        return;
-    };
-
-    log.debug("open signal editor command: {s}", .{config.command.?});
-
     // Queue command to open files
-    _ = app.core_app.mailbox.push(.{
-        .new_window = .{
-            .config = config,
+    _ = core_app.mailbox.push(.{
+        .open_files = .{
+            .arena = arena,
+            .files = list.toOwnedSlice() catch |err| {
+                log.err("unable to convert list to slice: {}", .{err});
+                return;
+            },
         },
     }, .{ .forever = {} });
 }
@@ -643,7 +600,7 @@ fn initActions(self: *App) void {
         .{ "quit", &gtkActionQuit },
         .{ "open_config", &gtkActionOpenConfig },
         .{ "reload_config", &gtkActionReloadConfig },
-        .{ "new-window", &gtkActionNewWindow },
+        .{ "new_window", &gtkActionNewWindow },
     };
 
     inline for (actions) |entry| {
