@@ -1617,44 +1617,8 @@ const ReadThread = struct {
                     log.err("error processing terminal data: {}", .{err});
             }
         } else {
-            // Process the terminal data. This is an extremely hot part of the
-            // terminal emulator, so we do some abstraction leakage to avoid
-            // function calls and unnecessary logic.
-            //
-            // The ground state is the only state that we can see and print/execute
-            // ASCII, so we only execute this hot path if we're already in the ground
-            // state.
-            //
-            // Empirically, this alone improved throughput of large text output by ~20%.
-            var i: usize = 0;
-            const end = buf.len;
-            if (ev.terminal_stream.parser.state == .ground) {
-                for (buf[i..end]) |ch| {
-                    switch (terminal.parse_table.table[ch][@intFromEnum(terminal.Parser.State.ground)].action) {
-                        // Print, call directly.
-                        .print => ev.terminal_stream.handler.print(@intCast(ch)) catch |err|
-                            log.err("error processing terminal data: {}", .{err}),
-
-                        // C0 execute, let our stream handle this one but otherwise
-                        // continue since we're guaranteed to be back in ground.
-                        .execute => ev.terminal_stream.execute(ch) catch |err|
-                            log.err("error processing terminal data: {}", .{err}),
-
-                        // Otherwise, break out and go the slow path until we're
-                        // back in ground. There is a slight optimization here where
-                        // could try to find the next transition to ground but when
-                        // I implemented that it didn't materially change performance.
-                        else => break,
-                    }
-
-                    i += 1;
-                }
-            }
-
-            if (i < end) {
-                ev.terminal_stream.nextSlice(buf[i..end]) catch |err|
-                    log.err("error processing terminal data: {}", .{err});
-            }
+            ev.terminal_stream.nextSlice(buf) catch |err|
+                log.err("error processing terminal data: {}", .{err});
         }
 
         // If our stream handling caused messages to be sent to the writer
