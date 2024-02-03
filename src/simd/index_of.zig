@@ -9,34 +9,57 @@ const aarch64 = @import("aarch64.zig");
 // time of writing this comment, reimplements it using manual assembly. This is
 // so I can compare to Zig's @Vector lowering.
 
-const IndexOf = @TypeOf(indexOf);
+pub const IndexOf = fn ([]const u8, u8) ?usize;
 
-/// Returns the first index of `needle` in `input` or `null` if `needle`
-/// is not found.
-pub fn indexOf(input: []const u8, needle: u8) ?usize {
-    return indexOfNeon(input, needle);
-    //return indexOfScalar(input, needle);
+/// Returns the indexOf function for the given ISA.
+pub fn indexOfFunc(v: isa.ISA) *const IndexOf {
+    return isa.funcMap(IndexOf, v, .{
+        .{ .avx2, Scalar.indexOf }, // todo
+        .{ .neon, Neon.indexOf },
+        .{ .scalar, Scalar.indexOf },
+    });
 }
 
-/// indexOf implementation using ARM NEON instructions.
-fn indexOfNeon(input: []const u8, needle: u8) ?usize {
-    // This function is going to be commented in a lot of detail. SIMD is
-    // complicated and nonintuitive, so I want to make sure I understand what's
-    // going on. More importantly, I want to make sure when I look back on this
-    // code in the future, I understand what's going on.
+pub const Scalar = struct {
+    pub fn indexOf(input: []const u8, needle: u8) ?usize {
+        return std.mem.indexOfScalar(u8, input, needle);
+    }
+};
 
-    // Load our needle into a vector register. This duplicates the needle 16
-    // times, once for each byte in the 128-bit vector register.
-    const needle_vec = aarch64.vdupq_n_u8(needle);
+pub const Neon = struct {
+    /// indexOf implementation using ARM NEON instructions.
+    pub fn indexOf(input: []const u8, needle: u8) ?usize {
+        // This function is going to be commented in a lot of detail. SIMD is
+        // complicated and nonintuitive, so I want to make sure I understand what's
+        // going on. More importantly, I want to make sure when I look back on this
+        // code in the future, I understand what's going on.
 
-    // note(mitchellh): benchmark to see if we should align to 16 bytes here
+        // Load our needle into a vector register. This duplicates the needle 16
+        // times, once for each byte in the 128-bit vector register.
+        const needle_vec = aarch64.vdupq_n_u8(needle);
 
-    // Iterate 16 bytes at a time, which is the max size of a vector register.
-    var i: usize = 0;
-    while (i + 16 <= input.len) : (i += 16) {
-        // Load the next 16 bytes into a vector register.
-        const input_vec = aarch64.vld1q_u8(input[i..]);
+        // note(mitchellh): benchmark to see if we should align to 16 bytes here
 
+        // Iterate 16 bytes at a time, which is the max size of a vector register.
+        var i: usize = 0;
+        while (i + 16 <= input.len) : (i += 16) {
+            const input_vec = aarch64.vld1q_u8(input[i..]);
+            if (indexOfVec(input_vec, needle_vec)) |index| {
+                return i + index;
+            }
+        }
+
+        // Handle the remaining bytes
+        if (i < input.len) {
+            while (i < input.len) : (i += 1) {
+                if (input[i] == needle) return i;
+            }
+        }
+
+        return null;
+    }
+
+    pub fn indexOfVec(input_vec: @Vector(16, u8), needle_vec: @Vector(16, u8)) ?usize {
         // Compare the input vector to the needle vector. This will set
         // all bits to "1" in the output vector for each matching byte.
         const match_vec = aarch64.vceqq_u8(input_vec, needle_vec);
@@ -48,7 +71,7 @@ fn indexOfNeon(input: []const u8, needle: u8) ?usize {
         const shift_u64 = aarch64.vget_lane_u64(@bitCast(shift_vec));
         if (shift_u64 == 0) {
             // This means no matches were found.
-            continue;
+            return null;
         }
 
         // A match was found! Reverse the bits and divide by 4 to get the
@@ -57,24 +80,9 @@ fn indexOfNeon(input: []const u8, needle: u8) ?usize {
         // is due to all data being repeated 4 times by vceqq.
         const reversed = aarch64.rbit(u64, shift_u64);
         const index = aarch64.clz(u64, reversed) >> 2;
-        return i + index;
+        return index;
     }
-
-    // Handle the remaining bytes
-    if (i < input.len) {
-        while (i < input.len) : (i += 1) {
-            if (input[i] == needle) return i;
-        }
-    }
-
-    return null;
-}
-
-fn indexOfScalar(input: []const u8, needle: u8) ?usize {
-    // Note this actually uses vector operations if supported. See
-    // our comment at the top of the file.
-    return std.mem.indexOfScalar(u8, input, needle);
-}
+};
 
 /// Generic test function so we can test against multiple implementations.
 fn testIndexOf(func: *const IndexOf) !void {
@@ -91,8 +99,8 @@ fn testIndexOf(func: *const IndexOf) !void {
     , ' ').?);
 }
 
-test "indexOf neon" {
-    if (comptime !isa.possible(.neon)) return error.SkipZigTest;
-    const set = isa.detect();
-    if (set.contains(.neon)) try testIndexOf(&indexOfNeon);
+test "indexOf" {
+    const v = isa.detect();
+    var it = v.iterator();
+    while (it.next()) |isa_v| try testIndexOf(indexOfFunc(isa_v));
 }

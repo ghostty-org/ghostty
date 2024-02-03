@@ -1,6 +1,9 @@
 const std = @import("std");
 
 pub const isa = @import("isa.zig");
+
+pub const aarch64 = @import("aarch64.zig");
+
 pub const utf8_count = @import("utf8_count.zig");
 pub const utf8_decode = @import("utf8_decode.zig");
 pub const utf8_validate = @import("utf8_validate.zig");
