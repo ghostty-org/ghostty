@@ -1,0 +1,13 @@
+.{
+    .name = "highway",
+    .version = "1.0.7",
+    .paths = .{""},
+    .dependencies = .{
+        .highway = .{
+            .url = "https://github.com/google/highway/archive/refs/tags/1.0.7.tar.gz",
+            .hash = "122060ea43a9403ad53b4a33e19416c0e9949fb3e175035791bd2b7462091079d5a2",
+        },
+
+        .apple_sdk = .{ .path = "../apple-sdk" },
+    },
+}

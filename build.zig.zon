@@ -30,6 +30,7 @@
         .fontconfig = .{ .path = "./pkg/fontconfig" },
         .freetype = .{ .path = "./pkg/freetype" },
         .harfbuzz = .{ .path = "./pkg/harfbuzz" },
+        .highway = .{ .path = "./pkg/highway" },
         .libpng = .{ .path = "./pkg/libpng" },
         .macos = .{ .path = "./pkg/macos" },
         .oniguruma = .{ .path = "./pkg/oniguruma" },

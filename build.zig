@@ -947,6 +947,10 @@ fn addDeps(
         .target = target,
         .optimize = optimize,
     });
+    const highway_dep = b.dependency("highway", .{
+        .target = target,
+        .optimize = optimize,
+    });
     const mach_glfw_dep = b.dependency("mach_glfw", .{
         .target = target,
         .optimize = optimize,
@@ -1007,6 +1011,8 @@ fn addDeps(
     step.linkLibCpp();
     step.addIncludePath(.{ .path = "src/simd" });
     step.addCSourceFiles(.{ .files = &.{"src/simd/simdutf_c.cpp"} });
+    step.addIncludePath(.{ .path = "src/terminal/simdvt" });
+    step.addCSourceFiles(.{ .files = &.{"src/terminal/simdvt/example.cpp"} });
 
     // If we're building a lib we have some different deps
     const lib = step.kind == .lib;
@@ -1057,6 +1063,10 @@ fn addDeps(
     // Glslang
     step.linkLibrary(glslang_dep.artifact("glslang"));
     try static_libs.append(glslang_dep.artifact("glslang").getEmittedBin());
+
+    // Highway
+    step.linkLibrary(highway_dep.artifact("highway"));
+    try static_libs.append(highway_dep.artifact("highway").getEmittedBin());
 
     // Spirv-Cross
     step.linkLibrary(spirv_cross_dep.artifact("spirv_cross"));
