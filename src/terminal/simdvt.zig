@@ -1,4 +1,4 @@
-pub const Parser = @import("simdvt/Parser.zig");
+pub usingnamespace @import("simdvt/parser.zig");
 
 test {
     @import("std").testing.refAllDecls(@This());
