@@ -269,6 +269,16 @@ pub inline fn vqtbl1q_u8(t: @Vector(16, u8), idx: @Vector(16, u8)) @Vector(16, u
     );
 }
 
+pub inline fn vqtbl2q_u8(t: [2]@Vector(16, u8), idx: @Vector(16, u8)) @Vector(16, u8) {
+    return asm (
+        \\ tbl %[ret].16b, { %[t0].16b, %[t1].16b }, %[idx].16b
+        : [ret] "=w" (-> @Vector(16, u8)),
+        : [idx] "w" (idx),
+          [t0] "w" (t[0]),
+          [t1] "w" (t[1]),
+    );
+}
+
 pub inline fn vshrn_n_u16(a: @Vector(8, u16), n: u4) @Vector(8, u8) {
     assert(n <= 8);
     return asm (
