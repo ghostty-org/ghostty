@@ -43,11 +43,6 @@ pub const EraseLine = csi.EraseLine;
 pub const TabClear = csi.TabClear;
 pub const Attribute = sgr.Attribute;
 
-// TODO: we only have a hardcoded Neon implementation for now
-pub usingnamespace if (builtin.target.cpu.arch == .aarch64) struct {
-    pub const simdvt = @import("simdvt.zig");
-} else struct {};
-
 /// If we're targeting wasm then we export some wasm APIs.
 pub usingnamespace if (builtin.target.isWasm()) struct {
     pub usingnamespace @import("wasm.zig");

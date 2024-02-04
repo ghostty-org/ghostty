@@ -1011,9 +1011,6 @@ fn addDeps(
     step.linkLibCpp();
     step.addIncludePath(.{ .path = "src" });
     step.addIncludePath(.{ .path = "src/simd" });
-    step.addCSourceFiles(.{ .files = &.{"src/simd/simdutf_c.cpp"} });
-    step.addIncludePath(.{ .path = "src/terminal/simdvt" });
-    step.addCSourceFiles(.{ .files = &.{"src/terminal/simdvt/example.cpp"} });
     step.addCSourceFiles(.{ .files = &.{
         "src/simd/index_of.cpp",
         "src/simd/vt.cpp",
