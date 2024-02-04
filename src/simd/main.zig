@@ -8,6 +8,7 @@ pub const utf8_count = @import("utf8_count.zig");
 pub const utf8_decode = @import("utf8_decode.zig");
 pub const utf8_validate = @import("utf8_validate.zig");
 pub const index_of = @import("index_of.zig");
+pub const vt = @import("vt.zig");
 
 // TODO: temporary, only for zig build simd to inspect disasm easily
 // pub fn main() !void {
