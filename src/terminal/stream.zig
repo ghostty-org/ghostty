@@ -50,38 +50,56 @@ pub fn Stream(comptime Handler: type) type {
         }
 
         /// Process a string of characters.
-        pub fn nextSlice(self: *Self, c: []const u8) !void {
-            // If we're not in the ground state then we process until we are.
+        pub fn nextSlice(self: *Self, input: []const u8) !void {
             var offset: usize = 0;
-            if (self.parser.state != .ground) {
-                for (c[offset..]) |single| {
+
+            // If we have a partial UTF-8 sequence then we process manually.
+            if (self.partial_utf8_len > 0) {
+                offset += try self.completePartialUtf8(input);
+            } else if (self.parser.state != .ground) {
+                // If we're not in the ground state then we process until
+                // we are. This can happen if the last chunk of input put us
+                // in the middle of a control sequence.
+                for (input[offset..]) |single| {
                     try self.next(single);
                     offset += 1;
                     if (self.parser.state == .ground) break;
                 }
             }
 
+            // TODO: do something better
+            var cp_buf: [4096]u32 = undefined;
+
             // If we're in the ground state then we can use SIMD to process
             // input until we see an ESC (0x1B), since all other characters
             // up to that point are just UTF-8.
-            while (self.parser.state == .ground and offset < c.len) {
-                // Find the next ESC character to trigger a control sequence.
-                //const idx = std.mem.indexOfScalar(u8, c[offset..], 0x1B) orelse {
-                const idx = simd.index_of.Hwy.indexOf(c[offset..], 0x1B) orelse {
-                    // No ESC character, remainder is all UTF-8.
-                    try self.nextAssumeUtf8(c[offset..]);
+            while (self.parser.state == .ground and offset < input.len) {
+                const res = simd.vt.utf8DecodeUntilControlSeq(input[offset..], &cp_buf);
+                for (cp_buf[0..res.decoded]) |cp| {
+                    if (cp < 0xF) {
+                        try self.execute(@intCast(cp));
+                    } else {
+                        try self.print(@intCast(cp));
+                    }
+                }
+
+                // Consume the bytes we just processed.
+                offset += res.consumed;
+                if (offset >= input.len) return;
+
+                // If our offset is NOT an escape then we must have a
+                // partial UTF-8 sequence. In that case, we save it and
+                // return.
+                if (input[offset] != 0x1B) {
+                    const rem = input[offset..];
+                    assert(rem.len <= self.partial_utf8.len);
+                    @memcpy(self.partial_utf8[0..rem.len], rem);
+                    self.partial_utf8_len = @intCast(rem.len);
                     return;
-                };
+                }
 
-                // Process the UTF-8 characters up to the ESC character.
-                const next_offset = offset + idx;
-                if (idx > 0) try self.nextAssumeUtf8(c[offset..next_offset]);
-
-                // Process the control sequence and bail out once we reach
-                // the ground state which means we're looking for ESC again.
-                offset = next_offset;
-                assert(c[offset] == 0x1B);
-                for (c[offset..]) |single| {
+                // Process our control sequence.
+                for (input[offset..]) |single| {
                     try self.next(single);
                     offset += 1;
                     if (self.parser.state == .ground) break;
@@ -89,98 +107,51 @@ pub fn Stream(comptime Handler: type) type {
             }
         }
 
-        /// Process the data in "input" assuming it is all UTF-8. The UTF-8
-        /// may be invalid and we will replace any invalid sequences with
-        /// the replacement character (U+FFFD).
-        ///
-        /// The input may also be incomplete, i.e. it ends in the middle of
-        /// a UTF-8 sequence. In that case we will process as much as we can
-        /// and save the rest for the next call to nextAssumeUtf8.
-        fn nextAssumeUtf8(self: *Self, input: []const u8) !void {
-            var i: usize = 0;
+        // Complete a partial UTF-8 sequence from a prior input chunk.
+        // This processes the UTF-8 sequence and then returns the number
+        // of bytes consumed from the input.
+        fn completePartialUtf8(self: *Self, input: []const u8) !usize {
+            assert(self.partial_utf8_len > 0);
+            assert(self.parser.state == .ground);
 
-            // If we have a partial UTF-8 sequence from the last call then
-            // we need to process that first.
-            if (self.partial_utf8_len > 0) {
-                // This cannot fail because the nature of partial utf8 existing
-                // means we successfully processed it last time.
-                const len = std.unicode.utf8ByteSequenceLength(self.partial_utf8[0]) catch
-                    unreachable;
+            // This cannot fail because the nature of partial utf8
+            // existing means we successfully processed it last time.
+            const len = std.unicode.utf8ByteSequenceLength(self.partial_utf8[0]) catch
+                unreachable;
 
-                // This is the length we need in the input in addition to
-                // our partial_utf8 to complete the sequence.
-                const input_len = len - self.partial_utf8_len;
+            // This is the length we need in the input in addition to
+            // our partial_utf8 to complete the sequence.
+            const input_len = len - self.partial_utf8_len;
 
-                // If we STILL don't have enough bytes, then we copy and continue.
-                // This is a really bizarre and stupid program thats running to
-                // send us incomplete UTF-8 sequences over multiple write() calls.
-                if (input_len > input.len) {
-                    @memcpy(
-                        self.partial_utf8[self.partial_utf8_len .. self.partial_utf8_len + input.len],
-                        input,
-                    );
-                    self.partial_utf8_len += @intCast(input.len);
-                    return;
-                }
-
-                // Process the complete UTF-8 sequence.
+            // If we STILL don't have enough bytes, then we copy and continue.
+            // This is a really bizarre and stupid program thats running to
+            // send us incomplete UTF-8 sequences over multiple write() calls.
+            if (input_len > input.len) {
                 @memcpy(
-                    self.partial_utf8[self.partial_utf8_len .. self.partial_utf8_len + input_len],
-                    input[0..input_len],
+                    self.partial_utf8[self.partial_utf8_len .. self.partial_utf8_len + input.len],
+                    input,
                 );
-                const cp = cp: {
-                    if (std.unicode.utf8Decode(self.partial_utf8[0..len])) |cp| {
-                        break :cp cp;
-                    } else |err| {
-                        log.warn("invalid UTF-8, ignoring err={}", .{err});
-                        break :cp 0xFFFD; // replacement character
-                    }
-                };
-
-                self.partial_utf8_len = 0;
-                try self.print(cp);
-                i += input_len;
+                self.partial_utf8_len += @intCast(input.len);
+                return input.len;
             }
 
-            while (i < input.len) {
-                const len = std.unicode.utf8ByteSequenceLength(input[i]) catch |err| {
+            // Process the complete UTF-8 sequence.
+            @memcpy(
+                self.partial_utf8[self.partial_utf8_len .. self.partial_utf8_len + input_len],
+                input[0..input_len],
+            );
+            const cp = cp: {
+                if (std.unicode.utf8Decode(self.partial_utf8[0..len])) |cp| {
+                    break :cp cp;
+                } else |err| {
                     log.warn("invalid UTF-8, ignoring err={}", .{err});
-                    i += 1;
-                    try self.print(@intCast(input[i]));
-                    continue;
-                };
-
-                // If we have exactly one byte and its a control character,
-                // then process it directly.
-                if (len == 1 and input[i] < 0xF) {
-                    try self.execute(@intCast(input[i]));
-                    i += 1;
-                    continue;
+                    break :cp 0xFFFD; // replacement character
                 }
+            };
 
-                // If we have a partial UTF-8 sequence then we save it for
-                // the next call to nextAssumeUtf8.
-                if (i + len > input.len) {
-                    const remaining = input.len - i;
-                    @memcpy(self.partial_utf8[0..remaining], input[i..]);
-                    self.partial_utf8_len = @intCast(remaining);
-                    return;
-                }
-
-                // Decode the UTF-8 sequence and handle any errors by
-                // replacing the character with the replacement character.
-                const cp = cp: {
-                    if (std.unicode.utf8Decode(input[i .. i + len])) |cp| {
-                        break :cp cp;
-                    } else |err| {
-                        log.warn("invalid UTF-8, ignoring err={}", .{err});
-                        break :cp 0xFFFD; // replacement character
-                    }
-                };
-
-                try self.print(cp);
-                i += len;
-            }
+            self.partial_utf8_len = 0;
+            try self.print(cp);
+            return input_len;
         }
 
         /// Process the next character and call any callbacks if necessary.
