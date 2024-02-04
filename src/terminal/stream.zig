@@ -51,6 +51,24 @@ pub fn Stream(comptime Handler: type) type {
 
         /// Process a string of characters.
         pub fn nextSlice(self: *Self, input: []const u8) !void {
+            // This is the maximum number of codepoints we can decode
+            // at one time for this function call. This is somewhat arbitrary
+            // so if someone can demonstrate a better number then we can switch.
+            var cp_buf: [4096]u32 = undefined;
+
+            // Split the input into chunks that fit into cp_buf.
+            var i: usize = 0;
+            while (true) {
+                const len = @min(cp_buf.len, input.len - i);
+                try self.nextSliceCapped(input[i .. i + len], &cp_buf);
+                i += len;
+                if (i >= input.len) break;
+            }
+        }
+
+        fn nextSliceCapped(self: *Self, input: []const u8, cp_buf: []u32) !void {
+            assert(input.len <= cp_buf.len);
+
             var offset: usize = 0;
 
             // If we have a partial UTF-8 sequence then we process manually.
@@ -67,14 +85,11 @@ pub fn Stream(comptime Handler: type) type {
                 }
             }
 
-            // TODO: do something better
-            var cp_buf: [4096]u32 = undefined;
-
             // If we're in the ground state then we can use SIMD to process
             // input until we see an ESC (0x1B), since all other characters
             // up to that point are just UTF-8.
             while (self.parser.state == .ground and offset < input.len) {
-                const res = simd.vt.utf8DecodeUntilControlSeq(input[offset..], &cp_buf);
+                const res = simd.vt.utf8DecodeUntilControlSeq(input[offset..], cp_buf);
                 for (cp_buf[0..res.decoded]) |cp| {
                     if (cp < 0xF) {
                         try self.execute(@intCast(cp));
