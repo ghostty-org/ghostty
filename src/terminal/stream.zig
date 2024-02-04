@@ -51,13 +51,6 @@ pub fn Stream(comptime Handler: type) type {
 
         /// Process a string of characters.
         pub fn nextSlice(self: *Self, c: []const u8) !void {
-            // TODO: we only have a direct Neon implementation of the fast
-            // path right now, just for testing.
-            if (comptime !simd.isa.possible(.neon)) {
-                for (c) |single| try self.next(single);
-                return;
-            }
-
             // If we're not in the ground state then we process until we are.
             var offset: usize = 0;
             if (self.parser.state != .ground) {
@@ -74,7 +67,7 @@ pub fn Stream(comptime Handler: type) type {
             while (self.parser.state == .ground and offset < c.len) {
                 // Find the next ESC character to trigger a control sequence.
                 //const idx = std.mem.indexOfScalar(u8, c[offset..], 0x1B) orelse {
-                const idx = simd.index_of.Neon.indexOf(c[offset..], 0x1B) orelse {
+                const idx = simd.index_of.Hwy.indexOf(c[offset..], 0x1B) orelse {
                     // No ESC character, remainder is all UTF-8.
                     try self.nextAssumeUtf8(c[offset..]);
                     return;

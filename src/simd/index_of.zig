@@ -99,8 +99,22 @@ fn testIndexOf(func: *const IndexOf) !void {
     , ' ').?);
 }
 
+pub const Hwy = struct {
+    extern "c" fn ghostty_simd_index_of(
+        needle: u8,
+        input: [*]const u8,
+        count: usize,
+    ) usize;
+
+    pub fn indexOf(input: []const u8, needle: u8) ?usize {
+        const result = ghostty_simd_index_of(needle, input.ptr, input.len);
+        return if (result == input.len) null else result;
+    }
+};
+
 test "indexOf" {
     const v = isa.detect();
     var it = v.iterator();
     while (it.next()) |isa_v| try testIndexOf(indexOfFunc(isa_v));
+    try testIndexOf(&Hwy.indexOf);
 }

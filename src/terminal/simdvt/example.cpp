@@ -4,7 +4,8 @@
 #include <hwy/foreach_target.h>  // must come before highway.h
 #include <hwy/highway.h>
 
-namespace project {
+HWY_BEFORE_NAMESPACE();
+namespace ghostty {
 namespace HWY_NAMESPACE {  // required: unique per target
 
 // Can skip hn:: prefixes if already inside hwy::HWY_NAMESPACE.
@@ -13,7 +14,7 @@ namespace hn = hwy::HWY_NAMESPACE;
 using T = float;
 
 // Alternative to per-function HWY_ATTR: see HWY_BEFORE_NAMESPACE
-HWY_ATTR void MulAddLoop(const T* HWY_RESTRICT mul_array,
+void MulAddLoop(const T* HWY_RESTRICT mul_array,
                 const T* HWY_RESTRICT add_array,
                 const size_t size, T* HWY_RESTRICT x_array) {
   const hn::ScalableTag<T> d;
@@ -27,14 +28,15 @@ HWY_ATTR void MulAddLoop(const T* HWY_RESTRICT mul_array,
 }
 
 }  // namespace HWY_NAMESPACE
-}  // namespace project
+}  // namespace ghostty
+HWY_AFTER_NAMESPACE();
 
 // The table of pointers to the various implementations in HWY_NAMESPACE must
 // be compiled only once (foreach_target #includes this file multiple times).
 // HWY_ONCE is true for only one of these 'compilation passes'.
 #if HWY_ONCE
 
-namespace project {
+namespace ghostty {
 
 // This macro declares a static array used for dynamic dispatch.
 HWY_EXPORT(MulAddLoop);
@@ -48,13 +50,13 @@ void CallMulAddLoop(const float* HWY_RESTRICT mul_array,
   return HWY_DYNAMIC_DISPATCH(MulAddLoop)(mul_array, add_array, size, x_array);
 }
 
-}  // namespace project
+}  // namespace ghostty
 
 extern "C" float example() {
     float mul_array[] {1, 2, 3, 4, 5};
     float add_array[] {2, 3, 4, 5, 6};
     float x_array[] {0, 0, 0, 0, 0};
-    project::CallMulAddLoop(mul_array, add_array, 5, x_array);
+    ghostty::CallMulAddLoop(mul_array, add_array, 5, x_array);
     return x_array[0];
 }
 
