@@ -1013,6 +1013,7 @@ fn addDeps(
     step.addIncludePath(.{ .path = "src/simd" });
     step.addCSourceFiles(.{ .files = &.{
         "src/simd/index_of.cpp",
+        "src/simd/simdutf.cpp",
         "src/simd/vt.cpp",
     } });
 
