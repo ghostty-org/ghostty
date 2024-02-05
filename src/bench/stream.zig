@@ -18,6 +18,8 @@ const terminal = @import("../terminal/main.zig");
 const Args = struct {
     mode: Mode = .noop,
 
+    size: u64 = 4096,
+
     /// This is set by the CLI parser for deinit.
     _arena: ?ArenaAllocator = null,
 
@@ -64,13 +66,15 @@ pub fn main() !void {
         try cli.args.parse(Args, alloc, &args, &iter);
     }
 
+    const size = args.size;
+
     const reader = std.io.getStdIn().reader();
     const writer = std.io.getStdOut().writer();
     switch (args.mode) {
         .@"gen-ascii" => try genAscii(writer),
-        .noop => try benchNoop(alloc, reader),
-        .scalar => try benchScalar(alloc, reader),
-        .simd => try benchSimd(alloc, reader),
+        .noop => try benchNoop(alloc, reader, size),
+        .scalar => try benchScalar(alloc, reader, size),
+        .simd => try benchSimd(alloc, reader, size),
     }
 }
 
@@ -99,12 +103,12 @@ fn genData(writer: anytype, alphabet: []const u8) !void {
     }
 }
 
-fn benchNoop(alloc: Allocator, reader: anytype) !void {
+noinline fn benchNoop(alloc: Allocator, reader: anytype, size: u64) !void {
     // Large-ish buffer because we don't want to be benchmarking
     // heap allocation as much as possible. We purposely leak this
     // memory because we don't want to benchmark a free cost
     // either.
-    const buf = try alloc.alloc(u8, 1024 * 1024 * 16);
+    const buf = try alloc.alloc(u8, size);
     var total: usize = 0;
     while (true) {
         const n = try reader.readAll(buf);
@@ -115,15 +119,13 @@ fn benchNoop(alloc: Allocator, reader: anytype) !void {
     std.log.info("total bytes len={}", .{total});
 }
 
-fn benchScalar(alloc: Allocator, reader: anytype) !void {
-    _ = alloc;
-
+noinline fn benchScalar(alloc: Allocator, reader: anytype, size: u64) !void {
     // Create a stream that uses our noop handler so we don't
     // have any terminal state overhead.
     var stream: terminal.Stream(NoopHandler) = .{ .handler = .{} };
-    var buf: [4096]u8 = undefined;
+    const buf = try alloc.alloc(u8, size);
     while (true) {
-        const n = try reader.read(&buf);
+        const n = try reader.read(buf);
         if (n == 0) break;
 
         // Using stream.next directly with a for loop applies a naive
@@ -132,13 +134,11 @@ fn benchScalar(alloc: Allocator, reader: anytype) !void {
     }
 }
 
-fn benchSimd(alloc: Allocator, reader: anytype) !void {
-    _ = alloc;
-
+noinline fn benchSimd(alloc: Allocator, reader: anytype, size: u64) !void {
     var stream: terminal.Stream(NoopHandler) = .{ .handler = .{} };
-    var buf: [4096]u8 = undefined;
+    const buf = try alloc.alloc(u8, size);
     while (true) {
-        const n = try reader.read(&buf);
+        const n = try reader.read(buf);
         if (n == 0) break;
         try stream.nextSlice(buf[0..n]);
     }
