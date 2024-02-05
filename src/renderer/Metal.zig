@@ -768,7 +768,7 @@ pub fn drawFrame(self: *Metal, surface: *apprt.Surface) !void {
         const delta_ns: f32 = @floatFromInt(now.since(state.last_frame_time));
         state.uniforms.time = since_ns / std.time.ns_per_s;
         state.uniforms.time_delta = delta_ns / std.time.ns_per_s;
-        self.last_frame_time = now;
+        state.last_frame_time = now;
     }
 
     // @autoreleasepool {}
