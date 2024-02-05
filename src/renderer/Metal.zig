@@ -137,6 +137,11 @@ pub const CustomShaderState = struct {
     screen_texture: objc.Object, // MTLTexture
     sampler: mtl_sampler.Sampler,
     uniforms: mtl_shaders.PostUniforms,
+    /// The first time a frame was drawn. This is used to update the time
+    /// uniform.
+    first_frame_time: std.time.Instant,
+    /// The last time a frame was drawn. This is used to update the time
+    /// uniform.
     last_frame_time: std.time.Instant,
 
     pub fn deinit(self: *CustomShaderState) void {
@@ -412,6 +417,7 @@ pub fn init(alloc: Allocator, options: renderer.Options) !Metal {
                 .sample_rate = 1,
             },
 
+            .first_frame_time = try std.time.Instant.now(),
             .last_frame_time = try std.time.Instant.now(),
         };
     };
@@ -757,10 +763,12 @@ pub fn drawFrame(self: *Metal, surface: *apprt.Surface) !void {
 
     // If we have custom shaders, update the animation time.
     if (self.custom_shader_state) |*state| {
-        const now = std.time.Instant.now() catch state.last_frame_time;
-        const since_ns: f32 = @floatFromInt(now.since(state.last_frame_time));
+        const now = std.time.Instant.now() catch state.first_frame_time;
+        const since_ns: f32 = @floatFromInt(now.since(state.first_frame_time));
+        const delta_ns: f32 = @floatFromInt(now.since(state.last_frame_time));
         state.uniforms.time = since_ns / std.time.ns_per_s;
-        state.uniforms.time_delta = since_ns / std.time.ns_per_s;
+        state.uniforms.time_delta = delta_ns / std.time.ns_per_s;
+        self.last_frame_time = now;
     }
 
     // @autoreleasepool {}

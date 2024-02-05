@@ -45,9 +45,13 @@ pub const State = struct {
     /// The set of programs for the custom shaders.
     programs: []const Program,
 
-    /// The last time the frame was drawn. This is used to update
+    /// The first time a frame was drawn. This is used to update
     /// the time uniform.
     first_frame_time: std.time.Instant,
+
+    /// The last time a frame was drawn. This is used to update
+    /// the time uniform.
+    last_frame_time: std.time.Instant,
 
     pub fn init(
         alloc: Allocator,
@@ -136,6 +140,7 @@ pub const State = struct {
             .ebo = ebo,
             .fb_texture = fb_tex,
             .first_frame_time = try std.time.Instant.now(),
+            .last_frame_time = try std.time.Instant.now(),
         };
     }
 
@@ -180,8 +185,10 @@ pub const State = struct {
         // Update our frame time
         const now = std.time.Instant.now() catch self.first_frame_time;
         const since_ns: f32 = @floatFromInt(now.since(self.first_frame_time));
+        const delta_ns: f32 = @floatFromInt(now.since(self.last_frame_time));
         self.uniforms.time = since_ns / std.time.ns_per_s;
-        self.uniforms.time_delta = since_ns / std.time.ns_per_s;
+        self.uniforms.time_delta = delta_ns / std.time.ns_per_s;
+        self.last_frame_time = now;
 
         // Sync our uniform changes
         try self.syncUniforms();
