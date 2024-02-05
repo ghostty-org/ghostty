@@ -202,7 +202,7 @@ pub fn build(b: *std.Build) !void {
     if (emit_helpgen) try addHelp(b, null, config);
 
     // Add our benchmarks
-    try benchSteps(b, target, optimize, config, emit_bench);
+    try benchSteps(b, target, config, emit_bench);
 
     // TODO: temporary simd tester binary
     {
@@ -1285,7 +1285,6 @@ fn buildDocumentation(
 fn benchSteps(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
     config: BuildConfig,
     install: bool,
 ) !void {
@@ -1313,8 +1312,11 @@ fn benchSteps(
             .name = bin_name,
             .root_source_file = .{ .path = "src/main.zig" },
             .target = target,
-            .optimize = optimize,
+
+            // We always want our benchmarks to be in release mode.
+            .optimize = .ReleaseFast,
         });
+        c_exe.linkLibC();
         if (install) b.installArtifact(c_exe);
         _ = try addDeps(b, c_exe, config: {
             var copy = config;

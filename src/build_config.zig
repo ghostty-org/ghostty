@@ -139,4 +139,5 @@ pub const ExeEntrypoint = enum {
     mdgen_ghostty_1,
     mdgen_ghostty_5,
     bench_parser,
+    bench_stream,
 };
