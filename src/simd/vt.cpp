@@ -4,11 +4,12 @@
 #include <hwy/foreach_target.h>           // must come before highway.h
 #include <hwy/highway.h>
 
-#include <simd/index_of.h>
-#include <simd/simdutf.h>
-#include <simd/utf8.h>
-#include <simd/vt.h>
+#include <simdutf.h>
+#include <utf8.h>
 #include <vector>
+
+#include <simd/index_of.h>
+#include <simd/vt.h>
 
 HWY_BEFORE_NAMESPACE();
 namespace ghostty {

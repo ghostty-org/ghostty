@@ -955,6 +955,10 @@ fn addDeps(
         .target = target,
         .optimize = optimize,
     });
+    const utfcpp_dep = b.dependency("utfcpp", .{
+        .target = target,
+        .optimize = optimize,
+    });
     const mach_glfw_dep = b.dependency("mach_glfw", .{
         .target = target,
         .optimize = optimize,
@@ -1076,6 +1080,10 @@ fn addDeps(
     // simdutf
     step.linkLibrary(simdutf_dep.artifact("simdutf"));
     try static_libs.append(simdutf_dep.artifact("simdutf").getEmittedBin());
+
+    // utfcpp
+    step.linkLibrary(utfcpp_dep.artifact("utfcpp"));
+    try static_libs.append(utfcpp_dep.artifact("utfcpp").getEmittedBin());
 
     // Spirv-Cross
     step.linkLibrary(spirv_cross_dep.artifact("spirv_cross"));
