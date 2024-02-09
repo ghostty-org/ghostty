@@ -436,6 +436,17 @@ pub fn build(b: *std.Build) !void {
             }),
         };
         b.getInstallStep().dependOn(&install.step);
+
+        if (target.result.os.tag == .macos and exe_ != null) {
+            const mac_install = b.addInstallDirectory(options: {
+                var copy = install.options;
+                copy.install_dir = .{
+                    .custom = "Ghostty.app/Contents/Resources",
+                };
+                break :options copy;
+            });
+            b.getInstallStep().dependOn(&mac_install.step);
+        }
     }
 
     // Vim plugin
