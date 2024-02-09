@@ -109,58 +109,59 @@ pub fn main() !MainReturn {
     try app_runtime.run();
 }
 
-pub const std_options = struct {
+// The function std.log will call.
+pub fn logFn(
+    comptime level: std.log.Level,
+    comptime scope: @TypeOf(.EnumLiteral),
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    // Stuff we can do before the lock
+    const level_txt = comptime level.asText();
+    const prefix = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
+
+    // Lock so we are thread-safe
+    std.debug.getStderrMutex().lock();
+    defer std.debug.getStderrMutex().unlock();
+
+    // On Mac, we use unified logging. To view this:
+    //
+    //   sudo log stream --level debug --predicate 'subsystem=="com.mitchellh.ghostty"'
+    //
+    if (builtin.target.isDarwin()) {
+        // Convert our levels to Mac levels
+        const mac_level: macos.os.LogType = switch (level) {
+            .debug => .debug,
+            .info => .info,
+            .warn => .err,
+            .err => .fault,
+        };
+
+        // Initialize a logger. This is slow to do on every operation
+        // but we shouldn't be logging too much.
+        const logger = macos.os.Log.create("com.mitchellh.ghostty", @tagName(scope));
+        defer logger.release();
+        logger.log(std.heap.c_allocator, mac_level, format, args);
+    }
+
+    switch (state.logging) {
+        .disabled => {},
+
+        .stderr => {
+            // Always try default to send to stderr
+            const stderr = std.io.getStdErr().writer();
+            nosuspend stderr.print(level_txt ++ prefix ++ format ++ "\n", args) catch return;
+        },
+    }
+}
+
+pub const std_options: std.Options = .{
     // Our log level is always at least info in every build mode.
-    pub const log_level: std.log.Level = switch (builtin.mode) {
+    .log_level = switch (builtin.mode) {
         .Debug => .debug,
         else => .info,
-    };
-
-    // The function std.log will call.
-    pub fn logFn(
-        comptime level: std.log.Level,
-        comptime scope: @TypeOf(.EnumLiteral),
-        comptime format: []const u8,
-        args: anytype,
-    ) void {
-        // Stuff we can do before the lock
-        const level_txt = comptime level.asText();
-        const prefix = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
-
-        // Lock so we are thread-safe
-        std.debug.getStderrMutex().lock();
-        defer std.debug.getStderrMutex().unlock();
-
-        // On Mac, we use unified logging. To view this:
-        //
-        //   sudo log stream --level debug --predicate 'subsystem=="com.mitchellh.ghostty"'
-        //
-        if (builtin.target.isDarwin()) {
-            // Convert our levels to Mac levels
-            const mac_level: macos.os.LogType = switch (level) {
-                .debug => .debug,
-                .info => .info,
-                .warn => .err,
-                .err => .fault,
-            };
-
-            // Initialize a logger. This is slow to do on every operation
-            // but we shouldn't be logging too much.
-            const logger = macos.os.Log.create("com.mitchellh.ghostty", @tagName(scope));
-            defer logger.release();
-            logger.log(std.heap.c_allocator, mac_level, format, args);
-        }
-
-        switch (state.logging) {
-            .disabled => {},
-
-            .stderr => {
-                // Always try default to send to stderr
-                const stderr = std.io.getStdErr().writer();
-                nosuspend stderr.print(level_txt ++ prefix ++ format ++ "\n", args) catch return;
-            },
-        }
-    }
+    },
+    .logFn = logFn,
 };
 
 /// This represents the global process state. There should only
