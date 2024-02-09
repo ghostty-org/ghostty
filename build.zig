@@ -422,11 +422,20 @@ pub fn build(b: *std.Build) !void {
         const wf = b.addWriteFiles();
         _ = wf.add("ghostty.fish", fish_completions.fish_completions);
 
-        b.installDirectory(.{
-            .source_dir = wf.getDirectory(),
-            .install_dir = .prefix,
-            .install_subdir = "share/fish/vendor_completions.d",
-        });
+        const install = switch (target.result.os.tag) {
+            .macos => b.addInstallDirectory(.{
+                .source_dir = wf.getDirectory(),
+                .install_dir = .{ .custom = "share" },
+                .install_subdir = "ghostty/shell-integration/fish/vendor_completions.d",
+            }),
+
+            else => b.addInstallDirectory(.{
+                .source_dir = wf.getDirectory(),
+                .install_dir = .prefix,
+                .install_subdir = "share/fish/vendor_completions.d",
+            }),
+        };
+        b.getInstallStep().dependOn(&install.step);
     }
 
     // Vim plugin
