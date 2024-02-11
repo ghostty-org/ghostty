@@ -422,6 +422,20 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
         },
 
         apprt.glfw => try self.threadEnter(surface),
+        apprt.win32 => {
+            // GTK uses global OpenGL context so we load from null.
+            const version = try gl.glad.load(null);
+            const major = gl.glad.versionMajor(@intCast(version));
+            const minor = gl.glad.versionMinor(@intCast(version));
+            errdefer gl.glad.unload();
+            log.info("loaded OpenGL {}.{}", .{ major, minor });
+
+            // We require at least OpenGL 3.3
+            if (major < 3 or (major == 3 and minor < 3)) {
+                log.warn("OpenGL version is too old. Ghostty requires OpenGL 3.3", .{});
+                return error.OpenGLOutdated;
+            }
+        },
 
         apprt.embedded => {
             // TODO(mitchellh): this does nothing today to allow libghostty
@@ -535,6 +549,7 @@ pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
                 gl.glad.versionMinor(@intCast(version)),
             });
         },
+        apprt.win32 => {},
 
         apprt.embedded => {
             // TODO(mitchellh): this does nothing today to allow libghostty
@@ -559,6 +574,10 @@ pub fn threadExit(self: *const OpenGL) void {
         apprt.glfw => {
             gl.glad.unload();
             glfw.makeContextCurrent(null);
+        },
+
+        apprt.win32 => {
+            // TODO
         },
 
         apprt.embedded => {
@@ -1836,6 +1855,9 @@ pub fn drawFrame(self: *OpenGL, surface: *apprt.Surface) !void {
         apprt.glfw => surface.window.swapBuffers(),
         apprt.gtk => {},
         apprt.embedded => {},
+        apprt.win32 => {
+            // TODO: we can swap buffers on win32 as well
+        },
         else => @compileError("unsupported runtime"),
     }
 }
