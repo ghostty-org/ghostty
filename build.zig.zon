@@ -26,8 +26,8 @@
             .hash = "12208553f3f47e51494e187f4c0e6f6b3844e3993436cad4a0e8c4db4e99645967b5",
         },
         .zigwin32 = .{
-            .url = "https://github.com/marlersoft/zigwin32/archive/476e350ae965ba6376cbbb38cc5e433420233060.tar.gz",
-            .hash = "1220b721938503d8180a78d38f8b2276f089233043c3429dfa944ee82ee19a51bb6b",
+            .url = "https://github.com/marlersoft/zigwin32/archive/6f9ebf17f42aa7b37f466b195159893ed8eae8fc.tar.gz",
+            .hash = "1220ff2400a1974b2a9dc52cfe5c9c0b2cc87a2e75291ca781dc5b78908afe5af0e8",
         },
 
         // C libs

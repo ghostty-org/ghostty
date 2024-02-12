@@ -102,7 +102,12 @@ pub fn main() !MainReturn {
     defer app.destroy();
 
     // Create our runtime app
-    var app_runtime = try apprt.App.init(app, .{});
+    var app_runtime: apprt.App = undefined;
+    if (@hasDecl(apprt.App, "initStable")) {
+        try apprt.App.initStable(&app_runtime, app, .{});
+    } else {
+        app_runtime = try apprt.App.init(app, .{});
+    }
     defer app_runtime.terminate();
 
     // Run the GUI event loop
@@ -164,6 +169,10 @@ pub const std_options: std.Options = .{
 
     .logFn = logFn,
 };
+
+pub usingnamespace if (@hasDecl(apprt.runtime, "panic")) struct {
+    pub const panic = apprt.runtime.panic;
+} else struct { };
 
 /// This represents the global process state. There should only
 /// be one of these at any given moment. This is extracted into a dedicated

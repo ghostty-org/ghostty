@@ -1,0 +1,1 @@
+#define ID_ICON_GHOSTTY 1

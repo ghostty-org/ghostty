@@ -263,6 +263,7 @@ pub fn build(b: *std.Build) !void {
 
         if (target.result.os.tag == .windows) {
             exe.subsystem = .Windows;
+            exe.addIncludePath(.{ .path = "dist/windows/inc" });
             exe.addWin32ResourceFile(.{
                 .file = .{ .path = "dist/windows/ghostty.rc" },
             });

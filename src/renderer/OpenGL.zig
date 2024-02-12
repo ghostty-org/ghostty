@@ -21,6 +21,7 @@ const Terminal = terminal.Terminal;
 const gl = @import("opengl");
 const math = @import("../math.zig");
 const Surface = @import("../Surface.zig");
+const win32 = @import("zigwin32").everything;
 
 const CellProgram = @import("opengl/CellProgram.zig");
 const ImageProgram = @import("opengl/ImageProgram.zig");
@@ -422,20 +423,7 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
         },
 
         apprt.glfw => try self.threadEnter(surface),
-        apprt.win32 => {
-            // GTK uses global OpenGL context so we load from null.
-            const version = try gl.glad.load(null);
-            const major = gl.glad.versionMajor(@intCast(version));
-            const minor = gl.glad.versionMinor(@intCast(version));
-            errdefer gl.glad.unload();
-            log.info("loaded OpenGL {}.{}", .{ major, minor });
-
-            // We require at least OpenGL 3.3
-            if (major < 3 or (major == 3 and minor < 3)) {
-                log.warn("OpenGL version is too old. Ghostty requires OpenGL 3.3", .{});
-                return error.OpenGLOutdated;
-            }
-        },
+        apprt.win32 => {},
 
         apprt.embedded => {
             // TODO(mitchellh): this does nothing today to allow libghostty
@@ -576,9 +564,7 @@ pub fn threadExit(self: *const OpenGL) void {
             glfw.makeContextCurrent(null);
         },
 
-        apprt.win32 => {
-            // TODO
-        },
+        apprt.win32 => {},
 
         apprt.embedded => {
             // TODO: see threadEnter
@@ -1856,7 +1842,15 @@ pub fn drawFrame(self: *OpenGL, surface: *apprt.Surface) !void {
         apprt.gtk => {},
         apprt.embedded => {},
         apprt.win32 => {
-            // TODO: we can swap buffers on win32 as well
+            if (0 == win32.wglSwapLayerBuffers(
+                surface.hdc,
+                win32.WGL_SWAP_MAIN_PLANE,
+            )) {
+                std.debug.panic(
+                    "wglSwapLayerBuffers failed, error={s}",
+                    .{@tagName(win32.GetLastError())},
+                );
+            }
         },
         else => @compileError("unsupported runtime"),
     }
