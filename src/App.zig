@@ -68,7 +68,7 @@ pub fn create(
 
 pub fn destroy(self: *App) void {
     // Clean up all our surfaces
-    for (self.surfaces.items) |surface| surface.deinit();
+    for (self.surfaces.items) |surface| surface.close(false);
     self.surfaces.deinit(self.alloc);
 
     if (comptime font.Discover != void) {
