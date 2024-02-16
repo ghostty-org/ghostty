@@ -51,6 +51,7 @@ pub usingnamespace if (builtin.target.isWasm()) struct {
 test {
     @import("std").testing.refAllDecls(@This());
 
+    _ = @import("new/hash_map.zig");
     _ = @import("new/page.zig");
     _ = @import("new/size.zig");
     _ = @import("new/style.zig");
