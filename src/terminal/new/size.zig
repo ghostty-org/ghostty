@@ -54,7 +54,8 @@ test "Offset ptr structural" {
     const Struct = struct { x: u32, y: u32 };
     const testing = std.testing;
     const offset: Offset(Struct) = .{ .offset = @alignOf(Struct) * 4 };
-    const base_int: usize = @intFromPtr(&offset);
-    const actual = offset.ptr(&offset);
+    const base_int: usize = std.mem.alignForward(usize, @intFromPtr(&offset), @alignOf(Struct));
+    const base: [*]u8 = @ptrFromInt(base_int);
+    const actual = offset.ptr(base);
     try testing.expectEqual(@as(usize, base_int + offset.offset), @intFromPtr(actual));
 }
