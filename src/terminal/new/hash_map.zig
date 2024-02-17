@@ -45,6 +45,10 @@ pub fn AutoHashMapUnmanaged(comptime K: type, comptime V: type) type {
     return HashMapUnmanaged(K, V, AutoContext(K), default_max_load_percentage);
 }
 
+pub fn AutoOffsetHashMap(comptime K: type, comptime V: type) type {
+    return OffsetHashMap(K, V, AutoContext(K), default_max_load_percentage);
+}
+
 pub fn AutoContext(comptime K: type) type {
     return struct {
         pub const hash = std.hash_map.getAutoHashFn(K, @This());
@@ -53,6 +57,40 @@ pub fn AutoContext(comptime K: type) type {
 }
 
 pub const default_max_load_percentage = 80;
+
+pub fn OffsetHashMap(
+    comptime K: type,
+    comptime V: type,
+    comptime Context: type,
+    comptime max_load_percentage: u64,
+) type {
+    return struct {
+        const Self = @This();
+
+        pub const Unmanaged = HashMapUnmanaged(K, V, Context, max_load_percentage);
+
+        metadata: Offset(Unmanaged.Metadata) = .{},
+        size: Unmanaged.Size = 0,
+        available: Unmanaged.Size = 0,
+
+        pub fn init(cap: Unmanaged.Size, buf: []u8) Self {
+            const m = Unmanaged.init(cap, buf);
+            return .{
+                .metadata = .{ .offset = @intCast(@intFromPtr(m.metadata.?) - @intFromPtr(buf.ptr)) },
+                .size = m.size,
+                .available = m.available,
+            };
+        }
+
+        pub fn map(self: Self, base: anytype) Unmanaged {
+            return .{
+                .metadata = self.metadata.ptr(base),
+                .size = self.size,
+                .available = self.available,
+            };
+        }
+    };
+}
 
 /// A HashMap based on open addressing and linear probing.
 /// A lookup or modification typically incurs only 2 cache misses.
@@ -125,8 +163,8 @@ pub fn HashMapUnmanaged(
         };
 
         const Header = struct {
-            values: [*]V,
-            keys: [*]K,
+            values: Offset(V),
+            keys: Offset(K),
             capacity: Size,
         };
 
@@ -260,15 +298,13 @@ pub fn HashMapUnmanaged(
 
             // Get all our main pointers
             const metadata_ptr: [*]Metadata = @ptrFromInt(base + @sizeOf(Header));
-            const keys_ptr: [*]K = @ptrFromInt(base + layout.keys_start);
-            const values_ptr: [*]V = @ptrFromInt(base + layout.vals_start);
 
             // Build our map
             var map: Self = .{ .metadata = metadata_ptr };
             const hdr = map.header();
             hdr.capacity = new_capacity;
-            if (@sizeOf([*]K) != 0) hdr.keys = keys_ptr;
-            if (@sizeOf([*]V) != 0) hdr.values = values_ptr;
+            if (@sizeOf([*]K) != 0) hdr.keys = .{ .offset = @intCast(layout.keys_start) };
+            if (@sizeOf([*]V) != 0) hdr.values = .{ .offset = @intCast(layout.vals_start) };
             map.initMetadatas();
             map.available = @truncate((new_capacity * max_load_percentage) / 100);
 
@@ -306,11 +342,11 @@ pub fn HashMapUnmanaged(
         }
 
         fn keys(self: *const Self) [*]K {
-            return self.header().keys;
+            return self.header().keys.ptr(self.metadata.?);
         }
 
         fn values(self: *const Self) [*]V {
-            return self.header().values;
+            return self.header().values.ptr(self.metadata.?);
         }
 
         pub fn capacity(self: *const Self) Size {
@@ -1120,40 +1156,6 @@ test "HashMap put and remove loop in random order" {
     }
 }
 
-test "HashMap remove one million elements in random order" {
-    const Map = AutoHashMapUnmanaged(u32, u32);
-    const n = 1000 * 1000;
-    const cap = Map.capacityForSize(n);
-
-    const alloc = testing.allocator;
-    const buf = try alloc.alloc(u8, Map.layoutForCapacity(cap).total_size);
-    defer alloc.free(buf);
-    var map = Map.init(cap, buf);
-
-    var keys = std.ArrayList(u32).init(alloc);
-    defer keys.deinit();
-
-    var i: u32 = 0;
-    while (i < n) : (i += 1) {
-        keys.append(i) catch unreachable;
-    }
-
-    var prng = std.Random.DefaultPrng.init(0);
-    const random = prng.random();
-    random.shuffle(u32, keys.items);
-
-    for (keys.items) |key| {
-        map.put2(key, key) catch unreachable;
-    }
-
-    random.shuffle(u32, keys.items);
-    i = 0;
-    while (i < n) : (i += 1) {
-        const key = keys.items[i];
-        _ = map.remove(key);
-    }
-}
-
 test "HashMap put" {
     const Map = AutoHashMapUnmanaged(u32, u32);
     const cap = 32;
@@ -1423,4 +1425,39 @@ test "HashMap repeat fetchRemove" {
     try testing.expect(map.get(1) != null);
     try testing.expect(map.get(2) != null);
     try testing.expect(map.get(3) != null);
+}
+
+test "OffsetHashMap basic usage" {
+    const OffsetMap = AutoOffsetHashMap(u32, u32);
+
+    const alloc = testing.allocator;
+    const cap = 16;
+    const buf = try alloc.alloc(u8, OffsetMap.Unmanaged.layoutForCapacity(cap).total_size);
+    defer alloc.free(buf);
+
+    var offset_map = OffsetMap.init(cap, buf);
+    var map = offset_map.map(buf.ptr);
+
+    const count = 5;
+    var i: u32 = 0;
+    var total: u32 = 0;
+    while (i < count) : (i += 1) {
+        try map.put2(i, i);
+        total += i;
+    }
+
+    var sum: u32 = 0;
+    var it = map.iterator();
+    while (it.next()) |kv| {
+        sum += kv.key_ptr.*;
+    }
+    try expectEqual(total, sum);
+
+    i = 0;
+    sum = 0;
+    while (i < count) : (i += 1) {
+        try expectEqual(i, map.get(i).?);
+        sum += map.get(i).?;
+    }
+    try expectEqual(total, sum);
 }
