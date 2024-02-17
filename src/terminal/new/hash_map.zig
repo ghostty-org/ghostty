@@ -42,11 +42,11 @@ const Wyhash = std.hash.Wyhash;
 const Offset = @import("size.zig").Offset;
 
 pub fn AutoHashMapUnmanaged(comptime K: type, comptime V: type) type {
-    return HashMapUnmanaged(K, V, AutoContext(K), default_max_load_percentage);
+    return HashMapUnmanaged(K, V, AutoContext(K));
 }
 
 pub fn AutoOffsetHashMap(comptime K: type, comptime V: type) type {
-    return OffsetHashMap(K, V, AutoContext(K), default_max_load_percentage);
+    return OffsetHashMap(K, V, AutoContext(K));
 }
 
 pub fn AutoContext(comptime K: type) type {
@@ -56,18 +56,15 @@ pub fn AutoContext(comptime K: type) type {
     };
 }
 
-pub const default_max_load_percentage = 80;
-
 pub fn OffsetHashMap(
     comptime K: type,
     comptime V: type,
     comptime Context: type,
-    comptime max_load_percentage: u64,
 ) type {
     return struct {
         const Self = @This();
 
-        pub const Unmanaged = HashMapUnmanaged(K, V, Context, max_load_percentage);
+        pub const Unmanaged = HashMapUnmanaged(K, V, Context);
 
         metadata: Offset(Unmanaged.Metadata) = .{},
         size: Unmanaged.Size = 0,
@@ -105,11 +102,7 @@ pub fn HashMapUnmanaged(
     comptime K: type,
     comptime V: type,
     comptime Context: type,
-    comptime max_load_percentage: u64,
 ) type {
-    if (max_load_percentage <= 0 or max_load_percentage >= 100)
-        @compileError("max_load_percentage must be between 0 and 100.");
-
     return struct {
         const Self = @This();
 
@@ -306,30 +299,28 @@ pub fn HashMapUnmanaged(
             if (@sizeOf([*]K) != 0) hdr.keys = .{ .offset = @intCast(layout.keys_start) };
             if (@sizeOf([*]V) != 0) hdr.values = .{ .offset = @intCast(layout.vals_start) };
             map.initMetadatas();
-            map.available = @truncate((new_capacity * max_load_percentage) / 100);
+            map.available = new_capacity;
 
             return map;
         }
 
         pub fn capacityForSize(size: Size) Size {
-            var new_cap: u32 = @truncate((@as(u64, size) * 100) / max_load_percentage + 1);
-            new_cap = math.ceilPowerOfTwo(u32, new_cap) catch unreachable;
-            return new_cap;
+            return math.ceilPowerOfTwo(u32, size + 1) catch unreachable;
         }
 
-        pub fn ensureTotalCapacity2(self: *Self, new_size: Size) Allocator.Error!void {
-            if (new_size > self.size) try self.growIfNeeded2(new_size - self.size);
+        pub fn ensureTotalCapacity(self: *Self, new_size: Size) Allocator.Error!void {
+            if (new_size > self.size) try self.growIfNeeded(new_size - self.size);
         }
 
-        pub fn ensureUnusedCapacity2(self: *Self, additional_size: Size) Allocator.Error!void {
-            return ensureTotalCapacity2(self, self.count() + additional_size);
+        pub fn ensureUnusedCapacity(self: *Self, additional_size: Size) Allocator.Error!void {
+            return ensureTotalCapacity(self, self.count() + additional_size);
         }
 
         pub fn clearRetainingCapacity(self: *Self) void {
             if (self.metadata) |_| {
                 self.initMetadatas();
                 self.size = 0;
-                self.available = @as(u32, @truncate((self.capacity() * max_load_percentage) / 100));
+                self.available = self.capacity();
             }
         }
 
@@ -392,14 +383,14 @@ pub fn HashMapUnmanaged(
         }
 
         /// Insert an entry in the map. Assumes it is not already present.
-        pub fn putNoClobber2(self: *Self, key: K, value: V) Allocator.Error!void {
+        pub fn putNoClobber(self: *Self, key: K, value: V) Allocator.Error!void {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call putNoClobberContext instead.");
-            return self.putNoClobberContext2(key, value, undefined);
+            return self.putNoClobberContext(key, value, undefined);
         }
-        pub fn putNoClobberContext2(self: *Self, key: K, value: V, ctx: Context) Allocator.Error!void {
+        pub fn putNoClobberContext(self: *Self, key: K, value: V, ctx: Context) Allocator.Error!void {
             assert(!self.containsContext(key, ctx));
-            try self.growIfNeeded2(1);
+            try self.growIfNeeded(1);
 
             self.putAssumeCapacityNoClobberContext(key, value, ctx);
         }
@@ -449,13 +440,13 @@ pub fn HashMapUnmanaged(
         }
 
         /// Inserts a new `Entry` into the hash map, returning the previous one, if any.
-        pub fn fetchPut2(self: *Self, key: K, value: V) Allocator.Error!?KV {
+        pub fn fetchPut(self: *Self, key: K, value: V) Allocator.Error!?KV {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call fetchPutContext instead.");
-            return self.fetchPutContext2(key, value, undefined);
+            return self.fetchPutContext(key, value, undefined);
         }
-        pub fn fetchPutContext2(self: *Self, key: K, value: V, ctx: Context) Allocator.Error!?KV {
-            const gop = try self.getOrPutContext2(key, ctx);
+        pub fn fetchPutContext(self: *Self, key: K, value: V, ctx: Context) Allocator.Error!?KV {
+            const gop = try self.getOrPutContext(key, ctx);
             var result: ?KV = null;
             if (gop.found_existing) {
                 result = KV{
@@ -589,13 +580,13 @@ pub fn HashMapUnmanaged(
         }
 
         /// Insert an entry if the associated key is not already present, otherwise update preexisting value.
-        pub fn put2(self: *Self, key: K, value: V) Allocator.Error!void {
+        pub fn put(self: *Self, key: K, value: V) Allocator.Error!void {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call putContext instead.");
-            return self.putContext2(key, value, undefined);
+            return self.putContext(key, value, undefined);
         }
-        pub fn putContext2(self: *Self, key: K, value: V, ctx: Context) Allocator.Error!void {
-            const result = try self.getOrPutContext2(key, ctx);
+        pub fn putContext(self: *Self, key: K, value: V, ctx: Context) Allocator.Error!void {
+            const result = try self.getOrPutContext(key, ctx);
             result.value_ptr.* = value;
         }
 
@@ -663,25 +654,25 @@ pub fn HashMapUnmanaged(
             return null;
         }
 
-        pub fn getOrPut2(self: *Self, key: K) Allocator.Error!GetOrPutResult {
+        pub fn getOrPut(self: *Self, key: K) Allocator.Error!GetOrPutResult {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call getOrPutContext instead.");
-            return self.getOrPutContext2(key, undefined);
+            return self.getOrPutContext(key, undefined);
         }
-        pub fn getOrPutContext2(self: *Self, key: K, ctx: Context) Allocator.Error!GetOrPutResult {
-            const gop = try self.getOrPutContextAdapted2(key, ctx);
+        pub fn getOrPutContext(self: *Self, key: K, ctx: Context) Allocator.Error!GetOrPutResult {
+            const gop = try self.getOrPutContextAdapted(key, ctx);
             if (!gop.found_existing) {
                 gop.key_ptr.* = key;
             }
             return gop;
         }
-        pub fn getOrPutAdapted2(self: *Self, key: anytype, key_ctx: anytype) Allocator.Error!GetOrPutResult {
+        pub fn getOrPutAdapted(self: *Self, key: anytype, key_ctx: anytype) Allocator.Error!GetOrPutResult {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call getOrPutContextAdapted instead.");
-            return self.getOrPutContextAdapted2(key, key_ctx);
+            return self.getOrPutContextAdapted(key, key_ctx);
         }
-        pub fn getOrPutContextAdapted2(self: *Self, key: anytype, key_ctx: anytype) Allocator.Error!GetOrPutResult {
-            self.growIfNeeded2(1) catch |err| {
+        pub fn getOrPutContextAdapted(self: *Self, key: anytype, key_ctx: anytype) Allocator.Error!GetOrPutResult {
+            self.growIfNeeded(1) catch |err| {
                 // If allocation fails, try to do the lookup anyway.
                 // If we find an existing item, we can return it.
                 // Otherwise return the error, we could not add another.
@@ -774,13 +765,13 @@ pub fn HashMapUnmanaged(
             };
         }
 
-        pub fn getOrPutValue2(self: *Self, key: K, value: V) Allocator.Error!Entry {
+        pub fn getOrPutValue(self: *Self, key: K, value: V) Allocator.Error!Entry {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call getOrPutValueContext instead.");
-            return self.getOrPutValueContext2(key, value, undefined);
+            return self.getOrPutValueContext(key, value, undefined);
         }
-        pub fn getOrPutValueContext2(self: *Self, key: K, value: V, ctx: Context) Allocator.Error!Entry {
-            const res = try self.getOrPutAdapted2(key, ctx);
+        pub fn getOrPutValueContext(self: *Self, key: K, value: V, ctx: Context) Allocator.Error!Entry {
+            const res = try self.getOrPutAdapted(key, ctx);
             if (!res.found_existing) {
                 res.key_ptr.* = key;
                 res.value_ptr.* = value;
@@ -849,7 +840,7 @@ pub fn HashMapUnmanaged(
             @memset(@as([*]u8, @ptrCast(self.metadata.?))[0 .. @sizeOf(Metadata) * self.capacity()], 0);
         }
 
-        fn growIfNeeded2(self: *Self, new_count: Size) Allocator.Error!void {
+        fn growIfNeeded(self: *Self, new_count: Size) Allocator.Error!void {
             if (new_count > self.available) return error.OutOfMemory;
         }
 
@@ -909,7 +900,7 @@ test "HashMap basic usage" {
     var i: u32 = 0;
     var total: u32 = 0;
     while (i < count) : (i += 1) {
-        try map.put2(i, i);
+        try map.put(i, i);
         total += i;
     }
 
@@ -959,7 +950,7 @@ test "HashMap ensureUnusedCapacity with tombstones" {
 
     var i: i32 = 0;
     while (i < 100) : (i += 1) {
-        try map.ensureUnusedCapacity2(1);
+        try map.ensureUnusedCapacity(1);
         map.putAssumeCapacity(i, i);
         _ = map.remove(i);
     }
@@ -976,7 +967,7 @@ test "HashMap clearRetainingCapacity" {
 
     map.clearRetainingCapacity();
 
-    try map.put2(1, 1);
+    try map.put(1, 1);
     try expectEqual(map.get(1).?, 1);
     try expectEqual(map.count(), 1);
 
@@ -1004,11 +995,11 @@ test "HashMap ensureTotalCapacity with existing elements" {
     defer alloc.free(buf);
     var map = Map.init(cap, buf);
 
-    try map.put2(0, 0);
+    try map.put(0, 0);
     try expectEqual(map.count(), 1);
     try expectEqual(map.capacity(), Map.minimal_capacity);
 
-    try testing.expectError(error.OutOfMemory, map.ensureTotalCapacity2(65));
+    try testing.expectError(error.OutOfMemory, map.ensureTotalCapacity(65));
     try expectEqual(map.count(), 1);
     try expectEqual(map.capacity(), Map.minimal_capacity);
 }
@@ -1024,7 +1015,7 @@ test "HashMap remove" {
 
     var i: u32 = 0;
     while (i < 16) : (i += 1) {
-        try map.put2(i, i);
+        try map.put(i, i);
     }
 
     i = 0;
@@ -1061,7 +1052,7 @@ test "HashMap reverse removes" {
 
     var i: u32 = 0;
     while (i < 16) : (i += 1) {
-        try map.putNoClobber2(i, i);
+        try map.putNoClobber(i, i);
     }
 
     i = 16;
@@ -1088,7 +1079,7 @@ test "HashMap multiple removes on same metadata" {
 
     var i: u32 = 0;
     while (i < 16) : (i += 1) {
-        try map.put2(i, i);
+        try map.put(i, i);
     }
 
     _ = map.remove(7);
@@ -1109,10 +1100,10 @@ test "HashMap multiple removes on same metadata" {
         }
     }
 
-    try map.put2(15, 15);
-    try map.put2(13, 13);
-    try map.put2(14, 14);
-    try map.put2(7, 7);
+    try map.put(15, 15);
+    try map.put(13, 13);
+    try map.put(14, 14);
+    try map.put(7, 7);
     i = 0;
     while (i < 16) : (i += 1) {
         try expectEqual(map.get(i).?, i);
@@ -1145,7 +1136,7 @@ test "HashMap put and remove loop in random order" {
         random.shuffle(u32, keys.items);
 
         for (keys.items) |key| {
-            try map.put2(key, key);
+            try map.put(key, key);
         }
         try expectEqual(map.count(), size);
 
@@ -1167,7 +1158,7 @@ test "HashMap put" {
 
     var i: u32 = 0;
     while (i < 16) : (i += 1) {
-        try map.put2(i, i);
+        try map.put(i, i);
     }
 
     i = 0;
@@ -1177,13 +1168,28 @@ test "HashMap put" {
 
     i = 0;
     while (i < 16) : (i += 1) {
-        try map.put2(i, i * 16 + 1);
+        try map.put(i, i * 16 + 1);
     }
 
     i = 0;
     while (i < 16) : (i += 1) {
         try expectEqual(map.get(i).?, i * 16 + 1);
     }
+}
+
+test "HashMap put full load" {
+    const Map = AutoHashMapUnmanaged(usize, usize);
+    const cap = 16;
+
+    const alloc = testing.allocator;
+    const buf = try alloc.alloc(u8, Map.layoutForCapacity(cap).total_size);
+    defer alloc.free(buf);
+    var map = Map.init(cap, buf);
+
+    for (0..cap) |i| try map.put(i, i);
+    for (0..cap) |i| try expectEqual(map.get(i).?, i);
+
+    try testing.expectError(error.OutOfMemory, map.put(cap, cap));
 }
 
 test "HashMap putAssumeCapacity" {
@@ -1267,12 +1273,12 @@ test "HashMap getOrPut" {
 
     var i: u32 = 0;
     while (i < 10) : (i += 1) {
-        try map.put2(i * 2, 2);
+        try map.put(i * 2, 2);
     }
 
     i = 0;
     while (i < 20) : (i += 1) {
-        _ = try map.getOrPutValue2(i, 1);
+        _ = try map.getOrPutValue(i, 1);
     }
 
     i = 0;
@@ -1293,30 +1299,30 @@ test "HashMap basic hash map usage" {
     defer alloc.free(buf);
     var map = Map.init(cap, buf);
 
-    try testing.expect((try map.fetchPut2(1, 11)) == null);
-    try testing.expect((try map.fetchPut2(2, 22)) == null);
-    try testing.expect((try map.fetchPut2(3, 33)) == null);
-    try testing.expect((try map.fetchPut2(4, 44)) == null);
+    try testing.expect((try map.fetchPut(1, 11)) == null);
+    try testing.expect((try map.fetchPut(2, 22)) == null);
+    try testing.expect((try map.fetchPut(3, 33)) == null);
+    try testing.expect((try map.fetchPut(4, 44)) == null);
 
-    try map.putNoClobber2(5, 55);
-    try testing.expect((try map.fetchPut2(5, 66)).?.value == 55);
-    try testing.expect((try map.fetchPut2(5, 55)).?.value == 66);
+    try map.putNoClobber(5, 55);
+    try testing.expect((try map.fetchPut(5, 66)).?.value == 55);
+    try testing.expect((try map.fetchPut(5, 55)).?.value == 66);
 
-    const gop1 = try map.getOrPut2(5);
+    const gop1 = try map.getOrPut(5);
     try testing.expect(gop1.found_existing == true);
     try testing.expect(gop1.value_ptr.* == 55);
     gop1.value_ptr.* = 77;
     try testing.expect(map.getEntry(5).?.value_ptr.* == 77);
 
-    const gop2 = try map.getOrPut2(99);
+    const gop2 = try map.getOrPut(99);
     try testing.expect(gop2.found_existing == false);
     gop2.value_ptr.* = 42;
     try testing.expect(map.getEntry(99).?.value_ptr.* == 42);
 
-    const gop3 = try map.getOrPutValue2(5, 5);
+    const gop3 = try map.getOrPutValue(5, 5);
     try testing.expect(gop3.value_ptr.* == 77);
 
-    const gop4 = try map.getOrPutValue2(100, 41);
+    const gop4 = try map.getOrPutValue(100, 41);
     try testing.expect(gop4.value_ptr.* == 41);
 
     try testing.expect(map.contains(2));
@@ -1343,8 +1349,8 @@ test "HashMap ensureUnusedCapacity" {
     defer alloc.free(buf);
     var map = Map.init(cap, buf);
 
-    try map.ensureUnusedCapacity2(32);
-    try testing.expectError(error.OutOfMemory, map.ensureUnusedCapacity2(cap + 1));
+    try map.ensureUnusedCapacity(32);
+    try testing.expectError(error.OutOfMemory, map.ensureUnusedCapacity(cap + 1));
 }
 
 test "HashMap removeByPtr" {
@@ -1359,7 +1365,7 @@ test "HashMap removeByPtr" {
     var i: i32 = undefined;
     i = 0;
     while (i < 10) : (i += 1) {
-        try map.put2(i, 0);
+        try map.put(i, 0);
     }
 
     try testing.expect(map.count() == 10);
@@ -1386,7 +1392,7 @@ test "HashMap removeByPtr 0 sized key" {
     defer alloc.free(buf);
     var map = Map.init(cap, buf);
 
-    try map.put2(0, 0);
+    try map.put(0, 0);
 
     try testing.expect(map.count() == 1);
 
@@ -1442,7 +1448,7 @@ test "OffsetHashMap basic usage" {
     var i: u32 = 0;
     var total: u32 = 0;
     while (i < count) : (i += 1) {
-        try map.put2(i, i);
+        try map.put(i, i);
         total += i;
     }
 
