@@ -41,21 +41,24 @@ const Wyhash = std.hash.Wyhash;
 
 const Offset = @import("size.zig").Offset;
 
-pub fn AutoHashMapUnmanaged(comptime K: type, comptime V: type) type {
-    return HashMapUnmanaged(K, V, AutoContext(K));
-}
-
 pub fn AutoOffsetHashMap(comptime K: type, comptime V: type) type {
     return OffsetHashMap(K, V, AutoContext(K));
 }
 
-pub fn AutoContext(comptime K: type) type {
+fn AutoHashMapUnmanaged(comptime K: type, comptime V: type) type {
+    return HashMapUnmanaged(K, V, AutoContext(K));
+}
+
+fn AutoContext(comptime K: type) type {
     return struct {
         pub const hash = std.hash_map.getAutoHashFn(K, @This());
         pub const eql = std.hash_map.getAutoEqlFn(K, @This());
     };
 }
 
+/// A HashMap type that uses offsets rather than pointers, making it
+/// possible to efficiently move around the backing memory without
+/// invalidating the HashMap.
 pub fn OffsetHashMap(
     comptime K: type,
     comptime V: type,
@@ -64,19 +67,37 @@ pub fn OffsetHashMap(
     return struct {
         const Self = @This();
 
+        /// This is the pointer-based map that we're wrapping.
         pub const Unmanaged = HashMapUnmanaged(K, V, Context);
+
+        /// This is the alignment that the base pointer must have.
+        pub const base_align = Unmanaged.max_align;
 
         metadata: Offset(Unmanaged.Metadata) = .{},
         size: Unmanaged.Size = 0,
 
+        /// Returns the total size of the backing memory required for a
+        /// HashMap with the given capacity. The base ptr must also be
+        /// aligned to base_align.
+        pub fn bufferSize(cap: Unmanaged.Size) usize {
+            const layout = Unmanaged.layoutForCapacity(cap);
+            return layout.total_size;
+        }
+
+        /// Initialize a new HashMap with the given capacity and backing
+        /// memory. The backing memory must be aligned to base_align.
         pub fn init(cap: Unmanaged.Size, buf: []u8) Self {
+            assert(@intFromPtr(buf.ptr) % base_align == 0);
+
             const m = Unmanaged.init(cap, buf);
+            const offset = @intFromPtr(m.metadata.?) - @intFromPtr(buf.ptr);
             return .{
-                .metadata = .{ .offset = @intCast(@intFromPtr(m.metadata.?) - @intFromPtr(buf.ptr)) },
+                .metadata = .{ .offset = @intCast(offset) },
                 .size = m.size,
             };
         }
 
+        /// Returns the pointer-based map from a base pointer.
         pub fn map(self: Self, base: anytype) Unmanaged {
             return .{
                 .metadata = self.metadata.ptr(base),
@@ -86,16 +107,11 @@ pub fn OffsetHashMap(
     };
 }
 
-/// A HashMap based on open addressing and linear probing.
-/// A lookup or modification typically incurs only 2 cache misses.
-/// No order is guaranteed and any modification invalidates live iterators.
-/// It achieves good performance with quite high load factors (by default,
-/// grow is triggered at 80% full) and only one byte of overhead per element.
-/// The struct itself is only 16 bytes for a small footprint. This comes at
-/// the price of handling size with u32, which should be reasonable enough
-/// for almost all uses.
-/// Deletions are achieved with tombstones.
-pub fn HashMapUnmanaged(
+/// Fork of stdlib.HashMap as of Zig 0.12 modified to to use offsets
+/// for the key/values pointer. The metadata is still a pointer to limit
+/// the amount of arithmetic required to access it. See the file comment
+/// for full details.
+fn HashMapUnmanaged(
     comptime K: type,
     comptime V: type,
     comptime Context: type,
@@ -292,10 +308,6 @@ pub fn HashMapUnmanaged(
             map.initMetadatas();
 
             return map;
-        }
-
-        pub fn capacityForSize(size: Size) Size {
-            return math.ceilPowerOfTwo(u32, size + 1) catch unreachable;
         }
 
         pub fn ensureTotalCapacity(self: *Self, new_size: Size) Allocator.Error!void {
@@ -828,7 +840,7 @@ pub fn HashMapUnmanaged(
         }
 
         /// The memory layout for the underlying buffer for a given capacity.
-        pub const Layout = struct {
+        const Layout = struct {
             /// The total size of the buffer required. The buffer is expected
             /// to be aligned to `max_align`.
             total_size: usize,
@@ -844,7 +856,7 @@ pub fn HashMapUnmanaged(
         /// The actual size may be able to fit more than the given capacity
         /// because capacity is rounded up to the next power of two. This is
         /// a design requirement for this hash map implementation.
-        pub fn layoutForCapacity(new_capacity: Size) Layout {
+        fn layoutForCapacity(new_capacity: Size) Layout {
             assert(std.math.isPowerOfTwo(new_capacity));
             const meta_size = @sizeOf(Header) + new_capacity * @sizeOf(Metadata);
             comptime assert(@alignOf(Metadata) == 1);
