@@ -39,6 +39,8 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const Wyhash = std.hash.Wyhash;
 
+const Offset = @import("size.zig").Offset;
+
 pub fn AutoHashMapUnmanaged(comptime K: type, comptime V: type) type {
     return HashMapUnmanaged(K, V, AutoContext(K), default_max_load_percentage);
 }
@@ -246,10 +248,6 @@ pub fn HashMapUnmanaged(
             value_ptr: *V,
             found_existing: bool,
         };
-
-        fn isUnderMaxLoadPercentage(size: Size, cap: Size) bool {
-            return size * 100 < max_load_percentage * cap;
-        }
 
         /// Initialize a hash map with a given capacity and a buffer. The
         /// buffer must fit within the size defined by `layoutForCapacity`.
@@ -813,14 +811,6 @@ pub fn HashMapUnmanaged(
 
         fn initMetadatas(self: *Self) void {
             @memset(@as([*]u8, @ptrCast(self.metadata.?))[0 .. @sizeOf(Metadata) * self.capacity()], 0);
-        }
-
-        // This counts the number of occupied slots (not counting tombstones), which is
-        // what has to stay under the max_load_percentage of capacity.
-        fn load(self: *const Self) Size {
-            const max_load = (self.capacity() * max_load_percentage) / 100;
-            assert(max_load >= self.available);
-            return @as(Size, @truncate(max_load - self.available));
         }
 
         fn growIfNeeded2(self: *Self, new_count: Size) Allocator.Error!void {
