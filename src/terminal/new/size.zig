@@ -35,6 +35,19 @@ pub fn Offset(comptime T: type) type {
     };
 }
 
+/// Get the offset for a given type from some base pointer to the
+/// actual pointer to the type.
+pub fn getOffset(
+    comptime T: type,
+    base: anytype,
+    ptr: *const T,
+) Offset(T) {
+    const base_int = @intFromPtr(base);
+    const ptr_int = @intFromPtr(ptr);
+    const offset = ptr_int - base_int;
+    return .{ .offset = @intCast(offset) };
+}
+
 test "Offset" {
     // This test is here so that if Offset changes, we can be very aware
     // of this effect and think about the implications of it.
@@ -58,4 +71,28 @@ test "Offset ptr structural" {
     const base: [*]u8 = @ptrFromInt(base_int);
     const actual = offset.ptr(base);
     try testing.expectEqual(@as(usize, base_int + offset.offset), @intFromPtr(actual));
+}
+
+test "getOffset bytes" {
+    const testing = std.testing;
+    var widgets: []const u8 = "ABCD";
+    const offset = getOffset(u8, widgets.ptr, &widgets[2]);
+    try testing.expectEqual(@as(OffsetInt, 2), offset.offset);
+}
+
+test "getOffset structs" {
+    const testing = std.testing;
+    const Widget = struct { x: u32, y: u32 };
+    const widgets: []const Widget = &.{
+        .{ .x = 1, .y = 2 },
+        .{ .x = 3, .y = 4 },
+        .{ .x = 5, .y = 6 },
+        .{ .x = 7, .y = 8 },
+        .{ .x = 9, .y = 10 },
+    };
+    const offset = getOffset(Widget, widgets.ptr, &widgets[2]);
+    try testing.expectEqual(
+        @as(OffsetInt, @sizeOf(Widget) * 2),
+        offset.offset,
+    );
 }
