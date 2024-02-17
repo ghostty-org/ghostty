@@ -68,14 +68,12 @@ pub fn OffsetHashMap(
 
         metadata: Offset(Unmanaged.Metadata) = .{},
         size: Unmanaged.Size = 0,
-        available: Unmanaged.Size = 0,
 
         pub fn init(cap: Unmanaged.Size, buf: []u8) Self {
             const m = Unmanaged.init(cap, buf);
             return .{
                 .metadata = .{ .offset = @intCast(@intFromPtr(m.metadata.?) - @intFromPtr(buf.ptr)) },
                 .size = m.size,
-                .available = m.available,
             };
         }
 
@@ -83,7 +81,6 @@ pub fn OffsetHashMap(
             return .{
                 .metadata = self.metadata.ptr(base),
                 .size = self.size,
-                .available = self.available,
             };
         }
     };
@@ -127,12 +124,6 @@ pub fn HashMapUnmanaged(
 
         /// Current number of elements in the hashmap.
         size: Size = 0,
-
-        // Having a countdown to grow reduces the number of instructions to
-        // execute when determining if the hashmap has enough capacity already.
-        /// Number of available slots before a grow is needed to satisfy the
-        /// `max_load_percentage`.
-        available: Size = 0,
 
         // This is purely empirical and not a /very smart magic constant™/.
         /// Capacity of the first grow when bootstrapping the hashmap.
@@ -299,7 +290,6 @@ pub fn HashMapUnmanaged(
             if (@sizeOf([*]K) != 0) hdr.keys = .{ .offset = @intCast(layout.keys_start) };
             if (@sizeOf([*]V) != 0) hdr.values = .{ .offset = @intCast(layout.vals_start) };
             map.initMetadatas();
-            map.available = new_capacity;
 
             return map;
         }
@@ -320,7 +310,6 @@ pub fn HashMapUnmanaged(
             if (self.metadata) |_| {
                 self.initMetadatas();
                 self.size = 0;
-                self.available = self.capacity();
             }
         }
 
@@ -428,9 +417,6 @@ pub fn HashMapUnmanaged(
                 metadata = self.metadata.? + idx;
             }
 
-            assert(self.available > 0);
-            self.available -= 1;
-
             const fingerprint = Metadata.takeFingerprint(hash);
             metadata[0].fill(fingerprint);
             self.keys()[idx] = key;
@@ -500,7 +486,6 @@ pub fn HashMapUnmanaged(
                 old_key.* = undefined;
                 old_val.* = undefined;
                 self.size -= 1;
-                self.available += 1;
                 return result;
             }
 
@@ -748,8 +733,6 @@ pub fn HashMapUnmanaged(
                 idx = first_tombstone_idx;
                 metadata = self.metadata.? + idx;
             }
-            // We're using a slot previously free or a tombstone.
-            self.available -= 1;
 
             metadata[0].fill(fingerprint);
             const new_key = &self.keys()[idx];
@@ -797,7 +780,6 @@ pub fn HashMapUnmanaged(
             self.keys()[idx] = undefined;
             self.values()[idx] = undefined;
             self.size -= 1;
-            self.available += 1;
         }
 
         /// If there is an `Entry` with a matching key, it is deleted from
@@ -841,7 +823,8 @@ pub fn HashMapUnmanaged(
         }
 
         fn growIfNeeded(self: *Self, new_count: Size) Allocator.Error!void {
-            if (new_count > self.available) return error.OutOfMemory;
+            const available = self.capacity() - self.size;
+            if (new_count > available) return error.OutOfMemory;
         }
 
         /// The memory layout for the underlying buffer for a given capacity.
@@ -1235,7 +1218,7 @@ test "HashMap repeat putAssumeCapacity/remove" {
     defer alloc.free(buf);
     var map = Map.init(cap, buf);
 
-    const limit = map.available;
+    const limit = cap;
 
     var i: u32 = 0;
     while (i < limit) : (i += 1) {
@@ -1258,7 +1241,6 @@ test "HashMap repeat putAssumeCapacity/remove" {
     while (i < 10 * limit) : (i += 1) {
         try expectEqual(map.get(limit + i), i);
     }
-    try expectEqual(map.available, 0);
     try expectEqual(map.count(), limit);
 }
 
