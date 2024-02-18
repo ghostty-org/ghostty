@@ -132,13 +132,25 @@ pub const Set = struct {
         };
     }
 
+    /// Possible errors for upsert.
+    pub const UpsertError = error{
+        /// No more space in the backing buffer. Remove styles or
+        /// grow and reinitialize.
+        OutOfMemory,
+
+        /// No more available IDs. Perform a garbage collection
+        /// operation to compact ID space.
+        /// TODO: implement gc operation
+        Overflow,
+    };
+
     /// Upsert a style into the set and return a pointer to the metadata
     /// for that style. The pointer is valid for the lifetime of the set
     /// so long as the style is not removed.
     ///
     /// The ref count for new styles is initialized to zero and
     /// for existing styles remains unmodified.
-    pub fn upsert(self: *Set, base: anytype, style: Style) !*Metadata {
+    pub fn upsert(self: *Set, base: anytype, style: Style) UpsertError!*Metadata {
         // If we already have the style in the map, this is fast.
         var map = self.styles.map(base);
         const gop = try map.getOrPut(style);
