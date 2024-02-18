@@ -58,6 +58,9 @@ pub const Page = struct {
     /// The available set of styles in use on this page.
     styles: style.Set,
 
+    /// The capacity of this page.
+    capacity: Capacity,
+
     /// Capacity of this page.
     pub const Capacity = struct {
         /// Number of columns and rows we can know about.
@@ -77,15 +80,12 @@ pub const Page = struct {
         errdefer alloc.free(backing);
 
         const buf = OffsetBuf.init(backing);
-
         return .{
             .memory = backing,
             .rows = buf.member(Row, l.rows_start),
             .cells = buf.member(Cell, l.cells_start),
-            .styles = style.Set.init(
-                buf.add(l.styles_start),
-                l.styles_layout,
-            ),
+            .styles = style.Set.init(buf.add(l.styles_start), l.styles_layout),
+            .capacity = cap,
         };
     }
 
@@ -94,7 +94,7 @@ pub const Page = struct {
         self.* = undefined;
     }
 
-    pub const Layout = struct {
+    const Layout = struct {
         total_size: usize,
         rows_start: usize,
         cells_start: usize,
@@ -104,7 +104,7 @@ pub const Page = struct {
 
     /// The memory layout for a page given a desired minimum cols
     /// and rows size.
-    pub fn layout(cap: Capacity) Layout {
+    fn layout(cap: Capacity) Layout {
         const rows_start = 0;
         const rows_end = rows_start + (cap.rows * @sizeOf(Row));
 
@@ -128,9 +128,20 @@ pub const Page = struct {
     }
 };
 
-pub const Row = packed struct {
+pub const Row = packed struct(u18) {
     /// The cells in the row offset from the page.
     cells: Offset(Cell),
+
+    /// Flags where we want to pack bits
+    flags: packed struct {
+        /// True if this row is soft-wrapped. The first cell of the next
+        /// row is a continuation of this row.
+        wrap: bool = false,
+
+        /// True if the previous row to this one is soft-wrapped and
+        /// this row is a continuation of that row.
+        wrap_continuation: bool = false,
+    },
 };
 
 /// A cell represents a single terminal grid cell.
