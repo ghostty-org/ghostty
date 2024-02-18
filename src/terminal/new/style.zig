@@ -161,30 +161,33 @@ test {
     _ = Set;
 }
 
-// test "Set basic usage" {
-//     const testing = std.testing;
-//     const alloc = testing.allocator;
-//     const layout = Set.layoutForCapacity(0, 16);
-//     const buf = try alloc.alloc(u8, layout.total_size);
-//     defer alloc.free(buf);
-//
-//     const style: Style = .{ .flags = .{ .bold = true } };
-//
-//     var set = Set.init(buf, layout);
-//
-//     // Upsert
-//     const meta = try set.upsert(buf, style);
-//     try testing.expect(meta.id > 0);
-//
-//     // Second upsert should return the same metadata.
-//     {
-//         const meta2 = try set.upsert(buf, style);
-//         try testing.expectEqual(meta.id, meta2.id);
-//     }
-//
-//     // Look it up
-//     {
-//         const v = set.lookupId(buf, meta.id).?;
-//         try testing.expect(v.flags.bold);
-//     }
-// }
+test "Set basic usage" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const layout = Set.layoutForCapacity(0, 16);
+    const buf = try alloc.alloc(u8, layout.total_size);
+    defer alloc.free(buf);
+
+    const style: Style = .{ .flags = .{ .bold = true } };
+
+    var set = Set.init(buf, layout);
+
+    // Upsert
+    const meta = try set.upsert(buf, style);
+    try testing.expect(meta.id > 0);
+
+    // Second upsert should return the same metadata.
+    {
+        const meta2 = try set.upsert(buf, style);
+        try testing.expectEqual(meta.id, meta2.id);
+    }
+
+    // Look it up
+    {
+        const v = set.lookupId(buf, meta.id).?;
+        try testing.expect(v.flags.bold);
+
+        const v2 = set.lookupId(buf, meta.id).?;
+        try testing.expectEqual(v, v2);
+    }
+}
