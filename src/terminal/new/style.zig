@@ -146,6 +146,21 @@ pub const Set = struct {
         const offset = id_map.get(id) orelse return null;
         return @ptrCast(offset.ptr(base));
     }
+
+    /// Remove a style by its id.
+    pub fn remove(self: *Set, base: anytype, id: Id) void {
+        // Lookup by ID, if it doesn't exist then we return. We use
+        // getEntry so that we can make removal faster later by using
+        // the entry's key pointer.
+        var id_map = self.id_map.map(base);
+        const id_entry = id_map.getEntry(id) orelse return;
+
+        var style_map = self.styles.map(base);
+        const style_ptr: *Style = @ptrCast(id_entry.value_ptr.ptr(base));
+
+        id_map.removeByPtr(id_entry.key_ptr);
+        style_map.removeByPtr(style_ptr);
+    }
 };
 
 /// Metadata about a style. This is used to track the reference count
@@ -190,4 +205,8 @@ test "Set basic usage" {
         const v2 = set.lookupId(buf, meta.id).?;
         try testing.expectEqual(v, v2);
     }
+
+    // Removal
+    set.remove(buf, meta.id);
+    try testing.expect(set.lookupId(buf, meta.id) == null);
 }
