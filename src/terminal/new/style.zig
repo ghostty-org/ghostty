@@ -49,6 +49,24 @@ pub const Style = struct {
 };
 
 /// A set of styles.
+///
+/// This set is created with some capacity in mind. You can determine
+/// the exact memory requirement for a capacity by calling `layout`
+/// and checking the total size.
+///
+/// When the set exceeds capacity, `error.OutOfMemory` is returned
+/// from memory-using methods. The caller is responsible for determining
+/// a path forward.
+///
+/// The general idea behind this structure is that it is optimized for
+/// the scenario common in terminals where there aren't many unique
+/// styles, and many cells are usually drawn with a single style before
+/// changing styles.
+///
+/// Callers should call `upsert` when a new style is set. This will
+/// return a stable pointer to metadata. You should use this metadata
+/// to keep a ref count of the style usage. When it falls to zero you
+/// can remove it.
 pub const Set = struct {
     pub const base_align = @max(MetadataMap.base_align, IdMap.base_align);
 
@@ -117,6 +135,9 @@ pub const Set = struct {
     /// Upsert a style into the set and return a pointer to the metadata
     /// for that style. The pointer is valid for the lifetime of the set
     /// so long as the style is not removed.
+    ///
+    /// The ref count for new styles is initialized to zero and
+    /// for existing styles remains unmodified.
     pub fn upsert(self: *Set, base: anytype, style: Style) !*Metadata {
         // If we already have the style in the map, this is fast.
         var map = self.styles.map(base);
@@ -168,14 +189,9 @@ pub const Set = struct {
 /// and the unique identifier for a style. The unique identifier is used
 /// to track the style in the full style map.
 pub const Metadata = struct {
-    ref: size.CellCountInt = 1,
+    ref: size.CellCountInt = 0,
     id: Id = 0,
 };
-
-test {
-    _ = Style;
-    _ = Set;
-}
 
 test "Set basic usage" {
     const testing = std.testing;
