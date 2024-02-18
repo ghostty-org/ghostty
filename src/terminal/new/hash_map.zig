@@ -40,6 +40,7 @@ const Allocator = mem.Allocator;
 const Wyhash = std.hash.Wyhash;
 
 const Offset = @import("size.zig").Offset;
+const OffsetBuf = @import("size.zig").OffsetBuf;
 
 pub fn AutoOffsetHashMap(comptime K: type, comptime V: type) type {
     return OffsetHashMap(K, V, AutoContext(K));
@@ -71,10 +72,9 @@ pub fn OffsetHashMap(
         pub const Unmanaged = HashMapUnmanaged(K, V, Context);
 
         /// This is the alignment that the base pointer must have.
-        pub const base_align = Unmanaged.max_align;
+        pub const base_align = Unmanaged.base_align;
 
         metadata: Offset(Unmanaged.Metadata) = .{},
-        size: Unmanaged.Size = 0,
 
         /// Returns the total size of the backing memory required for a
         /// HashMap with the given capacity. The base ptr must also be
@@ -91,18 +91,12 @@ pub fn OffsetHashMap(
 
             const m = Unmanaged.init(cap, buf);
             const offset = @intFromPtr(m.metadata.?) - @intFromPtr(buf.ptr);
-            return .{
-                .metadata = .{ .offset = @intCast(offset) },
-                .size = m.size,
-            };
+            return .{ .metadata = .{ .offset = @intCast(offset) } };
         }
 
         /// Returns the pointer-based map from a base pointer.
         pub fn map(self: Self, base: anytype) Unmanaged {
-            return .{
-                .metadata = self.metadata.ptr(base),
-                .size = self.size,
-            };
+            return .{ .metadata = self.metadata.ptr(base) };
         }
     };
 }
@@ -121,12 +115,13 @@ fn HashMapUnmanaged(
 
         comptime {
             std.hash_map.verifyContext(Context, K, K, u64, false);
+            assert(@alignOf(Metadata) == 1);
         }
 
         const header_align = @alignOf(Header);
         const key_align = if (@sizeOf(K) == 0) 1 else @alignOf(K);
         const val_align = if (@sizeOf(V) == 0) 1 else @alignOf(V);
-        const max_align = @max(header_align, key_align, val_align);
+        const base_align = @max(header_align, key_align, val_align);
 
         // This is actually a midway pointer to the single buffer containing
         // a `Header` field, the `Metadata`s and `Entry`s.
@@ -137,9 +132,6 @@ fn HashMapUnmanaged(
         // reduce memory fragmentation and struct size.
         /// Pointer to the metadata.
         metadata: ?[*]Metadata = null,
-
-        /// Current number of elements in the hashmap.
-        size: Size = 0,
 
         // This is purely empirical and not a /very smart magic constant™/.
         /// Capacity of the first grow when bootstrapping the hashmap.
@@ -163,9 +155,11 @@ fn HashMapUnmanaged(
         };
 
         const Header = struct {
+            /// The keys/values offset are relative to the metadata
             values: Offset(V),
             keys: Offset(K),
             capacity: Size,
+            size: Size,
         };
 
         /// Metadata for a slot. It can be in three states: empty, used or
@@ -234,7 +228,7 @@ fn HashMapUnmanaged(
 
             pub fn next(it: *Iterator) ?Entry {
                 assert(it.index <= it.hm.capacity());
-                if (it.hm.size == 0) return null;
+                if (it.hm.header().size == 0) return null;
 
                 const cap = it.hm.capacity();
                 const end = it.hm.metadata.? + cap;
@@ -290,19 +284,18 @@ fn HashMapUnmanaged(
         /// Initialize a hash map with a given capacity and a buffer. The
         /// buffer must fit within the size defined by `layoutForCapacity`.
         pub fn init(new_capacity: Size, buf: []u8) Self {
+            assert(@intFromPtr(buf.ptr) % base_align == 0);
             const layout = layoutForCapacity(new_capacity);
-
-            // Ensure our base pointer is aligned to the max alignment
-            const base = std.mem.alignForward(usize, @intFromPtr(buf.ptr), max_align);
-            assert(base >= layout.total_size);
+            assert(buf.len >= layout.total_size);
 
             // Get all our main pointers
-            const metadata_ptr: [*]Metadata = @ptrFromInt(base + @sizeOf(Header));
+            const metadata_ptr: [*]Metadata = @ptrFromInt(@intFromPtr(buf.ptr) + @sizeOf(Header));
 
             // Build our map
             var map: Self = .{ .metadata = metadata_ptr };
             const hdr = map.header();
             hdr.capacity = new_capacity;
+            hdr.size = 0;
             if (@sizeOf([*]K) != 0) hdr.keys = .{ .offset = @intCast(layout.keys_start) };
             if (@sizeOf([*]V) != 0) hdr.values = .{ .offset = @intCast(layout.vals_start) };
             map.initMetadatas();
@@ -311,7 +304,9 @@ fn HashMapUnmanaged(
         }
 
         pub fn ensureTotalCapacity(self: *Self, new_size: Size) Allocator.Error!void {
-            if (new_size > self.size) try self.growIfNeeded(new_size - self.size);
+            if (new_size > self.header().size) {
+                try self.growIfNeeded(new_size - self.header().size);
+            }
         }
 
         pub fn ensureUnusedCapacity(self: *Self, additional_size: Size) Allocator.Error!void {
@@ -321,12 +316,12 @@ fn HashMapUnmanaged(
         pub fn clearRetainingCapacity(self: *Self) void {
             if (self.metadata) |_| {
                 self.initMetadatas();
-                self.size = 0;
+                self.header().size = 0;
             }
         }
 
         pub fn count(self: *const Self) Size {
-            return self.size;
+            return self.header().size;
         }
 
         fn header(self: *const Self) *Header {
@@ -433,8 +428,7 @@ fn HashMapUnmanaged(
             metadata[0].fill(fingerprint);
             self.keys()[idx] = key;
             self.values()[idx] = value;
-
-            self.size += 1;
+            self.header().size += 1;
         }
 
         /// Inserts a new `Entry` into the hash map, returning the previous one, if any.
@@ -497,7 +491,7 @@ fn HashMapUnmanaged(
                 self.metadata.?[idx].remove();
                 old_key.* = undefined;
                 old_val.* = undefined;
-                self.size -= 1;
+                self.header().size -= 1;
                 return result;
             }
 
@@ -515,7 +509,7 @@ fn HashMapUnmanaged(
         inline fn getIndex(self: Self, key: anytype, ctx: anytype) ?usize {
             comptime std.hash_map.verifyContext(@TypeOf(ctx), @TypeOf(key), K, Hash, false);
 
-            if (self.size == 0) {
+            if (self.header().size == 0) {
                 return null;
             }
 
@@ -751,7 +745,7 @@ fn HashMapUnmanaged(
             const new_value = &self.values()[idx];
             new_key.* = undefined;
             new_value.* = undefined;
-            self.size += 1;
+            self.header().size += 1;
 
             return GetOrPutResult{
                 .key_ptr = new_key,
@@ -791,7 +785,7 @@ fn HashMapUnmanaged(
             self.metadata.?[idx].remove();
             self.keys()[idx] = undefined;
             self.values()[idx] = undefined;
-            self.size -= 1;
+            self.header().size -= 1;
         }
 
         /// If there is an `Entry` with a matching key, it is deleted from
@@ -835,14 +829,14 @@ fn HashMapUnmanaged(
         }
 
         fn growIfNeeded(self: *Self, new_count: Size) Allocator.Error!void {
-            const available = self.capacity() - self.size;
+            const available = self.capacity() - self.header().size;
             if (new_count > available) return error.OutOfMemory;
         }
 
         /// The memory layout for the underlying buffer for a given capacity.
         const Layout = struct {
             /// The total size of the buffer required. The buffer is expected
-            /// to be aligned to `max_align`.
+            /// to be aligned to `base_align`.
             total_size: usize,
 
             /// The offset to the start of the keys data.
@@ -850,6 +844,9 @@ fn HashMapUnmanaged(
 
             /// The offset to the start of the values data.
             vals_start: usize,
+
+            /// The capacity that was used to calculate this layout.
+            capacity: Size,
         };
 
         /// Returns the memory layout for the buffer for a given capacity.
@@ -858,20 +855,30 @@ fn HashMapUnmanaged(
         /// a design requirement for this hash map implementation.
         fn layoutForCapacity(new_capacity: Size) Layout {
             assert(std.math.isPowerOfTwo(new_capacity));
-            const meta_size = @sizeOf(Header) + new_capacity * @sizeOf(Metadata);
-            comptime assert(@alignOf(Metadata) == 1);
 
-            const keys_start = std.mem.alignForward(usize, meta_size, key_align);
+            // Pack our metadata, keys, and values.
+            const meta_start = @sizeOf(Header);
+            const meta_end = @sizeOf(Header) + new_capacity * @sizeOf(Metadata);
+            const keys_start = std.mem.alignForward(usize, meta_end, key_align);
             const keys_end = keys_start + new_capacity * @sizeOf(K);
-
             const vals_start = std.mem.alignForward(usize, keys_end, val_align);
             const vals_end = vals_start + new_capacity * @sizeOf(V);
 
-            const total_size = std.mem.alignForward(usize, vals_end, max_align);
+            // Our total memory size required is the end of our values
+            // aligned to the base required alignment.
+            const total_size = std.mem.alignForward(usize, vals_end, base_align);
+
+            // The offsets we actually store in the map are from the
+            // metadata pointer so that we can use self.metadata as
+            // the base.
+            const keys_offset = keys_start - meta_start;
+            const vals_offset = vals_start - meta_start;
+
             return .{
                 .total_size = total_size,
-                .keys_start = keys_start,
-                .vals_start = vals_start,
+                .keys_start = keys_offset,
+                .vals_start = vals_offset,
+                .capacity = new_capacity,
             };
         }
     };
@@ -1177,7 +1184,11 @@ test "HashMap put full load" {
     const cap = 16;
 
     const alloc = testing.allocator;
-    const buf = try alloc.alloc(u8, Map.layoutForCapacity(cap).total_size);
+    const buf = try alloc.alignedAlloc(
+        u8,
+        Map.base_align,
+        Map.layoutForCapacity(cap).total_size,
+    );
     defer alloc.free(buf);
     var map = Map.init(cap, buf);
 
@@ -1460,4 +1471,25 @@ test "OffsetHashMap basic usage" {
         sum += map.get(i).?;
     }
     try expectEqual(total, sum);
+}
+
+test "OffsetHashMap remake map" {
+    const OffsetMap = AutoOffsetHashMap(u32, u32);
+
+    const alloc = testing.allocator;
+    const cap = 16;
+    const buf = try alloc.alloc(u8, OffsetMap.Unmanaged.layoutForCapacity(cap).total_size);
+    defer alloc.free(buf);
+
+    var offset_map = OffsetMap.init(cap, buf);
+
+    {
+        var map = offset_map.map(buf.ptr);
+        try map.put(5, 5);
+    }
+
+    {
+        var map = offset_map.map(buf.ptr);
+        try expectEqual(5, map.get(5).?);
+    }
 }
