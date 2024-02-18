@@ -30,7 +30,7 @@ pub fn Offset(comptime T: type) type {
             // our return type is naturally aligned. We COULD modify this
             // to return arbitrary alignment, but its not something we need.
             assert(@mod(self.offset, @alignOf(T)) == 0);
-            return @ptrFromInt(@intFromPtr(base) + self.offset);
+            return @ptrFromInt(intFromBase(base) + self.offset);
         }
     };
 }
@@ -42,10 +42,25 @@ pub fn getOffset(
     base: anytype,
     ptr: *const T,
 ) Offset(T) {
-    const base_int = @intFromPtr(base);
+    const base_int = intFromBase(base);
     const ptr_int = @intFromPtr(ptr);
     const offset = ptr_int - base_int;
     return .{ .offset = @intCast(offset) };
+}
+
+fn intFromBase(base: anytype) usize {
+    return switch (@typeInfo(@TypeOf(base))) {
+        .Pointer => |v| switch (v.size) {
+            .One,
+            .Many,
+            .C,
+            => @intFromPtr(base),
+
+            .Slice => @intFromPtr(base.ptr),
+        },
+
+        else => @compileError("invalid base type"),
+    };
 }
 
 test "Offset" {

@@ -2,8 +2,11 @@ const std = @import("std");
 const assert = std.debug.assert;
 const color = @import("../color.zig");
 const sgr = @import("../sgr.zig");
+const style = @import("style.zig");
 const size = @import("size.zig");
 const Offset = size.Offset;
+const hash_map = @import("hash_map.zig");
+const AutoOffsetHashMap = hash_map.AutoOffsetHashMap;
 
 /// A page represents a specific section of terminal screen. The primary
 /// idea of a page is that it is a fully self-contained unit that can be
@@ -93,3 +96,14 @@ test {
     _ = Page;
     _ = Style;
 }
+
+// test {
+//     const testing = std.testing;
+//     const cap = try std.math.ceilPowerOfTwo(usize, 350);
+//     const StyleIdMap = AutoOffsetHashMap(size.CellCountInt, style.Style);
+//     const StyleMetadataMap = AutoOffsetHashMap(style.Style, style.Metadata);
+//
+//     var len = StyleIdMap.bufferSize(@intCast(cap));
+//     len += StyleMetadataMap.bufferSize(@intCast(cap));
+//     try testing.expectEqual(@as(usize, 0), len);
+// }
