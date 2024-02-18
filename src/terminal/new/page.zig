@@ -1,12 +1,15 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const color = @import("../color.zig");
 const sgr = @import("../sgr.zig");
 const style = @import("style.zig");
 const size = @import("size.zig");
 const Offset = size.Offset;
+const OffsetBuf = size.OffsetBuf;
 const hash_map = @import("hash_map.zig");
 const AutoOffsetHashMap = hash_map.AutoOffsetHashMap;
+const alignForward = std.mem.alignForward;
 
 /// A page represents a specific section of terminal screen. The primary
 /// idea of a page is that it is a fully self-contained unit that can be
@@ -24,6 +27,16 @@ const AutoOffsetHashMap = hash_map.AutoOffsetHashMap;
 /// thoughtfully laid out to optimize primarily for terminal IO (VT streams)
 /// and to minimize memory usage.
 pub const Page = struct {
+    comptime {
+        // The alignment of our members. We want to ensure that the page
+        // alignment is always divisible by this.
+        assert(std.mem.page_size % @max(
+            @alignOf(Row),
+            @alignOf(Cell),
+            style.Set.base_align,
+        ) == 0);
+    }
+
     /// The backing memory for the page. A page is always made up of a
     /// a single contiguous block of memory that is aligned on a page
     /// boundary and is a multiple of the system page size.
@@ -41,6 +54,78 @@ pub const Page = struct {
     /// to row, you must use the `rows` field. From the pointer to the
     /// first column, all cells in that row are laid out in column order.
     cells: Offset(Cell),
+
+    /// The available set of styles in use on this page.
+    styles: style.Set,
+
+    /// Capacity of this page.
+    pub const Capacity = struct {
+        /// Number of columns and rows we can know about.
+        cols: usize,
+        rows: usize,
+
+        /// Number of unique styles that can be used on this page.
+        styles: u16,
+    };
+
+    /// Initialize a new page, allocating the required backing memory.
+    /// It is HIGHLY RECOMMENDED you use a page_allocator as the allocator
+    /// but any allocator is allowed.
+    pub fn init(alloc: Allocator, cap: Capacity) !Page {
+        const l = layout(cap);
+        const backing = try alloc.alignedAlloc(u8, std.mem.page_size, l.total_size);
+        errdefer alloc.free(backing);
+
+        const buf = OffsetBuf.init(backing);
+
+        return .{
+            .memory = backing,
+            .rows = buf.member(Row, l.rows_start),
+            .cells = buf.member(Cell, l.cells_start),
+            .styles = style.Set.init(
+                buf.add(l.styles_start),
+                l.styles_layout,
+            ),
+        };
+    }
+
+    pub fn deinit(self: *Page, alloc: Allocator) void {
+        alloc.free(self.memory);
+        self.* = undefined;
+    }
+
+    pub const Layout = struct {
+        total_size: usize,
+        rows_start: usize,
+        cells_start: usize,
+        styles_start: usize,
+        styles_layout: style.Set.Layout,
+    };
+
+    /// The memory layout for a page given a desired minimum cols
+    /// and rows size.
+    pub fn layout(cap: Capacity) Layout {
+        const rows_start = 0;
+        const rows_end = rows_start + (cap.rows * @sizeOf(Row));
+
+        const cells_count = cap.cols * cap.rows;
+        const cells_start = alignForward(usize, rows_end, @alignOf(Cell));
+        const cells_end = cells_start + (cells_count * @sizeOf(Cell));
+
+        const styles_layout = style.Set.layout(cap.styles);
+        const styles_start = alignForward(usize, cells_end, style.Set.base_align);
+        const styles_end = styles_start + styles_layout.total_size;
+
+        const total_size = styles_end;
+
+        return .{
+            .total_size = total_size,
+            .rows_start = rows_start,
+            .cells_start = cells_start,
+            .styles_start = styles_start,
+            .styles_layout = styles_layout,
+        };
+    }
 };
 
 pub const Row = packed struct {
@@ -54,56 +139,34 @@ pub const Row = packed struct {
 /// since we zero initialize the backing memory for a page.
 pub const Cell = packed struct(u32) {
     codepoint: u21 = 0,
+    _padding: u11 = 0,
 };
 
-/// The style attributes for a cell.
-pub const Style = struct {
-    /// Various colors, all self-explanatory.
-    fg_color: Color = .none,
-    bg_color: Color = .none,
-    underline_color: Color = .none,
-
-    /// On/off attributes that don't require much bit width so we use
-    /// a packed struct to make this take up significantly less space.
-    flags: packed struct {
-        bold: bool = false,
-        italic: bool = false,
-        faint: bool = false,
-        blink: bool = false,
-        inverse: bool = false,
-        invisible: bool = false,
-        strikethrough: bool = false,
-        underline: sgr.Attribute.Underline = .none,
-    } = .{},
-
-    /// The color for an SGR attribute. A color can come from multiple
-    /// sources so we use this to track the source plus color value so that
-    /// we can properly react to things like palette changes.
-    pub const Color = union(enum) {
-        none: void,
-        palette: u8,
-        rgb: color.RGB,
-    };
-
-    test {
-        // The size of the struct so we can be aware of changes.
-        const testing = std.testing;
-        try testing.expectEqual(@as(usize, 14), @sizeOf(Style));
-    }
-};
-
-test {
-    _ = Page;
-    _ = Style;
-}
-
-// test {
-//     const testing = std.testing;
-//     const cap = try std.math.ceilPowerOfTwo(usize, 350);
-//     const StyleIdMap = AutoOffsetHashMap(size.CellCountInt, style.Style);
-//     const StyleMetadataMap = AutoOffsetHashMap(style.Style, style.Metadata);
+// Uncomment this when you want to do some math.
+// test "Page size calculator" {
+//     const total_size = alignForward(
+//         usize,
+//         Page.layout(.{
+//             .cols = 333,
+//             .rows = 81,
+//             .styles = 32,
+//         }).total_size,
+//         std.mem.page_size,
+//     );
 //
-//     var len = StyleIdMap.bufferSize(@intCast(cap));
-//     len += StyleMetadataMap.bufferSize(@intCast(cap));
-//     try testing.expectEqual(@as(usize, 0), len);
+//     std.log.warn("total_size={} pages={}", .{
+//         total_size,
+//         total_size / std.mem.page_size,
+//     });
 // }
+
+test "Page" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var page = try Page.init(alloc, .{
+        .cols = 120,
+        .rows = 80,
+        .styles = 32,
+    });
+    defer page.deinit(alloc);
+}
