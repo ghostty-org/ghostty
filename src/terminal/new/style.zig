@@ -4,6 +4,7 @@ const color = @import("../color.zig");
 const sgr = @import("../sgr.zig");
 const size = @import("size.zig");
 const Offset = size.Offset;
+const OffsetBuf = size.OffsetBuf;
 const hash_map = @import("hash_map.zig");
 const AutoOffsetHashMap = hash_map.AutoOffsetHashMap;
 
@@ -49,6 +50,8 @@ pub const Style = struct {
 
 /// A set of styles.
 pub const Set = struct {
+    pub const base_align = @max(MetadataMap.base_align, IdMap.base_align);
+
     /// The mapping of a style to associated metadata. This is
     /// the map that contains the actual style definitions
     /// (in the form of the key).
@@ -74,42 +77,40 @@ pub const Set = struct {
     /// determine how much memory to allocate, and the layout must
     /// be used to initialize the set so that the set knows all
     /// the offsets for the various buffers.
-    pub fn layoutForCapacity(base: usize, cap: usize) Layout {
-        const md_start = std.mem.alignForward(usize, base, MetadataMap.base_align);
-        const md_end = md_start + MetadataMap.bufferSize(@intCast(cap));
+    pub fn layout(cap: usize) Layout {
+        const md_layout = MetadataMap.layout(@intCast(cap));
+        const md_start = 0;
+        const md_end = md_start + md_layout.total_size;
 
+        const id_layout = IdMap.layout(@intCast(cap));
         const id_start = std.mem.alignForward(usize, md_end, IdMap.base_align);
-        const id_end = id_start + IdMap.bufferSize(@intCast(cap));
+        const id_end = id_start + id_layout.total_size;
 
-        const total_size = id_end - base;
+        const total_size = id_end;
 
         return .{
-            .cap = cap,
             .md_start = md_start,
+            .md_layout = md_layout,
             .id_start = id_start,
+            .id_layout = id_layout,
             .total_size = total_size,
         };
     }
 
     pub const Layout = struct {
-        cap: usize,
         md_start: usize,
+        md_layout: MetadataMap.Layout,
         id_start: usize,
+        id_layout: IdMap.Layout,
         total_size: usize,
     };
 
-    pub fn init(base: []u8, layout: Layout) Set {
-        assert(base.len >= layout.total_size);
-
-        var styles = MetadataMap.init(@intCast(layout.cap), base[layout.md_start..]);
-        styles.metadata.offset += @intCast(layout.md_start);
-
-        var id_map = IdMap.init(@intCast(layout.cap), base[layout.id_start..]);
-        id_map.metadata.offset += @intCast(layout.id_start);
-
+    pub fn init(base: OffsetBuf, l: Layout) Set {
+        const styles_buf = base.add(l.md_start);
+        const id_buf = base.add(l.id_start);
         return .{
-            .styles = styles,
-            .id_map = id_map,
+            .styles = MetadataMap.init(styles_buf, l.md_layout),
+            .id_map = IdMap.init(id_buf, l.id_layout),
         };
     }
 
@@ -179,13 +180,13 @@ test {
 test "Set basic usage" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    const layout = Set.layoutForCapacity(0, 16);
-    const buf = try alloc.alloc(u8, layout.total_size);
+    const layout = Set.layout(16);
+    const buf = try alloc.alignedAlloc(u8, Set.base_align, layout.total_size);
     defer alloc.free(buf);
 
     const style: Style = .{ .flags = .{ .bold = true } };
 
-    var set = Set.init(buf, layout);
+    var set = Set.init(OffsetBuf.init(buf), layout);
 
     // Upsert
     const meta = try set.upsert(buf, style);

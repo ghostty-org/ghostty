@@ -41,6 +41,7 @@ const Wyhash = std.hash.Wyhash;
 
 const Offset = @import("size.zig").Offset;
 const OffsetBuf = @import("size.zig").OffsetBuf;
+const getOffset = @import("size.zig").getOffset;
 
 pub fn AutoOffsetHashMap(comptime K: type, comptime V: type) type {
     return OffsetHashMap(K, V, AutoContext(K));
@@ -70,6 +71,7 @@ pub fn OffsetHashMap(
 
         /// This is the pointer-based map that we're wrapping.
         pub const Unmanaged = HashMapUnmanaged(K, V, Context);
+        pub const Layout = Unmanaged.Layout;
 
         /// This is the alignment that the base pointer must have.
         pub const base_align = Unmanaged.base_align;
@@ -79,19 +81,21 @@ pub fn OffsetHashMap(
         /// Returns the total size of the backing memory required for a
         /// HashMap with the given capacity. The base ptr must also be
         /// aligned to base_align.
-        pub fn bufferSize(cap: Unmanaged.Size) usize {
-            const layout = Unmanaged.layoutForCapacity(cap);
-            return layout.total_size;
+        pub fn layout(cap: Unmanaged.Size) Layout {
+            return Unmanaged.layoutForCapacity(cap);
         }
 
         /// Initialize a new HashMap with the given capacity and backing
         /// memory. The backing memory must be aligned to base_align.
-        pub fn init(cap: Unmanaged.Size, buf: []u8) Self {
-            assert(@intFromPtr(buf.ptr) % base_align == 0);
+        pub fn init(buf: OffsetBuf, l: Layout) Self {
+            assert(@intFromPtr(buf.start()) % base_align == 0);
 
-            const m = Unmanaged.init(cap, buf);
-            const offset = @intFromPtr(m.metadata.?) - @intFromPtr(buf.ptr);
-            return .{ .metadata = .{ .offset = @intCast(offset) } };
+            const m = Unmanaged.init(buf, l);
+            return .{ .metadata = getOffset(
+                Unmanaged.Metadata,
+                buf,
+                @ptrCast(m.metadata.?),
+            ) };
         }
 
         /// Returns the pointer-based map from a base pointer.
@@ -283,21 +287,19 @@ fn HashMapUnmanaged(
 
         /// Initialize a hash map with a given capacity and a buffer. The
         /// buffer must fit within the size defined by `layoutForCapacity`.
-        pub fn init(new_capacity: Size, buf: []u8) Self {
-            assert(@intFromPtr(buf.ptr) % base_align == 0);
-            const layout = layoutForCapacity(new_capacity);
-            assert(buf.len >= layout.total_size);
+        pub fn init(buf: OffsetBuf, layout: Layout) Self {
+            assert(@intFromPtr(buf.start()) % base_align == 0);
 
             // Get all our main pointers
-            const metadata_ptr: [*]Metadata = @ptrFromInt(@intFromPtr(buf.ptr) + @sizeOf(Header));
+            const metadata_ptr: [*]Metadata = @ptrCast(buf.start() + @sizeOf(Header));
 
             // Build our map
             var map: Self = .{ .metadata = metadata_ptr };
             const hdr = map.header();
-            hdr.capacity = new_capacity;
+            hdr.capacity = layout.capacity;
             hdr.size = 0;
-            if (@sizeOf([*]K) != 0) hdr.keys = .{ .offset = @intCast(layout.keys_start) };
-            if (@sizeOf([*]V) != 0) hdr.values = .{ .offset = @intCast(layout.vals_start) };
+            if (@sizeOf([*]K) != 0) hdr.keys = buf.member(K, layout.keys_start);
+            if (@sizeOf([*]V) != 0) hdr.values = buf.member(V, layout.vals_start);
             map.initMetadatas();
 
             return map;
@@ -853,7 +855,7 @@ fn HashMapUnmanaged(
         /// The actual size may be able to fit more than the given capacity
         /// because capacity is rounded up to the next power of two. This is
         /// a design requirement for this hash map implementation.
-        fn layoutForCapacity(new_capacity: Size) Layout {
+        pub fn layoutForCapacity(new_capacity: Size) Layout {
             assert(std.math.isPowerOfTwo(new_capacity));
 
             // Pack our metadata, keys, and values.
@@ -893,10 +895,11 @@ test "HashMap basic usage" {
 
     const alloc = testing.allocator;
     const cap = 16;
-    const buf = try alloc.alloc(u8, Map.layoutForCapacity(cap).total_size);
+    const layout = Map.layoutForCapacity(cap);
+    const buf = try alloc.alignedAlloc(u8, Map.base_align, layout.total_size);
     defer alloc.free(buf);
 
-    var map = Map.init(cap, buf);
+    var map = Map.init(OffsetBuf.init(buf), layout);
 
     const count = 5;
     var i: u32 = 0;
@@ -927,9 +930,10 @@ test "HashMap ensureTotalCapacity" {
     const cap = 32;
 
     const alloc = testing.allocator;
-    const buf = try alloc.alloc(u8, Map.layoutForCapacity(cap).total_size);
+    const layout = Map.layoutForCapacity(cap);
+    const buf = try alloc.alignedAlloc(u8, Map.base_align, layout.total_size);
     defer alloc.free(buf);
-    var map = Map.init(cap, buf);
+    var map = Map.init(OffsetBuf.init(buf), layout);
 
     const initial_capacity = map.capacity();
     try testing.expect(initial_capacity >= 20);
@@ -946,9 +950,10 @@ test "HashMap ensureUnusedCapacity with tombstones" {
     const cap = 32;
 
     const alloc = testing.allocator;
-    const buf = try alloc.alloc(u8, Map.layoutForCapacity(cap).total_size);
+    const layout = Map.layoutForCapacity(cap);
+    const buf = try alloc.alignedAlloc(u8, Map.base_align, layout.total_size);
     defer alloc.free(buf);
-    var map = Map.init(cap, buf);
+    var map = Map.init(OffsetBuf.init(buf), layout);
 
     var i: i32 = 0;
     while (i < 100) : (i += 1) {
@@ -963,9 +968,10 @@ test "HashMap clearRetainingCapacity" {
     const cap = 16;
 
     const alloc = testing.allocator;
-    const buf = try alloc.alloc(u8, Map.layoutForCapacity(cap).total_size);
+    const layout = Map.layoutForCapacity(cap);
+    const buf = try alloc.alignedAlloc(u8, Map.base_align, layout.total_size);
     defer alloc.free(buf);
-    var map = Map.init(cap, buf);
+    var map = Map.init(OffsetBuf.init(buf), layout);
 
     map.clearRetainingCapacity();
 
@@ -993,9 +999,10 @@ test "HashMap ensureTotalCapacity with existing elements" {
     const cap = Map.minimal_capacity;
 
     const alloc = testing.allocator;
-    const buf = try alloc.alloc(u8, Map.layoutForCapacity(cap).total_size);
+    const layout = Map.layoutForCapacity(cap);
+    const buf = try alloc.alignedAlloc(u8, Map.base_align, layout.total_size);
     defer alloc.free(buf);
-    var map = Map.init(cap, buf);
+    var map = Map.init(OffsetBuf.init(buf), layout);
 
     try map.put(0, 0);
     try expectEqual(map.count(), 1);
@@ -1011,9 +1018,10 @@ test "HashMap remove" {
     const cap = 32;
 
     const alloc = testing.allocator;
-    const buf = try alloc.alloc(u8, Map.layoutForCapacity(cap).total_size);
+    const layout = Map.layoutForCapacity(cap);
+    const buf = try alloc.alignedAlloc(u8, Map.base_align, layout.total_size);
     defer alloc.free(buf);
-    var map = Map.init(cap, buf);
+    var map = Map.init(OffsetBuf.init(buf), layout);
 
     var i: u32 = 0;
     while (i < 16) : (i += 1) {
@@ -1048,9 +1056,10 @@ test "HashMap reverse removes" {
     const cap = 32;
 
     const alloc = testing.allocator;
-    const buf = try alloc.alloc(u8, Map.layoutForCapacity(cap).total_size);
+    const layout = Map.layoutForCapacity(cap);
+    const buf = try alloc.alignedAlloc(u8, Map.base_align, layout.total_size);
     defer alloc.free(buf);
-    var map = Map.init(cap, buf);
+    var map = Map.init(OffsetBuf.init(buf), layout);
 
     var i: u32 = 0;
     while (i < 16) : (i += 1) {
@@ -1075,9 +1084,10 @@ test "HashMap multiple removes on same metadata" {
     const cap = 32;
 
     const alloc = testing.allocator;
-    const buf = try alloc.alloc(u8, Map.layoutForCapacity(cap).total_size);
+    const layout = Map.layoutForCapacity(cap);
+    const buf = try alloc.alignedAlloc(u8, Map.base_align, layout.total_size);
     defer alloc.free(buf);
-    var map = Map.init(cap, buf);
+    var map = Map.init(OffsetBuf.init(buf), layout);
 
     var i: u32 = 0;
     while (i < 16) : (i += 1) {
@@ -1117,9 +1127,10 @@ test "HashMap put and remove loop in random order" {
     const cap = 64;
 
     const alloc = testing.allocator;
-    const buf = try alloc.alloc(u8, Map.layoutForCapacity(cap).total_size);
+    const layout = Map.layoutForCapacity(cap);
+    const buf = try alloc.alignedAlloc(u8, Map.base_align, layout.total_size);
     defer alloc.free(buf);
-    var map = Map.init(cap, buf);
+    var map = Map.init(OffsetBuf.init(buf), layout);
 
     var keys = std.ArrayList(u32).init(alloc);
     defer keys.deinit();
@@ -1154,9 +1165,10 @@ test "HashMap put" {
     const cap = 32;
 
     const alloc = testing.allocator;
-    const buf = try alloc.alloc(u8, Map.layoutForCapacity(cap).total_size);
+    const layout = Map.layoutForCapacity(cap);
+    const buf = try alloc.alignedAlloc(u8, Map.base_align, layout.total_size);
     defer alloc.free(buf);
-    var map = Map.init(cap, buf);
+    var map = Map.init(OffsetBuf.init(buf), layout);
 
     var i: u32 = 0;
     while (i < 16) : (i += 1) {
@@ -1184,13 +1196,10 @@ test "HashMap put full load" {
     const cap = 16;
 
     const alloc = testing.allocator;
-    const buf = try alloc.alignedAlloc(
-        u8,
-        Map.base_align,
-        Map.layoutForCapacity(cap).total_size,
-    );
+    const layout = Map.layoutForCapacity(cap);
+    const buf = try alloc.alignedAlloc(u8, Map.base_align, layout.total_size);
     defer alloc.free(buf);
-    var map = Map.init(cap, buf);
+    var map = Map.init(OffsetBuf.init(buf), layout);
 
     for (0..cap) |i| try map.put(i, i);
     for (0..cap) |i| try expectEqual(map.get(i).?, i);
@@ -1203,9 +1212,10 @@ test "HashMap putAssumeCapacity" {
     const cap = 32;
 
     const alloc = testing.allocator;
-    const buf = try alloc.alloc(u8, Map.layoutForCapacity(cap).total_size);
+    const layout = Map.layoutForCapacity(cap);
+    const buf = try alloc.alignedAlloc(u8, Map.base_align, layout.total_size);
     defer alloc.free(buf);
-    var map = Map.init(cap, buf);
+    var map = Map.init(OffsetBuf.init(buf), layout);
 
     var i: u32 = 0;
     while (i < 20) : (i += 1) {
@@ -1237,9 +1247,10 @@ test "HashMap repeat putAssumeCapacity/remove" {
     const cap = 32;
 
     const alloc = testing.allocator;
-    const buf = try alloc.alloc(u8, Map.layoutForCapacity(cap).total_size);
+    const layout = Map.layoutForCapacity(cap);
+    const buf = try alloc.alignedAlloc(u8, Map.base_align, layout.total_size);
     defer alloc.free(buf);
-    var map = Map.init(cap, buf);
+    var map = Map.init(OffsetBuf.init(buf), layout);
 
     const limit = cap;
 
@@ -1272,9 +1283,10 @@ test "HashMap getOrPut" {
     const cap = 32;
 
     const alloc = testing.allocator;
-    const buf = try alloc.alloc(u8, Map.layoutForCapacity(cap).total_size);
+    const layout = Map.layoutForCapacity(cap);
+    const buf = try alloc.alignedAlloc(u8, Map.base_align, layout.total_size);
     defer alloc.free(buf);
-    var map = Map.init(cap, buf);
+    var map = Map.init(OffsetBuf.init(buf), layout);
 
     var i: u32 = 0;
     while (i < 10) : (i += 1) {
@@ -1300,9 +1312,10 @@ test "HashMap basic hash map usage" {
     const cap = 32;
 
     const alloc = testing.allocator;
-    const buf = try alloc.alloc(u8, Map.layoutForCapacity(cap).total_size);
+    const layout = Map.layoutForCapacity(cap);
+    const buf = try alloc.alignedAlloc(u8, Map.base_align, layout.total_size);
     defer alloc.free(buf);
-    var map = Map.init(cap, buf);
+    var map = Map.init(OffsetBuf.init(buf), layout);
 
     try testing.expect((try map.fetchPut(1, 11)) == null);
     try testing.expect((try map.fetchPut(2, 22)) == null);
@@ -1350,9 +1363,10 @@ test "HashMap ensureUnusedCapacity" {
     const cap = 64;
 
     const alloc = testing.allocator;
-    const buf = try alloc.alloc(u8, Map.layoutForCapacity(cap).total_size);
+    const layout = Map.layoutForCapacity(cap);
+    const buf = try alloc.alignedAlloc(u8, Map.base_align, layout.total_size);
     defer alloc.free(buf);
-    var map = Map.init(cap, buf);
+    var map = Map.init(OffsetBuf.init(buf), layout);
 
     try map.ensureUnusedCapacity(32);
     try testing.expectError(error.OutOfMemory, map.ensureUnusedCapacity(cap + 1));
@@ -1363,9 +1377,10 @@ test "HashMap removeByPtr" {
     const cap = 64;
 
     const alloc = testing.allocator;
-    const buf = try alloc.alloc(u8, Map.layoutForCapacity(cap).total_size);
+    const layout = Map.layoutForCapacity(cap);
+    const buf = try alloc.alignedAlloc(u8, Map.base_align, layout.total_size);
     defer alloc.free(buf);
-    var map = Map.init(cap, buf);
+    var map = Map.init(OffsetBuf.init(buf), layout);
 
     var i: i32 = undefined;
     i = 0;
@@ -1393,9 +1408,10 @@ test "HashMap removeByPtr 0 sized key" {
     const cap = 64;
 
     const alloc = testing.allocator;
-    const buf = try alloc.alloc(u8, Map.layoutForCapacity(cap).total_size);
+    const layout = Map.layoutForCapacity(cap);
+    const buf = try alloc.alignedAlloc(u8, Map.base_align, layout.total_size);
     defer alloc.free(buf);
-    var map = Map.init(cap, buf);
+    var map = Map.init(OffsetBuf.init(buf), layout);
 
     try map.put(0, 0);
 
@@ -1416,9 +1432,10 @@ test "HashMap repeat fetchRemove" {
     const cap = 64;
 
     const alloc = testing.allocator;
-    const buf = try alloc.alloc(u8, Map.layoutForCapacity(cap).total_size);
+    const layout = Map.layoutForCapacity(cap);
+    const buf = try alloc.alignedAlloc(u8, Map.base_align, layout.total_size);
     defer alloc.free(buf);
-    var map = Map.init(cap, buf);
+    var map = Map.init(OffsetBuf.init(buf), layout);
 
     map.putAssumeCapacity(0, {});
     map.putAssumeCapacity(1, {});
@@ -1440,13 +1457,13 @@ test "HashMap repeat fetchRemove" {
 
 test "OffsetHashMap basic usage" {
     const OffsetMap = AutoOffsetHashMap(u32, u32);
+    const cap = 16;
 
     const alloc = testing.allocator;
-    const cap = 16;
-    const buf = try alloc.alloc(u8, OffsetMap.Unmanaged.layoutForCapacity(cap).total_size);
+    const layout = OffsetMap.layout(cap);
+    const buf = try alloc.alignedAlloc(u8, OffsetMap.base_align, layout.total_size);
     defer alloc.free(buf);
-
-    var offset_map = OffsetMap.init(cap, buf);
+    var offset_map = OffsetMap.init(OffsetBuf.init(buf), layout);
     var map = offset_map.map(buf.ptr);
 
     const count = 5;
@@ -1475,13 +1492,13 @@ test "OffsetHashMap basic usage" {
 
 test "OffsetHashMap remake map" {
     const OffsetMap = AutoOffsetHashMap(u32, u32);
+    const cap = 16;
 
     const alloc = testing.allocator;
-    const cap = 16;
-    const buf = try alloc.alloc(u8, OffsetMap.Unmanaged.layoutForCapacity(cap).total_size);
+    const layout = OffsetMap.layout(cap);
+    const buf = try alloc.alignedAlloc(u8, OffsetMap.base_align, layout.total_size);
     defer alloc.free(buf);
-
-    var offset_map = OffsetMap.init(cap, buf);
+    var offset_map = OffsetMap.init(OffsetBuf.init(buf), layout);
 
     {
         var map = offset_map.map(buf.ptr);
