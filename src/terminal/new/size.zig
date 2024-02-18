@@ -36,16 +36,23 @@ pub fn Offset(comptime T: type) type {
     };
 }
 
-/// A type that is used to intitialize offset-based structures.
-/// This allows for tracking the base pointer, the offset into
-/// the base pointer we're starting, and the memory layout of
-/// components.
+/// Represents a buffer that is offset from some base pointer.
+/// Offset-based structures should use this as their initialization
+/// parameter so that they can know what segment of memory they own
+/// while at the same time initializing their offset fields to be
+/// against the true base.
+///
+/// The term "true base" is used to describe the base address of
+/// the allocation, which i.e. can include memory that you do NOT
+/// own and is used by some other structures. All offsets are against
+/// this "true base" so that to determine addresses structures don't
+/// need to add up all the intermediary offsets.
 pub const OffsetBuf = struct {
     /// The true base pointer to the backing memory. This is
     /// "byte zero" of the allocation. This plus the offset make
     /// it easy to pass in the base pointer in all usage to this
     /// structure and the offsets are correct.
-    base: [*]u8 = 0,
+    base: [*]u8,
 
     /// Offset from base where the beginning of /this/ data
     /// structure is located. We use this so that we can slowly
@@ -53,10 +60,44 @@ pub const OffsetBuf = struct {
     /// have the base pointer sent into functions be the true base.
     offset: usize = 0,
 
-    pub fn offsetBase(comptime T: type, self: OffsetBuf) [*]T {
+    /// Initialize a zero-offset buffer from a base.
+    pub fn init(base: anytype) OffsetBuf {
+        return initOffset(base, 0);
+    }
+
+    /// Initialize from some base pointer and offset.
+    pub fn initOffset(base: anytype, offset: usize) OffsetBuf {
+        return .{
+            .base = @ptrFromInt(intFromBase(base)),
+            .offset = offset,
+        };
+    }
+
+    /// The base address for the start of the data for the user
+    /// of this OffsetBuf. This is where your data structure should
+    /// begin; anything before this is NOT your memory.
+    pub fn start(self: OffsetBuf) [*]u8 {
         const ptr = self.base + self.offset;
-        assert(@intFromPtr(ptr) % @alignOf(T) == 0);
         return @ptrCast(ptr);
+    }
+
+    /// Returns an Offset calculation for some child member of
+    /// your struct. The offset is against the true base pointer
+    /// so that future callers can pass that in as the base.
+    pub fn member(
+        self: OffsetBuf,
+        comptime T: type,
+        len: usize,
+    ) Offset(T) {
+        return .{ .offset = @intCast(self.offset + len) };
+    }
+
+    /// Add an offset to the current offset.
+    pub fn add(self: OffsetBuf, offset: usize) OffsetBuf {
+        return .{
+            .base = self.base,
+            .offset = self.offset + offset,
+        };
     }
 };
 
@@ -74,7 +115,8 @@ pub fn getOffset(
 }
 
 fn intFromBase(base: anytype) usize {
-    return switch (@typeInfo(@TypeOf(base))) {
+    const T = @TypeOf(base);
+    return switch (@typeInfo(T)) {
         .Pointer => |v| switch (v.size) {
             .One,
             .Many,
@@ -84,7 +126,11 @@ fn intFromBase(base: anytype) usize {
             .Slice => @intFromPtr(base.ptr),
         },
 
-        else => @compileError("invalid base type"),
+        else => switch (T) {
+            OffsetBuf => @intFromPtr(base.base),
+
+            else => @compileError("invalid base type"),
+        },
     };
 }
 
