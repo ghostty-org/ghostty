@@ -29,11 +29,36 @@ pub fn Offset(comptime T: type) type {
             // The offset must be properly aligned for the type since
             // our return type is naturally aligned. We COULD modify this
             // to return arbitrary alignment, but its not something we need.
-            assert(@mod(self.offset, @alignOf(T)) == 0);
-            return @ptrFromInt(intFromBase(base) + self.offset);
+            const addr = intFromBase(base) + self.offset;
+            assert(addr % @alignOf(T) == 0);
+            return @ptrFromInt(addr);
         }
     };
 }
+
+/// A type that is used to intitialize offset-based structures.
+/// This allows for tracking the base pointer, the offset into
+/// the base pointer we're starting, and the memory layout of
+/// components.
+pub const OffsetBuf = struct {
+    /// The true base pointer to the backing memory. This is
+    /// "byte zero" of the allocation. This plus the offset make
+    /// it easy to pass in the base pointer in all usage to this
+    /// structure and the offsets are correct.
+    base: [*]u8 = 0,
+
+    /// Offset from base where the beginning of /this/ data
+    /// structure is located. We use this so that we can slowly
+    /// build up a chain of offset-based structures but always
+    /// have the base pointer sent into functions be the true base.
+    offset: usize = 0,
+
+    pub fn offsetBase(comptime T: type, self: OffsetBuf) [*]T {
+        const ptr = self.base + self.offset;
+        assert(@intFromPtr(ptr) % @alignOf(T) == 0);
+        return @ptrCast(ptr);
+    }
+};
 
 /// Get the offset for a given type from some base pointer to the
 /// actual pointer to the type.
