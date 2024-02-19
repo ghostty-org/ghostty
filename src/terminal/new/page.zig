@@ -5,6 +5,7 @@ const color = @import("../color.zig");
 const sgr = @import("../sgr.zig");
 const style = @import("style.zig");
 const size = @import("size.zig");
+const getOffset = size.getOffset;
 const Offset = size.Offset;
 const OffsetBuf = size.OffsetBuf;
 const hash_map = @import("hash_map.zig");
@@ -40,9 +41,6 @@ pub const Page = struct {
     /// The backing memory for the page. A page is always made up of a
     /// a single contiguous block of memory that is aligned on a page
     /// boundary and is a multiple of the system page size.
-    ///
-    /// The backing memory is always zero initialized, so the zero value
-    /// of all data within the page must always be valid.
     memory: []align(std.mem.page_size) u8,
 
     /// The array of rows in the page. The rows are always in row order
@@ -78,12 +76,27 @@ pub const Page = struct {
         const l = layout(cap);
         const backing = try alloc.alignedAlloc(u8, std.mem.page_size, l.total_size);
         errdefer alloc.free(backing);
+        @memset(backing, 0);
 
         const buf = OffsetBuf.init(backing);
+        const rows = buf.member(Row, l.rows_start);
+        const cells = buf.member(Cell, l.cells_start);
+
+        // We need to go through and initialize all the rows so that
+        // they point to a valid offset into the cells, since the rows
+        // zero-initialized aren't valid.
+        const cells_ptr = cells.ptr(buf)[0 .. cap.cols * cap.rows];
+        for (rows.ptr(buf)[0..cap.rows], 0..) |*row, y| {
+            const start = y * cap.cols;
+            row.* = .{
+                .cells = getOffset(Cell, buf, &cells_ptr[start]),
+            };
+        }
+
         return .{
             .memory = backing,
-            .rows = buf.member(Row, l.rows_start),
-            .cells = buf.member(Cell, l.cells_start),
+            .rows = rows,
+            .cells = cells,
             .styles = style.Set.init(buf.add(l.styles_start), l.styles_layout),
             .capacity = cap,
         };
@@ -141,7 +154,7 @@ pub const Row = packed struct(u18) {
         /// True if the previous row to this one is soft-wrapped and
         /// this row is a continuation of that row.
         wrap_continuation: bool = false,
-    },
+    } = .{},
 };
 
 /// A cell represents a single terminal grid cell.
