@@ -107,6 +107,21 @@ pub const Page = struct {
         self.* = undefined;
     }
 
+    /// Get the row and cell for the given X/Y within this page.
+    pub fn getRowAndCell(self: *const Page, x: usize, y: usize) struct {
+        row: *Row,
+        cell: *Cell,
+    } {
+        assert(y < self.capacity.rows);
+        assert(x < self.capacity.cols);
+
+        const rows = self.rows.ptr(self.memory);
+        const row = &rows[y];
+        const cell = &row.cells.ptr(self.memory)[x];
+
+        return .{ .row = row, .cell = cell };
+    }
+
     const Layout = struct {
         total_size: usize,
         rows_start: usize,
@@ -184,7 +199,7 @@ pub const Cell = packed struct(u32) {
 //     });
 // }
 
-test "Page" {
+test "Page init" {
     const testing = std.testing;
     const alloc = testing.allocator;
     var page = try Page.init(alloc, .{
@@ -193,4 +208,26 @@ test "Page" {
         .styles = 32,
     });
     defer page.deinit(alloc);
+}
+
+test "Page read and write cells" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var page = try Page.init(alloc, .{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit(alloc);
+
+    for (0..page.capacity.rows) |y| {
+        const rac = page.getRowAndCell(1, y);
+        rac.cell.codepoint = @intCast(y);
+    }
+
+    // Read it again
+    for (0..page.capacity.rows) |y| {
+        const rac = page.getRowAndCell(1, y);
+        try testing.expectEqual(@as(u21, @intCast(y)), rac.cell.codepoint);
+    }
 }
