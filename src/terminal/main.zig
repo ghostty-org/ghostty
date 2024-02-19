@@ -53,6 +53,7 @@ test {
 
     _ = @import("new/hash_map.zig");
     _ = @import("new/page.zig");
+    _ = @import("new/Screen.zig");
     _ = @import("new/size.zig");
     _ = @import("new/style.zig");
 }
