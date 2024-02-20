@@ -8,7 +8,7 @@
 # - "ascii", uniform random ASCII bytes
 # - "utf8", uniform random unicode characters, encoded as utf8
 # - "rand", pure random data, will contain many invalid code sequences.
-DATA="utf8"
+DATA="ascii"
 SIZE="25000000"
 
 # Uncomment to test with an active terminal state.
