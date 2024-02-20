@@ -53,6 +53,12 @@ pub const Page = struct {
     /// first column, all cells in that row are laid out in column order.
     cells: Offset(Cell),
 
+    /// The multi-codepoint grapheme data for this page. This is where
+    /// any cell that has more than one codepoint will be stored. This is
+    /// relatively rare (typically only emoji) so this defaults to a very small
+    /// size and we force page realloc when it grows.
+    __todo_graphemes: void = {},
+
     /// The available set of styles in use on this page.
     styles: style.Set,
 

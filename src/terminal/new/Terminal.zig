@@ -303,6 +303,8 @@ fn printCell(self: *Terminal, unmapped_c: u21) void {
     // If the prior value had graphemes, clear those
     //if (cell.attrs.grapheme) row.clearGraphemes(self.screen.cursor.x);
 
+    // TODO: prev cell overwriting style
+
     // Write
     self.screen.cursor.page_cell.* = .{
         .style_id = self.screen.cursor.style_id,
