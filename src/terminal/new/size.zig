@@ -5,7 +5,7 @@ const assert = std.debug.assert;
 /// smaller bit size by Zig is upgraded anyways to a u16 on mainstream
 /// CPU architectures, and because 65KB is a reasonable page size. To
 /// support better configurability, we derive everything from this.
-pub const max_page_size = 65_536;
+pub const max_page_size = std.math.maxInt(u32);
 
 /// The int type that can contain the maximum memory offset in bytes,
 /// derived from the maximum terminal page size.
@@ -138,7 +138,7 @@ test "Offset" {
     // This test is here so that if Offset changes, we can be very aware
     // of this effect and think about the implications of it.
     const testing = std.testing;
-    try testing.expect(OffsetInt == u16);
+    try testing.expect(OffsetInt == u32);
 }
 
 test "Offset ptr u8" {

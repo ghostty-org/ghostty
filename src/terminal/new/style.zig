@@ -2,6 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const color = @import("../color.zig");
 const sgr = @import("../sgr.zig");
+const page = @import("page.zig");
 const size = @import("size.zig");
 const Offset = size.Offset;
 const OffsetBuf = size.OffsetBuf;
@@ -11,6 +12,9 @@ const AutoOffsetHashMap = hash_map.AutoOffsetHashMap;
 /// The unique identifier for a style. This is at most the number of cells
 /// that can fit into a terminal page.
 pub const Id = size.CellCountInt;
+
+/// The Id to use for default styling.
+pub const default_id: Id = 0;
 
 /// The style attributes for a cell.
 pub const Style = struct {
@@ -82,6 +86,10 @@ pub const Set = struct {
     /// When this overflows we'll begin returning an IdOverflow
     /// error and the caller must manually compact the style
     /// set.
+    ///
+    /// Id zero is reserved and always is the default style. The
+    /// default style isn't present in the map, its dependent on
+    /// the terminal configuration.
     next_id: Id = 1,
 
     /// Maps a style definition to metadata about that style.
