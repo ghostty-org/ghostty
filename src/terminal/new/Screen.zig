@@ -69,6 +69,16 @@ pub fn deinit(self: *Screen) void {
     self.pages.deinit();
 }
 
+/// Move the cursor right. This is a specialized function that is very fast
+/// if the caller can guarantee we have space to move right (no wrapping).
+pub fn cursorRight(self: *Screen) void {
+    assert(self.cursor.x + 1 < self.pages.cols);
+
+    const cell: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
+    self.cursor.page_cell = @ptrCast(cell + 1);
+    self.cursor.x += 1;
+}
+
 /// Dump the screen to a string. The writer given should be buffered;
 /// this function does not attempt to efficiently write and generally writes
 /// one byte at a time.
@@ -107,7 +117,7 @@ pub fn dumpString(
     }
 }
 
-fn dumpStringAlloc(
+pub fn dumpStringAlloc(
     self: *const Screen,
     alloc: Allocator,
     tl: point.Point,
