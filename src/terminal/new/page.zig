@@ -198,6 +198,15 @@ pub const Row = packed struct(u18) {
 pub const Cell = packed struct(u32) {
     codepoint: u21 = 0,
     _padding: u11 = 0,
+
+    /// Returns true if the set of cells has text in it.
+    pub fn hasText(cells: []const Cell) bool {
+        for (cells) |cell| {
+            if (cell.codepoint != 0) return true;
+        }
+
+        return false;
+    }
 };
 
 // Uncomment this when you want to do some math.

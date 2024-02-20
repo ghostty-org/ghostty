@@ -87,6 +87,10 @@ pub fn dumpString(
             break :cells cells[0..self.pages.cols];
         };
 
+        if (!pagepkg.Cell.hasText(cells)) {
+            blank_rows += 1;
+            continue;
+        }
         if (blank_rows > 0) {
             for (0..blank_rows) |_| try writer.writeByte('\n');
             blank_rows = 0;
