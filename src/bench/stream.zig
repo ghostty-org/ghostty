@@ -15,6 +15,7 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 const ziglyph = @import("ziglyph");
 const cli = @import("../cli.zig");
 const terminal = @import("../terminal/main.zig");
+const terminalnew = @import("../terminal/new/main.zig");
 
 const Args = struct {
     mode: Mode = .noop,
@@ -26,7 +27,7 @@ const Args = struct {
     /// Process input with a real terminal. This will be MUCH slower than
     /// the other modes because it has to maintain terminal state but will
     /// help get more realistic numbers.
-    terminal: bool = false,
+    terminal: Terminal = .none,
     @"terminal-rows": usize = 80,
     @"terminal-cols": usize = 120,
 
@@ -42,6 +43,8 @@ const Args = struct {
         if (self._arena) |arena| arena.deinit();
         self.* = undefined;
     }
+
+    const Terminal = enum { none, old, new };
 };
 
 const Mode = enum {
@@ -91,8 +94,7 @@ pub fn main() !void {
     const writer = std.io.getStdOut().writer();
     const buf = try alloc.alloc(u8, args.@"buffer-size");
 
-    const seed: u64 = if (args.seed >= 0) @bitCast(args.seed)
-    else @truncate(@as(u128, @bitCast(std.time.nanoTimestamp())));
+    const seed: u64 = if (args.seed >= 0) @bitCast(args.seed) else @truncate(@as(u128, @bitCast(std.time.nanoTimestamp())));
 
     // Handle the modes that do not depend on terminal state first.
     switch (args.mode) {
@@ -104,8 +106,8 @@ pub fn main() !void {
         // Handle the ones that depend on terminal state next
         inline .scalar,
         .simd,
-        => |tag| {
-            if (args.terminal) {
+        => |tag| switch (args.terminal) {
+            .old => {
                 const TerminalStream = terminal.Stream(*TerminalHandler);
                 var t = try terminal.Terminal.init(
                     alloc,
@@ -119,14 +121,32 @@ pub fn main() !void {
                     .simd => try benchSimd(reader, &stream, buf),
                     else => @compileError("missing case"),
                 }
-            } else {
+            },
+
+            .new => {
+                const TerminalStream = terminal.Stream(*NewTerminalHandler);
+                var t = try terminalnew.Terminal.init(
+                    alloc,
+                    args.@"terminal-cols",
+                    args.@"terminal-rows",
+                );
+                var handler: NewTerminalHandler = .{ .t = &t };
+                var stream: TerminalStream = .{ .handler = &handler };
+                switch (tag) {
+                    .scalar => try benchScalar(reader, &stream, buf),
+                    .simd => try benchSimd(reader, &stream, buf),
+                    else => @compileError("missing case"),
+                }
+            },
+
+            .none => {
                 var stream: terminal.Stream(NoopHandler) = .{ .handler = .{} };
                 switch (tag) {
                     .scalar => try benchScalar(reader, &stream, buf),
                     .simd => try benchSimd(reader, &stream, buf),
                     else => @compileError("missing case"),
                 }
-            }
+            },
         },
     }
 }
@@ -163,11 +183,11 @@ fn genUtf8(writer: anytype, seed: u64) !void {
     while (true) {
         var i: usize = 0;
         while (i <= buf.len - 4) {
-            const cp: u18 = while(true) {
+            const cp: u18 = while (true) {
                 const cp = rnd.int(u18);
                 if (ziglyph.isPrint(cp)) break cp;
             };
-            
+
             i += try std.unicode.utf8Encode(cp, buf[i..]);
         }
 
@@ -241,6 +261,14 @@ const TerminalHandler = struct {
     t: *terminal.Terminal,
 
     pub fn print(self: *TerminalHandler, cp: u21) !void {
+        try self.t.print(cp);
+    }
+};
+
+const NewTerminalHandler = struct {
+    t: *terminalnew.Terminal,
+
+    pub fn print(self: *NewTerminalHandler, cp: u21) !void {
         try self.t.print(cp);
     }
 };

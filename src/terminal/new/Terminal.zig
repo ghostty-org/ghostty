@@ -262,7 +262,7 @@ pub fn print(self: *Terminal, c: u21) !void {
     // If we're at the column limit, then we need to wrap the next time.
     // In this case, we don't move the cursor.
     if (self.screen.cursor.x == right_limit) {
-        self.screen.cursor.pending_wrap = true;
+        //self.screen.cursor.pending_wrap = true;
         return;
     }
 
