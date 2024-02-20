@@ -4,57 +4,20 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const unicode = @import("../../unicode/main.zig");
+const PageList = @import("PageList.zig");
 const pagepkg = @import("page.zig");
+const point = @import("point.zig");
 const Page = pagepkg.Page;
-
-// Some magic constants we use that could be tweaked...
-
-/// The number of PageList.Nodes we preheat the pool with. A node is
-/// a very small struct so we can afford to preheat many, but the exact
-/// number is uncertain. Any number too large is wasting memory, any number
-/// too small will cause the pool to have to allocate more memory later.
-/// This should be set to some reasonable minimum that we expect a terminal
-/// window to scroll into quickly.
-const page_preheat = 4;
-
-/// The default number of unique styles per page we expect. It is currently
-/// "32" because anecdotally amongst a handful of beta testers, no one
-/// under normal terminal use ever used more than 32 unique styles in a
-/// single page. We found outliers but it was rare enough that we could
-/// allocate those when necessary.
-const page_default_styles = 32;
-
-/// The list of pages in the screen. These are expected to be in order
-/// where the first page is the topmost page (scrollback) and the last is
-/// the bottommost page (the current active page).
-const PageList = std.DoublyLinkedList(Page);
-
-/// The memory pool we get page nodes from.
-const PagePool = std.heap.MemoryPool(PageList.Node);
 
 /// The general purpose allocator to use for all memory allocations.
 /// Unfortunately some screen operations do require allocation.
 alloc: Allocator,
 
-/// The memory pool we get page nodes for the linked list from.
-page_pool: PagePool,
-
 /// The list of pages in the screen.
 pages: PageList,
 
-/// The page that contains the top of the current viewport and the row
-/// within that page that is the top of the viewport (0-indexed).
-viewport: *PageList.Node,
-viewport_row: usize,
-
 /// The current cursor position
 cursor: Cursor,
-
-/// The current desired screen dimensions. I say "desired" because individual
-/// pages may still be a different size and not yet reflowed since we lazily
-/// reflow text.
-cols: usize,
-rows: usize,
 
 /// The cursor position.
 const Cursor = struct {
@@ -66,12 +29,11 @@ const Cursor = struct {
     /// next character print will force a soft-wrap.
     pending_wrap: bool = false,
 
-    // The page that the cursor is on and the offset into that page that
-    // the current y exists.
-    page: *PageList.Node,
-    page_row: usize,
-    page_row_ptr: *pagepkg.Row,
-    page_cell_ptr: *pagepkg.Cell,
+    /// The pointers into the page list where the cursor is currently
+    /// located. This makes it faster to move the cursor.
+    page_offset: PageList.RowOffset,
+    page_row: *pagepkg.Row,
+    page_cell: *pagepkg.Cell,
 };
 
 /// Initialize a new screen.
@@ -81,65 +43,82 @@ pub fn init(
     rows: usize,
     max_scrollback: usize,
 ) !Screen {
-    _ = max_scrollback;
+    // Initialize our backing pages. This will initialize the viewport.
+    var pages = try PageList.init(alloc, cols, rows, max_scrollback);
+    errdefer pages.deinit();
 
-    // The screen starts with a single page that is the entire viewport,
-    // and we'll split it thereafter if it gets too large and add more as
-    // necessary.
-    var pool = try PagePool.initPreheated(alloc, page_preheat);
-    errdefer pool.deinit();
-
-    var page = try pool.create();
-    // no errdefer because the pool deinit will clean up the page
-
-    page.* = .{
-        .data = try Page.init(alloc, .{
-            .cols = cols,
-            .rows = rows,
-            .styles = page_default_styles,
-        }),
-    };
-    errdefer page.data.deinit(alloc);
-
-    var page_list: PageList = .{};
-    page_list.prepend(page);
-
-    const cursor_row_ptr, const cursor_cell_ptr = ptr: {
-        const rac = page.data.getRowAndCell(0, 0);
-        break :ptr .{ rac.row, rac.cell };
-    };
+    // The viewport is guaranteed to exist, so grab it so we can setup
+    // our initial cursor.
+    const page_offset = pages.rowOffset(.{ .active = .{ .x = 0, .y = 0 } });
+    const page_rac = page_offset.rowAndCell(0);
 
     return .{
         .alloc = alloc,
-        .cols = cols,
-        .rows = rows,
-        .page_pool = pool,
-        .pages = page_list,
-        .viewport = page,
-        .viewport_row = 0,
+        .pages = pages,
         .cursor = .{
             .x = 0,
             .y = 0,
-            .page = page,
-            .page_row = 0,
-            .page_row_ptr = cursor_row_ptr,
-            .page_cell_ptr = cursor_cell_ptr,
+            .page_offset = page_offset,
+            .page_row = page_rac.row,
+            .page_cell = page_rac.cell,
         },
     };
 }
 
 pub fn deinit(self: *Screen) void {
-    // Deallocate all the pages. We don't need to deallocate the list or
-    // nodes because they all reside in the pool.
-    while (self.pages.popFirst()) |node| node.data.deinit(self.alloc);
-    self.page_pool.deinit();
+    self.pages.deinit();
+}
+
+/// Dump the screen to a string. The writer given should be buffered;
+/// this function does not attempt to efficiently write and generally writes
+/// one byte at a time.
+pub fn dumpString(
+    self: *const Screen,
+    writer: anytype,
+    tl: point.Point,
+) !void {
+    var blank_rows: usize = 0;
+
+    var iter = self.pages.rowIterator(tl);
+    while (iter.next()) |row_offset| {
+        const rac = row_offset.rowAndCell(0);
+        const cells = cells: {
+            const cells: [*]pagepkg.Cell = @ptrCast(rac.cell);
+            break :cells cells[0..self.pages.cols];
+        };
+
+        if (blank_rows > 0) {
+            for (0..blank_rows) |_| try writer.writeByte('\n');
+            blank_rows = 0;
+        }
+
+        // TODO: handle wrap
+        blank_rows += 1;
+
+        for (cells) |cell| {
+            // TODO: handle blanks between chars
+            if (cell.codepoint == 0) break;
+            try writer.print("{u}", .{cell.codepoint});
+        }
+    }
+}
+
+fn dumpStringAlloc(
+    self: *const Screen,
+    alloc: Allocator,
+    tl: point.Point,
+) ![]const u8 {
+    var builder = std.ArrayList(u8).init(alloc);
+    defer builder.deinit();
+    try self.dumpString(builder.writer(), tl);
+    return try builder.toOwnedSlice();
 }
 
 fn testWriteString(self: *Screen, text: []const u8) !void {
     const view = try std.unicode.Utf8View.init(text);
     var iter = view.iterator();
     while (iter.nextCodepoint()) |c| {
-        if (self.cursor.x == self.cols) {
+        if (self.cursor.x == self.pages.cols) {
             @panic("wrap not implemented");
         }
 
@@ -151,11 +130,11 @@ fn testWriteString(self: *Screen, text: []const u8) !void {
         assert(width == 1 or width == 2);
         switch (width) {
             1 => {
-                self.cursor.page_cell_ptr.codepoint = c;
+                self.cursor.page_cell.codepoint = c;
                 self.cursor.x += 1;
-                if (self.cursor.x < self.cols) {
-                    const cell_ptr: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell_ptr);
-                    self.cursor.page_cell_ptr = @ptrCast(cell_ptr + 1);
+                if (self.cursor.x < self.pages.cols) {
+                    const cell: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
+                    self.cursor.page_cell = @ptrCast(cell + 1);
                 } else {
                     @panic("wrap not implemented");
                 }
@@ -175,4 +154,7 @@ test "Screen read and write" {
     defer s.deinit();
 
     try s.testWriteString("hello, world");
+    const str = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+    defer alloc.free(str);
+    //try testing.expectEqualStrings("hello, world", str);
 }
