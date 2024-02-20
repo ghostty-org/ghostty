@@ -175,7 +175,9 @@ pub const Page = struct {
     }
 };
 
-pub const Row = packed struct(u18) {
+pub const Row = packed struct(u64) {
+    _padding: u30 = 0,
+
     /// The cells in the row offset from the page.
     cells: Offset(Cell),
 
@@ -195,9 +197,10 @@ pub const Row = packed struct(u18) {
 ///
 /// The zero value of this struct must be a valid cell representing empty,
 /// since we zero initialize the backing memory for a page.
-pub const Cell = packed struct(u32) {
+pub const Cell = packed struct(u64) {
+    style_id: style.Id = 0,
     codepoint: u21 = 0,
-    _padding: u11 = 0,
+    _padding: u27 = 0,
 
     /// Returns true if the set of cells has text in it.
     pub fn hasText(cells: []const Cell) bool {

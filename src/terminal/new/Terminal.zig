@@ -20,6 +20,7 @@ const color = @import("../color.zig");
 const mouse_shape = @import("../mouse_shape.zig");
 
 const pagepkg = @import("page.zig");
+const style = @import("style.zig");
 const Screen = @import("Screen.zig");
 const Cell = pagepkg.Cell;
 const Row = pagepkg.Row;
@@ -303,9 +304,15 @@ fn printCell(self: *Terminal, unmapped_c: u21) void {
     //if (cell.attrs.grapheme) row.clearGraphemes(self.screen.cursor.x);
 
     // Write
-    self.screen.cursor.page_cell.* = .{ .codepoint = c };
-    //cell.* = self.screen.cursor.pen;
-    //cell.char = @intCast(c);
+    self.screen.cursor.page_cell.* = .{
+        .style_id = self.screen.cursor.style_id,
+        .codepoint = c,
+    };
+
+    // If we have non-default style then we need to update the ref count.
+    if (self.screen.cursor.style_ref) |ref| {
+        ref.* += 1;
+    }
 }
 
 /// Return the current string value of the terminal. Newlines are

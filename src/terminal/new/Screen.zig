@@ -7,6 +7,8 @@ const unicode = @import("../../unicode/main.zig");
 const PageList = @import("PageList.zig");
 const pagepkg = @import("page.zig");
 const point = @import("point.zig");
+const size = @import("size.zig");
+const style = @import("style.zig");
 const Page = pagepkg.Page;
 
 /// The general purpose allocator to use for all memory allocations.
@@ -28,6 +30,12 @@ const Cursor = struct {
     /// The "last column flag (LCF)" as its called. If this is set then the
     /// next character print will force a soft-wrap.
     pending_wrap: bool = false,
+
+    /// The currently active style. The style is page-specific so when
+    /// we change pages we need to ensure that we update that page with
+    /// our style when used.
+    style_id: style.Id = style.default_id,
+    style_ref: ?*size.CellCountInt = null,
 
     /// The pointers into the page list where the cursor is currently
     /// located. This makes it faster to move the cursor.
