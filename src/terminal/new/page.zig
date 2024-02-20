@@ -107,6 +107,25 @@ pub const Page = struct {
         self.* = undefined;
     }
 
+    /// Get a single row. y must be valid.
+    pub fn getRow(self: *const Page, y: usize) *Row {
+        assert(y < self.capacity.rows);
+        return &self.rows.ptr(self.memory)[y];
+    }
+
+    /// Get the cells for a row.
+    pub fn getCells(self: *const Page, row: *Row) []Cell {
+        if (comptime std.debug.runtime_safety) {
+            const rows = self.rows.ptr(self.memory);
+            const cells = self.cells.ptr(self.memory);
+            assert(@intFromPtr(row) >= @intFromPtr(rows));
+            assert(@intFromPtr(row) < @intFromPtr(cells));
+        }
+
+        const cells = row.cells.ptr(self.memory);
+        return cells[0..self.capacity.cols];
+    }
+
     /// Get the row and cell for the given X/Y within this page.
     pub fn getRowAndCell(self: *const Page, x: usize, y: usize) struct {
         row: *Row,

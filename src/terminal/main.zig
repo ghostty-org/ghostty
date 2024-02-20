@@ -55,6 +55,7 @@ test {
     _ = @import("new/page.zig");
     _ = @import("new/PageList.zig");
     _ = @import("new/Screen.zig");
+    _ = @import("new/point.zig");
     _ = @import("new/size.zig");
     _ = @import("new/style.zig");
 }
