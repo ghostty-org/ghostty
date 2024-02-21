@@ -8,6 +8,7 @@ const size = @import("size.zig");
 const getOffset = size.getOffset;
 const Offset = size.Offset;
 const OffsetBuf = size.OffsetBuf;
+const BitmapAllocator = @import("bitmap_allocator.zig").BitmapAllocator;
 const hash_map = @import("hash_map.zig");
 const AutoOffsetHashMap = hash_map.AutoOffsetHashMap;
 const alignForward = std.mem.alignForward;
@@ -57,13 +58,26 @@ pub const Page = struct {
     /// any cell that has more than one codepoint will be stored. This is
     /// relatively rare (typically only emoji) so this defaults to a very small
     /// size and we force page realloc when it grows.
-    __todo_graphemes: void = {},
+    grapheme_alloc: GraphemeAlloc,
+    grapheme_map: GraphemeMap,
 
     /// The available set of styles in use on this page.
     styles: style.Set,
 
     /// The capacity of this page.
     capacity: Capacity,
+
+    /// The allocator to use for multi-codepoint grapheme data. We use
+    /// a chunk size of 4 codepoints. It'd be best to set this empirically
+    /// but it is currently set based on vibes. My thinking around 4 codepoints
+    /// is that most skin-tone emoji are <= 4 codepoints, letter combiners
+    /// are usually <= 4 codepoints, and 4 codepoints is a nice power of two
+    /// for alignment.
+    const grapheme_chunk = 4 * @sizeOf(u21);
+    const GraphemeAlloc = BitmapAllocator(grapheme_chunk);
+    const grapheme_count_default = GraphemeAlloc.bitmap_bit_size;
+    const grapheme_bytes_default = grapheme_count_default * grapheme_chunk;
+    const GraphemeMap = AutoOffsetHashMap(Offset(Cell), Offset(u21).Slice);
 
     /// Capacity of this page.
     pub const Capacity = struct {
@@ -72,7 +86,10 @@ pub const Page = struct {
         rows: usize,
 
         /// Number of unique styles that can be used on this page.
-        styles: u16,
+        styles: u16 = 16,
+
+        /// Number of bytes to allocate for grapheme data.
+        grapheme_bytes: usize = grapheme_bytes_default,
     };
 
     /// Initialize a new page, allocating the required backing memory.
@@ -103,7 +120,18 @@ pub const Page = struct {
             .memory = backing,
             .rows = rows,
             .cells = cells,
-            .styles = style.Set.init(buf.add(l.styles_start), l.styles_layout),
+            .styles = style.Set.init(
+                buf.add(l.styles_start),
+                l.styles_layout,
+            ),
+            .grapheme_alloc = GraphemeAlloc.init(
+                buf.add(l.grapheme_alloc_start),
+                l.grapheme_alloc_layout,
+            ),
+            .grapheme_map = GraphemeMap.init(
+                buf.add(l.grapheme_map_start),
+                l.grapheme_map_layout,
+            ),
             .capacity = cap,
         };
     }
@@ -153,6 +181,10 @@ pub const Page = struct {
         cells_start: usize,
         styles_start: usize,
         styles_layout: style.Set.Layout,
+        grapheme_alloc_start: usize,
+        grapheme_alloc_layout: GraphemeAlloc.Layout,
+        grapheme_map_start: usize,
+        grapheme_map_layout: GraphemeMap.Layout,
     };
 
     /// The memory layout for a page given a desired minimum cols
@@ -169,7 +201,16 @@ pub const Page = struct {
         const styles_start = alignForward(usize, cells_end, style.Set.base_align);
         const styles_end = styles_start + styles_layout.total_size;
 
-        const total_size = styles_end;
+        const grapheme_alloc_layout = GraphemeAlloc.layout(cap.grapheme_bytes);
+        const grapheme_alloc_start = alignForward(usize, styles_end, GraphemeAlloc.base_align);
+        const grapheme_alloc_end = grapheme_alloc_start + grapheme_alloc_layout.total_size;
+
+        const grapheme_count = @divFloor(cap.grapheme_bytes, grapheme_chunk);
+        const grapheme_map_layout = GraphemeMap.layout(@intCast(grapheme_count));
+        const grapheme_map_start = alignForward(usize, grapheme_alloc_end, GraphemeMap.base_align);
+        const grapheme_map_end = grapheme_map_start + grapheme_map_layout.total_size;
+
+        const total_size = grapheme_map_end;
 
         return .{
             .total_size = total_size,
@@ -177,6 +218,10 @@ pub const Page = struct {
             .cells_start = cells_start,
             .styles_start = styles_start,
             .styles_layout = styles_layout,
+            .grapheme_alloc_start = grapheme_alloc_start,
+            .grapheme_alloc_layout = grapheme_alloc_layout,
+            .grapheme_map_start = grapheme_map_start,
+            .grapheme_map_layout = grapheme_map_layout,
         };
     }
 };
