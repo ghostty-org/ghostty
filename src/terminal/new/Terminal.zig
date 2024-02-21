@@ -6,6 +6,7 @@ const Terminal = @This();
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
+const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const unicode = @import("../../unicode/main.zig");
 
@@ -227,6 +228,20 @@ pub fn print(self: *Terminal, c: u21) !void {
 
     // Attach zero-width characters to our cell as grapheme data.
     if (width == 0) {
+        // If we have grapheme clustering enabled, we don't blindly attach
+        // any zero width character to our cells and we instead just ignore
+        // it.
+        if (self.modes.get(.grapheme_cluster)) return;
+
+        // If we're at cell zero, then this is malformed data and we don't
+        // print anything or even store this. Zero-width characters are ALWAYS
+        // attached to some other non-zero-width character at the time of
+        // writing.
+        if (self.screen.cursor.x == 0) {
+            log.warn("zero-width character with no prior character, ignoring", .{});
+            return;
+        }
+
         @panic("TODO: zero-width characters");
     }
 
@@ -326,7 +341,6 @@ pub fn plainString(self: *Terminal, alloc: Allocator) ![]const u8 {
 }
 
 test "Terminal: input with no control characters" {
-    const testing = std.testing;
     const alloc = testing.allocator;
     var t = try init(alloc, 40, 40);
     defer t.deinit(alloc);
@@ -340,4 +354,16 @@ test "Terminal: input with no control characters" {
         defer alloc.free(str);
         try testing.expectEqualStrings("hello", str);
     }
+}
+
+test "Terminal: zero-width character at start" {
+    var t = try init(testing.allocator, 80, 80);
+    defer t.deinit(testing.allocator);
+
+    // This used to crash the terminal. This is not allowed so we should
+    // just ignore it.
+    try t.print(0x200D);
+
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
 }
