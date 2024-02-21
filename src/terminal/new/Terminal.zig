@@ -250,7 +250,7 @@ pub fn print(self: *Terminal, c: u21) !void {
 
     // If we're soft-wrapping, then handle that first.
     if (self.screen.cursor.pending_wrap and self.modes.get(.wraparound)) {
-        @panic("TODO: wraparound");
+        try self.printWrap();
     }
 
     // If we have insert mode enabled then we need to handle that. We
@@ -277,8 +277,8 @@ pub fn print(self: *Terminal, c: u21) !void {
 
     // If we're at the column limit, then we need to wrap the next time.
     // In this case, we don't move the cursor.
-    if (self.screen.cursor.x == right_limit) {
-        //self.screen.cursor.pending_wrap = true;
+    if (self.screen.cursor.x == right_limit - 1) {
+        self.screen.cursor.pending_wrap = true;
         return;
     }
 
@@ -332,6 +332,85 @@ fn printCell(self: *Terminal, unmapped_c: u21) void {
     }
 }
 
+fn printWrap(self: *Terminal) !void {
+    self.screen.cursor.page_row.flags.wrap = true;
+
+    // Get the old semantic prompt so we can extend it to the next
+    // line. We need to do this before we index() because we may
+    // modify memory.
+    // TODO(mitchellh): before merge
+    //const old_prompt = row.getSemanticPrompt();
+
+    // Move to the next line
+    try self.index();
+    self.screen.cursorHorizontalAbsolute(self.scrolling_region.left);
+
+    // TODO(mitchellh): before merge
+    // New line must inherit semantic prompt of the old line
+    // const new_row = self.screen.getRow(.{ .active = self.screen.cursor.y });
+    // new_row.setSemanticPrompt(old_prompt);
+    self.screen.cursor.page_row.flags.wrap_continuation = true;
+}
+
+/// Move the cursor to the next line in the scrolling region, possibly scrolling.
+///
+/// If the cursor is outside of the scrolling region: move the cursor one line
+/// down if it is not on the bottom-most line of the screen.
+///
+/// If the cursor is inside the scrolling region:
+///   If the cursor is on the bottom-most line of the scrolling region:
+///     invoke scroll up with amount=1
+///   If the cursor is not on the bottom-most line of the scrolling region:
+///     move the cursor one line down
+///
+/// This unsets the pending wrap state without wrapping.
+pub fn index(self: *Terminal) !void {
+    // Unset pending wrap state
+    self.screen.cursor.pending_wrap = false;
+
+    // Outside of the scroll region we move the cursor one line down.
+    if (self.screen.cursor.y < self.scrolling_region.top or
+        self.screen.cursor.y > self.scrolling_region.bottom)
+    {
+        // We only move down if we're not already at the bottom of
+        // the screen.
+        if (self.screen.cursor.y < self.rows - 1) {
+            self.screen.cursorDown();
+        }
+
+        return;
+    }
+
+    // If the cursor is inside the scrolling region and on the bottom-most
+    // line, then we scroll up. If our scrolling region is the full screen
+    // we create scrollback.
+    if (self.screen.cursor.y == self.scrolling_region.bottom and
+        self.screen.cursor.x >= self.scrolling_region.left and
+        self.screen.cursor.x <= self.scrolling_region.right)
+    {
+        // If our scrolling region is the full screen, we create scrollback.
+        // Otherwise, we simply scroll the region.
+        if (self.scrolling_region.top == 0 and
+            self.scrolling_region.bottom == self.rows - 1 and
+            self.scrolling_region.left == 0 and
+            self.scrolling_region.right == self.cols - 1)
+        {
+            @panic("TODO: scroll screen");
+            //try self.screen.scroll(.{ .screen = 1 });
+        } else {
+            @panic("TODO: scroll up");
+            //try self.scrollUp(1);
+        }
+
+        return;
+    }
+
+    // Increase cursor by 1, maximum to bottom of scroll region
+    if (self.screen.cursor.y < self.scrolling_region.bottom) {
+        self.screen.cursorDown();
+    }
+}
+
 /// Return the current string value of the terminal. Newlines are
 /// encoded as "\n". This omits any formatting such as fg/bg.
 ///
@@ -356,6 +435,23 @@ test "Terminal: input with no control characters" {
     }
 }
 
+test "Terminal: input with basic wraparound" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 40);
+    defer t.deinit(alloc);
+
+    // Basic grid writing
+    for ("helloworldabc12") |c| try t.print(c);
+    try testing.expectEqual(@as(usize, 2), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 4), t.screen.cursor.x);
+    try testing.expect(t.screen.cursor.pending_wrap);
+    {
+        const str = try t.plainString(alloc);
+        defer alloc.free(str);
+        try testing.expectEqualStrings("hello\nworld\nabc12", str);
+    }
+}
+
 test "Terminal: zero-width character at start" {
     var t = try init(testing.allocator, 80, 80);
     defer t.deinit(testing.allocator);
@@ -367,3 +463,13 @@ test "Terminal: zero-width character at start" {
     try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
     try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
 }
+
+// https://github.com/mitchellh/ghostty/issues/1400
+// test "Terminal: print single very long line" {
+//     var t = try init(testing.allocator, 5, 5);
+//     defer t.deinit(testing.allocator);
+//
+//     // This would crash for issue 1400. So the assertion here is
+//     // that we simply do not crash.
+//     for (0..500) |_| try t.print('x');
+// }
