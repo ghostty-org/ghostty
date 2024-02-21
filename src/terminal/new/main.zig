@@ -6,6 +6,7 @@ test {
     @import("std").testing.refAllDecls(@This());
 
     // todo: make top-level imports
+    _ = @import("bitmap_allocator.zig");
     _ = @import("hash_map.zig");
     _ = @import("page.zig");
     _ = @import("PageList.zig");
