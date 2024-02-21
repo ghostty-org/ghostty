@@ -195,7 +195,7 @@ pub const RowOffset = struct {
     /// is greater than the number of rows in this page.
     ///
     /// This will return null if the row index is out of bounds.
-    fn forward(self: RowOffset, idx: usize) ?RowOffset {
+    pub fn forward(self: RowOffset, idx: usize) ?RowOffset {
         // Index fits within this page
         var rows = self.page.data.capacity.rows - self.row_offset;
         if (idx < rows) return .{

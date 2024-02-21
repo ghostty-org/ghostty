@@ -87,6 +87,33 @@ pub fn cursorRight(self: *Screen) void {
     self.cursor.x += 1;
 }
 
+/// Move the cursor down.
+///
+/// Precondition: The cursor is not at the bottom of the screen.
+pub fn cursorDown(self: *Screen) void {
+    assert(self.cursor.y + 1 < self.pages.rows);
+
+    // We move the offset into our page list to the next row and then
+    // get the pointers to the row/cell and set all the cursor state up.
+    const page_offset = self.cursor.page_offset.forward(1).?;
+    const page_rac = page_offset.rowAndCell(0);
+    self.cursor.page_offset = page_offset;
+    self.cursor.page_row = page_rac.row;
+    self.cursor.page_cell = page_rac.cell;
+
+    // Y of course increases
+    self.cursor.y += 1;
+}
+
+/// Move the cursor to some absolute position.
+pub fn cursorHorizontalAbsolute(self: *Screen, x: usize) void {
+    assert(x < self.pages.cols);
+
+    const page_rac = self.cursor.page_offset.rowAndCell(x);
+    self.cursor.page_cell = page_rac.cell;
+    self.cursor.x = x;
+}
+
 /// Dump the screen to a string. The writer given should be buffered;
 /// this function does not attempt to efficiently write and generally writes
 /// one byte at a time.
