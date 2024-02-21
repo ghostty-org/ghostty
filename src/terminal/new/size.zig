@@ -24,6 +24,12 @@ pub fn Offset(comptime T: type) type {
 
         offset: OffsetInt = 0,
 
+        /// A slice of type T that stores via a base offset and len.
+        pub const Slice = struct {
+            offset: Self,
+            len: usize,
+        };
+
         /// Returns a pointer to the start of the data, properly typed.
         pub fn ptr(self: Self, base: anytype) [*]T {
             // The offset must be properly aligned for the type since

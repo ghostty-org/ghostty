@@ -125,7 +125,7 @@ pub fn BitmapAllocator(comptime chunk_size: comptime_int) type {
             }
         }
 
-        const Layout = struct {
+        pub const Layout = struct {
             total_size: usize,
             bitmap_count: usize,
             bitmap_start: usize,
