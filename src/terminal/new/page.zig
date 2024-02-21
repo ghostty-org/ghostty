@@ -59,6 +59,12 @@ pub const Page = struct {
     /// relatively rare (typically only emoji) so this defaults to a very small
     /// size and we force page realloc when it grows.
     grapheme_alloc: GraphemeAlloc,
+
+    /// The mapping of cell to grapheme data. The exact mapping is the
+    /// cell offset to the grapheme data offset. Therefore, whenever a
+    /// cell is moved (i.e. `erase`) then the grapheme data must be updated.
+    /// Grapheme data is relatively rare so this is considered a slow
+    /// path.
     grapheme_map: GraphemeMap,
 
     /// The available set of styles in use on this page.
@@ -227,7 +233,7 @@ pub const Page = struct {
 };
 
 pub const Row = packed struct(u64) {
-    _padding: u30 = 0,
+    _padding: u29 = 0,
 
     /// The cells in the row offset from the page.
     cells: Offset(Cell),
@@ -241,6 +247,12 @@ pub const Row = packed struct(u64) {
         /// True if the previous row to this one is soft-wrapped and
         /// this row is a continuation of that row.
         wrap_continuation: bool = false,
+
+        /// True if any of the cells in this row have multi-codepoint
+        /// grapheme clusters. If this is true, some fast paths are not
+        /// possible because erasing for example may need to clear existing
+        /// grapheme data.
+        grapheme: bool = false,
     } = .{},
 };
 
@@ -249,9 +261,20 @@ pub const Row = packed struct(u64) {
 /// The zero value of this struct must be a valid cell representing empty,
 /// since we zero initialize the backing memory for a page.
 pub const Cell = packed struct(u64) {
-    style_id: style.Id = 0,
+    /// The codepoint that this cell contains. If `grapheme` is false,
+    /// then this is the only codepoint in the cell. If `grapheme` is
+    /// true, then this is the first codepoint in the grapheme cluster.
     codepoint: u21 = 0,
-    _padding: u27 = 0,
+
+    /// The style ID to use for this cell within the style map. Zero
+    /// is always the default style so no lookup is required.
+    style_id: style.Id = 0,
+
+    /// This is true if there are additional codepoints in the grapheme
+    /// map for this cell to build a multi-codepoint grapheme.
+    grapheme: bool = false,
+
+    _padding: u26 = 0,
 
     /// Returns true if the set of cells has text in it.
     pub fn hasText(cells: []const Cell) bool {
