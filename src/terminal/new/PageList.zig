@@ -8,6 +8,7 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const point = @import("point.zig");
 const pagepkg = @import("page.zig");
+const size = @import("size.zig");
 const Page = pagepkg.Page;
 
 /// The number of PageList.Nodes we preheat the pool with. A node is
@@ -55,13 +56,13 @@ active: RowOffset,
 /// The current desired screen dimensions. I say "desired" because individual
 /// pages may still be a different size and not yet reflowed since we lazily
 /// reflow text.
-cols: usize,
-rows: usize,
+cols: size.CellCountInt,
+rows: size.CellCountInt,
 
 pub fn init(
     alloc: Allocator,
-    cols: usize,
-    rows: usize,
+    cols: size.CellCountInt,
+    rows: size.CellCountInt,
     max_scrollback: usize,
 ) !PageList {
     _ = max_scrollback;
