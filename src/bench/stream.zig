@@ -127,8 +127,8 @@ pub fn main() !void {
                 const TerminalStream = terminal.Stream(*NewTerminalHandler);
                 var t = try terminalnew.Terminal.init(
                     alloc,
-                    args.@"terminal-cols",
-                    args.@"terminal-rows",
+                    @intCast(args.@"terminal-cols"),
+                    @intCast(args.@"terminal-rows"),
                 );
                 var handler: NewTerminalHandler = .{ .t = &t };
                 var stream: TerminalStream = .{ .handler = &handler };

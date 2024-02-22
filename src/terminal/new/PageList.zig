@@ -26,6 +26,13 @@ const page_preheat = 4;
 /// allocate those when necessary.
 const page_default_styles = 32;
 
+/// Minimum rows we ever initialize a page with. This is wasted memory if
+/// too large, but saves us from allocating too many pages when a terminal
+/// is small. It also lets us scroll more before we have to allocate more.
+/// Tne number 100 is arbitrary. I'm open to changing it if we find a
+/// better number.
+const page_min_rows: size.CellCountInt = 100;
+
 /// The list of pages in the screen. These are expected to be in order
 /// where the first page is the topmost page (scrollback) and the last is
 /// the bottommost page (the current active page).
@@ -79,11 +86,12 @@ pub fn init(
     page.* = .{
         .data = try Page.init(alloc, .{
             .cols = cols,
-            .rows = rows,
+            .rows = @max(rows, page_min_rows),
             .styles = page_default_styles,
         }),
     };
     errdefer page.data.deinit(alloc);
+    page.data.size.rows = rows;
 
     var page_list: List = .{};
     page_list.prepend(page);
@@ -104,6 +112,112 @@ pub fn deinit(self: *PageList) void {
     // nodes because they all reside in the pool.
     while (self.pages.popFirst()) |node| node.data.deinit(self.alloc);
     self.pool.deinit();
+}
+
+/// Scroll the active area down by n lines. If the n lines go beyond the
+/// end of the screen, this will add new pages as necessary. This does
+/// not move the viewport.
+pub fn scrollDown(self: *PageList, n: usize) !void {
+    // Move our active area down as much as possible towards n. The return
+    // value is the amount of rows we were short in any existing page, and
+    // we must expand at least that much. This does not include the size
+    // of our viewport (rows).
+    const forward_rem: usize = switch (self.active.forwardOverflow(n)) {
+        // We have enough rows to move n, so we can just update our active.
+        // Note we don't yet know if we have enough rows AFTER for the
+        // active area so we'll have to check that after.
+        .offset => |v| rem: {
+            self.active = v;
+            break :rem 0;
+        },
+
+        // We don't have enough rows to even move n. v contains the missing
+        // amount, so we can allocate pages to fill up the space.
+        .overflow => |v| rem: {
+            assert(v.remaining > 0);
+            self.active = v.end;
+            break :rem v.remaining;
+        },
+    };
+
+    // Ensure we have enough rows after the active for the active area.
+    // Add the forward_rem to add any new pages necessary.
+    try self.ensureRows(self.active, self.rows + forward_rem);
+
+    // If we needed to move forward more then we have the space now
+    if (forward_rem > 0) self.active = self.active.forward(forward_rem).?;
+}
+
+/// Ensures that n rows are available AFTER row. If there are not enough
+/// rows, this will allocate new pages to fill up the space. This will
+/// potentially modify the linked list.
+fn ensureRows(self: *PageList, row: RowOffset, n: usize) !void {
+    var page: *List.Node = row.page;
+    var n_rem: usize = n;
+
+    // Lower the amount we have left in our page from this offset
+    n_rem -= page.data.size.rows - row.row_offset;
+
+    // We check if we have capacity to grow in our starting.
+    if (page.data.size.rows < page.data.capacity.rows) {
+        // We have extra capacity in this page, so let's grow it
+        // as much as possible. If we have enough space, use it.
+        const remaining = page.data.capacity.rows - page.data.size.rows;
+        if (remaining >= n_rem) {
+            page.data.size.rows += @intCast(n_rem);
+            return;
+        }
+
+        // We don't have enough space for all but we can use some of it.
+        page.data.size.rows += remaining;
+        n_rem -= remaining;
+
+        // This panic until we add tests ensure we've never exercised this.
+        if (true) @panic("TODO: test capacity usage");
+    }
+
+    // Its a waste to reach this point if we have enough rows. This assertion
+    // is here to ensure we never call this in that case, despite the below
+    // logic being able to handle it.
+    assert(n_rem > 0);
+
+    // We need to allocate new pages to fill up the remaining space.
+    while (n_rem > 0) {
+        const next_page = try self.createPage();
+        // we don't errdefer this because we've added it to the linked
+        // list and its fine to have dangling unused pages.
+        self.pages.insertAfter(page, next_page);
+        page = next_page;
+
+        // we expect the pages at this point to be full capacity. we
+        // shrink them if we have to since they've never been used.
+        assert(page.data.size.rows == page.data.capacity.rows);
+
+        // If we have enough space, use it.
+        if (n_rem <= page.data.size.rows) {
+            page.data.size.rows = @intCast(n_rem);
+            return;
+        }
+
+        // Continue
+        n_rem -= page.data.size.rows;
+    }
+}
+
+/// Create a new page node. This does not add it to the list.
+fn createPage(self: *PageList) !*List.Node {
+    var page = try self.pool.create();
+    errdefer page.data.deinit(self.alloc);
+
+    page.* = .{
+        .data = try Page.init(self.alloc, .{
+            .cols = self.cols,
+            .rows = @max(self.rows, page_min_rows),
+            .styles = page_default_styles,
+        }),
+    };
+
+    return page;
 }
 
 /// Get the top-left of the screen for the given tag.
@@ -197,23 +311,44 @@ pub const RowOffset = struct {
     ///
     /// This will return null if the row index is out of bounds.
     pub fn forward(self: RowOffset, idx: usize) ?RowOffset {
-        // Index fits within this page
-        var rows = self.page.data.capacity.rows - self.row_offset;
-        if (idx < rows) return .{
-            .page = self.page,
-            .row_offset = idx + self.row_offset,
+        return switch (self.forwardOverflow(idx)) {
+            .offset => |v| v,
+            .overflow => null,
         };
+    }
+
+    /// Move the offset forward n rows. If the offset goes beyond the
+    /// end of the screen, return the overflow amount.
+    fn forwardOverflow(self: RowOffset, n: usize) union(enum) {
+        offset: RowOffset,
+        overflow: struct {
+            end: RowOffset,
+            remaining: usize,
+        },
+    } {
+        // Index fits within this page
+        var rows = self.page.data.size.rows - (self.row_offset + 1);
+        if (n <= rows) return .{ .offset = .{
+            .page = self.page,
+            .row_offset = n + self.row_offset,
+        } };
 
         // Need to traverse page links to find the page
         var page: *List.Node = self.page;
-        var idx_left: usize = idx;
-        while (idx_left >= rows) {
-            idx_left -= rows;
-            page = page.next orelse return null;
-            rows = page.data.capacity.rows;
+        var n_left: usize = n;
+        while (n_left >= rows) {
+            n_left -= rows;
+            page = page.next orelse return .{ .overflow = .{
+                .end = .{ .page = page, .row_offset = page.data.size.rows - 1 },
+                .remaining = n_left,
+            } };
+            rows = page.data.size.rows;
         }
 
-        return .{ .page = page, .row_offset = idx_left };
+        return .{ .offset = .{
+            .page = page,
+            .row_offset = n_left,
+        } };
     }
 };
 
@@ -231,4 +366,60 @@ test "PageList" {
 
     var s = try init(alloc, 80, 24, 1000);
     defer s.deinit();
+
+    // Viewport is setup
+    try testing.expect(s.viewport.page == s.pages.first);
+    try testing.expect(s.viewport.page.next == null);
+    try testing.expect(s.viewport.row_offset == 0);
+    try testing.expect(s.viewport.page.data.size.cols == 80);
+    try testing.expect(s.viewport.page.data.size.rows == 24);
+
+    // Active area and viewport match
+    try testing.expectEqual(s.active, s.viewport);
+}
+
+test "scrollDown utilizes capacity" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 1, 1000);
+    defer s.deinit();
+
+    // Active is initially at top
+    try testing.expect(s.active.page == s.pages.first);
+    try testing.expect(s.active.page.next == null);
+    try testing.expect(s.active.row_offset == 0);
+    try testing.expectEqual(@as(size.CellCountInt, 1), s.active.page.data.size.rows);
+
+    try s.scrollDown(1);
+
+    // We should not allocate a new page because we have enough capacity
+    try testing.expect(s.active.page == s.pages.first);
+    try testing.expectEqual(@as(size.CellCountInt, 1), s.active.row_offset);
+    try testing.expect(s.active.page.next == null);
+    try testing.expectEqual(@as(size.CellCountInt, 2), s.active.page.data.size.rows);
+}
+
+test "scrollDown adds new pages" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, page_min_rows, 1000);
+    defer s.deinit();
+
+    // Active is initially at top
+    try testing.expect(s.active.page == s.pages.first);
+    try testing.expect(s.active.page.next == null);
+    try testing.expect(s.active.row_offset == 0);
+
+    // The initial active is a single page so scrolling down even one
+    // should force the allocation of an entire new page.
+    try s.scrollDown(1);
+
+    // We should still be on the first page but offset, and we should
+    // have a second page created.
+    try testing.expect(s.active.page == s.pages.first);
+    try testing.expect(s.active.row_offset == 1);
+    try testing.expect(s.active.page.next != null);
+    try testing.expectEqual(@as(size.CellCountInt, 1), s.active.page.next.?.data.size.rows);
 }
