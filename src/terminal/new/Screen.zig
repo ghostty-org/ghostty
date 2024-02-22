@@ -114,6 +114,24 @@ pub fn cursorHorizontalAbsolute(self: *Screen, x: size.CellCountInt) void {
     self.cursor.x = x;
 }
 
+/// Scroll the active area and keep the cursor at the bottom of the screen.
+/// This is a very specialized function but it keeps it fast.
+pub fn cursorDownScroll(self: *Screen) !void {
+    assert(self.cursor.y == self.pages.rows - 1);
+
+    // We move the viewport to the active if we're already there to start.
+    const move_viewport = self.pages.viewport.eql(self.pages.active);
+
+    try self.pages.scrollActive(1);
+    const page_offset = self.pages.active.forward(self.cursor.y).?;
+    const page_rac = page_offset.rowAndCell(self.cursor.x);
+    self.cursor.page_offset = page_offset;
+    self.cursor.page_row = page_rac.row;
+    self.cursor.page_cell = page_rac.cell;
+
+    if (move_viewport) self.pages.viewport = self.pages.active;
+}
+
 /// Dump the screen to a string. The writer given should be buffered;
 /// this function does not attempt to efficiently write and generally writes
 /// one byte at a time.

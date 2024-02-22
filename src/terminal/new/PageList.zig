@@ -117,7 +117,7 @@ pub fn deinit(self: *PageList) void {
 /// Scroll the active area down by n lines. If the n lines go beyond the
 /// end of the screen, this will add new pages as necessary. This does
 /// not move the viewport.
-pub fn scrollDown(self: *PageList, n: usize) !void {
+pub fn scrollActive(self: *PageList, n: usize) !void {
     // Move our active area down as much as possible towards n. The return
     // value is the amount of rows we were short in any existing page, and
     // we must expand at least that much. This does not include the size
@@ -297,6 +297,10 @@ pub const RowOffset = struct {
     page: *List.Node,
     row_offset: usize = 0,
 
+    pub fn eql(self: RowOffset, other: RowOffset) bool {
+        return self.page == other.page and self.row_offset == other.row_offset;
+    }
+
     pub fn rowAndCell(self: RowOffset, x: usize) struct {
         row: *pagepkg.Row,
         cell: *pagepkg.Cell,
@@ -327,7 +331,7 @@ pub const RowOffset = struct {
         },
     } {
         // Index fits within this page
-        var rows = self.page.data.size.rows - (self.row_offset + 1);
+        const rows = self.page.data.size.rows - (self.row_offset + 1);
         if (n <= rows) return .{ .offset = .{
             .page = self.page,
             .row_offset = n + self.row_offset,
@@ -335,20 +339,18 @@ pub const RowOffset = struct {
 
         // Need to traverse page links to find the page
         var page: *List.Node = self.page;
-        var n_left: usize = n;
-        while (n_left >= rows) {
-            n_left -= rows;
+        var n_left: usize = n - rows;
+        while (true) {
             page = page.next orelse return .{ .overflow = .{
                 .end = .{ .page = page, .row_offset = page.data.size.rows - 1 },
                 .remaining = n_left,
             } };
-            rows = page.data.size.rows;
+            if (n_left <= page.data.size.rows) return .{ .offset = .{
+                .page = page,
+                .row_offset = n_left - 1,
+            } };
+            n_left -= page.data.size.rows;
         }
-
-        return .{ .offset = .{
-            .page = page,
-            .row_offset = n_left,
-        } };
     }
 };
 
@@ -378,7 +380,7 @@ test "PageList" {
     try testing.expectEqual(s.active, s.viewport);
 }
 
-test "scrollDown utilizes capacity" {
+test "scrollActive utilizes capacity" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -391,7 +393,7 @@ test "scrollDown utilizes capacity" {
     try testing.expect(s.active.row_offset == 0);
     try testing.expectEqual(@as(size.CellCountInt, 1), s.active.page.data.size.rows);
 
-    try s.scrollDown(1);
+    try s.scrollActive(1);
 
     // We should not allocate a new page because we have enough capacity
     try testing.expect(s.active.page == s.pages.first);
@@ -400,7 +402,7 @@ test "scrollDown utilizes capacity" {
     try testing.expectEqual(@as(size.CellCountInt, 2), s.active.page.data.size.rows);
 }
 
-test "scrollDown adds new pages" {
+test "scrollActive adds new pages" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -414,7 +416,7 @@ test "scrollDown adds new pages" {
 
     // The initial active is a single page so scrolling down even one
     // should force the allocation of an entire new page.
-    try s.scrollDown(1);
+    try s.scrollActive(1);
 
     // We should still be on the first page but offset, and we should
     // have a second page created.

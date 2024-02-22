@@ -173,9 +173,9 @@ pub fn init(alloc: Allocator, cols: size.CellCountInt, rows: size.CellCountInt) 
         .rows = rows,
         .active_screen = .primary,
         // TODO: configurable scrollback
-        .screen = try Screen.init(alloc, rows, cols, 10000),
+        .screen = try Screen.init(alloc, cols, rows, 10000),
         // No scrollback for the alternate screen
-        .secondary_screen = try Screen.init(alloc, rows, cols, 0),
+        .secondary_screen = try Screen.init(alloc, cols, rows, 0),
         .tabstops = try Tabstops.init(alloc, cols, TABSTOP_INTERVAL),
         .scrolling_region = .{
             .top = 0,
@@ -396,8 +396,7 @@ pub fn index(self: *Terminal) !void {
             self.scrolling_region.left == 0 and
             self.scrolling_region.right == self.cols - 1)
         {
-            @panic("TODO: scroll screen");
-            //try self.screen.scroll(.{ .screen = 1 });
+            try self.screen.cursorDownScroll();
         } else {
             @panic("TODO: scroll up");
             //try self.scrollUp(1);
@@ -453,6 +452,22 @@ test "Terminal: input with basic wraparound" {
     }
 }
 
+test "Terminal: input that forces scroll" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 1, 5);
+    defer t.deinit(alloc);
+
+    // Basic grid writing
+    for ("abcdef") |c| try t.print(c);
+    try testing.expectEqual(@as(usize, 4), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
+    {
+        const str = try t.plainString(alloc);
+        defer alloc.free(str);
+        try testing.expectEqualStrings("b\nc\nd\ne\nf", str);
+    }
+}
+
 test "Terminal: zero-width character at start" {
     var t = try init(testing.allocator, 80, 80);
     defer t.deinit(testing.allocator);
@@ -466,11 +481,11 @@ test "Terminal: zero-width character at start" {
 }
 
 // https://github.com/mitchellh/ghostty/issues/1400
-// test "Terminal: print single very long line" {
-//     var t = try init(testing.allocator, 5, 5);
-//     defer t.deinit(testing.allocator);
-//
-//     // This would crash for issue 1400. So the assertion here is
-//     // that we simply do not crash.
-//     for (0..500) |_| try t.print('x');
-// }
+test "Terminal: print single very long line" {
+    var t = try init(testing.allocator, 5, 5);
+    defer t.deinit(testing.allocator);
+
+    // This would crash for issue 1400. So the assertion here is
+    // that we simply do not crash.
+    for (0..1000) |_| try t.print('x');
+}
