@@ -70,7 +70,13 @@ pub const Page = struct {
     /// The available set of styles in use on this page.
     styles: style.Set,
 
-    /// The capacity of this page.
+    /// The current dimensions of the page. The capacity may be larger
+    /// than this. This allows us to allocate a larger page than necessary
+    /// and also to resize a page smaller witout reallocating.
+    size: Size,
+
+    /// The capacity of this page. This is the full size of the backing
+    /// memory and is fixed at page creation time.
     capacity: Capacity,
 
     /// The allocator to use for multi-codepoint grapheme data. We use
@@ -85,11 +91,17 @@ pub const Page = struct {
     const grapheme_bytes_default = grapheme_count_default * grapheme_chunk;
     const GraphemeMap = AutoOffsetHashMap(Offset(Cell), Offset(u21).Slice);
 
+    /// The size of this page.
+    pub const Size = struct {
+        cols: size.CellCountInt,
+        rows: size.CellCountInt,
+    };
+
     /// Capacity of this page.
     pub const Capacity = struct {
         /// Number of columns and rows we can know about.
-        cols: usize,
-        rows: usize,
+        cols: size.CellCountInt,
+        rows: size.CellCountInt,
 
         /// Number of unique styles that can be used on this page.
         styles: u16 = 16,
@@ -99,8 +111,7 @@ pub const Page = struct {
     };
 
     /// Initialize a new page, allocating the required backing memory.
-    /// It is HIGHLY RECOMMENDED you use a page_allocator as the allocator
-    /// but any allocator is allowed.
+    /// The size of the initialized page defaults to the full capacity.
     pub fn init(alloc: Allocator, cap: Capacity) !Page {
         const l = layout(cap);
         const backing = try alloc.alignedAlloc(u8, std.mem.page_size, l.total_size);
@@ -138,6 +149,7 @@ pub const Page = struct {
                 buf.add(l.grapheme_map_start),
                 l.grapheme_map_layout,
             ),
+            .size = .{ .cols = cap.cols, .rows = cap.rows },
             .capacity = cap,
         };
     }
@@ -149,7 +161,7 @@ pub const Page = struct {
 
     /// Get a single row. y must be valid.
     pub fn getRow(self: *const Page, y: usize) *Row {
-        assert(y < self.capacity.rows);
+        assert(y < self.size.rows);
         return &self.rows.ptr(self.memory)[y];
     }
 
@@ -163,7 +175,7 @@ pub const Page = struct {
         }
 
         const cells = row.cells.ptr(self.memory);
-        return cells[0..self.capacity.cols];
+        return cells[0..self.size.cols];
     }
 
     /// Get the row and cell for the given X/Y within this page.
@@ -171,8 +183,8 @@ pub const Page = struct {
         row: *Row,
         cell: *Cell,
     } {
-        assert(y < self.capacity.rows);
-        assert(x < self.capacity.cols);
+        assert(y < self.size.rows);
+        assert(x < self.size.cols);
 
         const rows = self.rows.ptr(self.memory);
         const row = &rows[y];
@@ -199,7 +211,7 @@ pub const Page = struct {
         const rows_start = 0;
         const rows_end = rows_start + (cap.rows * @sizeOf(Row));
 
-        const cells_count = cap.cols * cap.rows;
+        const cells_count: usize = @intCast(cap.cols * cap.rows);
         const cells_start = alignForward(usize, rows_end, @alignOf(Cell));
         const cells_end = cells_start + (cells_count * @sizeOf(Cell));
 

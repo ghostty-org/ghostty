@@ -20,6 +20,7 @@ const Tabstops = @import("../Tabstops.zig");
 const color = @import("../color.zig");
 const mouse_shape = @import("../mouse_shape.zig");
 
+const size = @import("size.zig");
 const pagepkg = @import("page.zig");
 const style = @import("style.zig");
 const Screen = @import("Screen.zig");
@@ -65,8 +66,8 @@ status_display: ansi.StatusDisplay = .main,
 tabstops: Tabstops,
 
 /// The size of the terminal.
-rows: usize,
-cols: usize,
+rows: size.CellCountInt,
+cols: size.CellCountInt,
 
 /// The size of the screen in pixels. This is used for pty events and images
 width_px: u32 = 0,
@@ -155,18 +156,18 @@ pub const MouseFormat = enum(u3) {
 pub const ScrollingRegion = struct {
     // Top and bottom of the scroll region (0-indexed)
     // Precondition: top < bottom
-    top: usize,
-    bottom: usize,
+    top: size.CellCountInt,
+    bottom: size.CellCountInt,
 
     // Left/right scroll regions.
     // Precondition: right > left
     // Precondition: right <= cols - 1
-    left: usize,
-    right: usize,
+    left: size.CellCountInt,
+    right: size.CellCountInt,
 };
 
 /// Initialize a new terminal.
-pub fn init(alloc: Allocator, cols: usize, rows: usize) !Terminal {
+pub fn init(alloc: Allocator, cols: size.CellCountInt, rows: size.CellCountInt) !Terminal {
     return Terminal{
         .cols = cols,
         .rows = rows,

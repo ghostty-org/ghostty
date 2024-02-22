@@ -24,8 +24,8 @@ cursor: Cursor,
 /// The cursor position.
 const Cursor = struct {
     // The x/y position within the viewport.
-    x: usize,
-    y: usize,
+    x: size.CellCountInt,
+    y: size.CellCountInt,
 
     /// The "last column flag (LCF)" as its called. If this is set then the
     /// next character print will force a soft-wrap.
@@ -47,8 +47,8 @@ const Cursor = struct {
 /// Initialize a new screen.
 pub fn init(
     alloc: Allocator,
-    cols: usize,
-    rows: usize,
+    cols: size.CellCountInt,
+    rows: size.CellCountInt,
     max_scrollback: usize,
 ) !Screen {
     // Initialize our backing pages. This will initialize the viewport.
@@ -106,7 +106,7 @@ pub fn cursorDown(self: *Screen) void {
 }
 
 /// Move the cursor to some absolute position.
-pub fn cursorHorizontalAbsolute(self: *Screen, x: usize) void {
+pub fn cursorHorizontalAbsolute(self: *Screen, x: size.CellCountInt) void {
     assert(x < self.pages.cols);
 
     const page_rac = self.cursor.page_offset.rowAndCell(x);
