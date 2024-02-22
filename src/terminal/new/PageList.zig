@@ -57,7 +57,7 @@ pages: List,
 ///   - screen: pages.first
 ///   - history: active row minus one
 ///
-viewport: RowOffset,
+viewport: Viewport,
 active: RowOffset,
 
 /// The current desired screen dimensions. I say "desired" because individual
@@ -65,6 +65,14 @@ active: RowOffset,
 /// reflow text.
 cols: size.CellCountInt,
 rows: size.CellCountInt,
+
+/// The viewport location.
+pub const Viewport = union(enum) {
+    /// The viewport is pinned to the active area. By using a specific marker
+    /// for this instead of tracking the row offset, we eliminate a number of
+    /// memory writes making scrolling faster.
+    active,
+};
 
 pub fn init(
     alloc: Allocator,
@@ -96,13 +104,26 @@ pub fn init(
     var page_list: List = .{};
     page_list.prepend(page);
 
+    // for (0..1) |_| {
+    //     const p = try pool.create();
+    //     p.* = .{
+    //         .data = try Page.init(alloc, .{
+    //             .cols = cols,
+    //             .rows = @max(rows, page_min_rows),
+    //             .styles = page_default_styles,
+    //         }),
+    //     };
+    //     p.data.size.rows = 0;
+    //     page_list.append(p);
+    // }
+
     return .{
         .alloc = alloc,
         .cols = cols,
         .rows = rows,
         .pool = pool,
         .pages = page_list,
-        .viewport = .{ .page = page },
+        .viewport = .{ .active = {} },
         .active = .{ .page = page },
     };
 }
@@ -204,6 +225,15 @@ fn ensureRows(self: *PageList, row: RowOffset, n: usize) !void {
     }
 }
 
+// TODO: test, refine
+pub fn grow(self: *PageList) !*List.Node {
+    const next_page = try self.createPage();
+    // we don't errdefer this because we've added it to the linked
+    // list and its fine to have dangling unused pages.
+    self.pages.append(next_page);
+    return next_page;
+}
+
 /// Create a new page node. This does not add it to the list.
 fn createPage(self: *PageList) !*List.Node {
     var page = try self.pool.create();
@@ -227,7 +257,9 @@ pub fn rowOffset(self: *const PageList, pt: point.Point) RowOffset {
     // This should never return null because we assert the point is valid.
     return (switch (pt) {
         .active => |v| self.active.forward(v.y),
-        .viewport => |v| self.viewport.forward(v.y),
+        .viewport => |v| switch (self.viewport) {
+            .active => self.active.forward(v.y),
+        },
         .screen, .history => |v| offset: {
             const tl: RowOffset = .{ .page = self.pages.first.? };
             break :offset tl.forward(v.y);
@@ -284,8 +316,10 @@ pub fn rowIterator(
 fn getTopLeft(self: *const PageList, tag: point.Tag) RowOffset {
     return switch (tag) {
         .active => self.active,
-        .viewport => self.viewport,
         .screen, .history => .{ .page = self.pages.first.? },
+        .viewport => switch (self.viewport) {
+            .active => self.active,
+        },
     };
 }
 
@@ -370,14 +404,12 @@ test "PageList" {
     defer s.deinit();
 
     // Viewport is setup
-    try testing.expect(s.viewport.page == s.pages.first);
-    try testing.expect(s.viewport.page.next == null);
-    try testing.expect(s.viewport.row_offset == 0);
-    try testing.expect(s.viewport.page.data.size.cols == 80);
-    try testing.expect(s.viewport.page.data.size.rows == 24);
-
-    // Active area and viewport match
-    try testing.expectEqual(s.active, s.viewport);
+    try testing.expect(s.viewport == .active);
+    try testing.expect(s.active.page == s.pages.first);
+    try testing.expect(s.active.page.next == null);
+    try testing.expect(s.active.row_offset == 0);
+    try testing.expect(s.active.page.data.size.cols == 80);
+    try testing.expect(s.active.page.data.size.rows == 24);
 }
 
 test "scrollActive utilizes capacity" {

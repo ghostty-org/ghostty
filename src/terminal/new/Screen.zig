@@ -119,17 +119,38 @@ pub fn cursorHorizontalAbsolute(self: *Screen, x: size.CellCountInt) void {
 pub fn cursorDownScroll(self: *Screen) !void {
     assert(self.cursor.y == self.pages.rows - 1);
 
-    // We move the viewport to the active if we're already there to start.
-    const move_viewport = self.pages.viewport.eql(self.pages.active);
+    // If we have cap space in our current cursor page then we can take
+    // a fast path: update the size, recalculate the row/cell cursor pointers.
+    const cursor_page = self.cursor.page_offset.page;
+    if (cursor_page.data.capacity.rows > cursor_page.data.size.rows) {
+        cursor_page.data.size.rows += 1;
 
-    try self.pages.scrollActive(1);
-    const page_offset = self.pages.active.forward(self.cursor.y).?;
+        const page_offset = self.cursor.page_offset.forward(1).?;
+        const page_rac = page_offset.rowAndCell(self.cursor.x);
+        self.cursor.page_offset = page_offset;
+        self.cursor.page_row = page_rac.row;
+        self.cursor.page_cell = page_rac.cell;
+        return;
+    }
+
+    // No space, we need to allocate a new page and move the cursor to it.
+
+    const new_page = try self.pages.grow();
+    const page_offset: PageList.RowOffset = .{
+        .page = new_page,
+        .row_offset = 0,
+    };
     const page_rac = page_offset.rowAndCell(self.cursor.x);
     self.cursor.page_offset = page_offset;
     self.cursor.page_row = page_rac.row;
     self.cursor.page_cell = page_rac.cell;
 
-    if (move_viewport) self.pages.viewport = self.pages.active;
+    // try self.pages.scrollActive(1);
+    // const page_offset = self.pages.active.forward(self.cursor.y).?;
+    // const page_rac = page_offset.rowAndCell(self.cursor.x);
+    // self.cursor.page_offset = page_offset;
+    // self.cursor.page_row = page_rac.row;
+    // self.cursor.page_cell = page_rac.cell;
 }
 
 /// Dump the screen to a string. The writer given should be buffered;
