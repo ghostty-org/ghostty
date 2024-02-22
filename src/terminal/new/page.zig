@@ -112,11 +112,27 @@ pub const Page = struct {
 
     /// Initialize a new page, allocating the required backing memory.
     /// The size of the initialized page defaults to the full capacity.
-    pub fn init(alloc: Allocator, cap: Capacity) !Page {
+    ///
+    /// The backing memory is always allocated using mmap directly.
+    /// You cannot use custom allocators with this structure because
+    /// it is critical to performance that we use mmap.
+    pub fn init(cap: Capacity) !Page {
         const l = layout(cap);
-        const backing = try alloc.alignedAlloc(u8, std.mem.page_size, l.total_size);
-        errdefer alloc.free(backing);
-        @memset(backing, 0);
+
+        // We use mmap directly to avoid Zig allocator overhead
+        // (small but meaningful for this path) and because a private
+        // anonymous mmap is guaranteed on Linux and macOS to be zeroed,
+        // which is a critical property for us.
+        assert(l.total_size % std.mem.page_size == 0);
+        const backing = try std.os.mmap(
+            null,
+            l.total_size,
+            std.os.PROT.READ | std.os.PROT.WRITE,
+            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
+            -1,
+            0,
+        );
+        errdefer std.os.munmap(backing);
 
         const buf = OffsetBuf.init(backing);
         const rows = buf.member(Row, l.rows_start);
@@ -154,8 +170,8 @@ pub const Page = struct {
         };
     }
 
-    pub fn deinit(self: *Page, alloc: Allocator) void {
-        alloc.free(self.memory);
+    pub fn deinit(self: *Page) void {
+        std.os.munmap(self.memory);
         self.* = undefined;
     }
 
@@ -228,7 +244,7 @@ pub const Page = struct {
         const grapheme_map_start = alignForward(usize, grapheme_alloc_end, GraphemeMap.base_align);
         const grapheme_map_end = grapheme_map_start + grapheme_map_layout.total_size;
 
-        const total_size = grapheme_map_end;
+        const total_size = alignForward(usize, grapheme_map_end, std.mem.page_size);
 
         return .{
             .total_size = total_size,
@@ -317,25 +333,22 @@ pub const Cell = packed struct(u64) {
 // }
 
 test "Page init" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-    var page = try Page.init(alloc, .{
+    var page = try Page.init(.{
         .cols = 120,
         .rows = 80,
         .styles = 32,
     });
-    defer page.deinit(alloc);
+    defer page.deinit();
 }
 
 test "Page read and write cells" {
     const testing = std.testing;
-    const alloc = testing.allocator;
-    var page = try Page.init(alloc, .{
+    var page = try Page.init(.{
         .cols = 10,
         .rows = 10,
         .styles = 8,
     });
-    defer page.deinit(alloc);
+    defer page.deinit();
 
     for (0..page.capacity.rows) |y| {
         const rac = page.getRowAndCell(1, y);

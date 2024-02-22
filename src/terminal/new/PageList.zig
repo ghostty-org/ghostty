@@ -92,7 +92,7 @@ pub fn init(
     // no errdefer because the pool deinit will clean up the page
 
     page.* = .{
-        .data = try Page.init(alloc, .{
+        .data = try Page.init(.{
             .cols = cols,
             .rows = @max(rows, page_min_rows),
             .styles = page_default_styles,
@@ -131,7 +131,7 @@ pub fn init(
 pub fn deinit(self: *PageList) void {
     // Deallocate all the pages. We don't need to deallocate the list or
     // nodes because they all reside in the pool.
-    while (self.pages.popFirst()) |node| node.data.deinit(self.alloc);
+    while (self.pages.popFirst()) |node| node.data.deinit();
     self.pool.deinit();
 }
 
@@ -237,10 +237,10 @@ pub fn grow(self: *PageList) !*List.Node {
 /// Create a new page node. This does not add it to the list.
 fn createPage(self: *PageList) !*List.Node {
     var page = try self.pool.create();
-    errdefer page.data.deinit(self.alloc);
+    errdefer page.data.deinit();
 
     page.* = .{
-        .data = try Page.init(self.alloc, .{
+        .data = try Page.init(.{
             .cols = self.cols,
             .rows = @max(self.rows, page_min_rows),
             .styles = page_default_styles,
