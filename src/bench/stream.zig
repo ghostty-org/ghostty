@@ -94,6 +94,22 @@ pub fn main() !void {
     const writer = std.io.getStdOut().writer();
     const buf = try alloc.alloc(u8, args.@"buffer-size");
 
+    if (false) {
+        const f = try std.fs.cwd().openFile("/tmp/ghostty_bench_data", .{});
+        defer f.close();
+        const r = f.reader();
+        const TerminalStream = terminal.Stream(*NewTerminalHandler);
+        var t = try terminalnew.Terminal.init(
+            alloc,
+            @intCast(args.@"terminal-cols"),
+            @intCast(args.@"terminal-rows"),
+        );
+        var handler: NewTerminalHandler = .{ .t = &t };
+        var stream: TerminalStream = .{ .handler = &handler };
+        try benchSimd(r, &stream, buf);
+        return;
+    }
+
     const seed: u64 = if (args.seed >= 0) @bitCast(args.seed) else @truncate(@as(u128, @bitCast(std.time.nanoTimestamp())));
 
     // Handle the modes that do not depend on terminal state first.

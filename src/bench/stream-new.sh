@@ -24,7 +24,8 @@ hyperfine \
   --warmup 10 \
   -n noop \
   "./zig-out/bin/bench-stream --mode=noop </tmp/ghostty_bench_data" \
-  -n old \
-  "./zig-out/bin/bench-stream --mode=simd --terminal=old </tmp/ghostty_bench_data" \
   -n new \
-  "./zig-out/bin/bench-stream --mode=simd --terminal=new </tmp/ghostty_bench_data"
+  "./zig-out/bin/bench-stream --mode=simd --terminal=new </tmp/ghostty_bench_data"  \
+  -n old \
+  "./zig-out/bin/bench-stream --mode=simd --terminal=old </tmp/ghostty_bench_data"
+
