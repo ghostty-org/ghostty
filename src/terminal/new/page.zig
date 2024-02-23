@@ -14,6 +14,18 @@ const hash_map = @import("hash_map.zig");
 const AutoOffsetHashMap = hash_map.AutoOffsetHashMap;
 const alignForward = std.mem.alignForward;
 
+/// The allocator to use for multi-codepoint grapheme data. We use
+/// a chunk size of 4 codepoints. It'd be best to set this empirically
+/// but it is currently set based on vibes. My thinking around 4 codepoints
+/// is that most skin-tone emoji are <= 4 codepoints, letter combiners
+/// are usually <= 4 codepoints, and 4 codepoints is a nice power of two
+/// for alignment.
+const grapheme_chunk = 4 * @sizeOf(u21);
+const GraphemeAlloc = BitmapAllocator(grapheme_chunk);
+const grapheme_count_default = GraphemeAlloc.bitmap_bit_size;
+const grapheme_bytes_default = grapheme_count_default * grapheme_chunk;
+const GraphemeMap = AutoOffsetHashMap(Offset(Cell), Offset(u21).Slice);
+
 /// A page represents a specific section of terminal screen. The primary
 /// idea of a page is that it is a fully self-contained unit that can be
 /// serialized, copied, etc. as a convenient way to represent a section
@@ -79,47 +91,6 @@ pub const Page = struct {
     /// The capacity of this page. This is the full size of the backing
     /// memory and is fixed at page creation time.
     capacity: Capacity,
-
-    /// The allocator to use for multi-codepoint grapheme data. We use
-    /// a chunk size of 4 codepoints. It'd be best to set this empirically
-    /// but it is currently set based on vibes. My thinking around 4 codepoints
-    /// is that most skin-tone emoji are <= 4 codepoints, letter combiners
-    /// are usually <= 4 codepoints, and 4 codepoints is a nice power of two
-    /// for alignment.
-    const grapheme_chunk = 4 * @sizeOf(u21);
-    const GraphemeAlloc = BitmapAllocator(grapheme_chunk);
-    const grapheme_count_default = GraphemeAlloc.bitmap_bit_size;
-    const grapheme_bytes_default = grapheme_count_default * grapheme_chunk;
-    const GraphemeMap = AutoOffsetHashMap(Offset(Cell), Offset(u21).Slice);
-
-    /// The standard capacity for a page that doesn't have special
-    /// requirements. This is enough to support a very large number of cells.
-    /// The standard capacity is chosen as the fast-path for allocation.
-    pub const std_capacity: Capacity = .{
-        .cols = 250,
-        .rows = 250,
-        .styles = 128,
-        .grapheme_bytes = 1024,
-    };
-
-    /// The size of this page.
-    pub const Size = struct {
-        cols: size.CellCountInt,
-        rows: size.CellCountInt,
-    };
-
-    /// Capacity of this page.
-    pub const Capacity = struct {
-        /// Number of columns and rows we can know about.
-        cols: size.CellCountInt,
-        rows: size.CellCountInt,
-
-        /// Number of unique styles that can be used on this page.
-        styles: u16 = 16,
-
-        /// Number of bytes to allocate for grapheme data.
-        grapheme_bytes: usize = grapheme_bytes_default,
-    };
 
     /// Initialize a new page, allocating the required backing memory.
     /// The size of the initialized page defaults to the full capacity.
@@ -188,6 +159,9 @@ pub const Page = struct {
         };
     }
 
+    /// Deinitialize the page, freeing any backing memory. Do NOT call
+    /// this if you allocated the backing memory yourself (i.e. you used
+    /// initBuf).
     pub fn deinit(self: *Page) void {
         std.os.munmap(self.memory);
         self.* = undefined;
@@ -230,7 +204,9 @@ pub const Page = struct {
     pub const Layout = struct {
         total_size: usize,
         rows_start: usize,
+        rows_size: usize,
         cells_start: usize,
+        cells_size: usize,
         styles_start: usize,
         styles_layout: style.Set.Layout,
         grapheme_alloc_start: usize,
@@ -243,8 +219,9 @@ pub const Page = struct {
     /// The memory layout for a page given a desired minimum cols
     /// and rows size.
     pub fn layout(cap: Capacity) Layout {
+        const rows_count: usize = @intCast(cap.rows);
         const rows_start = 0;
-        const rows_end = rows_start + (cap.rows * @sizeOf(Row));
+        const rows_end: usize = rows_start + (rows_count * @sizeOf(Row));
 
         const cells_count: usize = @intCast(cap.cols * cap.rows);
         const cells_start = alignForward(usize, rows_end, @alignOf(Cell));
@@ -268,7 +245,9 @@ pub const Page = struct {
         return .{
             .total_size = total_size,
             .rows_start = rows_start,
+            .rows_size = rows_end - rows_start,
             .cells_start = cells_start,
+            .cells_size = cells_end - cells_start,
             .styles_start = styles_start,
             .styles_layout = styles_layout,
             .grapheme_alloc_start = grapheme_alloc_start,
@@ -277,6 +256,74 @@ pub const Page = struct {
             .grapheme_map_layout = grapheme_map_layout,
             .capacity = cap,
         };
+    }
+};
+
+/// The standard capacity for a page that doesn't have special
+/// requirements. This is enough to support a very large number of cells.
+/// The standard capacity is chosen as the fast-path for allocation.
+pub const std_capacity: Capacity = .{
+    .cols = 250,
+    .rows = 250,
+    .styles = 128,
+    .grapheme_bytes = 1024,
+};
+
+/// The size of this page.
+pub const Size = struct {
+    cols: size.CellCountInt,
+    rows: size.CellCountInt,
+};
+
+/// Capacity of this page.
+pub const Capacity = struct {
+    /// Number of columns and rows we can know about.
+    cols: size.CellCountInt,
+    rows: size.CellCountInt,
+
+    /// Number of unique styles that can be used on this page.
+    styles: u16 = 16,
+
+    /// Number of bytes to allocate for grapheme data.
+    grapheme_bytes: usize = grapheme_bytes_default,
+
+    pub const Adjustment = struct {
+        cols: ?size.CellCountInt = null,
+    };
+
+    /// Adjust the capacity parameters while retaining the same total size.
+    /// Adjustments always happen by limiting the rows in the page. Everything
+    /// else can grow. If it is impossible to achieve the desired adjustment,
+    /// OutOfMemory is returned.
+    pub fn adjust(self: Capacity, req: Adjustment) Allocator.Error!Capacity {
+        var adjusted = self;
+        if (req.cols) |cols| {
+            // The calculations below only work if cells/rows match size.
+            assert(@sizeOf(Cell) == @sizeOf(Row));
+
+            // total_size = (Nrows * sizeOf(Row)) + (Nrows * Ncells * sizeOf(Cell))
+            // with some algebra:
+            // Nrows = total_size / (sizeOf(Row) + (Ncells * sizeOf(Cell)))
+            const layout = Page.layout(self);
+            const total_size = layout.rows_size + layout.cells_size;
+            const denom = @sizeOf(Row) + (@sizeOf(Cell) * @as(usize, @intCast(cols)));
+            const new_rows = @divFloor(total_size, denom);
+
+            // If our rows go to zero then we can't fit any row metadata
+            // for the desired number of columns.
+            if (new_rows == 0) return error.OutOfMemory;
+
+            adjusted.cols = cols;
+            adjusted.rows = @intCast(new_rows);
+        }
+
+        if (comptime std.debug.runtime_safety) {
+            const old_size = Page.layout(self).total_size;
+            const new_size = Page.layout(adjusted).total_size;
+            assert(new_size == old_size);
+        }
+
+        return adjusted;
     }
 };
 
@@ -357,9 +404,41 @@ test "Page std size" {
     // We want to ensure that the standard capacity is what we
     // expect it to be. Changing this is fine but should be done with care
     // so we fail a test if it changes.
-    const total_size = Page.layout(Page.std_capacity).total_size;
+    const total_size = Page.layout(std_capacity).total_size;
     try testing.expectEqual(@as(usize, 524_288), total_size); // 512 KiB
     //const pages = total_size / std.mem.page_size;
+}
+
+test "Page capacity adjust cols down" {
+    const original = std_capacity;
+    const original_size = Page.layout(original).total_size;
+    const adjusted = try original.adjust(.{ .cols = original.cols / 2 });
+    const adjusted_size = Page.layout(adjusted).total_size;
+    try testing.expectEqual(original_size, adjusted_size);
+}
+
+test "Page capacity adjust cols down to 1" {
+    const original = std_capacity;
+    const original_size = Page.layout(original).total_size;
+    const adjusted = try original.adjust(.{ .cols = 1 });
+    const adjusted_size = Page.layout(adjusted).total_size;
+    try testing.expectEqual(original_size, adjusted_size);
+}
+
+test "Page capacity adjust cols up" {
+    const original = std_capacity;
+    const original_size = Page.layout(original).total_size;
+    const adjusted = try original.adjust(.{ .cols = original.cols * 2 });
+    const adjusted_size = Page.layout(adjusted).total_size;
+    try testing.expectEqual(original_size, adjusted_size);
+}
+
+test "Page capacity adjust cols too high" {
+    const original = std_capacity;
+    try testing.expectError(
+        error.OutOfMemory,
+        original.adjust(.{ .cols = std.math.maxInt(size.CellCountInt) }),
+    );
 }
 
 test "Page init" {

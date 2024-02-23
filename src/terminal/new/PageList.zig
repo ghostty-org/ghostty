@@ -42,7 +42,7 @@ const List = std.DoublyLinkedList(Page);
 /// The memory pool we get page nodes from.
 const Pool = std.heap.MemoryPool(List.Node);
 
-const std_layout = Page.layout(Page.std_capacity);
+const std_layout = Page.layout(pagepkg.std_capacity);
 const PagePool = std.heap.MemoryPoolAligned([std_layout.total_size]u8, std.mem.page_size);
 
 /// The allocator to use for pages.
