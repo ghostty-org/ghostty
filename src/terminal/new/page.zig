@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+const testing = std.testing;
 const color = @import("../color.zig");
 const sgr = @import("../sgr.zig");
 const style = @import("style.zig");
@@ -95,8 +96,8 @@ pub const Page = struct {
     /// requirements. This is enough to support a very large number of cells.
     /// The standard capacity is chosen as the fast-path for allocation.
     pub const std_capacity: Capacity = .{
-        .cols = 120,
-        .rows = 520,
+        .cols = 250,
+        .rows = 250,
         .styles = 128,
         .grapheme_bytes = 1024,
     };
@@ -145,6 +146,13 @@ pub const Page = struct {
         errdefer std.os.munmap(backing);
 
         const buf = OffsetBuf.init(backing);
+        return initBuf(buf, l);
+    }
+
+    /// Initialize a new page using the given backing memory.
+    /// It is up to the caller to not call deinit on these pages.
+    pub fn initBuf(buf: OffsetBuf, l: Layout) Page {
+        const cap = l.capacity;
         const rows = buf.member(Row, l.rows_start);
         const cells = buf.member(Cell, l.cells_start);
 
@@ -160,7 +168,7 @@ pub const Page = struct {
         }
 
         return .{
-            .memory = backing,
+            .memory = @alignCast(buf.start()[0..l.total_size]),
             .rows = rows,
             .cells = cells,
             .styles = style.Set.init(
@@ -219,7 +227,7 @@ pub const Page = struct {
         return .{ .row = row, .cell = cell };
     }
 
-    const Layout = struct {
+    pub const Layout = struct {
         total_size: usize,
         rows_start: usize,
         cells_start: usize,
@@ -229,11 +237,12 @@ pub const Page = struct {
         grapheme_alloc_layout: GraphemeAlloc.Layout,
         grapheme_map_start: usize,
         grapheme_map_layout: GraphemeMap.Layout,
+        capacity: Capacity,
     };
 
     /// The memory layout for a page given a desired minimum cols
     /// and rows size.
-    fn layout(cap: Capacity) Layout {
+    pub fn layout(cap: Capacity) Layout {
         const rows_start = 0;
         const rows_end = rows_start + (cap.rows * @sizeOf(Row));
 
@@ -266,6 +275,7 @@ pub const Page = struct {
             .grapheme_alloc_layout = grapheme_alloc_layout,
             .grapheme_map_start = grapheme_map_start,
             .grapheme_map_layout = grapheme_map_layout,
+            .capacity = cap,
         };
     }
 };
@@ -343,6 +353,15 @@ pub const Cell = packed struct(u64) {
 //     });
 // }
 
+test "Page std size" {
+    // We want to ensure that the standard capacity is what we
+    // expect it to be. Changing this is fine but should be done with care
+    // so we fail a test if it changes.
+    const total_size = Page.layout(Page.std_capacity).total_size;
+    try testing.expectEqual(@as(usize, 524_288), total_size); // 512 KiB
+    //const pages = total_size / std.mem.page_size;
+}
+
 test "Page init" {
     var page = try Page.init(.{
         .cols = 120,
@@ -353,7 +372,6 @@ test "Page init" {
 }
 
 test "Page read and write cells" {
-    const testing = std.testing;
     var page = try Page.init(.{
         .cols = 10,
         .rows = 10,
