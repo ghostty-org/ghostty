@@ -210,22 +210,20 @@ fn ensureRows(self: *PageList, row: RowOffset, n: usize) !void {
         self.pages.insertAfter(page, next_page);
         page = next_page;
 
-        // we expect the pages at this point to be full capacity. we
-        // shrink them if we have to since they've never been used.
-        assert(page.data.size.rows == page.data.capacity.rows);
-
         // If we have enough space, use it.
-        if (n_rem <= page.data.size.rows) {
+        if (n_rem <= page.data.capacity.rows) {
             page.data.size.rows = @intCast(n_rem);
             return;
         }
+
+        // created pages are always empty so fill it with blanks
+        page.data.size.rows = page.data.capacity.rows;
 
         // Continue
         n_rem -= page.data.size.rows;
     }
 }
 
-// TODO: test, refine
 pub fn grow(self: *PageList) !*List.Node {
     const next_page = try self.createPage();
     // we don't errdefer this because we've added it to the linked
@@ -246,6 +244,7 @@ fn createPage(self: *PageList) !*List.Node {
             .styles = page_default_styles,
         }),
     };
+    page.data.size.rows = 0;
 
     return page;
 }
