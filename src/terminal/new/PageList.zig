@@ -9,6 +9,7 @@ const assert = std.debug.assert;
 const point = @import("point.zig");
 const pagepkg = @import("page.zig");
 const size = @import("size.zig");
+const OffsetBuf = size.OffsetBuf;
 const Page = pagepkg.Page;
 
 /// The number of PageList.Nodes we preheat the pool with. A node is
@@ -41,11 +42,16 @@ const List = std.DoublyLinkedList(Page);
 /// The memory pool we get page nodes from.
 const Pool = std.heap.MemoryPool(List.Node);
 
+const std_layout = Page.layout(Page.std_capacity);
+const PagePool = std.heap.MemoryPoolAligned([std_layout.total_size]u8, std.mem.page_size);
+
 /// The allocator to use for pages.
 alloc: Allocator,
 
 /// The memory pool we get page nodes for the linked list from.
 pool: Pool,
+
+page_pool: PagePool,
 
 /// The list of pages in the screen.
 pages: List,
@@ -88,15 +94,15 @@ pub fn init(
     var pool = try Pool.initPreheated(alloc, page_preheat);
     errdefer pool.deinit();
 
+    var page_pool = try PagePool.initPreheated(std.heap.page_allocator, page_preheat);
+    errdefer page_pool.deinit();
+
     var page = try pool.create();
     // no errdefer because the pool deinit will clean up the page
+    const page_buf = OffsetBuf.init(try page_pool.create());
 
     page.* = .{
-        .data = try Page.init(.{
-            .cols = cols,
-            .rows = @max(rows, page_min_rows),
-            .styles = page_default_styles,
-        }),
+        .data = Page.initBuf(page_buf, std_layout),
     };
     errdefer page.data.deinit(alloc);
     page.data.size.rows = rows;
@@ -122,6 +128,7 @@ pub fn init(
         .cols = cols,
         .rows = rows,
         .pool = pool,
+        .page_pool = page_pool,
         .pages = page_list,
         .viewport = .{ .active = {} },
         .active = .{ .page = page },
@@ -131,7 +138,7 @@ pub fn init(
 pub fn deinit(self: *PageList) void {
     // Deallocate all the pages. We don't need to deallocate the list or
     // nodes because they all reside in the pool.
-    while (self.pages.popFirst()) |node| node.data.deinit();
+    self.page_pool.deinit();
     self.pool.deinit();
 }
 
@@ -237,12 +244,10 @@ fn createPage(self: *PageList) !*List.Node {
     var page = try self.pool.create();
     errdefer page.data.deinit();
 
+    const page_buf = OffsetBuf.init(try self.page_pool.create());
+
     page.* = .{
-        .data = try Page.init(.{
-            .cols = self.cols,
-            .rows = @max(self.rows, page_min_rows),
-            .styles = page_default_styles,
-        }),
+        .data = Page.initBuf(page_buf, std_layout),
     };
     page.data.size.rows = 0;
 
