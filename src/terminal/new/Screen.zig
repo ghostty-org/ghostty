@@ -246,5 +246,5 @@ test "Screen read and write" {
     try s.testWriteString("hello, world");
     const str = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
     defer alloc.free(str);
-    //try testing.expectEqualStrings("hello, world", str);
+    try testing.expectEqualStrings("hello, world", str);
 }
