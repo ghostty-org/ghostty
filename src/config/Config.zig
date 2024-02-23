@@ -148,8 +148,7 @@ const c = @cImport({
 /// i.e. new windows, tabs, etc.
 @"font-codepoint-map": RepeatableCodepointMap = .{},
 
-/// Draw fonts with a thicker stroke, if supported. This is only supported
-/// currently on MacOS.
+/// Draw fonts with a thicker stroke, if supported.
 @"font-thicken": bool = false,
 
 /// All of the configurations behavior adjust various metrics determined by the
