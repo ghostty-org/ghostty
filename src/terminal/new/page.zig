@@ -95,8 +95,8 @@ pub const Page = struct {
     /// requirements. This is enough to support a very large number of cells.
     /// The standard capacity is chosen as the fast-path for allocation.
     pub const std_capacity: Capacity = .{
-        .cols = 250,
-        .rows = 250,
+        .cols = 120,
+        .rows = 520,
         .styles = 128,
         .grapheme_bytes = 1024,
     };

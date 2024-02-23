@@ -136,6 +136,8 @@ pub fn cursorDownScroll(self: *Screen) !void {
     // No space, we need to allocate a new page and move the cursor to it.
 
     const new_page = try self.pages.grow();
+    assert(new_page.data.size.rows == 0);
+    new_page.data.size.rows = 1;
     const page_offset: PageList.RowOffset = .{
         .page = new_page,
         .row_offset = 0,
