@@ -48,8 +48,9 @@ pub usingnamespace if (builtin.target.isWasm()) struct {
     pub usingnamespace @import("wasm.zig");
 } else struct {};
 
+/// The new stuff. TODO: remove this before merge.
+pub const new = @import("new/main.zig");
+
 test {
     @import("std").testing.refAllDecls(@This());
-
-    _ = @import("new/main.zig");
 }

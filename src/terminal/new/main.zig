@@ -1,6 +1,8 @@
 const builtin = @import("builtin");
 
+const page = @import("page.zig");
 pub const Terminal = @import("Terminal.zig");
+pub const Page = page.Page;
 
 test {
     @import("std").testing.refAllDecls(@This());
