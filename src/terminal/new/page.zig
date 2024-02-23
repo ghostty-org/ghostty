@@ -91,6 +91,16 @@ pub const Page = struct {
     const grapheme_bytes_default = grapheme_count_default * grapheme_chunk;
     const GraphemeMap = AutoOffsetHashMap(Offset(Cell), Offset(u21).Slice);
 
+    /// The standard capacity for a page that doesn't have special
+    /// requirements. This is enough to support a very large number of cells.
+    /// The standard capacity is chosen as the fast-path for allocation.
+    pub const std_capacity: Capacity = .{
+        .cols = 250,
+        .rows = 250,
+        .styles = 128,
+        .grapheme_bytes = 1024,
+    };
+
     /// The size of this page.
     pub const Size = struct {
         cols: size.CellCountInt,
@@ -319,9 +329,10 @@ pub const Cell = packed struct(u64) {
 //     const total_size = alignForward(
 //         usize,
 //         Page.layout(.{
-//             .cols = 333,
-//             .rows = 81,
-//             .styles = 32,
+//             .cols = 250,
+//             .rows = 250,
+//             .styles = 128,
+//             .grapheme_bytes = 1024,
 //         }).total_size,
 //         std.mem.page_size,
 //     );
