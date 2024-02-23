@@ -14,7 +14,7 @@ const Args = struct {
     mode: Mode = .alloc,
 
     /// The number of pages to create sequentially.
-    count: usize = 20_000,
+    count: usize = 208_235,
 
     /// This is set by the CLI parser for deinit.
     _arena: ?ArenaAllocator = null,

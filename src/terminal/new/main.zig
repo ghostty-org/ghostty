@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 
 const page = @import("page.zig");
+pub const PageList = @import("PageList.zig");
 pub const Terminal = @import("Terminal.zig");
 pub const Page = page.Page;
 
