@@ -57,7 +57,6 @@ pages: List,
 ///   - history: active row minus one
 ///
 viewport: Viewport,
-active: RowOffset,
 
 /// The current desired screen dimensions. I say "desired" because individual
 /// pages may still be a different size and not yet reflowed since we lazily
@@ -120,7 +119,6 @@ pub fn init(
         .page_pool = page_pool,
         .pages = page_list,
         .viewport = .{ .active = {} },
-        .active = .{ .page = page },
     };
 }
 
@@ -224,10 +222,30 @@ pub fn rowIterator(
 /// Get the top-left of the screen for the given tag.
 fn getTopLeft(self: *const PageList, tag: point.Tag) RowOffset {
     return switch (tag) {
-        .active => self.active,
+        // The full screen or history is always just the first page.
         .screen, .history => .{ .page = self.pages.first.? },
+
         .viewport => switch (self.viewport) {
-            .active => self.active,
+            // If the viewport is in the active area then its the same as active.
+            .active => self.getTopLeft(.active),
+        },
+
+        // The active area is calculated backwards from the last page.
+        // This makes getting the active top left slower but makes scrolling
+        // much faster because we don't need to update the top left. Under
+        // heavy load this makes a measurable difference.
+        .active => active: {
+            var page = self.pages.last.?;
+            var rem = self.rows;
+            while (rem > page.data.size.rows) {
+                rem -= page.data.size.rows;
+                page = page.prev.?; // assertion: we always have enough rows for active
+            }
+
+            break :active .{
+                .page = page,
+                .row_offset = page.data.size.rows - rem,
+            };
         },
     };
 }
@@ -311,12 +329,12 @@ test "PageList" {
 
     var s = try init(alloc, 80, 24, 1000);
     defer s.deinit();
-
-    // Viewport is setup
     try testing.expect(s.viewport == .active);
-    try testing.expect(s.active.page == s.pages.first);
-    try testing.expect(s.active.page.next == null);
-    try testing.expect(s.active.row_offset == 0);
-    try testing.expect(s.active.page.data.size.cols == 80);
-    try testing.expect(s.active.page.data.size.rows == 24);
+    try testing.expect(s.pages.first != null);
+
+    // Active area should be the top
+    try testing.expectEqual(RowOffset{
+        .page = s.pages.first.?,
+        .row_offset = 0,
+    }, s.getTopLeft(.active));
 }

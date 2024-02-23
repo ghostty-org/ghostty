@@ -51,13 +51,17 @@ pub fn init(
     rows: size.CellCountInt,
     max_scrollback: usize,
 ) !Screen {
-    // Initialize our backing pages. This will initialize the viewport.
+    // Initialize our backing pages.
     var pages = try PageList.init(alloc, cols, rows, max_scrollback);
     errdefer pages.deinit();
 
-    // The viewport is guaranteed to exist, so grab it so we can setup
-    // our initial cursor.
-    const page_offset = pages.rowOffset(.{ .active = .{ .x = 0, .y = 0 } });
+    // The active area is guaranteed to be allocated and the first
+    // page in the list after init. This lets us quickly setup the cursor.
+    // This is MUCH faster than pages.rowOffset.
+    const page_offset: PageList.RowOffset = .{
+        .page = pages.pages.first.?,
+        .row_offset = 0,
+    };
     const page_rac = page_offset.rowAndCell(0);
 
     return .{
@@ -146,13 +150,6 @@ pub fn cursorDownScroll(self: *Screen) !void {
     self.cursor.page_offset = page_offset;
     self.cursor.page_row = page_rac.row;
     self.cursor.page_cell = page_rac.cell;
-
-    // try self.pages.scrollActive(1);
-    // const page_offset = self.pages.active.forward(self.cursor.y).?;
-    // const page_rac = page_offset.rowAndCell(self.cursor.x);
-    // self.cursor.page_offset = page_offset;
-    // self.cursor.page_row = page_rac.row;
-    // self.cursor.page_cell = page_rac.cell;
 }
 
 /// Dump the screen to a string. The writer given should be buffered;

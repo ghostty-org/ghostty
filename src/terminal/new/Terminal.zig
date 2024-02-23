@@ -461,12 +461,11 @@ test "Terminal: input that forces scroll" {
     for ("abcdef") |c| try t.print(c);
     try testing.expectEqual(@as(usize, 4), t.screen.cursor.y);
     try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
-    // TODO once viewport is moved
-    // {
-    //     const str = try t.plainString(alloc);
-    //     defer alloc.free(str);
-    //     try testing.expectEqualStrings("b\nc\nd\ne\nf", str);
-    // }
+    {
+        const str = try t.plainString(alloc);
+        defer alloc.free(str);
+        try testing.expectEqualStrings("b\nc\nd\ne\nf", str);
+    }
 }
 
 test "Terminal: zero-width character at start" {
