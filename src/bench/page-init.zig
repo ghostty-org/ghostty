@@ -14,7 +14,7 @@ const Args = struct {
     mode: Mode = .alloc,
 
     /// The number of pages to create sequentially.
-    count: usize = 208_235,
+    count: usize = 10_000,
 
     /// This is set by the CLI parser for deinit.
     _arena: ?ArenaAllocator = null,
@@ -28,6 +28,9 @@ const Args = struct {
 const Mode = enum {
     /// The default allocation strategy of the structure.
     alloc,
+
+    /// Use a memory pool to allocate pages from a backing buffer.
+    pool,
 };
 
 pub const std_options: std.Options = .{
@@ -50,11 +53,26 @@ pub fn main() !void {
     // Handle the modes that do not depend on terminal state first.
     switch (args.mode) {
         .alloc => try benchAlloc(args.count),
+        .pool => try benchPool(alloc, args.count),
     }
 }
 
 noinline fn benchAlloc(count: usize) !void {
     for (0..count) |_| {
-        _ = try terminal.new.Page.init(terminal.new.Page.std_capacity);
+        _ = try terminal.new.Page.init(terminal.new.page.std_capacity);
+    }
+}
+
+noinline fn benchPool(alloc: Allocator, count: usize) !void {
+    var list = try terminal.new.PageList.init(
+        alloc,
+        terminal.new.page.std_capacity.cols,
+        terminal.new.page.std_capacity.rows,
+        0,
+    );
+    defer list.deinit();
+
+    for (0..count) |_| {
+        _ = try list.grow();
     }
 }

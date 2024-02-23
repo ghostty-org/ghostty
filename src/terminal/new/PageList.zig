@@ -20,20 +20,6 @@ const Page = pagepkg.Page;
 /// window to scroll into quickly.
 const page_preheat = 4;
 
-/// The default number of unique styles per page we expect. It is currently
-/// "32" because anecdotally amongst a handful of beta testers, no one
-/// under normal terminal use ever used more than 32 unique styles in a
-/// single page. We found outliers but it was rare enough that we could
-/// allocate those when necessary.
-const page_default_styles = 32;
-
-/// Minimum rows we ever initialize a page with. This is wasted memory if
-/// too large, but saves us from allocating too many pages when a terminal
-/// is small. It also lets us scroll more before we have to allocate more.
-/// Tne number 100 is arbitrary. I'm open to changing it if we find a
-/// better number.
-const page_min_rows: size.CellCountInt = 100;
-
 /// The list of pages in the screen. These are expected to be in order
 /// where the first page is the topmost page (scrollback) and the last is
 /// the bottommost page (the current active page).
@@ -43,8 +29,14 @@ const List = std.DoublyLinkedList(Page);
 const Pool = std.heap.MemoryPool(List.Node);
 
 const std_capacity = pagepkg.std_capacity;
-const std_layout = Page.layout(std_capacity);
-const PagePool = std.heap.MemoryPoolAligned([std_layout.total_size]u8, std.mem.page_size);
+
+/// The memory pool we use for page memory buffers. We use a separate pool
+/// so we can allocate these with a page allocator. We have to use a page
+/// allocator because we need memory that is zero-initialized and page-aligned.
+const PagePool = std.heap.MemoryPoolAligned(
+    [Page.layout(std_capacity).total_size]u8,
+    std.mem.page_size,
+);
 
 /// The allocator to use for pages.
 alloc: Allocator,
@@ -81,6 +73,9 @@ pub const Viewport = union(enum) {
     active,
 };
 
+/// Initialize the page. The top of the first page in the list is always the
+/// top of the active area of the screen (important knowledge for quickly
+/// setting up cursors in Screen).
 pub fn init(
     alloc: Allocator,
     cols: size.CellCountInt,
@@ -99,34 +94,23 @@ pub fn init(
     errdefer page_pool.deinit();
 
     var page = try pool.create();
-    // no errdefer because the pool deinit will clean up the page
     const page_buf = try page_pool.create();
     if (comptime std.debug.runtime_safety) @memset(page_buf, 0);
+    // no errdefer because the pool deinit will clean these up
 
+    // Initialize the first set of pages to contain our viewport so that
+    // the top of the first page is always the active area.
     page.* = .{
         .data = Page.initBuf(
             OffsetBuf.init(page_buf),
             Page.layout(try std_capacity.adjust(.{ .cols = cols })),
         ),
     };
-    errdefer page.data.deinit(alloc);
+    assert(page.data.capacity.rows >= rows); // todo: handle this
     page.data.size.rows = rows;
 
     var page_list: List = .{};
     page_list.prepend(page);
-
-    // for (0..1) |_| {
-    //     const p = try pool.create();
-    //     p.* = .{
-    //         .data = try Page.init(alloc, .{
-    //             .cols = cols,
-    //             .rows = @max(rows, page_min_rows),
-    //             .styles = page_default_styles,
-    //         }),
-    //     };
-    //     p.data.size.rows = 0;
-    //     page_list.append(p);
-    // }
 
     return .{
         .alloc = alloc,

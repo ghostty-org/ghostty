@@ -10,5 +10,7 @@
 hyperfine \
   --warmup 10 \
   -n alloc \
-  "./zig-out/bin/bench-page-init --mode=alloc${ARGS} </tmp/ghostty_bench_data"
+  "./zig-out/bin/bench-page-init --mode=alloc${ARGS} </tmp/ghostty_bench_data" \
+  -n pool \
+  "./zig-out/bin/bench-page-init --mode=pool${ARGS} </tmp/ghostty_bench_data"
 
