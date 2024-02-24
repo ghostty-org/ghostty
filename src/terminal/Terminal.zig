@@ -2232,6 +2232,7 @@ test "Terminal: fullReset status display" {
     try testing.expect(t.status_display == .main);
 }
 
+// X
 test "Terminal: input with no control characters" {
     var t = try init(testing.allocator, 80, 80);
     defer t.deinit(testing.allocator);
@@ -2247,6 +2248,7 @@ test "Terminal: input with no control characters" {
     }
 }
 
+// X
 test "Terminal: zero-width character at start" {
     var t = try init(testing.allocator, 80, 80);
     defer t.deinit(testing.allocator);
@@ -2260,6 +2262,7 @@ test "Terminal: zero-width character at start" {
 }
 
 // https://github.com/mitchellh/ghostty/issues/1400
+// X
 test "Terminal: print single very long line" {
     var t = try init(testing.allocator, 5, 5);
     defer t.deinit(testing.allocator);
@@ -2269,6 +2272,7 @@ test "Terminal: print single very long line" {
     for (0..500) |_| try t.print('x');
 }
 
+// X
 test "Terminal: print over wide char at 0,0" {
     var t = try init(testing.allocator, 80, 80);
     defer t.deinit(testing.allocator);
@@ -2293,6 +2297,7 @@ test "Terminal: print over wide char at 0,0" {
     }
 }
 
+// X
 test "Terminal: print over wide spacer tail" {
     var t = try init(testing.allocator, 5, 5);
     defer t.deinit(testing.allocator);
@@ -2611,6 +2616,7 @@ test "Terminal: print invalid VS16 with second char" {
     }
 }
 
+// X
 test "Terminal: soft wrap" {
     var t = try init(testing.allocator, 3, 80);
     defer t.deinit(testing.allocator);
@@ -2643,6 +2649,7 @@ test "Terminal: soft wrap with semantic prompt" {
     }
 }
 
+// X
 test "Terminal: disabled wraparound with wide char and one space" {
     var t = try init(testing.allocator, 5, 5);
     defer t.deinit(testing.allocator);
@@ -2671,6 +2678,7 @@ test "Terminal: disabled wraparound with wide char and one space" {
     }
 }
 
+// X
 test "Terminal: disabled wraparound with wide char and no space" {
     var t = try init(testing.allocator, 5, 5);
     defer t.deinit(testing.allocator);
@@ -2848,6 +2856,7 @@ test "Terminal: print invoke charset single" {
     }
 }
 
+// X
 test "Terminal: print right margin wrap" {
     var t = try init(testing.allocator, 10, 5);
     defer t.deinit(testing.allocator);
@@ -2865,6 +2874,7 @@ test "Terminal: print right margin wrap" {
     }
 }
 
+// X
 test "Terminal: print right margin outside" {
     var t = try init(testing.allocator, 10, 5);
     defer t.deinit(testing.allocator);

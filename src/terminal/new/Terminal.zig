@@ -195,6 +195,23 @@ pub fn deinit(self: *Terminal, alloc: Allocator) void {
     self.* = undefined;
 }
 
+/// Print UTF-8 encoded string to the terminal.
+pub fn printString(self: *Terminal, str: []const u8) !void {
+    const view = try std.unicode.Utf8View.init(str);
+    var it = view.iterator();
+    while (it.nextCodepoint()) |cp| {
+        switch (cp) {
+            '\n' => {
+                @panic("TODO: newline");
+                // self.carriageReturn();
+                // try self.linefeed();
+            },
+
+            else => try self.print(cp),
+        }
+    }
+}
+
 pub fn print(self: *Terminal, c: u21) !void {
     // log.debug("print={x} y={} x={}", .{ c, self.screen.cursor.y, self.screen.cursor.x });
 
@@ -506,6 +523,20 @@ pub fn setCursorPos(self: *Terminal, row_req: usize, col_req: usize) void {
 
 }
 
+/// DECSLRM
+pub fn setLeftAndRightMargin(self: *Terminal, left_req: usize, right_req: usize) void {
+    // We must have this mode enabled to do anything
+    if (!self.modes.get(.enable_left_and_right_margin)) return;
+
+    const left = @max(1, left_req);
+    const right = @min(self.cols, if (right_req == 0) self.cols else right_req);
+    if (left >= right) return;
+
+    self.scrolling_region.left = @intCast(left - 1);
+    self.scrolling_region.right = @intCast(right - 1);
+    self.setCursorPos(1, 1);
+}
+
 /// Return the current string value of the terminal. Newlines are
 /// encoded as "\n". This omits any formatting such as fg/bg.
 ///
@@ -606,6 +637,23 @@ test "Terminal: print wide char" {
     }
 }
 
+test "Terminal: print wide char in single-width terminal" {
+    var t = try init(testing.allocator, 1, 80);
+    defer t.deinit(testing.allocator);
+
+    try t.print(0x1F600); // Smiley face
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
+    try testing.expect(t.screen.cursor.pending_wrap);
+
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, ' '), cell.codepoint);
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+    }
+}
+
 test "Terminal: print over wide char at 0,0" {
     var t = try init(testing.allocator, 80, 80);
     defer t.deinit(testing.allocator);
@@ -656,5 +704,126 @@ test "Terminal: print over wide spacer tail" {
         const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings(" X", str);
+    }
+}
+
+test "Terminal: soft wrap" {
+    var t = try init(testing.allocator, 3, 80);
+    defer t.deinit(testing.allocator);
+
+    // Basic grid writing
+    for ("hello") |c| try t.print(c);
+    try testing.expectEqual(@as(usize, 1), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 2), t.screen.cursor.x);
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("hel\nlo", str);
+    }
+}
+
+test "Terminal: disabled wraparound with wide char and one space" {
+    var t = try init(testing.allocator, 5, 5);
+    defer t.deinit(testing.allocator);
+
+    t.modes.set(.wraparound, false);
+
+    // This puts our cursor at the end and there is NO SPACE for a
+    // wide character.
+    try t.printString("AAAA");
+    try t.print(0x1F6A8); // Police car light
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 4), t.screen.cursor.x);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("AAAA", str);
+    }
+
+    // Make sure we printed nothing
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 4, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0), cell.codepoint);
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+    }
+}
+
+test "Terminal: disabled wraparound with wide char and no space" {
+    var t = try init(testing.allocator, 5, 5);
+    defer t.deinit(testing.allocator);
+
+    t.modes.set(.wraparound, false);
+
+    // This puts our cursor at the end and there is NO SPACE for a
+    // wide character.
+    try t.printString("AAAAA");
+    try t.print(0x1F6A8); // Police car light
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 4), t.screen.cursor.x);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("AAAAA", str);
+    }
+
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 4, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 'A'), cell.codepoint);
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+    }
+}
+
+test "Terminal: print right margin wrap" {
+    var t = try init(testing.allocator, 10, 5);
+    defer t.deinit(testing.allocator);
+
+    try t.printString("123456789");
+    t.modes.set(.enable_left_and_right_margin, true);
+    t.setLeftAndRightMargin(3, 5);
+    t.setCursorPos(1, 5);
+    try t.printString("XY");
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("1234X6789\n  Y", str);
+    }
+}
+
+test "Terminal: print right margin outside" {
+    var t = try init(testing.allocator, 10, 5);
+    defer t.deinit(testing.allocator);
+
+    try t.printString("123456789");
+    t.modes.set(.enable_left_and_right_margin, true);
+    t.setLeftAndRightMargin(3, 5);
+    t.setCursorPos(1, 6);
+    try t.printString("XY");
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("12345XY89", str);
+    }
+}
+
+test "Terminal: print right margin outside wrap" {
+    var t = try init(testing.allocator, 10, 5);
+    defer t.deinit(testing.allocator);
+
+    try t.printString("123456789");
+    t.modes.set(.enable_left_and_right_margin, true);
+    t.setLeftAndRightMargin(3, 5);
+    t.setCursorPos(1, 10);
+    try t.printString("XY");
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("123456789X\n  Y", str);
     }
 }
