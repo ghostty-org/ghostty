@@ -81,14 +81,57 @@ pub fn deinit(self: *Screen) void {
     self.pages.deinit();
 }
 
+pub fn cursorCellRight(self: *Screen) *pagepkg.Cell {
+    assert(self.cursor.x + 1 < self.pages.cols);
+    const cell: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
+    return @ptrCast(cell + 1);
+}
+
+pub fn cursorCellLeft(self: *Screen) *pagepkg.Cell {
+    assert(self.cursor.x > 0);
+    const cell: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
+    return @ptrCast(cell - 1);
+}
+
+pub fn cursorCellEndOfPrev(self: *Screen) *pagepkg.Cell {
+    assert(self.cursor.y > 0);
+
+    const page_offset = self.cursor.page_offset.backward(1).?;
+    const page_rac = page_offset.rowAndCell(self.pages.cols - 1);
+    return page_rac.cell;
+}
+
 /// Move the cursor right. This is a specialized function that is very fast
 /// if the caller can guarantee we have space to move right (no wrapping).
-pub fn cursorRight(self: *Screen) void {
-    assert(self.cursor.x + 1 < self.pages.cols);
+pub fn cursorRight(self: *Screen, n: size.CellCountInt) void {
+    assert(self.cursor.x + n < self.pages.cols);
 
     const cell: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
-    self.cursor.page_cell = @ptrCast(cell + 1);
-    self.cursor.x += 1;
+    self.cursor.page_cell = @ptrCast(cell + n);
+    self.cursor.x += n;
+}
+
+/// Move the cursor left.
+pub fn cursorLeft(self: *Screen, n: size.CellCountInt) void {
+    assert(self.cursor.x >= n);
+
+    const cell: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
+    self.cursor.page_cell = @ptrCast(cell - n);
+    self.cursor.x -= n;
+}
+
+/// Move the cursor up.
+///
+/// Precondition: The cursor is not at the top of the screen.
+pub fn cursorUp(self: *Screen) void {
+    assert(self.cursor.y > 0);
+
+    const page_offset = self.cursor.page_offset.backward(1).?;
+    const page_rac = page_offset.rowAndCell(self.cursor.x);
+    self.cursor.page_offset = page_offset;
+    self.cursor.page_row = page_rac.row;
+    self.cursor.page_cell = page_rac.cell;
+    self.cursor.y -= 1;
 }
 
 /// Move the cursor down.
@@ -182,9 +225,26 @@ pub fn dumpString(
         // TODO: handle wrap
         blank_rows += 1;
 
+        var blank_cells: usize = 0;
         for (cells) |cell| {
-            // TODO: handle blanks between chars
-            if (cell.codepoint == 0) break;
+            // Skip spacers
+            switch (cell.wide) {
+                .narrow, .wide => {},
+                .spacer_head, .spacer_tail => continue,
+            }
+
+            // If we have a zero value, then we accumulate a counter. We
+            // only want to turn zero values into spaces if we have a non-zero
+            // char sometime later.
+            if (cell.codepoint == 0) {
+                blank_cells += 1;
+                continue;
+            }
+            if (blank_cells > 0) {
+                for (0..blank_cells) |_| try writer.writeByte(' ');
+                blank_cells = 0;
+            }
+
             try writer.print("{u}", .{cell.codepoint});
         }
     }
