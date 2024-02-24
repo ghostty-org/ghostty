@@ -227,8 +227,127 @@ pub fn print(self: *Terminal, c: u21) !void {
     // This is MUCH slower than the normal path so the conditional below is
     // purposely ordered in least-likely to most-likely so we can drop out
     // as quickly as possible.
-    if (c > 255 and self.modes.get(.grapheme_cluster) and self.screen.cursor.x > 0) {
-        @panic("TODO: graphemes");
+    if (c > 255 and
+        self.modes.get(.grapheme_cluster) and
+        self.screen.cursor.x > 0)
+    grapheme: {
+        // We need the previous cell to determine if we're at a grapheme
+        // break or not. If we are NOT, then we are still combining the
+        // same grapheme. Otherwise, we can stay in this cell.
+        const Prev = struct { cell: *Cell, left: size.CellCountInt };
+        const prev: Prev = prev: {
+            const left: size.CellCountInt = left: {
+                // If we have wraparound, then we always use the prev col
+                if (self.modes.get(.wraparound)) break :left 1;
+
+                // If we do not have wraparound, the logic is trickier. If
+                // we're not on the last column, then we just use the previous
+                // column. Otherwise, we need to check if there is text to
+                // figure out if we're attaching to the prev or current.
+                if (self.screen.cursor.x != right_limit - 1) break :left 1;
+                break :left @intFromBool(self.screen.cursor.page_cell.codepoint == 0);
+            };
+
+            // If the previous cell is a wide spacer tail, then we actually
+            // want to use the cell before that because that has the actual
+            // content.
+            const immediate = self.screen.cursorCellLeft(left);
+            break :prev switch (immediate.wide) {
+                else => .{ .cell = immediate, .left = left },
+                .spacer_tail => .{
+                    .cell = self.screen.cursorCellLeft(left + 1),
+                    .left = left + 1,
+                },
+            };
+        };
+
+        // If our cell has no content, then this is a new cell and
+        // necessarily a grapheme break.
+        if (prev.cell.codepoint == 0) break :grapheme;
+
+        const grapheme_break = brk: {
+            var state: unicode.GraphemeBreakState = .{};
+            var cp1: u21 = prev.cell.codepoint;
+            if (prev.cell.grapheme) {
+                const cps = self.screen.cursor.page_offset.page.data.lookupGrapheme(prev.cell).?;
+                for (cps) |cp2| {
+                    // log.debug("cp1={x} cp2={x}", .{ cp1, cp2 });
+                    assert(!unicode.graphemeBreak(cp1, cp2, &state));
+                    cp1 = cp2;
+                }
+            }
+
+            // log.debug("cp1={x} cp2={x} end", .{ cp1, c });
+            break :brk unicode.graphemeBreak(cp1, c, &state);
+        };
+
+        // If we can NOT break, this means that "c" is part of a grapheme
+        // with the previous char.
+        if (!grapheme_break) {
+            // If this is an emoji variation selector then we need to modify
+            // the cell width accordingly. VS16 makes the character wide and
+            // VS15 makes it narrow.
+            if (c == 0xFE0F or c == 0xFE0E) {
+                // This only applies to emoji
+                const prev_props = unicode.getProperties(prev.cell.codepoint);
+                const emoji = prev_props.grapheme_boundary_class == .extended_pictographic;
+                if (!emoji) return;
+
+                switch (c) {
+                    0xFE0F => wide: {
+                        if (prev.cell.wide == .wide) break :wide;
+
+                        // Move our cursor back to the previous. We'll move
+                        // the cursor within this block to the proper location.
+                        self.screen.cursorLeft(prev.left);
+
+                        // If we don't have space for the wide char, we need
+                        // to insert spacers and wrap. Then we just print the wide
+                        // char as normal.
+                        if (self.screen.cursor.x == right_limit - 1) {
+                            if (!self.modes.get(.wraparound)) return;
+                            self.printCell(' ', .spacer_head);
+                            try self.printWrap();
+                        }
+
+                        self.printCell(prev.cell.codepoint, .wide);
+
+                        // Write our spacer
+                        self.screen.cursorRight(1);
+                        self.printCell(' ', .spacer_tail);
+
+                        // Move the cursor again so we're beyond our spacer
+                        if (self.screen.cursor.x == right_limit - 1) {
+                            self.screen.cursor.pending_wrap = true;
+                        } else {
+                            self.screen.cursorRight(1);
+                        }
+                    },
+
+                    0xFE0E => narrow: {
+                        // Prev cell is no longer wide
+                        if (prev.cell.wide != .wide) break :narrow;
+                        prev.cell.wide = .narrow;
+
+                        // Remove the wide spacer tail
+                        const cell = self.screen.cursorCellLeft(prev.left - 1);
+                        cell.wide = .narrow;
+
+                        break :narrow;
+                    },
+
+                    else => unreachable,
+                }
+            }
+
+            log.debug("c={x} grapheme attach to left={}", .{ c, prev.left });
+            try self.screen.cursor.page_offset.page.data.appendGrapheme(
+                self.screen.cursor.page_row,
+                prev.cell,
+                c,
+            );
+            return;
+        }
     }
 
     // Determine the width of this character so we can handle
@@ -1045,6 +1164,204 @@ test "Terminal: print invalid VS16 non-grapheme" {
     }
 }
 
+test "Terminal: print multicodepoint grapheme, mode 2027" {
+    var t = try init(testing.allocator, 80, 80);
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    // https://github.com/mitchellh/ghostty/issues/289
+    // This is: 👨‍👩‍👧 (which may or may not render correctly)
+    try t.print(0x1F468);
+    try t.print(0x200D);
+    try t.print(0x1F469);
+    try t.print(0x200D);
+    try t.print(0x1F467);
+
+    // We should have 2 cells taken up. It is one character but "wide".
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 2), t.screen.cursor.x);
+
+    // Assert various properties about our screen to verify
+    // we have all expected cells.
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0x1F468), cell.codepoint);
+        try testing.expect(cell.grapheme);
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+        const cps = list_cell.page.data.lookupGrapheme(cell).?;
+        try testing.expectEqual(@as(usize, 4), cps.len);
+    }
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, ' '), cell.codepoint);
+        try testing.expect(!cell.grapheme);
+        try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
+    }
+}
+
+test "Terminal: VS15 to make narrow character" {
+    var t = try init(testing.allocator, 5, 5);
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    try t.print(0x26C8); // Thunder cloud and rain
+    try t.print(0xFE0E); // VS15 to make narrow
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("⛈︎", str);
+    }
+
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0x26C8), cell.codepoint);
+        try testing.expect(cell.grapheme);
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+        const cps = list_cell.page.data.lookupGrapheme(cell).?;
+        try testing.expectEqual(@as(usize, 1), cps.len);
+    }
+}
+
+test "Terminal: VS16 to make wide character with mode 2027" {
+    var t = try init(testing.allocator, 5, 5);
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    try t.print(0x2764); // Heart
+    try t.print(0xFE0F); // VS16 to make wide
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("❤️", str);
+    }
+
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0x2764), cell.codepoint);
+        try testing.expect(cell.grapheme);
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+        const cps = list_cell.page.data.lookupGrapheme(cell).?;
+        try testing.expectEqual(@as(usize, 1), cps.len);
+    }
+}
+
+test "Terminal: VS16 repeated with mode 2027" {
+    var t = try init(testing.allocator, 5, 5);
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    try t.print(0x2764); // Heart
+    try t.print(0xFE0F); // VS16 to make wide
+    try t.print(0x2764); // Heart
+    try t.print(0xFE0F); // VS16 to make wide
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("❤️❤️", str);
+    }
+
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0x2764), cell.codepoint);
+        try testing.expect(cell.grapheme);
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+        const cps = list_cell.page.data.lookupGrapheme(cell).?;
+        try testing.expectEqual(@as(usize, 1), cps.len);
+    }
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 2, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0x2764), cell.codepoint);
+        try testing.expect(cell.grapheme);
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+        const cps = list_cell.page.data.lookupGrapheme(cell).?;
+        try testing.expectEqual(@as(usize, 1), cps.len);
+    }
+}
+
+test "Terminal: print invalid VS16 grapheme" {
+    var t = try init(testing.allocator, 80, 80);
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    // https://github.com/mitchellh/ghostty/issues/1482
+    try t.print('x');
+    try t.print(0xFE0F);
+
+    // We should have 2 cells taken up. It is one character but "wide".
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 1), t.screen.cursor.x);
+
+    // Assert various properties about our screen to verify
+    // we have all expected cells.
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 'x'), cell.codepoint);
+        try testing.expect(!cell.grapheme);
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+    }
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0), cell.codepoint);
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+    }
+}
+
+test "Terminal: print invalid VS16 with second char" {
+    var t = try init(testing.allocator, 80, 80);
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    // https://github.com/mitchellh/ghostty/issues/1482
+    try t.print('x');
+    try t.print(0xFE0F);
+    try t.print('y');
+
+    // We should have 2 cells taken up. It is one character but "wide".
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 2), t.screen.cursor.x);
+
+    // Assert various properties about our screen to verify
+    // we have all expected cells.
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 'x'), cell.codepoint);
+        try testing.expect(!cell.grapheme);
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+    }
+
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 'y'), cell.codepoint);
+        try testing.expect(!cell.grapheme);
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+    }
+}
+
 test "Terminal: soft wrap" {
     var t = try init(testing.allocator, 3, 80);
     defer t.deinit(testing.allocator);
@@ -1111,6 +1428,35 @@ test "Terminal: disabled wraparound with wide char and no space" {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 4, .y = 0 } }).?;
         const cell = list_cell.cell;
         try testing.expectEqual(@as(u21, 'A'), cell.codepoint);
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+    }
+}
+
+test "Terminal: disabled wraparound with wide grapheme and half space" {
+    var t = try init(testing.allocator, 5, 5);
+    defer t.deinit(testing.allocator);
+
+    t.modes.set(.grapheme_cluster, true);
+    t.modes.set(.wraparound, false);
+
+    // This puts our cursor at the end and there is NO SPACE for a
+    // wide character.
+    try t.printString("AAAA");
+    try t.print(0x2764); // Heart
+    try t.print(0xFE0F); // VS16 to make wide
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 4), t.screen.cursor.x);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("AAAA❤", str);
+    }
+
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 4, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, '❤'), cell.codepoint);
         try testing.expectEqual(Cell.Wide.narrow, cell.wide);
     }
 }
