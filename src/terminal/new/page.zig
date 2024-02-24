@@ -395,27 +395,24 @@ pub const Capacity = struct {
 };
 
 pub const Row = packed struct(u64) {
-    _padding: u29 = 0,
-
     /// The cells in the row offset from the page.
     cells: Offset(Cell),
 
-    /// Flags where we want to pack bits
-    flags: packed struct {
-        /// True if this row is soft-wrapped. The first cell of the next
-        /// row is a continuation of this row.
-        wrap: bool = false,
+    /// True if this row is soft-wrapped. The first cell of the next
+    /// row is a continuation of this row.
+    wrap: bool = false,
 
-        /// True if the previous row to this one is soft-wrapped and
-        /// this row is a continuation of that row.
-        wrap_continuation: bool = false,
+    /// True if the previous row to this one is soft-wrapped and
+    /// this row is a continuation of that row.
+    wrap_continuation: bool = false,
 
-        /// True if any of the cells in this row have multi-codepoint
-        /// grapheme clusters. If this is true, some fast paths are not
-        /// possible because erasing for example may need to clear existing
-        /// grapheme data.
-        grapheme: bool = false,
-    } = .{},
+    /// True if any of the cells in this row have multi-codepoint
+    /// grapheme clusters. If this is true, some fast paths are not
+    /// possible because erasing for example may need to clear existing
+    /// grapheme data.
+    grapheme: bool = false,
+
+    _padding: u29 = 0,
 };
 
 /// A cell represents a single terminal grid cell.

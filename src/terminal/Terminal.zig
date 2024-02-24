@@ -2410,6 +2410,7 @@ test "Terminal: VS16 repeated with mode 2027" {
     }
 }
 
+// X
 test "Terminal: VS16 doesn't make character with 2027 disabled" {
     var t = try init(testing.allocator, 5, 5);
     defer t.deinit(testing.allocator);
@@ -2435,6 +2436,7 @@ test "Terminal: VS16 doesn't make character with 2027 disabled" {
     }
 }
 
+// X
 test "Terminal: print multicodepoint grapheme, disabled mode 2027" {
     var t = try init(testing.allocator, 80, 80);
     defer t.deinit(testing.allocator);
@@ -2526,6 +2528,7 @@ test "Terminal: print multicodepoint grapheme, mode 2027" {
     }
 }
 
+// X
 test "Terminal: print invalid VS16 non-grapheme" {
     var t = try init(testing.allocator, 80, 80);
     defer t.deinit(testing.allocator);

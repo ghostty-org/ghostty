@@ -259,7 +259,26 @@ pub fn print(self: *Terminal, c: u21) !void {
             return;
         }
 
-        @panic("TODO: zero-width characters");
+        // Find our previous cell
+        const prev = prev: {
+            const immediate = self.screen.cursorCellLeft(1);
+            if (immediate.wide != .spacer_tail) break :prev immediate;
+            break :prev self.screen.cursorCellLeft(2);
+        };
+
+        // If this is a emoji variation selector, prev must be an emoji
+        if (c == 0xFE0F or c == 0xFE0E) {
+            const prev_props = unicode.getProperties(prev.codepoint);
+            const emoji = prev_props.grapheme_boundary_class == .extended_pictographic;
+            if (!emoji) return;
+        }
+
+        try self.screen.cursor.page_offset.page.data.appendGrapheme(
+            self.screen.cursor.page_row,
+            prev,
+            c,
+        );
+        return;
     }
 
     // We have a printable character, save it
@@ -359,7 +378,7 @@ fn printCell(
             .spacer_tail => {
                 assert(self.screen.cursor.x > 0);
 
-                const wide_cell = self.screen.cursorCellLeft();
+                const wide_cell = self.screen.cursorCellLeft(1);
                 wide_cell.* = .{ .style_id = self.screen.cursor.style_id };
                 if (self.screen.cursor.y > 0 and self.screen.cursor.x <= 1) {
                     const head_cell = self.screen.cursorCellEndOfPrev();
@@ -391,7 +410,7 @@ fn printCell(
 }
 
 fn printWrap(self: *Terminal) !void {
-    self.screen.cursor.page_row.flags.wrap = true;
+    self.screen.cursor.page_row.wrap = true;
 
     // Get the old semantic prompt so we can extend it to the next
     // line. We need to do this before we index() because we may
@@ -407,7 +426,7 @@ fn printWrap(self: *Terminal) !void {
     // New line must inherit semantic prompt of the old line
     // const new_row = self.screen.getRow(.{ .active = self.screen.cursor.y });
     // new_row.setSemanticPrompt(old_prompt);
-    self.screen.cursor.page_row.flags.wrap_continuation = true;
+    self.screen.cursor.page_row.wrap_continuation = true;
 }
 
 /// Carriage return moves the cursor to the first column.
@@ -526,7 +545,7 @@ pub fn cursorLeft(self: *Terminal, count_req: usize) void {
 
         // If our previous line is not wrapped then we are done.
         if (wrap_mode != .reverse_extended) {
-            if (!self.screen.cursor.page_row.flags.wrap) break;
+            if (!self.screen.cursor.page_row.wrap) break;
         }
 
         self.screen.cursorAbsolute(right_margin, self.screen.cursor.y - 1);
@@ -898,6 +917,131 @@ test "Terminal: print over wide spacer tail" {
         const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings(" X", str);
+    }
+}
+
+test "Terminal: print multicodepoint grapheme, disabled mode 2027" {
+    var t = try init(testing.allocator, 80, 80);
+    defer t.deinit(testing.allocator);
+
+    // https://github.com/mitchellh/ghostty/issues/289
+    // This is: 👨‍👩‍👧 (which may or may not render correctly)
+    try t.print(0x1F468);
+    try t.print(0x200D);
+    try t.print(0x1F469);
+    try t.print(0x200D);
+    try t.print(0x1F467);
+
+    // We should have 6 cells taken up
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 6), t.screen.cursor.x);
+
+    // Assert various properties about our screen to verify
+    // we have all expected cells.
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0x1F468), cell.codepoint);
+        try testing.expect(cell.grapheme);
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+        const cps = list_cell.page.data.lookupGrapheme(cell).?;
+        try testing.expectEqual(@as(usize, 1), cps.len);
+    }
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, ' '), cell.codepoint);
+        try testing.expect(!cell.grapheme);
+        try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
+        try testing.expect(list_cell.page.data.lookupGrapheme(cell) == null);
+    }
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 2, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0x1F469), cell.codepoint);
+        try testing.expect(cell.grapheme);
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+        const cps = list_cell.page.data.lookupGrapheme(cell).?;
+        try testing.expectEqual(@as(usize, 1), cps.len);
+    }
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 3, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, ' '), cell.codepoint);
+        try testing.expect(!cell.grapheme);
+        try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
+        try testing.expect(list_cell.page.data.lookupGrapheme(cell) == null);
+    }
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 4, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0x1F467), cell.codepoint);
+        try testing.expect(!cell.grapheme);
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+        try testing.expect(list_cell.page.data.lookupGrapheme(cell) == null);
+    }
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 5, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, ' '), cell.codepoint);
+        try testing.expect(!cell.grapheme);
+        try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
+        try testing.expect(list_cell.page.data.lookupGrapheme(cell) == null);
+    }
+}
+
+test "Terminal: VS16 doesn't make character with 2027 disabled" {
+    var t = try init(testing.allocator, 5, 5);
+    defer t.deinit(testing.allocator);
+
+    // Disable grapheme clustering
+    t.modes.set(.grapheme_cluster, false);
+
+    try t.print(0x2764); // Heart
+    try t.print(0xFE0F); // VS16 to make wide
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("❤️", str);
+    }
+
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0x2764), cell.codepoint);
+        try testing.expect(cell.grapheme);
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+        const cps = list_cell.page.data.lookupGrapheme(cell).?;
+        try testing.expectEqual(@as(usize, 1), cps.len);
+    }
+}
+
+test "Terminal: print invalid VS16 non-grapheme" {
+    var t = try init(testing.allocator, 80, 80);
+    defer t.deinit(testing.allocator);
+
+    // https://github.com/mitchellh/ghostty/issues/1482
+    try t.print('x');
+    try t.print(0xFE0F);
+
+    // We should have 2 cells taken up. It is one character but "wide".
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 1), t.screen.cursor.x);
+
+    // Assert various properties about our screen to verify
+    // we have all expected cells.
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 'x'), cell.codepoint);
+        try testing.expect(!cell.grapheme);
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+    }
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0), cell.codepoint);
     }
 }
 
