@@ -20,7 +20,8 @@ const alignForward = std.mem.alignForward;
 /// is that most skin-tone emoji are <= 4 codepoints, letter combiners
 /// are usually <= 4 codepoints, and 4 codepoints is a nice power of two
 /// for alignment.
-const grapheme_chunk = 4 * @sizeOf(u21);
+const grapheme_chunk_len = 4;
+const grapheme_chunk = grapheme_chunk_len * @sizeOf(u21);
 const GraphemeAlloc = BitmapAllocator(grapheme_chunk);
 const grapheme_count_default = GraphemeAlloc.bitmap_bit_size;
 const grapheme_bytes_default = grapheme_count_default * grapheme_chunk;
@@ -199,6 +200,72 @@ pub const Page = struct {
         const cell = &row.cells.ptr(self.memory)[x];
 
         return .{ .row = row, .cell = cell };
+    }
+
+    /// Append a codepoint to the given cell as a grapheme.
+    pub fn appendGrapheme(self: *Page, row: *Row, cell: *Cell, cp: u21) !void {
+        const cell_offset = getOffset(Cell, self.memory, cell);
+        var map = self.grapheme_map.map(self.memory);
+
+        // If this cell has no graphemes, we can go faster by knowing we
+        // need to allocate a new grapheme slice and update the map.
+        if (!cell.grapheme) {
+            const cps = try self.grapheme_alloc.alloc(u21, self.memory, 1);
+            errdefer self.grapheme_alloc.free(self.memory, cps);
+            cps[0] = cp;
+
+            try map.putNoClobber(cell_offset, .{
+                .offset = getOffset(u21, self.memory, @ptrCast(cps.ptr)),
+                .len = 1,
+            });
+            errdefer map.remove(cell_offset);
+
+            cell.grapheme = true;
+            row.grapheme = true;
+
+            return;
+        }
+
+        // The cell already has graphemes. We need to append to the existing
+        // grapheme slice and update the map.
+        assert(row.grapheme);
+
+        const slice = map.getPtr(cell_offset).?;
+
+        // If our slice len doesn't divide evenly by the grapheme chunk
+        // length then we can utilize the additional chunk space.
+        if (slice.len % grapheme_chunk_len != 0) {
+            const cps = slice.offset.ptr(self.memory);
+            cps[slice.len] = cp;
+            slice.len += 1;
+            return;
+        }
+
+        // We are out of chunk space. There is no fast path here. We need
+        // to allocate a larger chunk. This is a very slow path. We expect
+        // most graphemes to fit within our chunk size.
+        const cps = try self.grapheme_alloc.alloc(u21, self.memory, slice.len + 1);
+        errdefer self.grapheme_alloc.free(self.memory, cps);
+        const old_cps = slice.offset.ptr(self.memory)[0..slice.len];
+        @memcpy(cps[0..old_cps.len], old_cps);
+        cps[slice.len] = cp;
+        slice.* = .{
+            .offset = getOffset(u21, self.memory, @ptrCast(cps.ptr)),
+            .len = slice.len + 1,
+        };
+
+        // Free our old chunk
+        self.grapheme_alloc.free(self.memory, old_cps);
+    }
+
+    /// Returns the codepoints for the given cell. These are the codepoints
+    /// in addition to the first codepoint. The first codepoint is NOT
+    /// included since it is on the cell itself.
+    pub fn lookupGrapheme(self: *const Page, cell: *Cell) ?[]u21 {
+        const cell_offset = getOffset(Cell, self.memory, cell);
+        const map = self.grapheme_map.map(self.memory);
+        const slice = map.get(cell_offset) orelse return null;
+        return slice.offset.ptr(self.memory)[0..slice.len];
     }
 
     pub const Layout = struct {
@@ -488,5 +555,52 @@ test "Page read and write cells" {
     for (0..page.capacity.rows) |y| {
         const rac = page.getRowAndCell(1, y);
         try testing.expectEqual(@as(u21, @intCast(y)), rac.cell.codepoint);
+    }
+}
+
+test "Page appendGrapheme small" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    const rac = page.getRowAndCell(0, 0);
+    rac.cell.codepoint = 0x09;
+
+    // One
+    try page.appendGrapheme(rac.row, rac.cell, 0x0A);
+    try testing.expect(rac.row.grapheme);
+    try testing.expect(rac.cell.grapheme);
+    try testing.expectEqualSlices(u21, &.{0x0A}, page.lookupGrapheme(rac.cell).?);
+
+    // Two
+    try page.appendGrapheme(rac.row, rac.cell, 0x0B);
+    try testing.expect(rac.row.grapheme);
+    try testing.expect(rac.cell.grapheme);
+    try testing.expectEqualSlices(u21, &.{ 0x0A, 0x0B }, page.lookupGrapheme(rac.cell).?);
+}
+
+test "Page appendGrapheme larger than chunk" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    const rac = page.getRowAndCell(0, 0);
+    rac.cell.codepoint = 0x09;
+
+    const count = grapheme_chunk_len * 10;
+    for (0..count) |i| {
+        try page.appendGrapheme(rac.row, rac.cell, @intCast(0x0A + i));
+    }
+
+    const cps = page.lookupGrapheme(rac.cell).?;
+    try testing.expectEqual(@as(usize, count), cps.len);
+    for (0..count) |i| {
+        try testing.expectEqual(@as(u21, @intCast(0x0A + i)), cps[i]);
     }
 }
