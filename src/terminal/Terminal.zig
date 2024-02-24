@@ -2892,6 +2892,7 @@ test "Terminal: print right margin outside" {
     }
 }
 
+// X
 test "Terminal: print right margin outside wrap" {
     var t = try init(testing.allocator, 10, 5);
     defer t.deinit(testing.allocator);
@@ -2909,6 +2910,7 @@ test "Terminal: print right margin outside wrap" {
     }
 }
 
+// X
 test "Terminal: linefeed and carriage return" {
     var t = try init(testing.allocator, 80, 80);
     defer t.deinit(testing.allocator);
@@ -2927,6 +2929,7 @@ test "Terminal: linefeed and carriage return" {
     }
 }
 
+// X
 test "Terminal: linefeed unsets pending wrap" {
     var t = try init(testing.allocator, 5, 80);
     defer t.deinit(testing.allocator);
@@ -2938,6 +2941,7 @@ test "Terminal: linefeed unsets pending wrap" {
     try testing.expect(t.screen.cursor.pending_wrap == false);
 }
 
+// X
 test "Terminal: linefeed mode automatic carriage return" {
     var t = try init(testing.allocator, 10, 10);
     defer t.deinit(testing.allocator);
@@ -2954,6 +2958,7 @@ test "Terminal: linefeed mode automatic carriage return" {
     }
 }
 
+// X
 test "Terminal: carriage return unsets pending wrap" {
     var t = try init(testing.allocator, 5, 80);
     defer t.deinit(testing.allocator);
@@ -2965,6 +2970,7 @@ test "Terminal: carriage return unsets pending wrap" {
     try testing.expect(t.screen.cursor.pending_wrap == false);
 }
 
+// X
 test "Terminal: carriage return origin mode moves to left margin" {
     var t = try init(testing.allocator, 5, 80);
     defer t.deinit(testing.allocator);
@@ -2976,6 +2982,7 @@ test "Terminal: carriage return origin mode moves to left margin" {
     try testing.expectEqual(@as(usize, 2), t.screen.cursor.x);
 }
 
+// X
 test "Terminal: carriage return left of left margin moves to zero" {
     var t = try init(testing.allocator, 5, 80);
     defer t.deinit(testing.allocator);
@@ -2986,6 +2993,7 @@ test "Terminal: carriage return left of left margin moves to zero" {
     try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
 }
 
+// X
 test "Terminal: carriage return right of left margin moves to left margin" {
     var t = try init(testing.allocator, 5, 80);
     defer t.deinit(testing.allocator);

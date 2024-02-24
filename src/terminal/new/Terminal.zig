@@ -202,9 +202,8 @@ pub fn printString(self: *Terminal, str: []const u8) !void {
     while (it.nextCodepoint()) |cp| {
         switch (cp) {
             '\n' => {
-                @panic("TODO: newline");
-                // self.carriageReturn();
-                // try self.linefeed();
+                self.carriageReturn();
+                try self.linefeed();
             },
 
             else => try self.print(cp),
@@ -409,6 +408,26 @@ fn printWrap(self: *Terminal) !void {
     // const new_row = self.screen.getRow(.{ .active = self.screen.cursor.y });
     // new_row.setSemanticPrompt(old_prompt);
     self.screen.cursor.page_row.flags.wrap_continuation = true;
+}
+
+/// Carriage return moves the cursor to the first column.
+pub fn carriageReturn(self: *Terminal) void {
+    // Always reset pending wrap state
+    self.screen.cursor.pending_wrap = false;
+
+    // In origin mode we always move to the left margin
+    self.screen.cursorHorizontalAbsolute(if (self.modes.get(.origin))
+        self.scrolling_region.left
+    else if (self.screen.cursor.x >= self.scrolling_region.left)
+        self.scrolling_region.left
+    else
+        0);
+}
+
+/// Linefeed moves the cursor to the next line.
+pub fn linefeed(self: *Terminal) !void {
+    try self.index();
+    if (self.modes.get(.linefeed)) self.carriageReturn();
 }
 
 /// Move the cursor to the next line in the scrolling region, possibly scrolling.
@@ -826,4 +845,91 @@ test "Terminal: print right margin outside wrap" {
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("123456789X\n  Y", str);
     }
+}
+
+test "Terminal: linefeed and carriage return" {
+    var t = try init(testing.allocator, 80, 80);
+    defer t.deinit(testing.allocator);
+
+    // Basic grid writing
+    for ("hello") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    for ("world") |c| try t.print(c);
+    try testing.expectEqual(@as(usize, 1), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 5), t.screen.cursor.x);
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("hello\nworld", str);
+    }
+}
+
+test "Terminal: linefeed unsets pending wrap" {
+    var t = try init(testing.allocator, 5, 80);
+    defer t.deinit(testing.allocator);
+
+    // Basic grid writing
+    for ("hello") |c| try t.print(c);
+    try testing.expect(t.screen.cursor.pending_wrap == true);
+    try t.linefeed();
+    try testing.expect(t.screen.cursor.pending_wrap == false);
+}
+
+test "Terminal: linefeed mode automatic carriage return" {
+    var t = try init(testing.allocator, 10, 10);
+    defer t.deinit(testing.allocator);
+
+    // Basic grid writing
+    t.modes.set(.linefeed, true);
+    try t.printString("123456");
+    try t.linefeed();
+    try t.print('X');
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("123456\nX", str);
+    }
+}
+
+test "Terminal: carriage return unsets pending wrap" {
+    var t = try init(testing.allocator, 5, 80);
+    defer t.deinit(testing.allocator);
+
+    // Basic grid writing
+    for ("hello") |c| try t.print(c);
+    try testing.expect(t.screen.cursor.pending_wrap == true);
+    t.carriageReturn();
+    try testing.expect(t.screen.cursor.pending_wrap == false);
+}
+
+test "Terminal: carriage return origin mode moves to left margin" {
+    var t = try init(testing.allocator, 5, 80);
+    defer t.deinit(testing.allocator);
+
+    t.modes.set(.origin, true);
+    t.screen.cursor.x = 0;
+    t.scrolling_region.left = 2;
+    t.carriageReturn();
+    try testing.expectEqual(@as(usize, 2), t.screen.cursor.x);
+}
+
+test "Terminal: carriage return left of left margin moves to zero" {
+    var t = try init(testing.allocator, 5, 80);
+    defer t.deinit(testing.allocator);
+
+    t.screen.cursor.x = 1;
+    t.scrolling_region.left = 2;
+    t.carriageReturn();
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
+}
+
+test "Terminal: carriage return right of left margin moves to left margin" {
+    var t = try init(testing.allocator, 5, 80);
+    defer t.deinit(testing.allocator);
+
+    t.screen.cursor.x = 3;
+    t.scrolling_region.left = 2;
+    t.carriageReturn();
+    try testing.expectEqual(@as(usize, 2), t.screen.cursor.x);
 }
