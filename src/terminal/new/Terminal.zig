@@ -534,6 +534,55 @@ pub fn cursorLeft(self: *Terminal, count_req: usize) void {
     }
 }
 
+/// Horizontal tab moves the cursor to the next tabstop, clearing
+/// the screen to the left the tabstop.
+pub fn horizontalTab(self: *Terminal) !void {
+    while (self.screen.cursor.x < self.scrolling_region.right) {
+        // Move the cursor right
+        self.screen.cursorRight(1);
+
+        // If the last cursor position was a tabstop we return. We do
+        // "last cursor position" because we want a space to be written
+        // at the tabstop unless we're at the end (the while condition).
+        if (self.tabstops.get(self.screen.cursor.x)) return;
+    }
+}
+
+// Same as horizontalTab but moves to the previous tabstop instead of the next.
+pub fn horizontalTabBack(self: *Terminal) !void {
+    // With origin mode enabled, our leftmost limit is the left margin.
+    const left_limit = if (self.modes.get(.origin)) self.scrolling_region.left else 0;
+
+    while (true) {
+        // If we're already at the edge of the screen, then we're done.
+        if (self.screen.cursor.x <= left_limit) return;
+
+        // Move the cursor left
+        self.screen.cursorLeft(1);
+        if (self.tabstops.get(self.screen.cursor.x)) return;
+    }
+}
+
+/// Clear tab stops.
+pub fn tabClear(self: *Terminal, cmd: csi.TabClear) void {
+    switch (cmd) {
+        .current => self.tabstops.unset(self.screen.cursor.x),
+        .all => self.tabstops.reset(0),
+        else => log.warn("invalid or unknown tab clear setting: {}", .{cmd}),
+    }
+}
+
+/// Set a tab stop on the current cursor.
+/// TODO: test
+pub fn tabSet(self: *Terminal) void {
+    self.tabstops.set(self.screen.cursor.x);
+}
+
+/// TODO: test
+pub fn tabReset(self: *Terminal) void {
+    self.tabstops.reset(TABSTOP_INTERVAL);
+}
+
 /// Move the cursor to the next line in the scrolling region, possibly scrolling.
 ///
 /// If the cursor is outside of the scrolling region: move the cursor one line
@@ -641,9 +690,31 @@ pub fn setCursorPos(self: *Terminal, row_req: usize, col_req: usize) void {
         return;
     }
 
-    @panic("TODO: y change");
+    // If everything changed we do an absolute change which is slightly slower
+    self.screen.cursorAbsolute(x, y);
     // log.info("set cursor position: col={} row={}", .{ self.screen.cursor.x, self.screen.cursor.y });
+}
 
+/// Set Top and Bottom Margins If bottom is not specified, 0 or bigger than
+/// the number of the bottom-most row, it is adjusted to the number of the
+/// bottom most row.
+///
+/// If top < bottom set the top and bottom row of the scroll region according
+/// to top and bottom and move the cursor to the top-left cell of the display
+/// (when in cursor origin mode is set to the top-left cell of the scroll region).
+///
+/// Otherwise: Set the top and bottom row of the scroll region to the top-most
+/// and bottom-most line of the screen.
+///
+/// Top and bottom are 1-indexed.
+pub fn setTopAndBottomMargin(self: *Terminal, top_req: usize, bottom_req: usize) void {
+    const top = @max(1, top_req);
+    const bottom = @min(self.rows, if (bottom_req == 0) self.rows else bottom_req);
+    if (top >= bottom) return;
+
+    self.scrolling_region.top = @intCast(top - 1);
+    self.scrolling_region.bottom = @intCast(bottom - 1);
+    self.setCursorPos(1, 1);
 }
 
 /// DECSLRM
@@ -1053,4 +1124,268 @@ test "Terminal: backspace" {
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("helly", str);
     }
+}
+
+test "Terminal: horizontal tabs" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 20, 5);
+    defer t.deinit(alloc);
+
+    // HT
+    try t.print('1');
+    try t.horizontalTab();
+    try testing.expectEqual(@as(usize, 8), t.screen.cursor.x);
+
+    // HT
+    try t.horizontalTab();
+    try testing.expectEqual(@as(usize, 16), t.screen.cursor.x);
+
+    // HT at the end
+    try t.horizontalTab();
+    try testing.expectEqual(@as(usize, 19), t.screen.cursor.x);
+    try t.horizontalTab();
+    try testing.expectEqual(@as(usize, 19), t.screen.cursor.x);
+}
+
+test "Terminal: horizontal tabs starting on tabstop" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 20, 5);
+    defer t.deinit(alloc);
+
+    t.setCursorPos(t.screen.cursor.y, 9);
+    try t.print('X');
+    t.setCursorPos(t.screen.cursor.y, 9);
+    try t.horizontalTab();
+    try t.print('A');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("        X       A", str);
+    }
+}
+
+test "Terminal: horizontal tabs with right margin" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 20, 5);
+    defer t.deinit(alloc);
+
+    t.scrolling_region.left = 2;
+    t.scrolling_region.right = 5;
+    t.setCursorPos(t.screen.cursor.y, 1);
+    try t.print('X');
+    try t.horizontalTab();
+    try t.print('A');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("X    A", str);
+    }
+}
+
+test "Terminal: horizontal tabs back" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 20, 5);
+    defer t.deinit(alloc);
+
+    // Edge of screen
+    t.setCursorPos(t.screen.cursor.y, 20);
+
+    // HT
+    try t.horizontalTabBack();
+    try testing.expectEqual(@as(usize, 16), t.screen.cursor.x);
+
+    // HT
+    try t.horizontalTabBack();
+    try testing.expectEqual(@as(usize, 8), t.screen.cursor.x);
+
+    // HT
+    try t.horizontalTabBack();
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
+    try t.horizontalTabBack();
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
+}
+
+test "Terminal: horizontal tabs back starting on tabstop" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 20, 5);
+    defer t.deinit(alloc);
+
+    t.setCursorPos(t.screen.cursor.y, 9);
+    try t.print('X');
+    t.setCursorPos(t.screen.cursor.y, 9);
+    try t.horizontalTabBack();
+    try t.print('A');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("A       X", str);
+    }
+}
+
+test "Terminal: horizontal tabs with left margin in origin mode" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 20, 5);
+    defer t.deinit(alloc);
+
+    t.modes.set(.origin, true);
+    t.scrolling_region.left = 2;
+    t.scrolling_region.right = 5;
+    t.setCursorPos(1, 2);
+    try t.print('X');
+    try t.horizontalTabBack();
+    try t.print('A');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("  AX", str);
+    }
+}
+
+test "Terminal: cursorPos resets wrap" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    for ("ABCDE") |c| try t.print(c);
+    try testing.expect(t.screen.cursor.pending_wrap);
+    t.setCursorPos(1, 1);
+    try testing.expect(!t.screen.cursor.pending_wrap);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("XBCDE", str);
+    }
+}
+
+test "Terminal: cursorPos off the screen" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.setCursorPos(500, 500);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\n\n\n\n    X", str);
+    }
+}
+
+test "Terminal: cursorPos relative to origin" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.scrolling_region.top = 2;
+    t.scrolling_region.bottom = 3;
+    t.modes.set(.origin, true);
+    t.setCursorPos(1, 1);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\n\nX", str);
+    }
+}
+
+test "Terminal: cursorPos relative to origin with left/right" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.scrolling_region.top = 2;
+    t.scrolling_region.bottom = 3;
+    t.scrolling_region.left = 2;
+    t.scrolling_region.right = 4;
+    t.modes.set(.origin, true);
+    t.setCursorPos(1, 1);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\n\n  X", str);
+    }
+}
+
+test "Terminal: cursorPos limits with full scroll region" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.scrolling_region.top = 2;
+    t.scrolling_region.bottom = 3;
+    t.scrolling_region.left = 2;
+    t.scrolling_region.right = 4;
+    t.modes.set(.origin, true);
+    t.setCursorPos(500, 500);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\n\n\n    X", str);
+    }
+}
+
+// Probably outdated, but dates back to the original terminal implementation.
+test "Terminal: setCursorPos (original test)" {
+    var t = try init(testing.allocator, 80, 80);
+    defer t.deinit(testing.allocator);
+
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+
+    // Setting it to 0 should keep it zero (1 based)
+    t.setCursorPos(0, 0);
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+
+    // Should clamp to size
+    t.setCursorPos(81, 81);
+    try testing.expectEqual(@as(usize, 79), t.screen.cursor.x);
+    try testing.expectEqual(@as(usize, 79), t.screen.cursor.y);
+
+    // Should reset pending wrap
+    t.setCursorPos(0, 80);
+    try t.print('c');
+    try testing.expect(t.screen.cursor.pending_wrap);
+    t.setCursorPos(0, 80);
+    try testing.expect(!t.screen.cursor.pending_wrap);
+
+    // Origin mode
+    t.modes.set(.origin, true);
+
+    // No change without a scroll region
+    t.setCursorPos(81, 81);
+    try testing.expectEqual(@as(usize, 79), t.screen.cursor.x);
+    try testing.expectEqual(@as(usize, 79), t.screen.cursor.y);
+
+    // Set the scroll region
+    // TODO
+    // t.setTopAndBottomMargin(10, t.rows);
+    // t.setCursorPos(0, 0);
+    // try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
+    // try testing.expectEqual(@as(usize, 9), t.screen.cursor.y);
+    //
+    // t.setCursorPos(1, 1);
+    // try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
+    // try testing.expectEqual(@as(usize, 9), t.screen.cursor.y);
+    //
+    // t.setCursorPos(100, 0);
+    // try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
+    // try testing.expectEqual(@as(usize, 79), t.screen.cursor.y);
+    //
+    // t.setTopAndBottomMargin(10, 11);
+    // t.setCursorPos(2, 0);
+    // try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
+    // try testing.expectEqual(@as(usize, 10), t.screen.cursor.y);
 }
