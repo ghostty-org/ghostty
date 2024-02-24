@@ -105,6 +105,15 @@ pub const OffsetBuf = struct {
             .offset = self.offset + offset,
         };
     }
+
+    /// Rebase the offset to have a zero offset by rebasing onto start.
+    /// This is similar to `add` but all of the offsets are merged into base.
+    pub fn rebase(self: OffsetBuf, offset: usize) OffsetBuf {
+        return .{
+            .base = self.start() + offset,
+            .offset = 0,
+        };
+    }
 };
 
 /// Get the offset for a given type from some base pointer to the

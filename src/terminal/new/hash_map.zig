@@ -291,15 +291,16 @@ fn HashMapUnmanaged(
             assert(@intFromPtr(buf.start()) % base_align == 0);
 
             // Get all our main pointers
-            const metadata_ptr: [*]Metadata = @ptrCast(buf.start() + @sizeOf(Header));
+            const metadata_buf = buf.rebase(@sizeOf(Header));
+            const metadata_ptr: [*]Metadata = @ptrCast(metadata_buf.start());
 
             // Build our map
             var map: Self = .{ .metadata = metadata_ptr };
             const hdr = map.header();
             hdr.capacity = layout.capacity;
             hdr.size = 0;
-            if (@sizeOf([*]K) != 0) hdr.keys = buf.member(K, layout.keys_start);
-            if (@sizeOf([*]V) != 0) hdr.values = buf.member(V, layout.vals_start);
+            if (@sizeOf([*]K) != 0) hdr.keys = metadata_buf.member(K, layout.keys_start);
+            if (@sizeOf([*]V) != 0) hdr.values = metadata_buf.member(V, layout.vals_start);
             map.initMetadatas();
 
             return map;
