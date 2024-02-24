@@ -2327,6 +2327,7 @@ test "Terminal: print over wide spacer tail" {
     }
 }
 
+// X
 test "Terminal: VS15 to make narrow character" {
     var t = try init(testing.allocator, 5, 5);
     defer t.deinit(testing.allocator);
@@ -2352,6 +2353,7 @@ test "Terminal: VS15 to make narrow character" {
     }
 }
 
+// X
 test "Terminal: VS16 to make wide character with mode 2027" {
     var t = try init(testing.allocator, 5, 5);
     defer t.deinit(testing.allocator);
@@ -2377,6 +2379,7 @@ test "Terminal: VS16 to make wide character with mode 2027" {
     }
 }
 
+// X
 test "Terminal: VS16 repeated with mode 2027" {
     var t = try init(testing.allocator, 5, 5);
     defer t.deinit(testing.allocator);
@@ -2492,6 +2495,7 @@ test "Terminal: print multicodepoint grapheme, disabled mode 2027" {
     }
 }
 
+// X
 test "Terminal: print multicodepoint grapheme, mode 2027" {
     var t = try init(testing.allocator, 80, 80);
     defer t.deinit(testing.allocator);
@@ -2556,6 +2560,7 @@ test "Terminal: print invalid VS16 non-grapheme" {
     }
 }
 
+// X
 test "Terminal: print invalid VS16 grapheme" {
     var t = try init(testing.allocator, 80, 80);
     defer t.deinit(testing.allocator);
@@ -2586,6 +2591,7 @@ test "Terminal: print invalid VS16 grapheme" {
     }
 }
 
+// X
 test "Terminal: print invalid VS16 with second char" {
     var t = try init(testing.allocator, 80, 80);
     defer t.deinit(testing.allocator);
@@ -2710,6 +2716,7 @@ test "Terminal: disabled wraparound with wide char and no space" {
     }
 }
 
+// X
 test "Terminal: disabled wraparound with wide grapheme and half space" {
     var t = try init(testing.allocator, 5, 5);
     defer t.deinit(testing.allocator);
