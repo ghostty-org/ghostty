@@ -268,6 +268,30 @@ pub const Page = struct {
         return slice.offset.ptr(self.memory)[0..slice.len];
     }
 
+    /// Clear the graphemes for a given cell.
+    pub fn clearGrapheme(self: *Page, row: *Row, cell: *Cell) void {
+        assert(cell.grapheme);
+
+        // Get our entry in the map, which must exist
+        const cell_offset = getOffset(Cell, self.memory, cell);
+        var map = self.grapheme_map.map(self.memory);
+        const entry = map.getEntry(cell_offset).?;
+
+        // Free our grapheme data
+        const cps = entry.value_ptr.offset.ptr(self.memory)[0..entry.value_ptr.len];
+        self.grapheme_alloc.free(self.memory, cps);
+
+        // Remove the entry
+        map.removeByPtr(entry.key_ptr);
+
+        // Mark that we no longer have graphemes, also search the row
+        // to make sure its state is correct.
+        cell.grapheme = false;
+        const cells = row.cells.ptr(self.memory)[0..self.size.cols];
+        for (cells) |c| if (c.grapheme) return;
+        row.grapheme = false;
+    }
+
     pub const Layout = struct {
         total_size: usize,
         rows_start: usize,
@@ -577,6 +601,11 @@ test "Page appendGrapheme small" {
     try testing.expect(rac.row.grapheme);
     try testing.expect(rac.cell.grapheme);
     try testing.expectEqualSlices(u21, &.{ 0x0A, 0x0B }, page.lookupGrapheme(rac.cell).?);
+
+    // Clear it
+    page.clearGrapheme(rac.row, rac.cell);
+    try testing.expect(!rac.row.grapheme);
+    try testing.expect(!rac.cell.grapheme);
 }
 
 test "Page appendGrapheme larger than chunk" {
@@ -600,4 +629,27 @@ test "Page appendGrapheme larger than chunk" {
     for (0..count) |i| {
         try testing.expectEqual(@as(u21, @intCast(0x0A + i)), cps[i]);
     }
+}
+
+test "Page clearGrapheme not all cells" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    const rac = page.getRowAndCell(0, 0);
+    rac.cell.codepoint = 0x09;
+    try page.appendGrapheme(rac.row, rac.cell, 0x0A);
+
+    const rac2 = page.getRowAndCell(1, 0);
+    rac2.cell.codepoint = 0x09;
+    try page.appendGrapheme(rac2.row, rac2.cell, 0x0A);
+
+    // Clear it
+    page.clearGrapheme(rac.row, rac.cell);
+    try testing.expect(rac.row.grapheme);
+    try testing.expect(!rac.cell.grapheme);
+    try testing.expect(rac2.cell.grapheme);
 }
