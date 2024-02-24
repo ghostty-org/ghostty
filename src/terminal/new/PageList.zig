@@ -176,15 +176,17 @@ pub fn rowOffset(self: *const PageList, pt: point.Point) RowOffset {
 
 /// Get the cell at the given point, or null if the cell does not
 /// exist or is out of bounds.
+///
+/// Warning: this is slow and should not be used in performance critical paths
 pub fn getCell(self: *const PageList, pt: point.Point) ?Cell {
-    const row = self.getTopLeft(pt).forward(pt.y) orelse return null;
-    const rac = row.page.data.getRowAndCell(row.row_offset, pt.x);
+    const row = self.getTopLeft(pt).forward(pt.coord().y) orelse return null;
+    const rac = row.page.data.getRowAndCell(pt.coord().x, row.row_offset);
     return .{
         .page = row.page,
         .row = rac.row,
         .cell = rac.cell,
         .row_idx = row.row_offset,
-        .col_idx = pt.x,
+        .col_idx = pt.coord().x,
     };
 }
 
@@ -282,6 +284,14 @@ pub const RowOffset = struct {
         };
     }
 
+    /// TODO: docs
+    pub fn backward(self: RowOffset, idx: usize) ?RowOffset {
+        return switch (self.backwardOverflow(idx)) {
+            .offset => |v| v,
+            .overflow => null,
+        };
+    }
+
     /// Move the offset forward n rows. If the offset goes beyond the
     /// end of the screen, return the overflow amount.
     fn forwardOverflow(self: RowOffset, n: usize) union(enum) {
@@ -309,6 +319,37 @@ pub const RowOffset = struct {
             if (n_left <= page.data.size.rows) return .{ .offset = .{
                 .page = page,
                 .row_offset = n_left - 1,
+            } };
+            n_left -= page.data.size.rows;
+        }
+    }
+
+    /// Move the offset backward n rows. If the offset goes beyond the
+    /// start of the screen, return the overflow amount.
+    fn backwardOverflow(self: RowOffset, n: usize) union(enum) {
+        offset: RowOffset,
+        overflow: struct {
+            end: RowOffset,
+            remaining: usize,
+        },
+    } {
+        // Index fits within this page
+        if (n >= self.row_offset) return .{ .offset = .{
+            .page = self.page,
+            .row_offset = self.row_offset - n,
+        } };
+
+        // Need to traverse page links to find the page
+        var page: *List.Node = self.page;
+        var n_left: usize = n - self.row_offset;
+        while (true) {
+            page = page.prev orelse return .{ .overflow = .{
+                .end = .{ .page = page, .row_offset = 0 },
+                .remaining = n_left,
+            } };
+            if (n_left <= page.data.size.rows) return .{ .offset = .{
+                .page = page,
+                .row_offset = page.data.size.rows - n_left,
             } };
             n_left -= page.data.size.rows;
         }

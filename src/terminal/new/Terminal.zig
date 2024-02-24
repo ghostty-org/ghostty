@@ -265,13 +265,34 @@ pub fn print(self: *Terminal, c: u21) !void {
 
     switch (width) {
         // Single cell is very easy: just write in the cell
-        1 => @call(.always_inline, printCell, .{ self, c }),
+        1 => @call(.always_inline, printCell, .{ self, c, .narrow }),
 
         // Wide character requires a spacer. We print this by
         // using two cells: the first is flagged "wide" and has the
         // wide char. The second is guaranteed to be a spacer if
         // we're not at the end of the line.
-        2 => @panic("TODO: wide characters"),
+        2 => if ((right_limit - self.scrolling_region.left) > 1) {
+            // If we don't have space for the wide char, we need
+            // to insert spacers and wrap. Then we just print the wide
+            // char as normal.
+            if (self.screen.cursor.x == right_limit - 1) {
+                // If we don't have wraparound enabled then we don't print
+                // this character at all and don't move the cursor. This is
+                // how xterm behaves.
+                if (!self.modes.get(.wraparound)) return;
+
+                self.printCell(' ', .spacer_head);
+                try self.printWrap();
+            }
+
+            self.printCell(c, .wide);
+            self.screen.cursorRight(1);
+            self.printCell(' ', .spacer_tail);
+        } else {
+            // This is pretty broken, terminals should never be only 1-wide.
+            // We sould prevent this downstream.
+            self.printCell(' ', .narrow);
+        },
 
         else => unreachable,
     }
@@ -284,47 +305,67 @@ pub fn print(self: *Terminal, c: u21) !void {
     }
 
     // Move the cursor
-    self.screen.cursorRight();
+    self.screen.cursorRight(1);
 }
 
-fn printCell(self: *Terminal, unmapped_c: u21) void {
+fn printCell(
+    self: *Terminal,
+    unmapped_c: u21,
+    wide: Cell.Wide,
+) void {
     // TODO: charsets
     const c: u21 = unmapped_c;
 
-    // If this cell is wide char then we need to clear it.
-    // We ignore wide spacer HEADS because we can just write
-    // single-width characters into that.
-    // if (cell.attrs.wide) {
-    //     const x = self.screen.cursor.x + 1;
-    //     if (x < self.cols) {
-    //         const spacer_cell = row.getCellPtr(x);
-    //         spacer_cell.* = self.screen.cursor.pen;
-    //     }
-    //
-    //     if (self.screen.cursor.y > 0 and self.screen.cursor.x <= 1) {
-    //         self.clearWideSpacerHead();
-    //     }
-    // } else if (cell.attrs.wide_spacer_tail) {
-    //     assert(self.screen.cursor.x > 0);
-    //     const x = self.screen.cursor.x - 1;
-    //
-    //     const wide_cell = row.getCellPtr(x);
-    //     wide_cell.* = self.screen.cursor.pen;
-    //
-    //     if (self.screen.cursor.y > 0 and self.screen.cursor.x <= 1) {
-    //         self.clearWideSpacerHead();
-    //     }
-    // }
+    // TODO: prev cell overwriting style, dec refs, etc.
+    const cell = self.screen.cursor.page_cell;
+
+    // If the wide property of this cell is the same, then we don't
+    // need to do the special handling here because the structure will
+    // be the same. If it is NOT the same, then we may need to clear some
+    // cells.
+    if (cell.wide != wide) {
+        switch (cell.wide) {
+            // Previous cell was narrow. Do nothing.
+            .narrow => {},
+
+            // Previous cell was wide. We need to clear the tail and head.
+            .wide => wide: {
+                if (self.screen.cursor.x >= self.cols - 1) break :wide;
+
+                const spacer_cell = self.screen.cursorCellRight();
+                spacer_cell.* = .{ .style_id = self.screen.cursor.style_id };
+                if (self.screen.cursor.y > 0 and self.screen.cursor.x <= 1) {
+                    const head_cell = self.screen.cursorCellEndOfPrev();
+                    head_cell.wide = .narrow;
+                }
+            },
+
+            .spacer_tail => {
+                assert(self.screen.cursor.x > 0);
+
+                const wide_cell = self.screen.cursorCellLeft();
+                wide_cell.* = .{ .style_id = self.screen.cursor.style_id };
+                if (self.screen.cursor.y > 0 and self.screen.cursor.x <= 1) {
+                    const head_cell = self.screen.cursorCellEndOfPrev();
+                    head_cell.wide = .narrow;
+                }
+            },
+
+            // TODO: this case was not handled in the old terminal implementation
+            // but it feels like we should do something. investigate other
+            // terminals (xterm mainly) and see whats up.
+            .spacer_head => {},
+        }
+    }
 
     // If the prior value had graphemes, clear those
-    //if (cell.attrs.grapheme) row.clearGraphemes(self.screen.cursor.x);
-
-    // TODO: prev cell overwriting style
+    if (cell.grapheme) @panic("TODO: clear graphemes");
 
     // Write
     self.screen.cursor.page_cell.* = .{
         .style_id = self.screen.cursor.style_id,
         .codepoint = c,
+        .wide = wide,
     };
 
     // If we have non-default style then we need to update the ref count.
@@ -411,6 +452,60 @@ pub fn index(self: *Terminal) !void {
     }
 }
 
+// Set Cursor Position. Move cursor to the position indicated
+// by row and column (1-indexed). If column is 0, it is adjusted to 1.
+// If column is greater than the right-most column it is adjusted to
+// the right-most column. If row is 0, it is adjusted to 1. If row is
+// greater than the bottom-most row it is adjusted to the bottom-most
+// row.
+pub fn setCursorPos(self: *Terminal, row_req: usize, col_req: usize) void {
+    // If cursor origin mode is set the cursor row will be moved relative to
+    // the top margin row and adjusted to be above or at bottom-most row in
+    // the current scroll region.
+    //
+    // If origin mode is set and left and right margin mode is set the cursor
+    // will be moved relative to the left margin column and adjusted to be on
+    // or left of the right margin column.
+    const params: struct {
+        x_offset: size.CellCountInt = 0,
+        y_offset: size.CellCountInt = 0,
+        x_max: size.CellCountInt,
+        y_max: size.CellCountInt,
+    } = if (self.modes.get(.origin)) .{
+        .x_offset = self.scrolling_region.left,
+        .y_offset = self.scrolling_region.top,
+        .x_max = self.scrolling_region.right + 1, // We need this 1-indexed
+        .y_max = self.scrolling_region.bottom + 1, // We need this 1-indexed
+    } else .{
+        .x_max = self.cols,
+        .y_max = self.rows,
+    };
+
+    // Unset pending wrap state
+    self.screen.cursor.pending_wrap = false;
+
+    // Calculate our new x/y
+    const row = if (row_req == 0) 1 else row_req;
+    const col = if (col_req == 0) 1 else col_req;
+    const x = @min(params.x_max, col + params.x_offset) -| 1;
+    const y = @min(params.y_max, row + params.y_offset) -| 1;
+
+    // If the y is unchanged then this is fast pointer math
+    if (y == self.screen.cursor.y) {
+        if (x > self.screen.cursor.x) {
+            self.screen.cursorRight(x - self.screen.cursor.x);
+        } else {
+            self.screen.cursorLeft(self.screen.cursor.x - x);
+        }
+
+        return;
+    }
+
+    @panic("TODO: y change");
+    // log.info("set cursor position: col={} row={}", .{ self.screen.cursor.x, self.screen.cursor.y });
+
+}
+
 /// Return the current string value of the terminal. Newlines are
 /// encoded as "\n". This omits any formatting such as fg/bg.
 ///
@@ -488,4 +583,78 @@ test "Terminal: print single very long line" {
     // This would crash for issue 1400. So the assertion here is
     // that we simply do not crash.
     for (0..1000) |_| try t.print('x');
+}
+
+test "Terminal: print wide char" {
+    var t = try init(testing.allocator, 80, 80);
+    defer t.deinit(testing.allocator);
+
+    try t.print(0x1F600); // Smiley face
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 2), t.screen.cursor.x);
+
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0x1F600), cell.codepoint);
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+    }
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
+    }
+}
+
+test "Terminal: print over wide char at 0,0" {
+    var t = try init(testing.allocator, 80, 80);
+    defer t.deinit(testing.allocator);
+
+    try t.print(0x1F600); // Smiley face
+    t.setCursorPos(0, 0);
+    try t.print('A'); // Smiley face
+
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 1), t.screen.cursor.x);
+
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 'A'), cell.codepoint);
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+    }
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0), cell.codepoint);
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+    }
+}
+
+test "Terminal: print over wide spacer tail" {
+    var t = try init(testing.allocator, 5, 5);
+    defer t.deinit(testing.allocator);
+
+    try t.print('橋');
+    t.setCursorPos(1, 2);
+    try t.print('X');
+
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0), cell.codepoint);
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+    }
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 'X'), cell.codepoint);
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+    }
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings(" X", str);
+    }
 }

@@ -369,7 +369,28 @@ pub const Cell = packed struct(u64) {
     /// map for this cell to build a multi-codepoint grapheme.
     grapheme: bool = false,
 
-    _padding: u26 = 0,
+    /// The wide property of this cell, for wide characters. Characters in
+    /// a terminal grid can only be 1 or 2 cells wide. A wide character
+    /// is always next to a spacer. This is used to determine both the width
+    /// and spacer properties of a cell.
+    wide: Wide = .narrow,
+
+    _padding: u24 = 0,
+
+    pub const Wide = enum(u2) {
+        /// Not a wide character, cell width 1.
+        narrow = 0,
+
+        /// Wide character, cell width 2.
+        wide = 1,
+
+        /// Spacer after wide character. Do not render.
+        spacer_tail = 2,
+
+        /// Spacer at the end of a soft-wrapped line to indicate that a wide
+        /// character is continued on the next line.
+        spacer_head = 3,
+    };
 
     /// Returns true if the set of cells has text in it.
     pub fn hasText(cells: []const Cell) bool {
