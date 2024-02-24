@@ -3004,6 +3004,7 @@ test "Terminal: carriage return right of left margin moves to left margin" {
     try testing.expectEqual(@as(usize, 2), t.screen.cursor.x);
 }
 
+// X
 test "Terminal: backspace" {
     var t = try init(testing.allocator, 80, 80);
     defer t.deinit(testing.allocator);

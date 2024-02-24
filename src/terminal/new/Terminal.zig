@@ -430,6 +430,110 @@ pub fn linefeed(self: *Terminal) !void {
     if (self.modes.get(.linefeed)) self.carriageReturn();
 }
 
+/// Backspace moves the cursor back a column (but not less than 0).
+pub fn backspace(self: *Terminal) void {
+    self.cursorLeft(1);
+}
+
+/// Move the cursor to the left amount cells. If amount is 0, adjust it to 1.
+pub fn cursorLeft(self: *Terminal, count_req: usize) void {
+    // Wrapping behavior depends on various terminal modes
+    const WrapMode = enum { none, reverse, reverse_extended };
+    const wrap_mode: WrapMode = wrap_mode: {
+        if (!self.modes.get(.wraparound)) break :wrap_mode .none;
+        if (self.modes.get(.reverse_wrap_extended)) break :wrap_mode .reverse_extended;
+        if (self.modes.get(.reverse_wrap)) break :wrap_mode .reverse;
+        break :wrap_mode .none;
+    };
+
+    var count: size.CellCountInt = @intCast(@max(count_req, 1));
+
+    // If we are in no wrap mode, then we move the cursor left and exit
+    // since this is the fastest and most typical path.
+    if (wrap_mode == .none) {
+        self.screen.cursorLeft(count);
+        self.screen.cursor.pending_wrap = false;
+        return;
+    }
+
+    // If we have a pending wrap state and we are in either reverse wrap
+    // modes then we decrement the amount we move by one to match xterm.
+    if (self.screen.cursor.pending_wrap) {
+        count -= 1;
+        self.screen.cursor.pending_wrap = false;
+    }
+
+    // The margins we can move to.
+    const top = self.scrolling_region.top;
+    const bottom = self.scrolling_region.bottom;
+    const right_margin = self.scrolling_region.right;
+    const left_margin = if (self.screen.cursor.x < self.scrolling_region.left)
+        0
+    else
+        self.scrolling_region.left;
+
+    // Handle some edge cases when our cursor is already on the left margin.
+    if (self.screen.cursor.x == left_margin) {
+        switch (wrap_mode) {
+            // In reverse mode, if we're already before the top margin
+            // then we just set our cursor to the top-left and we're done.
+            .reverse => if (self.screen.cursor.y <= top) {
+                self.screen.cursorAbsolute(left_margin, top);
+                return;
+            },
+
+            // Handled in while loop
+            .reverse_extended => {},
+
+            // Handled above
+            .none => unreachable,
+        }
+    }
+
+    while (true) {
+        // We can move at most to the left margin.
+        const max = self.screen.cursor.x - left_margin;
+
+        // We want to move at most the number of columns we have left
+        // or our remaining count. Do the move.
+        const amount = @min(max, count);
+        count -= amount;
+        self.screen.cursorLeft(amount);
+
+        // If we have no more to move, then we're done.
+        if (count == 0) break;
+
+        // If we are at the top, then we are done.
+        if (self.screen.cursor.y == top) {
+            if (wrap_mode != .reverse_extended) break;
+
+            self.screen.cursorAbsolute(right_margin, bottom);
+            count -= 1;
+            continue;
+        }
+
+        // UNDEFINED TERMINAL BEHAVIOR. This situation is not handled in xterm
+        // and currently results in a crash in xterm. Given no other known
+        // terminal [to me] implements XTREVWRAP2, I decided to just mimick
+        // the behavior of xterm up and not including the crash by wrapping
+        // up to the (0, 0) and stopping there. My reasoning is that for an
+        // appropriately sized value of "count" this is the behavior that xterm
+        // would have. This is unit tested.
+        if (self.screen.cursor.y == 0) {
+            assert(self.screen.cursor.x == left_margin);
+            break;
+        }
+
+        // If our previous line is not wrapped then we are done.
+        if (wrap_mode != .reverse_extended) {
+            if (!self.screen.cursor.page_row.flags.wrap) break;
+        }
+
+        self.screen.cursorAbsolute(right_margin, self.screen.cursor.y - 1);
+        count -= 1;
+    }
+}
+
 /// Move the cursor to the next line in the scrolling region, possibly scrolling.
 ///
 /// If the cursor is outside of the scrolling region: move the cursor one line
@@ -932,4 +1036,21 @@ test "Terminal: carriage return right of left margin moves to left margin" {
     t.scrolling_region.left = 2;
     t.carriageReturn();
     try testing.expectEqual(@as(usize, 2), t.screen.cursor.x);
+}
+
+test "Terminal: backspace" {
+    var t = try init(testing.allocator, 80, 80);
+    defer t.deinit(testing.allocator);
+
+    // BS
+    for ("hello") |c| try t.print(c);
+    t.backspace();
+    try t.print('y');
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 5), t.screen.cursor.x);
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("helly", str);
+    }
 }
