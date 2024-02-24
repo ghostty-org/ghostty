@@ -152,13 +152,32 @@ pub fn cursorDown(self: *Screen) void {
     self.cursor.y += 1;
 }
 
-/// Move the cursor to some absolute position.
+/// Move the cursor to some absolute horizontal position.
 pub fn cursorHorizontalAbsolute(self: *Screen, x: size.CellCountInt) void {
     assert(x < self.pages.cols);
 
     const page_rac = self.cursor.page_offset.rowAndCell(x);
     self.cursor.page_cell = page_rac.cell;
     self.cursor.x = x;
+}
+
+/// Move the cursor to some absolute position.
+pub fn cursorAbsolute(self: *Screen, x: size.CellCountInt, y: size.CellCountInt) void {
+    assert(x < self.pages.cols);
+    assert(y < self.pages.rows);
+
+    const page_offset = if (y < self.cursor.y)
+        self.cursor.page_offset.backward(self.cursor.y - y).?
+    else if (y > self.cursor.y)
+        self.cursor.page_offset.forward(y - self.cursor.y).?
+    else
+        self.cursor.page_offset;
+    const page_rac = page_offset.rowAndCell(x);
+    self.cursor.page_offset = page_offset;
+    self.cursor.page_row = page_rac.row;
+    self.cursor.page_cell = page_rac.cell;
+    self.cursor.x = x;
+    self.cursor.y = y;
 }
 
 /// Scroll the active area and keep the cursor at the bottom of the screen.
