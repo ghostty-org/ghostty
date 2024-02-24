@@ -513,10 +513,15 @@ fn printCell(
     }
 
     // If the prior value had graphemes, clear those
-    if (cell.grapheme) @panic("TODO: clear graphemes");
+    if (cell.grapheme) {
+        self.screen.cursor.page_offset.page.data.clearGrapheme(
+            self.screen.cursor.page_row,
+            cell,
+        );
+    }
 
     // Write
-    self.screen.cursor.page_cell.* = .{
+    cell.* = .{
         .style_id = self.screen.cursor.style_id,
         .codepoint = c,
         .wide = wide,
@@ -1357,6 +1362,33 @@ test "Terminal: print invalid VS16 with second char" {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
         const cell = list_cell.cell;
         try testing.expectEqual(@as(u21, 'y'), cell.codepoint);
+        try testing.expect(!cell.grapheme);
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+    }
+}
+
+test "Terminal: overwrite grapheme should clear grapheme data" {
+    var t = try init(testing.allocator, 5, 5);
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    try t.print(0x26C8); // Thunder cloud and rain
+    try t.print(0xFE0E); // VS15 to make narrow
+    t.setCursorPos(1, 1);
+    try t.print('A');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("A", str);
+    }
+
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 'A'), cell.codepoint);
         try testing.expect(!cell.grapheme);
         try testing.expectEqual(Cell.Wide.narrow, cell.wide);
     }
