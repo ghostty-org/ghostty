@@ -87,10 +87,10 @@ pub fn cursorCellRight(self: *Screen) *pagepkg.Cell {
     return @ptrCast(cell + 1);
 }
 
-pub fn cursorCellLeft(self: *Screen) *pagepkg.Cell {
-    assert(self.cursor.x > 0);
+pub fn cursorCellLeft(self: *Screen, n: size.CellCountInt) *pagepkg.Cell {
+    assert(self.cursor.x >= n);
     const cell: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
-    return @ptrCast(cell - 1);
+    return @ptrCast(cell - n);
 }
 
 pub fn cursorCellEndOfPrev(self: *Screen) *pagepkg.Cell {
@@ -245,7 +245,7 @@ pub fn dumpString(
         blank_rows += 1;
 
         var blank_cells: usize = 0;
-        for (cells) |cell| {
+        for (cells) |*cell| {
             // Skip spacers
             switch (cell.wide) {
                 .narrow, .wide => {},
@@ -265,6 +265,13 @@ pub fn dumpString(
             }
 
             try writer.print("{u}", .{cell.codepoint});
+
+            if (cell.grapheme) {
+                const cps = row_offset.page.data.lookupGrapheme(cell).?;
+                for (cps) |cp| {
+                    try writer.print("{u}", .{cp});
+                }
+            }
         }
     }
 }
