@@ -3022,6 +3022,7 @@ test "Terminal: backspace" {
     }
 }
 
+// X
 test "Terminal: horizontal tabs" {
     const alloc = testing.allocator;
     var t = try init(alloc, 20, 5);
@@ -3043,6 +3044,7 @@ test "Terminal: horizontal tabs" {
     try testing.expectEqual(@as(usize, 19), t.screen.cursor.x);
 }
 
+// X
 test "Terminal: horizontal tabs starting on tabstop" {
     const alloc = testing.allocator;
     var t = try init(alloc, 20, 5);
@@ -3061,6 +3063,7 @@ test "Terminal: horizontal tabs starting on tabstop" {
     }
 }
 
+// X
 test "Terminal: horizontal tabs with right margin" {
     const alloc = testing.allocator;
     var t = try init(alloc, 20, 5);
@@ -3080,6 +3083,7 @@ test "Terminal: horizontal tabs with right margin" {
     }
 }
 
+// X
 test "Terminal: horizontal tabs back" {
     const alloc = testing.allocator;
     var t = try init(alloc, 20, 5);
@@ -3103,6 +3107,7 @@ test "Terminal: horizontal tabs back" {
     try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
 }
 
+// X
 test "Terminal: horizontal tabs back starting on tabstop" {
     const alloc = testing.allocator;
     var t = try init(alloc, 20, 5);
@@ -3121,6 +3126,7 @@ test "Terminal: horizontal tabs back starting on tabstop" {
     }
 }
 
+// X
 test "Terminal: horizontal tabs with left margin in origin mode" {
     const alloc = testing.allocator;
     var t = try init(alloc, 20, 5);
@@ -3161,6 +3167,7 @@ test "Terminal: horizontal tab back with cursor before left margin" {
     }
 }
 
+// X
 test "Terminal: cursorPos resets wrap" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -3179,6 +3186,7 @@ test "Terminal: cursorPos resets wrap" {
     }
 }
 
+// X
 test "Terminal: cursorPos off the screen" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -3194,6 +3202,7 @@ test "Terminal: cursorPos off the screen" {
     }
 }
 
+// X
 test "Terminal: cursorPos relative to origin" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -3212,6 +3221,7 @@ test "Terminal: cursorPos relative to origin" {
     }
 }
 
+// X
 test "Terminal: cursorPos relative to origin with left/right" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -3232,6 +3242,7 @@ test "Terminal: cursorPos relative to origin with left/right" {
     }
 }
 
+// X
 test "Terminal: cursorPos limits with full scroll region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -3252,6 +3263,7 @@ test "Terminal: cursorPos limits with full scroll region" {
     }
 }
 
+// X
 test "Terminal: setCursorPos (original test)" {
     var t = try init(testing.allocator, 80, 80);
     defer t.deinit(testing.allocator);
