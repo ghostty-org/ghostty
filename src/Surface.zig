@@ -217,6 +217,7 @@ const DerivedConfig = struct {
     window_padding_balance: bool,
     title: ?[:0]const u8,
     links: []const Link,
+    copy_mode: bool,
 
     const Link = struct {
         regex: oni.Regex,
@@ -258,6 +259,7 @@ const DerivedConfig = struct {
             .clipboard_trim_trailing_spaces = config.@"clipboard-trim-trailing-spaces",
             .clipboard_paste_protection = config.@"clipboard-paste-protection",
             .clipboard_paste_bracketed_safe = config.@"clipboard-paste-bracketed-safe",
+            .copy_mode = config.@"copy-mode",
             .copy_on_select = config.@"copy-on-select",
             .confirm_close_surface = config.@"confirm-close-surface",
             .cursor_click_to_move = config.@"cursor-click-to-move",
@@ -1257,7 +1259,7 @@ pub fn preeditCallback(self: *Surface, preedit_: ?[]const u8) !void {
 }
 
 /// Called for any key events. This handles keybindings, encoding and
-/// sending to the termianl, etc. The return value is true if the key
+/// sending to the terminal, etc. The return value is true if the key
 /// was handled and false if it was not.
 pub fn keyCallback(
     self: *Surface,
@@ -1354,7 +1356,7 @@ pub fn keyCallback(
     }
 
     // Expand selection if one exists and event is shift + <arrows, home, end, pg up/down>
-    if (event.mods.shift) adjust_selection: {
+    if (self.config.copy_mode and event.mods.shift) adjust_selection: {
         self.renderer_state.mutex.lock();
         defer self.renderer_state.mutex.unlock();
         var screen = self.io.terminal.screen;

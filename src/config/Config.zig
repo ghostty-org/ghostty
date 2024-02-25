@@ -985,6 +985,10 @@ term: []const u8 = "xterm-ghostty",
 /// running. Defaults to an empty string if not set.
 @"enquiry-response": []const u8 = "",
 
+/// This lets you extend the text selection with the arrow, page up, page down,
+/// home, and end keys once you start selecting text with the mouse.
+@"copy-mode": bool = true,
+
 /// This is set by the CLI parser for deinit.
 _arena: ?ArenaAllocator = null,
 
