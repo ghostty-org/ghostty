@@ -70,6 +70,10 @@ pub const Viewport = union(enum) {
     /// for this instead of tracking the row offset, we eliminate a number of
     /// memory writes making scrolling faster.
     active,
+
+    /// The viewport is pinned to the top of the screen, or the farthest
+    /// back in the scrollback history.
+    top,
 };
 
 /// Initialize the page. The top of the first page in the list is always the
@@ -129,6 +133,31 @@ pub fn deinit(self: *PageList) void {
     self.pool.deinit();
 }
 
+/// Scroll options.
+pub const Scroll = union(enum) {
+    /// Scroll to the active area. This is also sometimes referred to as
+    /// the "bottom" of the screen. This makes it so that the end of the
+    /// screen is fully visible since the active area is the bottom
+    /// rows/cols of the screen.
+    active,
+
+    /// Scroll to the top of the screen, which is the farthest back in
+    /// the scrollback history.
+    top,
+};
+
+/// Scroll the viewport. This will never create new scrollback, allocate
+/// pages, etc. This can only be used to move the viewport within the
+/// previously allocated pages.
+pub fn scroll(self: *PageList, behavior: Scroll) void {
+    switch (behavior) {
+        .active => self.viewport = .{ .active = {} },
+        .top => self.viewport = .{ .top = {} },
+    }
+}
+
+/// Grow the page list by exactly one page and return the new page. The
+/// newly allocated page will be size 0 (but capacity is set).
 pub fn grow(self: *PageList) !*List.Node {
     const next_page = try self.createPage();
     // we don't errdefer this because we've added it to the linked
@@ -228,8 +257,8 @@ fn getTopLeft(self: *const PageList, tag: point.Tag) RowOffset {
         .screen, .history => .{ .page = self.pages.first.? },
 
         .viewport => switch (self.viewport) {
-            // If the viewport is in the active area then its the same as active.
             .active => self.getTopLeft(.active),
+            .top => self.getTopLeft(.screen),
         },
 
         // The active area is calculated backwards from the last page.
@@ -250,6 +279,42 @@ fn getTopLeft(self: *const PageList, tag: point.Tag) RowOffset {
             };
         },
     };
+}
+
+/// The total rows in the screen. This is the actual row count currently
+/// and not a capacity or maximum.
+///
+/// This is very slow, it traverses the full list of pages to count the
+/// rows, so it is not pub. This is only used for testing/debugging.
+fn totalRows(self: *const PageList) usize {
+    var rows: usize = 0;
+    var page = self.pages.first;
+    while (page) |p| {
+        rows += p.data.size.rows;
+        page = p.next;
+    }
+
+    return rows;
+}
+
+/// Grow the number of rows available in the page list by n.
+/// This is only used for testing so it isn't optimized.
+fn growRows(self: *PageList, n: usize) !void {
+    var page = self.pages.last.?;
+    var n_rem: usize = n;
+    if (page.data.size.rows < page.data.capacity.rows) {
+        const add = @min(n_rem, page.data.capacity.rows - page.data.size.rows);
+        page.data.size.rows += add;
+        if (n_rem == add) return;
+        n_rem -= add;
+    }
+
+    while (n_rem > 0) {
+        page = try self.grow();
+        const add = @min(n_rem, page.data.capacity.rows);
+        page.data.size.rows = add;
+        n_rem -= add;
+    }
 }
 
 /// Represents some y coordinate within the screen. Since pages can
@@ -362,6 +427,28 @@ const Cell = struct {
     cell: *pagepkg.Cell,
     row_idx: usize,
     col_idx: usize,
+
+    /// Gets the screen point for the given cell.
+    ///
+    /// This is REALLY expensive/slow so it isn't pub. This was built
+    /// for debugging and tests. If you have a need for this outside of
+    /// this file then consider a different approach and ask yourself very
+    /// carefully if you really need this.
+    fn screenPoint(self: Cell) point.Point {
+        var x: usize = self.col_idx;
+        var y: usize = self.row_idx;
+        var page = self.page;
+        while (page.prev) |prev| {
+            x += prev.data.size.cols;
+            y += prev.data.size.rows;
+            page = prev;
+        }
+
+        return .{ .screen = .{
+            .x = x,
+            .y = y,
+        } };
+    }
 };
 
 test "PageList" {
@@ -372,10 +459,91 @@ test "PageList" {
     defer s.deinit();
     try testing.expect(s.viewport == .active);
     try testing.expect(s.pages.first != null);
+    try testing.expectEqual(@as(usize, s.rows), s.totalRows());
 
     // Active area should be the top
     try testing.expectEqual(RowOffset{
         .page = s.pages.first.?,
         .row_offset = 0,
     }, s.getTopLeft(.active));
+}
+
+test "PageList active after grow" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, 1000);
+    defer s.deinit();
+    try testing.expectEqual(@as(usize, s.rows), s.totalRows());
+
+    try s.growRows(10);
+    try testing.expectEqual(@as(usize, s.rows + 10), s.totalRows());
+
+    // Make sure all points make sense
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 10,
+        } }, pt);
+    }
+    {
+        const pt = s.getCell(.{ .screen = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, pt);
+    }
+    {
+        const pt = s.getCell(.{ .active = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 10,
+        } }, pt);
+    }
+}
+
+test "PageList scroll top" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, 1000);
+    defer s.deinit();
+    try s.growRows(10);
+
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 10,
+        } }, pt);
+    }
+
+    s.scroll(.{ .top = {} });
+
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, pt);
+    }
+
+    try s.growRows(10);
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, pt);
+    }
+
+    s.scroll(.{ .active = {} });
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 20,
+        } }, pt);
+    }
 }
