@@ -1394,6 +1394,43 @@ test "Terminal: overwrite grapheme should clear grapheme data" {
     }
 }
 
+test "Terminal: print writes to bottom if scrolled" {
+    var t = try init(testing.allocator, 5, 2);
+    defer t.deinit(testing.allocator);
+
+    // Basic grid writing
+    for ("hello") |c| try t.print(c);
+    t.setCursorPos(0, 0);
+
+    // Make newlines so we create scrollback
+    // 3 pushes hello off the screen
+    try t.index();
+    try t.index();
+    try t.index();
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("", str);
+    }
+
+    // Scroll to the top
+    t.screen.scroll(.{ .top = {} });
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("hello", str);
+    }
+
+    // Type
+    try t.print('A');
+    t.screen.scroll(.{ .active = {} });
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\nA", str);
+    }
+}
+
 test "Terminal: soft wrap" {
     var t = try init(testing.allocator, 3, 80);
     defer t.deinit(testing.allocator);

@@ -2747,6 +2747,7 @@ test "Terminal: disabled wraparound with wide grapheme and half space" {
     }
 }
 
+// X
 test "Terminal: print writes to bottom if scrolled" {
     var t = try init(testing.allocator, 5, 2);
     defer t.deinit(testing.allocator);

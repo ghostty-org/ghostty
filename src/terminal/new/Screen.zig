@@ -214,6 +214,25 @@ pub fn cursorDownScroll(self: *Screen) !void {
     self.cursor.page_cell = page_rac.cell;
 }
 
+/// Options for scrolling the viewport of the terminal grid. The reason
+/// we have this in addition to PageList.Scroll is because we have additional
+/// scroll behaviors that are not part of the PageList.Scroll enum.
+pub const Scroll = union(enum) {
+    /// For all of these, see PageList.Scroll.
+    active,
+    top,
+    delta_row: isize,
+};
+
+/// Scroll the viewport of the terminal grid.
+pub fn scroll(self: *Screen, behavior: Scroll) void {
+    switch (behavior) {
+        .active => self.pages.scroll(.{ .active = {} }),
+        .top => self.pages.scroll(.{ .top = {} }),
+        .delta_row => |v| self.pages.scroll(.{ .delta_row = v }),
+    }
+}
+
 /// Dump the screen to a string. The writer given should be buffered;
 /// this function does not attempt to efficiently write and generally writes
 /// one byte at a time.
