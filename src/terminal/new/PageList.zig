@@ -74,6 +74,11 @@ pub const Viewport = union(enum) {
     /// The viewport is pinned to the top of the screen, or the farthest
     /// back in the scrollback history.
     top,
+
+    /// The viewport is pinned to an exact row offset. If this page is
+    /// deleted (i.e. due to pruning scrollback), then the viewport will
+    /// stick to the top.
+    exact: RowOffset,
 };
 
 /// Initialize the page. The top of the first page in the list is always the
@@ -144,6 +149,10 @@ pub const Scroll = union(enum) {
     /// Scroll to the top of the screen, which is the farthest back in
     /// the scrollback history.
     top,
+
+    /// Scroll up (negative) or down (positive) by the given number of
+    /// rows. This is clamped to the "top" and "active" top left.
+    delta_row: isize,
 };
 
 /// Scroll the viewport. This will never create new scrollback, allocate
@@ -153,6 +162,56 @@ pub fn scroll(self: *PageList, behavior: Scroll) void {
     switch (behavior) {
         .active => self.viewport = .{ .active = {} },
         .top => self.viewport = .{ .top = {} },
+        .delta_row => |n| {
+            if (n == 0) return;
+
+            const top = self.getTopLeft(.viewport);
+            const offset: RowOffset = if (n < 0) switch (top.backwardOverflow(@intCast(-n))) {
+                .offset => |v| v,
+                .overflow => |v| v.end,
+            } else forward: {
+                // Not super happy with the logic to scroll forward. I think
+                // this is pretty slow, but it is human-driven (scrolling
+                // this way) so hyper speed isn't strictly necessary. Still,
+                // it feels bad.
+
+                const forward_offset = switch (top.forwardOverflow(@intCast(n))) {
+                    .offset => |v| v,
+                    .overflow => |v| v.end,
+                };
+
+                var final_offset: ?RowOffset = forward_offset;
+
+                // Ensure we have at least rows rows in the viewport. There
+                // is probably a smarter way to do this.
+                var page = self.pages.last.?;
+                var rem = self.rows;
+                while (rem > page.data.size.rows) {
+                    rem -= page.data.size.rows;
+
+                    // If we see our forward page here then we know its
+                    // beyond the active area and we can set final null.
+                    if (page == forward_offset.page) final_offset = null;
+
+                    page = page.prev.?; // assertion: we always have enough rows for active
+                }
+                const active_offset = .{ .page = page, .row_offset = page.data.size.rows - rem };
+
+                // If we have a final still and we're on the same page
+                // but the active area is before the forward area, then
+                // we can use the active area.
+                if (final_offset != null and
+                    active_offset.page == forward_offset.page and
+                    forward_offset.row_offset > active_offset.row_offset)
+                {
+                    final_offset = active_offset;
+                }
+
+                break :forward final_offset orelse active_offset;
+            };
+
+            self.viewport = .{ .exact = offset };
+        },
     }
 }
 
@@ -259,6 +318,7 @@ fn getTopLeft(self: *const PageList, tag: point.Tag) RowOffset {
         .viewport => switch (self.viewport) {
             .active => self.getTopLeft(.active),
             .top => self.getTopLeft(.screen),
+            .exact => |v| v,
         },
 
         // The active area is calculated backwards from the last page.
@@ -399,7 +459,7 @@ pub const RowOffset = struct {
         },
     } {
         // Index fits within this page
-        if (n >= self.row_offset) return .{ .offset = .{
+        if (n <= self.row_offset) return .{ .offset = .{
             .page = self.page,
             .row_offset = self.row_offset - n,
         } };
@@ -544,6 +604,133 @@ test "PageList scroll top" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 20,
+        } }, pt);
+    }
+}
+
+test "PageList scroll delta row back" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, 1000);
+    defer s.deinit();
+    try s.growRows(10);
+
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 10,
+        } }, pt);
+    }
+
+    s.scroll(.{ .delta_row = -1 });
+
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 9,
+        } }, pt);
+    }
+
+    try s.growRows(10);
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 9,
+        } }, pt);
+    }
+}
+
+test "PageList scroll delta row back overflow" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, 1000);
+    defer s.deinit();
+    try s.growRows(10);
+
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 10,
+        } }, pt);
+    }
+
+    s.scroll(.{ .delta_row = -100 });
+
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, pt);
+    }
+
+    try s.growRows(10);
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, pt);
+    }
+}
+
+test "PageList scroll delta row forward" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, 1000);
+    defer s.deinit();
+    try s.growRows(10);
+
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 10,
+        } }, pt);
+    }
+
+    s.scroll(.{ .top = {} });
+    s.scroll(.{ .delta_row = 2 });
+
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 2,
+        } }, pt);
+    }
+
+    try s.growRows(10);
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 2,
+        } }, pt);
+    }
+}
+
+test "PageList scroll delta row forward into active" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, 1000);
+    defer s.deinit();
+
+    s.scroll(.{ .delta_row = 2 });
+
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
         } }, pt);
     }
 }
