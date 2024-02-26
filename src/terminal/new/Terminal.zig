@@ -1239,6 +1239,11 @@ pub fn eraseChars(self: *Terminal, count_req: usize) void {
     // }
 }
 
+/// Set a style attribute.
+pub fn setAttribute(self: *Terminal, attr: sgr.Attribute) !void {
+    try self.screen.setAttribute(attr);
+}
+
 /// Return the current string value of the terminal. Newlines are
 /// encoded as "\n". This omits any formatting such as fg/bg.
 ///
@@ -3918,5 +3923,36 @@ test "Terminal: deleteLines resets wrap" {
         const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("B", str);
+    }
+}
+
+test "Terminal: default style is empty" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.print('A');
+
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 'A'), cell.content.codepoint);
+        try testing.expectEqual(@as(style.Id, 0), cell.style_id);
+    }
+}
+
+test "Terminal: bold style" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.setAttribute(.{ .bold = {} });
+    try t.print('A');
+
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 'A'), cell.content.codepoint);
+        try testing.expect(cell.style_id != 0);
     }
 }

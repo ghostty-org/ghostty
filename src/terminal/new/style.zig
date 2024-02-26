@@ -45,6 +45,12 @@ pub const Style = struct {
         rgb: color.RGB,
     };
 
+    /// True if the style is the default style.
+    pub fn default(self: Style) bool {
+        const def: []const u8 = comptime std.mem.asBytes(&Style{});
+        return std.mem.eql(u8, std.mem.asBytes(&self), def);
+    }
+
     test {
         // The size of the struct so we can be aware of changes.
         const testing = std.testing;
@@ -202,6 +208,11 @@ pub const Set = struct {
 
         id_map.removeByPtr(id_entry.key_ptr);
         style_map.removeByPtr(style_ptr);
+    }
+
+    /// Return the number of styles currently in the set.
+    pub fn count(self: *const Set, base: anytype) usize {
+        return self.id_map.map(base).count();
     }
 };
 
