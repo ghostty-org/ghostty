@@ -24,6 +24,7 @@ const size = @import("size.zig");
 const pagepkg = @import("page.zig");
 const style = @import("style.zig");
 const Screen = @import("Screen.zig");
+const Page = pagepkg.Page;
 const Cell = pagepkg.Cell;
 const Row = pagepkg.Row;
 
@@ -1103,58 +1104,14 @@ pub fn insertLines(self: *Terminal, count: usize) void {
     }
 
     // Inserted lines should keep our bg color
-    const blank_cell = self.blankCell();
     for (0..adjusted_count) |i| {
         const row: *Row = @ptrCast(top + i);
 
         // Clear the src row.
         var page = &self.screen.cursor.page_offset.page.data;
         const cells = page.getCells(row);
-
-        // If this row has graphemes, then we need go through a slow path
-        // and delete the cell graphemes.
-        if (row.grapheme) {
-            for (cells) |*cell| {
-                if (cell.hasGrapheme()) page.clearGrapheme(row, cell);
-            }
-            assert(!row.grapheme);
-        }
-
         const cells_write = cells[self.scrolling_region.left .. self.scrolling_region.right + 1];
-
-        // Delete any styles. Note the `row.styled` check is VERY IMPORTANT
-        // for performance. Without this, every insert line is 4x slower. With
-        // this check, only styled rows are 4x slower.
-        if (row.styled) {
-            for (cells_write) |*cell| {
-                if (cell.style_id == style.default_id) continue;
-
-                // Fast-path, the style ID matches, in this case we just update
-                // our own ref and continue. We never delete because our style
-                // is still active.
-                if (cell.style_id == self.screen.cursor.style_id) {
-                    self.screen.cursor.style_ref.?.* -= 1;
-                    continue;
-                }
-
-                // Slow path: we need to lookup this style so we can decrement
-                // the ref count. Since we've already loaded everything, we also
-                // just go ahead and GC it if it reaches zero, too.
-                if (page.styles.lookupId(page.memory, cell.style_id)) |prev_style| {
-                    // Below upsert can't fail because it should already be present
-                    const md = page.styles.upsert(page.memory, prev_style.*) catch unreachable;
-                    assert(md.ref > 0);
-                    md.ref -= 1;
-                    if (md.ref == 0) page.styles.remove(page.memory, cell.style_id);
-                }
-            }
-
-            // If we have no left/right scroll region we can be sure that
-            // the row is no longer styled.
-            if (cells_write.len == self.cols) row.styled = false;
-        }
-
-        @memset(cells_write, blank_cell);
+        self.blankCells(page, row, cells_write);
     }
 
     // Move the cursor to the left margin. But importantly this also
@@ -1230,58 +1187,14 @@ pub fn deleteLines(self: *Terminal, count_req: usize) void {
     }
 
     const bottom: [*]Row = top + (rem - 1);
-    const blank_cell = self.blankCell();
     while (@intFromPtr(y) <= @intFromPtr(bottom)) : (y += 1) {
         const row: *Row = @ptrCast(y);
 
         // Clear the src row.
         var page = &self.screen.cursor.page_offset.page.data;
         const cells = page.getCells(row);
-
-        // If this row has graphemes, then we need go through a slow path
-        // and delete the cell graphemes.
-        if (row.grapheme) {
-            for (cells) |*cell| {
-                if (cell.hasGrapheme()) page.clearGrapheme(row, cell);
-            }
-            assert(!row.grapheme);
-        }
-
         const cells_write = cells[self.scrolling_region.left .. self.scrolling_region.right + 1];
-
-        // Delete any styles. Note the `row.styled` check is VERY IMPORTANT
-        // for performance. Without this, every insert line is 4x slower. With
-        // this check, only styled rows are 4x slower.
-        if (row.styled) {
-            for (cells_write) |*cell| {
-                if (cell.style_id == style.default_id) continue;
-
-                // Fast-path, the style ID matches, in this case we just update
-                // our own ref and continue. We never delete because our style
-                // is still active.
-                if (cell.style_id == self.screen.cursor.style_id) {
-                    self.screen.cursor.style_ref.?.* -= 1;
-                    continue;
-                }
-
-                // Slow path: we need to lookup this style so we can decrement
-                // the ref count. Since we've already loaded everything, we also
-                // just go ahead and GC it if it reaches zero, too.
-                if (page.styles.lookupId(page.memory, cell.style_id)) |prev_style| {
-                    // Below upsert can't fail because it should already be present
-                    const md = page.styles.upsert(page.memory, prev_style.*) catch unreachable;
-                    assert(md.ref > 0);
-                    md.ref -= 1;
-                    if (md.ref == 0) page.styles.remove(page.memory, cell.style_id);
-                }
-            }
-
-            // If we have no left/right scroll region we can be sure that
-            // the row is no longer styled.
-            if (cells_write.len == self.cols) row.styled = false;
-        }
-
-        @memset(cells_write, blank_cell);
+        self.blankCells(page, row, cells_write);
     }
 
     // Move the cursor to the left margin. But importantly this also
@@ -1318,7 +1231,11 @@ pub fn eraseChars(self: *Terminal, count_req: usize) void {
 
     // Clear the cells
     const cells: [*]Cell = @ptrCast(self.screen.cursor.page_cell);
-    @memset(cells[0..end], self.blankCell());
+    self.blankCells(
+        &self.screen.cursor.page_offset.page.data,
+        self.screen.cursor.page_row,
+        cells[0..end],
+    );
 
     // This resets the soft-wrap of this line
     self.screen.cursor.page_row.wrap = false;
@@ -1346,6 +1263,55 @@ pub fn eraseChars(self: *Terminal, count_req: usize) void {
     //     if (cell.attrs.protected) continue;
     //     cell.* = pen;
     // }
+}
+
+/// Blank the given cells. The cells must be long to the given row and page.
+/// This will handle refcounted styles properly as well as graphemes.
+fn blankCells(
+    self: *const Terminal,
+    page: *Page,
+    row: *Row,
+    cells: []Cell,
+) void {
+    // If this row has graphemes, then we need go through a slow path
+    // and delete the cell graphemes.
+    if (row.grapheme) {
+        for (cells) |*cell| {
+            if (cell.hasGrapheme()) page.clearGrapheme(row, cell);
+        }
+        assert(!row.grapheme);
+    }
+
+    if (row.styled) {
+        for (cells) |*cell| {
+            if (cell.style_id == style.default_id) continue;
+
+            // Fast-path, the style ID matches, in this case we just update
+            // our own ref and continue. We never delete because our style
+            // is still active.
+            if (cell.style_id == self.screen.cursor.style_id) {
+                self.screen.cursor.style_ref.?.* -= 1;
+                continue;
+            }
+
+            // Slow path: we need to lookup this style so we can decrement
+            // the ref count. Since we've already loaded everything, we also
+            // just go ahead and GC it if it reaches zero, too.
+            if (page.styles.lookupId(page.memory, cell.style_id)) |prev_style| {
+                // Below upsert can't fail because it should already be present
+                const md = page.styles.upsert(page.memory, prev_style.*) catch unreachable;
+                assert(md.ref > 0);
+                md.ref -= 1;
+                if (md.ref == 0) page.styles.remove(page.memory, cell.style_id);
+            }
+        }
+
+        // If we have no left/right scroll region we can be sure that
+        // the row is no longer styled.
+        if (cells.len == self.cols) row.styled = false;
+    }
+
+    @memset(cells, self.blankCell());
 }
 
 /// Set a style attribute.
@@ -3258,6 +3224,28 @@ test "Terminal: eraseChars preserves background sgr" {
             }, list_cell.cell.content.color_rgb);
         }
     }
+}
+
+test "Terminal: eraseChars handles refcounted styles" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 10, 10);
+    defer t.deinit(alloc);
+
+    try t.setAttribute(.{ .bold = {} });
+    try t.print('A');
+    try t.print('B');
+    try t.setAttribute(.{ .unset = {} });
+    try t.print('C');
+
+    // verify we have styles in our style map
+    const page = t.screen.cursor.page_offset.page.data;
+    try testing.expectEqual(@as(usize, 1), page.styles.count(page.memory));
+
+    t.setCursorPos(1, 1);
+    t.eraseChars(2);
+
+    // verify we have no styles in our style map
+    try testing.expectEqual(@as(usize, 0), page.styles.count(page.memory));
 }
 
 test "Terminal: reverseIndex" {
