@@ -5160,6 +5160,7 @@ test "Terminal: eraseChars resets wrap" {
     }
 }
 
+// X
 test "Terminal: eraseChars simple operation" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5177,6 +5178,7 @@ test "Terminal: eraseChars simple operation" {
     }
 }
 
+// X
 test "Terminal: eraseChars minimum one" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5194,6 +5196,7 @@ test "Terminal: eraseChars minimum one" {
     }
 }
 
+// X
 test "Terminal: eraseChars beyond screen edge" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5239,6 +5242,7 @@ test "Terminal: eraseChars preserves background sgr" {
     }
 }
 
+// X
 test "Terminal: eraseChars wide character" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);

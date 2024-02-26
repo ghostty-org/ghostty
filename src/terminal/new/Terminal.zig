@@ -492,7 +492,7 @@ fn printCell(
             .wide => wide: {
                 if (self.screen.cursor.x >= self.cols - 1) break :wide;
 
-                const spacer_cell = self.screen.cursorCellRight();
+                const spacer_cell = self.screen.cursorCellRight(1);
                 spacer_cell.* = .{ .style_id = self.screen.cursor.style_id };
                 if (self.screen.cursor.y > 0 and self.screen.cursor.x <= 1) {
                     const head_cell = self.screen.cursorCellEndOfPrev();
@@ -995,6 +995,58 @@ pub fn insertLines(self: *Terminal, count: usize) void {
 
     // Always unset pending wrap
     self.screen.cursor.pending_wrap = false;
+}
+
+pub fn eraseChars(self: *Terminal, count_req: usize) void {
+    const count = @max(count_req, 1);
+
+    // Our last index is at most the end of the number of chars we have
+    // in the current line.
+    const end = end: {
+        const remaining = self.cols - self.screen.cursor.x;
+        var end = @min(remaining, count);
+
+        // If our last cell is a wide char then we need to also clear the
+        // cell beyond it since we can't just split a wide char.
+        if (end != remaining) {
+            const last = self.screen.cursorCellRight(end - 1);
+            if (last.wide == .wide) end += 1;
+        }
+
+        break :end end;
+    };
+
+    // Clear the cells
+    // TODO: clear with current bg color
+    const cells: [*]Cell = @ptrCast(self.screen.cursor.page_cell);
+    @memset(cells[0..end], .{});
+
+    // This resets the soft-wrap of this line
+    self.screen.cursor.page_row.wrap = false;
+
+    // This resets the pending wrap state
+    self.screen.cursor.pending_wrap = false;
+
+    // TODO: protected mode, see below for old logic
+    //
+    // const pen: Screen.Cell = .{
+    //     .bg = self.screen.cursor.pen.bg,
+    // };
+    //
+    // // If we never had a protection mode, then we can assume no cells
+    // // are protected and go with the fast path. If the last protection
+    // // mode was not ISO we also always ignore protection attributes.
+    // if (self.screen.protected_mode != .iso) {
+    //     row.fillSlice(pen, self.screen.cursor.x, end);
+    // }
+    //
+    // // We had a protection mode at some point. We must go through each
+    // // cell and check its protection attribute.
+    // for (self.screen.cursor.x..end) |x| {
+    //     const cell = row.getCellPtr(x);
+    //     if (cell.attrs.protected) continue;
+    //     cell.* = pen;
+    // }
 }
 
 /// Return the current string value of the terminal. Newlines are
@@ -2400,5 +2452,73 @@ test "Terminal: scrollDown preserves pending wrap" {
         const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\n    A\n    B\nX   C", str);
+    }
+}
+
+test "Terminal: eraseChars simple operation" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    for ("ABC") |c| try t.print(c);
+    t.setCursorPos(1, 1);
+    t.eraseChars(2);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("X C", str);
+    }
+}
+
+test "Terminal: eraseChars minimum one" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    for ("ABC") |c| try t.print(c);
+    t.setCursorPos(1, 1);
+    t.eraseChars(0);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("XBC", str);
+    }
+}
+
+test "Terminal: eraseChars beyond screen edge" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    for ("  ABC") |c| try t.print(c);
+    t.setCursorPos(1, 4);
+    t.eraseChars(10);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("  A", str);
+    }
+}
+
+test "Terminal: eraseChars wide character" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.print('橋');
+    for ("BC") |c| try t.print(c);
+    t.setCursorPos(1, 1);
+    t.eraseChars(1);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("X BC", str);
     }
 }
