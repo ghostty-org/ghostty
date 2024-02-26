@@ -8,6 +8,7 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const point = @import("point.zig");
 const pagepkg = @import("page.zig");
+const stylepkg = @import("style.zig");
 const size = @import("size.zig");
 const OffsetBuf = size.OffsetBuf;
 const Page = pagepkg.Page;
@@ -488,13 +489,24 @@ const Cell = struct {
     row_idx: usize,
     col_idx: usize,
 
+    /// Get the cell style.
+    ///
+    /// Not meant for non-test usage since this is inefficient.
+    pub fn style(self: Cell) stylepkg.Style {
+        if (self.cell.style_id == stylepkg.default_id) return .{};
+        return self.page.data.styles.lookupId(
+            self.page.data.memory,
+            self.cell.style_id,
+        ).?.*;
+    }
+
     /// Gets the screen point for the given cell.
     ///
     /// This is REALLY expensive/slow so it isn't pub. This was built
     /// for debugging and tests. If you have a need for this outside of
     /// this file then consider a different approach and ask yourself very
     /// carefully if you really need this.
-    fn screenPoint(self: Cell) point.Point {
+    pub fn screenPoint(self: Cell) point.Point {
         var x: usize = self.col_idx;
         var y: usize = self.row_idx;
         var page = self.page;

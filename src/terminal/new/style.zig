@@ -51,6 +51,25 @@ pub const Style = struct {
         return std.mem.eql(u8, std.mem.asBytes(&self), def);
     }
 
+    /// Returns a bg-color only cell from this style, if it exists.
+    pub fn bgCell(self: Style) ?page.Cell {
+        return switch (self.bg_color) {
+            .none => null,
+            .palette => |idx| .{
+                .content_tag = .bg_color_palette,
+                .content = .{ .color_palette = idx },
+            },
+            .rgb => |rgb| .{
+                .content_tag = .bg_color_rgb,
+                .content = .{ .color_rgb = .{
+                    .r = rgb.r,
+                    .g = rgb.g,
+                    .b = rgb.b,
+                } },
+            },
+        };
+    }
+
     test {
         // The size of the struct so we can be aware of changes.
         const testing = std.testing;

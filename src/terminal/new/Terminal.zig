@@ -1084,6 +1084,8 @@ pub fn insertLines(self: *Terminal, count: usize) void {
         }
     }
 
+    // Inserted lines should keep our bg color
+    const blank_cell = self.blankCell();
     for (0..adjusted_count) |i| {
         const row: *Row = @ptrCast(top + i);
 
@@ -1100,8 +1102,7 @@ pub fn insertLines(self: *Terminal, count: usize) void {
             assert(!row.grapheme);
         }
 
-        // TODO: cells should keep bg style of pen
-        @memset(cells, .{});
+        @memset(cells, blank_cell);
     }
 
     // Move the cursor to the left margin. But importantly this also
@@ -1177,6 +1178,7 @@ pub fn deleteLines(self: *Terminal, count_req: usize) void {
     }
 
     const bottom: [*]Row = top + (rem - 1);
+    const blank_cell = self.blankCell();
     while (@intFromPtr(y) <= @intFromPtr(bottom)) : (y += 1) {
         const row: *Row = @ptrCast(y);
 
@@ -1193,8 +1195,7 @@ pub fn deleteLines(self: *Terminal, count_req: usize) void {
             assert(!row.grapheme);
         }
 
-        // TODO: cells should keep bg style of pen
-        @memset(cells, .{});
+        @memset(cells, blank_cell);
     }
 
     // Move the cursor to the left margin. But importantly this also
@@ -1230,9 +1231,8 @@ pub fn eraseChars(self: *Terminal, count_req: usize) void {
     };
 
     // Clear the cells
-    // TODO: clear with current bg color
     const cells: [*]Cell = @ptrCast(self.screen.cursor.page_cell);
-    @memset(cells[0..end], .{});
+    @memset(cells[0..end], self.blankCell());
 
     // This resets the soft-wrap of this line
     self.screen.cursor.page_row.wrap = false;
@@ -1273,6 +1273,13 @@ pub fn setAttribute(self: *Terminal, attr: sgr.Attribute) !void {
 /// The caller must free the string.
 pub fn plainString(self: *Terminal, alloc: Allocator) ![]const u8 {
     return try self.screen.dumpStringAlloc(alloc, .{ .viewport = .{} });
+}
+
+/// Returns the blank cell to use when doing terminal operations that
+/// require preserving the bg color.
+fn blankCell(self: *const Terminal) Cell {
+    if (self.screen.cursor.style_id == style.default_id) return .{};
+    return self.screen.cursor.style.bgCell() orelse .{};
 }
 
 test "Terminal: input with no control characters" {
@@ -2475,6 +2482,44 @@ test "Terminal: insertLines simple" {
     }
 }
 
+test "Terminal: insertLines colors with bg color" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.printString("ABC");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("DEF");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("GHI");
+    t.setCursorPos(2, 2);
+
+    try t.setAttribute(.{ .direct_color_bg = .{
+        .r = 0xFF,
+        .g = 0,
+        .b = 0,
+    } });
+    t.insertLines(1);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABC\n\nDEF\nGHI", str);
+    }
+
+    for (0..t.cols) |x| {
+        const list_cell = t.screen.pages.getCell(.{ .active = .{ .x = x, .y = 1 } }).?;
+        try testing.expect(list_cell.cell.content_tag == .bg_color_rgb);
+        try testing.expectEqual(Cell.RGB{
+            .r = 0xFF,
+            .g = 0,
+            .b = 0,
+        }, list_cell.cell.content.color_rgb);
+    }
+}
+
 test "Terminal: insertLines outside of scroll region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -2958,6 +3003,45 @@ test "Terminal: eraseChars resets wrap" {
     }
 }
 
+test "Terminal: eraseChars preserves background sgr" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 10, 10);
+    defer t.deinit(alloc);
+
+    for ("ABC") |c| try t.print(c);
+    t.setCursorPos(1, 1);
+    try t.setAttribute(.{ .direct_color_bg = .{
+        .r = 0xFF,
+        .g = 0,
+        .b = 0,
+    } });
+    t.eraseChars(2);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("  C", str);
+        {
+            const list_cell = t.screen.pages.getCell(.{ .active = .{ .x = 0, .y = 0 } }).?;
+            try testing.expect(list_cell.cell.content_tag == .bg_color_rgb);
+            try testing.expectEqual(Cell.RGB{
+                .r = 0xFF,
+                .g = 0,
+                .b = 0,
+            }, list_cell.cell.content.color_rgb);
+        }
+        {
+            const list_cell = t.screen.pages.getCell(.{ .active = .{ .x = 1, .y = 0 } }).?;
+            try testing.expect(list_cell.cell.content_tag == .bg_color_rgb);
+            try testing.expectEqual(Cell.RGB{
+                .r = 0xFF,
+                .g = 0,
+                .b = 0,
+            }, list_cell.cell.content.color_rgb);
+        }
+    }
+}
+
 test "Terminal: reverseIndex" {
     const alloc = testing.allocator;
     var t = try init(alloc, 2, 5);
@@ -3228,6 +3312,36 @@ test "Terminal: index bottom of primary screen" {
         const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\n\n\nA\n X", str);
+    }
+}
+
+test "Terminal: index bottom of primary screen background sgr" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.setCursorPos(5, 1);
+    try t.print('A');
+    try t.setAttribute(.{ .direct_color_bg = .{
+        .r = 0xFF,
+        .g = 0,
+        .b = 0,
+    } });
+    try t.index();
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\n\n\nA", str);
+        for (0..5) |x| {
+            const list_cell = t.screen.pages.getCell(.{ .active = .{ .x = x, .y = 4 } }).?;
+            try testing.expect(list_cell.cell.content_tag == .bg_color_rgb);
+            try testing.expectEqual(Cell.RGB{
+                .r = 0xFF,
+                .g = 0,
+                .b = 0,
+            }, list_cell.cell.content.color_rgb);
+        }
     }
 }
 
@@ -3791,6 +3905,44 @@ test "Terminal: deleteLines simple" {
         const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC\nGHI", str);
+    }
+}
+
+test "Terminal: deleteLines colors with bg color" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.printString("ABC");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("DEF");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("GHI");
+    t.setCursorPos(2, 2);
+
+    try t.setAttribute(.{ .direct_color_bg = .{
+        .r = 0xFF,
+        .g = 0,
+        .b = 0,
+    } });
+    t.deleteLines(1);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABC\nGHI", str);
+    }
+
+    for (0..t.cols) |x| {
+        const list_cell = t.screen.pages.getCell(.{ .active = .{ .x = x, .y = 4 } }).?;
+        try testing.expect(list_cell.cell.content_tag == .bg_color_rgb);
+        try testing.expectEqual(Cell.RGB{
+            .r = 0xFF,
+            .g = 0,
+            .b = 0,
+        }, list_cell.cell.content.color_rgb);
     }
 }
 

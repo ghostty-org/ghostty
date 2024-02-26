@@ -4373,6 +4373,7 @@ test "Terminal: index bottom of primary screen" {
     }
 }
 
+// X
 test "Terminal: index bottom of primary screen background sgr" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5241,6 +5242,7 @@ test "Terminal: eraseChars beyond screen edge" {
     }
 }
 
+// X
 test "Terminal: eraseChars preserves background sgr" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 10);
