@@ -603,6 +603,22 @@ pub fn cursorUp(self: *Terminal, count_req: usize) void {
     self.screen.cursorUp(@intCast(count));
 }
 
+/// Move the cursor down amount lines. If amount is greater than the maximum
+/// move distance then it is internally adjusted to the maximum. This sequence
+/// will not scroll the screen or scroll region. If amount is 0, adjust it to 1.
+pub fn cursorDown(self: *Terminal, count_req: usize) void {
+    // Always resets pending wrap
+    self.screen.cursor.pending_wrap = false;
+
+    // The max the cursor can move to depends where the cursor currently is
+    const max = if (self.screen.cursor.y <= self.scrolling_region.bottom)
+        self.scrolling_region.bottom - self.screen.cursor.y
+    else
+        self.rows - self.screen.cursor.y - 1;
+    const count = @min(max, @max(count_req, 1));
+    self.screen.cursorDown(@intCast(count));
+}
+
 /// Move the cursor to the left amount cells. If amount is 0, adjust it to 1.
 pub fn cursorLeft(self: *Terminal, count_req: usize) void {
     // Wrapping behavior depends on various terminal modes
@@ -775,7 +791,7 @@ pub fn index(self: *Terminal) !void {
         // We only move down if we're not already at the bottom of
         // the screen.
         if (self.screen.cursor.y < self.rows - 1) {
-            self.screen.cursorDown();
+            self.screen.cursorDown(1);
         }
 
         return;
@@ -805,7 +821,7 @@ pub fn index(self: *Terminal) !void {
 
     // Increase cursor by 1, maximum to bottom of scroll region
     if (self.screen.cursor.y < self.scrolling_region.bottom) {
-        self.screen.cursorDown();
+        self.screen.cursorDown(1);
     }
 }
 
@@ -3574,6 +3590,75 @@ test "Terminal: cursorLeft reverse wrap on first row" {
 
     try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
     try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+}
+
+test "Terminal: cursorDown basic" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.print('A');
+    t.cursorDown(10);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("A\n\n\n\n X", str);
+    }
+}
+
+test "Terminal: cursorDown above bottom scroll margin" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.setTopAndBottomMargin(1, 3);
+    try t.print('A');
+    t.cursorDown(10);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("A\n\n X", str);
+    }
+}
+
+test "Terminal: cursorDown below bottom scroll margin" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.setTopAndBottomMargin(1, 3);
+    try t.print('A');
+    t.setCursorPos(4, 1);
+    t.cursorDown(10);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("A\n\n\n\nX", str);
+    }
+}
+
+test "Terminal: cursorDown resets wrap" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    for ("ABCDE") |c| try t.print(c);
+    try testing.expect(t.screen.cursor.pending_wrap);
+    t.cursorDown(1);
+    try testing.expect(!t.screen.cursor.pending_wrap);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABCDE\n    X", str);
+    }
 }
 
 test "Terminal: deleteLines simple" {
