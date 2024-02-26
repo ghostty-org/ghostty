@@ -145,19 +145,19 @@ pub fn cursorRowUp(self: *Screen, n: size.CellCountInt) *pagepkg.Row {
 /// Move the cursor down.
 ///
 /// Precondition: The cursor is not at the bottom of the screen.
-pub fn cursorDown(self: *Screen) void {
-    assert(self.cursor.y + 1 < self.pages.rows);
+pub fn cursorDown(self: *Screen, n: size.CellCountInt) void {
+    assert(self.cursor.y + n < self.pages.rows);
 
     // We move the offset into our page list to the next row and then
     // get the pointers to the row/cell and set all the cursor state up.
-    const page_offset = self.cursor.page_offset.forward(1).?;
+    const page_offset = self.cursor.page_offset.forward(n).?;
     const page_rac = page_offset.rowAndCell(self.cursor.x);
     self.cursor.page_offset = page_offset;
     self.cursor.page_row = page_rac.row;
     self.cursor.page_cell = page_rac.cell;
 
     // Y of course increases
-    self.cursor.y += 1;
+    self.cursor.y += n;
 }
 
 /// Move the cursor to some absolute horizontal position.

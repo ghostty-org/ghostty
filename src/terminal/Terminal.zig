@@ -6787,6 +6787,7 @@ test "Terminal: cursorLeft reverse wrap on first row" {
     try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
 }
 
+// X
 test "Terminal: cursorDown basic" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6803,6 +6804,7 @@ test "Terminal: cursorDown basic" {
     }
 }
 
+// X
 test "Terminal: cursorDown above bottom scroll margin" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6820,6 +6822,7 @@ test "Terminal: cursorDown above bottom scroll margin" {
     }
 }
 
+// X
 test "Terminal: cursorDown below bottom scroll margin" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6838,6 +6841,7 @@ test "Terminal: cursorDown below bottom scroll margin" {
     }
 }
 
+// X
 test "Terminal: cursorDown resets wrap" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
