@@ -3,6 +3,7 @@ const Screen = @This();
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+const sgr = @import("../sgr.zig");
 const unicode = @import("../../unicode/main.zig");
 const PageList = @import("PageList.zig");
 const pagepkg = @import("page.zig");
@@ -31,7 +32,12 @@ const Cursor = struct {
     /// next character print will force a soft-wrap.
     pending_wrap: bool = false,
 
-    /// The currently active style. The style is page-specific so when
+    /// The currently active style. This is the concrete style value
+    /// that should be kept up to date. The style ID to use for cell writing
+    /// is below.
+    style: style.Style = .{},
+
+    /// The currently active style ID. The style is page-specific so when
     /// we change pages we need to ensure that we update that page with
     /// our style when used.
     style_id: style.Id = style.default_id,
@@ -208,6 +214,7 @@ pub fn cursorDownScroll(self: *Screen) !void {
     }
 
     // No space, we need to allocate a new page and move the cursor to it.
+    // TODO: copy style over
 
     const new_page = try self.pages.grow();
     assert(new_page.data.size.rows == 0);
@@ -239,6 +246,171 @@ pub fn scroll(self: *Screen, behavior: Scroll) void {
         .top => self.pages.scroll(.{ .top = {} }),
         .delta_row => |v| self.pages.scroll(.{ .delta_row = v }),
     }
+}
+
+/// Set a style attribute for the current cursor.
+///
+/// This can cause a page split if the current page cannot fit this style.
+/// This is the only scenario an error return is possible.
+pub fn setAttribute(self: *Screen, attr: sgr.Attribute) !void {
+    switch (attr) {
+        .unset => {
+            self.cursor.style = .{};
+        },
+
+        .bold => {
+            self.cursor.style.flags.bold = true;
+        },
+
+        .reset_bold => {
+            // Bold and faint share the same SGR code for this
+            self.cursor.style.flags.bold = false;
+            self.cursor.style.flags.faint = false;
+        },
+
+        .italic => {
+            self.cursor.style.flags.italic = true;
+        },
+
+        .reset_italic => {
+            self.cursor.style.flags.italic = false;
+        },
+
+        .faint => {
+            self.cursor.style.flags.faint = true;
+        },
+
+        .underline => |v| {
+            self.cursor.style.flags.underline = v;
+        },
+
+        .reset_underline => {
+            self.cursor.style.flags.underline = .none;
+        },
+
+        .underline_color => |rgb| {
+            self.cursor.style.underline_color = .{ .rgb = .{
+                .r = rgb.r,
+                .g = rgb.g,
+                .b = rgb.b,
+            } };
+        },
+
+        .@"256_underline_color" => |idx| {
+            self.cursor.style.underline_color = .{ .palette = idx };
+        },
+
+        .reset_underline_color => {
+            self.cursor.style.underline_color = .none;
+        },
+
+        .blink => {
+            self.cursor.style.flags.blink = true;
+        },
+
+        .reset_blink => {
+            self.cursor.style.flags.blink = false;
+        },
+
+        .inverse => {
+            self.cursor.style.flags.inverse = true;
+        },
+
+        .reset_inverse => {
+            self.cursor.style.flags.inverse = false;
+        },
+
+        .invisible => {
+            self.cursor.style.flags.invisible = true;
+        },
+
+        .reset_invisible => {
+            self.cursor.style.flags.invisible = false;
+        },
+
+        .strikethrough => {
+            self.cursor.style.flags.strikethrough = true;
+        },
+
+        .reset_strikethrough => {
+            self.cursor.style.flags.strikethrough = false;
+        },
+
+        .direct_color_fg => |rgb| {
+            self.cursor.style.fg_color = .{
+                .rgb = .{
+                    .r = rgb.r,
+                    .g = rgb.g,
+                    .b = rgb.b,
+                },
+            };
+        },
+
+        .direct_color_bg => |rgb| {
+            self.cursor.style.bg_color = .{
+                .rgb = .{
+                    .r = rgb.r,
+                    .g = rgb.g,
+                    .b = rgb.b,
+                },
+            };
+        },
+
+        .@"8_fg" => |n| {
+            self.cursor.style.fg_color = .{ .palette = @intFromEnum(n) };
+        },
+
+        .@"8_bg" => |n| {
+            self.cursor.style.bg_color = .{ .palette = @intFromEnum(n) };
+        },
+
+        .reset_fg => self.cursor.style.fg_color = .none,
+
+        .reset_bg => self.cursor.style.bg_color = .none,
+
+        .@"8_bright_fg" => |n| {
+            self.cursor.style.fg_color = .{ .palette = @intFromEnum(n) };
+        },
+
+        .@"8_bright_bg" => |n| {
+            self.cursor.style.bg_color = .{ .palette = @intFromEnum(n) };
+        },
+
+        .@"256_fg" => |idx| {
+            self.cursor.style.fg_color = .{ .palette = idx };
+        },
+
+        .@"256_bg" => |idx| {
+            self.cursor.style.bg_color = .{ .palette = idx };
+        },
+
+        .unknown => return,
+    }
+
+    var page = self.cursor.page_offset.page.data;
+
+    // Remove our previous style if is unused.
+    if (self.cursor.style_ref) |ref| {
+        if (ref.* == 0) {
+            page.styles.remove(page.memory, self.cursor.style_id);
+        }
+    }
+
+    // If our new style is the default, just reset to that
+    if (self.cursor.style.default()) {
+        self.cursor.style_id = 0;
+        self.cursor.style_ref = null;
+        return;
+    }
+
+    // After setting the style, we need to update our style map.
+    // Note that we COULD lazily do this in print. We should look into
+    // if that makes a meaningful difference. Our priority is to keep print
+    // fast because setting a ton of styles that do nothing is uncommon
+    // and weird.
+    const md = try page.styles.upsert(page.memory, self.cursor.style);
+    self.cursor.style_id = md.id;
+    self.cursor.style_ref = &md.ref;
 }
 
 /// Dump the screen to a string. The writer given should be buffered;
@@ -360,9 +532,72 @@ test "Screen read and write" {
 
     var s = try Screen.init(alloc, 80, 24, 1000);
     defer s.deinit();
+    try testing.expectEqual(@as(style.Id, 0), s.cursor.style_id);
 
     try s.testWriteString("hello, world");
     const str = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
     defer alloc.free(str);
     try testing.expectEqualStrings("hello, world", str);
+}
+
+test "Screen style basics" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try Screen.init(alloc, 80, 24, 1000);
+    defer s.deinit();
+    const page = s.cursor.page_offset.page.data;
+    try testing.expectEqual(@as(usize, 0), page.styles.count(page.memory));
+
+    // Set a new style
+    try s.setAttribute(.{ .bold = {} });
+    try testing.expect(s.cursor.style_id != 0);
+    try testing.expectEqual(@as(usize, 1), page.styles.count(page.memory));
+    try testing.expect(s.cursor.style.flags.bold);
+
+    // Set another style, we should still only have one since it was unused
+    try s.setAttribute(.{ .italic = {} });
+    try testing.expect(s.cursor.style_id != 0);
+    try testing.expectEqual(@as(usize, 1), page.styles.count(page.memory));
+    try testing.expect(s.cursor.style.flags.italic);
+}
+
+test "Screen style reset to default" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try Screen.init(alloc, 80, 24, 1000);
+    defer s.deinit();
+    const page = s.cursor.page_offset.page.data;
+    try testing.expectEqual(@as(usize, 0), page.styles.count(page.memory));
+
+    // Set a new style
+    try s.setAttribute(.{ .bold = {} });
+    try testing.expect(s.cursor.style_id != 0);
+    try testing.expectEqual(@as(usize, 1), page.styles.count(page.memory));
+
+    // Reset to default
+    try s.setAttribute(.{ .reset_bold = {} });
+    try testing.expect(s.cursor.style_id == 0);
+    try testing.expectEqual(@as(usize, 0), page.styles.count(page.memory));
+}
+
+test "Screen style reset with unset" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try Screen.init(alloc, 80, 24, 1000);
+    defer s.deinit();
+    const page = s.cursor.page_offset.page.data;
+    try testing.expectEqual(@as(usize, 0), page.styles.count(page.memory));
+
+    // Set a new style
+    try s.setAttribute(.{ .bold = {} });
+    try testing.expect(s.cursor.style_id != 0);
+    try testing.expectEqual(@as(usize, 1), page.styles.count(page.memory));
+
+    // Reset to default
+    try s.setAttribute(.{ .unset = {} });
+    try testing.expect(s.cursor.style_id == 0);
+    try testing.expectEqual(@as(usize, 0), page.styles.count(page.memory));
 }
