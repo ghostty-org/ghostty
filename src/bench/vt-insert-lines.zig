@@ -56,7 +56,7 @@ pub fn main() !void {
         .old => {
             var t = try terminal.Terminal.init(alloc, args.cols, args.rows);
             defer t.deinit(alloc);
-            try bench(&t, args);
+            try benchOld(&t, args);
         },
 
         .new => {
@@ -66,12 +66,12 @@ pub fn main() !void {
                 @intCast(args.rows),
             );
             defer t.deinit(alloc);
-            try bench(&t, args);
+            try benchNew(&t, args);
         },
     }
 }
 
-noinline fn bench(t: anytype, args: Args) !void {
+noinline fn benchOld(t: *terminal.Terminal, args: Args) !void {
     // We fill the terminal with letters.
     for (0..args.rows) |row| {
         for (0..args.cols) |col| {
@@ -83,6 +83,22 @@ noinline fn bench(t: anytype, args: Args) !void {
     for (0..args.count) |_| {
         for (0..args.rows) |i| {
             _ = try t.insertLines(i);
+        }
+    }
+}
+
+noinline fn benchNew(t: *terminal.new.Terminal, args: Args) !void {
+    // We fill the terminal with letters.
+    for (0..args.rows) |row| {
+        for (0..args.cols) |col| {
+            t.setCursorPos(row + 1, col + 1);
+            try t.print('A');
+        }
+    }
+
+    for (0..args.count) |_| {
+        for (0..args.rows) |i| {
+            _ = t.insertLines(i);
         }
     }
 }

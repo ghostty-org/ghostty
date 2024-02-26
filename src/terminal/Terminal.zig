@@ -3327,6 +3327,7 @@ test "Terminal: setCursorPos (original test)" {
     try testing.expectEqual(@as(usize, 10), t.screen.cursor.y);
 }
 
+// X
 test "Terminal: setTopAndBottomMargin simple" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -3349,6 +3350,7 @@ test "Terminal: setTopAndBottomMargin simple" {
     }
 }
 
+// X
 test "Terminal: setTopAndBottomMargin top only" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -3371,6 +3373,7 @@ test "Terminal: setTopAndBottomMargin top only" {
     }
 }
 
+// X
 test "Terminal: setTopAndBottomMargin top and bottom" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -3393,6 +3396,7 @@ test "Terminal: setTopAndBottomMargin top and bottom" {
     }
 }
 
+// X
 test "Terminal: setTopAndBottomMargin top equal to bottom" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6945,6 +6949,7 @@ test "Terminal: cursorRight right of right margin" {
     }
 }
 
+// X
 test "Terminal: scrollDown simple" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6969,6 +6974,7 @@ test "Terminal: scrollDown simple" {
     }
 }
 
+// X
 test "Terminal: scrollDown outside of scroll region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -7046,6 +7052,7 @@ test "Terminal: scrollDown outside of left/right scroll region" {
     }
 }
 
+// X
 test "Terminal: scrollDown preserves pending wrap" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 10);
