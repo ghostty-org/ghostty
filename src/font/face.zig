@@ -84,7 +84,8 @@ pub const RenderOptions = struct {
     /// Thicken the glyph. This draws the glyph with a thicker stroke width.
     /// This is purely an aesthetic setting.
     ///
-    /// This only works with CoreText currently.
+    /// This currently only works with CoreText and supported sprites (cursors,
+    /// underlines, etc.).
     thicken: bool = false,
 };
 

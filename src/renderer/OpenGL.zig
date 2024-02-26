@@ -240,6 +240,7 @@ pub const DerivedConfig = struct {
     font_thicken: bool,
     font_features: std.ArrayListUnmanaged([:0]const u8),
     font_styles: font.Group.StyleStatus,
+    adjust_cursor_thickness: u32,
     cursor_color: ?terminal.color.RGB,
     cursor_text: ?terminal.color.RGB,
     cursor_opacity: f64,
@@ -297,6 +298,8 @@ pub const DerivedConfig = struct {
 
             .cursor_opacity = @max(0, @min(1, config.@"cursor-opacity")),
 
+            .adjust_cursor_thickness = config.@"adjust-cursor-thickness",
+
             .background = config.background.toTerminalRGB(),
             .foreground = config.foreground.toTerminalRGB(),
             .invert_selection_fg_bg = config.@"selection-invert-fg-bg",
@@ -338,6 +341,7 @@ pub fn init(alloc: Allocator, options: renderer.Options) !OpenGL {
         alloc,
         options.font_group,
         options.config.font_thicken,
+        options.config.adjust_cursor_thickness,
     );
 
     var gl_state = try GLState.init(alloc, options.config, options.font_group);
@@ -475,6 +479,7 @@ pub fn displayRealize(self: *OpenGL) !void {
         self.alloc,
         self.font_group,
         self.config.font_thicken,
+        self.config.adjust_cursor_thickness,
     );
 
     // Make our new state
@@ -598,6 +603,7 @@ pub fn setFontSize(self: *OpenGL, size: font.face.DesiredSize) !void {
         self.alloc,
         self.font_group,
         self.config.font_thicken,
+        self.config.adjust_cursor_thickness,
     );
 
     // Defer our GPU updates
@@ -623,6 +629,7 @@ fn resetFontMetrics(
     alloc: Allocator,
     font_group: *font.GroupCache,
     font_thicken: bool,
+    cursor_thickness_adjustment: u32,
 ) !font.face.Metrics {
     // Get our cell metrics based on a regular font ascii 'M'. Why 'M'?
     // Doesn't matter, any normal ASCII will do we're just trying to make
@@ -639,6 +646,7 @@ fn resetFontMetrics(
         .width = metrics.cell_width,
         .height = metrics.cell_height,
         .thickness = metrics.underline_thickness * @as(u32, if (font_thicken) 2 else 1),
+        .cursor_thickness_adjustment = cursor_thickness_adjustment,
         .underline_position = metrics.underline_position,
     };
 

@@ -159,6 +159,7 @@ pub const DerivedConfig = struct {
     font_thicken: bool,
     font_features: std.ArrayListUnmanaged([:0]const u8),
     font_styles: font.Group.StyleStatus,
+    adjust_cursor_thickness: u32,
     cursor_color: ?terminal.color.RGB,
     cursor_opacity: f64,
     cursor_text: ?terminal.color.RGB,
@@ -215,6 +216,8 @@ pub const DerivedConfig = struct {
                 null,
 
             .cursor_opacity = @max(0, @min(1, config.@"cursor-opacity")),
+
+            .adjust_cursor_thickness = config.@"adjust-cursor-thickness",
 
             .background = config.background.toTerminalRGB(),
             .foreground = config.foreground.toTerminalRGB(),
@@ -360,6 +363,7 @@ pub fn init(alloc: Allocator, options: renderer.Options) !Metal {
         .thickness = metrics.underline_thickness *
             @as(u32, if (options.config.font_thicken) 2 else 1),
         .underline_position = metrics.underline_position,
+        .cursor_thickness_adjustment = options.config.adjust_cursor_thickness,
     };
 
     // Create the font shaper. We initially create a shaper that can support
@@ -600,6 +604,7 @@ pub fn setFontSize(self: *Metal, size: font.face.DesiredSize) !void {
         .height = metrics.cell_height,
         .thickness = metrics.underline_thickness * @as(u32, if (self.config.font_thicken) 2 else 1),
         .underline_position = metrics.underline_position,
+        .cursor_thickness_adjustment = self.config.adjust_cursor_thickness,
     };
 
     // Notify the window that the cell size changed.

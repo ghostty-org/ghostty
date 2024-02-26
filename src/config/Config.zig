@@ -148,9 +148,13 @@ const c = @cImport({
 /// i.e. new windows, tabs, etc.
 @"font-codepoint-map": RepeatableCodepointMap = .{},
 
-/// Draw fonts with a thicker stroke, if supported. This is only supported
-/// currently on MacOS.
+/// Draw fonts with a thicker stroke, if supported. Currently this only
+/// affects fonts on MacOS as well as supported sprites (cursors, underlines,
+/// etc.).
 @"font-thicken": bool = false,
+
+/// Adjust the line thickness of cursor sprites only. This is in pixels.
+@"adjust-cursor-thickness": u32 = 0,
 
 /// All of the configurations behavior adjust various metrics determined by the
 /// font. The values can be integers (1, -1, etc.) or a percentage (20%, -15%,

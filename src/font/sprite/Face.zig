@@ -32,6 +32,10 @@ height: u32,
 /// want to do any DPI scaling, it is expected to be done earlier.
 thickness: u32,
 
+/// Adjustment value for the thickness of lines in cursor sprites only.
+/// This is in pixels.
+cursor_thickness_adjustment: u32,
+
 /// The position of the underline.
 underline_position: u32 = 0,
 
@@ -73,7 +77,13 @@ pub fn renderGlyph(
                 var f: Box = .{
                     .width = width,
                     .height = self.height,
-                    .thickness = self.thickness,
+                    .thickness = switch (cp) {
+                        @intFromEnum(Sprite.cursor_rect),
+                        @intFromEnum(Sprite.cursor_hollow_rect),
+                        @intFromEnum(Sprite.cursor_bar),
+                        => self.thickness + self.cursor_thickness_adjustment,
+                        else => self.thickness,
+                    },
                 };
 
                 // If the codepoint is unadjusted then we want to adjust
