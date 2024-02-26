@@ -1045,11 +1045,6 @@ pub fn insertLines(self: *Terminal, count: usize) void {
         self.screen.cursor.x < self.scrolling_region.left or
         self.screen.cursor.x > self.scrolling_region.right) return;
 
-    // TODO
-    if (self.scrolling_region.left > 0 or self.scrolling_region.right < self.cols - 1) {
-        @panic("TODO: left and right margin mode");
-    }
-
     // Remaining rows from our cursor to the bottom of the scroll region.
     const rem = self.scrolling_region.bottom - self.screen.cursor.y + 1;
 
@@ -1071,16 +1066,33 @@ pub fn insertLines(self: *Terminal, count: usize) void {
 
         // TODO: detect active area split across multiple pages
 
+        // If we have left/right scroll margins we have a slower path.
+        const left_right = self.scrolling_region.left > 0 or
+            self.scrolling_region.right < self.cols - 1;
+
         // We work backwards so we don't overwrite data.
         while (@intFromPtr(y) >= @intFromPtr(top)) : (y -= 1) {
             const src: *Row = @ptrCast(y);
             const dst: *Row = @ptrCast(y + adjusted_count);
 
-            // Swap the src/dst cells. This ensures that our dst gets the proper
-            // shifted rows and src gets non-garbage cell data that we can clear.
-            const dst_row = dst.*;
-            dst.* = src.*;
-            src.* = dst_row;
+            if (!left_right) {
+                // Swap the src/dst cells. This ensures that our dst gets the proper
+                // shifted rows and src gets non-garbage cell data that we can clear.
+                const dst_row = dst.*;
+                dst.* = src.*;
+                src.* = dst_row;
+                continue;
+            }
+
+            // Left/right scroll margins we have to copy cells, which is much slower...
+            var page = self.screen.cursor.page_offset.page.data;
+            page.moveCells(
+                src,
+                self.scrolling_region.left,
+                dst,
+                self.scrolling_region.left,
+                (self.scrolling_region.right - self.scrolling_region.left) + 1,
+            );
         }
     }
 
@@ -1102,7 +1114,10 @@ pub fn insertLines(self: *Terminal, count: usize) void {
             assert(!row.grapheme);
         }
 
-        @memset(cells, blank_cell);
+        @memset(
+            cells[self.scrolling_region.left .. self.scrolling_region.right + 1],
+            blank_cell,
+        );
     }
 
     // Move the cursor to the left margin. But importantly this also
@@ -2457,6 +2472,104 @@ test "Terminal: setLeftAndRightMargin simple" {
         const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings(" BC\nDEF\nGHI", str);
+    }
+}
+
+test "Terminal: setLeftAndRightMargin left only" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.printString("ABC");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("DEF");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("GHI");
+    t.modes.set(.enable_left_and_right_margin, true);
+    t.setLeftAndRightMargin(2, 0);
+    try testing.expectEqual(@as(usize, 1), t.scrolling_region.left);
+    try testing.expectEqual(@as(usize, t.cols - 1), t.scrolling_region.right);
+    t.setCursorPos(1, 2);
+    t.insertLines(1);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("A\nDBC\nGEF\n HI", str);
+    }
+}
+
+test "Terminal: setLeftAndRightMargin left and right" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.printString("ABC");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("DEF");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("GHI");
+    t.modes.set(.enable_left_and_right_margin, true);
+    t.setLeftAndRightMargin(1, 2);
+    t.setCursorPos(1, 2);
+    t.insertLines(1);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("  C\nABF\nDEI\nGH", str);
+    }
+}
+
+test "Terminal: setLeftAndRightMargin left equal right" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.printString("ABC");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("DEF");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("GHI");
+    t.modes.set(.enable_left_and_right_margin, true);
+    t.setLeftAndRightMargin(2, 2);
+    t.setCursorPos(1, 2);
+    t.insertLines(1);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\nABC\nDEF\nGHI", str);
+    }
+}
+
+test "Terminal: setLeftAndRightMargin mode 69 unset" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.printString("ABC");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("DEF");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("GHI");
+    t.modes.set(.enable_left_and_right_margin, false);
+    t.setLeftAndRightMargin(1, 2);
+    t.setCursorPos(1, 2);
+    t.insertLines(1);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\nABC\nDEF\nGHI", str);
     }
 }
 
