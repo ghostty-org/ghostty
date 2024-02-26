@@ -3541,6 +3541,7 @@ test "Terminal: setLeftAndRightMargin mode 69 unset" {
     }
 }
 
+// X
 test "Terminal: deleteLines" {
     const alloc = testing.allocator;
     var t = try init(alloc, 80, 80);
@@ -3576,6 +3577,7 @@ test "Terminal: deleteLines" {
     }
 }
 
+// X
 test "Terminal: deleteLines with scroll region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 80, 80);
@@ -3612,6 +3614,7 @@ test "Terminal: deleteLines with scroll region" {
     }
 }
 
+// X
 test "Terminal: deleteLines with scroll region, large count" {
     const alloc = testing.allocator;
     var t = try init(alloc, 80, 80);
@@ -3694,6 +3697,7 @@ test "Terminal: deleteLines resets wrap" {
     }
 }
 
+// X
 test "Terminal: deleteLines simple" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);

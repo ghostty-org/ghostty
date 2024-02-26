@@ -1039,6 +1039,99 @@ pub fn insertLines(self: *Terminal, count: usize) void {
     self.screen.cursor.pending_wrap = false;
 }
 
+/// Removes amount lines from the current cursor row down. The remaining lines
+/// to the bottom margin are shifted up and space from the bottom margin up is
+/// filled with empty lines.
+///
+/// If the current cursor position is outside of the current scroll region it
+/// does nothing. If amount is greater than the remaining number of lines in the
+/// scrolling region it is adjusted down.
+///
+/// In left and right margin mode the margins are respected; lines are only
+/// scrolled in the scroll region.
+///
+/// If the cell movement splits a multi cell character that character cleared,
+/// by replacing it by spaces, keeping its current attributes. All other
+/// cleared space is colored according to the current SGR state.
+///
+/// Moves the cursor to the left margin.
+pub fn deleteLines(self: *Terminal, count_req: usize) !void {
+    // If the cursor is outside the scroll region we do nothing.
+    if (self.screen.cursor.y < self.scrolling_region.top or
+        self.screen.cursor.y > self.scrolling_region.bottom or
+        self.screen.cursor.x < self.scrolling_region.left or
+        self.screen.cursor.x > self.scrolling_region.right) return;
+
+    if (self.scrolling_region.left > 0 or
+        self.scrolling_region.right < self.cols - 1)
+    {
+        @panic("TODO: left/right margins");
+    }
+
+    // top is just the cursor position. insertLines starts at the cursor
+    // so this is our top. We want to shift lines down, down to the bottom
+    // of the scroll region.
+    const top: [*]Row = @ptrCast(self.screen.cursor.page_row);
+    var y: [*]Row = top;
+
+    // Remaining rows from our cursor to the bottom of the scroll region.
+    const rem = self.scrolling_region.bottom - self.screen.cursor.y + 1;
+
+    // The maximum we can delete is the remaining lines in the scroll region.
+    const count = @min(count_req, rem);
+
+    // This is the amount of space at the bottom of the scroll region
+    // that will NOT be blank, so we need to shift the correct lines down.
+    // "scroll_amount" is the number of such lines.
+    const scroll_amount = rem - count;
+    if (scroll_amount > 0) {
+        const bottom: [*]Row = top + (scroll_amount - 1);
+        while (@intFromPtr(y) <= @intFromPtr(bottom)) : (y += 1) {
+            const src: *Row = @ptrCast(y + count);
+            const dst: *Row = @ptrCast(y);
+
+            // Swap the src/dst cells. This ensures that our dst gets the proper
+            // shifted rows and src gets non-garbage cell data that we can clear.
+            const dst_row = dst.*;
+            dst.* = src.*;
+            src.* = dst_row;
+        }
+    }
+
+    const bottom: [*]Row = top + (rem - 1);
+    while (@intFromPtr(y) <= @intFromPtr(bottom)) : (y += 1) {
+        const row: *Row = @ptrCast(y);
+
+        // Clear the src row.
+        var page = self.screen.cursor.page_offset.page.data;
+        const cells = page.getCells(row);
+
+        // If this row has graphemes, then we need go through a slow path
+        // and delete the cell graphemes.
+        if (row.grapheme) {
+            for (cells) |*cell| {
+                if (cell.hasGrapheme()) page.clearGrapheme(row, cell);
+            }
+            assert(!row.grapheme);
+        }
+
+        // TODO: cells should keep bg style of pen
+        @memset(cells, .{});
+    }
+
+    // Move the cursor to the left margin. But importantly this also
+    // forces screen.cursor.page_cell to reload because the rows above
+    // shifted cell ofsets so this will ensure the cursor is pointing
+    // to the correct cell.
+    self.screen.cursorAbsolute(
+        self.scrolling_region.left,
+        self.screen.cursor.y,
+    );
+
+    // Always unset pending wrap
+    self.screen.cursor.pending_wrap = false;
+}
+
 pub fn eraseChars(self: *Terminal, count_req: usize) void {
     const count = @max(count_req, 1);
 
@@ -3048,5 +3141,182 @@ test "Terminal: cursorUp resets wrap" {
         const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABCDX", str);
+    }
+}
+
+test "Terminal: deleteLines simple" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.printString("ABC");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("DEF");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("GHI");
+    t.setCursorPos(2, 2);
+    try t.deleteLines(1);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABC\nGHI", str);
+    }
+}
+
+test "Terminal: deleteLines (legacy)" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 80, 80);
+    defer t.deinit(alloc);
+
+    // Initial value
+    try t.print('A');
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('B');
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('C');
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('D');
+
+    t.cursorUp(2);
+    try t.deleteLines(1);
+
+    try t.print('E');
+    t.carriageReturn();
+    try t.linefeed();
+
+    // We should be
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
+    try testing.expectEqual(@as(usize, 2), t.screen.cursor.y);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("A\nE\nD", str);
+    }
+}
+
+test "Terminal: deleteLines with scroll region" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 80, 80);
+    defer t.deinit(alloc);
+
+    // Initial value
+    try t.print('A');
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('B');
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('C');
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('D');
+
+    t.setTopAndBottomMargin(1, 3);
+    t.setCursorPos(1, 1);
+    try t.deleteLines(1);
+
+    try t.print('E');
+    t.carriageReturn();
+    try t.linefeed();
+
+    // We should be
+    // try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
+    // try testing.expectEqual(@as(usize, 2), t.screen.cursor.y);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("E\nC\n\nD", str);
+    }
+}
+
+// X
+test "Terminal: deleteLines with scroll region, large count" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 80, 80);
+    defer t.deinit(alloc);
+
+    // Initial value
+    try t.print('A');
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('B');
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('C');
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('D');
+
+    t.setTopAndBottomMargin(1, 3);
+    t.setCursorPos(1, 1);
+    try t.deleteLines(5);
+
+    try t.print('E');
+    t.carriageReturn();
+    try t.linefeed();
+
+    // We should be
+    // try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
+    // try testing.expectEqual(@as(usize, 2), t.screen.cursor.y);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("E\n\n\nD", str);
+    }
+}
+
+// X
+test "Terminal: deleteLines with scroll region, cursor outside of region" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 80, 80);
+    defer t.deinit(alloc);
+
+    // Initial value
+    try t.print('A');
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('B');
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('C');
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('D');
+
+    t.setTopAndBottomMargin(1, 3);
+    t.setCursorPos(4, 1);
+    try t.deleteLines(1);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("A\nB\nC\nD", str);
+    }
+}
+
+test "Terminal: deleteLines resets wrap" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    for ("ABCDE") |c| try t.print(c);
+    try testing.expect(t.screen.cursor.pending_wrap);
+    try t.deleteLines(1);
+    try testing.expect(!t.screen.cursor.pending_wrap);
+    try t.print('B');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("B", str);
     }
 }
