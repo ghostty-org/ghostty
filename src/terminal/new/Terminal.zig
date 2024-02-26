@@ -881,6 +881,22 @@ pub fn setLeftAndRightMargin(self: *Terminal, left_req: usize, right_req: usize)
     self.setCursorPos(1, 1);
 }
 
+/// Scroll the text down by one row.
+pub fn scrollDown(self: *Terminal, count: usize) void {
+    // Preserve our x/y to restore.
+    const old_x = self.screen.cursor.x;
+    const old_y = self.screen.cursor.y;
+    const old_wrap = self.screen.cursor.pending_wrap;
+    defer {
+        self.screen.cursorAbsolute(old_x, old_y);
+        self.screen.cursor.pending_wrap = old_wrap;
+    }
+
+    // Move to the top of the scroll region
+    self.screen.cursorAbsolute(self.scrolling_region.left, self.scrolling_region.top);
+    self.insertLines(count);
+}
+
 /// Insert amount lines at the current cursor row. The contents of the line
 /// at the current cursor row and below (to the bottom-most line in the
 /// scrolling region) are shifted down by amount lines. The contents of the
@@ -899,7 +915,7 @@ pub fn setLeftAndRightMargin(self: *Terminal, left_req: usize, right_req: usize)
 /// All cleared space is colored according to the current SGR state.
 ///
 /// Moves the cursor to the left margin.
-pub fn insertLines(self: *Terminal, count: usize) !void {
+pub fn insertLines(self: *Terminal, count: usize) void {
     // Rare, but happens
     if (count == 0) return;
 
@@ -921,29 +937,31 @@ pub fn insertLines(self: *Terminal, count: usize) !void {
     // region. So we take whichever is smaller.
     const adjusted_count = @min(count, rem);
 
-    // This is the amount of space at the bottom of the scroll region
-    // that will NOT be blank, so we need to shift the correct lines down.
-    // "scroll_amount" is the number of such lines.
-    const scroll_amount = rem - adjusted_count;
-
     // top is just the cursor position. insertLines starts at the cursor
     // so this is our top. We want to shift lines down, down to the bottom
     // of the scroll region.
     const top: [*]Row = @ptrCast(self.screen.cursor.page_row);
-    var y: [*]Row = top + scroll_amount;
 
-    // TODO: detect active area split across multiple pages
+    // This is the amount of space at the bottom of the scroll region
+    // that will NOT be blank, so we need to shift the correct lines down.
+    // "scroll_amount" is the number of such lines.
+    const scroll_amount = rem - adjusted_count;
+    if (scroll_amount > 0) {
+        var y: [*]Row = top + (scroll_amount - 1);
 
-    // We work backwards so we don't overwrite data.
-    while (@intFromPtr(y) >= @intFromPtr(top)) : (y -= 1) {
-        const src: *Row = @ptrCast(y);
-        const dst: *Row = @ptrCast(y + adjusted_count);
+        // TODO: detect active area split across multiple pages
 
-        // Swap the src/dst cells. This ensures that our dst gets the proper
-        // shifted rows and src gets non-garbage cell data that we can clear.
-        const dst_row = dst.*;
-        dst.* = src.*;
-        src.* = dst_row;
+        // We work backwards so we don't overwrite data.
+        while (@intFromPtr(y) >= @intFromPtr(top)) : (y -= 1) {
+            const src: *Row = @ptrCast(y);
+            const dst: *Row = @ptrCast(y + adjusted_count);
+
+            // Swap the src/dst cells. This ensures that our dst gets the proper
+            // shifted rows and src gets non-garbage cell data that we can clear.
+            const dst_row = dst.*;
+            dst.* = src.*;
+            src.* = dst_row;
+        }
     }
 
     for (0..adjusted_count) |i| {
@@ -2054,6 +2072,94 @@ test "Terminal: setCursorPos (original test)" {
     // try testing.expectEqual(@as(usize, 10), t.screen.cursor.y);
 }
 
+test "Terminal: setTopAndBottomMargin simple" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.printString("ABC");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("DEF");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("GHI");
+    t.setTopAndBottomMargin(0, 0);
+    t.scrollDown(1);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\nABC\nDEF\nGHI", str);
+    }
+}
+
+test "Terminal: setTopAndBottomMargin top only" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.printString("ABC");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("DEF");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("GHI");
+    t.setTopAndBottomMargin(2, 0);
+    t.scrollDown(1);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABC\n\nDEF\nGHI", str);
+    }
+}
+
+test "Terminal: setTopAndBottomMargin top and bottom" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.printString("ABC");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("DEF");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("GHI");
+    t.setTopAndBottomMargin(1, 2);
+    t.scrollDown(1);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\nABC\nGHI", str);
+    }
+}
+
+test "Terminal: setTopAndBottomMargin top equal to bottom" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.printString("ABC");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("DEF");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("GHI");
+    t.setTopAndBottomMargin(2, 2);
+    t.scrollDown(1);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\nABC\nDEF\nGHI", str);
+    }
+}
+
 test "Terminal: insertLines simple" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -2067,7 +2173,7 @@ test "Terminal: insertLines simple" {
     try t.linefeed();
     try t.printString("GHI");
     t.setCursorPos(2, 2);
-    try t.insertLines(1);
+    t.insertLines(1);
 
     {
         const str = try t.plainString(testing.allocator);
@@ -2090,7 +2196,7 @@ test "Terminal: insertLines outside of scroll region" {
     try t.printString("GHI");
     t.setTopAndBottomMargin(3, 4);
     t.setCursorPos(2, 2);
-    try t.insertLines(1);
+    t.insertLines(1);
 
     {
         const str = try t.plainString(testing.allocator);
@@ -2123,7 +2229,7 @@ test "Terminal: insertLines (legacy test)" {
     t.setCursorPos(2, 1);
 
     // Insert two lines
-    try t.insertLines(2);
+    t.insertLines(2);
 
     {
         const str = try t.plainString(testing.allocator);
@@ -2139,7 +2245,7 @@ test "Terminal: insertLines zero" {
 
     // This should do nothing
     t.setCursorPos(1, 1);
-    try t.insertLines(0);
+    t.insertLines(0);
 }
 
 test "Terminal: insertLines more than remaining" {
@@ -2166,7 +2272,7 @@ test "Terminal: insertLines more than remaining" {
     t.setCursorPos(2, 1);
 
     // Insert a bunch of  lines
-    try t.insertLines(20);
+    t.insertLines(20);
 
     {
         const str = try t.plainString(testing.allocator);
@@ -2182,7 +2288,7 @@ test "Terminal: insertLines resets wrap" {
 
     for ("ABCDE") |c| try t.print(c);
     try testing.expect(t.screen.cursor.pending_wrap);
-    try t.insertLines(1);
+    t.insertLines(1);
     try testing.expect(!t.screen.cursor.pending_wrap);
     try t.print('B');
 
@@ -2216,11 +2322,83 @@ test "Terminal: insertLines multi-codepoint graphemes" {
     try t.linefeed();
     try t.printString("GHI");
     t.setCursorPos(2, 2);
-    try t.insertLines(1);
+    t.insertLines(1);
 
     {
         const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABC\n\n👨‍👩‍👧\nGHI", str);
+    }
+}
+
+test "Terminal: scrollDown simple" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.printString("ABC");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("DEF");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("GHI");
+    t.setCursorPos(2, 2);
+    const cursor = t.screen.cursor;
+    t.scrollDown(1);
+    try testing.expectEqual(cursor.x, t.screen.cursor.x);
+    try testing.expectEqual(cursor.y, t.screen.cursor.y);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\nABC\nDEF\nGHI", str);
+    }
+}
+
+test "Terminal: scrollDown outside of scroll region" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.printString("ABC");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("DEF");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("GHI");
+    t.setTopAndBottomMargin(3, 4);
+    t.setCursorPos(2, 2);
+    const cursor = t.screen.cursor;
+    t.scrollDown(1);
+    try testing.expectEqual(cursor.x, t.screen.cursor.x);
+    try testing.expectEqual(cursor.y, t.screen.cursor.y);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABC\nDEF\n\nGHI", str);
+    }
+}
+
+test "Terminal: scrollDown preserves pending wrap" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 10);
+    defer t.deinit(alloc);
+
+    t.setCursorPos(1, 5);
+    try t.print('A');
+    t.setCursorPos(2, 5);
+    try t.print('B');
+    t.setCursorPos(3, 5);
+    try t.print('C');
+    t.scrollDown(1);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\n    A\n    B\nX   C", str);
     }
 }
