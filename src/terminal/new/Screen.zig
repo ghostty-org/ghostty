@@ -81,10 +81,10 @@ pub fn deinit(self: *Screen) void {
     self.pages.deinit();
 }
 
-pub fn cursorCellRight(self: *Screen) *pagepkg.Cell {
-    assert(self.cursor.x + 1 < self.pages.cols);
+pub fn cursorCellRight(self: *Screen, n: size.CellCountInt) *pagepkg.Cell {
+    assert(self.cursor.x + n < self.pages.cols);
     const cell: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
-    return @ptrCast(cell + 1);
+    return @ptrCast(cell + n);
 }
 
 pub fn cursorCellLeft(self: *Screen, n: size.CellCountInt) *pagepkg.Cell {
