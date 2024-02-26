@@ -6936,6 +6936,7 @@ test "Terminal: cursorUp resets wrap" {
     }
 }
 
+// X
 test "Terminal: cursorRight resets wrap" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6954,6 +6955,7 @@ test "Terminal: cursorRight resets wrap" {
     }
 }
 
+// X
 test "Terminal: cursorRight to the edge of screen" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6969,6 +6971,7 @@ test "Terminal: cursorRight to the edge of screen" {
     }
 }
 
+// X
 test "Terminal: cursorRight left of right margin" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6985,6 +6988,7 @@ test "Terminal: cursorRight left of right margin" {
     }
 }
 
+// X
 test "Terminal: cursorRight right of right margin" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
