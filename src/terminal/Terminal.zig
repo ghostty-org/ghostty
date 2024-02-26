@@ -5141,6 +5141,7 @@ test "Terminal: deleteChars split wide character tail" {
     }
 }
 
+// X
 test "Terminal: eraseChars resets pending wrap" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5159,6 +5160,7 @@ test "Terminal: eraseChars resets pending wrap" {
     }
 }
 
+// X
 test "Terminal: eraseChars resets wrap" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);

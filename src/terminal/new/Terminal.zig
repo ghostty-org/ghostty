@@ -2848,6 +2848,54 @@ test "Terminal: eraseChars wide character" {
     }
 }
 
+test "Terminal: eraseChars resets pending wrap" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    for ("ABCDE") |c| try t.print(c);
+    try testing.expect(t.screen.cursor.pending_wrap);
+    t.eraseChars(1);
+    try testing.expect(!t.screen.cursor.pending_wrap);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABCDX", str);
+    }
+}
+
+test "Terminal: eraseChars resets wrap" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    for ("ABCDE123") |c| try t.print(c);
+    {
+        const list_cell = t.screen.pages.getCell(.{ .active = .{ .x = 0, .y = 0 } }).?;
+        const row = list_cell.row;
+        try testing.expect(row.wrap);
+    }
+
+    t.setCursorPos(1, 1);
+    t.eraseChars(1);
+
+    {
+        const list_cell = t.screen.pages.getCell(.{ .active = .{ .x = 0, .y = 0 } }).?;
+        const row = list_cell.row;
+        try testing.expect(!row.wrap);
+    }
+
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("XBCDE\n123", str);
+    }
+}
+
 test "Terminal: reverseIndex" {
     const alloc = testing.allocator;
     var t = try init(alloc, 2, 5);
