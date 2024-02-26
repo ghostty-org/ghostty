@@ -212,6 +212,14 @@ pub fn printString(self: *Terminal, str: []const u8) !void {
     }
 }
 
+/// Print the previous printed character a repeated amount of times.
+pub fn printRepeat(self: *Terminal, count_req: usize) !void {
+    if (self.previous_char) |c| {
+        const count = @max(count_req, 1);
+        for (0..count) |_| try self.print(c);
+    }
+}
+
 pub fn print(self: *Terminal, c: u21) !void {
     // log.debug("print={x} y={} x={}", .{ c, self.screen.cursor.y, self.screen.cursor.x });
 
@@ -1150,12 +1158,6 @@ pub fn deleteLines(self: *Terminal, count_req: usize) void {
         self.screen.cursor.x < self.scrolling_region.left or
         self.screen.cursor.x > self.scrolling_region.right) return;
 
-    if (self.scrolling_region.left > 0 or
-        self.scrolling_region.right < self.cols - 1)
-    {
-        @panic("TODO: left/right margins");
-    }
-
     // top is just the cursor position. insertLines starts at the cursor
     // so this is our top. We want to shift lines down, down to the bottom
     // of the scroll region.
@@ -1173,16 +1175,33 @@ pub fn deleteLines(self: *Terminal, count_req: usize) void {
     // "scroll_amount" is the number of such lines.
     const scroll_amount = rem - count;
     if (scroll_amount > 0) {
+        // If we have left/right scroll margins we have a slower path.
+        const left_right = self.scrolling_region.left > 0 or
+            self.scrolling_region.right < self.cols - 1;
+
         const bottom: [*]Row = top + (scroll_amount - 1);
         while (@intFromPtr(y) <= @intFromPtr(bottom)) : (y += 1) {
             const src: *Row = @ptrCast(y + count);
             const dst: *Row = @ptrCast(y);
 
-            // Swap the src/dst cells. This ensures that our dst gets the proper
-            // shifted rows and src gets non-garbage cell data that we can clear.
-            const dst_row = dst.*;
-            dst.* = src.*;
-            src.* = dst_row;
+            if (!left_right) {
+                // Swap the src/dst cells. This ensures that our dst gets the proper
+                // shifted rows and src gets non-garbage cell data that we can clear.
+                const dst_row = dst.*;
+                dst.* = src.*;
+                src.* = dst_row;
+                continue;
+            }
+
+            // Left/right scroll margins we have to copy cells, which is much slower...
+            var page = &self.screen.cursor.page_offset.page.data;
+            page.moveCells(
+                src,
+                self.scrolling_region.left,
+                dst,
+                self.scrolling_region.left,
+                (self.scrolling_region.right - self.scrolling_region.left) + 1,
+            );
         }
     }
 
@@ -2912,6 +2931,30 @@ test "Terminal: insertLines multi-codepoint graphemes" {
     }
 }
 
+test "Terminal: insertLines left/right scroll region" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 10, 10);
+    defer t.deinit(alloc);
+
+    try t.printString("ABC123");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("DEF456");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("GHI789");
+    t.scrolling_region.left = 1;
+    t.scrolling_region.right = 3;
+    t.setCursorPos(2, 2);
+    t.insertLines(1);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABC123\nD   56\nGEF489\n HI7", str);
+    }
+}
+
 test "Terminal: scrollUp simple" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -3425,6 +3468,50 @@ test "Terminal: reverseIndex outside top/bottom margins" {
     }
 }
 
+test "Terminal: reverseIndex left/right margins" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.printString("ABC");
+    t.setCursorPos(2, 1);
+    try t.printString("DEF");
+    t.setCursorPos(3, 1);
+    try t.printString("GHI");
+    t.modes.set(.enable_left_and_right_margin, true);
+    t.setLeftAndRightMargin(2, 3);
+    t.setCursorPos(1, 2);
+    t.reverseIndex();
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("A\nDBC\nGEF\n HI", str);
+    }
+}
+
+test "Terminal: reverseIndex outside left/right margins" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.printString("ABC");
+    t.setCursorPos(2, 1);
+    try t.printString("DEF");
+    t.setCursorPos(3, 1);
+    try t.printString("GHI");
+    t.modes.set(.enable_left_and_right_margin, true);
+    t.setLeftAndRightMargin(2, 3);
+    t.setCursorPos(1, 1);
+    t.reverseIndex();
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABC\nDEF\nGHI", str);
+    }
+}
+
 test "Terminal: index" {
     const alloc = testing.allocator;
     var t = try init(alloc, 2, 5);
@@ -3607,6 +3694,34 @@ test "Terminal: index outside left/right margin" {
         const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\n\nX A", str);
+    }
+}
+
+test "Terminal: index inside left/right margin" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 10, 5);
+    defer t.deinit(alloc);
+
+    try t.printString("AAAAAA");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("AAAAAA");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("AAAAAA");
+    t.modes.set(.enable_left_and_right_margin, true);
+    t.setTopAndBottomMargin(1, 3);
+    t.setLeftAndRightMargin(1, 3);
+    t.setCursorPos(3, 1);
+    try t.index();
+
+    try testing.expectEqual(@as(usize, 2), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("AAAAAA\nAAAAAA\n   AAA", str);
     }
 }
 
@@ -4304,6 +4419,78 @@ test "Terminal: deleteLines resets wrap" {
         const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("B", str);
+    }
+}
+
+test "Terminal: deleteLines left/right scroll region" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 10, 10);
+    defer t.deinit(alloc);
+
+    try t.printString("ABC123");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("DEF456");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("GHI789");
+    t.scrolling_region.left = 1;
+    t.scrolling_region.right = 3;
+    t.setCursorPos(2, 2);
+    t.deleteLines(1);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABC123\nDHI756\nG   89", str);
+    }
+}
+
+test "Terminal: deleteLines left/right scroll region from top" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 10, 10);
+    defer t.deinit(alloc);
+
+    try t.printString("ABC123");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("DEF456");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("GHI789");
+    t.scrolling_region.left = 1;
+    t.scrolling_region.right = 3;
+    t.setCursorPos(1, 2);
+    t.deleteLines(1);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("AEF423\nDHI756\nG   89", str);
+    }
+}
+
+test "Terminal: deleteLines left/right scroll region high count" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 10, 10);
+    defer t.deinit(alloc);
+
+    try t.printString("ABC123");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("DEF456");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("GHI789");
+    t.scrolling_region.left = 1;
+    t.scrolling_region.right = 3;
+    t.setCursorPos(2, 2);
+    t.deleteLines(100);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABC123\nD   56\nG   89", str);
     }
 }
 
