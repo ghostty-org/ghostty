@@ -1333,6 +1333,59 @@ fn blankCells(
     @memset(cells, self.blankCell());
 }
 
+/// Resets all margins and fills the whole screen with the character 'E'
+///
+/// Sets the cursor to the top left corner.
+pub fn decaln(self: *Terminal) !void {
+    // TODO: erase display to gc graphemes, styles
+
+    // Clear our stylistic attributes. This is the only thing that can
+    // fail so we do it first so we can undo it.
+    const old_style = self.screen.cursor.style;
+    self.screen.cursor.style = .{
+        .bg_color = self.screen.cursor.style.bg_color,
+        .fg_color = self.screen.cursor.style.fg_color,
+        // TODO: protected attribute
+        // .protected = self.screen.cursor.pen.attrs.protected,
+    };
+    errdefer self.screen.cursor.style = old_style;
+    try self.screen.manualStyleUpdate();
+
+    // Reset margins, also sets cursor to top-left
+    self.scrolling_region = .{
+        .top = 0,
+        .bottom = self.rows - 1,
+        .left = 0,
+        .right = self.cols - 1,
+    };
+
+    // Origin mode is disabled
+    self.modes.set(.origin, false);
+
+    // Move our cursor to the top-left
+    self.setCursorPos(1, 1);
+
+    // Fill with Es, does not move cursor.
+    // TODO: cursor across pages
+    var page = &self.screen.cursor.page_offset.page.data;
+    const rows: [*]Row = @ptrCast(self.screen.cursor.page_row);
+    for (0..self.rows) |y| {
+        const row: *Row = @ptrCast(rows + y);
+        const cells = page.getCells(row);
+        @memset(cells, .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = 'E' },
+            .style_id = self.screen.cursor.style_id,
+        });
+
+        // If we have a ref-counted style, increase
+        if (self.screen.cursor.style_ref) |ref| {
+            ref.* += @intCast(cells.len);
+            row.styled = true;
+        }
+    }
+}
+
 /// Set a style attribute.
 pub fn setAttribute(self: *Terminal, attr: sgr.Attribute) !void {
     try self.screen.setAttribute(attr);
@@ -4584,5 +4637,74 @@ test "Terminal: print with style marks the row as styled" {
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
         try testing.expect(list_cell.row.styled);
+    }
+}
+
+test "Terminal: DECALN" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 2, 2);
+    defer t.deinit(alloc);
+
+    // Initial value
+    try t.print('A');
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('B');
+    try t.decaln();
+
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("EE\nEE", str);
+    }
+}
+
+test "Terminal: decaln reset margins" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 3, 3);
+    defer t.deinit(alloc);
+
+    // Initial value
+    t.modes.set(.origin, true);
+    t.setTopAndBottomMargin(2, 3);
+    try t.decaln();
+    t.scrollDown(1);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\nEEE\nEEE", str);
+    }
+}
+
+test "Terminal: decaln preserves color" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 3, 3);
+    defer t.deinit(alloc);
+
+    // Initial value
+    try t.setAttribute(.{ .direct_color_bg = .{ .r = 0xFF, .g = 0, .b = 0 } });
+    t.modes.set(.origin, true);
+    t.setTopAndBottomMargin(2, 3);
+    try t.decaln();
+    t.scrollDown(1);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\nEEE\nEEE", str);
+    }
+
+    {
+        const list_cell = t.screen.pages.getCell(.{ .active = .{ .x = 0, .y = 0 } }).?;
+        try testing.expect(list_cell.cell.content_tag == .bg_color_rgb);
+        try testing.expectEqual(Cell.RGB{
+            .r = 0xFF,
+            .g = 0,
+            .b = 0,
+        }, list_cell.cell.content.color_rgb);
     }
 }
