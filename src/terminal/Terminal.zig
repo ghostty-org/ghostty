@@ -3419,6 +3419,7 @@ test "Terminal: setTopAndBottomMargin top equal to bottom" {
     }
 }
 
+// X
 test "Terminal: setLeftAndRightMargin simple" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);

@@ -2212,6 +2212,29 @@ test "Terminal: setTopAndBottomMargin top equal to bottom" {
     }
 }
 
+test "Terminal: setLeftAndRightMargin simple" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.printString("ABC");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("DEF");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("GHI");
+    t.modes.set(.enable_left_and_right_margin, true);
+    t.setLeftAndRightMargin(0, 0);
+    t.eraseChars(1);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings(" BC\nDEF\nGHI", str);
+    }
+}
+
 test "Terminal: insertLines simple" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
