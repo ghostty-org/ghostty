@@ -134,6 +134,14 @@ pub fn cursorUp(self: *Screen, n: size.CellCountInt) void {
     self.cursor.y -= n;
 }
 
+pub fn cursorRowUp(self: *Screen, n: size.CellCountInt) *pagepkg.Row {
+    assert(self.cursor.y >= n);
+
+    const page_offset = self.cursor.page_offset.backward(n).?;
+    const page_rac = page_offset.rowAndCell(self.cursor.x);
+    return page_rac.row;
+}
+
 /// Move the cursor down.
 ///
 /// Precondition: The cursor is not at the bottom of the screen.

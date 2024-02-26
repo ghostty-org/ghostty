@@ -614,12 +614,12 @@ pub fn cursorLeft(self: *Terminal, count_req: usize) void {
         break :wrap_mode .none;
     };
 
-    var count: size.CellCountInt = @intCast(@max(count_req, 1));
+    var count = @max(count_req, 1);
 
     // If we are in no wrap mode, then we move the cursor left and exit
     // since this is the fastest and most typical path.
     if (wrap_mode == .none) {
-        self.screen.cursorLeft(count);
+        self.screen.cursorLeft(@min(count, self.screen.cursor.x));
         self.screen.cursor.pending_wrap = false;
         return;
     }
@@ -694,7 +694,8 @@ pub fn cursorLeft(self: *Terminal, count_req: usize) void {
 
         // If our previous line is not wrapped then we are done.
         if (wrap_mode != .reverse_extended) {
-            if (!self.screen.cursor.page_row.wrap) break;
+            const prev_row = self.screen.cursorRowUp(1);
+            if (!prev_row.wrap) break;
         }
 
         self.screen.cursorAbsolute(right_margin, self.screen.cursor.y - 1);
@@ -3318,6 +3319,261 @@ test "Terminal: cursorUp resets wrap" {
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("ABCDX", str);
     }
+}
+
+test "Terminal: cursorLeft no wrap" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 10, 5);
+    defer t.deinit(alloc);
+
+    try t.print('A');
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('B');
+    t.cursorLeft(10);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("A\nB", str);
+    }
+}
+
+test "Terminal: cursorLeft unsets pending wrap state" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    for ("ABCDE") |c| try t.print(c);
+    try testing.expect(t.screen.cursor.pending_wrap);
+    t.cursorLeft(1);
+    try testing.expect(!t.screen.cursor.pending_wrap);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABCXE", str);
+    }
+}
+
+test "Terminal: cursorLeft unsets pending wrap state with longer jump" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    for ("ABCDE") |c| try t.print(c);
+    try testing.expect(t.screen.cursor.pending_wrap);
+    t.cursorLeft(3);
+    try testing.expect(!t.screen.cursor.pending_wrap);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("AXCDE", str);
+    }
+}
+
+test "Terminal: cursorLeft reverse wrap with pending wrap state" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.modes.set(.wraparound, true);
+    t.modes.set(.reverse_wrap, true);
+
+    for ("ABCDE") |c| try t.print(c);
+    try testing.expect(t.screen.cursor.pending_wrap);
+    t.cursorLeft(1);
+    try testing.expect(!t.screen.cursor.pending_wrap);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABCDX", str);
+    }
+}
+
+test "Terminal: cursorLeft reverse wrap extended with pending wrap state" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.modes.set(.wraparound, true);
+    t.modes.set(.reverse_wrap_extended, true);
+
+    for ("ABCDE") |c| try t.print(c);
+    try testing.expect(t.screen.cursor.pending_wrap);
+    t.cursorLeft(1);
+    try testing.expect(!t.screen.cursor.pending_wrap);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABCDX", str);
+    }
+}
+
+test "Terminal: cursorLeft reverse wrap" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.modes.set(.wraparound, true);
+    t.modes.set(.reverse_wrap, true);
+
+    for ("ABCDE1") |c| try t.print(c);
+    t.cursorLeft(2);
+    try t.print('X');
+    try testing.expect(t.screen.cursor.pending_wrap);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABCDX\n1", str);
+    }
+}
+
+test "Terminal: cursorLeft reverse wrap with no soft wrap" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.modes.set(.wraparound, true);
+    t.modes.set(.reverse_wrap, true);
+
+    for ("ABCDE") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('1');
+    t.cursorLeft(2);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABCDE\nX", str);
+    }
+}
+
+test "Terminal: cursorLeft reverse wrap before left margin" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.modes.set(.wraparound, true);
+    t.modes.set(.reverse_wrap, true);
+    t.setTopAndBottomMargin(3, 0);
+    t.cursorLeft(1);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\n\nX", str);
+    }
+}
+
+test "Terminal: cursorLeft extended reverse wrap" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.modes.set(.wraparound, true);
+    t.modes.set(.reverse_wrap_extended, true);
+
+    for ("ABCDE") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('1');
+    t.cursorLeft(2);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABCDX\n1", str);
+    }
+}
+
+test "Terminal: cursorLeft extended reverse wrap bottom wraparound" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 3);
+    defer t.deinit(alloc);
+
+    t.modes.set(.wraparound, true);
+    t.modes.set(.reverse_wrap_extended, true);
+
+    for ("ABCDE") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('1');
+    t.cursorLeft(1 + t.cols + 1);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABCDE\n1\n    X", str);
+    }
+}
+
+test "Terminal: cursorLeft extended reverse wrap is priority if both set" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 3);
+    defer t.deinit(alloc);
+
+    t.modes.set(.wraparound, true);
+    t.modes.set(.reverse_wrap, true);
+    t.modes.set(.reverse_wrap_extended, true);
+
+    for ("ABCDE") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('1');
+    t.cursorLeft(1 + t.cols + 1);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABCDE\n1\n    X", str);
+    }
+}
+
+test "Terminal: cursorLeft extended reverse wrap above top scroll region" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.modes.set(.wraparound, true);
+    t.modes.set(.reverse_wrap_extended, true);
+
+    t.setTopAndBottomMargin(3, 0);
+    t.setCursorPos(2, 1);
+    t.cursorLeft(1000);
+
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+}
+
+test "Terminal: cursorLeft reverse wrap on first row" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.modes.set(.wraparound, true);
+    t.modes.set(.reverse_wrap, true);
+
+    t.setTopAndBottomMargin(3, 0);
+    t.setCursorPos(1, 2);
+    t.cursorLeft(1000);
+
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
 }
 
 test "Terminal: deleteLines simple" {

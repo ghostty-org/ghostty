@@ -6519,6 +6519,7 @@ test "Terminal: eraseDisplay scroll complete" {
     }
 }
 
+// X
 test "Terminal: cursorLeft no wrap" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 5);
@@ -6537,6 +6538,7 @@ test "Terminal: cursorLeft no wrap" {
     }
 }
 
+// X
 test "Terminal: cursorLeft unsets pending wrap state" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6555,6 +6557,7 @@ test "Terminal: cursorLeft unsets pending wrap state" {
     }
 }
 
+// X
 test "Terminal: cursorLeft unsets pending wrap state with longer jump" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6573,6 +6576,7 @@ test "Terminal: cursorLeft unsets pending wrap state with longer jump" {
     }
 }
 
+// X
 test "Terminal: cursorLeft reverse wrap with pending wrap state" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6594,6 +6598,7 @@ test "Terminal: cursorLeft reverse wrap with pending wrap state" {
     }
 }
 
+// X
 test "Terminal: cursorLeft reverse wrap extended with pending wrap state" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6615,6 +6620,7 @@ test "Terminal: cursorLeft reverse wrap extended with pending wrap state" {
     }
 }
 
+// X
 test "Terminal: cursorLeft reverse wrap" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6635,6 +6641,7 @@ test "Terminal: cursorLeft reverse wrap" {
     }
 }
 
+// X
 test "Terminal: cursorLeft reverse wrap with no soft wrap" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6657,6 +6664,7 @@ test "Terminal: cursorLeft reverse wrap with no soft wrap" {
     }
 }
 
+// X
 test "Terminal: cursorLeft reverse wrap before left margin" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6675,6 +6683,7 @@ test "Terminal: cursorLeft reverse wrap before left margin" {
     }
 }
 
+// X
 test "Terminal: cursorLeft extended reverse wrap" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6697,6 +6706,7 @@ test "Terminal: cursorLeft extended reverse wrap" {
     }
 }
 
+// X
 test "Terminal: cursorLeft extended reverse wrap bottom wraparound" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 3);
@@ -6719,6 +6729,7 @@ test "Terminal: cursorLeft extended reverse wrap bottom wraparound" {
     }
 }
 
+// X
 test "Terminal: cursorLeft extended reverse wrap is priority if both set" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 3);
@@ -6742,6 +6753,7 @@ test "Terminal: cursorLeft extended reverse wrap is priority if both set" {
     }
 }
 
+// X
 test "Terminal: cursorLeft extended reverse wrap above top scroll region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6758,6 +6770,7 @@ test "Terminal: cursorLeft extended reverse wrap above top scroll region" {
     try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
 }
 
+// X
 test "Terminal: cursorLeft reverse wrap on first row" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
