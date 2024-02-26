@@ -796,8 +796,7 @@ pub fn index(self: *Terminal) !void {
         {
             try self.screen.cursorDownScroll();
         } else {
-            @panic("TODO: scroll up");
-            //try self.scrollUp(1);
+            self.scrollUp(1);
         }
 
         return;
@@ -939,6 +938,28 @@ pub fn scrollDown(self: *Terminal, count: usize) void {
     self.insertLines(count);
 }
 
+/// Removes amount lines from the top of the scroll region. The remaining lines
+/// to the bottom margin are shifted up and space from the bottom margin up
+/// is filled with empty lines.
+///
+/// The new lines are created according to the current SGR state.
+///
+/// Does not change the (absolute) cursor position.
+pub fn scrollUp(self: *Terminal, count: usize) void {
+    // Preserve our x/y to restore.
+    const old_x = self.screen.cursor.x;
+    const old_y = self.screen.cursor.y;
+    const old_wrap = self.screen.cursor.pending_wrap;
+    defer {
+        self.screen.cursorAbsolute(old_x, old_y);
+        self.screen.cursor.pending_wrap = old_wrap;
+    }
+
+    // Move to the top of the scroll region
+    self.screen.cursorAbsolute(self.scrolling_region.left, self.scrolling_region.top);
+    self.deleteLines(count);
+}
+
 /// Insert amount lines at the current cursor row. The contents of the line
 /// at the current cursor row and below (to the bottom-most line in the
 /// scrolling region) are shifted down by amount lines. The contents of the
@@ -1055,7 +1076,7 @@ pub fn insertLines(self: *Terminal, count: usize) void {
 /// cleared space is colored according to the current SGR state.
 ///
 /// Moves the cursor to the left margin.
-pub fn deleteLines(self: *Terminal, count_req: usize) !void {
+pub fn deleteLines(self: *Terminal, count_req: usize) void {
     // If the cursor is outside the scroll region we do nothing.
     if (self.screen.cursor.y < self.scrolling_region.top or
         self.screen.cursor.y > self.scrolling_region.bottom or
@@ -2600,6 +2621,93 @@ test "Terminal: insertLines multi-codepoint graphemes" {
     }
 }
 
+test "Terminal: scrollUp simple" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.printString("ABC");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("DEF");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("GHI");
+    t.setCursorPos(2, 2);
+    const cursor = t.screen.cursor;
+    t.scrollUp(1);
+    try testing.expectEqual(cursor.x, t.screen.cursor.x);
+    try testing.expectEqual(cursor.y, t.screen.cursor.y);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("DEF\nGHI", str);
+    }
+}
+
+test "Terminal: scrollUp top/bottom scroll region" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.printString("ABC");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("DEF");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("GHI");
+    t.setTopAndBottomMargin(2, 3);
+    t.setCursorPos(1, 1);
+    t.scrollUp(1);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABC\nGHI", str);
+    }
+}
+
+test "Terminal: scrollUp preserves pending wrap" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.setCursorPos(1, 5);
+    try t.print('A');
+    t.setCursorPos(2, 5);
+    try t.print('B');
+    t.setCursorPos(3, 5);
+    try t.print('C');
+    t.scrollUp(1);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("    B\n    C\n\nX", str);
+    }
+}
+
+test "Terminal: scrollUp full top/bottom region" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.printString("top");
+    t.setCursorPos(5, 1);
+    try t.printString("ABCDE");
+    t.setTopAndBottomMargin(2, 5);
+    t.scrollUp(4);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("top", str);
+    }
+}
+
 test "Terminal: scrollDown simple" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -3072,6 +3180,26 @@ test "Terminal: index outside left/right margin" {
     }
 }
 
+test "Terminal: index bottom of scroll region" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.setTopAndBottomMargin(1, 3);
+    t.setCursorPos(4, 1);
+    try t.print('B');
+    t.setCursorPos(3, 1);
+    try t.print('A');
+    try t.index();
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\nA\n X\nB", str);
+    }
+}
+
 test "Terminal: cursorUp basic" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -3157,7 +3285,7 @@ test "Terminal: deleteLines simple" {
     try t.linefeed();
     try t.printString("GHI");
     t.setCursorPos(2, 2);
-    try t.deleteLines(1);
+    t.deleteLines(1);
 
     {
         const str = try t.plainString(testing.allocator);
@@ -3184,7 +3312,7 @@ test "Terminal: deleteLines (legacy)" {
     try t.print('D');
 
     t.cursorUp(2);
-    try t.deleteLines(1);
+    t.deleteLines(1);
 
     try t.print('E');
     t.carriageReturn();
@@ -3220,7 +3348,7 @@ test "Terminal: deleteLines with scroll region" {
 
     t.setTopAndBottomMargin(1, 3);
     t.setCursorPos(1, 1);
-    try t.deleteLines(1);
+    t.deleteLines(1);
 
     try t.print('E');
     t.carriageReturn();
@@ -3257,7 +3385,7 @@ test "Terminal: deleteLines with scroll region, large count" {
 
     t.setTopAndBottomMargin(1, 3);
     t.setCursorPos(1, 1);
-    try t.deleteLines(5);
+    t.deleteLines(5);
 
     try t.print('E');
     t.carriageReturn();
@@ -3294,7 +3422,7 @@ test "Terminal: deleteLines with scroll region, cursor outside of region" {
 
     t.setTopAndBottomMargin(1, 3);
     t.setCursorPos(4, 1);
-    try t.deleteLines(1);
+    t.deleteLines(1);
 
     {
         const str = try t.plainString(testing.allocator);
@@ -3310,7 +3438,7 @@ test "Terminal: deleteLines resets wrap" {
 
     for ("ABCDE") |c| try t.print(c);
     try testing.expect(t.screen.cursor.pending_wrap);
-    try t.deleteLines(1);
+    t.deleteLines(1);
     try testing.expect(!t.screen.cursor.pending_wrap);
     try t.print('B');
 

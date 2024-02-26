@@ -3651,6 +3651,7 @@ test "Terminal: deleteLines with scroll region, large count" {
     }
 }
 
+// X
 test "Terminal: deleteLines with scroll region, cursor outside of region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 80, 80);
@@ -3679,6 +3680,7 @@ test "Terminal: deleteLines with scroll region, cursor outside of region" {
     }
 }
 
+// X
 test "Terminal: deleteLines resets wrap" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -4414,6 +4416,7 @@ test "Terminal: index inside scroll region" {
     }
 }
 
+// X
 test "Terminal: index bottom of scroll region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -7105,6 +7108,7 @@ test "Terminal: scrollDown preserves pending wrap" {
     }
 }
 
+// X
 test "Terminal: scrollUp simple" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -7129,6 +7133,7 @@ test "Terminal: scrollUp simple" {
     }
 }
 
+// X
 test "Terminal: scrollUp top/bottom scroll region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -7178,6 +7183,7 @@ test "Terminal: scrollUp left/right scroll region" {
     }
 }
 
+// X
 test "Terminal: scrollUp preserves pending wrap" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -7199,6 +7205,7 @@ test "Terminal: scrollUp preserves pending wrap" {
     }
 }
 
+// X
 test "Terminal: scrollUp full top/bottom region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
