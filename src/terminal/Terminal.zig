@@ -3726,6 +3726,7 @@ test "Terminal: deleteLines simple" {
     }
 }
 
+// X
 test "Terminal: deleteLines left/right scroll region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 10);
@@ -3769,6 +3770,7 @@ test "Terminal: deleteLines left/right scroll region clears row wrap" {
     }
 }
 
+// X
 test "Terminal: deleteLines left/right scroll region from top" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 10);
@@ -3793,6 +3795,7 @@ test "Terminal: deleteLines left/right scroll region from top" {
     }
 }
 
+// X
 test "Terminal: deleteLines left/right scroll region high count" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 10);
@@ -3891,6 +3894,7 @@ test "Terminal: insertLines top/bottom scroll region" {
     }
 }
 
+// X
 test "Terminal: insertLines left/right scroll region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 10);
@@ -4231,6 +4235,7 @@ test "Terminal: reverseIndex outside top/bottom margins" {
     }
 }
 
+// X
 test "Terminal: reverseIndex left/right margins" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -4253,6 +4258,7 @@ test "Terminal: reverseIndex left/right margins" {
     }
 }
 
+// X
 test "Terminal: reverseIndex outside left/right margins" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -4486,6 +4492,7 @@ test "Terminal: index outside left/right margin" {
     }
 }
 
+// X
 test "Terminal: index inside left/right margin" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 5);

@@ -470,6 +470,11 @@ pub const Row = packed struct(u64) {
     /// this will be set to true the first time a style is used, but it
     /// will not be set to false if the style is no longer used, because
     /// checking for that condition is too expensive.
+    ///
+    /// Why have this weird false positive flag at all? This makes VT operations
+    /// that erase cells (such as insert lines, delete lines, erase chars,
+    /// etc.) MUCH MUCH faster in the case that the row was never styled.
+    /// At the time of writing this, the speed difference is around 4x.
     styled: bool = false,
 
     _padding: u28 = 0,
