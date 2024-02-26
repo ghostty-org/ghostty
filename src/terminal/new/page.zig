@@ -202,6 +202,33 @@ pub const Page = struct {
         return .{ .row = row, .cell = cell };
     }
 
+    /// Move a cell from one location to another. This will replace the
+    /// previous contents with a blank cell. Because this is a move, this
+    /// doesn't allocate and can't fail.
+    pub fn moveCells(
+        self: *Page,
+        src_row: *Row,
+        src_left: usize,
+        dst_row: *Row,
+        dst_left: usize,
+        len: usize,
+    ) void {
+        const src_cells = src_row.cells.ptr(self.memory)[src_left .. src_left + len];
+        const dst_cells = dst_row.cells.ptr(self.memory)[dst_left .. dst_left + len];
+
+        // If src has no graphemes, this is very fast.
+        const src_grapheme = src_row.grapheme or grapheme: {
+            for (src_cells) |c| if (c.hasGrapheme()) break :grapheme true;
+            break :grapheme false;
+        };
+        if (!src_grapheme) {
+            @memcpy(dst_cells, src_cells);
+            return;
+        }
+
+        @panic("TODO: grapheme move");
+    }
+
     /// Append a codepoint to the given cell as a grapheme.
     pub fn appendGrapheme(self: *Page, row: *Row, cell: *Cell, cp: u21) !void {
         if (comptime std.debug.runtime_safety) assert(cell.hasText());

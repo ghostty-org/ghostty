@@ -3443,6 +3443,7 @@ test "Terminal: setLeftAndRightMargin simple" {
     }
 }
 
+// X
 test "Terminal: setLeftAndRightMargin left only" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -3469,6 +3470,7 @@ test "Terminal: setLeftAndRightMargin left only" {
     }
 }
 
+// X
 test "Terminal: setLeftAndRightMargin left and right" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -3493,6 +3495,7 @@ test "Terminal: setLeftAndRightMargin left and right" {
     }
 }
 
+// X
 test "Terminal: setLeftAndRightMargin left equal right" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -3517,6 +3520,7 @@ test "Terminal: setLeftAndRightMargin left equal right" {
     }
 }
 
+// X
 test "Terminal: setLeftAndRightMargin mode 69 unset" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
