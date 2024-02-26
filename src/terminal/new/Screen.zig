@@ -143,7 +143,7 @@ pub fn cursorDown(self: *Screen) void {
     // We move the offset into our page list to the next row and then
     // get the pointers to the row/cell and set all the cursor state up.
     const page_offset = self.cursor.page_offset.forward(1).?;
-    const page_rac = page_offset.rowAndCell(0);
+    const page_rac = page_offset.rowAndCell(self.cursor.x);
     self.cursor.page_offset = page_offset;
     self.cursor.page_row = page_rac.row;
     self.cursor.page_cell = page_rac.cell;
