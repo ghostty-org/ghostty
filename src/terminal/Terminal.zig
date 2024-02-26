@@ -3854,6 +3854,7 @@ test "Terminal: insertLines outside of scroll region" {
     }
 }
 
+// X
 test "Terminal: insertLines top/bottom scroll region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -3949,6 +3950,7 @@ test "Terminal: insertLines zero" {
     try t.insertLines(0);
 }
 
+// X
 test "Terminal: insertLines with scroll region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 2, 6);
@@ -4035,6 +4037,7 @@ test "Terminal: insertLines resets wrap" {
     }
 }
 
+// X
 test "Terminal: reverseIndex" {
     const alloc = testing.allocator;
     var t = try init(alloc, 2, 5);
@@ -4062,6 +4065,7 @@ test "Terminal: reverseIndex" {
     }
 }
 
+// X
 test "Terminal: reverseIndex from the top" {
     const alloc = testing.allocator;
     var t = try init(alloc, 2, 5);
@@ -4095,6 +4099,7 @@ test "Terminal: reverseIndex from the top" {
     }
 }
 
+// X
 test "Terminal: reverseIndex top of scrolling region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 2, 10);
@@ -4128,6 +4133,7 @@ test "Terminal: reverseIndex top of scrolling region" {
     }
 }
 
+// X
 test "Terminal: reverseIndex top of screen" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -4149,6 +4155,7 @@ test "Terminal: reverseIndex top of screen" {
     }
 }
 
+// X
 test "Terminal: reverseIndex not top of screen" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -4170,6 +4177,7 @@ test "Terminal: reverseIndex not top of screen" {
     }
 }
 
+// X
 test "Terminal: reverseIndex top/bottom margins" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -4191,6 +4199,7 @@ test "Terminal: reverseIndex top/bottom margins" {
     }
 }
 
+// X
 test "Terminal: reverseIndex outside top/bottom margins" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6816,6 +6825,7 @@ test "Terminal: cursorDown resets wrap" {
     }
 }
 
+// X
 test "Terminal: cursorUp basic" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6833,6 +6843,7 @@ test "Terminal: cursorUp basic" {
     }
 }
 
+// X
 test "Terminal: cursorUp below top scroll margin" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6851,6 +6862,7 @@ test "Terminal: cursorUp below top scroll margin" {
     }
 }
 
+// X
 test "Terminal: cursorUp above top scroll margin" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6870,6 +6882,7 @@ test "Terminal: cursorUp above top scroll margin" {
     }
 }
 
+// X
 test "Terminal: cursorUp resets wrap" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);

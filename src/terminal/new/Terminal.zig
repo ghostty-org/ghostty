@@ -585,6 +585,24 @@ pub fn backspace(self: *Terminal) void {
     self.cursorLeft(1);
 }
 
+/// Move the cursor up amount lines. If amount is greater than the maximum
+/// move distance then it is internally adjusted to the maximum. If amount is
+/// 0, adjust it to 1.
+pub fn cursorUp(self: *Terminal, count_req: usize) void {
+    // Always resets pending wrap
+    self.screen.cursor.pending_wrap = false;
+
+    // The maximum amount the cursor can move up depends on scrolling regions
+    const max = if (self.screen.cursor.y >= self.scrolling_region.top)
+        self.screen.cursor.y - self.scrolling_region.top
+    else
+        self.screen.cursor.y;
+    const count = @min(max, @max(count_req, 1));
+
+    // We can safely intCast below because of the min/max clamping we did above.
+    self.screen.cursorUp(@intCast(count));
+}
+
 /// Move the cursor to the left amount cells. If amount is 0, adjust it to 1.
 pub fn cursorLeft(self: *Terminal, count_req: usize) void {
     // Wrapping behavior depends on various terminal modes
@@ -789,6 +807,30 @@ pub fn index(self: *Terminal) !void {
     if (self.screen.cursor.y < self.scrolling_region.bottom) {
         self.screen.cursorDown();
     }
+}
+
+/// Move the cursor to the previous line in the scrolling region, possibly
+/// scrolling.
+///
+/// If the cursor is outside of the scrolling region, move the cursor one
+/// line up if it is not on the top-most line of the screen.
+///
+/// If the cursor is inside the scrolling region:
+///
+///   * If the cursor is on the top-most line of the scrolling region:
+///     invoke scroll down with amount=1
+///   * If the cursor is not on the top-most line of the scrolling region:
+///     move the cursor one line up
+pub fn reverseIndex(self: *Terminal) void {
+    if (self.screen.cursor.y != self.scrolling_region.top or
+        self.screen.cursor.x < self.scrolling_region.left or
+        self.screen.cursor.x > self.scrolling_region.right)
+    {
+        self.cursorUp(1);
+        return;
+    }
+
+    self.scrollDown(1);
 }
 
 // Set Cursor Position. Move cursor to the position indicated
@@ -2280,6 +2322,32 @@ test "Terminal: insertLines outside of scroll region" {
     }
 }
 
+test "Terminal: insertLines top/bottom scroll region" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.printString("ABC");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("DEF");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("GHI");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("123");
+    t.setTopAndBottomMargin(1, 3);
+    t.setCursorPos(2, 2);
+    t.insertLines(1);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABC\n\nDEF\n123", str);
+    }
+}
+
 test "Terminal: insertLines (legacy test)" {
     const alloc = testing.allocator;
     var t = try init(alloc, 2, 5);
@@ -2321,6 +2389,39 @@ test "Terminal: insertLines zero" {
     // This should do nothing
     t.setCursorPos(1, 1);
     t.insertLines(0);
+}
+
+test "Terminal: insertLines with scroll region" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 2, 6);
+    defer t.deinit(alloc);
+
+    // Initial value
+    try t.print('A');
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('B');
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('C');
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('D');
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('E');
+
+    t.setTopAndBottomMargin(1, 2);
+    t.setCursorPos(1, 1);
+    t.insertLines(1);
+
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("X\nA\nC\nD\nE", str);
+    }
 }
 
 test "Terminal: insertLines more than remaining" {
@@ -2543,5 +2644,254 @@ test "Terminal: eraseChars wide character" {
         const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("X BC", str);
+    }
+}
+
+test "Terminal: reverseIndex" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 2, 5);
+    defer t.deinit(alloc);
+
+    // Initial value
+    try t.print('A');
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('B');
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('C');
+    t.reverseIndex();
+    try t.print('D');
+    t.carriageReturn();
+    try t.linefeed();
+    t.carriageReturn();
+    try t.linefeed();
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("A\nBD\nC", str);
+    }
+}
+
+test "Terminal: reverseIndex from the top" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 2, 5);
+    defer t.deinit(alloc);
+
+    try t.print('A');
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('B');
+    t.carriageReturn();
+    try t.linefeed();
+    t.carriageReturn();
+    try t.linefeed();
+
+    t.setCursorPos(1, 1);
+    t.reverseIndex();
+    try t.print('D');
+
+    t.carriageReturn();
+    try t.linefeed();
+    t.setCursorPos(1, 1);
+    t.reverseIndex();
+    try t.print('E');
+    t.carriageReturn();
+    try t.linefeed();
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("E\nD\nA\nB", str);
+    }
+}
+
+test "Terminal: reverseIndex top of scrolling region" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 2, 10);
+    defer t.deinit(alloc);
+
+    // Initial value
+    t.setCursorPos(2, 1);
+    try t.print('A');
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('B');
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('C');
+    t.carriageReturn();
+    try t.linefeed();
+    try t.print('D');
+    t.carriageReturn();
+    try t.linefeed();
+
+    // Set our scroll region
+    t.setTopAndBottomMargin(2, 5);
+    t.setCursorPos(2, 1);
+    t.reverseIndex();
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\nX\nA\nB\nC", str);
+    }
+}
+
+test "Terminal: reverseIndex top of screen" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.print('A');
+    t.setCursorPos(2, 1);
+    try t.print('B');
+    t.setCursorPos(3, 1);
+    try t.print('C');
+    t.setCursorPos(1, 1);
+    t.reverseIndex();
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("X\nA\nB\nC", str);
+    }
+}
+
+test "Terminal: reverseIndex not top of screen" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.print('A');
+    t.setCursorPos(2, 1);
+    try t.print('B');
+    t.setCursorPos(3, 1);
+    try t.print('C');
+    t.setCursorPos(2, 1);
+    t.reverseIndex();
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("X\nB\nC", str);
+    }
+}
+
+test "Terminal: reverseIndex top/bottom margins" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.print('A');
+    t.setCursorPos(2, 1);
+    try t.print('B');
+    t.setCursorPos(3, 1);
+    try t.print('C');
+    t.setTopAndBottomMargin(2, 3);
+    t.setCursorPos(2, 1);
+    t.reverseIndex();
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("A\n\nB", str);
+    }
+}
+
+test "Terminal: reverseIndex outside top/bottom margins" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.print('A');
+    t.setCursorPos(2, 1);
+    try t.print('B');
+    t.setCursorPos(3, 1);
+    try t.print('C');
+    t.setTopAndBottomMargin(2, 3);
+    t.setCursorPos(1, 1);
+    t.reverseIndex();
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("A\nB\nC", str);
+    }
+}
+
+test "Terminal: cursorUp basic" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.setCursorPos(3, 1);
+    try t.print('A');
+    t.cursorUp(10);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings(" X\n\nA", str);
+    }
+}
+
+test "Terminal: cursorUp below top scroll margin" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.setTopAndBottomMargin(2, 4);
+    t.setCursorPos(3, 1);
+    try t.print('A');
+    t.cursorUp(5);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\n X\nA", str);
+    }
+}
+
+test "Terminal: cursorUp above top scroll margin" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.setTopAndBottomMargin(3, 5);
+    t.setCursorPos(3, 1);
+    try t.print('A');
+    t.setCursorPos(2, 1);
+    t.cursorUp(10);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("X\n\nA", str);
+    }
+}
+
+test "Terminal: cursorUp resets wrap" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    for ("ABCDE") |c| try t.print(c);
+    try testing.expect(t.screen.cursor.pending_wrap);
+    t.cursorUp(1);
+    try testing.expect(!t.screen.cursor.pending_wrap);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABCDX", str);
     }
 }
