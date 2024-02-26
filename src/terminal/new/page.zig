@@ -204,12 +204,14 @@ pub const Page = struct {
 
     /// Append a codepoint to the given cell as a grapheme.
     pub fn appendGrapheme(self: *Page, row: *Row, cell: *Cell, cp: u21) !void {
+        if (comptime std.debug.runtime_safety) assert(cell.hasText());
+
         const cell_offset = getOffset(Cell, self.memory, cell);
         var map = self.grapheme_map.map(self.memory);
 
         // If this cell has no graphemes, we can go faster by knowing we
         // need to allocate a new grapheme slice and update the map.
-        if (!cell.grapheme) {
+        if (cell.content_tag != .codepoint_grapheme) {
             const cps = try self.grapheme_alloc.alloc(u21, self.memory, 1);
             errdefer self.grapheme_alloc.free(self.memory, cps);
             cps[0] = cp;
@@ -220,7 +222,7 @@ pub const Page = struct {
             });
             errdefer map.remove(cell_offset);
 
-            cell.grapheme = true;
+            cell.content_tag = .codepoint_grapheme;
             row.grapheme = true;
 
             return;
@@ -270,7 +272,7 @@ pub const Page = struct {
 
     /// Clear the graphemes for a given cell.
     pub fn clearGrapheme(self: *Page, row: *Row, cell: *Cell) void {
-        assert(cell.grapheme);
+        if (comptime std.debug.runtime_safety) assert(cell.hasGrapheme());
 
         // Get our entry in the map, which must exist
         const cell_offset = getOffset(Cell, self.memory, cell);
@@ -286,9 +288,9 @@ pub const Page = struct {
 
         // Mark that we no longer have graphemes, also search the row
         // to make sure its state is correct.
-        cell.grapheme = false;
+        cell.content_tag = .codepoint;
         const cells = row.cells.ptr(self.memory)[0..self.size.cols];
-        for (cells) |c| if (c.grapheme) return;
+        for (cells) |c| if (c.hasGrapheme()) return;
         row.grapheme = false;
     }
 
@@ -444,18 +446,25 @@ pub const Row = packed struct(u64) {
 /// The zero value of this struct must be a valid cell representing empty,
 /// since we zero initialize the backing memory for a page.
 pub const Cell = packed struct(u64) {
-    /// The codepoint that this cell contains. If `grapheme` is false,
-    /// then this is the only codepoint in the cell. If `grapheme` is
-    /// true, then this is the first codepoint in the grapheme cluster.
-    codepoint: u21 = 0,
+    /// The content tag dictates the active tag in content and possibly
+    /// some other behaviors.
+    content_tag: ContentTag = .codepoint,
+
+    /// The content of the cell. This is a union based on content_tag.
+    content: packed union {
+        /// The codepoint that this cell contains. If `grapheme` is false,
+        /// then this is the only codepoint in the cell. If `grapheme` is
+        /// true, then this is the first codepoint in the grapheme cluster.
+        codepoint: u21,
+
+        /// The content is an empty cell with a background color.
+        color_palette: u8,
+        color_rgb: RGB,
+    } = .{ .codepoint = 0 },
 
     /// The style ID to use for this cell within the style map. Zero
     /// is always the default style so no lookup is required.
     style_id: style.Id = 0,
-
-    /// This is true if there are additional codepoints in the grapheme
-    /// map for this cell to build a multi-codepoint grapheme.
-    grapheme: bool = false,
 
     /// The wide property of this cell, for wide characters. Characters in
     /// a terminal grid can only be 1 or 2 cells wide. A wide character
@@ -463,7 +472,29 @@ pub const Cell = packed struct(u64) {
     /// and spacer properties of a cell.
     wide: Wide = .narrow,
 
-    _padding: u24 = 0,
+    _padding: u20 = 0,
+
+    pub const ContentTag = enum(u2) {
+        /// A single codepoint, could be zero to be empty cell.
+        codepoint = 0,
+
+        /// A codepoint that is part of a multi-codepoint grapheme cluster.
+        /// The codepoint tag is active in content, but also expect more
+        /// codepoints in the grapheme data.
+        codepoint_grapheme = 1,
+
+        /// The cell has no text but only a background color. This is an
+        /// optimization so that cells with only backgrounds don't take up
+        /// style map space and also don't require a style map lookup.
+        bg_color_palette = 2,
+        bg_color_rgb = 3,
+    };
+
+    pub const RGB = packed struct {
+        r: u8,
+        g: u8,
+        b: u8,
+    };
 
     pub const Wide = enum(u2) {
         /// Not a wide character, cell width 1.
@@ -480,10 +511,34 @@ pub const Cell = packed struct(u64) {
         spacer_head = 3,
     };
 
+    /// Helper to make a cell that just has a codepoint.
+    pub fn init(codepoint: u21) Cell {
+        return .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = codepoint },
+        };
+    }
+
+    pub fn hasText(self: Cell) bool {
+        return switch (self.content_tag) {
+            .codepoint,
+            .codepoint_grapheme,
+            => self.content.codepoint != 0,
+
+            .bg_color_palette,
+            .bg_color_rgb,
+            => false,
+        };
+    }
+
+    pub fn hasGrapheme(self: Cell) bool {
+        return self.content_tag == .codepoint_grapheme;
+    }
+
     /// Returns true if the set of cells has text in it.
-    pub fn hasText(cells: []const Cell) bool {
+    pub fn hasTextAny(cells: []const Cell) bool {
         for (cells) |cell| {
-            if (cell.codepoint != 0) return true;
+            if (cell.hasText()) return true;
         }
 
         return false;
@@ -569,13 +624,16 @@ test "Page read and write cells" {
 
     for (0..page.capacity.rows) |y| {
         const rac = page.getRowAndCell(1, y);
-        rac.cell.codepoint = @intCast(y);
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = @intCast(y) },
+        };
     }
 
     // Read it again
     for (0..page.capacity.rows) |y| {
         const rac = page.getRowAndCell(1, y);
-        try testing.expectEqual(@as(u21, @intCast(y)), rac.cell.codepoint);
+        try testing.expectEqual(@as(u21, @intCast(y)), rac.cell.content.codepoint);
     }
 }
 
@@ -588,24 +646,24 @@ test "Page appendGrapheme small" {
     defer page.deinit();
 
     const rac = page.getRowAndCell(0, 0);
-    rac.cell.codepoint = 0x09;
+    rac.cell.* = Cell.init(0x09);
 
     // One
     try page.appendGrapheme(rac.row, rac.cell, 0x0A);
     try testing.expect(rac.row.grapheme);
-    try testing.expect(rac.cell.grapheme);
+    try testing.expect(rac.cell.hasGrapheme());
     try testing.expectEqualSlices(u21, &.{0x0A}, page.lookupGrapheme(rac.cell).?);
 
     // Two
     try page.appendGrapheme(rac.row, rac.cell, 0x0B);
     try testing.expect(rac.row.grapheme);
-    try testing.expect(rac.cell.grapheme);
+    try testing.expect(rac.cell.hasGrapheme());
     try testing.expectEqualSlices(u21, &.{ 0x0A, 0x0B }, page.lookupGrapheme(rac.cell).?);
 
     // Clear it
     page.clearGrapheme(rac.row, rac.cell);
     try testing.expect(!rac.row.grapheme);
-    try testing.expect(!rac.cell.grapheme);
+    try testing.expect(!rac.cell.hasGrapheme());
 }
 
 test "Page appendGrapheme larger than chunk" {
@@ -617,7 +675,7 @@ test "Page appendGrapheme larger than chunk" {
     defer page.deinit();
 
     const rac = page.getRowAndCell(0, 0);
-    rac.cell.codepoint = 0x09;
+    rac.cell.* = Cell.init(0x09);
 
     const count = grapheme_chunk_len * 10;
     for (0..count) |i| {
@@ -640,16 +698,16 @@ test "Page clearGrapheme not all cells" {
     defer page.deinit();
 
     const rac = page.getRowAndCell(0, 0);
-    rac.cell.codepoint = 0x09;
+    rac.cell.* = Cell.init(0x09);
     try page.appendGrapheme(rac.row, rac.cell, 0x0A);
 
     const rac2 = page.getRowAndCell(1, 0);
-    rac2.cell.codepoint = 0x09;
+    rac2.cell.* = Cell.init(0x09);
     try page.appendGrapheme(rac2.row, rac2.cell, 0x0A);
 
     // Clear it
     page.clearGrapheme(rac.row, rac.cell);
     try testing.expect(rac.row.grapheme);
-    try testing.expect(!rac.cell.grapheme);
-    try testing.expect(rac2.cell.grapheme);
+    try testing.expect(!rac.cell.hasGrapheme());
+    try testing.expect(rac2.cell.hasGrapheme());
 }

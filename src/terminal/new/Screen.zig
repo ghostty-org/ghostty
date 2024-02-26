@@ -251,7 +251,7 @@ pub fn dumpString(
             break :cells cells[0..self.pages.cols];
         };
 
-        if (!pagepkg.Cell.hasText(cells)) {
+        if (!pagepkg.Cell.hasTextAny(cells)) {
             blank_rows += 1;
             continue;
         }
@@ -274,7 +274,7 @@ pub fn dumpString(
             // If we have a zero value, then we accumulate a counter. We
             // only want to turn zero values into spaces if we have a non-zero
             // char sometime later.
-            if (cell.codepoint == 0) {
+            if (!cell.hasText()) {
                 blank_cells += 1;
                 continue;
             }
@@ -283,13 +283,20 @@ pub fn dumpString(
                 blank_cells = 0;
             }
 
-            try writer.print("{u}", .{cell.codepoint});
+            switch (cell.content_tag) {
+                .codepoint => {
+                    try writer.print("{u}", .{cell.content.codepoint});
+                },
 
-            if (cell.grapheme) {
-                const cps = row_offset.page.data.lookupGrapheme(cell).?;
-                for (cps) |cp| {
-                    try writer.print("{u}", .{cp});
-                }
+                .codepoint_grapheme => {
+                    try writer.print("{u}", .{cell.content.codepoint});
+                    const cps = row_offset.page.data.lookupGrapheme(cell).?;
+                    for (cps) |cp| {
+                        try writer.print("{u}", .{cp});
+                    }
+                },
+
+                else => unreachable,
             }
         }
     }
@@ -322,7 +329,8 @@ fn testWriteString(self: *Screen, text: []const u8) !void {
         assert(width == 1 or width == 2);
         switch (width) {
             1 => {
-                self.cursor.page_cell.codepoint = c;
+                self.cursor.page_cell.content_tag = .codepoint;
+                self.cursor.page_cell.content = .{ .codepoint = c };
                 self.cursor.x += 1;
                 if (self.cursor.x < self.pages.cols) {
                     const cell: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);

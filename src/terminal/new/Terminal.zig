@@ -245,7 +245,7 @@ pub fn print(self: *Terminal, c: u21) !void {
                 // column. Otherwise, we need to check if there is text to
                 // figure out if we're attaching to the prev or current.
                 if (self.screen.cursor.x != right_limit - 1) break :left 1;
-                break :left @intFromBool(self.screen.cursor.page_cell.codepoint == 0);
+                break :left @intFromBool(!self.screen.cursor.page_cell.hasText());
             };
 
             // If the previous cell is a wide spacer tail, then we actually
@@ -263,12 +263,12 @@ pub fn print(self: *Terminal, c: u21) !void {
 
         // If our cell has no content, then this is a new cell and
         // necessarily a grapheme break.
-        if (prev.cell.codepoint == 0) break :grapheme;
+        if (!prev.cell.hasText()) break :grapheme;
 
         const grapheme_break = brk: {
             var state: unicode.GraphemeBreakState = .{};
-            var cp1: u21 = prev.cell.codepoint;
-            if (prev.cell.grapheme) {
+            var cp1: u21 = prev.cell.content.codepoint;
+            if (prev.cell.hasGrapheme()) {
                 const cps = self.screen.cursor.page_offset.page.data.lookupGrapheme(prev.cell).?;
                 for (cps) |cp2| {
                     // log.debug("cp1={x} cp2={x}", .{ cp1, cp2 });
@@ -289,7 +289,7 @@ pub fn print(self: *Terminal, c: u21) !void {
             // VS15 makes it narrow.
             if (c == 0xFE0F or c == 0xFE0E) {
                 // This only applies to emoji
-                const prev_props = unicode.getProperties(prev.cell.codepoint);
+                const prev_props = unicode.getProperties(prev.cell.content.codepoint);
                 const emoji = prev_props.grapheme_boundary_class == .extended_pictographic;
                 if (!emoji) return;
 
@@ -310,7 +310,7 @@ pub fn print(self: *Terminal, c: u21) !void {
                             try self.printWrap();
                         }
 
-                        self.printCell(prev.cell.codepoint, .wide);
+                        self.printCell(prev.cell.content.codepoint, .wide);
 
                         // Write our spacer
                         self.screen.cursorRight(1);
@@ -385,9 +385,15 @@ pub fn print(self: *Terminal, c: u21) !void {
             break :prev self.screen.cursorCellLeft(2);
         };
 
+        // If our previous cell has no text, just ignore the zero-width character
+        if (!prev.hasText()) {
+            log.warn("zero-width character with no prior character, ignoring", .{});
+            return;
+        }
+
         // If this is a emoji variation selector, prev must be an emoji
         if (c == 0xFE0F or c == 0xFE0E) {
-            const prev_props = unicode.getProperties(prev.codepoint);
+            const prev_props = unicode.getProperties(prev.content.codepoint);
             const emoji = prev_props.grapheme_boundary_class == .extended_pictographic;
             if (!emoji) return;
         }
@@ -513,7 +519,7 @@ fn printCell(
     }
 
     // If the prior value had graphemes, clear those
-    if (cell.grapheme) {
+    if (cell.hasGrapheme()) {
         self.screen.cursor.page_offset.page.data.clearGrapheme(
             self.screen.cursor.page_row,
             cell,
@@ -522,8 +528,9 @@ fn printCell(
 
     // Write
     cell.* = .{
+        .content_tag = .codepoint,
+        .content = .{ .codepoint = c },
         .style_id = self.screen.cursor.style_id,
-        .codepoint = c,
         .wide = wide,
     };
 
@@ -1055,7 +1062,7 @@ test "Terminal: print wide char" {
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, 0x1F600), cell.codepoint);
+        try testing.expectEqual(@as(u21, 0x1F600), cell.content.codepoint);
         try testing.expectEqual(Cell.Wide.wide, cell.wide);
     }
     {
@@ -1077,7 +1084,7 @@ test "Terminal: print wide char in single-width terminal" {
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, ' '), cell.codepoint);
+        try testing.expectEqual(@as(u21, ' '), cell.content.codepoint);
         try testing.expectEqual(Cell.Wide.narrow, cell.wide);
     }
 }
@@ -1096,13 +1103,13 @@ test "Terminal: print over wide char at 0,0" {
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, 'A'), cell.codepoint);
+        try testing.expectEqual(@as(u21, 'A'), cell.content.codepoint);
         try testing.expectEqual(Cell.Wide.narrow, cell.wide);
     }
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, 0), cell.codepoint);
+        try testing.expectEqual(@as(u21, 0), cell.content.codepoint);
         try testing.expectEqual(Cell.Wide.narrow, cell.wide);
     }
 }
@@ -1118,13 +1125,13 @@ test "Terminal: print over wide spacer tail" {
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, 0), cell.codepoint);
+        try testing.expectEqual(@as(u21, 0), cell.content.codepoint);
         try testing.expectEqual(Cell.Wide.narrow, cell.wide);
     }
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, 'X'), cell.codepoint);
+        try testing.expectEqual(@as(u21, 'X'), cell.content.codepoint);
         try testing.expectEqual(Cell.Wide.narrow, cell.wide);
     }
 
@@ -1156,8 +1163,8 @@ test "Terminal: print multicodepoint grapheme, disabled mode 2027" {
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, 0x1F468), cell.codepoint);
-        try testing.expect(cell.grapheme);
+        try testing.expectEqual(@as(u21, 0x1F468), cell.content.codepoint);
+        try testing.expect(cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.wide, cell.wide);
         const cps = list_cell.page.data.lookupGrapheme(cell).?;
         try testing.expectEqual(@as(usize, 1), cps.len);
@@ -1165,16 +1172,16 @@ test "Terminal: print multicodepoint grapheme, disabled mode 2027" {
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, ' '), cell.codepoint);
-        try testing.expect(!cell.grapheme);
+        try testing.expectEqual(@as(u21, ' '), cell.content.codepoint);
+        try testing.expect(!cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
         try testing.expect(list_cell.page.data.lookupGrapheme(cell) == null);
     }
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 2, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, 0x1F469), cell.codepoint);
-        try testing.expect(cell.grapheme);
+        try testing.expectEqual(@as(u21, 0x1F469), cell.content.codepoint);
+        try testing.expect(cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.wide, cell.wide);
         const cps = list_cell.page.data.lookupGrapheme(cell).?;
         try testing.expectEqual(@as(usize, 1), cps.len);
@@ -1182,24 +1189,24 @@ test "Terminal: print multicodepoint grapheme, disabled mode 2027" {
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 3, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, ' '), cell.codepoint);
-        try testing.expect(!cell.grapheme);
+        try testing.expectEqual(@as(u21, ' '), cell.content.codepoint);
+        try testing.expect(!cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
         try testing.expect(list_cell.page.data.lookupGrapheme(cell) == null);
     }
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 4, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, 0x1F467), cell.codepoint);
-        try testing.expect(!cell.grapheme);
+        try testing.expectEqual(@as(u21, 0x1F467), cell.content.codepoint);
+        try testing.expect(!cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.wide, cell.wide);
         try testing.expect(list_cell.page.data.lookupGrapheme(cell) == null);
     }
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 5, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, ' '), cell.codepoint);
-        try testing.expect(!cell.grapheme);
+        try testing.expectEqual(@as(u21, ' '), cell.content.codepoint);
+        try testing.expect(!cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
         try testing.expect(list_cell.page.data.lookupGrapheme(cell) == null);
     }
@@ -1224,8 +1231,8 @@ test "Terminal: VS16 doesn't make character with 2027 disabled" {
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, 0x2764), cell.codepoint);
-        try testing.expect(cell.grapheme);
+        try testing.expectEqual(@as(u21, 0x2764), cell.content.codepoint);
+        try testing.expect(cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.narrow, cell.wide);
         const cps = list_cell.page.data.lookupGrapheme(cell).?;
         try testing.expectEqual(@as(usize, 1), cps.len);
@@ -1249,14 +1256,14 @@ test "Terminal: print invalid VS16 non-grapheme" {
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, 'x'), cell.codepoint);
-        try testing.expect(!cell.grapheme);
+        try testing.expectEqual(@as(u21, 'x'), cell.content.codepoint);
+        try testing.expect(!cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.narrow, cell.wide);
     }
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, 0), cell.codepoint);
+        try testing.expectEqual(@as(u21, 0), cell.content.codepoint);
     }
 }
 
@@ -1284,8 +1291,8 @@ test "Terminal: print multicodepoint grapheme, mode 2027" {
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, 0x1F468), cell.codepoint);
-        try testing.expect(cell.grapheme);
+        try testing.expectEqual(@as(u21, 0x1F468), cell.content.codepoint);
+        try testing.expect(cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.wide, cell.wide);
         const cps = list_cell.page.data.lookupGrapheme(cell).?;
         try testing.expectEqual(@as(usize, 4), cps.len);
@@ -1293,8 +1300,8 @@ test "Terminal: print multicodepoint grapheme, mode 2027" {
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, ' '), cell.codepoint);
-        try testing.expect(!cell.grapheme);
+        try testing.expectEqual(@as(u21, ' '), cell.content.codepoint);
+        try testing.expect(!cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
     }
 }
@@ -1318,8 +1325,8 @@ test "Terminal: VS15 to make narrow character" {
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, 0x26C8), cell.codepoint);
-        try testing.expect(cell.grapheme);
+        try testing.expectEqual(@as(u21, 0x26C8), cell.content.codepoint);
+        try testing.expect(cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.narrow, cell.wide);
         const cps = list_cell.page.data.lookupGrapheme(cell).?;
         try testing.expectEqual(@as(usize, 1), cps.len);
@@ -1345,8 +1352,8 @@ test "Terminal: VS16 to make wide character with mode 2027" {
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, 0x2764), cell.codepoint);
-        try testing.expect(cell.grapheme);
+        try testing.expectEqual(@as(u21, 0x2764), cell.content.codepoint);
+        try testing.expect(cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.wide, cell.wide);
         const cps = list_cell.page.data.lookupGrapheme(cell).?;
         try testing.expectEqual(@as(usize, 1), cps.len);
@@ -1374,8 +1381,8 @@ test "Terminal: VS16 repeated with mode 2027" {
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, 0x2764), cell.codepoint);
-        try testing.expect(cell.grapheme);
+        try testing.expectEqual(@as(u21, 0x2764), cell.content.codepoint);
+        try testing.expect(cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.wide, cell.wide);
         const cps = list_cell.page.data.lookupGrapheme(cell).?;
         try testing.expectEqual(@as(usize, 1), cps.len);
@@ -1383,8 +1390,8 @@ test "Terminal: VS16 repeated with mode 2027" {
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 2, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, 0x2764), cell.codepoint);
-        try testing.expect(cell.grapheme);
+        try testing.expectEqual(@as(u21, 0x2764), cell.content.codepoint);
+        try testing.expect(cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.wide, cell.wide);
         const cps = list_cell.page.data.lookupGrapheme(cell).?;
         try testing.expectEqual(@as(usize, 1), cps.len);
@@ -1411,14 +1418,14 @@ test "Terminal: print invalid VS16 grapheme" {
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, 'x'), cell.codepoint);
-        try testing.expect(!cell.grapheme);
+        try testing.expectEqual(@as(u21, 'x'), cell.content.codepoint);
+        try testing.expect(!cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.narrow, cell.wide);
     }
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, 0), cell.codepoint);
+        try testing.expectEqual(@as(u21, 0), cell.content.codepoint);
         try testing.expectEqual(Cell.Wide.narrow, cell.wide);
     }
 }
@@ -1444,16 +1451,16 @@ test "Terminal: print invalid VS16 with second char" {
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, 'x'), cell.codepoint);
-        try testing.expect(!cell.grapheme);
+        try testing.expectEqual(@as(u21, 'x'), cell.content.codepoint);
+        try testing.expect(!cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.narrow, cell.wide);
     }
 
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, 'y'), cell.codepoint);
-        try testing.expect(!cell.grapheme);
+        try testing.expectEqual(@as(u21, 'y'), cell.content.codepoint);
+        try testing.expect(!cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.narrow, cell.wide);
     }
 }
@@ -1479,8 +1486,8 @@ test "Terminal: overwrite grapheme should clear grapheme data" {
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, 'A'), cell.codepoint);
-        try testing.expect(!cell.grapheme);
+        try testing.expectEqual(@as(u21, 'A'), cell.content.codepoint);
+        try testing.expect(!cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.narrow, cell.wide);
     }
 }
@@ -1560,7 +1567,7 @@ test "Terminal: disabled wraparound with wide char and one space" {
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 4, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, 0), cell.codepoint);
+        try testing.expectEqual(@as(u21, 0), cell.content.codepoint);
         try testing.expectEqual(Cell.Wide.narrow, cell.wide);
     }
 }
@@ -1587,7 +1594,7 @@ test "Terminal: disabled wraparound with wide char and no space" {
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 4, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, 'A'), cell.codepoint);
+        try testing.expectEqual(@as(u21, 'A'), cell.content.codepoint);
         try testing.expectEqual(Cell.Wide.narrow, cell.wide);
     }
 }
@@ -1616,7 +1623,7 @@ test "Terminal: disabled wraparound with wide grapheme and half space" {
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 4, .y = 0 } }).?;
         const cell = list_cell.cell;
-        try testing.expectEqual(@as(u21, '❤'), cell.codepoint);
+        try testing.expectEqual(@as(u21, '❤'), cell.content.codepoint);
         try testing.expectEqual(Cell.Wide.narrow, cell.wide);
     }
 }
