@@ -123,15 +123,15 @@ pub fn cursorLeft(self: *Screen, n: size.CellCountInt) void {
 /// Move the cursor up.
 ///
 /// Precondition: The cursor is not at the top of the screen.
-pub fn cursorUp(self: *Screen) void {
-    assert(self.cursor.y > 0);
+pub fn cursorUp(self: *Screen, n: size.CellCountInt) void {
+    assert(self.cursor.y >= n);
 
-    const page_offset = self.cursor.page_offset.backward(1).?;
+    const page_offset = self.cursor.page_offset.backward(n).?;
     const page_rac = page_offset.rowAndCell(self.cursor.x);
     self.cursor.page_offset = page_offset;
     self.cursor.page_row = page_rac.row;
     self.cursor.page_cell = page_rac.cell;
-    self.cursor.y -= 1;
+    self.cursor.y -= n;
 }
 
 /// Move the cursor down.
