@@ -3802,6 +3802,7 @@ test "Terminal: deleteLines left/right scroll region high count" {
     }
 }
 
+// X
 test "Terminal: insertLines simple" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -3824,6 +3825,7 @@ test "Terminal: insertLines simple" {
     }
 }
 
+// X
 test "Terminal: insertLines outside of scroll region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -3897,6 +3899,7 @@ test "Terminal: insertLines left/right scroll region" {
     }
 }
 
+// X
 test "Terminal: insertLines" {
     const alloc = testing.allocator;
     var t = try init(alloc, 2, 5);
@@ -3930,6 +3933,7 @@ test "Terminal: insertLines" {
     }
 }
 
+// X
 test "Terminal: insertLines zero" {
     const alloc = testing.allocator;
     var t = try init(alloc, 2, 5);
@@ -3973,6 +3977,7 @@ test "Terminal: insertLines with scroll region" {
     }
 }
 
+// X
 test "Terminal: insertLines more than remaining" {
     const alloc = testing.allocator;
     var t = try init(alloc, 2, 5);
@@ -4006,6 +4011,7 @@ test "Terminal: insertLines more than remaining" {
     }
 }
 
+// X
 test "Terminal: insertLines resets wrap" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
