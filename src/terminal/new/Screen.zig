@@ -394,7 +394,7 @@ pub fn setAttribute(self: *Screen, attr: sgr.Attribute) !void {
         .unknown => return,
     }
 
-    var page = self.cursor.page_offset.page.data;
+    var page = &self.cursor.page_offset.page.data;
 
     // Remove our previous style if is unused.
     if (self.cursor.style_ref) |ref| {

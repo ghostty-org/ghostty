@@ -541,6 +541,9 @@ fn printCell(
     // Handle the style ref count handling
     style_ref: {
         if (prev_style_id != style.default_id) {
+            const row = self.screen.cursor.page_row;
+            assert(row.styled);
+
             // If our previous cell had the same style ID as us currently,
             // then we don't bother with any ref counts because we're the same.
             if (prev_style_id == self.screen.cursor.style_id) break :style_ref;
@@ -548,7 +551,7 @@ fn printCell(
             // Slow path: we need to lookup this style so we can decrement
             // the ref count. Since we've already loaded everything, we also
             // just go ahead and GC it if it reaches zero, too.
-            var page = self.screen.cursor.page_offset.page.data;
+            var page = &self.screen.cursor.page_offset.page.data;
             if (page.styles.lookupId(page.memory, prev_style_id)) |prev_style| {
                 // Below upsert can't fail because it should already be present
                 const md = page.styles.upsert(page.memory, prev_style.*) catch unreachable;
@@ -559,7 +562,10 @@ fn printCell(
         }
 
         // If we have a ref-counted style, increase.
-        if (self.screen.cursor.style_ref) |ref| ref.* += 1;
+        if (self.screen.cursor.style_ref) |ref| {
+            ref.* += 1;
+            self.screen.cursor.page_row.styled = true;
+        }
     }
 }
 
@@ -1085,7 +1091,7 @@ pub fn insertLines(self: *Terminal, count: usize) void {
             }
 
             // Left/right scroll margins we have to copy cells, which is much slower...
-            var page = self.screen.cursor.page_offset.page.data;
+            var page = &self.screen.cursor.page_offset.page.data;
             page.moveCells(
                 src,
                 self.scrolling_region.left,
@@ -1102,7 +1108,7 @@ pub fn insertLines(self: *Terminal, count: usize) void {
         const row: *Row = @ptrCast(top + i);
 
         // Clear the src row.
-        var page = self.screen.cursor.page_offset.page.data;
+        var page = &self.screen.cursor.page_offset.page.data;
         const cells = page.getCells(row);
 
         // If this row has graphemes, then we need go through a slow path
@@ -1114,10 +1120,41 @@ pub fn insertLines(self: *Terminal, count: usize) void {
             assert(!row.grapheme);
         }
 
-        @memset(
-            cells[self.scrolling_region.left .. self.scrolling_region.right + 1],
-            blank_cell,
-        );
+        const cells_write = cells[self.scrolling_region.left .. self.scrolling_region.right + 1];
+
+        // Delete any styles. Note the `row.styled` check is VERY IMPORTANT
+        // for performance. Without this, every insert line is 4x slower. With
+        // this check, only styled rows are 4x slower.
+        if (row.styled) {
+            for (cells_write) |*cell| {
+                if (cell.style_id == style.default_id) continue;
+
+                // Fast-path, the style ID matches, in this case we just update
+                // our own ref and continue. We never delete because our style
+                // is still active.
+                if (cell.style_id == self.screen.cursor.style_id) {
+                    self.screen.cursor.style_ref.?.* -= 1;
+                    continue;
+                }
+
+                // Slow path: we need to lookup this style so we can decrement
+                // the ref count. Since we've already loaded everything, we also
+                // just go ahead and GC it if it reaches zero, too.
+                if (page.styles.lookupId(page.memory, cell.style_id)) |prev_style| {
+                    // Below upsert can't fail because it should already be present
+                    const md = page.styles.upsert(page.memory, prev_style.*) catch unreachable;
+                    assert(md.ref > 0);
+                    md.ref -= 1;
+                    if (md.ref == 0) page.styles.remove(page.memory, cell.style_id);
+                }
+            }
+
+            // If we have no left/right scroll region we can be sure that
+            // the row is no longer styled.
+            if (cells_write.len == self.cols) row.styled = false;
+        }
+
+        @memset(cells_write, blank_cell);
     }
 
     // Move the cursor to the left margin. But importantly this also
@@ -1198,7 +1235,7 @@ pub fn deleteLines(self: *Terminal, count_req: usize) void {
         const row: *Row = @ptrCast(y);
 
         // Clear the src row.
-        var page = self.screen.cursor.page_offset.page.data;
+        var page = &self.screen.cursor.page_offset.page.data;
         const cells = page.getCells(row);
 
         // If this row has graphemes, then we need go through a slow path
@@ -1210,7 +1247,41 @@ pub fn deleteLines(self: *Terminal, count_req: usize) void {
             assert(!row.grapheme);
         }
 
-        @memset(cells, blank_cell);
+        const cells_write = cells[self.scrolling_region.left .. self.scrolling_region.right + 1];
+
+        // Delete any styles. Note the `row.styled` check is VERY IMPORTANT
+        // for performance. Without this, every insert line is 4x slower. With
+        // this check, only styled rows are 4x slower.
+        if (row.styled) {
+            for (cells_write) |*cell| {
+                if (cell.style_id == style.default_id) continue;
+
+                // Fast-path, the style ID matches, in this case we just update
+                // our own ref and continue. We never delete because our style
+                // is still active.
+                if (cell.style_id == self.screen.cursor.style_id) {
+                    self.screen.cursor.style_ref.?.* -= 1;
+                    continue;
+                }
+
+                // Slow path: we need to lookup this style so we can decrement
+                // the ref count. Since we've already loaded everything, we also
+                // just go ahead and GC it if it reaches zero, too.
+                if (page.styles.lookupId(page.memory, cell.style_id)) |prev_style| {
+                    // Below upsert can't fail because it should already be present
+                    const md = page.styles.upsert(page.memory, prev_style.*) catch unreachable;
+                    assert(md.ref > 0);
+                    md.ref -= 1;
+                    if (md.ref == 0) page.styles.remove(page.memory, cell.style_id);
+                }
+            }
+
+            // If we have no left/right scroll region we can be sure that
+            // the row is no longer styled.
+            if (cells_write.len == self.cols) row.styled = false;
+        }
+
+        @memset(cells_write, blank_cell);
     }
 
     // Move the cursor to the left margin. But importantly this also
@@ -2631,6 +2702,40 @@ test "Terminal: insertLines colors with bg color" {
             .b = 0,
         }, list_cell.cell.content.color_rgb);
     }
+}
+
+test "Terminal: insertLines handles style refs" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 3);
+    defer t.deinit(alloc);
+
+    try t.printString("ABC");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("DEF");
+    t.carriageReturn();
+    try t.linefeed();
+
+    // For the line being deleted, create a refcounted style
+    try t.setAttribute(.{ .bold = {} });
+    try t.printString("GHI");
+    try t.setAttribute(.{ .unset = {} });
+
+    // verify we have styles in our style map
+    const page = t.screen.cursor.page_offset.page.data;
+    try testing.expectEqual(@as(usize, 1), page.styles.count(page.memory));
+
+    t.setCursorPos(2, 2);
+    t.insertLines(1);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABC\n\nDEF", str);
+    }
+
+    // verify we have no styles in our style map
+    try testing.expectEqual(@as(usize, 0), page.styles.count(page.memory));
 }
 
 test "Terminal: insertLines outside of scroll region" {
@@ -4289,4 +4394,20 @@ test "Terminal: do not garbage collect old styles in use" {
     // verify we have no styles in our style map
     const page = t.screen.cursor.page_offset.page.data;
     try testing.expectEqual(@as(usize, 1), page.styles.count(page.memory));
+}
+
+test "Terminal: print with style marks the row as styled" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.setAttribute(.{ .bold = {} });
+    try t.print('A');
+    try t.setAttribute(.{ .unset = {} });
+    try t.print('B');
+
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        try testing.expect(list_cell.row.styled);
+    }
 }

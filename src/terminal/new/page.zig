@@ -465,7 +465,14 @@ pub const Row = packed struct(u64) {
     /// grapheme data.
     grapheme: bool = false,
 
-    _padding: u29 = 0,
+    /// True if any of the cells in this row have a ref-counted style.
+    /// This can have false positives but never a false negative. Meaning:
+    /// this will be set to true the first time a style is used, but it
+    /// will not be set to false if the style is no longer used, because
+    /// checking for that condition is too expensive.
+    styled: bool = false,
+
+    _padding: u28 = 0,
 };
 
 /// A cell represents a single terminal grid cell.
