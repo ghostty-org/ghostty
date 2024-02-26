@@ -614,6 +614,7 @@ test "shape box glyphs" {
         .width = 18,
         .height = 36,
         .thickness = 2,
+        .cursor_thickness_adjustment = 0,
     };
 
     var buf: [32]u8 = undefined;

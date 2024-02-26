@@ -705,6 +705,7 @@ pub const Wasm = struct {
             .width = metrics.cell_width,
             .height = metrics.cell_height,
             .thickness = 2,
+            .cursor_thickness_adjustment = 0,
             .underline_position = metrics.underline_position,
         };
     }
@@ -929,7 +930,12 @@ test "box glyph" {
     defer group.deinit();
 
     // Set box font
-    group.sprite = font.sprite.Face{ .width = 18, .height = 36, .thickness = 2 };
+    group.sprite = font.sprite.Face{
+        .width = 18,
+        .height = 36,
+        .thickness = 2,
+        .cursor_thickness_adjustment = 0,
+    };
 
     // Should find a box glyph
     const idx = group.indexForCodepoint(0x2500, .regular, null).?;
