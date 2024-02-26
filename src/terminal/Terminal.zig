@@ -4265,6 +4265,7 @@ test "Terminal: reverseIndex outside left/right margins" {
     }
 }
 
+// X
 test "Terminal: index" {
     const alloc = testing.allocator;
     var t = try init(alloc, 2, 5);
@@ -4280,6 +4281,7 @@ test "Terminal: index" {
     }
 }
 
+// X
 test "Terminal: index from the bottom" {
     const alloc = testing.allocator;
     var t = try init(alloc, 2, 5);
@@ -4299,6 +4301,7 @@ test "Terminal: index from the bottom" {
     }
 }
 
+// X
 test "Terminal: index outside of scrolling region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 2, 5);
@@ -4310,6 +4313,7 @@ test "Terminal: index outside of scrolling region" {
     try testing.expectEqual(@as(usize, 1), t.screen.cursor.y);
 }
 
+// X
 test "Terminal: index from the bottom outside of scroll region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 2, 5);
@@ -4328,6 +4332,7 @@ test "Terminal: index from the bottom outside of scroll region" {
     }
 }
 
+// X
 test "Terminal: index no scroll region, top of screen" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -4344,6 +4349,7 @@ test "Terminal: index no scroll region, top of screen" {
     }
 }
 
+// X
 test "Terminal: index bottom of primary screen" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -4386,6 +4392,7 @@ test "Terminal: index bottom of primary screen background sgr" {
     }
 }
 
+// X
 test "Terminal: index inside scroll region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -4423,6 +4430,7 @@ test "Terminal: index bottom of scroll region" {
     }
 }
 
+// X
 test "Terminal: index bottom of primary screen with scroll region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -4444,6 +4452,7 @@ test "Terminal: index bottom of primary screen with scroll region" {
     }
 }
 
+// X
 test "Terminal: index outside left/right margin" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 5);

@@ -2824,6 +2824,161 @@ test "Terminal: reverseIndex outside top/bottom margins" {
     }
 }
 
+test "Terminal: index" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 2, 5);
+    defer t.deinit(alloc);
+
+    try t.index();
+    try t.print('A');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\nA", str);
+    }
+}
+
+test "Terminal: index from the bottom" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 2, 5);
+    defer t.deinit(alloc);
+
+    t.setCursorPos(5, 1);
+    try t.print('A');
+    t.cursorLeft(1); // undo moving right from 'A'
+    try t.index();
+
+    try t.print('B');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\n\n\nA\nB", str);
+    }
+}
+
+test "Terminal: index outside of scrolling region" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 2, 5);
+    defer t.deinit(alloc);
+
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    t.setTopAndBottomMargin(2, 5);
+    try t.index();
+    try testing.expectEqual(@as(usize, 1), t.screen.cursor.y);
+}
+
+test "Terminal: index from the bottom outside of scroll region" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 2, 5);
+    defer t.deinit(alloc);
+
+    t.setTopAndBottomMargin(1, 2);
+    t.setCursorPos(5, 1);
+    try t.print('A');
+    try t.index();
+    try t.print('B');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\n\n\n\nAB", str);
+    }
+}
+
+test "Terminal: index no scroll region, top of screen" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.print('A');
+    try t.index();
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("A\n X", str);
+    }
+}
+
+test "Terminal: index bottom of primary screen" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.setCursorPos(5, 1);
+    try t.print('A');
+    try t.index();
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\n\n\nA\n X", str);
+    }
+}
+
+test "Terminal: index inside scroll region" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.setTopAndBottomMargin(1, 3);
+    try t.print('A');
+    try t.index();
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("A\n X", str);
+    }
+}
+
+test "Terminal: index bottom of primary screen with scroll region" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.setTopAndBottomMargin(1, 3);
+    t.setCursorPos(3, 1);
+    try t.print('A');
+    t.setCursorPos(5, 1);
+    try t.index();
+    try t.index();
+    try t.index();
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\n\nA\n\nX", str);
+    }
+}
+
+test "Terminal: index outside left/right margin" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 10, 5);
+    defer t.deinit(alloc);
+
+    t.setTopAndBottomMargin(1, 3);
+    t.scrolling_region.left = 3;
+    t.scrolling_region.right = 5;
+    t.setCursorPos(3, 3);
+    try t.print('A');
+    t.setCursorPos(3, 1);
+    try t.index();
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\n\nX A", str);
+    }
+}
+
 test "Terminal: cursorUp basic" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
