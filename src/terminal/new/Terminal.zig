@@ -941,21 +941,28 @@ pub fn insertLines(self: *Terminal, count: usize) !void {
 
         // Swap the src/dst cells. This ensures that our dst gets the proper
         // shifted rows and src gets non-garbage cell data that we can clear.
-        const dst_cells = dst.cells;
-        dst.cells = src.cells;
-        src.cells = dst_cells;
-
-        // TODO: grapheme data for dst_cells should be deleted
-        // TODO: grapheme data for src.cells needs to be moved
+        const dst_row = dst.*;
+        dst.* = src.*;
+        src.* = dst_row;
     }
 
     for (0..adjusted_count) |i| {
         const row: *Row = @ptrCast(top + i);
 
         // Clear the src row.
+        var page = self.screen.cursor.page_offset.page.data;
+        const cells = page.getCells(row);
+
+        // If this row has graphemes, then we need go through a slow path
+        // and delete the cell graphemes.
+        if (row.grapheme) {
+            for (cells) |*cell| {
+                if (cell.hasGrapheme()) page.clearGrapheme(row, cell);
+            }
+            assert(!row.grapheme);
+        }
+
         // TODO: cells should keep bg style of pen
-        // TODO: grapheme needs to be deleted
-        const cells = self.screen.cursor.page_offset.page.data.getCells(row);
         @memset(cells, .{});
     }
 
@@ -2183,5 +2190,37 @@ test "Terminal: insertLines resets wrap" {
         const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("B\nABCDE", str);
+    }
+}
+
+test "Terminal: insertLines multi-codepoint graphemes" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    // Disable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    try t.printString("ABC");
+    t.carriageReturn();
+    try t.linefeed();
+
+    // This is: 👨‍👩‍👧 (which may or may not render correctly)
+    try t.print(0x1F468);
+    try t.print(0x200D);
+    try t.print(0x1F469);
+    try t.print(0x200D);
+    try t.print(0x1F467);
+
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("GHI");
+    t.setCursorPos(2, 2);
+    try t.insertLines(1);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABC\n\n👨‍👩‍👧\nGHI", str);
     }
 }
