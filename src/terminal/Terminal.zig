@@ -4521,6 +4521,7 @@ test "Terminal: index inside left/right margin" {
     }
 }
 
+// X
 test "Terminal: DECALN" {
     const alloc = testing.allocator;
     var t = try init(alloc, 2, 2);
@@ -4543,6 +4544,7 @@ test "Terminal: DECALN" {
     }
 }
 
+// X
 test "Terminal: decaln reset margins" {
     const alloc = testing.allocator;
     var t = try init(alloc, 3, 3);
@@ -4561,6 +4563,7 @@ test "Terminal: decaln reset margins" {
     }
 }
 
+// X
 test "Terminal: decaln preserves color" {
     const alloc = testing.allocator;
     var t = try init(alloc, 3, 3);

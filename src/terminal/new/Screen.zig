@@ -394,6 +394,11 @@ pub fn setAttribute(self: *Screen, attr: sgr.Attribute) !void {
         .unknown => return,
     }
 
+    try self.manualStyleUpdate();
+}
+
+/// Call this whenever you manually change the cursor style.
+pub fn manualStyleUpdate(self: *Screen) !void {
     var page = &self.cursor.page_offset.page.data;
 
     // Remove our previous style if is unused.
