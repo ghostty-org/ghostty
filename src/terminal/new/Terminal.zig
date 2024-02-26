@@ -473,10 +473,11 @@ fn printCell(
     unmapped_c: u21,
     wide: Cell.Wide,
 ) void {
+    // TODO: spacers should use a bgcolor only cell
+
     // TODO: charsets
     const c: u21 = unmapped_c;
 
-    // TODO: prev cell overwriting style, dec refs, etc.
     const cell = self.screen.cursor.page_cell;
 
     // If the wide property of this cell is the same, then we don't
@@ -526,6 +527,9 @@ fn printCell(
         );
     }
 
+    // Keep track of the previous style so we can decrement the ref count
+    const prev_style_id = cell.style_id;
+
     // Write
     cell.* = .{
         .content_tag = .codepoint,
@@ -534,9 +538,28 @@ fn printCell(
         .wide = wide,
     };
 
-    // If we have non-default style then we need to update the ref count.
-    if (self.screen.cursor.style_ref) |ref| {
-        ref.* += 1;
+    // Handle the style ref count handling
+    style_ref: {
+        if (prev_style_id != style.default_id) {
+            // If our previous cell had the same style ID as us currently,
+            // then we don't bother with any ref counts because we're the same.
+            if (prev_style_id == self.screen.cursor.style_id) break :style_ref;
+
+            // Slow path: we need to lookup this style so we can decrement
+            // the ref count. Since we've already loaded everything, we also
+            // just go ahead and GC it if it reaches zero, too.
+            var page = self.screen.cursor.page_offset.page.data;
+            if (page.styles.lookupId(page.memory, prev_style_id)) |prev_style| {
+                // Below upsert can't fail because it should already be present
+                const md = page.styles.upsert(page.memory, prev_style.*) catch unreachable;
+                assert(md.ref > 0);
+                md.ref -= 1;
+                if (md.ref == 0) page.styles.remove(page.memory, prev_style_id);
+            }
+        }
+
+        // If we have a ref-counted style, increase.
+        if (self.screen.cursor.style_ref) |ref| ref.* += 1;
     }
 }
 
@@ -3954,5 +3977,51 @@ test "Terminal: bold style" {
         const cell = list_cell.cell;
         try testing.expectEqual(@as(u21, 'A'), cell.content.codepoint);
         try testing.expect(cell.style_id != 0);
+        try testing.expect(t.screen.cursor.style_ref.?.* > 0);
     }
+}
+
+test "Terminal: garbage collect overwritten" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.setAttribute(.{ .bold = {} });
+    try t.print('A');
+    t.setCursorPos(1, 1);
+    try t.setAttribute(.{ .unset = {} });
+    try t.print('B');
+
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 'B'), cell.content.codepoint);
+        try testing.expect(cell.style_id == 0);
+    }
+
+    // verify we have no styles in our style map
+    const page = t.screen.cursor.page_offset.page.data;
+    try testing.expectEqual(@as(usize, 0), page.styles.count(page.memory));
+}
+
+test "Terminal: do not garbage collect old styles in use" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.setAttribute(.{ .bold = {} });
+    try t.print('A');
+    try t.setAttribute(.{ .unset = {} });
+    try t.print('B');
+
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 'B'), cell.content.codepoint);
+        try testing.expect(cell.style_id == 0);
+    }
+
+    // verify we have no styles in our style map
+    const page = t.screen.cursor.page_offset.page.data;
+    try testing.expectEqual(@as(usize, 1), page.styles.count(page.memory));
 }
