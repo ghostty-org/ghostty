@@ -4589,6 +4589,7 @@ test "Terminal: decaln preserves color" {
     }
 }
 
+// X
 test "Terminal: insertBlanks" {
     // NOTE: this is not verified with conformance tests, so these
     // tests might actually be verifying wrong behavior.
@@ -4612,6 +4613,7 @@ test "Terminal: insertBlanks" {
     }
 }
 
+// X
 test "Terminal: insertBlanks pushes off end" {
     // NOTE: this is not verified with conformance tests, so these
     // tests might actually be verifying wrong behavior.
@@ -4632,6 +4634,7 @@ test "Terminal: insertBlanks pushes off end" {
     }
 }
 
+// X
 test "Terminal: insertBlanks more than size" {
     // NOTE: this is not verified with conformance tests, so these
     // tests might actually be verifying wrong behavior.
@@ -4652,6 +4655,7 @@ test "Terminal: insertBlanks more than size" {
     }
 }
 
+// X
 test "Terminal: insertBlanks no scroll region, fits" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 10);
@@ -4668,6 +4672,7 @@ test "Terminal: insertBlanks no scroll region, fits" {
     }
 }
 
+// X
 test "Terminal: insertBlanks preserves background sgr" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 10);
@@ -4691,6 +4696,7 @@ test "Terminal: insertBlanks preserves background sgr" {
     }
 }
 
+// X
 test "Terminal: insertBlanks shift off screen" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 10);
@@ -4708,6 +4714,7 @@ test "Terminal: insertBlanks shift off screen" {
     }
 }
 
+// X
 test "Terminal: insertBlanks split multi-cell character" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 10);
@@ -4725,6 +4732,7 @@ test "Terminal: insertBlanks split multi-cell character" {
     }
 }
 
+// X
 test "Terminal: insertBlanks inside left/right scroll region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 10);
@@ -4745,6 +4753,7 @@ test "Terminal: insertBlanks inside left/right scroll region" {
     }
 }
 
+// X
 test "Terminal: insertBlanks outside left/right scroll region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 6, 10);
@@ -4766,6 +4775,7 @@ test "Terminal: insertBlanks outside left/right scroll region" {
     }
 }
 
+// X
 test "Terminal: insertBlanks left/right scroll region large count" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 10);
@@ -4785,6 +4795,7 @@ test "Terminal: insertBlanks left/right scroll region large count" {
     }
 }
 
+// X
 test "Terminal: insert mode with space" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 2);
@@ -4802,6 +4813,7 @@ test "Terminal: insert mode with space" {
     }
 }
 
+// X
 test "Terminal: insert mode doesn't wrap pushed characters" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 2);
@@ -4819,6 +4831,7 @@ test "Terminal: insert mode doesn't wrap pushed characters" {
     }
 }
 
+// X
 test "Terminal: insert mode does nothing at the end of the line" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 2);
@@ -4835,6 +4848,7 @@ test "Terminal: insert mode does nothing at the end of the line" {
     }
 }
 
+// X
 test "Terminal: insert mode with wide characters" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 2);
@@ -4852,6 +4866,7 @@ test "Terminal: insert mode with wide characters" {
     }
 }
 
+// X
 test "Terminal: insert mode with wide characters at end" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 2);
@@ -4868,6 +4883,7 @@ test "Terminal: insert mode with wide characters at end" {
     }
 }
 
+// X
 test "Terminal: insert mode pushing off wide character" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 2);
