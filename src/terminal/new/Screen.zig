@@ -226,31 +226,14 @@ pub fn cursorAbsolute(self: *Screen, x: size.CellCountInt, y: size.CellCountInt)
 pub fn cursorDownScroll(self: *Screen) !void {
     assert(self.cursor.y == self.pages.rows - 1);
 
-    const cursor_page = self.cursor.page_offset.page;
-    if (cursor_page.data.capacity.rows > cursor_page.data.size.rows) {
-        // If we have cap space in our current cursor page then we can take
-        // a fast path: update the size, recalculate the row/cell cursor pointers.
-        cursor_page.data.size.rows += 1;
-
-        const page_offset = self.cursor.page_offset.forward(1).?;
-        const page_rac = page_offset.rowAndCell(self.cursor.x);
-        self.cursor.page_offset = page_offset;
-        self.cursor.page_row = page_rac.row;
-        self.cursor.page_cell = page_rac.cell;
-    } else {
-        // No space, we need to allocate a new page and move the cursor to it.
-        const new_page = try self.pages.grow();
-        assert(new_page.data.size.rows == 0);
-        new_page.data.size.rows = 1;
-        const page_offset: PageList.RowOffset = .{
-            .page = new_page,
-            .row_offset = 0,
-        };
-        const page_rac = page_offset.rowAndCell(self.cursor.x);
-        self.cursor.page_offset = page_offset;
-        self.cursor.page_row = page_rac.row;
-        self.cursor.page_cell = page_rac.cell;
-    }
+    // Grow our pages by one row. The PageList will handle if we need to
+    // allocate, prune scrollback, whatever.
+    _ = try self.pages.grow();
+    const page_offset = self.cursor.page_offset.forward(1).?;
+    const page_rac = page_offset.rowAndCell(self.cursor.x);
+    self.cursor.page_offset = page_offset;
+    self.cursor.page_row = page_rac.row;
+    self.cursor.page_cell = page_rac.cell;
 
     // The newly created line needs to be styled according to the bg color
     // if it is set.
