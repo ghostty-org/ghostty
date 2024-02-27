@@ -3158,6 +3158,7 @@ test "Terminal: horizontal tabs with left margin in origin mode" {
     }
 }
 
+// X
 test "Terminal: horizontal tab back with cursor before left margin" {
     const alloc = testing.allocator;
     var t = try init(alloc, 20, 5);
@@ -7148,6 +7149,7 @@ test "Terminal: scrollDown outside of scroll region" {
     }
 }
 
+// X
 test "Terminal: scrollDown left/right scroll region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 10);
@@ -7174,6 +7176,7 @@ test "Terminal: scrollDown left/right scroll region" {
     }
 }
 
+// X
 test "Terminal: scrollDown outside of left/right scroll region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 10);
@@ -7271,6 +7274,7 @@ test "Terminal: scrollUp top/bottom scroll region" {
     }
 }
 
+// X
 test "Terminal: scrollUp left/right scroll region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 10);
@@ -7338,6 +7342,7 @@ test "Terminal: scrollUp full top/bottom region" {
     }
 }
 
+// X
 test "Terminal: scrollUp full top/bottomleft/right scroll region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -7358,6 +7363,7 @@ test "Terminal: scrollUp full top/bottomleft/right scroll region" {
     }
 }
 
+// X
 test "Terminal: tabClear single" {
     const alloc = testing.allocator;
     var t = try init(alloc, 30, 5);
@@ -7370,6 +7376,7 @@ test "Terminal: tabClear single" {
     try testing.expectEqual(@as(usize, 16), t.screen.cursor.x);
 }
 
+// X
 test "Terminal: tabClear all" {
     const alloc = testing.allocator;
     var t = try init(alloc, 30, 5);
@@ -7381,6 +7388,7 @@ test "Terminal: tabClear all" {
     try testing.expectEqual(@as(usize, 29), t.screen.cursor.x);
 }
 
+// X
 test "Terminal: printRepeat simple" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -7396,6 +7404,7 @@ test "Terminal: printRepeat simple" {
     }
 }
 
+// X
 test "Terminal: printRepeat wrap" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -7411,6 +7420,7 @@ test "Terminal: printRepeat wrap" {
     }
 }
 
+// X
 test "Terminal: printRepeat no previous character" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -7501,6 +7511,7 @@ test "Terminal: DECCOLM resets scroll region" {
     try testing.expectEqual(@as(usize, 79), t.scrolling_region.right);
 }
 
+// X
 test "Terminal: printAttributes" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
