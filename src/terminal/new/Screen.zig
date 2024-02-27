@@ -12,6 +12,7 @@ const point = @import("point.zig");
 const size = @import("size.zig");
 const style = @import("style.zig");
 const Page = pagepkg.Page;
+const Row = pagepkg.Row;
 const Cell = pagepkg.Cell;
 
 /// The general purpose allocator to use for all memory allocations.
@@ -247,6 +248,16 @@ pub fn cursorDownScroll(self: *Screen) !void {
     }
 }
 
+/// Move the cursor down if we're not at the bottom of the screen. Otherwise
+/// scroll. Currently only used for testing.
+fn cursorDownOrScroll(self: *Screen) !void {
+    if (self.cursor.y + 1 < self.pages.rows) {
+        self.cursorDown(1);
+    } else {
+        try self.cursorDownScroll();
+    }
+}
+
 /// Options for scrolling the viewport of the terminal grid. The reason
 /// we have this in addition to PageList.Scroll is because we have additional
 /// scroll behaviors that are not part of the PageList.Scroll enum.
@@ -268,13 +279,77 @@ pub fn scroll(self: *Screen, behavior: Scroll) void {
 
 /// Erase the active area of the screen from y=0 to rows-1. The cells
 /// are blanked using the given blank cell.
-pub fn eraseActive(self: *Screen, blank: Cell) void {
-    // We use rowIterator because it handles the case where the active
-    // area spans multiple underlying pages. This is slightly slower to
-    // calculate but erasing isn't a high-frequency operation. We can
-    // optimize this later, too.
-    _ = self;
-    _ = blank;
+pub fn eraseActive(self: *Screen) void {
+    var it = self.pages.rowChunkIterator(.{ .active = .{} });
+    while (it.next()) |chunk| {
+        for (chunk.rows()) |*row| {
+            const cells_offset = row.cells;
+            const cells_multi: [*]Cell = row.cells.ptr(chunk.page.data.memory);
+            const cells = cells_multi[0..self.pages.cols];
+
+            // Erase all cells
+            self.eraseCells(&chunk.page.data, row, cells);
+
+            // Reset our row to point to the proper memory but everything
+            // else is zeroed.
+            row.* = .{ .cells = cells_offset };
+        }
+    }
+}
+
+/// Erase the cells with the blank cell. This takes care to handle
+/// cleaning up graphemes and styles.
+pub fn eraseCells(
+    self: *Screen,
+    page: *Page,
+    row: *Row,
+    cells: []Cell,
+) void {
+    // If this row has graphemes, then we need go through a slow path
+    // and delete the cell graphemes.
+    if (row.grapheme) {
+        for (cells) |*cell| {
+            if (cell.hasGrapheme()) page.clearGrapheme(row, cell);
+        }
+    }
+
+    if (row.styled) {
+        for (cells) |*cell| {
+            if (cell.style_id == style.default_id) continue;
+
+            // Fast-path, the style ID matches, in this case we just update
+            // our own ref and continue. We never delete because our style
+            // is still active.
+            if (cell.style_id == self.cursor.style_id) {
+                self.cursor.style_ref.?.* -= 1;
+                continue;
+            }
+
+            // Slow path: we need to lookup this style so we can decrement
+            // the ref count. Since we've already loaded everything, we also
+            // just go ahead and GC it if it reaches zero, too.
+            if (page.styles.lookupId(page.memory, cell.style_id)) |prev_style| {
+                // Below upsert can't fail because it should already be present
+                const md = page.styles.upsert(page.memory, prev_style.*) catch unreachable;
+                assert(md.ref > 0);
+                md.ref -= 1;
+                if (md.ref == 0) page.styles.remove(page.memory, cell.style_id);
+            }
+        }
+
+        // If we have no left/right scroll region we can be sure that
+        // the row is no longer styled.
+        if (cells.len == self.pages.cols) row.styled = false;
+    }
+
+    @memset(cells, self.blankCell());
+}
+
+/// Returns the blank cell to use when doing terminal operations that
+/// require preserving the bg color.
+fn blankCell(self: *const Screen) Cell {
+    if (self.cursor.style_id == style.default_id) return .{};
+    return self.cursor.style.bgCell() orelse .{};
 }
 
 /// Set a style attribute for the current cursor.
@@ -527,10 +602,20 @@ pub fn dumpStringAlloc(
     return try builder.toOwnedSlice();
 }
 
+/// This is basically a really jank version of Terminal.printString. We
+/// have to reimplement it here because we want a way to print to the screen
+/// to test it but don't want all the features of Terminal.
 fn testWriteString(self: *Screen, text: []const u8) !void {
     const view = try std.unicode.Utf8View.init(text);
     var iter = view.iterator();
     while (iter.nextCodepoint()) |c| {
+        // Explicit newline forces a new row
+        if (c == '\n') {
+            try self.cursorDownOrScroll();
+            self.cursorHorizontalAbsolute(0);
+            continue;
+        }
+
         if (self.cursor.x == self.pages.cols) {
             @panic("wrap not implemented");
         }
@@ -543,12 +628,20 @@ fn testWriteString(self: *Screen, text: []const u8) !void {
         assert(width == 1 or width == 2);
         switch (width) {
             1 => {
-                self.cursor.page_cell.content_tag = .codepoint;
-                self.cursor.page_cell.content = .{ .codepoint = c };
-                self.cursor.x += 1;
-                if (self.cursor.x < self.pages.cols) {
-                    const cell: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
-                    self.cursor.page_cell = @ptrCast(cell + 1);
+                self.cursor.page_cell.* = .{
+                    .content_tag = .codepoint,
+                    .content = .{ .codepoint = c },
+                    .style_id = self.cursor.style_id,
+                };
+
+                // If we have a ref-counted style, increase.
+                if (self.cursor.style_ref) |ref| {
+                    ref.* += 1;
+                    self.cursor.page_row.styled = true;
+                }
+
+                if (self.cursor.x + 1 < self.pages.cols) {
+                    self.cursorRight(1);
                 } else {
                     @panic("wrap not implemented");
                 }
@@ -572,6 +665,20 @@ test "Screen read and write" {
     const str = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
     defer alloc.free(str);
     try testing.expectEqualStrings("hello, world", str);
+}
+
+test "Screen read and write newline" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try Screen.init(alloc, 80, 24, 1000);
+    defer s.deinit();
+    try testing.expectEqual(@as(style.Id, 0), s.cursor.style_id);
+
+    try s.testWriteString("hello\nworld");
+    const str = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+    defer alloc.free(str);
+    try testing.expectEqualStrings("hello\nworld", str);
 }
 
 test "Screen style basics" {
@@ -634,4 +741,57 @@ test "Screen style reset with unset" {
     try s.setAttribute(.{ .unset = {} });
     try testing.expect(s.cursor.style_id == 0);
     try testing.expectEqual(@as(usize, 0), page.styles.count(page.memory));
+}
+
+test "Screen eraseActive one line" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try Screen.init(alloc, 80, 24, 1000);
+    defer s.deinit();
+
+    try s.testWriteString("hello, world");
+    s.eraseActive();
+    const str = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+    defer alloc.free(str);
+    try testing.expectEqualStrings("", str);
+}
+
+test "Screen eraseActive multi line" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try Screen.init(alloc, 80, 24, 1000);
+    defer s.deinit();
+
+    try s.testWriteString("hello\nworld");
+    s.eraseActive();
+    const str = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+    defer alloc.free(str);
+    try testing.expectEqualStrings("", str);
+}
+
+test "Screen eraseActive styled line" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try Screen.init(alloc, 80, 24, 1000);
+    defer s.deinit();
+
+    try s.setAttribute(.{ .bold = {} });
+    try s.testWriteString("hello world");
+    try s.setAttribute(.{ .unset = {} });
+
+    // We should have one style
+    const page = s.cursor.page_offset.page.data;
+    try testing.expectEqual(@as(usize, 1), page.styles.count(page.memory));
+
+    s.eraseActive();
+
+    // We should have none because active cleared it
+    try testing.expectEqual(@as(usize, 0), page.styles.count(page.memory));
+
+    const str = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+    defer alloc.free(str);
+    try testing.expectEqualStrings("", str);
 }
