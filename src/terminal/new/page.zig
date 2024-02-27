@@ -321,11 +321,30 @@ pub const Page = struct {
         row.grapheme = false;
     }
 
+    /// Returns the number of graphemes in the page. This isn't the byte
+    /// size but the total number of unique cells that have grapheme data.
+    pub fn graphemeCount(self: *const Page) usize {
+        return self.grapheme_map.map(self.memory).count();
+    }
+
     /// Move graphemes to another cell in the same row.
     pub fn moveGraphemeWithinRow(self: *Page, src: *Cell, dst: *Cell) void {
-        _ = self;
-        _ = src;
-        _ = dst;
+        // Note: we don't assert src has graphemes here because one of
+        // the places we call this is from insertBlanks where the cells have
+        // already swapped cell data but not grapheme data.
+
+        // Get our entry in the map, which must exist
+        const src_offset = getOffset(Cell, self.memory, src);
+        var map = self.grapheme_map.map(self.memory);
+        const entry = map.getEntry(src_offset).?;
+        const value = entry.value_ptr.*;
+
+        // Remove the entry so we know we have space
+        map.removeByPtr(entry.key_ptr);
+
+        // Add the entry for the new cell
+        const dst_offset = getOffset(Cell, self.memory, dst);
+        map.putAssumeCapacity(dst_offset, value);
     }
 
     pub const Layout = struct {

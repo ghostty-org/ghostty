@@ -1299,6 +1299,7 @@ pub fn insertBlanks(self: *Terminal, count: usize) void {
             // If the original source (now copied to dst) had graphemes,
             // we have to move them since they're stored by cell offset.
             if (dst.hasGrapheme()) {
+                assert(!src.hasGrapheme());
                 page.moveGraphemeWithinRow(src, dst);
             }
         }
@@ -1377,7 +1378,6 @@ fn blankCells(
         for (cells) |*cell| {
             if (cell.hasGrapheme()) page.clearGrapheme(row, cell);
         }
-        assert(!row.grapheme);
     }
 
     if (row.styled) {
@@ -4986,6 +4986,74 @@ test "Terminal: insertBlanks left/right scroll region large count" {
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("  X", str);
     }
+}
+
+test "Terminal: insertBlanks deleting graphemes" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    // Disable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    try t.printString("ABC");
+
+    // This is: 👨‍👩‍👧 (which may or may not render correctly)
+    try t.print(0x1F468);
+    try t.print(0x200D);
+    try t.print(0x1F469);
+    try t.print(0x200D);
+    try t.print(0x1F467);
+
+    // We should have one cell with graphemes
+    const page = t.screen.cursor.page_offset.page.data;
+    try testing.expectEqual(@as(usize, 1), page.graphemeCount());
+
+    t.setCursorPos(1, 1);
+    t.insertBlanks(4);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("    A", str);
+    }
+
+    // We should have no graphemes
+    try testing.expectEqual(@as(usize, 0), page.graphemeCount());
+}
+
+test "Terminal: insertBlanks shift graphemes" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    // Disable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    try t.printString("A");
+
+    // This is: 👨‍👩‍👧 (which may or may not render correctly)
+    try t.print(0x1F468);
+    try t.print(0x200D);
+    try t.print(0x1F469);
+    try t.print(0x200D);
+    try t.print(0x1F467);
+
+    // We should have one cell with graphemes
+    const page = t.screen.cursor.page_offset.page.data;
+    try testing.expectEqual(@as(usize, 1), page.graphemeCount());
+
+    t.setCursorPos(1, 1);
+    t.insertBlanks(1);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings(" A👨‍👩‍👧", str);
+    }
+
+    // We should have no graphemes
+    try testing.expectEqual(@as(usize, 1), page.graphemeCount());
 }
 
 test "Terminal: insert mode with space" {
