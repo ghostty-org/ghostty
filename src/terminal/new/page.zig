@@ -537,7 +537,10 @@ pub const Cell = packed struct(u64) {
     /// and spacer properties of a cell.
     wide: Wide = .narrow,
 
-    _padding: u20 = 0,
+    /// Whether this was written with the protection flag set.
+    protected: bool = false,
+
+    _padding: u19 = 0,
 
     pub const ContentTag = enum(u2) {
         /// A single codepoint, could be zero to be empty cell.

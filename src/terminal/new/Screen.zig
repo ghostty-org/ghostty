@@ -3,6 +3,7 @@ const Screen = @This();
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+const ansi = @import("../ansi.zig");
 const sgr = @import("../sgr.zig");
 const unicode = @import("../../unicode/main.zig");
 const PageList = @import("PageList.zig");
@@ -25,6 +26,13 @@ cursor: Cursor,
 /// The saved cursor
 saved_cursor: ?SavedCursor = null,
 
+/// The current or most recent protected mode. Once a protection mode is
+/// set, this will never become "off" again until the screen is reset.
+/// The current state of whether protection attributes should be set is
+/// set on the Cell pen; this is only used to determine the most recent
+/// protection mode since some sequences such as ECH depend on this.
+protected_mode: ansi.ProtectedMode = .off,
+
 /// The cursor position.
 pub const Cursor = struct {
     // The x/y position within the viewport.
@@ -34,6 +42,10 @@ pub const Cursor = struct {
     /// The "last column flag (LCF)" as its called. If this is set then the
     /// next character print will force a soft-wrap.
     pending_wrap: bool = false,
+
+    /// The protected mode state of the cursor. If this is true then
+    /// all new characters printed will have the protected state set.
+    protected: bool = false,
 
     /// The currently active style. This is the concrete style value
     /// that should be kept up to date. The style ID to use for cell writing
@@ -58,6 +70,7 @@ pub const SavedCursor = struct {
     x: size.CellCountInt,
     y: size.CellCountInt,
     style: style.Style,
+    protected: bool,
     pending_wrap: bool,
     origin: bool,
     // TODO
