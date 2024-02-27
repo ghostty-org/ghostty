@@ -1611,6 +1611,7 @@ pub fn decaln(self: *Terminal) !void {
             .content_tag = .codepoint,
             .content = .{ .codepoint = 'E' },
             .style_id = self.screen.cursor.style_id,
+            .protected = self.screen.cursor.protected,
         });
 
         // If we have a ref-counted style, increase
@@ -2696,24 +2697,23 @@ test "Terminal: setCursorPos (original test)" {
     try testing.expectEqual(@as(usize, 79), t.screen.cursor.y);
 
     // Set the scroll region
-    // TODO
-    // t.setTopAndBottomMargin(10, t.rows);
-    // t.setCursorPos(0, 0);
-    // try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
-    // try testing.expectEqual(@as(usize, 9), t.screen.cursor.y);
-    //
-    // t.setCursorPos(1, 1);
-    // try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
-    // try testing.expectEqual(@as(usize, 9), t.screen.cursor.y);
-    //
-    // t.setCursorPos(100, 0);
-    // try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
-    // try testing.expectEqual(@as(usize, 79), t.screen.cursor.y);
-    //
-    // t.setTopAndBottomMargin(10, 11);
-    // t.setCursorPos(2, 0);
-    // try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
-    // try testing.expectEqual(@as(usize, 10), t.screen.cursor.y);
+    t.setTopAndBottomMargin(10, t.rows);
+    t.setCursorPos(0, 0);
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
+    try testing.expectEqual(@as(usize, 9), t.screen.cursor.y);
+
+    t.setCursorPos(1, 1);
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
+    try testing.expectEqual(@as(usize, 9), t.screen.cursor.y);
+
+    t.setCursorPos(100, 0);
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
+    try testing.expectEqual(@as(usize, 79), t.screen.cursor.y);
+
+    t.setTopAndBottomMargin(10, 11);
+    t.setCursorPos(2, 0);
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
+    try testing.expectEqual(@as(usize, 10), t.screen.cursor.y);
 }
 
 test "Terminal: setTopAndBottomMargin simple" {
