@@ -258,7 +258,9 @@ pub fn scroll(self: *PageList, behavior: Scroll) void {
 /// This may allocate, but also may not if our current page has more
 /// capacity we can use. This will prune scrollback if necessary to
 /// adhere to max_size.
-pub fn grow2(self: *PageList) !?*List.Node {
+///
+/// This returns the newly allocated page node if there is one.
+pub fn grow(self: *PageList) !?*List.Node {
     const last = self.pages.last.?;
     if (last.data.capacity.rows > last.data.size.rows) {
         // Fast path: we have capacity in the last page.
@@ -302,16 +304,6 @@ pub fn grow2(self: *PageList) !?*List.Node {
     self.page_size += PagePool.item_size;
     assert(self.page_size <= self.max_size);
 
-    return next_page;
-}
-
-/// Grow the page list by exactly one page and return the new page. The
-/// newly allocated page will be size 0 (but capacity is set).
-pub fn grow(self: *PageList) !*List.Node {
-    const next_page = try self.createPage();
-    // we don't errdefer this because we've added it to the linked
-    // list and its fine to have dangling unused pages.
-    self.pages.append(next_page);
     return next_page;
 }
 
@@ -461,7 +453,7 @@ fn growRows(self: *PageList, n: usize) !void {
     }
 
     while (n_rem > 0) {
-        page = try self.grow();
+        page = (try self.grow()).?;
         const add = @min(n_rem, page.data.capacity.rows);
         page.data.size.rows = add;
         n_rem -= add;
@@ -847,7 +839,7 @@ test "PageList grow fit in capacity" {
     try testing.expect(last.size.rows < last.capacity.rows);
 
     // Grow
-    try testing.expect(try s.grow2() == null);
+    try testing.expect(try s.grow() == null);
     {
         const pt = s.getCell(.{ .active = .{} }).?.screenPoint();
         try testing.expectEqual(point.Point{ .screen = .{
@@ -868,11 +860,11 @@ test "PageList grow allocate" {
     const last_node = s.pages.last.?;
     const last = &s.pages.last.?.data;
     for (0..last.capacity.rows - last.size.rows) |_| {
-        try testing.expect(try s.grow2() == null);
+        try testing.expect(try s.grow() == null);
     }
 
     // Grow, should allocate
-    const new = (try s.grow2()).?;
+    const new = (try s.grow()).?;
     try testing.expect(s.pages.last.? == new);
     try testing.expect(last_node.next.? == new);
     {
@@ -897,14 +889,14 @@ test "PageList grow prune scrollback" {
     const page1_node = s.pages.last.?;
     const page1 = page1_node.data;
     for (0..page1.capacity.rows - page1.size.rows) |_| {
-        try testing.expect(try s.grow2() == null);
+        try testing.expect(try s.grow() == null);
     }
 
     // Grow and allocate one more page. Then fill that page up.
-    const page2_node = (try s.grow2()).?;
+    const page2_node = (try s.grow()).?;
     const page2 = page2_node.data;
     for (0..page2.capacity.rows - page2.size.rows) |_| {
-        try testing.expect(try s.grow2() == null);
+        try testing.expect(try s.grow() == null);
     }
 
     // Get our page size
@@ -912,7 +904,7 @@ test "PageList grow prune scrollback" {
 
     // Next should create a new page, but it should reuse our first
     // page since we're at max size.
-    const new = (try s.grow2()).?;
+    const new = (try s.grow()).?;
     try testing.expect(s.pages.last.? == new);
     try testing.expectEqual(s.page_size, old_page_size);
 
