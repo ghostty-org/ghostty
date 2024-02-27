@@ -5628,6 +5628,7 @@ test "Terminal: setProtectedMode" {
     try testing.expect(!t.screen.cursor.pen.attrs.protected);
 }
 
+// X
 test "Terminal: eraseLine simple erase right" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5644,6 +5645,7 @@ test "Terminal: eraseLine simple erase right" {
     }
 }
 
+// X
 test "Terminal: eraseLine resets pending wrap" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5662,6 +5664,7 @@ test "Terminal: eraseLine resets pending wrap" {
     }
 }
 
+// X
 test "Terminal: eraseLine resets wrap" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5689,6 +5692,7 @@ test "Terminal: eraseLine resets wrap" {
     }
 }
 
+// X
 test "Terminal: eraseLine right preserves background sgr" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5714,6 +5718,7 @@ test "Terminal: eraseLine right preserves background sgr" {
     }
 }
 
+// X
 test "Terminal: eraseLine right wide character" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 5);
@@ -5732,6 +5737,7 @@ test "Terminal: eraseLine right wide character" {
     }
 }
 
+// X
 test "Terminal: eraseLine right protected attributes respected with iso" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5749,6 +5755,7 @@ test "Terminal: eraseLine right protected attributes respected with iso" {
     }
 }
 
+// X
 test "Terminal: eraseLine right protected attributes ignored with dec most recent" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5768,6 +5775,7 @@ test "Terminal: eraseLine right protected attributes ignored with dec most recen
     }
 }
 
+// X
 test "Terminal: eraseLine right protected attributes ignored with dec set" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5785,6 +5793,7 @@ test "Terminal: eraseLine right protected attributes ignored with dec set" {
     }
 }
 
+// X
 test "Terminal: eraseLine right protected requested" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 5);
@@ -5804,6 +5813,7 @@ test "Terminal: eraseLine right protected requested" {
     }
 }
 
+// X
 test "Terminal: eraseLine simple erase left" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5820,6 +5830,7 @@ test "Terminal: eraseLine simple erase left" {
     }
 }
 
+// X
 test "Terminal: eraseLine left resets wrap" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5838,6 +5849,7 @@ test "Terminal: eraseLine left resets wrap" {
     }
 }
 
+// X
 test "Terminal: eraseLine left preserves background sgr" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5863,6 +5875,7 @@ test "Terminal: eraseLine left preserves background sgr" {
     }
 }
 
+// X
 test "Terminal: eraseLine left wide character" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 5);
@@ -5881,6 +5894,7 @@ test "Terminal: eraseLine left wide character" {
     }
 }
 
+// X
 test "Terminal: eraseLine left protected attributes respected with iso" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5898,6 +5912,7 @@ test "Terminal: eraseLine left protected attributes respected with iso" {
     }
 }
 
+// X
 test "Terminal: eraseLine left protected attributes ignored with dec most recent" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5917,6 +5932,7 @@ test "Terminal: eraseLine left protected attributes ignored with dec most recent
     }
 }
 
+// X
 test "Terminal: eraseLine left protected attributes ignored with dec set" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5934,6 +5950,7 @@ test "Terminal: eraseLine left protected attributes ignored with dec set" {
     }
 }
 
+// X
 test "Terminal: eraseLine left protected requested" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 5);
@@ -5953,6 +5970,7 @@ test "Terminal: eraseLine left protected requested" {
     }
 }
 
+// X
 test "Terminal: eraseLine complete preserves background sgr" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5978,6 +5996,7 @@ test "Terminal: eraseLine complete preserves background sgr" {
     }
 }
 
+// X
 test "Terminal: eraseLine complete protected attributes respected with iso" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5995,6 +6014,7 @@ test "Terminal: eraseLine complete protected attributes respected with iso" {
     }
 }
 
+// X
 test "Terminal: eraseLine complete protected attributes ignored with dec most recent" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6014,6 +6034,7 @@ test "Terminal: eraseLine complete protected attributes ignored with dec most re
     }
 }
 
+// X
 test "Terminal: eraseLine complete protected attributes ignored with dec set" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6031,6 +6052,7 @@ test "Terminal: eraseLine complete protected attributes ignored with dec set" {
     }
 }
 
+// X
 test "Terminal: eraseLine complete protected requested" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 5);
