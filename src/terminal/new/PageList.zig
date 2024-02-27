@@ -50,6 +50,16 @@ page_pool: PagePool,
 /// The list of pages in the screen.
 pages: List,
 
+/// Byte size of the total amount of allocated pages. Note this does
+/// not include the total allocated amount in the pool which may be more
+/// than this due to preheating.
+page_size: usize,
+
+/// Maximum size of the page allocation in bytes. This only includes pages
+/// that are used ONLY for scrollback. If the active area is still partially
+/// in a page that also includes scrollback, then that page is not included.
+max_size: usize,
+
 /// The top-left of certain parts of the screen that are frequently
 /// accessed so we don't have to traverse the linked list to find them.
 ///
@@ -85,14 +95,25 @@ pub const Viewport = union(enum) {
 /// Initialize the page. The top of the first page in the list is always the
 /// top of the active area of the screen (important knowledge for quickly
 /// setting up cursors in Screen).
+///
+/// max_size is the maximum number of bytes that will be allocated for
+/// pages. If this is smaller than the bytes required to show the viewport
+/// then max_size will be ignored and the viewport will be shown, but no
+/// scrollback will be created. max_size is always rounded down to the nearest
+/// terminal page size (not virtual memory page), otherwise we would always
+/// slightly exceed max_size in the limits.
+///
+/// If max_size is null then there is no defined limit and the screen will
+/// grow forever. In reality, the limit is set to the byte limit that your
+/// computer can address in memory. If you somehow require more than that
+/// (due to disk paging) then please contribute that yourself and perhaps
+/// search deep within yourself to find out why you need that.
 pub fn init(
     alloc: Allocator,
     cols: size.CellCountInt,
     rows: size.CellCountInt,
-    max_scrollback: usize,
+    max_size: ?usize,
 ) !PageList {
-    _ = max_scrollback;
-
     // The screen starts with a single page that is the entire viewport,
     // and we'll split it thereafter if it gets too large and add more as
     // necessary.
@@ -104,8 +125,12 @@ pub fn init(
 
     var page = try pool.create();
     const page_buf = try page_pool.create();
-    if (comptime std.debug.runtime_safety) @memset(page_buf, 0);
     // no errdefer because the pool deinit will clean these up
+
+    // In runtime safety modes we have to memset because the Zig allocator
+    // interface will always memset to 0xAA for undefined. In non-safe modes
+    // we use a page allocator and the OS guarantees zeroed memory.
+    if (comptime std.debug.runtime_safety) @memset(page_buf, 0);
 
     // Initialize the first set of pages to contain our viewport so that
     // the top of the first page is always the active area.
@@ -120,6 +145,16 @@ pub fn init(
 
     var page_list: List = .{};
     page_list.prepend(page);
+    const page_size = page_buf.len;
+
+    // The max size has to be adjusted to at least fit one viewport.
+    // We use item_size*2 because the active area can always span two
+    // pages as we scroll, otherwise we'd have to constantly copy in the
+    // small limit case.
+    const max_size_actual = @max(
+        max_size orelse std.math.maxInt(usize),
+        PagePool.item_size * 2,
+    );
 
     return .{
         .alloc = alloc,
@@ -128,6 +163,8 @@ pub fn init(
         .pool = pool,
         .page_pool = page_pool,
         .pages = page_list,
+        .page_size = page_size,
+        .max_size = max_size_actual,
         .viewport = .{ .active = {} },
     };
 }
@@ -216,6 +253,58 @@ pub fn scroll(self: *PageList, behavior: Scroll) void {
     }
 }
 
+/// Grow the active area by exactly one row.
+///
+/// This may allocate, but also may not if our current page has more
+/// capacity we can use. This will prune scrollback if necessary to
+/// adhere to max_size.
+pub fn grow2(self: *PageList) !?*List.Node {
+    const last = self.pages.last.?;
+    if (last.data.capacity.rows > last.data.size.rows) {
+        // Fast path: we have capacity in the last page.
+        last.data.size.rows += 1;
+        return null;
+    }
+
+    // Slower path: we have no space, we need to allocate a new page.
+
+    // If allocation would exceed our max size, we prune the first page.
+    // We don't need to reallocate because we can simply reuse that first
+    // page.
+    if (self.page_size + PagePool.item_size > self.max_size) {
+        const layout = Page.layout(try std_capacity.adjust(.{ .cols = self.cols }));
+
+        // Get our first page and reset it to prepare for reuse.
+        const first = self.pages.popFirst().?;
+        assert(first != last);
+        const buf = first.data.memory;
+        @memset(buf, 0);
+
+        // Initialize our new page and reinsert it as the last
+        first.data = Page.initBuf(OffsetBuf.init(buf), layout);
+        first.data.size.rows = 1;
+        self.pages.insertAfter(last, first);
+
+        // In this case we do NOT need to update page_size because
+        // we're reusing an existing page so nothing has changed.
+
+        return first;
+    }
+
+    // We need to allocate a new memory buffer.
+    const next_page = try self.createPage();
+    // we don't errdefer this because we've added it to the linked
+    // list and its fine to have dangling unused pages.
+    self.pages.append(next_page);
+    next_page.data.size.rows = 1;
+
+    // Accounting
+    self.page_size += PagePool.item_size;
+    assert(self.page_size <= self.max_size);
+
+    return next_page;
+}
+
 /// Grow the page list by exactly one page and return the new page. The
 /// newly allocated page will be size 0 (but capacity is set).
 pub fn grow(self: *PageList) !*List.Node {
@@ -226,7 +315,8 @@ pub fn grow(self: *PageList) !*List.Node {
     return next_page;
 }
 
-/// Create a new page node. This does not add it to the list.
+/// Create a new page node. This does not add it to the list and this
+/// does not do any memory size accounting with max_size/page_size.
 fn createPage(self: *PageList) !*List.Node {
     var page = try self.pool.create();
     errdefer self.pool.destroy(page);
@@ -507,17 +597,15 @@ const Cell = struct {
     /// this file then consider a different approach and ask yourself very
     /// carefully if you really need this.
     pub fn screenPoint(self: Cell) point.Point {
-        var x: usize = self.col_idx;
         var y: usize = self.row_idx;
         var page = self.page;
         while (page.prev) |prev| {
-            x += prev.data.size.cols;
             y += prev.data.size.rows;
             page = prev;
         }
 
         return .{ .screen = .{
-            .x = x,
+            .x = self.col_idx,
             .y = y,
         } };
     }
@@ -527,7 +615,7 @@ test "PageList" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var s = try init(alloc, 80, 24, 1000);
+    var s = try init(alloc, 80, 24, null);
     defer s.deinit();
     try testing.expect(s.viewport == .active);
     try testing.expect(s.pages.first != null);
@@ -544,7 +632,7 @@ test "PageList active after grow" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var s = try init(alloc, 80, 24, 1000);
+    var s = try init(alloc, 80, 24, null);
     defer s.deinit();
     try testing.expectEqual(@as(usize, s.rows), s.totalRows());
 
@@ -579,7 +667,7 @@ test "PageList scroll top" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var s = try init(alloc, 80, 24, 1000);
+    var s = try init(alloc, 80, 24, null);
     defer s.deinit();
     try s.growRows(10);
 
@@ -624,7 +712,7 @@ test "PageList scroll delta row back" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var s = try init(alloc, 80, 24, 1000);
+    var s = try init(alloc, 80, 24, null);
     defer s.deinit();
     try s.growRows(10);
 
@@ -660,7 +748,7 @@ test "PageList scroll delta row back overflow" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var s = try init(alloc, 80, 24, 1000);
+    var s = try init(alloc, 80, 24, null);
     defer s.deinit();
     try s.growRows(10);
 
@@ -696,7 +784,7 @@ test "PageList scroll delta row forward" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var s = try init(alloc, 80, 24, 1000);
+    var s = try init(alloc, 80, 24, null);
     defer s.deinit();
     try s.growRows(10);
 
@@ -733,7 +821,7 @@ test "PageList scroll delta row forward into active" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var s = try init(alloc, 80, 24, 1000);
+    var s = try init(alloc, 80, 24, null);
     defer s.deinit();
 
     s.scroll(.{ .delta_row = 2 });
@@ -745,4 +833,90 @@ test "PageList scroll delta row forward into active" {
             .y = 0,
         } }, pt);
     }
+}
+
+test "PageList grow fit in capacity" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+
+    // So we know we're using capacity to grow
+    const last = &s.pages.last.?.data;
+    try testing.expect(last.size.rows < last.capacity.rows);
+
+    // Grow
+    try testing.expect(try s.grow2() == null);
+    {
+        const pt = s.getCell(.{ .active = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 1,
+        } }, pt);
+    }
+}
+
+test "PageList grow allocate" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+
+    // Grow to capacity
+    const last_node = s.pages.last.?;
+    const last = &s.pages.last.?.data;
+    for (0..last.capacity.rows - last.size.rows) |_| {
+        try testing.expect(try s.grow2() == null);
+    }
+
+    // Grow, should allocate
+    const new = (try s.grow2()).?;
+    try testing.expect(s.pages.last.? == new);
+    try testing.expect(last_node.next.? == new);
+    {
+        const cell = s.getCell(.{ .active = .{ .y = s.rows - 1 } }).?;
+        try testing.expect(cell.page == new);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = last.capacity.rows,
+        } }, cell.screenPoint());
+    }
+}
+
+test "PageList grow prune scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Zero here forces minimum max size to effectively two pages.
+    var s = try init(alloc, 80, 24, 0);
+    defer s.deinit();
+
+    // Grow to capacity
+    const page1_node = s.pages.last.?;
+    const page1 = page1_node.data;
+    for (0..page1.capacity.rows - page1.size.rows) |_| {
+        try testing.expect(try s.grow2() == null);
+    }
+
+    // Grow and allocate one more page. Then fill that page up.
+    const page2_node = (try s.grow2()).?;
+    const page2 = page2_node.data;
+    for (0..page2.capacity.rows - page2.size.rows) |_| {
+        try testing.expect(try s.grow2() == null);
+    }
+
+    // Get our page size
+    const old_page_size = s.page_size;
+
+    // Next should create a new page, but it should reuse our first
+    // page since we're at max size.
+    const new = (try s.grow2()).?;
+    try testing.expect(s.pages.last.? == new);
+    try testing.expectEqual(s.page_size, old_page_size);
+
+    // Our first should now be page2 and our last should be page1
+    try testing.expectEqual(page2_node, s.pages.first.?);
+    try testing.expectEqual(page1_node, s.pages.last.?);
 }
