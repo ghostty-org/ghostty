@@ -1309,6 +1309,88 @@ pub fn insertBlanks(self: *Terminal, count: usize) void {
     self.blankCells(page, self.screen.cursor.page_row, left[0..adjusted_count]);
 }
 
+/// Removes amount characters from the current cursor position to the right.
+/// The remaining characters are shifted to the left and space from the right
+/// margin is filled with spaces.
+///
+/// If amount is greater than the remaining number of characters in the
+/// scrolling region, it is adjusted down.
+///
+/// Does not change the cursor position.
+pub fn deleteChars(self: *Terminal, count: usize) void {
+    if (count == 0) return;
+
+    // If our cursor is outside the margins then do nothing. We DO reset
+    // wrap state still so this must remain below the above logic.
+    if (self.screen.cursor.x < self.scrolling_region.left or
+        self.screen.cursor.x > self.scrolling_region.right) return;
+
+    // This resets the pending wrap state
+    self.screen.cursor.pending_wrap = false;
+
+    // left is just the cursor position but as a multi-pointer
+    const left: [*]Cell = @ptrCast(self.screen.cursor.page_cell);
+    var page = &self.screen.cursor.page_offset.page.data;
+
+    // If our X is a wide spacer tail then we need to erase the
+    // previous cell too so we don't split a multi-cell character.
+    if (self.screen.cursor.page_cell.wide == .spacer_tail) {
+        assert(self.screen.cursor.x > 0);
+        self.blankCells(page, self.screen.cursor.page_row, (left - 1)[0..2]);
+    }
+
+    // Remaining cols from our cursor to the right margin.
+    const rem = self.scrolling_region.right - self.screen.cursor.x + 1;
+
+    // We can only insert blanks up to our remaining cols
+    const adjusted_count = @min(count, rem);
+
+    // This is the amount of space at the right of the scroll region
+    // that will NOT be blank, so we need to shift the correct cols right.
+    // "scroll_amount" is the number of such cols.
+    const scroll_amount = rem - adjusted_count;
+    var x: [*]Cell = left;
+    if (scroll_amount > 0) {
+        const right: [*]Cell = left + (scroll_amount - 1);
+
+        // If our last cell we're shifting is wide, then we need to clear
+        // it to be empty so we don't split the multi-cell char.
+        const end: *Cell = @ptrCast(right + count);
+        if (end.wide == .spacer_tail) {
+            const wide: [*]Cell = right + count - 1;
+            assert(wide[0].wide == .wide);
+            self.blankCells(page, self.screen.cursor.page_row, wide[0..2]);
+        }
+
+        while (@intFromPtr(x) <= @intFromPtr(right)) : (x += 1) {
+            const src: *Cell = @ptrCast(x + count);
+            const dst: *Cell = @ptrCast(x);
+
+            // If the destination has graphemes we need to delete them.
+            // Graphemes are stored by cell offset so we have to do this
+            // now before we move.
+            if (dst.hasGrapheme()) {
+                page.clearGrapheme(self.screen.cursor.page_row, dst);
+            }
+
+            // Copy our src to our dst
+            const old_dst = dst.*;
+            dst.* = src.*;
+            src.* = old_dst;
+
+            // If the original source (now copied to dst) had graphemes,
+            // we have to move them since they're stored by cell offset.
+            if (dst.hasGrapheme()) {
+                assert(!src.hasGrapheme());
+                page.moveGraphemeWithinRow(src, dst);
+            }
+        }
+    }
+
+    // Insert blanks. The blanks preserve the background color.
+    self.blankCells(page, self.screen.cursor.page_row, x[0 .. rem - scroll_amount]);
+}
+
 pub fn eraseChars(self: *Terminal, count_req: usize) void {
     const count = @max(count_req, 1);
 
@@ -1575,6 +1657,14 @@ test "Terminal: print wide char" {
         const cell = list_cell.cell;
         try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
     }
+}
+
+test "Terminal: print wide char with 1-column width" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 1, 2);
+    defer t.deinit(alloc);
+
+    try t.print('😀'); // 0x1F600
 }
 
 test "Terminal: print wide char in single-width terminal" {
@@ -5154,5 +5244,220 @@ test "Terminal: insert mode pushing off wide character" {
         const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("X123", str);
+    }
+}
+
+test "Terminal: deleteChars" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    for ("ABCDE") |c| try t.print(c);
+    t.setCursorPos(1, 2);
+
+    t.deleteChars(2);
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ADE", str);
+    }
+}
+
+test "Terminal: deleteChars zero count" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    for ("ABCDE") |c| try t.print(c);
+    t.setCursorPos(1, 2);
+
+    t.deleteChars(0);
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABCDE", str);
+    }
+}
+
+test "Terminal: deleteChars more than half" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    for ("ABCDE") |c| try t.print(c);
+    t.setCursorPos(1, 2);
+
+    t.deleteChars(3);
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("AE", str);
+    }
+}
+
+test "Terminal: deleteChars more than line width" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    for ("ABCDE") |c| try t.print(c);
+    t.setCursorPos(1, 2);
+
+    t.deleteChars(10);
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("A", str);
+    }
+}
+
+test "Terminal: deleteChars should shift left" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    for ("ABCDE") |c| try t.print(c);
+    t.setCursorPos(1, 2);
+
+    t.deleteChars(1);
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ACDE", str);
+    }
+}
+
+test "Terminal: deleteChars resets wrap" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    for ("ABCDE") |c| try t.print(c);
+    try testing.expect(t.screen.cursor.pending_wrap);
+    t.deleteChars(1);
+    try testing.expect(!t.screen.cursor.pending_wrap);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABCDX", str);
+    }
+}
+
+test "Terminal: deleteChars simple operation" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 10, 10);
+    defer t.deinit(alloc);
+
+    try t.printString("ABC123");
+    t.setCursorPos(1, 3);
+    t.deleteChars(2);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("AB23", str);
+    }
+}
+
+test "Terminal: deleteChars preserves background sgr" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 10, 10);
+    defer t.deinit(alloc);
+
+    for ("ABC123") |c| try t.print(c);
+    t.setCursorPos(1, 3);
+    try t.setAttribute(.{ .direct_color_bg = .{
+        .r = 0xFF,
+        .g = 0,
+        .b = 0,
+    } });
+    t.deleteChars(2);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("AB23", str);
+    }
+    for (t.cols - 2..t.cols) |x| {
+        const list_cell = t.screen.pages.getCell(.{ .active = .{ .x = x, .y = 0 } }).?;
+        try testing.expect(list_cell.cell.content_tag == .bg_color_rgb);
+        try testing.expectEqual(Cell.RGB{
+            .r = 0xFF,
+            .g = 0,
+            .b = 0,
+        }, list_cell.cell.content.color_rgb);
+    }
+}
+
+test "Terminal: deleteChars outside scroll region" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 6, 10);
+    defer t.deinit(alloc);
+
+    try t.printString("ABC123");
+    t.scrolling_region.left = 2;
+    t.scrolling_region.right = 4;
+    try testing.expect(t.screen.cursor.pending_wrap);
+    t.deleteChars(2);
+    try testing.expect(t.screen.cursor.pending_wrap);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABC123", str);
+    }
+}
+
+test "Terminal: deleteChars inside scroll region" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 6, 10);
+    defer t.deinit(alloc);
+
+    try t.printString("ABC123");
+    t.scrolling_region.left = 2;
+    t.scrolling_region.right = 4;
+    t.setCursorPos(1, 4);
+    t.deleteChars(1);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABC2 3", str);
+    }
+}
+
+test "Terminal: deleteChars split wide character" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 6, 10);
+    defer t.deinit(alloc);
+
+    try t.printString("A橋123");
+    t.setCursorPos(1, 3);
+    t.deleteChars(1);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("A 123", str);
+    }
+}
+
+test "Terminal: deleteChars split wide character tail" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.setCursorPos(1, t.cols - 1);
+    try t.print(0x6A4B); // 橋
+    t.carriageReturn();
+    t.deleteChars(t.cols - 1);
+    try t.print('0');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("0", str);
     }
 }

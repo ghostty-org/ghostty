@@ -4948,6 +4948,7 @@ test "Terminal: cursorIsAtPrompt alternate screen" {
     try testing.expect(!t.cursorIsAtPrompt());
 }
 
+// X
 test "Terminal: print wide char with 1-column width" {
     const alloc = testing.allocator;
     var t = try init(alloc, 1, 2);
@@ -4956,6 +4957,7 @@ test "Terminal: print wide char with 1-column width" {
     try t.print('😀'); // 0x1F600
 }
 
+// X
 test "Terminal: deleteChars" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -4978,6 +4980,7 @@ test "Terminal: deleteChars" {
     }
 }
 
+// X
 test "Terminal: deleteChars zero count" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -4994,6 +4997,7 @@ test "Terminal: deleteChars zero count" {
     }
 }
 
+// X
 test "Terminal: deleteChars more than half" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5010,6 +5014,7 @@ test "Terminal: deleteChars more than half" {
     }
 }
 
+// X
 test "Terminal: deleteChars more than line width" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5026,6 +5031,7 @@ test "Terminal: deleteChars more than line width" {
     }
 }
 
+// X
 test "Terminal: deleteChars should shift left" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5042,6 +5048,7 @@ test "Terminal: deleteChars should shift left" {
     }
 }
 
+// X
 test "Terminal: deleteChars resets wrap" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5060,6 +5067,7 @@ test "Terminal: deleteChars resets wrap" {
     }
 }
 
+// X
 test "Terminal: deleteChars simple operation" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 10);
@@ -5076,6 +5084,7 @@ test "Terminal: deleteChars simple operation" {
     }
 }
 
+// X
 test "Terminal: deleteChars background sgr" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 10);
@@ -5101,6 +5110,7 @@ test "Terminal: deleteChars background sgr" {
     }
 }
 
+// X
 test "Terminal: deleteChars outside scroll region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 6, 10);
@@ -5120,6 +5130,7 @@ test "Terminal: deleteChars outside scroll region" {
     }
 }
 
+// X
 test "Terminal: deleteChars inside scroll region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 6, 10);
@@ -5138,6 +5149,7 @@ test "Terminal: deleteChars inside scroll region" {
     }
 }
 
+// X
 test "Terminal: deleteChars split wide character" {
     const alloc = testing.allocator;
     var t = try init(alloc, 6, 10);
@@ -5154,6 +5166,7 @@ test "Terminal: deleteChars split wide character" {
     }
 }
 
+// X
 test "Terminal: deleteChars split wide character tail" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
