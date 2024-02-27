@@ -5334,6 +5334,7 @@ test "Terminal: eraseChars wide character" {
     }
 }
 
+// X
 test "Terminal: eraseChars protected attributes respected with iso" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5351,6 +5352,7 @@ test "Terminal: eraseChars protected attributes respected with iso" {
     }
 }
 
+// X
 test "Terminal: eraseChars protected attributes ignored with dec most recent" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5370,6 +5372,7 @@ test "Terminal: eraseChars protected attributes ignored with dec most recent" {
     }
 }
 
+// X
 test "Terminal: eraseChars protected attributes ignored with dec set" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5592,6 +5595,23 @@ test "Terminal: saveCursor resize" {
     }
 }
 
+// X
+test "Terminal: saveCursor protected pen" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 10, 5);
+    defer t.deinit(alloc);
+
+    t.setProtectedMode(.iso);
+    try testing.expect(t.screen.cursor.pen.attrs.protected);
+    t.setCursorPos(1, 10);
+    t.saveCursor();
+    t.setProtectedMode(.off);
+    try testing.expect(!t.screen.cursor.pen.attrs.protected);
+    t.restoreCursor();
+    try testing.expect(t.screen.cursor.pen.attrs.protected);
+}
+
+// X
 test "Terminal: setProtectedMode" {
     const alloc = testing.allocator;
     var t = try init(alloc, 3, 3);

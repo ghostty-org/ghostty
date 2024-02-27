@@ -544,6 +544,7 @@ fn printCell(
         .content = .{ .codepoint = c },
         .style_id = self.screen.cursor.style_id,
         .wide = wide,
+        .protected = self.screen.cursor.protected,
     };
 
     // Handle the style ref count handling
@@ -783,6 +784,7 @@ pub fn saveCursor(self: *Terminal) void {
         .x = self.screen.cursor.x,
         .y = self.screen.cursor.y,
         .style = self.screen.cursor.style,
+        .protected = self.screen.cursor.protected,
         .pending_wrap = self.screen.cursor.pending_wrap,
         .origin = self.modes.get(.origin),
         //TODO
@@ -799,6 +801,7 @@ pub fn restoreCursor(self: *Terminal) !void {
         .x = 0,
         .y = 0,
         .style = .{},
+        .protected = false,
         .pending_wrap = false,
         .origin = false,
         // TODO
@@ -814,10 +817,34 @@ pub fn restoreCursor(self: *Terminal) !void {
     //self.screen.charset = saved.charset;
     self.modes.set(.origin, saved.origin);
     self.screen.cursor.pending_wrap = saved.pending_wrap;
+    self.screen.cursor.protected = saved.protected;
     self.screen.cursorAbsolute(
         @min(saved.x, self.cols - 1),
         @min(saved.y, self.rows - 1),
     );
+}
+
+/// Set the character protection mode for the terminal.
+pub fn setProtectedMode(self: *Terminal, mode: ansi.ProtectedMode) void {
+    switch (mode) {
+        .off => {
+            self.screen.cursor.protected = false;
+
+            // screen.protected_mode is NEVER reset to ".off" because
+            // logic such as eraseChars depends on knowing what the
+            // _most recent_ mode was.
+        },
+
+        .iso => {
+            self.screen.cursor.protected = true;
+            self.screen.protected_mode = .iso;
+        },
+
+        .dec => {
+            self.screen.cursor.protected = true;
+            self.screen.protected_mode = .dec;
+        },
+    }
 }
 
 /// Horizontal tab moves the cursor to the next tabstop, clearing
@@ -1441,6 +1468,12 @@ pub fn deleteChars(self: *Terminal, count: usize) void {
 pub fn eraseChars(self: *Terminal, count_req: usize) void {
     const count = @max(count_req, 1);
 
+    // This resets the soft-wrap of this line
+    self.screen.cursor.page_row.wrap = false;
+
+    // This resets the pending wrap state
+    self.screen.cursor.pending_wrap = false;
+
     // Our last index is at most the end of the number of chars we have
     // in the current line.
     const end = end: {
@@ -1459,38 +1492,32 @@ pub fn eraseChars(self: *Terminal, count_req: usize) void {
 
     // Clear the cells
     const cells: [*]Cell = @ptrCast(self.screen.cursor.page_cell);
-    self.blankCells(
-        &self.screen.cursor.page_offset.page.data,
-        self.screen.cursor.page_row,
-        cells[0..end],
-    );
 
-    // This resets the soft-wrap of this line
-    self.screen.cursor.page_row.wrap = false;
+    // If we never had a protection mode, then we can assume no cells
+    // are protected and go with the fast path. If the last protection
+    // mode was not ISO we also always ignore protection attributes.
+    if (self.screen.protected_mode != .iso) {
+        self.blankCells(
+            &self.screen.cursor.page_offset.page.data,
+            self.screen.cursor.page_row,
+            cells[0..end],
+        );
+        return;
+    }
 
-    // This resets the pending wrap state
-    self.screen.cursor.pending_wrap = false;
-
-    // TODO: protected mode, see below for old logic
-    //
-    // const pen: Screen.Cell = .{
-    //     .bg = self.screen.cursor.pen.bg,
-    // };
-    //
-    // // If we never had a protection mode, then we can assume no cells
-    // // are protected and go with the fast path. If the last protection
-    // // mode was not ISO we also always ignore protection attributes.
-    // if (self.screen.protected_mode != .iso) {
-    //     row.fillSlice(pen, self.screen.cursor.x, end);
-    // }
-    //
-    // // We had a protection mode at some point. We must go through each
-    // // cell and check its protection attribute.
-    // for (self.screen.cursor.x..end) |x| {
-    //     const cell = row.getCellPtr(x);
-    //     if (cell.attrs.protected) continue;
-    //     cell.* = pen;
-    // }
+    // SLOW PATH
+    // We had a protection mode at some point. We must go through each
+    // cell and check its protection attribute.
+    for (0..end) |x| {
+        const cell_multi: [*]Cell = @ptrCast(cells + x);
+        const cell: *Cell = @ptrCast(&cell_multi[0]);
+        if (cell.protected) continue;
+        self.blankCells(
+            &self.screen.cursor.page_offset.page.data,
+            self.screen.cursor.page_row,
+            cell_multi[0..1],
+        );
+    }
 }
 
 /// Blank the given cells. The cells must be long to the given row and page.
@@ -3560,6 +3587,59 @@ test "Terminal: eraseChars handles refcounted styles" {
     try testing.expectEqual(@as(usize, 0), page.styles.count(page.memory));
 }
 
+test "Terminal: eraseChars protected attributes respected with iso" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.setProtectedMode(.iso);
+    for ("ABC") |c| try t.print(c);
+    t.setCursorPos(1, 1);
+    t.eraseChars(2);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABC", str);
+    }
+}
+
+test "Terminal: eraseChars protected attributes ignored with dec most recent" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.setProtectedMode(.iso);
+    for ("ABC") |c| try t.print(c);
+    t.setProtectedMode(.dec);
+    t.setProtectedMode(.off);
+    t.setCursorPos(1, 1);
+    t.eraseChars(2);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("  C", str);
+    }
+}
+
+test "Terminal: eraseChars protected attributes ignored with dec set" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.setProtectedMode(.dec);
+    for ("ABC") |c| try t.print(c);
+    t.setCursorPos(1, 1);
+    t.eraseChars(2);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("  C", str);
+    }
+}
+
 test "Terminal: reverseIndex" {
     const alloc = testing.allocator;
     var t = try init(alloc, 2, 5);
@@ -5585,4 +5665,35 @@ test "Terminal: saveCursor origin mode" {
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("X", str);
     }
+}
+
+test "Terminal: saveCursor protected pen" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 10, 5);
+    defer t.deinit(alloc);
+
+    t.setProtectedMode(.iso);
+    try testing.expect(t.screen.cursor.protected);
+    t.setCursorPos(1, 10);
+    t.saveCursor();
+    t.setProtectedMode(.off);
+    try testing.expect(!t.screen.cursor.protected);
+    try t.restoreCursor();
+    try testing.expect(t.screen.cursor.protected);
+}
+
+test "Terminal: setProtectedMode" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 3, 3);
+    defer t.deinit(alloc);
+
+    try testing.expect(!t.screen.cursor.protected);
+    t.setProtectedMode(.off);
+    try testing.expect(!t.screen.cursor.protected);
+    t.setProtectedMode(.iso);
+    try testing.expect(t.screen.cursor.protected);
+    t.setProtectedMode(.dec);
+    try testing.expect(t.screen.cursor.protected);
+    t.setProtectedMode(.off);
+    try testing.expect(!t.screen.cursor.protected);
 }
