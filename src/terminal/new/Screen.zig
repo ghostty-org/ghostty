@@ -22,8 +22,11 @@ pages: PageList,
 /// The current cursor position
 cursor: Cursor,
 
+/// The saved cursor
+saved_cursor: ?SavedCursor = null,
+
 /// The cursor position.
-const Cursor = struct {
+pub const Cursor = struct {
     // The x/y position within the viewport.
     x: size.CellCountInt,
     y: size.CellCountInt,
@@ -48,6 +51,17 @@ const Cursor = struct {
     page_offset: PageList.RowOffset,
     page_row: *pagepkg.Row,
     page_cell: *pagepkg.Cell,
+};
+
+/// Saved cursor state.
+pub const SavedCursor = struct {
+    x: size.CellCountInt,
+    y: size.CellCountInt,
+    style: style.Style,
+    pending_wrap: bool,
+    origin: bool,
+    // TODO
+    //charset: CharsetState,
 };
 
 /// Initialize a new screen.

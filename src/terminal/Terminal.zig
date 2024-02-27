@@ -5462,6 +5462,7 @@ test "Terminal: resize with wraparound on" {
     try testing.expectEqualStrings("01\n23", str);
 }
 
+// X
 test "Terminal: saveCursor" {
     const alloc = testing.allocator;
     var t = try init(alloc, 3, 3);
@@ -5510,6 +5511,7 @@ test "Terminal: saveCursor with screen change" {
     try testing.expect(t.modes.get(.origin));
 }
 
+// X
 test "Terminal: saveCursor position" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 5);
@@ -5530,6 +5532,7 @@ test "Terminal: saveCursor position" {
     }
 }
 
+// X
 test "Terminal: saveCursor pending wrap state" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -5550,6 +5553,7 @@ test "Terminal: saveCursor pending wrap state" {
     }
 }
 
+// X
 test "Terminal: saveCursor origin mode" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 5);

@@ -773,6 +773,53 @@ pub fn cursorLeft(self: *Terminal, count_req: usize) void {
     }
 }
 
+/// Save cursor position and further state.
+///
+/// The primary and alternate screen have distinct save state. One saved state
+/// is kept per screen (main / alternative). If for the current screen state
+/// was already saved it is overwritten.
+pub fn saveCursor(self: *Terminal) void {
+    self.screen.saved_cursor = .{
+        .x = self.screen.cursor.x,
+        .y = self.screen.cursor.y,
+        .style = self.screen.cursor.style,
+        .pending_wrap = self.screen.cursor.pending_wrap,
+        .origin = self.modes.get(.origin),
+        //TODO
+        //.charset = self.screen.charset,
+    };
+}
+
+/// Restore cursor position and other state.
+///
+/// The primary and alternate screen have distinct save state.
+/// If no save was done before values are reset to their initial values.
+pub fn restoreCursor(self: *Terminal) !void {
+    const saved: Screen.SavedCursor = self.screen.saved_cursor orelse .{
+        .x = 0,
+        .y = 0,
+        .style = .{},
+        .pending_wrap = false,
+        .origin = false,
+        // TODO
+        //.charset = .{},
+    };
+
+    // Set the style first because it can fail
+    const old_style = self.screen.cursor.style;
+    self.screen.cursor.style = saved.style;
+    errdefer self.screen.cursor.style = old_style;
+    try self.screen.manualStyleUpdate();
+
+    //self.screen.charset = saved.charset;
+    self.modes.set(.origin, saved.origin);
+    self.screen.cursor.pending_wrap = saved.pending_wrap;
+    self.screen.cursorAbsolute(
+        @min(saved.x, self.cols - 1),
+        @min(saved.y, self.rows - 1),
+    );
+}
+
 /// Horizontal tab moves the cursor to the next tabstop, clearing
 /// the screen to the left the tabstop.
 pub fn horizontalTab(self: *Terminal) !void {
@@ -5459,5 +5506,83 @@ test "Terminal: deleteChars split wide character tail" {
         const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("0", str);
+    }
+}
+
+test "Terminal: saveCursor" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 3, 3);
+    defer t.deinit(alloc);
+
+    try t.setAttribute(.{ .bold = {} });
+    //t.screen.charset.gr = .G3;
+    t.modes.set(.origin, true);
+    t.saveCursor();
+    //t.screen.charset.gr = .G0;
+    try t.setAttribute(.{ .unset = {} });
+    t.modes.set(.origin, false);
+    try t.restoreCursor();
+    try testing.expect(t.screen.cursor.style.flags.bold);
+    //try testing.expect(t.screen.charset.gr == .G3);
+    try testing.expect(t.modes.get(.origin));
+}
+
+test "Terminal: saveCursor position" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 10, 5);
+    defer t.deinit(alloc);
+
+    t.setCursorPos(1, 5);
+    try t.print('A');
+    t.saveCursor();
+    t.setCursorPos(1, 1);
+    try t.print('B');
+    try t.restoreCursor();
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("B   AX", str);
+    }
+}
+
+test "Terminal: saveCursor pending wrap state" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.setCursorPos(1, 5);
+    try t.print('A');
+    t.saveCursor();
+    t.setCursorPos(1, 1);
+    try t.print('B');
+    try t.restoreCursor();
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("B   A\nX", str);
+    }
+}
+
+test "Terminal: saveCursor origin mode" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 10, 5);
+    defer t.deinit(alloc);
+
+    t.modes.set(.origin, true);
+    t.saveCursor();
+    t.modes.set(.enable_left_and_right_margin, true);
+    t.setLeftAndRightMargin(3, 5);
+    t.setTopAndBottomMargin(2, 4);
+    try t.restoreCursor();
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("X", str);
     }
 }
