@@ -12,6 +12,7 @@ const stylepkg = @import("style.zig");
 const size = @import("size.zig");
 const OffsetBuf = size.OffsetBuf;
 const Page = pagepkg.Page;
+const Row = pagepkg.Row;
 
 /// The number of PageList.Nodes we preheat the pool with. A node is
 /// a very small struct so we can afford to preheat many, but the exact
@@ -436,6 +437,11 @@ pub const RowChunkIterator = struct {
         page: *List.Node,
         start: usize,
         end: usize,
+
+        pub fn rows(self: Chunk) []Row {
+            const rows_ptr = self.page.data.rows.ptr(self.page.data.memory);
+            return rows_ptr[self.start..self.end];
+        }
     };
 };
 

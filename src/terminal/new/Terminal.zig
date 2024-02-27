@@ -1192,7 +1192,7 @@ pub fn insertLines(self: *Terminal, count: usize) void {
         var page = &self.screen.cursor.page_offset.page.data;
         const cells = page.getCells(row);
         const cells_write = cells[self.scrolling_region.left .. self.scrolling_region.right + 1];
-        self.blankCells(page, row, cells_write);
+        self.screen.eraseCells(page, row, cells_write);
     }
 
     // Move the cursor to the left margin. But importantly this also
@@ -1286,7 +1286,7 @@ pub fn deleteLines(self: *Terminal, count_req: usize) void {
         var page = &self.screen.cursor.page_offset.page.data;
         const cells = page.getCells(row);
         const cells_write = cells[self.scrolling_region.left .. self.scrolling_region.right + 1];
-        self.blankCells(page, row, cells_write);
+        self.screen.eraseCells(page, row, cells_write);
     }
 
     // Move the cursor to the left margin. But importantly this also
@@ -1350,7 +1350,7 @@ pub fn insertBlanks(self: *Terminal, count: usize) void {
         // it to be empty so we don't split the multi-cell char.
         const end: *Cell = @ptrCast(x);
         if (end.wide == .wide) {
-            self.blankCells(page, self.screen.cursor.page_row, end[0..1]);
+            self.screen.eraseCells(page, self.screen.cursor.page_row, end[0..1]);
         }
 
         // We work backwards so we don't overwrite data.
@@ -1380,7 +1380,7 @@ pub fn insertBlanks(self: *Terminal, count: usize) void {
     }
 
     // Insert blanks. The blanks preserve the background color.
-    self.blankCells(page, self.screen.cursor.page_row, left[0..adjusted_count]);
+    self.screen.eraseCells(page, self.screen.cursor.page_row, left[0..adjusted_count]);
 }
 
 /// Removes amount characters from the current cursor position to the right.
@@ -1410,7 +1410,7 @@ pub fn deleteChars(self: *Terminal, count: usize) void {
     // previous cell too so we don't split a multi-cell character.
     if (self.screen.cursor.page_cell.wide == .spacer_tail) {
         assert(self.screen.cursor.x > 0);
-        self.blankCells(page, self.screen.cursor.page_row, (left - 1)[0..2]);
+        self.screen.eraseCells(page, self.screen.cursor.page_row, (left - 1)[0..2]);
     }
 
     // Remaining cols from our cursor to the right margin.
@@ -1433,7 +1433,7 @@ pub fn deleteChars(self: *Terminal, count: usize) void {
         if (end.wide == .spacer_tail) {
             const wide: [*]Cell = right + count - 1;
             assert(wide[0].wide == .wide);
-            self.blankCells(page, self.screen.cursor.page_row, wide[0..2]);
+            self.screen.eraseCells(page, self.screen.cursor.page_row, wide[0..2]);
         }
 
         while (@intFromPtr(x) <= @intFromPtr(right)) : (x += 1) {
@@ -1462,7 +1462,7 @@ pub fn deleteChars(self: *Terminal, count: usize) void {
     }
 
     // Insert blanks. The blanks preserve the background color.
-    self.blankCells(page, self.screen.cursor.page_row, x[0 .. rem - scroll_amount]);
+    self.screen.eraseCells(page, self.screen.cursor.page_row, x[0 .. rem - scroll_amount]);
 }
 
 pub fn eraseChars(self: *Terminal, count_req: usize) void {
@@ -1497,7 +1497,7 @@ pub fn eraseChars(self: *Terminal, count_req: usize) void {
     // are protected and go with the fast path. If the last protection
     // mode was not ISO we also always ignore protection attributes.
     if (self.screen.protected_mode != .iso) {
-        self.blankCells(
+        self.screen.eraseCells(
             &self.screen.cursor.page_offset.page.data,
             self.screen.cursor.page_row,
             cells[0..end],
@@ -1512,7 +1512,7 @@ pub fn eraseChars(self: *Terminal, count_req: usize) void {
         const cell_multi: [*]Cell = @ptrCast(cells + x);
         const cell: *Cell = @ptrCast(&cell_multi[0]);
         if (cell.protected) continue;
-        self.blankCells(
+        self.screen.eraseCells(
             &self.screen.cursor.page_offset.page.data,
             self.screen.cursor.page_row,
             cell_multi[0..1],
@@ -1582,7 +1582,7 @@ pub fn eraseLine(
     // If we're not respecting protected attributes, we can use a fast-path
     // to fill the entire line.
     if (!protected) {
-        self.blankCells(
+        self.screen.eraseCells(
             &self.screen.cursor.page_offset.page.data,
             self.screen.cursor.page_row,
             cells[start..end],
@@ -1594,60 +1594,12 @@ pub fn eraseLine(
         const cell_multi: [*]Cell = @ptrCast(cells + x);
         const cell: *Cell = @ptrCast(&cell_multi[0]);
         if (cell.protected) continue;
-        self.blankCells(
+        self.screen.eraseCells(
             &self.screen.cursor.page_offset.page.data,
             self.screen.cursor.page_row,
             cell_multi[0..1],
         );
     }
-}
-
-/// Blank the given cells. The cells must be long to the given row and page.
-/// This will handle refcounted styles properly as well as graphemes.
-fn blankCells(
-    self: *const Terminal,
-    page: *Page,
-    row: *Row,
-    cells: []Cell,
-) void {
-    // If this row has graphemes, then we need go through a slow path
-    // and delete the cell graphemes.
-    if (row.grapheme) {
-        for (cells) |*cell| {
-            if (cell.hasGrapheme()) page.clearGrapheme(row, cell);
-        }
-    }
-
-    if (row.styled) {
-        for (cells) |*cell| {
-            if (cell.style_id == style.default_id) continue;
-
-            // Fast-path, the style ID matches, in this case we just update
-            // our own ref and continue. We never delete because our style
-            // is still active.
-            if (cell.style_id == self.screen.cursor.style_id) {
-                self.screen.cursor.style_ref.?.* -= 1;
-                continue;
-            }
-
-            // Slow path: we need to lookup this style so we can decrement
-            // the ref count. Since we've already loaded everything, we also
-            // just go ahead and GC it if it reaches zero, too.
-            if (page.styles.lookupId(page.memory, cell.style_id)) |prev_style| {
-                // Below upsert can't fail because it should already be present
-                const md = page.styles.upsert(page.memory, prev_style.*) catch unreachable;
-                assert(md.ref > 0);
-                md.ref -= 1;
-                if (md.ref == 0) page.styles.remove(page.memory, cell.style_id);
-            }
-        }
-
-        // If we have no left/right scroll region we can be sure that
-        // the row is no longer styled.
-        if (cells.len == self.cols) row.styled = false;
-    }
-
-    @memset(cells, self.blankCell());
 }
 
 /// Resets all margins and fills the whole screen with the character 'E'
@@ -1800,13 +1752,6 @@ pub fn printAttributes(self: *Terminal, buf: []u8) ![]const u8 {
 /// The caller must free the string.
 pub fn plainString(self: *Terminal, alloc: Allocator) ![]const u8 {
     return try self.screen.dumpStringAlloc(alloc, .{ .viewport = .{} });
-}
-
-/// Returns the blank cell to use when doing terminal operations that
-/// require preserving the bg color.
-fn blankCell(self: *const Terminal) Cell {
-    if (self.screen.cursor.style_id == style.default_id) return .{};
-    return self.screen.cursor.style.bgCell() orelse .{};
 }
 
 test "Terminal: input with no control characters" {
