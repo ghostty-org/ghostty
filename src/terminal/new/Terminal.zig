@@ -428,8 +428,7 @@ pub fn print(self: *Terminal, c: u21) !void {
     if (self.modes.get(.insert) and
         self.screen.cursor.x + width < self.cols)
     {
-        @panic("TODO: insert mode");
-        //self.insertBlanks(width);
+        self.insertBlanks(width);
     }
 
     switch (width) {
@@ -1227,6 +1226,86 @@ pub fn deleteLines(self: *Terminal, count_req: usize) void {
 
     // Always unset pending wrap
     self.screen.cursor.pending_wrap = false;
+}
+
+/// Inserts spaces at current cursor position moving existing cell contents
+/// to the right. The contents of the count right-most columns in the scroll
+/// region are lost. The cursor position is not changed.
+///
+/// This unsets the pending wrap state without wrapping.
+///
+/// The inserted cells are colored according to the current SGR state.
+pub fn insertBlanks(self: *Terminal, count: usize) void {
+    // Unset pending wrap state without wrapping. Note: this purposely
+    // happens BEFORE the scroll region check below, because that's what
+    // xterm does.
+    self.screen.cursor.pending_wrap = false;
+
+    // If our cursor is outside the margins then do nothing. We DO reset
+    // wrap state still so this must remain below the above logic.
+    if (self.screen.cursor.x < self.scrolling_region.left or
+        self.screen.cursor.x > self.scrolling_region.right) return;
+
+    // If our count is larger than the remaining amount, we just erase right.
+    // We only do this if we can erase the entire line (no right margin).
+    // if (right_limit == self.cols and
+    //     count > right_limit - self.screen.cursor.x)
+    // {
+    //     self.eraseLine(.right, false);
+    //     return;
+    // }
+
+    // left is just the cursor position but as a multi-pointer
+    const left: [*]Cell = @ptrCast(self.screen.cursor.page_cell);
+    var page = &self.screen.cursor.page_offset.page.data;
+
+    // Remaining cols from our cursor to the right margin.
+    const rem = self.scrolling_region.right - self.screen.cursor.x + 1;
+
+    // We can only insert blanks up to our remaining cols
+    const adjusted_count = @min(count, rem);
+
+    // This is the amount of space at the right of the scroll region
+    // that will NOT be blank, so we need to shift the correct cols right.
+    // "scroll_amount" is the number of such cols.
+    const scroll_amount = rem - adjusted_count;
+    if (scroll_amount > 0) {
+        var x: [*]Cell = left + (scroll_amount - 1);
+
+        // If our last cell we're shifting is wide, then we need to clear
+        // it to be empty so we don't split the multi-cell char.
+        const end: *Cell = @ptrCast(x);
+        if (end.wide == .wide) {
+            self.blankCells(page, self.screen.cursor.page_row, end[0..1]);
+        }
+
+        // We work backwards so we don't overwrite data.
+        while (@intFromPtr(x) >= @intFromPtr(left)) : (x -= 1) {
+            const src: *Cell = @ptrCast(x);
+            const dst: *Cell = @ptrCast(x + adjusted_count);
+
+            // If the destination has graphemes we need to delete them.
+            // Graphemes are stored by cell offset so we have to do this
+            // now before we move.
+            if (dst.hasGrapheme()) {
+                page.clearGrapheme(self.screen.cursor.page_row, dst);
+            }
+
+            // Copy our src to our dst
+            const old_dst = dst.*;
+            dst.* = src.*;
+            src.* = old_dst;
+
+            // If the original source (now copied to dst) had graphemes,
+            // we have to move them since they're stored by cell offset.
+            if (dst.hasGrapheme()) {
+                page.moveGraphemeWithinRow(src, dst);
+            }
+        }
+    }
+
+    // Insert blanks. The blanks preserve the background color.
+    self.blankCells(page, self.screen.cursor.page_row, left[0..adjusted_count]);
 }
 
 pub fn eraseChars(self: *Terminal, count_req: usize) void {
@@ -4706,5 +4785,306 @@ test "Terminal: decaln preserves color" {
             .g = 0,
             .b = 0,
         }, list_cell.cell.content.color_rgb);
+    }
+}
+
+test "Terminal: insertBlanks" {
+    // NOTE: this is not verified with conformance tests, so these
+    // tests might actually be verifying wrong behavior.
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 2);
+    defer t.deinit(alloc);
+
+    try t.print('A');
+    try t.print('B');
+    try t.print('C');
+    t.setCursorPos(1, 1);
+    t.insertBlanks(2);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("  ABC", str);
+    }
+}
+
+test "Terminal: insertBlanks pushes off end" {
+    // NOTE: this is not verified with conformance tests, so these
+    // tests might actually be verifying wrong behavior.
+    const alloc = testing.allocator;
+    var t = try init(alloc, 3, 2);
+    defer t.deinit(alloc);
+
+    try t.print('A');
+    try t.print('B');
+    try t.print('C');
+    t.setCursorPos(1, 1);
+    t.insertBlanks(2);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("  A", str);
+    }
+}
+
+test "Terminal: insertBlanks more than size" {
+    // NOTE: this is not verified with conformance tests, so these
+    // tests might actually be verifying wrong behavior.
+    const alloc = testing.allocator;
+    var t = try init(alloc, 3, 2);
+    defer t.deinit(alloc);
+
+    try t.print('A');
+    try t.print('B');
+    try t.print('C');
+    t.setCursorPos(1, 1);
+    t.insertBlanks(5);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("", str);
+    }
+}
+
+test "Terminal: insertBlanks no scroll region, fits" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 10, 10);
+    defer t.deinit(alloc);
+
+    for ("ABC") |c| try t.print(c);
+    t.setCursorPos(1, 1);
+    t.insertBlanks(2);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("  ABC", str);
+    }
+}
+
+test "Terminal: insertBlanks preserves background sgr" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 10, 10);
+    defer t.deinit(alloc);
+
+    for ("ABC") |c| try t.print(c);
+    t.setCursorPos(1, 1);
+    try t.setAttribute(.{ .direct_color_bg = .{
+        .r = 0xFF,
+        .g = 0,
+        .b = 0,
+    } });
+    t.insertBlanks(2);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("  ABC", str);
+    }
+    {
+        const list_cell = t.screen.pages.getCell(.{ .active = .{ .x = 0, .y = 0 } }).?;
+        try testing.expect(list_cell.cell.content_tag == .bg_color_rgb);
+        try testing.expectEqual(Cell.RGB{
+            .r = 0xFF,
+            .g = 0,
+            .b = 0,
+        }, list_cell.cell.content.color_rgb);
+    }
+}
+
+test "Terminal: insertBlanks shift off screen" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 10);
+    defer t.deinit(alloc);
+
+    for ("  ABC") |c| try t.print(c);
+    t.setCursorPos(1, 3);
+    t.insertBlanks(2);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("  X A", str);
+    }
+}
+
+test "Terminal: insertBlanks split multi-cell character" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 10);
+    defer t.deinit(alloc);
+
+    for ("123") |c| try t.print(c);
+    try t.print('橋');
+    t.setCursorPos(1, 1);
+    t.insertBlanks(1);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings(" 123", str);
+    }
+}
+
+test "Terminal: insertBlanks inside left/right scroll region" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 10, 10);
+    defer t.deinit(alloc);
+
+    t.scrolling_region.left = 2;
+    t.scrolling_region.right = 4;
+    t.setCursorPos(1, 3);
+    for ("ABC") |c| try t.print(c);
+    t.setCursorPos(1, 3);
+    t.insertBlanks(2);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("  X A", str);
+    }
+}
+
+test "Terminal: insertBlanks outside left/right scroll region" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 6, 10);
+    defer t.deinit(alloc);
+
+    t.setCursorPos(1, 4);
+    for ("ABC") |c| try t.print(c);
+    t.scrolling_region.left = 2;
+    t.scrolling_region.right = 4;
+    try testing.expect(t.screen.cursor.pending_wrap);
+    t.insertBlanks(2);
+    try testing.expect(!t.screen.cursor.pending_wrap);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("   ABX", str);
+    }
+}
+
+test "Terminal: insertBlanks left/right scroll region large count" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 10, 10);
+    defer t.deinit(alloc);
+
+    t.modes.set(.origin, true);
+    t.modes.set(.enable_left_and_right_margin, true);
+    t.setLeftAndRightMargin(3, 5);
+    t.setCursorPos(1, 1);
+    t.insertBlanks(140);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("  X", str);
+    }
+}
+
+test "Terminal: insert mode with space" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 10, 2);
+    defer t.deinit(alloc);
+
+    for ("hello") |c| try t.print(c);
+    t.setCursorPos(1, 2);
+    t.modes.set(.insert, true);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("hXello", str);
+    }
+}
+
+test "Terminal: insert mode doesn't wrap pushed characters" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 2);
+    defer t.deinit(alloc);
+
+    for ("hello") |c| try t.print(c);
+    t.setCursorPos(1, 2);
+    t.modes.set(.insert, true);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("hXell", str);
+    }
+}
+
+test "Terminal: insert mode does nothing at the end of the line" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 2);
+    defer t.deinit(alloc);
+
+    for ("hello") |c| try t.print(c);
+    t.modes.set(.insert, true);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("hello\nX", str);
+    }
+}
+
+test "Terminal: insert mode with wide characters" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 2);
+    defer t.deinit(alloc);
+
+    for ("hello") |c| try t.print(c);
+    t.setCursorPos(1, 2);
+    t.modes.set(.insert, true);
+    try t.print('😀'); // 0x1F600
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("h😀el", str);
+    }
+}
+
+test "Terminal: insert mode with wide characters at end" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 2);
+    defer t.deinit(alloc);
+
+    for ("well") |c| try t.print(c);
+    t.modes.set(.insert, true);
+    try t.print('😀'); // 0x1F600
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("well\n😀", str);
+    }
+}
+
+test "Terminal: insert mode pushing off wide character" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 2);
+    defer t.deinit(alloc);
+
+    for ("123") |c| try t.print(c);
+    try t.print('😀'); // 0x1F600
+    t.modes.set(.insert, true);
+    t.setCursorPos(1, 1);
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("X123", str);
     }
 }

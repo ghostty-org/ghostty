@@ -321,6 +321,13 @@ pub const Page = struct {
         row.grapheme = false;
     }
 
+    /// Move graphemes to another cell in the same row.
+    pub fn moveGraphemeWithinRow(self: *Page, src: *Cell, dst: *Cell) void {
+        _ = self;
+        _ = src;
+        _ = dst;
+    }
+
     pub const Layout = struct {
         total_size: usize,
         rows_start: usize,
