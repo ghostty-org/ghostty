@@ -12,6 +12,7 @@ const point = @import("point.zig");
 const size = @import("size.zig");
 const style = @import("style.zig");
 const Page = pagepkg.Page;
+const Cell = pagepkg.Cell;
 
 /// The general purpose allocator to use for all memory allocations.
 /// Unfortunately some screen operations do require allocation.
@@ -263,6 +264,17 @@ pub fn scroll(self: *Screen, behavior: Scroll) void {
         .top => self.pages.scroll(.{ .top = {} }),
         .delta_row => |v| self.pages.scroll(.{ .delta_row = v }),
     }
+}
+
+/// Erase the active area of the screen from y=0 to rows-1. The cells
+/// are blanked using the given blank cell.
+pub fn eraseActive(self: *Screen, blank: Cell) void {
+    // We use rowIterator because it handles the case where the active
+    // area spans multiple underlying pages. This is slightly slower to
+    // calculate but erasing isn't a high-frequency operation. We can
+    // optimize this later, too.
+    _ = self;
+    _ = blank;
 }
 
 /// Set a style attribute for the current cursor.

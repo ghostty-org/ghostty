@@ -392,6 +392,80 @@ pub fn rowIterator(
     return .{ .row = tl.forward(tl_pt.coord().y) };
 }
 
+pub const RowChunkIterator = struct {
+    row: ?RowOffset = null,
+    limit: ?usize = null,
+
+    pub fn next(self: *RowChunkIterator) ?Chunk {
+        // Get our current row location
+        const row = self.row orelse return null;
+
+        // If we have a limit, the
+        if (self.limit) |*limit| {
+            assert(limit.* > 0); // should be handled already
+            const len = @min(row.page.data.size.rows - row.row_offset, limit.*);
+            if (len > limit.*) {
+                self.row = row.forward(len);
+                limit.* -= len;
+            } else {
+                self.row = null;
+            }
+
+            return .{
+                .page = row.page,
+                .start = row.row_offset,
+                .end = row.row_offset + len,
+            };
+        }
+
+        // If we have no limit, then we consume this entire page. Our
+        // next row is the next page.
+        self.row = next: {
+            const next_page = row.page.next orelse break :next null;
+            break :next .{ .page = next_page };
+        };
+
+        return .{
+            .page = row.page,
+            .start = row.row_offset,
+            .end = row.page.data.size.rows,
+        };
+    }
+
+    pub const Chunk = struct {
+        page: *List.Node,
+        start: usize,
+        end: usize,
+    };
+};
+
+/// Return an iterator that iterates through the rows in the tagged area
+/// of the point. The iterator returns row "chunks", which are the largest
+/// contiguous set of rows in a single backing page for a given portion of
+/// the point region.
+///
+/// This is a more efficient way to iterate through the data in a region,
+/// since you can do simple pointer math and so on.
+pub fn rowChunkIterator(
+    self: *const PageList,
+    tl_pt: point.Point,
+) RowChunkIterator {
+    const tl = self.getTopLeft(tl_pt);
+    const limit: ?usize = switch (tl_pt) {
+        // These always go to the end of the screen.
+        .screen, .active => null,
+
+        // Viewport always is rows long
+        .viewport => self.rows,
+
+        // History goes to the top of the active area. This is more expensive
+        // to calculate but also more rare of a thing to iterate over.
+        .history => @panic("TODO"),
+    };
+
+    return .{ .row = tl.forward(tl_pt.coord().y), .limit = limit };
+}
+
 /// Get the top-left of the screen for the given tag.
 fn getTopLeft(self: *const PageList, tag: point.Tag) RowOffset {
     return switch (tag) {
@@ -911,4 +985,61 @@ test "PageList grow prune scrollback" {
     // Our first should now be page2 and our last should be page1
     try testing.expectEqual(page2_node, s.pages.first.?);
     try testing.expectEqual(page1_node, s.pages.last.?);
+}
+
+test "PageList rowChunkIterator single page" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+
+    // The viewport should be within a single page
+    try testing.expect(s.pages.first.?.next == null);
+
+    // Iterate the active area
+    var it = s.rowChunkIterator(.{ .active = .{} });
+    {
+        const chunk = it.next().?;
+        try testing.expect(chunk.page == s.pages.first.?);
+        try testing.expectEqual(@as(usize, 0), chunk.start);
+        try testing.expectEqual(@as(usize, s.rows), chunk.end);
+    }
+
+    // Should only have one chunk
+    try testing.expect(it.next() == null);
+}
+
+test "PageList rowChunkIterator two pages" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+
+    // Grow to capacity
+    const page1_node = s.pages.last.?;
+    const page1 = page1_node.data;
+    for (0..page1.capacity.rows - page1.size.rows) |_| {
+        try testing.expect(try s.grow() == null);
+    }
+    try testing.expect(try s.grow() != null);
+
+    // Iterate the active area
+    var it = s.rowChunkIterator(.{ .active = .{} });
+    {
+        const chunk = it.next().?;
+        try testing.expect(chunk.page == s.pages.first.?);
+        const start = chunk.page.data.size.rows - s.rows + 1;
+        try testing.expectEqual(start, chunk.start);
+        try testing.expectEqual(chunk.page.data.size.rows, chunk.end);
+    }
+    {
+        const chunk = it.next().?;
+        try testing.expect(chunk.page == s.pages.last.?);
+        const start: usize = 0;
+        try testing.expectEqual(start, chunk.start);
+        try testing.expectEqual(start + 1, chunk.end);
+    }
+    try testing.expect(it.next() == null);
 }
