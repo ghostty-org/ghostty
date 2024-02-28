@@ -254,6 +254,36 @@ pub fn scroll(self: *PageList, behavior: Scroll) void {
     }
 }
 
+/// Clear the screen by scrolling written contents up into the scrollback.
+/// This will not update the viewport.
+pub fn scrollClear(self: *PageList) !void {
+    // Go through the active area backwards to find the first non-empty
+    // row. We use this to determine how many rows to scroll up.
+    const non_empty: usize = non_empty: {
+        var page = self.pages.last.?;
+        var n: usize = 0;
+        while (true) {
+            const rows: [*]Row = page.data.rows.ptr(page.data.memory);
+            for (0..page.data.size.rows) |i| {
+                const rev_i = page.data.size.rows - i - 1;
+                const row = rows[rev_i];
+                const cells = row.cells.ptr(page.data.memory)[0..self.cols];
+                for (cells) |cell| {
+                    if (!cell.isEmpty()) break :non_empty self.rows - n;
+                }
+
+                n += 1;
+                if (n > self.rows) break :non_empty 0;
+            }
+
+            page = page.prev orelse break :non_empty 0;
+        }
+    };
+
+    // Scroll
+    for (0..non_empty) |_| _ = try self.grow();
+}
+
 /// Grow the active area by exactly one row.
 ///
 /// This may allocate, but also may not if our current page has more
@@ -954,6 +984,39 @@ test "PageList scroll delta row forward into active" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 0,
+        } }, pt);
+    }
+}
+
+test "PageList scroll clear" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+
+    {
+        const cell = s.getCell(.{ .active = .{ .x = 0, .y = 0 } }).?;
+        cell.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = 'A' },
+        };
+    }
+    {
+        const cell = s.getCell(.{ .active = .{ .x = 0, .y = 1 } }).?;
+        cell.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = 'A' },
+        };
+    }
+
+    try s.scrollClear();
+
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 2,
         } }, pt);
     }
 }

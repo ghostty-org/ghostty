@@ -599,6 +599,19 @@ pub const Cell = packed struct(u64) {
         };
     }
 
+    /// Returns true if the cell has no text or styling.
+    pub fn isEmpty(self: Cell) bool {
+        return switch (self.content_tag) {
+            .codepoint,
+            .codepoint_grapheme,
+            => !self.hasText(),
+
+            .bg_color_palette,
+            .bg_color_rgb,
+            => false,
+        };
+    }
+
     pub fn hasGrapheme(self: Cell) bool {
         return self.content_tag == .codepoint_grapheme;
     }
