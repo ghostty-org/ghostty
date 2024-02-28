@@ -395,41 +395,77 @@ pub fn rowIterator(
 
 pub const RowChunkIterator = struct {
     row: ?RowOffset = null,
-    limit: ?usize = null,
+    limit: Limit = .none,
+
+    const Limit = union(enum) {
+        none,
+        count: usize,
+        row: RowOffset,
+    };
 
     pub fn next(self: *RowChunkIterator) ?Chunk {
         // Get our current row location
         const row = self.row orelse return null;
 
-        // If we have a limit, the
-        if (self.limit) |*limit| {
-            assert(limit.* > 0); // should be handled already
-            const len = @min(row.page.data.size.rows - row.row_offset, limit.*);
-            if (len > limit.*) {
-                self.row = row.forward(len);
-                limit.* -= len;
-            } else {
+        return switch (self.limit) {
+            .none => none: {
+                // If we have no limit, then we consume this entire page. Our
+                // next row is the next page.
+                self.row = next: {
+                    const next_page = row.page.next orelse break :next null;
+                    break :next .{ .page = next_page };
+                };
+
+                break :none .{
+                    .page = row.page,
+                    .start = row.row_offset,
+                    .end = row.page.data.size.rows,
+                };
+            },
+
+            .count => |*limit| count: {
+                assert(limit.* > 0); // should be handled already
+                const len = @min(row.page.data.size.rows - row.row_offset, limit.*);
+                if (len > limit.*) {
+                    self.row = row.forward(len);
+                    limit.* -= len;
+                } else {
+                    self.row = null;
+                }
+
+                break :count .{
+                    .page = row.page,
+                    .start = row.row_offset,
+                    .end = row.row_offset + len,
+                };
+            },
+
+            .row => |limit_row| row: {
+                // If this is not the same page as our limit then we
+                // can consume the entire page.
+                if (limit_row.page != row.page) {
+                    self.row = next: {
+                        const next_page = row.page.next orelse break :next null;
+                        break :next .{ .page = next_page };
+                    };
+
+                    break :row .{
+                        .page = row.page,
+                        .start = row.row_offset,
+                        .end = row.page.data.size.rows,
+                    };
+                }
+
+                // If this is the same page then we only consume up to
+                // the limit row.
                 self.row = null;
-            }
-
-            return .{
-                .page = row.page,
-                .start = row.row_offset,
-                .end = row.row_offset + len,
-            };
-        }
-
-        // If we have no limit, then we consume this entire page. Our
-        // next row is the next page.
-        self.row = next: {
-            const next_page = row.page.next orelse break :next null;
-            break :next .{ .page = next_page };
-        };
-
-        return .{
-            .page = row.page,
-            .start = row.row_offset,
-            .end = row.page.data.size.rows,
+                if (row.row_offset > limit_row.row_offset) return null;
+                break :row .{
+                    .page = row.page,
+                    .start = row.row_offset,
+                    .end = limit_row.row_offset + 1,
+                };
+            },
         };
     }
 
@@ -457,16 +493,16 @@ pub fn rowChunkIterator(
     tl_pt: point.Point,
 ) RowChunkIterator {
     const tl = self.getTopLeft(tl_pt);
-    const limit: ?usize = switch (tl_pt) {
+    const limit: RowChunkIterator.Limit = switch (tl_pt) {
         // These always go to the end of the screen.
-        .screen, .active => null,
+        .screen, .active => .{ .none = {} },
 
         // Viewport always is rows long
-        .viewport => self.rows,
+        .viewport => .{ .count = self.rows },
 
         // History goes to the top of the active area. This is more expensive
         // to calculate but also more rare of a thing to iterate over.
-        .history => @panic("TODO"),
+        .history => .{ .row = self.getTopLeft(.active) },
     };
 
     return .{ .row = tl.forward(tl_pt.coord().y), .limit = limit };
@@ -1046,6 +1082,34 @@ test "PageList rowChunkIterator two pages" {
         const start: usize = 0;
         try testing.expectEqual(start, chunk.start);
         try testing.expectEqual(start + 1, chunk.end);
+    }
+    try testing.expect(it.next() == null);
+}
+
+test "PageList rowChunkIterator history two pages" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+
+    // Grow to capacity
+    const page1_node = s.pages.last.?;
+    const page1 = page1_node.data;
+    for (0..page1.capacity.rows - page1.size.rows) |_| {
+        try testing.expect(try s.grow() == null);
+    }
+    try testing.expect(try s.grow() != null);
+
+    // Iterate the active area
+    var it = s.rowChunkIterator(.{ .history = .{} });
+    {
+        const active_tl = s.getTopLeft(.active);
+        const chunk = it.next().?;
+        try testing.expect(chunk.page == s.pages.first.?);
+        const start: usize = 0;
+        try testing.expectEqual(start, chunk.start);
+        try testing.expectEqual(active_tl.row_offset + 1, chunk.end);
     }
     try testing.expect(it.next() == null);
 }
