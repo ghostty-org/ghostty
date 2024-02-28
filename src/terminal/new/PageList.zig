@@ -179,6 +179,47 @@ pub fn deinit(self: *PageList) void {
     self.pool.deinit();
 }
 
+/// Clone this pagelist from the top to bottom (inclusive).
+pub fn clone(
+    self: *const PageList,
+    alloc: Allocator,
+    top: point.Point,
+    bot: ?point.Point,
+) !PageList {
+    var it = self.pageIterator(top, bot);
+
+    // First, count our pages so our preheat is exactly what we need.
+    const page_count: usize = page_count: {
+        // Copy the iterator so we don't mutate our original.
+        var count_it = it;
+        var count: usize = 0;
+        while (count_it.next()) |_| count += 1;
+        break :page_count count;
+    };
+
+    // Setup our pools
+    var pool = try Pool.initPreheated(alloc, page_count);
+    errdefer pool.deinit();
+    var page_pool = try PagePool.initPreheated(std.heap.page_allocator, page_count);
+    errdefer page_pool.deinit();
+
+    // Copy our pages
+    const page_list: List = .{};
+    while (it.next()) |chunk| {
+        _ = chunk;
+    }
+
+    return .{
+        .alloc = alloc,
+        .pool = pool,
+        .page_pool = page_pool,
+        .pages = page_list,
+        .max_size = self.max_size,
+        .cols = self.cols,
+        .rows = self.rows,
+    };
+}
+
 /// Scroll options.
 pub const Scroll = union(enum) {
     /// Scroll to the active area. This is also sometimes referred to as
