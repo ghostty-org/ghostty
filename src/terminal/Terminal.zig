@@ -2785,6 +2785,7 @@ test "Terminal: print writes to bottom if scrolled" {
     }
 }
 
+// X
 test "Terminal: print charset" {
     var t = try init(testing.allocator, 80, 80);
     defer t.deinit(testing.allocator);
@@ -2809,6 +2810,7 @@ test "Terminal: print charset" {
     }
 }
 
+// X
 test "Terminal: print charset outside of ASCII" {
     var t = try init(testing.allocator, 80, 80);
     defer t.deinit(testing.allocator);
@@ -2829,6 +2831,7 @@ test "Terminal: print charset outside of ASCII" {
     }
 }
 
+// X
 test "Terminal: print invoke charset" {
     var t = try init(testing.allocator, 80, 80);
     defer t.deinit(testing.allocator);
@@ -2849,6 +2852,7 @@ test "Terminal: print invoke charset" {
     }
 }
 
+// X
 test "Terminal: print invoke charset single" {
     var t = try init(testing.allocator, 80, 80);
     defer t.deinit(testing.allocator);

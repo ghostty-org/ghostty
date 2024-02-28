@@ -483,8 +483,27 @@ fn printCell(
 ) void {
     // TODO: spacers should use a bgcolor only cell
 
-    // TODO: charsets
-    const c: u21 = unmapped_c;
+    const c: u21 = c: {
+        // TODO: non-utf8 handling, gr
+
+        // If we're single shifting, then we use the key exactly once.
+        const key = if (self.screen.charset.single_shift) |key_once| blk: {
+            self.screen.charset.single_shift = null;
+            break :blk key_once;
+        } else self.screen.charset.gl;
+        const set = self.screen.charset.charsets.get(key);
+
+        // UTF-8 or ASCII is used as-is
+        if (set == .utf8 or set == .ascii) break :c unmapped_c;
+
+        // If we're outside of ASCII range this is an invalid value in
+        // this table so we just return space.
+        if (unmapped_c > std.math.maxInt(u8)) break :c ' ';
+
+        // Get our lookup table and map it
+        const table = set.table();
+        break :c @intCast(table[@intCast(unmapped_c)]);
+    };
 
     const cell = self.screen.cursor.page_cell;
 
@@ -596,6 +615,31 @@ fn printWrap(self: *Terminal) !void {
     // const new_row = self.screen.getRow(.{ .active = self.screen.cursor.y });
     // new_row.setSemanticPrompt(old_prompt);
     self.screen.cursor.page_row.wrap_continuation = true;
+}
+
+/// Set the charset into the given slot.
+pub fn configureCharset(self: *Terminal, slot: charsets.Slots, set: charsets.Charset) void {
+    self.screen.charset.charsets.set(slot, set);
+}
+
+/// Invoke the charset in slot into the active slot. If single is true,
+/// then this will only be invoked for a single character.
+pub fn invokeCharset(
+    self: *Terminal,
+    active: charsets.ActiveSlot,
+    slot: charsets.Slots,
+    single: bool,
+) void {
+    if (single) {
+        assert(active == .GL);
+        self.screen.charset.single_shift = slot;
+        return;
+    }
+
+    switch (active) {
+        .GL => self.screen.charset.gl = slot,
+        .GR => self.screen.charset.gr = slot,
+    }
 }
 
 /// Carriage return moves the cursor to the first column.
@@ -787,8 +831,7 @@ pub fn saveCursor(self: *Terminal) void {
         .protected = self.screen.cursor.protected,
         .pending_wrap = self.screen.cursor.pending_wrap,
         .origin = self.modes.get(.origin),
-        //TODO
-        //.charset = self.screen.charset,
+        .charset = self.screen.charset,
     };
 }
 
@@ -804,8 +847,7 @@ pub fn restoreCursor(self: *Terminal) !void {
         .protected = false,
         .pending_wrap = false,
         .origin = false,
-        // TODO
-        //.charset = .{},
+        .charset = .{},
     };
 
     // Set the style first because it can fail
@@ -814,7 +856,7 @@ pub fn restoreCursor(self: *Terminal) !void {
     errdefer self.screen.cursor.style = old_style;
     try self.screen.manualStyleUpdate();
 
-    //self.screen.charset = saved.charset;
+    self.screen.charset = saved.charset;
     self.modes.set(.origin, saved.origin);
     self.screen.cursor.pending_wrap = saved.pending_wrap;
     self.screen.cursor.protected = saved.protected;
@@ -2426,6 +2468,88 @@ test "Terminal: print writes to bottom if scrolled" {
         const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\nA", str);
+    }
+}
+
+test "Terminal: print charset" {
+    var t = try init(testing.allocator, 80, 80);
+    defer t.deinit(testing.allocator);
+
+    // G1 should have no effect
+    t.configureCharset(.G1, .dec_special);
+    t.configureCharset(.G2, .dec_special);
+    t.configureCharset(.G3, .dec_special);
+
+    // Basic grid writing
+    try t.print('`');
+    t.configureCharset(.G0, .utf8);
+    try t.print('`');
+    t.configureCharset(.G0, .ascii);
+    try t.print('`');
+    t.configureCharset(.G0, .dec_special);
+    try t.print('`');
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("```◆", str);
+    }
+}
+
+test "Terminal: print charset outside of ASCII" {
+    var t = try init(testing.allocator, 80, 80);
+    defer t.deinit(testing.allocator);
+
+    // G1 should have no effect
+    t.configureCharset(.G1, .dec_special);
+    t.configureCharset(.G2, .dec_special);
+    t.configureCharset(.G3, .dec_special);
+
+    // Basic grid writing
+    t.configureCharset(.G0, .dec_special);
+    try t.print('`');
+    try t.print(0x1F600);
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("◆ ", str);
+    }
+}
+
+test "Terminal: print invoke charset" {
+    var t = try init(testing.allocator, 80, 80);
+    defer t.deinit(testing.allocator);
+
+    t.configureCharset(.G1, .dec_special);
+
+    // Basic grid writing
+    try t.print('`');
+    t.invokeCharset(.GL, .G1, false);
+    try t.print('`');
+    try t.print('`');
+    t.invokeCharset(.GL, .G0, false);
+    try t.print('`');
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("`◆◆`", str);
+    }
+}
+
+test "Terminal: print invoke charset single" {
+    var t = try init(testing.allocator, 80, 80);
+    defer t.deinit(testing.allocator);
+
+    t.configureCharset(.G1, .dec_special);
+
+    // Basic grid writing
+    try t.print('`');
+    t.invokeCharset(.GL, .G1, true);
+    try t.print('`');
+    try t.print('`');
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("`◆`", str);
     }
 }
 
@@ -5946,15 +6070,15 @@ test "Terminal: saveCursor" {
     defer t.deinit(alloc);
 
     try t.setAttribute(.{ .bold = {} });
-    //t.screen.charset.gr = .G3;
+    t.screen.charset.gr = .G3;
     t.modes.set(.origin, true);
     t.saveCursor();
-    //t.screen.charset.gr = .G0;
+    t.screen.charset.gr = .G0;
     try t.setAttribute(.{ .unset = {} });
     t.modes.set(.origin, false);
     try t.restoreCursor();
     try testing.expect(t.screen.cursor.style.flags.bold);
-    //try testing.expect(t.screen.charset.gr == .G3);
+    try testing.expect(t.screen.charset.gr == .G3);
     try testing.expect(t.modes.get(.origin));
 }
 
