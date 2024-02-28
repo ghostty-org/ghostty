@@ -363,10 +363,10 @@ pub fn eraseRows(
     // The count of rows that was erased.
     var erased: usize = 0;
 
-    // A rowChunkIterator iterates one page at a time from the back forward.
+    // A pageIterator iterates one page at a time from the back forward.
     // "back" here is in terms of scrollback, but actually the front of the
     // linked list.
-    var it = self.rowChunkIterator(tl_pt, bl_pt);
+    var it = self.pageIterator(tl_pt, bl_pt);
     while (it.next()) |chunk| {
         // If the chunk is a full page, deinit thit page and remove it from
         // the linked list.
@@ -484,15 +484,21 @@ pub fn getCell(self: *const PageList, pt: point.Point) ?Cell {
 }
 
 pub const RowIterator = struct {
-    row: ?RowOffset = null,
-    limit: ?usize = null,
+    page_it: PageIterator,
+    chunk: ?PageIterator.Chunk = null,
+    offset: usize = 0,
 
     pub fn next(self: *RowIterator) ?RowOffset {
-        const row = self.row orelse return null;
-        self.row = row.forward(1);
-        if (self.limit) |*limit| {
-            limit.* -= 1;
-            if (limit.* == 0) self.row = null;
+        const chunk = self.chunk orelse return null;
+        const row: RowOffset = .{ .page = chunk.page, .row_offset = self.offset };
+
+        // Increase our offset in the chunk
+        self.offset += 1;
+
+        // If we are beyond the chunk end, we need to move to the next chunk.
+        if (self.offset >= chunk.end) {
+            self.chunk = self.page_it.next();
+            if (self.chunk) |c| self.offset = c.start;
         }
 
         return row;
@@ -507,14 +513,14 @@ pub const RowIterator = struct {
 pub fn rowIterator(
     self: *const PageList,
     tl_pt: point.Point,
+    bl_pt: ?point.Point,
 ) RowIterator {
-    const tl = self.getTopLeft(tl_pt);
-
-    // TODO: limits
-    return .{ .row = tl.forward(tl_pt.coord().y) };
+    var page_it = self.pageIterator(tl_pt, bl_pt);
+    const chunk = page_it.next() orelse return .{ .page_it = page_it };
+    return .{ .page_it = page_it, .chunk = chunk, .offset = chunk.start };
 }
 
-pub const RowChunkIterator = struct {
+pub const PageIterator = struct {
     row: ?RowOffset = null,
     limit: Limit = .none,
 
@@ -524,7 +530,7 @@ pub const RowChunkIterator = struct {
         row: RowOffset,
     };
 
-    pub fn next(self: *RowChunkIterator) ?Chunk {
+    pub fn next(self: *PageIterator) ?Chunk {
         // Get our current row location
         const row = self.row orelse return null;
 
@@ -619,15 +625,15 @@ pub const RowChunkIterator = struct {
 /// (inclusive). If bl_pt is null, the entire region specified by the point
 /// tag will be iterated over. tl_pt and bl_pt must be the same tag, and
 /// bl_pt must be greater than or equal to tl_pt.
-pub fn rowChunkIterator(
+pub fn pageIterator(
     self: *const PageList,
     tl_pt: point.Point,
     bl_pt: ?point.Point,
-) RowChunkIterator {
+) PageIterator {
     // TODO: bl_pt assertions
 
     const tl = self.getTopLeft(tl_pt);
-    const limit: RowChunkIterator.Limit = limit: {
+    const limit: PageIterator.Limit = limit: {
         if (bl_pt) |pt| {
             const bl = self.getTopLeft(pt);
             break :limit .{ .row = bl.forward(pt.coord().y).? };
@@ -1227,7 +1233,7 @@ test "PageList grow prune scrollback" {
     try testing.expectEqual(page1_node, s.pages.last.?);
 }
 
-test "PageList rowChunkIterator single page" {
+test "PageList pageIterator single page" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -1238,7 +1244,7 @@ test "PageList rowChunkIterator single page" {
     try testing.expect(s.pages.first.?.next == null);
 
     // Iterate the active area
-    var it = s.rowChunkIterator(.{ .active = .{} }, null);
+    var it = s.pageIterator(.{ .active = .{} }, null);
     {
         const chunk = it.next().?;
         try testing.expect(chunk.page == s.pages.first.?);
@@ -1250,7 +1256,7 @@ test "PageList rowChunkIterator single page" {
     try testing.expect(it.next() == null);
 }
 
-test "PageList rowChunkIterator two pages" {
+test "PageList pageIterator two pages" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -1266,7 +1272,7 @@ test "PageList rowChunkIterator two pages" {
     try testing.expect(try s.grow() != null);
 
     // Iterate the active area
-    var it = s.rowChunkIterator(.{ .active = .{} }, null);
+    var it = s.pageIterator(.{ .active = .{} }, null);
     {
         const chunk = it.next().?;
         try testing.expect(chunk.page == s.pages.first.?);
@@ -1284,7 +1290,7 @@ test "PageList rowChunkIterator two pages" {
     try testing.expect(it.next() == null);
 }
 
-test "PageList rowChunkIterator history two pages" {
+test "PageList pageIterator history two pages" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -1300,7 +1306,7 @@ test "PageList rowChunkIterator history two pages" {
     try testing.expect(try s.grow() != null);
 
     // Iterate the active area
-    var it = s.rowChunkIterator(.{ .history = .{} }, null);
+    var it = s.pageIterator(.{ .history = .{} }, null);
     {
         const active_tl = s.getTopLeft(.active);
         const chunk = it.next().?;
