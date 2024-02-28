@@ -1602,6 +1602,137 @@ pub fn eraseLine(
     }
 }
 
+/// Erase the display.
+pub fn eraseDisplay(
+    self: *Terminal,
+    mode: csi.EraseDisplay,
+    protected_req: bool,
+) void {
+    // We respect protected attributes if explicitly requested (probably
+    // a DECSEL sequence) or if our last protected mode was ISO even if its
+    // not currently set.
+    const protected = self.screen.protected_mode == .iso or protected_req;
+
+    switch (mode) {
+        // .scroll_complete => {
+        //     self.screen.scroll(.{ .clear = {} }) catch |err| {
+        //         log.warn("scroll clear failed, doing a normal clear err={}", .{err});
+        //         self.eraseDisplay(alloc, .complete, protected_req);
+        //         return;
+        //     };
+        //
+        //     // Unsets pending wrap state
+        //     self.screen.cursor.pending_wrap = false;
+        //
+        //     // Clear all Kitty graphics state for this screen
+        //     self.screen.kitty_images.delete(alloc, self, .{ .all = true });
+        // },
+        //
+        // .complete => {
+        //     // If we're on the primary screen and our last non-empty row is
+        //     // a prompt, then we do a scroll_complete instead. This is a
+        //     // heuristic to get the generally desirable behavior that ^L
+        //     // at a prompt scrolls the screen contents prior to clearing.
+        //     // Most shells send `ESC [ H ESC [ 2 J` so we can't just check
+        //     // our current cursor position. See #905
+        //     if (self.active_screen == .primary) at_prompt: {
+        //         // Go from the bottom of the viewport up and see if we're
+        //         // at a prompt.
+        //         const viewport_max = Screen.RowIndexTag.viewport.maxLen(&self.screen);
+        //         for (0..viewport_max) |y| {
+        //             const bottom_y = viewport_max - y - 1;
+        //             const row = self.screen.getRow(.{ .viewport = bottom_y });
+        //             if (row.isEmpty()) continue;
+        //             switch (row.getSemanticPrompt()) {
+        //                 // If we're at a prompt or input area, then we are at a prompt.
+        //                 .prompt,
+        //                 .prompt_continuation,
+        //                 .input,
+        //                 => break,
+        //
+        //                 // If we have command output, then we're most certainly not
+        //                 // at a prompt.
+        //                 .command => break :at_prompt,
+        //
+        //                 // If we don't know, we keep searching.
+        //                 .unknown => {},
+        //             }
+        //         } else break :at_prompt;
+        //
+        //         self.screen.scroll(.{ .clear = {} }) catch {
+        //             // If we fail, we just fall back to doing a normal clear
+        //             // so we don't worry about the error.
+        //         };
+        //     }
+        //
+        //     var it = self.screen.rowIterator(.active);
+        //     while (it.next()) |row| {
+        //         row.setWrapped(false);
+        //         row.setDirty(true);
+        //
+        //         if (!protected) {
+        //             row.clear(pen);
+        //             continue;
+        //         }
+        //
+        //         // Protected mode erase
+        //         for (0..row.lenCells()) |x| {
+        //             const cell = row.getCellPtr(x);
+        //             if (cell.attrs.protected) continue;
+        //             cell.* = pen;
+        //         }
+        //     }
+        //
+        //     // Unsets pending wrap state
+        //     self.screen.cursor.pending_wrap = false;
+        //
+        //     // Clear all Kitty graphics state for this screen
+        //     self.screen.kitty_images.delete(alloc, self, .{ .all = true });
+        // },
+
+        .below => {
+            // All lines to the right (including the cursor)
+            self.eraseLine(.right, protected_req);
+
+            // All lines below
+            if (self.screen.cursor.y + 1 < self.rows) {
+                self.screen.eraseRows(
+                    .{ .active = .{ .y = self.screen.cursor.y + 1 } },
+                    null,
+                    protected,
+                );
+            }
+
+            // Unsets pending wrap state. Should be done by eraseLine.
+            assert(!self.screen.cursor.pending_wrap);
+        },
+
+        .above => {
+            // Erase to the left (including the cursor)
+            self.eraseLine(.left, protected_req);
+
+            // All lines above
+            if (self.screen.cursor.y > 0) {
+                self.screen.eraseRows(
+                    .{ .active = .{ .y = 0 } },
+                    .{ .active = .{ .y = self.screen.cursor.y - 1 } },
+                    protected,
+                );
+            }
+
+            // Unsets pending wrap state
+            assert(!self.screen.cursor.pending_wrap);
+        },
+        //
+        // .scrollback => self.screen.clear(.history) catch |err| {
+        //     // This isn't a huge issue, so just log it.
+        //     log.err("failed to clear scrollback: {}", .{err});
+        // },
+
+        else => @panic("TODO"),
+    }
+}
+
 /// Resets all margins and fills the whole screen with the character 'E'
 ///
 /// Sets the cursor to the top left corner.
@@ -6483,5 +6614,202 @@ test "Terminal: printAttributes" {
     {
         const buf = try t.printAttributes(&storage);
         try testing.expectEqualStrings("0", buf);
+    }
+}
+
+test "Terminal: eraseDisplay simple erase below" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    for ("ABC") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    for ("DEF") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    for ("GHI") |c| try t.print(c);
+    t.setCursorPos(2, 2);
+    t.eraseDisplay(.below, false);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABC\nD", str);
+    }
+}
+
+test "Terminal: eraseDisplay erase below preserves SGR bg" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    for ("ABC") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    for ("DEF") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    for ("GHI") |c| try t.print(c);
+    t.setCursorPos(2, 2);
+
+    try t.setAttribute(.{ .direct_color_bg = .{
+        .r = 0xFF,
+        .g = 0,
+        .b = 0,
+    } });
+    t.eraseDisplay(.below, false);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABC\nD", str);
+        for (1..5) |x| {
+            const list_cell = t.screen.pages.getCell(.{ .active = .{ .x = x, .y = 1 } }).?;
+            try testing.expect(list_cell.cell.content_tag == .bg_color_rgb);
+            try testing.expectEqual(Cell.RGB{
+                .r = 0xFF,
+                .g = 0,
+                .b = 0,
+            }, list_cell.cell.content.color_rgb);
+        }
+    }
+}
+
+test "Terminal: eraseDisplay below split multi-cell" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.printString("AB橋C");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("DE橋F");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("GH橋I");
+    t.setCursorPos(2, 4);
+    t.eraseDisplay(.below, false);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("AB橋C\nDE", str);
+    }
+}
+
+test "Terminal: eraseDisplay below protected attributes respected with iso" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.setProtectedMode(.iso);
+    for ("ABC") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    for ("DEF") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    for ("GHI") |c| try t.print(c);
+    t.setCursorPos(2, 2);
+    t.eraseDisplay(.below, false);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABC\nDEF\nGHI", str);
+    }
+}
+
+test "Terminal: eraseDisplay below protected attributes ignored with dec most recent" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.setProtectedMode(.iso);
+    for ("ABC") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    for ("DEF") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    for ("GHI") |c| try t.print(c);
+    t.setProtectedMode(.dec);
+    t.setProtectedMode(.off);
+    t.setCursorPos(2, 2);
+    t.eraseDisplay(.below, false);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABC\nD", str);
+    }
+}
+
+test "Terminal: eraseDisplay below protected attributes ignored with dec set" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.setProtectedMode(.dec);
+    for ("ABC") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    for ("DEF") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    for ("GHI") |c| try t.print(c);
+    t.setCursorPos(2, 2);
+    t.eraseDisplay(.below, false);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABC\nD", str);
+    }
+}
+
+test "Terminal: eraseDisplay below protected attributes respected with force" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.setProtectedMode(.dec);
+    for ("ABC") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    for ("DEF") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    for ("GHI") |c| try t.print(c);
+    t.setCursorPos(2, 2);
+    t.eraseDisplay(.below, true);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABC\nDEF\nGHI", str);
+    }
+}
+
+test "Terminal: eraseDisplay simple erase above" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    for ("ABC") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    for ("DEF") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    for ("GHI") |c| try t.print(c);
+    t.setCursorPos(2, 2);
+    t.eraseDisplay(.above, false);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\n  F\nGHI", str);
     }
 }
