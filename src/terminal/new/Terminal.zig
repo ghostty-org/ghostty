@@ -1192,7 +1192,7 @@ pub fn insertLines(self: *Terminal, count: usize) void {
         var page = &self.screen.cursor.page_offset.page.data;
         const cells = page.getCells(row);
         const cells_write = cells[self.scrolling_region.left .. self.scrolling_region.right + 1];
-        self.screen.eraseCells(page, row, cells_write);
+        self.screen.clearCells(page, row, cells_write);
     }
 
     // Move the cursor to the left margin. But importantly this also
@@ -1286,7 +1286,7 @@ pub fn deleteLines(self: *Terminal, count_req: usize) void {
         var page = &self.screen.cursor.page_offset.page.data;
         const cells = page.getCells(row);
         const cells_write = cells[self.scrolling_region.left .. self.scrolling_region.right + 1];
-        self.screen.eraseCells(page, row, cells_write);
+        self.screen.clearCells(page, row, cells_write);
     }
 
     // Move the cursor to the left margin. But importantly this also
@@ -1350,7 +1350,7 @@ pub fn insertBlanks(self: *Terminal, count: usize) void {
         // it to be empty so we don't split the multi-cell char.
         const end: *Cell = @ptrCast(x);
         if (end.wide == .wide) {
-            self.screen.eraseCells(page, self.screen.cursor.page_row, end[0..1]);
+            self.screen.clearCells(page, self.screen.cursor.page_row, end[0..1]);
         }
 
         // We work backwards so we don't overwrite data.
@@ -1380,7 +1380,7 @@ pub fn insertBlanks(self: *Terminal, count: usize) void {
     }
 
     // Insert blanks. The blanks preserve the background color.
-    self.screen.eraseCells(page, self.screen.cursor.page_row, left[0..adjusted_count]);
+    self.screen.clearCells(page, self.screen.cursor.page_row, left[0..adjusted_count]);
 }
 
 /// Removes amount characters from the current cursor position to the right.
@@ -1410,7 +1410,7 @@ pub fn deleteChars(self: *Terminal, count: usize) void {
     // previous cell too so we don't split a multi-cell character.
     if (self.screen.cursor.page_cell.wide == .spacer_tail) {
         assert(self.screen.cursor.x > 0);
-        self.screen.eraseCells(page, self.screen.cursor.page_row, (left - 1)[0..2]);
+        self.screen.clearCells(page, self.screen.cursor.page_row, (left - 1)[0..2]);
     }
 
     // Remaining cols from our cursor to the right margin.
@@ -1433,7 +1433,7 @@ pub fn deleteChars(self: *Terminal, count: usize) void {
         if (end.wide == .spacer_tail) {
             const wide: [*]Cell = right + count - 1;
             assert(wide[0].wide == .wide);
-            self.screen.eraseCells(page, self.screen.cursor.page_row, wide[0..2]);
+            self.screen.clearCells(page, self.screen.cursor.page_row, wide[0..2]);
         }
 
         while (@intFromPtr(x) <= @intFromPtr(right)) : (x += 1) {
@@ -1462,7 +1462,7 @@ pub fn deleteChars(self: *Terminal, count: usize) void {
     }
 
     // Insert blanks. The blanks preserve the background color.
-    self.screen.eraseCells(page, self.screen.cursor.page_row, x[0 .. rem - scroll_amount]);
+    self.screen.clearCells(page, self.screen.cursor.page_row, x[0 .. rem - scroll_amount]);
 }
 
 pub fn eraseChars(self: *Terminal, count_req: usize) void {
@@ -1497,7 +1497,7 @@ pub fn eraseChars(self: *Terminal, count_req: usize) void {
     // are protected and go with the fast path. If the last protection
     // mode was not ISO we also always ignore protection attributes.
     if (self.screen.protected_mode != .iso) {
-        self.screen.eraseCells(
+        self.screen.clearCells(
             &self.screen.cursor.page_offset.page.data,
             self.screen.cursor.page_row,
             cells[0..end],
@@ -1512,7 +1512,7 @@ pub fn eraseChars(self: *Terminal, count_req: usize) void {
         const cell_multi: [*]Cell = @ptrCast(cells + x);
         const cell: *Cell = @ptrCast(&cell_multi[0]);
         if (cell.protected) continue;
-        self.screen.eraseCells(
+        self.screen.clearCells(
             &self.screen.cursor.page_offset.page.data,
             self.screen.cursor.page_row,
             cell_multi[0..1],
@@ -1582,7 +1582,7 @@ pub fn eraseLine(
     // If we're not respecting protected attributes, we can use a fast-path
     // to fill the entire line.
     if (!protected) {
-        self.screen.eraseCells(
+        self.screen.clearCells(
             &self.screen.cursor.page_offset.page.data,
             self.screen.cursor.page_row,
             cells[start..end],
@@ -1594,7 +1594,7 @@ pub fn eraseLine(
         const cell_multi: [*]Cell = @ptrCast(cells + x);
         const cell: *Cell = @ptrCast(&cell_multi[0]);
         if (cell.protected) continue;
-        self.screen.eraseCells(
+        self.screen.clearCells(
             &self.screen.cursor.page_offset.page.data,
             self.screen.cursor.page_row,
             cell_multi[0..1],
@@ -1667,7 +1667,7 @@ pub fn eraseDisplay(
             // }
 
             // All active area
-            self.screen.eraseRows(
+            self.screen.clearRows(
                 .{ .active = .{} },
                 null,
                 protected,
@@ -1687,7 +1687,7 @@ pub fn eraseDisplay(
 
             // All lines below
             if (self.screen.cursor.y + 1 < self.rows) {
-                self.screen.eraseRows(
+                self.screen.clearRows(
                     .{ .active = .{ .y = self.screen.cursor.y + 1 } },
                     null,
                     protected,
@@ -1704,7 +1704,7 @@ pub fn eraseDisplay(
 
             // All lines above
             if (self.screen.cursor.y > 0) {
-                self.screen.eraseRows(
+                self.screen.clearRows(
                     .{ .active = .{ .y = 0 } },
                     .{ .active = .{ .y = self.screen.cursor.y - 1 } },
                     protected,
