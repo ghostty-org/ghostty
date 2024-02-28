@@ -299,6 +299,23 @@ pub fn scrollClear(self: *Screen) !void {
     self.kitty_images.dirty = true;
 }
 
+/// Erase the region specified by tl and br, inclusive. This will physically
+/// erase the rows meaning the memory will be reclaimed (if the underlying
+/// page is empty) and other rows will be shifted up.
+pub fn eraseRows(
+    self: *Screen,
+    tl: point.Point,
+    bl: ?point.Point,
+) void {
+    // Erase the rows
+    self.pages.eraseRows(tl, bl);
+
+    // Just to be safe, reset our cursor since it is possible depending
+    // on the points that our active area shifted so our pointers are
+    // invalid.
+    //self.cursorAbsolute(self.cursor.x, self.cursor.y);
+}
+
 // Clear the region specified by tl and bl, inclusive. Cleared cells are
 // colored with the current style background color. This will clear all
 // cells in the rows.
@@ -843,4 +860,72 @@ test "Screen clearRows active styled line" {
     const str = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
     defer alloc.free(str);
     try testing.expectEqualStrings("", str);
+}
+
+test "Terminal: eraseRows history" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try Screen.init(alloc, 5, 5, 1000);
+    defer s.deinit();
+
+    try s.testWriteString("1\n2\n3\n4\n5\n6");
+
+    {
+        const str = try s.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(str);
+        try testing.expectEqualStrings("2\n3\n4\n5\n6", str);
+    }
+    {
+        const str = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(str);
+        try testing.expectEqualStrings("1\n2\n3\n4\n5\n6", str);
+    }
+
+    s.eraseRows(.{ .history = .{} }, null);
+
+    {
+        const str = try s.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(str);
+        try testing.expectEqualStrings("2\n3\n4\n5\n6", str);
+    }
+    {
+        const str = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(str);
+        try testing.expectEqualStrings("2\n3\n4\n5\n6", str);
+    }
+}
+
+test "Terminal: eraseRows history with more lines" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try Screen.init(alloc, 5, 5, 1000);
+    defer s.deinit();
+
+    try s.testWriteString("A\nB\nC\n1\n2\n3\n4\n5\n6");
+
+    {
+        const str = try s.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(str);
+        try testing.expectEqualStrings("2\n3\n4\n5\n6", str);
+    }
+    {
+        const str = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(str);
+        try testing.expectEqualStrings("A\nB\nC\n1\n2\n3\n4\n5\n6", str);
+    }
+
+    s.eraseRows(.{ .history = .{} }, null);
+
+    {
+        const str = try s.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(str);
+        try testing.expectEqualStrings("2\n3\n4\n5\n6", str);
+    }
+    {
+        const str = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(str);
+        try testing.expectEqualStrings("2\n3\n4\n5\n6", str);
+    }
 }
