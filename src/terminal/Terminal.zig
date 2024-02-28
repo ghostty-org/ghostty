@@ -2641,6 +2641,7 @@ test "Terminal: soft wrap" {
     }
 }
 
+// X
 test "Terminal: soft wrap with semantic prompt" {
     var t = try init(testing.allocator, 3, 80);
     defer t.deinit(testing.allocator);
@@ -4907,6 +4908,7 @@ test "Terminal: insert mode pushing off wide character" {
     }
 }
 
+// X
 test "Terminal: cursorIsAtPrompt" {
     const alloc = testing.allocator;
     var t = try init(alloc, 3, 2);

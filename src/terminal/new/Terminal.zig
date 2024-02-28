@@ -39,18 +39,6 @@ pub const ScreenType = enum {
     alternate,
 };
 
-/// The semantic prompt type. This is used when tracking a line type and
-/// requires integration with the shell. By default, we mark a line as "none"
-/// meaning we don't know what type it is.
-///
-/// See: https://gitlab.freedesktop.org/Per_Bothner/specifications/blob/master/proposals/semantic-prompts.md
-pub const SemanticPrompt = enum {
-    prompt,
-    prompt_continuation,
-    input,
-    command,
-};
-
 /// Screen is the current screen state. The "active_screen" field says what
 /// the current screen is. The backup screen is the opposite of the active
 /// screen.
@@ -603,17 +591,14 @@ fn printWrap(self: *Terminal) !void {
     // Get the old semantic prompt so we can extend it to the next
     // line. We need to do this before we index() because we may
     // modify memory.
-    // TODO(mitchellh): before merge
-    //const old_prompt = row.getSemanticPrompt();
+    const old_prompt = self.screen.cursor.page_row.semantic_prompt;
 
     // Move to the next line
     try self.index();
     self.screen.cursorHorizontalAbsolute(self.scrolling_region.left);
 
-    // TODO(mitchellh): before merge
     // New line must inherit semantic prompt of the old line
-    // const new_row = self.screen.getRow(.{ .active = self.screen.cursor.y });
-    // new_row.setSemanticPrompt(old_prompt);
+    self.screen.cursor.page_row.semantic_prompt = old_prompt;
     self.screen.cursor.page_row.wrap_continuation = true;
 }
 
@@ -887,6 +872,65 @@ pub fn setProtectedMode(self: *Terminal, mode: ansi.ProtectedMode) void {
             self.screen.protected_mode = .dec;
         },
     }
+}
+
+/// The semantic prompt type. This is used when tracking a line type and
+/// requires integration with the shell. By default, we mark a line as "none"
+/// meaning we don't know what type it is.
+///
+/// See: https://gitlab.freedesktop.org/Per_Bothner/specifications/blob/master/proposals/semantic-prompts.md
+pub const SemanticPrompt = enum {
+    prompt,
+    prompt_continuation,
+    input,
+    command,
+};
+
+/// Mark the current semantic prompt information. Current escape sequences
+/// (OSC 133) only allow setting this for wherever the current active cursor
+/// is located.
+pub fn markSemanticPrompt(self: *Terminal, p: SemanticPrompt) void {
+    //log.debug("semantic_prompt y={} p={}", .{ self.screen.cursor.y, p });
+    self.screen.cursor.page_row.semantic_prompt = switch (p) {
+        .prompt => .prompt,
+        .prompt_continuation => .prompt_continuation,
+        .input => .input,
+        .command => .command,
+    };
+}
+
+/// Returns true if the cursor is currently at a prompt. Another way to look
+/// at this is it returns false if the shell is currently outputting something.
+/// This requires shell integration (semantic prompt integration).
+///
+/// If the shell integration doesn't exist, this will always return false.
+pub fn cursorIsAtPrompt(self: *Terminal) bool {
+    // If we're on the secondary screen, we're never at a prompt.
+    if (self.active_screen == .alternate) return false;
+
+    // Reverse through the active
+    const start_x, const start_y = .{ self.screen.cursor.x, self.screen.cursor.y };
+    defer self.screen.cursorAbsolute(start_x, start_y);
+
+    for (0..start_y + 1) |i| {
+        if (i > 0) self.screen.cursorUp(1);
+        switch (self.screen.cursor.page_row.semantic_prompt) {
+            // If we're at a prompt or input area, then we are at a prompt.
+            .prompt,
+            .prompt_continuation,
+            .input,
+            => return true,
+
+            // If we have command output, then we're most certainly not
+            // at a prompt.
+            .command => return false,
+
+            // If we don't know, we keep searching.
+            .unknown => {},
+        }
+    }
+
+    return false;
 }
 
 /// Horizontal tab moves the cursor to the next tabstop, clearing
@@ -2565,6 +2609,23 @@ test "Terminal: soft wrap" {
         const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("hel\nlo", str);
+    }
+}
+
+test "Terminal: soft wrap with semantic prompt" {
+    var t = try init(testing.allocator, 3, 80);
+    defer t.deinit(testing.allocator);
+
+    t.markSemanticPrompt(.prompt);
+    for ("hello") |c| try t.print(c);
+
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        try testing.expectEqual(Row.SemanticPrompt.prompt, list_cell.row.semantic_prompt);
+    }
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 1 } }).?;
+        try testing.expectEqual(Row.SemanticPrompt.prompt, list_cell.row.semantic_prompt);
     }
 }
 
@@ -7159,4 +7220,34 @@ test "Terminal: eraseDisplay protected above" {
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\n     X  9", str);
     }
+}
+
+test "Terminal: cursorIsAtPrompt" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 3, 2);
+    defer t.deinit(alloc);
+
+    try testing.expect(!t.cursorIsAtPrompt());
+    t.markSemanticPrompt(.prompt);
+    try testing.expect(t.cursorIsAtPrompt());
+
+    // Input is also a prompt
+    t.markSemanticPrompt(.input);
+    try testing.expect(t.cursorIsAtPrompt());
+
+    // Newline -- we expect we're still at a prompt if we received
+    // prompt stuff before.
+    try t.linefeed();
+    try testing.expect(t.cursorIsAtPrompt());
+
+    // But once we say we're starting output, we're not a prompt
+    t.markSemanticPrompt(.command);
+    try testing.expect(!t.cursorIsAtPrompt());
+    try t.linefeed();
+    try testing.expect(!t.cursorIsAtPrompt());
+
+    // Until we know we're at a prompt again
+    try t.linefeed();
+    t.markSemanticPrompt(.prompt);
+    try testing.expect(t.cursorIsAtPrompt());
 }

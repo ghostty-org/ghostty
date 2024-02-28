@@ -503,7 +503,34 @@ pub const Row = packed struct(u64) {
     /// At the time of writing this, the speed difference is around 4x.
     styled: bool = false,
 
-    _padding: u28 = 0,
+    /// The semantic prompt type for this row as specified by the
+    /// running program, or "unknown" if it was never set.
+    semantic_prompt: SemanticPrompt = .unknown,
+
+    _padding: u25 = 0,
+
+    /// Semantic prompt type.
+    pub const SemanticPrompt = enum(u3) {
+        /// Unknown, the running application didn't tell us for this line.
+        unknown = 0,
+
+        /// This is a prompt line, meaning it only contains the shell prompt.
+        /// For poorly behaving shells, this may also be the input.
+        prompt = 1,
+        prompt_continuation = 2,
+
+        /// This line contains the input area. We don't currently track
+        /// where this actually is in the line, so we just assume it is somewhere.
+        input = 3,
+
+        /// This line is the start of command output.
+        command = 4,
+
+        /// True if this is a prompt or input line.
+        pub fn promptOrInput(self: SemanticPrompt) bool {
+            return self == .prompt or self == .prompt_continuation or self == .input;
+        }
+    };
 };
 
 /// A cell represents a single terminal grid cell.
