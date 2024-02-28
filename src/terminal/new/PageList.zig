@@ -364,7 +364,7 @@ fn createPage(self: *PageList) !*List.Node {
 /// If the top or bottom point is in the middle of a page, the other
 /// contents in the page will be preserved but the page itself will be
 /// underutilized (size < capacity).
-pub fn erase(
+pub fn eraseRows(
     self: *PageList,
     tl_pt: point.Point,
     bl_pt: ?point.Point,
@@ -388,7 +388,7 @@ pub fn erase(
         const rows = chunk.page.data.rows.ptr(chunk.page.data.memory);
         const scroll_amount = chunk.page.data.size.rows - chunk.end;
         for (0..scroll_amount) |i| {
-            const src: *Row = &rows[i + scroll_amount];
+            const src: *Row = &rows[i + chunk.end];
             const dst: *Row = &rows[i];
             const old_dst = dst.*;
             dst.* = src.*;
@@ -400,6 +400,17 @@ pub fn erase(
         // be written to again (its in the past) or it will grow and the
         // terminal erase will automatically erase the data.
 
+        // If our viewport is on this page and the offset is beyond
+        // our new end, shift it.
+        switch (self.viewport) {
+            .top, .active => {},
+            .exact => |*offset| exact: {
+                if (offset.page != chunk.page) break :exact;
+                offset.row_offset -|= scroll_amount;
+            },
+        }
+
+        // Our new size is the amount we scrolled
         chunk.page.data.size.rows = @intCast(scroll_amount);
     }
 }
@@ -407,6 +418,20 @@ pub fn erase(
 /// Erase a single page, freeing all its resources. The page can be
 /// anywhere in the linked list.
 fn erasePage(self: *PageList, page: *List.Node) void {
+    // If our viewport is pinned to this page, then we need to update it.
+    switch (self.viewport) {
+        .top, .active => {},
+        .exact => |*offset| {
+            if (offset.page == page) {
+                if (page.next) |next| {
+                    offset.page = next;
+                } else {
+                    self.viewport = .{ .active = {} };
+                }
+            }
+        },
+    }
+
     // Remove the page from the linked list
     self.pages.remove(page);
 
@@ -1276,6 +1301,28 @@ test "PageList erase" {
     try testing.expect(s.totalRows() > s.rows);
 
     // Erase the entire history, we should be back to just our active set.
-    s.erase(.{ .history = .{} }, null);
+    s.eraseRows(.{ .history = .{} }, null);
     try testing.expectEqual(s.rows, s.totalRows());
+}
+
+test "PageList erase resets viewport if inside erased page" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+
+    // Grow so we take up at least 5 pages.
+    const page = &s.pages.last.?.data;
+    for (0..page.capacity.rows * 5) |_| {
+        _ = try s.grow();
+    }
+
+    // Move our viewport to the top
+    s.scroll(.{ .delta_row = -@as(isize, @intCast(s.totalRows())) });
+    try testing.expect(s.viewport.exact.page == s.pages.first.?);
+
+    // Erase the entire history, we should be back to just our active set.
+    s.eraseRows(.{ .history = .{} }, null);
+    try testing.expect(s.viewport.exact.page == s.pages.first.?);
 }

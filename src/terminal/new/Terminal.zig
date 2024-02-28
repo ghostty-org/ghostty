@@ -1714,13 +1714,8 @@ pub fn eraseDisplay(
             // Unsets pending wrap state
             assert(!self.screen.cursor.pending_wrap);
         },
-        //
-        // .scrollback => self.screen.clear(.history) catch |err| {
-        //     // This isn't a huge issue, so just log it.
-        //     log.err("failed to clear scrollback: {}", .{err});
-        // },
 
-        else => @panic("TODO"),
+        .scrollback => self.screen.eraseRows(.{ .history = .{} }, null),
     }
 }
 
