@@ -14,6 +14,8 @@ const OffsetBuf = size.OffsetBuf;
 const Page = pagepkg.Page;
 const Row = pagepkg.Row;
 
+const log = std.log.scoped(.page_list);
+
 /// The number of PageList.Nodes we preheat the pool with. A node is
 /// a very small struct so we can afford to preheat many, but the exact
 /// number is uncertain. Any number too large is wasting memory, any number
@@ -369,6 +371,9 @@ pub fn eraseRows(
     tl_pt: point.Point,
     bl_pt: ?point.Point,
 ) void {
+    // The count of rows that was erased.
+    var erased: usize = 0;
+
     // A rowChunkIterator iterates one page at a time from the back forward.
     // "back" here is in terms of scrollback, but actually the front of the
     // linked list.
@@ -378,6 +383,7 @@ pub fn eraseRows(
         // the linked list.
         if (chunk.fullPage()) {
             self.erasePage(chunk.page);
+            erased += chunk.page.data.size.rows;
             continue;
         }
 
@@ -412,6 +418,20 @@ pub fn eraseRows(
 
         // Our new size is the amount we scrolled
         chunk.page.data.size.rows = @intCast(scroll_amount);
+        erased += chunk.end;
+    }
+
+    // If we deleted active, we need to regrow because one of our invariants
+    // is that we always have full active space.
+    if (tl_pt == .active) {
+        for (0..erased) |_| _ = self.grow() catch |err| {
+            // If this fails its a pretty big issue actually... but I don't
+            // want to turn this function into an error-returning function
+            // because erasing active is so rare and even if it happens failing
+            // is even more rare...
+            log.err("failed to regrow active area after erase err={}", .{err});
+            return;
+        };
     }
 }
 
@@ -1325,4 +1345,15 @@ test "PageList erase resets viewport if inside erased page" {
     // Erase the entire history, we should be back to just our active set.
     s.eraseRows(.{ .history = .{} }, null);
     try testing.expect(s.viewport.exact.page == s.pages.first.?);
+}
+
+test "PageList erase active regrows automatically" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+    try testing.expect(s.totalRows() == s.rows);
+    s.eraseRows(.{ .active = .{} }, .{ .active = .{ .y = 10 } });
+    try testing.expect(s.totalRows() == s.rows);
 }
