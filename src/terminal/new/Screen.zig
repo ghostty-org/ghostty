@@ -1113,3 +1113,22 @@ test "Screen: scrolling" {
         try testing.expectEqualStrings("2EFGH\n3IJKL", contents);
     }
 }
+
+test "Screen: scroll down from 0" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 0);
+    defer s.deinit();
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL");
+
+    // Scrolling up does nothing, but allows it
+    s.scroll(.{ .delta_row = -1 });
+    try testing.expect(s.pages.viewport == .active);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("1ABCD\n2EFGH\n3IJKL", contents);
+    }
+}

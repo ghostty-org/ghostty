@@ -203,53 +203,42 @@ pub fn scroll(self: *PageList, behavior: Scroll) void {
     switch (behavior) {
         .active => self.viewport = .{ .active = {} },
         .top => self.viewport = .{ .top = {} },
-        .delta_row => |n| {
+        .delta_row => |n| delta_row: {
             if (n == 0) return;
 
             const top = self.getTopLeft(.viewport);
             const offset: RowOffset = if (n < 0) switch (top.backwardOverflow(@intCast(-n))) {
                 .offset => |v| v,
                 .overflow => |v| v.end,
-            } else forward: {
-                // Not super happy with the logic to scroll forward. I think
-                // this is pretty slow, but it is human-driven (scrolling
-                // this way) so hyper speed isn't strictly necessary. Still,
-                // it feels bad.
-
-                const forward_offset = switch (top.forwardOverflow(@intCast(n))) {
-                    .offset => |v| v,
-                    .overflow => |v| v.end,
-                };
-
-                var final_offset: ?RowOffset = forward_offset;
-
-                // Ensure we have at least rows rows in the viewport. There
-                // is probably a smarter way to do this.
-                var page = self.pages.last.?;
-                var rem = self.rows;
-                while (rem > page.data.size.rows) {
-                    rem -= page.data.size.rows;
-
-                    // If we see our forward page here then we know its
-                    // beyond the active area and we can set final null.
-                    if (page == forward_offset.page) final_offset = null;
-
-                    page = page.prev.?; // assertion: we always have enough rows for active
-                }
-                const active_offset = .{ .page = page, .row_offset = page.data.size.rows - rem };
-
-                // If we have a final still and we're on the same page
-                // but the active area is before the forward area, then
-                // we can use the active area.
-                if (final_offset != null and
-                    active_offset.page == forward_offset.page and
-                    forward_offset.row_offset > active_offset.row_offset)
-                {
-                    final_offset = active_offset;
-                }
-
-                break :forward final_offset orelse active_offset;
+            } else switch (top.forwardOverflow(@intCast(n))) {
+                .offset => |v| v,
+                .overflow => |v| v.end,
             };
+
+            // If we are still within the active area, then we pin the
+            // viewport to active. This isn't EXACTLY the same behavior as
+            // other scrolling because normally when you scroll the viewport
+            // is pinned to _that row_ even if new scrollback is created.
+            // But in a terminal when you get to the bottom and back into the
+            // active area, you usually expect that the viewport will now
+            // follow the active area.
+            const active = self.getTopLeft(.active);
+            if (offset.page == active.page) {
+                if (offset.row_offset >= active.row_offset) {
+                    self.viewport = .{ .active = {} };
+                    break :delta_row;
+                }
+            } else active: {
+                // Check forward pages too.
+                var page = active.page.next orelse break :active;
+                while (true) {
+                    if (page == offset.page) {
+                        self.viewport = .{ .active = {} };
+                        break :delta_row;
+                    }
+                    page = page.next orelse break :active;
+                }
+            }
 
             self.viewport = .{ .exact = offset };
         },
@@ -1098,6 +1087,25 @@ test "PageList scroll delta row forward into active" {
             .y = 0,
         } }, pt);
     }
+}
+
+test "PageList scroll delta row back without space preserves active" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+    s.scroll(.{ .delta_row = -1 });
+
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, pt);
+    }
+
+    try testing.expect(s.viewport == .active);
 }
 
 test "PageList scroll clear" {
