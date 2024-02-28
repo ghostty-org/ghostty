@@ -6273,6 +6273,7 @@ test "Terminal: eraseDisplay below protected attributes respected with force" {
     }
 }
 
+// X
 test "Terminal: eraseDisplay erase above preserves SGR bg" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6305,6 +6306,7 @@ test "Terminal: eraseDisplay erase above preserves SGR bg" {
     }
 }
 
+// X
 test "Terminal: eraseDisplay above split multi-cell" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6327,6 +6329,7 @@ test "Terminal: eraseDisplay above split multi-cell" {
     }
 }
 
+// X
 test "Terminal: eraseDisplay above protected attributes respected with iso" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6350,6 +6353,7 @@ test "Terminal: eraseDisplay above protected attributes respected with iso" {
     }
 }
 
+// X
 test "Terminal: eraseDisplay above protected attributes ignored with dec most recent" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6375,6 +6379,7 @@ test "Terminal: eraseDisplay above protected attributes ignored with dec most re
     }
 }
 
+// X
 test "Terminal: eraseDisplay above protected attributes ignored with dec set" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6398,6 +6403,7 @@ test "Terminal: eraseDisplay above protected attributes ignored with dec set" {
     }
 }
 
+// X
 test "Terminal: eraseDisplay above protected attributes respected with force" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6420,6 +6426,8 @@ test "Terminal: eraseDisplay above protected attributes respected with force" {
         try testing.expectEqualStrings("ABC\nDEF\nGHI", str);
     }
 }
+
+// X
 test "Terminal: eraseDisplay above" {
     var t = try init(testing.allocator, 80, 80);
     defer t.deinit(testing.allocator);
@@ -6459,6 +6467,7 @@ test "Terminal: eraseDisplay above" {
     try testing.expect(cell.bg.rgb.eql(pink));
 }
 
+// X
 test "Terminal: eraseDisplay below" {
     var t = try init(testing.allocator, 80, 80);
     defer t.deinit(testing.allocator);
@@ -6492,6 +6501,7 @@ test "Terminal: eraseDisplay below" {
     try testing.expect(cell.bg.rgb.eql(pink));
 }
 
+// X
 test "Terminal: eraseDisplay complete" {
     var t = try init(testing.allocator, 80, 80);
     defer t.deinit(testing.allocator);
@@ -6536,6 +6546,7 @@ test "Terminal: eraseDisplay complete" {
     try testing.expect(!cell.attrs.bold);
 }
 
+// X
 test "Terminal: eraseDisplay protected complete" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 5);
@@ -6558,6 +6569,7 @@ test "Terminal: eraseDisplay protected complete" {
     }
 }
 
+// X
 test "Terminal: eraseDisplay protected below" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 5);
@@ -6580,6 +6592,7 @@ test "Terminal: eraseDisplay protected below" {
     }
 }
 
+// X
 test "Terminal: eraseDisplay protected above" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 5);
@@ -6597,6 +6610,7 @@ test "Terminal: eraseDisplay protected above" {
     }
 }
 
+// X
 test "Terminal: eraseDisplay scroll complete" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 3);
