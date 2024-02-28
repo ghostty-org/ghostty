@@ -25,6 +25,11 @@ alloc: Allocator,
 /// The list of pages in the screen.
 pages: PageList,
 
+/// Special-case where we want no scrollback whatsoever. We have to flag
+/// this because max_size 0 in PageList gets rounded up to two pages so
+/// we can always have an active screen.
+no_scrollback: bool = false,
+
 /// The current cursor position
 cursor: Cursor,
 
@@ -111,6 +116,12 @@ pub const CharsetState = struct {
 };
 
 /// Initialize a new screen.
+///
+/// max_scrollback is the amount of scrollback to keep in bytes. This
+/// will be rounded UP to the nearest page size because our minimum allocation
+/// size is that anyways.
+///
+/// If max scrollback is 0, then no scrollback is kept at all.
 pub fn init(
     alloc: Allocator,
     cols: size.CellCountInt,
@@ -133,6 +144,7 @@ pub fn init(
     return .{
         .alloc = alloc,
         .pages = pages,
+        .no_scrollback = max_scrollback == 0,
         .cursor = .{
             .x = 0,
             .y = 0,
@@ -255,19 +267,54 @@ pub fn cursorAbsolute(self: *Screen, x: size.CellCountInt, y: size.CellCountInt)
     self.cursor.y = y;
 }
 
+/// Reloads the cursor pointer information into the screen. This is expensive
+/// so it should only be done in cases where the pointers are invalidated
+/// in such a way that its difficult to recover otherwise.
+pub fn cursorReload(self: *Screen) void {
+    const get = self.pages.getCell(.{ .active = .{
+        .x = self.cursor.x,
+        .y = self.cursor.y,
+    } }).?;
+    self.cursor.page_offset = .{ .page = get.page, .row_offset = get.row_idx };
+    self.cursor.page_row = get.row;
+    self.cursor.page_cell = get.cell;
+}
+
 /// Scroll the active area and keep the cursor at the bottom of the screen.
 /// This is a very specialized function but it keeps it fast.
 pub fn cursorDownScroll(self: *Screen) !void {
     assert(self.cursor.y == self.pages.rows - 1);
 
-    // Grow our pages by one row. The PageList will handle if we need to
-    // allocate, prune scrollback, whatever.
-    _ = try self.pages.grow();
-    const page_offset = self.cursor.page_offset.forward(1).?;
-    const page_rac = page_offset.rowAndCell(self.cursor.x);
-    self.cursor.page_offset = page_offset;
-    self.cursor.page_row = page_rac.row;
-    self.cursor.page_cell = page_rac.cell;
+    // If we have no scrollback, then we shift all our rows instead.
+    if (self.no_scrollback) {
+        // Erase rows will shift our rows up
+        self.pages.eraseRows(.{ .active = .{} }, .{ .active = .{} });
+
+        // We need to reload our cursor because the pointers are now invalid.
+        const page_offset = self.cursor.page_offset;
+        const page_rac = page_offset.rowAndCell(self.cursor.x);
+        self.cursor.page_offset = page_offset;
+        self.cursor.page_row = page_rac.row;
+        self.cursor.page_cell = page_rac.cell;
+
+        // Erase rows does NOT clear the cells because in all other cases
+        // we never write those rows again. Active erasing is a bit
+        // different so we manually clear our one row.
+        self.clearCells(
+            &page_offset.page.data,
+            self.cursor.page_row,
+            page_offset.page.data.getCells(self.cursor.page_row),
+        );
+    } else {
+        // Grow our pages by one row. The PageList will handle if we need to
+        // allocate, prune scrollback, whatever.
+        _ = try self.pages.grow();
+        const page_offset = self.cursor.page_offset.forward(1).?;
+        const page_rac = page_offset.rowAndCell(self.cursor.x);
+        self.cursor.page_offset = page_offset;
+        self.cursor.page_row = page_rac.row;
+        self.cursor.page_cell = page_rac.cell;
+    }
 
     // The newly created line needs to be styled according to the bg color
     // if it is set.
@@ -340,7 +387,7 @@ pub fn eraseRows(
     // Just to be safe, reset our cursor since it is possible depending
     // on the points that our active area shifted so our pointers are
     // invalid.
-    //self.cursorAbsolute(self.cursor.x, self.cursor.y);
+    self.cursorReload();
 }
 
 // Clear the region specified by tl and bl, inclusive. Cleared cells are
@@ -774,6 +821,67 @@ test "Screen read and write newline" {
     try testing.expectEqualStrings("hello\nworld", str);
 }
 
+test "Screen read and write scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try Screen.init(alloc, 80, 2, 1000);
+    defer s.deinit();
+
+    try s.testWriteString("hello\nworld\ntest");
+    {
+        const str = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(str);
+        try testing.expectEqualStrings("hello\nworld\ntest", str);
+    }
+    {
+        const str = try s.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(str);
+        try testing.expectEqualStrings("world\ntest", str);
+    }
+}
+
+test "Screen read and write no scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try Screen.init(alloc, 80, 2, 0);
+    defer s.deinit();
+
+    try s.testWriteString("hello\nworld\ntest");
+    {
+        const str = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(str);
+        try testing.expectEqualStrings("world\ntest", str);
+    }
+    {
+        const str = try s.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(str);
+        try testing.expectEqualStrings("world\ntest", str);
+    }
+}
+
+test "Screen read and write no scrollback large" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try Screen.init(alloc, 80, 2, 0);
+    defer s.deinit();
+
+    for (0..1_000) |i| {
+        var buf: [128]u8 = undefined;
+        const str = try std.fmt.bufPrint(&buf, "{}\n", .{i});
+        try s.testWriteString(str);
+    }
+    try s.testWriteString("1000");
+
+    {
+        const str = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(str);
+        try testing.expectEqualStrings("999\n1000", str);
+    }
+}
+
 test "Screen style basics" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -889,7 +997,7 @@ test "Screen clearRows active styled line" {
     try testing.expectEqualStrings("", str);
 }
 
-test "Terminal: eraseRows history" {
+test "Screen eraseRows history" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -923,7 +1031,7 @@ test "Terminal: eraseRows history" {
     }
 }
 
-test "Terminal: eraseRows history with more lines" {
+test "Screen eraseRows history with more lines" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
