@@ -2050,6 +2050,31 @@ pub fn plainString(self: *Terminal, alloc: Allocator) ![]const u8 {
     return try self.screen.dumpStringAlloc(alloc, .{ .viewport = .{} });
 }
 
+/// Full reset
+pub fn fullReset(self: *Terminal) void {
+    self.primaryScreen(.{ .clear_on_exit = true, .cursor_save = true });
+    self.screen.charset = .{};
+    self.modes = .{};
+    self.flags = .{};
+    self.tabstops.reset(TABSTOP_INTERVAL);
+    self.screen.saved_cursor = null;
+    self.screen.selection = null;
+    self.screen.kitty_keyboard = .{};
+    self.screen.protected_mode = .off;
+    self.scrolling_region = .{
+        .top = 0,
+        .bottom = self.rows - 1,
+        .left = 0,
+        .right = self.cols - 1,
+    };
+    self.previous_char = null;
+    self.eraseDisplay(.scrollback, false);
+    self.eraseDisplay(.complete, false);
+    self.screen.cursorAbsolute(0, 0);
+    self.pwd.clearRetainingCapacity();
+    self.status_display = .main;
+}
+
 test "Terminal: input with no control characters" {
     const alloc = testing.allocator;
     var t = try init(alloc, 40, 40);
@@ -7388,4 +7413,45 @@ test "Terminal: cursorIsAtPrompt alternate screen" {
     try testing.expect(!t.cursorIsAtPrompt());
     t.markSemanticPrompt(.prompt);
     try testing.expect(!t.cursorIsAtPrompt());
+}
+
+test "Terminal: fullReset with a non-empty pen" {
+    var t = try init(testing.allocator, 80, 80);
+    defer t.deinit(testing.allocator);
+
+    try t.setAttribute(.{ .direct_color_fg = .{ .r = 0xFF, .g = 0, .b = 0x7F } });
+    try t.setAttribute(.{ .direct_color_bg = .{ .r = 0xFF, .g = 0, .b = 0x7F } });
+    t.fullReset();
+
+    {
+        const list_cell = t.screen.pages.getCell(.{ .active = .{
+            .x = t.screen.cursor.x,
+            .y = t.screen.cursor.y,
+        } }).?;
+        const cell = list_cell.cell;
+        try testing.expect(cell.style_id == 0);
+    }
+}
+
+test "Terminal: fullReset origin mode" {
+    var t = try init(testing.allocator, 10, 10);
+    defer t.deinit(testing.allocator);
+
+    t.setCursorPos(3, 5);
+    t.modes.set(.origin, true);
+    t.fullReset();
+
+    // Origin mode should be reset and the cursor should be moved
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.x);
+    try testing.expect(!t.modes.get(.origin));
+}
+
+test "Terminal: fullReset status display" {
+    var t = try init(testing.allocator, 10, 10);
+    defer t.deinit(testing.allocator);
+
+    t.status_display = .status_line;
+    t.fullReset();
+    try testing.expect(t.status_display == .main);
 }

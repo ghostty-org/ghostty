@@ -2196,6 +2196,7 @@ pub fn fullReset(self: *Terminal, alloc: Allocator) void {
     self.status_display = .main;
 }
 
+// X
 test "Terminal: fullReset with a non-empty pen" {
     var t = try init(testing.allocator, 80, 80);
     defer t.deinit(testing.allocator);
@@ -2209,6 +2210,7 @@ test "Terminal: fullReset with a non-empty pen" {
     try testing.expect(cell.fg == .none);
 }
 
+// X
 test "Terminal: fullReset origin mode" {
     var t = try init(testing.allocator, 10, 10);
     defer t.deinit(testing.allocator);
@@ -2223,6 +2225,7 @@ test "Terminal: fullReset origin mode" {
     try testing.expect(!t.modes.get(.origin));
 }
 
+// X
 test "Terminal: fullReset status display" {
     var t = try init(testing.allocator, 10, 10);
     defer t.deinit(testing.allocator);

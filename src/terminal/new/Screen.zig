@@ -44,6 +44,9 @@ charset: CharsetState = .{},
 /// protection mode since some sequences such as ECH depend on this.
 protected_mode: ansi.ProtectedMode = .off,
 
+/// The kitty keyboard settings.
+kitty_keyboard: kitty.KeyFlagStack = .{},
+
 /// Kitty graphics protocol state.
 kitty_images: kitty.graphics.ImageStorage = .{},
 
