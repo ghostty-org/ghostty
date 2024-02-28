@@ -412,7 +412,7 @@ pub fn clearRows(
     bl: ?point.Point,
     protected: bool,
 ) void {
-    var it = self.pages.rowChunkIterator(tl, bl);
+    var it = self.pages.pageIterator(tl, bl);
     while (it.next()) |chunk| {
         for (chunk.rows()) |*row| {
             const cells_offset = row.cells;
@@ -682,7 +682,7 @@ pub fn dumpString(
 ) !void {
     var blank_rows: usize = 0;
 
-    var iter = self.pages.rowIterator(tl);
+    var iter = self.pages.rowIterator(tl, null);
     while (iter.next()) |row_offset| {
         const rac = row_offset.rowAndCell(0);
         const cells = cells: {
@@ -1087,7 +1087,6 @@ test "Screen: scrolling" {
     // Scroll down, should still be bottom
     try s.cursorDownScroll();
     {
-        // Test our contents rotated
         const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
         defer alloc.free(contents);
         try testing.expectEqualStrings("2EFGH\n3IJKL", contents);
@@ -1107,7 +1106,6 @@ test "Screen: scrolling" {
     s.scroll(.{ .active = {} });
 
     {
-        // Test our contents rotated
         const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
         defer alloc.free(contents);
         try testing.expectEqualStrings("2EFGH\n3IJKL", contents);
@@ -1130,5 +1128,162 @@ test "Screen: scroll down from 0" {
         const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
         defer alloc.free(contents);
         try testing.expectEqualStrings("1ABCD\n2EFGH\n3IJKL", contents);
+    }
+}
+
+test "Screen: scrollback various cases" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 1);
+    defer s.deinit();
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL");
+    try s.cursorDownScroll();
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("2EFGH\n3IJKL", contents);
+    }
+
+    // Scrolling to the bottom
+    s.scroll(.{ .active = {} });
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("2EFGH\n3IJKL", contents);
+    }
+
+    // Scrolling back should make it visible again
+    s.scroll(.{ .delta_row = -1 });
+    try testing.expect(s.pages.viewport != .active);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("1ABCD\n2EFGH\n3IJKL", contents);
+    }
+
+    // Scrolling back again should do nothing
+    s.scroll(.{ .delta_row = -1 });
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("1ABCD\n2EFGH\n3IJKL", contents);
+    }
+
+    // Scrolling to the bottom
+    s.scroll(.{ .active = {} });
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("2EFGH\n3IJKL", contents);
+    }
+
+    // Scrolling forward with no grow should do nothing
+    s.scroll(.{ .delta_row = 1 });
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("2EFGH\n3IJKL", contents);
+    }
+
+    // Scrolling to the top should work
+    s.scroll(.{ .top = {} });
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("1ABCD\n2EFGH\n3IJKL", contents);
+    }
+
+    // Should be able to easily clear active area only
+    s.clearRows(.{ .active = .{} }, null, false);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("1ABCD", contents);
+    }
+
+    // Scrolling to the bottom
+    s.scroll(.{ .active = {} });
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("", contents);
+    }
+}
+
+test "Screen: scrollback with multi-row delta" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 3);
+    defer s.deinit();
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL\n4ABCD\n5EFGH\n6IJKL");
+
+    // Scroll to top
+    s.scroll(.{ .top = {} });
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("1ABCD\n2EFGH\n3IJKL", contents);
+    }
+
+    // Scroll down multiple
+    s.scroll(.{ .delta_row = 5 });
+    try testing.expect(s.pages.viewport == .active);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("4ABCD\n5EFGH\n6IJKL", contents);
+    }
+}
+
+test "Screen: scrollback empty" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 50);
+    defer s.deinit();
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL");
+    s.scroll(.{ .delta_row = 1 });
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("1ABCD\n2EFGH\n3IJKL", contents);
+    }
+}
+
+test "Screen: scrollback doesn't move viewport if not at bottom" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 3);
+    defer s.deinit();
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL\n4ABCD\n5EFGH");
+
+    // First test: we scroll up by 1, so we're not at the bottom anymore.
+    s.scroll(.{ .delta_row = -1 });
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("2EFGH\n3IJKL\n4ABCD", contents);
+    }
+
+    // Next, we scroll back down by 1, this grows the scrollback but we
+    // shouldn't move.
+    try s.cursorDownScroll();
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("2EFGH\n3IJKL\n4ABCD", contents);
+    }
+
+    // Scroll again, this clears scrollback so we should move viewports
+    // but still see the same thing since our original view fits.
+    try s.cursorDownScroll();
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("2EFGH\n3IJKL\n4ABCD", contents);
     }
 }
