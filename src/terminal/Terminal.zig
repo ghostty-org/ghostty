@@ -4939,6 +4939,7 @@ test "Terminal: cursorIsAtPrompt" {
     try testing.expect(t.cursorIsAtPrompt());
 }
 
+// X
 test "Terminal: cursorIsAtPrompt alternate screen" {
     const alloc = testing.allocator;
     var t = try init(alloc, 3, 2);
@@ -5491,6 +5492,7 @@ test "Terminal: saveCursor" {
     try testing.expect(t.modes.get(.origin));
 }
 
+// X
 test "Terminal: saveCursor with screen change" {
     const alloc = testing.allocator;
     var t = try init(alloc, 3, 3);

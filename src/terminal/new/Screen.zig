@@ -8,6 +8,7 @@ const charsets = @import("../charsets.zig");
 const kitty = @import("../kitty.zig");
 const sgr = @import("../sgr.zig");
 const unicode = @import("../../unicode/main.zig");
+const Selection = @import("../Selection.zig");
 const PageList = @import("PageList.zig");
 const pagepkg = @import("page.zig");
 const point = @import("point.zig");
@@ -29,6 +30,9 @@ cursor: Cursor,
 
 /// The saved cursor
 saved_cursor: ?SavedCursor = null,
+
+/// The selection for this screen (if any).
+selection: ?Selection = null,
 
 /// The charset state
 charset: CharsetState = .{},

@@ -1950,6 +1950,98 @@ pub fn printAttributes(self: *Terminal, buf: []u8) ![]const u8 {
     return stream.getWritten();
 }
 
+/// Options for switching to the alternate screen.
+pub const AlternateScreenOptions = struct {
+    cursor_save: bool = false,
+    clear_on_enter: bool = false,
+    clear_on_exit: bool = false,
+};
+
+/// Switch to the alternate screen buffer.
+///
+/// The alternate screen buffer:
+///   * has its own grid
+///   * has its own cursor state (included saved cursor)
+///   * does not support scrollback
+///
+pub fn alternateScreen(
+    self: *Terminal,
+    options: AlternateScreenOptions,
+) void {
+    //log.info("alt screen active={} options={} cursor={}", .{ self.active_screen, options, self.screen.cursor });
+
+    // TODO: test
+    // TODO(mitchellh): what happens if we enter alternate screen multiple times?
+    // for now, we ignore...
+    if (self.active_screen == .alternate) return;
+
+    // If we requested cursor save, we save the cursor in the primary screen
+    if (options.cursor_save) self.saveCursor();
+
+    // Switch the screens
+    const old = self.screen;
+    self.screen = self.secondary_screen;
+    self.secondary_screen = old;
+    self.active_screen = .alternate;
+
+    // Bring our charset state with us
+    self.screen.charset = old.charset;
+
+    // Clear our selection
+    self.screen.selection = null;
+
+    // Mark kitty images as dirty so they redraw
+    self.screen.kitty_images.dirty = true;
+
+    // Bring our pen with us
+    self.screen.cursor = old.cursor;
+    self.screen.cursor.style_id = 0;
+    self.screen.cursor.style_ref = null;
+    self.screen.cursorAbsolute(old.cursor.x, old.cursor.y);
+
+    if (options.clear_on_enter) {
+        self.eraseDisplay(.complete, false);
+    }
+
+    // Update any style ref after we erase the display so we definitely have space
+    self.screen.manualStyleUpdate() catch |err| {
+        log.warn("style update failed entering alt screen err={}", .{err});
+    };
+}
+
+/// Switch back to the primary screen (reset alternate screen mode).
+pub fn primaryScreen(
+    self: *Terminal,
+    options: AlternateScreenOptions,
+) void {
+    //log.info("primary screen active={} options={}", .{ self.active_screen, options });
+
+    // TODO: test
+    // TODO(mitchellh): what happens if we enter alternate screen multiple times?
+    if (self.active_screen == .primary) return;
+
+    if (options.clear_on_exit) self.eraseDisplay(.complete, false);
+
+    // Switch the screens
+    const old = self.screen;
+    self.screen = self.secondary_screen;
+    self.secondary_screen = old;
+    self.active_screen = .primary;
+
+    // Clear our selection
+    self.screen.selection = null;
+
+    // Mark kitty images as dirty so they redraw
+    self.screen.kitty_images.dirty = true;
+
+    // Restore the cursor from the primary screen. This should not
+    // fail because we should not have to allocate memory since swapping
+    // screens does not create new cursors.
+    if (options.cursor_save) self.restoreCursor() catch |err| {
+        log.warn("restore cursor on primary screen failed err={}", .{err});
+    };
+}
+
 /// Return the current string value of the terminal. Newlines are
 /// encoded as "\n". This omits any formatting such as fg/bg.
 ///
@@ -6143,6 +6235,36 @@ test "Terminal: saveCursor" {
     try testing.expect(t.modes.get(.origin));
 }
 
+test "Terminal: saveCursor with screen change" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 3, 3);
+    defer t.deinit(alloc);
+
+    try t.setAttribute(.{ .bold = {} });
+    t.screen.cursor.x = 2;
+    t.screen.charset.gr = .G3;
+    t.modes.set(.origin, true);
+    t.alternateScreen(.{
+        .cursor_save = true,
+        .clear_on_enter = true,
+    });
+    // make sure our cursor and charset have come with us
+    try testing.expect(t.screen.cursor.style.flags.bold);
+    try testing.expect(t.screen.cursor.x == 2);
+    try testing.expect(t.screen.charset.gr == .G3);
+    try testing.expect(t.modes.get(.origin));
+    t.screen.charset.gr = .G0;
+    try t.setAttribute(.{ .reset_bold = {} });
+    t.modes.set(.origin, false);
+    t.primaryScreen(.{
+        .cursor_save = true,
+        .clear_on_enter = true,
+    });
+    try testing.expect(t.screen.cursor.style.flags.bold);
+    try testing.expect(t.screen.charset.gr == .G3);
+    try testing.expect(t.modes.get(.origin));
+}
+
 test "Terminal: saveCursor position" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 5);
@@ -7250,4 +7372,20 @@ test "Terminal: cursorIsAtPrompt" {
     try t.linefeed();
     t.markSemanticPrompt(.prompt);
     try testing.expect(t.cursorIsAtPrompt());
+}
+
+test "Terminal: cursorIsAtPrompt alternate screen" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 3, 2);
+    defer t.deinit(alloc);
+
+    try testing.expect(!t.cursorIsAtPrompt());
+    t.markSemanticPrompt(.prompt);
+    try testing.expect(t.cursorIsAtPrompt());
+
+    // Secondary screen is never a prompt
+    t.alternateScreen(.{});
+    try testing.expect(!t.cursorIsAtPrompt());
+    t.markSemanticPrompt(.prompt);
+    try testing.expect(!t.cursorIsAtPrompt());
 }
