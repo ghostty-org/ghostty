@@ -1627,68 +1627,58 @@ pub fn eraseDisplay(
         //     // Clear all Kitty graphics state for this screen
         //     self.screen.kitty_images.delete(alloc, self, .{ .all = true });
         // },
-        //
-        // .complete => {
-        //     // If we're on the primary screen and our last non-empty row is
-        //     // a prompt, then we do a scroll_complete instead. This is a
-        //     // heuristic to get the generally desirable behavior that ^L
-        //     // at a prompt scrolls the screen contents prior to clearing.
-        //     // Most shells send `ESC [ H ESC [ 2 J` so we can't just check
-        //     // our current cursor position. See #905
-        //     if (self.active_screen == .primary) at_prompt: {
-        //         // Go from the bottom of the viewport up and see if we're
-        //         // at a prompt.
-        //         const viewport_max = Screen.RowIndexTag.viewport.maxLen(&self.screen);
-        //         for (0..viewport_max) |y| {
-        //             const bottom_y = viewport_max - y - 1;
-        //             const row = self.screen.getRow(.{ .viewport = bottom_y });
-        //             if (row.isEmpty()) continue;
-        //             switch (row.getSemanticPrompt()) {
-        //                 // If we're at a prompt or input area, then we are at a prompt.
-        //                 .prompt,
-        //                 .prompt_continuation,
-        //                 .input,
-        //                 => break,
-        //
-        //                 // If we have command output, then we're most certainly not
-        //                 // at a prompt.
-        //                 .command => break :at_prompt,
-        //
-        //                 // If we don't know, we keep searching.
-        //                 .unknown => {},
-        //             }
-        //         } else break :at_prompt;
-        //
-        //         self.screen.scroll(.{ .clear = {} }) catch {
-        //             // If we fail, we just fall back to doing a normal clear
-        //             // so we don't worry about the error.
-        //         };
-        //     }
-        //
-        //     var it = self.screen.rowIterator(.active);
-        //     while (it.next()) |row| {
-        //         row.setWrapped(false);
-        //         row.setDirty(true);
-        //
-        //         if (!protected) {
-        //             row.clear(pen);
-        //             continue;
-        //         }
-        //
-        //         // Protected mode erase
-        //         for (0..row.lenCells()) |x| {
-        //             const cell = row.getCellPtr(x);
-        //             if (cell.attrs.protected) continue;
-        //             cell.* = pen;
-        //         }
-        //     }
-        //
-        //     // Unsets pending wrap state
-        //     self.screen.cursor.pending_wrap = false;
-        //
-        //     // Clear all Kitty graphics state for this screen
-        //     self.screen.kitty_images.delete(alloc, self, .{ .all = true });
-        // },
+
+        .complete => {
+            // If we're on the primary screen and our last non-empty row is
+            // a prompt, then we do a scroll_complete instead. This is a
+            // heuristic to get the generally desirable behavior that ^L
+            // at a prompt scrolls the screen contents prior to clearing.
+            // Most shells send `ESC [ H ESC [ 2 J` so we can't just check
+            // our current cursor position. See #905
+            // if (self.active_screen == .primary) at_prompt: {
+            //     // Go from the bottom of the viewport up and see if we're
+            //     // at a prompt.
+            //     const viewport_max = Screen.RowIndexTag.viewport.maxLen(&self.screen);
+            //     for (0..viewport_max) |y| {
+            //         const bottom_y = viewport_max - y - 1;
+            //         const row = self.screen.getRow(.{ .viewport = bottom_y });
+            //         if (row.isEmpty()) continue;
+            //         switch (row.getSemanticPrompt()) {
+            //             // If we're at a prompt or input area, then we are at a prompt.
+            //             .prompt,
+            //             .prompt_continuation,
+            //             .input,
+            //             => break,
+            //
+            //             // If we have command output, then we're most certainly not
+            //             // at a prompt.
+            //             .command => break :at_prompt,
+            //
+            //             // If we don't know, we keep searching.
+            //             .unknown => {},
+            //         }
+            //     } else break :at_prompt;
+            //
+            //     self.screen.scroll(.{ .clear = {} }) catch {
+            //         // If we fail, we just fall back to doing a normal clear
+            //         // so we don't worry about the error.
+            //     };
+            // }
+
+            // All active area
+            self.screen.eraseRows(
+                .{ .active = .{} },
+                null,
+                protected,
+            );
+
+            // Unsets pending wrap state
+            self.screen.cursor.pending_wrap = false;
+
+            // Clear all Kitty graphics state for this screen
+            // TODO
+            //self.screen.kitty_images.delete(alloc, self, .{ .all = true });
+        },
 
         .below => {
             // All lines to the right (including the cursor)
@@ -6811,5 +6801,241 @@ test "Terminal: eraseDisplay simple erase above" {
         const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\n  F\nGHI", str);
+    }
+}
+
+test "Terminal: eraseDisplay erase above preserves SGR bg" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    for ("ABC") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    for ("DEF") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    for ("GHI") |c| try t.print(c);
+    t.setCursorPos(2, 2);
+
+    try t.setAttribute(.{ .direct_color_bg = .{
+        .r = 0xFF,
+        .g = 0,
+        .b = 0,
+    } });
+    t.eraseDisplay(.above, false);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\n  F\nGHI", str);
+        for (0..2) |x| {
+            const list_cell = t.screen.pages.getCell(.{ .active = .{ .x = x, .y = 1 } }).?;
+            try testing.expect(list_cell.cell.content_tag == .bg_color_rgb);
+            try testing.expectEqual(Cell.RGB{
+                .r = 0xFF,
+                .g = 0,
+                .b = 0,
+            }, list_cell.cell.content.color_rgb);
+        }
+    }
+}
+
+test "Terminal: eraseDisplay above split multi-cell" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.printString("AB橋C");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("DE橋F");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("GH橋I");
+    t.setCursorPos(2, 3);
+    t.eraseDisplay(.above, false);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\n    F\nGH橋I", str);
+    }
+}
+
+test "Terminal: eraseDisplay above protected attributes respected with iso" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.setProtectedMode(.iso);
+    for ("ABC") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    for ("DEF") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    for ("GHI") |c| try t.print(c);
+    t.setCursorPos(2, 2);
+    t.eraseDisplay(.above, false);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABC\nDEF\nGHI", str);
+    }
+}
+
+test "Terminal: eraseDisplay above protected attributes ignored with dec most recent" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.setProtectedMode(.iso);
+    for ("ABC") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    for ("DEF") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    for ("GHI") |c| try t.print(c);
+    t.setProtectedMode(.dec);
+    t.setProtectedMode(.off);
+    t.setCursorPos(2, 2);
+    t.eraseDisplay(.above, false);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\n  F\nGHI", str);
+    }
+}
+
+test "Terminal: eraseDisplay above protected attributes ignored with dec set" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.setProtectedMode(.dec);
+    for ("ABC") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    for ("DEF") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    for ("GHI") |c| try t.print(c);
+    t.setCursorPos(2, 2);
+    t.eraseDisplay(.above, false);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\n  F\nGHI", str);
+    }
+}
+
+test "Terminal: eraseDisplay above protected attributes respected with force" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.setProtectedMode(.dec);
+    for ("ABC") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    for ("DEF") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    for ("GHI") |c| try t.print(c);
+    t.setCursorPos(2, 2);
+    t.eraseDisplay(.above, true);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("ABC\nDEF\nGHI", str);
+    }
+}
+
+test "Terminal: eraseDisplay protected complete" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 10, 5);
+    defer t.deinit(alloc);
+
+    try t.print('A');
+    t.carriageReturn();
+    try t.linefeed();
+    for ("123456789") |c| try t.print(c);
+    t.setCursorPos(t.screen.cursor.y + 1, 6);
+    t.setProtectedMode(.dec);
+    try t.print('X');
+    t.setCursorPos(t.screen.cursor.y + 1, 4);
+    t.eraseDisplay(.complete, true);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\n     X", str);
+    }
+}
+
+test "Terminal: eraseDisplay protected below" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 10, 5);
+    defer t.deinit(alloc);
+
+    try t.print('A');
+    t.carriageReturn();
+    try t.linefeed();
+    for ("123456789") |c| try t.print(c);
+    t.setCursorPos(t.screen.cursor.y + 1, 6);
+    t.setProtectedMode(.dec);
+    try t.print('X');
+    t.setCursorPos(t.screen.cursor.y + 1, 4);
+    t.eraseDisplay(.below, true);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("A\n123  X", str);
+    }
+}
+
+// test "Terminal: eraseDisplay scroll complete" {
+//     const alloc = testing.allocator;
+//     var t = try init(alloc, 10, 5);
+//     defer t.deinit(alloc);
+//
+//     try t.print('A');
+//     t.carriageReturn();
+//     try t.linefeed();
+//     t.eraseDisplay(.scroll_complete, false);
+//
+//     {
+//         const str = try t.plainString(testing.allocator);
+//         defer testing.allocator.free(str);
+//         try testing.expectEqualStrings("", str);
+//     }
+// }
+
+test "Terminal: eraseDisplay protected above" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 10, 3);
+    defer t.deinit(alloc);
+
+    try t.print('A');
+    t.carriageReturn();
+    try t.linefeed();
+    for ("123456789") |c| try t.print(c);
+    t.setCursorPos(t.screen.cursor.y + 1, 6);
+    t.setProtectedMode(.dec);
+    try t.print('X');
+    t.setCursorPos(t.screen.cursor.y + 1, 8);
+    t.eraseDisplay(.above, true);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\n     X  9", str);
     }
 }
