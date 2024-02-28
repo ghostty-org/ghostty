@@ -488,21 +488,36 @@ pub const RowChunkIterator = struct {
 ///
 /// This is a more efficient way to iterate through the data in a region,
 /// since you can do simple pointer math and so on.
+///
+/// If bl_pt is non-null, iteration will stop at the bottom left point
+/// (inclusive). If bl_pt is null, the entire region specified by the point
+/// tag will be iterated over. tl_pt and bl_pt must be the same tag, and
+/// bl_pt must be greater than or equal to tl_pt.
 pub fn rowChunkIterator(
     self: *const PageList,
     tl_pt: point.Point,
+    bl_pt: ?point.Point,
 ) RowChunkIterator {
+    // TODO: bl_pt assertions
+
     const tl = self.getTopLeft(tl_pt);
-    const limit: RowChunkIterator.Limit = switch (tl_pt) {
-        // These always go to the end of the screen.
-        .screen, .active => .{ .none = {} },
+    const limit: RowChunkIterator.Limit = limit: {
+        if (bl_pt) |pt| {
+            const bl = self.getTopLeft(pt);
+            break :limit .{ .row = bl.forward(pt.coord().y).? };
+        }
 
-        // Viewport always is rows long
-        .viewport => .{ .count = self.rows },
+        break :limit switch (tl_pt) {
+            // These always go to the end of the screen.
+            .screen, .active => .{ .none = {} },
 
-        // History goes to the top of the active area. This is more expensive
-        // to calculate but also more rare of a thing to iterate over.
-        .history => .{ .row = self.getTopLeft(.active) },
+            // Viewport always is rows long
+            .viewport => .{ .count = self.rows },
+
+            // History goes to the top of the active area. This is more expensive
+            // to calculate but also more rare of a thing to iterate over.
+            .history => .{ .row = self.getTopLeft(.active) },
+        };
     };
 
     return .{ .row = tl.forward(tl_pt.coord().y), .limit = limit };
@@ -1040,7 +1055,7 @@ test "PageList rowChunkIterator single page" {
     try testing.expect(s.pages.first.?.next == null);
 
     // Iterate the active area
-    var it = s.rowChunkIterator(.{ .active = .{} });
+    var it = s.rowChunkIterator(.{ .active = .{} }, null);
     {
         const chunk = it.next().?;
         try testing.expect(chunk.page == s.pages.first.?);
@@ -1068,7 +1083,7 @@ test "PageList rowChunkIterator two pages" {
     try testing.expect(try s.grow() != null);
 
     // Iterate the active area
-    var it = s.rowChunkIterator(.{ .active = .{} });
+    var it = s.rowChunkIterator(.{ .active = .{} }, null);
     {
         const chunk = it.next().?;
         try testing.expect(chunk.page == s.pages.first.?);
@@ -1102,7 +1117,7 @@ test "PageList rowChunkIterator history two pages" {
     try testing.expect(try s.grow() != null);
 
     // Iterate the active area
-    var it = s.rowChunkIterator(.{ .history = .{} });
+    var it = s.rowChunkIterator(.{ .history = .{} }, null);
     {
         const active_tl = s.getTopLeft(.active);
         const chunk = it.next().?;

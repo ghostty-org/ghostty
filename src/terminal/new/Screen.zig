@@ -277,10 +277,11 @@ pub fn scroll(self: *Screen, behavior: Scroll) void {
     }
 }
 
-/// Erase the active area of the screen from y=0 to rows-1. The cells
-/// are blanked using the given blank cell.
-pub fn eraseActive(self: *Screen) void {
-    var it = self.pages.rowChunkIterator(.{ .active = .{} });
+// Erase the region specified by tl and bl, inclusive. Erased cells are
+// colored with the current style background color. This will erase all
+// cells in the rows.
+pub fn eraseRows(self: *Screen, tl: point.Point, bl: ?point.Point) void {
+    var it = self.pages.rowChunkIterator(tl, bl);
     while (it.next()) |chunk| {
         for (chunk.rows()) |*row| {
             const cells_offset = row.cells;
@@ -343,6 +344,20 @@ pub fn eraseCells(
     }
 
     @memset(cells, self.blankCell());
+}
+
+/// Erase cells but only if they are not protected.
+pub fn eraseUnprotectedCells(
+    self: *Screen,
+    page: *Page,
+    row: *Row,
+    cells: []Cell,
+) void {
+    for (cells) |*cell| {
+        if (cell.protected) continue;
+        const cell_multi: [*]Cell = @ptrCast(cell);
+        self.eraseCells(page, row, cell_multi[0..1]);
+    }
 }
 
 /// Returns the blank cell to use when doing terminal operations that
@@ -743,7 +758,7 @@ test "Screen style reset with unset" {
     try testing.expectEqual(@as(usize, 0), page.styles.count(page.memory));
 }
 
-test "Screen eraseActive one line" {
+test "Screen eraseRows active one line" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -751,13 +766,13 @@ test "Screen eraseActive one line" {
     defer s.deinit();
 
     try s.testWriteString("hello, world");
-    s.eraseActive();
+    s.eraseRows(.{ .active = .{} }, null);
     const str = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
     defer alloc.free(str);
     try testing.expectEqualStrings("", str);
 }
 
-test "Screen eraseActive multi line" {
+test "Screen eraseRows active multi line" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -765,13 +780,13 @@ test "Screen eraseActive multi line" {
     defer s.deinit();
 
     try s.testWriteString("hello\nworld");
-    s.eraseActive();
+    s.eraseRows(.{ .active = .{} }, null);
     const str = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
     defer alloc.free(str);
     try testing.expectEqualStrings("", str);
 }
 
-test "Screen eraseActive styled line" {
+test "Screen eraseRows active styled line" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -786,7 +801,7 @@ test "Screen eraseActive styled line" {
     const page = s.cursor.page_offset.page.data;
     try testing.expectEqual(@as(usize, 1), page.styles.count(page.memory));
 
-    s.eraseActive();
+    s.eraseRows(.{ .active = .{} }, null);
 
     // We should have none because active cleared it
     try testing.expectEqual(@as(usize, 0), page.styles.count(page.memory));
