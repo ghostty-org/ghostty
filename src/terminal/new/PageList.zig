@@ -359,6 +359,63 @@ fn createPage(self: *PageList) !*List.Node {
     return page;
 }
 
+/// Erase the rows from the given top to bottom (inclusive). Erasing
+/// the rows doesn't clear them but actually physically REMOVES the rows.
+/// If the top or bottom point is in the middle of a page, the other
+/// contents in the page will be preserved but the page itself will be
+/// underutilized (size < capacity).
+pub fn erase(
+    self: *PageList,
+    tl_pt: point.Point,
+    bl_pt: ?point.Point,
+) void {
+    // A rowChunkIterator iterates one page at a time from the back forward.
+    // "back" here is in terms of scrollback, but actually the front of the
+    // linked list.
+    var it = self.rowChunkIterator(tl_pt, bl_pt);
+    while (it.next()) |chunk| {
+        // If the chunk is a full page, deinit thit page and remove it from
+        // the linked list.
+        if (chunk.fullPage()) {
+            self.erasePage(chunk.page);
+            continue;
+        }
+
+        // The chunk is not a full page so we need to move the rows.
+        // This is a cheap operation because we're just moving cell offsets,
+        // not the actual cell contents.
+        assert(chunk.start == 0);
+        const rows = chunk.page.data.rows.ptr(chunk.page.data.memory);
+        const scroll_amount = chunk.page.data.size.rows - chunk.end;
+        for (0..scroll_amount) |i| {
+            const src: *Row = &rows[i + scroll_amount];
+            const dst: *Row = &rows[i];
+            const old_dst = dst.*;
+            dst.* = src.*;
+            src.* = old_dst;
+        }
+
+        // We don't even bother deleting the data in the swapped rows
+        // because erasing in this way yields a page that likely will never
+        // be written to again (its in the past) or it will grow and the
+        // terminal erase will automatically erase the data.
+
+        chunk.page.data.size.rows = @intCast(scroll_amount);
+    }
+}
+
+/// Erase a single page, freeing all its resources. The page can be
+/// anywhere in the linked list.
+fn erasePage(self: *PageList, page: *List.Node) void {
+    // Remove the page from the linked list
+    self.pages.remove(page);
+
+    // Reset the page memory and return it back to the pool.
+    @memset(page.data.memory, 0);
+    self.page_pool.destroy(@ptrCast(page.data.memory.ptr));
+    self.pool.destroy(page);
+}
+
 /// Get the top-left of the screen for the given tag.
 pub fn rowOffset(self: *const PageList, pt: point.Point) RowOffset {
     // TODO: assert the point is valid
@@ -508,6 +565,11 @@ pub const RowChunkIterator = struct {
             const rows_ptr = self.page.data.rows.ptr(self.page.data.memory);
             return rows_ptr[self.start..self.end];
         }
+
+        /// Returns true if this chunk represents every row in the page.
+        pub fn fullPage(self: Chunk) bool {
+            return self.start == 0 and self.end == self.page.data.size.rows;
+        }
     };
 };
 
@@ -546,7 +608,12 @@ pub fn rowChunkIterator(
 
             // History goes to the top of the active area. This is more expensive
             // to calculate but also more rare of a thing to iterate over.
-            .history => .{ .row = self.getTopLeft(.active) },
+            .history => history: {
+                const active_tl = self.getTopLeft(.active);
+                const history_bot = active_tl.backward(1) orelse
+                    return .{ .row = null };
+                break :history .{ .row = history_bot };
+            },
         };
     };
 
@@ -1187,7 +1254,28 @@ test "PageList rowChunkIterator history two pages" {
         try testing.expect(chunk.page == s.pages.first.?);
         const start: usize = 0;
         try testing.expectEqual(start, chunk.start);
-        try testing.expectEqual(active_tl.row_offset + 1, chunk.end);
+        try testing.expectEqual(active_tl.row_offset, chunk.end);
     }
     try testing.expect(it.next() == null);
+}
+
+test "PageList erase" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+
+    // Grow so we take up at least 5 pages.
+    const page = &s.pages.last.?.data;
+    for (0..page.capacity.rows * 5) |_| {
+        _ = try s.grow();
+    }
+
+    // Our total rows should be large
+    try testing.expect(s.totalRows() > s.rows);
+
+    // Erase the entire history, we should be back to just our active set.
+    s.erase(.{ .history = .{} }, null);
+    try testing.expectEqual(s.rows, s.totalRows());
 }

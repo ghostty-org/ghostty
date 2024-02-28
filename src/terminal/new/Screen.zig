@@ -4,6 +4,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const ansi = @import("../ansi.zig");
+const kitty = @import("../kitty.zig");
 const sgr = @import("../sgr.zig");
 const unicode = @import("../../unicode/main.zig");
 const PageList = @import("PageList.zig");
@@ -34,6 +35,9 @@ saved_cursor: ?SavedCursor = null,
 /// set on the Cell pen; this is only used to determine the most recent
 /// protection mode since some sequences such as ECH depend on this.
 protected_mode: ansi.ProtectedMode = .off,
+
+/// Kitty graphics protocol state.
+kitty_images: kitty.graphics.ImageStorage = .{},
 
 /// The cursor position.
 pub const Cursor = struct {
@@ -113,6 +117,7 @@ pub fn init(
 }
 
 pub fn deinit(self: *Screen) void {
+    self.kitty_images.deinit(self.alloc);
     self.pages.deinit();
 }
 
@@ -270,6 +275,11 @@ pub const Scroll = union(enum) {
 
 /// Scroll the viewport of the terminal grid.
 pub fn scroll(self: *Screen, behavior: Scroll) void {
+    // No matter what, scrolling marks our image state as dirty since
+    // it could move placements. If there are no placements or no images
+    // this is still a very cheap operation.
+    self.kitty_images.dirty = true;
+
     switch (behavior) {
         .active => self.pages.scroll(.{ .active = {} }),
         .top => self.pages.scroll(.{ .top = {} }),
@@ -282,6 +292,11 @@ pub fn scroll(self: *Screen, behavior: Scroll) void {
 pub fn scrollClear(self: *Screen) !void {
     try self.pages.scrollClear();
     self.cursorAbsolute(0, 0);
+
+    // No matter what, scrolling marks our image state as dirty since
+    // it could move placements. If there are no placements or no images
+    // this is still a very cheap operation.
+    self.kitty_images.dirty = true;
 }
 
 // Erase the region specified by tl and bl, inclusive. Erased cells are
