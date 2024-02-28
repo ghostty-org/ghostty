@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const testing = std.testing;
+const fastmem = @import("../../fastmem.zig");
 const color = @import("../color.zig");
 const sgr = @import("../sgr.zig");
 const style = @import("style.zig");
@@ -168,6 +169,42 @@ pub const Page = struct {
         self.* = undefined;
     }
 
+    /// Clone the contents of this page. This will allocate new memory
+    /// using the page allocator. If you want to manage memory manually,
+    /// use cloneBuf.
+    pub fn clone(self: *const Page) !Page {
+        const backing = try std.os.mmap(
+            null,
+            self.memory.len,
+            std.os.PROT.READ | std.os.PROT.WRITE,
+            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
+            -1,
+            0,
+        );
+        errdefer std.os.munmap(backing);
+        return self.cloneBuf(backing);
+    }
+
+    /// Clone the entire contents of this page.
+    ///
+    /// The buffer must be at least the size of self.memory.
+    pub fn cloneBuf(self: *const Page, buf: []align(std.mem.page_size) u8) Page {
+        assert(buf.len >= self.memory.len);
+
+        // The entire concept behind a page is that everything is stored
+        // as offsets so we can do a simple linear copy of the backing
+        // memory and copy all the offsets and everything will work.
+        var result = self.*;
+        result.memory = buf[0..self.memory.len];
+
+        // This is a memcpy. We may want to investigate if there are
+        // faster ways to do this (i.e. copy-on-write tricks) but I suspect
+        // they'll be slower. I haven't experimented though.
+        fastmem.copy(u8, result.memory, self.memory);
+
+        return result;
+    }
+
     /// Get a single row. y must be valid.
     pub fn getRow(self: *const Page, y: usize) *Row {
         assert(y < self.size.rows);
@@ -222,7 +259,7 @@ pub const Page = struct {
             break :grapheme false;
         };
         if (!src_grapheme) {
-            @memcpy(dst_cells, src_cells);
+            fastmem.copy(Cell, dst_cells, src_cells);
             return;
         }
 
@@ -276,7 +313,7 @@ pub const Page = struct {
         const cps = try self.grapheme_alloc.alloc(u21, self.memory, slice.len + 1);
         errdefer self.grapheme_alloc.free(self.memory, cps);
         const old_cps = slice.offset.ptr(self.memory)[0..slice.len];
-        @memcpy(cps[0..old_cps.len], old_cps);
+        fastmem.copy(u21, cps[0..old_cps.len], old_cps);
         cps[slice.len] = cp;
         slice.* = .{
             .offset = getOffset(u21, self.memory, @ptrCast(cps.ptr)),
@@ -818,4 +855,54 @@ test "Page clearGrapheme not all cells" {
     try testing.expect(rac.row.grapheme);
     try testing.expect(!rac.cell.hasGrapheme());
     try testing.expect(rac2.cell.hasGrapheme());
+}
+
+test "Page clone" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    // Write
+    for (0..page.capacity.rows) |y| {
+        const rac = page.getRowAndCell(1, y);
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = @intCast(y) },
+        };
+    }
+
+    // Clone
+    var page2 = try page.clone();
+    defer page2.deinit();
+    try testing.expectEqual(page2.capacity, page.capacity);
+
+    // Read it again
+    for (0..page2.capacity.rows) |y| {
+        const rac = page2.getRowAndCell(1, y);
+        try testing.expectEqual(@as(u21, @intCast(y)), rac.cell.content.codepoint);
+    }
+
+    // Write again
+    for (0..page.capacity.rows) |y| {
+        const rac = page.getRowAndCell(1, y);
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = 0 },
+        };
+    }
+
+    // Read it again, should be unchanged
+    for (0..page2.capacity.rows) |y| {
+        const rac = page2.getRowAndCell(1, y);
+        try testing.expectEqual(@as(u21, @intCast(y)), rac.cell.content.codepoint);
+    }
+
+    // Read the original
+    for (0..page.capacity.rows) |y| {
+        const rac = page.getRowAndCell(1, y);
+        try testing.expectEqual(@as(u21, 0), rac.cell.content.codepoint);
+    }
 }

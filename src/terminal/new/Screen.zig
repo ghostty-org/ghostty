@@ -160,6 +160,34 @@ pub fn deinit(self: *Screen) void {
     self.pages.deinit();
 }
 
+/// Clone the screen.
+///
+/// This will copy:
+///
+///   - Screen dimensions
+///   - Screen data (cell state, etc.) for the region
+///   - Cursor if its in the region. If the cursor is not in the region
+///     then it will be placed at the top-left of the new screen.
+///
+/// Other notes:
+///
+///   - The viewport will always be set to the active area of the new
+///     screen. This is the bottom "rows" rows.
+///   - If the clone region is smaller than a viewport area, blanks will
+///     be filled in at the bottom.
+///
+pub fn clone(
+    self: *const Screen,
+    alloc: Allocator,
+    top: point.Point,
+    bottom: ?point.Point,
+) !Screen {
+    _ = self;
+    _ = alloc;
+    _ = top;
+    _ = bottom;
+}
+
 pub fn cursorCellRight(self: *Screen, n: size.CellCountInt) *pagepkg.Cell {
     assert(self.cursor.x + n < self.pages.cols);
     const cell: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
