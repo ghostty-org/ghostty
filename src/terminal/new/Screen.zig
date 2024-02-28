@@ -4,6 +4,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const ansi = @import("../ansi.zig");
+const charsets = @import("../charsets.zig");
 const kitty = @import("../kitty.zig");
 const sgr = @import("../sgr.zig");
 const unicode = @import("../../unicode/main.zig");
@@ -28,6 +29,9 @@ cursor: Cursor,
 
 /// The saved cursor
 saved_cursor: ?SavedCursor = null,
+
+/// The charset state
+charset: CharsetState = .{},
 
 /// The current or most recent protected mode. Once a protection mode is
 /// set, this will never become "off" again until the screen is reset.
@@ -79,8 +83,24 @@ pub const SavedCursor = struct {
     protected: bool,
     pending_wrap: bool,
     origin: bool,
-    // TODO
-    //charset: CharsetState,
+    charset: CharsetState,
+};
+
+/// State required for all charset operations.
+pub const CharsetState = struct {
+    /// The list of graphical charsets by slot
+    charsets: CharsetArray = CharsetArray.initFill(charsets.Charset.utf8),
+
+    /// GL is the slot to use when using a 7-bit printable char (up to 127)
+    /// GR used for 8-bit printable chars.
+    gl: charsets.Slots = .G0,
+    gr: charsets.Slots = .G2,
+
+    /// Single shift where a slot is used for exactly one char.
+    single_shift: ?charsets.Slots = null,
+
+    /// An array to map a charset slot to a lookup table.
+    const CharsetArray = std.EnumArray(charsets.Slots, charsets.Charset);
 };
 
 /// Initialize a new screen.
