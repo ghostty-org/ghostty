@@ -6073,6 +6073,7 @@ test "Terminal: eraseLine complete protected requested" {
     }
 }
 
+// X
 test "Terminal: eraseDisplay simple erase below" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6095,6 +6096,7 @@ test "Terminal: eraseDisplay simple erase below" {
     }
 }
 
+// X
 test "Terminal: eraseDisplay erase below preserves SGR bg" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6127,6 +6129,7 @@ test "Terminal: eraseDisplay erase below preserves SGR bg" {
     }
 }
 
+// X
 test "Terminal: eraseDisplay below split multi-cell" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6149,6 +6152,7 @@ test "Terminal: eraseDisplay below split multi-cell" {
     }
 }
 
+// X
 test "Terminal: eraseDisplay below protected attributes respected with iso" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6172,6 +6176,7 @@ test "Terminal: eraseDisplay below protected attributes respected with iso" {
     }
 }
 
+// X
 test "Terminal: eraseDisplay below protected attributes ignored with dec most recent" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6197,6 +6202,7 @@ test "Terminal: eraseDisplay below protected attributes ignored with dec most re
     }
 }
 
+// X
 test "Terminal: eraseDisplay below protected attributes ignored with dec set" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6220,6 +6226,7 @@ test "Terminal: eraseDisplay below protected attributes ignored with dec set" {
     }
 }
 
+// X
 test "Terminal: eraseDisplay simple erase above" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -6242,6 +6249,7 @@ test "Terminal: eraseDisplay simple erase above" {
     }
 }
 
+// X
 test "Terminal: eraseDisplay below protected attributes respected with force" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);

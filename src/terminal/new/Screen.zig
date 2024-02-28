@@ -280,7 +280,15 @@ pub fn scroll(self: *Screen, behavior: Scroll) void {
 // Erase the region specified by tl and bl, inclusive. Erased cells are
 // colored with the current style background color. This will erase all
 // cells in the rows.
-pub fn eraseRows(self: *Screen, tl: point.Point, bl: ?point.Point) void {
+//
+// If protected is true, the protected flag will be respected and only
+// unprotected cells will be erased. Otherwise, all cells will be erased.
+pub fn eraseRows(
+    self: *Screen,
+    tl: point.Point,
+    bl: ?point.Point,
+    protected: bool,
+) void {
     var it = self.pages.rowChunkIterator(tl, bl);
     while (it.next()) |chunk| {
         for (chunk.rows()) |*row| {
@@ -289,7 +297,11 @@ pub fn eraseRows(self: *Screen, tl: point.Point, bl: ?point.Point) void {
             const cells = cells_multi[0..self.pages.cols];
 
             // Erase all cells
-            self.eraseCells(&chunk.page.data, row, cells);
+            if (protected) {
+                self.eraseUnprotectedCells(&chunk.page.data, row, cells);
+            } else {
+                self.eraseCells(&chunk.page.data, row, cells);
+            }
 
             // Reset our row to point to the proper memory but everything
             // else is zeroed.
@@ -766,7 +778,7 @@ test "Screen eraseRows active one line" {
     defer s.deinit();
 
     try s.testWriteString("hello, world");
-    s.eraseRows(.{ .active = .{} }, null);
+    s.eraseRows(.{ .active = .{} }, null, false);
     const str = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
     defer alloc.free(str);
     try testing.expectEqualStrings("", str);
@@ -780,7 +792,7 @@ test "Screen eraseRows active multi line" {
     defer s.deinit();
 
     try s.testWriteString("hello\nworld");
-    s.eraseRows(.{ .active = .{} }, null);
+    s.eraseRows(.{ .active = .{} }, null, false);
     const str = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
     defer alloc.free(str);
     try testing.expectEqualStrings("", str);
@@ -801,7 +813,7 @@ test "Screen eraseRows active styled line" {
     const page = s.cursor.page_offset.page.data;
     try testing.expectEqual(@as(usize, 1), page.styles.count(page.memory));
 
-    s.eraseRows(.{ .active = .{} }, null);
+    s.eraseRows(.{ .active = .{} }, null, false);
 
     // We should have none because active cleared it
     try testing.expectEqual(@as(usize, 0), page.styles.count(page.memory));
