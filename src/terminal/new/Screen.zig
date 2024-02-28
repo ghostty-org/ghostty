@@ -277,6 +277,13 @@ pub fn scroll(self: *Screen, behavior: Scroll) void {
     }
 }
 
+/// See PageList.scrollClear. In addition to that, we reset the cursor
+/// to be on top.
+pub fn scrollClear(self: *Screen) !void {
+    try self.pages.scrollClear();
+    self.cursorAbsolute(0, 0);
+}
+
 // Erase the region specified by tl and bl, inclusive. Erased cells are
 // colored with the current style background color. This will erase all
 // cells in the rows.
