@@ -299,13 +299,13 @@ pub fn scrollClear(self: *Screen) !void {
     self.kitty_images.dirty = true;
 }
 
-// Erase the region specified by tl and bl, inclusive. Erased cells are
-// colored with the current style background color. This will erase all
+// Clear the region specified by tl and bl, inclusive. Cleared cells are
+// colored with the current style background color. This will clear all
 // cells in the rows.
 //
 // If protected is true, the protected flag will be respected and only
-// unprotected cells will be erased. Otherwise, all cells will be erased.
-pub fn eraseRows(
+// unprotected cells will be cleared. Otherwise, all cells will be cleared.
+pub fn clearRows(
     self: *Screen,
     tl: point.Point,
     bl: ?point.Point,
@@ -318,11 +318,11 @@ pub fn eraseRows(
             const cells_multi: [*]Cell = row.cells.ptr(chunk.page.data.memory);
             const cells = cells_multi[0..self.pages.cols];
 
-            // Erase all cells
+            // Clear all cells
             if (protected) {
-                self.eraseUnprotectedCells(&chunk.page.data, row, cells);
+                self.clearUnprotectedCells(&chunk.page.data, row, cells);
             } else {
-                self.eraseCells(&chunk.page.data, row, cells);
+                self.clearCells(&chunk.page.data, row, cells);
             }
 
             // Reset our row to point to the proper memory but everything
@@ -332,9 +332,9 @@ pub fn eraseRows(
     }
 }
 
-/// Erase the cells with the blank cell. This takes care to handle
+/// Clear the cells with the blank cell. This takes care to handle
 /// cleaning up graphemes and styles.
-pub fn eraseCells(
+pub fn clearCells(
     self: *Screen,
     page: *Page,
     row: *Row,
@@ -380,8 +380,8 @@ pub fn eraseCells(
     @memset(cells, self.blankCell());
 }
 
-/// Erase cells but only if they are not protected.
-pub fn eraseUnprotectedCells(
+/// Clear cells but only if they are not protected.
+pub fn clearUnprotectedCells(
     self: *Screen,
     page: *Page,
     row: *Row,
@@ -390,7 +390,7 @@ pub fn eraseUnprotectedCells(
     for (cells) |*cell| {
         if (cell.protected) continue;
         const cell_multi: [*]Cell = @ptrCast(cell);
-        self.eraseCells(page, row, cell_multi[0..1]);
+        self.clearCells(page, row, cell_multi[0..1]);
     }
 }
 
@@ -792,7 +792,7 @@ test "Screen style reset with unset" {
     try testing.expectEqual(@as(usize, 0), page.styles.count(page.memory));
 }
 
-test "Screen eraseRows active one line" {
+test "Screen clearRows active one line" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -800,13 +800,13 @@ test "Screen eraseRows active one line" {
     defer s.deinit();
 
     try s.testWriteString("hello, world");
-    s.eraseRows(.{ .active = .{} }, null, false);
+    s.clearRows(.{ .active = .{} }, null, false);
     const str = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
     defer alloc.free(str);
     try testing.expectEqualStrings("", str);
 }
 
-test "Screen eraseRows active multi line" {
+test "Screen clearRows active multi line" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -814,13 +814,13 @@ test "Screen eraseRows active multi line" {
     defer s.deinit();
 
     try s.testWriteString("hello\nworld");
-    s.eraseRows(.{ .active = .{} }, null, false);
+    s.clearRows(.{ .active = .{} }, null, false);
     const str = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
     defer alloc.free(str);
     try testing.expectEqualStrings("", str);
 }
 
-test "Screen eraseRows active styled line" {
+test "Screen clearRows active styled line" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -835,7 +835,7 @@ test "Screen eraseRows active styled line" {
     const page = s.cursor.page_offset.page.data;
     try testing.expectEqual(@as(usize, 1), page.styles.count(page.memory));
 
-    s.eraseRows(.{ .active = .{} }, null, false);
+    s.clearRows(.{ .active = .{} }, null, false);
 
     // We should have none because active cleared it
     try testing.expectEqual(@as(usize, 0), page.styles.count(page.memory));
