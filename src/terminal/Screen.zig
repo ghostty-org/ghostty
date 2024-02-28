@@ -3801,6 +3801,7 @@ test "Screen: getLine soft wrap" {
     try testing.expect(s.getLine(.{ .x = 7, .y = 1 }) == null);
 }
 
+// X
 test "Screen: scrolling" {
     const testing = std.testing;
     const alloc = testing.allocator;

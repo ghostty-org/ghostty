@@ -314,6 +314,16 @@ pub fn cursorDownScroll(self: *Screen) !void {
         self.cursor.page_offset = page_offset;
         self.cursor.page_row = page_rac.row;
         self.cursor.page_cell = page_rac.cell;
+
+        // Clear the new row so it gets our bg color. We only do this
+        // if we have a bg color at all.
+        if (self.cursor.style.bg_color != .none) {
+            self.clearCells(
+                &page_offset.page.data,
+                self.cursor.page_row,
+                page_offset.page.data.getCells(self.cursor.page_row),
+            );
+        }
     }
 
     // The newly created line needs to be styled according to the bg color
@@ -1062,5 +1072,44 @@ test "Screen eraseRows history with more lines" {
         const str = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
         defer alloc.free(str);
         try testing.expectEqualStrings("2\n3\n4\n5\n6", str);
+    }
+}
+
+test "Screen: scrolling" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 0);
+    defer s.deinit();
+    try s.setAttribute(.{ .direct_color_bg = .{ .r = 155 } });
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL");
+
+    // Scroll down, should still be bottom
+    try s.cursorDownScroll();
+    {
+        // Test our contents rotated
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("2EFGH\n3IJKL", contents);
+    }
+    {
+        const list_cell = s.pages.getCell(.{ .active = .{ .x = 0, .y = 2 } }).?;
+        const cell = list_cell.cell;
+        try testing.expect(cell.content_tag == .bg_color_rgb);
+        try testing.expectEqual(Cell.RGB{
+            .r = 155,
+            .g = 0,
+            .b = 0,
+        }, cell.content.color_rgb);
+    }
+
+    // Scrolling to the bottom does nothing
+    s.scroll(.{ .active = {} });
+
+    {
+        // Test our contents rotated
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("2EFGH\n3IJKL", contents);
     }
 }
