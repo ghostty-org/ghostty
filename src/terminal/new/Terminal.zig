@@ -1723,8 +1723,6 @@ pub fn eraseDisplay(
 ///
 /// Sets the cursor to the top left corner.
 pub fn decaln(self: *Terminal) !void {
-    // TODO: erase display to gc graphemes, styles
-
     // Clear our stylistic attributes. This is the only thing that can
     // fail so we do it first so we can undo it.
     const old_style = self.screen.cursor.style;
@@ -1751,24 +1749,27 @@ pub fn decaln(self: *Terminal) !void {
     // Move our cursor to the top-left
     self.setCursorPos(1, 1);
 
-    // Fill with Es, does not move cursor.
-    // TODO: cursor across pages
-    var page = &self.screen.cursor.page_offset.page.data;
-    const rows: [*]Row = @ptrCast(self.screen.cursor.page_row);
-    for (0..self.rows) |y| {
-        const row: *Row = @ptrCast(rows + y);
-        const cells = page.getCells(row);
-        @memset(cells, .{
-            .content_tag = .codepoint,
-            .content = .{ .codepoint = 'E' },
-            .style_id = self.screen.cursor.style_id,
-            .protected = self.screen.cursor.protected,
-        });
+    // Erase the display which will deallocate graphames, styles, etc.
+    self.eraseDisplay(.complete, false);
 
-        // If we have a ref-counted style, increase
-        if (self.screen.cursor.style_ref) |ref| {
-            ref.* += @intCast(cells.len);
-            row.styled = true;
+    // Fill with Es, does not move cursor.
+    var it = self.screen.pages.rowChunkIterator(.{ .active = .{} }, null);
+    while (it.next()) |chunk| {
+        for (chunk.rows()) |*row| {
+            const cells_multi: [*]Cell = row.cells.ptr(chunk.page.data.memory);
+            const cells = cells_multi[0..self.cols];
+            @memset(cells, .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = 'E' },
+                .style_id = self.screen.cursor.style_id,
+                .protected = self.screen.cursor.protected,
+            });
+
+            // If we have a ref-counted style, increase
+            if (self.screen.cursor.style_ref) |ref| {
+                ref.* += @intCast(cells.len);
+                row.styled = true;
+            }
         }
     }
 }
