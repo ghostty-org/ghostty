@@ -4174,6 +4174,7 @@ test "Screen: scrolling with scrollback available doesn't move selection" {
     }
 }
 
+// X
 test "Screen: scroll and clear full screen" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -4201,6 +4202,7 @@ test "Screen: scroll and clear full screen" {
     }
 }
 
+// X
 test "Screen: scroll and clear partial screen" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -4228,6 +4230,7 @@ test "Screen: scroll and clear partial screen" {
     }
 }
 
+// X
 test "Screen: scroll and clear empty screen" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -4238,6 +4241,7 @@ test "Screen: scroll and clear empty screen" {
     try testing.expectEqual(@as(usize, 0), s.viewport);
 }
 
+// X
 test "Screen: scroll and clear ignore blank lines" {
     const testing = std.testing;
     const alloc = testing.allocator;
