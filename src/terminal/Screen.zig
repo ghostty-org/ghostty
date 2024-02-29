@@ -5414,6 +5414,7 @@ test "Screen: scrollRegionUp buffer wrap alternative with extra lines" {
     }
 }
 
+// X
 test "Screen: clear history with no history" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -5438,6 +5439,7 @@ test "Screen: clear history with no history" {
     }
 }
 
+// X
 test "Screen: clear history" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -5472,6 +5474,7 @@ test "Screen: clear history" {
     }
 }
 
+// X
 test "Screen: clear above cursor" {
     const testing = std.testing;
     const alloc = testing.allocator;
