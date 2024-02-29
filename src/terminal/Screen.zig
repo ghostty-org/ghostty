@@ -4339,6 +4339,7 @@ test "Screen: history region with scrollback" {
     }
 }
 
+// X - don't need this, internal API
 test "Screen: row copy" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -4357,6 +4358,7 @@ test "Screen: row copy" {
     try testing.expectEqualStrings("2EFGH\n3IJKL\n2EFGH", contents);
 }
 
+// X
 test "Screen: clone" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -4387,6 +4389,7 @@ test "Screen: clone" {
     }
 }
 
+// X
 test "Screen: clone empty viewport" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -4405,6 +4408,7 @@ test "Screen: clone empty viewport" {
     }
 }
 
+// X
 test "Screen: clone one line viewport" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -4424,6 +4428,7 @@ test "Screen: clone one line viewport" {
     }
 }
 
+// X
 test "Screen: clone empty active" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -4442,6 +4447,7 @@ test "Screen: clone empty active" {
     }
 }
 
+// X
 test "Screen: clone one line active with extra space" {
     const testing = std.testing;
     const alloc = testing.allocator;

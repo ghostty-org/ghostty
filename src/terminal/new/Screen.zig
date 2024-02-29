@@ -1524,3 +1524,130 @@ test "Screen: clone partial" {
         try testing.expectEqualStrings("2EFGH", contents);
     }
 }
+
+test "Screen: clone basic" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 0);
+    defer s.deinit();
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL");
+
+    {
+        var s2 = try s.clone(
+            alloc,
+            .{ .active = .{ .y = 1 } },
+            .{ .active = .{ .y = 1 } },
+        );
+        defer s2.deinit();
+
+        // Test our contents rotated
+        const contents = try s2.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("2EFGH", contents);
+    }
+
+    {
+        var s2 = try s.clone(
+            alloc,
+            .{ .active = .{ .y = 1 } },
+            .{ .active = .{ .y = 2 } },
+        );
+        defer s2.deinit();
+
+        // Test our contents rotated
+        const contents = try s2.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("2EFGH\n3IJKL", contents);
+    }
+}
+
+test "Screen: clone empty viewport" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 0);
+    defer s.deinit();
+
+    {
+        var s2 = try s.clone(
+            alloc,
+            .{ .viewport = .{ .y = 0 } },
+            .{ .viewport = .{ .y = 0 } },
+        );
+        defer s2.deinit();
+
+        // Test our contents rotated
+        const contents = try s2.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("", contents);
+    }
+}
+
+test "Screen: clone one line viewport" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 0);
+    defer s.deinit();
+    try s.testWriteString("1ABC");
+
+    {
+        var s2 = try s.clone(
+            alloc,
+            .{ .viewport = .{ .y = 0 } },
+            .{ .viewport = .{ .y = 0 } },
+        );
+        defer s2.deinit();
+
+        // Test our contents
+        const contents = try s2.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("1ABC", contents);
+    }
+}
+
+test "Screen: clone empty active" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 0);
+    defer s.deinit();
+
+    {
+        var s2 = try s.clone(
+            alloc,
+            .{ .active = .{ .y = 0 } },
+            .{ .active = .{ .y = 0 } },
+        );
+        defer s2.deinit();
+
+        // Test our contents rotated
+        const contents = try s2.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("", contents);
+    }
+}
+
+test "Screen: clone one line active with extra space" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 0);
+    defer s.deinit();
+    try s.testWriteString("1ABC");
+
+    {
+        var s2 = try s.clone(
+            alloc,
+            .{ .active = .{ .y = 0 } },
+            null,
+        );
+        defer s2.deinit();
+
+        // Test our contents rotated
+        const contents = try s2.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("1ABC", contents);
+    }
+}
