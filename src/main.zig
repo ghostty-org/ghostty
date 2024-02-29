@@ -11,5 +11,6 @@ pub usingnamespace switch (build_config.exe_entrypoint) {
     .bench_codepoint_width => @import("bench/codepoint-width.zig"),
     .bench_grapheme_break => @import("bench/grapheme-break.zig"),
     .bench_page_init => @import("bench/page-init.zig"),
+    .bench_screen_copy => @import("bench/screen-copy.zig"),
     .bench_vt_insert_lines => @import("bench/vt-insert-lines.zig"),
 };
