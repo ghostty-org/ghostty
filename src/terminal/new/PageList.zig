@@ -30,7 +30,7 @@ const page_preheat = 4;
 const List = std.DoublyLinkedList(Page);
 
 /// The memory pool we get page nodes from.
-const Pool = std.heap.MemoryPool(List.Node);
+const NodePool = std.heap.MemoryPool(List.Node);
 
 const std_capacity = pagepkg.std_capacity;
 
@@ -42,13 +42,40 @@ const PagePool = std.heap.MemoryPoolAligned(
     std.mem.page_size,
 );
 
-/// The allocator to use for pages.
-alloc: Allocator,
+/// The pool of memory used for a pagelist. This can be shared between
+/// multiple pagelists but it is not threadsafe.
+pub const MemoryPool = struct {
+    nodes: NodePool,
+    pages: PagePool,
 
-/// The memory pool we get page nodes for the linked list from.
-pool: Pool,
+    pub const ResetMode = std.heap.ArenaAllocator.ResetMode;
 
-page_pool: PagePool,
+    pub fn init(
+        gen_alloc: Allocator,
+        page_alloc: Allocator,
+        preheat: usize,
+    ) !MemoryPool {
+        var pool = try NodePool.initPreheated(gen_alloc, preheat);
+        errdefer pool.deinit();
+        var page_pool = try PagePool.initPreheated(page_alloc, preheat);
+        errdefer page_pool.deinit();
+        return .{ .nodes = pool, .pages = page_pool };
+    }
+
+    pub fn deinit(self: *MemoryPool) void {
+        self.pages.deinit();
+        self.nodes.deinit();
+    }
+
+    pub fn reset(self: *MemoryPool, mode: ResetMode) void {
+        _ = self.pages.reset(mode);
+        _ = self.nodes.reset(mode);
+    }
+};
+
+/// The memory pool we get page nodes, pages from.
+pool: MemoryPool,
+pool_owned: bool,
 
 /// The list of pages in the screen.
 pages: List,
@@ -120,14 +147,10 @@ pub fn init(
     // The screen starts with a single page that is the entire viewport,
     // and we'll split it thereafter if it gets too large and add more as
     // necessary.
-    var pool = try Pool.initPreheated(alloc, page_preheat);
-    errdefer pool.deinit();
+    var pool = try MemoryPool.init(alloc, std.heap.page_allocator, page_preheat);
 
-    var page_pool = try PagePool.initPreheated(std.heap.page_allocator, page_preheat);
-    errdefer page_pool.deinit();
-
-    var page = try pool.create();
-    const page_buf = try page_pool.create();
+    var page = try pool.nodes.create();
+    const page_buf = try pool.pages.create();
     // no errdefer because the pool deinit will clean these up
 
     // In runtime safety modes we have to memset because the Zig allocator
@@ -160,11 +183,10 @@ pub fn init(
     );
 
     return .{
-        .alloc = alloc,
         .cols = cols,
         .rows = rows,
         .pool = pool,
-        .page_pool = page_pool,
+        .pool_owned = true,
         .pages = page_list,
         .page_size = page_size,
         .max_size = max_size_actual,
@@ -172,11 +194,16 @@ pub fn init(
     };
 }
 
+/// Deinit the pagelist. If you own the memory pool (used clonePool) then
+/// this will reset the pool and retain capacity.
 pub fn deinit(self: *PageList) void {
     // Deallocate all the pages. We don't need to deallocate the list or
     // nodes because they all reside in the pool.
-    self.page_pool.deinit();
-    self.pool.deinit();
+    if (self.pool_owned) {
+        self.pool.deinit();
+    } else {
+        self.pool.reset(.{ .retain_capacity = {} });
+    }
 }
 
 /// Clone this pagelist from the top to bottom (inclusive).
@@ -192,32 +219,44 @@ pub fn clone(
     top: point.Point,
     bot: ?point.Point,
 ) !PageList {
-    var it = self.pageIterator(top, bot);
-
     // First, count our pages so our preheat is exactly what we need.
+    var it = self.pageIterator(top, bot);
     const page_count: usize = page_count: {
-        // Copy the iterator so we don't mutate our original.
-        var count_it = it;
         var count: usize = 0;
-        while (count_it.next()) |_| count += 1;
+        while (it.next()) |_| count += 1;
         break :page_count count;
     };
 
     // Setup our pools
-    var pool = try Pool.initPreheated(alloc, page_count);
+    var pool = try MemoryPool.init(alloc, std.heap.page_allocator, page_count);
     errdefer pool.deinit();
-    var page_pool = try PagePool.initPreheated(std.heap.page_allocator, page_count);
-    errdefer page_pool.deinit();
+
+    var result = try self.clonePool(&pool, top, bot);
+    result.pool_owned = true;
+    return result;
+}
+
+/// Like clone, but specify your own memory pool. This is advanced but
+/// lets you avoid expensive syscalls to allocate memory.
+pub fn clonePool(
+    self: *const PageList,
+    pool: *MemoryPool,
+    top: point.Point,
+    bot: ?point.Point,
+) !PageList {
+    var it = self.pageIterator(top, bot);
 
     // Copy our pages
     var page_list: List = .{};
     var total_rows: usize = 0;
+    var page_count: usize = 0;
     while (it.next()) |chunk| {
         // Clone the page
-        const page = try pool.create();
-        const page_buf = try page_pool.create();
+        const page = try pool.nodes.create();
+        const page_buf = try pool.pages.create();
         page.* = .{ .data = chunk.page.data.cloneBuf(page_buf) };
         page_list.append(page);
+        page_count += 1;
 
         // If this is a full page then we're done.
         if (chunk.fullPage()) {
@@ -251,9 +290,8 @@ pub fn clone(
     }
 
     var result: PageList = .{
-        .alloc = alloc,
-        .pool = pool,
-        .page_pool = page_pool,
+        .pool = pool.*,
+        .pool_owned = false,
         .pages = page_list,
         .page_size = PagePool.item_size * page_count,
         .max_size = self.max_size,
@@ -434,11 +472,11 @@ pub fn grow(self: *PageList) !?*List.Node {
 /// Create a new page node. This does not add it to the list and this
 /// does not do any memory size accounting with max_size/page_size.
 fn createPage(self: *PageList) !*List.Node {
-    var page = try self.pool.create();
-    errdefer self.pool.destroy(page);
+    var page = try self.pool.nodes.create();
+    errdefer self.pool.nodes.destroy(page);
 
-    const page_buf = try self.page_pool.create();
-    errdefer self.page_pool.destroy(page_buf);
+    const page_buf = try self.pool.pages.create();
+    errdefer self.pool.pages.destroy(page_buf);
     if (comptime std.debug.runtime_safety) @memset(page_buf, 0);
 
     page.* = .{
@@ -548,8 +586,8 @@ fn erasePage(self: *PageList, page: *List.Node) void {
 
     // Reset the page memory and return it back to the pool.
     @memset(page.data.memory, 0);
-    self.page_pool.destroy(@ptrCast(page.data.memory.ptr));
-    self.pool.destroy(page);
+    self.pool.pages.destroy(@ptrCast(page.data.memory.ptr));
+    self.pool.nodes.destroy(page);
 }
 
 /// Get the top-left of the screen for the given tag.

@@ -11,7 +11,7 @@ const Args = struct {
     mode: Mode = .old,
 
     /// The number of times to loop.
-    count: usize = 5_000,
+    count: usize = 2500,
 
     /// Rows and cols in the terminal.
     rows: usize = 100,
@@ -32,6 +32,7 @@ const Mode = enum {
 
     /// Use a memory pool to allocate pages from a backing buffer.
     new,
+    @"new-pooled",
 };
 
 pub const std_options: std.Options = .{
@@ -68,6 +69,16 @@ pub fn main() !void {
             defer t.deinit(alloc);
             try benchNew(alloc, &t, args);
         },
+
+        .@"new-pooled" => {
+            var t = try terminal.new.Terminal.init(
+                alloc,
+                @intCast(args.cols),
+                @intCast(args.rows),
+            );
+            defer t.deinit(alloc);
+            try benchNewPooled(alloc, &t, args);
+        },
     }
 }
 
@@ -101,6 +112,24 @@ noinline fn benchNew(alloc: Allocator, t: *terminal.new.Terminal, args: Args) !v
 
     for (0..args.count) |_| {
         var s = try t.screen.clone(alloc, .{ .active = .{} }, null);
+        errdefer s.deinit();
+    }
+}
+
+noinline fn benchNewPooled(alloc: Allocator, t: *terminal.new.Terminal, args: Args) !void {
+    // We fill the terminal with letters.
+    for (0..args.rows) |row| {
+        for (0..args.cols) |col| {
+            t.setCursorPos(row + 1, col + 1);
+            try t.print('A');
+        }
+    }
+
+    var pool = try terminal.new.PageList.MemoryPool.init(alloc, std.heap.page_allocator, 4);
+    defer pool.deinit();
+
+    for (0..args.count) |_| {
+        var s = try t.screen.clonePool(alloc, &pool, .{ .active = .{} }, null);
         errdefer s.deinit();
     }
 }

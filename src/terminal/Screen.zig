@@ -1136,6 +1136,7 @@ pub fn clone(self: *Screen, alloc: Allocator, top: RowIndex, bottom: RowIndex) !
     assert(dst[1].len == 0);
 
     // Perform the copy
+    std.log.warn("copy bytes={}", .{src[0].len + src[1].len});
     fastmem.copy(StorageCell, dst[0], src[0]);
     fastmem.copy(StorageCell, dst[0][src[0].len..], src[1]);
 
