@@ -180,6 +180,12 @@ pub fn deinit(self: *PageList) void {
 }
 
 /// Clone this pagelist from the top to bottom (inclusive).
+///
+/// The viewport is always moved to the top-left.
+///
+/// The cloned pagelist must contain at least enough rows for the active
+/// area. If the region specified has less rows than the active area then
+/// rows will be added to the bottom of the region to make up the difference.
 pub fn clone(
     self: *const PageList,
     alloc: Allocator,
@@ -204,20 +210,75 @@ pub fn clone(
     errdefer page_pool.deinit();
 
     // Copy our pages
-    const page_list: List = .{};
+    var page_list: List = .{};
+    var total_rows: usize = 0;
     while (it.next()) |chunk| {
-        _ = chunk;
+        // Clone the page
+        const page = try pool.create();
+        const page_buf = try page_pool.create();
+        page.* = .{ .data = chunk.page.data.cloneBuf(page_buf) };
+        page_list.append(page);
+
+        // If this is a full page then we're done.
+        if (chunk.fullPage()) {
+            total_rows += page.data.size.rows;
+            continue;
+        }
+
+        // If this is just a shortened chunk off the end we can just
+        // shorten the size. We don't worry about clearing memory here because
+        // as the page grows the memory will be reclaimable because the data
+        // is still valid.
+        if (chunk.start == 0) {
+            page.data.size.rows = @intCast(chunk.end);
+            total_rows += chunk.end;
+            continue;
+        }
+
+        // Kind of slow, we want to shift the rows up in the page up to
+        // end and then resize down.
+        const rows = page.data.rows.ptr(page.data.memory);
+        const len = chunk.end - chunk.start;
+        for (0..len) |i| {
+            const src: *Row = &rows[i + chunk.start];
+            const dst: *Row = &rows[i];
+            const old_dst = dst.*;
+            dst.* = src.*;
+            src.* = old_dst;
+        }
+        page.data.size.rows = @intCast(len);
+        total_rows += len;
     }
 
-    return .{
+    var result: PageList = .{
         .alloc = alloc,
         .pool = pool,
         .page_pool = page_pool,
         .pages = page_list,
+        .page_size = PagePool.item_size * page_count,
         .max_size = self.max_size,
         .cols = self.cols,
         .rows = self.rows,
+        .viewport = .{ .top = {} },
     };
+
+    // We always need to have enough rows for our viewport because this is
+    // a pagelist invariant that other code relies on.
+    if (total_rows < self.rows) {
+        const len = self.rows - total_rows;
+        for (0..len) |_| {
+            _ = try result.grow();
+
+            // Clear the row. This is not very fast but in reality right
+            // now we rarely clone less than the active area and if we do
+            // the area is by definition very small.
+            const last = result.pages.last.?;
+            const row = &last.data.rows.ptr(last.data.memory)[last.data.size.rows - 1];
+            last.data.clearCells(row, 0, result.cols);
+        }
+    }
+
+    return result;
 }
 
 /// Scroll options.
@@ -1411,4 +1472,88 @@ test "PageList erase active regrows automatically" {
     try testing.expect(s.totalRows() == s.rows);
     s.eraseRows(.{ .active = .{} }, .{ .active = .{ .y = 10 } });
     try testing.expect(s.totalRows() == s.rows);
+}
+
+test "PageList clone" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+    try testing.expectEqual(@as(usize, s.rows), s.totalRows());
+
+    var s2 = try s.clone(alloc, .{ .screen = .{} }, null);
+    defer s2.deinit();
+    try testing.expectEqual(@as(usize, s.rows), s2.totalRows());
+}
+
+test "PageList clone partial trimmed right" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 20, null);
+    defer s.deinit();
+    try testing.expectEqual(@as(usize, s.rows), s.totalRows());
+    try s.growRows(30);
+
+    var s2 = try s.clone(
+        alloc,
+        .{ .screen = .{} },
+        .{ .screen = .{ .y = 39 } },
+    );
+    defer s2.deinit();
+    try testing.expectEqual(@as(usize, 40), s2.totalRows());
+}
+
+test "PageList clone partial trimmed left" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 20, null);
+    defer s.deinit();
+    try testing.expectEqual(@as(usize, s.rows), s.totalRows());
+    try s.growRows(30);
+
+    var s2 = try s.clone(
+        alloc,
+        .{ .screen = .{ .y = 10 } },
+        null,
+    );
+    defer s2.deinit();
+    try testing.expectEqual(@as(usize, 40), s2.totalRows());
+}
+
+test "PageList clone partial trimmed both" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 20, null);
+    defer s.deinit();
+    try testing.expectEqual(@as(usize, s.rows), s.totalRows());
+    try s.growRows(30);
+
+    var s2 = try s.clone(
+        alloc,
+        .{ .screen = .{ .y = 10 } },
+        .{ .screen = .{ .y = 35 } },
+    );
+    defer s2.deinit();
+    try testing.expectEqual(@as(usize, 26), s2.totalRows());
+}
+
+test "PageList clone less than active" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+    try testing.expectEqual(@as(usize, s.rows), s.totalRows());
+
+    var s2 = try s.clone(
+        alloc,
+        .{ .active = .{ .y = 5 } },
+        null,
+    );
+    defer s2.deinit();
+    try testing.expectEqual(@as(usize, s.rows), s2.totalRows());
 }

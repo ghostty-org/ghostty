@@ -266,6 +266,43 @@ pub const Page = struct {
         @panic("TODO: grapheme move");
     }
 
+    /// Clear the cells in the given row. This will reclaim memory used
+    /// by graphemes and styles. Note that if the style cleared is still
+    /// active, Page cannot know this and it will still be ref counted down.
+    /// The best solution for this is to artificially increment the ref count
+    /// prior to calling this function.
+    pub fn clearCells(
+        self: *Page,
+        row: *Row,
+        left: usize,
+        end: usize,
+    ) void {
+        const cells = row.cells.ptr(self.memory)[left..end];
+        if (row.grapheme) {
+            for (cells) |*cell| {
+                if (cell.hasGrapheme()) self.clearGrapheme(row, cell);
+            }
+        }
+
+        if (row.styled) {
+            for (cells) |*cell| {
+                if (cell.style_id == style.default_id) continue;
+
+                if (self.styles.lookupId(self.memory, cell.style_id)) |prev_style| {
+                    // Below upsert can't fail because it should already be present
+                    const md = self.styles.upsert(self.memory, prev_style.*) catch unreachable;
+                    assert(md.ref > 0);
+                    md.ref -= 1;
+                    if (md.ref == 0) self.styles.remove(self.memory, cell.style_id);
+                }
+            }
+
+            if (cells.len == self.size.cols) row.styled = false;
+        }
+
+        @memset(cells, .{});
+    }
+
     /// Append a codepoint to the given cell as a grapheme.
     pub fn appendGrapheme(self: *Page, row: *Row, cell: *Cell, cp: u21) !void {
         if (comptime std.debug.runtime_safety) assert(cell.hasText());

@@ -166,8 +166,20 @@ pub fn deinit(self: *Screen) void {
 ///
 ///   - Screen dimensions
 ///   - Screen data (cell state, etc.) for the region
-///   - Cursor if its in the region. If the cursor is not in the region
-///     then it will be placed at the top-left of the new screen.
+///
+/// Anything not mentioned above is NOT copied. Some of this is for
+/// very good reason:
+///
+///   - Kitty images have a LOT of data. This is not efficient to copy.
+///     Use a lock and access the image data. The dirty bit is there for
+///     a reason.
+///   - Cursor location can be expensive to calculate with respect to the
+///     specified region. It is faster to grab the cursor from the old
+///     screen and then move it to the new screen.
+///
+/// If not mentioned above, then there isn't a specific reason right now
+/// to not copy some data other than we probably didn't need it and it
+/// isn't necessary for screen coherency.
 ///
 /// Other notes:
 ///
@@ -180,12 +192,19 @@ pub fn clone(
     self: *const Screen,
     alloc: Allocator,
     top: point.Point,
-    bottom: ?point.Point,
+    bot: ?point.Point,
 ) !Screen {
-    _ = self;
-    _ = alloc;
-    _ = top;
-    _ = bottom;
+    var pages = try self.pages.clone(alloc, top, bot);
+    errdefer pages.deinit();
+
+    return .{
+        .alloc = alloc,
+        .pages = pages,
+        .no_scrollback = self.no_scrollback,
+
+        // TODO: let's make this reasonble
+        .cursor = undefined,
+    };
 }
 
 pub fn cursorCellRight(self: *Screen, n: size.CellCountInt) *pagepkg.Cell {
@@ -1429,5 +1448,64 @@ test "Screen: scroll and clear ignore blank lines" {
         const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
         defer alloc.free(contents);
         try testing.expectEqualStrings("1ABCD\n2EFGH\n3ABCD\nX", contents);
+    }
+}
+
+test "Screen: clone" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 10);
+    defer s.deinit();
+    try s.testWriteString("1ABCD\n2EFGH");
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("1ABCD\n2EFGH", contents);
+    }
+
+    // Clone
+    var s2 = try s.clone(alloc, .{ .active = .{} }, null);
+    defer s2.deinit();
+    {
+        const contents = try s2.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("1ABCD\n2EFGH", contents);
+    }
+
+    // Write to s1, should not be in s2
+    try s.testWriteString("\n34567");
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("1ABCD\n2EFGH\n34567", contents);
+    }
+    {
+        const contents = try s2.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("1ABCD\n2EFGH", contents);
+    }
+}
+
+test "Screen: clone partial" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 10);
+    defer s.deinit();
+    try s.testWriteString("1ABCD\n2EFGH");
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("1ABCD\n2EFGH", contents);
+    }
+
+    // Clone
+    var s2 = try s.clone(alloc, .{ .active = .{ .y = 1 } }, null);
+    defer s2.deinit();
+    {
+        const contents = try s2.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("2EFGH", contents);
     }
 }
