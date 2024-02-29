@@ -234,20 +234,18 @@ fn parseIntoField(
 
                 bool => try parseBool(value orelse "t"),
 
-                u8 => std.fmt.parseInt(
-                    u8,
-                    value orelse return error.ValueRequired,
-                    0,
-                ) catch return error.InvalidValue,
-
-                u32 => std.fmt.parseInt(
-                    u32,
-                    value orelse return error.ValueRequired,
-                    0,
-                ) catch return error.InvalidValue,
-
-                u64 => std.fmt.parseInt(
-                    u64,
+                inline u8,
+                u16,
+                u32,
+                u64,
+                usize,
+                i8,
+                i16,
+                i32,
+                i64,
+                isize,
+                => |Int| std.fmt.parseInt(
+                    Int,
                     value orelse return error.ValueRequired,
                     0,
                 ) catch return error.InvalidValue,
