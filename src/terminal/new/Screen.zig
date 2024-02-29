@@ -1651,3 +1651,61 @@ test "Screen: clone one line active with extra space" {
         try testing.expectEqualStrings("1ABC", contents);
     }
 }
+
+test "Screen: clear history with no history" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 3);
+    defer s.deinit();
+    try s.testWriteString("4ABCD\n5EFGH\n6IJKL");
+    try testing.expect(s.pages.viewport == .active);
+    s.eraseRows(.{ .history = .{} }, null);
+    try testing.expect(s.pages.viewport == .active);
+    {
+        // Test our contents rotated
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("4ABCD\n5EFGH\n6IJKL", contents);
+    }
+    {
+        // Test our contents rotated
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("4ABCD\n5EFGH\n6IJKL", contents);
+    }
+}
+
+test "Screen: clear history" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 3);
+    defer s.deinit();
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL\n4ABCD\n5EFGH\n6IJKL");
+    try testing.expect(s.pages.viewport == .active);
+
+    // Scroll to top
+    s.scroll(.{ .top = {} });
+    {
+        // Test our contents rotated
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("1ABCD\n2EFGH\n3IJKL", contents);
+    }
+
+    s.eraseRows(.{ .history = .{} }, null);
+    try testing.expect(s.pages.viewport == .active);
+    {
+        // Test our contents rotated
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("4ABCD\n5EFGH\n6IJKL", contents);
+    }
+    {
+        // Test our contents rotated
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("4ABCD\n5EFGH\n6IJKL", contents);
+    }
+}

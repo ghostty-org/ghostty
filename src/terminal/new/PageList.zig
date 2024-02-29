@@ -319,6 +319,34 @@ pub fn clonePool(
     return result;
 }
 
+/// Returns the viewport for the given offset, prefering to pin to
+/// "active" if the offset is within the active area.
+fn viewportForOffset(self: *const PageList, offset: RowOffset) Viewport {
+    // If the offset is on the active page, then we pin to active
+    // if our row idx is beyond the active row idx.
+    const active = self.getTopLeft(.active);
+    if (offset.page == active.page) {
+        if (offset.row_offset >= active.row_offset) {
+            return .{ .active = {} };
+        }
+    } else {
+        var page_ = active.page.next;
+        while (page_) |page| {
+            // This loop is pretty fast because the active area is
+            // never that large so this is at most one, two pages for
+            // reasonable terminals (including very large real world
+            // ones).
+
+            // A page forward in the active area is our page, so we're
+            // definitely in the active area.
+            if (page == offset.page) return .{ .active = {} };
+            page_ = page.next;
+        }
+    }
+
+    return .{ .exact = offset };
+}
+
 /// Scroll options.
 pub const Scroll = union(enum) {
     /// Scroll to the active area. This is also sometimes referred to as
@@ -343,7 +371,7 @@ pub fn scroll(self: *PageList, behavior: Scroll) void {
     switch (behavior) {
         .active => self.viewport = .{ .active = {} },
         .top => self.viewport = .{ .top = {} },
-        .delta_row => |n| delta_row: {
+        .delta_row => |n| {
             if (n == 0) return;
 
             const top = self.getTopLeft(.viewport);
@@ -362,25 +390,7 @@ pub fn scroll(self: *PageList, behavior: Scroll) void {
             // But in a terminal when you get to the bottom and back into the
             // active area, you usually expect that the viewport will now
             // follow the active area.
-            const active = self.getTopLeft(.active);
-            if (offset.page == active.page) {
-                if (offset.row_offset >= active.row_offset) {
-                    self.viewport = .{ .active = {} };
-                    break :delta_row;
-                }
-            } else active: {
-                // Check forward pages too.
-                var page = active.page.next orelse break :active;
-                while (true) {
-                    if (page == offset.page) {
-                        self.viewport = .{ .active = {} };
-                        break :delta_row;
-                    }
-                    page = page.next orelse break :active;
-                }
-            }
-
-            self.viewport = .{ .exact = offset };
+            self.viewport = self.viewportForOffset(offset);
         },
     }
 }
@@ -561,6 +571,23 @@ pub fn eraseRows(
             log.err("failed to regrow active area after erase err={}", .{err});
             return;
         };
+    }
+
+    // If we have an exact viewport, we need to adjust for active area.
+    switch (self.viewport) {
+        .active => {},
+
+        .exact => |offset| self.viewport = self.viewportForOffset(offset),
+
+        // For top, we move back to active if our erasing moved our
+        // top page into the active area.
+        .top => {
+            const vp = self.viewportForOffset(.{
+                .page = self.pages.first.?,
+                .row_offset = 0,
+            });
+            if (vp == .active) self.viewport = vp;
+        },
     }
 }
 
@@ -1479,7 +1506,7 @@ test "PageList erase" {
     try testing.expectEqual(s.rows, s.totalRows());
 }
 
-test "PageList erase resets viewport if inside erased page" {
+test "PageList erase resets viewport to active if moves within active" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -1498,7 +1525,50 @@ test "PageList erase resets viewport if inside erased page" {
 
     // Erase the entire history, we should be back to just our active set.
     s.eraseRows(.{ .history = .{} }, null);
+    try testing.expect(s.viewport == .active);
+}
+
+test "PageList erase resets viewport if inside erased page but not active" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+
+    // Grow so we take up at least 5 pages.
+    const page = &s.pages.last.?.data;
+    for (0..page.capacity.rows * 5) |_| {
+        _ = try s.grow();
+    }
+
+    // Move our viewport to the top
+    s.scroll(.{ .delta_row = -@as(isize, @intCast(s.totalRows())) });
     try testing.expect(s.viewport.exact.page == s.pages.first.?);
+
+    // Erase the entire history, we should be back to just our active set.
+    s.eraseRows(.{ .history = .{} }, .{ .history = .{ .y = 2 } });
+    try testing.expect(s.viewport.exact.page == s.pages.first.?);
+}
+
+test "PageList erase resets viewport to active if top is inside active" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+
+    // Grow so we take up at least 5 pages.
+    const page = &s.pages.last.?.data;
+    for (0..page.capacity.rows * 5) |_| {
+        _ = try s.grow();
+    }
+
+    // Move our viewport to the top
+    s.scroll(.{ .top = {} });
+
+    // Erase the entire history, we should be back to just our active set.
+    s.eraseRows(.{ .history = .{} }, null);
+    try testing.expect(s.viewport == .active);
 }
 
 test "PageList erase active regrows automatically" {
