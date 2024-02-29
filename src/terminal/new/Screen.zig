@@ -564,6 +564,45 @@ fn blankCell(self: *const Screen) Cell {
     return self.cursor.style.bgCell() orelse .{};
 }
 
+/// Resize the screen. The rows or cols can be bigger or smaller.
+///
+/// This will reflow soft-wrapped text. If the screen size is getting
+/// smaller and the maximum scrollback size is exceeded, data will be
+/// lost from the top of the scrollback.
+pub fn resize(
+    self: *Screen,
+    cols: size.CellCountInt,
+    rows: size.CellCountInt,
+) !void {
+    if (self.pages.cols == cols) {
+        // No resize necessary
+        if (self.pages.rows == rows) return;
+
+        // No matter what we mark our image state as dirty
+        self.kitty_images.dirty = true;
+
+        // If we have the same number of columns, text can't possibly
+        // reflow in any way, so we do the quicker thing and do a resize
+        // without reflow checks.
+        try self.resizeWithoutReflow(rows, cols);
+        return;
+    }
+
+    @panic("TODO");
+}
+
+/// Resize the screen without any reflow. In this mode, columns/rows will
+/// be truncated as they are shrunk. If they are grown, the new space is filled
+/// with zeros.
+pub fn resizeWithoutReflow(
+    self: *Screen,
+    rows: size.CellCountInt,
+    cols: size.CellCountInt,
+) !void {
+    // If we're resizing to the same size, do nothing.
+    if (self.pages.cols == cols and self.pages.rows == rows) return;
+}
+
 /// Set a style attribute for the current cursor.
 ///
 /// This can cause a page split if the current page cannot fit this style.
@@ -1764,3 +1803,38 @@ test "Screen: clear above cursor with history" {
     try testing.expectEqual(@as(usize, 5), s.cursor.x);
     try testing.expectEqual(@as(usize, 2), s.cursor.y);
 }
+
+test "Screen: resize (no reflow) more rows" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 0);
+    defer s.deinit();
+    const str = "1ABCD\n2EFGH\n3IJKL";
+    try s.testWriteString(str);
+
+    // Resize
+    try s.resizeWithoutReflow(10, 10);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
+}
+
+// test "Screen: resize (no reflow) less rows" {
+//     const testing = std.testing;
+//     const alloc = testing.allocator;
+//
+//     var s = try init(alloc, 10, 3, 0);
+//     defer s.deinit();
+//     const str = "1ABCD\n2EFGH\n3IJKL";
+//     try s.testWriteString(str);
+//     try s.resizeWithoutReflow(10, 2);
+//
+//     {
+//         const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+//         defer alloc.free(contents);
+//         try testing.expectEqualStrings("2EFGH\n3IJKL", contents);
+//     }
+// }
