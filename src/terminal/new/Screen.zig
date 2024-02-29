@@ -194,7 +194,22 @@ pub fn clone(
     top: point.Point,
     bot: ?point.Point,
 ) !Screen {
-    var pages = try self.pages.clone(alloc, top, bot);
+    return try self.clonePool(alloc, null, top, bot);
+}
+
+/// Same as clone but you can specify a custom memory pool to use for
+/// the screen.
+pub fn clonePool(
+    self: *const Screen,
+    alloc: Allocator,
+    pool: ?*PageList.MemoryPool,
+    top: point.Point,
+    bot: ?point.Point,
+) !Screen {
+    var pages = if (pool) |p|
+        try self.pages.clonePool(p, top, bot)
+    else
+        try self.pages.clone(alloc, top, bot);
     errdefer pages.deinit();
 
     return .{

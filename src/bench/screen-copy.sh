@@ -7,6 +7,8 @@ hyperfine \
   --warmup 10 \
   -n new \
   "./zig-out/bin/bench-screen-copy --mode=new${ARGS}" \
+  -n new-pooled \
+  "./zig-out/bin/bench-screen-copy --mode=new-pooled${ARGS}" \
   -n old \
   "./zig-out/bin/bench-screen-copy --mode=old${ARGS}"
 
