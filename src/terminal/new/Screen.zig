@@ -1709,3 +1709,58 @@ test "Screen: clear history" {
         try testing.expectEqualStrings("4ABCD\n5EFGH\n6IJKL", contents);
     }
 }
+
+test "Screen: clear above cursor" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 10, 3);
+    defer s.deinit();
+    try s.testWriteString("4ABCD\n5EFGH\n6IJKL");
+    s.clearRows(
+        .{ .active = .{ .y = 0 } },
+        .{ .active = .{ .y = s.cursor.y - 1 } },
+        false,
+    );
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("\n\n6IJKL", contents);
+    }
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("\n\n6IJKL", contents);
+    }
+
+    try testing.expectEqual(@as(usize, 5), s.cursor.x);
+    try testing.expectEqual(@as(usize, 2), s.cursor.y);
+}
+
+test "Screen: clear above cursor with history" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 3);
+    defer s.deinit();
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL\n");
+    try s.testWriteString("4ABCD\n5EFGH\n6IJKL");
+    s.clearRows(
+        .{ .active = .{ .y = 0 } },
+        .{ .active = .{ .y = s.cursor.y - 1 } },
+        false,
+    );
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("\n\n6IJKL", contents);
+    }
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("1ABCD\n2EFGH\n3IJKL\n\n\n6IJKL", contents);
+    }
+
+    try testing.expectEqual(@as(usize, 5), s.cursor.x);
+    try testing.expectEqual(@as(usize, 2), s.cursor.y);
+}
