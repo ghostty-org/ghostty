@@ -6035,6 +6035,7 @@ test "Screen: dirty with graphemes" {
     }
 }
 
+// X
 test "Screen: resize (no reflow) more rows" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -6061,6 +6062,7 @@ test "Screen: resize (no reflow) more rows" {
     while (iter.next()) |row| try testing.expect(row.isDirty());
 }
 
+// X
 test "Screen: resize (no reflow) less rows" {
     const testing = std.testing;
     const alloc = testing.allocator;
