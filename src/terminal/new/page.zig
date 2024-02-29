@@ -200,7 +200,7 @@ pub const Page = struct {
         // This is a memcpy. We may want to investigate if there are
         // faster ways to do this (i.e. copy-on-write tricks) but I suspect
         // they'll be slower. I haven't experimented though.
-        std.log.warn("copy bytes={}", .{self.memory.len});
+        // std.log.warn("copy bytes={}", .{self.memory.len});
         fastmem.copy(u8, result.memory, self.memory);
 
         return result;
