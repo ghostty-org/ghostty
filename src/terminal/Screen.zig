@@ -5500,6 +5500,7 @@ test "Screen: clear above cursor" {
     try testing.expectEqual(@as(usize, 0), s.cursor.y);
 }
 
+// X
 test "Screen: clear above cursor with history" {
     const testing = std.testing;
     const alloc = testing.allocator;
