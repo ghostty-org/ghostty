@@ -437,7 +437,6 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
                     // Unlikely fast path: we have capacity in the page. This
                     // is only true if we resized to less cols earlier.
                     if (page.capacity.cols >= cols) {
-                        if (true) @panic("TODO: TEST");
                         page.size.cols = cols;
                         continue;
                     }
@@ -445,9 +444,17 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
                     // Likely slow path: we don't have capacity, so we need
                     // to allocate a page, and copy the old data into it.
                     // TODO: handle capacity can't fit rows for cols
-                    if (true) @panic("TODO after page.cloneFrom");
                     const new_page = try self.createPage(cap);
-                    _ = new_page;
+                    errdefer self.destroyPage(new_page);
+                    new_page.data.size.rows = page.size.rows;
+                    try new_page.data.cloneFrom(page, 0, page.size.rows);
+
+                    // Insert our new page before the old page.
+                    // Remove the old page.
+                    // Deallocate the old page.
+                    self.pages.insertBefore(chunk.page, new_page);
+                    self.pages.remove(chunk.page);
+                    self.destroyPage(chunk.page);
                 }
 
                 self.cols = cols;
@@ -609,6 +616,14 @@ fn createPage(self: *PageList, cap: Capacity) !*List.Node {
     return page;
 }
 
+/// Destroy the memory of the given page and return it to the pool. The
+/// page is assumed to already be removed from the linked list.
+fn destroyPage(self: *PageList, page: *List.Node) void {
+    @memset(page.data.memory, 0);
+    self.pool.pages.destroy(@ptrCast(page.data.memory.ptr));
+    self.pool.nodes.destroy(page);
+}
+
 /// Erase the rows from the given top to bottom (inclusive). Erasing
 /// the rows doesn't clear them but actually physically REMOVES the rows.
 /// If the top or bottom point is in the middle of a page, the other
@@ -719,11 +734,7 @@ fn erasePage(self: *PageList, page: *List.Node) void {
 
     // Remove the page from the linked list
     self.pages.remove(page);
-
-    // Reset the page memory and return it back to the pool.
-    @memset(page.data.memory, 0);
-    self.pool.pages.destroy(@ptrCast(page.data.memory.ptr));
-    self.pool.nodes.destroy(page);
+    self.destroyPage(page);
 }
 
 /// Get the top-left of the screen for the given tag.
@@ -1896,22 +1907,46 @@ test "PageList resize (no reflow) less cols clears graphemes" {
     }
 }
 
-// test "PageList resize (no reflow) more cols" {
-//     const testing = std.testing;
-//     const alloc = testing.allocator;
-//
-//     var s = try init(alloc, 5, 3, 0);
-//     defer s.deinit();
-//
-//     // Resize
-//     try s.resize(.{ .cols = 10, .reflow = false });
-//     try testing.expectEqual(@as(usize, 10), s.cols);
-//     try testing.expectEqual(@as(usize, 3), s.totalRows());
-//
-//     var it = s.rowIterator(.{ .screen = .{} }, null);
-//     while (it.next()) |offset| {
-//         const rac = offset.rowAndCell(0);
-//         const cells = offset.page.data.getCells(rac.row);
-//         try testing.expectEqual(@as(usize, 10), cells.len);
-//     }
-// }
+test "PageList resize (no reflow) more cols" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 0);
+    defer s.deinit();
+
+    // Resize
+    try s.resize(.{ .cols = 10, .reflow = false });
+    try testing.expectEqual(@as(usize, 10), s.cols);
+    try testing.expectEqual(@as(usize, 3), s.totalRows());
+
+    var it = s.rowIterator(.{ .screen = .{} }, null);
+    while (it.next()) |offset| {
+        const rac = offset.rowAndCell(0);
+        const cells = offset.page.data.getCells(rac.row);
+        try testing.expectEqual(@as(usize, 10), cells.len);
+    }
+}
+
+test "PageList resize (no reflow) less cols then more cols" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 0);
+    defer s.deinit();
+
+    // Resize less
+    try s.resize(.{ .cols = 2, .reflow = false });
+    try testing.expectEqual(@as(usize, 2), s.cols);
+
+    // Resize
+    try s.resize(.{ .cols = 5, .reflow = false });
+    try testing.expectEqual(@as(usize, 5), s.cols);
+    try testing.expectEqual(@as(usize, 3), s.totalRows());
+
+    var it = s.rowIterator(.{ .screen = .{} }, null);
+    while (it.next()) |offset| {
+        const rac = offset.rowAndCell(0);
+        const cells = offset.page.data.getCells(rac.row);
+        try testing.expectEqual(@as(usize, 5), cells.len);
+    }
+}
