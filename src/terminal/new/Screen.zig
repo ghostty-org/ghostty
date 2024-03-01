@@ -863,16 +863,22 @@ fn testWriteString(self: *Screen, text: []const u8) !void {
         if (c == '\n') {
             try self.cursorDownOrScroll();
             self.cursorHorizontalAbsolute(0);
+            self.cursor.pending_wrap = false;
             continue;
-        }
-
-        if (self.cursor.x == self.pages.cols) {
-            @panic("wrap not implemented");
         }
 
         const width: usize = if (c <= 0xFF) 1 else @intCast(unicode.table.get(c).width);
         if (width == 0) {
             @panic("zero-width todo");
+        }
+
+        if (self.cursor.pending_wrap) {
+            assert(self.cursor.x == self.pages.cols - 1);
+            self.cursor.pending_wrap = false;
+            self.cursor.page_row.wrap = true;
+            try self.cursorDownOrScroll();
+            self.cursorHorizontalAbsolute(0);
+            self.cursor.page_row.wrap_continuation = true;
         }
 
         assert(width == 1 or width == 2);
@@ -893,7 +899,7 @@ fn testWriteString(self: *Screen, text: []const u8) !void {
                 if (self.cursor.x + 1 < self.pages.cols) {
                     self.cursorRight(1);
                 } else {
-                    @panic("wrap not implemented");
+                    self.cursor.pending_wrap = true;
                 }
             },
 
@@ -1994,5 +2000,40 @@ test "Screen: resize (no reflow) less rows with empty trailing" {
         const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
         defer alloc.free(contents);
         try testing.expectEqualStrings("A\nB", contents);
+    }
+}
+
+test "Screen: resize (no reflow) more rows with soft wrapping" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 3, 3);
+    defer s.deinit();
+    const str = "1A2B\n3C4E\n5F6G";
+    try s.testWriteString(str);
+
+    // Every second row should be wrapped
+    for (0..6) |y| {
+        const list_cell = s.pages.getCell(.{ .screen = .{ .x = 0, .y = y } }).?;
+        const row = list_cell.row;
+        const wrapped = (y % 2 == 0);
+        try testing.expectEqual(wrapped, row.wrap);
+    }
+
+    // Resize
+    try s.resizeWithoutReflow(2, 10);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "1A\n2B\n3C\n4E\n5F\n6G";
+        try testing.expectEqualStrings(expected, contents);
+    }
+
+    // Every second row should be wrapped
+    for (0..6) |y| {
+        const list_cell = s.pages.getCell(.{ .screen = .{ .x = 0, .y = y } }).?;
+        const row = list_cell.row;
+        const wrapped = (y % 2 == 0);
+        try testing.expectEqual(wrapped, row.wrap);
     }
 }
