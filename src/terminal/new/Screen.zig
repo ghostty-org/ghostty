@@ -1869,3 +1869,105 @@ test "Screen: resize (no reflow) less rows trims blank lines" {
         try testing.expectEqualStrings("1ABCD", contents);
     }
 }
+
+test "Screen: resize (no reflow) more rows trims blank lines" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 0);
+    defer s.deinit();
+    const str = "1ABCD";
+    try s.testWriteString(str);
+
+    // Write only a background color into the remaining rows
+    for (1..s.pages.rows) |y| {
+        const list_cell = s.pages.getCell(.{ .active = .{ .x = 0, .y = y } }).?;
+        list_cell.cell.* = .{
+            .content_tag = .bg_color_rgb,
+            .content = .{ .color_rgb = .{ .r = 0xFF, .g = 0, .b = 0 } },
+        };
+    }
+
+    const cursor = s.cursor;
+    try s.resizeWithoutReflow(10, 7);
+
+    // Cursor should not move
+    try testing.expectEqual(cursor.x, s.cursor.x);
+    try testing.expectEqual(cursor.y, s.cursor.y);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("1ABCD", contents);
+    }
+}
+
+test "Screen: resize (no reflow) more cols" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 0);
+    defer s.deinit();
+    const str = "1ABCD\n2EFGH\n3IJKL";
+    try s.testWriteString(str);
+    try s.resizeWithoutReflow(20, 3);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
+}
+
+test "Screen: resize (no reflow) less cols" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 0);
+    defer s.deinit();
+    const str = "1ABCD\n2EFGH\n3IJKL";
+    try s.testWriteString(str);
+    try s.resizeWithoutReflow(4, 3);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "1ABC\n2EFG\n3IJK";
+        try testing.expectEqualStrings(expected, contents);
+    }
+}
+
+test "Screen: resize (no reflow) more rows with scrollback cursor end" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 7, 3, 2);
+    defer s.deinit();
+    const str = "1ABCD\n2EFGH\n3IJKL\n4ABCD\n5EFGH";
+    try s.testWriteString(str);
+    try s.resizeWithoutReflow(7, 10);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
+}
+
+test "Screen: resize (no reflow) less rows with scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 7, 3, 2);
+    defer s.deinit();
+    const str = "1ABCD\n2EFGH\n3IJKL\n4ABCD\n5EFGH";
+    try s.testWriteString(str);
+    try s.resizeWithoutReflow(7, 2);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "4ABCD\n5EFGH";
+        try testing.expectEqualStrings(expected, contents);
+    }
+}

@@ -6116,6 +6116,7 @@ test "Screen: resize (no reflow) less rows trims blank lines" {
     }
 }
 
+// X
 test "Screen: resize (no reflow) more rows trims blank lines" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -6151,6 +6152,7 @@ test "Screen: resize (no reflow) more rows trims blank lines" {
     }
 }
 
+// X
 test "Screen: resize (no reflow) more cols" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -6168,6 +6170,7 @@ test "Screen: resize (no reflow) more cols" {
     }
 }
 
+// X
 test "Screen: resize (no reflow) less cols" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -6186,6 +6189,7 @@ test "Screen: resize (no reflow) less cols" {
     }
 }
 
+// X
 test "Screen: resize (no reflow) more rows with scrollback cursor end" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -6203,6 +6207,7 @@ test "Screen: resize (no reflow) more rows with scrollback cursor end" {
     }
 }
 
+// X
 test "Screen: resize (no reflow) less rows with scrollback" {
     const testing = std.testing;
     const alloc = testing.allocator;

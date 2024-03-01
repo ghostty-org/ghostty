@@ -1984,6 +1984,46 @@ test "PageList resize (no reflow) less rows trims blank lines" {
     }
 }
 
+test "PageList resize (no reflow) more rows extends blank lines" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 0);
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+
+    // Write codepoint into first line
+    {
+        const rac = page.getRowAndCell(0, 0);
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = 'A' },
+        };
+    }
+
+    // Fill remaining lines with a background color
+    for (1..s.rows) |y| {
+        const rac = page.getRowAndCell(0, y);
+        rac.cell.* = .{
+            .content_tag = .bg_color_rgb,
+            .content = .{ .color_rgb = .{ .r = 0xFF, .g = 0, .b = 0 } },
+        };
+    }
+
+    // Resize
+    try s.resize(.{ .rows = 7, .reflow = false });
+    try testing.expectEqual(@as(usize, 7), s.rows);
+    try testing.expectEqual(@as(usize, 7), s.totalRows());
+    {
+        const pt = s.getCell(.{ .active = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, pt);
+    }
+}
+
 test "PageList resize (no reflow) less cols" {
     const testing = std.testing;
     const alloc = testing.allocator;
