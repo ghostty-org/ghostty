@@ -368,9 +368,7 @@ pub fn resize(self: *PageList, opts: Resize) !void {
 fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
     assert(!opts.reflow);
 
-    // If we're only changing the number of rows, it is a very fast operation.
-    if (opts.cols == null) {
-        const rows = opts.rows orelse return;
+    if (opts.rows) |rows| {
         switch (std.math.order(rows, self.rows)) {
             .eq => {},
 
@@ -1942,6 +1940,47 @@ test "PageList resize (no reflow) less cols then more cols" {
     try s.resize(.{ .cols = 5, .reflow = false });
     try testing.expectEqual(@as(usize, 5), s.cols);
     try testing.expectEqual(@as(usize, 3), s.totalRows());
+
+    var it = s.rowIterator(.{ .screen = .{} }, null);
+    while (it.next()) |offset| {
+        const rac = offset.rowAndCell(0);
+        const cells = offset.page.data.getCells(rac.row);
+        try testing.expectEqual(@as(usize, 5), cells.len);
+    }
+}
+
+test "PageList resize (no reflow) less rows and cols" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 10, 0);
+    defer s.deinit();
+
+    // Resize less
+    try s.resize(.{ .cols = 5, .rows = 7, .reflow = false });
+    try testing.expectEqual(@as(usize, 5), s.cols);
+    try testing.expectEqual(@as(usize, 7), s.rows);
+
+    var it = s.rowIterator(.{ .screen = .{} }, null);
+    while (it.next()) |offset| {
+        const rac = offset.rowAndCell(0);
+        const cells = offset.page.data.getCells(rac.row);
+        try testing.expectEqual(@as(usize, 5), cells.len);
+    }
+}
+
+test "PageList resize (no reflow) more rows and less cols" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 10, 0);
+    defer s.deinit();
+
+    // Resize less
+    try s.resize(.{ .cols = 5, .rows = 20, .reflow = false });
+    try testing.expectEqual(@as(usize, 5), s.cols);
+    try testing.expectEqual(@as(usize, 20), s.rows);
+    try testing.expectEqual(@as(usize, 20), s.totalRows());
 
     var it = s.rowIterator(.{ .screen = .{} }, null);
     while (it.next()) |offset| {
