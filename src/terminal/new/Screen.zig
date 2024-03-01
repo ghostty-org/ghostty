@@ -2037,3 +2037,31 @@ test "Screen: resize (no reflow) more rows with soft wrapping" {
         try testing.expectEqual(wrapped, row.wrap);
     }
 }
+
+// test "Screen: resize more cols no reflow" {
+//     const testing = std.testing;
+//     const alloc = testing.allocator;
+//
+//     var s = try init(alloc, 5, 3, 0);
+//     defer s.deinit();
+//     const str = "1ABCD\n2EFGH\n3IJKL";
+//     try s.testWriteString(str);
+//
+//     const cursor = s.cursor;
+//     try s.resize(10, 3);
+//
+//     // Cursor should not move
+//     try testing.expectEqual(cursor.x, s.cursor.x);
+//     try testing.expectEqual(cursor.y, s.cursor.y);
+//
+//     {
+//         const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+//         defer alloc.free(contents);
+//         try testing.expectEqualStrings(str, contents);
+//     }
+//     {
+//         const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+//         defer alloc.free(contents);
+//         try testing.expectEqualStrings(str, contents);
+//     }
+// }
