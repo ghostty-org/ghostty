@@ -2179,3 +2179,26 @@ test "PageList resize (no reflow) empty screen" {
         try testing.expectEqual(@as(usize, 10), cells.len);
     }
 }
+
+// test "PageList bug" {
+//     const testing = std.testing;
+//     const alloc = testing.allocator;
+//
+//     var s = try init(alloc, 300, 100, null);
+//     defer s.deinit();
+//     try testing.expect(s.pages.first == s.pages.last);
+//     const page = &s.pages.first.?.data;
+//     for (0..s.rows) |y| {
+//         for (0..s.cols) |x| {
+//             const rac = page.getRowAndCell(x, y);
+//             rac.cell.* = .{
+//                 .content_tag = .codepoint,
+//                 .content = .{ .codepoint = 'A' },
+//             };
+//         }
+//     }
+//
+//     // Resize
+//     try s.resize(.{ .cols = s.cols * 2, .rows = s.rows * 2, .reflow = false });
+//     try s.resize(.{ .cols = s.cols / 2, .rows = s.rows / 2, .reflow = false });
+// }
