@@ -2158,3 +2158,24 @@ test "PageList resize (no reflow) more rows and less cols" {
         try testing.expectEqual(@as(usize, 5), cells.len);
     }
 }
+
+test "PageList resize (no reflow) empty screen" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 5, 0);
+    defer s.deinit();
+
+    // Resize
+    try s.resize(.{ .cols = 10, .rows = 10, .reflow = false });
+    try testing.expectEqual(@as(usize, 10), s.cols);
+    try testing.expectEqual(@as(usize, 10), s.rows);
+    try testing.expectEqual(@as(usize, 10), s.totalRows());
+
+    var it = s.rowIterator(.{ .screen = .{} }, null);
+    while (it.next()) |offset| {
+        const rac = offset.rowAndCell(0);
+        const cells = offset.page.data.getCells(rac.row);
+        try testing.expectEqual(@as(usize, 10), cells.len);
+    }
+}

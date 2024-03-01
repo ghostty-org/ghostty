@@ -6226,6 +6226,7 @@ test "Screen: resize (no reflow) less rows with scrollback" {
     }
 }
 
+// X
 // https://github.com/mitchellh/ghostty/issues/1030
 test "Screen: resize (no reflow) less rows with empty trailing" {
     const testing = std.testing;
@@ -6251,6 +6252,7 @@ test "Screen: resize (no reflow) less rows with empty trailing" {
     }
 }
 
+// X
 test "Screen: resize (no reflow) empty screen" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -6268,6 +6270,7 @@ test "Screen: resize (no reflow) empty screen" {
     try testing.expectEqual(@as(usize, 10), s.rowsCapacity());
 }
 
+// X
 test "Screen: resize (no reflow) grapheme copy" {
     const testing = std.testing;
     const alloc = testing.allocator;
