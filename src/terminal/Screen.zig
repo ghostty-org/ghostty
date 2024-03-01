@@ -6313,6 +6313,7 @@ test "Screen: resize (no reflow) grapheme copy" {
     }
 }
 
+// X
 test "Screen: resize (no reflow) more rows with soft wrapping" {
     const testing = std.testing;
     const alloc = testing.allocator;
