@@ -366,6 +366,67 @@ pub fn resize(self: *PageList, opts: Resize) !void {
     @panic("TODO: resize with text reflow");
 }
 
+/// Returns the number of trailing blank lines, not to exceed max. Max
+/// is used to limit our traversal in the case of large scrollback.
+fn trailingBlankLines(
+    self: *const PageList,
+    max: size.CellCountInt,
+) size.CellCountInt {
+    var count: size.CellCountInt = 0;
+
+    // Go through our pages backwards since we're counting trailing blanks.
+    var it = self.pages.last;
+    while (it) |page| : (it = page.prev) {
+        const len = page.data.size.rows;
+        const rows = page.data.rows.ptr(page.data.memory)[0..len];
+        for (0..len) |i| {
+            const rev_i = len - i - 1;
+            const cells = rows[rev_i].cells.ptr(page.data.memory)[0..page.data.size.cols];
+
+            // If the row has any text then we're done.
+            if (pagepkg.Cell.hasTextAny(cells)) return count;
+
+            // Inc count, if we're beyond max then we're done.
+            count += 1;
+            if (count >= max) return count;
+        }
+    }
+
+    return count;
+}
+
+/// Trims up to max trailing blank rows from the pagelist and returns the
+/// number of rows trimmed. A blank row is any row with no text (but may
+/// have styling).
+fn trimTrailingBlankRows(
+    self: *PageList,
+    max: size.CellCountInt,
+) size.CellCountInt {
+    var trimmed: size.CellCountInt = 0;
+    var it = self.pages.last;
+    while (it) |page| : (it = page.prev) {
+        const len = page.data.size.rows;
+        const rows_slice = page.data.rows.ptr(page.data.memory)[0..len];
+        for (0..len) |i| {
+            const rev_i = len - i - 1;
+            const row = &rows_slice[rev_i];
+            const cells = row.cells.ptr(page.data.memory)[0..page.data.size.cols];
+
+            // If the row has any text then we're done.
+            if (pagepkg.Cell.hasTextAny(cells)) return trimmed;
+
+            // No text, we can trim this row. Because it has
+            // no text we can also be sure it has no styling
+            // so we don't need to worry about memory.
+            page.data.size.rows -= 1;
+            trimmed += 1;
+            if (trimmed >= max) return trimmed;
+        }
+    }
+
+    return trimmed;
+}
+
 fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
     assert(!opts.reflow);
 
@@ -376,7 +437,21 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
             // Making rows smaller, we simply change our rows value. Changing
             // the row size doesn't affect anything else since max size and
             // so on are all byte-based.
-            .lt => self.rows = rows,
+            .lt => {
+                // If our rows are shrinking, we prefer to trim trailing
+                // blank lines from the active area instead of creating
+                // history if we can.
+                //
+                // This matches macOS Terminal.app behavior. I chose to match that
+                // behavior because it seemed fine in an ocean of differing behavior
+                // between terminal apps. I'm completely open to changing it as long
+                // as resize behavior isn't regressed in a user-hostile way.
+                _ = self.trimTrailingBlankRows(self.rows - rows);
+
+                // If we didn't trim enough, just modify our row count and this
+                // will create additional history.
+                self.rows = rows;
+            },
 
             // Making rows larger we adjust our row count, and then grow
             // to the row count.
@@ -1843,6 +1918,19 @@ test "PageList resize (no reflow) less rows" {
     defer s.deinit();
     try testing.expectEqual(@as(usize, 10), s.totalRows());
 
+    // This is required for our writing below to work
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+
+    // Write into all rows so we don't get trim behavior
+    for (0..s.rows) |y| {
+        const rac = page.getRowAndCell(0, y);
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = 'A' },
+        };
+    }
+
     // Resize
     try s.resize(.{ .rows = 5, .reflow = false });
     try testing.expectEqual(@as(usize, 5), s.rows);
@@ -1852,6 +1940,46 @@ test "PageList resize (no reflow) less rows" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 5,
+        } }, pt);
+    }
+}
+
+test "PageList resize (no reflow) less rows trims blank lines" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 5, 0);
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+
+    // Write codepoint into first line
+    {
+        const rac = page.getRowAndCell(0, 0);
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = 'A' },
+        };
+    }
+
+    // Fill remaining lines with a background color
+    for (1..s.rows) |y| {
+        const rac = page.getRowAndCell(0, y);
+        rac.cell.* = .{
+            .content_tag = .bg_color_rgb,
+            .content = .{ .color_rgb = .{ .r = 0xFF, .g = 0, .b = 0 } },
+        };
+    }
+
+    // Resize
+    try s.resize(.{ .rows = 2, .reflow = false });
+    try testing.expectEqual(@as(usize, 2), s.rows);
+    try testing.expectEqual(@as(usize, 2), s.totalRows());
+    {
+        const pt = s.getCell(.{ .active = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
         } }, pt);
     }
 }
