@@ -206,35 +206,6 @@ pub const Page = struct {
         return result;
     }
 
-    /// Clone and resize this page to the new layout with a provided
-    /// memory buffer. The new layout can change any parameters. If they
-    /// do not fit within the new layout, OutOfMemory is returned.
-    /// If OutOfMemory is returned, the memory buffer is not zeroed;
-    /// the caller should zero if it is reused.
-    ///
-    /// If reflow is true, soft-wrapped text will be reflowed. If reflow
-    /// is false then soft-wrapped text will be truncated.
-    ///
-    /// For deleted cells, this will reclaim the grapheme/style memory
-    /// as appropriate. A page has no concept of the current active style
-    /// so if you want the current active style to not be GCd then you
-    /// should increase the ref count before calling this function, and
-    /// decrease it after.
-    pub fn resizeBuf(
-        self: *Page,
-        buf: OffsetBuf,
-        l: Layout,
-        reflow: bool,
-    ) !Page {
-        // TODO
-        if (reflow) @panic("TODO");
-
-        // Non-reflow resize is relatively simple.
-        _ = self;
-        _ = buf;
-        _ = l;
-    }
-
     /// Get a single row. y must be valid.
     pub fn getRow(self: *const Page, y: usize) *Row {
         assert(y < self.size.rows);
