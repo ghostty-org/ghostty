@@ -363,6 +363,7 @@ pub const Resize = struct {
 /// TODO: docs
 pub fn resize(self: *PageList, opts: Resize) !void {
     if (!opts.reflow) return try self.resizeWithoutReflow(opts);
+    @panic("TODO: resize with text reflow");
 }
 
 fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
