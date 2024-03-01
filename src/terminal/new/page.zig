@@ -206,6 +206,72 @@ pub const Page = struct {
         return result;
     }
 
+    /// Clone the contents of another page into this page. The capacities
+    /// can be different, but the size of the other page must fit into
+    /// this page.
+    ///
+    /// The y_start and y_end parameters allow you to clone only a portion
+    /// of the other page. This is useful for splitting a page into two
+    /// or more pages.
+    ///
+    /// The column count of this page will always be the same as this page.
+    /// If the other page has more columns, the extra columns will be
+    /// truncated. If the other page has fewer columns, the extra columns
+    /// will be zeroed.
+    ///
+    /// The current page is assumed to be empty. We will not clear any
+    /// existing data in the current page.
+    pub fn cloneFrom(
+        self: *Page,
+        other: *const Page,
+        y_start: usize,
+        y_end: usize,
+    ) !void {
+        assert(y_start <= y_end);
+        assert(y_end <= other.size.rows);
+        assert(y_end - y_start <= self.size.rows);
+        if (comptime std.debug.runtime_safety) {
+            // The current page must be empty.
+            assert(self.styles.count(self.memory) == 0);
+            assert(self.graphemeCount() == 0);
+        }
+
+        const other_rows = other.rows.ptr(other.memory)[y_start..y_end];
+        const rows = self.rows.ptr(self.memory)[0 .. y_end - y_start];
+        for (rows, other_rows) |*dst_row, *src_row| {
+            // Copy all the row metadata but keep our cells offset
+            const cells_offset = dst_row.cells;
+            dst_row.* = src_row.*;
+            dst_row.cells = cells_offset;
+
+            const cell_len = @min(self.size.cols, other.size.cols);
+            const other_cells = src_row.cells.ptr(other.memory)[0..cell_len];
+            const cells = dst_row.cells.ptr(self.memory)[0..cell_len];
+
+            // If we have no managed memory in the row, we can just copy.
+            if (!dst_row.grapheme and !dst_row.styled) {
+                fastmem.copy(Cell, cells, other_cells);
+                continue;
+            }
+
+            // We have managed memory, so we have to do a slower copy to
+            // get all of that right.
+            for (cells, other_cells) |*dst_cell, *src_cell| {
+                dst_cell.* = src_cell.*;
+                if (src_cell.hasGrapheme()) {
+                    const cps = other.lookupGrapheme(src_cell).?;
+                    for (cps) |cp| try self.appendGrapheme(dst_row, dst_cell, cp);
+                }
+                if (src_cell.style_id != style.default_id) {
+                    const other_style = other.styles.lookupId(other.memory, src_cell.style_id).?.*;
+                    const md = try self.styles.upsert(self.memory, other_style);
+                    md.ref += 1;
+                    dst_cell.style_id = md.id;
+                }
+            }
+        }
+    }
+
     /// Get a single row. y must be valid.
     pub fn getRow(self: *const Page, y: usize) *Row {
         assert(y < self.size.rows);
@@ -941,6 +1007,131 @@ test "Page clone" {
     // Read the original
     for (0..page.capacity.rows) |y| {
         const rac = page.getRowAndCell(1, y);
+        try testing.expectEqual(@as(u21, 0), rac.cell.content.codepoint);
+    }
+}
+
+test "Page cloneFrom" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    // Write
+    for (0..page.capacity.rows) |y| {
+        const rac = page.getRowAndCell(1, y);
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = @intCast(y) },
+        };
+    }
+
+    // Clone
+    var page2 = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page2.deinit();
+    try page2.cloneFrom(&page, 0, page.size.rows);
+
+    // Read it again
+    for (0..page2.capacity.rows) |y| {
+        const rac = page2.getRowAndCell(1, y);
+        try testing.expectEqual(@as(u21, @intCast(y)), rac.cell.content.codepoint);
+    }
+
+    // Write again
+    for (0..page.capacity.rows) |y| {
+        const rac = page.getRowAndCell(1, y);
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = 0 },
+        };
+    }
+
+    // Read it again, should be unchanged
+    for (0..page2.capacity.rows) |y| {
+        const rac = page2.getRowAndCell(1, y);
+        try testing.expectEqual(@as(u21, @intCast(y)), rac.cell.content.codepoint);
+    }
+
+    // Read the original
+    for (0..page.capacity.rows) |y| {
+        const rac = page.getRowAndCell(1, y);
+        try testing.expectEqual(@as(u21, 0), rac.cell.content.codepoint);
+    }
+}
+
+test "Page cloneFrom shrink columns" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    // Write
+    for (0..page.capacity.rows) |y| {
+        const rac = page.getRowAndCell(1, y);
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = @intCast(y) },
+        };
+    }
+
+    // Clone
+    var page2 = try Page.init(.{
+        .cols = 5,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page2.deinit();
+    try page2.cloneFrom(&page, 0, page.size.rows);
+    try testing.expectEqual(@as(size.CellCountInt, 5), page2.size.cols);
+
+    // Read it again
+    for (0..page2.capacity.rows) |y| {
+        const rac = page2.getRowAndCell(1, y);
+        try testing.expectEqual(@as(u21, @intCast(y)), rac.cell.content.codepoint);
+    }
+}
+
+test "Page cloneFrom partial" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    // Write
+    for (0..page.capacity.rows) |y| {
+        const rac = page.getRowAndCell(1, y);
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = @intCast(y) },
+        };
+    }
+
+    // Clone
+    var page2 = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page2.deinit();
+    try page2.cloneFrom(&page, 0, 5);
+
+    // Read it again
+    for (0..5) |y| {
+        const rac = page2.getRowAndCell(1, y);
+        try testing.expectEqual(@as(u21, @intCast(y)), rac.cell.content.codepoint);
+    }
+    for (5..page2.size.rows) |y| {
+        const rac = page2.getRowAndCell(1, y);
         try testing.expectEqual(@as(u21, 0), rac.cell.content.codepoint);
     }
 }
