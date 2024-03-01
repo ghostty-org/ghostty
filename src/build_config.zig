@@ -144,6 +144,7 @@ pub const ExeEntrypoint = enum {
     bench_codepoint_width,
     bench_grapheme_break,
     bench_page_init,
+    bench_resize,
     bench_screen_copy,
     bench_vt_insert_lines,
 };

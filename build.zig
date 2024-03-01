@@ -1360,7 +1360,7 @@ fn benchSteps(
             .target = target,
 
             // We always want our benchmarks to be in release mode.
-            .optimize = .Debug,
+            .optimize = .ReleaseFast,
         });
         c_exe.linkLibC();
         if (install) b.installArtifact(c_exe);
