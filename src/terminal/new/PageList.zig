@@ -397,11 +397,36 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
                 for (count..rows) |_| _ = try self.grow();
             },
         }
-
-        return;
     }
 
-    @panic("TODO");
+    if (opts.cols) |cols| {
+        switch (std.math.order(cols, self.cols)) {
+            .eq => {},
+
+            // Making our columns smaller. We always have space for this
+            // in existing pages so we need to go through the pages,
+            // resize the columns, and clear any cells that are beyond
+            // the new size.
+            .lt => {
+                var it = self.pageIterator(.{ .screen = .{} }, null);
+                while (it.next()) |chunk| {
+                    const page = &chunk.page.data;
+                    const rows = page.rows.ptr(page.memory);
+                    for (0..page.size.rows) |i| {
+                        const row = &rows[i];
+                        page.clearCells(row, cols, self.cols);
+                    }
+
+                    page.size.cols = cols;
+                }
+            },
+
+            // Make our columns larger. This is a bit more complicated because
+            // pages may not have the capacity for this. If they don't have
+            // the capacity we need to allocate a new page and copy the data.
+            .gt => @panic("TODO"),
+        }
+    }
 }
 
 /// Scroll options.
@@ -1791,5 +1816,53 @@ test "PageList resize (no reflow) less rows" {
             .x = 0,
             .y = 5,
         } }, pt);
+    }
+}
+
+test "PageList resize (no reflow) less cols" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 10, 0);
+    defer s.deinit();
+
+    // Resize
+    try s.resize(.{ .cols = 5, .reflow = false });
+    try testing.expectEqual(@as(usize, 10), s.totalRows());
+
+    var it = s.rowIterator(.{ .screen = .{} }, null);
+    while (it.next()) |offset| {
+        const rac = offset.rowAndCell(0);
+        const cells = offset.page.data.getCells(rac.row);
+        try testing.expectEqual(@as(usize, 5), cells.len);
+    }
+}
+
+test "PageList resize (no reflow) less cols clears graphemes" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 10, 0);
+    defer s.deinit();
+
+    // Add a grapheme.
+    const page = &s.pages.first.?.data;
+    {
+        const rac = page.getRowAndCell(9, 0);
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = 'A' },
+        };
+        try page.appendGrapheme(rac.row, rac.cell, 'A');
+    }
+    try testing.expectEqual(@as(usize, 1), page.graphemeCount());
+
+    // Resize
+    try s.resize(.{ .cols = 5, .reflow = false });
+    try testing.expectEqual(@as(usize, 10), s.totalRows());
+
+    var it = s.pageIterator(.{ .screen = .{} }, null);
+    while (it.next()) |chunk| {
+        try testing.expectEqual(@as(usize, 0), chunk.page.data.graphemeCount());
     }
 }
