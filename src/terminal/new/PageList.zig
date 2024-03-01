@@ -347,6 +347,63 @@ fn viewportForOffset(self: *const PageList, offset: RowOffset) Viewport {
     return .{ .exact = offset };
 }
 
+/// Resize options
+pub const Resize = struct {
+    /// The new cols/cells of the screen.
+    cols: ?size.CellCountInt = null,
+    rows: ?size.CellCountInt = null,
+
+    /// Whether to reflow the text. If this is false then the text will
+    /// be truncated if the new size is smaller than the old size.
+    reflow: bool = true,
+};
+
+/// Resize
+/// TODO: docs
+pub fn resize(self: *PageList, opts: Resize) !void {
+    if (!opts.reflow) return try self.resizeWithoutReflow(opts);
+}
+
+fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
+    assert(!opts.reflow);
+
+    // If we're only changing the number of rows, it is a very fast operation.
+    if (opts.cols == null) {
+        const rows = opts.rows orelse return;
+        switch (std.math.order(rows, self.rows)) {
+            .eq => {},
+
+            // Making rows smaller, we simply change our rows value. Changing
+            // the row size doesn't affect anything else since max size and
+            // so on are all byte-based.
+            .lt => self.rows = rows,
+
+            // Making rows larger we adjust our row count, and then grow
+            // to the row count.
+            .gt => gt: {
+                self.rows = rows;
+
+                // Perform a quick count to make sure we have at least
+                // the number of rows we need. This should be fast because
+                // we only need to count up to "rows"
+                var count: usize = 0;
+                var page = self.pages.first;
+                while (page) |p| : (page = p.next) {
+                    count += p.data.size.rows;
+                    if (count >= rows) break :gt;
+                }
+
+                assert(count < rows);
+                for (count..rows) |_| _ = try self.grow();
+            },
+        }
+
+        return;
+    }
+
+    @panic("TODO");
+}
+
 /// Scroll options.
 pub const Scroll = union(enum) {
     /// Scroll to the active area. This is also sometimes referred to as
@@ -1664,4 +1721,75 @@ test "PageList clone less than active" {
     );
     defer s2.deinit();
     try testing.expectEqual(@as(usize, s.rows), s2.totalRows());
+}
+
+test "PageList resize (no reflow) more rows" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 0);
+    defer s.deinit();
+    try testing.expectEqual(@as(usize, 3), s.totalRows());
+
+    // Resize
+    try s.resize(.{ .rows = 10, .reflow = false });
+    try testing.expectEqual(@as(usize, 10), s.rows);
+    try testing.expectEqual(@as(usize, 10), s.totalRows());
+
+    {
+        const pt = s.getCell(.{ .active = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, pt);
+    }
+}
+
+test "PageList resize (no reflow) more rows with history" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, null);
+    defer s.deinit();
+    try s.growRows(50);
+    {
+        const pt = s.getCell(.{ .active = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 50,
+        } }, pt);
+    }
+
+    // Resize
+    try s.resize(.{ .rows = 5, .reflow = false });
+    try testing.expectEqual(@as(usize, 5), s.rows);
+    try testing.expectEqual(@as(usize, 53), s.totalRows());
+    {
+        const pt = s.getCell(.{ .active = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 48,
+        } }, pt);
+    }
+}
+
+test "PageList resize (no reflow) less rows" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 10, 0);
+    defer s.deinit();
+    try testing.expectEqual(@as(usize, 10), s.totalRows());
+
+    // Resize
+    try s.resize(.{ .rows = 5, .reflow = false });
+    try testing.expectEqual(@as(usize, 5), s.rows);
+    try testing.expectEqual(@as(usize, 10), s.totalRows());
+    {
+        const pt = s.getCell(.{ .active = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 5,
+        } }, pt);
+    }
 }
