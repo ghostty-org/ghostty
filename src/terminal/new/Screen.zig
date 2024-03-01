@@ -1971,3 +1971,28 @@ test "Screen: resize (no reflow) less rows with scrollback" {
         try testing.expectEqualStrings(expected, contents);
     }
 }
+
+// https://github.com/mitchellh/ghostty/issues/1030
+test "Screen: resize (no reflow) less rows with empty trailing" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 5);
+    defer s.deinit();
+    const str = "1\n2\n3\n4\n5\n6\n7\n8";
+    try s.testWriteString(str);
+    try s.scrollClear();
+    s.cursorAbsolute(0, 0);
+    try s.testWriteString("A\nB");
+
+    const cursor = s.cursor;
+    try s.resizeWithoutReflow(5, 2);
+    try testing.expectEqual(cursor.x, s.cursor.x);
+    try testing.expectEqual(cursor.y, s.cursor.y);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("A\nB", contents);
+    }
+}
