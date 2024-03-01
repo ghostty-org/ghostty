@@ -584,7 +584,7 @@ pub fn resize(
         // If we have the same number of columns, text can't possibly
         // reflow in any way, so we do the quicker thing and do a resize
         // without reflow checks.
-        try self.resizeWithoutReflow(rows, cols);
+        try self.resizeWithoutReflow(cols, rows);
         return;
     }
 
@@ -596,11 +596,10 @@ pub fn resize(
 /// with zeros.
 pub fn resizeWithoutReflow(
     self: *Screen,
-    rows: size.CellCountInt,
     cols: size.CellCountInt,
+    rows: size.CellCountInt,
 ) !void {
-    // If we're resizing to the same size, do nothing.
-    if (self.pages.cols == cols and self.pages.rows == rows) return;
+    try self.pages.resize(.{ .rows = rows, .cols = cols, .reflow = false });
 }
 
 /// Set a style attribute for the current cursor.
@@ -1822,19 +1821,19 @@ test "Screen: resize (no reflow) more rows" {
     }
 }
 
-// test "Screen: resize (no reflow) less rows" {
-//     const testing = std.testing;
-//     const alloc = testing.allocator;
-//
-//     var s = try init(alloc, 10, 3, 0);
-//     defer s.deinit();
-//     const str = "1ABCD\n2EFGH\n3IJKL";
-//     try s.testWriteString(str);
-//     try s.resizeWithoutReflow(10, 2);
-//
-//     {
-//         const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
-//         defer alloc.free(contents);
-//         try testing.expectEqualStrings("2EFGH\n3IJKL", contents);
-//     }
-// }
+test "Screen: resize (no reflow) less rows" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 0);
+    defer s.deinit();
+    const str = "1ABCD\n2EFGH\n3IJKL";
+    try s.testWriteString(str);
+    try s.resizeWithoutReflow(10, 2);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("2EFGH\n3IJKL", contents);
+    }
+}
