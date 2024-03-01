@@ -11,6 +11,7 @@ const pagepkg = @import("page.zig");
 const stylepkg = @import("style.zig");
 const size = @import("size.zig");
 const OffsetBuf = size.OffsetBuf;
+const Capacity = pagepkg.Capacity;
 const Page = pagepkg.Page;
 const Row = pagepkg.Row;
 
@@ -419,12 +420,38 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
 
                     page.size.cols = cols;
                 }
+
+                self.cols = cols;
             },
 
             // Make our columns larger. This is a bit more complicated because
             // pages may not have the capacity for this. If they don't have
             // the capacity we need to allocate a new page and copy the data.
-            .gt => @panic("TODO"),
+            .gt => {
+                const cap = try std_capacity.adjust(.{ .cols = cols });
+
+                var it = self.pageIterator(.{ .screen = .{} }, null);
+                while (it.next()) |chunk| {
+                    const page = &chunk.page.data;
+
+                    // Unlikely fast path: we have capacity in the page. This
+                    // is only true if we resized to less cols earlier.
+                    if (page.capacity.cols >= cols) {
+                        if (true) @panic("TODO: TEST");
+                        page.size.cols = cols;
+                        continue;
+                    }
+
+                    // Likely slow path: we don't have capacity, so we need
+                    // to allocate a page, and copy the old data into it.
+                    // TODO: handle capacity can't fit rows for cols
+                    if (true) @panic("TODO after page.cloneFrom");
+                    const new_page = try self.createPage(cap);
+                    _ = new_page;
+                }
+
+                self.cols = cols;
+            },
         }
     }
 }
@@ -548,7 +575,7 @@ pub fn grow(self: *PageList) !?*List.Node {
     }
 
     // We need to allocate a new memory buffer.
-    const next_page = try self.createPage();
+    const next_page = try self.createPage(try std_capacity.adjust(.{ .cols = self.cols }));
     // we don't errdefer this because we've added it to the linked
     // list and its fine to have dangling unused pages.
     self.pages.append(next_page);
@@ -563,7 +590,7 @@ pub fn grow(self: *PageList) !?*List.Node {
 
 /// Create a new page node. This does not add it to the list and this
 /// does not do any memory size accounting with max_size/page_size.
-fn createPage(self: *PageList) !*List.Node {
+fn createPage(self: *PageList, cap: Capacity) !*List.Node {
     var page = try self.pool.nodes.create();
     errdefer self.pool.nodes.destroy(page);
 
@@ -574,7 +601,7 @@ fn createPage(self: *PageList) !*List.Node {
     page.* = .{
         .data = Page.initBuf(
             OffsetBuf.init(page_buf),
-            Page.layout(try std_capacity.adjust(.{ .cols = self.cols })),
+            Page.layout(cap),
         ),
     };
     page.data.size.rows = 0;
@@ -1828,6 +1855,7 @@ test "PageList resize (no reflow) less cols" {
 
     // Resize
     try s.resize(.{ .cols = 5, .reflow = false });
+    try testing.expectEqual(@as(usize, 5), s.cols);
     try testing.expectEqual(@as(usize, 10), s.totalRows());
 
     var it = s.rowIterator(.{ .screen = .{} }, null);
@@ -1859,6 +1887,7 @@ test "PageList resize (no reflow) less cols clears graphemes" {
 
     // Resize
     try s.resize(.{ .cols = 5, .reflow = false });
+    try testing.expectEqual(@as(usize, 5), s.cols);
     try testing.expectEqual(@as(usize, 10), s.totalRows());
 
     var it = s.pageIterator(.{ .screen = .{} }, null);
@@ -1866,3 +1895,23 @@ test "PageList resize (no reflow) less cols clears graphemes" {
         try testing.expectEqual(@as(usize, 0), chunk.page.data.graphemeCount());
     }
 }
+
+// test "PageList resize (no reflow) more cols" {
+//     const testing = std.testing;
+//     const alloc = testing.allocator;
+//
+//     var s = try init(alloc, 5, 3, 0);
+//     defer s.deinit();
+//
+//     // Resize
+//     try s.resize(.{ .cols = 10, .reflow = false });
+//     try testing.expectEqual(@as(usize, 10), s.cols);
+//     try testing.expectEqual(@as(usize, 3), s.totalRows());
+//
+//     var it = s.rowIterator(.{ .screen = .{} }, null);
+//     while (it.next()) |offset| {
+//         const rac = offset.rowAndCell(0);
+//         const cells = offset.page.data.getCells(rac.row);
+//         try testing.expectEqual(@as(usize, 10), cells.len);
+//     }
+// }
