@@ -6080,6 +6080,7 @@ test "Screen: resize (no reflow) less rows" {
     }
 }
 
+// X
 test "Screen: resize (no reflow) less rows trims blank lines" {
     const testing = std.testing;
     const alloc = testing.allocator;

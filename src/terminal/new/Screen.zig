@@ -1837,3 +1837,35 @@ test "Screen: resize (no reflow) less rows" {
         try testing.expectEqualStrings("2EFGH\n3IJKL", contents);
     }
 }
+
+test "Screen: resize (no reflow) less rows trims blank lines" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 0);
+    defer s.deinit();
+    const str = "1ABCD";
+    try s.testWriteString(str);
+
+    // Write only a background color into the remaining rows
+    for (1..s.pages.rows) |y| {
+        const list_cell = s.pages.getCell(.{ .active = .{ .x = 0, .y = y } }).?;
+        list_cell.cell.* = .{
+            .content_tag = .bg_color_rgb,
+            .content = .{ .color_rgb = .{ .r = 0xFF, .g = 0, .b = 0 } },
+        };
+    }
+
+    const cursor = s.cursor;
+    try s.resizeWithoutReflow(6, 2);
+
+    // Cursor should not move
+    try testing.expectEqual(cursor.x, s.cursor.x);
+    try testing.expectEqual(cursor.y, s.cursor.y);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("1ABCD", contents);
+    }
+}
