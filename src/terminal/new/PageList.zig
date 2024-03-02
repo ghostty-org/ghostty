@@ -363,73 +363,54 @@ pub const Resize = struct {
 /// TODO: docs
 pub fn resize(self: *PageList, opts: Resize) !void {
     if (!opts.reflow) return try self.resizeWithoutReflow(opts);
-    @panic("TODO: resize with text reflow");
+
+    // On reflow, the main thing that causes reflow is column changes. If
+    // only rows change, reflow is impossible. So we change our behavior based
+    // on the change of columns.
+    const cols = opts.cols orelse self.cols;
+    switch (std.math.order(cols, self.cols)) {
+        .eq => try self.resizeWithoutReflow(opts),
+
+        .gt => {
+            // We grow rows after cols so that we can do our unwrapping/reflow
+            // before we do a no-reflow grow.
+            try self.resizeGrowCols(cols);
+            try self.resizeWithoutReflow(opts);
+        },
+
+        .lt => @panic("TODO"),
+    }
 }
 
-/// Returns the number of trailing blank lines, not to exceed max. Max
-/// is used to limit our traversal in the case of large scrollback.
-fn trailingBlankLines(
-    self: *const PageList,
-    max: size.CellCountInt,
-) size.CellCountInt {
-    var count: size.CellCountInt = 0;
+/// Resize the pagelist with reflow by adding columns.
+fn resizeGrowCols(self: *PageList, cols: size.CellCountInt) !void {
+    assert(cols > self.cols);
 
-    // Go through our pages backwards since we're counting trailing blanks.
-    var it = self.pages.last;
-    while (it) |page| : (it = page.prev) {
-        const len = page.data.size.rows;
-        const rows = page.data.rows.ptr(page.data.memory)[0..len];
-        for (0..len) |i| {
-            const rev_i = len - i - 1;
-            const cells = rows[rev_i].cells.ptr(page.data.memory)[0..page.data.size.cols];
+    // Our new capacity, ensure we can grow to it.
+    const cap = try std_capacity.adjust(.{ .cols = cols });
 
-            // If the row has any text then we're done.
-            if (pagepkg.Cell.hasTextAny(cells)) return count;
+    // Go page by page and grow the columns on a per-page basis.
+    var it = self.pageIterator(.{ .screen = .{} }, null);
+    while (it.next()) |chunk| {
+        const page = &chunk.page.data;
+        const rows = page.rows.ptr(page.memory)[0..page.size.rows];
 
-            // Inc count, if we're beyond max then we're done.
-            count += 1;
-            if (count >= max) return count;
+        // Fast-path: none of our rows are wrapped. In this case we can
+        // treat this like a no-reflow resize.
+        const wrapped = wrapped: for (rows) |row| {
+            assert(!row.wrap_continuation); // TODO
+            if (row.wrap) break :wrapped true;
+        } else false;
+        if (!wrapped) {
+            try self.resizeWithoutReflowGrowCols(cap, chunk);
+            continue;
         }
+
+        @panic("TODO: wrapped");
     }
-
-    return count;
-}
-
-/// Trims up to max trailing blank rows from the pagelist and returns the
-/// number of rows trimmed. A blank row is any row with no text (but may
-/// have styling).
-fn trimTrailingBlankRows(
-    self: *PageList,
-    max: size.CellCountInt,
-) size.CellCountInt {
-    var trimmed: size.CellCountInt = 0;
-    var it = self.pages.last;
-    while (it) |page| : (it = page.prev) {
-        const len = page.data.size.rows;
-        const rows_slice = page.data.rows.ptr(page.data.memory)[0..len];
-        for (0..len) |i| {
-            const rev_i = len - i - 1;
-            const row = &rows_slice[rev_i];
-            const cells = row.cells.ptr(page.data.memory)[0..page.data.size.cols];
-
-            // If the row has any text then we're done.
-            if (pagepkg.Cell.hasTextAny(cells)) return trimmed;
-
-            // No text, we can trim this row. Because it has
-            // no text we can also be sure it has no styling
-            // so we don't need to worry about memory.
-            page.data.size.rows -= 1;
-            trimmed += 1;
-            if (trimmed >= max) return trimmed;
-        }
-    }
-
-    return trimmed;
 }
 
 fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
-    assert(!opts.reflow);
-
     if (opts.rows) |rows| {
         switch (std.math.order(rows, self.rows)) {
             .eq => {},
@@ -506,53 +487,128 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
 
                 var it = self.pageIterator(.{ .screen = .{} }, null);
                 while (it.next()) |chunk| {
-                    const page = &chunk.page.data;
-
-                    // Unlikely fast path: we have capacity in the page. This
-                    // is only true if we resized to less cols earlier.
-                    if (page.capacity.cols >= cols) {
-                        page.size.cols = cols;
-                        continue;
-                    }
-
-                    // Likely slow path: we don't have capacity, so we need
-                    // to allocate a page, and copy the old data into it.
-
-                    // On error, we need to undo all the pages we've added.
-                    const prev = chunk.page.prev;
-                    errdefer {
-                        var current = chunk.page.prev;
-                        while (current) |p| {
-                            if (current == prev) break;
-                            current = p.prev;
-                            self.pages.remove(p);
-                            self.destroyPage(p);
-                        }
-                    }
-
-                    // We need to loop because our col growth may force us
-                    // to split pages.
-                    var copied: usize = 0;
-                    while (copied < page.size.rows) {
-                        const new_page = try self.createPage(cap);
-                        const len = @min(cap.rows, page.size.rows - copied);
-                        copied += len;
-                        new_page.data.size.rows = len;
-                        try new_page.data.cloneFrom(page, 0, len);
-                        self.pages.insertBefore(chunk.page, new_page);
-                    }
-                    assert(copied == page.size.rows);
-
-                    // Remove the old page.
-                    // Deallocate the old page.
-                    self.pages.remove(chunk.page);
-                    self.destroyPage(chunk.page);
+                    try self.resizeWithoutReflowGrowCols(cap, chunk);
                 }
 
                 self.cols = cols;
             },
         }
     }
+}
+
+fn resizeWithoutReflowGrowCols(
+    self: *PageList,
+    cap: Capacity,
+    chunk: PageIterator.Chunk,
+) !void {
+    assert(cap.cols > self.cols);
+    const page = &chunk.page.data;
+
+    // Update our col count
+    const old_cols = self.cols;
+    self.cols = cap.cols;
+    errdefer self.cols = old_cols;
+
+    // Unlikely fast path: we have capacity in the page. This
+    // is only true if we resized to less cols earlier.
+    if (page.capacity.cols >= cap.cols) {
+        page.size.cols = cap.cols;
+        return;
+    }
+
+    // Likely slow path: we don't have capacity, so we need
+    // to allocate a page, and copy the old data into it.
+
+    // On error, we need to undo all the pages we've added.
+    const prev = chunk.page.prev;
+    errdefer {
+        var current = chunk.page.prev;
+        while (current) |p| {
+            if (current == prev) break;
+            current = p.prev;
+            self.pages.remove(p);
+            self.destroyPage(p);
+        }
+    }
+
+    // We need to loop because our col growth may force us
+    // to split pages.
+    var copied: usize = 0;
+    while (copied < page.size.rows) {
+        const new_page = try self.createPage(cap);
+        const len = @min(cap.rows, page.size.rows - copied);
+        copied += len;
+        new_page.data.size.rows = len;
+        try new_page.data.cloneFrom(page, 0, len);
+        self.pages.insertBefore(chunk.page, new_page);
+    }
+    assert(copied == page.size.rows);
+
+    // Remove the old page.
+    // Deallocate the old page.
+    self.pages.remove(chunk.page);
+    self.destroyPage(chunk.page);
+}
+
+/// Returns the number of trailing blank lines, not to exceed max. Max
+/// is used to limit our traversal in the case of large scrollback.
+fn trailingBlankLines(
+    self: *const PageList,
+    max: size.CellCountInt,
+) size.CellCountInt {
+    var count: size.CellCountInt = 0;
+
+    // Go through our pages backwards since we're counting trailing blanks.
+    var it = self.pages.last;
+    while (it) |page| : (it = page.prev) {
+        const len = page.data.size.rows;
+        const rows = page.data.rows.ptr(page.data.memory)[0..len];
+        for (0..len) |i| {
+            const rev_i = len - i - 1;
+            const cells = rows[rev_i].cells.ptr(page.data.memory)[0..page.data.size.cols];
+
+            // If the row has any text then we're done.
+            if (pagepkg.Cell.hasTextAny(cells)) return count;
+
+            // Inc count, if we're beyond max then we're done.
+            count += 1;
+            if (count >= max) return count;
+        }
+    }
+
+    return count;
+}
+
+/// Trims up to max trailing blank rows from the pagelist and returns the
+/// number of rows trimmed. A blank row is any row with no text (but may
+/// have styling).
+fn trimTrailingBlankRows(
+    self: *PageList,
+    max: size.CellCountInt,
+) size.CellCountInt {
+    var trimmed: size.CellCountInt = 0;
+    var it = self.pages.last;
+    while (it) |page| : (it = page.prev) {
+        const len = page.data.size.rows;
+        const rows_slice = page.data.rows.ptr(page.data.memory)[0..len];
+        for (0..len) |i| {
+            const rev_i = len - i - 1;
+            const row = &rows_slice[rev_i];
+            const cells = row.cells.ptr(page.data.memory)[0..page.data.size.cols];
+
+            // If the row has any text then we're done.
+            if (pagepkg.Cell.hasTextAny(cells)) return trimmed;
+
+            // No text, we can trim this row. Because it has
+            // no text we can also be sure it has no styling
+            // so we don't need to worry about memory.
+            page.data.size.rows -= 1;
+            trimmed += 1;
+            if (trimmed >= max) return trimmed;
+        }
+    }
+
+    return trimmed;
 }
 
 /// Scroll options.
@@ -2234,6 +2290,38 @@ test "PageList resize (no reflow) more cols forces smaller cap" {
         const rac = offset.rowAndCell(0);
         const cells = offset.page.data.getCells(rac.row);
         try testing.expectEqual(@as(usize, cap2.cols), cells.len);
+        try testing.expectEqual(@as(u21, 'A'), cells[0].content.codepoint);
+    }
+}
+
+test "PageList resize reflow more cols no wrapped rows" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 0);
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+    for (0..s.rows) |y| {
+        for (0..s.cols) |x| {
+            const rac = page.getRowAndCell(x, y);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = 'A' },
+            };
+        }
+    }
+
+    // Resize
+    try s.resize(.{ .cols = 10, .reflow = true });
+    try testing.expectEqual(@as(usize, 10), s.cols);
+    try testing.expectEqual(@as(usize, 3), s.totalRows());
+
+    var it = s.rowIterator(.{ .screen = .{} }, null);
+    while (it.next()) |offset| {
+        const rac = offset.rowAndCell(0);
+        const cells = offset.page.data.getCells(rac.row);
+        try testing.expectEqual(@as(usize, 10), cells.len);
         try testing.expectEqual(@as(u21, 'A'), cells[0].content.codepoint);
     }
 }
