@@ -767,6 +767,10 @@ pub const Cell = packed struct(u64) {
         };
     }
 
+    pub fn hasStyling(self: Cell) bool {
+        return self.style_id != style.default_id;
+    }
+
     /// Returns true if the cell has no text or styling.
     pub fn isEmpty(self: Cell) bool {
         return switch (self.content_tag) {

@@ -406,8 +406,195 @@ fn resizeGrowCols(self: *PageList, cols: size.CellCountInt) !void {
             continue;
         }
 
-        @panic("TODO: wrapped");
+        // Slow path, we have a wrapped row. We need to reflow the text.
+        // This is painful because we basically need to rewrite the entire
+        // page sequentially.
+        try self.reflowPage(cap, chunk.page);
     }
+
+    // If our total rows is less than our active rows, we need to grow.
+    // This can happen if you're growing columns such that enough active
+    // rows unwrap that we no longer have enough.
+    var node_it = self.pages.first;
+    var total: usize = 0;
+    while (node_it) |node| : (node_it = node.next) {
+        total += node.data.size.rows;
+        if (total >= self.rows) break;
+    } else {
+        for (total..self.rows) |_| _ = try self.grow();
+    }
+}
+
+// We use a cursor to track where we are in the src/dst. This is very
+// similar to Screen.Cursor, so see that for docs on individual fields.
+// We don't use a Screen because we don't need all the same data and we
+// do our best to optimize having direct access to the page memory.
+const ReflowCursor = struct {
+    x: size.CellCountInt,
+    y: size.CellCountInt,
+    pending_wrap: bool,
+    page: *pagepkg.Page,
+    page_row: *pagepkg.Row,
+    page_cell: *pagepkg.Cell,
+
+    fn init(page: *pagepkg.Page) ReflowCursor {
+        const rows = page.rows.ptr(page.memory);
+        return .{
+            .x = 0,
+            .y = 0,
+            .pending_wrap = false,
+            .page = page,
+            .page_row = &rows[0],
+            .page_cell = &rows[0].cells.ptr(page.memory)[0],
+        };
+    }
+
+    fn cursorForward(self: *ReflowCursor) void {
+        if (self.x == self.page.size.cols - 1) {
+            self.pending_wrap = true;
+        } else {
+            const cell: [*]pagepkg.Cell = @ptrCast(self.page_cell);
+            self.page_cell = @ptrCast(cell + 1);
+            self.x += 1;
+        }
+    }
+
+    fn cursorScroll(self: *ReflowCursor) void {
+        // Scrolling requires that we're on the bottom of our page.
+        // We also assert that we have capacity because reflow always
+        // works within the capacity of the page.
+        assert(self.y == self.page.size.rows - 1);
+        assert(self.page.size.rows < self.page.capacity.rows);
+
+        // Increase our page size
+        self.page.size.rows += 1;
+
+        // With the increased page size, safely move down a row.
+        const rows: [*]pagepkg.Row = @ptrCast(self.page_row);
+        const row: *pagepkg.Row = @ptrCast(rows + 1);
+        self.page_row = row;
+        self.page_cell = &row.cells.ptr(self.page.memory)[0];
+        self.pending_wrap = false;
+        self.x = 0;
+        self.y += 1;
+    }
+
+    fn cursorAbsolute(
+        self: *ReflowCursor,
+        x: size.CellCountInt,
+        y: size.CellCountInt,
+    ) void {
+        assert(x < self.page.size.cols);
+        assert(y < self.page.size.rows);
+
+        const rows: [*]pagepkg.Row = @ptrCast(self.page_row);
+        const row: *pagepkg.Row = switch (std.math.order(y, self.y)) {
+            .eq => self.page_row,
+            .lt => @ptrCast(rows - (self.y - y)),
+            .gt => @ptrCast(rows + (y - self.y)),
+        };
+        self.page_row = row;
+        self.page_cell = &row.cells.ptr(self.page.memory)[x];
+        self.pending_wrap = false;
+        self.x = x;
+        self.y = y;
+    }
+};
+
+/// Reflow the given page into the new capacity. The new capacity can have
+/// any number of columns and rows. This will create as many pages as
+/// necessary to fit the reflowed text and will remove the old page.
+///
+/// Note a couple edge cases:
+///
+///   1. If the first set of rows of this page are a wrap continuation, then
+///      we will reflow the continuation rows but will not traverse back to
+///      find the initial wrap.
+///
+///   2. If the last row is wrapped then we will traverse forward to reflow
+///      all the continuation rows.
+///
+/// As a result of the above edge cases, the pagelist may end up removing
+/// an indefinite number of pages. In the most pathological cases (the screen
+/// is one giant wrapped line), this can be a very expensive operation. That
+/// doesn't really happen in typical terminal usage so its not a case we
+/// optimize for today. Contributions welcome to optimize this.
+fn reflowPage(
+    self: *PageList,
+    cap: Capacity,
+    node: *List.Node,
+) !void {
+    assert(cap.cols > self.cols);
+
+    // The cursor tracks where we are in the source page.
+    var src_cursor = ReflowCursor.init(&node.data);
+
+    // Our new capacity when growing columns may also shrink rows. So we
+    // need to do a loop in order to potentially make multiple pages.
+    while (true) {
+        // Create our new page and our cursor restarts at 0,0 in the new page.
+        // The new page always starts with a size of 1 because we know we have
+        // at least one row to copy from the src.
+        const dst_node = try self.createPage(cap);
+        dst_node.data.size.rows = 1;
+        var dst_cursor = ReflowCursor.init(&dst_node.data);
+
+        // Our new page goes before our src node. This will append it to any
+        // previous pages we've created.
+        self.pages.insertBefore(node, dst_node);
+
+        // Continue traversing the source until we're out of space in our
+        // destination or we've copied all our intended rows.
+        for (src_cursor.y..src_cursor.page.size.rows) |src_y| {
+            if (src_y > 0) {
+                // We're done with this row, if this row isn't wrapped, we can
+                // move our destination cursor to the next row.
+                if (!src_cursor.page_row.wrap) {
+                    dst_cursor.cursorScroll();
+                }
+            }
+
+            src_cursor.cursorAbsolute(src_cursor.x, @intCast(src_y));
+
+            for (src_cursor.x..src_cursor.page.size.cols) |src_x| {
+                assert(src_cursor.x == src_x);
+
+                if (dst_cursor.pending_wrap) {
+                    @panic("TODO");
+                }
+
+                switch (src_cursor.page_cell.content_tag) {
+                    // These are guaranteed to have no styling data and no
+                    // graphemes, a fast path.
+                    .bg_color_palette,
+                    .bg_color_rgb,
+                    => {
+                        assert(!src_cursor.page_cell.hasStyling());
+                        assert(!src_cursor.page_cell.hasGrapheme());
+                        dst_cursor.page_cell.* = src_cursor.page_cell.*;
+                    },
+
+                    .codepoint => {
+                        dst_cursor.page_cell.* = src_cursor.page_cell.*;
+                        // TODO: style copy
+                    },
+
+                    else => @panic("TODO"),
+                }
+
+                // Move both our cursors forward
+                src_cursor.cursorForward();
+                dst_cursor.cursorForward();
+            }
+        } else {
+            // We made it through all our source rows, we're done.
+            break;
+        }
+    }
+
+    // Finally, remove the old page.
+    self.pages.remove(node);
+    self.destroyPage(node);
 }
 
 fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
@@ -2323,5 +2510,58 @@ test "PageList resize reflow more cols no wrapped rows" {
         const cells = offset.page.data.getCells(rac.row);
         try testing.expectEqual(@as(usize, 10), cells.len);
         try testing.expectEqual(@as(u21, 'A'), cells[0].content.codepoint);
+    }
+}
+
+test "PageList resize reflow more cols wrapped rows" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 4, 0);
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+    for (0..s.rows) |y| {
+        if (y % 2 == 0) {
+            const rac = page.getRowAndCell(0, y);
+            rac.row.wrap = true;
+        } else {
+            const rac = page.getRowAndCell(0, y);
+            rac.row.wrap_continuation = true;
+        }
+
+        for (0..s.cols) |x| {
+            const rac = page.getRowAndCell(x, y);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = 'A' },
+            };
+        }
+    }
+
+    // Resize
+    try s.resize(.{ .cols = 4, .reflow = true });
+    try testing.expectEqual(@as(usize, 4), s.cols);
+    try testing.expectEqual(@as(usize, 4), s.totalRows());
+
+    // Active should still be on top
+    {
+        const pt = s.getCell(.{ .active = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, pt);
+    }
+
+    var it = s.rowIterator(.{ .screen = .{} }, null);
+    {
+        // First row should be unwrapped
+        const offset = it.next().?;
+        const rac = offset.rowAndCell(0);
+        const cells = offset.page.data.getCells(rac.row);
+        try testing.expect(!rac.row.wrap);
+        try testing.expectEqual(@as(usize, 4), cells.len);
+        try testing.expectEqual(@as(u21, 'A'), cells[0].content.codepoint);
+        try testing.expectEqual(@as(u21, 'A'), cells[2].content.codepoint);
     }
 }
