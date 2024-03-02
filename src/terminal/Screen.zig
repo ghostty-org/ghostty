@@ -6353,6 +6353,7 @@ test "Screen: resize (no reflow) more rows with soft wrapping" {
     }
 }
 
+// X
 test "Screen: resize more rows no scrollback" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -6379,6 +6380,7 @@ test "Screen: resize more rows no scrollback" {
     }
 }
 
+// X
 test "Screen: resize more rows with empty scrollback" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -6405,6 +6407,7 @@ test "Screen: resize more rows with empty scrollback" {
     }
 }
 
+// X
 test "Screen: resize more rows with populated scrollback" {
     const testing = std.testing;
     const alloc = testing.allocator;

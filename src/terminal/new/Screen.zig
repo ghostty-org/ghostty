@@ -599,18 +599,14 @@ pub fn resize(
     // No matter what we mark our image state as dirty
     self.kitty_images.dirty = true;
 
-    // We grow rows after cols so that we can do our unwrapping/reflow
-    // before we do a no-reflow grow.
-    //
-    // If our rows got smaller, we trim the scrollback. We do this after
-    // handling cols growing so that we can save as many lines as we can.
-    // We do it before cols shrinking so we can save compute on that operation.
-    if (rows != self.pages.rows) {
-        try self.resizeWithoutReflow(rows, self.cols);
-        assert(self.pages.rows == rows);
-    }
+    // Resize our pages
+    try self.pages.resize(.{
+        .rows = rows,
+        .cols = cols,
+        .reflow = true,
+    });
 
-    @panic("TODO");
+    // TODO: cursor
 }
 
 /// Resize the screen without any reflow. In this mode, columns/rows will
@@ -2058,6 +2054,106 @@ test "Screen: resize (no reflow) more rows with soft wrapping" {
         const wrapped = (y % 2 == 0);
         try testing.expectEqual(wrapped, row.wrap);
     }
+}
+
+test "Screen: resize more rows no scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 0);
+    defer s.deinit();
+    const str = "1ABCD\n2EFGH\n3IJKL";
+    try s.testWriteString(str);
+    const cursor = s.cursor;
+    try s.resize(5, 10);
+
+    // Cursor should not move
+    try testing.expectEqual(cursor.x, s.cursor.x);
+    try testing.expectEqual(cursor.y, s.cursor.y);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
+}
+
+test "Screen: resize more rows with empty scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 10);
+    defer s.deinit();
+    const str = "1ABCD\n2EFGH\n3IJKL";
+    try s.testWriteString(str);
+    const cursor = s.cursor;
+    try s.resize(5, 10);
+
+    // Cursor should not move
+    try testing.expectEqual(cursor.x, s.cursor.x);
+    try testing.expectEqual(cursor.y, s.cursor.y);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
+}
+
+test "Screen: resize more rows with populated scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 5);
+    defer s.deinit();
+    const str = "1ABCD\n2EFGH\n3IJKL\n4ABCD\n5EFGH";
+    try s.testWriteString(str);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "3IJKL\n4ABCD\n5EFGH";
+        try testing.expectEqualStrings(expected, contents);
+    }
+
+    // Set our cursor to be on the "4"
+    s.cursorAbsolute(0, 1);
+    {
+        const list_cell = s.pages.getCell(.{ .active = .{
+            .x = s.cursor.x,
+            .y = s.cursor.y,
+        } }).?;
+        try testing.expectEqual(@as(u21, '4'), list_cell.cell.content.codepoint);
+    }
+
+    // Resize
+    try s.resize(5, 10);
+
+    // Cursor should still be on the "4"
+    // TODO
+    // {
+    //     const list_cell = s.pages.getCell(.{ .active = .{
+    //         .x = s.cursor.x,
+    //         .y = s.cursor.y,
+    //     } }).?;
+    //     try testing.expectEqual(@as(u21, '4'), list_cell.cell.content.codepoint);
+    // }
+
+    // {
+    //     const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+    //     defer alloc.free(contents);
+    //     const expected = "3IJKL\n4ABCD\n5EFGH";
+    //     try testing.expectEqualStrings(expected, contents);
+    // }
 }
 
 // test "Screen: resize more cols no reflow" {
