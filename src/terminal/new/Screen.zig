@@ -569,6 +569,14 @@ fn blankCell(self: *const Screen) Cell {
 /// This will reflow soft-wrapped text. If the screen size is getting
 /// smaller and the maximum scrollback size is exceeded, data will be
 /// lost from the top of the scrollback.
+///
+/// If this returns an error, the screen is left in a likely garbage state.
+/// It is very hard to undo this operation without blowing up our memory
+/// usage. The only way to recover is to reset the screen. The only way
+/// this really fails is if page allocation is required and fails, which
+/// probably means the system is in trouble anyways. I'd like to improve this
+/// in the future but it is not a priority particularly because this scenario
+/// (resize) is difficult.
 pub fn resize(
     self: *Screen,
     cols: size.CellCountInt,
@@ -586,6 +594,20 @@ pub fn resize(
         // without reflow checks.
         try self.resizeWithoutReflow(cols, rows);
         return;
+    }
+
+    // No matter what we mark our image state as dirty
+    self.kitty_images.dirty = true;
+
+    // We grow rows after cols so that we can do our unwrapping/reflow
+    // before we do a no-reflow grow.
+    //
+    // If our rows got smaller, we trim the scrollback. We do this after
+    // handling cols growing so that we can save as many lines as we can.
+    // We do it before cols shrinking so we can save compute on that operation.
+    if (rows != self.pages.rows) {
+        try self.resizeWithoutReflow(rows, self.cols);
+        assert(self.pages.rows == rows);
     }
 
     @panic("TODO");
