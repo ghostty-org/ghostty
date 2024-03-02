@@ -517,16 +517,34 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
 
                     // Likely slow path: we don't have capacity, so we need
                     // to allocate a page, and copy the old data into it.
-                    // TODO: handle capacity can't fit rows for cols
-                    const new_page = try self.createPage(cap);
-                    errdefer self.destroyPage(new_page);
-                    new_page.data.size.rows = page.size.rows;
-                    try new_page.data.cloneFrom(page, 0, page.size.rows);
 
-                    // Insert our new page before the old page.
+                    // On error, we need to undo all the pages we've added.
+                    const prev = chunk.page.prev;
+                    errdefer {
+                        var current = chunk.page.prev;
+                        while (current) |p| {
+                            if (current == prev) break;
+                            current = p.prev;
+                            self.pages.remove(p);
+                            self.destroyPage(p);
+                        }
+                    }
+
+                    // We need to loop because our col growth may force us
+                    // to split pages.
+                    var copied: usize = 0;
+                    while (copied < page.size.rows) {
+                        const new_page = try self.createPage(cap);
+                        const len = @min(cap.rows, page.size.rows - copied);
+                        copied += len;
+                        new_page.data.size.rows = len;
+                        try new_page.data.cloneFrom(page, 0, len);
+                        self.pages.insertBefore(chunk.page, new_page);
+                    }
+                    assert(copied == page.size.rows);
+
                     // Remove the old page.
                     // Deallocate the old page.
-                    self.pages.insertBefore(chunk.page, new_page);
                     self.pages.remove(chunk.page);
                     self.destroyPage(chunk.page);
                 }
@@ -2180,25 +2198,42 @@ test "PageList resize (no reflow) empty screen" {
     }
 }
 
-// test "PageList bug" {
-//     const testing = std.testing;
-//     const alloc = testing.allocator;
-//
-//     var s = try init(alloc, 300, 100, null);
-//     defer s.deinit();
-//     try testing.expect(s.pages.first == s.pages.last);
-//     const page = &s.pages.first.?.data;
-//     for (0..s.rows) |y| {
-//         for (0..s.cols) |x| {
-//             const rac = page.getRowAndCell(x, y);
-//             rac.cell.* = .{
-//                 .content_tag = .codepoint,
-//                 .content = .{ .codepoint = 'A' },
-//             };
-//         }
-//     }
-//
-//     // Resize
-//     try s.resize(.{ .cols = s.cols * 2, .rows = s.rows * 2, .reflow = false });
-//     try s.resize(.{ .cols = s.cols / 2, .rows = s.rows / 2, .reflow = false });
-// }
+test "PageList resize (no reflow) more cols forces smaller cap" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // We want a cap that forces us to have less rows
+    const cap = try std_capacity.adjust(.{ .cols = 100 });
+    const cap2 = try std_capacity.adjust(.{ .cols = 500 });
+    try testing.expectEqual(@as(size.CellCountInt, 500), cap2.cols);
+    try testing.expect(cap2.rows < cap.rows);
+
+    // Create initial cap, fits in one page
+    var s = try init(alloc, cap.cols, cap.rows, null);
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+    for (0..s.rows) |y| {
+        for (0..s.cols) |x| {
+            const rac = page.getRowAndCell(x, y);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = 'A' },
+            };
+        }
+    }
+
+    // Resize to our large cap
+    const rows = s.totalRows();
+    try s.resize(.{ .cols = cap2.cols, .reflow = false });
+
+    // Our total rows should be the same, and contents should be the same.
+    try testing.expectEqual(rows, s.totalRows());
+    var it = s.rowIterator(.{ .screen = .{} }, null);
+    while (it.next()) |offset| {
+        const rac = offset.rowAndCell(0);
+        const cells = offset.page.data.getCells(rac.row);
+        try testing.expectEqual(@as(usize, cap2.cols), cells.len);
+        try testing.expectEqual(@as(u21, 'A'), cells[0].content.codepoint);
+    }
+}
