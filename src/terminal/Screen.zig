@@ -6475,6 +6475,7 @@ test "Screen: resize more rows and cols with wrapping" {
     }
 }
 
+// X
 test "Screen: resize more cols no reflow" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -6501,6 +6502,7 @@ test "Screen: resize more cols no reflow" {
     }
 }
 
+// X
 // https://github.com/mitchellh/ghostty/issues/272#issuecomment-1676038963
 test "Screen: resize more cols perfect split" {
     const testing = std.testing;
@@ -6513,6 +6515,7 @@ test "Screen: resize more cols perfect split" {
     try s.resize(3, 10);
 }
 
+// X
 // https://github.com/mitchellh/ghostty/issues/1159
 test "Screen: resize (no reflow) more cols with scrollback scrolled up" {
     const testing = std.testing;
