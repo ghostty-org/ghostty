@@ -617,7 +617,21 @@ pub fn resizeWithoutReflow(
     cols: size.CellCountInt,
     rows: size.CellCountInt,
 ) !void {
-    try self.pages.resize(.{ .rows = rows, .cols = cols, .reflow = false });
+    var cursor: PageList.Resize.Cursor = .{
+        .x = self.cursor.x,
+        .y = self.cursor.y,
+    };
+
+    try self.pages.resize(.{
+        .rows = rows,
+        .cols = cols,
+        .reflow = false,
+        .cursor = &cursor,
+    });
+
+    self.cursor.x = cursor.x;
+    self.cursor.y = cursor.y;
+    self.cursorReload();
 }
 
 /// Set a style attribute for the current cursor.
@@ -1853,7 +1867,13 @@ test "Screen: resize (no reflow) less rows" {
     defer s.deinit();
     const str = "1ABCD\n2EFGH\n3IJKL";
     try s.testWriteString(str);
+    try testing.expectEqual(5, s.cursor.x);
+    try testing.expectEqual(2, s.cursor.y);
     try s.resizeWithoutReflow(10, 2);
+
+    // Since we shrunk, we should adjust our cursor
+    try testing.expectEqual(5, s.cursor.x);
+    try testing.expectEqual(1, s.cursor.y);
 
     {
         const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
@@ -2139,21 +2159,20 @@ test "Screen: resize more rows with populated scrollback" {
     try s.resize(5, 10);
 
     // Cursor should still be on the "4"
-    // TODO
-    // {
-    //     const list_cell = s.pages.getCell(.{ .active = .{
-    //         .x = s.cursor.x,
-    //         .y = s.cursor.y,
-    //     } }).?;
-    //     try testing.expectEqual(@as(u21, '4'), list_cell.cell.content.codepoint);
-    // }
+    {
+        const list_cell = s.pages.getCell(.{ .active = .{
+            .x = s.cursor.x,
+            .y = s.cursor.y,
+        } }).?;
+        try testing.expectEqual(@as(u21, '4'), list_cell.cell.content.codepoint);
+    }
 
-    // {
-    //     const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
-    //     defer alloc.free(contents);
-    //     const expected = "3IJKL\n4ABCD\n5EFGH";
-    //     try testing.expectEqualStrings(expected, contents);
-    // }
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "3IJKL\n4ABCD\n5EFGH";
+        try testing.expectEqualStrings(expected, contents);
+    }
 }
 
 // test "Screen: resize more cols no reflow" {
