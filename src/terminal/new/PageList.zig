@@ -366,6 +366,12 @@ pub const Resize = struct {
     pub const Cursor = struct {
         x: size.CellCountInt,
         y: size.CellCountInt,
+
+        /// The row offset of the cursor. This is assumed to be correct
+        /// if set. If this is not set, then the row offset will be
+        /// calculated from the x/y. Calculating the row offset is expensive
+        /// so if you have it, you should set it.
+        offset: ?RowOffset = null,
     };
 };
 
@@ -384,7 +390,7 @@ pub fn resize(self: *PageList, opts: Resize) !void {
         .gt => {
             // We grow rows after cols so that we can do our unwrapping/reflow
             // before we do a no-reflow grow.
-            try self.resizeGrowCols(cols);
+            try self.resizeGrowCols(cols, opts.cursor);
             try self.resizeWithoutReflow(opts);
         },
 
@@ -393,11 +399,29 @@ pub fn resize(self: *PageList, opts: Resize) !void {
 }
 
 /// Resize the pagelist with reflow by adding columns.
-fn resizeGrowCols(self: *PageList, cols: size.CellCountInt) !void {
+fn resizeGrowCols(
+    self: *PageList,
+    cols: size.CellCountInt,
+    cursor: ?*Resize.Cursor,
+) !void {
     assert(cols > self.cols);
 
     // Our new capacity, ensure we can grow to it.
     const cap = try std_capacity.adjust(.{ .cols = cols });
+
+    // If we are given a cursor, we need to calculate the row offset.
+    if (cursor) |c| {
+        if (c.offset == null) {
+            const tl = self.getTopLeft(.active);
+            c.offset = tl.forward(c.y) orelse fail: {
+                // This should never happen, but its not critical enough to
+                // set an assertion and fail the program. The caller should ALWAYS
+                // input a valid x/y..
+                log.err("cursor offset not found, resize will set wrong cursor", .{});
+                break :fail null;
+            };
+        }
+    }
 
     // Go page by page and grow the columns on a per-page basis.
     var it = self.pageIterator(.{ .screen = .{} }, null);
@@ -419,7 +443,7 @@ fn resizeGrowCols(self: *PageList, cols: size.CellCountInt) !void {
         // Slow path, we have a wrapped row. We need to reflow the text.
         // This is painful because we basically need to rewrite the entire
         // page sequentially.
-        try self.reflowPage(cap, chunk.page);
+        try self.reflowPage(cap, chunk.page, cursor);
     }
 
     // If our total rows is less than our active rows, we need to grow.
@@ -533,6 +557,7 @@ fn reflowPage(
     self: *PageList,
     cap: Capacity,
     node: *List.Node,
+    cursor: ?*Resize.Cursor,
 ) !void {
     assert(cap.cols > self.cols);
 
@@ -591,6 +616,32 @@ fn reflowPage(
                     },
 
                     else => @panic("TODO"),
+                }
+
+                // If our original cursor was on this page, this x/y then
+                // we need to update to the new location.
+                if (cursor) |c| cursor: {
+                    const offset = c.offset orelse break :cursor;
+                    if (&offset.page.data == src_cursor.page and
+                        offset.row_offset == src_cursor.y and
+                        c.x == src_cursor.x)
+                    {
+                        // Column always matches our dst x
+                        c.x = dst_cursor.x;
+
+                        // Our y is more complicated. The cursor y is the active
+                        // area y, not the row offset. Our cursors are row offsets.
+                        // Instead of calculating the active area coord, we can
+                        // better calculate the CHANGE in coordinate by subtracting
+                        // our dst from src which will calculate how many rows
+                        // we unwrapped to get here.
+                        c.y -= src_cursor.y - dst_cursor.y;
+
+                        c.offset = .{
+                            .page = dst_node,
+                            .row_offset = dst_cursor.y,
+                        };
+                    }
                 }
 
                 // Move both our cursors forward
@@ -1124,18 +1175,7 @@ fn erasePage(self: *PageList, page: *List.Node) void {
 /// Get the top-left of the screen for the given tag.
 pub fn rowOffset(self: *const PageList, pt: point.Point) RowOffset {
     // TODO: assert the point is valid
-
-    // This should never return null because we assert the point is valid.
-    return (switch (pt) {
-        .active => |v| self.active.forward(v.y),
-        .viewport => |v| switch (self.viewport) {
-            .active => self.active.forward(v.y),
-        },
-        .screen, .history => |v| offset: {
-            const tl: RowOffset = .{ .page = self.pages.first.? };
-            break :offset tl.forward(v.y);
-        },
-    }).?;
+    return self.getTopLeft(pt).forward(pt.coord().y).?;
 }
 
 /// Get the cell at the given point, or null if the cell does not
@@ -2761,4 +2801,162 @@ test "PageList resize reflow more cols wrapped rows" {
         try testing.expectEqual(@as(u21, 'A'), cells[0].content.codepoint);
         try testing.expectEqual(@as(u21, 'A'), cells[2].content.codepoint);
     }
+}
+
+test "PageList resize reflow more cols cursor in wrapped row" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 4, 0);
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+    {
+        {
+            const rac = page.getRowAndCell(0, 0);
+            rac.row.wrap = true;
+        }
+        for (0..s.cols) |x| {
+            const rac = page.getRowAndCell(x, 0);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = @intCast(x) },
+            };
+        }
+    }
+    {
+        {
+            const rac = page.getRowAndCell(0, 1);
+            rac.row.wrap_continuation = true;
+        }
+        for (0..s.cols) |x| {
+            const rac = page.getRowAndCell(x, 1);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = @intCast(x) },
+            };
+        }
+    }
+
+    // Set our cursor to be in the wrapped row
+    var cursor: Resize.Cursor = .{ .x = 1, .y = 1 };
+
+    // Resize
+    try s.resize(.{ .cols = 4, .reflow = true, .cursor = &cursor });
+    try testing.expectEqual(@as(usize, 4), s.cols);
+    try testing.expectEqual(@as(usize, 4), s.totalRows());
+
+    // Our cursor should move to the first row
+    try testing.expectEqual(@as(size.CellCountInt, 3), cursor.x);
+    try testing.expectEqual(@as(size.CellCountInt, 0), cursor.y);
+}
+
+test "PageList resize reflow more cols cursor in not wrapped row" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 4, 0);
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+    {
+        {
+            const rac = page.getRowAndCell(0, 0);
+            rac.row.wrap = true;
+        }
+        for (0..s.cols) |x| {
+            const rac = page.getRowAndCell(x, 0);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = @intCast(x) },
+            };
+        }
+    }
+    {
+        {
+            const rac = page.getRowAndCell(0, 1);
+            rac.row.wrap_continuation = true;
+        }
+        for (0..s.cols) |x| {
+            const rac = page.getRowAndCell(x, 1);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = @intCast(x) },
+            };
+        }
+    }
+
+    // Set our cursor to be in the wrapped row
+    var cursor: Resize.Cursor = .{ .x = 2, .y = 0 };
+
+    // Resize
+    try s.resize(.{ .cols = 4, .reflow = true, .cursor = &cursor });
+    try testing.expectEqual(@as(usize, 4), s.cols);
+    try testing.expectEqual(@as(usize, 4), s.totalRows());
+
+    // Our cursor should move to the first row
+    try testing.expectEqual(@as(size.CellCountInt, 2), cursor.x);
+    try testing.expectEqual(@as(size.CellCountInt, 0), cursor.y);
+}
+
+test "PageList resize reflow more cols cursor in wrapped row that isn't unwrapped" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 4, 0);
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+    {
+        {
+            const rac = page.getRowAndCell(0, 0);
+            rac.row.wrap = true;
+        }
+        for (0..s.cols) |x| {
+            const rac = page.getRowAndCell(x, 0);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = @intCast(x) },
+            };
+        }
+    }
+    {
+        {
+            const rac = page.getRowAndCell(0, 1);
+            rac.row.wrap = true;
+            rac.row.wrap_continuation = true;
+        }
+        for (0..s.cols) |x| {
+            const rac = page.getRowAndCell(x, 1);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = @intCast(x) },
+            };
+        }
+    }
+    {
+        {
+            const rac = page.getRowAndCell(0, 2);
+            rac.row.wrap_continuation = true;
+        }
+        for (0..s.cols) |x| {
+            const rac = page.getRowAndCell(x, 1);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = @intCast(x) },
+            };
+        }
+    }
+
+    // Set our cursor to be in the wrapped row
+    var cursor: Resize.Cursor = .{ .x = 1, .y = 2 };
+
+    // Resize
+    try s.resize(.{ .cols = 4, .reflow = true, .cursor = &cursor });
+    try testing.expectEqual(@as(usize, 4), s.cols);
+    try testing.expectEqual(@as(usize, 4), s.totalRows());
+
+    // Our cursor should move to the first row
+    try testing.expectEqual(@as(size.CellCountInt, 1), cursor.x);
+    try testing.expectEqual(@as(size.CellCountInt, 1), cursor.y);
 }

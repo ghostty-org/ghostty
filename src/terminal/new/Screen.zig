@@ -2301,7 +2301,6 @@ test "Screen: resize more cols with reflow that fits full width" {
     }
 
     // Our cursor should've moved
-    // TODO
-    // try testing.expectEqual(@as(usize, 5), s.cursor.x);
-    // try testing.expectEqual(@as(usize, 0), s.cursor.y);
+    try testing.expectEqual(@as(usize, 5), s.cursor.x);
+    try testing.expectEqual(@as(usize, 0), s.cursor.y);
 }
