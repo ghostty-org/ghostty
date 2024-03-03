@@ -357,6 +357,16 @@ pub const Resize = struct {
     /// Whether to reflow the text. If this is false then the text will
     /// be truncated if the new size is smaller than the old size.
     reflow: bool = true,
+
+    /// Set this to a cursor position and the resize will retain the
+    /// cursor position and update this so that the cursor remains over
+    /// the same original cell in the reflowed environment.
+    cursor: ?*Cursor = null,
+
+    pub const Cursor = struct {
+        x: size.CellCountInt,
+        y: size.CellCountInt,
+    };
 };
 
 /// Resize
@@ -614,7 +624,15 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
                 // behavior because it seemed fine in an ocean of differing behavior
                 // between terminal apps. I'm completely open to changing it as long
                 // as resize behavior isn't regressed in a user-hostile way.
-                _ = self.trimTrailingBlankRows(self.rows - rows);
+                const trimmed = self.trimTrailingBlankRows(self.rows - rows);
+
+                // If we have a cursor, we want to preserve the y value as
+                // best we can. We need to subtract the number of rows that
+                // moved into the scrollback.
+                if (opts.cursor) |cursor| {
+                    const scrollback = self.rows - rows - trimmed;
+                    cursor.y -|= scrollback;
+                }
 
                 // If we didn't trim enough, just modify our row count and this
                 // will create additional history.
@@ -624,20 +642,45 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
             // Making rows larger we adjust our row count, and then grow
             // to the row count.
             .gt => gt: {
-                self.rows = rows;
+                // If our rows increased and our cursor is NOT at the bottom,
+                // we want to try to preserve the y value of the old cursor.
+                // In other words, we don't want to "pull down" scrollback.
+                // This is purely a UX feature.
+                if (opts.cursor) |cursor| cursor: {
+                    if (cursor.y >= self.rows - 1) break :cursor;
 
-                // Perform a quick count to make sure we have at least
-                // the number of rows we need. This should be fast because
-                // we only need to count up to "rows"
+                    // Cursor is not at the bottom, so we just grow our
+                    // rows and we're done. Cursor does NOT change for this
+                    // since we're not pulling down scrollback.
+                    for (0..rows - self.rows) |_| _ = try self.grow();
+                    self.rows = rows;
+                    break :gt;
+                }
+
+                // Cursor is at the bottom or we don't care about cursors.
+                // In this case, if we have enough rows in our pages, we
+                // just update our rows and we're done. This effectively
+                // "pulls down" scrollback.
+                //
+                // If we don't have enough scrollback, we add the difference,
+                // to the active area.
                 var count: usize = 0;
                 var page = self.pages.first;
                 while (page) |p| : (page = p.next) {
                     count += p.data.size.rows;
-                    if (count >= rows) break :gt;
+                    if (count >= rows) break;
+                } else {
+                    assert(count < rows);
+                    for (count..rows) |_| _ = try self.grow();
                 }
 
-                assert(count < rows);
-                for (count..rows) |_| _ = try self.grow();
+                // Update our cursor. W
+                if (opts.cursor) |cursor| {
+                    const grow_len: size.CellCountInt = @intCast(rows -| count);
+                    cursor.y += rows - self.rows - grow_len;
+                }
+
+                self.rows = rows;
             },
         }
     }
@@ -661,6 +704,11 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
                     }
 
                     page.size.cols = cols;
+                }
+
+                if (opts.cursor) |cursor| {
+                    // If our cursor is off the edge we trimmed, update to edge
+                    if (cursor.x >= cols) cursor.x = cols - 1;
                 }
 
                 self.cols = cols;
@@ -2129,10 +2177,18 @@ test "PageList resize (no reflow) more rows" {
     defer s.deinit();
     try testing.expectEqual(@as(usize, 3), s.totalRows());
 
+    // Cursor is at the bottom
+    var cursor: Resize.Cursor = .{ .x = 0, .y = 2 };
+
     // Resize
-    try s.resize(.{ .rows = 10, .reflow = false });
+    try s.resize(.{ .rows = 10, .reflow = false, .cursor = &cursor });
     try testing.expectEqual(@as(usize, 10), s.rows);
     try testing.expectEqual(@as(usize, 10), s.totalRows());
+
+    // Our cursor should not move because we have no scrollback so
+    // we just grew.
+    try testing.expectEqual(@as(size.CellCountInt, 0), cursor.x);
+    try testing.expectEqual(@as(size.CellCountInt, 2), cursor.y);
 
     {
         const pt = s.getCell(.{ .active = .{} }).?.screenPoint();
@@ -2158,10 +2214,18 @@ test "PageList resize (no reflow) more rows with history" {
         } }, pt);
     }
 
+    // Cursor is at the bottom
+    var cursor: Resize.Cursor = .{ .x = 0, .y = 2 };
+
     // Resize
-    try s.resize(.{ .rows = 5, .reflow = false });
+    try s.resize(.{ .rows = 5, .reflow = false, .cursor = &cursor });
     try testing.expectEqual(@as(usize, 5), s.rows);
     try testing.expectEqual(@as(usize, 53), s.totalRows());
+
+    // Our cursor should move since it's in the scrollback
+    try testing.expectEqual(@as(size.CellCountInt, 0), cursor.x);
+    try testing.expectEqual(@as(size.CellCountInt, 4), cursor.y);
+
     {
         const pt = s.getCell(.{ .active = .{} }).?.screenPoint();
         try testing.expectEqual(point.Point{ .screen = .{
@@ -2205,6 +2269,55 @@ test "PageList resize (no reflow) less rows" {
     }
 }
 
+test "PageList resize (no reflow) less rows cursor in scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 10, 0);
+    defer s.deinit();
+    try testing.expectEqual(@as(usize, 10), s.totalRows());
+
+    // This is required for our writing below to work
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+
+    // Write into all rows so we don't get trim behavior
+    for (0..s.rows) |y| {
+        const rac = page.getRowAndCell(0, y);
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = @intCast(y) },
+        };
+    }
+
+    // Let's say our cursor is in the scrollback
+    var cursor: Resize.Cursor = .{ .x = 0, .y = 2 };
+    {
+        const get = s.getCell(.{ .active = .{
+            .x = cursor.x,
+            .y = cursor.y,
+        } }).?;
+        try testing.expectEqual(@as(u21, 2), get.cell.content.codepoint);
+    }
+
+    // Resize
+    try s.resize(.{ .rows = 5, .reflow = false, .cursor = &cursor });
+    try testing.expectEqual(@as(usize, 5), s.rows);
+    try testing.expectEqual(@as(usize, 10), s.totalRows());
+
+    // Our cursor should move since it's in the scrollback
+    try testing.expectEqual(@as(size.CellCountInt, 0), cursor.x);
+    try testing.expectEqual(@as(size.CellCountInt, 0), cursor.y);
+
+    {
+        const pt = s.getCell(.{ .active = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 5,
+        } }, pt);
+    }
+}
+
 test "PageList resize (no reflow) less rows trims blank lines" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -2232,10 +2345,25 @@ test "PageList resize (no reflow) less rows trims blank lines" {
         };
     }
 
+    // Let's say our cursor is at the top
+    var cursor: Resize.Cursor = .{ .x = 0, .y = 0 };
+    {
+        const get = s.getCell(.{ .active = .{
+            .x = cursor.x,
+            .y = cursor.y,
+        } }).?;
+        try testing.expectEqual(@as(u21, 'A'), get.cell.content.codepoint);
+    }
+
     // Resize
-    try s.resize(.{ .rows = 2, .reflow = false });
+    try s.resize(.{ .rows = 2, .reflow = false, .cursor = &cursor });
     try testing.expectEqual(@as(usize, 2), s.rows);
     try testing.expectEqual(@as(usize, 2), s.totalRows());
+
+    // Our cursor should not move since we trimmed
+    try testing.expectEqual(@as(size.CellCountInt, 0), cursor.x);
+    try testing.expectEqual(@as(size.CellCountInt, 0), cursor.y);
+
     {
         const pt = s.getCell(.{ .active = .{} }).?.screenPoint();
         try testing.expectEqual(point.Point{ .screen = .{
@@ -2478,6 +2606,74 @@ test "PageList resize (no reflow) more cols forces smaller cap" {
         const cells = offset.page.data.getCells(rac.row);
         try testing.expectEqual(@as(usize, cap2.cols), cells.len);
         try testing.expectEqual(@as(u21, 'A'), cells[0].content.codepoint);
+    }
+}
+
+test "PageList resize (no reflow) more rows adds blank rows if cursor at bottom" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, null);
+    defer s.deinit();
+
+    // Grow to 5 total rows, simulating 3 active + 2 scrollback
+    try s.growRows(2);
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+    for (0..s.totalRows()) |y| {
+        const rac = page.getRowAndCell(0, y);
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = @intCast(y) },
+        };
+    }
+
+    // Active should be on row 3
+    {
+        const pt = s.getCell(.{ .active = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 2,
+        } }, pt);
+    }
+
+    // Let's say our cursor is at the bottom
+    var cursor: Resize.Cursor = .{ .x = 0, .y = s.rows - 2 };
+    {
+        const get = s.getCell(.{ .active = .{
+            .x = cursor.x,
+            .y = cursor.y,
+        } }).?;
+        try testing.expectEqual(@as(u21, 3), get.cell.content.codepoint);
+    }
+
+    // Resize
+    const original_cursor = cursor;
+    try s.resizeWithoutReflow(.{ .rows = 10, .reflow = false, .cursor = &cursor });
+    try testing.expectEqual(@as(usize, 5), s.cols);
+    try testing.expectEqual(@as(usize, 10), s.rows);
+
+    // Our cursor should not change
+    try testing.expectEqual(original_cursor, cursor);
+
+    // 12 because we have our 10 rows in the active + 2 in the scrollback
+    // because we're preserving the cursor.
+    try testing.expectEqual(@as(usize, 12), s.totalRows());
+
+    // Active should be at the same place it was.
+    {
+        const pt = s.getCell(.{ .active = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 2,
+        } }, pt);
+    }
+
+    // Go through our active, we should get only 3,4,5
+    for (0..3) |y| {
+        const get = s.getCell(.{ .active = .{ .y = y } }).?;
+        const expected: u21 = @intCast(y + 2);
+        try testing.expectEqual(expected, get.cell.content.codepoint);
     }
 }
 
