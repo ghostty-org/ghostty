@@ -631,12 +631,21 @@ pub fn resizeWithoutReflow(
         .y = self.cursor.y,
     };
 
+    const old_rows = self.pages.rows;
+
     try self.pages.resize(.{
         .rows = rows,
         .cols = cols,
         .reflow = false,
         .cursor = &cursor,
     });
+
+    // If we have no scrollback and we shrunk our rows, we must explicitly
+    // erase our history. This is beacuse PageList always keeps at least
+    // a page size of history.
+    if (self.no_scrollback and rows < old_rows) {
+        self.pages.eraseRows(.{ .history = .{} }, null);
+    }
 
     if (cursor.x != self.cursor.x or cursor.y != self.cursor.y) {
         self.cursor.x = cursor.x;
@@ -2347,5 +2356,339 @@ test "Screen: resize more cols with reflow that ends in newline" {
             .y = s.cursor.y,
         } }).?;
         try testing.expectEqual(@as(u21, '3'), list_cell.cell.content.codepoint);
+    }
+}
+
+test "Screen: resize more cols with reflow that forces more wrapping" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 0);
+    defer s.deinit();
+    const str = "1ABCD2EFGH\n3IJKL";
+    try s.testWriteString(str);
+
+    // Let's put our cursor on row 2, where the soft wrap is
+    s.cursorAbsolute(0, 1);
+    {
+        const list_cell = s.pages.getCell(.{ .active = .{
+            .x = s.cursor.x,
+            .y = s.cursor.y,
+        } }).?;
+        try testing.expectEqual(@as(u21, '2'), list_cell.cell.content.codepoint);
+    }
+
+    // Verify we soft wrapped
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "1ABCD\n2EFGH\n3IJKL";
+        try testing.expectEqualStrings(expected, contents);
+    }
+
+    // Resize and verify we undid the soft wrap because we have space now
+    try s.resize(7, 3);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "1ABCD2E\nFGH\n3IJKL";
+        try testing.expectEqualStrings(expected, contents);
+    }
+
+    // Our cursor should've moved
+    try testing.expectEqual(@as(size.CellCountInt, 5), s.cursor.x);
+    try testing.expectEqual(@as(size.CellCountInt, 0), s.cursor.y);
+}
+
+test "Screen: resize more cols with reflow that unwraps multiple times" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 0);
+    defer s.deinit();
+    const str = "1ABCD2EFGH3IJKL";
+    try s.testWriteString(str);
+
+    // Let's put our cursor on row 2, where the soft wrap is
+    s.cursorAbsolute(0, 2);
+    {
+        const list_cell = s.pages.getCell(.{ .active = .{
+            .x = s.cursor.x,
+            .y = s.cursor.y,
+        } }).?;
+        try testing.expectEqual(@as(u21, '3'), list_cell.cell.content.codepoint);
+    }
+
+    // Verify we soft wrapped
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "1ABCD\n2EFGH\n3IJKL";
+        try testing.expectEqualStrings(expected, contents);
+    }
+
+    // Resize and verify we undid the soft wrap because we have space now
+    try s.resize(15, 3);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "1ABCD2EFGH3IJKL";
+        try testing.expectEqualStrings(expected, contents);
+    }
+
+    // Our cursor should've moved
+    try testing.expectEqual(@as(size.CellCountInt, 10), s.cursor.x);
+    try testing.expectEqual(@as(size.CellCountInt, 0), s.cursor.y);
+}
+
+test "Screen: resize more cols with populated scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 5);
+    defer s.deinit();
+    const str = "1ABCD\n2EFGH\n3IJKL\n4ABCD5EFGH";
+    try s.testWriteString(str);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "3IJKL\n4ABCD\n5EFGH";
+        try testing.expectEqualStrings(expected, contents);
+    }
+
+    // // Set our cursor to be on the "5"
+    s.cursorAbsolute(0, 2);
+    {
+        const list_cell = s.pages.getCell(.{ .active = .{
+            .x = s.cursor.x,
+            .y = s.cursor.y,
+        } }).?;
+        try testing.expectEqual(@as(u21, '5'), list_cell.cell.content.codepoint);
+    }
+
+    // Resize
+    try s.resize(10, 3);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "2EFGH\n3IJKL\n4ABCD5EFGH";
+        try testing.expectEqualStrings(expected, contents);
+    }
+
+    // Cursor should still be on the "5"
+    // TODO
+    // {
+    //     const list_cell = s.pages.getCell(.{ .active = .{
+    //         .x = s.cursor.x,
+    //         .y = s.cursor.y,
+    //     } }).?;
+    //     try testing.expectEqual(@as(u21, '5'), list_cell.cell.content.codepoint);
+    // }
+}
+
+test "Screen: resize more cols with reflow" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 3, 5);
+    defer s.deinit();
+    const str = "1ABC\n2DEF\n3ABC\n4DEF";
+    try s.testWriteString(str);
+
+    // Let's put our cursor on row 2, where the soft wrap is
+    s.cursorAbsolute(0, 2);
+    {
+        const list_cell = s.pages.getCell(.{ .active = .{
+            .x = s.cursor.x,
+            .y = s.cursor.y,
+        } }).?;
+        try testing.expectEqual(@as(u32, 'E'), list_cell.cell.content.codepoint);
+    }
+
+    // Verify we soft wrapped
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "BC\n4D\nEF";
+        try testing.expectEqualStrings(expected, contents);
+    }
+
+    // Resize and verify we undid the soft wrap because we have space now
+    try s.resize(7, 3);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        const expected = "1ABC\n2DEF\n3ABC\n4DEF";
+        try testing.expectEqualStrings(expected, contents);
+    }
+
+    // Our cursor should've moved
+    // TODO
+    // try testing.expectEqual(@as(size.CellCountInt, 2), s.cursor.x);
+    // try testing.expectEqual(@as(size.CellCountInt, 2), s.cursor.y);
+}
+
+test "Screen: resize less rows no scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 0);
+    defer s.deinit();
+    const str = "1ABCD\n2EFGH\n3IJKL";
+    try s.testWriteString(str);
+
+    s.cursorAbsolute(0, 0);
+    const cursor = s.cursor;
+    try s.resize(5, 1);
+
+    // Cursor should not move
+    try testing.expectEqual(cursor.x, s.cursor.x);
+    try testing.expectEqual(cursor.y, s.cursor.y);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "3IJKL";
+        try testing.expectEqualStrings(expected, contents);
+    }
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        const expected = "3IJKL";
+        try testing.expectEqualStrings(expected, contents);
+    }
+}
+
+test "Screen: resize less rows moving cursor" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 0);
+    defer s.deinit();
+    const str = "1ABCD\n2EFGH\n3IJKL";
+    try s.testWriteString(str);
+
+    // Put our cursor on the last line
+    s.cursorAbsolute(1, 2);
+    {
+        const list_cell = s.pages.getCell(.{ .active = .{
+            .x = s.cursor.x,
+            .y = s.cursor.y,
+        } }).?;
+        try testing.expectEqual(@as(u32, 'I'), list_cell.cell.content.codepoint);
+    }
+
+    // Resize
+    try s.resize(5, 1);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "3IJKL";
+        try testing.expectEqualStrings(expected, contents);
+    }
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        const expected = "3IJKL";
+        try testing.expectEqualStrings(expected, contents);
+    }
+
+    // Cursor should be on the last line
+    try testing.expectEqual(@as(size.CellCountInt, 1), s.cursor.x);
+    try testing.expectEqual(@as(size.CellCountInt, 0), s.cursor.y);
+}
+
+test "Screen: resize less rows with empty scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 10);
+    defer s.deinit();
+    const str = "1ABCD\n2EFGH\n3IJKL";
+    try s.testWriteString(str);
+    try s.resize(5, 1);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "3IJKL";
+        try testing.expectEqualStrings(expected, contents);
+    }
+}
+
+test "Screen: resize less rows with populated scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 5);
+    defer s.deinit();
+    const str = "1ABCD\n2EFGH\n3IJKL\n4ABCD\n5EFGH";
+    try s.testWriteString(str);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "3IJKL\n4ABCD\n5EFGH";
+        try testing.expectEqualStrings(expected, contents);
+    }
+
+    // Resize
+    try s.resize(5, 1);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "5EFGH";
+        try testing.expectEqualStrings(expected, contents);
+    }
+}
+
+test "Screen: resize less rows with full scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 3);
+    defer s.deinit();
+    const str = "00000\n1ABCD\n2EFGH\n3IJKL\n4ABCD\n5EFGH";
+    try s.testWriteString(str);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "3IJKL\n4ABCD\n5EFGH";
+        try testing.expectEqualStrings(expected, contents);
+    }
+
+    try testing.expectEqual(@as(size.CellCountInt, 4), s.cursor.x);
+    try testing.expectEqual(@as(size.CellCountInt, 2), s.cursor.y);
+
+    // Resize
+    try s.resize(5, 2);
+
+    // Cursor should stay in the same relative place (bottom of the
+    // screen, same character).
+    try testing.expectEqual(@as(size.CellCountInt, 4), s.cursor.x);
+    try testing.expectEqual(@as(size.CellCountInt, 1), s.cursor.y);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        const expected = "00000\n1ABCD\n2EFGH\n3IJKL\n4ABCD\n5EFGH";
+        try testing.expectEqualStrings(expected, contents);
+    }
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "4ABCD\n5EFGH";
+        try testing.expectEqualStrings(expected, contents);
     }
 }
