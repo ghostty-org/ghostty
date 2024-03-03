@@ -599,14 +599,23 @@ pub fn resize(
     // No matter what we mark our image state as dirty
     self.kitty_images.dirty = true;
 
-    // Resize our pages
+    var cursor: PageList.Resize.Cursor = .{
+        .x = self.cursor.x,
+        .y = self.cursor.y,
+    };
+
     try self.pages.resize(.{
         .rows = rows,
         .cols = cols,
         .reflow = true,
+        .cursor = &cursor,
     });
 
-    // TODO: cursor
+    if (cursor.x != self.cursor.x or cursor.y != self.cursor.y) {
+        self.cursor.x = cursor.x;
+        self.cursor.y = cursor.y;
+        self.cursorReload();
+    }
 }
 
 /// Resize the screen without any reflow. In this mode, columns/rows will
@@ -629,9 +638,11 @@ pub fn resizeWithoutReflow(
         .cursor = &cursor,
     });
 
-    self.cursor.x = cursor.x;
-    self.cursor.y = cursor.y;
-    self.cursorReload();
+    if (cursor.x != self.cursor.x or cursor.y != self.cursor.y) {
+        self.cursor.x = cursor.x;
+        self.cursor.y = cursor.y;
+        self.cursorReload();
+    }
 }
 
 /// Set a style attribute for the current cursor.
@@ -2175,30 +2186,75 @@ test "Screen: resize more rows with populated scrollback" {
     }
 }
 
-// test "Screen: resize more cols no reflow" {
-//     const testing = std.testing;
-//     const alloc = testing.allocator;
-//
-//     var s = try init(alloc, 5, 3, 0);
-//     defer s.deinit();
-//     const str = "1ABCD\n2EFGH\n3IJKL";
-//     try s.testWriteString(str);
-//
-//     const cursor = s.cursor;
-//     try s.resize(10, 3);
-//
-//     // Cursor should not move
-//     try testing.expectEqual(cursor.x, s.cursor.x);
-//     try testing.expectEqual(cursor.y, s.cursor.y);
-//
-//     {
-//         const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
-//         defer alloc.free(contents);
-//         try testing.expectEqualStrings(str, contents);
-//     }
-//     {
-//         const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
-//         defer alloc.free(contents);
-//         try testing.expectEqualStrings(str, contents);
-//     }
-// }
+test "Screen: resize more cols no reflow" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 0);
+    defer s.deinit();
+    const str = "1ABCD\n2EFGH\n3IJKL";
+    try s.testWriteString(str);
+
+    const cursor = s.cursor;
+    try s.resize(10, 3);
+
+    // Cursor should not move
+    try testing.expectEqual(cursor.x, s.cursor.x);
+    try testing.expectEqual(cursor.y, s.cursor.y);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
+}
+
+// https://github.com/mitchellh/ghostty/issues/272#issuecomment-1676038963
+test "Screen: resize more cols perfect split" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 0);
+    defer s.deinit();
+    const str = "1ABCD2EFGH3IJKL";
+    try s.testWriteString(str);
+    try s.resize(10, 3);
+}
+
+// https://github.com/mitchellh/ghostty/issues/1159
+test "Screen: resize (no reflow) more cols with scrollback scrolled up" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 5);
+    defer s.deinit();
+    const str = "1\n2\n3\n4\n5\n6\n7\n8";
+    try s.testWriteString(str);
+
+    // Cursor at bottom
+    try testing.expectEqual(@as(size.CellCountInt, 1), s.cursor.x);
+    try testing.expectEqual(@as(size.CellCountInt, 2), s.cursor.y);
+
+    s.scroll(.{ .delta_row = -4 });
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("2\n3\n4", contents);
+    }
+
+    try s.resize(8, 3);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
+
+    // Cursor remains at bottom
+    try testing.expectEqual(@as(size.CellCountInt, 1), s.cursor.x);
+    try testing.expectEqual(@as(size.CellCountInt, 2), s.cursor.y);
+}
