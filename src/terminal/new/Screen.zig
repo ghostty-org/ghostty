@@ -2224,6 +2224,12 @@ test "Screen: resize more cols perfect split" {
     const str = "1ABCD2EFGH3IJKL";
     try s.testWriteString(str);
     try s.resize(10, 3);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("1ABCD2EFGH\n3IJKL", contents);
+    }
 }
 
 // https://github.com/mitchellh/ghostty/issues/1159
@@ -2257,4 +2263,45 @@ test "Screen: resize (no reflow) more cols with scrollback scrolled up" {
     // Cursor remains at bottom
     try testing.expectEqual(@as(size.CellCountInt, 1), s.cursor.x);
     try testing.expectEqual(@as(size.CellCountInt, 2), s.cursor.y);
+}
+
+test "Screen: resize more cols with reflow that fits full width" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 0);
+    defer s.deinit();
+    const str = "1ABCD2EFGH\n3IJKL";
+    try s.testWriteString(str);
+
+    // Verify we soft wrapped
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "1ABCD\n2EFGH\n3IJKL";
+        try testing.expectEqualStrings(expected, contents);
+    }
+
+    // Let's put our cursor on row 2, where the soft wrap is
+    s.cursorAbsolute(0, 1);
+    {
+        const list_cell = s.pages.getCell(.{ .active = .{
+            .x = s.cursor.x,
+            .y = s.cursor.y,
+        } }).?;
+        try testing.expectEqual(@as(u21, '2'), list_cell.cell.content.codepoint);
+    }
+
+    // Resize and verify we undid the soft wrap because we have space now
+    try s.resize(10, 3);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
+
+    // Our cursor should've moved
+    // TODO
+    // try testing.expectEqual(@as(usize, 5), s.cursor.x);
+    // try testing.expectEqual(@as(usize, 0), s.cursor.y);
 }

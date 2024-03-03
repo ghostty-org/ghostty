@@ -564,13 +564,14 @@ fn reflowPage(
                 }
             }
 
-            src_cursor.cursorAbsolute(src_cursor.x, @intCast(src_y));
-
+            src_cursor.cursorAbsolute(0, @intCast(src_y));
             for (src_cursor.x..src_cursor.page.size.cols) |src_x| {
                 assert(src_cursor.x == src_x);
 
                 if (dst_cursor.pending_wrap) {
-                    @panic("TODO");
+                    dst_cursor.page_row.wrap = true;
+                    dst_cursor.cursorScroll();
+                    dst_cursor.page_row.wrap_continuation = true;
                 }
 
                 switch (src_cursor.page_cell.content_tag) {

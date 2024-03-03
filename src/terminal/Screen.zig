@@ -6513,6 +6513,12 @@ test "Screen: resize more cols perfect split" {
     const str = "1ABCD2EFGH3IJKL";
     try s.testWriteString(str);
     try s.resize(3, 10);
+
+    {
+        const contents = try s.testString(alloc, .screen);
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("1ABCD2EFGH\n3IJKL", contents);
+    }
 }
 
 // X
@@ -6669,6 +6675,7 @@ test "Screen: resize more cols grapheme map" {
     }
 }
 
+// X
 test "Screen: resize more cols with reflow that fits full width" {
     const testing = std.testing;
     const alloc = testing.allocator;
