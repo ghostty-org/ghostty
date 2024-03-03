@@ -2304,3 +2304,48 @@ test "Screen: resize more cols with reflow that fits full width" {
     try testing.expectEqual(@as(usize, 5), s.cursor.x);
     try testing.expectEqual(@as(usize, 0), s.cursor.y);
 }
+
+test "Screen: resize more cols with reflow that ends in newline" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 6, 3, 0);
+    defer s.deinit();
+    const str = "1ABCD2EFGH\n3IJKL";
+    try s.testWriteString(str);
+
+    // Verify we soft wrapped
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "1ABCD2\nEFGH\n3IJKL";
+        try testing.expectEqualStrings(expected, contents);
+    }
+
+    // Let's put our cursor on the last row
+    s.cursorAbsolute(0, 2);
+    {
+        const list_cell = s.pages.getCell(.{ .active = .{
+            .x = s.cursor.x,
+            .y = s.cursor.y,
+        } }).?;
+        try testing.expectEqual(@as(u21, '3'), list_cell.cell.content.codepoint);
+    }
+
+    // Resize and verify we undid the soft wrap because we have space now
+    try s.resize(10, 3);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
+
+    // Our cursor should still be on the 3
+    {
+        const list_cell = s.pages.getCell(.{ .active = .{
+            .x = s.cursor.x,
+            .y = s.cursor.y,
+        } }).?;
+        try testing.expectEqual(@as(u21, '3'), list_cell.cell.content.codepoint);
+    }
+}

@@ -533,6 +533,20 @@ const ReflowCursor = struct {
         self.x = x;
         self.y = y;
     }
+
+    fn countTrailingEmptyCells(self: *const ReflowCursor) usize {
+        // If the row is wrapped, all empty cells are meaningful.
+        if (self.page_row.wrap) return 0;
+
+        const cells: [*]pagepkg.Cell = @ptrCast(self.page_cell);
+        const len: usize = self.page.size.cols - self.x;
+        for (0..len) |i| {
+            const rev_i = len - i - 1;
+            if (!cells[rev_i].isEmpty()) return i;
+        }
+
+        return len;
+    }
 };
 
 /// Reflow the given page into the new capacity. The new capacity can have
@@ -590,8 +604,23 @@ fn reflowPage(
             }
 
             src_cursor.cursorAbsolute(0, @intCast(src_y));
-            for (src_cursor.x..src_cursor.page.size.cols) |src_x| {
+
+            // Trim trailing empty cells if the row is not wrapped. If the
+            // row is wrapped then we don't trim trailing empty cells because
+            // the empty cells can be meaningful.
+            const trailing_empty = src_cursor.countTrailingEmptyCells();
+            const cols_len = src_cursor.page.size.cols - trailing_empty;
+
+            for (src_cursor.x..cols_len) |src_x| {
                 assert(src_cursor.x == src_x);
+
+                // std.log.warn("src_y={} src_x={} dst_y={} dst_x={} cp={u}", .{
+                //     src_cursor.y,
+                //     src_cursor.x,
+                //     dst_cursor.y,
+                //     dst_cursor.x,
+                //     src_cursor.page_cell.content.codepoint,
+                // });
 
                 if (dst_cursor.pending_wrap) {
                     dst_cursor.page_row.wrap = true;
@@ -2940,7 +2969,7 @@ test "PageList resize reflow more cols cursor in wrapped row that isn't unwrappe
             rac.row.wrap_continuation = true;
         }
         for (0..s.cols) |x| {
-            const rac = page.getRowAndCell(x, 1);
+            const rac = page.getRowAndCell(x, 2);
             rac.cell.* = .{
                 .content_tag = .codepoint,
                 .content = .{ .codepoint = @intCast(x) },

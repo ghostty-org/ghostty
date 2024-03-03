@@ -6711,6 +6711,7 @@ test "Screen: resize more cols with reflow that fits full width" {
     try testing.expectEqual(@as(usize, 0), s.cursor.y);
 }
 
+// X
 test "Screen: resize more cols with reflow that ends in newline" {
     const testing = std.testing;
     const alloc = testing.allocator;
