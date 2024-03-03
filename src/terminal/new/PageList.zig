@@ -655,6 +655,14 @@ fn reflowPage(
                         offset.row_offset == src_cursor.y and
                         c.x == src_cursor.x)
                     {
+                        // std.log.warn("c.x={} c.y={} dst_x={} dst_y={} src_y={}", .{
+                        //     c.x,
+                        //     c.y,
+                        //     dst_cursor.x,
+                        //     dst_cursor.y,
+                        //     src_cursor.y,
+                        // });
+
                         // Column always matches our dst x
                         c.x = dst_cursor.x;
 
@@ -664,7 +672,7 @@ fn reflowPage(
                         // better calculate the CHANGE in coordinate by subtracting
                         // our dst from src which will calculate how many rows
                         // we unwrapped to get here.
-                        c.y -= src_cursor.y - dst_cursor.y;
+                        c.y -|= src_cursor.y - dst_cursor.y;
 
                         c.offset = .{
                             .page = dst_node,

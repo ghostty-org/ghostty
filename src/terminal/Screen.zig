@@ -6746,6 +6746,7 @@ test "Screen: resize more cols with reflow that ends in newline" {
     try testing.expectEqual(@as(u32, '3'), s.getCell(.active, s.cursor.y, s.cursor.x).char);
 }
 
+// X
 test "Screen: resize more cols with reflow that forces more wrapping" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -6782,6 +6783,7 @@ test "Screen: resize more cols with reflow that forces more wrapping" {
     try testing.expectEqual(@as(usize, 0), s.cursor.y);
 }
 
+// X
 test "Screen: resize more cols with reflow that unwraps multiple times" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -6818,6 +6820,7 @@ test "Screen: resize more cols with reflow that unwraps multiple times" {
     try testing.expectEqual(@as(usize, 0), s.cursor.y);
 }
 
+// X
 test "Screen: resize more cols with populated scrollback" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -6852,6 +6855,7 @@ test "Screen: resize more cols with populated scrollback" {
     }
 }
 
+// X
 test "Screen: resize more cols with reflow" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -6889,6 +6893,7 @@ test "Screen: resize more cols with reflow" {
     try testing.expectEqual(@as(usize, 2), s.cursor.y);
 }
 
+// X
 test "Screen: resize less rows no scrollback" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -6919,6 +6924,7 @@ test "Screen: resize less rows no scrollback" {
     }
 }
 
+// X
 test "Screen: resize less rows moving cursor" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -6954,6 +6960,7 @@ test "Screen: resize less rows moving cursor" {
     }
 }
 
+// X
 test "Screen: resize less rows with empty scrollback" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -6977,6 +6984,7 @@ test "Screen: resize less rows with empty scrollback" {
     }
 }
 
+// X
 test "Screen: resize less rows with populated scrollback" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -7008,6 +7016,7 @@ test "Screen: resize less rows with populated scrollback" {
     }
 }
 
+// X
 test "Screen: resize less rows with full scrollback" {
     const testing = std.testing;
     const alloc = testing.allocator;
