@@ -2258,6 +2258,51 @@ test "Screen: resize (no reflow) more cols with scrollback scrolled up" {
     try testing.expectEqual(@as(size.CellCountInt, 2), s.cursor.y);
 }
 
+// https://github.com/mitchellh/ghostty/issues/1159
+test "Screen: resize (no reflow) less cols with scrollback scrolled up" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 5);
+    defer s.deinit();
+    const str = "1\n2\n3\n4\n5\n6\n7\n8";
+    try s.testWriteString(str);
+
+    // Cursor at bottom
+    try testing.expectEqual(@as(size.CellCountInt, 1), s.cursor.x);
+    try testing.expectEqual(@as(size.CellCountInt, 2), s.cursor.y);
+
+    s.scroll(.{ .delta_row = -4 });
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("2\n3\n4", contents);
+    }
+
+    try s.resize(4, 3);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("6\n7\n8", contents);
+    }
+
+    // Cursor remains at bottom
+    try testing.expectEqual(@as(size.CellCountInt, 1), s.cursor.x);
+    try testing.expectEqual(@as(size.CellCountInt, 2), s.cursor.y);
+
+    // Old implementation doesn't do this but it makes sense to me:
+    // {
+    //     const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+    //     defer alloc.free(contents);
+    //     try testing.expectEqualStrings("2\n3\n4", contents);
+    // }
+}
+
 test "Screen: resize more cols with reflow that fits full width" {
     const testing = std.testing;
     const alloc = testing.allocator;

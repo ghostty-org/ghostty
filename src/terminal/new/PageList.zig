@@ -760,6 +760,29 @@ fn reflowPage(
                 // Move both our cursors forward
                 src_cursor.cursorForward();
                 dst_cursor.cursorForward();
+            } else cursor: {
+                // We made it through all our source columns. As a final edge
+                // case, if our cursor is in one of the blanks, we update it
+                // to the edge of this page.
+
+                // If we have no trailing empty cells, it can't be in the blanks.
+                if (trailing_empty == 0) break :cursor;
+
+                // If we have no cursor, nothing to update.
+                const c = cursor orelse break :cursor;
+                const offset = c.offset orelse break :cursor;
+
+                // If our cursor is on this page, and our x is greater than
+                // our end, we update to the edge.
+                if (&offset.page.data == src_cursor.page and
+                    offset.row_offset == src_cursor.y and
+                    c.x >= cols_len)
+                {
+                    c.offset = .{
+                        .page = dst_node,
+                        .row_offset = dst_cursor.y,
+                    };
+                }
             }
         } else {
             // We made it through all our source rows, we're done.
@@ -3294,6 +3317,68 @@ test "PageList resize reflow less cols cursor in unchanged row" {
 
     // Our cursor should move to the first row
     try testing.expectEqual(@as(size.CellCountInt, 1), cursor.x);
+    try testing.expectEqual(@as(size.CellCountInt, 0), cursor.y);
+}
+
+test "PageList resize reflow less cols cursor in blank cell" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 6, 2, null);
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+    for (0..s.rows) |y| {
+        for (0..2) |x| {
+            const rac = page.getRowAndCell(x, y);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = @intCast(x) },
+            };
+        }
+    }
+
+    // Set our cursor to be in a blank cell
+    var cursor: Resize.Cursor = .{ .x = 2, .y = 0 };
+
+    // Resize
+    try s.resize(.{ .cols = 4, .reflow = true, .cursor = &cursor });
+    try testing.expectEqual(@as(usize, 4), s.cols);
+    try testing.expectEqual(@as(usize, 2), s.totalRows());
+
+    // Our cursor should move to the first row
+    try testing.expectEqual(@as(size.CellCountInt, 2), cursor.x);
+    try testing.expectEqual(@as(size.CellCountInt, 0), cursor.y);
+}
+
+test "PageList resize reflow less cols cursor in final blank cell" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 6, 2, null);
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+    for (0..s.rows) |y| {
+        for (0..2) |x| {
+            const rac = page.getRowAndCell(x, y);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = @intCast(x) },
+            };
+        }
+    }
+
+    // Set our cursor to be in the final cell of our resized
+    var cursor: Resize.Cursor = .{ .x = 3, .y = 0 };
+
+    // Resize
+    try s.resize(.{ .cols = 4, .reflow = true, .cursor = &cursor });
+    try testing.expectEqual(@as(usize, 4), s.cols);
+    try testing.expectEqual(@as(usize, 2), s.totalRows());
+
+    // Our cursor should move to the first row
+    try testing.expectEqual(@as(size.CellCountInt, 3), cursor.x);
     try testing.expectEqual(@as(size.CellCountInt, 0), cursor.y);
 }
 

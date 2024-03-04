@@ -6556,6 +6556,7 @@ test "Screen: resize (no reflow) more cols with scrollback scrolled up" {
     try testing.expectEqual(@as(usize, 2), s.cursor.y);
 }
 
+// X
 // https://github.com/mitchellh/ghostty/issues/1159
 test "Screen: resize (no reflow) less cols with scrollback scrolled up" {
     const testing = std.testing;
@@ -6582,6 +6583,11 @@ test "Screen: resize (no reflow) less cols with scrollback scrolled up" {
         const contents = try s.testString(alloc, .screen);
         defer alloc.free(contents);
         try testing.expectEqualStrings(str, contents);
+    }
+    {
+        const contents = try s.testString(alloc, .active);
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("6\n7\n8", contents);
     }
 
     // Cursor remains at bottom
