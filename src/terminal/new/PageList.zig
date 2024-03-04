@@ -390,7 +390,7 @@ pub fn resize(self: *PageList, opts: Resize) !void {
         .gt => {
             // We grow rows after cols so that we can do our unwrapping/reflow
             // before we do a no-reflow grow.
-            try self.resizeGrowCols(cols, opts.cursor);
+            try self.resizeCols(cols, opts.cursor);
             try self.resizeWithoutReflow(opts);
         },
 
@@ -403,20 +403,20 @@ pub fn resize(self: *PageList, opts: Resize) !void {
                 break :opts copy;
             });
 
-            try self.resizeShrinkCols(cols, opts.cursor);
+            try self.resizeCols(cols, opts.cursor);
         },
     }
 }
 
-/// Resize the pagelist with reflow by removing columns.
-fn resizeShrinkCols(
+/// Resize the pagelist with reflow by adding or removing columns.
+fn resizeCols(
     self: *PageList,
     cols: size.CellCountInt,
     cursor: ?*Resize.Cursor,
 ) !void {
-    assert(cols < self.cols);
+    assert(cols != self.cols);
 
-    // Our new capacity, ensure we can shrink to it.
+    // Our new capacity, ensure we can fit the cols
     const cap = try std_capacity.adjust(.{ .cols = cols });
 
     // If we are given a cursor, we need to calculate the row offset.
@@ -436,93 +436,25 @@ fn resizeShrinkCols(
     // Go page by page and shrink the columns on a per-page basis.
     var it = self.pageIterator(.{ .screen = .{} }, null);
     while (it.next()) |chunk| {
+        // Fast-path: none of our rows are wrapped. In this case we can
+        // treat this like a no-reflow resize. This only applies if we
+        // are growing columns.
+        if (cols > self.cols) {
+            const page = &chunk.page.data;
+            const rows = page.rows.ptr(page.memory)[0..page.size.rows];
+            const wrapped = wrapped: for (rows) |row| {
+                assert(!row.wrap_continuation); // TODO
+                if (row.wrap) break :wrapped true;
+            } else false;
+            if (!wrapped) {
+                try self.resizeWithoutReflowGrowCols(cap, chunk, cursor);
+                continue;
+            }
+        }
+
         // Note: we can do a fast-path here if all of our rows in this
         // page already fit within the new capacity. In that case we can
         // do a non-reflow resize.
-        try self.reflowPage(cap, chunk.page, cursor);
-    }
-
-    // If our total rows is less than our active rows, we need to grow.
-    // This can happen if you're growing columns such that enough active
-    // rows unwrap that we no longer have enough.
-    var node_it = self.pages.first;
-    var total: usize = 0;
-    while (node_it) |node| : (node_it = node.next) {
-        total += node.data.size.rows;
-        if (total >= self.rows) break;
-    } else {
-        for (total..self.rows) |_| _ = try self.grow();
-    }
-
-    if (cursor) |c| cursor: {
-        const offset = c.offset orelse break :cursor;
-        var active_it = self.rowIterator(.{ .active = .{} }, null);
-        var y: size.CellCountInt = 0;
-        while (active_it.next()) |it_offset| {
-            if (it_offset.page == offset.page and
-                it_offset.row_offset == offset.row_offset)
-            {
-                c.y = y;
-                break :cursor;
-            }
-
-            y += 1;
-        } else {
-            // Cursor moved off the screen into the scrollback.
-            c.x = 0;
-            c.y = 0;
-        }
-    }
-
-    // Update our cols
-    self.cols = cols;
-}
-
-/// Resize the pagelist with reflow by adding columns.
-fn resizeGrowCols(
-    self: *PageList,
-    cols: size.CellCountInt,
-    cursor: ?*Resize.Cursor,
-) !void {
-    assert(cols > self.cols);
-
-    // Our new capacity, ensure we can grow to it.
-    const cap = try std_capacity.adjust(.{ .cols = cols });
-
-    // If we are given a cursor, we need to calculate the row offset.
-    if (cursor) |c| {
-        if (c.offset == null) {
-            const tl = self.getTopLeft(.active);
-            c.offset = tl.forward(c.y) orelse fail: {
-                // This should never happen, but its not critical enough to
-                // set an assertion and fail the program. The caller should ALWAYS
-                // input a valid x/y..
-                log.err("cursor offset not found, resize will set wrong cursor", .{});
-                break :fail null;
-            };
-        }
-    }
-
-    // Go page by page and grow the columns on a per-page basis.
-    var it = self.pageIterator(.{ .screen = .{} }, null);
-    while (it.next()) |chunk| {
-        const page = &chunk.page.data;
-        const rows = page.rows.ptr(page.memory)[0..page.size.rows];
-
-        // Fast-path: none of our rows are wrapped. In this case we can
-        // treat this like a no-reflow resize.
-        const wrapped = wrapped: for (rows) |row| {
-            assert(!row.wrap_continuation); // TODO
-            if (row.wrap) break :wrapped true;
-        } else false;
-        if (!wrapped) {
-            try self.resizeWithoutReflowGrowCols(cap, chunk);
-            continue;
-        }
-
-        // Slow path, we have a wrapped row. We need to reflow the text.
-        // This is painful because we basically need to rewrite the entire
-        // page sequentially.
         try self.reflowPage(cap, chunk.page, cursor);
     }
 
@@ -575,6 +507,10 @@ fn resizeGrowCols(
             }
 
             y += 1;
+        } else {
+            // Cursor moved off the screen into the scrollback.
+            c.x = 0;
+            c.y = 0;
         }
     }
 
@@ -951,7 +887,7 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
 
                 var it = self.pageIterator(.{ .screen = .{} }, null);
                 while (it.next()) |chunk| {
-                    try self.resizeWithoutReflowGrowCols(cap, chunk);
+                    try self.resizeWithoutReflowGrowCols(cap, chunk, opts.cursor);
                 }
 
                 self.cols = cols;
@@ -964,6 +900,7 @@ fn resizeWithoutReflowGrowCols(
     self: *PageList,
     cap: Capacity,
     chunk: PageIterator.Chunk,
+    cursor: ?*Resize.Cursor,
 ) !void {
     assert(cap.cols > self.cols);
     const page = &chunk.page.data;
@@ -1000,11 +937,35 @@ fn resizeWithoutReflowGrowCols(
     var copied: usize = 0;
     while (copied < page.size.rows) {
         const new_page = try self.createPage(cap);
+
+        // The length we can copy into the new page is at most the number
+        // of rows in our cap. But if we can finish our source page we use that.
         const len = @min(cap.rows, page.size.rows - copied);
-        copied += len;
         new_page.data.size.rows = len;
-        try new_page.data.cloneFrom(page, 0, len);
+
+        // The range of rows we're copying from the old page.
+        const y_start = copied;
+        const y_end = copied + len;
+        try new_page.data.cloneFrom(page, y_start, y_end);
+        copied += len;
+
+        // Insert our new page
         self.pages.insertBefore(chunk.page, new_page);
+
+        // If we have a cursor, we need to update the row offset if it
+        // matches what we just copied.
+        if (cursor) |c| cursor: {
+            const offset = c.offset orelse break :cursor;
+            if (offset.page == chunk.page and
+                offset.row_offset >= y_start and
+                offset.row_offset < y_end)
+            {
+                c.offset = .{
+                    .page = new_page,
+                    .row_offset = offset.row_offset - y_start,
+                };
+            }
+        }
     }
     assert(copied == page.size.rows);
 
@@ -3064,7 +3025,7 @@ test "PageList resize reflow more cols cursor in not wrapped row" {
     }
 
     // Set our cursor to be in the wrapped row
-    var cursor: Resize.Cursor = .{ .x = 2, .y = 0 };
+    var cursor: Resize.Cursor = .{ .x = 1, .y = 0 };
 
     // Resize
     try s.resize(.{ .cols = 4, .reflow = true, .cursor = &cursor });
@@ -3072,7 +3033,7 @@ test "PageList resize reflow more cols cursor in not wrapped row" {
     try testing.expectEqual(@as(usize, 4), s.totalRows());
 
     // Our cursor should move to the first row
-    try testing.expectEqual(@as(size.CellCountInt, 2), cursor.x);
+    try testing.expectEqual(@as(size.CellCountInt, 1), cursor.x);
     try testing.expectEqual(@as(size.CellCountInt, 0), cursor.y);
 }
 
