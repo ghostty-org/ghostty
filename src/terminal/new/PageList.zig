@@ -593,10 +593,6 @@ const ReflowCursor = struct {
         self.y = y;
     }
 
-    fn copyRowMetadata(self: *ReflowCursor, other: *const Row) void {
-        self.page_row.semantic_prompt = other.semantic_prompt;
-    }
-
     fn countTrailingEmptyCells(self: *const ReflowCursor) usize {
         // If the row is wrapped, all empty cells are meaningful.
         if (self.page_row.wrap) return 0;
@@ -613,6 +609,10 @@ const ReflowCursor = struct {
         if (self.page_row.semantic_prompt != .unknown) return len - 1;
 
         return len;
+    }
+
+    fn copyRowMetadata(self: *ReflowCursor, other: *const Row) void {
+        self.page_row.semantic_prompt = other.semantic_prompt;
     }
 };
 
@@ -728,53 +728,78 @@ fn reflowPage(
                     dst_cursor.copyRowMetadata(src_cursor.page_row);
                 }
 
-                switch (src_cursor.page_cell.content_tag) {
-                    // These are guaranteed to have no styling data and no
-                    // graphemes, a fast path.
-                    .bg_color_palette,
-                    .bg_color_rgb,
-                    => {
-                        assert(!src_cursor.page_cell.hasStyling());
-                        assert(!src_cursor.page_cell.hasGrapheme());
-                        dst_cursor.page_cell.* = src_cursor.page_cell.*;
-                    },
+                // A rare edge case. If we're resizing down to 1 column
+                // and the source is a non-narrow character, we reset the
+                // cell to a narrow blank and we skip to the next cell.
+                if (cap.cols == 1 and src_cursor.page_cell.wide != .narrow) {
+                    switch (src_cursor.page_cell.wide) {
+                        .narrow => unreachable,
 
-                    .codepoint => {
-                        dst_cursor.page_cell.* = src_cursor.page_cell.*;
-                    },
+                        // Wide char, we delete it, reset it to narrow,
+                        // and skip forward.
+                        .wide => {
+                            dst_cursor.page_cell.content.codepoint = 0;
+                            dst_cursor.page_cell.wide = .narrow;
+                            src_cursor.cursorForward();
+                            continue;
+                        },
 
-                    .codepoint_grapheme => {
-                        // We copy the cell like normal but we have to reset the
-                        // tag because this is used for fast-path detection in
-                        // appendGrapheme.
-                        dst_cursor.page_cell.* = src_cursor.page_cell.*;
-                        dst_cursor.page_cell.content_tag = .codepoint;
+                        // Skip spacer tails since we should've already
+                        // handled them in the previous cell.
+                        .spacer_tail => {},
 
-                        // Copy the graphemes
-                        const src_cps = src_cursor.page.lookupGrapheme(src_cursor.page_cell).?;
-                        for (src_cps) |cp| {
-                            try dst_cursor.page.appendGrapheme(
-                                dst_cursor.page_row,
-                                dst_cursor.page_cell,
-                                cp,
-                            );
-                        }
-                    },
-                }
+                        // TODO: test?
+                        .spacer_head => {},
+                    }
+                } else {
+                    switch (src_cursor.page_cell.content_tag) {
+                        // These are guaranteed to have no styling data and no
+                        // graphemes, a fast path.
+                        .bg_color_palette,
+                        .bg_color_rgb,
+                        => {
+                            assert(!src_cursor.page_cell.hasStyling());
+                            assert(!src_cursor.page_cell.hasGrapheme());
+                            dst_cursor.page_cell.* = src_cursor.page_cell.*;
+                        },
 
-                // If the source cell has a style, we need to copy it.
-                if (src_cursor.page_cell.style_id != stylepkg.default_id) {
-                    const src_style = src_cursor.page.styles.lookupId(
-                        src_cursor.page.memory,
-                        src_cursor.page_cell.style_id,
-                    ).?.*;
+                        .codepoint => {
+                            dst_cursor.page_cell.* = src_cursor.page_cell.*;
+                        },
 
-                    const dst_md = try dst_cursor.page.styles.upsert(
-                        dst_cursor.page.memory,
-                        src_style,
-                    );
-                    dst_md.ref += 1;
-                    dst_cursor.page_cell.style_id = dst_md.id;
+                        .codepoint_grapheme => {
+                            // We copy the cell like normal but we have to reset the
+                            // tag because this is used for fast-path detection in
+                            // appendGrapheme.
+                            dst_cursor.page_cell.* = src_cursor.page_cell.*;
+                            dst_cursor.page_cell.content_tag = .codepoint;
+
+                            // Copy the graphemes
+                            const src_cps = src_cursor.page.lookupGrapheme(src_cursor.page_cell).?;
+                            for (src_cps) |cp| {
+                                try dst_cursor.page.appendGrapheme(
+                                    dst_cursor.page_row,
+                                    dst_cursor.page_cell,
+                                    cp,
+                                );
+                            }
+                        },
+                    }
+
+                    // If the source cell has a style, we need to copy it.
+                    if (src_cursor.page_cell.style_id != stylepkg.default_id) {
+                        const src_style = src_cursor.page.styles.lookupId(
+                            src_cursor.page.memory,
+                            src_cursor.page_cell.style_id,
+                        ).?.*;
+
+                        const dst_md = try dst_cursor.page.styles.upsert(
+                            dst_cursor.page.memory,
+                            src_style,
+                        );
+                        dst_md.ref += 1;
+                        dst_cursor.page_cell.style_id = dst_md.id;
+                    }
                 }
 
                 // If our original cursor was on this page, this x/y then
@@ -3784,6 +3809,51 @@ test "PageList resize reflow less cols copy style" {
                 style_id,
             ).?;
             try testing.expect(style.flags.bold);
+        }
+    }
+}
+
+test "PageList resize reflow less cols to eliminate a wide char" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 1, 0);
+    defer s.deinit();
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+
+        {
+            const rac = page.getRowAndCell(0, 0);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = '😀' },
+                .wide = .wide,
+            };
+        }
+        {
+            const rac = page.getRowAndCell(1, 0);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = ' ' },
+                .wide = .spacer_tail,
+            };
+        }
+    }
+
+    // Resize
+    try s.resize(.{ .cols = 1, .reflow = true });
+    try testing.expectEqual(@as(usize, 1), s.cols);
+    try testing.expectEqual(@as(usize, 1), s.totalRows());
+
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+
+        {
+            const rac = page.getRowAndCell(0, 0);
+            try testing.expectEqual(@as(u21, 0), rac.cell.content.codepoint);
+            try testing.expectEqual(pagepkg.Cell.Wide.narrow, rac.cell.wide);
         }
     }
 }
