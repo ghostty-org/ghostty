@@ -1954,6 +1954,46 @@ pub fn printAttributes(self: *Terminal, buf: []u8) ![]const u8 {
     return stream.getWritten();
 }
 
+/// The modes for DECCOLM.
+pub const DeccolmMode = enum(u1) {
+    @"80_cols" = 0,
+    @"132_cols" = 1,
+};
+
+/// DECCOLM changes the terminal width between 80 and 132 columns. This
+/// function call will do NOTHING unless `setDeccolmSupported` has been
+/// called with "true".
+///
+/// This breaks the expectation around modern terminals that they resize
+/// with the window. This will fix the grid at either 80 or 132 columns.
+/// The rows will continue to be variable.
+pub fn deccolm(self: *Terminal, alloc: Allocator, mode: DeccolmMode) !void {
+    // If DEC mode 40 isn't enabled, then this is ignored. We also make
+    // sure that we don't have deccolm set because we want to fully ignore
+    // set mode.
+    if (!self.modes.get(.enable_mode_3)) {
+        self.modes.set(.@"132_column", false);
+        return;
+    }
+
+    // Enable it
+    self.modes.set(.@"132_column", mode == .@"132_cols");
+
+    // Resize to the requested size
+    try self.resize(
+        alloc,
+        switch (mode) {
+            .@"132_cols" => 132,
+            .@"80_cols" => 80,
+        },
+        self.rows,
+    );
+
+    // Erase our display and move our cursor.
+    self.eraseDisplay(.complete, false);
+    self.setCursorPos(1, 1);
+}
+
 /// Resize the underlying terminal.
 pub fn resize(
     self: *Terminal,
@@ -6409,6 +6449,24 @@ test "Terminal: saveCursor origin mode" {
     }
 }
 
+test "Terminal: saveCursor resize" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 10, 5);
+    defer t.deinit(alloc);
+
+    t.setCursorPos(1, 10);
+    t.saveCursor();
+    try t.resize(alloc, 5, 5);
+    try t.restoreCursor();
+    try t.print('X');
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("    X", str);
+    }
+}
+
 test "Terminal: saveCursor protected pen" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 5);
@@ -7588,4 +7646,85 @@ test "Terminal: resize with wraparound on" {
     const str = try t.plainString(testing.allocator);
     defer testing.allocator.free(str);
     try testing.expectEqualStrings("01\n23", str);
+}
+
+test "Terminal: DECCOLM without DEC mode 40" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.modes.set(.@"132_column", true);
+    try t.deccolm(alloc, .@"132_cols");
+    try testing.expectEqual(@as(usize, 5), t.cols);
+    try testing.expectEqual(@as(usize, 5), t.rows);
+    try testing.expect(!t.modes.get(.@"132_column"));
+}
+
+test "Terminal: DECCOLM unset" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.modes.set(.enable_mode_3, true);
+    try t.deccolm(alloc, .@"80_cols");
+    try testing.expectEqual(@as(usize, 80), t.cols);
+    try testing.expectEqual(@as(usize, 5), t.rows);
+}
+
+test "Terminal: DECCOLM resets pending wrap" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    for ("ABCDE") |c| try t.print(c);
+    try testing.expect(t.screen.cursor.pending_wrap);
+
+    t.modes.set(.enable_mode_3, true);
+    try t.deccolm(alloc, .@"80_cols");
+    try testing.expectEqual(@as(usize, 80), t.cols);
+    try testing.expectEqual(@as(usize, 5), t.rows);
+    try testing.expect(!t.screen.cursor.pending_wrap);
+}
+
+test "Terminal: DECCOLM preserves SGR bg" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    try t.setAttribute(.{ .direct_color_bg = .{
+        .r = 0xFF,
+        .g = 0,
+        .b = 0,
+    } });
+    t.modes.set(.enable_mode_3, true);
+    try t.deccolm(alloc, .@"80_cols");
+
+    {
+        const list_cell = t.screen.pages.getCell(.{ .active = .{ .x = 0, .y = 0 } }).?;
+        try testing.expect(list_cell.cell.content_tag == .bg_color_rgb);
+        try testing.expectEqual(Cell.RGB{
+            .r = 0xFF,
+            .g = 0,
+            .b = 0,
+        }, list_cell.cell.content.color_rgb);
+    }
+}
+
+test "Terminal: DECCOLM resets scroll region" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 5, 5);
+    defer t.deinit(alloc);
+
+    t.modes.set(.enable_left_and_right_margin, true);
+    t.setTopAndBottomMargin(2, 3);
+    t.setLeftAndRightMargin(3, 5);
+
+    t.modes.set(.enable_mode_3, true);
+    try t.deccolm(alloc, .@"80_cols");
+
+    try testing.expect(t.modes.get(.enable_left_and_right_margin));
+    try testing.expectEqual(@as(usize, 0), t.scrolling_region.top);
+    try testing.expectEqual(@as(usize, 4), t.scrolling_region.bottom);
+    try testing.expectEqual(@as(usize, 0), t.scrolling_region.left);
+    try testing.expectEqual(@as(usize, 79), t.scrolling_region.right);
 }
