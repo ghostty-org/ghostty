@@ -3225,3 +3225,191 @@ test "Screen: resize less cols to wrap wide char" {
         try testing.expect(list_cell.row.wrap);
     }
 }
+
+test "Screen: resize less cols to eliminate wide char with row space" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 2, 0);
+    defer s.deinit();
+    const str = "😀";
+    try s.testWriteString(str);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
+    {
+        const list_cell = s.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+        try testing.expectEqual(@as(u21, '😀'), cell.content.codepoint);
+    }
+    {
+        const list_cell = s.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
+    }
+
+    try s.resize(1, 2);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("", contents);
+    }
+}
+
+test "Screen: resize more cols with wide spacer head" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 3, 2, 0);
+    defer s.deinit();
+    const str = "  😀";
+    try s.testWriteString(str);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("  \n😀", contents);
+    }
+
+    // So this is the key point: we end up with a wide spacer head at
+    // the end of row 1, then the emoji, then a wide spacer tail on row 2.
+    // We should expect that if we resize to more cols, the wide spacer
+    // head is replaced with the emoji.
+    {
+        const list_cell = s.pages.getCell(.{ .screen = .{ .x = 2, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.spacer_head, cell.wide);
+    }
+    {
+        const list_cell = s.pages.getCell(.{ .screen = .{ .x = 0, .y = 1 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+    }
+    {
+        const list_cell = s.pages.getCell(.{ .screen = .{ .x = 1, .y = 1 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
+    }
+
+    try s.resize(4, 2);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
+    {
+        const list_cell = s.pages.getCell(.{ .screen = .{ .x = 2, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+        try testing.expectEqual(@as(u21, '😀'), cell.content.codepoint);
+    }
+    {
+        const list_cell = s.pages.getCell(.{ .screen = .{ .x = 3, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
+    }
+}
+
+test "Screen: resize more cols with wide spacer head multiple lines" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 3, 3, 0);
+    defer s.deinit();
+    const str = "xxxyy😀";
+    try s.testWriteString(str);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("xxx\nyy\n😀", contents);
+    }
+
+    // Similar to the "wide spacer head" test, but this time we'er going
+    // to increase our columns such that multiple rows are unwrapped.
+    {
+        const list_cell = s.pages.getCell(.{ .screen = .{ .x = 2, .y = 1 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.spacer_head, cell.wide);
+    }
+    {
+        const list_cell = s.pages.getCell(.{ .screen = .{ .x = 0, .y = 2 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+    }
+    {
+        const list_cell = s.pages.getCell(.{ .screen = .{ .x = 1, .y = 2 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
+    }
+
+    try s.resize(8, 2);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
+    {
+        const list_cell = s.pages.getCell(.{ .screen = .{ .x = 5, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+        try testing.expectEqual(@as(u21, '😀'), cell.content.codepoint);
+    }
+    {
+        const list_cell = s.pages.getCell(.{ .screen = .{ .x = 6, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
+    }
+}
+
+test "Screen: resize more cols requiring a wide spacer head" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 2, 0);
+    defer s.deinit();
+    const str = "xx😀";
+    try s.testWriteString(str);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("xx\n😀", contents);
+    }
+    {
+        const list_cell = s.pages.getCell(.{ .screen = .{ .x = 0, .y = 1 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+    }
+    {
+        const list_cell = s.pages.getCell(.{ .screen = .{ .x = 1, .y = 1 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
+    }
+
+    // This resizes to 3 columns, which isn't enough space for our wide
+    // char to enter row 1. But we need to mark the wide spacer head on the
+    // end of the first row since we're wrapping to the next row.
+    try s.resize(3, 2);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("xx\n😀", contents);
+    }
+    {
+        const list_cell = s.pages.getCell(.{ .screen = .{ .x = 2, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.spacer_head, cell.wide);
+    }
+    {
+        const list_cell = s.pages.getCell(.{ .screen = .{ .x = 0, .y = 1 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+        try testing.expectEqual(@as(u21, '😀'), cell.content.codepoint);
+    }
+    {
+        const list_cell = s.pages.getCell(.{ .screen = .{ .x = 1, .y = 1 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
+    }
+}
