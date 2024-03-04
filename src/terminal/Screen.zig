@@ -7057,6 +7057,7 @@ test "Screen: resize less rows with full scrollback" {
     }
 }
 
+// X
 test "Screen: resize less cols no reflow" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -7222,6 +7223,7 @@ test "Screen: resize less cols no reflow preserves semantic prompt" {
     }
 }
 
+// X
 test "Screen: resize less cols with reflow but row space" {
     const testing = std.testing;
     const alloc = testing.allocator;
