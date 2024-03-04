@@ -7617,6 +7617,7 @@ test "Screen: resize less cols to wrap wide char" {
     }
 }
 
+// X
 test "Screen: resize less cols to eliminate wide char with row space" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -7652,6 +7653,7 @@ test "Screen: resize less cols to eliminate wide char with row space" {
     }
 }
 
+// X
 test "Screen: resize more cols with wide spacer head" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -7693,6 +7695,7 @@ test "Screen: resize more cols with wide spacer head" {
     }
 }
 
+// X
 test "Screen: resize less cols preserves grapheme cluster" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -7723,6 +7726,7 @@ test "Screen: resize less cols preserves grapheme cluster" {
     }
 }
 
+// X
 test "Screen: resize more cols with wide spacer head multiple lines" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -7762,6 +7766,7 @@ test "Screen: resize more cols with wide spacer head multiple lines" {
     }
 }
 
+// X
 test "Screen: resize more cols requiring a wide spacer head" {
     const testing = std.testing;
     const alloc = testing.allocator;
