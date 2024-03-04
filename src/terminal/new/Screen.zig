@@ -2723,3 +2723,70 @@ test "Screen: resize less rows with full scrollback" {
         try testing.expectEqualStrings(expected, contents);
     }
 }
+
+test "Screen: resize less cols no reflow" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 0);
+    defer s.deinit();
+    const str = "1AB\n2EF\n3IJ";
+    try s.testWriteString(str);
+
+    s.cursorAbsolute(0, 0);
+    const cursor = s.cursor;
+    try s.resize(3, 3);
+
+    // Cursor should not move
+    try testing.expectEqual(cursor.x, s.cursor.x);
+    try testing.expectEqual(cursor.y, s.cursor.y);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
+}
+
+test "Screen: resize less cols with reflow but row space" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 1);
+    defer s.deinit();
+    const str = "1ABCD";
+    try s.testWriteString(str);
+
+    // Put our cursor on the end
+    s.cursorAbsolute(4, 0);
+    {
+        const list_cell = s.pages.getCell(.{ .active = .{
+            .x = s.cursor.x,
+            .y = s.cursor.y,
+        } }).?;
+        try testing.expectEqual(@as(u32, 'D'), list_cell.cell.content.codepoint);
+    }
+
+    try s.resize(3, 3);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "1AB\nCD";
+        try testing.expectEqualStrings(expected, contents);
+    }
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        const expected = "1AB\nCD";
+        try testing.expectEqualStrings(expected, contents);
+    }
+
+    // Cursor should be on the last line
+    try testing.expectEqual(@as(size.CellCountInt, 1), s.cursor.x);
+    try testing.expectEqual(@as(size.CellCountInt, 1), s.cursor.y);
+}
