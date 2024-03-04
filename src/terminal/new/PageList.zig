@@ -626,6 +626,12 @@ const ReflowCursor = struct {
 /// is one giant wrapped line), this can be a very expensive operation. That
 /// doesn't really happen in typical terminal usage so its not a case we
 /// optimize for today. Contributions welcome to optimize this.
+///
+/// Conceptually, this is a simple process: we're effectively traversing
+/// the old page and rewriting into the new page as if it were a text editor.
+/// But, due to the edge cases, cursor tracking, and attempts at efficiency,
+/// the code can be convoluted so this is going to be a heavily commented
+/// function.
 fn reflowPage(
     self: *PageList,
     cap: Capacity,
@@ -735,7 +741,20 @@ fn reflowPage(
                     },
                 }
 
-                // TODO: style copy
+                // If the source cell has a style, we need to copy it.
+                if (src_cursor.page_cell.style_id != stylepkg.default_id) {
+                    const src_style = src_cursor.page.styles.lookupId(
+                        src_cursor.page.memory,
+                        src_cursor.page_cell.style_id,
+                    ).?.*;
+
+                    const dst_md = try dst_cursor.page.styles.upsert(
+                        dst_cursor.page.memory,
+                        src_style,
+                    );
+                    dst_md.ref += 1;
+                    dst_cursor.page_cell.style_id = dst_md.id;
+                }
 
                 // If our original cursor was on this page, this x/y then
                 // we need to update to the new location.
@@ -3604,5 +3623,52 @@ test "PageList resize reflow less cols blank lines between" {
         try testing.expect(!rac.row.wrap);
         try testing.expectEqual(@as(usize, 2), cells.len);
         try testing.expectEqual(@as(u21, 2), cells[0].content.codepoint);
+    }
+}
+
+test "PageList resize reflow less cols copy style" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 4, 2, 0);
+    defer s.deinit();
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+
+        // Create a style
+        const style: stylepkg.Style = .{ .flags = .{ .bold = true } };
+        const style_md = try page.styles.upsert(page.memory, style);
+
+        for (0..s.cols - 1) |x| {
+            const rac = page.getRowAndCell(x, 0);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = @intCast(x) },
+                .style_id = style_md.id,
+            };
+
+            style_md.ref += 1;
+        }
+    }
+
+    // Resize
+    try s.resize(.{ .cols = 2, .reflow = true });
+    try testing.expectEqual(@as(usize, 2), s.cols);
+    try testing.expectEqual(@as(usize, 2), s.totalRows());
+
+    var it = s.rowIterator(.{ .active = .{} }, null);
+    while (it.next()) |offset| {
+        for (0..s.cols - 1) |x| {
+            const rac = offset.rowAndCell(x);
+            const style_id = rac.cell.style_id;
+            try testing.expect(style_id != 0);
+
+            const style = offset.page.data.styles.lookupId(
+                offset.page.data.memory,
+                style_id,
+            ).?;
+            try testing.expect(style.flags.bold);
+        }
     }
 }
