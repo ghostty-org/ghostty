@@ -6442,6 +6442,7 @@ test "Screen: resize more rows with populated scrollback" {
     }
 }
 
+// X
 test "Screen: resize more rows and cols with wrapping" {
     const testing = std.testing;
     const alloc = testing.allocator;
