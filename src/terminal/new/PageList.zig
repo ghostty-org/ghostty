@@ -593,6 +593,10 @@ const ReflowCursor = struct {
         self.y = y;
     }
 
+    fn copyRowMetadata(self: *ReflowCursor, other: *const Row) void {
+        self.page_row.semantic_prompt = other.semantic_prompt;
+    }
+
     fn countTrailingEmptyCells(self: *const ReflowCursor) usize {
         // If the row is wrapped, all empty cells are meaningful.
         if (self.page_row.wrap) return 0;
@@ -603,6 +607,10 @@ const ReflowCursor = struct {
             const rev_i = len - i - 1;
             if (!cells[rev_i].isEmpty()) return i;
         }
+
+        // If the row has a semantic prompt then the blank row is meaningful
+        // so we always return all but one so that the row is drawn.
+        if (self.page_row.semantic_prompt != .unknown) return len - 1;
 
         return len;
     }
@@ -653,6 +661,10 @@ fn reflowPage(
         const dst_node = try self.createPage(cap);
         dst_node.data.size.rows = 1;
         var dst_cursor = ReflowCursor.init(&dst_node.data);
+        dst_cursor.copyRowMetadata(src_cursor.page_row);
+
+        // Copy some initial metadata about the row
+        //dst_cursor.page_row.semantic_prompt = src_cursor.page_row.semantic_prompt;
 
         // Our new page goes before our src node. This will append it to any
         // previous pages we've created.
@@ -685,10 +697,18 @@ fn reflowPage(
             if (src_y > 0) {
                 // We're done with this row, if this row isn't wrapped, we can
                 // move our destination cursor to the next row.
-                if (!prev_wrap) {
+                //
+                // The blank_lines == 0 condition is because if we were prefixed
+                // with blank lines, we handled the scroll already above.
+                if (!prev_wrap and blank_lines == 0) {
                     dst_cursor.cursorScroll();
                 }
+
+                dst_cursor.copyRowMetadata(src_cursor.page_row);
             }
+
+            // Reset our blank line count since handled it all above.
+            blank_lines = 0;
 
             for (src_cursor.x..cols_len) |src_x| {
                 assert(src_cursor.x == src_x);
@@ -705,6 +725,7 @@ fn reflowPage(
                     dst_cursor.page_row.wrap = true;
                     dst_cursor.cursorScroll();
                     dst_cursor.page_row.wrap_continuation = true;
+                    dst_cursor.copyRowMetadata(src_cursor.page_row);
                 }
 
                 switch (src_cursor.page_cell.content_tag) {
@@ -3184,6 +3205,100 @@ test "PageList resize reflow more cols no reflow preserves semantic prompt" {
     }
 }
 
+test "PageList resize reflow less cols no reflow preserves semantic prompt" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 4, 4, 0);
+    defer s.deinit();
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+        {
+            const rac = page.getRowAndCell(0, 1);
+            rac.row.semantic_prompt = .prompt;
+        }
+        for (0..s.cols) |x| {
+            const rac = page.getRowAndCell(x, 1);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = @intCast(x) },
+            };
+        }
+    }
+
+    // Resize
+    try s.resize(.{ .cols = 2, .reflow = true });
+    try testing.expectEqual(@as(usize, 2), s.cols);
+    try testing.expectEqual(@as(usize, 4), s.totalRows());
+
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+        {
+            const rac = page.getRowAndCell(0, 1);
+            try testing.expect(rac.row.wrap);
+            try testing.expect(rac.row.semantic_prompt == .prompt);
+        }
+        {
+            const rac = page.getRowAndCell(0, 2);
+            try testing.expect(rac.row.semantic_prompt == .prompt);
+        }
+    }
+}
+
+test "PageList resize reflow less cols no reflow preserves semantic prompt on first line" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 4, 4, 0);
+    defer s.deinit();
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+        const rac = page.getRowAndCell(0, 0);
+        rac.row.semantic_prompt = .prompt;
+    }
+
+    // Resize
+    try s.resize(.{ .cols = 2, .reflow = true });
+    try testing.expectEqual(@as(usize, 2), s.cols);
+    try testing.expectEqual(@as(usize, 4), s.totalRows());
+
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+        const rac = page.getRowAndCell(0, 0);
+        try testing.expect(rac.row.semantic_prompt == .prompt);
+    }
+}
+
+test "PageList resize reflow less cols wrap preserves semantic prompt" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 4, 4, 0);
+    defer s.deinit();
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+        const rac = page.getRowAndCell(0, 0);
+        rac.row.semantic_prompt = .prompt;
+    }
+
+    // Resize
+    try s.resize(.{ .cols = 2, .reflow = true });
+    try testing.expectEqual(@as(usize, 2), s.cols);
+    try testing.expectEqual(@as(usize, 4), s.totalRows());
+
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+        const rac = page.getRowAndCell(0, 0);
+        try testing.expect(rac.row.semantic_prompt == .prompt);
+    }
+}
+
 test "PageList resize reflow less cols no wrapped rows" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -3600,7 +3715,7 @@ test "PageList resize reflow less cols blank lines between" {
     // Resize
     try s.resize(.{ .cols = 2, .reflow = true });
     try testing.expectEqual(@as(usize, 2), s.cols);
-    try testing.expectEqual(@as(usize, 5), s.totalRows());
+    try testing.expectEqual(@as(usize, 4), s.totalRows());
 
     var it = s.rowIterator(.{ .active = .{} }, null);
     {
