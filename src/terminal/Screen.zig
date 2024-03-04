@@ -7257,6 +7257,7 @@ test "Screen: resize less cols with reflow but row space" {
     try testing.expectEqual(@as(usize, 1), s.cursor.y);
 }
 
+// X
 test "Screen: resize less cols with reflow with trimmed rows" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -7281,6 +7282,7 @@ test "Screen: resize less cols with reflow with trimmed rows" {
     }
 }
 
+// X
 test "Screen: resize less cols with reflow with trimmed rows and scrollback" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -7305,6 +7307,7 @@ test "Screen: resize less cols with reflow with trimmed rows and scrollback" {
     }
 }
 
+// X
 test "Screen: resize less cols with reflow previously wrapped" {
     const testing = std.testing;
     const alloc = testing.allocator;

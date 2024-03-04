@@ -604,12 +604,20 @@ pub fn resize(
         .y = self.cursor.y,
     };
 
+    const old_cols = self.pages.cols;
     try self.pages.resize(.{
         .rows = rows,
         .cols = cols,
         .reflow = true,
         .cursor = &cursor,
     });
+
+    // If we have no scrollback and we shrunk our rows, we must explicitly
+    // erase our history. This is beacuse PageList always keeps at least
+    // a page size of history.
+    if (self.no_scrollback and cols < old_cols) {
+        self.pages.eraseRows(.{ .history = .{} }, null);
+    }
 
     if (cursor.x != self.cursor.x or cursor.y != self.cursor.y) {
         self.cursor.x = cursor.x;
@@ -2789,4 +2797,85 @@ test "Screen: resize less cols with reflow but row space" {
     // Cursor should be on the last line
     try testing.expectEqual(@as(size.CellCountInt, 1), s.cursor.x);
     try testing.expectEqual(@as(size.CellCountInt, 1), s.cursor.y);
+}
+
+test "Screen: resize less cols with reflow with trimmed rows" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 0);
+    defer s.deinit();
+    const str = "3IJKL\n4ABCD\n5EFGH";
+    try s.testWriteString(str);
+    try s.resize(3, 3);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "CD\n5EF\nGH";
+        try testing.expectEqualStrings(expected, contents);
+    }
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        const expected = "CD\n5EF\nGH";
+        try testing.expectEqualStrings(expected, contents);
+    }
+}
+
+test "Screen: resize less cols with reflow with trimmed rows and scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 1);
+    defer s.deinit();
+    const str = "3IJKL\n4ABCD\n5EFGH";
+    try s.testWriteString(str);
+    try s.resize(3, 3);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "CD\n5EF\nGH";
+        try testing.expectEqualStrings(expected, contents);
+    }
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        const expected = "3IJ\nKL\n4AB\nCD\n5EF\nGH";
+        try testing.expectEqualStrings(expected, contents);
+    }
+}
+
+test "Screen: resize less cols with reflow previously wrapped" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 0);
+    defer s.deinit();
+    const str = "3IJKL4ABCD5EFGH";
+    try s.testWriteString(str);
+
+    // Check
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        const expected = "3IJKL\n4ABCD\n5EFGH";
+        try testing.expectEqualStrings(expected, contents);
+    }
+
+    try s.resize(3, 3);
+
+    // {
+    //     const contents = try s.testString(alloc, .viewport);
+    //     defer alloc.free(contents);
+    //     const expected = "CD\n5EF\nGH";
+    //     try testing.expectEqualStrings(expected, contents);
+    // }
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        const expected = "ABC\nD5E\nFGH";
+        try testing.expectEqualStrings(expected, contents);
+    }
 }
