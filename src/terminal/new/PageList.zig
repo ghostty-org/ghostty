@@ -736,6 +736,16 @@ fn reflowPage(
                     dst_cursor.cursorForward();
                 }
 
+                // If we have a spacer head and we're not at the end then
+                // we want to unwrap it and eliminate the head.
+                if (cap.cols > 1 and
+                    src_cursor.page_cell.wide == .spacer_head and
+                    dst_cursor.x != cap.cols - 1)
+                {
+                    src_cursor.cursorForward();
+                    continue;
+                }
+
                 if (dst_cursor.pending_wrap) {
                     dst_cursor.page_row.wrap = true;
                     dst_cursor.cursorScroll();
@@ -3242,6 +3252,78 @@ test "PageList resize reflow more cols no reflow preserves semantic prompt" {
         const page = &s.pages.first.?.data;
         const rac = page.getRowAndCell(0, 1);
         try testing.expect(rac.row.semantic_prompt == .prompt);
+    }
+}
+
+test "PageList resize reflow more cols unwrap wide spacer head" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 2, 0);
+    defer s.deinit();
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+
+        {
+            const rac = page.getRowAndCell(0, 0);
+            rac.row.wrap = true;
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = 'x' },
+            };
+        }
+        {
+            const rac = page.getRowAndCell(1, 0);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = ' ' },
+                .wide = .spacer_head,
+            };
+        }
+        {
+            const rac = page.getRowAndCell(0, 1);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = '😀' },
+                .wide = .wide,
+            };
+        }
+        {
+            const rac = page.getRowAndCell(1, 1);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = ' ' },
+                .wide = .spacer_tail,
+            };
+        }
+    }
+
+    // Resize
+    try s.resize(.{ .cols = 4, .reflow = true });
+    try testing.expectEqual(@as(usize, 4), s.cols);
+    try testing.expectEqual(@as(usize, 2), s.totalRows());
+
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+
+        {
+            const rac = page.getRowAndCell(0, 0);
+            try testing.expectEqual(@as(u21, 'x'), rac.cell.content.codepoint);
+            try testing.expectEqual(pagepkg.Cell.Wide.narrow, rac.cell.wide);
+            try testing.expect(!rac.row.wrap);
+        }
+        {
+            const rac = page.getRowAndCell(1, 0);
+            try testing.expectEqual(@as(u21, '😀'), rac.cell.content.codepoint);
+            try testing.expectEqual(pagepkg.Cell.Wide.wide, rac.cell.wide);
+        }
+        {
+            const rac = page.getRowAndCell(2, 0);
+            try testing.expectEqual(@as(u21, ' '), rac.cell.content.codepoint);
+            try testing.expectEqual(pagepkg.Cell.Wide.spacer_tail, rac.cell.wide);
+        }
     }
 }
 
