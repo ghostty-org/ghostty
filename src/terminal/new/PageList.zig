@@ -457,6 +457,46 @@ fn resizeGrowCols(
     } else {
         for (total..self.rows) |_| _ = try self.grow();
     }
+
+    // If we have a cursor, we need to update the correct y value. I'm
+    // not at all happy about this, I wish we could do this in a more
+    // efficient way as we resize the pages. But at the time of typing this
+    // I can't think of a way and I'd rather get things working. Someone please
+    // help!
+    //
+    // The challenge is that as rows are unwrapped, we want to preserve the
+    // cursor. So for examle if you have "A\nB" where AB is soft-wrapped and
+    // the cursor is on 'B' (x=0, y=1) and you grow the columns, we want
+    // the cursor to remain on B (x=1, y=0) as it grows.
+    //
+    // The easy thing to do would be to count how many rows we unwrapped
+    // and then subtract that from the original y. That's how I started. The
+    // challenge is that if we unwrap with scrollback, our scrollback is
+    // "pulled down" so that the original (x=0,y=0) line is now pushed down.
+    // Detecting this while resizing seems non-obvious. This is a tested case
+    // so if you change this logic, you should see failures or passes if it
+    // works.
+    //
+    // The approach I take instead is if we have a cursor offset, I work
+    // backwards to find the offset we marked while reflowing and update
+    // the y from that. This is _not terrible_ because active areas are
+    // generally small and this is a more or less linear search. Its just
+    // kind of clunky.
+    if (cursor) |c| cursor: {
+        const offset = c.offset orelse break :cursor;
+        var active_it = self.rowIterator(.{ .active = .{} }, null);
+        var y: size.CellCountInt = 0;
+        while (active_it.next()) |it_offset| {
+            if (it_offset.page == offset.page and
+                it_offset.row_offset == offset.row_offset)
+            {
+                c.y = y;
+                break :cursor;
+            }
+
+            y += 1;
+        }
+    }
 }
 
 // We use a cursor to track where we are in the src/dst. This is very
@@ -672,6 +712,9 @@ fn reflowPage(
                         // better calculate the CHANGE in coordinate by subtracting
                         // our dst from src which will calculate how many rows
                         // we unwrapped to get here.
+                        //
+                        // Note this doesn't handle when we pull down scrollback.
+                        // See the cursor updates in resizeGrowCols for that.
                         c.y -|= src_cursor.y - dst_cursor.y;
 
                         c.offset = .{

@@ -2476,14 +2476,13 @@ test "Screen: resize more cols with populated scrollback" {
     }
 
     // Cursor should still be on the "5"
-    // TODO
-    // {
-    //     const list_cell = s.pages.getCell(.{ .active = .{
-    //         .x = s.cursor.x,
-    //         .y = s.cursor.y,
-    //     } }).?;
-    //     try testing.expectEqual(@as(u21, '5'), list_cell.cell.content.codepoint);
-    // }
+    {
+        const list_cell = s.pages.getCell(.{ .active = .{
+            .x = s.cursor.x,
+            .y = s.cursor.y,
+        } }).?;
+        try testing.expectEqual(@as(u21, '5'), list_cell.cell.content.codepoint);
+    }
 }
 
 test "Screen: resize more cols with reflow" {
@@ -2523,9 +2522,41 @@ test "Screen: resize more cols with reflow" {
     }
 
     // Our cursor should've moved
-    // TODO
-    // try testing.expectEqual(@as(size.CellCountInt, 2), s.cursor.x);
-    // try testing.expectEqual(@as(size.CellCountInt, 2), s.cursor.y);
+    try testing.expectEqual(@as(size.CellCountInt, 2), s.cursor.x);
+    try testing.expectEqual(@as(size.CellCountInt, 2), s.cursor.y);
+}
+
+test "Screen: resize more rows and cols with wrapping" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 4, 0);
+    defer s.deinit();
+    const str = "1A2B\n3C4D";
+    try s.testWriteString(str);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "1A\n2B\n3C\n4D";
+        try testing.expectEqualStrings(expected, contents);
+    }
+
+    try s.resize(5, 10);
+
+    // Cursor should move due to wrapping
+    try testing.expectEqual(@as(size.CellCountInt, 3), s.cursor.x);
+    try testing.expectEqual(@as(size.CellCountInt, 1), s.cursor.y);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
 }
 
 test "Screen: resize less rows no scrollback" {
