@@ -7341,6 +7341,7 @@ test "Screen: resize less cols with reflow previously wrapped" {
     }
 }
 
+// X
 test "Screen: resize less cols with reflow and scrollback" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -7369,6 +7370,7 @@ test "Screen: resize less cols with reflow and scrollback" {
     try testing.expectEqual(@as(usize, 2), s.cursor.y);
 }
 
+// X
 test "Screen: resize less cols with reflow previously wrapped and scrollback" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -7442,6 +7444,7 @@ test "Screen: resize less cols with scrollback keeps cursor row" {
     try testing.expectEqual(@as(usize, 0), s.cursor.y);
 }
 
+// X
 test "Screen: resize more rows, less cols with reflow with scrollback" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -7480,6 +7483,7 @@ test "Screen: resize more rows, less cols with reflow with scrollback" {
     }
 }
 
+// X
 // This seems like it should work fine but for some reason in practice
 // in the initial implementation I found this bug! This is a regression
 // test for that.
