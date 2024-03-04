@@ -3,6 +3,10 @@
 //! on that grid. This also maintains the scrollback buffer.
 const Terminal = @This();
 
+// TODO on new terminal branch:
+// - page splitting
+// - resize tests when multiple pages are required
+
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
@@ -1948,6 +1952,61 @@ pub fn printAttributes(self: *Terminal, buf: []u8) ![]const u8 {
     }
 
     return stream.getWritten();
+}
+
+/// Resize the underlying terminal.
+pub fn resize(
+    self: *Terminal,
+    alloc: Allocator,
+    cols: size.CellCountInt,
+    rows: size.CellCountInt,
+) !void {
+    // If our cols/rows didn't change then we're done
+    if (self.cols == cols and self.rows == rows) return;
+
+    // Resize our tabstops
+    if (self.cols != cols) {
+        self.tabstops.deinit(alloc);
+        self.tabstops = try Tabstops.init(alloc, cols, 8);
+    }
+
+    // If we're making the screen smaller, dealloc the unused items.
+    if (self.active_screen == .primary) {
+        self.clearPromptForResize();
+        if (self.modes.get(.wraparound)) {
+            try self.screen.resize(rows, cols);
+        } else {
+            try self.screen.resizeWithoutReflow(rows, cols);
+        }
+        try self.secondary_screen.resizeWithoutReflow(rows, cols);
+    } else {
+        try self.screen.resizeWithoutReflow(rows, cols);
+        if (self.modes.get(.wraparound)) {
+            try self.secondary_screen.resize(rows, cols);
+        } else {
+            try self.secondary_screen.resizeWithoutReflow(rows, cols);
+        }
+    }
+
+    // Set our size
+    self.cols = cols;
+    self.rows = rows;
+
+    // Reset the scrolling region
+    self.scrolling_region = .{
+        .top = 0,
+        .bottom = rows - 1,
+        .left = 0,
+        .right = cols - 1,
+    };
+}
+
+/// If shell_redraws_prompt is true and we're on the primary screen,
+/// then this will clear the screen from the cursor down if the cursor is
+/// on a prompt in order to allow the shell to redraw the prompt.
+fn clearPromptForResize(self: *Terminal) void {
+    // TODO
+    _ = self;
 }
 
 /// Options for switching to the alternate screen.
@@ -7454,4 +7513,79 @@ test "Terminal: fullReset status display" {
     t.status_display = .status_line;
     t.fullReset();
     try testing.expect(t.status_display == .main);
+}
+
+// https://github.com/mitchellh/ghostty/issues/272
+// This is also tested in depth in screen resize tests but I want to keep
+// this test around to ensure we don't regress at multiple layers.
+test "Terminal: resize less cols with wide char then print" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 3, 3);
+    defer t.deinit(alloc);
+
+    try t.print('x');
+    try t.print('😀'); // 0x1F600
+    try t.resize(alloc, 2, 3);
+    t.setCursorPos(1, 2);
+    try t.print('😀'); // 0x1F600
+}
+
+// https://github.com/mitchellh/ghostty/issues/723
+// This was found via fuzzing so its highly specific.
+test "Terminal: resize with left and right margin set" {
+    const alloc = testing.allocator;
+    const cols = 70;
+    const rows = 23;
+    var t = try init(alloc, cols, rows);
+    defer t.deinit(alloc);
+
+    t.modes.set(.enable_left_and_right_margin, true);
+    try t.print('0');
+    t.modes.set(.enable_mode_3, true);
+    try t.resize(alloc, cols, rows);
+    t.setLeftAndRightMargin(2, 0);
+    try t.printRepeat(1850);
+    _ = t.modes.restore(.enable_mode_3);
+    try t.resize(alloc, cols, rows);
+}
+
+// https://github.com/mitchellh/ghostty/issues/1343
+test "Terminal: resize with wraparound off" {
+    const alloc = testing.allocator;
+    const cols = 4;
+    const rows = 2;
+    var t = try init(alloc, cols, rows);
+    defer t.deinit(alloc);
+
+    t.modes.set(.wraparound, false);
+    try t.print('0');
+    try t.print('1');
+    try t.print('2');
+    try t.print('3');
+    const new_cols = 2;
+    try t.resize(alloc, new_cols, rows);
+
+    const str = try t.plainString(testing.allocator);
+    defer testing.allocator.free(str);
+    try testing.expectEqualStrings("01", str);
+}
+
+test "Terminal: resize with wraparound on" {
+    const alloc = testing.allocator;
+    const cols = 4;
+    const rows = 2;
+    var t = try init(alloc, cols, rows);
+    defer t.deinit(alloc);
+
+    t.modes.set(.wraparound, true);
+    try t.print('0');
+    try t.print('1');
+    try t.print('2');
+    try t.print('3');
+    const new_cols = 2;
+    try t.resize(alloc, new_cols, rows);
+
+    const str = try t.plainString(testing.allocator);
+    defer testing.allocator.free(str);
+    try testing.expectEqualStrings("01\n23", str);
 }
