@@ -3122,6 +3122,32 @@ test "PageList resize reflow more cols cursor in wrapped row that isn't unwrappe
     try testing.expectEqual(@as(size.CellCountInt, 1), cursor.y);
 }
 
+test "PageList resize reflow more cols no reflow preserves semantic prompt" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 4, 0);
+    defer s.deinit();
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+        const rac = page.getRowAndCell(0, 1);
+        rac.row.semantic_prompt = .prompt;
+    }
+
+    // Resize
+    try s.resize(.{ .cols = 4, .reflow = true });
+    try testing.expectEqual(@as(usize, 4), s.cols);
+    try testing.expectEqual(@as(usize, 4), s.totalRows());
+
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+        const rac = page.getRowAndCell(0, 1);
+        try testing.expect(rac.row.semantic_prompt == .prompt);
+    }
+}
+
 test "PageList resize reflow less cols no wrapped rows" {
     const testing = std.testing;
     const alloc = testing.allocator;
