@@ -1195,6 +1195,27 @@ pub fn scrollUp(self: *Terminal, count: usize) void {
     self.deleteLines(count);
 }
 
+/// Options for scrolling the viewport of the terminal grid.
+pub const ScrollViewport = union(enum) {
+    /// Scroll to the top of the scrollback
+    top: void,
+
+    /// Scroll to the bottom, i.e. the top of the active area
+    bottom: void,
+
+    /// Scroll by some delta amount, up is negative.
+    delta: isize,
+};
+
+/// Scroll the viewport of the terminal grid.
+pub fn scrollViewport(self: *Terminal, behavior: ScrollViewport) !void {
+    self.screen.scroll(switch (behavior) {
+        .top => .{ .top = {} },
+        .bottom => .{ .active = {} },
+        .delta => |delta| .{ .delta_row = delta },
+    });
+}
+
 /// Insert amount lines at the current cursor row. The contents of the line
 /// at the current cursor row and below (to the bottom-most line in the
 /// scrolling region) are shifted down by amount lines. The contents of the
