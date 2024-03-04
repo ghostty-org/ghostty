@@ -3327,6 +3327,86 @@ test "PageList resize reflow more cols unwrap wide spacer head" {
     }
 }
 
+test "PageList resize reflow more cols unwrap still requires wide spacer head" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 2, 0);
+    defer s.deinit();
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+
+        {
+            const rac = page.getRowAndCell(0, 0);
+            rac.row.wrap = true;
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = 'x' },
+            };
+        }
+        {
+            const rac = page.getRowAndCell(1, 0);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = 'x' },
+            };
+        }
+        {
+            const rac = page.getRowAndCell(0, 1);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = '😀' },
+                .wide = .wide,
+            };
+        }
+        {
+            const rac = page.getRowAndCell(1, 1);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = ' ' },
+                .wide = .spacer_tail,
+            };
+        }
+    }
+
+    // Resize
+    try s.resize(.{ .cols = 3, .reflow = true });
+    try testing.expectEqual(@as(usize, 3), s.cols);
+    try testing.expectEqual(@as(usize, 2), s.totalRows());
+
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+
+        {
+            const rac = page.getRowAndCell(0, 0);
+            try testing.expectEqual(@as(u21, 'x'), rac.cell.content.codepoint);
+            try testing.expectEqual(pagepkg.Cell.Wide.narrow, rac.cell.wide);
+            try testing.expect(rac.row.wrap);
+        }
+        {
+            const rac = page.getRowAndCell(1, 0);
+            try testing.expectEqual(@as(u21, 'x'), rac.cell.content.codepoint);
+            try testing.expectEqual(pagepkg.Cell.Wide.narrow, rac.cell.wide);
+        }
+        {
+            const rac = page.getRowAndCell(2, 0);
+            try testing.expectEqual(@as(u21, 0), rac.cell.content.codepoint);
+            try testing.expectEqual(pagepkg.Cell.Wide.spacer_head, rac.cell.wide);
+        }
+        {
+            const rac = page.getRowAndCell(0, 1);
+            try testing.expectEqual(@as(u21, '😀'), rac.cell.content.codepoint);
+            try testing.expectEqual(pagepkg.Cell.Wide.wide, rac.cell.wide);
+        }
+        {
+            const rac = page.getRowAndCell(1, 1);
+            try testing.expectEqual(@as(u21, ' '), rac.cell.content.codepoint);
+            try testing.expectEqual(pagepkg.Cell.Wide.spacer_tail, rac.cell.wide);
+        }
+    }
+}
 test "PageList resize reflow less cols no reflow preserves semantic prompt" {
     const testing = std.testing;
     const alloc = testing.allocator;
