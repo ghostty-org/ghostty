@@ -582,48 +582,7 @@ pub fn resize(
     cols: size.CellCountInt,
     rows: size.CellCountInt,
 ) !void {
-    if (self.pages.cols == cols) {
-        // No resize necessary
-        if (self.pages.rows == rows) return;
-
-        // No matter what we mark our image state as dirty
-        self.kitty_images.dirty = true;
-
-        // If we have the same number of columns, text can't possibly
-        // reflow in any way, so we do the quicker thing and do a resize
-        // without reflow checks.
-        try self.resizeWithoutReflow(cols, rows);
-        return;
-    }
-
-    // No matter what we mark our image state as dirty
-    self.kitty_images.dirty = true;
-
-    var cursor: PageList.Resize.Cursor = .{
-        .x = self.cursor.x,
-        .y = self.cursor.y,
-    };
-
-    const old_cols = self.pages.cols;
-    try self.pages.resize(.{
-        .rows = rows,
-        .cols = cols,
-        .reflow = true,
-        .cursor = &cursor,
-    });
-
-    // If we have no scrollback and we shrunk our rows, we must explicitly
-    // erase our history. This is beacuse PageList always keeps at least
-    // a page size of history.
-    if (self.no_scrollback and cols < old_cols) {
-        self.pages.eraseRows(.{ .history = .{} }, null);
-    }
-
-    if (cursor.x != self.cursor.x or cursor.y != self.cursor.y) {
-        self.cursor.x = cursor.x;
-        self.cursor.y = cursor.y;
-        self.cursorReload();
-    }
+    try self.resizeInternal(cols, rows, true);
 }
 
 /// Resize the screen without any reflow. In this mode, columns/rows will
@@ -634,27 +593,44 @@ pub fn resizeWithoutReflow(
     cols: size.CellCountInt,
     rows: size.CellCountInt,
 ) !void {
+    try self.resizeInternal(cols, rows, false);
+}
+
+/// Resize the screen.
+// TODO: replace resize and resizeWithoutReflow with this.
+fn resizeInternal(
+    self: *Screen,
+    cols: size.CellCountInt,
+    rows: size.CellCountInt,
+    reflow: bool,
+) !void {
+    // No matter what we mark our image state as dirty
+    self.kitty_images.dirty = true;
+
+    // Create a resize cursor. The resize operation uses this to keep our
+    // cursor over the same cell if possible.
     var cursor: PageList.Resize.Cursor = .{
         .x = self.cursor.x,
         .y = self.cursor.y,
     };
 
-    const old_rows = self.pages.rows;
-
+    // Perform the resize operation. This will update cursor by reference.
     try self.pages.resize(.{
         .rows = rows,
         .cols = cols,
-        .reflow = false,
+        .reflow = reflow,
         .cursor = &cursor,
     });
 
     // If we have no scrollback and we shrunk our rows, we must explicitly
     // erase our history. This is beacuse PageList always keeps at least
     // a page size of history.
-    if (self.no_scrollback and rows < old_rows) {
+    if (self.no_scrollback) {
         self.pages.eraseRows(.{ .history = .{} }, null);
     }
 
+    // If our cursor was updated, we do a full reload so all our cursor
+    // state is correct.
     if (cursor.x != self.cursor.x or cursor.y != self.cursor.y) {
         self.cursor.x = cursor.x;
         self.cursor.y = cursor.y;
