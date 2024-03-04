@@ -727,12 +727,13 @@ fn reflowPage(
                     src_cursor.page_cell.wide == .wide and
                     dst_cursor.x == cap.cols - 1)
                 {
+                    reflowUpdateCursor(cursor, &src_cursor, &dst_cursor, dst_node);
+
                     dst_cursor.page_cell.* = .{
                         .content_tag = .codepoint,
                         .content = .{ .codepoint = 0 },
                         .wide = .spacer_head,
                     };
-                    // TODO: update cursor
                     dst_cursor.cursorForward();
                 }
 
@@ -742,6 +743,7 @@ fn reflowPage(
                     src_cursor.page_cell.wide == .spacer_head and
                     dst_cursor.x != cap.cols - 1)
                 {
+                    reflowUpdateCursor(cursor, &src_cursor, &dst_cursor, dst_node);
                     src_cursor.cursorForward();
                     continue;
                 }
@@ -829,40 +831,7 @@ fn reflowPage(
 
                 // If our original cursor was on this page, this x/y then
                 // we need to update to the new location.
-                if (cursor) |c| cursor: {
-                    const offset = c.offset orelse break :cursor;
-                    if (&offset.page.data == src_cursor.page and
-                        offset.row_offset == src_cursor.y and
-                        c.x == src_cursor.x)
-                    {
-                        // std.log.warn("c.x={} c.y={} dst_x={} dst_y={} src_y={}", .{
-                        //     c.x,
-                        //     c.y,
-                        //     dst_cursor.x,
-                        //     dst_cursor.y,
-                        //     src_cursor.y,
-                        // });
-
-                        // Column always matches our dst x
-                        c.x = dst_cursor.x;
-
-                        // Our y is more complicated. The cursor y is the active
-                        // area y, not the row offset. Our cursors are row offsets.
-                        // Instead of calculating the active area coord, we can
-                        // better calculate the CHANGE in coordinate by subtracting
-                        // our dst from src which will calculate how many rows
-                        // we unwrapped to get here.
-                        //
-                        // Note this doesn't handle when we pull down scrollback.
-                        // See the cursor updates in resizeGrowCols for that.
-                        //c.y -|= src_cursor.y - dst_cursor.y;
-
-                        c.offset = .{
-                            .page = dst_node,
-                            .row_offset = dst_cursor.y,
-                        };
-                    }
-                }
+                reflowUpdateCursor(cursor, &src_cursor, &dst_cursor, dst_node);
 
                 // Move both our cursors forward
                 src_cursor.cursorForward();
@@ -900,6 +869,52 @@ fn reflowPage(
     // Finally, remove the old page.
     self.pages.remove(node);
     self.destroyPage(node);
+}
+
+/// This updates the cursor offset if the cursor is exactly on the cell
+/// we're currently reflowing. This can then be fixed up later to an exact
+/// x/y (see resizeCols).
+fn reflowUpdateCursor(
+    cursor: ?*Resize.Cursor,
+    src_cursor: *const ReflowCursor,
+    dst_cursor: *const ReflowCursor,
+    dst_node: *List.Node,
+) void {
+    const c = cursor orelse return;
+
+    // If our original cursor was on this page, this x/y then
+    // we need to update to the new location.
+    const offset = c.offset orelse return;
+    if (&offset.page.data != src_cursor.page or
+        offset.row_offset != src_cursor.y or
+        c.x != src_cursor.x) return;
+
+    // std.log.warn("c.x={} c.y={} dst_x={} dst_y={} src_y={}", .{
+    //     c.x,
+    //     c.y,
+    //     dst_cursor.x,
+    //     dst_cursor.y,
+    //     src_cursor.y,
+    // });
+
+    // Column always matches our dst x
+    c.x = dst_cursor.x;
+
+    // Our y is more complicated. The cursor y is the active
+    // area y, not the row offset. Our cursors are row offsets.
+    // Instead of calculating the active area coord, we can
+    // better calculate the CHANGE in coordinate by subtracting
+    // our dst from src which will calculate how many rows
+    // we unwrapped to get here.
+    //
+    // Note this doesn't handle when we pull down scrollback.
+    // See the cursor updates in resizeGrowCols for that.
+    //c.y -|= src_cursor.y - dst_cursor.y;
+
+    c.offset = .{
+        .page = dst_node,
+        .row_offset = dst_cursor.y,
+    };
 }
 
 fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {

@@ -774,9 +774,11 @@ pub const Cell = packed struct(u64) {
     /// Returns true if the cell has no text or styling.
     pub fn isEmpty(self: Cell) bool {
         return switch (self.content_tag) {
+            // Textual cells are empty if they have no text and are narrow.
+            // The "narrow" requirement is because wide spacers are meaningful.
             .codepoint,
             .codepoint_grapheme,
-            => !self.hasText(),
+            => !self.hasText() and self.wide == .narrow,
 
             .bg_color_palette,
             .bg_color_rgb,
