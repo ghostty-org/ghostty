@@ -931,16 +931,47 @@ fn testWriteString(self: *Screen, text: []const u8) !void {
                     ref.* += 1;
                     self.cursor.page_row.styled = true;
                 }
-
-                if (self.cursor.x + 1 < self.pages.cols) {
-                    self.cursorRight(1);
-                } else {
-                    self.cursor.pending_wrap = true;
-                }
             },
 
-            2 => @panic("todo double-width"),
+            2 => {
+                // Need a wide spacer head
+                if (self.cursor.x == self.pages.cols - 1) {
+                    self.cursor.page_cell.* = .{
+                        .content_tag = .codepoint,
+                        .content = .{ .codepoint = 0 },
+                        .wide = .spacer_head,
+                    };
+
+                    self.cursor.page_row.wrap = true;
+                    try self.cursorDownOrScroll();
+                    self.cursorHorizontalAbsolute(0);
+                    self.cursor.page_row.wrap_continuation = true;
+                }
+
+                // Write our wide char
+                self.cursor.page_cell.* = .{
+                    .content_tag = .codepoint,
+                    .content = .{ .codepoint = c },
+                    .style_id = self.cursor.style_id,
+                    .wide = .wide,
+                };
+
+                // Write our tail
+                self.cursorRight(1);
+                self.cursor.page_cell.* = .{
+                    .content_tag = .codepoint,
+                    .content = .{ .codepoint = 0 },
+                    .wide = .spacer_tail,
+                };
+            },
+
             else => unreachable,
+        }
+
+        if (self.cursor.x + 1 < self.pages.cols) {
+            self.cursorRight(1);
+        } else {
+            self.cursor.pending_wrap = true;
         }
     }
 }
@@ -3118,5 +3149,79 @@ test "Screen: resize more rows then shrink again" {
         const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
         defer alloc.free(contents);
         try testing.expectEqualStrings(str, contents);
+    }
+}
+
+test "Screen: resize less cols to eliminate wide char" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 1, 0);
+    defer s.deinit();
+    const str = "😀";
+    try s.testWriteString(str);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
+    {
+        const list_cell = s.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+        try testing.expectEqual(@as(u21, '😀'), cell.content.codepoint);
+    }
+
+    // Resize to 1 column can't fit a wide char. So it should be deleted.
+    try s.resize(1, 1);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("", contents);
+    }
+    {
+        const list_cell = s.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0), cell.content.codepoint);
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+    }
+}
+
+test "Screen: resize less cols to wrap wide char" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 3, 3, 0);
+    defer s.deinit();
+    const str = "x😀";
+    try s.testWriteString(str);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
+    {
+        const list_cell = s.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+        try testing.expectEqual(@as(u21, '😀'), cell.content.codepoint);
+    }
+    {
+        const list_cell = s.pages.getCell(.{ .screen = .{ .x = 2, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
+    }
+
+    try s.resize(2, 3);
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("x\n😀", contents);
+    }
+    {
+        const list_cell = s.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(Cell.Wide.spacer_head, cell.wide);
+        try testing.expect(list_cell.row.wrap);
     }
 }

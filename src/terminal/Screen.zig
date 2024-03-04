@@ -7546,6 +7546,7 @@ test "Screen: resize more rows then shrink again" {
     }
 }
 
+// X
 test "Screen: resize less cols to eliminate wide char" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -7580,6 +7581,7 @@ test "Screen: resize less cols to eliminate wide char" {
     try testing.expect(!cell.attrs.wide_spacer_head);
 }
 
+// X
 test "Screen: resize less cols to wrap wide char" {
     const testing = std.testing;
     const alloc = testing.allocator;
