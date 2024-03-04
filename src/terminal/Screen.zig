@@ -6643,6 +6643,7 @@ test "Screen: resize more cols no reflow preserves semantic prompt" {
     }
 }
 
+// X
 test "Screen: resize more cols grapheme map" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -7139,6 +7140,7 @@ test "Screen: resize less cols trailing background colors" {
     }
 }
 
+// X
 test "Screen: resize less cols with graphemes" {
     const testing = std.testing;
     const alloc = testing.allocator;

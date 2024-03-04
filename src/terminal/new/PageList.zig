@@ -714,11 +714,28 @@ fn reflowPage(
 
                     .codepoint => {
                         dst_cursor.page_cell.* = src_cursor.page_cell.*;
-                        // TODO: style copy
                     },
 
-                    else => @panic("TODO"),
+                    .codepoint_grapheme => {
+                        // We copy the cell like normal but we have to reset the
+                        // tag because this is used for fast-path detection in
+                        // appendGrapheme.
+                        dst_cursor.page_cell.* = src_cursor.page_cell.*;
+                        dst_cursor.page_cell.content_tag = .codepoint;
+
+                        // Copy the graphemes
+                        const src_cps = src_cursor.page.lookupGrapheme(src_cursor.page_cell).?;
+                        for (src_cps) |cp| {
+                            try dst_cursor.page.appendGrapheme(
+                                dst_cursor.page_row,
+                                dst_cursor.page_cell,
+                                cp,
+                            );
+                        }
+                    },
                 }
+
+                // TODO: style copy
 
                 // If our original cursor was on this page, this x/y then
                 // we need to update to the new location.
@@ -3253,6 +3270,89 @@ test "PageList resize reflow less cols wrapped rows" {
     }
 }
 
+test "PageList resize reflow less cols wrapped rows with graphemes" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 4, 2, null);
+    defer s.deinit();
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+        for (0..s.rows) |y| {
+            for (0..s.cols) |x| {
+                const rac = page.getRowAndCell(x, y);
+                rac.cell.* = .{
+                    .content_tag = .codepoint,
+                    .content = .{ .codepoint = @intCast(x) },
+                };
+            }
+
+            const rac = page.getRowAndCell(2, y);
+            try page.appendGrapheme(rac.row, rac.cell, 'A');
+        }
+    }
+
+    // Resize
+    try s.resize(.{ .cols = 2, .reflow = true });
+    try testing.expectEqual(@as(usize, 2), s.cols);
+    try testing.expectEqual(@as(usize, 4), s.totalRows());
+
+    // Active moves due to scrollback
+    {
+        const pt = s.getCell(.{ .active = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 2,
+        } }, pt);
+    }
+
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+    var it = s.rowIterator(.{ .screen = .{} }, null);
+    {
+        // First row should be wrapped
+        const offset = it.next().?;
+        const rac = offset.rowAndCell(0);
+        const cells = offset.page.data.getCells(rac.row);
+        try testing.expect(rac.row.wrap);
+        try testing.expectEqual(@as(usize, 2), cells.len);
+        try testing.expectEqual(@as(u21, 0), cells[0].content.codepoint);
+    }
+    {
+        const offset = it.next().?;
+        const rac = offset.rowAndCell(0);
+        const cells = offset.page.data.getCells(rac.row);
+        try testing.expect(!rac.row.wrap);
+        try testing.expectEqual(@as(usize, 2), cells.len);
+        try testing.expectEqual(@as(u21, 2), cells[0].content.codepoint);
+
+        const cps = page.lookupGrapheme(rac.cell).?;
+        try testing.expectEqual(@as(usize, 1), cps.len);
+        try testing.expectEqual(@as(u21, 'A'), cps[0]);
+    }
+    {
+        // First row should be wrapped
+        const offset = it.next().?;
+        const rac = offset.rowAndCell(0);
+        const cells = offset.page.data.getCells(rac.row);
+        try testing.expect(rac.row.wrap);
+        try testing.expectEqual(@as(usize, 2), cells.len);
+        try testing.expectEqual(@as(u21, 0), cells[0].content.codepoint);
+    }
+    {
+        const offset = it.next().?;
+        const rac = offset.rowAndCell(0);
+        const cells = offset.page.data.getCells(rac.row);
+        try testing.expect(!rac.row.wrap);
+        try testing.expectEqual(@as(usize, 2), cells.len);
+        try testing.expectEqual(@as(u21, 2), cells[0].content.codepoint);
+
+        const cps = page.lookupGrapheme(rac.cell).?;
+        try testing.expectEqual(@as(usize, 1), cps.len);
+        try testing.expectEqual(@as(u21, 'A'), cps[0]);
+    }
+}
 test "PageList resize reflow less cols cursor in wrapped row" {
     const testing = std.testing;
     const alloc = testing.allocator;
