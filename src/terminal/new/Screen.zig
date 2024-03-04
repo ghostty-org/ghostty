@@ -2303,6 +2303,49 @@ test "Screen: resize (no reflow) less cols with scrollback scrolled up" {
     // }
 }
 
+test "Screen: resize more cols no reflow preserves semantic prompt" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 0);
+    defer s.deinit();
+    const str = "1ABCD\n2EFGH\n3IJKL";
+    try s.testWriteString(str);
+
+    // Set one of the rows to be a prompt
+    {
+        s.cursorAbsolute(0, 1);
+        s.cursor.page_row.semantic_prompt = .prompt;
+    }
+
+    try s.resize(10, 3);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
+
+    // Our one row should still be a semantic prompt, the others should not.
+    {
+        const list_cell = s.pages.getCell(.{ .active = .{ .x = 0, .y = 0 } }).?;
+        try testing.expect(list_cell.row.semantic_prompt == .unknown);
+    }
+    {
+        const list_cell = s.pages.getCell(.{ .active = .{ .x = 0, .y = 1 } }).?;
+        try testing.expect(list_cell.row.semantic_prompt == .prompt);
+    }
+    {
+        const list_cell = s.pages.getCell(.{ .active = .{ .x = 0, .y = 2 } }).?;
+        try testing.expect(list_cell.row.semantic_prompt == .unknown);
+    }
+}
+
 test "Screen: resize more cols with reflow that fits full width" {
     const testing = std.testing;
     const alloc = testing.allocator;

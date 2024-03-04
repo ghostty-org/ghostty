@@ -6595,6 +6595,7 @@ test "Screen: resize (no reflow) less cols with scrollback scrolled up" {
     try testing.expectEqual(@as(usize, 2), s.cursor.y);
 }
 
+// X
 test "Screen: resize more cols no reflow preserves semantic prompt" {
     const testing = std.testing;
     const alloc = testing.allocator;
