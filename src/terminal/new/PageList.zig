@@ -394,8 +394,43 @@ pub fn resize(self: *PageList, opts: Resize) !void {
             try self.resizeWithoutReflow(opts);
         },
 
-        .lt => @panic("TODO"),
+        .lt => {
+            // We first change our row count so that we have the proper amount
+            // we can use when shrinking our cols.
+            try self.resizeWithoutReflow(opts: {
+                var copy = opts;
+                copy.cols = self.cols;
+                break :opts copy;
+            });
+
+            try self.resizeShrinkCols(cols, opts.cursor);
+        },
     }
+}
+
+/// Resize the pagelist with reflow by removing columns.
+fn resizeShrinkCols(
+    self: *PageList,
+    cols: size.CellCountInt,
+    cursor: ?*Resize.Cursor,
+) !void {
+    assert(cols < self.cols);
+
+    // Our new capacity, ensure we can shrink to it.
+    const cap = try std_capacity.adjust(.{ .cols = cols });
+
+    // Go page by page and shrink the columns on a per-page basis.
+    var it = self.pageIterator(.{ .screen = .{} }, null);
+    while (it.next()) |chunk| {
+        // Note: we can do a fast-path here if all of our rows in this
+        // page already fit within the new capacity. In that case we can
+        // do a non-reflow resize.
+
+        try self.reflowPage(cap, chunk.page, cursor);
+    }
+
+    // Update our cols
+    self.cols = cols;
 }
 
 /// Resize the pagelist with reflow by adding columns.
@@ -497,6 +532,9 @@ fn resizeGrowCols(
             y += 1;
         }
     }
+
+    // Update our cols
+    self.cols = cols;
 }
 
 // We use a cursor to track where we are in the src/dst. This is very
@@ -613,8 +651,6 @@ fn reflowPage(
     node: *List.Node,
     cursor: ?*Resize.Cursor,
 ) !void {
-    assert(cap.cols > self.cols);
-
     // The cursor tracks where we are in the source page.
     var src_cursor = ReflowCursor.init(&node.data);
 
@@ -3039,4 +3075,109 @@ test "PageList resize reflow more cols cursor in wrapped row that isn't unwrappe
     // Our cursor should move to the first row
     try testing.expectEqual(@as(size.CellCountInt, 1), cursor.x);
     try testing.expectEqual(@as(size.CellCountInt, 1), cursor.y);
+}
+
+test "PageList resize reflow less cols no wrapped rows" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 0);
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+    for (0..s.rows) |y| {
+        const end = 4;
+        assert(end < s.cols);
+        for (0..4) |x| {
+            const rac = page.getRowAndCell(x, y);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = @intCast(x) },
+            };
+        }
+    }
+
+    // Resize
+    try s.resize(.{ .cols = 5, .reflow = true });
+    try testing.expectEqual(@as(usize, 5), s.cols);
+    try testing.expectEqual(@as(usize, 3), s.totalRows());
+
+    var it = s.rowIterator(.{ .screen = .{} }, null);
+    while (it.next()) |offset| {
+        for (0..4) |x| {
+            const rac = offset.rowAndCell(x);
+            const cells = offset.page.data.getCells(rac.row);
+            try testing.expectEqual(@as(usize, 5), cells.len);
+            try testing.expectEqual(@as(u21, @intCast(x)), cells[x].content.codepoint);
+        }
+    }
+}
+
+test "PageList resize reflow less cols wrapped rows" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 4, 2, null);
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+    for (0..s.rows) |y| {
+        for (0..s.cols) |x| {
+            const rac = page.getRowAndCell(x, y);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = @intCast(x) },
+            };
+        }
+    }
+
+    // Resize
+    try s.resize(.{ .cols = 2, .reflow = true });
+    try testing.expectEqual(@as(usize, 2), s.cols);
+    try testing.expectEqual(@as(usize, 4), s.totalRows());
+
+    // Active moves due to scrollback
+    {
+        const pt = s.getCell(.{ .active = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 2,
+        } }, pt);
+    }
+
+    var it = s.rowIterator(.{ .screen = .{} }, null);
+    {
+        // First row should be wrapped
+        const offset = it.next().?;
+        const rac = offset.rowAndCell(0);
+        const cells = offset.page.data.getCells(rac.row);
+        try testing.expect(rac.row.wrap);
+        try testing.expectEqual(@as(usize, 2), cells.len);
+        try testing.expectEqual(@as(u21, 0), cells[0].content.codepoint);
+    }
+    {
+        const offset = it.next().?;
+        const rac = offset.rowAndCell(0);
+        const cells = offset.page.data.getCells(rac.row);
+        try testing.expect(!rac.row.wrap);
+        try testing.expectEqual(@as(usize, 2), cells.len);
+        try testing.expectEqual(@as(u21, 2), cells[0].content.codepoint);
+    }
+    {
+        // First row should be wrapped
+        const offset = it.next().?;
+        const rac = offset.rowAndCell(0);
+        const cells = offset.page.data.getCells(rac.row);
+        try testing.expect(rac.row.wrap);
+        try testing.expectEqual(@as(usize, 2), cells.len);
+        try testing.expectEqual(@as(u21, 0), cells[0].content.codepoint);
+    }
+    {
+        const offset = it.next().?;
+        const rac = offset.rowAndCell(0);
+        const cells = offset.page.data.getCells(rac.row);
+        try testing.expect(!rac.row.wrap);
+        try testing.expectEqual(@as(usize, 2), cells.len);
+        try testing.expectEqual(@as(u21, 2), cells[0].content.codepoint);
+    }
 }
