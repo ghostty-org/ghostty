@@ -25,6 +25,7 @@ pub const CSI = Parser.Action.CSI;
 pub const DCS = Parser.Action.DCS;
 pub const MouseShape = @import("mouse_shape.zig").MouseShape;
 pub const Terminal = @import("Terminal.zig");
+//pub const Terminal = new.Terminal;
 pub const Parser = @import("Parser.zig");
 pub const Selection = @import("Selection.zig");
 pub const Screen = @import("Screen.zig");
