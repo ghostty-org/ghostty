@@ -5401,6 +5401,7 @@ test "Terminal: eraseChars protected attributes ignored with dec set" {
     }
 }
 
+// X
 // https://github.com/mitchellh/ghostty/issues/272
 // This is also tested in depth in screen resize tests but I want to keep
 // this test around to ensure we don't regress at multiple layers.
@@ -5416,6 +5417,7 @@ test "Terminal: resize less cols with wide char then print" {
     try t.print('😀'); // 0x1F600
 }
 
+// X
 // https://github.com/mitchellh/ghostty/issues/723
 // This was found via fuzzing so its highly specific.
 test "Terminal: resize with left and right margin set" {
@@ -5435,6 +5437,7 @@ test "Terminal: resize with left and right margin set" {
     try t.resize(alloc, cols, rows);
 }
 
+// X
 // https://github.com/mitchellh/ghostty/issues/1343
 test "Terminal: resize with wraparound off" {
     const alloc = testing.allocator;
@@ -5456,6 +5459,7 @@ test "Terminal: resize with wraparound off" {
     try testing.expectEqualStrings("01", str);
 }
 
+// X
 test "Terminal: resize with wraparound on" {
     const alloc = testing.allocator;
     const cols = 4;
@@ -5589,6 +5593,7 @@ test "Terminal: saveCursor origin mode" {
     }
 }
 
+// X
 test "Terminal: saveCursor resize" {
     const alloc = testing.allocator;
     var t = try init(alloc, 10, 5);
@@ -7468,6 +7473,7 @@ test "Terminal: printRepeat no previous character" {
     }
 }
 
+// X
 test "Terminal: DECCOLM without DEC mode 40" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -7480,6 +7486,7 @@ test "Terminal: DECCOLM without DEC mode 40" {
     try testing.expect(!t.modes.get(.@"132_column"));
 }
 
+// X
 test "Terminal: DECCOLM unset" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -7491,6 +7498,7 @@ test "Terminal: DECCOLM unset" {
     try testing.expectEqual(@as(usize, 5), t.rows);
 }
 
+// X
 test "Terminal: DECCOLM resets pending wrap" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -7506,6 +7514,7 @@ test "Terminal: DECCOLM resets pending wrap" {
     try testing.expect(!t.screen.cursor.pending_wrap);
 }
 
+// X
 test "Terminal: DECCOLM preserves SGR bg" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
@@ -7525,6 +7534,7 @@ test "Terminal: DECCOLM preserves SGR bg" {
     }
 }
 
+// X
 test "Terminal: DECCOLM resets scroll region" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
