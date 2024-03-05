@@ -2,8 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
-/// The possible reference locations for a point. When someone says
-/// "(42, 80)" in the context of a terminal, that could mean multiple
+/// The possible reference locations for a point. When someone says "(42, 80)" in the context of a terminal, that could mean multiple
 /// things: it is in the current visible viewport? the current active
 /// area of the screen where the cursor is? the entire scrollback history?
 /// etc. This tag is used to differentiate those cases.
@@ -68,4 +67,25 @@ pub const Point = union(Tag) {
             => |v| v,
         };
     }
+};
+
+/// A point in the terminal that is always in the viewport area.
+pub const Viewport = struct {
+    x: usize = 0,
+    y: usize = 0,
+
+    pub fn eql(self: Viewport, other: Viewport) bool {
+        return self.x == other.x and self.y == other.y;
+    }
+
+    const TerminalScreen = @import("Screen.zig");
+    pub fn toScreen(_: Viewport, _: *const TerminalScreen) Screen {
+        @panic("TODO");
+    }
+};
+
+/// A point in the terminal that is in relation to the entire screen.
+pub const Screen = struct {
+    x: usize = 0,
+    y: usize = 0,
 };

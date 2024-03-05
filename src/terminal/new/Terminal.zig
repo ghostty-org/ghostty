@@ -1885,6 +1885,21 @@ pub fn decaln(self: *Terminal) !void {
     }
 }
 
+/// Execute a kitty graphics command. The buf is used to populate with
+/// the response that should be sent as an APC sequence. The response will
+/// be a full, valid APC sequence.
+///
+/// If an error occurs, the caller should response to the pty that a
+/// an error occurred otherwise the behavior of the graphics protocol is
+/// undefined.
+pub fn kittyGraphics(
+    self: *Terminal,
+    alloc: Allocator,
+    cmd: *kitty.graphics.Command,
+) ?kitty.graphics.Response {
+    return kitty.graphics.execute(alloc, self, cmd);
+}
+
 /// Set a style attribute.
 pub fn setAttribute(self: *Terminal, attr: sgr.Attribute) !void {
     try self.screen.setAttribute(attr);

@@ -61,6 +61,11 @@ pub const Cursor = struct {
     x: size.CellCountInt,
     y: size.CellCountInt,
 
+    /// The visual style of the cursor. This defaults to block because
+    /// it has to default to something, but users of this struct are
+    /// encouraged to set their own default.
+    cursor_style: CursorStyle = .block,
+
     /// The "last column flag (LCF)" as its called. If this is set then the
     /// next character print will force a soft-wrap.
     pending_wrap: bool = false,
@@ -86,6 +91,11 @@ pub const Cursor = struct {
     page_row: *pagepkg.Row,
     page_cell: *pagepkg.Cell,
 };
+
+/// The visual style of the cursor. Whether or not it blinks
+/// is determined by mode 12 (modes.zig). This mode is synchronized
+/// with CSI q, the same as xterm.
+pub const CursorStyle = enum { bar, block, underline };
 
 /// Saved cursor state.
 pub const SavedCursor = struct {
@@ -443,6 +453,11 @@ pub fn scrollClear(self: *Screen) !void {
     // it could move placements. If there are no placements or no images
     // this is still a very cheap operation.
     self.kitty_images.dirty = true;
+}
+
+/// Returns true if the viewport is scrolled to the bottom of the screen.
+pub fn viewportIsBottom(self: Screen) bool {
+    return self.pages.viewport == .active;
 }
 
 /// Erase the region specified by tl and br, inclusive. This will physically
@@ -806,6 +821,22 @@ pub fn manualStyleUpdate(self: *Screen) !void {
     const md = try page.styles.upsert(page.memory, self.cursor.style);
     self.cursor.style_id = md.id;
     self.cursor.style_ref = &md.ref;
+}
+
+/// Returns the raw text associated with a selection. This will unwrap
+/// soft-wrapped edges. The returned slice is owned by the caller and allocated
+/// using alloc, not the allocator associated with the screen (unless they match).
+pub fn selectionString(
+    self: *Screen,
+    alloc: Allocator,
+    sel: Selection,
+    trim: bool,
+) ![:0]const u8 {
+    _ = self;
+    _ = alloc;
+    _ = sel;
+    _ = trim;
+    @panic("TODO");
 }
 
 /// Dump the screen to a string. The writer given should be buffered;
