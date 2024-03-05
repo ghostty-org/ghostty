@@ -742,7 +742,7 @@ fn reflowPage(
                     src_cursor.page_cell.wide == .wide and
                     dst_cursor.x == cap.cols - 1)
                 {
-                    reflowUpdateCursor(cursor, &src_cursor, &dst_cursor, dst_node);
+                    self.reflowUpdateCursor(cursor, &src_cursor, &dst_cursor, dst_node);
 
                     dst_cursor.page_cell.* = .{
                         .content_tag = .codepoint,
@@ -758,7 +758,7 @@ fn reflowPage(
                     src_cursor.page_cell.wide == .spacer_head and
                     dst_cursor.x != cap.cols - 1)
                 {
-                    reflowUpdateCursor(cursor, &src_cursor, &dst_cursor, dst_node);
+                    self.reflowUpdateCursor(cursor, &src_cursor, &dst_cursor, dst_node);
                     src_cursor.cursorForward();
                     continue;
                 }
@@ -846,7 +846,7 @@ fn reflowPage(
 
                 // If our original cursor was on this page, this x/y then
                 // we need to update to the new location.
-                reflowUpdateCursor(cursor, &src_cursor, &dst_cursor, dst_node);
+                self.reflowUpdateCursor(cursor, &src_cursor, &dst_cursor, dst_node);
 
                 // Move both our cursors forward
                 src_cursor.cursorForward();
@@ -858,6 +858,18 @@ fn reflowPage(
 
                 // If we have no trailing empty cells, it can't be in the blanks.
                 if (trailing_empty == 0) break :cursor;
+
+                // Update all our tracked pins
+                var it = self.tracked_pins.keyIterator();
+                while (it.next()) |p_ptr| {
+                    const p = p_ptr.*;
+                    if (&p.page.data != src_cursor.page or
+                        p.y != src_cursor.y or
+                        p.x < cols_len) continue;
+
+                    p.page = dst_node;
+                    p.y = dst_cursor.y;
+                }
 
                 // If we have no cursor, nothing to update.
                 const c = cursor orelse break :cursor;
@@ -890,11 +902,25 @@ fn reflowPage(
 /// we're currently reflowing. This can then be fixed up later to an exact
 /// x/y (see resizeCols).
 fn reflowUpdateCursor(
+    self: *const PageList,
     cursor: ?*Resize.Cursor,
     src_cursor: *const ReflowCursor,
     dst_cursor: *const ReflowCursor,
     dst_node: *List.Node,
 ) void {
+    // Update all our tracked pins
+    var it = self.tracked_pins.keyIterator();
+    while (it.next()) |p_ptr| {
+        const p = p_ptr.*;
+        if (&p.page.data != src_cursor.page or
+            p.y != src_cursor.y or
+            p.x != src_cursor.x) continue;
+
+        p.page = dst_node;
+        p.x = dst_cursor.x;
+        p.y = dst_cursor.y;
+    }
+
     const c = cursor orelse return;
 
     // If our original cursor was on this page, this x/y then
@@ -3569,17 +3595,20 @@ test "PageList resize reflow more cols cursor in wrapped row" {
         }
     }
 
-    // Set our cursor to be in the wrapped row
-    var cursor: Resize.Cursor = .{ .x = 1, .y = 1 };
+    // Put a tracked pin in the history
+    const p = try s.trackPin(s.pin(.{ .active = .{ .x = 1, .y = 1 } }).?);
+    defer s.untrackPin(p);
 
     // Resize
-    try s.resize(.{ .cols = 4, .reflow = true, .cursor = &cursor });
+    try s.resize(.{ .cols = 4, .reflow = true });
     try testing.expectEqual(@as(usize, 4), s.cols);
     try testing.expectEqual(@as(usize, 4), s.totalRows());
 
     // Our cursor should move to the first row
-    try testing.expectEqual(@as(size.CellCountInt, 3), cursor.x);
-    try testing.expectEqual(@as(size.CellCountInt, 0), cursor.y);
+    try testing.expectEqual(point.Point{ .active = .{
+        .x = 3,
+        .y = 0,
+    } }, s.pointFromPin(.active, p.*).?);
 }
 
 test "PageList resize reflow more cols cursor in not wrapped row" {
@@ -3617,17 +3646,20 @@ test "PageList resize reflow more cols cursor in not wrapped row" {
         }
     }
 
-    // Set our cursor to be in the wrapped row
-    var cursor: Resize.Cursor = .{ .x = 1, .y = 0 };
+    // Put a tracked pin in the history
+    const p = try s.trackPin(s.pin(.{ .active = .{ .x = 1, .y = 0 } }).?);
+    defer s.untrackPin(p);
 
     // Resize
-    try s.resize(.{ .cols = 4, .reflow = true, .cursor = &cursor });
+    try s.resize(.{ .cols = 4, .reflow = true });
     try testing.expectEqual(@as(usize, 4), s.cols);
     try testing.expectEqual(@as(usize, 4), s.totalRows());
 
     // Our cursor should move to the first row
-    try testing.expectEqual(@as(size.CellCountInt, 1), cursor.x);
-    try testing.expectEqual(@as(size.CellCountInt, 0), cursor.y);
+    try testing.expectEqual(point.Point{ .active = .{
+        .x = 1,
+        .y = 0,
+    } }, s.pointFromPin(.active, p.*).?);
 }
 
 test "PageList resize reflow more cols cursor in wrapped row that isn't unwrapped" {
@@ -3679,17 +3711,20 @@ test "PageList resize reflow more cols cursor in wrapped row that isn't unwrappe
         }
     }
 
-    // Set our cursor to be in the wrapped row
-    var cursor: Resize.Cursor = .{ .x = 1, .y = 2 };
+    // Put a tracked pin in the history
+    const p = try s.trackPin(s.pin(.{ .active = .{ .x = 1, .y = 2 } }).?);
+    defer s.untrackPin(p);
 
     // Resize
-    try s.resize(.{ .cols = 4, .reflow = true, .cursor = &cursor });
+    try s.resize(.{ .cols = 4, .reflow = true });
     try testing.expectEqual(@as(usize, 4), s.cols);
     try testing.expectEqual(@as(usize, 4), s.totalRows());
 
     // Our cursor should move to the first row
-    try testing.expectEqual(@as(size.CellCountInt, 1), cursor.x);
-    try testing.expectEqual(@as(size.CellCountInt, 1), cursor.y);
+    try testing.expectEqual(point.Point{ .active = .{
+        .x = 1,
+        .y = 1,
+    } }, s.pointFromPin(.active, p.*).?);
 }
 
 test "PageList resize reflow more cols no reflow preserves semantic prompt" {
@@ -4170,17 +4205,20 @@ test "PageList resize reflow less cols cursor in wrapped row" {
         }
     }
 
-    // Set our cursor to be in the wrapped row
-    var cursor: Resize.Cursor = .{ .x = 2, .y = 1 };
+    // Put a tracked pin in the history
+    const p = try s.trackPin(s.pin(.{ .active = .{ .x = 2, .y = 1 } }).?);
+    defer s.untrackPin(p);
 
     // Resize
-    try s.resize(.{ .cols = 2, .reflow = true, .cursor = &cursor });
+    try s.resize(.{ .cols = 2, .reflow = true });
     try testing.expectEqual(@as(usize, 2), s.cols);
     try testing.expectEqual(@as(usize, 4), s.totalRows());
 
     // Our cursor should move to the first row
-    try testing.expectEqual(@as(size.CellCountInt, 0), cursor.x);
-    try testing.expectEqual(@as(size.CellCountInt, 1), cursor.y);
+    try testing.expectEqual(point.Point{ .active = .{
+        .x = 0,
+        .y = 1,
+    } }, s.pointFromPin(.active, p.*).?);
 }
 
 test "PageList resize reflow less cols cursor goes to scrollback" {
@@ -4201,17 +4239,17 @@ test "PageList resize reflow less cols cursor goes to scrollback" {
         }
     }
 
-    // Set our cursor to be in the wrapped row
-    var cursor: Resize.Cursor = .{ .x = 2, .y = 0 };
+    // Put a tracked pin in the history
+    const p = try s.trackPin(s.pin(.{ .active = .{ .x = 2, .y = 0 } }).?);
+    defer s.untrackPin(p);
 
     // Resize
-    try s.resize(.{ .cols = 2, .reflow = true, .cursor = &cursor });
+    try s.resize(.{ .cols = 2, .reflow = true });
     try testing.expectEqual(@as(usize, 2), s.cols);
     try testing.expectEqual(@as(usize, 4), s.totalRows());
 
     // Our cursor should move to the first row
-    try testing.expectEqual(@as(size.CellCountInt, 0), cursor.x);
-    try testing.expectEqual(@as(size.CellCountInt, 0), cursor.y);
+    try testing.expect(s.pointFromPin(.active, p.*) == null);
 }
 
 test "PageList resize reflow less cols cursor in unchanged row" {
@@ -4232,17 +4270,20 @@ test "PageList resize reflow less cols cursor in unchanged row" {
         }
     }
 
-    // Set our cursor to be in the wrapped row
-    var cursor: Resize.Cursor = .{ .x = 1, .y = 0 };
+    // Put a tracked pin in the history
+    const p = try s.trackPin(s.pin(.{ .active = .{ .x = 1, .y = 0 } }).?);
+    defer s.untrackPin(p);
 
     // Resize
-    try s.resize(.{ .cols = 2, .reflow = true, .cursor = &cursor });
+    try s.resize(.{ .cols = 2, .reflow = true });
     try testing.expectEqual(@as(usize, 2), s.cols);
     try testing.expectEqual(@as(usize, 2), s.totalRows());
 
     // Our cursor should move to the first row
-    try testing.expectEqual(@as(size.CellCountInt, 1), cursor.x);
-    try testing.expectEqual(@as(size.CellCountInt, 0), cursor.y);
+    try testing.expectEqual(point.Point{ .active = .{
+        .x = 1,
+        .y = 0,
+    } }, s.pointFromPin(.active, p.*).?);
 }
 
 test "PageList resize reflow less cols cursor in blank cell" {
@@ -4263,17 +4304,20 @@ test "PageList resize reflow less cols cursor in blank cell" {
         }
     }
 
-    // Set our cursor to be in a blank cell
-    var cursor: Resize.Cursor = .{ .x = 2, .y = 0 };
+    // Put a tracked pin in the history
+    const p = try s.trackPin(s.pin(.{ .active = .{ .x = 2, .y = 0 } }).?);
+    defer s.untrackPin(p);
 
     // Resize
-    try s.resize(.{ .cols = 4, .reflow = true, .cursor = &cursor });
+    try s.resize(.{ .cols = 4, .reflow = true });
     try testing.expectEqual(@as(usize, 4), s.cols);
     try testing.expectEqual(@as(usize, 2), s.totalRows());
 
-    // Our cursor should move to the first row
-    try testing.expectEqual(@as(size.CellCountInt, 2), cursor.x);
-    try testing.expectEqual(@as(size.CellCountInt, 0), cursor.y);
+    // Our cursor should not move
+    try testing.expectEqual(point.Point{ .active = .{
+        .x = 2,
+        .y = 0,
+    } }, s.pointFromPin(.active, p.*).?);
 }
 
 test "PageList resize reflow less cols cursor in final blank cell" {
