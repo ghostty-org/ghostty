@@ -1405,6 +1405,10 @@ pub fn untrackPin(self: *PageList, p: *Pin) void {
     }
 }
 
+pub fn countTrackedPins(self: *const PageList) usize {
+    return self.tracked_pins.count();
+}
+
 /// Returns the viewport for the given pin, prefering to pin to
 /// "active" if the pin is within the active area.
 fn pinIsActive(self: *const PageList, p: Pin) bool {

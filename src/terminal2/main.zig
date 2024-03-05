@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 
+pub const kitty = @import("kitty.zig");
 pub const page = @import("page.zig");
 pub const point = @import("point.zig");
 pub const PageList = @import("PageList.zig");
