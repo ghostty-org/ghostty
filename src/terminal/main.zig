@@ -25,7 +25,6 @@ pub const CSI = Parser.Action.CSI;
 pub const DCS = Parser.Action.DCS;
 pub const MouseShape = @import("mouse_shape.zig").MouseShape;
 pub const Terminal = @import("Terminal.zig");
-//pub const Terminal = new.Terminal;
 pub const Parser = @import("Parser.zig");
 pub const Selection = @import("Selection.zig");
 pub const Screen = @import("Screen.zig");
@@ -49,8 +48,8 @@ pub usingnamespace if (builtin.target.isWasm()) struct {
     pub usingnamespace @import("wasm.zig");
 } else struct {};
 
-/// The new stuff. TODO: remove this before merge.
-pub const new = @import("new/main.zig");
+// TODO(paged-terminal) remove before merge
+pub const new = @import("../terminal2/main.zig");
 
 test {
     @import("std").testing.refAllDecls(@This());

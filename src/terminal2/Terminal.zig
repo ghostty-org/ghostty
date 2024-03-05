@@ -12,17 +12,17 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
-const unicode = @import("../../unicode/main.zig");
+const unicode = @import("../unicode/main.zig");
 
-const ansi = @import("../ansi.zig");
-const modes = @import("../modes.zig");
-const charsets = @import("../charsets.zig");
-const csi = @import("../csi.zig");
-const kitty = @import("../kitty.zig");
-const sgr = @import("../sgr.zig");
-const Tabstops = @import("../Tabstops.zig");
-const color = @import("../color.zig");
-const mouse_shape = @import("../mouse_shape.zig");
+const ansi = @import("ansi.zig");
+const modes = @import("modes.zig");
+const charsets = @import("charsets.zig");
+const csi = @import("csi.zig");
+const kitty = @import("kitty.zig");
+const sgr = @import("sgr.zig");
+const Tabstops = @import("Tabstops.zig");
+const color = @import("color.zig");
+const mouse_shape = @import("mouse_shape.zig");
 
 const size = @import("size.zig");
 const pagepkg = @import("page.zig");
