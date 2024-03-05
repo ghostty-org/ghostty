@@ -1765,6 +1765,47 @@ pub const Pin = struct {
         return .{ .row = rac.row, .cell = rac.cell };
     }
 
+    /// Returns true if this pin is between the top and bottom, inclusive.
+    //
+    // Note: this is primarily unit tested as part of the Kitty
+    // graphics deletion code.
+    pub fn isBetween(self: Pin, top: Pin, bottom: Pin) bool {
+        if (comptime std.debug.runtime_safety) {
+            if (top.page == bottom.page) {
+                // If top is bottom, must be ordered.
+                assert(top.y <= bottom.y);
+                if (top.y == bottom.y) {
+                    assert(top.x <= bottom.x);
+                }
+            } else {
+                // If top is not bottom, top must be before bottom.
+                var page = top.page.next;
+                while (page) |p| : (page = p.next) {
+                    if (p == bottom.page) break;
+                } else assert(false);
+            }
+        }
+
+        if (self.page == top.page) {
+            if (self.y < top.y) return false;
+            if (self.y > top.y) return true;
+            return self.x >= top.x;
+        }
+        if (self.page == bottom.page) {
+            if (self.y > bottom.y) return false;
+            if (self.y < bottom.y) return true;
+            return self.x <= bottom.x;
+        }
+
+        var page = top.page.next;
+        while (page) |p| : (page = p.next) {
+            if (p == bottom.page) break;
+            if (p == self.page) return true;
+        }
+
+        return false;
+    }
+
     /// Move the pin down a certain number of rows, or return null if
     /// the pin goes beyond the end of the screen.
     pub fn down(self: Pin, n: usize) ?Pin {
@@ -1785,7 +1826,7 @@ pub const Pin = struct {
 
     /// Move the offset down n rows. If the offset goes beyond the
     /// end of the screen, return the overflow amount.
-    fn downOverflow(self: Pin, n: usize) union(enum) {
+    pub fn downOverflow(self: Pin, n: usize) union(enum) {
         offset: Pin,
         overflow: struct {
             end: Pin,
@@ -1823,7 +1864,7 @@ pub const Pin = struct {
 
     /// Move the offset up n rows. If the offset goes beyond the
     /// start of the screen, return the overflow amount.
-    fn upOverflow(self: Pin, n: usize) union(enum) {
+    pub fn upOverflow(self: Pin, n: usize) union(enum) {
         offset: Pin,
         overflow: struct {
             end: Pin,

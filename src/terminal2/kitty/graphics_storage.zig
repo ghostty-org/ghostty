@@ -242,12 +242,17 @@ pub const ImageStorage = struct {
             },
 
             .intersect_cursor => |delete_images| {
-                if (true) @panic("TODO");
-                const target = (point.Viewport{
-                    .x = t.screen.cursor.x,
-                    .y = t.screen.cursor.y,
-                }).toScreen(&t.screen);
-                self.deleteIntersecting(alloc, t, target, delete_images, {}, null);
+                self.deleteIntersecting(
+                    alloc,
+                    t,
+                    .{ .active = .{
+                        .x = t.screen.cursor.x,
+                        .y = t.screen.cursor.y,
+                    } },
+                    delete_images,
+                    {},
+                    null,
+                );
             },
 
             .intersect_cell => |v| {
@@ -378,18 +383,22 @@ pub const ImageStorage = struct {
     fn deleteIntersecting(
         self: *ImageStorage,
         alloc: Allocator,
-        t: *const terminal.Terminal,
-        p: point.ScreenPoint,
+        t: *terminal.Terminal,
+        p: point.Point,
         delete_unused: bool,
         filter_ctx: anytype,
         comptime filter: ?fn (@TypeOf(filter_ctx), Placement) bool,
     ) void {
+        // Convert our target point to a pin for comparison.
+        const target_pin = t.screen.pages.pin(p) orelse return;
+
         var it = self.placements.iterator();
         while (it.next()) |entry| {
             const img = self.imageById(entry.key_ptr.image_id) orelse continue;
             const rect = entry.value_ptr.rect(img, t);
-            if (rect.contains(p)) {
+            if (target_pin.isBetween(rect.top_left, rect.bottom_right)) {
                 if (filter) |f| if (!f(filter_ctx, entry.value_ptr.*)) continue;
+                entry.value_ptr.deinit(t);
                 self.placements.removeByPtr(entry.key_ptr);
                 if (delete_unused) self.deleteIfUnused(alloc, img.id);
             }
@@ -547,13 +556,13 @@ pub const ImageStorage = struct {
         ) Rect {
             // If we have columns/rows specified we can simplify this whole thing.
             if (self.columns > 0 and self.rows > 0) {
-                return .{
-                    .top_left = self.point,
-                    .bottom_right = .{
-                        .x = @min(self.point.x + self.columns, t.cols - 1),
-                        .y = self.point.y + self.rows,
-                    },
+                var br = switch (self.pin.downOverflow(self.rows)) {
+                    .offset => |v| v,
+                    .overflow => |v| v.end,
                 };
+                br.x = @min(self.pin.x + self.columns, t.cols - 1);
+
+                return .{ .top_left = self.pin.*, .bottom_right = br };
             }
 
             // Calculate our cell size.
@@ -574,12 +583,16 @@ pub const ImageStorage = struct {
             const width_cells: u32 = @intFromFloat(@ceil(width_f64 / cell_width_f64));
             const height_cells: u32 = @intFromFloat(@ceil(height_f64 / cell_height_f64));
 
+            // TODO(paged-terminal): clean this logic up above
+            var br = switch (self.pin.downOverflow(height_cells)) {
+                .offset => |v| v,
+                .overflow => |v| v.end,
+            };
+            br.x = @min(self.pin.x + width_cells, t.cols - 1);
+
             return .{
-                .top_left = self.point,
-                .bottom_right = .{
-                    .x = @min(self.point.x + width_cells, t.cols - 1),
-                    .y = self.point.y + height_cells,
-                },
+                .top_left = self.pin.*,
+                .bottom_right = br,
             };
         }
     };
@@ -769,37 +782,38 @@ test "storage: delete placement by specific id" {
     try testing.expectEqual(tracked + 2, t.screen.pages.countTrackedPins());
 }
 
-// test "storage: delete intersecting cursor" {
-//     const testing = std.testing;
-//     const alloc = testing.allocator;
-//     var t = try terminal.Terminal.init(alloc, 100, 100);
-//     defer t.deinit(alloc);
-//     t.width_px = 100;
-//     t.height_px = 100;
-//
-//     var s: ImageStorage = .{};
-//     defer s.deinit(alloc);
-//     try s.addImage(alloc, .{ .id = 1, .width = 50, .height = 50 });
-//     try s.addImage(alloc, .{ .id = 2, .width = 25, .height = 25 });
-//     try s.addPlacement(alloc, 1, 1, .{ .point = .{ .x = 0, .y = 0 } });
-//     try s.addPlacement(alloc, 1, 2, .{ .point = .{ .x = 25, .y = 25 } });
-//
-//     t.screen.cursor.x = 12;
-//     t.screen.cursor.y = 12;
-//
-//     s.dirty = false;
-//     s.delete(alloc, &t, .{ .intersect_cursor = false });
-//     try testing.expect(s.dirty);
-//     try testing.expectEqual(@as(usize, 1), s.placements.count());
-//     try testing.expectEqual(@as(usize, 2), s.images.count());
-//
-//     // verify the placement is what we expect
-//     try testing.expect(s.placements.get(.{
-//         .image_id = 1,
-//         .placement_id = .{ .tag = .external, .id = 2 },
-//     }) != null);
-// }
-//
+test "storage: delete intersecting cursor" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var t = try terminal.Terminal.init(alloc, 100, 100);
+    defer t.deinit(alloc);
+    t.width_px = 100;
+    t.height_px = 100;
+    const tracked = t.screen.pages.countTrackedPins();
+
+    var s: ImageStorage = .{};
+    defer s.deinit(alloc, &t);
+    try s.addImage(alloc, .{ .id = 1, .width = 50, .height = 50 });
+    try s.addImage(alloc, .{ .id = 2, .width = 25, .height = 25 });
+    try s.addPlacement(alloc, 1, 1, .{ .pin = try trackPin(&t, .{ .x = 0, .y = 0 }) });
+    try s.addPlacement(alloc, 1, 2, .{ .pin = try trackPin(&t, .{ .x = 25, .y = 25 }) });
+
+    t.screen.cursorAbsolute(12, 12);
+
+    s.dirty = false;
+    s.delete(alloc, &t, .{ .intersect_cursor = false });
+    try testing.expect(s.dirty);
+    try testing.expectEqual(@as(usize, 1), s.placements.count());
+    try testing.expectEqual(@as(usize, 2), s.images.count());
+    try testing.expectEqual(tracked + 1, t.screen.pages.countTrackedPins());
+
+    // verify the placement is what we expect
+    try testing.expect(s.placements.get(.{
+        .image_id = 1,
+        .placement_id = .{ .tag = .external, .id = 2 },
+    }) != null);
+}
+
 // test "storage: delete intersecting cursor plus unused" {
 //     const testing = std.testing;
 //     const alloc = testing.allocator;
