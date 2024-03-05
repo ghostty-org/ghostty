@@ -1542,7 +1542,13 @@ fn pinIsActive(self: *const PageList, p: Pin) bool {
 /// Convert a pin to a point in the given context. If the pin can't fit
 /// within the given tag (i.e. its in the history but you requested active),
 /// then this will return null.
-fn pointFromPin(self: *const PageList, tag: point.Tag, p: Pin) ?point.Point {
+///
+/// Note that this can be a very expensive operation depending on the tag and
+/// the location of the pin. This works by traversing the linked list of pages
+/// in the tagged region.
+///
+/// Therefore, this is recommended only very rarely.
+pub fn pointFromPin(self: *const PageList, tag: point.Tag, p: Pin) ?point.Point {
     const tl = self.getTopLeft2(tag);
 
     // Count our first page which is special because it may be partial.
@@ -2924,18 +2930,21 @@ test "PageList resize (no reflow) more rows" {
     defer s.deinit();
     try testing.expectEqual(@as(usize, 3), s.totalRows());
 
-    // Cursor is at the bottom
-    var cursor: Resize.Cursor = .{ .x = 0, .y = 2 };
+    // Put a tracked pin in the history
+    const p = try s.trackPin(s.pin(.{ .active = .{ .x = 0, .y = 2 } }).?);
+    defer s.untrackPin(p);
 
     // Resize
-    try s.resize(.{ .rows = 10, .reflow = false, .cursor = &cursor });
+    try s.resize(.{ .rows = 10, .reflow = false });
     try testing.expectEqual(@as(usize, 10), s.rows);
     try testing.expectEqual(@as(usize, 10), s.totalRows());
 
     // Our cursor should not move because we have no scrollback so
     // we just grew.
-    try testing.expectEqual(@as(size.CellCountInt, 0), cursor.x);
-    try testing.expectEqual(@as(size.CellCountInt, 2), cursor.y);
+    try testing.expectEqual(point.Point{ .active = .{
+        .x = 0,
+        .y = 2,
+    } }, s.pointFromPin(.active, p.*).?);
 
     {
         const pt = s.getCell(.{ .active = .{} }).?.screenPoint();
@@ -2961,17 +2970,20 @@ test "PageList resize (no reflow) more rows with history" {
         } }, pt);
     }
 
-    // Cursor is at the bottom
-    var cursor: Resize.Cursor = .{ .x = 0, .y = 2 };
+    // Put a tracked pin in the history
+    const p = try s.trackPin(s.pin(.{ .active = .{ .x = 0, .y = 2 } }).?);
+    defer s.untrackPin(p);
 
     // Resize
-    try s.resize(.{ .rows = 5, .reflow = false, .cursor = &cursor });
+    try s.resize(.{ .rows = 5, .reflow = false });
     try testing.expectEqual(@as(usize, 5), s.rows);
     try testing.expectEqual(@as(usize, 53), s.totalRows());
 
     // Our cursor should move since it's in the scrollback
-    try testing.expectEqual(@as(size.CellCountInt, 0), cursor.x);
-    try testing.expectEqual(@as(size.CellCountInt, 4), cursor.y);
+    try testing.expectEqual(point.Point{ .active = .{
+        .x = 0,
+        .y = 4,
+    } }, s.pointFromPin(.active, p.*).?);
 
     {
         const pt = s.getCell(.{ .active = .{} }).?.screenPoint();
@@ -3037,9 +3049,11 @@ test "PageList resize (no reflow) less rows cursor in scrollback" {
         };
     }
 
-    // Let's say our cursor is in the scrollback
-    var cursor: Resize.Cursor = .{ .x = 0, .y = 2 };
+    // Put a tracked pin in the history
+    const p = try s.trackPin(s.pin(.{ .active = .{ .x = 0, .y = 2 } }).?);
+    defer s.untrackPin(p);
     {
+        const cursor = s.pointFromPin(.active, p.*).?.active;
         const get = s.getCell(.{ .active = .{
             .x = cursor.x,
             .y = cursor.y,
@@ -3048,13 +3062,16 @@ test "PageList resize (no reflow) less rows cursor in scrollback" {
     }
 
     // Resize
-    try s.resize(.{ .rows = 5, .reflow = false, .cursor = &cursor });
+    try s.resize(.{ .rows = 5, .reflow = false });
     try testing.expectEqual(@as(usize, 5), s.rows);
     try testing.expectEqual(@as(usize, 10), s.totalRows());
 
     // Our cursor should move since it's in the scrollback
-    try testing.expectEqual(@as(size.CellCountInt, 0), cursor.x);
-    try testing.expectEqual(@as(size.CellCountInt, 0), cursor.y);
+    try testing.expect(s.pointFromPin(.active, p.*) == null);
+    try testing.expectEqual(point.Point{ .screen = .{
+        .x = 0,
+        .y = 2,
+    } }, s.pointFromPin(.screen, p.*).?);
 
     {
         const pt = s.getCell(.{ .active = .{} }).?.screenPoint();
@@ -3092,9 +3109,11 @@ test "PageList resize (no reflow) less rows trims blank lines" {
         };
     }
 
-    // Let's say our cursor is at the top
-    var cursor: Resize.Cursor = .{ .x = 0, .y = 0 };
+    // Put a tracked pin in the history
+    const p = try s.trackPin(s.pin(.{ .active = .{ .x = 0, .y = 0 } }).?);
+    defer s.untrackPin(p);
     {
+        const cursor = s.pointFromPin(.active, p.*).?.active;
         const get = s.getCell(.{ .active = .{
             .x = cursor.x,
             .y = cursor.y,
@@ -3103,13 +3122,15 @@ test "PageList resize (no reflow) less rows trims blank lines" {
     }
 
     // Resize
-    try s.resize(.{ .rows = 2, .reflow = false, .cursor = &cursor });
+    try s.resize(.{ .rows = 2, .reflow = false });
     try testing.expectEqual(@as(usize, 2), s.rows);
     try testing.expectEqual(@as(usize, 2), s.totalRows());
 
     // Our cursor should not move since we trimmed
-    try testing.expectEqual(@as(size.CellCountInt, 0), cursor.x);
-    try testing.expectEqual(@as(size.CellCountInt, 0), cursor.y);
+    try testing.expectEqual(point.Point{ .active = .{
+        .x = 0,
+        .y = 0,
+    } }, s.pointFromPin(.active, p.*).?);
 
     {
         const pt = s.getCell(.{ .active = .{} }).?.screenPoint();
@@ -3386,22 +3407,26 @@ test "PageList resize (no reflow) more rows adds blank rows if cursor at bottom"
 
     // Let's say our cursor is at the bottom
     var cursor: Resize.Cursor = .{ .x = 0, .y = s.rows - 2 };
+
+    // Put a tracked pin in the history
+    const p = try s.trackPin(s.pin(.{ .active = .{ .x = 0, .y = s.rows - 2 } }).?);
+    defer s.untrackPin(p);
+    const original_cursor = s.pointFromPin(.active, p.*).?.active;
     {
         const get = s.getCell(.{ .active = .{
-            .x = cursor.x,
-            .y = cursor.y,
+            .x = original_cursor.x,
+            .y = original_cursor.y,
         } }).?;
         try testing.expectEqual(@as(u21, 3), get.cell.content.codepoint);
     }
 
     // Resize
-    const original_cursor = cursor;
     try s.resizeWithoutReflow(.{ .rows = 10, .reflow = false, .cursor = &cursor });
     try testing.expectEqual(@as(usize, 5), s.cols);
     try testing.expectEqual(@as(usize, 10), s.rows);
 
     // Our cursor should not change
-    try testing.expectEqual(original_cursor, cursor);
+    try testing.expectEqual(original_cursor, s.pointFromPin(.active, p.*).?.active);
 
     // 12 because we have our 10 rows in the active + 2 in the scrollback
     // because we're preserving the cursor.
