@@ -270,7 +270,7 @@ pub fn print(self: *Terminal, c: u21) !void {
             var state: unicode.GraphemeBreakState = .{};
             var cp1: u21 = prev.cell.content.codepoint;
             if (prev.cell.hasGrapheme()) {
-                const cps = self.screen.cursor.page_offset.page.data.lookupGrapheme(prev.cell).?;
+                const cps = self.screen.cursor.page_pin.page.data.lookupGrapheme(prev.cell).?;
                 for (cps) |cp2| {
                     // log.debug("cp1={x} cp2={x}", .{ cp1, cp2 });
                     assert(!unicode.graphemeBreak(cp1, cp2, &state));
@@ -342,7 +342,7 @@ pub fn print(self: *Terminal, c: u21) !void {
             }
 
             log.debug("c={x} grapheme attach to left={}", .{ c, prev.left });
-            try self.screen.cursor.page_offset.page.data.appendGrapheme(
+            try self.screen.cursor.page_pin.page.data.appendGrapheme(
                 self.screen.cursor.page_row,
                 prev.cell,
                 c,
@@ -399,7 +399,7 @@ pub fn print(self: *Terminal, c: u21) !void {
             if (!emoji) return;
         }
 
-        try self.screen.cursor.page_offset.page.data.appendGrapheme(
+        try self.screen.cursor.page_pin.page.data.appendGrapheme(
             self.screen.cursor.page_row,
             prev,
             c,
@@ -540,7 +540,7 @@ fn printCell(
 
     // If the prior value had graphemes, clear those
     if (cell.hasGrapheme()) {
-        self.screen.cursor.page_offset.page.data.clearGrapheme(
+        self.screen.cursor.page_pin.page.data.clearGrapheme(
             self.screen.cursor.page_row,
             cell,
         );
@@ -571,7 +571,7 @@ fn printCell(
             // Slow path: we need to lookup this style so we can decrement
             // the ref count. Since we've already loaded everything, we also
             // just go ahead and GC it if it reaches zero, too.
-            var page = &self.screen.cursor.page_offset.page.data;
+            var page = &self.screen.cursor.page_pin.page.data;
             if (page.styles.lookupId(page.memory, prev_style_id)) |prev_style| {
                 // Below upsert can't fail because it should already be present
                 const md = page.styles.upsert(page.memory, prev_style.*) catch unreachable;
@@ -1284,7 +1284,7 @@ pub fn insertLines(self: *Terminal, count: usize) void {
             }
 
             // Left/right scroll margins we have to copy cells, which is much slower...
-            var page = &self.screen.cursor.page_offset.page.data;
+            var page = &self.screen.cursor.page_pin.page.data;
             page.moveCells(
                 src,
                 self.scrolling_region.left,
@@ -1300,7 +1300,7 @@ pub fn insertLines(self: *Terminal, count: usize) void {
         const row: *Row = @ptrCast(top + i);
 
         // Clear the src row.
-        var page = &self.screen.cursor.page_offset.page.data;
+        var page = &self.screen.cursor.page_pin.page.data;
         const cells = page.getCells(row);
         const cells_write = cells[self.scrolling_region.left .. self.scrolling_region.right + 1];
         self.screen.clearCells(page, row, cells_write);
@@ -1378,7 +1378,7 @@ pub fn deleteLines(self: *Terminal, count_req: usize) void {
             }
 
             // Left/right scroll margins we have to copy cells, which is much slower...
-            var page = &self.screen.cursor.page_offset.page.data;
+            var page = &self.screen.cursor.page_pin.page.data;
             page.moveCells(
                 src,
                 self.scrolling_region.left,
@@ -1394,7 +1394,7 @@ pub fn deleteLines(self: *Terminal, count_req: usize) void {
         const row: *Row = @ptrCast(y);
 
         // Clear the src row.
-        var page = &self.screen.cursor.page_offset.page.data;
+        var page = &self.screen.cursor.page_pin.page.data;
         const cells = page.getCells(row);
         const cells_write = cells[self.scrolling_region.left .. self.scrolling_region.right + 1];
         self.screen.clearCells(page, row, cells_write);
@@ -1442,7 +1442,7 @@ pub fn insertBlanks(self: *Terminal, count: usize) void {
 
     // left is just the cursor position but as a multi-pointer
     const left: [*]Cell = @ptrCast(self.screen.cursor.page_cell);
-    var page = &self.screen.cursor.page_offset.page.data;
+    var page = &self.screen.cursor.page_pin.page.data;
 
     // Remaining cols from our cursor to the right margin.
     const rem = self.scrolling_region.right - self.screen.cursor.x + 1;
@@ -1515,7 +1515,7 @@ pub fn deleteChars(self: *Terminal, count: usize) void {
 
     // left is just the cursor position but as a multi-pointer
     const left: [*]Cell = @ptrCast(self.screen.cursor.page_cell);
-    var page = &self.screen.cursor.page_offset.page.data;
+    var page = &self.screen.cursor.page_pin.page.data;
 
     // If our X is a wide spacer tail then we need to erase the
     // previous cell too so we don't split a multi-cell character.
@@ -1609,7 +1609,7 @@ pub fn eraseChars(self: *Terminal, count_req: usize) void {
     // mode was not ISO we also always ignore protection attributes.
     if (self.screen.protected_mode != .iso) {
         self.screen.clearCells(
-            &self.screen.cursor.page_offset.page.data,
+            &self.screen.cursor.page_pin.page.data,
             self.screen.cursor.page_row,
             cells[0..end],
         );
@@ -1624,7 +1624,7 @@ pub fn eraseChars(self: *Terminal, count_req: usize) void {
         const cell: *Cell = @ptrCast(&cell_multi[0]);
         if (cell.protected) continue;
         self.screen.clearCells(
-            &self.screen.cursor.page_offset.page.data,
+            &self.screen.cursor.page_pin.page.data,
             self.screen.cursor.page_row,
             cell_multi[0..1],
         );
@@ -1694,7 +1694,7 @@ pub fn eraseLine(
     // to fill the entire line.
     if (!protected) {
         self.screen.clearCells(
-            &self.screen.cursor.page_offset.page.data,
+            &self.screen.cursor.page_pin.page.data,
             self.screen.cursor.page_row,
             cells[start..end],
         );
@@ -1706,7 +1706,7 @@ pub fn eraseLine(
         const cell: *Cell = @ptrCast(&cell_multi[0]);
         if (cell.protected) continue;
         self.screen.clearCells(
-            &self.screen.cursor.page_offset.page.data,
+            &self.screen.cursor.page_pin.page.data,
             self.screen.cursor.page_row,
             cell_multi[0..1],
         );
@@ -3703,7 +3703,7 @@ test "Terminal: insertLines handles style refs" {
     try t.setAttribute(.{ .unset = {} });
 
     // verify we have styles in our style map
-    const page = t.screen.cursor.page_offset.page.data;
+    const page = t.screen.cursor.page_pin.page.data;
     try testing.expectEqual(@as(usize, 1), page.styles.count(page.memory));
 
     t.setCursorPos(2, 2);
@@ -4378,7 +4378,7 @@ test "Terminal: eraseChars handles refcounted styles" {
     try t.print('C');
 
     // verify we have styles in our style map
-    const page = t.screen.cursor.page_offset.page.data;
+    const page = t.screen.cursor.page_pin.page.data;
     try testing.expectEqual(@as(usize, 1), page.styles.count(page.memory));
 
     t.setCursorPos(1, 1);
@@ -5695,7 +5695,7 @@ test "Terminal: garbage collect overwritten" {
     }
 
     // verify we have no styles in our style map
-    const page = t.screen.cursor.page_offset.page.data;
+    const page = t.screen.cursor.page_pin.page.data;
     try testing.expectEqual(@as(usize, 0), page.styles.count(page.memory));
 }
 
@@ -5717,7 +5717,7 @@ test "Terminal: do not garbage collect old styles in use" {
     }
 
     // verify we have no styles in our style map
-    const page = t.screen.cursor.page_offset.page.data;
+    const page = t.screen.cursor.page_pin.page.data;
     try testing.expectEqual(@as(usize, 1), page.styles.count(page.memory));
 }
 
@@ -6024,7 +6024,7 @@ test "Terminal: insertBlanks deleting graphemes" {
     try t.print(0x1F467);
 
     // We should have one cell with graphemes
-    const page = t.screen.cursor.page_offset.page.data;
+    const page = t.screen.cursor.page_pin.page.data;
     try testing.expectEqual(@as(usize, 1), page.graphemeCount());
 
     t.setCursorPos(1, 1);
@@ -6058,7 +6058,7 @@ test "Terminal: insertBlanks shift graphemes" {
     try t.print(0x1F467);
 
     // We should have one cell with graphemes
-    const page = t.screen.cursor.page_offset.page.data;
+    const page = t.screen.cursor.page_pin.page.data;
     try testing.expectEqual(@as(usize, 1), page.graphemeCount());
 
     t.setCursorPos(1, 1);

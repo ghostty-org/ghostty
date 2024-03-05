@@ -373,20 +373,13 @@ pub const Resize = struct {
     /// be truncated if the new size is smaller than the old size.
     reflow: bool = true,
 
-    /// Set this to a cursor position and the resize will retain the
-    /// cursor position and update this so that the cursor remains over
-    /// the same original cell in the reflowed environment.
-    cursor: ?*Cursor = null,
+    /// Set this to the current cursor position in the active area. Some
+    /// resize/reflow behavior depends on the cursor position.
+    cursor: ?Cursor = null,
 
     pub const Cursor = struct {
         x: size.CellCountInt,
         y: size.CellCountInt,
-
-        /// The row offset of the cursor. This is assumed to be correct
-        /// if set. If this is not set, then the row offset will be
-        /// calculated from the x/y. Calculating the row offset is expensive
-        /// so if you have it, you should set it.
-        offset: ?RowOffset = null,
     };
 };
 
@@ -405,7 +398,7 @@ pub fn resize(self: *PageList, opts: Resize) !void {
         .gt => {
             // We grow rows after cols so that we can do our unwrapping/reflow
             // before we do a no-reflow grow.
-            try self.resizeCols(cols, opts.cursor);
+            try self.resizeCols(cols);
             try self.resizeWithoutReflow(opts);
         },
 
@@ -418,7 +411,7 @@ pub fn resize(self: *PageList, opts: Resize) !void {
                 break :opts copy;
             });
 
-            try self.resizeCols(cols, opts.cursor);
+            try self.resizeCols(cols);
         },
     }
 }
@@ -427,26 +420,11 @@ pub fn resize(self: *PageList, opts: Resize) !void {
 fn resizeCols(
     self: *PageList,
     cols: size.CellCountInt,
-    cursor: ?*Resize.Cursor,
 ) !void {
     assert(cols != self.cols);
 
     // Our new capacity, ensure we can fit the cols
     const cap = try std_capacity.adjust(.{ .cols = cols });
-
-    // If we are given a cursor, we need to calculate the row offset.
-    if (cursor) |c| {
-        if (c.offset == null) {
-            const tl = self.getTopLeft(.active);
-            c.offset = tl.forward(c.y) orelse fail: {
-                // This should never happen, but its not critical enough to
-                // set an assertion and fail the program. The caller should ALWAYS
-                // input a valid x/y..
-                log.err("cursor offset not found, resize will set wrong cursor", .{});
-                break :fail null;
-            };
-        }
-    }
 
     // Go page by page and shrink the columns on a per-page basis.
     var it = self.pageIterator(.{ .screen = .{} }, null);
@@ -462,7 +440,7 @@ fn resizeCols(
                 if (row.wrap) break :wrapped true;
             } else false;
             if (!wrapped) {
-                try self.resizeWithoutReflowGrowCols(cap, chunk, cursor);
+                try self.resizeWithoutReflowGrowCols(cap, chunk);
                 continue;
             }
         }
@@ -470,7 +448,7 @@ fn resizeCols(
         // Note: we can do a fast-path here if all of our rows in this
         // page already fit within the new capacity. In that case we can
         // do a non-reflow resize.
-        try self.reflowPage(cap, chunk.page, cursor);
+        try self.reflowPage(cap, chunk.page);
     }
 
     // If our total rows is less than our active rows, we need to grow.
@@ -483,50 +461,6 @@ fn resizeCols(
         if (total >= self.rows) break;
     } else {
         for (total..self.rows) |_| _ = try self.grow();
-    }
-
-    // If we have a cursor, we need to update the correct y value. I'm
-    // not at all happy about this, I wish we could do this in a more
-    // efficient way as we resize the pages. But at the time of typing this
-    // I can't think of a way and I'd rather get things working. Someone please
-    // help!
-    //
-    // The challenge is that as rows are unwrapped, we want to preserve the
-    // cursor. So for examle if you have "A\nB" where AB is soft-wrapped and
-    // the cursor is on 'B' (x=0, y=1) and you grow the columns, we want
-    // the cursor to remain on B (x=1, y=0) as it grows.
-    //
-    // The easy thing to do would be to count how many rows we unwrapped
-    // and then subtract that from the original y. That's how I started. The
-    // challenge is that if we unwrap with scrollback, our scrollback is
-    // "pulled down" so that the original (x=0,y=0) line is now pushed down.
-    // Detecting this while resizing seems non-obvious. This is a tested case
-    // so if you change this logic, you should see failures or passes if it
-    // works.
-    //
-    // The approach I take instead is if we have a cursor offset, I work
-    // backwards to find the offset we marked while reflowing and update
-    // the y from that. This is _not terrible_ because active areas are
-    // generally small and this is a more or less linear search. Its just
-    // kind of clunky.
-    if (cursor) |c| cursor: {
-        const offset = c.offset orelse break :cursor;
-        var active_it = self.rowIterator(.{ .active = .{} }, null);
-        var y: size.CellCountInt = 0;
-        while (active_it.next()) |it_offset| {
-            if (it_offset.page == offset.page and
-                it_offset.row_offset == offset.row_offset)
-            {
-                c.y = y;
-                break :cursor;
-            }
-
-            y += 1;
-        } else {
-            // Cursor moved off the screen into the scrollback.
-            c.x = 0;
-            c.y = 0;
-        }
     }
 
     // Update our cols
@@ -659,7 +593,6 @@ fn reflowPage(
     self: *PageList,
     cap: Capacity,
     node: *List.Node,
-    cursor: ?*Resize.Cursor,
 ) !void {
     // The cursor tracks where we are in the source page.
     var src_cursor = ReflowCursor.init(&node.data);
@@ -742,7 +675,7 @@ fn reflowPage(
                     src_cursor.page_cell.wide == .wide and
                     dst_cursor.x == cap.cols - 1)
                 {
-                    self.reflowUpdateCursor(cursor, &src_cursor, &dst_cursor, dst_node);
+                    self.reflowUpdateCursor(&src_cursor, &dst_cursor, dst_node);
 
                     dst_cursor.page_cell.* = .{
                         .content_tag = .codepoint,
@@ -758,7 +691,7 @@ fn reflowPage(
                     src_cursor.page_cell.wide == .spacer_head and
                     dst_cursor.x != cap.cols - 1)
                 {
-                    self.reflowUpdateCursor(cursor, &src_cursor, &dst_cursor, dst_node);
+                    self.reflowUpdateCursor(&src_cursor, &dst_cursor, dst_node);
                     src_cursor.cursorForward();
                     continue;
                 }
@@ -846,7 +779,7 @@ fn reflowPage(
 
                 // If our original cursor was on this page, this x/y then
                 // we need to update to the new location.
-                self.reflowUpdateCursor(cursor, &src_cursor, &dst_cursor, dst_node);
+                self.reflowUpdateCursor(&src_cursor, &dst_cursor, dst_node);
 
                 // Move both our cursors forward
                 src_cursor.cursorForward();
@@ -870,22 +803,6 @@ fn reflowPage(
                     p.page = dst_node;
                     p.y = dst_cursor.y;
                 }
-
-                // If we have no cursor, nothing to update.
-                const c = cursor orelse break :cursor;
-                const offset = c.offset orelse break :cursor;
-
-                // If our cursor is on this page, and our x is greater than
-                // our end, we update to the edge.
-                if (&offset.page.data == src_cursor.page and
-                    offset.row_offset == src_cursor.y and
-                    c.x >= cols_len)
-                {
-                    c.offset = .{
-                        .page = dst_node,
-                        .row_offset = dst_cursor.y,
-                    };
-                }
             }
         } else {
             // We made it through all our source rows, we're done.
@@ -903,7 +820,6 @@ fn reflowPage(
 /// x/y (see resizeCols).
 fn reflowUpdateCursor(
     self: *const PageList,
-    cursor: ?*Resize.Cursor,
     src_cursor: *const ReflowCursor,
     dst_cursor: *const ReflowCursor,
     dst_node: *List.Node,
@@ -920,42 +836,6 @@ fn reflowUpdateCursor(
         p.x = dst_cursor.x;
         p.y = dst_cursor.y;
     }
-
-    const c = cursor orelse return;
-
-    // If our original cursor was on this page, this x/y then
-    // we need to update to the new location.
-    const offset = c.offset orelse return;
-    if (&offset.page.data != src_cursor.page or
-        offset.row_offset != src_cursor.y or
-        c.x != src_cursor.x) return;
-
-    // std.log.warn("c.x={} c.y={} dst_x={} dst_y={} src_y={}", .{
-    //     c.x,
-    //     c.y,
-    //     dst_cursor.x,
-    //     dst_cursor.y,
-    //     src_cursor.y,
-    // });
-
-    // Column always matches our dst x
-    c.x = dst_cursor.x;
-
-    // Our y is more complicated. The cursor y is the active
-    // area y, not the row offset. Our cursors are row offsets.
-    // Instead of calculating the active area coord, we can
-    // better calculate the CHANGE in coordinate by subtracting
-    // our dst from src which will calculate how many rows
-    // we unwrapped to get here.
-    //
-    // Note this doesn't handle when we pull down scrollback.
-    // See the cursor updates in resizeGrowCols for that.
-    //c.y -|= src_cursor.y - dst_cursor.y;
-
-    c.offset = .{
-        .page = dst_node,
-        .row_offset = dst_cursor.y,
-    };
 }
 
 fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
@@ -975,15 +855,7 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
                 // behavior because it seemed fine in an ocean of differing behavior
                 // between terminal apps. I'm completely open to changing it as long
                 // as resize behavior isn't regressed in a user-hostile way.
-                const trimmed = self.trimTrailingBlankRows(self.rows - rows);
-
-                // If we have a cursor, we want to preserve the y value as
-                // best we can. We need to subtract the number of rows that
-                // moved into the scrollback.
-                if (opts.cursor) |cursor| {
-                    const scrollback = self.rows - rows - trimmed;
-                    cursor.y -|= scrollback;
-                }
+                _ = self.trimTrailingBlankRows(self.rows - rows);
 
                 // If we didn't trim enough, just modify our row count and this
                 // will create additional history.
@@ -1025,12 +897,6 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
                     for (count..rows) |_| _ = try self.grow();
                 }
 
-                // Update our cursor. W
-                if (opts.cursor) |cursor| {
-                    const grow_len: size.CellCountInt = @intCast(rows -| count);
-                    cursor.y += rows - self.rows - grow_len;
-                }
-
                 self.rows = rows;
             },
         }
@@ -1057,9 +923,12 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
                     page.size.cols = cols;
                 }
 
-                if (opts.cursor) |cursor| {
-                    // If our cursor is off the edge we trimmed, update to edge
-                    if (cursor.x >= cols) cursor.x = cols - 1;
+                // Update all our tracked pins. If they have an X
+                // beyond the edge, clamp it.
+                var pin_it = self.tracked_pins.keyIterator();
+                while (pin_it.next()) |p_ptr| {
+                    const p = p_ptr.*;
+                    if (p.x >= cols) p.x = cols - 1;
                 }
 
                 self.cols = cols;
@@ -1073,7 +942,7 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
 
                 var it = self.pageIterator(.{ .screen = .{} }, null);
                 while (it.next()) |chunk| {
-                    try self.resizeWithoutReflowGrowCols(cap, chunk, opts.cursor);
+                    try self.resizeWithoutReflowGrowCols(cap, chunk);
                 }
 
                 self.cols = cols;
@@ -1086,7 +955,6 @@ fn resizeWithoutReflowGrowCols(
     self: *PageList,
     cap: Capacity,
     chunk: PageIterator.Chunk,
-    cursor: ?*Resize.Cursor,
 ) !void {
     assert(cap.cols > self.cols);
     const page = &chunk.page.data;
@@ -1138,19 +1006,15 @@ fn resizeWithoutReflowGrowCols(
         // Insert our new page
         self.pages.insertBefore(chunk.page, new_page);
 
-        // If we have a cursor, we need to update the row offset if it
-        // matches what we just copied.
-        if (cursor) |c| cursor: {
-            const offset = c.offset orelse break :cursor;
-            if (offset.page == chunk.page and
-                offset.row_offset >= y_start and
-                offset.row_offset < y_end)
-            {
-                c.offset = .{
-                    .page = new_page,
-                    .row_offset = offset.row_offset - y_start,
-                };
-            }
+        // Update our tracked pins that pointed to this previous page.
+        var pin_it = self.tracked_pins.keyIterator();
+        while (pin_it.next()) |p_ptr| {
+            const p = p_ptr.*;
+            if (p.page != chunk.page or
+                p.y < y_start or
+                p.y >= y_end) continue;
+            p.page = new_page;
+            p.y -= y_start;
         }
     }
     assert(copied == page.size.rows);
@@ -1921,6 +1785,14 @@ pub const Pin = struct {
     y: usize = 0,
     x: usize = 0,
 
+    pub fn rowAndCell(self: Pin) struct {
+        row: *pagepkg.Row,
+        cell: *pagepkg.Cell,
+    } {
+        const rac = self.page.data.getRowAndCell(self.x, self.y);
+        return .{ .row = rac.row, .cell = rac.cell };
+    }
+
     /// Move the pin down a certain number of rows, or return null if
     /// the pin goes beyond the end of the screen.
     pub fn down(self: Pin, n: usize) ?Pin {
@@ -1953,6 +1825,7 @@ pub const Pin = struct {
         if (n <= rows) return .{ .offset = .{
             .page = self.page,
             .y = n + self.y,
+            .x = self.x,
         } };
 
         // Need to traverse page links to find the page
@@ -1960,12 +1833,17 @@ pub const Pin = struct {
         var n_left: usize = n - rows;
         while (true) {
             page = page.next orelse return .{ .overflow = .{
-                .end = .{ .page = page, .y = page.data.size.rows - 1 },
+                .end = .{
+                    .page = page,
+                    .y = page.data.size.rows - 1,
+                    .x = self.x,
+                },
                 .remaining = n_left,
             } };
             if (n_left <= page.data.size.rows) return .{ .offset = .{
                 .page = page,
                 .y = n_left - 1,
+                .x = self.x,
             } };
             n_left -= page.data.size.rows;
         }
@@ -1984,6 +1862,7 @@ pub const Pin = struct {
         if (n <= self.y) return .{ .offset = .{
             .page = self.page,
             .y = self.y - n,
+            .x = self.x,
         } };
 
         // Need to traverse page links to find the page
@@ -1991,12 +1870,13 @@ pub const Pin = struct {
         var n_left: usize = n - self.y;
         while (true) {
             page = page.prev orelse return .{ .overflow = .{
-                .end = .{ .page = page, .y = 0 },
+                .end = .{ .page = page, .y = 0, .x = self.x },
                 .remaining = n_left,
             } };
             if (n_left <= page.data.size.rows) return .{ .offset = .{
                 .page = page,
                 .y = page.data.size.rows - n_left,
+                .x = self.x,
             } };
             n_left -= page.data.size.rows;
         }
@@ -3054,6 +2934,58 @@ test "PageList resize (no reflow) less rows" {
     }
 }
 
+test "PageList resize (no reflow) less rows cursor on bottom" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 10, 0);
+    defer s.deinit();
+    try testing.expectEqual(@as(usize, 10), s.totalRows());
+
+    // This is required for our writing below to work
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+
+    // Write into all rows so we don't get trim behavior
+    for (0..s.rows) |y| {
+        const rac = page.getRowAndCell(0, y);
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = @intCast(y) },
+        };
+    }
+
+    // Put a tracked pin in the history
+    const p = try s.trackPin(s.pin(.{ .active = .{ .x = 0, .y = 9 } }).?);
+    defer s.untrackPin(p);
+    {
+        const cursor = s.pointFromPin(.active, p.*).?.active;
+        const get = s.getCell(.{ .active = .{
+            .x = cursor.x,
+            .y = cursor.y,
+        } }).?;
+        try testing.expectEqual(@as(u21, 9), get.cell.content.codepoint);
+    }
+
+    // Resize
+    try s.resize(.{ .rows = 5, .reflow = false });
+    try testing.expectEqual(@as(usize, 5), s.rows);
+    try testing.expectEqual(@as(usize, 10), s.totalRows());
+
+    // Our cursor should move since it's in the scrollback
+    try testing.expectEqual(point.Point{ .active = .{
+        .x = 0,
+        .y = 4,
+    } }, s.pointFromPin(.active, p.*).?);
+
+    {
+        const pt = s.getCell(.{ .active = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 5,
+        } }, pt);
+    }
+}
 test "PageList resize (no reflow) less rows cursor in scrollback" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -3225,6 +3157,35 @@ test "PageList resize (no reflow) less cols" {
         const cells = offset.page.data.getCells(rac.row);
         try testing.expectEqual(@as(usize, 5), cells.len);
     }
+}
+
+test "PageList resize (no reflow) less cols pin in trimmed cols" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 10, 0);
+    defer s.deinit();
+
+    // Put a tracked pin in the history
+    const p = try s.trackPin(s.pin(.{ .active = .{ .x = 8, .y = 2 } }).?);
+    defer s.untrackPin(p);
+
+    // Resize
+    try s.resize(.{ .cols = 5, .reflow = false });
+    try testing.expectEqual(@as(usize, 5), s.cols);
+    try testing.expectEqual(@as(usize, 10), s.totalRows());
+
+    var it = s.rowIterator(.{ .screen = .{} }, null);
+    while (it.next()) |offset| {
+        const rac = offset.rowAndCell(0);
+        const cells = offset.page.data.getCells(rac.row);
+        try testing.expectEqual(@as(usize, 5), cells.len);
+    }
+
+    try testing.expectEqual(point.Point{ .active = .{
+        .x = 4,
+        .y = 2,
+    } }, s.pointFromPin(.active, p.*).?);
 }
 
 test "PageList resize (no reflow) less cols clears graphemes" {
@@ -3431,9 +3392,6 @@ test "PageList resize (no reflow) more rows adds blank rows if cursor at bottom"
         } }, pt);
     }
 
-    // Let's say our cursor is at the bottom
-    var cursor: Resize.Cursor = .{ .x = 0, .y = s.rows - 2 };
-
     // Put a tracked pin in the history
     const p = try s.trackPin(s.pin(.{ .active = .{ .x = 0, .y = s.rows - 2 } }).?);
     defer s.untrackPin(p);
@@ -3447,7 +3405,11 @@ test "PageList resize (no reflow) more rows adds blank rows if cursor at bottom"
     }
 
     // Resize
-    try s.resizeWithoutReflow(.{ .rows = 10, .reflow = false, .cursor = &cursor });
+    try s.resizeWithoutReflow(.{
+        .rows = 10,
+        .reflow = false,
+        .cursor = .{ .x = 0, .y = s.rows - 2 },
+    });
     try testing.expectEqual(@as(usize, 5), s.cols);
     try testing.expectEqual(@as(usize, 10), s.rows);
 
@@ -4338,17 +4300,20 @@ test "PageList resize reflow less cols cursor in final blank cell" {
         }
     }
 
-    // Set our cursor to be in the final cell of our resized
-    var cursor: Resize.Cursor = .{ .x = 3, .y = 0 };
+    // Put a tracked pin in the history
+    const p = try s.trackPin(s.pin(.{ .active = .{ .x = 3, .y = 0 } }).?);
+    defer s.untrackPin(p);
 
     // Resize
-    try s.resize(.{ .cols = 4, .reflow = true, .cursor = &cursor });
+    try s.resize(.{ .cols = 4, .reflow = true });
     try testing.expectEqual(@as(usize, 4), s.cols);
     try testing.expectEqual(@as(usize, 2), s.totalRows());
 
     // Our cursor should move to the first row
-    try testing.expectEqual(@as(size.CellCountInt, 3), cursor.x);
-    try testing.expectEqual(@as(size.CellCountInt, 0), cursor.y);
+    try testing.expectEqual(point.Point{ .active = .{
+        .x = 3,
+        .y = 0,
+    } }, s.pointFromPin(.active, p.*).?);
 }
 
 test "PageList resize reflow less cols blank lines" {
