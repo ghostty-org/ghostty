@@ -141,10 +141,10 @@ pub const Viewport = union(enum) {
     /// back in the scrollback history.
     top,
 
-    /// The viewport is pinned to an exact row offset. If this page is
-    /// deleted (i.e. due to pruning scrollback), then the viewport will
-    /// stick to the top.
-    exact: RowOffset,
+    /// The viewport is pinned to a tracked pin. The tracked pin is ALWAYS
+    /// s.viewport_pin hence this has no value. We force that value to prevent
+    /// allocations.
+    pin,
 };
 
 /// Initialize the page. The top of the first page in the list is always the
@@ -208,6 +208,12 @@ pub fn init(
         PagePool.item_size * 2,
     );
 
+    // We always track our viewport pin to ensure this is never an allocation
+    const viewport_pin = try pool.pins.create();
+    var tracked_pins: PinSet = .{};
+    errdefer tracked_pins.deinit(pool.alloc);
+    try tracked_pins.putNoClobber(pool.alloc, viewport_pin, {});
+
     return .{
         .cols = cols,
         .rows = rows,
@@ -216,9 +222,9 @@ pub fn init(
         .pages = page_list,
         .page_size = page_size,
         .max_size = max_size_actual,
-        .tracked_pins = .{},
+        .tracked_pins = tracked_pins,
         .viewport = .{ .active = {} },
-        .viewport_pin = try pool.pins.create(),
+        .viewport_pin = viewport_pin,
     };
 }
 
@@ -357,32 +363,28 @@ pub fn clonePool(
     return result;
 }
 
-/// Returns the viewport for the given offset, prefering to pin to
-/// "active" if the offset is within the active area.
-fn viewportForOffset(self: *const PageList, offset: RowOffset) Viewport {
-    // If the offset is on the active page, then we pin to active
-    // if our row idx is beyond the active row idx.
-    const active = self.getTopLeft(.active);
-    if (offset.page == active.page) {
-        if (offset.row_offset >= active.row_offset) {
-            return .{ .active = {} };
-        }
-    } else {
-        var page_ = active.page.next;
-        while (page_) |page| {
-            // This loop is pretty fast because the active area is
-            // never that large so this is at most one, two pages for
-            // reasonable terminals (including very large real world
-            // ones).
+/// Returns the viewport for the given pin, prefering to pin to
+/// "active" if the pin is within the active area.
+fn pinIsActive(self: *const PageList, p: Pin) bool {
+    // If the pin is in the active page, then we can quickly determine
+    // if we're beyond the end.
+    const active = self.getTopLeft2(.active);
+    if (p.page == active.page) return p.y >= active.y;
 
-            // A page forward in the active area is our page, so we're
-            // definitely in the active area.
-            if (page == offset.page) return .{ .active = {} };
-            page_ = page.next;
-        }
+    var page_ = active.page.next;
+    while (page_) |page| {
+        // This loop is pretty fast because the active area is
+        // never that large so this is at most one, two pages for
+        // reasonable terminals (including very large real world
+        // ones).
+
+        // A page forward in the active area is our page, so we're
+        // definitely in the active area.
+        if (page == p.page) return true;
+        page_ = page.next;
     }
 
-    return .{ .exact = offset };
+    return false;
 }
 
 /// Resize options
@@ -1245,11 +1247,11 @@ pub fn scroll(self: *PageList, behavior: Scroll) void {
         .delta_row => |n| {
             if (n == 0) return;
 
-            const top = self.getTopLeft(.viewport);
-            const offset: RowOffset = if (n < 0) switch (top.backwardOverflow(@intCast(-n))) {
+            const top = self.getTopLeft2(.viewport);
+            const p: Pin = if (n < 0) switch (top.upOverflow(@intCast(-n))) {
                 .offset => |v| v,
                 .overflow => |v| v.end,
-            } else switch (top.forwardOverflow(@intCast(n))) {
+            } else switch (top.downOverflow(@intCast(n))) {
                 .offset => |v| v,
                 .overflow => |v| v.end,
             };
@@ -1261,7 +1263,14 @@ pub fn scroll(self: *PageList, behavior: Scroll) void {
             // But in a terminal when you get to the bottom and back into the
             // active area, you usually expect that the viewport will now
             // follow the active area.
-            self.viewport = self.viewportForOffset(offset);
+            if (self.pinIsActive(p)) {
+                self.viewport = .{ .active = {} };
+                return;
+            }
+
+            // Pin is not active so we need to track it.
+            self.viewport_pin.* = p;
+            self.viewport = .{ .pin = {} };
         },
     }
 }
@@ -1438,16 +1447,6 @@ pub fn eraseRows(
             }
         }
 
-        // If our viewport is on this page and the offset is beyond
-        // our new end, shift it.
-        switch (self.viewport) {
-            .top, .active => {},
-            .exact => |*offset| exact: {
-                if (offset.page != chunk.page) break :exact;
-                offset.row_offset -|= scroll_amount;
-            },
-        }
-
         // Our new size is the amount we scrolled
         chunk.page.data.size.rows = @intCast(scroll_amount);
         erased += chunk.end;
@@ -1466,20 +1465,20 @@ pub fn eraseRows(
         };
     }
 
-    // If we have an exact viewport, we need to adjust for active area.
+    // If we have a pinned viewport, we need to adjust for active area.
     switch (self.viewport) {
         .active => {},
 
-        .exact => |offset| self.viewport = self.viewportForOffset(offset),
+        // For pin, we check if our pin is now in the active area and if so
+        // we move our viewport back to the active area.
+        .pin => if (self.pinIsActive(self.viewport_pin.*)) {
+            self.viewport = .{ .active = {} };
+        },
 
         // For top, we move back to active if our erasing moved our
         // top page into the active area.
-        .top => {
-            const vp = self.viewportForOffset(.{
-                .page = self.pages.first.?,
-                .row_offset = 0,
-            });
-            if (vp == .active) self.viewport = vp;
+        .top => if (self.pinIsActive(.{ .page = self.pages.first.? })) {
+            self.viewport = .{ .active = {} };
         },
     }
 }
@@ -1498,20 +1497,6 @@ fn erasePage(self: *PageList, page: *List.Node) void {
         p.page = page.next orelse page.prev orelse unreachable;
         p.y = 0;
         p.x = 0;
-    }
-
-    // If our viewport is pinned to this page, then we need to update it.
-    switch (self.viewport) {
-        .top, .active => {},
-        .exact => |*offset| {
-            if (offset.page == page) {
-                if (page.next) |next| {
-                    offset.page = next;
-                } else {
-                    self.viewport = .{ .active = {} };
-                }
-            }
-        },
     }
 
     // Remove the page from the linked list
@@ -1548,6 +1533,7 @@ pub fn trackPin(self: *PageList, p: Pin) !*Pin {
 
 /// Untrack a previously tracked pin. This will deallocate the pin.
 pub fn untrackPin(self: *PageList, p: *Pin) void {
+    assert(p != self.viewport_pin);
     if (self.tracked_pins.remove(p)) {
         self.pool.pins.destroy(p);
     }
@@ -1755,7 +1741,7 @@ fn getTopLeft(self: *const PageList, tag: point.Tag) RowOffset {
         .viewport => switch (self.viewport) {
             .active => self.getTopLeft(.active),
             .top => self.getTopLeft(.screen),
-            .exact => |v| v,
+            .pin => .{ .page = self.viewport_pin.page, .row_offset = self.viewport_pin.y },
         },
 
         // The active area is calculated backwards from the last page.
@@ -1787,7 +1773,7 @@ fn getTopLeft2(self: *const PageList, tag: point.Tag) Pin {
         .viewport => switch (self.viewport) {
             .active => self.getTopLeft2(.active),
             .top => self.getTopLeft2(.screen),
-            .exact => |v| .{ .page = v.page, .y = v.row_offset },
+            .pin => self.viewport_pin.*,
         },
 
         // The active area is calculated backwards from the last page.
@@ -2647,7 +2633,8 @@ test "PageList erase resets viewport to active if moves within active" {
 
     // Move our viewport to the top
     s.scroll(.{ .delta_row = -@as(isize, @intCast(s.totalRows())) });
-    try testing.expect(s.viewport.exact.page == s.pages.first.?);
+    try testing.expect(s.viewport == .pin);
+    try testing.expect(s.viewport_pin.page == s.pages.first.?);
 
     // Erase the entire history, we should be back to just our active set.
     s.eraseRows(.{ .history = .{} }, null);
@@ -2669,11 +2656,13 @@ test "PageList erase resets viewport if inside erased page but not active" {
 
     // Move our viewport to the top
     s.scroll(.{ .delta_row = -@as(isize, @intCast(s.totalRows())) });
-    try testing.expect(s.viewport.exact.page == s.pages.first.?);
+    try testing.expect(s.viewport == .pin);
+    try testing.expect(s.viewport_pin.page == s.pages.first.?);
 
     // Erase the entire history, we should be back to just our active set.
     s.eraseRows(.{ .history = .{} }, .{ .history = .{ .y = 2 } });
-    try testing.expect(s.viewport.exact.page == s.pages.first.?);
+    try testing.expect(s.viewport == .pin);
+    try testing.expect(s.viewport_pin.page == s.pages.first.?);
 }
 
 test "PageList erase resets viewport to active if top is inside active" {
