@@ -854,7 +854,7 @@ pub fn dumpString(
 
     var iter = self.pages.rowIterator(tl, null);
     while (iter.next()) |row_offset| {
-        const rac = row_offset.rowAndCell(0);
+        const rac = row_offset.rowAndCell();
         const cells = cells: {
             const cells: [*]pagepkg.Cell = @ptrCast(rac.cell);
             break :cells cells[0..self.pages.cols];

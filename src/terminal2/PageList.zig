@@ -1113,7 +1113,7 @@ pub fn scroll(self: *PageList, behavior: Scroll) void {
         .delta_row => |n| {
             if (n == 0) return;
 
-            const top = self.getTopLeft2(.viewport);
+            const top = self.getTopLeft(.viewport);
             const p: Pin = if (n < 0) switch (top.upOverflow(@intCast(-n))) {
                 .offset => |v| v,
                 .overflow => |v| v.end,
@@ -1373,7 +1373,7 @@ fn erasePage(self: *PageList, page: *List.Node) void {
 /// Returns the pin for the given point. The pin is NOT tracked so it
 /// is only valid as long as the pagelist isn't modified.
 pub fn pin(self: *const PageList, pt: point.Point) ?Pin {
-    var p = self.getTopLeft2(pt).down(pt.coord().y) orelse return null;
+    var p = self.getTopLeft(pt).down(pt.coord().y) orelse return null;
     p.x = pt.coord().x;
     return p;
 }
@@ -1410,7 +1410,7 @@ pub fn untrackPin(self: *PageList, p: *Pin) void {
 fn pinIsActive(self: *const PageList, p: Pin) bool {
     // If the pin is in the active page, then we can quickly determine
     // if we're beyond the end.
-    const active = self.getTopLeft2(.active);
+    const active = self.getTopLeft(.active);
     if (p.page == active.page) return p.y >= active.y;
 
     var page_ = active.page.next;
@@ -1439,7 +1439,7 @@ fn pinIsActive(self: *const PageList, p: Pin) bool {
 ///
 /// Therefore, this is recommended only very rarely.
 pub fn pointFromPin(self: *const PageList, tag: point.Tag, p: Pin) ?point.Point {
-    const tl = self.getTopLeft2(tag);
+    const tl = self.getTopLeft(tag);
 
     // Count our first page which is special because it may be partial.
     var coord: point.Point.Coordinate = .{ .x = p.x };
@@ -1493,9 +1493,9 @@ pub const RowIterator = struct {
     chunk: ?PageIterator.Chunk = null,
     offset: usize = 0,
 
-    pub fn next(self: *RowIterator) ?RowOffset {
+    pub fn next(self: *RowIterator) ?Pin {
         const chunk = self.chunk orelse return null;
-        const row: RowOffset = .{ .page = chunk.page, .row_offset = self.offset };
+        const row: Pin = .{ .page = chunk.page, .y = self.offset };
 
         // Increase our offset in the chunk
         self.offset += 1;
@@ -1526,13 +1526,13 @@ pub fn rowIterator(
 }
 
 pub const PageIterator = struct {
-    row: ?RowOffset = null,
+    row: ?Pin = null,
     limit: Limit = .none,
 
     const Limit = union(enum) {
         none,
         count: usize,
-        row: RowOffset,
+        row: Pin,
     };
 
     pub fn next(self: *PageIterator) ?Chunk {
@@ -1550,16 +1550,16 @@ pub const PageIterator = struct {
 
                 break :none .{
                     .page = row.page,
-                    .start = row.row_offset,
+                    .start = row.y,
                     .end = row.page.data.size.rows,
                 };
             },
 
             .count => |*limit| count: {
                 assert(limit.* > 0); // should be handled already
-                const len = @min(row.page.data.size.rows - row.row_offset, limit.*);
+                const len = @min(row.page.data.size.rows - row.y, limit.*);
                 if (len > limit.*) {
-                    self.row = row.forward(len);
+                    self.row = row.down(len);
                     limit.* -= len;
                 } else {
                     self.row = null;
@@ -1567,8 +1567,8 @@ pub const PageIterator = struct {
 
                 break :count .{
                     .page = row.page,
-                    .start = row.row_offset,
-                    .end = row.row_offset + len,
+                    .start = row.y,
+                    .end = row.y + len,
                 };
             },
 
@@ -1583,7 +1583,7 @@ pub const PageIterator = struct {
 
                     break :row .{
                         .page = row.page,
-                        .start = row.row_offset,
+                        .start = row.y,
                         .end = row.page.data.size.rows,
                     };
                 }
@@ -1591,11 +1591,11 @@ pub const PageIterator = struct {
                 // If this is the same page then we only consume up to
                 // the limit row.
                 self.row = null;
-                if (row.row_offset > limit_row.row_offset) return null;
+                if (row.y > limit_row.y) return null;
                 break :row .{
                     .page = row.page,
-                    .start = row.row_offset,
-                    .end = limit_row.row_offset + 1,
+                    .start = row.y,
+                    .end = limit_row.y + 1,
                 };
             },
         };
@@ -1641,7 +1641,7 @@ pub fn pageIterator(
     const limit: PageIterator.Limit = limit: {
         if (bl_pt) |pt| {
             const bl = self.getTopLeft(pt);
-            break :limit .{ .row = bl.forward(pt.coord().y).? };
+            break :limit .{ .row = bl.down(pt.coord().y).? };
         }
 
         break :limit switch (tl_pt) {
@@ -1655,18 +1655,18 @@ pub fn pageIterator(
             // to calculate but also more rare of a thing to iterate over.
             .history => history: {
                 const active_tl = self.getTopLeft(.active);
-                const history_bot = active_tl.backward(1) orelse
+                const history_bot = active_tl.up(1) orelse
                     return .{ .row = null };
                 break :history .{ .row = history_bot };
             },
         };
     };
 
-    return .{ .row = tl.forward(tl_pt.coord().y), .limit = limit };
+    return .{ .row = tl.down(tl_pt.coord().y), .limit = limit };
 }
 
 /// Get the top-left of the screen for the given tag.
-fn getTopLeft(self: *const PageList, tag: point.Tag) RowOffset {
+fn getTopLeft(self: *const PageList, tag: point.Tag) Pin {
     return switch (tag) {
         // The full screen or history is always just the first page.
         .screen, .history => .{ .page = self.pages.first.? },
@@ -1674,38 +1674,6 @@ fn getTopLeft(self: *const PageList, tag: point.Tag) RowOffset {
         .viewport => switch (self.viewport) {
             .active => self.getTopLeft(.active),
             .top => self.getTopLeft(.screen),
-            .pin => .{ .page = self.viewport_pin.page, .row_offset = self.viewport_pin.y },
-        },
-
-        // The active area is calculated backwards from the last page.
-        // This makes getting the active top left slower but makes scrolling
-        // much faster because we don't need to update the top left. Under
-        // heavy load this makes a measurable difference.
-        .active => active: {
-            var page = self.pages.last.?;
-            var rem = self.rows;
-            while (rem > page.data.size.rows) {
-                rem -= page.data.size.rows;
-                page = page.prev.?; // assertion: we always have enough rows for active
-            }
-
-            break :active .{
-                .page = page,
-                .row_offset = page.data.size.rows - rem,
-            };
-        },
-    };
-}
-
-/// Get the top-left of the screen for the given tag.
-fn getTopLeft2(self: *const PageList, tag: point.Tag) Pin {
-    return switch (tag) {
-        // The full screen or history is always just the first page.
-        .screen, .history => .{ .page = self.pages.first.? },
-
-        .viewport => switch (self.viewport) {
-            .active => self.getTopLeft2(.active),
-            .top => self.getTopLeft2(.screen),
             .pin => self.viewport_pin.*,
         },
 
@@ -1883,110 +1851,6 @@ pub const Pin = struct {
     }
 };
 
-/// Represents some y coordinate within the screen. Since pages can
-/// be split at any row boundary, getting some Y-coordinate within
-/// any part of the screen may map to a different page and row offset
-/// than the original y-coordinate. This struct represents that mapping.
-pub const RowOffset = struct {
-    page: *List.Node,
-    row_offset: usize = 0,
-
-    pub fn eql(self: RowOffset, other: RowOffset) bool {
-        return self.page == other.page and self.row_offset == other.row_offset;
-    }
-
-    pub fn rowAndCell(self: RowOffset, x: usize) struct {
-        row: *pagepkg.Row,
-        cell: *pagepkg.Cell,
-    } {
-        const rac = self.page.data.getRowAndCell(x, self.row_offset);
-        return .{ .row = rac.row, .cell = rac.cell };
-    }
-
-    /// Get the row at the given row index from this Topleft. This
-    /// may require traversing into the next page if the row index
-    /// is greater than the number of rows in this page.
-    ///
-    /// This will return null if the row index is out of bounds.
-    pub fn forward(self: RowOffset, idx: usize) ?RowOffset {
-        return switch (self.forwardOverflow(idx)) {
-            .offset => |v| v,
-            .overflow => null,
-        };
-    }
-
-    /// TODO: docs
-    pub fn backward(self: RowOffset, idx: usize) ?RowOffset {
-        return switch (self.backwardOverflow(idx)) {
-            .offset => |v| v,
-            .overflow => null,
-        };
-    }
-
-    /// Move the offset forward n rows. If the offset goes beyond the
-    /// end of the screen, return the overflow amount.
-    fn forwardOverflow(self: RowOffset, n: usize) union(enum) {
-        offset: RowOffset,
-        overflow: struct {
-            end: RowOffset,
-            remaining: usize,
-        },
-    } {
-        // Index fits within this page
-        const rows = self.page.data.size.rows - (self.row_offset + 1);
-        if (n <= rows) return .{ .offset = .{
-            .page = self.page,
-            .row_offset = n + self.row_offset,
-        } };
-
-        // Need to traverse page links to find the page
-        var page: *List.Node = self.page;
-        var n_left: usize = n - rows;
-        while (true) {
-            page = page.next orelse return .{ .overflow = .{
-                .end = .{ .page = page, .row_offset = page.data.size.rows - 1 },
-                .remaining = n_left,
-            } };
-            if (n_left <= page.data.size.rows) return .{ .offset = .{
-                .page = page,
-                .row_offset = n_left - 1,
-            } };
-            n_left -= page.data.size.rows;
-        }
-    }
-
-    /// Move the offset backward n rows. If the offset goes beyond the
-    /// start of the screen, return the overflow amount.
-    fn backwardOverflow(self: RowOffset, n: usize) union(enum) {
-        offset: RowOffset,
-        overflow: struct {
-            end: RowOffset,
-            remaining: usize,
-        },
-    } {
-        // Index fits within this page
-        if (n <= self.row_offset) return .{ .offset = .{
-            .page = self.page,
-            .row_offset = self.row_offset - n,
-        } };
-
-        // Need to traverse page links to find the page
-        var page: *List.Node = self.page;
-        var n_left: usize = n - self.row_offset;
-        while (true) {
-            page = page.prev orelse return .{ .overflow = .{
-                .end = .{ .page = page, .row_offset = 0 },
-                .remaining = n_left,
-            } };
-            if (n_left <= page.data.size.rows) return .{ .offset = .{
-                .page = page,
-                .row_offset = page.data.size.rows - n_left,
-            } };
-            n_left -= page.data.size.rows;
-        }
-    }
-};
-
 const Cell = struct {
     page: *List.Node,
     row: *pagepkg.Row,
@@ -2041,7 +1905,7 @@ test "PageList" {
         .page = s.pages.first.?,
         .y = 0,
         .x = 0,
-    }, s.getTopLeft2(.active));
+    }, s.getTopLeft(.active));
 }
 
 test "PageList pointFromPin active no history" {
@@ -2567,7 +2431,7 @@ test "PageList pageIterator history two pages" {
         try testing.expect(chunk.page == s.pages.first.?);
         const start: usize = 0;
         try testing.expectEqual(start, chunk.start);
-        try testing.expectEqual(active_tl.row_offset, chunk.end);
+        try testing.expectEqual(active_tl.y, chunk.end);
     }
     try testing.expect(it.next() == null);
 }
@@ -3153,7 +3017,7 @@ test "PageList resize (no reflow) less cols" {
 
     var it = s.rowIterator(.{ .screen = .{} }, null);
     while (it.next()) |offset| {
-        const rac = offset.rowAndCell(0);
+        const rac = offset.rowAndCell();
         const cells = offset.page.data.getCells(rac.row);
         try testing.expectEqual(@as(usize, 5), cells.len);
     }
@@ -3177,7 +3041,7 @@ test "PageList resize (no reflow) less cols pin in trimmed cols" {
 
     var it = s.rowIterator(.{ .screen = .{} }, null);
     while (it.next()) |offset| {
-        const rac = offset.rowAndCell(0);
+        const rac = offset.rowAndCell();
         const cells = offset.page.data.getCells(rac.row);
         try testing.expectEqual(@as(usize, 5), cells.len);
     }
@@ -3232,7 +3096,7 @@ test "PageList resize (no reflow) more cols" {
 
     var it = s.rowIterator(.{ .screen = .{} }, null);
     while (it.next()) |offset| {
-        const rac = offset.rowAndCell(0);
+        const rac = offset.rowAndCell();
         const cells = offset.page.data.getCells(rac.row);
         try testing.expectEqual(@as(usize, 10), cells.len);
     }
@@ -3256,7 +3120,7 @@ test "PageList resize (no reflow) less cols then more cols" {
 
     var it = s.rowIterator(.{ .screen = .{} }, null);
     while (it.next()) |offset| {
-        const rac = offset.rowAndCell(0);
+        const rac = offset.rowAndCell();
         const cells = offset.page.data.getCells(rac.row);
         try testing.expectEqual(@as(usize, 5), cells.len);
     }
@@ -3276,7 +3140,7 @@ test "PageList resize (no reflow) less rows and cols" {
 
     var it = s.rowIterator(.{ .screen = .{} }, null);
     while (it.next()) |offset| {
-        const rac = offset.rowAndCell(0);
+        const rac = offset.rowAndCell();
         const cells = offset.page.data.getCells(rac.row);
         try testing.expectEqual(@as(usize, 5), cells.len);
     }
@@ -3297,7 +3161,7 @@ test "PageList resize (no reflow) more rows and less cols" {
 
     var it = s.rowIterator(.{ .screen = .{} }, null);
     while (it.next()) |offset| {
-        const rac = offset.rowAndCell(0);
+        const rac = offset.rowAndCell();
         const cells = offset.page.data.getCells(rac.row);
         try testing.expectEqual(@as(usize, 5), cells.len);
     }
@@ -3318,7 +3182,7 @@ test "PageList resize (no reflow) empty screen" {
 
     var it = s.rowIterator(.{ .screen = .{} }, null);
     while (it.next()) |offset| {
-        const rac = offset.rowAndCell(0);
+        const rac = offset.rowAndCell();
         const cells = offset.page.data.getCells(rac.row);
         try testing.expectEqual(@as(usize, 10), cells.len);
     }
@@ -3357,7 +3221,7 @@ test "PageList resize (no reflow) more cols forces smaller cap" {
     try testing.expectEqual(rows, s.totalRows());
     var it = s.rowIterator(.{ .screen = .{} }, null);
     while (it.next()) |offset| {
-        const rac = offset.rowAndCell(0);
+        const rac = offset.rowAndCell();
         const cells = offset.page.data.getCells(rac.row);
         try testing.expectEqual(@as(usize, cap2.cols), cells.len);
         try testing.expectEqual(@as(u21, 'A'), cells[0].content.codepoint);
@@ -3462,7 +3326,7 @@ test "PageList resize reflow more cols no wrapped rows" {
 
     var it = s.rowIterator(.{ .screen = .{} }, null);
     while (it.next()) |offset| {
-        const rac = offset.rowAndCell(0);
+        const rac = offset.rowAndCell();
         const cells = offset.page.data.getCells(rac.row);
         try testing.expectEqual(@as(usize, 10), cells.len);
         try testing.expectEqual(@as(u21, 'A'), cells[0].content.codepoint);
@@ -3513,7 +3377,7 @@ test "PageList resize reflow more cols wrapped rows" {
     {
         // First row should be unwrapped
         const offset = it.next().?;
-        const rac = offset.rowAndCell(0);
+        const rac = offset.rowAndCell();
         const cells = offset.page.data.getCells(rac.row);
         try testing.expect(!rac.row.wrap);
         try testing.expectEqual(@as(usize, 4), cells.len);
@@ -3989,7 +3853,9 @@ test "PageList resize reflow less cols no wrapped rows" {
     var it = s.rowIterator(.{ .screen = .{} }, null);
     while (it.next()) |offset| {
         for (0..4) |x| {
-            const rac = offset.rowAndCell(x);
+            var offset_copy = offset;
+            offset_copy.x = x;
+            const rac = offset_copy.rowAndCell();
             const cells = offset.page.data.getCells(rac.row);
             try testing.expectEqual(@as(usize, 5), cells.len);
             try testing.expectEqual(@as(u21, @intCast(x)), cells[x].content.codepoint);
@@ -4033,7 +3899,7 @@ test "PageList resize reflow less cols wrapped rows" {
     {
         // First row should be wrapped
         const offset = it.next().?;
-        const rac = offset.rowAndCell(0);
+        const rac = offset.rowAndCell();
         const cells = offset.page.data.getCells(rac.row);
         try testing.expect(rac.row.wrap);
         try testing.expectEqual(@as(usize, 2), cells.len);
@@ -4041,7 +3907,7 @@ test "PageList resize reflow less cols wrapped rows" {
     }
     {
         const offset = it.next().?;
-        const rac = offset.rowAndCell(0);
+        const rac = offset.rowAndCell();
         const cells = offset.page.data.getCells(rac.row);
         try testing.expect(!rac.row.wrap);
         try testing.expectEqual(@as(usize, 2), cells.len);
@@ -4050,7 +3916,7 @@ test "PageList resize reflow less cols wrapped rows" {
     {
         // First row should be wrapped
         const offset = it.next().?;
-        const rac = offset.rowAndCell(0);
+        const rac = offset.rowAndCell();
         const cells = offset.page.data.getCells(rac.row);
         try testing.expect(rac.row.wrap);
         try testing.expectEqual(@as(usize, 2), cells.len);
@@ -4058,7 +3924,7 @@ test "PageList resize reflow less cols wrapped rows" {
     }
     {
         const offset = it.next().?;
-        const rac = offset.rowAndCell(0);
+        const rac = offset.rowAndCell();
         const cells = offset.page.data.getCells(rac.row);
         try testing.expect(!rac.row.wrap);
         try testing.expectEqual(@as(usize, 2), cells.len);
@@ -4109,7 +3975,7 @@ test "PageList resize reflow less cols wrapped rows with graphemes" {
     {
         // First row should be wrapped
         const offset = it.next().?;
-        const rac = offset.rowAndCell(0);
+        const rac = offset.rowAndCell();
         const cells = offset.page.data.getCells(rac.row);
         try testing.expect(rac.row.wrap);
         try testing.expectEqual(@as(usize, 2), cells.len);
@@ -4117,7 +3983,7 @@ test "PageList resize reflow less cols wrapped rows with graphemes" {
     }
     {
         const offset = it.next().?;
-        const rac = offset.rowAndCell(0);
+        const rac = offset.rowAndCell();
         const cells = offset.page.data.getCells(rac.row);
         try testing.expect(!rac.row.wrap);
         try testing.expectEqual(@as(usize, 2), cells.len);
@@ -4130,7 +3996,7 @@ test "PageList resize reflow less cols wrapped rows with graphemes" {
     {
         // First row should be wrapped
         const offset = it.next().?;
-        const rac = offset.rowAndCell(0);
+        const rac = offset.rowAndCell();
         const cells = offset.page.data.getCells(rac.row);
         try testing.expect(rac.row.wrap);
         try testing.expectEqual(@as(usize, 2), cells.len);
@@ -4138,7 +4004,7 @@ test "PageList resize reflow less cols wrapped rows with graphemes" {
     }
     {
         const offset = it.next().?;
-        const rac = offset.rowAndCell(0);
+        const rac = offset.rowAndCell();
         const cells = offset.page.data.getCells(rac.row);
         try testing.expect(!rac.row.wrap);
         try testing.expectEqual(@as(usize, 2), cells.len);
@@ -4343,7 +4209,7 @@ test "PageList resize reflow less cols blank lines" {
     {
         // First row should be wrapped
         const offset = it.next().?;
-        const rac = offset.rowAndCell(0);
+        const rac = offset.rowAndCell();
         const cells = offset.page.data.getCells(rac.row);
         try testing.expect(rac.row.wrap);
         try testing.expectEqual(@as(usize, 2), cells.len);
@@ -4351,7 +4217,7 @@ test "PageList resize reflow less cols blank lines" {
     }
     {
         const offset = it.next().?;
-        const rac = offset.rowAndCell(0);
+        const rac = offset.rowAndCell();
         const cells = offset.page.data.getCells(rac.row);
         try testing.expect(!rac.row.wrap);
         try testing.expectEqual(@as(usize, 2), cells.len);
@@ -4394,12 +4260,12 @@ test "PageList resize reflow less cols blank lines between" {
     var it = s.rowIterator(.{ .active = .{} }, null);
     {
         const offset = it.next().?;
-        const rac = offset.rowAndCell(0);
+        const rac = offset.rowAndCell();
         try testing.expect(!rac.row.wrap);
     }
     {
         const offset = it.next().?;
-        const rac = offset.rowAndCell(0);
+        const rac = offset.rowAndCell();
         const cells = offset.page.data.getCells(rac.row);
         try testing.expect(rac.row.wrap);
         try testing.expectEqual(@as(usize, 2), cells.len);
@@ -4407,7 +4273,7 @@ test "PageList resize reflow less cols blank lines between" {
     }
     {
         const offset = it.next().?;
-        const rac = offset.rowAndCell(0);
+        const rac = offset.rowAndCell();
         const cells = offset.page.data.getCells(rac.row);
         try testing.expect(!rac.row.wrap);
         try testing.expectEqual(@as(usize, 2), cells.len);
@@ -4449,7 +4315,9 @@ test "PageList resize reflow less cols copy style" {
     var it = s.rowIterator(.{ .active = .{} }, null);
     while (it.next()) |offset| {
         for (0..s.cols - 1) |x| {
-            const rac = offset.rowAndCell(x);
+            var offset_copy = offset;
+            offset_copy.x = x;
+            const rac = offset_copy.rowAndCell();
             const style_id = rac.cell.style_id;
             try testing.expect(style_id != 0);
 
