@@ -77,11 +77,6 @@ pub const Viewport = struct {
     pub fn eql(self: Viewport, other: Viewport) bool {
         return self.x == other.x and self.y == other.y;
     }
-
-    const TerminalScreen = @import("Screen.zig");
-    pub fn toScreen(_: Viewport, _: *const TerminalScreen) Screen {
-        @panic("TODO");
-    }
 };
 
 /// A point in the terminal that is in relation to the entire screen.

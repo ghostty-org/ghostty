@@ -3,12 +3,12 @@ const Screen = @This();
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const ansi = @import("../ansi.zig");
-const charsets = @import("../charsets.zig");
-const kitty = @import("../kitty.zig");
-const sgr = @import("../sgr.zig");
-const unicode = @import("../../unicode/main.zig");
-const Selection = @import("../Selection.zig");
+const ansi = @import("ansi.zig");
+const charsets = @import("charsets.zig");
+const kitty = @import("kitty.zig");
+const sgr = @import("sgr.zig");
+const unicode = @import("../unicode/main.zig");
+//const Selection = @import("../Selection.zig");
 const PageList = @import("PageList.zig");
 const pagepkg = @import("page.zig");
 const point = @import("point.zig");
@@ -37,7 +37,8 @@ cursor: Cursor,
 saved_cursor: ?SavedCursor = null,
 
 /// The selection for this screen (if any).
-selection: ?Selection = null,
+//selection: ?Selection = null,
+selection: ?void = null,
 
 /// The charset state
 charset: CharsetState = .{},
@@ -826,18 +827,18 @@ pub fn manualStyleUpdate(self: *Screen) !void {
 /// Returns the raw text associated with a selection. This will unwrap
 /// soft-wrapped edges. The returned slice is owned by the caller and allocated
 /// using alloc, not the allocator associated with the screen (unless they match).
-pub fn selectionString(
-    self: *Screen,
-    alloc: Allocator,
-    sel: Selection,
-    trim: bool,
-) ![:0]const u8 {
-    _ = self;
-    _ = alloc;
-    _ = sel;
-    _ = trim;
-    @panic("TODO");
-}
+// pub fn selectionString(
+//     self: *Screen,
+//     alloc: Allocator,
+//     sel: Selection,
+//     trim: bool,
+// ) ![:0]const u8 {
+//     _ = self;
+//     _ = alloc;
+//     _ = sel;
+//     _ = trim;
+//     @panic("TODO");
+// }
 
 /// Dump the screen to a string. The writer given should be buffered;
 /// this function does not attempt to efficiently write and generally writes
