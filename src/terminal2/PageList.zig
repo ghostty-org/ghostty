@@ -363,30 +363,6 @@ pub fn clonePool(
     return result;
 }
 
-/// Returns the viewport for the given pin, prefering to pin to
-/// "active" if the pin is within the active area.
-fn pinIsActive(self: *const PageList, p: Pin) bool {
-    // If the pin is in the active page, then we can quickly determine
-    // if we're beyond the end.
-    const active = self.getTopLeft2(.active);
-    if (p.page == active.page) return p.y >= active.y;
-
-    var page_ = active.page.next;
-    while (page_) |page| {
-        // This loop is pretty fast because the active area is
-        // never that large so this is at most one, two pages for
-        // reasonable terminals (including very large real world
-        // ones).
-
-        // A page forward in the active area is our page, so we're
-        // definitely in the active area.
-        if (page == p.page) return true;
-        page_ = page.next;
-    }
-
-    return false;
-}
-
 /// Resize options
 pub const Resize = struct {
     /// The new cols/cells of the screen.
@@ -1539,6 +1515,67 @@ pub fn untrackPin(self: *PageList, p: *Pin) void {
     }
 }
 
+/// Returns the viewport for the given pin, prefering to pin to
+/// "active" if the pin is within the active area.
+fn pinIsActive(self: *const PageList, p: Pin) bool {
+    // If the pin is in the active page, then we can quickly determine
+    // if we're beyond the end.
+    const active = self.getTopLeft2(.active);
+    if (p.page == active.page) return p.y >= active.y;
+
+    var page_ = active.page.next;
+    while (page_) |page| {
+        // This loop is pretty fast because the active area is
+        // never that large so this is at most one, two pages for
+        // reasonable terminals (including very large real world
+        // ones).
+
+        // A page forward in the active area is our page, so we're
+        // definitely in the active area.
+        if (page == p.page) return true;
+        page_ = page.next;
+    }
+
+    return false;
+}
+
+/// Convert a pin to a point in the given context. If the pin can't fit
+/// within the given tag (i.e. its in the history but you requested active),
+/// then this will return null.
+fn pointFromPin(self: *const PageList, tag: point.Tag, p: Pin) ?point.Point {
+    const tl = self.getTopLeft2(tag);
+
+    // Count our first page which is special because it may be partial.
+    var coord: point.Point.Coordinate = .{ .x = p.x };
+    if (p.page == tl.page) {
+        // If our top-left is after our y then we're outside the range.
+        if (tl.y > p.y) return null;
+        coord.y = p.y - tl.y;
+    } else {
+        coord.y += tl.page.data.size.rows - tl.y - 1;
+        var page_ = tl.page.next;
+        while (page_) |page| : (page_ = page.next) {
+            if (page == p.page) {
+                coord.y += p.y;
+                break;
+            }
+
+            coord.y += page.data.size.rows;
+        } else {
+            // We never saw our page, meaning we're outside the range.
+            return null;
+        }
+    }
+
+    return switch (tag) {
+        inline else => |comptime_tag| @unionInit(
+            point.Point,
+            @tagName(comptime_tag),
+            coord,
+        ),
+    };
+}
+
 /// Get the cell at the given point, or null if the cell does not
 /// exist or is out of bounds.
 ///
@@ -2093,6 +2130,104 @@ test "PageList" {
         .y = 0,
         .x = 0,
     }, s.getTopLeft2(.active));
+}
+
+test "PageList pointFromPin active no history" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+
+    {
+        try testing.expectEqual(point.Point{
+            .active = .{
+                .y = 0,
+                .x = 0,
+            },
+        }, s.pointFromPin(.active, .{
+            .page = s.pages.first.?,
+            .y = 0,
+            .x = 0,
+        }).?);
+    }
+    {
+        try testing.expectEqual(point.Point{
+            .active = .{
+                .y = 2,
+                .x = 4,
+            },
+        }, s.pointFromPin(.active, .{
+            .page = s.pages.first.?,
+            .y = 2,
+            .x = 4,
+        }).?);
+    }
+}
+
+test "PageList pointFromPin active with history" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+    try s.growRows(30);
+
+    {
+        try testing.expectEqual(point.Point{
+            .active = .{
+                .y = 0,
+                .x = 2,
+            },
+        }, s.pointFromPin(.active, .{
+            .page = s.pages.first.?,
+            .y = 30,
+            .x = 2,
+        }).?);
+    }
+
+    // In history, invalid
+    {
+        try testing.expect(s.pointFromPin(.active, .{
+            .page = s.pages.first.?,
+            .y = 21,
+            .x = 2,
+        }) == null);
+    }
+}
+
+test "PageList pointFromPin active from prior page" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+    const page = &s.pages.last.?.data;
+    for (0..page.capacity.rows * 5) |_| {
+        _ = try s.grow();
+    }
+
+    {
+        try testing.expectEqual(point.Point{
+            .active = .{
+                .y = 0,
+                .x = 2,
+            },
+        }, s.pointFromPin(.active, .{
+            .page = s.pages.last.?,
+            .y = 0,
+            .x = 2,
+        }).?);
+    }
+
+    // Prior page
+    {
+        try testing.expect(s.pointFromPin(.active, .{
+            .page = s.pages.first.?,
+            .y = 0,
+            .x = 0,
+        }) == null);
+    }
 }
 
 test "PageList active after grow" {
