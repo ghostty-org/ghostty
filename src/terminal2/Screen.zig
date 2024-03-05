@@ -88,7 +88,7 @@ pub const Cursor = struct {
 
     /// The pointers into the page list where the cursor is currently
     /// located. This makes it faster to move the cursor.
-    page_offset: PageList.RowOffset,
+    page_pin: *PageList.Pin,
     page_row: *pagepkg.Row,
     page_cell: *pagepkg.Cell,
 };
@@ -143,14 +143,10 @@ pub fn init(
     var pages = try PageList.init(alloc, cols, rows, max_scrollback);
     errdefer pages.deinit();
 
-    // The active area is guaranteed to be allocated and the first
-    // page in the list after init. This lets us quickly setup the cursor.
-    // This is MUCH faster than pages.rowOffset.
-    const page_offset: PageList.RowOffset = .{
-        .page = pages.pages.first.?,
-        .row_offset = 0,
-    };
-    const page_rac = page_offset.rowAndCell(0);
+    // Create our tracked pin for the cursor.
+    const page_pin = try pages.trackPin(.{ .page = pages.pages.first.? });
+    errdefer pages.untrackPin(page_pin);
+    const page_rac = page_pin.rowAndCell();
 
     return .{
         .alloc = alloc,
@@ -159,7 +155,7 @@ pub fn init(
         .cursor = .{
             .x = 0,
             .y = 0,
-            .page_offset = page_offset,
+            .page_pin = page_pin,
             .page_row = page_rac.row,
             .page_cell = page_rac.cell,
         },
@@ -248,8 +244,9 @@ pub fn cursorCellLeft(self: *Screen, n: size.CellCountInt) *pagepkg.Cell {
 pub fn cursorCellEndOfPrev(self: *Screen) *pagepkg.Cell {
     assert(self.cursor.y > 0);
 
-    const page_offset = self.cursor.page_offset.backward(1).?;
-    const page_rac = page_offset.rowAndCell(self.pages.cols - 1);
+    var page_pin = self.cursor.page_pin.up(1).?;
+    page_pin.x = self.pages.cols - 1;
+    const page_rac = page_pin.rowAndCell();
     return page_rac.cell;
 }
 
@@ -260,6 +257,7 @@ pub fn cursorRight(self: *Screen, n: size.CellCountInt) void {
 
     const cell: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
     self.cursor.page_cell = @ptrCast(cell + n);
+    self.cursor.page_pin.x += n;
     self.cursor.x += n;
 }
 
@@ -269,6 +267,7 @@ pub fn cursorLeft(self: *Screen, n: size.CellCountInt) void {
 
     const cell: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
     self.cursor.page_cell = @ptrCast(cell - n);
+    self.cursor.page_pin.x -= n;
     self.cursor.x -= n;
 }
 
@@ -278,9 +277,9 @@ pub fn cursorLeft(self: *Screen, n: size.CellCountInt) void {
 pub fn cursorUp(self: *Screen, n: size.CellCountInt) void {
     assert(self.cursor.y >= n);
 
-    const page_offset = self.cursor.page_offset.backward(n).?;
-    const page_rac = page_offset.rowAndCell(self.cursor.x);
-    self.cursor.page_offset = page_offset;
+    const page_pin = self.cursor.page_pin.up(n).?;
+    const page_rac = page_pin.rowAndCell();
+    self.cursor.page_pin.* = page_pin;
     self.cursor.page_row = page_rac.row;
     self.cursor.page_cell = page_rac.cell;
     self.cursor.y -= n;
@@ -289,8 +288,8 @@ pub fn cursorUp(self: *Screen, n: size.CellCountInt) void {
 pub fn cursorRowUp(self: *Screen, n: size.CellCountInt) *pagepkg.Row {
     assert(self.cursor.y >= n);
 
-    const page_offset = self.cursor.page_offset.backward(n).?;
-    const page_rac = page_offset.rowAndCell(self.cursor.x);
+    const page_pin = self.cursor.page_pin.up(n).?;
+    const page_rac = page_pin.rowAndCell();
     return page_rac.row;
 }
 
@@ -302,9 +301,9 @@ pub fn cursorDown(self: *Screen, n: size.CellCountInt) void {
 
     // We move the offset into our page list to the next row and then
     // get the pointers to the row/cell and set all the cursor state up.
-    const page_offset = self.cursor.page_offset.forward(n).?;
-    const page_rac = page_offset.rowAndCell(self.cursor.x);
-    self.cursor.page_offset = page_offset;
+    const page_pin = self.cursor.page_pin.down(n).?;
+    const page_rac = page_pin.rowAndCell();
+    self.cursor.page_pin.* = page_pin;
     self.cursor.page_row = page_rac.row;
     self.cursor.page_cell = page_rac.cell;
 
@@ -316,7 +315,8 @@ pub fn cursorDown(self: *Screen, n: size.CellCountInt) void {
 pub fn cursorHorizontalAbsolute(self: *Screen, x: size.CellCountInt) void {
     assert(x < self.pages.cols);
 
-    const page_rac = self.cursor.page_offset.rowAndCell(x);
+    self.cursor.page_pin.x = x;
+    const page_rac = self.cursor.page_pin.rowAndCell();
     self.cursor.page_cell = page_rac.cell;
     self.cursor.x = x;
 }
@@ -326,14 +326,15 @@ pub fn cursorAbsolute(self: *Screen, x: size.CellCountInt, y: size.CellCountInt)
     assert(x < self.pages.cols);
     assert(y < self.pages.rows);
 
-    const page_offset = if (y < self.cursor.y)
-        self.cursor.page_offset.backward(self.cursor.y - y).?
+    var page_pin = if (y < self.cursor.y)
+        self.cursor.page_pin.up(self.cursor.y - y).?
     else if (y > self.cursor.y)
-        self.cursor.page_offset.forward(y - self.cursor.y).?
+        self.cursor.page_pin.down(y - self.cursor.y).?
     else
-        self.cursor.page_offset;
-    const page_rac = page_offset.rowAndCell(x);
-    self.cursor.page_offset = page_offset;
+        self.cursor.page_pin.*;
+    page_pin.x = x;
+    const page_rac = page_pin.rowAndCell();
+    self.cursor.page_pin.* = page_pin;
     self.cursor.page_row = page_rac.row;
     self.cursor.page_cell = page_rac.cell;
     self.cursor.x = x;
@@ -344,13 +345,24 @@ pub fn cursorAbsolute(self: *Screen, x: size.CellCountInt, y: size.CellCountInt)
 /// so it should only be done in cases where the pointers are invalidated
 /// in such a way that its difficult to recover otherwise.
 pub fn cursorReload(self: *Screen) void {
-    const get = self.pages.getCell(.{ .active = .{
-        .x = self.cursor.x,
-        .y = self.cursor.y,
-    } }).?;
-    self.cursor.page_offset = .{ .page = get.page, .row_offset = get.row_idx };
-    self.cursor.page_row = get.row;
-    self.cursor.page_cell = get.cell;
+    // Our tracked pin is ALWAYS accurate, so we derive the active
+    // point from the pin. If this returns null it means our pin
+    // points outside the active area. In that case, we update the
+    // pin to be the top-left.
+    const pt: point.Point = self.pages.pointFromPin(
+        .active,
+        self.cursor.page_pin.*,
+    ) orelse reset: {
+        const pin = self.pages.pin(.{ .active = .{} }).?;
+        self.cursor.page_pin.* = pin;
+        break :reset self.pages.pointFromPin(.active, pin).?;
+    };
+
+    self.cursor.x = @intCast(pt.active.x);
+    self.cursor.y = @intCast(pt.active.y);
+    const page_rac = self.cursor.page_pin.rowAndCell();
+    self.cursor.page_row = page_rac.row;
+    self.cursor.page_cell = page_rac.cell;
 }
 
 /// Scroll the active area and keep the cursor at the bottom of the screen.
@@ -363,10 +375,11 @@ pub fn cursorDownScroll(self: *Screen) !void {
         // Erase rows will shift our rows up
         self.pages.eraseRows(.{ .active = .{} }, .{ .active = .{} });
 
-        // We need to reload our cursor because the pointers are now invalid.
-        const page_offset = self.cursor.page_offset;
-        const page_rac = page_offset.rowAndCell(self.cursor.x);
-        self.cursor.page_offset = page_offset;
+        // We need to move our cursor down one because eraseRows will
+        // preserve our pin directly and we're erasing one row.
+        const page_pin = self.cursor.page_pin.down(1).?;
+        const page_rac = page_pin.rowAndCell();
+        self.cursor.page_pin.* = page_pin;
         self.cursor.page_row = page_rac.row;
         self.cursor.page_cell = page_rac.cell;
 
@@ -374,17 +387,17 @@ pub fn cursorDownScroll(self: *Screen) !void {
         // we never write those rows again. Active erasing is a bit
         // different so we manually clear our one row.
         self.clearCells(
-            &page_offset.page.data,
+            &page_pin.page.data,
             self.cursor.page_row,
-            page_offset.page.data.getCells(self.cursor.page_row),
+            page_pin.page.data.getCells(self.cursor.page_row),
         );
     } else {
         // Grow our pages by one row. The PageList will handle if we need to
         // allocate, prune scrollback, whatever.
         _ = try self.pages.grow();
-        const page_offset = self.cursor.page_offset.forward(1).?;
-        const page_rac = page_offset.rowAndCell(self.cursor.x);
-        self.cursor.page_offset = page_offset;
+        const page_pin = self.cursor.page_pin.down(1).?;
+        const page_rac = page_pin.rowAndCell();
+        self.cursor.page_pin.* = page_pin;
         self.cursor.page_row = page_rac.row;
         self.cursor.page_cell = page_rac.cell;
 
@@ -392,9 +405,9 @@ pub fn cursorDownScroll(self: *Screen) !void {
         // if we have a bg color at all.
         if (self.cursor.style.bg_color != .none) {
             self.clearCells(
-                &page_offset.page.data,
+                &page_pin.page.data,
                 self.cursor.page_row,
-                page_offset.page.data.getCells(self.cursor.page_row),
+                page_pin.page.data.getCells(self.cursor.page_row),
             );
         }
     }
@@ -623,19 +636,12 @@ fn resizeInternal(
     // No matter what we mark our image state as dirty
     self.kitty_images.dirty = true;
 
-    // Create a resize cursor. The resize operation uses this to keep our
-    // cursor over the same cell if possible.
-    var cursor: PageList.Resize.Cursor = .{
-        .x = self.cursor.x,
-        .y = self.cursor.y,
-    };
-
     // Perform the resize operation. This will update cursor by reference.
     try self.pages.resize(.{
         .rows = rows,
         .cols = cols,
         .reflow = reflow,
-        .cursor = &cursor,
+        .cursor = .{ .x = self.cursor.x, .y = self.cursor.y },
     });
 
     // If we have no scrollback and we shrunk our rows, we must explicitly
@@ -647,11 +653,7 @@ fn resizeInternal(
 
     // If our cursor was updated, we do a full reload so all our cursor
     // state is correct.
-    if (cursor.x != self.cursor.x or cursor.y != self.cursor.y) {
-        self.cursor.x = cursor.x;
-        self.cursor.y = cursor.y;
-        self.cursorReload();
-    }
+    self.cursorReload();
 }
 
 /// Set a style attribute for the current cursor.
@@ -798,7 +800,7 @@ pub fn setAttribute(self: *Screen, attr: sgr.Attribute) !void {
 
 /// Call this whenever you manually change the cursor style.
 pub fn manualStyleUpdate(self: *Screen) !void {
-    var page = &self.cursor.page_offset.page.data;
+    var page = &self.cursor.page_pin.page.data;
 
     // Remove our previous style if is unused.
     if (self.cursor.style_ref) |ref| {
@@ -1056,7 +1058,7 @@ test "Screen read and write scrollback" {
     }
 }
 
-test "Screen read and write no scrollback" {
+test "Screen read and write no scrollback small" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -1103,7 +1105,7 @@ test "Screen style basics" {
 
     var s = try Screen.init(alloc, 80, 24, 1000);
     defer s.deinit();
-    const page = s.cursor.page_offset.page.data;
+    const page = s.cursor.page_pin.page.data;
     try testing.expectEqual(@as(usize, 0), page.styles.count(page.memory));
 
     // Set a new style
@@ -1125,7 +1127,7 @@ test "Screen style reset to default" {
 
     var s = try Screen.init(alloc, 80, 24, 1000);
     defer s.deinit();
-    const page = s.cursor.page_offset.page.data;
+    const page = s.cursor.page_pin.page.data;
     try testing.expectEqual(@as(usize, 0), page.styles.count(page.memory));
 
     // Set a new style
@@ -1145,7 +1147,7 @@ test "Screen style reset with unset" {
 
     var s = try Screen.init(alloc, 80, 24, 1000);
     defer s.deinit();
-    const page = s.cursor.page_offset.page.data;
+    const page = s.cursor.page_pin.page.data;
     try testing.expectEqual(@as(usize, 0), page.styles.count(page.memory));
 
     // Set a new style
@@ -1199,7 +1201,7 @@ test "Screen clearRows active styled line" {
     try s.setAttribute(.{ .unset = {} });
 
     // We should have one style
-    const page = s.cursor.page_offset.page.data;
+    const page = s.cursor.page_pin.page.data;
     try testing.expectEqual(@as(usize, 1), page.styles.count(page.memory));
 
     s.clearRows(.{ .active = .{} }, null, false);
