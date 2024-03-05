@@ -6,4 +6,7 @@ pub usingnamespace @import("../terminal/kitty/key.zig");
 
 test {
     @import("std").testing.refAllDecls(@This());
+
+    _ = @import("kitty/graphics.zig");
+    _ = @import("kitty/key.zig");
 }
