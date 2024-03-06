@@ -4606,6 +4606,7 @@ test "Screen: selectLine semantic prompt boundary" {
     }
 }
 
+// X
 test "Screen: selectLine across soft-wrap ignores blank lines" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -4642,6 +4643,7 @@ test "Screen: selectLine across soft-wrap ignores blank lines" {
     }
 }
 
+// X
 test "Screen: selectLine with scrollback" {
     const testing = std.testing;
     const alloc = testing.allocator;
