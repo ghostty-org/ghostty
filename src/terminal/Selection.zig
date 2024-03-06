@@ -413,6 +413,7 @@ test "Selection: adjust left" {
     }
 }
 
+// X
 test "Selection: adjust left skips blanks" {
     const testing = std.testing;
     var screen = try Screen.init(testing.allocator, 5, 10, 0);
@@ -448,6 +449,7 @@ test "Selection: adjust left skips blanks" {
     }
 }
 
+// X
 test "Selection: adjust up" {
     const testing = std.testing;
     var screen = try Screen.init(testing.allocator, 5, 10, 0);
