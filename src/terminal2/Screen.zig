@@ -163,7 +163,7 @@ pub fn init(
 }
 
 pub fn deinit(self: *Screen) void {
-    self.kitty_images.deinit(self.alloc);
+    self.kitty_images.deinit(self.alloc, self);
     self.pages.deinit();
 }
 
