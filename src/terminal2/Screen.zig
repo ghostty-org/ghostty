@@ -852,7 +852,7 @@ pub fn dumpString(
 ) !void {
     var blank_rows: usize = 0;
 
-    var iter = self.pages.rowIterator(tl, null);
+    var iter = self.pages.rowIterator(.right_down, tl, null);
     while (iter.next()) |row_offset| {
         const rac = row_offset.rowAndCell();
         const cells = cells: {
