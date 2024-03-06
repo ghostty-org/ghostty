@@ -29,6 +29,7 @@ pub const Page = page.Page;
 pub const PageList = @import("PageList.zig");
 pub const Parser = @import("Parser.zig");
 pub const Screen = @import("Screen.zig");
+pub const Selection = @import("Selection.zig");
 pub const Terminal = @import("Terminal.zig");
 pub const Stream = stream.Stream;
 pub const Cursor = Screen.Cursor;
@@ -52,5 +53,4 @@ test {
     _ = @import("hash_map.zig");
     _ = @import("size.zig");
     _ = @import("style.zig");
-    _ = @import("Selection.zig");
 }
