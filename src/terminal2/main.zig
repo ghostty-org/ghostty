@@ -1,5 +1,7 @@
 const builtin = @import("builtin");
 
+pub usingnamespace @import("sanitize.zig");
+
 const charsets = @import("charsets.zig");
 const stream = @import("stream.zig");
 const ansi = @import("ansi.zig");
