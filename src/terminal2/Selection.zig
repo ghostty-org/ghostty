@@ -197,16 +197,28 @@ pub fn adjust(
         // } else {
         //     result.end.y += screen.rows;
         // },
-        //
-        // .home => {
-        //     result.end.y = 0;
-        //     result.end.x = 0;
-        // },
-        //
-        // .end => {
-        //     result.end.y = screen_end;
-        //     result.end.x = screen.cols - 1;
-        //},
+
+        .home => self.end.* = s.pages.pin(.{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }).?,
+
+        .end => {
+            var it = s.pages.rowIterator(
+                .left_up,
+                .{ .screen = .{} },
+                null,
+            );
+            while (it.next()) |next| {
+                const rac = next.rowAndCell();
+                const cells = next.page.data.getCells(rac.row);
+                if (page.Cell.hasTextAny(cells)) {
+                    self.end.* = next;
+                    self.end.x = cells.len - 1;
+                    break;
+                }
+            }
+        },
 
         else => @panic("TODO"),
     }
@@ -503,6 +515,64 @@ test "Selection: adjust down with not full screen" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
             .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 4,
+            .y = 2,
+        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+    }
+}
+
+test "Selection: adjust home" {
+    const testing = std.testing;
+    var s = try Screen.init(testing.allocator, 5, 10, 0);
+    defer s.deinit();
+    try s.testWriteString("A\nB\nC");
+
+    // On the last line
+    {
+        var sel = try Selection.init(
+            &s,
+            s.pages.pin(.{ .screen = .{ .x = 4, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 2 } }).?,
+            false,
+        );
+        defer sel.deinit(&s);
+        sel.adjust(&s, .home);
+
+        // Start line
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 4,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+    }
+}
+
+test "Selection: adjust end with not full screen" {
+    const testing = std.testing;
+    var s = try Screen.init(testing.allocator, 5, 10, 0);
+    defer s.deinit();
+    try s.testWriteString("A\nB\nC");
+
+    // On the last line
+    {
+        var sel = try Selection.init(
+            &s,
+            s.pages.pin(.{ .screen = .{ .x = 4, .y = 0 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 1 } }).?,
+            false,
+        );
+        defer sel.deinit(&s);
+        sel.adjust(&s, .end);
+
+        // Start line
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 4,
+            .y = 0,
         } }, s.pages.pointFromPin(.screen, sel.start.*).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
