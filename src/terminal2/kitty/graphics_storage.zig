@@ -56,7 +56,7 @@ pub const ImageStorage = struct {
     pub fn deinit(
         self: *ImageStorage,
         alloc: Allocator,
-        t: *terminal.Terminal,
+        s: *terminal.Screen,
     ) void {
         if (self.loading) |loading| loading.destroy(alloc);
 
@@ -64,7 +64,7 @@ pub const ImageStorage = struct {
         while (it.next()) |kv| kv.value_ptr.deinit(alloc);
         self.images.deinit(alloc);
 
-        self.clearPlacements(t);
+        self.clearPlacements(s);
         self.placements.deinit(alloc);
     }
 
@@ -175,9 +175,9 @@ pub const ImageStorage = struct {
         self.dirty = true;
     }
 
-    fn clearPlacements(self: *ImageStorage, t: *terminal.Terminal) void {
+    fn clearPlacements(self: *ImageStorage, s: *terminal.Screen) void {
         var it = self.placements.iterator();
-        while (it.next()) |entry| entry.value_ptr.deinit(t);
+        while (it.next()) |entry| entry.value_ptr.deinit(s);
         self.placements.clearRetainingCapacity();
     }
 
@@ -214,14 +214,14 @@ pub const ImageStorage = struct {
         switch (cmd) {
             .all => |delete_images| if (delete_images) {
                 // We just reset our entire state.
-                self.deinit(alloc, t);
+                self.deinit(alloc, &t.screen);
                 self.* = .{
                     .dirty = true,
                     .total_limit = self.total_limit,
                 };
             } else {
                 // Delete all our placements
-                self.clearPlacements(t);
+                self.clearPlacements(&t.screen);
                 self.placements.deinit(alloc);
                 self.placements = .{};
                 self.dirty = true;
@@ -229,16 +229,21 @@ pub const ImageStorage = struct {
 
             .id => |v| self.deleteById(
                 alloc,
-                t,
+                &t.screen,
                 v.image_id,
                 v.placement_id,
                 v.delete,
             ),
 
             .newest => |v| newest: {
-                if (true) @panic("TODO");
                 const img = self.imageByNumber(v.image_number) orelse break :newest;
-                self.deleteById(alloc, img.id, v.placement_id, v.delete);
+                self.deleteById(
+                    alloc,
+                    &t.screen,
+                    img.id,
+                    v.placement_id,
+                    v.delete,
+                );
             },
 
             .intersect_cursor => |delete_images| {
@@ -293,7 +298,7 @@ pub const ImageStorage = struct {
                     const img = self.imageById(entry.key_ptr.image_id) orelse continue;
                     const rect = entry.value_ptr.rect(img, t);
                     if (rect.top_left.x <= v.x and rect.bottom_right.x >= v.x) {
-                        entry.value_ptr.deinit(t);
+                        entry.value_ptr.deinit(&t.screen);
                         self.placements.removeByPtr(entry.key_ptr);
                         if (v.delete) self.deleteIfUnused(alloc, img.id);
                     }
@@ -320,7 +325,7 @@ pub const ImageStorage = struct {
                     var target_pin_copy = target_pin;
                     target_pin_copy.x = rect.top_left.x;
                     if (target_pin_copy.isBetween(rect.top_left, rect.bottom_right)) {
-                        entry.value_ptr.deinit(t);
+                        entry.value_ptr.deinit(&t.screen);
                         self.placements.removeByPtr(entry.key_ptr);
                         if (v.delete) self.deleteIfUnused(alloc, img.id);
                     }
@@ -335,7 +340,7 @@ pub const ImageStorage = struct {
                 while (it.next()) |entry| {
                     if (entry.value_ptr.z == v.z) {
                         const image_id = entry.key_ptr.image_id;
-                        entry.value_ptr.deinit(t);
+                        entry.value_ptr.deinit(&t.screen);
                         self.placements.removeByPtr(entry.key_ptr);
                         if (v.delete) self.deleteIfUnused(alloc, image_id);
                     }
@@ -354,7 +359,7 @@ pub const ImageStorage = struct {
     fn deleteById(
         self: *ImageStorage,
         alloc: Allocator,
-        t: *terminal.Terminal,
+        s: *terminal.Screen,
         image_id: u32,
         placement_id: u32,
         delete_unused: bool,
@@ -364,7 +369,7 @@ pub const ImageStorage = struct {
             var it = self.placements.iterator();
             while (it.next()) |entry| {
                 if (entry.key_ptr.image_id == image_id) {
-                    entry.value_ptr.deinit(t);
+                    entry.value_ptr.deinit(s);
                     self.placements.removeByPtr(entry.key_ptr);
                 }
             }
@@ -373,7 +378,7 @@ pub const ImageStorage = struct {
                 .image_id = image_id,
                 .placement_id = .{ .tag = .external, .id = placement_id },
             })) |entry| {
-                entry.value_ptr.deinit(t);
+                entry.value_ptr.deinit(s);
                 self.placements.removeByPtr(entry.key_ptr);
             }
         }
@@ -422,7 +427,7 @@ pub const ImageStorage = struct {
             const rect = entry.value_ptr.rect(img, t);
             if (target_pin.isBetween(rect.top_left, rect.bottom_right)) {
                 if (filter) |f| if (!f(filter_ctx, entry.value_ptr.*)) continue;
-                entry.value_ptr.deinit(t);
+                entry.value_ptr.deinit(&t.screen);
                 self.placements.removeByPtr(entry.key_ptr);
                 if (delete_unused) self.deleteIfUnused(alloc, img.id);
             }
@@ -566,9 +571,9 @@ pub const ImageStorage = struct {
 
         pub fn deinit(
             self: *const Placement,
-            t: *terminal.Terminal,
+            s: *terminal.Screen,
         ) void {
-            t.screen.pages.untrackPin(self.pin);
+            s.pages.untrackPin(self.pin);
         }
 
         /// Returns a selection of the entire rectangle this placement
@@ -641,7 +646,7 @@ test "storage: add placement with zero placement id" {
     t.height_px = 100;
 
     var s: ImageStorage = .{};
-    defer s.deinit(alloc, &t);
+    defer s.deinit(alloc, &t.screen);
     try s.addImage(alloc, .{ .id = 1, .width = 50, .height = 50 });
     try s.addImage(alloc, .{ .id = 2, .width = 25, .height = 25 });
     try s.addPlacement(alloc, 1, 0, .{ .pin = try trackPin(&t, .{ .x = 25, .y = 25 }) });
@@ -669,7 +674,7 @@ test "storage: delete all placements and images" {
     const tracked = t.screen.pages.countTrackedPins();
 
     var s: ImageStorage = .{};
-    defer s.deinit(alloc, &t);
+    defer s.deinit(alloc, &t.screen);
     try s.addImage(alloc, .{ .id = 1 });
     try s.addImage(alloc, .{ .id = 2 });
     try s.addImage(alloc, .{ .id = 3 });
@@ -692,7 +697,7 @@ test "storage: delete all placements and images preserves limit" {
     const tracked = t.screen.pages.countTrackedPins();
 
     var s: ImageStorage = .{};
-    defer s.deinit(alloc, &t);
+    defer s.deinit(alloc, &t.screen);
     s.total_limit = 5000;
     try s.addImage(alloc, .{ .id = 1 });
     try s.addImage(alloc, .{ .id = 2 });
@@ -717,7 +722,7 @@ test "storage: delete all placements" {
     const tracked = t.screen.pages.countTrackedPins();
 
     var s: ImageStorage = .{};
-    defer s.deinit(alloc, &t);
+    defer s.deinit(alloc, &t.screen);
     try s.addImage(alloc, .{ .id = 1 });
     try s.addImage(alloc, .{ .id = 2 });
     try s.addImage(alloc, .{ .id = 3 });
@@ -740,7 +745,7 @@ test "storage: delete all placements by image id" {
     const tracked = t.screen.pages.countTrackedPins();
 
     var s: ImageStorage = .{};
-    defer s.deinit(alloc, &t);
+    defer s.deinit(alloc, &t.screen);
     try s.addImage(alloc, .{ .id = 1 });
     try s.addImage(alloc, .{ .id = 2 });
     try s.addImage(alloc, .{ .id = 3 });
@@ -763,7 +768,7 @@ test "storage: delete all placements by image id and unused images" {
     const tracked = t.screen.pages.countTrackedPins();
 
     var s: ImageStorage = .{};
-    defer s.deinit(alloc, &t);
+    defer s.deinit(alloc, &t.screen);
     try s.addImage(alloc, .{ .id = 1 });
     try s.addImage(alloc, .{ .id = 2 });
     try s.addImage(alloc, .{ .id = 3 });
@@ -786,7 +791,7 @@ test "storage: delete placement by specific id" {
     const tracked = t.screen.pages.countTrackedPins();
 
     var s: ImageStorage = .{};
-    defer s.deinit(alloc, &t);
+    defer s.deinit(alloc, &t.screen);
     try s.addImage(alloc, .{ .id = 1 });
     try s.addImage(alloc, .{ .id = 2 });
     try s.addImage(alloc, .{ .id = 3 });
@@ -816,7 +821,7 @@ test "storage: delete intersecting cursor" {
     const tracked = t.screen.pages.countTrackedPins();
 
     var s: ImageStorage = .{};
-    defer s.deinit(alloc, &t);
+    defer s.deinit(alloc, &t.screen);
     try s.addImage(alloc, .{ .id = 1, .width = 50, .height = 50 });
     try s.addImage(alloc, .{ .id = 2, .width = 25, .height = 25 });
     try s.addPlacement(alloc, 1, 1, .{ .pin = try trackPin(&t, .{ .x = 0, .y = 0 }) });
@@ -848,7 +853,7 @@ test "storage: delete intersecting cursor plus unused" {
     const tracked = t.screen.pages.countTrackedPins();
 
     var s: ImageStorage = .{};
-    defer s.deinit(alloc, &t);
+    defer s.deinit(alloc, &t.screen);
     try s.addImage(alloc, .{ .id = 1, .width = 50, .height = 50 });
     try s.addImage(alloc, .{ .id = 2, .width = 25, .height = 25 });
     try s.addPlacement(alloc, 1, 1, .{ .pin = try trackPin(&t, .{ .x = 0, .y = 0 }) });
@@ -880,7 +885,7 @@ test "storage: delete intersecting cursor hits multiple" {
     const tracked = t.screen.pages.countTrackedPins();
 
     var s: ImageStorage = .{};
-    defer s.deinit(alloc, &t);
+    defer s.deinit(alloc, &t.screen);
     try s.addImage(alloc, .{ .id = 1, .width = 50, .height = 50 });
     try s.addImage(alloc, .{ .id = 2, .width = 25, .height = 25 });
     try s.addPlacement(alloc, 1, 1, .{ .pin = try trackPin(&t, .{ .x = 0, .y = 0 }) });
@@ -906,7 +911,7 @@ test "storage: delete by column" {
     const tracked = t.screen.pages.countTrackedPins();
 
     var s: ImageStorage = .{};
-    defer s.deinit(alloc, &t);
+    defer s.deinit(alloc, &t.screen);
     try s.addImage(alloc, .{ .id = 1, .width = 50, .height = 50 });
     try s.addImage(alloc, .{ .id = 2, .width = 25, .height = 25 });
     try s.addPlacement(alloc, 1, 1, .{ .pin = try trackPin(&t, .{ .x = 0, .y = 0 }) });
@@ -939,7 +944,7 @@ test "storage: delete by row" {
     const tracked = t.screen.pages.countTrackedPins();
 
     var s: ImageStorage = .{};
-    defer s.deinit(alloc, &t);
+    defer s.deinit(alloc, &t.screen);
     try s.addImage(alloc, .{ .id = 1, .width = 50, .height = 50 });
     try s.addImage(alloc, .{ .id = 2, .width = 25, .height = 25 });
     try s.addPlacement(alloc, 1, 1, .{ .pin = try trackPin(&t, .{ .x = 0, .y = 0 }) });
