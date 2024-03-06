@@ -1492,6 +1492,37 @@ pub fn getCell(self: *const PageList, pt: point.Point) ?Cell {
     };
 }
 
+pub const CellIterator = struct {
+    row_it: RowIterator,
+    cell: ?Pin = null,
+
+    pub fn next(self: *CellIterator) ?Pin {
+        const cell = self.cell orelse return null;
+
+        if (cell.x + 1 < cell.page.data.size.cols) {
+            // We still have cells in this row, increase x.
+            var copy = cell;
+            copy.x += 1;
+            self.cell = copy;
+        } else {
+            // We need to move to the next row.
+            self.cell = self.row_it.next();
+        }
+
+        return cell;
+    }
+};
+
+pub fn cellIterator(
+    self: *const PageList,
+    tl_pt: point.Point,
+    bl_pt: ?point.Point,
+) CellIterator {
+    var row_it = self.rowIterator(tl_pt, bl_pt);
+    const cell = row_it.next() orelse return .{ .row_it = row_it };
+    return .{ .row_it = row_it, .cell = cell };
+}
+
 pub const RowIterator = struct {
     page_it: PageIterator,
     chunk: ?PageIterator.Chunk = null,
@@ -4515,4 +4546,54 @@ test "PageList resize reflow less cols to wrap a wide char" {
             try testing.expectEqual(pagepkg.Cell.Wide.spacer_tail, rac.cell.wide);
         }
     }
+}
+
+test "PageList cellIterator" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 2, 0);
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+    for (0..s.rows) |y| {
+        for (0..s.cols) |x| {
+            const rac = page.getRowAndCell(x, y);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = @intCast(x) },
+            };
+        }
+    }
+
+    var it = s.cellIterator(.{ .screen = .{} }, null);
+    {
+        const p = it.next().?;
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pointFromPin(.screen, p).?);
+    }
+    {
+        const p = it.next().?;
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 1,
+            .y = 0,
+        } }, s.pointFromPin(.screen, p).?);
+    }
+    {
+        const p = it.next().?;
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 1,
+        } }, s.pointFromPin(.screen, p).?);
+    }
+    {
+        const p = it.next().?;
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 1,
+            .y = 1,
+        } }, s.pointFromPin(.screen, p).?);
+    }
+    try testing.expect(it.next() == null);
 }
