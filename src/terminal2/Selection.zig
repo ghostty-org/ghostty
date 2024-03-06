@@ -139,25 +139,22 @@ pub fn adjust(
         // } else {
         //     result.end.y += 1;
         // },
-        //
-        // .left => {
-        //     // Step left, wrapping to the next row up at the start of each new line,
-        //     // until we find a non-empty cell.
-        //     //
-        //     // This iterator emits the start point first, throw it out.
-        //     var iterator = result.end.iterator(screen, .left_up);
-        //     _ = iterator.next();
-        //     while (iterator.next()) |next| {
-        //         if (screen.getCell(
-        //             .screen,
-        //             next.y,
-        //             next.x,
-        //         ).char != 0) {
-        //             result.end = next;
-        //             break;
-        //         }
-        //     }
-        // },
+
+        .left => {
+            var it = s.pages.cellIterator(
+                .left_up,
+                .{ .screen = .{} },
+                s.pages.pointFromPin(.screen, self.end.*).?,
+            );
+            _ = it.next();
+            while (it.next()) |next| {
+                const rac = next.rowAndCell();
+                if (rac.cell.hasText()) {
+                    self.end.* = next;
+                    break;
+                }
+            }
+        },
 
         .right => {
             // Step right, wrapping to the next row down at the start of each new line,
@@ -271,6 +268,57 @@ test "Selection: adjust right" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
             .y = 3,
+        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+    }
+}
+
+test "Selection: adjust left" {
+    const testing = std.testing;
+    var s = try Screen.init(testing.allocator, 5, 10, 0);
+    defer s.deinit();
+    try s.testWriteString("A1234\nB5678\nC1234\nD5678");
+
+    // Simple movement left
+    {
+        var sel = try Selection.init(
+            &s,
+            s.pages.pin(.{ .screen = .{ .x = 5, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 3 } }).?,
+            false,
+        );
+        defer sel.deinit(&s);
+        sel.adjust(&s, .left);
+
+        // Start line
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 5,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 2,
+            .y = 3,
+        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+    }
+
+    // Already at beginning of the line.
+    {
+        var sel = try Selection.init(
+            &s,
+            s.pages.pin(.{ .screen = .{ .x = 5, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 0, .y = 3 } }).?,
+            false,
+        );
+        defer sel.deinit(&s);
+        sel.adjust(&s, .left);
+
+        // Start line
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 5,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 4,
+            .y = 2,
         } }, s.pages.pointFromPin(.screen, sel.end.*).?);
     }
 }

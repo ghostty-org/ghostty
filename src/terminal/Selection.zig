@@ -330,6 +330,7 @@ pub fn adjust(self: Selection, screen: *Screen, adjustment: Adjustment) Selectio
     return result;
 }
 
+// X
 test "Selection: adjust right" {
     const testing = std.testing;
     var screen = try Screen.init(testing.allocator, 5, 10, 0);
@@ -376,6 +377,7 @@ test "Selection: adjust right" {
     }
 }
 
+// X
 test "Selection: adjust left" {
     const testing = std.testing;
     var screen = try Screen.init(testing.allocator, 5, 10, 0);
