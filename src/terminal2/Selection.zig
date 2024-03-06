@@ -482,6 +482,35 @@ test "Selection: adjust down" {
     }
 }
 
+test "Selection: adjust down with not full screen" {
+    const testing = std.testing;
+    var s = try Screen.init(testing.allocator, 5, 10, 0);
+    defer s.deinit();
+    try s.testWriteString("A\nB\nC");
+
+    // On the last line
+    {
+        var sel = try Selection.init(
+            &s,
+            s.pages.pin(.{ .screen = .{ .x = 4, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 2 } }).?,
+            false,
+        );
+        defer sel.deinit(&s);
+        sel.adjust(&s, .down);
+
+        // Start line
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 4,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 4,
+            .y = 2,
+        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+    }
+}
+
 test "Selection: order, standard" {
     const testing = std.testing;
     const alloc = testing.allocator;

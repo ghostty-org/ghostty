@@ -485,6 +485,7 @@ test "Selection: adjust up" {
     }
 }
 
+// X
 test "Selection: adjust down" {
     const testing = std.testing;
     var screen = try Screen.init(testing.allocator, 5, 10, 0);
@@ -520,6 +521,7 @@ test "Selection: adjust down" {
     }
 }
 
+// X
 test "Selection: adjust down with not full screen" {
     const testing = std.testing;
     var screen = try Screen.init(testing.allocator, 5, 10, 0);
