@@ -52,4 +52,5 @@ test {
     _ = @import("hash_map.zig");
     _ = @import("size.zig");
     _ = @import("style.zig");
+    _ = @import("Selection.zig");
 }

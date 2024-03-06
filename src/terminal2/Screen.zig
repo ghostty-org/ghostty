@@ -925,7 +925,7 @@ pub fn dumpStringAlloc(
 /// This is basically a really jank version of Terminal.printString. We
 /// have to reimplement it here because we want a way to print to the screen
 /// to test it but don't want all the features of Terminal.
-fn testWriteString(self: *Screen, text: []const u8) !void {
+pub fn testWriteString(self: *Screen, text: []const u8) !void {
     const view = try std.unicode.Utf8View.init(text);
     var iter = view.iterator();
     while (iter.nextCodepoint()) |c| {
