@@ -184,19 +184,18 @@ pub fn adjust(
             }
         },
 
-        // .page_up => if (screen.rows > result.end.y) {
-        //     result.end.y = 0;
-        //     result.end.x = 0;
-        // } else {
-        //     result.end.y -= screen.rows;
-        // },
-        //
-        // .page_down => if (screen.rows > screen_end - result.end.y) {
-        //     result.end.y = screen_end;
-        //     result.end.x = screen.cols - 1;
-        // } else {
-        //     result.end.y += screen.rows;
-        // },
+        .page_up => if (self.end.up(s.pages.rows)) |new_end| {
+            self.end.* = new_end;
+        } else {
+            self.adjust(s, .home);
+        },
+
+        // TODO(paged-terminal): this doesn't take into account blanks
+        .page_down => if (self.end.down(s.pages.rows)) |new_end| {
+            self.end.* = new_end;
+        } else {
+            self.adjust(s, .end);
+        },
 
         .home => self.end.* = s.pages.pin(.{ .screen = .{
             .x = 0,
@@ -219,8 +218,6 @@ pub fn adjust(
                 }
             }
         },
-
-        else => @panic("TODO"),
     }
 }
 
