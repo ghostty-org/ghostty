@@ -120,9 +120,6 @@ pub fn adjust(
     s: *const Screen,
     adjustment: Adjustment,
 ) void {
-    _ = self;
-    _ = s;
-
     //const screen_end = Screen.RowIndexTag.screen.maxLen(screen) - 1;
 
     // Note that we always adjusts "end" because end always represents
@@ -162,28 +159,24 @@ pub fn adjust(
         //     }
         // },
 
-        // .right => {
-        //     // Step right, wrapping to the next row down at the start of each new line,
-        //     // until we find a non-empty cell.
-        //     var iterator = result.end.iterator(screen, .right_down);
-        //     _ = iterator.next();
-        //     while (iterator.next()) |next| {
-        //         if (next.y > screen_end) break;
-        //         if (screen.getCell(
-        //             .screen,
-        //             next.y,
-        //             next.x,
-        //         ).char != 0) {
-        //             if (next.y > screen_end) {
-        //                 result.end.y = screen_end;
-        //             } else {
-        //                 result.end = next;
-        //             }
-        //             break;
-        //         }
-        //     }
-        // },
-        //
+        .right => {
+            // Step right, wrapping to the next row down at the start of each new line,
+            // until we find a non-empty cell.
+            var it = s.pages.cellIterator(
+                .right_down,
+                s.pages.pointFromPin(.screen, self.end.*).?,
+                null,
+            );
+            _ = it.next();
+            while (it.next()) |next| {
+                const rac = next.rowAndCell();
+                if (rac.cell.hasText()) {
+                    self.end.* = next;
+                    break;
+                }
+            }
+        },
+
         // .page_up => if (screen.rows > result.end.y) {
         //     result.end.y = 0;
         //     result.end.x = 0;
@@ -218,52 +211,68 @@ test "Selection: adjust right" {
     defer s.deinit();
     try s.testWriteString("A1234\nB5678\nC1234\nD5678");
 
-    // // Simple movement right
-    // {
-    //     var sel = try Selection.init(
-    //         &s,
-    //         s.pages.pin(.{ .screen = .{ .x = 5, .y = 1 } }).?,
-    //         s.pages.pin(.{ .screen = .{ .x = 3, .y = 3 } }).?,
-    //         false,
-    //     );
-    //     defer sel.deinit(&s);
-    //     sel.adjust(&s, .right);
-    //
-    //     try testing.expectEqual(point.Point{ .screen = .{
-    //         .x = 5,
-    //         .y = 1,
-    //     } }, s.pages.pointFromPin(.screen, sel.start.*).?);
-    //     try testing.expectEqual(point.Point{ .screen = .{
-    //         .x = 4,
-    //         .y = 3,
-    //     } }, s.pages.pointFromPin(.screen, sel.end.*).?);
-    // }
+    // Simple movement right
+    {
+        var sel = try Selection.init(
+            &s,
+            s.pages.pin(.{ .screen = .{ .x = 5, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 3 } }).?,
+            false,
+        );
+        defer sel.deinit(&s);
+        sel.adjust(&s, .right);
 
-    // // Already at end of the line.
-    // {
-    //     const sel = (Selection{
-    //         .start = .{ .x = 5, .y = 1 },
-    //         .end = .{ .x = 4, .y = 2 },
-    //     }).adjust(&screen, .right);
-    //
-    //     try testing.expectEqual(Selection{
-    //         .start = .{ .x = 5, .y = 1 },
-    //         .end = .{ .x = 0, .y = 3 },
-    //     }, sel);
-    // }
-    //
-    // // Already at end of the screen
-    // {
-    //     const sel = (Selection{
-    //         .start = .{ .x = 5, .y = 1 },
-    //         .end = .{ .x = 4, .y = 3 },
-    //     }).adjust(&screen, .right);
-    //
-    //     try testing.expectEqual(Selection{
-    //         .start = .{ .x = 5, .y = 1 },
-    //         .end = .{ .x = 4, .y = 3 },
-    //     }, sel);
-    // }
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 5,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 4,
+            .y = 3,
+        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+    }
+
+    // Already at end of the line.
+    {
+        var sel = try Selection.init(
+            &s,
+            s.pages.pin(.{ .screen = .{ .x = 4, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 4, .y = 2 } }).?,
+            false,
+        );
+        defer sel.deinit(&s);
+        sel.adjust(&s, .right);
+
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 4,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 3,
+        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+    }
+
+    // Already at end of the screen
+    {
+        var sel = try Selection.init(
+            &s,
+            s.pages.pin(.{ .screen = .{ .x = 5, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 4, .y = 3 } }).?,
+            false,
+        );
+        defer sel.deinit(&s);
+        sel.adjust(&s, .right);
+
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 5,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 4,
+            .y = 3,
+        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+    }
 }
 
 test "Selection: order, standard" {
