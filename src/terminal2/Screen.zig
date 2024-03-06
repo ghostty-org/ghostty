@@ -8,7 +8,7 @@ const charsets = @import("charsets.zig");
 const kitty = @import("kitty.zig");
 const sgr = @import("sgr.zig");
 const unicode = @import("../unicode/main.zig");
-//const Selection = @import("../Selection.zig");
+const Selection = @import("Selection.zig");
 const PageList = @import("PageList.zig");
 const pagepkg = @import("page.zig");
 const point = @import("point.zig");
@@ -17,6 +17,7 @@ const style = @import("style.zig");
 const Page = pagepkg.Page;
 const Row = pagepkg.Row;
 const Cell = pagepkg.Cell;
+const Pin = PageList.Pin;
 
 /// The general purpose allocator to use for all memory allocations.
 /// Unfortunately some screen operations do require allocation.
@@ -841,6 +842,119 @@ pub fn manualStyleUpdate(self: *Screen) !void {
 //     _ = trim;
 //     @panic("TODO");
 // }
+
+/// Select the line under the given point. This will select across soft-wrapped
+/// lines and will omit the leading and trailing whitespace. If the point is
+/// over whitespace but the line has non-whitespace characters elsewhere, the
+/// line will be selected.
+pub fn selectLine(self: *Screen, pin: Pin) ?Selection {
+    _ = self;
+
+    // Whitespace characters for selection purposes
+    const whitespace = &[_]u32{ 0, ' ', '\t' };
+
+    // Get the current point semantic prompt state since that determines
+    // boundary conditions too. This makes it so that line selection can
+    // only happen within the same prompt state. For example, if you triple
+    // click output, but the shell uses spaces to soft-wrap to the prompt
+    // then the selection will stop prior to the prompt. See issue #1329.
+    const semantic_prompt_state = state: {
+        const rac = pin.rowAndCell();
+        break :state rac.row.semantic_prompt.promptOrInput();
+    };
+
+    // The real start of the row is the first row in the soft-wrap.
+    const start_pin: Pin = start_pin: {
+        var it = pin.rowIterator(.left_up, null);
+        while (it.next()) |p| {
+            const row = p.rowAndCell().row;
+
+            if (!row.wrap) {
+                var copy = p;
+                copy.x = 0;
+                break :start_pin copy;
+            }
+
+            // See semantic_prompt_state comment for why
+            const current_prompt = row.semantic_prompt.promptOrInput();
+            if (current_prompt != semantic_prompt_state) {
+                var prev = p.down(1).?;
+                prev.x = 0;
+                break :start_pin prev;
+            }
+        }
+
+        return null;
+    };
+
+    // The real end of the row is the final row in the soft-wrap.
+    const end_pin: Pin = end_pin: {
+        var it = pin.rowIterator(.right_down, null);
+        while (it.next()) |p| {
+            const row = p.rowAndCell().row;
+
+            // See semantic_prompt_state comment for why
+            const current_prompt = row.semantic_prompt.promptOrInput();
+            if (current_prompt != semantic_prompt_state) {
+                var prev = p.up(1).?;
+                prev.x = p.page.data.size.cols - 1;
+                break :end_pin prev;
+            }
+
+            if (!row.wrap) {
+                var copy = p;
+                copy.x = p.page.data.size.cols - 1;
+                break :end_pin copy;
+            }
+        }
+
+        return null;
+    };
+
+    // Go forward from the start to find the first non-whitespace character.
+    const start: Pin = start: {
+        var it = start_pin.cellIterator(.right_down, end_pin);
+        while (it.next()) |p| {
+            const cell = p.rowAndCell().cell;
+            if (!cell.hasText()) continue;
+
+            // Non-empty means we found it.
+            const this_whitespace = std.mem.indexOfAny(
+                u32,
+                whitespace,
+                &[_]u32{cell.content.codepoint},
+            ) != null;
+            if (this_whitespace) continue;
+
+            break :start p;
+        }
+
+        return null;
+    };
+
+    // Go backward from the end to find the first non-whitespace character.
+    const end: Pin = end: {
+        var it = end_pin.cellIterator(.left_up, start_pin);
+        while (it.next()) |p| {
+            const cell = p.rowAndCell().cell;
+            if (!cell.hasText()) continue;
+
+            // Non-empty means we found it.
+            const this_whitespace = std.mem.indexOfAny(
+                u32,
+                whitespace,
+                &[_]u32{cell.content.codepoint},
+            ) != null;
+            if (this_whitespace) continue;
+
+            break :end p;
+        }
+
+        return null;
+    };
+
+    return Selection.init(start, end, false);
+}
 
 /// Dump the screen to a string. The writer given should be buffered;
 /// this function does not attempt to efficiently write and generally writes
@@ -3445,5 +3559,86 @@ test "Screen: resize more cols requiring a wide spacer head" {
         const list_cell = s.pages.getCell(.{ .screen = .{ .x = 1, .y = 1 } }).?;
         const cell = list_cell.cell;
         try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
+    }
+}
+
+test "Screen: selectLine" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 10, 0);
+    defer s.deinit();
+    try s.testWriteString("ABC  DEF\n 123\n456");
+
+    // Outside of active area
+    // try testing.expect(s.selectLine(.{ .x = 13, .y = 0 }) == null);
+    // try testing.expect(s.selectLine(.{ .x = 0, .y = 5 }) == null);
+
+    // Going forward
+    {
+        var sel = s.selectLine(s.pages.pin(.{ .active = .{
+            .x = 0,
+            .y = 0,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 7,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+    }
+
+    // Going backward
+    {
+        var sel = s.selectLine(s.pages.pin(.{ .active = .{
+            .x = 7,
+            .y = 0,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 7,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+    }
+
+    // Going forward and backward
+    {
+        var sel = s.selectLine(s.pages.pin(.{ .active = .{
+            .x = 3,
+            .y = 0,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 7,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+    }
+
+    // Outside active area
+    {
+        var sel = s.selectLine(s.pages.pin(.{ .active = .{
+            .x = 9,
+            .y = 0,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 7,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
     }
 }
