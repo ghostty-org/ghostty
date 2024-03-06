@@ -1788,7 +1788,12 @@ pub const Pin = struct {
 
         if (self.page == top.page) {
             if (self.y < top.y) return false;
-            if (self.y > top.y) return true;
+            if (self.y > top.y) {
+                return if (self.page == bottom.page)
+                    self.y <= bottom.y
+                else
+                    true;
+            }
             return self.x >= top.x;
         }
         if (self.page == bottom.page) {
