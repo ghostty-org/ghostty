@@ -503,7 +503,7 @@ pub fn clearRows(
     bl: ?point.Point,
     protected: bool,
 ) void {
-    var it = self.pages.pageIterator(tl, bl);
+    var it = self.pages.pageIterator(.right_down, tl, bl);
     while (it.next()) |chunk| {
         for (chunk.rows()) |*row| {
             const cells_offset = row.cells;

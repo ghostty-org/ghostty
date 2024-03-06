@@ -257,7 +257,7 @@ pub fn clone(
     bot: ?point.Point,
 ) !PageList {
     // First, count our pages so our preheat is exactly what we need.
-    var it = self.pageIterator(top, bot);
+    var it = self.pageIterator(.right_down, top, bot);
     const page_count: usize = page_count: {
         var count: usize = 0;
         while (it.next()) |_| count += 1;
@@ -281,7 +281,7 @@ pub fn clonePool(
     top: point.Point,
     bot: ?point.Point,
 ) !PageList {
-    var it = self.pageIterator(top, bot);
+    var it = self.pageIterator(.right_down, top, bot);
 
     // Copy our pages
     var page_list: List = .{};
@@ -427,7 +427,7 @@ fn resizeCols(
     const cap = try std_capacity.adjust(.{ .cols = cols });
 
     // Go page by page and shrink the columns on a per-page basis.
-    var it = self.pageIterator(.{ .screen = .{} }, null);
+    var it = self.pageIterator(.right_down, .{ .screen = .{} }, null);
     while (it.next()) |chunk| {
         // Fast-path: none of our rows are wrapped. In this case we can
         // treat this like a no-reflow resize. This only applies if we
@@ -911,7 +911,7 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
             // resize the columns, and clear any cells that are beyond
             // the new size.
             .lt => {
-                var it = self.pageIterator(.{ .screen = .{} }, null);
+                var it = self.pageIterator(.right_down, .{ .screen = .{} }, null);
                 while (it.next()) |chunk| {
                     const page = &chunk.page.data;
                     const rows = page.rows.ptr(page.memory);
@@ -940,7 +940,7 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
             .gt => {
                 const cap = try std_capacity.adjust(.{ .cols = cols });
 
-                var it = self.pageIterator(.{ .screen = .{} }, null);
+                var it = self.pageIterator(.right_down, .{ .screen = .{} }, null);
                 while (it.next()) |chunk| {
                     try self.resizeWithoutReflowGrowCols(cap, chunk);
                 }
@@ -1270,7 +1270,7 @@ pub fn eraseRows(
     // A pageIterator iterates one page at a time from the back forward.
     // "back" here is in terms of scrollback, but actually the front of the
     // linked list.
-    var it = self.pageIterator(tl_pt, bl_pt);
+    var it = self.pageIterator(.right_down, tl_pt, bl_pt);
     while (it.next()) |chunk| {
         // If the chunk is a full page, deinit thit page and remove it from
         // the linked list.
@@ -1492,6 +1492,9 @@ pub fn getCell(self: *const PageList, pt: point.Point) ?Cell {
     };
 }
 
+/// Direction that iterators can move.
+pub const Direction = enum { left_up, right_down };
+
 pub const CellIterator = struct {
     row_it: RowIterator,
     cell: ?Pin = null,
@@ -1555,7 +1558,7 @@ pub fn rowIterator(
     tl_pt: point.Point,
     bl_pt: ?point.Point,
 ) RowIterator {
-    var page_it = self.pageIterator(tl_pt, bl_pt);
+    var page_it = self.pageIterator(.right_down, tl_pt, bl_pt);
     const chunk = page_it.next() orelse return .{ .page_it = page_it };
     return .{ .page_it = page_it, .chunk = chunk, .offset = chunk.start };
 }
@@ -1563,6 +1566,7 @@ pub fn rowIterator(
 pub const PageIterator = struct {
     row: ?Pin = null,
     limit: Limit = .none,
+    direction: Direction = .right_down,
 
     const Limit = union(enum) {
         none,
@@ -1571,6 +1575,13 @@ pub const PageIterator = struct {
     };
 
     pub fn next(self: *PageIterator) ?Chunk {
+        return switch (self.direction) {
+            .left_up => self.nextUp(),
+            .right_down => self.nextDown(),
+        };
+    }
+
+    fn nextDown(self: *PageIterator) ?Chunk {
         // Get our current row location
         const row = self.row orelse return null;
 
@@ -1636,6 +1647,78 @@ pub const PageIterator = struct {
         };
     }
 
+    fn nextUp(self: *PageIterator) ?Chunk {
+        // Get our current row location
+        const row = self.row orelse return null;
+
+        return switch (self.limit) {
+            .none => none: {
+                // If we have no limit, then we consume this entire page. Our
+                // next row is the next page.
+                self.row = next: {
+                    const next_page = row.page.prev orelse break :next null;
+                    break :next .{
+                        .page = next_page,
+                        .y = next_page.data.size.rows - 1,
+                    };
+                };
+
+                break :none .{
+                    .page = row.page,
+                    .start = 0,
+                    .end = row.y + 1,
+                };
+            },
+
+            .count => |*limit| count: {
+                assert(limit.* > 0); // should be handled already
+                const len = @min(row.y, limit.*);
+                if (len > limit.*) {
+                    self.row = row.up(len);
+                    limit.* -= len;
+                } else {
+                    self.row = null;
+                }
+
+                break :count .{
+                    .page = row.page,
+                    .start = row.y - len,
+                    .end = row.y - 1,
+                };
+            },
+
+            .row => |limit_row| row: {
+                // If this is not the same page as our limit then we
+                // can consume the entire page.
+                if (limit_row.page != row.page) {
+                    self.row = next: {
+                        const next_page = row.page.prev orelse break :next null;
+                        break :next .{
+                            .page = next_page,
+                            .y = next_page.data.size.rows - 1,
+                        };
+                    };
+
+                    break :row .{
+                        .page = row.page,
+                        .start = 0,
+                        .end = row.y + 1,
+                    };
+                }
+
+                // If this is the same page then we only consume up to
+                // the limit row.
+                self.row = null;
+                if (row.y < limit_row.y) return null;
+                break :row .{
+                    .page = row.page,
+                    .start = limit_row.y,
+                    .end = row.y + 1,
+                };
+            },
+        };
+    }
+
     pub const Chunk = struct {
         page: *List.Node,
         start: usize,
@@ -1667,37 +1750,33 @@ pub const PageIterator = struct {
 /// bl_pt must be greater than or equal to tl_pt.
 pub fn pageIterator(
     self: *const PageList,
+    direction: Direction,
     tl_pt: point.Point,
     bl_pt: ?point.Point,
 ) PageIterator {
-    // TODO: bl_pt assertions
+    const tl_pin = self.pin(tl_pt).?;
+    const bl_pin = if (bl_pt) |pt|
+        self.pin(pt).?
+    else
+        self.getBottomRight(tl_pt) orelse return .{ .row = null };
 
-    const tl = self.getTopLeft(tl_pt);
-    const limit: PageIterator.Limit = limit: {
-        if (bl_pt) |pt| {
-            const bl = self.getTopLeft(pt);
-            break :limit .{ .row = bl.down(pt.coord().y).? };
-        }
+    if (comptime std.debug.runtime_safety) {
+        assert(tl_pin.eql(bl_pin) or tl_pin.isBefore(bl_pin));
+    }
 
-        break :limit switch (tl_pt) {
-            // These always go to the end of the screen.
-            .screen, .active => .{ .none = {} },
+    return switch (direction) {
+        .right_down => .{
+            .row = tl_pin,
+            .limit = .{ .row = bl_pin },
+            .direction = .right_down,
+        },
 
-            // Viewport always is rows long
-            .viewport => .{ .count = self.rows },
-
-            // History goes to the top of the active area. This is more expensive
-            // to calculate but also more rare of a thing to iterate over.
-            .history => history: {
-                const active_tl = self.getTopLeft(.active);
-                const history_bot = active_tl.up(1) orelse
-                    return .{ .row = null };
-                break :history .{ .row = history_bot };
-            },
-        };
+        .left_up => .{
+            .row = bl_pin,
+            .limit = .{ .row = tl_pin },
+            .direction = .left_up,
+        },
     };
-
-    return .{ .row = tl.down(tl_pt.coord().y), .limit = limit };
 }
 
 /// Get the top-left of the screen for the given tag.
@@ -1728,6 +1807,32 @@ fn getTopLeft(self: *const PageList, tag: point.Tag) Pin {
                 .page = page,
                 .y = page.data.size.rows - rem,
             };
+        },
+    };
+}
+
+/// Returns the bottom right of the screen for the given tag. This can
+/// return null because it is possible that a tag is not in the screen
+/// (e.g. history does not yet exist).
+fn getBottomRight(self: *const PageList, tag: point.Tag) ?Pin {
+    return switch (tag) {
+        .screen, .active => last: {
+            const page = self.pages.last.?;
+            break :last .{
+                .page = page,
+                .y = page.data.size.rows - 1,
+                .x = page.data.size.cols - 1,
+            };
+        },
+
+        .viewport => viewport: {
+            const tl = self.getTopLeft(.viewport);
+            break :viewport tl.down(self.rows - 1).?;
+        },
+
+        .history => active: {
+            const tl = self.getTopLeft(.active);
+            break :active tl.up(1);
         },
     };
 }
@@ -2467,7 +2572,7 @@ test "PageList pageIterator single page" {
     try testing.expect(s.pages.first.?.next == null);
 
     // Iterate the active area
-    var it = s.pageIterator(.{ .active = .{} }, null);
+    var it = s.pageIterator(.right_down, .{ .active = .{} }, null);
     {
         const chunk = it.next().?;
         try testing.expect(chunk.page == s.pages.first.?);
@@ -2495,7 +2600,7 @@ test "PageList pageIterator two pages" {
     try testing.expect(try s.grow() != null);
 
     // Iterate the active area
-    var it = s.pageIterator(.{ .active = .{} }, null);
+    var it = s.pageIterator(.right_down, .{ .active = .{} }, null);
     {
         const chunk = it.next().?;
         try testing.expect(chunk.page == s.pages.first.?);
@@ -2529,7 +2634,7 @@ test "PageList pageIterator history two pages" {
     try testing.expect(try s.grow() != null);
 
     // Iterate the active area
-    var it = s.pageIterator(.{ .history = .{} }, null);
+    var it = s.pageIterator(.right_down, .{ .history = .{} }, null);
     {
         const active_tl = s.getTopLeft(.active);
         const chunk = it.next().?;
@@ -2537,6 +2642,145 @@ test "PageList pageIterator history two pages" {
         const start: usize = 0;
         try testing.expectEqual(start, chunk.start);
         try testing.expectEqual(active_tl.y, chunk.end);
+    }
+    try testing.expect(it.next() == null);
+}
+
+test "PageList pageIterator reverse single page" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+
+    // The viewport should be within a single page
+    try testing.expect(s.pages.first.?.next == null);
+
+    // Iterate the active area
+    var it = s.pageIterator(.left_up, .{ .active = .{} }, null);
+    {
+        const chunk = it.next().?;
+        try testing.expect(chunk.page == s.pages.first.?);
+        try testing.expectEqual(@as(usize, 0), chunk.start);
+        try testing.expectEqual(@as(usize, s.rows), chunk.end);
+    }
+
+    // Should only have one chunk
+    try testing.expect(it.next() == null);
+}
+
+test "PageList pageIterator reverse two pages" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+
+    // Grow to capacity
+    const page1_node = s.pages.last.?;
+    const page1 = page1_node.data;
+    for (0..page1.capacity.rows - page1.size.rows) |_| {
+        try testing.expect(try s.grow() == null);
+    }
+    try testing.expect(try s.grow() != null);
+
+    // Iterate the active area
+    var it = s.pageIterator(.left_up, .{ .active = .{} }, null);
+    var count: usize = 0;
+    {
+        const chunk = it.next().?;
+        try testing.expect(chunk.page == s.pages.last.?);
+        const start: usize = 0;
+        try testing.expectEqual(start, chunk.start);
+        try testing.expectEqual(start + 1, chunk.end);
+        count += chunk.end - chunk.start;
+    }
+    {
+        const chunk = it.next().?;
+        try testing.expect(chunk.page == s.pages.first.?);
+        const start = chunk.page.data.size.rows - s.rows + 1;
+        try testing.expectEqual(start, chunk.start);
+        try testing.expectEqual(chunk.page.data.size.rows, chunk.end);
+        count += chunk.end - chunk.start;
+    }
+    try testing.expect(it.next() == null);
+    try testing.expectEqual(s.rows, count);
+}
+
+test "PageList pageIterator reverse history two pages" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+
+    // Grow to capacity
+    const page1_node = s.pages.last.?;
+    const page1 = page1_node.data;
+    for (0..page1.capacity.rows - page1.size.rows) |_| {
+        try testing.expect(try s.grow() == null);
+    }
+    try testing.expect(try s.grow() != null);
+
+    // Iterate the active area
+    var it = s.pageIterator(.left_up, .{ .history = .{} }, null);
+    {
+        const active_tl = s.getTopLeft(.active);
+        const chunk = it.next().?;
+        try testing.expect(chunk.page == s.pages.first.?);
+        const start: usize = 0;
+        try testing.expectEqual(start, chunk.start);
+        try testing.expectEqual(active_tl.y, chunk.end);
+    }
+    try testing.expect(it.next() == null);
+}
+
+test "PageList cellIterator" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 2, 0);
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+    for (0..s.rows) |y| {
+        for (0..s.cols) |x| {
+            const rac = page.getRowAndCell(x, y);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = @intCast(x) },
+            };
+        }
+    }
+
+    var it = s.cellIterator(.{ .screen = .{} }, null);
+    {
+        const p = it.next().?;
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pointFromPin(.screen, p).?);
+    }
+    {
+        const p = it.next().?;
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 1,
+            .y = 0,
+        } }, s.pointFromPin(.screen, p).?);
+    }
+    {
+        const p = it.next().?;
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 1,
+        } }, s.pointFromPin(.screen, p).?);
+    }
+    {
+        const p = it.next().?;
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 1,
+            .y = 1,
+        } }, s.pointFromPin(.screen, p).?);
     }
     try testing.expect(it.next() == null);
 }
@@ -3181,7 +3425,7 @@ test "PageList resize (no reflow) less cols clears graphemes" {
     try testing.expectEqual(@as(usize, 5), s.cols);
     try testing.expectEqual(@as(usize, 10), s.totalRows());
 
-    var it = s.pageIterator(.{ .screen = .{} }, null);
+    var it = s.pageIterator(.right_down, .{ .screen = .{} }, null);
     while (it.next()) |chunk| {
         try testing.expectEqual(@as(usize, 0), chunk.page.data.graphemeCount());
     }
@@ -4546,54 +4790,4 @@ test "PageList resize reflow less cols to wrap a wide char" {
             try testing.expectEqual(pagepkg.Cell.Wide.spacer_tail, rac.cell.wide);
         }
     }
-}
-
-test "PageList cellIterator" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    var s = try init(alloc, 2, 2, 0);
-    defer s.deinit();
-    try testing.expect(s.pages.first == s.pages.last);
-    const page = &s.pages.first.?.data;
-    for (0..s.rows) |y| {
-        for (0..s.cols) |x| {
-            const rac = page.getRowAndCell(x, y);
-            rac.cell.* = .{
-                .content_tag = .codepoint,
-                .content = .{ .codepoint = @intCast(x) },
-            };
-        }
-    }
-
-    var it = s.cellIterator(.{ .screen = .{} }, null);
-    {
-        const p = it.next().?;
-        try testing.expectEqual(point.Point{ .screen = .{
-            .x = 0,
-            .y = 0,
-        } }, s.pointFromPin(.screen, p).?);
-    }
-    {
-        const p = it.next().?;
-        try testing.expectEqual(point.Point{ .screen = .{
-            .x = 1,
-            .y = 0,
-        } }, s.pointFromPin(.screen, p).?);
-    }
-    {
-        const p = it.next().?;
-        try testing.expectEqual(point.Point{ .screen = .{
-            .x = 0,
-            .y = 1,
-        } }, s.pointFromPin(.screen, p).?);
-    }
-    {
-        const p = it.next().?;
-        try testing.expectEqual(point.Point{ .screen = .{
-            .x = 1,
-            .y = 1,
-        } }, s.pointFromPin(.screen, p).?);
-    }
-    try testing.expect(it.next() == null);
 }
