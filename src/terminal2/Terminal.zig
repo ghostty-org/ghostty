@@ -1864,7 +1864,7 @@ pub fn decaln(self: *Terminal) !void {
     self.eraseDisplay(.complete, false);
 
     // Fill with Es, does not move cursor.
-    var it = self.screen.pages.pageIterator(.{ .active = .{} }, null);
+    var it = self.screen.pages.pageIterator(.right_down, .{ .active = .{} }, null);
     while (it.next()) |chunk| {
         for (chunk.rows()) |*row| {
             const cells_multi: [*]Cell = row.cells.ptr(chunk.page.data.memory);
