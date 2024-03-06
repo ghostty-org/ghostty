@@ -19,38 +19,48 @@ const Pin = PageList.Pin;
 // depended on this behavior so I kept it despite the inefficiency. In the
 // future, we should take a look at this again!
 
-/// Start and end of the selection. There is no guarantee that
-/// start is before end or vice versa. If a user selects backwards,
-/// start will be after end, and vice versa. Use the struct functions
-/// to not have to worry about this.
-///
-/// These are always tracked pins so that they automatically update as
-/// the screen they're attached to gets scrolled, erased, etc.
-start: *Pin,
-end: *Pin,
+/// The bounds of the selection.
+bounds: Bounds,
 
 /// Whether or not this selection refers to a rectangle, rather than whole
 /// lines of a buffer. In this mode, start and end refer to the top left and
 /// bottom right of the rectangle, or vice versa if the selection is backwards.
 rectangle: bool = false,
 
+/// The bounds of the selection. A selection bounds can be either tracked
+/// or untracked. Untracked bounds are unsafe beyond the point the terminal
+/// screen may be modified, since they may point to invalid memory. Tracked
+/// bounds are always valid and will be updated as the screen changes, but
+/// are more expensive to exist.
+///
+/// In all cases, start and end can be in any order. There is no guarantee that
+/// start is before end or vice versa. If a user selects backwards,
+/// start will be after end, and vice versa. Use the struct functions
+/// to not have to worry about this.
+pub const Bounds = union(enum) {
+    untracked: struct {
+        start: Pin,
+        end: Pin,
+    },
+
+    tracked: struct {
+        start: *Pin,
+        end: *Pin,
+    },
+};
+
 /// Initialize a new selection with the given start and end pins on
 /// the screen. The screen will be used for pin tracking.
 pub fn init(
-    s: *Screen,
-    start: Pin,
-    end: Pin,
+    start_pin: Pin,
+    end_pin: Pin,
     rect: bool,
-) !Selection {
-    // Track our pins
-    const tracked_start = try s.pages.trackPin(start);
-    errdefer s.pages.untrackPin(tracked_start);
-    const tracked_end = try s.pages.trackPin(end);
-    errdefer s.pages.untrackPin(tracked_end);
-
+) Selection {
     return .{
-        .start = tracked_start,
-        .end = tracked_end,
+        .bounds = .{ .untracked = .{
+            .start = start_pin,
+            .end = end_pin,
+        } },
         .rectangle = rect,
     };
 }
@@ -59,8 +69,71 @@ pub fn deinit(
     self: Selection,
     s: *Screen,
 ) void {
-    s.pages.untrackPin(self.start);
-    s.pages.untrackPin(self.end);
+    switch (self.bounds) {
+        .tracked => |v| {
+            s.pages.untrackPin(v.start);
+            s.pages.untrackPin(v.end);
+        },
+
+        .untracked => {},
+    }
+}
+
+/// The starting pin of the selection. This is NOT ordered.
+pub fn start(self: *Selection) *Pin {
+    return switch (self.bounds) {
+        .untracked => |*v| &v.start,
+        .tracked => |v| v.start,
+    };
+}
+
+/// The ending pin of the selection. This is NOT ordered.
+pub fn end(self: *Selection) *Pin {
+    return switch (self.bounds) {
+        .untracked => |*v| &v.end,
+        .tracked => |v| v.end,
+    };
+}
+
+fn startConst(self: Selection) Pin {
+    return switch (self.bounds) {
+        .untracked => |v| v.start,
+        .tracked => |v| v.start.*,
+    };
+}
+
+fn endConst(self: Selection) Pin {
+    return switch (self.bounds) {
+        .untracked => |v| v.end,
+        .tracked => |v| v.end.*,
+    };
+}
+
+/// Returns true if this is a tracked selection.
+pub fn tracked(self: *const Selection) bool {
+    return switch (self.bounds) {
+        .untracked => false,
+        .tracked => true,
+    };
+}
+
+/// Convert this selection a tracked selection. It is asserted this is
+/// an untracked selection.
+pub fn track(self: *Selection, s: *Screen) !void {
+    assert(!self.tracked());
+
+    // Track our pins
+    const start_pin = self.bounds.untracked.start;
+    const end_pin = self.bounds.untracked.end;
+    const tracked_start = try s.pages.trackPin(start_pin);
+    errdefer s.pages.untrackPin(tracked_start);
+    const tracked_end = try s.pages.trackPin(end_pin);
+    errdefer s.pages.untrackPin(tracked_end);
+
+    self.bounds = .{ .tracked = .{
+        .start = tracked_start,
+        .end = tracked_end,
+    } };
 }
 
 /// The order of the selection:
@@ -78,8 +151,8 @@ pub fn deinit(
 pub const Order = enum { forward, reverse, mirrored_forward, mirrored_reverse };
 
 pub fn order(self: Selection, s: *const Screen) Order {
-    const start_pt = s.pages.pointFromPin(.screen, self.start.*).?.screen;
-    const end_pt = s.pages.pointFromPin(.screen, self.end.*).?.screen;
+    const start_pt = s.pages.pointFromPin(.screen, self.startConst()).?.screen;
+    const end_pt = s.pages.pointFromPin(.screen, self.endConst()).?.screen;
 
     if (self.rectangle) {
         // Reverse (also handles single-column)
@@ -121,32 +194,31 @@ pub fn adjust(
     s: *const Screen,
     adjustment: Adjustment,
 ) void {
-    //const screen_end = Screen.RowIndexTag.screen.maxLen(screen) - 1;
-
     // Note that we always adjusts "end" because end always represents
     // the last point of the selection by mouse, not necessarilly the
     // top/bottom visually. So this results in the right behavior
     // whether the user drags up or down.
+    const end_pin = self.end();
     switch (adjustment) {
-        .up => if (self.end.up(1)) |new_end| {
-            self.end.* = new_end;
+        .up => if (end_pin.up(1)) |new_end| {
+            end_pin.* = new_end;
         } else {
-            self.end.x = 0;
+            end_pin.x = 0;
         },
 
         .down => {
             // Find the next non-blank row
-            var current = self.end.*;
+            var current = end_pin.*;
             while (current.down(1)) |next| : (current = next) {
                 const rac = next.rowAndCell();
                 const cells = next.page.data.getCells(rac.row);
                 if (page.Cell.hasTextAny(cells)) {
-                    self.end.* = next;
+                    end_pin.* = next;
                     break;
                 }
             } else {
                 // If we're at the bottom, just go to the end of the line
-                self.end.x = self.end.page.data.size.cols - 1;
+                end_pin.x = end_pin.page.data.size.cols - 1;
             }
         },
 
@@ -154,13 +226,13 @@ pub fn adjust(
             var it = s.pages.cellIterator(
                 .left_up,
                 .{ .screen = .{} },
-                s.pages.pointFromPin(.screen, self.end.*).?,
+                s.pages.pointFromPin(.screen, end_pin.*).?,
             );
             _ = it.next();
             while (it.next()) |next| {
                 const rac = next.rowAndCell();
                 if (rac.cell.hasText()) {
-                    self.end.* = next;
+                    end_pin.* = next;
                     break;
                 }
             }
@@ -171,33 +243,33 @@ pub fn adjust(
             // until we find a non-empty cell.
             var it = s.pages.cellIterator(
                 .right_down,
-                s.pages.pointFromPin(.screen, self.end.*).?,
+                s.pages.pointFromPin(.screen, end_pin.*).?,
                 null,
             );
             _ = it.next();
             while (it.next()) |next| {
                 const rac = next.rowAndCell();
                 if (rac.cell.hasText()) {
-                    self.end.* = next;
+                    end_pin.* = next;
                     break;
                 }
             }
         },
 
-        .page_up => if (self.end.up(s.pages.rows)) |new_end| {
-            self.end.* = new_end;
+        .page_up => if (end_pin.up(s.pages.rows)) |new_end| {
+            end_pin.* = new_end;
         } else {
             self.adjust(s, .home);
         },
 
         // TODO(paged-terminal): this doesn't take into account blanks
-        .page_down => if (self.end.down(s.pages.rows)) |new_end| {
-            self.end.* = new_end;
+        .page_down => if (end_pin.down(s.pages.rows)) |new_end| {
+            end_pin.* = new_end;
         } else {
             self.adjust(s, .end);
         },
 
-        .home => self.end.* = s.pages.pin(.{ .screen = .{
+        .home => end_pin.* = s.pages.pin(.{ .screen = .{
             .x = 0,
             .y = 0,
         } }).?,
@@ -212,8 +284,8 @@ pub fn adjust(
                 const rac = next.rowAndCell();
                 const cells = next.page.data.getCells(rac.row);
                 if (page.Cell.hasTextAny(cells)) {
-                    self.end.* = next;
-                    self.end.x = cells.len - 1;
+                    end_pin.* = next;
+                    end_pin.x = cells.len - 1;
                     break;
                 }
             }
@@ -229,8 +301,7 @@ test "Selection: adjust right" {
 
     // Simple movement right
     {
-        var sel = try Selection.init(
-            &s,
+        var sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 5, .y = 1 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 3, .y = 3 } }).?,
             false,
@@ -241,17 +312,16 @@ test "Selection: adjust right" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 5,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
             .y = 3,
-        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
     }
 
     // Already at end of the line.
     {
-        var sel = try Selection.init(
-            &s,
+        var sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 4, .y = 1 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 4, .y = 2 } }).?,
             false,
@@ -262,17 +332,16 @@ test "Selection: adjust right" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 3,
-        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
     }
 
     // Already at end of the screen
     {
-        var sel = try Selection.init(
-            &s,
+        var sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 5, .y = 1 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 4, .y = 3 } }).?,
             false,
@@ -283,11 +352,11 @@ test "Selection: adjust right" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 5,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
             .y = 3,
-        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
     }
 }
 
@@ -299,8 +368,7 @@ test "Selection: adjust left" {
 
     // Simple movement left
     {
-        var sel = try Selection.init(
-            &s,
+        var sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 5, .y = 1 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 3, .y = 3 } }).?,
             false,
@@ -312,17 +380,16 @@ test "Selection: adjust left" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 5,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 2,
             .y = 3,
-        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
     }
 
     // Already at beginning of the line.
     {
-        var sel = try Selection.init(
-            &s,
+        var sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 5, .y = 1 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 0, .y = 3 } }).?,
             false,
@@ -334,11 +401,11 @@ test "Selection: adjust left" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 5,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
             .y = 2,
-        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
     }
 }
 
@@ -350,8 +417,7 @@ test "Selection: adjust left skips blanks" {
 
     // Same line
     {
-        var sel = try Selection.init(
-            &s,
+        var sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 5, .y = 1 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 4, .y = 3 } }).?,
             false,
@@ -363,17 +429,16 @@ test "Selection: adjust left skips blanks" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 5,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 2,
             .y = 3,
-        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
     }
 
     // Edge
     {
-        var sel = try Selection.init(
-            &s,
+        var sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 5, .y = 1 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 0, .y = 3 } }).?,
             false,
@@ -385,11 +450,11 @@ test "Selection: adjust left skips blanks" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 5,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 2,
             .y = 2,
-        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
     }
 }
 
@@ -401,8 +466,7 @@ test "Selection: adjust up" {
 
     // Not on the first line
     {
-        var sel = try Selection.init(
-            &s,
+        var sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 5, .y = 1 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 3, .y = 3 } }).?,
             false,
@@ -413,17 +477,16 @@ test "Selection: adjust up" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 5,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 3,
             .y = 2,
-        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
     }
 
     // On the first line
     {
-        var sel = try Selection.init(
-            &s,
+        var sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 5, .y = 1 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 3, .y = 0 } }).?,
             false,
@@ -434,11 +497,11 @@ test "Selection: adjust up" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 5,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
     }
 }
 
@@ -450,8 +513,7 @@ test "Selection: adjust down" {
 
     // Not on the first line
     {
-        var sel = try Selection.init(
-            &s,
+        var sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 5, .y = 1 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 3, .y = 3 } }).?,
             false,
@@ -462,17 +524,16 @@ test "Selection: adjust down" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 5,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 3,
             .y = 4,
-        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
     }
 
     // On the last line
     {
-        var sel = try Selection.init(
-            &s,
+        var sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 4, .y = 1 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 3, .y = 4 } }).?,
             false,
@@ -483,11 +544,11 @@ test "Selection: adjust down" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
             .y = 4,
-        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
     }
 }
 
@@ -499,8 +560,7 @@ test "Selection: adjust down with not full screen" {
 
     // On the last line
     {
-        var sel = try Selection.init(
-            &s,
+        var sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 4, .y = 1 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 3, .y = 2 } }).?,
             false,
@@ -512,11 +572,11 @@ test "Selection: adjust down with not full screen" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
             .y = 2,
-        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
     }
 }
 
@@ -528,8 +588,7 @@ test "Selection: adjust home" {
 
     // On the last line
     {
-        var sel = try Selection.init(
-            &s,
+        var sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 4, .y = 1 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 1, .y = 2 } }).?,
             false,
@@ -541,11 +600,11 @@ test "Selection: adjust home" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
     }
 }
 
@@ -557,8 +616,7 @@ test "Selection: adjust end with not full screen" {
 
     // On the last line
     {
-        var sel = try Selection.init(
-            &s,
+        var sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 4, .y = 0 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 1, .y = 1 } }).?,
             false,
@@ -570,11 +628,11 @@ test "Selection: adjust end with not full screen" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
             .y = 2,
-        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
     }
 }
 
@@ -587,8 +645,7 @@ test "Selection: order, standard" {
 
     {
         // forward, multi-line
-        const sel = try Selection.init(
-            &s,
+        const sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 2, .y = 1 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 2, .y = 2 } }).?,
             false,
@@ -599,8 +656,7 @@ test "Selection: order, standard" {
     }
     {
         // reverse, multi-line
-        const sel = try Selection.init(
-            &s,
+        const sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 2, .y = 2 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 2, .y = 1 } }).?,
             false,
@@ -611,8 +667,7 @@ test "Selection: order, standard" {
     }
     {
         // forward, same-line
-        const sel = try Selection.init(
-            &s,
+        const sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 2, .y = 1 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 3, .y = 1 } }).?,
             false,
@@ -623,8 +678,7 @@ test "Selection: order, standard" {
     }
     {
         // forward, single char
-        const sel = try Selection.init(
-            &s,
+        const sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 2, .y = 1 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 2, .y = 1 } }).?,
             false,
@@ -635,8 +689,7 @@ test "Selection: order, standard" {
     }
     {
         // reverse, single line
-        const sel = try Selection.init(
-            &s,
+        const sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 2, .y = 1 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 1, .y = 1 } }).?,
             false,
@@ -661,8 +714,7 @@ test "Selection: order, rectangle" {
     // BR - bottom right
     {
         // forward (TL -> BR)
-        const sel = try Selection.init(
-            &s,
+        const sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 1, .y = 1 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 2, .y = 2 } }).?,
             true,
@@ -673,8 +725,7 @@ test "Selection: order, rectangle" {
     }
     {
         // reverse (BR -> TL)
-        const sel = try Selection.init(
-            &s,
+        const sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 2, .y = 2 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 1, .y = 1 } }).?,
             true,
@@ -685,8 +736,7 @@ test "Selection: order, rectangle" {
     }
     {
         // mirrored_forward (TR -> BL)
-        const sel = try Selection.init(
-            &s,
+        const sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 3, .y = 1 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 1, .y = 3 } }).?,
             true,
@@ -697,8 +747,7 @@ test "Selection: order, rectangle" {
     }
     {
         // mirrored_reverse (BL -> TR)
-        const sel = try Selection.init(
-            &s,
+        const sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 1, .y = 3 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 3, .y = 1 } }).?,
             true,
@@ -709,8 +758,7 @@ test "Selection: order, rectangle" {
     }
     {
         // forward, single line (left -> right )
-        const sel = try Selection.init(
-            &s,
+        const sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 1, .y = 1 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 3, .y = 1 } }).?,
             true,
@@ -721,8 +769,7 @@ test "Selection: order, rectangle" {
     }
     {
         // reverse, single line (right -> left)
-        const sel = try Selection.init(
-            &s,
+        const sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 3, .y = 1 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 1, .y = 1 } }).?,
             true,
@@ -733,8 +780,7 @@ test "Selection: order, rectangle" {
     }
     {
         // forward, single column (top -> bottom)
-        const sel = try Selection.init(
-            &s,
+        const sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 2, .y = 1 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 2, .y = 3 } }).?,
             true,
@@ -745,8 +791,7 @@ test "Selection: order, rectangle" {
     }
     {
         // reverse, single column (bottom -> top)
-        const sel = try Selection.init(
-            &s,
+        const sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 2, .y = 3 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 2, .y = 1 } }).?,
             true,
@@ -757,8 +802,7 @@ test "Selection: order, rectangle" {
     }
     {
         // forward, single cell
-        const sel = try Selection.init(
-            &s,
+        const sel = Selection.init(
             s.pages.pin(.{ .screen = .{ .x = 1, .y = 1 } }).?,
             s.pages.pin(.{ .screen = .{ .x = 1, .y = 1 } }).?,
             true,
