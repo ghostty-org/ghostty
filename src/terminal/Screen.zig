@@ -4475,6 +4475,7 @@ test "Screen: clone one line active with extra space" {
     try testing.expectEqual(@as(usize, 1), s.rowsWritten());
 }
 
+// X
 test "Screen: selectLine" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -4523,6 +4524,8 @@ test "Screen: selectLine" {
         try testing.expectEqual(@as(usize, 0), sel.end.y);
     }
 }
+
+// X
 test "Screen: selectAll" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -4549,6 +4552,7 @@ test "Screen: selectAll" {
     }
 }
 
+// X
 test "Screen: selectLine across soft-wrap" {
     const testing = std.testing;
     const alloc = testing.allocator;

@@ -866,7 +866,9 @@ pub fn selectLine(self: *Screen, pin: Pin) ?Selection {
     // The real start of the row is the first row in the soft-wrap.
     const start_pin: Pin = start_pin: {
         var it = pin.rowIterator(.left_up, null);
+        var it_prev: Pin = pin;
         while (it.next()) |p| {
+            it_prev = p;
             const row = p.rowAndCell().row;
 
             if (!row.wrap) {
@@ -882,9 +884,11 @@ pub fn selectLine(self: *Screen, pin: Pin) ?Selection {
                 prev.x = 0;
                 break :start_pin prev;
             }
+        } else {
+            var copy = it_prev;
+            copy.x = 0;
+            break :start_pin copy;
         }
-
-        return null;
     };
 
     // The real end of the row is the final row in the soft-wrap.
@@ -935,6 +939,62 @@ pub fn selectLine(self: *Screen, pin: Pin) ?Selection {
     // Go backward from the end to find the first non-whitespace character.
     const end: Pin = end: {
         var it = end_pin.cellIterator(.left_up, start_pin);
+        while (it.next()) |p| {
+            const cell = p.rowAndCell().cell;
+            if (!cell.hasText()) continue;
+
+            // Non-empty means we found it.
+            const this_whitespace = std.mem.indexOfAny(
+                u32,
+                whitespace,
+                &[_]u32{cell.content.codepoint},
+            ) != null;
+            if (this_whitespace) continue;
+
+            break :end p;
+        }
+
+        return null;
+    };
+
+    return Selection.init(start, end, false);
+}
+
+/// Return the selection for all contents on the screen. Surrounding
+/// whitespace is omitted. If there is no selection, this returns null.
+pub fn selectAll(self: *Screen) ?Selection {
+    const whitespace = &[_]u32{ 0, ' ', '\t' };
+
+    const start: Pin = start: {
+        var it = self.pages.cellIterator(
+            .right_down,
+            .{ .screen = .{} },
+            null,
+        );
+        while (it.next()) |p| {
+            const cell = p.rowAndCell().cell;
+            if (!cell.hasText()) continue;
+
+            // Non-empty means we found it.
+            const this_whitespace = std.mem.indexOfAny(
+                u32,
+                whitespace,
+                &[_]u32{cell.content.codepoint},
+            ) != null;
+            if (this_whitespace) continue;
+
+            break :start p;
+        }
+
+        return null;
+    };
+
+    const end: Pin = end: {
+        var it = self.pages.cellIterator(
+            .left_up,
+            .{ .screen = .{} },
+            null,
+        );
         while (it.next()) |p| {
             const cell = p.rowAndCell().cell;
             if (!cell.hasText()) continue;
@@ -3639,6 +3699,68 @@ test "Screen: selectLine" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 7,
             .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+    }
+}
+
+test "Screen: selectLine across soft-wrap" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 10, 0);
+    defer s.deinit();
+    try s.testWriteString(" 12 34012   \n 123");
+
+    // Going forward
+    {
+        var sel = s.selectLine(s.pages.pin(.{ .active = .{
+            .x = 1,
+            .y = 0,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 1,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 3,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+    }
+}
+
+test "Screen: selectAll" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 10, 0);
+    defer s.deinit();
+
+    {
+        try s.testWriteString("ABC  DEF\n 123\n456");
+        var sel = s.selectAll().?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 2,
+            .y = 2,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+    }
+
+    {
+        try s.testWriteString("\nFOO\n BAR\n BAZ\n QWERTY\n 12345678");
+        var sel = s.selectAll().?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 8,
+            .y = 7,
         } }, s.pages.pointFromPin(.screen, sel.end().*).?);
     }
 }
