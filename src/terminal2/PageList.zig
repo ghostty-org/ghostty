@@ -1811,6 +1811,30 @@ pub const Pin = struct {
         return false;
     }
 
+    /// Returns true if self is before other. This is very expensive since
+    /// it requires traversing the linked list of pages. This should not
+    /// be called in performance critical paths.
+    pub fn isBefore(self: Pin, other: Pin) bool {
+        if (self.page == other.page) {
+            if (self.y < other.y) return true;
+            if (self.y > other.y) return false;
+            return self.x < other.x;
+        }
+
+        var page = self.page.next;
+        while (page) |p| : (page = p.next) {
+            if (p == other.page) return true;
+        }
+
+        return false;
+    }
+
+    pub fn eql(self: Pin, other: Pin) bool {
+        return self.page == other.page and
+            self.y == other.y and
+            self.x == other.x;
+    }
+
     /// Move the pin down a certain number of rows, or return null if
     /// the pin goes beyond the end of the screen.
     pub fn down(self: Pin, n: usize) ?Pin {
