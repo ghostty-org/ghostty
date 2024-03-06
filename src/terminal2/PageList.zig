@@ -1544,17 +1544,17 @@ pub fn cellIterator(
     tl_pt: point.Point,
     bl_pt: ?point.Point,
 ) CellIterator {
-    var row_it = self.rowIterator(direction, tl_pt, bl_pt);
-    var cell = row_it.next() orelse return .{ .row_it = row_it };
-    cell.x = switch (direction) {
-        .right_down => tl_pt.coord().x,
-        .left_up => if (bl_pt) |pt|
-            pt.coord().x
-        else
-            cell.page.data.size.cols - 1,
-    };
+    const tl_pin = self.pin(tl_pt).?;
+    const bl_pin = if (bl_pt) |pt|
+        self.pin(pt).?
+    else
+        self.getBottomRight(tl_pt) orelse
+            return .{ .row_it = undefined };
 
-    return .{ .row_it = row_it, .cell = cell };
+    return switch (direction) {
+        .right_down => tl_pin.cellIterator(.right_down, bl_pin),
+        .left_up => bl_pin.cellIterator(.left_up, tl_pin),
+    };
 }
 
 pub const RowIterator = struct {
@@ -1605,15 +1605,16 @@ pub fn rowIterator(
     tl_pt: point.Point,
     bl_pt: ?point.Point,
 ) RowIterator {
-    var page_it = self.pageIterator(direction, tl_pt, bl_pt);
-    const chunk = page_it.next() orelse return .{ .page_it = page_it };
-    return .{
-        .page_it = page_it,
-        .chunk = chunk,
-        .offset = switch (direction) {
-            .right_down => chunk.start,
-            .left_up => chunk.end - 1,
-        },
+    const tl_pin = self.pin(tl_pt).?;
+    const bl_pin = if (bl_pt) |pt|
+        self.pin(pt).?
+    else
+        self.getBottomRight(tl_pt) orelse
+            return .{ .page_it = undefined };
+
+    return switch (direction) {
+        .right_down => tl_pin.rowIterator(.right_down, bl_pin),
+        .left_up => bl_pin.rowIterator(.left_up, tl_pin),
     };
 }
 
@@ -1802,6 +1803,10 @@ pub const PageIterator = struct {
 /// (inclusive). If bl_pt is null, the entire region specified by the point
 /// tag will be iterated over. tl_pt and bl_pt must be the same tag, and
 /// bl_pt must be greater than or equal to tl_pt.
+///
+/// If direction is left_up, iteration will go from bl_pt to tl_pt. If
+/// direction is right_down, iteration will go from tl_pt to bl_pt.
+/// Both inclusive.
 pub fn pageIterator(
     self: *const PageList,
     direction: Direction,
@@ -1819,17 +1824,8 @@ pub fn pageIterator(
     }
 
     return switch (direction) {
-        .right_down => .{
-            .row = tl_pin,
-            .limit = .{ .row = bl_pin },
-            .direction = .right_down,
-        },
-
-        .left_up => .{
-            .row = bl_pin,
-            .limit = .{ .row = tl_pin },
-            .direction = .left_up,
-        },
+        .right_down => tl_pin.pageIterator(.right_down, bl_pin),
+        .left_up => bl_pin.pageIterator(.left_up, tl_pin),
     };
 }
 
@@ -1953,6 +1949,51 @@ pub const Pin = struct {
     } {
         const rac = self.page.data.getRowAndCell(self.x, self.y);
         return .{ .row = rac.row, .cell = rac.cell };
+    }
+
+    /// Iterators. These are the same as PageList iterator funcs but operate
+    /// on pins rather than points. This is MUCH more efficient than calling
+    /// pointFromPin and building up the iterator from points.
+    ///
+    /// The limit pin is inclusive.
+    pub fn pageIterator(
+        self: Pin,
+        direction: Direction,
+        limit: ?Pin,
+    ) PageIterator {
+        return .{
+            .row = self,
+            .limit = if (limit) |p| .{ .row = p } else .{ .none = {} },
+            .direction = direction,
+        };
+    }
+
+    pub fn rowIterator(
+        self: Pin,
+        direction: Direction,
+        limit: ?Pin,
+    ) RowIterator {
+        var page_it = self.pageIterator(direction, limit);
+        const chunk = page_it.next() orelse return .{ .page_it = page_it };
+        return .{
+            .page_it = page_it,
+            .chunk = chunk,
+            .offset = switch (direction) {
+                .right_down => chunk.start,
+                .left_up => chunk.end - 1,
+            },
+        };
+    }
+
+    pub fn cellIterator(
+        self: Pin,
+        direction: Direction,
+        limit: ?Pin,
+    ) CellIterator {
+        var row_it = self.rowIterator(direction, limit);
+        var cell = row_it.next() orelse return .{ .row_it = row_it };
+        cell.x = self.x;
+        return .{ .row_it = row_it, .cell = cell };
     }
 
     /// Returns true if this pin is between the top and bottom, inclusive.
