@@ -3,6 +3,7 @@ const Selection = @This();
 
 const std = @import("std");
 const assert = std.debug.assert;
+const page = @import("page.zig");
 const point = @import("point.zig");
 const PageList = @import("PageList.zig");
 const Screen = @import("Screen.zig");
@@ -127,18 +128,27 @@ pub fn adjust(
     // top/bottom visually. So this results in the right behavior
     // whether the user drags up or down.
     switch (adjustment) {
-        // .up => if (result.end.y == 0) {
-        //     result.end.x = 0;
-        // } else {
-        //     result.end.y -= 1;
-        // },
-        //
-        // .down => if (result.end.y >= screen_end) {
-        //     result.end.y = screen_end;
-        //     result.end.x = screen.cols - 1;
-        // } else {
-        //     result.end.y += 1;
-        // },
+        .up => if (self.end.up(1)) |new_end| {
+            self.end.* = new_end;
+        } else {
+            self.end.x = 0;
+        },
+
+        .down => {
+            // Find the next non-blank row
+            var current = self.end.*;
+            while (current.down(1)) |next| : (current = next) {
+                const rac = next.rowAndCell();
+                const cells = next.page.data.getCells(rac.row);
+                if (page.Cell.hasTextAny(cells)) {
+                    self.end.* = next;
+                    break;
+                }
+            } else {
+                // If we're at the bottom, just go to the end of the line
+                self.end.x = self.end.page.data.size.cols - 1;
+            }
+        },
 
         .left => {
             var it = s.pages.cellIterator(
@@ -319,6 +329,155 @@ test "Selection: adjust left" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
             .y = 2,
+        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+    }
+}
+
+test "Selection: adjust left skips blanks" {
+    const testing = std.testing;
+    var s = try Screen.init(testing.allocator, 5, 10, 0);
+    defer s.deinit();
+    try s.testWriteString("A1234\nB5678\nC12\nD56");
+
+    // Same line
+    {
+        var sel = try Selection.init(
+            &s,
+            s.pages.pin(.{ .screen = .{ .x = 5, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 4, .y = 3 } }).?,
+            false,
+        );
+        defer sel.deinit(&s);
+        sel.adjust(&s, .left);
+
+        // Start line
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 5,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 2,
+            .y = 3,
+        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+    }
+
+    // Edge
+    {
+        var sel = try Selection.init(
+            &s,
+            s.pages.pin(.{ .screen = .{ .x = 5, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 0, .y = 3 } }).?,
+            false,
+        );
+        defer sel.deinit(&s);
+        sel.adjust(&s, .left);
+
+        // Start line
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 5,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 2,
+            .y = 2,
+        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+    }
+}
+
+test "Selection: adjust up" {
+    const testing = std.testing;
+    var s = try Screen.init(testing.allocator, 5, 10, 0);
+    defer s.deinit();
+    try s.testWriteString("A\nB\nC\nD\nE");
+
+    // Not on the first line
+    {
+        var sel = try Selection.init(
+            &s,
+            s.pages.pin(.{ .screen = .{ .x = 5, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 3 } }).?,
+            false,
+        );
+        defer sel.deinit(&s);
+        sel.adjust(&s, .up);
+
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 5,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 3,
+            .y = 2,
+        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+    }
+
+    // On the first line
+    {
+        var sel = try Selection.init(
+            &s,
+            s.pages.pin(.{ .screen = .{ .x = 5, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 0 } }).?,
+            false,
+        );
+        defer sel.deinit(&s);
+        sel.adjust(&s, .up);
+
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 5,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+    }
+}
+
+test "Selection: adjust down" {
+    const testing = std.testing;
+    var s = try Screen.init(testing.allocator, 5, 10, 0);
+    defer s.deinit();
+    try s.testWriteString("A\nB\nC\nD\nE");
+
+    // Not on the first line
+    {
+        var sel = try Selection.init(
+            &s,
+            s.pages.pin(.{ .screen = .{ .x = 5, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 3 } }).?,
+            false,
+        );
+        defer sel.deinit(&s);
+        sel.adjust(&s, .down);
+
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 5,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 3,
+            .y = 4,
+        } }, s.pages.pointFromPin(.screen, sel.end.*).?);
+    }
+
+    // On the last line
+    {
+        var sel = try Selection.init(
+            &s,
+            s.pages.pin(.{ .screen = .{ .x = 4, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 4 } }).?,
+            false,
+        );
+        defer sel.deinit(&s);
+        sel.adjust(&s, .down);
+
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 4,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.start.*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 4,
+            .y = 4,
         } }, s.pages.pointFromPin(.screen, sel.end.*).?);
     }
 }
