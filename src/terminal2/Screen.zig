@@ -3729,6 +3729,66 @@ test "Screen: selectLine across soft-wrap" {
     }
 }
 
+test "Screen: selectLine across soft-wrap ignores blank lines" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 10, 0);
+    defer s.deinit();
+    try s.testWriteString(" 12 34012             \n 123");
+
+    // Going forward
+    {
+        var sel = s.selectLine(s.pages.pin(.{ .active = .{
+            .x = 1,
+            .y = 0,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 1,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 3,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+    }
+
+    // Going backward
+    {
+        var sel = s.selectLine(s.pages.pin(.{ .active = .{
+            .x = 1,
+            .y = 1,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 1,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 3,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+    }
+
+    // Going forward and backward
+    {
+        var sel = s.selectLine(s.pages.pin(.{ .active = .{
+            .x = 3,
+            .y = 0,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 1,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 3,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+    }
+}
+
 test "Screen: selectAll" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -3762,5 +3822,48 @@ test "Screen: selectAll" {
             .x = 8,
             .y = 7,
         } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+    }
+}
+
+test "Screen: selectLine with scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 3, 5);
+    defer s.deinit();
+    try s.testWriteString("1A\n2B\n3C\n4D\n5E");
+
+    // Selecting first line
+    {
+        var sel = s.selectLine(s.pages.pin(.{ .active = .{
+            .x = 0,
+            .y = 0,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pages.pointFromPin(.active, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 1,
+            .y = 0,
+        } }, s.pages.pointFromPin(.active, sel.end().*).?);
+    }
+
+    // Selecting last line
+    {
+        var sel = s.selectLine(s.pages.pin(.{ .active = .{
+            .x = 0,
+            .y = 2,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 0,
+            .y = 2,
+        } }, s.pages.pointFromPin(.active, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 1,
+            .y = 2,
+        } }, s.pages.pointFromPin(.active, sel.end().*).?);
     }
 }
