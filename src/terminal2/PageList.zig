@@ -1546,7 +1546,14 @@ pub fn cellIterator(
 ) CellIterator {
     var row_it = self.rowIterator(direction, tl_pt, bl_pt);
     var cell = row_it.next() orelse return .{ .row_it = row_it };
-    if (direction == .left_up) cell.x = cell.page.data.size.cols - 1;
+    cell.x = switch (direction) {
+        .right_down => tl_pt.coord().x,
+        .left_up => if (bl_pt) |pt|
+            pt.coord().x
+        else
+            cell.page.data.size.cols - 1,
+    };
+
     return .{ .row_it = row_it, .cell = cell };
 }
 
