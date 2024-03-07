@@ -1068,12 +1068,6 @@ pub fn selectWord(self: *Screen, pin: Pin) ?Selection {
             const rac = p.rowAndCell();
             const cell = rac.cell;
 
-            // If we are going to the next row and it isn't wrapped, we
-            // return the previous.
-            if (p.x == 0 and !rac.row.wrap) {
-                break :end prev;
-            }
-
             // If we reached an empty cell its always a boundary
             if (!cell.hasText()) break :end prev;
 
@@ -1084,6 +1078,12 @@ pub fn selectWord(self: *Screen, pin: Pin) ?Selection {
                 &[_]u32{cell.content.codepoint},
             ) != null;
             if (this_boundary != expect_boundary) break :end prev;
+
+            // If we are going to the next row and it isn't wrapped, we
+            // return the previous.
+            if (p.x == p.page.data.size.cols - 1 and !rac.row.wrap) {
+                break :end p;
+            }
 
             prev = p;
         }
@@ -4142,6 +4142,72 @@ test "Screen: selectWord" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 2,
             .y = 2,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+    }
+}
+
+test "Screen: selectWord across soft-wrap" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 10, 0);
+    defer s.deinit();
+    try s.testWriteString(" 1234012\n 123");
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(" 1234\n012\n 123", contents);
+    }
+
+    // Going forward
+    {
+        var sel = s.selectWord(s.pages.pin(.{ .active = .{
+            .x = 1,
+            .y = 0,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 1,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 2,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+    }
+
+    // Going backward
+    {
+        var sel = s.selectWord(s.pages.pin(.{ .active = .{
+            .x = 1,
+            .y = 1,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 1,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 2,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+    }
+
+    // Going forward and backward
+    {
+        var sel = s.selectWord(s.pages.pin(.{ .active = .{
+            .x = 3,
+            .y = 0,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 1,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 2,
+            .y = 1,
         } }, s.pages.pointFromPin(.screen, sel.end().*).?);
     }
 }
