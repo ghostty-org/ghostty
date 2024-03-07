@@ -543,6 +543,7 @@ test "Selection: adjust down with not full screen" {
     }
 }
 
+// X
 test "Selection: contains" {
     const testing = std.testing;
     {
@@ -586,6 +587,7 @@ test "Selection: contains" {
     }
 }
 
+// X
 test "Selection: contains, rectangle" {
     const testing = std.testing;
     {
