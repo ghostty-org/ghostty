@@ -5847,6 +5847,7 @@ test "Screen: selectionString with zero width joiner" {
     }
 }
 
+// X
 test "Screen: selectionString, rectangle, basic" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -5877,6 +5878,7 @@ test "Screen: selectionString, rectangle, basic" {
     try testing.expectEqualStrings(expected, contents);
 }
 
+// X
 test "Screen: selectionString, rectangle, w/EOL" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -5909,6 +5911,7 @@ test "Screen: selectionString, rectangle, w/EOL" {
     try testing.expectEqualStrings(expected, contents);
 }
 
+// X
 test "Screen: selectionString, rectangle, more complex w/breaks" {
     const testing = std.testing;
     const alloc = testing.allocator;
