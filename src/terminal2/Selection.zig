@@ -240,6 +240,41 @@ pub fn ordered(self: Selection, s: *const Screen, desired: Order) Selection {
     };
 }
 
+/// Returns true if the selection contains the given point.
+///
+/// This recalculates top left and bottom right each call. If you have
+/// many points to check, it is cheaper to do the containment logic
+/// yourself and cache the topleft/bottomright.
+pub fn contains(self: Selection, s: *const Screen, pin: Pin) bool {
+    const tl_pin = self.topLeft(s);
+    const br_pin = self.bottomRight(s);
+
+    // This is definitely not very efficient. Low-hanging fruit to
+    // improve this.
+    const tl = s.pages.pointFromPin(.screen, tl_pin).?.screen;
+    const br = s.pages.pointFromPin(.screen, br_pin).?.screen;
+    const p = s.pages.pointFromPin(.screen, pin).?.screen;
+
+    // If we're in rectangle select, we can short-circuit with an easy check
+    // here
+    if (self.rectangle)
+        return p.y >= tl.y and p.y <= br.y and p.x >= tl.x and p.x <= br.x;
+
+    // If tl/br are same line
+    if (tl.y == br.y) return p.y == tl.y and
+        p.x >= tl.x and
+        p.x <= br.x;
+
+    // If on top line, just has to be left of X
+    if (p.y == tl.y) return p.x >= tl.x;
+
+    // If on bottom line, just has to be right of X
+    if (p.y == br.y) return p.x <= br.x;
+
+    // If between the top/bottom, always good.
+    return p.y > tl.y and p.y < br.y;
+}
+
 /// Possible adjustments to the selection.
 pub const Adjustment = enum {
     left,
@@ -1082,5 +1117,114 @@ test "ordered" {
         try testing.expect(sel.ordered(&s, .forward).eql(sel_forward));
         try testing.expect(sel.ordered(&s, .reverse).eql(sel_reverse));
         try testing.expect(sel.ordered(&s, .mirrored_forward).eql(sel_forward));
+    }
+}
+
+test "Selection: contains" {
+    const testing = std.testing;
+
+    var s = try Screen.init(testing.allocator, 5, 10, 0);
+    defer s.deinit();
+    {
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 5, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 2 } }).?,
+            false,
+        );
+
+        try testing.expect(sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 6, .y = 1 } }).?));
+        try testing.expect(sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 1, .y = 2 } }).?));
+        try testing.expect(!sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 1, .y = 1 } }).?));
+        try testing.expect(!sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 5, .y = 2 } }).?));
+    }
+
+    // Reverse
+    {
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 2 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 5, .y = 1 } }).?,
+            false,
+        );
+
+        try testing.expect(sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 6, .y = 1 } }).?));
+        try testing.expect(sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 1, .y = 2 } }).?));
+        try testing.expect(!sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 1, .y = 1 } }).?));
+        try testing.expect(!sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 5, .y = 2 } }).?));
+    }
+
+    // Single line
+    {
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 5, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 10, .y = 1 } }).?,
+            false,
+        );
+
+        try testing.expect(sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 6, .y = 1 } }).?));
+        try testing.expect(!sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 2, .y = 1 } }).?));
+        try testing.expect(!sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 12, .y = 1 } }).?));
+    }
+}
+
+test "Selection: contains, rectangle" {
+    const testing = std.testing;
+
+    var s = try Screen.init(testing.allocator, 15, 15, 0);
+    defer s.deinit();
+    {
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 3 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 7, .y = 9 } }).?,
+            true,
+        );
+
+        try testing.expect(sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 5, .y = 6 } }).?)); // Center
+        try testing.expect(sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 3, .y = 6 } }).?)); // Left border
+        try testing.expect(sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 7, .y = 6 } }).?)); // Right border
+        try testing.expect(sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 5, .y = 3 } }).?)); // Top border
+        try testing.expect(sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 5, .y = 9 } }).?)); // Bottom border
+
+        try testing.expect(!sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 5, .y = 2 } }).?)); // Above center
+        try testing.expect(!sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 5, .y = 10 } }).?)); // Below center
+        try testing.expect(!sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 2, .y = 6 } }).?)); // Left center
+        try testing.expect(!sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 8, .y = 6 } }).?)); // Right center
+        try testing.expect(!sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 8, .y = 3 } }).?)); // Just right of top right
+        try testing.expect(!sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 2, .y = 9 } }).?)); // Just left of bottom left
+    }
+
+    // Reverse
+    {
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 7, .y = 9 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 3 } }).?,
+            true,
+        );
+
+        try testing.expect(sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 5, .y = 6 } }).?)); // Center
+        try testing.expect(sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 3, .y = 6 } }).?)); // Left border
+        try testing.expect(sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 7, .y = 6 } }).?)); // Right border
+        try testing.expect(sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 5, .y = 3 } }).?)); // Top border
+        try testing.expect(sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 5, .y = 9 } }).?)); // Bottom border
+
+        try testing.expect(!sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 5, .y = 2 } }).?)); // Above center
+        try testing.expect(!sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 5, .y = 10 } }).?)); // Below center
+        try testing.expect(!sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 2, .y = 6 } }).?)); // Left center
+        try testing.expect(!sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 8, .y = 6 } }).?)); // Right center
+        try testing.expect(!sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 8, .y = 3 } }).?)); // Just right of top right
+        try testing.expect(!sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 2, .y = 9 } }).?)); // Just left of bottom left
+    }
+
+    // Single line
+    // NOTE: This is the same as normal selection but we just do it for brevity
+    {
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 5, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 10, .y = 1 } }).?,
+            true,
+        );
+
+        try testing.expect(sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 6, .y = 1 } }).?));
+        try testing.expect(!sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 2, .y = 1 } }).?));
+        try testing.expect(!sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 12, .y = 1 } }).?));
     }
 }
