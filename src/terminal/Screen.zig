@@ -5638,6 +5638,7 @@ test "Screen: selectionString trim space" {
     }
 }
 
+// X
 test "Screen: selectionString trim empty line" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -5669,6 +5670,7 @@ test "Screen: selectionString trim empty line" {
     }
 }
 
+// X
 test "Screen: selectionString soft wrap" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -5689,6 +5691,7 @@ test "Screen: selectionString soft wrap" {
     }
 }
 
+// X - can't happen in new terminal
 test "Screen: selectionString wrap around" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -5715,6 +5718,7 @@ test "Screen: selectionString wrap around" {
     }
 }
 
+// X
 test "Screen: selectionString wide char" {
     const testing = std.testing;
     const alloc = testing.allocator;
