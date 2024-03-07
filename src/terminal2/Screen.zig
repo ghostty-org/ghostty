@@ -884,15 +884,23 @@ pub fn selectionString(
                 self.pages.cols;
 
             const cells = cells_ptr[start_x..end_x];
-            for (cells) |cell| {
+            for (cells) |*cell| {
                 if (!cell.hasText()) continue;
-                const char = if (cell.content.codepoint > 0) cell.content.codepoint else ' ';
 
                 var buf: [4]u8 = undefined;
-                const encode_len = try std.unicode.utf8Encode(char, &buf);
-                try strbuilder.appendSlice(buf[0..encode_len]);
+                {
+                    const char = if (cell.content.codepoint > 0) cell.content.codepoint else ' ';
+                    const encode_len = try std.unicode.utf8Encode(char, &buf);
+                    try strbuilder.appendSlice(buf[0..encode_len]);
+                }
+                if (cell.hasGrapheme()) {
+                    const cps = chunk.page.data.lookupGrapheme(cell).?;
+                    for (cps) |cp| {
+                        const encode_len = try std.unicode.utf8Encode(cp, &buf);
+                        try strbuilder.appendSlice(buf[0..encode_len]);
+                    }
+                }
             }
-            // TODO: graphemes
 
             if (row_count < rows.len - 1 and
                 (!row.wrap or sel_ordered.rectangle))
@@ -1508,7 +1516,24 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
 
         const width: usize = if (c <= 0xFF) 1 else @intCast(unicode.table.get(c).width);
         if (width == 0) {
-            @panic("zero-width todo");
+            const cell = cell: {
+                var cell = self.cursorCellLeft(1);
+                switch (cell.wide) {
+                    .narrow => {},
+                    .wide => {},
+                    .spacer_head => unreachable,
+                    .spacer_tail => cell = self.cursorCellLeft(2),
+                }
+
+                break :cell cell;
+            };
+
+            try self.cursor.page_pin.page.data.appendGrapheme(
+                self.cursor.page_row,
+                cell,
+                c,
+            );
+            continue;
         }
 
         if (self.cursor.pending_wrap) {
@@ -5338,6 +5363,39 @@ test "Screen: selectionString empty with soft wrap" {
         const contents = try s.selectionString(alloc, sel, true);
         defer alloc.free(contents);
         const expected = "👨";
+        try testing.expectEqualStrings(expected, contents);
+    }
+}
+
+test "Screen: selectionString with zero width joiner" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 1, 0);
+    defer s.deinit();
+    const str = "👨‍"; // this has a ZWJ
+    try s.testWriteString(str);
+
+    // Integrity check
+    {
+        const pin = s.pages.pin(.{ .screen = .{ .y = 0, .x = 0 } }).?;
+        const cell = pin.rowAndCell().cell;
+        try testing.expectEqual(@as(u21, 0x1F468), cell.content.codepoint);
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+        const cps = pin.page.data.lookupGrapheme(cell).?;
+        try testing.expectEqual(@as(usize, 1), cps.len);
+    }
+
+    // The real test
+    {
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 0 } }).?,
+            false,
+        );
+        const contents = try s.selectionString(alloc, sel, true);
+        defer alloc.free(contents);
+        const expected = "👨‍";
         try testing.expectEqualStrings(expected, contents);
     }
 }

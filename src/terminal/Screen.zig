@@ -5810,6 +5810,7 @@ test "Screen: selectionString empty with soft wrap" {
     }
 }
 
+// X
 test "Screen: selectionString with zero width joiner" {
     const testing = std.testing;
     const alloc = testing.allocator;
