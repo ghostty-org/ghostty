@@ -4672,6 +4672,7 @@ test "Screen: selectLine with scrollback" {
     }
 }
 
+// X
 test "Screen: selectWord" {
     const testing = std.testing;
     const alloc = testing.allocator;

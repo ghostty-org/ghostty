@@ -1017,6 +1017,114 @@ pub fn selectAll(self: *Screen) ?Selection {
     return Selection.init(start, end, false);
 }
 
+/// Select the word under the given point. A word is any consecutive series
+/// of characters that are exclusively whitespace or exclusively non-whitespace.
+/// A selection can span multiple physical lines if they are soft-wrapped.
+///
+/// This will return null if a selection is impossible. The only scenario
+/// this happens is if the point pt is outside of the written screen space.
+pub fn selectWord(self: *Screen, pin: Pin) ?Selection {
+    _ = self;
+
+    // Boundary characters for selection purposes
+    const boundary = &[_]u32{
+        0,
+        ' ',
+        '\t',
+        '\'',
+        '"',
+        '│',
+        '`',
+        '|',
+        ':',
+        ',',
+        '(',
+        ')',
+        '[',
+        ']',
+        '{',
+        '}',
+        '<',
+        '>',
+    };
+
+    // If our cell is empty we can't select a word, because we can't select
+    // areas where the screen is not yet written.
+    const start_cell = pin.rowAndCell().cell;
+    if (!start_cell.hasText()) return null;
+
+    // Determine if we are a boundary or not to determine what our boundary is.
+    const expect_boundary = std.mem.indexOfAny(
+        u32,
+        boundary,
+        &[_]u32{start_cell.content.codepoint},
+    ) != null;
+
+    // Go forwards to find our end boundary
+    const end: Pin = end: {
+        var it = pin.cellIterator(.right_down, null);
+        var prev = it.next().?; // Consume one, our start
+        while (it.next()) |p| {
+            const rac = p.rowAndCell();
+            const cell = rac.cell;
+
+            // If we are going to the next row and it isn't wrapped, we
+            // return the previous.
+            if (p.x == 0 and !rac.row.wrap) {
+                break :end prev;
+            }
+
+            // If we reached an empty cell its always a boundary
+            if (!cell.hasText()) break :end prev;
+
+            // If we do not match our expected set, we hit a boundary
+            const this_boundary = std.mem.indexOfAny(
+                u32,
+                boundary,
+                &[_]u32{cell.content.codepoint},
+            ) != null;
+            if (this_boundary != expect_boundary) break :end prev;
+
+            prev = p;
+        }
+
+        break :end prev;
+    };
+
+    // Go backwards to find our start boundary
+    const start: Pin = start: {
+        var it = pin.cellIterator(.left_up, null);
+        var prev = it.next().?; // Consume one, our start
+        while (it.next()) |p| {
+            const rac = p.rowAndCell();
+            const cell = rac.cell;
+
+            // If we are going to the next row and it isn't wrapped, we
+            // return the previous.
+            if (p.x == p.page.data.size.cols - 1 and !rac.row.wrap) {
+                break :start prev;
+            }
+
+            // If we reached an empty cell its always a boundary
+            if (!cell.hasText()) break :start prev;
+
+            // If we do not match our expected set, we hit a boundary
+            const this_boundary = std.mem.indexOfAny(
+                u32,
+                boundary,
+                &[_]u32{cell.content.codepoint},
+            ) != null;
+            if (this_boundary != expect_boundary) break :start prev;
+
+            prev = p;
+        }
+
+        break :start prev;
+    };
+
+    return Selection.init(start, end, false);
+}
+
 /// Dump the screen to a string. The writer given should be buffered;
 /// this function does not attempt to efficiently write and generally writes
 /// one byte at a time.
@@ -3920,5 +4028,120 @@ test "Screen: selectLine semantic prompt boundary" {
             .x = 0,
             .y = 2,
         } }, s.pages.pointFromPin(.active, sel.end().*).?);
+    }
+}
+
+test "Screen: selectWord" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 10, 0);
+    defer s.deinit();
+    try s.testWriteString("ABC  DEF\n 123\n456");
+
+    // Outside of active area
+    // try testing.expect(s.selectWord(.{ .x = 9, .y = 0 }) == null);
+    // try testing.expect(s.selectWord(.{ .x = 0, .y = 5 }) == null);
+
+    // Going forward
+    {
+        var sel = s.selectWord(s.pages.pin(.{ .active = .{
+            .x = 0,
+            .y = 0,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 2,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+    }
+
+    // Going backward
+    {
+        var sel = s.selectWord(s.pages.pin(.{ .active = .{
+            .x = 2,
+            .y = 0,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 2,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+    }
+
+    // Going forward and backward
+    {
+        var sel = s.selectWord(s.pages.pin(.{ .active = .{
+            .x = 1,
+            .y = 0,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 2,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+    }
+
+    // Whitespace
+    {
+        var sel = s.selectWord(s.pages.pin(.{ .active = .{
+            .x = 3,
+            .y = 0,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 3,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 4,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+    }
+
+    // Whitespace single char
+    {
+        var sel = s.selectWord(s.pages.pin(.{ .active = .{
+            .x = 0,
+            .y = 1,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+    }
+
+    // End of screen
+    {
+        var sel = s.selectWord(s.pages.pin(.{ .active = .{
+            .x = 1,
+            .y = 2,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 2,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 2,
+            .y = 2,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
     }
 }
