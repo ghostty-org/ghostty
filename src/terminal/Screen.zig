@@ -5759,6 +5759,7 @@ test "Screen: selectionString wide char" {
     }
 }
 
+// X
 test "Screen: selectionString wide char with header" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -5779,6 +5780,7 @@ test "Screen: selectionString wide char with header" {
     }
 }
 
+// X
 // https://github.com/mitchellh/ghostty/issues/289
 test "Screen: selectionString empty with soft wrap" {
     const testing = std.testing;
