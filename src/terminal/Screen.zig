@@ -4956,6 +4956,7 @@ test "Screen: selectOutput" {
     }
 }
 
+// X
 test "Screen: selectPrompt basics" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -5019,6 +5020,7 @@ test "Screen: selectPrompt basics" {
     }
 }
 
+// X
 test "Screen: selectPrompt prompt at start" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -5059,6 +5061,7 @@ test "Screen: selectPrompt prompt at start" {
     }
 }
 
+// X
 test "Screen: selectPrompt prompt at end" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -5097,7 +5100,7 @@ test "Screen: selectPrompt prompt at end" {
     }
 }
 
-test "Screen: promtpPath" {
+test "Screen: promptPath" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
