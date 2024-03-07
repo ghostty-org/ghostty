@@ -852,7 +852,18 @@ pub fn selectionString(
     const sel_end = end: {
         var end = sel.end();
         const cell = end.rowAndCell().cell;
-        if (cell.wide == .spacer_tail) end.x -= 1;
+        switch (cell.wide) {
+            .narrow, .wide => {},
+
+            // We can omit the tail
+            .spacer_tail => end.x -= 1,
+
+            // With the head we want to include the wrapped wide character.
+            .spacer_head => if (end.down(1)) |p| {
+                end = p;
+                end.x = 0;
+            },
+        }
         break :end end;
     };
 
@@ -5274,6 +5285,59 @@ test "Screen: selectionString wide char" {
         const contents = try s.selectionString(alloc, sel, true);
         defer alloc.free(contents);
         const expected = "⚡";
+        try testing.expectEqualStrings(expected, contents);
+    }
+}
+
+test "Screen: selectionString wide char with header" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 0);
+    defer s.deinit();
+    const str = "1ABC⚡";
+    try s.testWriteString(str);
+
+    {
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 4, .y = 0 } }).?,
+            false,
+        );
+        const contents = try s.selectionString(alloc, sel, true);
+        defer alloc.free(contents);
+        const expected = str;
+        try testing.expectEqualStrings(expected, contents);
+    }
+}
+
+// https://github.com/mitchellh/ghostty/issues/289
+test "Screen: selectionString empty with soft wrap" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 2, 0);
+    defer s.deinit();
+
+    // Let me describe the situation that caused this because this
+    // test is not obvious. By writing an emoji below, we introduce
+    // one cell with the emoji and one cell as a "wide char spacer".
+    // We then soft wrap the line by writing spaces.
+    //
+    // By selecting only the tail, we'd select nothing and we had
+    // a logic error that would cause a crash.
+    try s.testWriteString("👨");
+    try s.testWriteString("      ");
+
+    {
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 0 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 2, .y = 0 } }).?,
+            false,
+        );
+        const contents = try s.selectionString(alloc, sel, true);
+        defer alloc.free(contents);
+        const expected = "👨";
         try testing.expectEqualStrings(expected, contents);
     }
 }
