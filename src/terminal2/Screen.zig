@@ -885,11 +885,16 @@ pub fn selectionString(
 
             const cells = cells_ptr[start_x..end_x];
             for (cells) |*cell| {
-                if (!cell.hasText()) continue;
+                // Skip wide spacers
+                switch (cell.wide) {
+                    .narrow, .wide => {},
+                    .spacer_head, .spacer_tail => continue,
+                }
 
                 var buf: [4]u8 = undefined;
                 {
-                    const char = if (cell.content.codepoint > 0) cell.content.codepoint else ' ';
+                    const raw: u21 = if (cell.hasText()) cell.content.codepoint else 0;
+                    const char = if (raw > 0) raw else ' ';
                     const encode_len = try std.unicode.utf8Encode(char, &buf);
                     try strbuilder.appendSlice(buf[0..encode_len]);
                 }
@@ -931,8 +936,11 @@ pub fn selectionString(
             try strbuilder.append('\n');
         }
 
-        // Remove our trailing newline again
-        if (strbuilder.items.len > 0) strbuilder.items.len -= 1;
+        // Remove all trailing newlines
+        for (0..strbuilder.items.len) |_| {
+            if (strbuilder.items[strbuilder.items.len - 1] != '\n') break;
+            strbuilder.items.len -= 1;
+        }
     }
 
     // Get our final string
@@ -5221,7 +5229,7 @@ test "Screen: selectionString trim empty line" {
 
     var s = try init(alloc, 5, 5, 0);
     defer s.deinit();
-    const str = "1AB  \n     \n2EFGH\n3IJKL";
+    const str = "1AB  \n\n2EFGH\n3IJKL";
     try s.testWriteString(str);
 
     const sel = Selection.init(
@@ -5462,38 +5470,38 @@ test "Screen: selectionString, rectangle, w/EOL" {
     try testing.expectEqualStrings(expected, contents);
 }
 
-// test "Screen: selectionString, rectangle, more complex w/breaks" {
-//     const testing = std.testing;
-//     const alloc = testing.allocator;
-//
-//     var s = try init(alloc, 30, 8, 0);
-//     defer s.deinit();
-//     const str =
-//         \\Lorem ipsum dolor
-//         \\sit amet, consectetur
-//         \\adipiscing elit, sed do
-//         \\eiusmod tempor incididunt
-//         \\ut labore et dolore
-//         \\
-//         \\magna aliqua. Ut enim
-//         \\ad minim veniam, quis
-//     ;
-//     const sel = Selection.init(
-//         s.pages.pin(.{ .screen = .{ .x = 11, .y = 2 } }).?,
-//         s.pages.pin(.{ .screen = .{ .x = 26, .y = 7 } }).?,
-//         true,
-//     );
-//     const expected =
-//         \\elit, sed do
-//         \\por incididunt
-//         \\t dolore
-//         \\
-//         \\a. Ut enim
-//         \\niam, quis
-//     ;
-//     try s.testWriteString(str);
-//
-//     const contents = try s.selectionString(alloc, sel, true);
-//     defer alloc.free(contents);
-//     try testing.expectEqualStrings(expected, contents);
-// }
+test "Screen: selectionString, rectangle, more complex w/breaks" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 30, 8, 0);
+    defer s.deinit();
+    const str =
+        \\Lorem ipsum dolor
+        \\sit amet, consectetur
+        \\adipiscing elit, sed do
+        \\eiusmod tempor incididunt
+        \\ut labore et dolore
+        \\
+        \\magna aliqua. Ut enim
+        \\ad minim veniam, quis
+    ;
+    const sel = Selection.init(
+        s.pages.pin(.{ .screen = .{ .x = 11, .y = 2 } }).?,
+        s.pages.pin(.{ .screen = .{ .x = 26, .y = 7 } }).?,
+        true,
+    );
+    const expected =
+        \\elit, sed do
+        \\por incididunt
+        \\t dolore
+        \\
+        \\a. Ut enim
+        \\niam, quis
+    ;
+    try s.testWriteString(str);
+
+    const contents = try s.selectionString(alloc, sel, true);
+    defer alloc.free(contents);
+    try testing.expectEqualStrings(expected, contents);
+}
