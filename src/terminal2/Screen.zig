@@ -1283,6 +1283,43 @@ pub fn selectPrompt(self: *Screen, pin: Pin) ?Selection {
     return Selection.init(start, end, false);
 }
 
+/// Returns the change in x/y that is needed to reach "to" from "from"
+/// within a prompt. If "to" is before or after the prompt bounds then
+/// the result will be bounded to the prompt.
+///
+/// This feature requires shell integration. If shell integration is not
+/// enabled, this will always return zero for both x and y (no path).
+pub fn promptPath(
+    self: *Screen,
+    from: Pin,
+    to: Pin,
+) struct {
+    x: isize,
+    y: isize,
+} {
+    // Get our prompt bounds assuming "from" is at a prompt.
+    const bounds = self.selectPrompt(from) orelse return .{ .x = 0, .y = 0 };
+
+    // Get our actual "to" point clamped to the bounds of the prompt.
+    const to_clamped = if (bounds.contains(self, to))
+        to
+    else if (to.before(bounds.start()))
+        bounds.start()
+    else
+        bounds.end();
+
+    // Convert to points
+    const from_pt = self.pages.pointFromPin(.screen, from).?.screen;
+    const to_pt = self.pages.pointFromPin(.screen, to_clamped).?.screen;
+
+    // Basic math to calculate our path.
+    const from_x: isize = @intCast(from_pt.x);
+    const from_y: isize = @intCast(from_pt.y);
+    const to_x: isize = @intCast(to_pt.x);
+    const to_y: isize = @intCast(to_pt.y);
+    return .{ .x = to_x - from_x, .y = to_y - from_y };
+}
+
 /// Dump the screen to a string. The writer given should be buffered;
 /// this function does not attempt to efficiently write and generally writes
 /// one byte at a time.
@@ -4862,5 +4899,105 @@ test "Screen: selectPrompt prompt at end" {
             .x = 9,
             .y = 3,
         } }, s.pages.pointFromPin(.screen, sel.end()).?);
+    }
+}
+
+test "Screen: promptPath" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 15, 0);
+    defer s.deinit();
+
+    // zig fmt: off
+    {
+                                                    // line number:
+        try s.testWriteString("output1\n");         // 0
+        try s.testWriteString("output1\n");         // 1
+        try s.testWriteString("prompt2\n");         // 2
+        try s.testWriteString("input2\n");          // 3
+        try s.testWriteString("output2\n");         // 4
+        try s.testWriteString("output2\n");         // 5
+        try s.testWriteString("prompt3$ input3\n"); // 6
+        try s.testWriteString("output3\n");         // 7
+        try s.testWriteString("output3\n");         // 8
+        try s.testWriteString("output3");           // 9
+    }
+    // zig fmt: on
+
+    {
+        const pin = s.pages.pin(.{ .screen = .{ .y = 2 } }).?;
+        const row = pin.rowAndCell().row;
+        row.semantic_prompt = .prompt;
+    }
+    {
+        const pin = s.pages.pin(.{ .screen = .{ .y = 3 } }).?;
+        const row = pin.rowAndCell().row;
+        row.semantic_prompt = .input;
+    }
+    {
+        const pin = s.pages.pin(.{ .screen = .{ .y = 4 } }).?;
+        const row = pin.rowAndCell().row;
+        row.semantic_prompt = .command;
+    }
+    {
+        const pin = s.pages.pin(.{ .screen = .{ .y = 6 } }).?;
+        const row = pin.rowAndCell().row;
+        row.semantic_prompt = .input;
+    }
+    {
+        const pin = s.pages.pin(.{ .screen = .{ .y = 7 } }).?;
+        const row = pin.rowAndCell().row;
+        row.semantic_prompt = .command;
+    }
+
+    // From is not in the prompt
+    {
+        const path = s.promptPath(
+            s.pages.pin(.{ .active = .{ .x = 0, .y = 1 } }).?,
+            s.pages.pin(.{ .active = .{ .x = 0, .y = 2 } }).?,
+        );
+        try testing.expectEqual(@as(isize, 0), path.x);
+        try testing.expectEqual(@as(isize, 0), path.y);
+    }
+
+    // Same line
+    {
+        const path = s.promptPath(
+            s.pages.pin(.{ .active = .{ .x = 6, .y = 2 } }).?,
+            s.pages.pin(.{ .active = .{ .x = 3, .y = 2 } }).?,
+        );
+        try testing.expectEqual(@as(isize, -3), path.x);
+        try testing.expectEqual(@as(isize, 0), path.y);
+    }
+
+    // Different lines
+    {
+        const path = s.promptPath(
+            s.pages.pin(.{ .active = .{ .x = 6, .y = 2 } }).?,
+            s.pages.pin(.{ .active = .{ .x = 3, .y = 3 } }).?,
+        );
+        try testing.expectEqual(@as(isize, -3), path.x);
+        try testing.expectEqual(@as(isize, 1), path.y);
+    }
+
+    // To is out of bounds before
+    {
+        const path = s.promptPath(
+            s.pages.pin(.{ .active = .{ .x = 6, .y = 2 } }).?,
+            s.pages.pin(.{ .active = .{ .x = 3, .y = 1 } }).?,
+        );
+        try testing.expectEqual(@as(isize, -6), path.x);
+        try testing.expectEqual(@as(isize, 0), path.y);
+    }
+
+    // To is out of bounds after
+    {
+        const path = s.promptPath(
+            s.pages.pin(.{ .active = .{ .x = 6, .y = 2 } }).?,
+            s.pages.pin(.{ .active = .{ .x = 3, .y = 9 } }).?,
+        );
+        try testing.expectEqual(@as(isize, 3), path.x);
+        try testing.expectEqual(@as(isize, 1), path.y);
     }
 }
