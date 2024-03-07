@@ -868,11 +868,10 @@ pub fn selectLine(self: *Screen, pin: Pin) ?Selection {
         var it = pin.rowIterator(.left_up, null);
         var it_prev: Pin = pin;
         while (it.next()) |p| {
-            it_prev = p;
             const row = p.rowAndCell().row;
 
             if (!row.wrap) {
-                var copy = p;
+                var copy = it_prev;
                 copy.x = 0;
                 break :start_pin copy;
             }
@@ -880,10 +879,12 @@ pub fn selectLine(self: *Screen, pin: Pin) ?Selection {
             // See semantic_prompt_state comment for why
             const current_prompt = row.semantic_prompt.promptOrInput();
             if (current_prompt != semantic_prompt_state) {
-                var prev = p.down(1).?;
-                prev.x = 0;
-                break :start_pin prev;
+                var copy = it_prev;
+                copy.x = 0;
+                break :start_pin copy;
             }
+
+            it_prev = p;
         } else {
             var copy = it_prev;
             copy.x = 0;
@@ -3622,6 +3623,42 @@ test "Screen: resize more cols requiring a wide spacer head" {
     }
 }
 
+test "Screen: selectAll" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 10, 0);
+    defer s.deinit();
+
+    {
+        try s.testWriteString("ABC  DEF\n 123\n456");
+        var sel = s.selectAll().?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 2,
+            .y = 2,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+    }
+
+    {
+        try s.testWriteString("\nFOO\n BAR\n BAZ\n QWERTY\n 12345678");
+        var sel = s.selectAll().?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 8,
+            .y = 7,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+    }
+}
+
 test "Screen: selectLine" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -3789,42 +3826,6 @@ test "Screen: selectLine across soft-wrap ignores blank lines" {
     }
 }
 
-test "Screen: selectAll" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    var s = try init(alloc, 10, 10, 0);
-    defer s.deinit();
-
-    {
-        try s.testWriteString("ABC  DEF\n 123\n456");
-        var sel = s.selectAll().?;
-        defer sel.deinit(&s);
-        try testing.expectEqual(point.Point{ .screen = .{
-            .x = 0,
-            .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
-        try testing.expectEqual(point.Point{ .screen = .{
-            .x = 2,
-            .y = 2,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
-    }
-
-    {
-        try s.testWriteString("\nFOO\n BAR\n BAZ\n QWERTY\n 12345678");
-        var sel = s.selectAll().?;
-        defer sel.deinit(&s);
-        try testing.expectEqual(point.Point{ .screen = .{
-            .x = 0,
-            .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
-        try testing.expectEqual(point.Point{ .screen = .{
-            .x = 8,
-            .y = 7,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
-    }
-}
-
 test "Screen: selectLine with scrollback" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -3863,6 +3864,60 @@ test "Screen: selectLine with scrollback" {
         } }, s.pages.pointFromPin(.active, sel.start().*).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 1,
+            .y = 2,
+        } }, s.pages.pointFromPin(.active, sel.end().*).?);
+    }
+}
+
+// https://github.com/mitchellh/ghostty/issues/1329
+test "Screen: selectLine semantic prompt boundary" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 10, 0);
+    defer s.deinit();
+    try s.testWriteString("ABCDE\nA    > ");
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("ABCDE\nA    \n> ", contents);
+    }
+
+    {
+        const pin = s.pages.pin(.{ .screen = .{ .y = 1 } }).?;
+        const row = pin.rowAndCell().row;
+        row.semantic_prompt = .prompt;
+    }
+
+    // Selecting output stops at the prompt even if soft-wrapped
+    {
+        var sel = s.selectLine(s.pages.pin(.{ .active = .{
+            .x = 1,
+            .y = 1,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 0,
+            .y = 1,
+        } }, s.pages.pointFromPin(.active, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 0,
+            .y = 1,
+        } }, s.pages.pointFromPin(.active, sel.end().*).?);
+    }
+    {
+        var sel = s.selectLine(s.pages.pin(.{ .active = .{
+            .x = 1,
+            .y = 2,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 0,
+            .y = 2,
+        } }, s.pages.pointFromPin(.active, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 0,
             .y = 2,
         } }, s.pages.pointFromPin(.active, sel.end().*).?);
     }

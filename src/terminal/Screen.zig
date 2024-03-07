@@ -4571,6 +4571,7 @@ test "Screen: selectLine across soft-wrap" {
     }
 }
 
+// X
 // https://github.com/mitchellh/ghostty/issues/1329
 test "Screen: selectLine semantic prompt boundary" {
     const testing = std.testing;
