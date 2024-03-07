@@ -4882,6 +4882,7 @@ test "Screen: selectWord with character boundary" {
     }
 }
 
+// X
 test "Screen: selectOutput" {
     const testing = std.testing;
     const alloc = testing.allocator;
