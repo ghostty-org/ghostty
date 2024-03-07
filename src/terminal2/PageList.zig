@@ -1820,7 +1820,7 @@ pub fn pageIterator(
         self.getBottomRight(tl_pt) orelse return .{ .row = null };
 
     if (comptime std.debug.runtime_safety) {
-        assert(tl_pin.eql(bl_pin) or tl_pin.isBefore(bl_pin));
+        assert(tl_pin.eql(bl_pin) or tl_pin.before(bl_pin));
     }
 
     return switch (direction) {
@@ -2045,7 +2045,7 @@ pub const Pin = struct {
     /// Returns true if self is before other. This is very expensive since
     /// it requires traversing the linked list of pages. This should not
     /// be called in performance critical paths.
-    pub fn isBefore(self: Pin, other: Pin) bool {
+    pub fn before(self: Pin, other: Pin) bool {
         if (self.page == other.page) {
             if (self.y < other.y) return true;
             if (self.y > other.y) return false;
