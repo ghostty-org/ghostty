@@ -1125,6 +1125,83 @@ pub fn selectWord(self: *Screen, pin: Pin) ?Selection {
     return Selection.init(start, end, false);
 }
 
+/// Select the command output under the given point. The limits of the output
+/// are determined by semantic prompt information provided by shell integration.
+/// A selection can span multiple physical lines if they are soft-wrapped.
+///
+/// This will return null if a selection is impossible. The only scenarios
+/// this happens is if:
+///  - the point pt is outside of the written screen space.
+///  - the point pt is on a prompt / input line.
+pub fn selectOutput(self: *Screen, pin: Pin) ?Selection {
+    _ = self;
+
+    switch (pin.rowAndCell().row.semantic_prompt) {
+        .input, .prompt_continuation, .prompt => {
+            // Cursor on a prompt line, selection impossible
+            return null;
+        },
+
+        else => {},
+    }
+
+    // Go forwards to find our end boundary
+    // We are looking for input start / prompt markers
+    const end: Pin = boundary: {
+        var it = pin.rowIterator(.right_down, null);
+        var it_prev = pin;
+        while (it.next()) |p| {
+            const row = p.rowAndCell().row;
+            switch (row.semantic_prompt) {
+                .input, .prompt_continuation, .prompt => {
+                    var copy = it_prev;
+                    copy.x = it_prev.page.data.size.cols - 1;
+                    break :boundary copy;
+                },
+                else => {},
+            }
+
+            it_prev = p;
+        }
+
+        // Find the last non-blank row
+        it = it_prev.rowIterator(.left_up, null);
+        while (it.next()) |p| {
+            const row = p.rowAndCell().row;
+            const cells = p.page.data.getCells(row);
+            if (Cell.hasTextAny(cells)) {
+                var copy = p;
+                copy.x = p.page.data.size.cols - 1;
+                break :boundary copy;
+            }
+        }
+
+        // In this case it means that all our rows are blank. Let's
+        // just return no selection, this is a weird case.
+        return null;
+    };
+
+    // Go backwards to find our start boundary
+    // We are looking for output start markers
+    const start: Pin = boundary: {
+        var it = pin.rowIterator(.left_up, null);
+        var it_prev = pin;
+        while (it.next()) |p| {
+            const row = p.rowAndCell().row;
+            switch (row.semantic_prompt) {
+                .command => break :boundary p,
+                else => {},
+            }
+
+            it_prev = p;
+        }
+
+        break :boundary it_prev;
+    };
+
+    return Selection.init(start, end, false);
+}
+
 /// Dump the screen to a string. The writer given should be buffered;
 /// this function does not attempt to efficiently write and generally writes
 /// one byte at a time.
@@ -4368,5 +4445,126 @@ test "Screen: selectWord with character boundary" {
                 .y = 0,
             } }, s.pages.pointFromPin(.screen, sel.end().*).?);
         }
+    }
+}
+
+test "Screen: selectOutput" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 15, 0);
+    defer s.deinit();
+
+    // zig fmt: off
+    {
+                                                    // line number:
+        try s.testWriteString("output1\n");         // 0
+        try s.testWriteString("output1\n");         // 1
+        try s.testWriteString("prompt2\n");         // 2
+        try s.testWriteString("input2\n");          // 3
+        try s.testWriteString("output2\n");         // 4
+        try s.testWriteString("output2\n");         // 5
+        try s.testWriteString("prompt3$ input3\n"); // 6
+        try s.testWriteString("output3\n");         // 7
+        try s.testWriteString("output3\n");         // 8
+        try s.testWriteString("output3");           // 9
+    }
+    // zig fmt: on
+
+    {
+        const pin = s.pages.pin(.{ .screen = .{ .y = 2 } }).?;
+        const row = pin.rowAndCell().row;
+        row.semantic_prompt = .prompt;
+    }
+    {
+        const pin = s.pages.pin(.{ .screen = .{ .y = 3 } }).?;
+        const row = pin.rowAndCell().row;
+        row.semantic_prompt = .input;
+    }
+    {
+        const pin = s.pages.pin(.{ .screen = .{ .y = 4 } }).?;
+        const row = pin.rowAndCell().row;
+        row.semantic_prompt = .command;
+    }
+    {
+        const pin = s.pages.pin(.{ .screen = .{ .y = 6 } }).?;
+        const row = pin.rowAndCell().row;
+        row.semantic_prompt = .input;
+    }
+    {
+        const pin = s.pages.pin(.{ .screen = .{ .y = 7 } }).?;
+        const row = pin.rowAndCell().row;
+        row.semantic_prompt = .command;
+    }
+
+    // No start marker, should select from the beginning
+    {
+        var sel = s.selectOutput(s.pages.pin(.{ .active = .{
+            .x = 1,
+            .y = 1,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pages.pointFromPin(.active, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 9,
+            .y = 1,
+        } }, s.pages.pointFromPin(.active, sel.end().*).?);
+    }
+    // Both start and end markers, should select between them
+    {
+        var sel = s.selectOutput(s.pages.pin(.{ .active = .{
+            .x = 3,
+            .y = 5,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 0,
+            .y = 4,
+        } }, s.pages.pointFromPin(.active, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 9,
+            .y = 5,
+        } }, s.pages.pointFromPin(.active, sel.end().*).?);
+    }
+    // No end marker, should select till the end
+    {
+        var sel = s.selectOutput(s.pages.pin(.{ .active = .{
+            .x = 2,
+            .y = 7,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 0,
+            .y = 7,
+        } }, s.pages.pointFromPin(.active, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 9,
+            .y = 10,
+        } }, s.pages.pointFromPin(.active, sel.end().*).?);
+    }
+    // input / prompt at y = 0, pt.y = 0
+    {
+        s.deinit();
+        s = try init(alloc, 10, 5, 0);
+        try s.testWriteString("prompt1$ input1\n");
+        try s.testWriteString("output1\n");
+        try s.testWriteString("prompt2\n");
+        {
+            const pin = s.pages.pin(.{ .screen = .{ .y = 0 } }).?;
+            const row = pin.rowAndCell().row;
+            row.semantic_prompt = .input;
+        }
+        {
+            const pin = s.pages.pin(.{ .screen = .{ .y = 1 } }).?;
+            const row = pin.rowAndCell().row;
+            row.semantic_prompt = .command;
+        }
+        try testing.expect(s.selectOutput(s.pages.pin(.{ .active = .{
+            .x = 2,
+            .y = 0,
+        } }).?) == null);
     }
 }
