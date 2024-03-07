@@ -80,7 +80,7 @@ pub fn deinit(
 }
 
 /// The starting pin of the selection. This is NOT ordered.
-pub fn start(self: *Selection) *Pin {
+pub fn startPtr(self: *Selection) *Pin {
     return switch (self.bounds) {
         .untracked => |*v| &v.start,
         .tracked => |v| v.start,
@@ -88,21 +88,21 @@ pub fn start(self: *Selection) *Pin {
 }
 
 /// The ending pin of the selection. This is NOT ordered.
-pub fn end(self: *Selection) *Pin {
+pub fn endPtr(self: *Selection) *Pin {
     return switch (self.bounds) {
         .untracked => |*v| &v.end,
         .tracked => |v| v.end,
     };
 }
 
-fn startConst(self: Selection) Pin {
+pub fn start(self: Selection) Pin {
     return switch (self.bounds) {
         .untracked => |v| v.start,
         .tracked => |v| v.start.*,
     };
 }
 
-fn endConst(self: Selection) Pin {
+pub fn end(self: Selection) Pin {
     return switch (self.bounds) {
         .untracked => |v| v.end,
         .tracked => |v| v.end.*,
@@ -151,8 +151,8 @@ pub fn track(self: *Selection, s: *Screen) !void {
 pub const Order = enum { forward, reverse, mirrored_forward, mirrored_reverse };
 
 pub fn order(self: Selection, s: *const Screen) Order {
-    const start_pt = s.pages.pointFromPin(.screen, self.startConst()).?.screen;
-    const end_pt = s.pages.pointFromPin(.screen, self.endConst()).?.screen;
+    const start_pt = s.pages.pointFromPin(.screen, self.start()).?.screen;
+    const end_pt = s.pages.pointFromPin(.screen, self.end()).?.screen;
 
     if (self.rectangle) {
         // Reverse (also handles single-column)
@@ -198,7 +198,7 @@ pub fn adjust(
     // the last point of the selection by mouse, not necessarilly the
     // top/bottom visually. So this results in the right behavior
     // whether the user drags up or down.
-    const end_pin = self.end();
+    const end_pin = self.endPtr();
     switch (adjustment) {
         .up => if (end_pin.up(1)) |new_end| {
             end_pin.* = new_end;
@@ -312,11 +312,11 @@ test "Selection: adjust right" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 5,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
             .y = 3,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 
     // Already at end of the line.
@@ -332,11 +332,11 @@ test "Selection: adjust right" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 3,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 
     // Already at end of the screen
@@ -352,11 +352,11 @@ test "Selection: adjust right" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 5,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
             .y = 3,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 }
 
@@ -380,11 +380,11 @@ test "Selection: adjust left" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 5,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 2,
             .y = 3,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 
     // Already at beginning of the line.
@@ -401,11 +401,11 @@ test "Selection: adjust left" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 5,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
             .y = 2,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 }
 
@@ -429,11 +429,11 @@ test "Selection: adjust left skips blanks" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 5,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 2,
             .y = 3,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 
     // Edge
@@ -450,11 +450,11 @@ test "Selection: adjust left skips blanks" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 5,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 2,
             .y = 2,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 }
 
@@ -477,11 +477,11 @@ test "Selection: adjust up" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 5,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 3,
             .y = 2,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 
     // On the first line
@@ -497,11 +497,11 @@ test "Selection: adjust up" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 5,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 }
 
@@ -524,11 +524,11 @@ test "Selection: adjust down" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 5,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 3,
             .y = 4,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 
     // On the last line
@@ -544,11 +544,11 @@ test "Selection: adjust down" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
             .y = 4,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 }
 
@@ -572,11 +572,11 @@ test "Selection: adjust down with not full screen" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
             .y = 2,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 }
 
@@ -600,11 +600,11 @@ test "Selection: adjust home" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 }
 
@@ -628,11 +628,11 @@ test "Selection: adjust end with not full screen" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
             .y = 2,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 }
 

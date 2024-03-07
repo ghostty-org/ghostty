@@ -3903,11 +3903,11 @@ test "Screen: selectAll" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 2,
             .y = 2,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 
     {
@@ -3917,11 +3917,11 @@ test "Screen: selectAll" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 8,
             .y = 7,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 }
 
@@ -3947,11 +3947,11 @@ test "Screen: selectLine" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 7,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 
     // Going backward
@@ -3964,11 +3964,11 @@ test "Screen: selectLine" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 7,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 
     // Going forward and backward
@@ -3981,11 +3981,11 @@ test "Screen: selectLine" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 7,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 
     // Outside active area
@@ -3998,11 +3998,11 @@ test "Screen: selectLine" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 7,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 }
 
@@ -4024,11 +4024,11 @@ test "Screen: selectLine across soft-wrap" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 1,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 3,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 }
 
@@ -4050,11 +4050,11 @@ test "Screen: selectLine across soft-wrap ignores blank lines" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 1,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 3,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 
     // Going backward
@@ -4067,11 +4067,11 @@ test "Screen: selectLine across soft-wrap ignores blank lines" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 1,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 3,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 
     // Going forward and backward
@@ -4084,11 +4084,11 @@ test "Screen: selectLine across soft-wrap ignores blank lines" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 1,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 3,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 }
 
@@ -4110,11 +4110,11 @@ test "Screen: selectLine with scrollback" {
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
             .y = 0,
-        } }, s.pages.pointFromPin(.active, sel.start().*).?);
+        } }, s.pages.pointFromPin(.active, sel.start()).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 1,
             .y = 0,
-        } }, s.pages.pointFromPin(.active, sel.end().*).?);
+        } }, s.pages.pointFromPin(.active, sel.end()).?);
     }
 
     // Selecting last line
@@ -4127,11 +4127,11 @@ test "Screen: selectLine with scrollback" {
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
             .y = 2,
-        } }, s.pages.pointFromPin(.active, sel.start().*).?);
+        } }, s.pages.pointFromPin(.active, sel.start()).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 1,
             .y = 2,
-        } }, s.pages.pointFromPin(.active, sel.end().*).?);
+        } }, s.pages.pointFromPin(.active, sel.end()).?);
     }
 }
 
@@ -4166,11 +4166,11 @@ test "Screen: selectLine semantic prompt boundary" {
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
             .y = 1,
-        } }, s.pages.pointFromPin(.active, sel.start().*).?);
+        } }, s.pages.pointFromPin(.active, sel.start()).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
             .y = 1,
-        } }, s.pages.pointFromPin(.active, sel.end().*).?);
+        } }, s.pages.pointFromPin(.active, sel.end()).?);
     }
     {
         var sel = s.selectLine(s.pages.pin(.{ .active = .{
@@ -4181,11 +4181,11 @@ test "Screen: selectLine semantic prompt boundary" {
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
             .y = 2,
-        } }, s.pages.pointFromPin(.active, sel.start().*).?);
+        } }, s.pages.pointFromPin(.active, sel.start()).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
             .y = 2,
-        } }, s.pages.pointFromPin(.active, sel.end().*).?);
+        } }, s.pages.pointFromPin(.active, sel.end()).?);
     }
 }
 
@@ -4211,11 +4211,11 @@ test "Screen: selectWord" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 2,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 
     // Going backward
@@ -4228,11 +4228,11 @@ test "Screen: selectWord" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 2,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 
     // Going forward and backward
@@ -4245,11 +4245,11 @@ test "Screen: selectWord" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 2,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 
     // Whitespace
@@ -4262,11 +4262,11 @@ test "Screen: selectWord" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 3,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 4,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 
     // Whitespace single char
@@ -4279,11 +4279,11 @@ test "Screen: selectWord" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 
     // End of screen
@@ -4296,11 +4296,11 @@ test "Screen: selectWord" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 2,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 2,
             .y = 2,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 }
 
@@ -4328,11 +4328,11 @@ test "Screen: selectWord across soft-wrap" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 1,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 2,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 
     // Going backward
@@ -4345,11 +4345,11 @@ test "Screen: selectWord across soft-wrap" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 1,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 2,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 
     // Going forward and backward
@@ -4362,11 +4362,11 @@ test "Screen: selectWord across soft-wrap" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 1,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 2,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 }
 
@@ -4388,11 +4388,11 @@ test "Screen: selectWord whitespace across soft-wrap" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 1,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 2,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 
     // Going backward
@@ -4405,11 +4405,11 @@ test "Screen: selectWord whitespace across soft-wrap" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 1,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 2,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 
     // Going forward and backward
@@ -4422,11 +4422,11 @@ test "Screen: selectWord whitespace across soft-wrap" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 1,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 2,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 }
 
@@ -4467,11 +4467,11 @@ test "Screen: selectWord with character boundary" {
             try testing.expectEqual(point.Point{ .screen = .{
                 .x = 2,
                 .y = 0,
-            } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+            } }, s.pages.pointFromPin(.screen, sel.start()).?);
             try testing.expectEqual(point.Point{ .screen = .{
                 .x = 4,
                 .y = 0,
-            } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+            } }, s.pages.pointFromPin(.screen, sel.end()).?);
         }
 
         // Inside character backward
@@ -4484,11 +4484,11 @@ test "Screen: selectWord with character boundary" {
             try testing.expectEqual(point.Point{ .screen = .{
                 .x = 2,
                 .y = 0,
-            } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+            } }, s.pages.pointFromPin(.screen, sel.start()).?);
             try testing.expectEqual(point.Point{ .screen = .{
                 .x = 4,
                 .y = 0,
-            } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+            } }, s.pages.pointFromPin(.screen, sel.end()).?);
         }
 
         // Inside character bidirectional
@@ -4501,11 +4501,11 @@ test "Screen: selectWord with character boundary" {
             try testing.expectEqual(point.Point{ .screen = .{
                 .x = 2,
                 .y = 0,
-            } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+            } }, s.pages.pointFromPin(.screen, sel.start()).?);
             try testing.expectEqual(point.Point{ .screen = .{
                 .x = 4,
                 .y = 0,
-            } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+            } }, s.pages.pointFromPin(.screen, sel.end()).?);
         }
 
         // On quote
@@ -4520,11 +4520,11 @@ test "Screen: selectWord with character boundary" {
             try testing.expectEqual(point.Point{ .screen = .{
                 .x = 0,
                 .y = 0,
-            } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+            } }, s.pages.pointFromPin(.screen, sel.start()).?);
             try testing.expectEqual(point.Point{ .screen = .{
                 .x = 1,
                 .y = 0,
-            } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+            } }, s.pages.pointFromPin(.screen, sel.end()).?);
         }
     }
 }
@@ -4588,11 +4588,11 @@ test "Screen: selectOutput" {
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
             .y = 0,
-        } }, s.pages.pointFromPin(.active, sel.start().*).?);
+        } }, s.pages.pointFromPin(.active, sel.start()).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 9,
             .y = 1,
-        } }, s.pages.pointFromPin(.active, sel.end().*).?);
+        } }, s.pages.pointFromPin(.active, sel.end()).?);
     }
     // Both start and end markers, should select between them
     {
@@ -4604,11 +4604,11 @@ test "Screen: selectOutput" {
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
             .y = 4,
-        } }, s.pages.pointFromPin(.active, sel.start().*).?);
+        } }, s.pages.pointFromPin(.active, sel.start()).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 9,
             .y = 5,
-        } }, s.pages.pointFromPin(.active, sel.end().*).?);
+        } }, s.pages.pointFromPin(.active, sel.end()).?);
     }
     // No end marker, should select till the end
     {
@@ -4620,11 +4620,11 @@ test "Screen: selectOutput" {
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
             .y = 7,
-        } }, s.pages.pointFromPin(.active, sel.start().*).?);
+        } }, s.pages.pointFromPin(.active, sel.start()).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 9,
             .y = 10,
-        } }, s.pages.pointFromPin(.active, sel.end().*).?);
+        } }, s.pages.pointFromPin(.active, sel.end()).?);
     }
     // input / prompt at y = 0, pt.y = 0
     {
@@ -4725,11 +4725,11 @@ test "Screen: selectPrompt basics" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 6,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 9,
             .y = 6,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 
     // Multi line prompt
@@ -4742,11 +4742,11 @@ test "Screen: selectPrompt basics" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 2,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 9,
             .y = 3,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 }
 
@@ -4802,11 +4802,11 @@ test "Screen: selectPrompt prompt at start" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 0,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 9,
             .y = 1,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 }
 
@@ -4857,10 +4857,10 @@ test "Screen: selectPrompt prompt at end" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 2,
-        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 9,
             .y = 3,
-        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 }
