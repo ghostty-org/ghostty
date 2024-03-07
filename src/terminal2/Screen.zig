@@ -4211,3 +4211,162 @@ test "Screen: selectWord across soft-wrap" {
         } }, s.pages.pointFromPin(.screen, sel.end().*).?);
     }
 }
+
+test "Screen: selectWord whitespace across soft-wrap" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 10, 0);
+    defer s.deinit();
+    try s.testWriteString("1       1\n 123");
+
+    // Going forward
+    {
+        var sel = s.selectWord(s.pages.pin(.{ .active = .{
+            .x = 1,
+            .y = 0,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 1,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 2,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+    }
+
+    // Going backward
+    {
+        var sel = s.selectWord(s.pages.pin(.{ .active = .{
+            .x = 1,
+            .y = 1,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 1,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 2,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+    }
+
+    // Going forward and backward
+    {
+        var sel = s.selectWord(s.pages.pin(.{ .active = .{
+            .x = 3,
+            .y = 0,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 1,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 2,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+    }
+}
+
+test "Screen: selectWord with character boundary" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const cases = [_][]const u8{
+        " 'abc' \n123",
+        " \"abc\" \n123",
+        " │abc│ \n123",
+        " `abc` \n123",
+        " |abc| \n123",
+        " :abc: \n123",
+        " ,abc, \n123",
+        " (abc( \n123",
+        " )abc) \n123",
+        " [abc[ \n123",
+        " ]abc] \n123",
+        " {abc{ \n123",
+        " }abc} \n123",
+        " <abc< \n123",
+        " >abc> \n123",
+    };
+
+    for (cases) |case| {
+        var s = try init(alloc, 20, 10, 0);
+        defer s.deinit();
+        try s.testWriteString(case);
+
+        // Inside character forward
+        {
+            var sel = s.selectWord(s.pages.pin(.{ .active = .{
+                .x = 2,
+                .y = 0,
+            } }).?).?;
+            defer sel.deinit(&s);
+            try testing.expectEqual(point.Point{ .screen = .{
+                .x = 2,
+                .y = 0,
+            } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+            try testing.expectEqual(point.Point{ .screen = .{
+                .x = 4,
+                .y = 0,
+            } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        }
+
+        // Inside character backward
+        {
+            var sel = s.selectWord(s.pages.pin(.{ .active = .{
+                .x = 4,
+                .y = 0,
+            } }).?).?;
+            defer sel.deinit(&s);
+            try testing.expectEqual(point.Point{ .screen = .{
+                .x = 2,
+                .y = 0,
+            } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+            try testing.expectEqual(point.Point{ .screen = .{
+                .x = 4,
+                .y = 0,
+            } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        }
+
+        // Inside character bidirectional
+        {
+            var sel = s.selectWord(s.pages.pin(.{ .active = .{
+                .x = 3,
+                .y = 0,
+            } }).?).?;
+            defer sel.deinit(&s);
+            try testing.expectEqual(point.Point{ .screen = .{
+                .x = 2,
+                .y = 0,
+            } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+            try testing.expectEqual(point.Point{ .screen = .{
+                .x = 4,
+                .y = 0,
+            } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        }
+
+        // On quote
+        // NOTE: this behavior is not ideal, so we can change this one day,
+        // but I think its also not that important compared to the above.
+        {
+            var sel = s.selectWord(s.pages.pin(.{ .active = .{
+                .x = 1,
+                .y = 0,
+            } }).?).?;
+            defer sel.deinit(&s);
+            try testing.expectEqual(point.Point{ .screen = .{
+                .x = 0,
+                .y = 0,
+            } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+            try testing.expectEqual(point.Point{ .screen = .{
+                .x = 1,
+                .y = 0,
+            } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+        }
+    }
+}
