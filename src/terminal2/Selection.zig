@@ -136,6 +136,42 @@ pub fn track(self: *Selection, s: *Screen) !void {
     } };
 }
 
+/// Returns the top left point of the selection.
+pub fn topLeft(self: Selection, s: *Screen) Pin {
+    return switch (self.order(s)) {
+        .forward => self.start(),
+        .reverse => self.end(),
+        .mirrored_forward => pin: {
+            var p = self.start();
+            p.x = self.end().x;
+            break :pin p;
+        },
+        .mirrored_reverse => pin: {
+            var p = self.end();
+            p.x = self.start().x;
+            break :pin p;
+        },
+    };
+}
+
+/// Returns the bottom right point of the selection.
+pub fn bottomRight(self: Selection, s: *Screen) Pin {
+    return switch (self.order(s)) {
+        .forward => self.end(),
+        .reverse => self.start(),
+        .mirrored_forward => pin: {
+            var p = self.end();
+            p.x = self.start().x;
+            break :pin p;
+        },
+        .mirrored_reverse => pin: {
+            var p = self.start();
+            p.x = self.end().x;
+            break :pin p;
+        },
+    };
+}
+
 /// The order of the selection:
 ///
 ///  * forward: start(x, y) is before end(x, y) (top-left to bottom-right).
@@ -810,5 +846,131 @@ test "Selection: order, rectangle" {
         defer sel.deinit(&s);
 
         try testing.expect(sel.order(&s) == .forward);
+    }
+}
+
+test "topLeft" {
+    const testing = std.testing;
+
+    var s = try Screen.init(testing.allocator, 5, 10, 0);
+    defer s.deinit();
+    {
+        // forward
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 1 } }).?,
+            true,
+        );
+        defer sel.deinit(&s);
+        const tl = sel.topLeft(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 1,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, tl));
+    }
+    {
+        // reverse
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 1 } }).?,
+            true,
+        );
+        defer sel.deinit(&s);
+        const tl = sel.topLeft(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 1,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, tl));
+    }
+    {
+        // mirrored_forward
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 3 } }).?,
+            true,
+        );
+        defer sel.deinit(&s);
+        const tl = sel.topLeft(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 1,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, tl));
+    }
+    {
+        // mirrored_reverse
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 3 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 1 } }).?,
+            true,
+        );
+        defer sel.deinit(&s);
+        const tl = sel.topLeft(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 1,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, tl));
+    }
+}
+
+test "bottomRight" {
+    const testing = std.testing;
+
+    var s = try Screen.init(testing.allocator, 5, 10, 0);
+    defer s.deinit();
+    {
+        // forward
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 1 } }).?,
+            false,
+        );
+        defer sel.deinit(&s);
+        const br = sel.bottomRight(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 3,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, br));
+    }
+    {
+        // reverse
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 1 } }).?,
+            false,
+        );
+        defer sel.deinit(&s);
+        const br = sel.bottomRight(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 3,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, br));
+    }
+    {
+        // mirrored_forward
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 3 } }).?,
+            true,
+        );
+        defer sel.deinit(&s);
+        const br = sel.bottomRight(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 3,
+            .y = 3,
+        } }, s.pages.pointFromPin(.screen, br));
+    }
+    {
+        // mirrored_reverse
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 3 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 1 } }).?,
+            true,
+        );
+        defer sel.deinit(&s);
+        const br = sel.bottomRight(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 3,
+            .y = 3,
+        } }, s.pages.pointFromPin(.screen, br));
     }
 }
