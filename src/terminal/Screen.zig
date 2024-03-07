@@ -5543,6 +5543,7 @@ test "Screen: clear above cursor with history" {
     try testing.expectEqual(@as(usize, 0), s.cursor.y);
 }
 
+// X
 test "Screen: selectionString basic" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -5563,6 +5564,7 @@ test "Screen: selectionString basic" {
     }
 }
 
+// X
 test "Screen: selectionString start outside of written area" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -5583,6 +5585,7 @@ test "Screen: selectionString start outside of written area" {
     }
 }
 
+// X
 test "Screen: selectionString end outside of written area" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -5603,6 +5606,7 @@ test "Screen: selectionString end outside of written area" {
     }
 }
 
+// X
 test "Screen: selectionString trim space" {
     const testing = std.testing;
     const alloc = testing.allocator;
