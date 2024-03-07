@@ -5399,3 +5399,101 @@ test "Screen: selectionString with zero width joiner" {
         try testing.expectEqualStrings(expected, contents);
     }
 }
+
+test "Screen: selectionString, rectangle, basic" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 30, 5, 0);
+    defer s.deinit();
+    const str =
+        \\Lorem ipsum dolor
+        \\sit amet, consectetur
+        \\adipiscing elit, sed do
+        \\eiusmod tempor incididunt
+        \\ut labore et dolore
+    ;
+    const sel = Selection.init(
+        s.pages.pin(.{ .screen = .{ .x = 2, .y = 1 } }).?,
+        s.pages.pin(.{ .screen = .{ .x = 6, .y = 3 } }).?,
+        true,
+    );
+    const expected =
+        \\t ame
+        \\ipisc
+        \\usmod
+    ;
+    try s.testWriteString(str);
+
+    const contents = try s.selectionString(alloc, sel, true);
+    defer alloc.free(contents);
+    try testing.expectEqualStrings(expected, contents);
+}
+
+test "Screen: selectionString, rectangle, w/EOL" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 30, 5, 0);
+    defer s.deinit();
+    const str =
+        \\Lorem ipsum dolor
+        \\sit amet, consectetur
+        \\adipiscing elit, sed do
+        \\eiusmod tempor incididunt
+        \\ut labore et dolore
+    ;
+    const sel = Selection.init(
+        s.pages.pin(.{ .screen = .{ .x = 12, .y = 0 } }).?,
+        s.pages.pin(.{ .screen = .{ .x = 26, .y = 4 } }).?,
+        true,
+    );
+    const expected =
+        \\dolor
+        \\nsectetur
+        \\lit, sed do
+        \\or incididunt
+        \\ dolore
+    ;
+    try s.testWriteString(str);
+
+    const contents = try s.selectionString(alloc, sel, true);
+    defer alloc.free(contents);
+    try testing.expectEqualStrings(expected, contents);
+}
+
+// test "Screen: selectionString, rectangle, more complex w/breaks" {
+//     const testing = std.testing;
+//     const alloc = testing.allocator;
+//
+//     var s = try init(alloc, 30, 8, 0);
+//     defer s.deinit();
+//     const str =
+//         \\Lorem ipsum dolor
+//         \\sit amet, consectetur
+//         \\adipiscing elit, sed do
+//         \\eiusmod tempor incididunt
+//         \\ut labore et dolore
+//         \\
+//         \\magna aliqua. Ut enim
+//         \\ad minim veniam, quis
+//     ;
+//     const sel = Selection.init(
+//         s.pages.pin(.{ .screen = .{ .x = 11, .y = 2 } }).?,
+//         s.pages.pin(.{ .screen = .{ .x = 26, .y = 7 } }).?,
+//         true,
+//     );
+//     const expected =
+//         \\elit, sed do
+//         \\por incididunt
+//         \\t dolore
+//         \\
+//         \\a. Ut enim
+//         \\niam, quis
+//     ;
+//     try s.testWriteString(str);
+//
+//     const contents = try s.selectionString(alloc, sel, true);
+//     defer alloc.free(contents);
+//     try testing.expectEqualStrings(expected, contents);
+// }
