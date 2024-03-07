@@ -79,6 +79,13 @@ pub fn deinit(
     }
 }
 
+/// Returns true if this selection is equal to another selection.
+pub fn eql(self: Selection, other: Selection) bool {
+    return self.start().eql(other.start()) and
+        self.end().eql(other.end()) and
+        self.rectangle == other.rectangle;
+}
+
 /// The starting pin of the selection. This is NOT ordered.
 pub fn startPtr(self: *Selection) *Pin {
     return switch (self.bounds) {
@@ -137,7 +144,7 @@ pub fn track(self: *Selection, s: *Screen) !void {
 }
 
 /// Returns the top left point of the selection.
-pub fn topLeft(self: Selection, s: *Screen) Pin {
+pub fn topLeft(self: Selection, s: *const Screen) Pin {
     return switch (self.order(s)) {
         .forward => self.start(),
         .reverse => self.end(),
@@ -155,7 +162,7 @@ pub fn topLeft(self: Selection, s: *Screen) Pin {
 }
 
 /// Returns the bottom right point of the selection.
-pub fn bottomRight(self: Selection, s: *Screen) Pin {
+pub fn bottomRight(self: Selection, s: *const Screen) Pin {
     return switch (self.order(s)) {
         .forward => self.end(),
         .reverse => self.start(),
@@ -209,6 +216,28 @@ pub fn order(self: Selection, s: *const Screen) Order {
     if (start_pt.y > end_pt.y) return .reverse;
     if (start_pt.x <= end_pt.x) return .forward;
     return .reverse;
+}
+
+/// Returns the selection in the given order.
+///
+/// The returned selection is always a new untracked selection.
+///
+/// Note that only forward and reverse are useful desired orders for this
+/// function. All other orders act as if forward order was desired.
+pub fn ordered(self: Selection, s: *const Screen, desired: Order) Selection {
+    if (self.order(s) == desired) return Selection.init(
+        self.start(),
+        self.end(),
+        self.rectangle,
+    );
+
+    const tl = self.topLeft(s);
+    const br = self.bottomRight(s);
+    return switch (desired) {
+        .forward => Selection.init(tl, br, self.rectangle),
+        .reverse => Selection.init(br, tl, self.rectangle),
+        else => Selection.init(tl, br, self.rectangle),
+    };
 }
 
 /// Possible adjustments to the selection.
@@ -972,5 +1001,86 @@ test "bottomRight" {
             .x = 3,
             .y = 3,
         } }, s.pages.pointFromPin(.screen, br));
+    }
+}
+
+test "ordered" {
+    const testing = std.testing;
+
+    var s = try Screen.init(testing.allocator, 5, 10, 0);
+    defer s.deinit();
+    {
+        // forward
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 1 } }).?,
+            false,
+        );
+        const sel_reverse = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 1 } }).?,
+            false,
+        );
+        try testing.expect(sel.ordered(&s, .forward).eql(sel));
+        try testing.expect(sel.ordered(&s, .reverse).eql(sel_reverse));
+        try testing.expect(sel.ordered(&s, .mirrored_forward).eql(sel));
+    }
+    {
+        // reverse
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 1 } }).?,
+            false,
+        );
+        const sel_forward = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 1 } }).?,
+            false,
+        );
+        try testing.expect(sel.ordered(&s, .forward).eql(sel_forward));
+        try testing.expect(sel.ordered(&s, .reverse).eql(sel));
+        try testing.expect(sel.ordered(&s, .mirrored_forward).eql(sel_forward));
+    }
+    {
+        // mirrored_forward
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 3 } }).?,
+            true,
+        );
+        const sel_forward = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 3 } }).?,
+            true,
+        );
+        const sel_reverse = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 3 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 1 } }).?,
+            true,
+        );
+        try testing.expect(sel.ordered(&s, .forward).eql(sel_forward));
+        try testing.expect(sel.ordered(&s, .reverse).eql(sel_reverse));
+        try testing.expect(sel.ordered(&s, .mirrored_reverse).eql(sel_forward));
+    }
+    {
+        // mirrored_reverse
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 3 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 1 } }).?,
+            true,
+        );
+        const sel_forward = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 3 } }).?,
+            true,
+        );
+        const sel_reverse = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 3 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 1 } }).?,
+            true,
+        );
+        try testing.expect(sel.ordered(&s, .forward).eql(sel_forward));
+        try testing.expect(sel.ordered(&s, .reverse).eql(sel_reverse));
+        try testing.expect(sel.ordered(&s, .mirrored_forward).eql(sel_forward));
     }
 }
