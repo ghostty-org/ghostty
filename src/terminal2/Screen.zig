@@ -1202,6 +1202,87 @@ pub fn selectOutput(self: *Screen, pin: Pin) ?Selection {
     return Selection.init(start, end, false);
 }
 
+/// Returns the selection bounds for the prompt at the given point. If the
+/// point is not on a prompt line, this returns null. Note that due to
+/// the underlying protocol, this will only return the y-coordinates of
+/// the prompt. The x-coordinates of the start will always be zero and
+/// the x-coordinates of the end will always be the last column.
+///
+/// Note that this feature requires shell integration. If shell integration
+/// is not enabled, this will always return null.
+pub fn selectPrompt(self: *Screen, pin: Pin) ?Selection {
+    _ = self;
+
+    // Ensure that the line the point is on is a prompt.
+    const is_known = switch (pin.rowAndCell().row.semantic_prompt) {
+        .prompt, .prompt_continuation, .input => true,
+        .command => return null,
+
+        // We allow unknown to continue because not all shells output any
+        // semantic prompt information for continuation lines. This has the
+        // possibility of making this function VERY slow (we look at all
+        // scrollback) so we should try to avoid this in the future by
+        // setting a flag or something if we have EVER seen a semantic
+        // prompt sequence.
+        .unknown => false,
+    };
+
+    // Find the start of the prompt.
+    var saw_semantic_prompt = is_known;
+    const start: Pin = start: {
+        var it = pin.rowIterator(.left_up, null);
+        var it_prev = it.next().?;
+        while (it.next()) |p| {
+            const row = p.rowAndCell().row;
+            switch (row.semantic_prompt) {
+                // A prompt, we continue searching.
+                .prompt, .prompt_continuation, .input => saw_semantic_prompt = true,
+
+                // See comment about "unknown" a few lines above. If we have
+                // previously seen a semantic prompt then if we see an unknown
+                // we treat it as a boundary.
+                .unknown => if (saw_semantic_prompt) break :start it_prev,
+
+                // Command output or unknown, definitely not a prompt.
+                .command => break :start it_prev,
+            }
+
+            it_prev = p;
+        }
+
+        break :start it_prev;
+    };
+
+    // If we never saw a semantic prompt flag, then we can't trust our
+    // start value and we return null. This scenario usually means that
+    // semantic prompts aren't enabled via the shell.
+    if (!saw_semantic_prompt) return null;
+
+    // Find the end of the prompt.
+    const end: Pin = end: {
+        var it = pin.rowIterator(.right_down, null);
+        var it_prev = it.next().?;
+        it_prev.x = it_prev.page.data.size.cols - 1;
+        while (it.next()) |p| {
+            const row = p.rowAndCell().row;
+            switch (row.semantic_prompt) {
+                // A prompt, we continue searching.
+                .prompt, .prompt_continuation, .input => {},
+
+                // Command output or unknown, definitely not a prompt.
+                .command, .unknown => break :end it_prev,
+            }
+
+            it_prev = p;
+            it_prev.x = it_prev.page.data.size.cols - 1;
+        }
+
+        break :end it_prev;
+    };
+
+    return Selection.init(start, end, false);
+}
+
 /// Dump the screen to a string. The writer given should be buffered;
 /// this function does not attempt to efficiently write and generally writes
 /// one byte at a time.
@@ -4566,5 +4647,220 @@ test "Screen: selectOutput" {
             .x = 2,
             .y = 0,
         } }).?) == null);
+    }
+}
+
+test "Screen: selectPrompt basics" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 15, 0);
+    defer s.deinit();
+
+    // zig fmt: off
+    {
+                                                    // line number:
+        try s.testWriteString("output1\n");         // 0
+        try s.testWriteString("output1\n");         // 1
+        try s.testWriteString("prompt2\n");         // 2
+        try s.testWriteString("input2\n");          // 3
+        try s.testWriteString("output2\n");         // 4
+        try s.testWriteString("output2\n");         // 5
+        try s.testWriteString("prompt3$ input3\n"); // 6
+        try s.testWriteString("output3\n");         // 7
+        try s.testWriteString("output3\n");         // 8
+        try s.testWriteString("output3");           // 9
+    }
+    // zig fmt: on
+
+    {
+        const pin = s.pages.pin(.{ .screen = .{ .y = 2 } }).?;
+        const row = pin.rowAndCell().row;
+        row.semantic_prompt = .prompt;
+    }
+    {
+        const pin = s.pages.pin(.{ .screen = .{ .y = 3 } }).?;
+        const row = pin.rowAndCell().row;
+        row.semantic_prompt = .input;
+    }
+    {
+        const pin = s.pages.pin(.{ .screen = .{ .y = 4 } }).?;
+        const row = pin.rowAndCell().row;
+        row.semantic_prompt = .command;
+    }
+    {
+        const pin = s.pages.pin(.{ .screen = .{ .y = 6 } }).?;
+        const row = pin.rowAndCell().row;
+        row.semantic_prompt = .input;
+    }
+    {
+        const pin = s.pages.pin(.{ .screen = .{ .y = 7 } }).?;
+        const row = pin.rowAndCell().row;
+        row.semantic_prompt = .command;
+    }
+
+    // Not at a prompt
+    {
+        const sel = s.selectPrompt(s.pages.pin(.{ .active = .{
+            .x = 0,
+            .y = 1,
+        } }).?);
+        try testing.expect(sel == null);
+    }
+    {
+        const sel = s.selectPrompt(s.pages.pin(.{ .active = .{
+            .x = 0,
+            .y = 8,
+        } }).?);
+        try testing.expect(sel == null);
+    }
+
+    // Single line prompt
+    {
+        var sel = s.selectPrompt(s.pages.pin(.{ .active = .{
+            .x = 1,
+            .y = 6,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 6,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 9,
+            .y = 6,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+    }
+
+    // Multi line prompt
+    {
+        var sel = s.selectPrompt(s.pages.pin(.{ .active = .{
+            .x = 1,
+            .y = 3,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 2,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 9,
+            .y = 3,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+    }
+}
+
+test "Screen: selectPrompt prompt at start" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 15, 0);
+    defer s.deinit();
+
+    // zig fmt: off
+    {
+                                                    // line number:
+        try s.testWriteString("prompt1\n");         // 0
+        try s.testWriteString("input1\n");          // 1
+        try s.testWriteString("output2\n");         // 2
+        try s.testWriteString("output2\n");         // 3
+    }
+    // zig fmt: on
+
+    {
+        const pin = s.pages.pin(.{ .screen = .{ .y = 0 } }).?;
+        const row = pin.rowAndCell().row;
+        row.semantic_prompt = .prompt;
+    }
+    {
+        const pin = s.pages.pin(.{ .screen = .{ .y = 1 } }).?;
+        const row = pin.rowAndCell().row;
+        row.semantic_prompt = .input;
+    }
+    {
+        const pin = s.pages.pin(.{ .screen = .{ .y = 2 } }).?;
+        const row = pin.rowAndCell().row;
+        row.semantic_prompt = .command;
+    }
+
+    // Not at a prompt
+    {
+        const sel = s.selectPrompt(s.pages.pin(.{ .active = .{
+            .x = 0,
+            .y = 3,
+        } }).?);
+        try testing.expect(sel == null);
+    }
+
+    // Multi line prompt
+    {
+        var sel = s.selectPrompt(s.pages.pin(.{ .active = .{
+            .x = 1,
+            .y = 1,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 9,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
+    }
+}
+
+test "Screen: selectPrompt prompt at end" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 15, 0);
+    defer s.deinit();
+
+    // zig fmt: off
+    {
+                                                    // line number:
+        try s.testWriteString("output2\n");         // 0
+        try s.testWriteString("output2\n");         // 1
+        try s.testWriteString("prompt1\n");         // 2
+        try s.testWriteString("input1\n");          // 3
+    }
+    // zig fmt: on
+
+    {
+        const pin = s.pages.pin(.{ .screen = .{ .y = 2 } }).?;
+        const row = pin.rowAndCell().row;
+        row.semantic_prompt = .prompt;
+    }
+    {
+        const pin = s.pages.pin(.{ .screen = .{ .y = 3 } }).?;
+        const row = pin.rowAndCell().row;
+        row.semantic_prompt = .input;
+    }
+
+    // Not at a prompt
+    {
+        const sel = s.selectPrompt(s.pages.pin(.{ .active = .{
+            .x = 0,
+            .y = 1,
+        } }).?);
+        try testing.expect(sel == null);
+    }
+
+    // Multi line prompt
+    {
+        var sel = s.selectPrompt(s.pages.pin(.{ .active = .{
+            .x = 1,
+            .y = 2,
+        } }).?).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 2,
+        } }, s.pages.pointFromPin(.screen, sel.start().*).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 9,
+            .y = 3,
+        } }, s.pages.pointFromPin(.screen, sel.end().*).?);
     }
 }
