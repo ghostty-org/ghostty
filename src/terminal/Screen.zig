@@ -4740,6 +4740,7 @@ test "Screen: selectWord" {
     }
 }
 
+// X
 test "Screen: selectWord across soft-wrap" {
     const testing = std.testing;
     const alloc = testing.allocator;
