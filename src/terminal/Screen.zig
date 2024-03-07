@@ -4777,6 +4777,7 @@ test "Screen: selectWord across soft-wrap" {
     }
 }
 
+// X
 test "Screen: selectWord whitespace across soft-wrap" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -4813,6 +4814,7 @@ test "Screen: selectWord whitespace across soft-wrap" {
     }
 }
 
+// X
 test "Screen: selectWord with character boundary" {
     const testing = std.testing;
     const alloc = testing.allocator;
