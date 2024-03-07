@@ -843,7 +843,20 @@ pub fn selectionString(
     defer strbuilder.deinit();
 
     const sel_ordered = sel.ordered(self, .forward);
-    var page_it = sel.start().pageIterator(.right_down, sel.end());
+    const sel_start = start: {
+        var start = sel.start();
+        const cell = start.rowAndCell().cell;
+        if (cell.wide == .spacer_tail) start.x -= 1;
+        break :start start;
+    };
+    const sel_end = end: {
+        var end = sel.end();
+        const cell = end.rowAndCell().cell;
+        if (cell.wide == .spacer_tail) end.x -= 1;
+        break :end end;
+    };
+
+    var page_it = sel_start.pageIterator(.right_down, sel_end);
     var row_count: usize = 0;
     while (page_it.next()) |chunk| {
         const rows = chunk.rows();
@@ -851,11 +864,11 @@ pub fn selectionString(
             const cells_ptr = row.cells.ptr(chunk.page.data.memory);
 
             const start_x = if (row_count == 0 or sel_ordered.rectangle)
-                sel_ordered.start().x
+                sel_start.x
             else
                 0;
             const end_x = if (row_count == rows.len - 1 or sel_ordered.rectangle)
-                sel_ordered.end().x + 1
+                sel_end.x + 1
             else
                 self.pages.cols;
 
@@ -870,7 +883,9 @@ pub fn selectionString(
             }
             // TODO: graphemes
 
-            if (!row.wrap or sel_ordered.rectangle) {
+            if (row_count < rows.len - 1 and
+                (!row.wrap or sel_ordered.rectangle))
+            {
                 try strbuilder.append('\n');
             }
 
@@ -894,7 +909,7 @@ pub fn selectionString(
             const i = strbuilder.items.len;
             strbuilder.items.len += trimmed.len;
             std.mem.copyForwards(u8, strbuilder.items[i..], trimmed);
-            strbuilder.appendAssumeCapacity('\n');
+            try strbuilder.append('\n');
         }
 
         // Remove our trailing newline again
@@ -5156,11 +5171,109 @@ test "Screen: selectionString trim space" {
     }
 
     // No trim
-    // TODO(paged-terminal): we need to trim unwritten space
-    // {
-    //     const contents = try s.selectionString(alloc, sel, false);
-    //     defer alloc.free(contents);
-    //     const expected = "1AB  \n2EF";
-    //     try testing.expectEqualStrings(expected, contents);
-    // }
+    {
+        const contents = try s.selectionString(alloc, sel, false);
+        defer alloc.free(contents);
+        const expected = "1AB  \n2EF";
+        try testing.expectEqualStrings(expected, contents);
+    }
+}
+
+test "Screen: selectionString trim empty line" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 5, 0);
+    defer s.deinit();
+    const str = "1AB  \n     \n2EFGH\n3IJKL";
+    try s.testWriteString(str);
+
+    const sel = Selection.init(
+        s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?,
+        s.pages.pin(.{ .screen = .{ .x = 2, .y = 2 } }).?,
+        false,
+    );
+
+    {
+        const contents = try s.selectionString(alloc, sel, true);
+        defer alloc.free(contents);
+        const expected = "1AB\n\n2EF";
+        try testing.expectEqualStrings(expected, contents);
+    }
+
+    // No trim
+    {
+        const contents = try s.selectionString(alloc, sel, false);
+        defer alloc.free(contents);
+        const expected = "1AB  \n     \n2EF";
+        try testing.expectEqualStrings(expected, contents);
+    }
+}
+
+test "Screen: selectionString soft wrap" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 0);
+    defer s.deinit();
+    const str = "1ABCD2EFGH3IJKL";
+    try s.testWriteString(str);
+
+    {
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 0, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 2, .y = 2 } }).?,
+            false,
+        );
+        const contents = try s.selectionString(alloc, sel, true);
+        defer alloc.free(contents);
+        const expected = "2EFGH3IJ";
+        try testing.expectEqualStrings(expected, contents);
+    }
+}
+
+test "Screen: selectionString wide char" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 0);
+    defer s.deinit();
+    const str = "1A⚡";
+    try s.testWriteString(str);
+
+    {
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 0 } }).?,
+            false,
+        );
+        const contents = try s.selectionString(alloc, sel, true);
+        defer alloc.free(contents);
+        const expected = str;
+        try testing.expectEqualStrings(expected, contents);
+    }
+
+    {
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 2, .y = 0 } }).?,
+            false,
+        );
+        const contents = try s.selectionString(alloc, sel, true);
+        defer alloc.free(contents);
+        const expected = str;
+        try testing.expectEqualStrings(expected, contents);
+    }
+
+    {
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 0 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 0 } }).?,
+            false,
+        );
+        const contents = try s.selectionString(alloc, sel, true);
+        defer alloc.free(contents);
+        const expected = "⚡";
+        try testing.expectEqualStrings(expected, contents);
+    }
 }
