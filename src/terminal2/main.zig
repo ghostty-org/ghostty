@@ -35,6 +35,7 @@ pub const Selection = @import("Selection.zig");
 pub const Terminal = @import("Terminal.zig");
 pub const Stream = stream.Stream;
 pub const Cursor = Screen.Cursor;
+pub const CursorStyle = Screen.CursorStyle;
 pub const CursorStyleReq = ansi.CursorStyle;
 pub const DeviceAttributeReq = ansi.DeviceAttributeReq;
 pub const Mode = modes.Mode;
