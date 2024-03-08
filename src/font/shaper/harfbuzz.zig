@@ -1047,103 +1047,133 @@ test "shape cursor boundary and colored emoji" {
     }
 }
 
-// test "shape cell attribute change" {
-//     const testing = std.testing;
-//     const alloc = testing.allocator;
-//
-//     var testdata = try testShaper(alloc);
-//     defer testdata.deinit();
-//
-//     // Plain >= should shape into 1 run
-//     {
-//         var screen = try terminal.Screen.init(alloc, 3, 10, 0);
-//         defer screen.deinit();
-//         try screen.testWriteString(">=");
-//
-//         var shaper = &testdata.shaper;
-//         var it = shaper.runIterator(testdata.cache, screen.getRow(.{ .screen = 0 }), null, null);
-//         var count: usize = 0;
-//         while (try it.next(alloc)) |run| {
-//             count += 1;
-//             _ = try shaper.shape(run);
-//         }
-//         try testing.expectEqual(@as(usize, 1), count);
-//     }
-//
-//     // Bold vs regular should split
-//     {
-//         var screen = try terminal.Screen.init(alloc, 3, 10, 0);
-//         defer screen.deinit();
-//         try screen.testWriteString(">");
-//         screen.cursor.pen.attrs.bold = true;
-//         try screen.testWriteString("=");
-//
-//         var shaper = &testdata.shaper;
-//         var it = shaper.runIterator(testdata.cache, screen.getRow(.{ .screen = 0 }), null, null);
-//         var count: usize = 0;
-//         while (try it.next(alloc)) |run| {
-//             count += 1;
-//             _ = try shaper.shape(run);
-//         }
-//         try testing.expectEqual(@as(usize, 2), count);
-//     }
-//
-//     // Changing fg color should split
-//     {
-//         var screen = try terminal.Screen.init(alloc, 3, 10, 0);
-//         defer screen.deinit();
-//         screen.cursor.pen.fg = .{ .rgb = .{ .r = 1, .g = 2, .b = 3 } };
-//         try screen.testWriteString(">");
-//         screen.cursor.pen.fg = .{ .rgb = .{ .r = 3, .g = 2, .b = 1 } };
-//         try screen.testWriteString("=");
-//
-//         var shaper = &testdata.shaper;
-//         var it = shaper.runIterator(testdata.cache, screen.getRow(.{ .screen = 0 }), null, null);
-//         var count: usize = 0;
-//         while (try it.next(alloc)) |run| {
-//             count += 1;
-//             _ = try shaper.shape(run);
-//         }
-//         try testing.expectEqual(@as(usize, 2), count);
-//     }
-//
-//     // Changing bg color should split
-//     {
-//         var screen = try terminal.Screen.init(alloc, 3, 10, 0);
-//         defer screen.deinit();
-//         screen.cursor.pen.bg = .{ .rgb = .{ .r = 1, .g = 2, .b = 3 } };
-//         try screen.testWriteString(">");
-//         screen.cursor.pen.bg = .{ .rgb = .{ .r = 3, .g = 2, .b = 1 } };
-//         try screen.testWriteString("=");
-//
-//         var shaper = &testdata.shaper;
-//         var it = shaper.runIterator(testdata.cache, screen.getRow(.{ .screen = 0 }), null, null);
-//         var count: usize = 0;
-//         while (try it.next(alloc)) |run| {
-//             count += 1;
-//             _ = try shaper.shape(run);
-//         }
-//         try testing.expectEqual(@as(usize, 2), count);
-//     }
-//
-//     // Same bg color should not split
-//     {
-//         var screen = try terminal.Screen.init(alloc, 3, 10, 0);
-//         defer screen.deinit();
-//         screen.cursor.pen.bg = .{ .rgb = .{ .r = 1, .g = 2, .b = 3 } };
-//         try screen.testWriteString(">");
-//         try screen.testWriteString("=");
-//
-//         var shaper = &testdata.shaper;
-//         var it = shaper.runIterator(testdata.cache, screen.getRow(.{ .screen = 0 }), null, null);
-//         var count: usize = 0;
-//         while (try it.next(alloc)) |run| {
-//             count += 1;
-//             _ = try shaper.shape(run);
-//         }
-//         try testing.expectEqual(@as(usize, 1), count);
-//     }
-// }
+test "shape cell attribute change" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var testdata = try testShaper(alloc);
+    defer testdata.deinit();
+
+    // Plain >= should shape into 1 run
+    {
+        var screen = try terminal.Screen.init(alloc, 10, 3, 0);
+        defer screen.deinit();
+        try screen.testWriteString(">=");
+
+        var shaper = &testdata.shaper;
+        var it = shaper.runIterator(
+            testdata.cache,
+            &screen,
+            screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            null,
+            null,
+        );
+        var count: usize = 0;
+        while (try it.next(alloc)) |run| {
+            count += 1;
+            _ = try shaper.shape(run);
+        }
+        try testing.expectEqual(@as(usize, 1), count);
+    }
+
+    // Bold vs regular should split
+    {
+        var screen = try terminal.Screen.init(alloc, 3, 10, 0);
+        defer screen.deinit();
+        try screen.testWriteString(">");
+        try screen.setAttribute(.{ .bold = {} });
+        try screen.testWriteString("=");
+
+        var shaper = &testdata.shaper;
+        var it = shaper.runIterator(
+            testdata.cache,
+            &screen,
+            screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            null,
+            null,
+        );
+        var count: usize = 0;
+        while (try it.next(alloc)) |run| {
+            count += 1;
+            _ = try shaper.shape(run);
+        }
+        try testing.expectEqual(@as(usize, 2), count);
+    }
+
+    // Changing fg color should split
+    {
+        var screen = try terminal.Screen.init(alloc, 3, 10, 0);
+        defer screen.deinit();
+        try screen.setAttribute(.{ .direct_color_fg = .{ .r = 1, .g = 2, .b = 3 } });
+        try screen.testWriteString(">");
+        try screen.setAttribute(.{ .direct_color_fg = .{ .r = 3, .g = 2, .b = 1 } });
+        try screen.testWriteString("=");
+
+        var shaper = &testdata.shaper;
+        var it = shaper.runIterator(
+            testdata.cache,
+            &screen,
+            screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            null,
+            null,
+        );
+        var count: usize = 0;
+        while (try it.next(alloc)) |run| {
+            count += 1;
+            _ = try shaper.shape(run);
+        }
+        try testing.expectEqual(@as(usize, 2), count);
+    }
+
+    // Changing bg color should split
+    {
+        var screen = try terminal.Screen.init(alloc, 3, 10, 0);
+        defer screen.deinit();
+        try screen.setAttribute(.{ .direct_color_bg = .{ .r = 1, .g = 2, .b = 3 } });
+        try screen.testWriteString(">");
+        try screen.setAttribute(.{ .direct_color_bg = .{ .r = 3, .g = 2, .b = 1 } });
+        try screen.testWriteString("=");
+
+        var shaper = &testdata.shaper;
+        var it = shaper.runIterator(
+            testdata.cache,
+            &screen,
+            screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            null,
+            null,
+        );
+        var count: usize = 0;
+        while (try it.next(alloc)) |run| {
+            count += 1;
+            _ = try shaper.shape(run);
+        }
+        try testing.expectEqual(@as(usize, 2), count);
+    }
+
+    // Same bg color should not split
+    {
+        var screen = try terminal.Screen.init(alloc, 3, 10, 0);
+        defer screen.deinit();
+        try screen.setAttribute(.{ .direct_color_bg = .{ .r = 1, .g = 2, .b = 3 } });
+        try screen.testWriteString(">");
+        try screen.testWriteString("=");
+
+        var shaper = &testdata.shaper;
+        var it = shaper.runIterator(
+            testdata.cache,
+            &screen,
+            screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            null,
+            null,
+        );
+        var count: usize = 0;
+        while (try it.next(alloc)) |run| {
+            count += 1;
+            _ = try shaper.shape(run);
+        }
+        try testing.expectEqual(@as(usize, 1), count);
+    }
+}
 
 const TestShaper = struct {
     alloc: Allocator,
