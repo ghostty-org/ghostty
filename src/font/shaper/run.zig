@@ -26,6 +26,7 @@ pub const TextRun = struct {
 pub const RunIterator = struct {
     hooks: font.Shaper.RunIteratorHook,
     group: *font.GroupCache,
+    screen: *const terminal.Screen,
     row: terminal.Pin,
     selection: ?terminal.Selection = null,
     cursor_x: ?usize = null,
@@ -61,20 +62,19 @@ pub const RunIterator = struct {
 
             // If we have a selection and we're at a boundary point, then
             // we break the run here.
-            // TODO(paged-terminal)
-            // if (self.selection) |unordered_sel| {
-            //     if (j > self.i) {
-            //         const sel = unordered_sel.ordered(.forward);
-            //
-            //         if (sel.start.x > 0 and
-            //             j == sel.start.x and
-            //             self.row.graphemeBreak(sel.start.x)) break;
-            //
-            //         if (sel.end.x > 0 and
-            //             j == sel.end.x + 1 and
-            //             self.row.graphemeBreak(sel.end.x)) break;
-            //     }
-            // }
+            if (self.selection) |unordered_sel| {
+                if (j > self.i) {
+                    const sel = unordered_sel.ordered(self.screen, .forward);
+                    const start_x = sel.start().x;
+                    const end_x = sel.end().x;
+
+                    if (start_x > 0 and
+                        j == start_x) break;
+
+                    if (end_x > 0 and
+                        j == end_x + 1) break;
+                }
+            }
 
             // If we're a spacer, then we ignore it
             switch (cell.wide) {
