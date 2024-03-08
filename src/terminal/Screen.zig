@@ -7454,6 +7454,7 @@ test "Screen: resize less cols with reflow previously wrapped and scrollback" {
     try testing.expectEqual(@as(usize, 2), s.cursor.y);
 }
 
+// X
 test "Screen: resize less cols with scrollback keeps cursor row" {
     const testing = std.testing;
     const alloc = testing.allocator;

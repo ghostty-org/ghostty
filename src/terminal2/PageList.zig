@@ -398,7 +398,7 @@ pub fn resize(self: *PageList, opts: Resize) !void {
         .gt => {
             // We grow rows after cols so that we can do our unwrapping/reflow
             // before we do a no-reflow grow.
-            try self.resizeCols(cols);
+            try self.resizeCols(cols, opts.cursor);
             try self.resizeWithoutReflow(opts);
         },
 
@@ -411,7 +411,7 @@ pub fn resize(self: *PageList, opts: Resize) !void {
                 break :opts copy;
             });
 
-            try self.resizeCols(cols);
+            try self.resizeCols(cols, opts.cursor);
         },
     }
 }
@@ -420,11 +420,34 @@ pub fn resize(self: *PageList, opts: Resize) !void {
 fn resizeCols(
     self: *PageList,
     cols: size.CellCountInt,
+    cursor: ?Resize.Cursor,
 ) !void {
     assert(cols != self.cols);
 
     // Our new capacity, ensure we can fit the cols
     const cap = try std_capacity.adjust(.{ .cols = cols });
+
+    // If we have a cursor position (x,y), then we try under any col resizing
+    // to keep the same number remaining active rows beneath it. This is a
+    // very special case if you can imagine clearing the screen (i.e.
+    // scrollClear), having an empty active area, and then resizing to less
+    // cols then we don't want the active area to "jump" to the bottom and
+    // pull down scrollback.
+    const preserved_cursor: ?struct {
+        tracked_pin: *Pin,
+        remaining_rows: usize,
+    } = if (cursor) |c| cursor: {
+        const p = self.pin(.{ .active = .{
+            .x = c.x,
+            .y = c.y,
+        } }) orelse break :cursor null;
+
+        break :cursor .{
+            .tracked_pin = try self.trackPin(p),
+            .remaining_rows = self.rows - c.y - 1,
+        };
+    } else null;
+    defer if (preserved_cursor) |c| self.untrackPin(c.tracked_pin);
 
     // Go page by page and shrink the columns on a per-page basis.
     var it = self.pageIterator(.right_down, .{ .screen = .{} }, null);
@@ -461,6 +484,39 @@ fn resizeCols(
         if (total >= self.rows) break;
     } else {
         for (total..self.rows) |_| _ = try self.grow();
+    }
+
+    // See preserved_cursor setup for why.
+    if (preserved_cursor) |c| cursor: {
+        const active_pt = self.pointFromPin(
+            .active,
+            c.tracked_pin.*,
+        ) orelse break :cursor;
+
+        // We need to determine how many rows we wrapped from the original
+        // and subtract that from the remaining rows we expect because if
+        // we wrap down we don't want to push our original row contents into
+        // the scrollback.
+        const wrapped = wrapped: {
+            var wrapped: usize = 0;
+
+            var row_it = c.tracked_pin.rowIterator(.left_up, null);
+            _ = row_it.next(); // skip ourselves
+            while (row_it.next()) |next| {
+                const row = next.rowAndCell().row;
+                if (!row.wrap) break;
+                wrapped += 1;
+            }
+
+            break :wrapped wrapped;
+        };
+
+        // If we wrapped more than we expect, do nothing.
+        if (wrapped >= c.remaining_rows) break :cursor;
+        const desired = c.remaining_rows - wrapped;
+        const current = self.rows - (active_pt.active.y + 1);
+        if (current >= desired) break :cursor;
+        for (0..desired - current) |_| _ = try self.grow();
     }
 
     // Update our cols
@@ -628,17 +684,48 @@ fn reflowPage(
             // row is wrapped then we don't trim trailing empty cells because
             // the empty cells can be meaningful.
             const trailing_empty = src_cursor.countTrailingEmptyCells();
-            const cols_len = src_cursor.page.size.cols - trailing_empty;
+            const cols_len = cols_len: {
+                var cols_len = src_cursor.page.size.cols - trailing_empty;
+                if (cols_len > 0) break :cols_len cols_len;
 
-            if (cols_len == 0) {
-                // If the row is empty, we don't copy it. We count it as a
-                // blank line and continue to the next row.
-                blank_lines += 1;
-                continue;
-            }
+                // If a tracked pin is in this row then we need to keep it
+                // even if it is empty, because it is somehow meaningful
+                // (usually the screen cursor), but we do trim the cells
+                // down to the desired size.
+                //
+                // The reason we do this logic is because if you do a scroll
+                // clear (i.e. move all active into scrollback and reset
+                // the screen), the cursor is on the top line again with
+                // an empty active. If you resize to a smaller col size we
+                // don't want to "pull down" all the scrollback again. The
+                // user expects we just shrink the active area.
+                var it = self.tracked_pins.keyIterator();
+                while (it.next()) |p_ptr| {
+                    const p = p_ptr.*;
+                    if (&p.page.data != src_cursor.page or
+                        p.y != src_cursor.y) continue;
+
+                    // If our tracked pin is outside our resized cols, we
+                    // trim it to the last col, we don't want to wrap blanks.
+                    if (p.x >= cap.cols) p.x = cap.cols - 1;
+
+                    // We increase our col len to at least include this pin
+                    cols_len = @max(cols_len, p.x + 1);
+                }
+
+                if (cols_len == 0) {
+                    // If the row is empty, we don't copy it. We count it as a
+                    // blank line and continue to the next row.
+                    blank_lines += 1;
+                    continue;
+                }
+
+                break :cols_len cols_len;
+            };
 
             // We have data, if we have blank lines we need to create them first.
             for (0..blank_lines) |_| {
+                // TODO: cursor in here
                 dst_cursor.cursorScroll();
             }
 
@@ -4773,6 +4860,50 @@ test "PageList resize reflow less cols blank lines between" {
         try testing.expectEqual(@as(usize, 2), cells.len);
         try testing.expectEqual(@as(u21, 2), cells[0].content.codepoint);
     }
+}
+
+test "PageList resize reflow less cols cursor not on last line preserves location" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 5, 1);
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+    for (0..s.rows) |y| {
+        for (0..2) |x| {
+            const rac = page.getRowAndCell(x, y);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = @intCast(x) },
+            };
+        }
+    }
+
+    // Grow blank rows to push our rows back into scrollback
+    try s.growRows(5);
+    try testing.expectEqual(@as(usize, 10), s.totalRows());
+
+    // Put a tracked pin in the history
+    const p = try s.trackPin(s.pin(.{ .active = .{ .x = 0, .y = 0 } }).?);
+    defer s.untrackPin(p);
+
+    // Resize
+    try s.resize(.{
+        .cols = 4,
+        .reflow = true,
+
+        // Important: not on last row
+        .cursor = .{ .x = 1, .y = 1 },
+    });
+    try testing.expectEqual(@as(usize, 4), s.cols);
+    try testing.expectEqual(@as(usize, 10), s.totalRows());
+
+    // Our cursor should move to the first row
+    try testing.expectEqual(point.Point{ .active = .{
+        .x = 0,
+        .y = 0,
+    } }, s.pointFromPin(.active, p.*).?);
 }
 
 test "PageList resize reflow less cols copy style" {
