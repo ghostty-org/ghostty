@@ -291,7 +291,7 @@ palette: Palette = .{},
 /// a prompt, regardless of this configuration. You can disable that behavior
 /// by specifying `shell-integration-features = no-cursor` or disabling shell
 /// integration entirely.
-@"cursor-style": terminal.Cursor.Style = .block,
+@"cursor-style": terminal.CursorStyle = .block,
 
 /// Sets the default blinking state of the cursor. This is just the default
 /// state; running programs may override the cursor style using `DECSCUSR` (`CSI

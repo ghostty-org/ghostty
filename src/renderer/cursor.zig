@@ -12,7 +12,7 @@ pub const CursorStyle = enum {
     underline,
 
     /// Create a cursor style from the terminal style request.
-    pub fn fromTerminal(style: terminal.Cursor.Style) ?CursorStyle {
+    pub fn fromTerminal(style: terminal.CursorStyle) ?CursorStyle {
         return switch (style) {
             .bar => .bar,
             .block => .block,
@@ -57,7 +57,7 @@ pub fn cursorStyle(
     }
 
     // Otherwise, we use whatever style the terminal wants.
-    return CursorStyle.fromTerminal(state.terminal.screen.cursor.style);
+    return CursorStyle.fromTerminal(state.terminal.screen.cursor.cursor_style);
 }
 
 test "cursor: default uses configured style" {
@@ -66,7 +66,7 @@ test "cursor: default uses configured style" {
     var term = try terminal.Terminal.init(alloc, 10, 10);
     defer term.deinit(alloc);
 
-    term.screen.cursor.style = .bar;
+    term.screen.cursor.cursor_style = .bar;
     term.modes.set(.cursor_blinking, true);
 
     var state: State = .{
@@ -87,7 +87,7 @@ test "cursor: blinking disabled" {
     var term = try terminal.Terminal.init(alloc, 10, 10);
     defer term.deinit(alloc);
 
-    term.screen.cursor.style = .bar;
+    term.screen.cursor.cursor_style = .bar;
     term.modes.set(.cursor_blinking, false);
 
     var state: State = .{
@@ -108,7 +108,7 @@ test "cursor: explictly not visible" {
     var term = try terminal.Terminal.init(alloc, 10, 10);
     defer term.deinit(alloc);
 
-    term.screen.cursor.style = .bar;
+    term.screen.cursor.cursor_style = .bar;
     term.modes.set(.cursor_visible, false);
     term.modes.set(.cursor_blinking, false);
 

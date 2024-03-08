@@ -156,7 +156,8 @@ const Mouse = struct {
 
     /// The point at which the left mouse click happened. This is in screen
     /// coordinates so that scrolling preserves the location.
-    left_click_point: terminal.point.ScreenPoint = .{},
+    //TODO(paged-terminal)
+    //left_click_point: terminal.point.ScreenPoint = .{},
 
     /// The starting xpos/ypos of the left click. Note that if scrolling occurs,
     /// these will point to different "cells", but the xpos/ypos will stay

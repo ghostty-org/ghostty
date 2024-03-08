@@ -10,7 +10,7 @@ const GroupCache = font.GroupCache;
 const Library = font.Library;
 const Style = font.Style;
 const Presentation = font.Presentation;
-const terminal = @import("../../terminal/main.zig").new;
+const terminal = @import("../../terminal/main.zig");
 
 const log = std.log.scoped(.font_shaper);
 
