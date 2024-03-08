@@ -2059,6 +2059,15 @@ pub const Pin = struct {
         return self.page.data.lookupGrapheme(cell);
     }
 
+    /// Returns the style for the given cell in this pin.
+    pub fn style(self: Pin, cell: *pagepkg.Cell) stylepkg.Style {
+        if (cell.style_id == stylepkg.default_id) return .{};
+        return self.page.data.styles.lookupId(
+            self.page.data.memory,
+            cell.style_id,
+        ).?.*;
+    }
+
     /// Iterators. These are the same as PageList iterator funcs but operate
     /// on pins rather than points. This is MUCH more efficient than calling
     /// pointFromPin and building up the iterator from points.

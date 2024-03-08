@@ -54,6 +54,9 @@ pub const RunIterator = struct {
         // Allow the hook to prepare
         try self.hooks.prepare();
 
+        // Let's get our style that we'll expect for the run.
+        const style = self.row.style(&cells[0]);
+
         // Go through cell by cell and accumulate while we build our run.
         var j: usize = self.i;
         while (j < max) : (j += 1) {
@@ -92,14 +95,13 @@ pub const RunIterator = struct {
 
             // Text runs break when font styles change so we need to get
             // the proper style.
-            const style: font.Style = style: {
-                // TODO(paged-terminal)
-                // if (cell.attrs.bold) {
-                //     if (cell.attrs.italic) break :style .bold_italic;
-                //     break :style .bold;
-                // }
-                //
-                // if (cell.attrs.italic) break :style .italic;
+            const font_style: font.Style = style: {
+                if (style.flags.bold) {
+                    if (style.flags.italic) break :style .bold_italic;
+                    break :style .bold;
+                }
+
+                if (style.flags.italic) break :style .italic;
                 break :style .regular;
             };
 
@@ -166,7 +168,7 @@ pub const RunIterator = struct {
                 if (try self.indexForCell(
                     alloc,
                     cell,
-                    style,
+                    font_style,
                     presentation,
                 )) |idx| break :font_info .{ .idx = idx };
 
@@ -175,7 +177,7 @@ pub const RunIterator = struct {
                 if (try self.group.indexForCodepoint(
                     alloc,
                     0xFFFD, // replacement char
-                    style,
+                    font_style,
                     presentation,
                 )) |idx| break :font_info .{ .idx = idx, .fallback = 0xFFFD };
 
@@ -183,7 +185,7 @@ pub const RunIterator = struct {
                 if (try self.group.indexForCodepoint(
                     alloc,
                     ' ',
-                    style,
+                    font_style,
                     presentation,
                 )) |idx| break :font_info .{ .idx = idx, .fallback = ' ' };
 
