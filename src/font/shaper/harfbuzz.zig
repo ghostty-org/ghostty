@@ -307,41 +307,62 @@ test "run iterator" {
     }
 }
 
-// test "run iterator: empty cells with background set" {
-//     const testing = std.testing;
-//     const alloc = testing.allocator;
-//
-//     var testdata = try testShaper(alloc);
-//     defer testdata.deinit();
-//
-//     {
-//         // Make a screen with some data
-//         var screen = try terminal.Screen.init(alloc, 3, 5, 0);
-//         defer screen.deinit();
-//         screen.cursor.pen.bg = .{ .rgb = try terminal.color.Name.cyan.default() };
-//         try screen.testWriteString("A");
-//
-//         // Get our first row
-//         const row = screen.getRow(.{ .active = 0 });
-//         row.getCellPtr(1).* = screen.cursor.pen;
-//         row.getCellPtr(2).* = screen.cursor.pen;
-//
-//         // Get our run iterator
-//         var shaper = &testdata.shaper;
-//         var it = shaper.runIterator(testdata.cache, screen.getRow(.{ .screen = 0 }), null, null);
-//         var count: usize = 0;
-//         while (try it.next(alloc)) |run| {
-//             count += 1;
-//
-//             // The run should have length 3 because of the two background
-//             // cells.
-//             try testing.expectEqual(@as(u32, 3), shaper.hb_buf.getLength());
-//             const cells = try shaper.shape(run);
-//             try testing.expectEqual(@as(usize, 3), cells.len);
-//         }
-//         try testing.expectEqual(@as(usize, 1), count);
-//     }
-// }
+test "run iterator: empty cells with background set" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var testdata = try testShaper(alloc);
+    defer testdata.deinit();
+
+    {
+        // Make a screen with some data
+        var screen = try terminal.Screen.init(alloc, 5, 3, 0);
+        defer screen.deinit();
+        try screen.setAttribute(.{ .direct_color_bg = .{ .r = 0xFF, .g = 0, .b = 0 } });
+        try screen.testWriteString("A");
+
+        // Get our first row
+        {
+            const list_cell = screen.pages.getCell(.{ .active = .{ .x = 1 } }).?;
+            const cell = list_cell.cell;
+            cell.* = .{
+                .content_tag = .bg_color_rgb,
+                .content = .{ .color_rgb = .{ .r = 0xFF, .g = 0, .b = 0 } },
+            };
+        }
+        {
+            const list_cell = screen.pages.getCell(.{ .active = .{ .x = 2 } }).?;
+            const cell = list_cell.cell;
+            cell.* = .{
+                .content_tag = .bg_color_rgb,
+                .content = .{ .color_rgb = .{ .r = 0xFF, .g = 0, .b = 0 } },
+            };
+        }
+
+        // Get our run iterator
+        var shaper = &testdata.shaper;
+        var it = shaper.runIterator(
+            testdata.cache,
+            &screen,
+            screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            null,
+            null,
+        );
+        {
+            const run = (try it.next(alloc)).?;
+            try testing.expectEqual(@as(u32, 1), shaper.hb_buf.getLength());
+            const cells = try shaper.shape(run);
+            try testing.expectEqual(@as(usize, 1), cells.len);
+        }
+        {
+            const run = (try it.next(alloc)).?;
+            try testing.expectEqual(@as(u32, 2), shaper.hb_buf.getLength());
+            const cells = try shaper.shape(run);
+            try testing.expectEqual(@as(usize, 2), cells.len);
+        }
+        try testing.expect(try it.next(alloc) == null);
+    }
+}
 
 test "shape" {
     const testing = std.testing;
