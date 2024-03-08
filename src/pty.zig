@@ -1,18 +1,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const windows = @import("os/main.zig").windows;
+const winsize = std.os.winsize;
 
 const log = std.log.scoped(.pty);
-
-/// Redeclare this winsize struct so we can just use a Zig struct. This
-/// layout should be correct on all tested platforms. The defaults on this
-/// are some reasonable screen size but you should probably not use them.
-pub const winsize = extern struct {
-    ws_row: u16 = 100,
-    ws_col: u16 = 80,
-    ws_xpixel: u16 = 800,
-    ws_ypixel: u16 = 600,
-};
 
 pub const Pty = switch (builtin.os.tag) {
     .windows => WindowsPty,
@@ -56,11 +47,9 @@ const NullPty = struct {
 const PosixPty = struct {
     pub const Fd = std.os.fd_t;
 
-    // https://github.com/ziglang/zig/issues/13277
-    // Once above is fixed, use `c.TIOCSCTTY`
-    const TIOCSCTTY = if (builtin.os.tag == .macos) 536900705 else c.TIOCSCTTY;
-    const TIOCSWINSZ = if (builtin.os.tag == .macos) 2148037735 else c.TIOCSWINSZ;
-    const TIOCGWINSZ = if (builtin.os.tag == .macos) 1074295912 else c.TIOCGWINSZ;
+    const TIOCSCTTY = std.os.T.IOCSCTTY;
+    const TIOCSWINSZ = std.os.T.IOCSWINSZ;
+    const TIOCGWINSZ = std.os.T.IOCGWINSZ;
     extern "c" fn setsid() std.c.pid_t;
     const c = struct {
         usingnamespace switch (builtin.os.tag) {
