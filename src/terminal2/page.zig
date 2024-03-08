@@ -748,10 +748,10 @@ pub const Cell = packed struct(u64) {
     };
 
     /// Helper to make a cell that just has a codepoint.
-    pub fn init(codepoint: u21) Cell {
+    pub fn init(cp: u21) Cell {
         return .{
             .content_tag = .codepoint,
-            .content = .{ .codepoint = codepoint },
+            .content = .{ .codepoint = cp },
         };
     }
 
@@ -764,6 +764,18 @@ pub const Cell = packed struct(u64) {
             .bg_color_palette,
             .bg_color_rgb,
             => false,
+        };
+    }
+
+    pub fn codepoint(self: Cell) u21 {
+        return switch (self.content_tag) {
+            .codepoint,
+            .codepoint_grapheme,
+            => self.content.codepoint,
+
+            .bg_color_palette,
+            .bg_color_rgb,
+            => 0,
         };
     }
 

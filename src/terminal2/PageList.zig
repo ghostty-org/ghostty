@@ -2053,6 +2053,12 @@ pub const Pin = struct {
         };
     }
 
+    /// Returns the grapheme codepoints for the given cell. These are only
+    /// the EXTRA codepoints and not the first codepoint.
+    pub fn grapheme(self: Pin, cell: *pagepkg.Cell) ?[]u21 {
+        return self.page.data.lookupGrapheme(cell);
+    }
+
     /// Iterators. These are the same as PageList iterator funcs but operate
     /// on pins rather than points. This is MUCH more efficient than calling
     /// pointFromPin and building up the iterator from points.

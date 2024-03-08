@@ -3,7 +3,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const font = @import("../main.zig");
 const shape = @import("../shape.zig");
-const terminal = @import("../../terminal/main.zig");
+const terminal = @import("../../terminal/main.zig").new;
 
 /// A single text run. A text run is only valid for one Shaper instance and
 /// until the next run is created. A text run never goes across multiple
@@ -26,17 +26,22 @@ pub const TextRun = struct {
 pub const RunIterator = struct {
     hooks: font.Shaper.RunIteratorHook,
     group: *font.GroupCache,
-    row: terminal.Screen.Row,
+    row: terminal.Pin,
     selection: ?terminal.Selection = null,
     cursor_x: ?usize = null,
     i: usize = 0,
 
     pub fn next(self: *RunIterator, alloc: Allocator) !?TextRun {
+        const cells = self.row.cells(.all);
+
         // Trim the right side of a row that might be empty
         const max: usize = max: {
-            var j: usize = self.row.lenCells();
-            while (j > 0) : (j -= 1) if (!self.row.getCell(j - 1).empty()) break;
-            break :max j;
+            for (0..cells.len) |i| {
+                const rev_i = cells.len - i - 1;
+                if (!cells[rev_i].isEmpty()) break :max rev_i + 1;
+            }
+
+            break :max 0;
         };
 
         // We're over at the max
@@ -52,63 +57,60 @@ pub const RunIterator = struct {
         var j: usize = self.i;
         while (j < max) : (j += 1) {
             const cluster = j;
-            const cell = self.row.getCell(j);
+            const cell = &cells[j];
 
             // If we have a selection and we're at a boundary point, then
             // we break the run here.
-            if (self.selection) |unordered_sel| {
-                if (j > self.i) {
-                    const sel = unordered_sel.ordered(.forward);
-
-                    if (sel.start.x > 0 and
-                        j == sel.start.x and
-                        self.row.graphemeBreak(sel.start.x)) break;
-
-                    if (sel.end.x > 0 and
-                        j == sel.end.x + 1 and
-                        self.row.graphemeBreak(sel.end.x)) break;
-                }
-            }
+            // TODO(paged-terminal)
+            // if (self.selection) |unordered_sel| {
+            //     if (j > self.i) {
+            //         const sel = unordered_sel.ordered(.forward);
+            //
+            //         if (sel.start.x > 0 and
+            //             j == sel.start.x and
+            //             self.row.graphemeBreak(sel.start.x)) break;
+            //
+            //         if (sel.end.x > 0 and
+            //             j == sel.end.x + 1 and
+            //             self.row.graphemeBreak(sel.end.x)) break;
+            //     }
+            // }
 
             // If we're a spacer, then we ignore it
-            if (cell.attrs.wide_spacer_tail) continue;
+            switch (cell.wide) {
+                .narrow, .wide => {},
+                .spacer_head, .spacer_tail => continue,
+            }
 
             // If our cell attributes are changing, then we split the run.
             // This prevents a single glyph for ">=" to be rendered with
             // one color when the two components have different styling.
             if (j > self.i) {
-                const prev_cell = self.row.getCell(j - 1);
-                const Attrs = @TypeOf(cell.attrs);
-                const Int = @typeInfo(Attrs).Struct.backing_integer.?;
-                const prev_attrs: Int = @bitCast(prev_cell.attrs.styleAttrs());
-                const attrs: Int = @bitCast(cell.attrs.styleAttrs());
-                if (prev_attrs != attrs) break;
-                if (!cell.bg.eql(prev_cell.bg)) break;
-                if (!cell.fg.eql(prev_cell.fg)) break;
+                const prev_cell = cells[j - 1];
+                if (prev_cell.style_id != cell.style_id) break;
             }
 
             // Text runs break when font styles change so we need to get
             // the proper style.
             const style: font.Style = style: {
-                if (cell.attrs.bold) {
-                    if (cell.attrs.italic) break :style .bold_italic;
-                    break :style .bold;
-                }
-
-                if (cell.attrs.italic) break :style .italic;
+                // TODO(paged-terminal)
+                // if (cell.attrs.bold) {
+                //     if (cell.attrs.italic) break :style .bold_italic;
+                //     break :style .bold;
+                // }
+                //
+                // if (cell.attrs.italic) break :style .italic;
                 break :style .regular;
             };
 
             // Determine the presentation format for this glyph.
-            const presentation: ?font.Presentation = if (cell.attrs.grapheme) p: {
+            const presentation: ?font.Presentation = if (cell.hasGrapheme()) p: {
                 // We only check the FIRST codepoint because I believe the
                 // presentation format must be directly adjacent to the codepoint.
-                var it = self.row.codepointIterator(j);
-                if (it.next()) |cp| {
-                    if (cp == 0xFE0E) break :p .text;
-                    if (cp == 0xFE0F) break :p .emoji;
-                }
-
+                const cps = self.row.grapheme(cell) orelse break :p null;
+                assert(cps.len > 0);
+                if (cps[0] == 0xFE0E) break :p .text;
+                if (cps[0] == 0xFE0F) break :p .emoji;
                 break :p null;
             } else emoji: {
                 // If we're not a grapheme, our individual char could be
@@ -128,7 +130,7 @@ pub const RunIterator = struct {
             // such as a skin-tone emoji is fine, but hovering over the
             // joiners will show the joiners allowing you to modify the
             // emoji.
-            if (!cell.attrs.grapheme) {
+            if (!cell.hasGrapheme()) {
                 if (self.cursor_x) |cursor_x| {
                     // Exactly: self.i is the cursor and we iterated once. This
                     // means that we started exactly at the cursor and did at
@@ -163,7 +165,6 @@ pub const RunIterator = struct {
                 // then we use that.
                 if (try self.indexForCell(
                     alloc,
-                    j,
                     cell,
                     style,
                     presentation,
@@ -206,12 +207,12 @@ pub const RunIterator = struct {
 
             // Add all the codepoints for our grapheme
             try self.hooks.addCodepoint(
-                if (cell.char == 0) ' ' else cell.char,
+                if (cell.codepoint() == 0) ' ' else cell.codepoint(),
                 @intCast(cluster),
             );
-            if (cell.attrs.grapheme) {
-                var it = self.row.codepointIterator(j);
-                while (it.next()) |cp| {
+            if (cell.hasGrapheme()) {
+                const cps = self.row.grapheme(cell).?;
+                for (cps) |cp| {
                     // Do not send presentation modifiers
                     if (cp == 0xFE0E or cp == 0xFE0F) continue;
                     try self.hooks.addCodepoint(cp, @intCast(cluster));
@@ -242,13 +243,12 @@ pub const RunIterator = struct {
     fn indexForCell(
         self: *RunIterator,
         alloc: Allocator,
-        j: usize,
-        cell: terminal.Screen.Cell,
+        cell: *terminal.Cell,
         style: font.Style,
         presentation: ?font.Presentation,
     ) !?font.Group.FontIndex {
         // Get the font index for the primary codepoint.
-        const primary_cp: u32 = if (cell.empty() or cell.char == 0) ' ' else cell.char;
+        const primary_cp: u32 = if (cell.isEmpty() or cell.codepoint() == 0) ' ' else cell.codepoint();
         const primary = try self.group.indexForCodepoint(
             alloc,
             primary_cp,
@@ -258,16 +258,16 @@ pub const RunIterator = struct {
 
         // Easy, and common: we aren't a multi-codepoint grapheme, so
         // we just return whatever index for the cell codepoint.
-        if (!cell.attrs.grapheme) return primary;
+        if (!cell.hasGrapheme()) return primary;
 
         // If this is a grapheme, we need to find a font that supports
         // all of the codepoints in the grapheme.
-        var it = self.row.codepointIterator(j);
-        var candidates = try std.ArrayList(font.Group.FontIndex).initCapacity(alloc, it.len() + 1);
+        const cps = self.row.grapheme(cell) orelse return primary;
+        var candidates = try std.ArrayList(font.Group.FontIndex).initCapacity(alloc, cps.len + 1);
         defer candidates.deinit();
         candidates.appendAssumeCapacity(primary);
 
-        while (it.next()) |cp| {
+        for (cps) |cp| {
             // Ignore Emoji ZWJs
             if (cp == 0xFE0E or cp == 0xFE0F or cp == 0x200D) continue;
 
@@ -285,8 +285,7 @@ pub const RunIterator = struct {
         // We need to find a candidate that has ALL of our codepoints
         for (candidates.items) |idx| {
             if (!self.group.group.hasCodepoint(idx, primary_cp, presentation)) continue;
-            it.reset();
-            while (it.next()) |cp| {
+            for (cps) |cp| {
                 // Ignore Emoji ZWJs
                 if (cp == 0xFE0E or cp == 0xFE0F or cp == 0x200D) continue;
                 if (!self.group.group.hasCodepoint(idx, cp, presentation)) break;
