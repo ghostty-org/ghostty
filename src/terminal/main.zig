@@ -50,6 +50,9 @@ pub usingnamespace if (builtin.target.isWasm()) struct {
     pub usingnamespace @import("wasm.zig");
 } else struct {};
 
+// TODO(paged-terminal) remove before merge
+pub const new = @import("../terminal2/main.zig");
+
 test {
     @import("std").testing.refAllDecls(@This());
 }
