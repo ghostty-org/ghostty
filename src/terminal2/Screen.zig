@@ -3698,6 +3698,35 @@ test "Screen: resize less cols with reflow previously wrapped and scrollback" {
     }
 }
 
+test "Screen: resize less cols with scrollback keeps cursor row" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 5);
+    defer s.deinit();
+    const str = "1A\n2B\n3C\n4D\n5E";
+    try s.testWriteString(str);
+
+    // Lets do a scroll and clear operation
+    try s.scrollClear();
+
+    // Move our cursor to the beginning
+    s.cursorAbsolute(0, 0);
+
+    try s.resize(3, 3);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "";
+        try testing.expectEqualStrings(expected, contents);
+    }
+
+    // Cursor should be on the last line
+    try testing.expectEqual(@as(size.CellCountInt, 0), s.cursor.x);
+    try testing.expectEqual(@as(size.CellCountInt, 0), s.cursor.y);
+}
+
 test "Screen: resize more rows, less cols with reflow with scrollback" {
     const testing = std.testing;
     const alloc = testing.allocator;
