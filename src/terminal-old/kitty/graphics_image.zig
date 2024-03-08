@@ -6,7 +6,6 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 
 const command = @import("graphics_command.zig");
 const point = @import("../point.zig");
-const PageList = @import("../PageList.zig");
 const internal_os = @import("../../os/main.zig");
 const stb = @import("../../stb/main.zig");
 
@@ -452,8 +451,16 @@ pub const Image = struct {
 /// be rounded up to the nearest grid cell since we can't place images
 /// in partial grid cells.
 pub const Rect = struct {
-    top_left: PageList.Pin,
-    bottom_right: PageList.Pin,
+    top_left: point.ScreenPoint = .{},
+    bottom_right: point.ScreenPoint = .{},
+
+    /// True if the rect contains a given screen point.
+    pub fn contains(self: Rect, p: point.ScreenPoint) bool {
+        return p.y >= self.top_left.y and
+            p.y <= self.bottom_right.y and
+            p.x >= self.top_left.x and
+            p.x <= self.bottom_right.x;
+    }
 };
 
 /// Easy base64 encoding function.

@@ -3,7 +3,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const font = @import("../main.zig");
 const shape = @import("../shape.zig");
-const terminal = @import("../../terminal/main.zig").new;
+const terminal = @import("../../terminal/main.zig");
 
 /// A single text run. A text run is only valid for one Shaper instance and
 /// until the next run is created. A text run never goes across multiple

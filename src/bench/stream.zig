@@ -14,8 +14,8 @@ const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ziglyph = @import("ziglyph");
 const cli = @import("../cli.zig");
-const terminal = @import("../terminal/main.zig");
-const terminalnew = @import("../terminal2/main.zig");
+const terminal = @import("../terminal-old/main.zig");
+const terminalnew = @import("../terminal/main.zig");
 
 const Args = struct {
     mode: Mode = .noop,

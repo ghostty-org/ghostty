@@ -35,8 +35,9 @@ mouse: struct {
     last_xpos: f64 = 0,
     last_ypos: f64 = 0,
 
-    /// Last hovered screen point
-    last_point: terminal.point.ScreenPoint = .{},
+    // Last hovered screen point
+    // TODO(paged-terminal)
+    // last_point: terminal.point.ScreenPoint = .{},
 } = .{},
 
 /// A selected cell.
@@ -63,7 +64,8 @@ const CellInspect = union(enum) {
     const Selected = struct {
         row: usize,
         col: usize,
-        cell: terminal.Screen.Cell,
+        // TODO(paged-terminal)
+        //cell: terminal.Screen.Cell,
     };
 
     pub fn request(self: *CellInspect) void {
