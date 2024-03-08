@@ -24,11 +24,10 @@ pub const CharsetActiveSlot = charsets.ActiveSlot;
 pub const CSI = Parser.Action.CSI;
 pub const DCS = Parser.Action.DCS;
 pub const MouseShape = @import("mouse_shape.zig").MouseShape;
-pub const Terminal = @import("Terminal.zig");
 pub const Parser = @import("Parser.zig");
 pub const Selection = @import("Selection.zig");
 pub const Screen = @import("Screen.zig");
-pub const StringMap = @import("StringMap.zig");
+pub const Terminal = @import("Terminal.zig");
 pub const Stream = stream.Stream;
 pub const Cursor = Screen.Cursor;
 pub const CursorStyleReq = ansi.CursorStyle;
@@ -42,6 +41,9 @@ pub const EraseDisplay = csi.EraseDisplay;
 pub const EraseLine = csi.EraseLine;
 pub const TabClear = csi.TabClear;
 pub const Attribute = sgr.Attribute;
+
+// TODO(paged-terminal)
+pub const StringMap = @import("StringMap.zig");
 
 /// If we're targeting wasm then we export some wasm APIs.
 pub usingnamespace if (builtin.target.isWasm()) struct {
