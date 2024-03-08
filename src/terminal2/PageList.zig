@@ -2038,6 +2038,21 @@ pub const Pin = struct {
         return .{ .row = rac.row, .cell = rac.cell };
     }
 
+    pub const CellSubset = enum { all, left, right };
+
+    /// Returns the cells for the row that this pin is on. The subset determines
+    /// what subset of the cells are returned. The "left/right" subsets are
+    /// inclusive of the x coordinate of the pin.
+    pub fn cells(self: Pin, subset: CellSubset) []pagepkg.Cell {
+        const rac = self.rowAndCell();
+        const all = self.page.data.getCells(rac.row);
+        return switch (subset) {
+            .all => all,
+            .left => all[0 .. self.x + 1],
+            .right => all[self.x..],
+        };
+    }
+
     /// Iterators. These are the same as PageList iterator funcs but operate
     /// on pins rather than points. This is MUCH more efficient than calling
     /// pointFromPin and building up the iterator from points.
