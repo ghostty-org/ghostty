@@ -2139,7 +2139,7 @@ pub fn alternateScreen(
     self.screen.charset = old.charset;
 
     // Clear our selection
-    self.screen.selection = null;
+    self.screen.clearSelection();
 
     // Mark kitty images as dirty so they redraw
     self.screen.kitty_images.dirty = true;
@@ -2174,7 +2174,7 @@ pub fn primaryScreen(
     self.active_screen = .primary;
 
     // Clear our selection
-    self.screen.selection = null;
+    self.screen.clearSelection();
 
     // Mark kitty images as dirty so they redraw
     self.screen.kitty_images.dirty = true;
@@ -2203,7 +2203,7 @@ pub fn fullReset(self: *Terminal) void {
     self.flags = .{};
     self.tabstops.reset(TABSTOP_INTERVAL);
     self.screen.saved_cursor = null;
-    self.screen.selection = null;
+    self.screen.clearSelection();
     self.screen.kitty_keyboard = .{};
     self.screen.protected_mode = .off;
     self.scrolling_region = .{

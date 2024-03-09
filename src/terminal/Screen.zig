@@ -868,8 +868,7 @@ pub fn manualStyleUpdate(self: *Screen) !void {
 /// is always tracked.
 pub fn select(self: *Screen, sel_: ?Selection) !void {
     const sel = sel_ orelse {
-        if (self.selection) |*old| old.deinit(self);
-        self.selection = null;
+        self.clearSelection();
         return;
     };
 
@@ -880,6 +879,12 @@ pub fn select(self: *Screen, sel_: ?Selection) !void {
     // Untrack prior selection
     if (self.selection) |*old| old.deinit(self);
     self.selection = tracked_sel;
+}
+
+/// Same as select(null) but can't fail.
+pub fn clearSelection(self: *Screen) void {
+    if (self.selection) |*sel| sel.deinit(self);
+    self.selection = null;
 }
 
 /// Returns the raw text associated with a selection. This will unwrap
