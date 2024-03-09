@@ -70,6 +70,7 @@ pub const Point = union(Tag) {
 };
 
 /// A point in the terminal that is always in the viewport area.
+/// TODO(paged-terminal): remove
 pub const Viewport = struct {
     x: usize = 0,
     y: usize = 0,
@@ -77,10 +78,4 @@ pub const Viewport = struct {
     pub fn eql(self: Viewport, other: Viewport) bool {
         return self.x == other.x and self.y == other.y;
     }
-};
-
-/// A point in the terminal that is in relation to the entire screen.
-pub const Screen = struct {
-    x: usize = 0,
-    y: usize = 0,
 };
