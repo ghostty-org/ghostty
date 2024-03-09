@@ -861,6 +861,7 @@ fn reflowPage(
                         );
                         dst_md.ref += 1;
                         dst_cursor.page_cell.style_id = dst_md.id;
+                        dst_cursor.page_row.styled = true;
                     }
                 }
 
@@ -4981,6 +4982,9 @@ test "PageList resize reflow less cols copy style" {
                 style_id,
             ).?;
             try testing.expect(style.flags.bold);
+
+            const row = rac.row;
+            try testing.expect(row.styled);
         }
     }
 }
