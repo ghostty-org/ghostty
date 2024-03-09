@@ -179,6 +179,9 @@ pub fn recordPtyRead(self: *Inspector, data: []const u8) !void {
 
 /// Render the frame.
 pub fn render(self: *Inspector) void {
+    // TODO(paged-terminal)
+    if (true) return;
+
     const dock_id = cimgui.c.igDockSpaceOverViewport(
         cimgui.c.igGetMainViewport(),
         cimgui.c.ImGuiDockNodeFlags_None,
