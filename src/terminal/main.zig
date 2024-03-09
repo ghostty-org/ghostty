@@ -17,6 +17,7 @@ pub const kitty = @import("kitty.zig");
 pub const modes = @import("modes.zig");
 pub const page = @import("page.zig");
 pub const parse_table = @import("parse_table.zig");
+pub const size = @import("size.zig");
 pub const x11_color = @import("x11_color.zig");
 
 pub const Charset = charsets.Charset;

@@ -177,7 +177,7 @@ pub fn threadMain(self: *Thread) void {
                     \\Please free up some pty devices and try again.
                 ;
 
-                t.eraseDisplay(alloc, .complete, false);
+                t.eraseDisplay(.complete, false);
                 t.printString(str) catch {};
             },
 
@@ -197,7 +197,7 @@ pub fn threadMain(self: *Thread) void {
                     \\Out of memory. This terminal is non-functional. Please close it and try again.
                 ;
 
-                t.eraseDisplay(alloc, .complete, false);
+                t.eraseDisplay(.complete, false);
                 t.printString(str) catch {};
             },
         }
