@@ -77,10 +77,15 @@ pub const ImageStorage = struct {
     /// can be loaded. If this limit is lower, this will do an eviction
     /// if necessary. If the value is zero, then Kitty image protocol will
     /// be disabled.
-    pub fn setLimit(self: *ImageStorage, alloc: Allocator, limit: usize) !void {
+    pub fn setLimit(
+        self: *ImageStorage,
+        alloc: Allocator,
+        s: *terminal.Screen,
+        limit: usize,
+    ) !void {
         // Special case disabling by quickly deleting all
         if (limit == 0) {
-            self.deinit(alloc);
+            self.deinit(alloc, s);
             self.* = .{};
         }
 
