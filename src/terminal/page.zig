@@ -779,6 +779,14 @@ pub const Cell = packed struct(u64) {
         };
     }
 
+    /// The width in grid cells that this cell takes up.
+    pub fn gridWidth(self: Cell) u2 {
+        return switch (self.wide) {
+            .narrow, .spacer_head, .spacer_tail => 1,
+            .wide => 2,
+        };
+    }
+
     pub fn hasStyling(self: Cell) bool {
         return self.style_id != style.default_id;
     }

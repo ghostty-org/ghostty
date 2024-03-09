@@ -227,6 +227,7 @@ pub fn clonePool(
         .pages = pages,
         .no_scrollback = self.no_scrollback,
 
+        // TODO: selection
         // TODO: let's make this reasonble
         .cursor = undefined,
     };
