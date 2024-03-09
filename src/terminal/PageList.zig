@@ -1337,9 +1337,15 @@ fn createPage(self: *PageList, cap: Capacity) !*List.Node {
 /// Destroy the memory of the given page and return it to the pool. The
 /// page is assumed to already be removed from the linked list.
 fn destroyPage(self: *PageList, page: *List.Node) void {
+    // Reset the memory to zero so it can be reused
     @memset(page.data.memory, 0);
+
+    // Put it back into the allocator pool
     self.pool.pages.destroy(@ptrCast(page.data.memory.ptr));
     self.pool.nodes.destroy(page);
+
+    // Update our accounting for page size
+    self.page_size -= PagePool.item_size;
 }
 
 /// Erase the rows from the given top to bottom (inclusive). Erasing
@@ -3085,6 +3091,26 @@ test "PageList erase" {
     // We should be back to just one page
     try testing.expectEqual(@as(usize, 1), s.totalPages());
     try testing.expect(s.pages.first == s.pages.last);
+}
+
+test "PageList erase reaccounts page size" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+    const start_size = s.page_size;
+
+    // Grow so we take up at least 5 pages.
+    const page = &s.pages.last.?.data;
+    for (0..page.capacity.rows * 5) |_| {
+        _ = try s.grow();
+    }
+    try testing.expect(s.page_size > start_size);
+
+    // Erase the entire history, we should be back to just our active set.
+    s.eraseRows(.{ .history = .{} }, null);
+    try testing.expectEqual(start_size, s.page_size);
 }
 
 test "PageList erase row with tracked pin resets to top-left" {
