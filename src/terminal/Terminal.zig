@@ -1788,8 +1788,11 @@ pub fn eraseDisplay(
             self.screen.cursor.pending_wrap = false;
 
             // Clear all Kitty graphics state for this screen
-            // TODO
-            //self.screen.kitty_images.delete(alloc, self, .{ .all = true });
+            self.screen.kitty_images.delete(
+                self.screen.alloc,
+                self,
+                .{ .all = true },
+            );
         },
 
         .below => {
