@@ -1359,41 +1359,39 @@ pub fn keyCallback(
         self.renderer_state.mutex.lock();
         defer self.renderer_state.mutex.unlock();
         var screen = self.io.terminal.screen;
-        const sel = sel: {
-            const old_sel = screen.selection orelse break :adjust_selection;
-            break :sel old_sel.adjust(&screen, switch (event.key) {
-                .left => .left,
-                .right => .right,
-                .up => .up,
-                .down => .down,
-                .page_up => .page_up,
-                .page_down => .page_down,
-                .home => .home,
-                .end => .end,
-                else => break :adjust_selection,
-            });
-        };
+        const sel = if (screen.selection) |*sel| sel else break :adjust_selection;
+        sel.adjust(&screen, switch (event.key) {
+            .left => .left,
+            .right => .right,
+            .up => .up,
+            .down => .down,
+            .page_up => .page_up,
+            .page_down => .page_down,
+            .home => .home,
+            .end => .end,
+            else => break :adjust_selection,
+        });
 
         // Silently consume key releases.
         if (event.action != .press and event.action != .repeat) return .consumed;
 
         // If the selection endpoint is outside of the current viewpoint,
         // scroll it in to view.
-        scroll: {
-            const viewport_max = terminal.Screen.RowIndexTag.viewport.maxLen(&screen) - 1;
-            const viewport_end = screen.viewport + viewport_max;
-            const delta: isize = if (sel.end.y < screen.viewport)
-                @intCast(screen.viewport)
-            else if (sel.end.y > viewport_end)
-                @intCast(viewport_end)
-            else
-                break :scroll;
-            const start_y: isize = @intCast(sel.end.y);
-            try self.io.terminal.scrollViewport(.{ .delta = start_y - delta });
-        }
+        // TODO(paged-terminal)
+        // scroll: {
+        //     const viewport_max = terminal.Screen.RowIndexTag.viewport.maxLen(&screen) - 1;
+        //     const viewport_end = screen.viewport + viewport_max;
+        //     const delta: isize = if (sel.end.y < screen.viewport)
+        //         @intCast(screen.viewport)
+        //     else if (sel.end.y > viewport_end)
+        //         @intCast(viewport_end)
+        //     else
+        //         break :scroll;
+        //     const start_y: isize = @intCast(sel.end.y);
+        //     try self.io.terminal.scrollViewport(.{ .delta = start_y - delta });
+        // }
 
-        // Change our selection and queue a render so its shown.
-        self.setSelection(sel);
+        // Queue a render so its shown
         try self.queueRender();
         return .consumed;
     }
@@ -2139,17 +2137,20 @@ pub fn mouseButtonCallback(
         {
             const pos = try self.rt_surface.getCursorPos();
             const point = self.posToViewport(pos.x, pos.y);
-            const cell = self.renderer_state.terminal.screen.getCell(
-                .viewport,
-                point.y,
-                point.x,
-            );
+            // TODO(paged-terminal)
+            // const cell = self.renderer_state.terminal.screen.getCell(
+            //     .viewport,
+            //     point.y,
+            //     point.x,
+            // );
 
-            insp.cell = .{ .selected = .{
-                .row = point.y,
-                .col = point.x,
-                .cell = cell,
-            } };
+            insp.cell = .{
+                .selected = .{
+                    .row = point.y,
+                    .col = point.x,
+                    //.cell = cell,
+                },
+            };
             return;
         }
     }
@@ -2245,15 +2246,19 @@ pub fn mouseButtonCallback(
         // Moving always resets the click count so that we don't highlight.
         self.mouse.left_click_count = 0;
 
-        self.renderer_state.mutex.lock();
-        defer self.renderer_state.mutex.unlock();
-        try self.clickMoveCursor(self.mouse.left_click_point);
+        // TODO(paged-terminal)
+        // self.renderer_state.mutex.lock();
+        // defer self.renderer_state.mutex.unlock();
+        // try self.clickMoveCursor(self.mouse.left_click_point);
         return;
     }
 
     // For left button clicks we always record some information for
     // selection/highlighting purposes.
-    if (button == .left and action == .press) {
+    if (button == .left and action == .press) click: {
+        // TODO(paged-terminal)
+        if (true) break :click;
+
         self.renderer_state.mutex.lock();
         defer self.renderer_state.mutex.unlock();
 
@@ -2424,6 +2429,9 @@ fn linkAtPos(
     DerivedConfig.Link,
     terminal.Selection,
 } {
+    // TODO(paged-terminal)
+    if (true) return null;
+
     // If we have no configured links we can save a lot of work
     if (self.config.links.len == 0) return null;
 
@@ -2531,7 +2539,8 @@ pub fn cursorPosCallback(
     if (self.inspector) |insp| {
         insp.mouse.last_xpos = pos.x;
         insp.mouse.last_ypos = pos.y;
-        insp.mouse.last_point = pos_vp.toScreen(&self.io.terminal.screen);
+        // TODO(paged-terminal)
+        //insp.mouse.last_point = pos_vp.toScreen(&self.io.terminal.screen);
         try self.queueRender();
     }
 
@@ -2579,15 +2588,16 @@ pub fn cursorPosCallback(
         }
 
         // Convert to points
-        const screen_point = pos_vp.toScreen(&self.io.terminal.screen);
-
-        // Handle dragging depending on click count
-        switch (self.mouse.left_click_count) {
-            1 => self.dragLeftClickSingle(screen_point, pos.x),
-            2 => self.dragLeftClickDouble(screen_point),
-            3 => self.dragLeftClickTriple(screen_point),
-            else => unreachable,
-        }
+        // TODO(paged-terminal)
+        // const screen_point = pos_vp.toScreen(&self.io.terminal.screen);
+        //
+        // // Handle dragging depending on click count
+        // switch (self.mouse.left_click_count) {
+        //     1 => self.dragLeftClickSingle(screen_point, pos.x),
+        //     2 => self.dragLeftClickDouble(screen_point),
+        //     3 => self.dragLeftClickTriple(screen_point),
+        //     else => unreachable,
+        // }
 
         return;
     }
@@ -3023,7 +3033,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         .reset => {
             self.renderer_state.mutex.lock();
             defer self.renderer_state.mutex.unlock();
-            self.renderer_state.terminal.fullReset(self.alloc);
+            self.renderer_state.terminal.fullReset();
         },
 
         .copy_to_clipboard => {
@@ -3173,20 +3183,14 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                     break :write_scrollback_file;
                 }
 
-                const history_max = terminal.Screen.RowIndexTag.history.maxLen(
-                    &self.io.terminal.screen,
-                );
-
                 // We only dump history if we have history. We still keep
                 // the file and write the empty file to the pty so that this
                 // command always works on the primary screen.
-                if (history_max > 0) {
-                    try self.io.terminal.screen.dumpString(file.writer(), .{
-                        .start = .{ .history = 0 },
-                        .end = .{ .history = history_max -| 1 },
-                        .unwrap = true,
-                    });
-                }
+                // TODO(paged-terminal): unwrap
+                try self.io.terminal.screen.dumpString(
+                    file.writer(),
+                    .{ .history = .{} },
+                );
             }
 
             // Get the final path
