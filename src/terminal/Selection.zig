@@ -125,8 +125,8 @@ pub fn tracked(self: *const Selection) bool {
 }
 
 /// Convert this selection a tracked selection. It is asserted this is
-/// an untracked selection.
-pub fn track(self: *Selection, s: *Screen) !void {
+/// an untracked selection. The tracked selection is returned.
+pub fn track(self: *const Selection, s: *Screen) !Selection {
     assert(!self.tracked());
 
     // Track our pins
@@ -137,10 +137,13 @@ pub fn track(self: *Selection, s: *Screen) !void {
     const tracked_end = try s.pages.trackPin(end_pin);
     errdefer s.pages.untrackPin(tracked_end);
 
-    self.bounds = .{ .tracked = .{
-        .start = tracked_start,
-        .end = tracked_end,
-    } };
+    return .{
+        .bounds = .{ .tracked = .{
+            .start = tracked_start,
+            .end = tracked_end,
+        } },
+        .rectangle = self.rectangle,
+    };
 }
 
 /// Returns the top left point of the selection.

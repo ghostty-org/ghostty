@@ -37,9 +37,11 @@ cursor: Cursor,
 /// The saved cursor
 saved_cursor: ?SavedCursor = null,
 
-/// The selection for this screen (if any).
-//selection: ?Selection = null,
-selection: ?void = null,
+/// The selection for this screen (if any). This MUST be a tracked selection
+/// otherwise the selection will become invalid. Instead of accessing this
+/// directly to set it, use the `select` function which will assert and
+/// automatically setup tracking.
+selection: ?Selection = null,
 
 /// The charset state
 charset: CharsetState = .{},
@@ -825,6 +827,32 @@ pub fn manualStyleUpdate(self: *Screen) !void {
     const md = try page.styles.upsert(page.memory, self.cursor.style);
     self.cursor.style_id = md.id;
     self.cursor.style_ref = &md.ref;
+}
+
+/// Set the selection to the given selection. If this is a tracked selection
+/// then the screen will take overnship of the selection. If this is untracked
+/// then the screen will convert it to tracked internally. This will automatically
+/// untrack the prior selection (if any).
+///
+/// Set the selection to null to clear any previous selection.
+///
+/// This is always recommended over setting `selection` directly. Beyond
+/// managing memory for you, it also performs safety checks that the selection
+/// is always tracked.
+pub fn select(self: *Screen, sel_: ?Selection) !void {
+    const sel = sel_ orelse {
+        if (self.selection) |*old| old.deinit(self);
+        self.selection = null;
+        return;
+    };
+
+    // If this selection is untracked then we track it.
+    const tracked_sel = if (sel.tracked()) sel else try sel.track(self);
+    errdefer if (!sel.tracked()) tracked_sel.deinit(self);
+
+    // Untrack prior selection
+    if (self.selection) |*old| old.deinit(self);
+    self.selection = tracked_sel;
 }
 
 /// Returns the raw text associated with a selection. This will unwrap
@@ -4077,6 +4105,26 @@ test "Screen: resize more cols requiring a wide spacer head" {
         const cell = list_cell.cell;
         try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
     }
+}
+
+test "Screen: select untracked" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 10, 0);
+    defer s.deinit();
+    try s.testWriteString("ABC  DEF\n 123\n456");
+
+    try testing.expect(s.selection == null);
+    const tracked = s.pages.countTrackedPins();
+    try s.select(Selection.init(
+        s.pages.pin(.{ .active = .{ .x = 0, .y = 0 } }).?,
+        s.pages.pin(.{ .active = .{ .x = 3, .y = 0 } }).?,
+        false,
+    ));
+    try testing.expectEqual(tracked + 2, s.pages.countTrackedPins());
+    try s.select(null);
+    try testing.expectEqual(tracked, s.pages.countTrackedPins());
 }
 
 test "Screen: selectAll" {
