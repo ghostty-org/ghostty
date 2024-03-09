@@ -2142,19 +2142,13 @@ pub fn alternateScreen(
     self.screen.kitty_images.dirty = true;
 
     // Bring our pen with us
-    self.screen.cursor = old.cursor;
-    self.screen.cursor.style_id = 0;
-    self.screen.cursor.style_ref = null;
-    self.screen.cursorAbsolute(old.cursor.x, old.cursor.y);
+    self.screen.cursorCopy(old.cursor) catch |err| {
+        log.warn("cursor copy failed entering alt screen err={}", .{err});
+    };
 
     if (options.clear_on_enter) {
         self.eraseDisplay(.complete, false);
     }
-
-    // Update any style ref after we erase the display so we definitely have space
-    self.screen.manualStyleUpdate() catch |err| {
-        log.warn("style update failed entering alt screen err={}", .{err});
-    };
 }
 
 /// Switch back to the primary screen (reset alternate screen mode).
@@ -6414,7 +6408,8 @@ test "Terminal: saveCursor with screen change" {
     defer t.deinit(alloc);
 
     try t.setAttribute(.{ .bold = {} });
-    t.screen.cursor.x = 2;
+    t.setCursorPos(t.screen.cursor.y + 1, 3);
+    try testing.expect(t.screen.cursor.x == 2);
     t.screen.charset.gr = .G3;
     t.modes.set(.origin, true);
     t.alternateScreen(.{
