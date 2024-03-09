@@ -4113,6 +4113,7 @@ test "Screen: scrolling moves selection" {
     try testing.expect(s.selection == null);
 }
 
+// X - I don't think this is right
 test "Screen: scrolling with scrollback available doesn't move selection" {
     const testing = std.testing;
     const alloc = testing.allocator;
