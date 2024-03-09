@@ -184,15 +184,19 @@ fn display(
     // Make sure our response has the image id in case we looked up by number
     result.id = img.id;
 
-    // Determine the screen point for the placement.
-    const placement_point = (point.Viewport{
-        .x = terminal.screen.cursor.x,
-        .y = terminal.screen.cursor.y,
-    }).toScreen(&terminal.screen);
+    // Track a new pin for our cursor. The cursor is always tracked but we
+    // don't want this one to move with the cursor.
+    const placement_pin = terminal.screen.pages.trackPin(
+        terminal.screen.cursor.page_pin.*,
+    ) catch |err| {
+        log.warn("failed to create pin for Kitty graphics err={}", .{err});
+        result.message = "EINVAL: failed to prepare terminal state";
+        return result;
+    };
 
     // Add the placement
     const p: ImageStorage.Placement = .{
-        .point = placement_point,
+        .pin = placement_pin,
         .x_offset = d.x_offset,
         .y_offset = d.y_offset,
         .source_x = d.x,
@@ -209,6 +213,7 @@ fn display(
         result.placement_id,
         p,
     ) catch |err| {
+        p.deinit(&terminal.screen);
         encodeError(&result, err);
         return result;
     };
