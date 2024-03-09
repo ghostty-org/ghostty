@@ -2050,17 +2050,17 @@ pub fn resize(
     if (self.active_screen == .primary) {
         self.clearPromptForResize();
         if (self.modes.get(.wraparound)) {
-            try self.screen.resize(rows, cols);
+            try self.screen.resize(cols, rows);
         } else {
-            try self.screen.resizeWithoutReflow(rows, cols);
+            try self.screen.resizeWithoutReflow(cols, rows);
         }
-        try self.secondary_screen.resizeWithoutReflow(rows, cols);
+        try self.secondary_screen.resizeWithoutReflow(cols, rows);
     } else {
-        try self.screen.resizeWithoutReflow(rows, cols);
+        try self.screen.resizeWithoutReflow(cols, rows);
         if (self.modes.get(.wraparound)) {
-            try self.secondary_screen.resize(rows, cols);
+            try self.secondary_screen.resize(cols, rows);
         } else {
-            try self.secondary_screen.resizeWithoutReflow(rows, cols);
+            try self.secondary_screen.resizeWithoutReflow(cols, rows);
         }
     }
 
