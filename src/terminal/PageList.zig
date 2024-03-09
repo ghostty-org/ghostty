@@ -4598,6 +4598,7 @@ test "PageList resize reflow less cols wrapped rows with graphemes" {
         const rac = offset.rowAndCell();
         const cells = offset.page.data.getCells(rac.row);
         try testing.expect(!rac.row.wrap);
+        try testing.expect(rac.row.grapheme);
         try testing.expectEqual(@as(usize, 2), cells.len);
         try testing.expectEqual(@as(u21, 2), cells[0].content.codepoint);
 
@@ -4619,6 +4620,7 @@ test "PageList resize reflow less cols wrapped rows with graphemes" {
         const rac = offset.rowAndCell();
         const cells = offset.page.data.getCells(rac.row);
         try testing.expect(!rac.row.wrap);
+        try testing.expect(rac.row.grapheme);
         try testing.expectEqual(@as(usize, 2), cells.len);
         try testing.expectEqual(@as(u21, 2), cells[0].content.codepoint);
 
