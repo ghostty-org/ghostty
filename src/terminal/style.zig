@@ -51,6 +51,56 @@ pub const Style = struct {
         return std.mem.eql(u8, std.mem.asBytes(&self), def);
     }
 
+    /// Returns the bg color for a cell with this style given the cell
+    /// that has this style and the palette to use.
+    ///
+    /// Note that generally if a cell is a color-only cell, it SHOULD
+    /// only have the default style, but this is meant to work with the
+    /// default style as well.
+    pub fn bg(
+        self: Style,
+        cell: *const page.Cell,
+        palette: *const color.Palette,
+    ) ?color.RGB {
+        return switch (cell.content_tag) {
+            .bg_color_palette => palette[cell.content.color_palette],
+            .bg_color_rgb => rgb: {
+                const rgb = cell.content.color_rgb;
+                break :rgb .{ .r = rgb.r, .g = rgb.g, .b = rgb.b };
+            },
+
+            else => switch (self.bg_color) {
+                .none => null,
+                .palette => |idx| palette[idx],
+                .rgb => |rgb| rgb,
+            },
+        };
+    }
+
+    /// Returns the fg color for a cell with this style given the palette.
+    pub fn fg(
+        self: Style,
+        palette: *const color.Palette,
+    ) ?color.RGB {
+        return switch (self.fg_color) {
+            .none => null,
+            .palette => |idx| palette[idx],
+            .rgb => |rgb| rgb,
+        };
+    }
+
+    /// Returns the underline color for this style.
+    pub fn underlineColor(
+        self: Style,
+        palette: *const color.Palette,
+    ) ?color.RGB {
+        return switch (self.underline_color) {
+            .none => null,
+            .palette => |idx| palette[idx],
+            .rgb => |rgb| rgb,
+        };
+    }
+
     /// Returns a bg-color only cell from this style, if it exists.
     pub fn bgCell(self: Style) ?page.Cell {
         return switch (self.bg_color) {
