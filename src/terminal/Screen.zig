@@ -437,6 +437,32 @@ fn cursorDownOrScroll(self: *Screen) !void {
     }
 }
 
+/// Copy another cursor. The cursor can be on any screen but the x/y
+/// must be within our screen bounds.
+pub fn cursorCopy(self: *Screen, other: Cursor) !void {
+    assert(other.x < self.pages.cols);
+    assert(other.y < self.pages.rows);
+
+    const old = self.cursor;
+    self.cursor = other;
+    errdefer self.cursor = old;
+
+    // We need to keep our old x/y because that is our cursorAbsolute
+    // will fix up our pointers.
+    //
+    // We keep our old page pin because we expect to be in the active
+    // page relative to our own screen.
+    self.cursor.page_pin = old.page_pin;
+    self.cursor.x = old.x;
+    self.cursor.y = old.y;
+    self.cursorAbsolute(other.x, other.y);
+
+    // We keep the old style ref so manualStyleUpdate can clean our old style up.
+    self.cursor.style_id = old.style_id;
+    self.cursor.style_ref = old.style_ref;
+    try self.manualStyleUpdate();
+}
+
 /// Options for scrolling the viewport of the terminal grid. The reason
 /// we have this in addition to PageList.Scroll is because we have additional
 /// scroll behaviors that are not part of the PageList.Scroll enum.
@@ -1728,6 +1754,68 @@ test "Screen read and write no scrollback large" {
         defer alloc.free(str);
         try testing.expectEqualStrings("999\n1000", str);
     }
+}
+
+test "Screen cursorCopy x/y" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try Screen.init(alloc, 10, 10, 0);
+    defer s.deinit();
+    s.cursorAbsolute(2, 3);
+    try testing.expect(s.cursor.x == 2);
+    try testing.expect(s.cursor.y == 3);
+
+    var s2 = try Screen.init(alloc, 10, 10, 0);
+    defer s2.deinit();
+    try s2.cursorCopy(s.cursor);
+    try testing.expect(s2.cursor.x == 2);
+    try testing.expect(s2.cursor.y == 3);
+    try s2.testWriteString("Hello");
+
+    {
+        const str = try s2.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(str);
+        try testing.expectEqualStrings("\n\n\n  Hello", str);
+    }
+}
+
+test "Screen cursorCopy style deref" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try Screen.init(alloc, 10, 10, 0);
+    defer s.deinit();
+
+    var s2 = try Screen.init(alloc, 10, 10, 0);
+    defer s2.deinit();
+    const page = s2.cursor.page_pin.page.data;
+
+    // Bold should create our style
+    try s2.setAttribute(.{ .bold = {} });
+    try testing.expectEqual(@as(usize, 1), page.styles.count(page.memory));
+    try testing.expect(s2.cursor.style.flags.bold);
+
+    // Copy default style, should release our style
+    try s2.cursorCopy(s.cursor);
+    try testing.expect(!s2.cursor.style.flags.bold);
+    try testing.expectEqual(@as(usize, 0), page.styles.count(page.memory));
+}
+
+test "Screen cursorCopy style copy" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try Screen.init(alloc, 10, 10, 0);
+    defer s.deinit();
+    try s.setAttribute(.{ .bold = {} });
+
+    var s2 = try Screen.init(alloc, 10, 10, 0);
+    defer s2.deinit();
+    const page = s2.cursor.page_pin.page.data;
+    try s2.cursorCopy(s.cursor);
+    try testing.expect(s2.cursor.style.flags.bold);
+    try testing.expectEqual(@as(usize, 1), page.styles.count(page.memory));
 }
 
 test "Screen style basics" {
