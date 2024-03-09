@@ -4057,6 +4057,7 @@ test "Screen: scrollback doesn't move viewport if not at bottom" {
     }
 }
 
+// X
 test "Screen: scrolling moves selection" {
     const testing = std.testing;
     const alloc = testing.allocator;

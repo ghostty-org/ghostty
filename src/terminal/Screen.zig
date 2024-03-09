@@ -2125,6 +2125,85 @@ test "Screen: scrollback doesn't move viewport if not at bottom" {
     }
 }
 
+test "Screen: scrolling moves selection" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 1);
+    defer s.deinit();
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL");
+
+    // Select a single line
+    try s.select(Selection.init(
+        s.pages.pin(.{ .active = .{ .x = 0, .y = 1 } }).?,
+        s.pages.pin(.{ .active = .{ .x = s.pages.cols - 1, .y = 1 } }).?,
+        false,
+    ));
+
+    // Scroll down, should still be bottom
+    try s.cursorDownScroll();
+
+    // Our selection should've moved up
+    {
+        const sel = s.selection.?;
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pages.pointFromPin(.active, sel.start()).?);
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = s.pages.cols - 1,
+            .y = 0,
+        } }, s.pages.pointFromPin(.active, sel.end()).?);
+    }
+
+    {
+        // Test our contents rotated
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("2EFGH\n3IJKL", contents);
+    }
+
+    // Scrolling to the bottom does nothing
+    s.scroll(.{ .active = {} });
+
+    // Our selection should've stayed the same
+    {
+        const sel = s.selection.?;
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pages.pointFromPin(.active, sel.start()).?);
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = s.pages.cols - 1,
+            .y = 0,
+        } }, s.pages.pointFromPin(.active, sel.end()).?);
+    }
+
+    {
+        // Test our contents rotated
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("2EFGH\n3IJKL", contents);
+    }
+
+    // Scroll up again
+    try s.cursorDownScroll();
+
+    {
+        // Test our contents rotated
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("3IJKL", contents);
+    }
+
+    // Our selection should be null because it left the screen.
+    {
+        const sel = s.selection.?;
+        try testing.expect(s.pages.pointFromPin(.active, sel.start()) == null);
+        try testing.expect(s.pages.pointFromPin(.active, sel.end()) == null);
+    }
+}
+
 test "Screen: scroll and clear full screen" {
     const testing = std.testing;
     const alloc = testing.allocator;
