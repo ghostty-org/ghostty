@@ -1991,6 +1991,18 @@ fn totalRows(self: *const PageList) usize {
     return rows;
 }
 
+/// The total number of pages in this list.
+fn totalPages(self: *const PageList) usize {
+    var pages: usize = 0;
+    var page = self.pages.first;
+    while (page) |p| {
+        pages += 1;
+        page = p.next;
+    }
+
+    return pages;
+}
+
 /// Grow the number of rows available in the page list by n.
 /// This is only used for testing so it isn't optimized.
 fn growRows(self: *PageList, n: usize) !void {
@@ -3054,12 +3066,14 @@ test "PageList erase" {
 
     var s = try init(alloc, 80, 24, null);
     defer s.deinit();
+    try testing.expectEqual(@as(usize, 1), s.totalPages());
 
     // Grow so we take up at least 5 pages.
     const page = &s.pages.last.?.data;
     for (0..page.capacity.rows * 5) |_| {
         _ = try s.grow();
     }
+    try testing.expectEqual(@as(usize, 6), s.totalPages());
 
     // Our total rows should be large
     try testing.expect(s.totalRows() > s.rows);
@@ -3067,6 +3081,10 @@ test "PageList erase" {
     // Erase the entire history, we should be back to just our active set.
     s.eraseRows(.{ .history = .{} }, null);
     try testing.expectEqual(s.rows, s.totalRows());
+
+    // We should be back to just one page
+    try testing.expectEqual(@as(usize, 1), s.totalPages());
+    try testing.expect(s.pages.first == s.pages.last);
 }
 
 test "PageList erase row with tracked pin resets to top-left" {
