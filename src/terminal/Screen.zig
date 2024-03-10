@@ -216,10 +216,15 @@ pub fn clonePool(
     top: point.Point,
     bot: ?point.Point,
 ) !Screen {
-    var pages = if (pool) |p|
-        try self.pages.clonePool(p, top, bot)
-    else
-        try self.pages.clone(alloc, top, bot);
+    var pages = try self.pages.clone(.{
+        .top = top,
+        .bot = bot,
+        .memory = if (pool) |p| .{
+            .pool = p,
+        } else .{
+            .alloc = alloc,
+        },
+    });
     errdefer pages.deinit();
 
     return .{
