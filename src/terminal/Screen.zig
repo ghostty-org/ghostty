@@ -216,6 +216,12 @@ pub fn clonePool(
     top: point.Point,
     bot: ?point.Point,
 ) !Screen {
+    // Create a tracked pin remapper for our selection and cursor. Note
+    // that we may want to expose this generally in the future but at the
+    // time of doing this we don't need to.
+    var pin_remap = PageList.Clone.TrackedPinsRemap.init(alloc);
+    defer pin_remap.deinit();
+
     var pages = try self.pages.clone(.{
         .top = top,
         .bot = bot,
@@ -224,17 +230,43 @@ pub fn clonePool(
         } else .{
             .alloc = alloc,
         },
+        .tracked_pins = &pin_remap,
     });
     errdefer pages.deinit();
+
+    // Find our cursor. If the cursor isn't in the cloned area, we move it
+    // to the top-left arbitrarily because a screen must have SOME cursor.
+    const cursor: Cursor = cursor: {
+        if (pin_remap.get(self.cursor.page_pin)) |p| remap: {
+            const page_rac = p.rowAndCell();
+            const pt = pages.pointFromPin(.active, p.*) orelse break :remap;
+            break :cursor .{
+                .x = @intCast(pt.active.x),
+                .y = @intCast(pt.active.y),
+                .page_pin = p,
+                .page_row = page_rac.row,
+                .page_cell = page_rac.cell,
+            };
+        }
+
+        const page_pin = try pages.trackPin(.{ .page = pages.pages.first.? });
+        const page_rac = page_pin.rowAndCell();
+        break :cursor .{
+            .x = 0,
+            .y = 0,
+            .page_pin = page_pin,
+            .page_row = page_rac.row,
+            .page_cell = page_rac.cell,
+        };
+    };
 
     return .{
         .alloc = alloc,
         .pages = pages,
         .no_scrollback = self.no_scrollback,
+        .cursor = cursor,
 
         // TODO: selection
-        // TODO: let's make this reasonble
-        .cursor = undefined,
     };
 }
 
@@ -2431,6 +2463,8 @@ test "Screen: clone" {
         defer alloc.free(contents);
         try testing.expectEqualStrings("1ABCD\n2EFGH", contents);
     }
+    try testing.expectEqual(@as(usize, 5), s.cursor.x);
+    try testing.expectEqual(@as(usize, 1), s.cursor.y);
 
     // Clone
     var s2 = try s.clone(alloc, .{ .active = .{} }, null);
@@ -2440,6 +2474,8 @@ test "Screen: clone" {
         defer alloc.free(contents);
         try testing.expectEqualStrings("1ABCD\n2EFGH", contents);
     }
+    try testing.expectEqual(@as(usize, 5), s2.cursor.x);
+    try testing.expectEqual(@as(usize, 1), s2.cursor.y);
 
     // Write to s1, should not be in s2
     try s.testWriteString("\n34567");
@@ -2453,6 +2489,8 @@ test "Screen: clone" {
         defer alloc.free(contents);
         try testing.expectEqualStrings("1ABCD\n2EFGH", contents);
     }
+    try testing.expectEqual(@as(usize, 5), s2.cursor.x);
+    try testing.expectEqual(@as(usize, 1), s2.cursor.y);
 }
 
 test "Screen: clone partial" {
@@ -2467,6 +2505,8 @@ test "Screen: clone partial" {
         defer alloc.free(contents);
         try testing.expectEqualStrings("1ABCD\n2EFGH", contents);
     }
+    try testing.expectEqual(@as(usize, 5), s.cursor.x);
+    try testing.expectEqual(@as(usize, 1), s.cursor.y);
 
     // Clone
     var s2 = try s.clone(alloc, .{ .active = .{ .y = 1 } }, null);
@@ -2476,6 +2516,43 @@ test "Screen: clone partial" {
         defer alloc.free(contents);
         try testing.expectEqualStrings("2EFGH", contents);
     }
+
+    // Cursor is shifted since we cloned partial
+    try testing.expectEqual(@as(usize, 5), s2.cursor.x);
+    try testing.expectEqual(@as(usize, 0), s2.cursor.y);
+}
+
+test "Screen: clone partial cursor out of bounds" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 10);
+    defer s.deinit();
+    try s.testWriteString("1ABCD\n2EFGH");
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("1ABCD\n2EFGH", contents);
+    }
+    try testing.expectEqual(@as(usize, 5), s.cursor.x);
+    try testing.expectEqual(@as(usize, 1), s.cursor.y);
+
+    // Clone
+    var s2 = try s.clone(
+        alloc,
+        .{ .active = .{ .y = 0 } },
+        .{ .active = .{ .y = 0 } },
+    );
+    defer s2.deinit();
+    {
+        const contents = try s2.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("1ABCD", contents);
+    }
+
+    // Cursor is shifted since we cloned partial
+    try testing.expectEqual(@as(usize, 0), s2.cursor.x);
+    try testing.expectEqual(@as(usize, 0), s2.cursor.y);
 }
 
 test "Screen: clone basic" {
