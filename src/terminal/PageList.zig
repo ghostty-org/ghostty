@@ -899,40 +899,42 @@ fn reflowPage(
                 for (src_cursor.x..cols_len) |src_x| {
                     assert(src_cursor.x == src_x);
 
-                    // std.log.warn("src_y={} src_x={} dst_y={} dst_x={} cp={}", .{
+                    // std.log.warn("src_y={} src_x={} dst_y={} dst_x={} dst_cols={} cp={u} wide={}", .{
                     //     src_cursor.y,
                     //     src_cursor.x,
                     //     dst_cursor.y,
                     //     dst_cursor.x,
+                    //     dst_cursor.page.size.cols,
                     //     src_cursor.page_cell.content.codepoint,
+                    //     src_cursor.page_cell.wide,
                     // });
 
-                    // If we have a wide char at the end of our page we need
-                    // to insert a spacer head and wrap.
-                    if (cap.cols > 1 and
-                        src_cursor.page_cell.wide == .wide and
-                        dst_cursor.x == cap.cols - 1)
-                    {
-                        self.reflowUpdateCursor(&src_cursor, &dst_cursor, dst_node);
+                    if (cap.cols > 1) switch (src_cursor.page_cell.wide) {
+                        .narrow => {},
 
-                        dst_cursor.page_cell.* = .{
-                            .content_tag = .codepoint,
-                            .content = .{ .codepoint = 0 },
-                            .wide = .spacer_head,
-                        };
-                        dst_cursor.cursorForward();
-                    }
+                        .wide => if (!dst_cursor.pending_wrap and
+                            dst_cursor.x == cap.cols - 1)
+                        {
+                            self.reflowUpdateCursor(&src_cursor, &dst_cursor, dst_node);
+                            dst_cursor.page_cell.* = .{
+                                .content_tag = .codepoint,
+                                .content = .{ .codepoint = 0 },
+                                .wide = .spacer_head,
+                            };
+                            dst_cursor.cursorForward();
+                            assert(dst_cursor.pending_wrap);
+                        },
 
-                    // If we have a spacer head and we're not at the end then
-                    // we want to unwrap it and eliminate the head.
-                    if (cap.cols > 1 and
-                        src_cursor.page_cell.wide == .spacer_head and
-                        dst_cursor.x != cap.cols - 1)
-                    {
-                        self.reflowUpdateCursor(&src_cursor, &dst_cursor, dst_node);
-                        src_cursor.cursorForward();
-                        continue;
-                    }
+                        .spacer_head => if (dst_cursor.pending_wrap or
+                            dst_cursor.x != cap.cols - 1)
+                        {
+                            assert(src_cursor.x == src_cursor.page.size.cols - 1);
+                            self.reflowUpdateCursor(&src_cursor, &dst_cursor, dst_node);
+                            continue;
+                        },
+
+                        else => {},
+                    };
 
                     if (dst_cursor.pending_wrap) {
                         dst_cursor.page_row.wrap = true;
@@ -4698,7 +4700,7 @@ test "PageList resize reflow more cols unwrap wide spacer head across two rows" 
         }
         {
             const rac = page.getRowAndCell(3, 0);
-            try testing.expectEqual(@as(u21, 0), rac.cell.content.codepoint);
+            try testing.expectEqual(@as(u21, ' '), rac.cell.content.codepoint);
             try testing.expectEqual(pagepkg.Cell.Wide.spacer_head, rac.cell.wide);
         }
         {
@@ -5114,6 +5116,101 @@ test "PageList resize reflow less cols cursor in wrapped row" {
     } }, s.pointFromPin(.active, p.*).?);
 }
 
+test "PageList resize reflow less cols wraps spacer head" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 4, 3, 0);
+    defer s.deinit();
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+
+        {
+            const rac = page.getRowAndCell(0, 0);
+            rac.row.wrap = true;
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = 'x' },
+            };
+        }
+        {
+            const rac = page.getRowAndCell(1, 0);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = 'x' },
+            };
+        }
+        {
+            const rac = page.getRowAndCell(2, 0);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = 'x' },
+            };
+        }
+        {
+            const rac = page.getRowAndCell(3, 0);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = ' ' },
+                .wide = .spacer_head,
+            };
+        }
+        {
+            const rac = page.getRowAndCell(0, 1);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = '😀' },
+                .wide = .wide,
+            };
+        }
+        {
+            const rac = page.getRowAndCell(1, 1);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = ' ' },
+                .wide = .spacer_tail,
+            };
+        }
+    }
+
+    // Resize
+    try s.resize(.{ .cols = 3, .reflow = true });
+    try testing.expectEqual(@as(usize, 3), s.cols);
+    try testing.expectEqual(@as(usize, 3), s.totalRows());
+
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+
+        {
+            const rac = page.getRowAndCell(0, 0);
+            try testing.expectEqual(@as(u21, 'x'), rac.cell.content.codepoint);
+            try testing.expectEqual(pagepkg.Cell.Wide.narrow, rac.cell.wide);
+            try testing.expect(rac.row.wrap);
+        }
+        {
+            const rac = page.getRowAndCell(1, 0);
+            try testing.expectEqual(@as(u21, 'x'), rac.cell.content.codepoint);
+            try testing.expectEqual(pagepkg.Cell.Wide.narrow, rac.cell.wide);
+        }
+        {
+            const rac = page.getRowAndCell(2, 0);
+            try testing.expectEqual(@as(u21, 'x'), rac.cell.content.codepoint);
+            try testing.expectEqual(pagepkg.Cell.Wide.narrow, rac.cell.wide);
+        }
+        {
+            const rac = page.getRowAndCell(0, 1);
+            try testing.expectEqual(@as(u21, '😀'), rac.cell.content.codepoint);
+            try testing.expectEqual(pagepkg.Cell.Wide.wide, rac.cell.wide);
+        }
+        {
+            const rac = page.getRowAndCell(1, 1);
+            try testing.expectEqual(@as(u21, ' '), rac.cell.content.codepoint);
+            try testing.expectEqual(pagepkg.Cell.Wide.spacer_tail, rac.cell.wide);
+        }
+    }
+}
 test "PageList resize reflow less cols cursor goes to scrollback" {
     const testing = std.testing;
     const alloc = testing.allocator;
