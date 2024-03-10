@@ -251,6 +251,7 @@ inspector: ?*inspector.Inspector = null,
 in_keypress: bool = false,
 im_context: *c.GtkIMContext,
 im_composing: bool = false,
+im_commit_buffered: bool = false,
 im_buf: [128]u8 = undefined,
 im_len: u7 = 0,
 
@@ -1521,6 +1522,25 @@ fn gtkInputPreeditChanged(
     ud: ?*anyopaque,
 ) callconv(.C) void {
     const self = userdataSelf(ud.?);
+
+    // If there's buffered character, send the characters directly to the surface.
+    if (self.im_composing and self.im_commit_buffered) {
+        defer self.im_commit_buffered = false;
+        defer self.im_len = 0;
+        _ = self.core_surface.keyCallback(.{
+            .action = .press,
+            .key = .invalid,
+            .physical_key = .invalid,
+            .mods = .{},
+            .consumed_mods = .{},
+            .composing = false,
+            .utf8 = self.im_buf[0..self.im_len],
+        }) catch |err| {
+            log.err("error in key callback err={}", .{err});
+            return;
+        };
+    }
+
     if (!self.in_keypress) return;
 
     // Get our pre-edit string that we'll use to show the user.
@@ -1567,6 +1587,12 @@ fn gtkInputCommit(
             @memcpy(self.im_buf[0..str.len], str);
             self.im_len = @intCast(str.len);
 
+            // If composing is done and character should be committed,
+            // It should be committed in preedit callback.
+            if (self.im_composing) {
+                self.im_commit_buffered = true;
+            }
+
             // log.debug("input commit len={}", .{self.im_len});
         } else {
             log.warn("not enough buffer space for input method commit", .{});
@@ -1574,6 +1600,10 @@ fn gtkInputCommit(
 
         return;
     }
+
+    // This prevents staying in composing state after commit even though
+    // input method has changed.
+    self.im_composing = false;
 
     // We're not in a keypress, so this was sent from an on-screen emoji
     // keyboard or someting like that. Send the characters directly to
