@@ -172,7 +172,7 @@ const Mouse = struct {
     left_click_time: std.time.Instant = undefined,
 
     /// The last x/y sent for mouse reports.
-    event_point: ?terminal.point.Viewport = null,
+    event_point: ?terminal.point.Coordinate = null,
 
     /// Pending scroll amounts for high-precision scrolls
     pending_scroll_x: f64 = 0,
@@ -186,7 +186,7 @@ const Mouse = struct {
 
     /// The last x/y in the cursor position for links. We use this to
     /// only process link hover events when the mouse actually moves cells.
-    link_point: ?terminal.point.Viewport = null,
+    link_point: ?terminal.point.Coordinate = null,
 };
 
 /// The configuration that a surface has, this is copied from the main
@@ -2874,7 +2874,7 @@ pub fn colorSchemeCallback(self: *Surface, scheme: apprt.ColorScheme) !void {
     if (report) try self.reportColorScheme();
 }
 
-fn posToViewport(self: Surface, xpos: f64, ypos: f64) terminal.point.Viewport {
+fn posToViewport(self: Surface, xpos: f64, ypos: f64) terminal.point.Coordinate {
     // xpos/ypos need to be adjusted for window padding
     // (i.e. "window-padding-*" settings.
     const pad = if (self.config.window_padding_balance)

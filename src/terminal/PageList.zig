@@ -1621,7 +1621,7 @@ pub fn pointFromPin(self: *const PageList, tag: point.Tag, p: Pin) ?point.Point 
     const tl = self.getTopLeft(tag);
 
     // Count our first page which is special because it may be partial.
-    var coord: point.Point.Coordinate = .{ .x = p.x };
+    var coord: point.Coordinate = .{ .x = p.x };
     if (p.page == tl.page) {
         // If our top-left is after our y then we're outside the range.
         if (tl.y > p.y) return null;
