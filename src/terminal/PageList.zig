@@ -807,7 +807,22 @@ fn reflowPage(
                 const trailing_empty = src_cursor.countTrailingEmptyCells();
                 const cols_len = cols_len: {
                     var cols_len = src_cursor.page.size.cols - trailing_empty;
-                    if (cols_len > 0) break :cols_len cols_len;
+
+                    if (cols_len > 0) {
+                        // We want to update any tracked pins that are in our
+                        // trailing empty cells to the last col. We don't
+                        // want to wrap blanks.
+                        var it = self.tracked_pins.keyIterator();
+                        while (it.next()) |p_ptr| {
+                            const p = p_ptr.*;
+                            if (&p.page.data != src_cursor.page or
+                                p.y != src_cursor.y or
+                                p.x < cols_len) continue;
+                            if (p.x >= cap.cols) p.x = cap.cols - 1;
+                        }
+
+                        break :cols_len cols_len;
+                    }
 
                     // If a tracked pin is in this row then we need to keep it
                     // even if it is empty, because it is somehow meaningful
@@ -5104,6 +5119,40 @@ test "PageList resize reflow less cols cursor in final blank cell" {
 
     // Put a tracked pin in the history
     const p = try s.trackPin(s.pin(.{ .active = .{ .x = 3, .y = 0 } }).?);
+    defer s.untrackPin(p);
+
+    // Resize
+    try s.resize(.{ .cols = 4, .reflow = true });
+    try testing.expectEqual(@as(usize, 4), s.cols);
+    try testing.expectEqual(@as(usize, 2), s.totalRows());
+
+    // Our cursor should move to the first row
+    try testing.expectEqual(point.Point{ .active = .{
+        .x = 3,
+        .y = 0,
+    } }, s.pointFromPin(.active, p.*).?);
+}
+
+test "PageList resize reflow less cols cursor in wrapped blank cell" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 6, 2, null);
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+    for (0..s.rows) |y| {
+        for (0..2) |x| {
+            const rac = page.getRowAndCell(x, y);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = @intCast(x) },
+            };
+        }
+    }
+
+    // Put a tracked pin in the history
+    const p = try s.trackPin(s.pin(.{ .active = .{ .x = 5, .y = 0 } }).?);
     defer s.untrackPin(p);
 
     // Resize
