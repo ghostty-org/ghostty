@@ -34,7 +34,7 @@ pub const Mouse = struct {
     /// The point on the viewport where the mouse currently is. We use
     /// viewport points to avoid the complexity of mapping the mouse to
     /// the renderer state.
-    point: ?terminal.point.Viewport = null,
+    point: ?terminal.point.Coordinate = null,
 
     /// The mods that are currently active for the last mouse event.
     /// This could really just be mods in general and we probably will

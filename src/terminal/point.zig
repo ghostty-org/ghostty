@@ -53,11 +53,6 @@ pub const Point = union(Tag) {
     screen: Coordinate,
     history: Coordinate,
 
-    pub const Coordinate = struct {
-        x: usize = 0,
-        y: usize = 0,
-    };
-
     pub fn coord(self: Point) Coordinate {
         return switch (self) {
             .active,
@@ -69,13 +64,11 @@ pub const Point = union(Tag) {
     }
 };
 
-/// A point in the terminal that is always in the viewport area.
-/// TODO(paged-terminal): remove
-pub const Viewport = struct {
+pub const Coordinate = struct {
     x: usize = 0,
     y: usize = 0,
 
-    pub fn eql(self: Viewport, other: Viewport) bool {
+    pub fn eql(self: Coordinate, other: Coordinate) bool {
         return self.x == other.x and self.y == other.y;
     }
 };
