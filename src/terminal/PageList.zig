@@ -805,7 +805,13 @@ fn reflowPage(
                 // then we completed it and we can exit the loop.
                 if (started_completing_wrap and !src_completing_wrap) break;
 
-                const prev_wrap = src_cursor.page_row.wrap;
+                // We are previously wrapped if we're not on the first row and
+                // the previous row was wrapped OR if we're on the first row
+                // but we're not on our initial node it means the last row of
+                // our previous page was wrapped.
+                const prev_wrap =
+                    (src_y > 0 and src_cursor.page_row.wrap) or
+                    (src_y == 0 and src_node != initial_node);
                 src_cursor.cursorAbsolute(0, @intCast(src_y));
 
                 // Trim trailing empty cells if the row is not wrapped. If the
