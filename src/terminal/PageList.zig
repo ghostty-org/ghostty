@@ -536,17 +536,21 @@ fn resizeCols(
         // Fast-path: none of our rows are wrapped. In this case we can
         // treat this like a no-reflow resize. This only applies if we
         // are growing columns.
-        if (cols > self.cols) {
+        if (cols > self.cols) no_reflow: {
             const page = &chunk.page.data;
             const rows = page.rows.ptr(page.memory)[0..page.size.rows];
-            const wrapped = wrapped: for (rows) |row| {
-                assert(!row.wrap_continuation); // TODO
-                if (row.wrap) break :wrapped true;
-            } else false;
-            if (!wrapped) {
-                try self.resizeWithoutReflowGrowCols(cap, chunk);
-                continue;
+
+            // If our first row is a wrap continuation, then we have to
+            // reflow since we're continuing a wrapped line.
+            if (rows[0].wrap_continuation) break :no_reflow;
+
+            // If any row is soft-wrapped then we have to reflow
+            for (rows) |row| {
+                if (row.wrap) break :no_reflow;
             }
+
+            try self.resizeWithoutReflowGrowCols(cap, chunk);
+            continue;
         }
 
         // Note: we can do a fast-path here if all of our rows in this
@@ -628,6 +632,12 @@ const ReflowCursor = struct {
         };
     }
 
+    /// True if this cursor is at the bottom of the page by capacity,
+    /// i.e. we can't scroll anymore.
+    fn bottom(self: *const ReflowCursor) bool {
+        return self.y == self.page.capacity.rows - 1;
+    }
+
     fn cursorForward(self: *ReflowCursor) void {
         if (self.x == self.page.size.cols - 1) {
             self.pending_wrap = true;
@@ -636,6 +646,11 @@ const ReflowCursor = struct {
             self.page_cell = @ptrCast(cell + 1);
             self.x += 1;
         }
+    }
+
+    fn cursorDown(self: *ReflowCursor) void {
+        assert(self.y + 1 < self.page.size.rows);
+        self.cursorAbsolute(self.x, self.y + 1);
     }
 
     fn cursorScroll(self: *ReflowCursor) void {
@@ -708,18 +723,17 @@ const ReflowCursor = struct {
 ///
 /// Note a couple edge cases:
 ///
-///   1. If the first set of rows of this page are a wrap continuation, then
-///      we will reflow the continuation rows but will not traverse back to
-///      find the initial wrap.
+///   1. All initial rows that are wrap continuations are ignored. If you
+///      want to reflow these lines you must reflow the page with the
+///      initially wrapped line.
 ///
 ///   2. If the last row is wrapped then we will traverse forward to reflow
-///      all the continuation rows.
+///      all the continuation rows. This follows from #1.
 ///
-/// As a result of the above edge cases, the pagelist may end up removing
-/// an indefinite number of pages. In the most pathological cases (the screen
-/// is one giant wrapped line), this can be a very expensive operation. That
-/// doesn't really happen in typical terminal usage so its not a case we
-/// optimize for today. Contributions welcome to optimize this.
+/// Despite the edge cases above, this will only ever remove the initial
+/// node, so that this can be called within a pageIterator. This is a weird
+/// detail that will surely cause bugs one day so we should look into fixing
+/// it. :)
 ///
 /// Conceptually, this is a simple process: we're effectively traversing
 /// the old page and rewriting into the new page as if it were a text editor.
@@ -729,17 +743,37 @@ const ReflowCursor = struct {
 fn reflowPage(
     self: *PageList,
     cap: Capacity,
-    node: *List.Node,
+    initial_node: *List.Node,
 ) !void {
     // The cursor tracks where we are in the source page.
-    var src_cursor = ReflowCursor.init(&node.data);
+    var src_node = initial_node;
+    var src_cursor = ReflowCursor.init(&src_node.data);
+
+    // This is set to true when we're in the middle of completing a wrap
+    // from the initial page. If this is true, the moment we see a non-wrapped
+    // row we are done.
+    var src_completing_wrap = false;
 
     // This is used to count blank lines so that we don't copy those.
     var blank_lines: usize = 0;
 
+    // Skip initially reflowed lines
+    if (src_cursor.page_row.wrap_continuation) {
+        while (src_cursor.page_row.wrap_continuation) {
+            // If this entire page was continuations then we can remove it.
+            if (src_cursor.y == src_cursor.page.size.rows - 1) {
+                self.pages.remove(initial_node);
+                self.destroyPage(initial_node);
+                return;
+            }
+
+            src_cursor.cursorDown();
+        }
+    }
+
     // Our new capacity when growing columns may also shrink rows. So we
     // need to do a loop in order to potentially make multiple pages.
-    while (true) {
+    dst_loop: while (true) {
         // Create our new page and our cursor restarts at 0,0 in the new page.
         // The new page always starts with a size of 1 because we know we have
         // at least one row to copy from the src.
@@ -753,235 +787,264 @@ fn reflowPage(
 
         // Our new page goes before our src node. This will append it to any
         // previous pages we've created.
-        self.pages.insertBefore(node, dst_node);
+        self.pages.insertBefore(initial_node, dst_node);
 
-        // Continue traversing the source until we're out of space in our
-        // destination or we've copied all our intended rows.
-        for (src_cursor.y..src_cursor.page.size.rows) |src_y| {
-            const prev_wrap = src_cursor.page_row.wrap;
-            src_cursor.cursorAbsolute(0, @intCast(src_y));
+        src_loop: while (true) {
+            // Continue traversing the source until we're out of space in our
+            // destination or we've copied all our intended rows.
+            const started_completing_wrap = src_completing_wrap;
+            for (src_cursor.y..src_cursor.page.size.rows) |src_y| {
+                // If we started completing a wrap and our flag is no longer true
+                // then we completed it and we can exit the loop.
+                if (started_completing_wrap and !src_completing_wrap) break;
 
-            // Trim trailing empty cells if the row is not wrapped. If the
-            // row is wrapped then we don't trim trailing empty cells because
-            // the empty cells can be meaningful.
-            const trailing_empty = src_cursor.countTrailingEmptyCells();
-            const cols_len = cols_len: {
-                var cols_len = src_cursor.page.size.cols - trailing_empty;
-                if (cols_len > 0) break :cols_len cols_len;
+                const prev_wrap = src_cursor.page_row.wrap;
+                src_cursor.cursorAbsolute(0, @intCast(src_y));
 
-                // If a tracked pin is in this row then we need to keep it
-                // even if it is empty, because it is somehow meaningful
-                // (usually the screen cursor), but we do trim the cells
-                // down to the desired size.
-                //
-                // The reason we do this logic is because if you do a scroll
-                // clear (i.e. move all active into scrollback and reset
-                // the screen), the cursor is on the top line again with
-                // an empty active. If you resize to a smaller col size we
-                // don't want to "pull down" all the scrollback again. The
-                // user expects we just shrink the active area.
-                var it = self.tracked_pins.keyIterator();
-                while (it.next()) |p_ptr| {
-                    const p = p_ptr.*;
-                    if (&p.page.data != src_cursor.page or
-                        p.y != src_cursor.y) continue;
+                // Trim trailing empty cells if the row is not wrapped. If the
+                // row is wrapped then we don't trim trailing empty cells because
+                // the empty cells can be meaningful.
+                const trailing_empty = src_cursor.countTrailingEmptyCells();
+                const cols_len = cols_len: {
+                    var cols_len = src_cursor.page.size.cols - trailing_empty;
+                    if (cols_len > 0) break :cols_len cols_len;
 
-                    // If our tracked pin is outside our resized cols, we
-                    // trim it to the last col, we don't want to wrap blanks.
-                    if (p.x >= cap.cols) p.x = cap.cols - 1;
+                    // If a tracked pin is in this row then we need to keep it
+                    // even if it is empty, because it is somehow meaningful
+                    // (usually the screen cursor), but we do trim the cells
+                    // down to the desired size.
+                    //
+                    // The reason we do this logic is because if you do a scroll
+                    // clear (i.e. move all active into scrollback and reset
+                    // the screen), the cursor is on the top line again with
+                    // an empty active. If you resize to a smaller col size we
+                    // don't want to "pull down" all the scrollback again. The
+                    // user expects we just shrink the active area.
+                    var it = self.tracked_pins.keyIterator();
+                    while (it.next()) |p_ptr| {
+                        const p = p_ptr.*;
+                        if (&p.page.data != src_cursor.page or
+                            p.y != src_cursor.y) continue;
 
-                    // We increase our col len to at least include this pin
-                    cols_len = @max(cols_len, p.x + 1);
-                }
+                        // If our tracked pin is outside our resized cols, we
+                        // trim it to the last col, we don't want to wrap blanks.
+                        if (p.x >= cap.cols) p.x = cap.cols - 1;
 
-                if (cols_len == 0) {
-                    // If the row is empty, we don't copy it. We count it as a
-                    // blank line and continue to the next row.
-                    blank_lines += 1;
-                    continue;
-                }
+                        // We increase our col len to at least include this pin
+                        cols_len = @max(cols_len, p.x + 1);
+                    }
 
-                break :cols_len cols_len;
-            };
+                    if (cols_len == 0) {
+                        // If the row is empty, we don't copy it. We count it as a
+                        // blank line and continue to the next row.
+                        blank_lines += 1;
+                        continue;
+                    }
 
-            // We have data, if we have blank lines we need to create them first.
-            for (0..blank_lines) |_| {
-                // TODO: cursor in here
-                dst_cursor.cursorScroll();
-            }
+                    break :cols_len cols_len;
+                };
 
-            if (src_y > 0) {
-                // We're done with this row, if this row isn't wrapped, we can
-                // move our destination cursor to the next row.
-                //
-                // The blank_lines == 0 condition is because if we were prefixed
-                // with blank lines, we handled the scroll already above.
-                if (!prev_wrap and blank_lines == 0) {
+                // We have data, if we have blank lines we need to create them first.
+                for (0..blank_lines) |i| {
+                    // If we're at the bottom we can't fit anymore into this page,
+                    // so we need to reloop and create a new page.
+                    if (dst_cursor.bottom()) {
+                        blank_lines -= i;
+                        continue :dst_loop;
+                    }
+
+                    // TODO: cursor in here
                     dst_cursor.cursorScroll();
                 }
 
-                dst_cursor.copyRowMetadata(src_cursor.page_row);
-            }
+                if (src_y > 0) {
+                    // We're done with this row, if this row isn't wrapped, we can
+                    // move our destination cursor to the next row.
+                    //
+                    // The blank_lines == 0 condition is because if we were prefixed
+                    // with blank lines, we handled the scroll already above.
+                    if (!prev_wrap and blank_lines == 0) {
+                        dst_cursor.cursorScroll();
+                    }
 
-            // Reset our blank line count since handled it all above.
-            blank_lines = 0;
-
-            for (src_cursor.x..cols_len) |src_x| {
-                assert(src_cursor.x == src_x);
-
-                // std.log.warn("src_y={} src_x={} dst_y={} dst_x={} cp={u}", .{
-                //     src_cursor.y,
-                //     src_cursor.x,
-                //     dst_cursor.y,
-                //     dst_cursor.x,
-                //     src_cursor.page_cell.content.codepoint,
-                // });
-
-                // If we have a wide char at the end of our page we need
-                // to insert a spacer head and wrap.
-                if (cap.cols > 1 and
-                    src_cursor.page_cell.wide == .wide and
-                    dst_cursor.x == cap.cols - 1)
-                {
-                    self.reflowUpdateCursor(&src_cursor, &dst_cursor, dst_node);
-
-                    dst_cursor.page_cell.* = .{
-                        .content_tag = .codepoint,
-                        .content = .{ .codepoint = 0 },
-                        .wide = .spacer_head,
-                    };
-                    dst_cursor.cursorForward();
-                }
-
-                // If we have a spacer head and we're not at the end then
-                // we want to unwrap it and eliminate the head.
-                if (cap.cols > 1 and
-                    src_cursor.page_cell.wide == .spacer_head and
-                    dst_cursor.x != cap.cols - 1)
-                {
-                    self.reflowUpdateCursor(&src_cursor, &dst_cursor, dst_node);
-                    src_cursor.cursorForward();
-                    continue;
-                }
-
-                if (dst_cursor.pending_wrap) {
-                    dst_cursor.page_row.wrap = true;
-                    dst_cursor.cursorScroll();
-                    dst_cursor.page_row.wrap_continuation = true;
                     dst_cursor.copyRowMetadata(src_cursor.page_row);
                 }
 
-                // A rare edge case. If we're resizing down to 1 column
-                // and the source is a non-narrow character, we reset the
-                // cell to a narrow blank and we skip to the next cell.
-                if (cap.cols == 1 and src_cursor.page_cell.wide != .narrow) {
-                    switch (src_cursor.page_cell.wide) {
-                        .narrow => unreachable,
+                // Reset our blank line count since handled it all above.
+                blank_lines = 0;
 
-                        // Wide char, we delete it, reset it to narrow,
-                        // and skip forward.
-                        .wide => {
-                            dst_cursor.page_cell.content.codepoint = 0;
-                            dst_cursor.page_cell.wide = .narrow;
-                            src_cursor.cursorForward();
-                            continue;
-                        },
+                for (src_cursor.x..cols_len) |src_x| {
+                    assert(src_cursor.x == src_x);
 
-                        // Skip spacer tails since we should've already
-                        // handled them in the previous cell.
-                        .spacer_tail => {},
+                    // std.log.warn("src_y={} src_x={} dst_y={} dst_x={} cp={}", .{
+                    //     src_cursor.y,
+                    //     src_cursor.x,
+                    //     dst_cursor.y,
+                    //     dst_cursor.x,
+                    //     src_cursor.page_cell.content.codepoint,
+                    // });
 
-                        // TODO: test?
-                        .spacer_head => {},
-                    }
-                } else {
-                    switch (src_cursor.page_cell.content_tag) {
-                        // These are guaranteed to have no styling data and no
-                        // graphemes, a fast path.
-                        .bg_color_palette,
-                        .bg_color_rgb,
-                        => {
-                            assert(!src_cursor.page_cell.hasStyling());
-                            assert(!src_cursor.page_cell.hasGrapheme());
-                            dst_cursor.page_cell.* = src_cursor.page_cell.*;
-                        },
+                    // If we have a wide char at the end of our page we need
+                    // to insert a spacer head and wrap.
+                    if (cap.cols > 1 and
+                        src_cursor.page_cell.wide == .wide and
+                        dst_cursor.x == cap.cols - 1)
+                    {
+                        self.reflowUpdateCursor(&src_cursor, &dst_cursor, dst_node);
 
-                        .codepoint => {
-                            dst_cursor.page_cell.* = src_cursor.page_cell.*;
-                        },
-
-                        .codepoint_grapheme => {
-                            // We copy the cell like normal but we have to reset the
-                            // tag because this is used for fast-path detection in
-                            // appendGrapheme.
-                            dst_cursor.page_cell.* = src_cursor.page_cell.*;
-                            dst_cursor.page_cell.content_tag = .codepoint;
-
-                            // Copy the graphemes
-                            const src_cps = src_cursor.page.lookupGrapheme(src_cursor.page_cell).?;
-                            for (src_cps) |cp| {
-                                try dst_cursor.page.appendGrapheme(
-                                    dst_cursor.page_row,
-                                    dst_cursor.page_cell,
-                                    cp,
-                                );
-                            }
-                        },
+                        dst_cursor.page_cell.* = .{
+                            .content_tag = .codepoint,
+                            .content = .{ .codepoint = 0 },
+                            .wide = .spacer_head,
+                        };
+                        dst_cursor.cursorForward();
                     }
 
-                    // If the source cell has a style, we need to copy it.
-                    if (src_cursor.page_cell.style_id != stylepkg.default_id) {
-                        const src_style = src_cursor.page.styles.lookupId(
-                            src_cursor.page.memory,
-                            src_cursor.page_cell.style_id,
-                        ).?.*;
-
-                        const dst_md = try dst_cursor.page.styles.upsert(
-                            dst_cursor.page.memory,
-                            src_style,
-                        );
-                        dst_md.ref += 1;
-                        dst_cursor.page_cell.style_id = dst_md.id;
-                        dst_cursor.page_row.styled = true;
+                    // If we have a spacer head and we're not at the end then
+                    // we want to unwrap it and eliminate the head.
+                    if (cap.cols > 1 and
+                        src_cursor.page_cell.wide == .spacer_head and
+                        dst_cursor.x != cap.cols - 1)
+                    {
+                        self.reflowUpdateCursor(&src_cursor, &dst_cursor, dst_node);
+                        src_cursor.cursorForward();
+                        continue;
                     }
-                }
 
-                // If our original cursor was on this page, this x/y then
-                // we need to update to the new location.
-                self.reflowUpdateCursor(&src_cursor, &dst_cursor, dst_node);
+                    if (dst_cursor.pending_wrap) {
+                        dst_cursor.page_row.wrap = true;
+                        dst_cursor.cursorScroll();
+                        dst_cursor.page_row.wrap_continuation = true;
+                        dst_cursor.copyRowMetadata(src_cursor.page_row);
+                    }
 
-                // Move both our cursors forward
-                src_cursor.cursorForward();
-                dst_cursor.cursorForward();
-            } else cursor: {
-                // We made it through all our source columns. As a final edge
-                // case, if our cursor is in one of the blanks, we update it
-                // to the edge of this page.
+                    // A rare edge case. If we're resizing down to 1 column
+                    // and the source is a non-narrow character, we reset the
+                    // cell to a narrow blank and we skip to the next cell.
+                    if (cap.cols == 1 and src_cursor.page_cell.wide != .narrow) {
+                        switch (src_cursor.page_cell.wide) {
+                            .narrow => unreachable,
 
-                // If we have no trailing empty cells, it can't be in the blanks.
-                if (trailing_empty == 0) break :cursor;
+                            // Wide char, we delete it, reset it to narrow,
+                            // and skip forward.
+                            .wide => {
+                                dst_cursor.page_cell.content.codepoint = 0;
+                                dst_cursor.page_cell.wide = .narrow;
+                                src_cursor.cursorForward();
+                                continue;
+                            },
 
-                // Update all our tracked pins
-                var it = self.tracked_pins.keyIterator();
-                while (it.next()) |p_ptr| {
-                    const p = p_ptr.*;
-                    if (&p.page.data != src_cursor.page or
-                        p.y != src_cursor.y or
-                        p.x < cols_len) continue;
+                            // Skip spacer tails since we should've already
+                            // handled them in the previous cell.
+                            .spacer_tail => {},
 
-                    p.page = dst_node;
-                    p.y = dst_cursor.y;
+                            // TODO: test?
+                            .spacer_head => {},
+                        }
+                    } else {
+                        switch (src_cursor.page_cell.content_tag) {
+                            // These are guaranteed to have no styling data and no
+                            // graphemes, a fast path.
+                            .bg_color_palette,
+                            .bg_color_rgb,
+                            => {
+                                assert(!src_cursor.page_cell.hasStyling());
+                                assert(!src_cursor.page_cell.hasGrapheme());
+                                dst_cursor.page_cell.* = src_cursor.page_cell.*;
+                            },
+
+                            .codepoint => {
+                                dst_cursor.page_cell.* = src_cursor.page_cell.*;
+                            },
+
+                            .codepoint_grapheme => {
+                                // We copy the cell like normal but we have to reset the
+                                // tag because this is used for fast-path detection in
+                                // appendGrapheme.
+                                dst_cursor.page_cell.* = src_cursor.page_cell.*;
+                                dst_cursor.page_cell.content_tag = .codepoint;
+
+                                // Copy the graphemes
+                                const src_cps = src_cursor.page.lookupGrapheme(src_cursor.page_cell).?;
+                                for (src_cps) |cp| {
+                                    try dst_cursor.page.appendGrapheme(
+                                        dst_cursor.page_row,
+                                        dst_cursor.page_cell,
+                                        cp,
+                                    );
+                                }
+                            },
+                        }
+
+                        // If the source cell has a style, we need to copy it.
+                        if (src_cursor.page_cell.style_id != stylepkg.default_id) {
+                            const src_style = src_cursor.page.styles.lookupId(
+                                src_cursor.page.memory,
+                                src_cursor.page_cell.style_id,
+                            ).?.*;
+
+                            const dst_md = try dst_cursor.page.styles.upsert(
+                                dst_cursor.page.memory,
+                                src_style,
+                            );
+                            dst_md.ref += 1;
+                            dst_cursor.page_cell.style_id = dst_md.id;
+                            dst_cursor.page_row.styled = true;
+                        }
+                    }
+
+                    // If our original cursor was on this page, this x/y then
+                    // we need to update to the new location.
+                    self.reflowUpdateCursor(&src_cursor, &dst_cursor, dst_node);
+
+                    // Move both our cursors forward
+                    src_cursor.cursorForward();
+                    dst_cursor.cursorForward();
+                } else cursor: {
+                    // We made it through all our source columns. As a final edge
+                    // case, if our cursor is in one of the blanks, we update it
+                    // to the edge of this page.
+
+                    // If we are in wrap completion mode and this row is not wrapped
+                    // then we are done and we can gracefully exit our y loop.
+                    if (src_completing_wrap and !src_cursor.page_row.wrap) {
+                        assert(started_completing_wrap);
+                        src_completing_wrap = false;
+                    }
+
+                    // If we have no trailing empty cells, it can't be in the blanks.
+                    if (trailing_empty == 0) break :cursor;
+
+                    // Update all our tracked pins
+                    var it = self.tracked_pins.keyIterator();
+                    while (it.next()) |p_ptr| {
+                        const p = p_ptr.*;
+                        if (&p.page.data != src_cursor.page or
+                            p.y != src_cursor.y or
+                            p.x < cols_len) continue;
+
+                        p.page = dst_node;
+                        p.y = dst_cursor.y;
+                    }
                 }
             }
-        } else {
-            // We made it through all our source rows, we're done.
-            break;
+
+            // If we're still in a wrapped line at the end of our page,
+            // we traverse forward and continue reflowing until we complete
+            // this entire line.
+            if (src_cursor.page_row.wrap) {
+                src_completing_wrap = true;
+                src_node = src_node.next.?;
+                src_cursor = ReflowCursor.init(&src_node.data);
+                continue :src_loop;
+            }
+
+            // We are not on a wrapped line, we're truly done.
+            self.pages.remove(initial_node);
+            self.destroyPage(initial_node);
+            return;
         }
     }
-
-    // Finally, remove the old page.
-    self.pages.remove(node);
-    self.destroyPage(node);
 }
 
 /// This updates the cursor offset if the cursor is exactly on the cell
@@ -4180,6 +4243,80 @@ test "PageList resize reflow more cols wrapped rows" {
         try testing.expectEqual(@as(usize, 4), cells.len);
         try testing.expectEqual(@as(u21, 'A'), cells[0].content.codepoint);
         try testing.expectEqual(@as(u21, 'A'), cells[2].content.codepoint);
+    }
+}
+
+test "PageList resize reflow more cols wrap across page boundary" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 10, 0);
+    defer s.deinit();
+    try testing.expectEqual(@as(usize, 1), s.totalPages());
+
+    // Grow to the capacity of the first page.
+    {
+        const page = &s.pages.first.?.data;
+        for (page.size.rows..page.capacity.rows) |_| {
+            _ = try s.grow();
+        }
+        try testing.expectEqual(@as(usize, 1), s.totalPages());
+        try s.growRows(1);
+        try testing.expectEqual(@as(usize, 2), s.totalPages());
+    }
+
+    // At this point, we have some rows on the first page, and some on the second.
+    // We can now wrap across the boundary condition.
+    {
+        const page = &s.pages.first.?.data;
+        const y = page.size.rows - 1;
+        {
+            const rac = page.getRowAndCell(0, y);
+            rac.row.wrap = true;
+        }
+        for (0..s.cols) |x| {
+            const rac = page.getRowAndCell(x, y);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = @intCast(x) },
+            };
+        }
+    }
+    {
+        const page2 = &s.pages.last.?.data;
+        const y = 0;
+        {
+            const rac = page2.getRowAndCell(0, y);
+            rac.row.wrap_continuation = true;
+        }
+        for (0..s.cols) |x| {
+            const rac = page2.getRowAndCell(x, y);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = @intCast(x) },
+            };
+        }
+    }
+
+    // We expect one extra row since we unwrapped a row we need to resize
+    // to make our active area.
+    const end_rows = s.totalRows();
+
+    // Resize
+    try s.resize(.{ .cols = 4, .reflow = true });
+    try testing.expectEqual(@as(usize, 4), s.cols);
+    try testing.expectEqual(@as(usize, end_rows), s.totalRows());
+
+    {
+        const p = s.pin(.{ .active = .{ .y = 9 } }).?;
+        const row = p.rowAndCell().row;
+        try testing.expect(!row.wrap);
+
+        const cells = p.cells(.all);
+        try testing.expectEqual(@as(u21, 0), cells[0].content.codepoint);
+        try testing.expectEqual(@as(u21, 1), cells[1].content.codepoint);
+        try testing.expectEqual(@as(u21, 0), cells[2].content.codepoint);
+        try testing.expectEqual(@as(u21, 1), cells[3].content.codepoint);
     }
 }
 
