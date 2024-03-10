@@ -873,16 +873,24 @@ fn reflowPage(
                 };
 
                 // We have data, if we have blank lines we need to create them first.
-                for (0..blank_lines) |i| {
-                    // If we're at the bottom we can't fit anymore into this page,
-                    // so we need to reloop and create a new page.
-                    if (dst_cursor.bottom()) {
-                        blank_lines -= i;
-                        continue :dst_loop;
-                    }
+                if (blank_lines > 0) {
+                    // This is a dumb edge caes where if we start with blank
+                    // lines, we're off by one because our cursor is at 0
+                    // on the first blank line but if its in the middle we
+                    // haven't scrolled yet. Don't worry, this is covered by
+                    // unit tests so if we find a better way we can remove this.
+                    const len = blank_lines - @intFromBool(blank_lines >= src_y);
+                    for (0..len) |i| {
+                        // If we're at the bottom we can't fit anymore into this page,
+                        // so we need to reloop and create a new page.
+                        if (dst_cursor.bottom()) {
+                            blank_lines -= i;
+                            continue :dst_loop;
+                        }
 
-                    // TODO: cursor in here
-                    dst_cursor.cursorScroll();
+                        // TODO: cursor in here
+                        dst_cursor.cursorScroll();
+                    }
                 }
 
                 if (src_y > 0) {
@@ -891,7 +899,7 @@ fn reflowPage(
                     //
                     // The blank_lines == 0 condition is because if we were prefixed
                     // with blank lines, we handled the scroll already above.
-                    if (!prev_wrap and blank_lines == 0) {
+                    if (!prev_wrap) {
                         if (dst_cursor.bottom()) continue :dst_loop;
                         dst_cursor.cursorScroll();
                     }
@@ -905,7 +913,7 @@ fn reflowPage(
                 for (src_cursor.x..cols_len) |src_x| {
                     assert(src_cursor.x == src_x);
 
-                    // std.log.warn("src_y={} src_x={} dst_y={} dst_x={} dst_cols={} cp={u} wide={}", .{
+                    // std.log.warn("src_y={} src_x={} dst_y={} dst_x={} dst_cols={} cp={} wide={}", .{
                     //     src_cursor.y,
                     //     src_cursor.x,
                     //     dst_cursor.y,
@@ -4806,6 +4814,7 @@ test "PageList resize reflow less cols no reflow preserves semantic prompt" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
+    std.log.warn("GO", .{});
     var s = try init(alloc, 4, 4, 0);
     defer s.deinit();
     {
@@ -4831,14 +4840,15 @@ test "PageList resize reflow less cols no reflow preserves semantic prompt" {
 
     {
         try testing.expect(s.pages.first == s.pages.last);
-        const page = &s.pages.first.?.data;
         {
-            const rac = page.getRowAndCell(0, 1);
+            const p = s.pin(.{ .active = .{ .y = 1 } }).?;
+            const rac = p.rowAndCell();
             try testing.expect(rac.row.wrap);
             try testing.expect(rac.row.semantic_prompt == .prompt);
         }
         {
-            const rac = page.getRowAndCell(0, 2);
+            const p = s.pin(.{ .active = .{ .y = 2 } }).?;
+            const rac = p.rowAndCell();
             try testing.expect(rac.row.semantic_prompt == .prompt);
         }
     }
@@ -5457,7 +5467,7 @@ test "PageList resize reflow less cols blank lines between" {
     // Resize
     try s.resize(.{ .cols = 2, .reflow = true });
     try testing.expectEqual(@as(usize, 2), s.cols);
-    try testing.expectEqual(@as(usize, 4), s.totalRows());
+    try testing.expectEqual(@as(usize, 5), s.totalRows());
 
     var it = s.rowIterator(.right_down, .{ .active = .{} }, null);
     {
@@ -5480,6 +5490,59 @@ test "PageList resize reflow less cols blank lines between" {
         try testing.expect(!rac.row.wrap);
         try testing.expectEqual(@as(usize, 2), cells.len);
         try testing.expectEqual(@as(u21, 2), cells[0].content.codepoint);
+    }
+}
+
+test "PageList resize reflow less cols blank lines between no scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 0);
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+    {
+        const rac = page.getRowAndCell(0, 0);
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = 'A' },
+        };
+    }
+    {
+        const rac = page.getRowAndCell(0, 2);
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = 'C' },
+        };
+    }
+
+    // Resize
+    try s.resize(.{ .cols = 2, .reflow = true });
+    try testing.expectEqual(@as(usize, 2), s.cols);
+    try testing.expectEqual(@as(usize, 3), s.totalRows());
+
+    var it = s.rowIterator(.right_down, .{ .active = .{} }, null);
+    {
+        const offset = it.next().?;
+        const rac = offset.rowAndCell();
+        const cells = offset.page.data.getCells(rac.row);
+        try testing.expect(!rac.row.wrap);
+        try testing.expectEqual(@as(usize, 2), cells.len);
+        try testing.expectEqual(@as(u21, 'A'), cells[0].content.codepoint);
+    }
+    {
+        const offset = it.next().?;
+        const rac = offset.rowAndCell();
+        const cells = offset.page.data.getCells(rac.row);
+        try testing.expectEqual(@as(u21, 0), cells[0].content.codepoint);
+    }
+    {
+        const offset = it.next().?;
+        const rac = offset.rowAndCell();
+        const cells = offset.page.data.getCells(rac.row);
+        try testing.expect(!rac.row.wrap);
+        try testing.expectEqual(@as(usize, 2), cells.len);
+        try testing.expectEqual(@as(u21, 'C'), cells[0].content.codepoint);
     }
 }
 
