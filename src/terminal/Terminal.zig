@@ -2051,7 +2051,10 @@ pub fn resize(
 
     // If we're making the screen smaller, dealloc the unused items.
     if (self.active_screen == .primary) {
-        self.clearPromptForResize();
+        if (self.flags.shell_redraws_prompt) {
+            self.screen.clearPrompt();
+        }
+
         if (self.modes.get(.wraparound)) {
             try self.screen.resize(cols, rows);
         } else {
@@ -2078,14 +2081,6 @@ pub fn resize(
         .left = 0,
         .right = cols - 1,
     };
-}
-
-/// If shell_redraws_prompt is true and we're on the primary screen,
-/// then this will clear the screen from the cursor down if the cursor is
-/// on a prompt in order to allow the shell to redraw the prompt.
-fn clearPromptForResize(self: *Terminal) void {
-    // TODO
-    _ = self;
 }
 
 /// Set the pwd for the terminal.
