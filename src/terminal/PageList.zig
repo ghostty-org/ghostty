@@ -243,6 +243,21 @@ pub fn deinit(self: *PageList) void {
     }
 }
 
+pub const Clone = struct {
+    /// The top and bottom (inclusive) points of the region to clone.
+    /// The x coordinate is ignored; the full row is always cloned.
+    top: point.Point,
+    bot: ?point.Point = null,
+
+    /// The allocator source for the clone operation. If this is alloc
+    /// then the cloned pagelist will own and dealloc the memory on deinit.
+    /// If this is pool then the caller owns the memory.
+    memory: union(enum) {
+        alloc: Allocator,
+        pool: *MemoryPool,
+    },
+};
+
 /// Clone this pagelist from the top to bottom (inclusive).
 ///
 /// The viewport is always moved to the top-left.
@@ -252,36 +267,37 @@ pub fn deinit(self: *PageList) void {
 /// rows will be added to the bottom of the region to make up the difference.
 pub fn clone(
     self: *const PageList,
-    alloc: Allocator,
-    top: point.Point,
-    bot: ?point.Point,
+    opts: Clone,
 ) !PageList {
-    // First, count our pages so our preheat is exactly what we need.
-    var it = self.pageIterator(.right_down, top, bot);
-    const page_count: usize = page_count: {
-        var count: usize = 0;
-        while (it.next()) |_| count += 1;
-        break :page_count count;
+    var it = self.pageIterator(.right_down, opts.top, opts.bot);
+
+    // Setup our own memory pool if we have to.
+    var owned_pool: ?MemoryPool = switch (opts.memory) {
+        .pool => null,
+        .alloc => |alloc| alloc: {
+            // First, count our pages so our preheat is exactly what we need.
+            var it_copy = it;
+            const page_count: usize = page_count: {
+                var count: usize = 0;
+                while (it_copy.next()) |_| count += 1;
+                break :page_count count;
+            };
+
+            // Setup our pools
+            break :alloc try MemoryPool.init(
+                alloc,
+                std.heap.page_allocator,
+                page_count,
+            );
+        },
     };
+    errdefer if (owned_pool) |*pool| pool.deinit();
 
-    // Setup our pools
-    var pool = try MemoryPool.init(alloc, std.heap.page_allocator, page_count);
-    errdefer pool.deinit();
-
-    var result = try self.clonePool(&pool, top, bot);
-    result.pool_owned = true;
-    return result;
-}
-
-/// Like clone, but specify your own memory pool. This is advanced but
-/// lets you avoid expensive syscalls to allocate memory.
-pub fn clonePool(
-    self: *const PageList,
-    pool: *MemoryPool,
-    top: point.Point,
-    bot: ?point.Point,
-) !PageList {
-    var it = self.pageIterator(.right_down, top, bot);
+    // Create our memory pool we use
+    const pool: *MemoryPool = switch (opts.memory) {
+        .pool => |v| v,
+        .alloc => &owned_pool.?,
+    };
 
     // Copy our pages
     var page_list: List = .{};
@@ -333,7 +349,10 @@ pub fn clonePool(
 
     var result: PageList = .{
         .pool = pool.*,
-        .pool_owned = false,
+        .pool_owned = switch (opts.memory) {
+            .pool => false,
+            .alloc => true,
+        },
         .pages = page_list,
         .page_size = PagePool.item_size * page_count,
         .max_size = self.max_size,
@@ -3272,7 +3291,10 @@ test "PageList clone" {
     defer s.deinit();
     try testing.expectEqual(@as(usize, s.rows), s.totalRows());
 
-    var s2 = try s.clone(alloc, .{ .screen = .{} }, null);
+    var s2 = try s.clone(.{
+        .top = .{ .screen = .{} },
+        .memory = .{ .alloc = alloc },
+    });
     defer s2.deinit();
     try testing.expectEqual(@as(usize, s.rows), s2.totalRows());
 }
@@ -3286,11 +3308,11 @@ test "PageList clone partial trimmed right" {
     try testing.expectEqual(@as(usize, s.rows), s.totalRows());
     try s.growRows(30);
 
-    var s2 = try s.clone(
-        alloc,
-        .{ .screen = .{} },
-        .{ .screen = .{ .y = 39 } },
-    );
+    var s2 = try s.clone(.{
+        .top = .{ .screen = .{} },
+        .bot = .{ .screen = .{ .y = 39 } },
+        .memory = .{ .alloc = alloc },
+    });
     defer s2.deinit();
     try testing.expectEqual(@as(usize, 40), s2.totalRows());
 }
@@ -3304,11 +3326,10 @@ test "PageList clone partial trimmed left" {
     try testing.expectEqual(@as(usize, s.rows), s.totalRows());
     try s.growRows(30);
 
-    var s2 = try s.clone(
-        alloc,
-        .{ .screen = .{ .y = 10 } },
-        null,
-    );
+    var s2 = try s.clone(.{
+        .top = .{ .screen = .{ .y = 10 } },
+        .memory = .{ .alloc = alloc },
+    });
     defer s2.deinit();
     try testing.expectEqual(@as(usize, 40), s2.totalRows());
 }
@@ -3322,11 +3343,11 @@ test "PageList clone partial trimmed both" {
     try testing.expectEqual(@as(usize, s.rows), s.totalRows());
     try s.growRows(30);
 
-    var s2 = try s.clone(
-        alloc,
-        .{ .screen = .{ .y = 10 } },
-        .{ .screen = .{ .y = 35 } },
-    );
+    var s2 = try s.clone(.{
+        .top = .{ .screen = .{ .y = 10 } },
+        .bot = .{ .screen = .{ .y = 35 } },
+        .memory = .{ .alloc = alloc },
+    });
     defer s2.deinit();
     try testing.expectEqual(@as(usize, 26), s2.totalRows());
 }
@@ -3339,11 +3360,10 @@ test "PageList clone less than active" {
     defer s.deinit();
     try testing.expectEqual(@as(usize, s.rows), s.totalRows());
 
-    var s2 = try s.clone(
-        alloc,
-        .{ .active = .{ .y = 5 } },
-        null,
-    );
+    var s2 = try s.clone(.{
+        .top = .{ .active = .{ .y = 5 } },
+        .memory = .{ .alloc = alloc },
+    });
     defer s2.deinit();
     try testing.expectEqual(@as(usize, s.rows), s2.totalRows());
 }
