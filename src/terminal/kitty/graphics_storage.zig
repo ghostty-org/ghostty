@@ -635,7 +635,7 @@ pub const ImageStorage = struct {
 // Our pin for the placement
 fn trackPin(
     t: *terminal.Terminal,
-    pt: point.Point.Coordinate,
+    pt: point.Coordinate,
 ) !*PageList.Pin {
     return try t.screen.pages.trackPin(t.screen.pages.pin(.{
         .active = pt,

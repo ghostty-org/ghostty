@@ -1387,8 +1387,8 @@ pub fn grow(self: *PageList) !?*List.Node {
     self.pages.append(next_page);
     next_page.data.size.rows = 1;
 
-    // Accounting
-    self.page_size += PagePool.item_size;
+    // We should never be more than our max size here because we've
+    // verified the case above.
     assert(self.page_size <= self.max_size);
 
     return next_page;
@@ -1411,6 +1411,11 @@ fn createPage(self: *PageList, cap: Capacity) !*List.Node {
         ),
     };
     page.data.size.rows = 0;
+
+    // Accumulate page size now. We don't assert or check max size because
+    // we may exceed it here temporarily as we are allocating pages before
+    // destroy.
+    self.page_size += PagePool.item_size;
 
     return page;
 }
