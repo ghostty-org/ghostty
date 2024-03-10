@@ -677,6 +677,56 @@ pub fn clearUnprotectedCells(
     }
 }
 
+/// Clears the prompt lines if the cursor is currently at a prompt. This
+/// clears the entire line. This is used for resizing when the shell
+/// handles reflow.
+///
+/// The cleared cells are not colored with the current style background
+/// color like other clear functions, because this is a special case used
+/// for a specific purpose that does not want that behavior.
+pub fn clearPrompt(self: *Screen) void {
+    var found: ?Pin = null;
+
+    // From our cursor, move up and find all prompt lines.
+    var it = self.cursor.page_pin.rowIterator(
+        .left_up,
+        self.pages.pin(.{ .active = .{} }),
+    );
+    while (it.next()) |p| {
+        const row = p.rowAndCell().row;
+        switch (row.semantic_prompt) {
+            // We are at a prompt but we're not at the start of the prompt.
+            // We mark our found value and continue because the prompt
+            // may be multi-line.
+            .input => found = p,
+
+            // If we find the prompt then we're done. We are also done
+            // if we find any prompt continuation, because the shells
+            // that send this currently (zsh) cannot redraw every line.
+            .prompt, .prompt_continuation => {
+                found = p;
+                break;
+            },
+
+            // If we have command output, then we're most certainly not
+            // at a prompt. Break out of the loop.
+            .command => break,
+
+            // If we don't know, we keep searching.
+            .unknown => {},
+        }
+    }
+
+    // If we found a prompt, we clear it.
+    if (found) |top| {
+        var clear_it = top.rowIterator(.right_down, null);
+        while (clear_it.next()) |p| {
+            const row = p.rowAndCell().row;
+            p.page.data.clearCells(row, 0, p.page.data.size.cols);
+        }
+    }
+}
+
 /// Returns the blank cell to use when doing terminal operations that
 /// require preserving the bg color.
 fn blankCell(self: *const Screen) Cell {
@@ -2064,6 +2114,50 @@ test "Screen eraseRows history with more lines" {
         const str = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
         defer alloc.free(str);
         try testing.expectEqualStrings("2\n3\n4\n5\n6", str);
+    }
+}
+
+test "Screen: clearPrompt" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 0);
+    defer s.deinit();
+    const str = "1ABCD\n2EFGH\n3IJKL";
+    try s.testWriteString(str);
+
+    // Set one of the rows to be a prompt
+    {
+        s.cursorAbsolute(0, 1);
+        s.cursor.page_row.semantic_prompt = .prompt;
+        s.cursorAbsolute(0, 2);
+        s.cursor.page_row.semantic_prompt = .input;
+    }
+
+    s.clearPrompt();
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("1ABCD", contents);
+    }
+}
+
+test "Screen: clearPrompt no prompt" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 0);
+    defer s.deinit();
+    const str = "1ABCD\n2EFGH\n3IJKL";
+    try s.testWriteString(str);
+
+    s.clearPrompt();
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
     }
 }
 
