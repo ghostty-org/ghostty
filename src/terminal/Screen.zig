@@ -260,13 +260,37 @@ pub fn clonePool(
         };
     };
 
+    // Preserve our selection if we have one.
+    const sel: ?Selection = if (self.selection) |sel| sel: {
+        assert(sel.tracked());
+        const start_pin = pin_remap.get(sel.bounds.tracked.start) orelse start: {
+            // No start means it is outside the cloned area. We change it
+            // to the top-left.
+            break :start try pages.trackPin(.{ .page = pages.pages.first.? });
+        };
+        const end_pin = pin_remap.get(sel.bounds.tracked.end) orelse end: {
+            // No end means it is outside the cloned area. We change it
+            // to the bottom-right.
+            break :end try pages.trackPin(pages.pin(.{ .active = .{
+                .x = pages.cols - 1,
+                .y = pages.rows - 1,
+            } }) orelse break :sel null);
+        };
+        break :sel .{
+            .bounds = .{ .tracked = .{
+                .start = start_pin,
+                .end = end_pin,
+            } },
+            .rectangle = sel.rectangle,
+        };
+    } else null;
+
     return .{
         .alloc = alloc,
         .pages = pages,
         .no_scrollback = self.no_scrollback,
         .cursor = cursor,
-
-        // TODO: selection
+        .selection = sel,
     };
 }
 
@@ -2553,6 +2577,117 @@ test "Screen: clone partial cursor out of bounds" {
     // Cursor is shifted since we cloned partial
     try testing.expectEqual(@as(usize, 0), s2.cursor.x);
     try testing.expectEqual(@as(usize, 0), s2.cursor.y);
+}
+
+test "Screen: clone contains full selection" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 1);
+    defer s.deinit();
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL");
+
+    // Select a single line
+    try s.select(Selection.init(
+        s.pages.pin(.{ .active = .{ .x = 0, .y = 1 } }).?,
+        s.pages.pin(.{ .active = .{ .x = s.pages.cols - 1, .y = 1 } }).?,
+        false,
+    ));
+
+    // Clone
+    var s2 = try s.clone(
+        alloc,
+        .{ .active = .{} },
+        null,
+    );
+    defer s2.deinit();
+
+    // Our selection should remain valid
+    {
+        const sel = s2.selection.?;
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 0,
+            .y = 1,
+        } }, s2.pages.pointFromPin(.active, sel.start()).?);
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = s2.pages.cols - 1,
+            .y = 1,
+        } }, s2.pages.pointFromPin(.active, sel.end()).?);
+    }
+}
+
+test "Screen: clone contains selection start cutoff" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 1);
+    defer s.deinit();
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL");
+
+    // Select a single line
+    try s.select(Selection.init(
+        s.pages.pin(.{ .active = .{ .x = 0, .y = 0 } }).?,
+        s.pages.pin(.{ .active = .{ .x = s.pages.cols - 1, .y = 1 } }).?,
+        false,
+    ));
+
+    // Clone
+    var s2 = try s.clone(
+        alloc,
+        .{ .active = .{ .y = 1 } },
+        null,
+    );
+    defer s2.deinit();
+
+    // Our selection should remain valid
+    {
+        const sel = s2.selection.?;
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 0,
+            .y = 0,
+        } }, s2.pages.pointFromPin(.active, sel.start()).?);
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = s2.pages.cols - 1,
+            .y = 0,
+        } }, s2.pages.pointFromPin(.active, sel.end()).?);
+    }
+}
+
+test "Screen: clone contains selection end cutoff" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 1);
+    defer s.deinit();
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL");
+
+    // Select a single line
+    try s.select(Selection.init(
+        s.pages.pin(.{ .active = .{ .x = 0, .y = 1 } }).?,
+        s.pages.pin(.{ .active = .{ .x = 2, .y = 2 } }).?,
+        false,
+    ));
+
+    // Clone
+    var s2 = try s.clone(
+        alloc,
+        .{ .active = .{ .y = 0 } },
+        .{ .active = .{ .y = 1 } },
+    );
+    defer s2.deinit();
+
+    // Our selection should remain valid
+    {
+        const sel = s2.selection.?;
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 0,
+            .y = 1,
+        } }, s2.pages.pointFromPin(.active, sel.start()).?);
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = s2.pages.cols - 1,
+            .y = 2,
+        } }, s2.pages.pointFromPin(.active, sel.end()).?);
+    }
 }
 
 test "Screen: clone basic" {
