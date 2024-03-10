@@ -157,7 +157,8 @@ const Mouse = struct {
     /// The point at which the left mouse click happened. This is in screen
     /// coordinates so that scrolling preserves the location.
     //TODO(paged-terminal)
-    //left_click_point: terminal.point.ScreenPoint = .{},
+    left_click_pin: ?*terminal.Pin = null,
+    left_click_screen: terminal.ScreenType = .primary,
 
     /// The starting xpos/ypos of the left click. Note that if scrolling occurs,
     /// these will point to different "cells", but the xpos/ypos will stay
@@ -1049,9 +1050,9 @@ fn clipboardWrite(self: *const Surface, data: []const u8, loc: apprt.Clipboard) 
 /// Set the selection contents.
 ///
 /// This must be called with the renderer mutex held.
-fn setSelection(self: *Surface, sel_: ?terminal.Selection) void {
+fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
     const prev_ = self.io.terminal.screen.selection;
-    self.io.terminal.screen.selection = sel_;
+    try self.io.terminal.screen.select(sel_);
 
     // Determine the clipboard we want to copy selection to, if it is enabled.
     const clipboard: apprt.Clipboard = switch (self.config.copy_on_select) {
@@ -1541,7 +1542,7 @@ pub fn keyCallback(
     if (!event.key.modifier()) {
         self.renderer_state.mutex.lock();
         defer self.renderer_state.mutex.unlock();
-        self.setSelection(null);
+        try self.setSelection(null);
         try self.io.terminal.scrollViewport(.{ .bottom = {} });
         try self.queueRender();
     }
@@ -1748,7 +1749,7 @@ pub fn scrollCallback(
         // The selection can occur if the user uses the shift mod key to
         // override mouse grabbing from the window.
         if (self.io.terminal.flags.mouse_event != .none) {
-            self.setSelection(null);
+            try self.setSelection(null);
         }
 
         // If we're in alternate screen with alternate scroll enabled, then
@@ -1762,7 +1763,7 @@ pub fn scrollCallback(
             if (y.delta_unsigned > 0) {
                 // When we send mouse events as cursor keys we always
                 // clear the selection.
-                self.setSelection(null);
+                try self.setSelection(null);
 
                 const seq = if (self.io.terminal.modes.get(.cursor_keys)) seq: {
                     // cursor key: application mode
@@ -2219,7 +2220,7 @@ pub fn mouseButtonCallback(
             // In any other mouse button scenario without shift pressed we
             // clear the selection since the underlying application can handle
             // that in any way (i.e. "scrolling").
-            self.setSelection(null);
+            try self.setSelection(null);
 
             const pos = try self.rt_surface.getCursorPos();
 
@@ -2256,15 +2257,31 @@ pub fn mouseButtonCallback(
     // For left button clicks we always record some information for
     // selection/highlighting purposes.
     if (button == .left and action == .press) click: {
-        // TODO(paged-terminal)
-        if (true) break :click;
-
         self.renderer_state.mutex.lock();
         defer self.renderer_state.mutex.unlock();
+        const t: *terminal.Terminal = self.renderer_state.terminal;
+        const screen = &self.renderer_state.terminal.screen;
 
         const pos = try self.rt_surface.getCursorPos();
-        const pt_viewport = self.posToViewport(pos.x, pos.y);
-        const pt_screen = pt_viewport.toScreen(&self.io.terminal.screen);
+        const pin = pin: {
+            const pt_viewport = self.posToViewport(pos.x, pos.y);
+            const pin = screen.pages.pin(.{
+                .viewport = .{
+                    .x = pt_viewport.x,
+                    .y = pt_viewport.y,
+                },
+            }) orelse {
+                // Weird... our viewport x/y that we just converted isn't
+                // found in our pages. This is probably a bug but we don't
+                // want to crash in releases because its harmless. So, we
+                // only assert in debug mode.
+                if (comptime std.debug.runtime_safety) unreachable;
+                break :click;
+            };
+
+            break :pin try screen.pages.trackPin(pin);
+        };
+        errdefer screen.pages.untrackPin(pin);
 
         // If we move our cursor too much between clicks then we reset
         // the multi-click state.
@@ -2278,8 +2295,14 @@ pub fn mouseButtonCallback(
             if (distance > max_distance) self.mouse.left_click_count = 0;
         }
 
+        // TODO(paged-terminal): untrack previous pin across screens
+        if (self.mouse.left_click_pin) |prev| {
+            screen.pages.untrackPin(prev);
+        }
+
         // Store it
-        self.mouse.left_click_point = pt_screen;
+        self.mouse.left_click_pin = pin;
+        self.mouse.left_click_screen = t.active_screen;
         self.mouse.left_click_xpos = pos.x;
         self.mouse.left_click_ypos = pos.y;
 
@@ -2309,16 +2332,16 @@ pub fn mouseButtonCallback(
             1 => {
                 // If we have a selection, clear it. This always happens.
                 if (self.io.terminal.screen.selection != null) {
-                    self.setSelection(null);
+                    try self.setSelection(null);
                     try self.queueRender();
                 }
             },
 
             // Double click, select the word under our mouse
             2 => {
-                const sel_ = self.io.terminal.screen.selectWord(self.mouse.left_click_point);
+                const sel_ = self.io.terminal.screen.selectWord(pin.*);
                 if (sel_) |sel| {
-                    self.setSelection(sel);
+                    try self.setSelection(sel);
                     try self.queueRender();
                 }
             },
@@ -2326,11 +2349,11 @@ pub fn mouseButtonCallback(
             // Triple click, select the line under our mouse
             3 => {
                 const sel_ = if (mods.ctrl)
-                    self.io.terminal.screen.selectOutput(self.mouse.left_click_point)
+                    self.io.terminal.screen.selectOutput(pin.*)
                 else
-                    self.io.terminal.screen.selectLine(self.mouse.left_click_point);
+                    self.io.terminal.screen.selectLine(pin.*);
                 if (sel_) |sel| {
-                    self.setSelection(sel);
+                    try self.setSelection(sel);
                     try self.queueRender();
                 }
             },
@@ -3292,7 +3315,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         .select_all => {
             const sel = self.io.terminal.screen.selectAll();
             if (sel) |s| {
-                self.setSelection(s);
+                try self.setSelection(s);
                 try self.queueRender();
             }
         },

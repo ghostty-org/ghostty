@@ -32,6 +32,7 @@ pub const PageList = @import("PageList.zig");
 pub const Parser = @import("Parser.zig");
 pub const Pin = PageList.Pin;
 pub const Screen = @import("Screen.zig");
+pub const ScreenType = Terminal.ScreenType;
 pub const Selection = @import("Selection.zig");
 pub const Terminal = @import("Terminal.zig");
 pub const Stream = stream.Stream;
