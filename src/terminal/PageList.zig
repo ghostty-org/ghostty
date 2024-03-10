@@ -749,14 +749,6 @@ fn reflowPage(
     var src_node = initial_node;
     var src_cursor = ReflowCursor.init(&src_node.data);
 
-    // This is set to true when we're in the middle of completing a wrap
-    // from the initial page. If this is true, the moment we see a non-wrapped
-    // row we are done.
-    var src_completing_wrap = false;
-
-    // This is used to count blank lines so that we don't copy those.
-    var blank_lines: usize = 0;
-
     // Skip initially reflowed lines
     if (src_cursor.page_row.wrap_continuation) {
         while (src_cursor.page_row.wrap_continuation) {
@@ -771,6 +763,18 @@ fn reflowPage(
         }
     }
 
+    // This is set to true when we're in the middle of completing a wrap
+    // from the initial page. If this is true, the moment we see a non-wrapped
+    // row we are done.
+    var src_completing_wrap = false;
+
+    // This is used to count blank lines so that we don't copy those.
+    var blank_lines: usize = 0;
+
+    // This is set to true when we're wrapping a line that requires a new
+    // writer page.
+    var dst_wrap = false;
+
     // Our new capacity when growing columns may also shrink rows. So we
     // need to do a loop in order to potentially make multiple pages.
     dst_loop: while (true) {
@@ -782,8 +786,11 @@ fn reflowPage(
         var dst_cursor = ReflowCursor.init(&dst_node.data);
         dst_cursor.copyRowMetadata(src_cursor.page_row);
 
-        // Copy some initial metadata about the row
-        //dst_cursor.page_row.semantic_prompt = src_cursor.page_row.semantic_prompt;
+        // Set our wrap state
+        if (dst_wrap) {
+            dst_cursor.page_row.wrap_continuation = true;
+            dst_wrap = false;
+        }
 
         // Our new page goes before our src node. This will append it to any
         // previous pages we've created.
@@ -879,6 +886,7 @@ fn reflowPage(
                     // The blank_lines == 0 condition is because if we were prefixed
                     // with blank lines, we handled the scroll already above.
                     if (!prev_wrap and blank_lines == 0) {
+                        if (dst_cursor.bottom()) continue :dst_loop;
                         dst_cursor.cursorScroll();
                     }
 
@@ -928,6 +936,10 @@ fn reflowPage(
 
                     if (dst_cursor.pending_wrap) {
                         dst_cursor.page_row.wrap = true;
+                        if (dst_cursor.bottom()) {
+                            dst_wrap = true;
+                            continue :dst_loop;
+                        }
                         dst_cursor.cursorScroll();
                         dst_cursor.page_row.wrap_continuation = true;
                         dst_cursor.copyRowMetadata(src_cursor.page_row);
