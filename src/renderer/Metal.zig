@@ -1738,8 +1738,7 @@ fn rebuildCells(
             break :cursor_style;
         }
 
-        _ = cursor_style;
-        //_ = self.addCursor(screen, cursor_style);
+        _ = self.addCursor(screen, cursor_style);
         if (cursor_cell) |*cell| {
             if (cell.mode == .fg) {
                 cell.color = if (self.config.cursor_text) |txt|
