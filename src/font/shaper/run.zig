@@ -55,7 +55,7 @@ pub const RunIterator = struct {
         try self.hooks.prepare();
 
         // Let's get our style that we'll expect for the run.
-        const style = self.row.style(&cells[0]);
+        const style = self.row.style(&cells[self.i]);
 
         // Go through cell by cell and accumulate while we build our run.
         var j: usize = self.i;
