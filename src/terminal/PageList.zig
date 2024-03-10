@@ -256,6 +256,17 @@ pub const Clone = struct {
         alloc: Allocator,
         pool: *MemoryPool,
     },
+
+    // If this is non-null then cloning will attempt to remap the tracked
+    // pins into the new cloned area and will keep track of the old to
+    // new mapping in this map. If this is null, the cloned pagelist will
+    // not retain any previously tracked pins except those required for
+    // internal operations.
+    //
+    // Any pins not present in the map were not remapped.
+    tracked_pins: ?*TrackedPinsRemap = null,
+
+    pub const TrackedPinsRemap = std.AutoHashMap(*Pin, *Pin);
 };
 
 /// Clone this pagelist from the top to bottom (inclusive).
@@ -299,6 +310,13 @@ pub fn clone(
         .alloc => &owned_pool.?,
     };
 
+    // Our viewport pin is always undefined since our viewport in a clones
+    // goes back to the top
+    const viewport_pin = try pool.pins.create();
+    var tracked_pins: PinSet = .{};
+    errdefer tracked_pins.deinit(pool.alloc);
+    try tracked_pins.putNoClobber(pool.alloc, viewport_pin, {});
+
     // Copy our pages
     var page_list: List = .{};
     var total_rows: usize = 0;
@@ -314,6 +332,22 @@ pub fn clone(
         // If this is a full page then we're done.
         if (chunk.fullPage()) {
             total_rows += page.data.size.rows;
+
+            // Updating tracked pins is easy, we just change the page
+            // pointer but all offsets remain the same.
+            if (opts.tracked_pins) |remap| {
+                var pin_it = self.tracked_pins.keyIterator();
+                while (pin_it.next()) |p_ptr| {
+                    const p = p_ptr.*;
+                    if (p.page != chunk.page) continue;
+                    const new_p = try pool.pins.create();
+                    new_p.* = p.*;
+                    new_p.page = page;
+                    try remap.putNoClobber(p, new_p);
+                    try tracked_pins.putNoClobber(pool.alloc, new_p, {});
+                }
+            }
+
             continue;
         }
 
@@ -324,6 +358,22 @@ pub fn clone(
         if (chunk.start == 0) {
             page.data.size.rows = @intCast(chunk.end);
             total_rows += chunk.end;
+
+            // Updating tracked pins for the pins that are in the shortened chunk.
+            if (opts.tracked_pins) |remap| {
+                var pin_it = self.tracked_pins.keyIterator();
+                while (pin_it.next()) |p_ptr| {
+                    const p = p_ptr.*;
+                    if (p.page != chunk.page or
+                        p.y >= chunk.end) continue;
+                    const new_p = try pool.pins.create();
+                    new_p.* = p.*;
+                    new_p.page = page;
+                    try remap.putNoClobber(p, new_p);
+                    try tracked_pins.putNoClobber(pool.alloc, new_p, {});
+                }
+            }
+
             continue;
         }
 
@@ -340,12 +390,24 @@ pub fn clone(
         }
         page.data.size.rows = @intCast(len);
         total_rows += len;
-    }
 
-    // Our viewport pin is always undefined since our viewport in a clones
-    // goes back to the top
-    const viewport_pin = try pool.pins.create();
-    errdefer pool.pins.destroy(viewport_pin);
+        // Updating tracked pins
+        if (opts.tracked_pins) |remap| {
+            var pin_it = self.tracked_pins.keyIterator();
+            while (pin_it.next()) |p_ptr| {
+                const p = p_ptr.*;
+                if (p.page != chunk.page or
+                    p.y < chunk.start or
+                    p.y >= chunk.end) continue;
+                const new_p = try pool.pins.create();
+                new_p.* = p.*;
+                new_p.page = page;
+                new_p.y -= chunk.start;
+                try remap.putNoClobber(p, new_p);
+                try tracked_pins.putNoClobber(pool.alloc, new_p, {});
+            }
+        }
+    }
 
     var result: PageList = .{
         .pool = pool.*,
@@ -358,7 +420,7 @@ pub fn clone(
         .max_size = self.max_size,
         .cols = self.cols,
         .rows = self.rows,
-        .tracked_pins = .{}, // TODO
+        .tracked_pins = tracked_pins,
         .viewport = .{ .top = {} },
         .viewport_pin = viewport_pin,
     };
@@ -3366,6 +3428,60 @@ test "PageList clone less than active" {
     });
     defer s2.deinit();
     try testing.expectEqual(@as(usize, s.rows), s2.totalRows());
+}
+
+test "PageList clone remap tracked pin" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+    try testing.expectEqual(@as(usize, s.rows), s.totalRows());
+
+    // Put a tracked pin in the screen
+    const p = try s.trackPin(s.pin(.{ .active = .{ .x = 0, .y = 6 } }).?);
+    defer s.untrackPin(p);
+
+    var pin_remap = Clone.TrackedPinsRemap.init(alloc);
+    defer pin_remap.deinit();
+    var s2 = try s.clone(.{
+        .top = .{ .active = .{ .y = 5 } },
+        .memory = .{ .alloc = alloc },
+        .tracked_pins = &pin_remap,
+    });
+    defer s2.deinit();
+
+    // We should be able to find our tracked pin
+    const p2 = pin_remap.get(p).?;
+    try testing.expectEqual(
+        point.Point{ .active = .{ .x = 0, .y = 1 } },
+        s2.pointFromPin(.active, p2.*).?,
+    );
+}
+
+test "PageList clone remap tracked pin not in cloned area" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+    try testing.expectEqual(@as(usize, s.rows), s.totalRows());
+
+    // Put a tracked pin in the screen
+    const p = try s.trackPin(s.pin(.{ .active = .{ .x = 0, .y = 3 } }).?);
+    defer s.untrackPin(p);
+
+    var pin_remap = Clone.TrackedPinsRemap.init(alloc);
+    defer pin_remap.deinit();
+    var s2 = try s.clone(.{
+        .top = .{ .active = .{ .y = 5 } },
+        .memory = .{ .alloc = alloc },
+        .tracked_pins = &pin_remap,
+    });
+    defer s2.deinit();
+
+    // We should be able to find our tracked pin
+    try testing.expect(pin_remap.get(p) == null);
 }
 
 test "PageList resize (no reflow) more rows" {
