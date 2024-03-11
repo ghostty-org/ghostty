@@ -2742,8 +2742,7 @@ fn dragLeftClickSingle(
     // If we were selecting, and we switched directions, then we restart
     // calculations because it forces us to reconsider if the first cell is
     // selected.
-    // TODO(paged-terminal)
-    //self.checkResetSelSwitch(screen_point);
+    self.checkResetSelSwitch(drag_pin);
 
     // Our logic for determining if the starting cell is selected:
     //
@@ -2839,8 +2838,14 @@ fn dragLeftClickSingle(
 
 // Resets the selection if we switched directions, depending on the select
 // mode. See dragLeftClickSingle for more details.
-fn checkResetSelSwitch(self: *Surface, screen_point: terminal.point.ScreenPoint) void {
-    const sel = self.io.terminal.screen.selection orelse return;
+fn checkResetSelSwitch(
+    self: *Surface,
+    drag_pin: terminal.Pin,
+) void {
+    const screen = &self.io.terminal.screen;
+    const sel = screen.selection orelse return;
+    const sel_start = sel.start();
+    const sel_end = sel.end();
 
     var reset: bool = false;
     if (sel.rectangle) {
@@ -2848,26 +2853,27 @@ fn checkResetSelSwitch(self: *Surface, screen_point: terminal.point.ScreenPoint)
         // the click point depending on the selection mode we're in, with
         // the exception of single-column selections, which we always reset
         // on if we drift.
-        if (sel.start.x == sel.end.x) {
-            reset = screen_point.x != sel.start.x;
+        if (sel_start.x == sel_end.x) {
+            reset = drag_pin.x != sel_start.x;
         } else {
-            reset = switch (sel.order()) {
-                .forward => screen_point.x < sel.start.x or screen_point.y < sel.start.y,
-                .reverse => screen_point.x > sel.start.x or screen_point.y > sel.start.y,
-                .mirrored_forward => screen_point.x > sel.start.x or screen_point.y < sel.start.y,
-                .mirrored_reverse => screen_point.x < sel.start.x or screen_point.y > sel.start.y,
+            reset = switch (sel.order(screen)) {
+                .forward => drag_pin.x < sel_start.x or drag_pin.before(sel_start),
+                .reverse => drag_pin.x > sel_start.x or sel_start.before(drag_pin),
+                .mirrored_forward => drag_pin.x > sel_start.x or drag_pin.before(sel_start),
+                .mirrored_reverse => drag_pin.x < sel_start.x or sel_start.before(drag_pin),
             };
         }
     } else {
         // Normal select uses simpler logic that is just based on the
         // selection start/end.
-        reset = if (sel.end.before(sel.start))
-            sel.start.before(screen_point)
+        reset = if (sel_end.before(sel_start))
+            sel_start.before(drag_pin)
         else
-            screen_point.before(sel.start);
+            drag_pin.before(sel_start);
     }
 
-    if (reset) self.setSelection(null);
+    // Nullifying a selection can't fail.
+    if (reset) self.setSelection(null) catch unreachable;
 }
 
 // Handles how whether or not the drag screen point is before the click point.
