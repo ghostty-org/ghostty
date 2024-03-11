@@ -156,7 +156,6 @@ const Mouse = struct {
 
     /// The point at which the left mouse click happened. This is in screen
     /// coordinates so that scrolling preserves the location.
-    //TODO(paged-terminal)
     left_click_pin: ?*terminal.Pin = null,
     left_click_screen: terminal.ScreenType = .primary,
 
@@ -1053,9 +1052,6 @@ fn clipboardWrite(self: *const Surface, data: []const u8, loc: apprt.Clipboard) 
 fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
     const prev_ = self.io.terminal.screen.selection;
     try self.io.terminal.screen.select(sel_);
-
-    // TODO(paged-terminal)
-    if (true) return;
 
     // Determine the clipboard we want to copy selection to, if it is enabled.
     const clipboard: apprt.Clipboard = switch (self.config.copy_on_select) {
@@ -2614,7 +2610,6 @@ pub fn cursorPosCallback(
         }
 
         // Convert to points
-        // TODO(paged-terminal)
         const screen = &self.renderer_state.terminal.screen;
         const pin = screen.pages.pin(.{
             .viewport = .{
