@@ -2629,7 +2629,7 @@ pub fn cursorPosCallback(
         // Handle dragging depending on click count
         switch (self.mouse.left_click_count) {
             1 => try self.dragLeftClickSingle(pin, pos.x),
-            // 2 => self.dragLeftClickDouble(screen_point),
+            2 => try self.dragLeftClickDouble(pin),
             // 3 => self.dragLeftClickTriple(screen_point),
             else => unreachable,
         }
@@ -2668,38 +2668,40 @@ pub fn cursorPosCallback(
 /// Double-click dragging moves the selection one "word" at a time.
 fn dragLeftClickDouble(
     self: *Surface,
-    screen_point: terminal.point.ScreenPoint,
-) void {
+    drag_pin: terminal.Pin,
+) !void {
+    const screen = &self.io.terminal.screen;
+    const click_pin = self.mouse.left_click_pin.?.*;
+
     // Get the word closest to our starting click.
-    const word_start = self.io.terminal.screen.selectWordBetween(
-        self.mouse.left_click_point,
-        screen_point,
-    ) orelse {
-        self.setSelection(null);
+    const word_start = screen.selectWordBetween(click_pin, drag_pin) orelse {
+        try self.setSelection(null);
         return;
     };
 
     // Get the word closest to our current point.
-    const word_current = self.io.terminal.screen.selectWordBetween(
-        screen_point,
-        self.mouse.left_click_point,
+    const word_current = screen.selectWordBetween(
+        drag_pin,
+        click_pin,
     ) orelse {
-        self.setSelection(null);
+        try self.setSelection(null);
         return;
     };
 
     // If our current mouse position is before the starting position,
     // then the seletion start is the word nearest our current position.
-    if (screen_point.before(self.mouse.left_click_point)) {
-        self.setSelection(.{
-            .start = word_current.start,
-            .end = word_start.end,
-        });
+    if (drag_pin.before(click_pin)) {
+        try self.setSelection(terminal.Selection.init(
+            word_current.start(),
+            word_start.end(),
+            false,
+        ));
     } else {
-        self.setSelection(.{
-            .start = word_start.start,
-            .end = word_current.end,
-        });
+        try self.setSelection(terminal.Selection.init(
+            word_start.start(),
+            word_current.end(),
+            false,
+        ));
     }
 }
 
