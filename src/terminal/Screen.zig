@@ -1295,6 +1295,32 @@ pub fn selectAll(self: *Screen) ?Selection {
     return Selection.init(start, end, false);
 }
 
+/// Select the nearest word to start point that is between start_pt and
+/// end_pt (inclusive). Because it selects "nearest" to start point, start
+/// point can be before or after end point.
+///
+/// TODO: test this
+pub fn selectWordBetween(
+    self: *Screen,
+    start: Pin,
+    end: Pin,
+) ?Selection {
+    const dir: PageList.Direction = if (start.before(end)) .right_down else .left_up;
+    var it = start.cellIterator(dir, end);
+    while (it.next()) |pin| {
+        // Boundary conditions
+        switch (dir) {
+            .right_down => if (end.before(pin)) return null,
+            .left_up => if (pin.before(end)) return null,
+        }
+
+        // If we found a word, then return it
+        if (self.selectWord(pin)) |sel| return sel;
+    }
+
+    return null;
+}
+
 /// Select the word under the given point. A word is any consecutive series
 /// of characters that are exclusively whitespace or exclusively non-whitespace.
 /// A selection can span multiple physical lines if they are soft-wrapped.
