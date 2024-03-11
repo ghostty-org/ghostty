@@ -1694,6 +1694,7 @@ fn rebuildCells(
                 };
 
                 if (self.updateCell(
+                    screen,
                     cell,
                     color_palette,
                     shaper_cell,
@@ -1760,6 +1761,7 @@ fn rebuildCells(
 
 fn updateCell(
     self: *Metal,
+    screen: *const terminal.Screen,
     cell_pin: terminal.Pin,
     palette: *const terminal.color.Palette,
     shaper_cell: font.shape.Cell,
@@ -1780,18 +1782,10 @@ fn updateCell(
     };
 
     // True if this cell is selected
-    // TODO(perf): we can check in advance if selection is in
-    // our viewport at all and not run this on every point.
-    const selected = false;
-    // TODO(paged-terminal)
-    // const selected: bool = if (screen.selection) |sel| selected: {
-    //     const screen_point = (terminal.point.Viewport{
-    //         .x = x,
-    //         .y = y,
-    //     }).toScreen(screen);
-    //
-    //     break :selected sel.contains(screen_point);
-    // } else false;
+    const selected: bool = if (screen.selection) |sel|
+        sel.contains(screen, cell_pin)
+    else
+        false;
 
     const rac = cell_pin.rowAndCell();
     const cell = rac.cell;
