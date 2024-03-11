@@ -1054,6 +1054,9 @@ fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
     const prev_ = self.io.terminal.screen.selection;
     try self.io.terminal.screen.select(sel_);
 
+    // TODO(paged-terminal)
+    if (true) return;
+
     // Determine the clipboard we want to copy selection to, if it is enabled.
     const clipboard: apprt.Clipboard = switch (self.config.copy_on_select) {
         .false => return,
@@ -2612,15 +2615,24 @@ pub fn cursorPosCallback(
 
         // Convert to points
         // TODO(paged-terminal)
-        // const screen_point = pos_vp.toScreen(&self.io.terminal.screen);
-        //
-        // // Handle dragging depending on click count
-        // switch (self.mouse.left_click_count) {
-        //     1 => self.dragLeftClickSingle(screen_point, pos.x),
-        //     2 => self.dragLeftClickDouble(screen_point),
-        //     3 => self.dragLeftClickTriple(screen_point),
-        //     else => unreachable,
-        // }
+        const screen = &self.renderer_state.terminal.screen;
+        const pin = screen.pages.pin(.{
+            .viewport = .{
+                .x = pos_vp.x,
+                .y = pos_vp.y,
+            },
+        }) orelse {
+            if (comptime std.debug.runtime_safety) unreachable;
+            return;
+        };
+
+        // Handle dragging depending on click count
+        switch (self.mouse.left_click_count) {
+            1 => try self.dragLeftClickSingle(pin, pos.x),
+            // 2 => self.dragLeftClickDouble(screen_point),
+            // 3 => self.dragLeftClickTriple(screen_point),
+            else => unreachable,
+        }
 
         return;
     }
@@ -2718,9 +2730,9 @@ fn dragLeftClickTriple(
 
 fn dragLeftClickSingle(
     self: *Surface,
-    screen_point: terminal.point.ScreenPoint,
+    drag_pin: terminal.Pin,
     xpos: f64,
-) void {
+) !void {
     // NOTE(mitchellh): This logic super sucks. There has to be an easier way
     // to calculate this, but this is good for a v1. Selection isn't THAT
     // common so its not like this performance heavy code is running that
@@ -2730,7 +2742,8 @@ fn dragLeftClickSingle(
     // If we were selecting, and we switched directions, then we restart
     // calculations because it forces us to reconsider if the first cell is
     // selected.
-    self.checkResetSelSwitch(screen_point);
+    // TODO(paged-terminal)
+    //self.checkResetSelSwitch(screen_point);
 
     // Our logic for determining if the starting cell is selected:
     //
@@ -2744,19 +2757,22 @@ fn dragLeftClickSingle(
     //   - Inverted logic for forwards selections.
     //
 
+    // Our clicking point
+    const click_pin = self.mouse.left_click_pin.?.*;
+
     // the boundary point at which we consider selection or non-selection
     const cell_width_f64: f64 = @floatFromInt(self.cell_size.width);
     const cell_xboundary = cell_width_f64 * 0.6;
 
     // first xpos of the clicked cell adjusted for padding
     const left_padding_f64: f64 = @as(f64, @floatFromInt(self.padding.left));
-    const cell_xstart = @as(f64, @floatFromInt(self.mouse.left_click_point.x)) * cell_width_f64;
+    const cell_xstart = @as(f64, @floatFromInt(click_pin.x)) * cell_width_f64;
     const cell_start_xpos = self.mouse.left_click_xpos - cell_xstart - left_padding_f64;
 
     // If this is the same cell, then we only start the selection if weve
     // moved past the boundary point the opposite direction from where we
     // started.
-    if (std.meta.eql(screen_point, self.mouse.left_click_point)) {
+    if (click_pin.eql(drag_pin)) {
         // Ensuring to adjusting the cursor position for padding
         const cell_xpos = xpos - cell_xstart - left_padding_f64;
         const selected: bool = if (cell_start_xpos < cell_xboundary)
@@ -2764,11 +2780,11 @@ fn dragLeftClickSingle(
         else
             cell_xpos < cell_xboundary;
 
-        self.setSelection(if (selected) .{
-            .start = screen_point,
-            .end = screen_point,
-            .rectangle = self.mouse.mods.ctrlOrSuper() and self.mouse.mods.alt,
-        } else null);
+        try self.setSelection(if (selected) terminal.Selection.init(
+            drag_pin,
+            drag_pin,
+            self.mouse.mods.ctrlOrSuper() and self.mouse.mods.alt,
+        ) else null);
 
         return;
     }
@@ -2780,42 +2796,30 @@ fn dragLeftClickSingle(
         //     the starting cell if we started after the boundary, else
         //     we start selection of the prior cell.
         //   - Inverse logic for a point after the start.
-        const click_point = self.mouse.left_click_point;
-        const start: terminal.point.ScreenPoint = if (dragLeftClickBefore(
-            screen_point,
-            click_point,
+        const start: terminal.Pin = if (dragLeftClickBefore(
+            drag_pin,
+            click_pin,
             self.mouse.mods,
         )) start: {
-            if (cell_start_xpos >= cell_xboundary) {
-                break :start click_point;
-            } else {
-                break :start if (click_point.x > 0) terminal.point.ScreenPoint{
-                    .y = click_point.y,
-                    .x = click_point.x - 1,
-                } else terminal.point.ScreenPoint{
-                    .x = self.io.terminal.screen.cols - 1,
-                    .y = click_point.y -| 1,
-                };
-            }
+            if (cell_start_xpos >= cell_xboundary) break :start click_pin;
+            if (click_pin.x > 0) break :start click_pin.left(1);
+            var start = click_pin.up(1) orelse click_pin;
+            start.x = self.io.terminal.screen.pages.cols - 1;
+            break :start start;
         } else start: {
-            if (cell_start_xpos < cell_xboundary) {
-                break :start click_point;
-            } else {
-                break :start if (click_point.x < self.io.terminal.screen.cols - 1) terminal.point.ScreenPoint{
-                    .y = click_point.y,
-                    .x = click_point.x + 1,
-                } else terminal.point.ScreenPoint{
-                    .y = click_point.y + 1,
-                    .x = 0,
-                };
-            }
+            if (cell_start_xpos < cell_xboundary) break :start click_pin;
+            if (click_pin.x < self.io.terminal.screen.pages.cols - 1)
+                break :start click_pin.right(1);
+            var start = click_pin.down(1) orelse click_pin;
+            start.x = 0;
+            break :start start;
         };
 
-        self.setSelection(.{
-            .start = start,
-            .end = screen_point,
-            .rectangle = self.mouse.mods.ctrlOrSuper() and self.mouse.mods.alt,
-        });
+        try self.setSelection(terminal.Selection.init(
+            start,
+            drag_pin,
+            self.mouse.mods.ctrlOrSuper() and self.mouse.mods.alt,
+        ));
         return;
     }
 
@@ -2825,9 +2829,12 @@ fn dragLeftClickSingle(
     // We moved! Set the selection end point. The start point should be
     // set earlier.
     assert(self.io.terminal.screen.selection != null);
-    var sel = self.io.terminal.screen.selection.?;
-    sel.end = screen_point;
-    self.setSelection(sel);
+    const sel = self.io.terminal.screen.selection.?;
+    try self.setSelection(terminal.Selection.init(
+        sel.start(),
+        drag_pin,
+        sel.rectangle,
+    ));
 }
 
 // Resets the selection if we switched directions, depending on the select
@@ -2868,15 +2875,15 @@ fn checkResetSelSwitch(self: *Surface, screen_point: terminal.point.ScreenPoint)
 // where to start the selection (before or after the click point). See
 // dragLeftClickSingle for more details.
 fn dragLeftClickBefore(
-    screen_point: terminal.point.ScreenPoint,
-    click_point: terminal.point.ScreenPoint,
+    drag_pin: terminal.Pin,
+    click_pin: terminal.Pin,
     mods: input.Mods,
 ) bool {
     if (mods.ctrlOrSuper() and mods.alt) {
-        return screen_point.x < click_point.x;
+        return drag_pin.x < click_pin.x;
     }
 
-    return screen_point.before(click_point);
+    return drag_pin.before(click_pin);
 }
 
 /// Call to notify Ghostty that the color scheme for the terminal has

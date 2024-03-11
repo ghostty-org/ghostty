@@ -2394,6 +2394,22 @@ pub const Pin = struct {
             self.x == other.x;
     }
 
+    /// Move the pin left n columns. n must fit within the size.
+    pub fn left(self: Pin, n: usize) Pin {
+        assert(n <= self.x);
+        var result = self;
+        result.x -= n;
+        return result;
+    }
+
+    /// Move the pin right n columns. n must fit within the size.
+    pub fn right(self: Pin, n: usize) Pin {
+        assert(self.x + n < self.page.data.size.cols);
+        var result = self;
+        result.x += n;
+        return result;
+    }
+
     /// Move the pin down a certain number of rows, or return null if
     /// the pin goes beyond the end of the screen.
     pub fn down(self: Pin, n: usize) ?Pin {
