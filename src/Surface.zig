@@ -2630,7 +2630,7 @@ pub fn cursorPosCallback(
         switch (self.mouse.left_click_count) {
             1 => try self.dragLeftClickSingle(pin, pos.x),
             2 => try self.dragLeftClickDouble(pin),
-            // 3 => self.dragLeftClickTriple(screen_point),
+            3 => try self.dragLeftClickTriple(pin),
             else => unreachable,
         }
 
@@ -2708,26 +2708,29 @@ fn dragLeftClickDouble(
 /// Triple-click dragging moves the selection one "line" at a time.
 fn dragLeftClickTriple(
     self: *Surface,
-    screen_point: terminal.point.ScreenPoint,
-) void {
+    drag_pin: terminal.Pin,
+) !void {
+    const screen = &self.io.terminal.screen;
+    const click_pin = self.mouse.left_click_pin.?.*;
+
     // Get the word under our current point. If there isn't a word, do nothing.
-    const word = self.io.terminal.screen.selectLine(screen_point) orelse return;
+    const word = screen.selectLine(drag_pin) orelse return;
 
     // Get our selection to grow it. If we don't have a selection, start it now.
     // We may not have a selection if we started our dbl-click in an area
     // that had no data, then we dragged our mouse into an area with data.
-    var sel = self.io.terminal.screen.selectLine(self.mouse.left_click_point) orelse {
-        self.setSelection(word);
+    var sel = screen.selectLine(click_pin) orelse {
+        try self.setSelection(word);
         return;
     };
 
     // Grow our selection
-    if (screen_point.before(self.mouse.left_click_point)) {
-        sel.start = word.start;
+    if (drag_pin.before(click_pin)) {
+        sel.startPtr().* = word.start();
     } else {
-        sel.end = word.end;
+        sel.endPtr().* = word.end();
     }
-    self.setSelection(sel);
+    try self.setSelection(sel);
 }
 
 fn dragLeftClickSingle(
