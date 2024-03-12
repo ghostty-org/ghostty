@@ -507,20 +507,13 @@ pub fn scrollViewport(self: *Exec, scroll: terminal.Terminal.ScrollViewport) !vo
 
 /// Jump the viewport to the prompt.
 pub fn jumpToPrompt(self: *Exec, delta: isize) !void {
-    _ = self;
-    _ = delta;
-    // TODO(paged-terminal)
-    // const wakeup: bool = wakeup: {
-    //     self.renderer_state.mutex.lock();
-    //     defer self.renderer_state.mutex.unlock();
-    //     break :wakeup self.terminal.screen.jump(.{
-    //         .prompt_delta = delta,
-    //     });
-    // };
-    //
-    // if (wakeup) {
-    //     try self.renderer_wakeup.notify();
-    // }
+    {
+        self.renderer_state.mutex.lock();
+        defer self.renderer_state.mutex.unlock();
+        self.terminal.screen.scroll(.{ .delta_prompt = delta });
+    }
+
+    try self.renderer_wakeup.notify();
 }
 
 /// Called when the child process exited abnormally but before

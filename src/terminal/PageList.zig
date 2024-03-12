@@ -1408,6 +1408,11 @@ pub const Scroll = union(enum) {
     /// Scroll up (negative) or down (positive) by the given number of
     /// rows. This is clamped to the "top" and "active" top left.
     delta_row: isize,
+
+    /// Jump forwards (positive) or backwards (negative) a set number of
+    /// prompts. If the absolute value is greater than the number of prompts
+    /// in either direction, jump to the furthest prompt in that direction.
+    delta_prompt: isize,
 };
 
 /// Scroll the viewport. This will never create new scrollback, allocate
@@ -1417,6 +1422,7 @@ pub fn scroll(self: *PageList, behavior: Scroll) void {
     switch (behavior) {
         .active => self.viewport = .{ .active = {} },
         .top => self.viewport = .{ .top = {} },
+        .delta_prompt => |n| self.scrollPrompt(n),
         .delta_row => |n| {
             if (n == 0) return;
 
@@ -1445,6 +1451,45 @@ pub fn scroll(self: *PageList, behavior: Scroll) void {
             self.viewport_pin.* = p;
             self.viewport = .{ .pin = {} };
         },
+    }
+}
+
+/// Jump the viewport forwards (positive) or backwards (negative) a set number of
+/// prompts (delta).
+fn scrollPrompt(self: *PageList, delta: isize) void {
+    // If we aren't jumping any prompts then we don't need to do anything.
+    if (delta == 0) return;
+    const delta_start: usize = @intCast(if (delta > 0) delta else -delta);
+    var delta_rem: usize = delta_start;
+
+    // Iterate and count the number of prompts we see.
+    const viewport_pin = self.getTopLeft(.viewport);
+    var it = viewport_pin.rowIterator(if (delta > 0) .right_down else .left_up, null);
+    _ = it.next(); // skip our own row
+    var prompt_pin: ?Pin = null;
+    while (it.next()) |next| {
+        const row = next.rowAndCell().row;
+        switch (row.semantic_prompt) {
+            .command, .unknown => {},
+            .prompt, .prompt_continuation, .input => {
+                delta_rem -= 1;
+                prompt_pin = next;
+            },
+        }
+
+        if (delta_rem == 0) break;
+    }
+
+    // If we found a prompt, we move to it. If the prompt is in the active
+    // area we keep our viewport as active because we can't scroll DOWN
+    // into the active area. Otherwise, we scroll up to the pin.
+    if (prompt_pin) |p| {
+        if (self.pinIsActive(p)) {
+            self.viewport = .{ .active = {} };
+        } else {
+            self.viewport_pin.* = p;
+            self.viewport = .{ .pin = {} };
+        }
     }
 }
 
@@ -3059,6 +3104,75 @@ test "PageList scroll clear" {
             .x = 0,
             .y = 2,
         } }, pt);
+    }
+}
+
+test "PageList: jump zero" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, null);
+    defer s.deinit();
+    try s.growRows(3);
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+    {
+        const rac = page.getRowAndCell(0, 1);
+        rac.row.semantic_prompt = .prompt;
+    }
+    {
+        const rac = page.getRowAndCell(0, 5);
+        rac.row.semantic_prompt = .prompt;
+    }
+
+    s.scroll(.{ .delta_prompt = 0 });
+    try testing.expect(s.viewport == .active);
+}
+
+test "Screen: jump to prompt" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, null);
+    defer s.deinit();
+    try s.growRows(3);
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+    {
+        const rac = page.getRowAndCell(0, 1);
+        rac.row.semantic_prompt = .prompt;
+    }
+    {
+        const rac = page.getRowAndCell(0, 5);
+        rac.row.semantic_prompt = .prompt;
+    }
+
+    // Jump back
+    {
+        s.scroll(.{ .delta_prompt = -1 });
+        try testing.expect(s.viewport == .pin);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 1,
+        } }, s.pointFromPin(.screen, s.pin(.{ .viewport = .{} }).?).?);
+    }
+    {
+        s.scroll(.{ .delta_prompt = -1 });
+        try testing.expect(s.viewport == .pin);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 1,
+        } }, s.pointFromPin(.screen, s.pin(.{ .viewport = .{} }).?).?);
+    }
+
+    // Jump forward
+    {
+        s.scroll(.{ .delta_prompt = 1 });
+        try testing.expect(s.viewport == .active);
+    }
+    {
+        s.scroll(.{ .delta_prompt = 1 });
+        try testing.expect(s.viewport == .active);
     }
 }
 
