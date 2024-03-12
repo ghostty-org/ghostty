@@ -7728,6 +7728,27 @@ test "Terminal: resize with high unique style per cell" {
     try t.resize(alloc, 60, 30);
 }
 
+test "Terminal: resize with high unique style per cell with wrapping" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 30, 30);
+    defer t.deinit(alloc);
+
+    const cell_count: u16 = @intCast(t.rows * t.cols);
+    for (0..cell_count) |i| {
+        const r: u8 = @intCast(i >> 8);
+        const g: u8 = @intCast(i & 0xFF);
+
+        try t.setAttribute(.{ .direct_color_bg = .{
+            .r = r,
+            .g = g,
+            .b = 0,
+        } });
+        try t.print('x');
+    }
+
+    try t.resize(alloc, 60, 30);
+}
+
 test "Terminal: DECCOLM without DEC mode 40" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
