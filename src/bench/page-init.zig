@@ -8,7 +8,8 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const cli = @import("../cli.zig");
-const terminal = @import("../terminal/main.zig");
+const terminal = @import("../terminal-old/main.zig");
+const terminal_new = @import("../terminal/main.zig");
 
 const Args = struct {
     mode: Mode = .alloc,
@@ -59,15 +60,15 @@ pub fn main() !void {
 
 noinline fn benchAlloc(count: usize) !void {
     for (0..count) |_| {
-        _ = try terminal.new.Page.init(terminal.new.page.std_capacity);
+        _ = try terminal_new.Page.init(terminal_new.page.std_capacity);
     }
 }
 
 noinline fn benchPool(alloc: Allocator, count: usize) !void {
-    var list = try terminal.new.PageList.init(
+    var list = try terminal_new.PageList.init(
         alloc,
-        terminal.new.page.std_capacity.cols,
-        terminal.new.page.std_capacity.rows,
+        terminal_new.page.std_capacity.cols,
+        terminal_new.page.std_capacity.rows,
         0,
     );
     defer list.deinit();

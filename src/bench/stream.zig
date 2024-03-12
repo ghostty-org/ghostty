@@ -99,11 +99,10 @@ pub fn main() !void {
         defer f.close();
         const r = f.reader();
         const TerminalStream = terminal.Stream(*NewTerminalHandler);
-        var t = try terminalnew.Terminal.init(
-            alloc,
-            @intCast(args.@"terminal-cols"),
-            @intCast(args.@"terminal-rows"),
-        );
+        var t = try terminalnew.Terminal.init(alloc, .{
+            .cols = @intCast(args.@"terminal-cols"),
+            .rows = @intCast(args.@"terminal-rows"),
+        });
         var handler: NewTerminalHandler = .{ .t = &t };
         var stream: TerminalStream = .{ .handler = &handler };
         try benchSimd(r, &stream, buf);
@@ -141,11 +140,10 @@ pub fn main() !void {
 
             .new => {
                 const TerminalStream = terminal.Stream(*NewTerminalHandler);
-                var t = try terminalnew.Terminal.init(
-                    alloc,
-                    @intCast(args.@"terminal-cols"),
-                    @intCast(args.@"terminal-rows"),
-                );
+                var t = try terminalnew.Terminal.init(alloc, .{
+                    .cols = @intCast(args.@"terminal-cols"),
+                    .rows = @intCast(args.@"terminal-rows"),
+                });
                 var handler: NewTerminalHandler = .{ .t = &t };
                 var stream: TerminalStream = .{ .handler = &handler };
                 switch (tag) {
