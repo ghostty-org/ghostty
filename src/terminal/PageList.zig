@@ -1561,15 +1561,17 @@ pub fn adjustCapacity(
     page: *List.Node,
     adjustment: AdjustCapacity,
 ) !*List.Node {
-    // We always use our base capacity which is our standard
-    // adjusted for our column size.
-    var cap = try std_capacity.adjust(.{ .cols = self.cols });
+    // We always start with the base capacity of the existing page. This
+    // ensures we never shrink from what we need.
+    var cap = page.data.capacity;
 
     // From there, we increase our capacity as required
     if (adjustment.styles) |v| {
         const aligned = try std.math.ceilPowerOfTwo(u16, v);
         cap.styles = @max(cap.styles, aligned);
     }
+
+    log.info("adjusting page capacity={}", .{cap});
 
     // Create our new page and clone the old page into it.
     const new_page = try self.createPage(cap);
