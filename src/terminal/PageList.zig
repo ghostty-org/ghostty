@@ -537,9 +537,6 @@ fn resizeCols(
 ) !void {
     assert(cols != self.cols);
 
-    // Our new capacity, ensure we can fit the cols
-    const cap = try std_capacity.adjust(.{ .cols = cols });
-
     // If we have a cursor position (x,y), then we try under any col resizing
     // to keep the same number remaining active rows beneath it. This is a
     // very special case if you can imagine clearing the screen (i.e.
@@ -588,7 +585,7 @@ fn resizeCols(
         // Note: we can do a fast-path here if all of our rows in this
         // page already fit within the new capacity. In that case we can
         // do a non-reflow resize.
-        try self.reflowPage(cap, chunk.page);
+        try self.reflowPage(cols, chunk.page);
     }
 
     // If our total rows is less than our active rows, we need to grow.
@@ -774,7 +771,7 @@ const ReflowCursor = struct {
 /// function.
 fn reflowPage(
     self: *PageList,
-    cap: Capacity,
+    cols: size.CellCountInt,
     initial_node: *List.Node,
 ) !void {
     // The cursor tracks where we are in the source page.
@@ -810,6 +807,10 @@ fn reflowPage(
     // Our new capacity when growing columns may also shrink rows. So we
     // need to do a loop in order to potentially make multiple pages.
     dst_loop: while (true) {
+        // Our cap is based on the source page cap so we can inherit
+        // potentially increased styles/graphemes/etc.
+        const cap = try src_cursor.page.capacity.adjust(.{ .cols = cols });
+
         // Create our new page and our cursor restarts at 0,0 in the new page.
         // The new page always starts with a size of 1 because we know we have
         // at least one row to copy from the src.
