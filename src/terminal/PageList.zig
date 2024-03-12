@@ -328,17 +328,38 @@ pub fn clone(
     errdefer tracked_pins.deinit(pool.alloc);
     try tracked_pins.putNoClobber(pool.alloc, viewport_pin, {});
 
-    // Copy our pages
+    // Our list of pages
     var page_list: List = .{};
+    errdefer {
+        const page_alloc = pool.pages.arena.child_allocator;
+        var page_it = page_list.first;
+        while (page_it) |node| : (page_it = node.next) {
+            if (node.data.memory.len > std_size) {
+                page_alloc.free(node.data.memory);
+            }
+        }
+    }
+
+    // Copy our pages
     var total_rows: usize = 0;
-    var page_count: usize = 0;
+    var page_size: usize = 0;
     while (it.next()) |chunk| {
-        // Clone the page
-        const page = try pool.nodes.create();
-        const page_buf = try pool.pages.create();
-        page.* = .{ .data = chunk.page.data.cloneBuf(page_buf) };
+        // Clone the page. We have to use createPageExt here because
+        // we don't know if the source page has a standard size.
+        const page = try createPageExt(
+            pool,
+            chunk.page.data.capacity,
+            &page_size,
+        );
+        assert(page.data.capacity.rows >= chunk.page.data.capacity.rows);
+        page.data.size.rows = chunk.page.data.size.rows;
+        try page.data.cloneFrom(
+            &chunk.page.data,
+            0,
+            chunk.page.data.size.rows,
+        );
+
         page_list.append(page);
-        page_count += 1;
 
         // If this is a full page then we're done.
         if (chunk.fullPage()) {
@@ -427,7 +448,7 @@ pub fn clone(
             .alloc => true,
         },
         .pages = page_list,
-        .page_size = PagePool.item_size * page_count,
+        .page_size = page_size,
         .max_size = self.max_size,
         .cols = self.cols,
         .rows = self.rows,
@@ -1587,19 +1608,30 @@ pub fn compact(self: *PageList, page: *List.Node) !*List.Node {
 
 /// Create a new page node. This does not add it to the list and this
 /// does not do any memory size accounting with max_size/page_size.
-fn createPage(self: *PageList, cap: Capacity) !*List.Node {
-    var page = try self.pool.nodes.create();
-    errdefer self.pool.nodes.destroy(page);
+fn createPage(
+    self: *PageList,
+    cap: Capacity,
+) !*List.Node {
+    return try createPageExt(&self.pool, cap, &self.page_size);
+}
+
+fn createPageExt(
+    pool: *MemoryPool,
+    cap: Capacity,
+    total_size: ?*usize,
+) !*List.Node {
+    var page = try pool.nodes.create();
+    errdefer pool.nodes.destroy(page);
 
     const layout = Page.layout(cap);
     const pooled = layout.total_size <= std_size;
-    const page_alloc = self.pool.pages.arena.child_allocator;
+    const page_alloc = pool.pages.arena.child_allocator;
 
     // Our page buffer comes from our standard memory pool if it
     // is within our standard size since this is what the pool
     // dispenses. Otherwise, we use the heap allocator to allocate.
     const page_buf = if (pooled)
-        try self.pool.pages.create()
+        try pool.pages.create()
     else
         try page_alloc.alignedAlloc(
             u8,
@@ -1607,7 +1639,7 @@ fn createPage(self: *PageList, cap: Capacity) !*List.Node {
             layout.total_size,
         );
     errdefer if (pooled)
-        self.pool.pages.destroy(page_buf)
+        pool.pages.destroy(page_buf)
     else
         page_alloc.free(page_buf);
 
@@ -1618,10 +1650,12 @@ fn createPage(self: *PageList, cap: Capacity) !*List.Node {
     page.* = .{ .data = Page.initBuf(OffsetBuf.init(page_buf), layout) };
     page.data.size.rows = 0;
 
-    // Accumulate page size now. We don't assert or check max size because
-    // we may exceed it here temporarily as we are allocating pages before
-    // destroy.
-    self.page_size += page_buf.len;
+    if (total_size) |v| {
+        // Accumulate page size now. We don't assert or check max size
+        // because we may exceed it here temporarily as we are allocating
+        // pages before destroy.
+        v.* += page_buf.len;
+    }
 
     return page;
 }
@@ -1629,19 +1663,27 @@ fn createPage(self: *PageList, cap: Capacity) !*List.Node {
 /// Destroy the memory of the given page and return it to the pool. The
 /// page is assumed to already be removed from the linked list.
 fn destroyPage(self: *PageList, page: *List.Node) void {
+    destroyPageExt(&self.pool, page, &self.page_size);
+}
+
+fn destroyPageExt(
+    pool: *MemoryPool,
+    page: *List.Node,
+    total_size: ?*usize,
+) void {
     // Update our accounting for page size
-    self.page_size -= page.data.memory.len;
+    if (total_size) |v| v.* -= page.data.memory.len;
 
     if (page.data.memory.len <= std_size) {
         // Reset the memory to zero so it can be reused
         @memset(page.data.memory, 0);
-        self.pool.pages.destroy(@ptrCast(page.data.memory.ptr));
+        pool.pages.destroy(@ptrCast(page.data.memory.ptr));
     } else {
-        const page_alloc = self.pool.pages.arena.child_allocator;
+        const page_alloc = pool.pages.arena.child_allocator;
         page_alloc.free(page.data.memory);
     }
 
-    self.pool.nodes.destroy(page);
+    pool.nodes.destroy(page);
 }
 
 /// Erase the rows from the given top to bottom (inclusive). Erasing
