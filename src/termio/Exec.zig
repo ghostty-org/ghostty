@@ -127,11 +127,11 @@ pub const DerivedConfig = struct {
 /// process.
 pub fn init(alloc: Allocator, opts: termio.Options) !Exec {
     // Create our terminal
-    var term = try terminal.Terminal.init(
-        alloc,
-        opts.grid_size.columns,
-        opts.grid_size.rows,
-    );
+    var term = try terminal.Terminal.init(alloc, .{
+        .cols = opts.grid_size.columns,
+        .rows = opts.grid_size.rows,
+        .max_scrollback = opts.full_config.@"scrollback-limit",
+    });
     errdefer term.deinit(alloc);
     term.default_palette = opts.config.palette;
     term.color_palette.colors = opts.config.palette;
