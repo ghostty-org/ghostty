@@ -5,7 +5,8 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const cli = @import("../cli.zig");
-const terminal = @import("../terminal/main.zig");
+const terminal = @import("../terminal-old/main.zig");
+const terminal_new = @import("../terminal/main.zig");
 
 const Args = struct {
     mode: Mode = .old,
@@ -60,11 +61,10 @@ pub fn main() !void {
         },
 
         .new => {
-            var t = try terminal.new.Terminal.init(
-                alloc,
-                @intCast(args.cols),
-                @intCast(args.rows),
-            );
+            var t = try terminal_new.Terminal.init(alloc, .{
+                .cols = @intCast(args.cols),
+                .rows = @intCast(args.rows),
+            });
             defer t.deinit(alloc);
             try benchNew(&t, args);
         },
@@ -87,7 +87,7 @@ noinline fn benchOld(t: *terminal.Terminal, args: Args) !void {
     }
 }
 
-noinline fn benchNew(t: *terminal.new.Terminal, args: Args) !void {
+noinline fn benchNew(t: *terminal_new.Terminal, args: Args) !void {
     // We fill the terminal with letters.
     for (0..args.rows) |row| {
         for (0..args.cols) |col| {
