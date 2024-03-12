@@ -1065,7 +1065,7 @@ fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
     // again if it changed, since setting the clipboard can be an expensive
     // operation.
     const sel = sel_ orelse return;
-    if (prev_) |prev| if (std.meta.eql(sel, prev)) return;
+    if (prev_) |prev| if (sel.eql(prev)) return;
 
     // Check if our runtime supports the selection clipboard at all.
     // We can save a lot of work if it doesn't.
