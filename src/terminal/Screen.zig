@@ -646,9 +646,15 @@ pub fn clearCells(
             // Slow path: we need to lookup this style so we can decrement
             // the ref count. Since we've already loaded everything, we also
             // just go ahead and GC it if it reaches zero, too.
-            if (page.styles.lookupId(page.memory, cell.style_id)) |prev_style| {
+            if (page.styles.lookupId(
+                page.memory,
+                cell.style_id,
+            )) |prev_style| {
                 // Below upsert can't fail because it should already be present
-                const md = page.styles.upsert(page.memory, prev_style.*) catch unreachable;
+                const md = page.styles.upsert(
+                    page.memory,
+                    prev_style.*,
+                ) catch unreachable;
                 assert(md.ref > 0);
                 md.ref -= 1;
                 if (md.ref == 0) page.styles.remove(page.memory, cell.style_id);
@@ -962,7 +968,30 @@ pub fn manualStyleUpdate(self: *Screen) !void {
     // if that makes a meaningful difference. Our priority is to keep print
     // fast because setting a ton of styles that do nothing is uncommon
     // and weird.
-    const md = try page.styles.upsert(page.memory, self.cursor.style);
+    const md = page.styles.upsert(
+        page.memory,
+        self.cursor.style,
+    ) catch |err| switch (err) {
+        // Our style map is full. Let's allocate a new page by doubling
+        // the size and then try again.
+        error.OutOfMemory => md: {
+            const node = try self.pages.adjustCapacity(
+                self.cursor.page_pin.page,
+                .{ .styles = page.capacity.styles * 2 },
+            );
+
+            // Since this modifies our cursor page, we need to reload
+            self.cursorReload();
+
+            page = &node.data;
+            break :md try page.styles.upsert(
+                page.memory,
+                self.cursor.style,
+            );
+        },
+
+        error.Overflow => return err, // TODO
+    };
     self.cursor.style_id = md.id;
     self.cursor.style_ref = &md.ref;
 }

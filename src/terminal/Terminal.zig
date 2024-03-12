@@ -2264,6 +2264,24 @@ test "Terminal: input that forces scroll" {
     }
 }
 
+test "Terminal: input unique style per cell" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 30, 30);
+    defer t.deinit(alloc);
+
+    for (0..t.rows) |y| {
+        for (0..t.cols) |x| {
+            t.setCursorPos(y, x);
+            try t.setAttribute(.{ .direct_color_bg = .{
+                .r = @intCast(x),
+                .g = @intCast(y),
+                .b = 0,
+            } });
+            try t.print('x');
+        }
+    }
+}
+
 test "Terminal: zero-width character at start" {
     var t = try init(testing.allocator, 80, 80);
     defer t.deinit(testing.allocator);
