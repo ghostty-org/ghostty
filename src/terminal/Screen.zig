@@ -532,6 +532,7 @@ pub const Scroll = union(enum) {
     active,
     top,
     delta_row: isize,
+    delta_prompt: isize,
 };
 
 /// Scroll the viewport of the terminal grid.
@@ -545,6 +546,7 @@ pub fn scroll(self: *Screen, behavior: Scroll) void {
         .active => self.pages.scroll(.{ .active = {} }),
         .top => self.pages.scroll(.{ .top = {} }),
         .delta_row => |v| self.pages.scroll(.{ .delta_row = v }),
+        .delta_prompt => |v| self.pages.scroll(.{ .delta_prompt = v }),
     }
 }
 
