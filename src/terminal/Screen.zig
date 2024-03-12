@@ -949,6 +949,8 @@ pub fn setAttribute(self: *Screen, attr: sgr.Attribute) !void {
 pub fn manualStyleUpdate(self: *Screen) !void {
     var page = &self.cursor.page_pin.page.data;
 
+    // std.log.warn("active styles={}", .{page.styles.count(page.memory)});
+
     // Remove our previous style if is unused.
     if (self.cursor.style_ref) |ref| {
         if (ref.* == 0) {
