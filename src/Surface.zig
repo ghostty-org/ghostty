@@ -2242,14 +2242,13 @@ pub fn mouseButtonCallback(
     }
 
     // For left button click release we check if we are moving our cursor.
-    if (button == .left and action == .release and mods.alt) {
+    if (button == .left and action == .release and mods.alt) click_move: {
         // Moving always resets the click count so that we don't highlight.
         self.mouse.left_click_count = 0;
-
-        // TODO(paged-terminal)
-        // self.renderer_state.mutex.lock();
-        // defer self.renderer_state.mutex.unlock();
-        // try self.clickMoveCursor(self.mouse.left_click_point);
+        const pin = self.mouse.left_click_pin orelse break :click_move;
+        self.renderer_state.mutex.lock();
+        defer self.renderer_state.mutex.unlock();
+        try self.clickMoveCursor(pin.*);
         return;
     }
 
@@ -2383,7 +2382,7 @@ pub fn mouseButtonCallback(
 /// Performs the "click-to-move" logic to move the cursor to the given
 /// screen point if possible. This works by converting the path to the
 /// given point into a series of arrow key inputs.
-fn clickMoveCursor(self: *Surface, to: terminal.point.ScreenPoint) !void {
+fn clickMoveCursor(self: *Surface, to: terminal.Pin) !void {
     // If click-to-move is disabled then we're done.
     if (!self.config.cursor_click_to_move) return;
 
@@ -2400,10 +2399,7 @@ fn clickMoveCursor(self: *Surface, to: terminal.point.ScreenPoint) !void {
     if (!t.flags.shell_redraws_prompt) return;
 
     // Get our path
-    const from = (terminal.point.Viewport{
-        .x = t.screen.cursor.x,
-        .y = t.screen.cursor.y,
-    }).toScreen(&t.screen);
+    const from = t.screen.cursor.page_pin.*;
     const path = t.screen.promptPath(from, to);
     log.debug("click-to-move-cursor from={} to={} path={}", .{ from, to, path });
 
