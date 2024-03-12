@@ -259,6 +259,7 @@ pub const Page = struct {
             for (cells, other_cells) |*dst_cell, *src_cell| {
                 dst_cell.* = src_cell.*;
                 if (src_cell.hasGrapheme()) {
+                    dst_cell.content_tag = .codepoint; // required for appendGrapheme
                     const cps = other.lookupGrapheme(src_cell).?;
                     for (cps) |cp| try self.appendGrapheme(dst_row, dst_cell, cp);
                 }
@@ -1158,6 +1159,68 @@ test "Page cloneFrom partial" {
     }
     for (5..page2.size.rows) |y| {
         const rac = page2.getRowAndCell(1, y);
+        try testing.expectEqual(@as(u21, 0), rac.cell.content.codepoint);
+    }
+}
+
+test "Page cloneFrom graphemes" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    // Write
+    for (0..page.capacity.rows) |y| {
+        const rac = page.getRowAndCell(1, y);
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = @intCast(y + 1) },
+        };
+        try page.appendGrapheme(rac.row, rac.cell, 0x0A);
+    }
+
+    // Clone
+    var page2 = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page2.deinit();
+    try page2.cloneFrom(&page, 0, page.size.rows);
+
+    // Read it again
+    for (0..page2.capacity.rows) |y| {
+        const rac = page2.getRowAndCell(1, y);
+        try testing.expectEqual(@as(u21, @intCast(y + 1)), rac.cell.content.codepoint);
+        try testing.expect(rac.row.grapheme);
+        try testing.expect(rac.cell.hasGrapheme());
+        try testing.expectEqualSlices(u21, &.{0x0A}, page2.lookupGrapheme(rac.cell).?);
+    }
+
+    // Write again
+    for (0..page.capacity.rows) |y| {
+        const rac = page.getRowAndCell(1, y);
+        page.clearGrapheme(rac.row, rac.cell);
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = 0 },
+        };
+    }
+
+    // Read it again, should be unchanged
+    for (0..page2.capacity.rows) |y| {
+        const rac = page2.getRowAndCell(1, y);
+        try testing.expectEqual(@as(u21, @intCast(y + 1)), rac.cell.content.codepoint);
+        try testing.expect(rac.row.grapheme);
+        try testing.expect(rac.cell.hasGrapheme());
+        try testing.expectEqualSlices(u21, &.{0x0A}, page2.lookupGrapheme(rac.cell).?);
+    }
+
+    // Read the original
+    for (0..page.capacity.rows) |y| {
+        const rac = page.getRowAndCell(1, y);
         try testing.expectEqual(@as(u21, 0), rac.cell.content.codepoint);
     }
 }
