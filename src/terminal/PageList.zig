@@ -581,7 +581,7 @@ fn resizeCols(
                 if (row.wrap) break :no_reflow;
             }
 
-            try self.resizeWithoutReflowGrowCols(cap, chunk);
+            try self.resizeWithoutReflowGrowCols(cols, chunk);
             continue;
         }
 
@@ -1245,11 +1245,9 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
             // pages may not have the capacity for this. If they don't have
             // the capacity we need to allocate a new page and copy the data.
             .gt => {
-                const cap = try std_capacity.adjust(.{ .cols = cols });
-
                 var it = self.pageIterator(.right_down, .{ .screen = .{} }, null);
                 while (it.next()) |chunk| {
-                    try self.resizeWithoutReflowGrowCols(cap, chunk);
+                    try self.resizeWithoutReflowGrowCols(cols, chunk);
                 }
 
                 self.cols = cols;
@@ -1260,11 +1258,12 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
 
 fn resizeWithoutReflowGrowCols(
     self: *PageList,
-    cap: Capacity,
+    cols: size.CellCountInt,
     chunk: PageIterator.Chunk,
 ) !void {
-    assert(cap.cols > self.cols);
+    assert(cols > self.cols);
     const page = &chunk.page.data;
+    const cap = try page.capacity.adjust(.{ .cols = cols });
 
     // Update our col count
     const old_cols = self.cols;

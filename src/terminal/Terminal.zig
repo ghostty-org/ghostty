@@ -7708,6 +7708,26 @@ test "Terminal: resize with wraparound on" {
     try testing.expectEqualStrings("01\n23", str);
 }
 
+test "Terminal: resize with high unique style per cell" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, 30, 30);
+    defer t.deinit(alloc);
+
+    for (0..t.rows) |y| {
+        for (0..t.cols) |x| {
+            t.setCursorPos(y, x);
+            try t.setAttribute(.{ .direct_color_bg = .{
+                .r = @intCast(x),
+                .g = @intCast(y),
+                .b = 0,
+            } });
+            try t.print('x');
+        }
+    }
+
+    try t.resize(alloc, 60, 30);
+}
+
 test "Terminal: DECCOLM without DEC mode 40" {
     const alloc = testing.allocator;
     var t = try init(alloc, 5, 5);
