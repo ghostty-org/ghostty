@@ -1539,7 +1539,7 @@ pub fn adjustCapacity(
     self: *PageList,
     page: *List.Node,
     adjustment: AdjustCapacity,
-) !void {
+) !*List.Node {
     // We always use our base capacity which is our standard
     // adjusted for our column size.
     var cap = try std_capacity.adjust(.{ .cols = self.cols });
@@ -1557,10 +1557,20 @@ pub fn adjustCapacity(
     new_page.data.size.rows = page.data.size.rows;
     try new_page.data.cloneFrom(&page.data, 0, page.data.size.rows);
 
+    // Fix up all our tracked pins to point to the new page.
+    var it = self.tracked_pins.keyIterator();
+    while (it.next()) |p_ptr| {
+        const p = p_ptr.*;
+        if (p.page != page) continue;
+        p.page = new_page;
+    }
+
     // Insert this page and destroy the old page
     self.pages.insertBefore(page, new_page);
     self.pages.remove(page);
     self.destroyPage(page);
+
+    return new_page;
 }
 
 /// Create a new page node. This does not add it to the list and this
@@ -3105,7 +3115,7 @@ test "PageList adjustCapacity to increase styles" {
     }
 
     // Increase our styles
-    try s.adjustCapacity(
+    _ = try s.adjustCapacity(
         s.pages.first.?,
         .{ .styles = std_capacity.styles * 2 },
     );
