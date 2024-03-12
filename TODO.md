@@ -25,5 +25,3 @@ paged-terminal branch:
 
 - tests and logic for overflowing page capacities:
   * graphemes
-  * styles
-- configurable scrollback size
