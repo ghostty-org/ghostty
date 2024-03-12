@@ -34,12 +34,13 @@ const List = std.DoublyLinkedList(Page);
 const NodePool = std.heap.MemoryPool(List.Node);
 
 const std_capacity = pagepkg.std_capacity;
+const std_size = Page.layout(std_capacity).total_size;
 
 /// The memory pool we use for page memory buffers. We use a separate pool
 /// so we can allocate these with a page allocator. We have to use a page
 /// allocator because we need memory that is zero-initialized and page-aligned.
 const PagePool = std.heap.MemoryPoolAligned(
-    [Page.layout(std_capacity).total_size]u8,
+    [std_size]u8,
     std.mem.page_size,
 );
 
@@ -233,6 +234,16 @@ pub fn init(
 pub fn deinit(self: *PageList) void {
     // Always deallocate our hashmap.
     self.tracked_pins.deinit(self.pool.alloc);
+
+    // Go through our linked list and deallocate all pages that are
+    // not standard size.
+    const page_alloc = self.pool.pages.arena.child_allocator;
+    var it = self.pages.first;
+    while (it) |node| : (it = node.next) {
+        if (node.data.memory.len > std_size) {
+            page_alloc.free(node.data.memory);
+        }
+    }
 
     // Deallocate all the pages. We don't need to deallocate the list or
     // nodes because they all reside in the pool.
@@ -1500,28 +1511,95 @@ pub fn grow(self: *PageList) !?*List.Node {
     return next_page;
 }
 
+/// Adjust the capacity of the given page in the list.
+pub const AdjustCapacity = struct {
+    /// Adjust the number of styles in the page. This may be
+    /// rounded up if necessary to fit alignment requirements,
+    /// but it will never be rounded down.
+    styles: ?u16 = null,
+};
+
+/// Adjust the capcaity of the given page in the list. This should
+/// be used in cases where OutOfMemory is returned by some operation
+/// i.e to increase style counts, grapheme counts, etc.
+///
+/// Adjustment works by increasing the capacity of the desired
+/// dimension to a certain amount and increases the memory allocation
+/// requirement for the backing memory of the page. We currently
+/// never split pages or anything like that. Because increased allocation
+/// has to happen outside our memory pool, its generally much slower
+/// so pages should be sized to be large enough to handle all but
+/// exceptional cases.
+///
+/// This can currently only INCREASE capacity size. It cannot
+/// decrease capacity size. This limitation is only because we haven't
+/// yet needed that use case. If we ever do, this can be added. Currently
+/// any requests to decrease will be ignored.
+pub fn adjustCapacity(
+    self: *PageList,
+    page: *List.Node,
+    adjustment: AdjustCapacity,
+) !void {
+    // We always use our base capacity which is our standard
+    // adjusted for our column size.
+    var cap = try std_capacity.adjust(.{ .cols = self.cols });
+
+    // From there, we increase our capacity as required
+    if (adjustment.styles) |v| {
+        const aligned = try std.math.ceilPowerOfTwo(u16, v);
+        cap.styles = @max(cap.styles, aligned);
+    }
+
+    // Create our new page and clone the old page into it.
+    const new_page = try self.createPage(cap);
+    errdefer self.destroyPage(new_page);
+    assert(new_page.data.capacity.rows >= page.data.capacity.rows);
+    new_page.data.size.rows = page.data.size.rows;
+    try new_page.data.cloneFrom(&page.data, 0, page.data.size.rows);
+
+    // Insert this page and destroy the old page
+    self.pages.insertBefore(page, new_page);
+    self.pages.remove(page);
+    self.destroyPage(page);
+}
+
 /// Create a new page node. This does not add it to the list and this
 /// does not do any memory size accounting with max_size/page_size.
 fn createPage(self: *PageList, cap: Capacity) !*List.Node {
     var page = try self.pool.nodes.create();
     errdefer self.pool.nodes.destroy(page);
 
-    const page_buf = try self.pool.pages.create();
-    errdefer self.pool.pages.destroy(page_buf);
+    const layout = Page.layout(cap);
+    const pooled = layout.total_size <= std_size;
+    const page_alloc = self.pool.pages.arena.child_allocator;
+
+    // Our page buffer comes from our standard memory pool if it
+    // is within our standard size since this is what the pool
+    // dispenses. Otherwise, we use the heap allocator to allocate.
+    const page_buf = if (pooled)
+        try self.pool.pages.create()
+    else
+        try page_alloc.alignedAlloc(
+            u8,
+            std.mem.page_size,
+            layout.total_size,
+        );
+    errdefer if (pooled)
+        self.pool.pages.destroy(page_buf)
+    else
+        page_alloc.free(page_buf);
+
+    // Required only with runtime safety because allocators initialize
+    // to undefined, 0xAA.
     if (comptime std.debug.runtime_safety) @memset(page_buf, 0);
 
-    page.* = .{
-        .data = Page.initBuf(
-            OffsetBuf.init(page_buf),
-            Page.layout(cap),
-        ),
-    };
+    page.* = .{ .data = Page.initBuf(OffsetBuf.init(page_buf), layout) };
     page.data.size.rows = 0;
 
     // Accumulate page size now. We don't assert or check max size because
     // we may exceed it here temporarily as we are allocating pages before
     // destroy.
-    self.page_size += PagePool.item_size;
+    self.page_size += page_buf.len;
 
     return page;
 }
@@ -1529,15 +1607,19 @@ fn createPage(self: *PageList, cap: Capacity) !*List.Node {
 /// Destroy the memory of the given page and return it to the pool. The
 /// page is assumed to already be removed from the linked list.
 fn destroyPage(self: *PageList, page: *List.Node) void {
-    // Reset the memory to zero so it can be reused
-    @memset(page.data.memory, 0);
-
-    // Put it back into the allocator pool
-    self.pool.pages.destroy(@ptrCast(page.data.memory.ptr));
-    self.pool.nodes.destroy(page);
-
     // Update our accounting for page size
-    self.page_size -= PagePool.item_size;
+    self.page_size -= page.data.memory.len;
+
+    if (page.data.memory.len <= std_size) {
+        // Reset the memory to zero so it can be reused
+        @memset(page.data.memory, 0);
+        self.pool.pages.destroy(@ptrCast(page.data.memory.ptr));
+    } else {
+        const page_alloc = self.pool.pages.arena.child_allocator;
+        page_alloc.free(page.data.memory);
+    }
+
+    self.pool.nodes.destroy(page);
 }
 
 /// Erase the rows from the given top to bottom (inclusive). Erasing
@@ -2998,6 +3080,49 @@ test "PageList grow prune scrollback" {
     // Our first should now be page2 and our last should be page1
     try testing.expectEqual(page2_node, s.pages.first.?);
     try testing.expectEqual(page1_node, s.pages.last.?);
+}
+
+test "PageList adjustCapacity to increase styles" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 2, 0);
+    defer s.deinit();
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+
+        // Write all our data so we can assert its the same after
+        for (0..s.rows) |y| {
+            for (0..s.cols) |x| {
+                const rac = page.getRowAndCell(x, y);
+                rac.cell.* = .{
+                    .content_tag = .codepoint,
+                    .content = .{ .codepoint = @intCast(x) },
+                };
+            }
+        }
+    }
+
+    // Increase our styles
+    try s.adjustCapacity(
+        s.pages.first.?,
+        .{ .styles = std_capacity.styles * 2 },
+    );
+
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+        for (0..s.rows) |y| {
+            for (0..s.cols) |x| {
+                const rac = page.getRowAndCell(x, y);
+                try testing.expectEqual(
+                    @as(u21, @intCast(x)),
+                    rac.cell.content.codepoint,
+                );
+            }
+        }
+    }
 }
 
 test "PageList pageIterator single page" {
@@ -4830,7 +4955,6 @@ test "PageList resize reflow less cols no reflow preserves semantic prompt" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    std.log.warn("GO", .{});
     var s = try init(alloc, 4, 4, 0);
     defer s.deinit();
     {
