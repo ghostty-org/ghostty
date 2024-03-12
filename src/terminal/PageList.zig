@@ -1573,6 +1573,18 @@ pub fn adjustCapacity(
     return new_page;
 }
 
+/// Compact a page, reallocating to minimize the amount of memory
+/// required for the page. This is useful when we've overflowed ID
+/// spaces, are archiving a page, etc.
+///
+/// Note today: this doesn't minimize the memory usage, but it does
+/// fix style ID overflow. A future update can shrink the memory
+/// allocation.
+pub fn compact(self: *PageList, page: *List.Node) !*List.Node {
+    // Adjusting capacity with no adjustments forces a reallocation.
+    return try self.adjustCapacity(page, .{});
+}
+
 /// Create a new page node. This does not add it to the list and this
 /// does not do any memory size accounting with max_size/page_size.
 fn createPage(self: *PageList, cap: Capacity) !*List.Node {

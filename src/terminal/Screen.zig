@@ -971,26 +971,36 @@ pub fn manualStyleUpdate(self: *Screen) !void {
     const md = page.styles.upsert(
         page.memory,
         self.cursor.style,
-    ) catch |err| switch (err) {
-        // Our style map is full. Let's allocate a new page by doubling
-        // the size and then try again.
-        error.OutOfMemory => md: {
-            const node = try self.pages.adjustCapacity(
-                self.cursor.page_pin.page,
-                .{ .styles = page.capacity.styles * 2 },
-            );
+    ) catch |err| md: {
+        switch (err) {
+            // Our style map is full. Let's allocate a new page by doubling
+            // the size and then try again.
+            error.OutOfMemory => {
+                const node = try self.pages.adjustCapacity(
+                    self.cursor.page_pin.page,
+                    .{ .styles = page.capacity.styles * 2 },
+                );
 
-            // Since this modifies our cursor page, we need to reload
-            self.cursorReload();
+                page = &node.data;
+            },
 
-            page = &node.data;
-            break :md try page.styles.upsert(
-                page.memory,
-                self.cursor.style,
-            );
-        },
+            // We've run out of style IDs. This is fixed by doing a page
+            // compaction.
+            error.Overflow => {
+                const node = try self.pages.compact(
+                    self.cursor.page_pin.page,
+                );
+                page = &node.data;
+            },
+        }
 
-        error.Overflow => return err, // TODO
+        // Since this modifies our cursor page, we need to reload
+        self.cursorReload();
+
+        break :md try page.styles.upsert(
+            page.memory,
+            self.cursor.style,
+        );
     };
     self.cursor.style_id = md.id;
     self.cursor.style_ref = &md.ref;
