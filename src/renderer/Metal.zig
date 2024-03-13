@@ -1254,7 +1254,6 @@ fn prepKittyGraphics(
         const offset_y: u32 = if (rect.top_left.before(top)) offset_y: {
             const vp_y = t.screen.pages.pointFromPin(.screen, top).?.screen.y;
             const img_y = t.screen.pages.pointFromPin(.screen, rect.top_left).?.screen.y;
-            std.log.warn("vp_y={} img_y={}", .{ vp_y, img_y });
             const offset_cells = vp_y - img_y;
             const offset_pixels = offset_cells * self.grid_metrics.cell_height;
             break :offset_y @intCast(offset_pixels);
