@@ -222,19 +222,16 @@ fn display(
     switch (d.cursor_movement) {
         .none => {},
         .after => {
-            const rect = p.rect(img, terminal);
-
-            // We can do better by doing this with pure internal screen state
-            // but this handles scroll regions.
-            const height = rect.bottom_right.y - rect.top_left.y;
-            for (0..height) |_| terminal.index() catch |err| {
+            // We use terminal.index to properly handle scroll regions.
+            const size = p.gridSize(img, terminal);
+            for (0..size.rows) |_| terminal.index() catch |err| {
                 log.warn("failed to move cursor: {}", .{err});
                 break;
             };
 
             terminal.setCursorPos(
                 terminal.screen.cursor.y,
-                rect.bottom_right.x + 1,
+                p.pin.x + size.cols + 1,
             );
         },
     }
