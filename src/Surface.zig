@@ -1360,6 +1360,11 @@ pub fn keyCallback(
         defer self.renderer_state.mutex.unlock();
         var screen = self.io.terminal.screen;
         const sel = if (screen.selection) |*sel| sel else break :adjust_selection;
+
+        // Silently consume key releases. We only want to process selection
+        // adjust on press.
+        if (event.action != .press and event.action != .repeat) return .consumed;
+
         sel.adjust(&screen, switch (event.key) {
             .left => .left,
             .right => .right,
@@ -1371,9 +1376,6 @@ pub fn keyCallback(
             .end => .end,
             else => break :adjust_selection,
         });
-
-        // Silently consume key releases.
-        if (event.action != .press and event.action != .repeat) return .consumed;
 
         // If the selection endpoint is outside of the current viewpoint,
         // scroll it in to view.
