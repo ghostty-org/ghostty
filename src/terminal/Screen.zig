@@ -279,8 +279,12 @@ pub fn clonePool(
         };
 
         const start_pin = pin_remap.get(ordered.tl) orelse start: {
+
             // No start means it is outside the cloned area. We change it
-            // to the top-left.
+            // to the top-left. If we have no end pin then our whole
+            // selection is outside the cloned area so we can just set it
+            // as null.
+            if (pin_remap.get(ordered.br) == null) break :sel null;
             break :start try pages.trackPin(.{ .page = pages.pages.first.? });
         };
 
@@ -2818,6 +2822,33 @@ test "Screen: clone contains full selection" {
             .y = 1,
         } }, s2.pages.pointFromPin(.active, sel.end()).?);
     }
+}
+
+test "Screen: clone contains none of selection" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 3, 1);
+    defer s.deinit();
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL");
+
+    // Select a single line
+    try s.select(Selection.init(
+        s.pages.pin(.{ .active = .{ .x = 0, .y = 0 } }).?,
+        s.pages.pin(.{ .active = .{ .x = s.pages.cols - 1, .y = 0 } }).?,
+        false,
+    ));
+
+    // Clone
+    var s2 = try s.clone(
+        alloc,
+        .{ .active = .{ .y = 1 } },
+        null,
+    );
+    defer s2.deinit();
+
+    // Our selection should be null
+    try testing.expect(s2.selection == null);
 }
 
 test "Screen: clone contains selection start cutoff" {
