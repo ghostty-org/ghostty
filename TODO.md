@@ -25,3 +25,4 @@ paged-terminal branch:
 
 - tests and logic for overflowing page capacities:
   * graphemes
+- there is some bug around adjusting selection up out of viewport
