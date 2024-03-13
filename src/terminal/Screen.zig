@@ -1667,17 +1667,28 @@ pub fn promptPath(
     return .{ .x = to_x - from_x, .y = to_y - from_y };
 }
 
+pub const DumpString = struct {
+    /// The start and end points of the dump, both inclusive. The x will
+    /// be ignored and the full row will always be dumped.
+    tl: Pin,
+    br: ?Pin = null,
+
+    /// If true, this will unwrap soft-wrapped lines. If false, this will
+    /// dump the screen as it is visually seen in a rendered window.
+    unwrap: bool = true,
+};
+
 /// Dump the screen to a string. The writer given should be buffered;
 /// this function does not attempt to efficiently write and generally writes
 /// one byte at a time.
 pub fn dumpString(
     self: *const Screen,
     writer: anytype,
-    tl: point.Point,
+    opts: DumpString,
 ) !void {
     var blank_rows: usize = 0;
 
-    var iter = self.pages.rowIterator(.right_down, tl, null);
+    var iter = opts.tl.rowIterator(.right_down, opts.br);
     while (iter.next()) |row_offset| {
         const rac = row_offset.rowAndCell();
         const cells = cells: {
@@ -1736,6 +1747,8 @@ pub fn dumpString(
     }
 }
 
+/// You should use dumpString, this is a restricted version mostly for
+/// legacy and convenience reasons for unit tests.
 pub fn dumpStringAlloc(
     self: *const Screen,
     alloc: Allocator,
@@ -1743,7 +1756,13 @@ pub fn dumpStringAlloc(
 ) ![]const u8 {
     var builder = std.ArrayList(u8).init(alloc);
     defer builder.deinit();
-    try self.dumpString(builder.writer(), tl);
+
+    try self.dumpString(builder.writer(), .{
+        .tl = self.pages.getTopLeft(tl),
+        .br = self.pages.getBottomRight(tl) orelse return error.UnknownPoint,
+        .unwrap = false,
+    });
+
     return try builder.toOwnedSlice();
 }
 

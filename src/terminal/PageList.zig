@@ -2309,7 +2309,7 @@ pub fn pageIterator(
 }
 
 /// Get the top-left of the screen for the given tag.
-fn getTopLeft(self: *const PageList, tag: point.Tag) Pin {
+pub fn getTopLeft(self: *const PageList, tag: point.Tag) Pin {
     return switch (tag) {
         // The full screen or history is always just the first page.
         .screen, .history => .{ .page = self.pages.first.? },
@@ -2343,7 +2343,7 @@ fn getTopLeft(self: *const PageList, tag: point.Tag) Pin {
 /// Returns the bottom right of the screen for the given tag. This can
 /// return null because it is possible that a tag is not in the screen
 /// (e.g. history does not yet exist).
-fn getBottomRight(self: *const PageList, tag: point.Tag) ?Pin {
+pub fn getBottomRight(self: *const PageList, tag: point.Tag) ?Pin {
     return switch (tag) {
         .screen, .active => last: {
             const page = self.pages.last.?;
