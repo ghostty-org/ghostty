@@ -657,7 +657,6 @@ pub fn updateFrame(
     // Data we extract out of the critical area.
     const Critical = struct {
         gl_bg: terminal.color.RGB,
-        selection: ?terminal.Selection,
         screen: terminal.Screen,
         mouse: renderer.State.Mouse,
         preedit: ?renderer.State.Preedit,
@@ -691,24 +690,12 @@ pub fn updateFrame(
         // We used to share terminal state, but we've since learned through
         // analysis that it is faster to copy the terminal state than to
         // hold the lock wile rebuilding GPU cells.
-        const viewport_bottom = state.terminal.screen.viewportIsBottom();
-        var screen_copy = if (viewport_bottom) try state.terminal.screen.clone(
+        var screen_copy = try state.terminal.screen.clone(
             self.alloc,
-            .{ .active = 0 },
-            .{ .active = state.terminal.rows - 1 },
-        ) else try state.terminal.screen.clone(
-            self.alloc,
-            .{ .viewport = 0 },
-            .{ .viewport = state.terminal.rows - 1 },
+            .{ .viewport = .{} },
+            null,
         );
         errdefer screen_copy.deinit();
-
-        // Convert our selection to viewport points because we copy only
-        // the viewport above.
-        const selection: ?terminal.Selection = if (state.terminal.screen.selection) |sel|
-            sel.toViewport(&state.terminal.screen)
-        else
-            null;
 
         // Whether to draw our cursor or not.
         const cursor_style = renderer.cursorStyle(
@@ -739,7 +726,6 @@ pub fn updateFrame(
 
         break :critical .{
             .gl_bg = self.background_color,
-            .selection = selection,
             .screen = screen_copy,
             .mouse = state.mouse,
             .preedit = preedit,
@@ -762,7 +748,6 @@ pub fn updateFrame(
 
         // Build our GPU cells
         try self.rebuildCells(
-            critical.selection,
             &critical.screen,
             critical.mouse,
             critical.preedit,
@@ -802,11 +787,8 @@ fn prepKittyGraphics(
 
     // The top-left and bottom-right corners of our viewport in screen
     // points. This lets us determine offsets and containment of placements.
-    const top = (terminal.point.Viewport{}).toScreen(&t.screen);
-    const bot = (terminal.point.Viewport{
-        .x = t.screen.cols - 1,
-        .y = t.screen.rows - 1,
-    }).toScreen(&t.screen);
+    const top = t.screen.pages.getTopLeft(.viewport);
+    const bot = t.screen.pages.getBottomRight(.viewport).?;
 
     // Go through the placements and ensure the image is loaded on the GPU.
     var it = storage.placements.iterator();
@@ -823,13 +805,15 @@ fn prepKittyGraphics(
 
         // If the selection isn't within our viewport then skip it.
         const rect = p.rect(image, t);
-        if (rect.top_left.y > bot.y) continue;
-        if (rect.bottom_right.y < top.y) continue;
+        if (bot.before(rect.top_left)) continue;
+        if (rect.bottom_right.before(top)) continue;
 
         // If the top left is outside the viewport we need to calc an offset
         // so that we render (0, 0) with some offset for the texture.
-        const offset_y: u32 = if (rect.top_left.y < t.screen.viewport) offset_y: {
-            const offset_cells = t.screen.viewport - rect.top_left.y;
+        const offset_y: u32 = if (rect.top_left.before(top)) offset_y: {
+            const vp_y = t.screen.pages.pointFromPin(.screen, top).?.screen.y;
+            const img_y = t.screen.pages.pointFromPin(.screen, rect.top_left).?.screen.y;
+            const offset_cells = vp_y - img_y;
             const offset_pixels = offset_cells * self.grid_metrics.cell_height;
             break :offset_y @intCast(offset_pixels);
         } else 0;
@@ -875,7 +859,10 @@ fn prepKittyGraphics(
         }
 
         // Convert our screen point to a viewport point
-        const viewport = p.point.toViewport(&t.screen);
+        const viewport: terminal.point.Point = t.screen.pages.pointFromPin(
+            .viewport,
+            p.pin.*,
+        ) orelse .{ .viewport = .{} };
 
         // Calculate the source rectangle
         const source_x = @min(image.width, p.source_x);
@@ -897,8 +884,8 @@ fn prepKittyGraphics(
         if (image.width > 0 and image.height > 0) {
             try self.image_placements.append(self.alloc, .{
                 .image_id = kv.key_ptr.image_id,
-                .x = @intCast(p.point.x),
-                .y = @intCast(viewport.y),
+                .x = @intCast(p.pin.x),
+                .y = @intCast(viewport.viewport.y),
                 .z = p.z,
                 .width = dest_width,
                 .height = dest_height,
@@ -955,16 +942,21 @@ fn prepKittyGraphics(
 /// the renderer will do this when it needs more memory space.
 pub fn rebuildCells(
     self: *OpenGL,
-    term_selection: ?terminal.Selection,
     screen: *terminal.Screen,
     mouse: renderer.State.Mouse,
     preedit: ?renderer.State.Preedit,
     cursor_style_: ?renderer.CursorStyle,
     color_palette: *const terminal.color.Palette,
 ) !void {
+    const rows_usize: usize = @intCast(screen.pages.rows);
+    const cols_usize: usize = @intCast(screen.pages.cols);
+
     // Bg cells at most will need space for the visible screen size
     self.cells_bg.clearRetainingCapacity();
-    try self.cells_bg.ensureTotalCapacity(self.alloc, screen.rows * screen.cols);
+    try self.cells_bg.ensureTotalCapacity(
+        self.alloc,
+        rows_usize * cols_usize,
+    );
 
     // For now, we just ensure that we have enough cells for all the lines
     // we have plus a full width. This is very likely too much but its
@@ -975,24 +967,27 @@ pub fn rebuildCells(
 
         // * 3 for glyph + underline + strikethrough for each cell
         // + 1 for cursor
-        (screen.rows * screen.cols * 3) + 1,
+        (rows_usize * cols_usize * 3) + 1,
     );
 
     // Create an arena for all our temporary allocations while rebuilding
     var arena = ArenaAllocator.init(self.alloc);
     defer arena.deinit();
     const arena_alloc = arena.allocator();
+    _ = arena_alloc;
+    _ = mouse;
 
     // We've written no data to the GPU, refresh it all
     self.gl_cells_written = 0;
 
     // Create our match set for the links.
-    var link_match_set: link.MatchSet = if (mouse.point) |mouse_pt| try self.config.links.matchSet(
-        arena_alloc,
-        screen,
-        mouse_pt,
-        mouse.mods,
-    ) else .{};
+    // TODO(paged-terminal)
+    // var link_match_set: link.MatchSet = if (mouse.point) |mouse_pt| try self.config.links.matchSet(
+    //     arena_alloc,
+    //     screen,
+    //     mouse_pt,
+    //     mouse.mods,
+    // ) else .{};
 
     // Determine our x/y range for preedit. We don't want to render anything
     // here because we will render the preedit separately.
@@ -1001,7 +996,7 @@ pub fn rebuildCells(
         x: [2]usize,
         cp_offset: usize,
     } = if (preedit) |preedit_v| preedit: {
-        const range = preedit_v.range(screen.cursor.x, screen.cols - 1);
+        const range = preedit_v.range(screen.cursor.x, screen.pages.cols - 1);
         break :preedit .{
             .y = screen.cursor.y,
             .x = .{ range.start, range.end },
@@ -1015,9 +1010,9 @@ pub fn rebuildCells(
     var cursor_cell: ?CellProgram.Cell = null;
 
     // Build each cell
-    var rowIter = screen.rowIterator(.viewport);
+    var row_it = screen.pages.rowIterator(.right_down, .{ .viewport = .{} }, null);
     var y: usize = 0;
-    while (rowIter.next()) |row| {
+    while (row_it.next()) |row| {
         defer y += 1;
 
         // Our selection value is only non-null if this selection happens
@@ -1025,19 +1020,10 @@ pub fn rebuildCells(
         // the selection that contains this row. This way, if the selection
         // changes but not for this line, we don't invalidate the cache.
         const selection = sel: {
-            if (term_selection) |sel| {
-                const screen_point = (terminal.point.Viewport{
-                    .x = 0,
-                    .y = y,
-                }).toScreen(screen);
-
-                // If we are selected, we our colors are just inverted fg/bg.
-                if (sel.containedRow(screen, screen_point)) |row_sel| {
-                    break :sel row_sel;
-                }
-            }
-
-            break :sel null;
+            const sel = screen.selection orelse break :sel null;
+            const pin = screen.pages.pin(.{ .viewport = .{ .y = y } }) orelse
+                break :sel null;
+            break :sel sel.containedRow(screen, pin) orelse null;
         };
 
         // See Metal.zig
@@ -1059,8 +1045,8 @@ pub fn rebuildCells(
         defer if (cursor_row) {
             // If we're on a wide spacer tail, then we want to look for
             // the previous cell.
-            const screen_cell = row.getCell(screen.cursor.x);
-            const x = screen.cursor.x - @intFromBool(screen_cell.attrs.wide_spacer_tail);
+            const screen_cell = row.cells(.all)[screen.cursor.x];
+            const x = screen.cursor.x - @intFromBool(screen_cell.wide == .spacer_tail);
             for (self.cells.items[start_i..]) |cell| {
                 if (cell.grid_col == x and
                     (cell.mode == .fg or cell.mode == .fg_color))
@@ -1074,6 +1060,7 @@ pub fn rebuildCells(
         // Split our row into runs and shape each one.
         var iter = self.font_shaper.runIterator(
             self.font_group,
+            screen,
             row,
             selection,
             if (shape_cursor) screen.cursor.x else null,
@@ -1094,23 +1081,25 @@ pub fn rebuildCells(
 
                 // It this cell is within our hint range then we need to
                 // underline it.
-                const cell: terminal.Screen.Cell = cell: {
-                    var cell = row.getCell(shaper_cell.x);
+                const cell: terminal.Pin = cell: {
+                    var copy = row;
+                    copy.x = shaper_cell.x;
+                    break :cell copy;
 
-                    // If our links contain this cell then we want to
-                    // underline it.
-                    if (link_match_set.orderedContains(.{
-                        .x = shaper_cell.x,
-                        .y = y,
-                    })) {
-                        cell.attrs.underline = .single;
-                    }
-
-                    break :cell cell;
+                    // TODO(paged-terminal)
+                    // // If our links contain this cell then we want to
+                    // // underline it.
+                    // if (link_match_set.orderedContains(.{
+                    //     .x = shaper_cell.x,
+                    //     .y = y,
+                    // })) {
+                    //     cell.attrs.underline = .single;
+                    // }
+                    //
+                    // break :cell cell;
                 };
 
                 if (self.updateCell(
-                    term_selection,
                     screen,
                     cell,
                     color_palette,
@@ -1129,9 +1118,6 @@ pub fn rebuildCells(
                 }
             }
         }
-
-        // Set row is not dirty anymore
-        row.setDirty(false);
     }
 
     // Add the cursor at the end so that it overlays everything. If we have
@@ -1277,21 +1263,14 @@ fn addCursor(
     // we're on the wide characer tail.
     const wide, const x = cell: {
         // The cursor goes over the screen cursor position.
-        const cell = screen.getCell(
-            .active,
-            screen.cursor.y,
-            screen.cursor.x,
-        );
-        if (!cell.attrs.wide_spacer_tail or screen.cursor.x == 0)
-            break :cell .{ cell.attrs.wide, screen.cursor.x };
+        const cell = screen.cursor.page_cell;
+        if (cell.wide != .spacer_tail or screen.cursor.x == 0)
+            break :cell .{ cell.wide == .wide, screen.cursor.x };
 
         // If we're part of a wide character, we move the cursor back to
         // the actual character.
-        break :cell .{ screen.getCell(
-            .active,
-            screen.cursor.y,
-            screen.cursor.x - 1,
-        ).attrs.wide, screen.cursor.x - 1 };
+        const prev_cell = screen.cursorCellLeft(1);
+        break :cell .{ prev_cell.wide == .wide, screen.cursor.x - 1 };
     };
 
     const color = self.cursor_color orelse self.foreground_color;
@@ -1349,9 +1328,8 @@ fn addCursor(
 /// needed.
 fn updateCell(
     self: *OpenGL,
-    selection: ?terminal.Selection,
     screen: *terminal.Screen,
-    cell: terminal.Screen.Cell,
+    cell_pin: terminal.Pin,
     palette: *const terminal.color.Palette,
     shaper_cell: font.shape.Cell,
     shaper_run: font.shape.TextRun,
@@ -1371,47 +1349,29 @@ fn updateCell(
     };
 
     // True if this cell is selected
-    // TODO(perf): we can check in advance if selection is in
-    // our viewport at all and not run this on every point.
-    const selected: bool = if (selection) |sel| selected: {
-        const screen_point = (terminal.point.Viewport{
-            .x = x,
-            .y = y,
-        }).toScreen(screen);
+    const selected: bool = if (screen.selection) |sel|
+        sel.contains(screen, cell_pin)
+    else
+        false;
 
-        break :selected sel.contains(screen_point);
-    } else false;
+    const rac = cell_pin.rowAndCell();
+    const cell = rac.cell;
+    const style = cell_pin.style(cell);
 
     // The colors for the cell.
     const colors: BgFg = colors: {
         // The normal cell result
-        const cell_res: BgFg = if (!cell.attrs.inverse) .{
+        const cell_res: BgFg = if (!style.flags.inverse) .{
             // In normal mode, background and fg match the cell. We
             // un-optionalize the fg by defaulting to our fg color.
-            .bg = switch (cell.bg) {
-                .none => null,
-                .indexed => |i| palette[i],
-                .rgb => |rgb| rgb,
-            },
-            .fg = switch (cell.fg) {
-                .none => self.foreground_color,
-                .indexed => |i| palette[i],
-                .rgb => |rgb| rgb,
-            },
+            .bg = style.bg(cell, palette),
+            .fg = style.fg(palette) orelse self.foreground_color,
         } else .{
             // In inverted mode, the background MUST be set to something
             // (is never null) so it is either the fg or default fg. The
             // fg is either the bg or default background.
-            .bg = switch (cell.fg) {
-                .none => self.foreground_color,
-                .indexed => |i| palette[i],
-                .rgb => |rgb| rgb,
-            },
-            .fg = switch (cell.bg) {
-                .none => self.background_color,
-                .indexed => |i| palette[i],
-                .rgb => |rgb| rgb,
-            },
+            .bg = style.fg(palette) orelse self.foreground_color,
+            .fg = style.bg(cell, palette) orelse self.background_color,
         };
 
         // If we are selected, we our colors are just inverted fg/bg
@@ -1429,7 +1389,7 @@ fn updateCell(
         // If the cell is "invisible" then we just make fg = bg so that
         // the cell is transparent but still copy-able.
         const res: BgFg = selection_res orelse cell_res;
-        if (cell.attrs.invisible) {
+        if (style.flags.invisible) {
             break :colors BgFg{
                 .bg = res.bg,
                 .fg = res.bg orelse self.background_color,
@@ -1439,19 +1399,8 @@ fn updateCell(
         break :colors res;
     };
 
-    // Calculate the amount of space we need in the cells list.
-    const needed = needed: {
-        var i: usize = 0;
-        if (colors.bg != null) i += 1;
-        if (!cell.empty()) i += 1;
-        if (cell.attrs.underline != .none) i += 1;
-        if (cell.attrs.strikethrough) i += 1;
-        break :needed i;
-    };
-    if (self.cells.items.len + needed > self.cells.capacity) return false;
-
     // Alpha multiplier
-    const alpha: u8 = if (cell.attrs.faint) 175 else 255;
+    const alpha: u8 = if (style.flags.faint) 175 else 255;
 
     // If the cell has a background, we always draw it.
     const bg: [4]u8 = if (colors.bg) |rgb| bg: {
@@ -1468,11 +1417,11 @@ fn updateCell(
             if (selected) break :bg_alpha default;
 
             // If we're reversed, do not apply background opacity
-            if (cell.attrs.inverse) break :bg_alpha default;
+            if (style.flags.inverse) break :bg_alpha default;
 
             // If we have a background and its not the default background
             // then we apply background opacity
-            if (cell.bg != .none and !rgb.eql(self.background_color)) {
+            if (style.bg(cell, palette) != null and !rgb.eql(self.background_color)) {
                 break :bg_alpha default;
             }
 
@@ -1487,7 +1436,7 @@ fn updateCell(
             .mode = .bg,
             .grid_col = @intCast(x),
             .grid_row = @intCast(y),
-            .grid_width = cell.widthLegacy(),
+            .grid_width = cell.gridWidth(),
             .glyph_x = 0,
             .glyph_y = 0,
             .glyph_width = 0,
@@ -1513,7 +1462,7 @@ fn updateCell(
     };
 
     // If the cell has a character, draw it
-    if (cell.char > 0) fg: {
+    if (cell.hasText()) fg: {
         // Render
         const glyph = try self.font_group.renderGlyph(
             self.alloc,
@@ -1528,11 +1477,8 @@ fn updateCell(
         // If we're rendering a color font, we use the color atlas
         const mode: CellProgram.CellMode = switch (try fgMode(
             &self.font_group.group,
-            screen,
-            cell,
+            cell_pin,
             shaper_run,
-            x,
-            y,
         )) {
             .normal => .fg,
             .color => .fg_color,
@@ -1543,7 +1489,7 @@ fn updateCell(
             .mode = mode,
             .grid_col = @intCast(x),
             .grid_row = @intCast(y),
-            .grid_width = cell.widthLegacy(),
+            .grid_width = cell.gridWidth(),
             .glyph_x = glyph.atlas_x,
             .glyph_y = glyph.atlas_y,
             .glyph_width = glyph.width,
@@ -1561,8 +1507,8 @@ fn updateCell(
         });
     }
 
-    if (cell.attrs.underline != .none) {
-        const sprite: font.Sprite = switch (cell.attrs.underline) {
+    if (style.flags.underline != .none) {
+        const sprite: font.Sprite = switch (style.flags.underline) {
             .none => unreachable,
             .single => .underline,
             .double => .underline_double,
@@ -1577,17 +1523,17 @@ fn updateCell(
             @intFromEnum(sprite),
             .{
                 .grid_metrics = self.grid_metrics,
-                .cell_width = if (cell.attrs.wide) 2 else 1,
+                .cell_width = if (cell.wide == .wide) 2 else 1,
             },
         );
 
-        const color = if (cell.attrs.underline_color) cell.underline_fg else colors.fg;
+        const color = style.underlineColor(palette) orelse colors.fg;
 
         self.cells.appendAssumeCapacity(.{
             .mode = .fg,
             .grid_col = @intCast(x),
             .grid_row = @intCast(y),
-            .grid_width = cell.widthLegacy(),
+            .grid_width = cell.gridWidth(),
             .glyph_x = underline_glyph.atlas_x,
             .glyph_y = underline_glyph.atlas_y,
             .glyph_width = underline_glyph.width,
@@ -1605,12 +1551,12 @@ fn updateCell(
         });
     }
 
-    if (cell.attrs.strikethrough) {
+    if (style.flags.strikethrough) {
         self.cells.appendAssumeCapacity(.{
             .mode = .strikethrough,
             .grid_col = @intCast(x),
             .grid_row = @intCast(y),
-            .grid_width = cell.widthLegacy(),
+            .grid_width = cell.gridWidth(),
             .glyph_x = 0,
             .glyph_y = 0,
             .glyph_width = 0,
