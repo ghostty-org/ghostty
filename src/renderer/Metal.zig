@@ -1639,18 +1639,10 @@ fn rebuildCells(
         // We need to get this row's selection if there is one for proper
         // run splitting.
         const row_selection = sel: {
-            // TODO(paged-terminal)
-            // if (screen.selection) |sel| {
-            //     const screen_point = (terminal.point.Viewport{
-            //         .x = 0,
-            //         .y = y,
-            //     }).toScreen(screen);
-            //     if (sel.containedRow(screen, screen_point)) |row_sel| {
-            //         break :sel row_sel;
-            //     }
-            // }
-
-            break :sel null;
+            const sel = screen.selection orelse break :sel null;
+            const pin = screen.pages.pin(.{ .viewport = .{ .y = y } }) orelse
+                break :sel null;
+            break :sel sel.containedRow(screen, pin) orelse null;
         };
 
         // Split our row into runs and shape each one.
