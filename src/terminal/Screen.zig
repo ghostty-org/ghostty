@@ -1058,13 +1058,13 @@ pub fn selectionString(
 
     const sel_ordered = sel.ordered(self, .forward);
     const sel_start = start: {
-        var start = sel.start();
+        var start = sel_ordered.start();
         const cell = start.rowAndCell().cell;
         if (cell.wide == .spacer_tail) start.x -= 1;
         break :start start;
     };
     const sel_end = end: {
-        var end = sel.end();
+        var end = sel_ordered.end();
         const cell = end.rowAndCell().cell;
         switch (cell.wide) {
             .narrow, .wide => {},
