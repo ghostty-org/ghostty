@@ -681,11 +681,8 @@ pub fn updateFrame(
         // If we have Kitty graphics data, we enter a SLOW SLOW SLOW path.
         // We only do this if the Kitty image state is dirty meaning only if
         // it changes.
-        // TODO(paged-terminal)
-        if (false) {
-            if (state.terminal.screen.kitty_images.dirty) {
-                try self.prepKittyGraphics(state.terminal);
-            }
+        if (state.terminal.screen.kitty_images.dirty) {
+            try self.prepKittyGraphics(state.terminal);
         }
 
         break :critical .{
@@ -1231,11 +1228,8 @@ fn prepKittyGraphics(
 
     // The top-left and bottom-right corners of our viewport in screen
     // points. This lets us determine offsets and containment of placements.
-    const top = (terminal.point.Viewport{}).toScreen(&t.screen);
-    const bot = (terminal.point.Viewport{
-        .x = t.screen.cols - 1,
-        .y = t.screen.rows - 1,
-    }).toScreen(&t.screen);
+    const top = t.screen.pages.getTopLeft(.viewport);
+    const bot = t.screen.pages.getBottomRight(.viewport).?;
 
     // Go through the placements and ensure the image is loaded on the GPU.
     var it = storage.placements.iterator();
@@ -1252,15 +1246,20 @@ fn prepKittyGraphics(
 
         // If the selection isn't within our viewport then skip it.
         const rect = p.rect(image, t);
-        if (rect.top_left.y > bot.y) continue;
-        if (rect.bottom_right.y < top.y) continue;
+        if (bot.before(rect.top_left)) continue;
+        if (rect.bottom_right.before(top)) continue;
 
         // If the top left is outside the viewport we need to calc an offset
         // so that we render (0, 0) with some offset for the texture.
-        const offset_y: u32 = if (rect.top_left.y < t.screen.viewport) offset_y: {
-            const offset_cells = t.screen.viewport - rect.top_left.y;
-            const offset_pixels = offset_cells * self.grid_metrics.cell_height;
-            break :offset_y @intCast(offset_pixels);
+        const offset_y: u32 = if (rect.top_left.before(top)) offset_y: {
+            break :offset_y 0;
+            // TODO(paged-terminal)
+            // const vp_y = t.screen.pages.pointFromPin(.screen, top).?.screen.y;
+            // const img_y = t.screen.pages.pointFromPin(.screen, rect.top_left).?.screen.y;
+            // std.log.warn("vp_y={} img_y={}", .{ vp_y, img_y });
+            // const offset_cells = vp_y - img_y;
+            // const offset_pixels = offset_cells * self.grid_metrics.cell_height;
+            // break :offset_y @intCast(offset_pixels);
         } else 0;
 
         // We need to prep this image for upload if it isn't in the cache OR
@@ -1304,7 +1303,13 @@ fn prepKittyGraphics(
         }
 
         // Convert our screen point to a viewport point
-        const viewport = p.point.toViewport(&t.screen);
+        const viewport = t.screen.pages.pointFromPin(.viewport, p.pin.*) orelse {
+            log.warn(
+                "failed to convert image point to viewport point image_id={} placement_id={}",
+                .{ kv.key_ptr.image_id, kv.key_ptr.placement_id.id },
+            );
+            continue;
+        };
 
         // Calculate the source rectangle
         const source_x = @min(image.width, p.source_x);
@@ -1326,8 +1331,8 @@ fn prepKittyGraphics(
         if (image.width > 0 and image.height > 0) {
             try self.image_placements.append(self.alloc, .{
                 .image_id = kv.key_ptr.image_id,
-                .x = @intCast(p.point.x),
-                .y = @intCast(viewport.y),
+                .x = @intCast(p.pin.x),
+                .y = @intCast(viewport.viewport.y),
                 .z = p.z,
                 .width = dest_width,
                 .height = dest_height,
