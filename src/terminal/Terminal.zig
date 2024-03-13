@@ -2105,6 +2105,14 @@ pub fn getPwd(self: *const Terminal) ?[]const u8 {
     return self.pwd.items;
 }
 
+/// Get the screen pointer for the given type.
+pub fn getScreen(self: *Terminal, t: ScreenType) *Screen {
+    return if (self.active_screen == t)
+        &self.screen
+    else
+        &self.secondary_screen;
+}
+
 /// Options for switching to the alternate screen.
 pub const AlternateScreenOptions = struct {
     cursor_save: bool = false,

@@ -2293,9 +2293,10 @@ pub fn mouseButtonCallback(
             if (distance > max_distance) self.mouse.left_click_count = 0;
         }
 
-        // TODO(paged-terminal): untrack previous pin across screens
         if (self.mouse.left_click_pin) |prev| {
-            screen.pages.untrackPin(prev);
+            const pin_screen = t.getScreen(self.mouse.left_click_screen);
+            pin_screen.pages.untrackPin(prev);
+            self.mouse.left_click_pin = null;
         }
 
         // Store it
