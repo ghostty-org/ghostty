@@ -3218,11 +3218,14 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 // We only dump history if we have history. We still keep
                 // the file and write the empty file to the pty so that this
                 // command always works on the primary screen.
-                // TODO(paged-terminal): unwrap
-                try self.io.terminal.screen.dumpString(
-                    file.writer(),
-                    .{ .history = .{} },
-                );
+                const pages = &self.io.terminal.screen.pages;
+                if (pages.getBottomRight(.history)) |br| {
+                    const tl = pages.getTopLeft(.history);
+                    try self.io.terminal.screen.dumpString(
+                        file.writer(),
+                        .{ .tl = tl, .br = br, .unwrap = true },
+                    );
+                }
             }
 
             // Get the final path
