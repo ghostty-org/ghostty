@@ -413,7 +413,6 @@ pub fn adjust(
             self.adjust(s, .home);
         },
 
-        // TODO(paged-terminal): this doesn't take into account blanks
         .page_down => if (end_pin.down(s.pages.rows)) |new_end| {
             end_pin.* = new_end;
         } else {
