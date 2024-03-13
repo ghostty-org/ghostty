@@ -1413,6 +1413,10 @@ pub const Scroll = union(enum) {
     /// prompts. If the absolute value is greater than the number of prompts
     /// in either direction, jump to the furthest prompt in that direction.
     delta_prompt: isize,
+
+    /// Scroll directly to a specific pin in the page. This will be set
+    /// as the top left of the viewport (ignoring the pin x value).
+    pin: Pin,
 };
 
 /// Scroll the viewport. This will never create new scrollback, allocate
@@ -1422,6 +1426,15 @@ pub fn scroll(self: *PageList, behavior: Scroll) void {
     switch (behavior) {
         .active => self.viewport = .{ .active = {} },
         .top => self.viewport = .{ .top = {} },
+        .pin => |p| {
+            if (self.pinIsActive(p)) {
+                self.viewport = .{ .active = {} };
+                return;
+            }
+
+            self.viewport_pin.* = p;
+            self.viewport = .{ .pin = {} };
+        },
         .delta_prompt => |n| self.scrollPrompt(n),
         .delta_row => |n| {
             if (n == 0) return;

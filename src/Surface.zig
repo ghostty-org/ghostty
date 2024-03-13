@@ -1358,14 +1358,14 @@ pub fn keyCallback(
     if (event.mods.shift) adjust_selection: {
         self.renderer_state.mutex.lock();
         defer self.renderer_state.mutex.unlock();
-        var screen = self.io.terminal.screen;
+        var screen = &self.io.terminal.screen;
         const sel = if (screen.selection) |*sel| sel else break :adjust_selection;
 
         // Silently consume key releases. We only want to process selection
         // adjust on press.
         if (event.action != .press and event.action != .repeat) return .consumed;
 
-        sel.adjust(&screen, switch (event.key) {
+        sel.adjust(screen, switch (event.key) {
             .left => .left,
             .right => .right,
             .up => .up,
@@ -1378,20 +1378,24 @@ pub fn keyCallback(
         });
 
         // If the selection endpoint is outside of the current viewpoint,
-        // scroll it in to view.
-        // TODO(paged-terminal)
-        // scroll: {
-        //     const viewport_max = terminal.Screen.RowIndexTag.viewport.maxLen(&screen) - 1;
-        //     const viewport_end = screen.viewport + viewport_max;
-        //     const delta: isize = if (sel.end.y < screen.viewport)
-        //         @intCast(screen.viewport)
-        //     else if (sel.end.y > viewport_end)
-        //         @intCast(viewport_end)
-        //     else
-        //         break :scroll;
-        //     const start_y: isize = @intCast(sel.end.y);
-        //     try self.io.terminal.scrollViewport(.{ .delta = start_y - delta });
-        // }
+        // scroll it in to view. Note we always specifically use sel.end
+        // because that is what adjust modifies.
+        scroll: {
+            const viewport_tl = screen.pages.getTopLeft(.viewport);
+            const viewport_br = screen.pages.getBottomRight(.viewport).?;
+            if (sel.end().isBetween(viewport_tl, viewport_br))
+                break :scroll;
+
+            // Our end point is not within the viewport. If the end
+            // point is after the br then we need to adjust the end so
+            // that it is at the bottom right of the viewport.
+            const target = if (sel.end().before(viewport_tl))
+                sel.end()
+            else
+                sel.end().up(screen.pages.rows - 1) orelse sel.end();
+
+            screen.scroll(.{ .pin = target });
+        }
 
         // Queue a render so its shown
         try self.queueRender();

@@ -552,6 +552,7 @@ pub const Scroll = union(enum) {
     /// For all of these, see PageList.Scroll.
     active,
     top,
+    pin: Pin,
     delta_row: isize,
     delta_prompt: isize,
 };
@@ -566,6 +567,7 @@ pub fn scroll(self: *Screen, behavior: Scroll) void {
     switch (behavior) {
         .active => self.pages.scroll(.{ .active = {} }),
         .top => self.pages.scroll(.{ .top = {} }),
+        .pin => |p| self.pages.scroll(.{ .pin = p }),
         .delta_row => |v| self.pages.scroll(.{ .delta_row = v }),
         .delta_prompt => |v| self.pages.scroll(.{ .delta_prompt = v }),
     }
