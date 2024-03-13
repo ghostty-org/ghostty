@@ -24,4 +24,4 @@ Major Features:
 paged-terminal branch:
 
 - tests and logic for overflowing page capacities:
-  * graphemes
+  - graphemes
