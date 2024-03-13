@@ -278,6 +278,62 @@ pub fn contains(self: Selection, s: *const Screen, pin: Pin) bool {
     return p.y > tl.y and p.y < br.y;
 }
 
+/// Get a selection for a single row in the screen. This will return null
+/// if the row is not included in the selection.
+pub fn containedRow(self: Selection, s: *const Screen, pin: Pin) ?Selection {
+    const tl_pin = self.topLeft(s);
+    const br_pin = self.bottomRight(s);
+
+    // This is definitely not very efficient. Low-hanging fruit to
+    // improve this.
+    const tl = s.pages.pointFromPin(.screen, tl_pin).?.screen;
+    const br = s.pages.pointFromPin(.screen, br_pin).?.screen;
+    const p = s.pages.pointFromPin(.screen, pin).?.screen;
+
+    if (p.y < tl.y or p.y > br.y) return null;
+
+    // Rectangle case: we can return early as the x range will always be the
+    // same. We've already validated that the row is in the selection.
+    if (self.rectangle) return init(
+        s.pages.pin(.{ .screen = .{ .y = p.y, .x = tl.x } }).?,
+        s.pages.pin(.{ .screen = .{ .y = p.y, .x = br.x } }).?,
+        true,
+    );
+
+    if (p.y == tl.y) {
+        // If the selection is JUST this line, return it as-is.
+        if (p.y == br.y) {
+            return init(tl_pin, br_pin, false);
+        }
+
+        // Selection top-left line matches only.
+        return init(
+            tl_pin,
+            s.pages.pin(.{ .screen = .{ .y = p.y, .x = s.pages.cols - 1 } }).?,
+            false,
+        );
+    }
+
+    // Row is our bottom selection, so we return the selection from the
+    // beginning of the line to the br. We know our selection is more than
+    // one line (due to conditionals above)
+    if (p.y == br.y) {
+        assert(p.y != tl.y);
+        return init(
+            s.pages.pin(.{ .screen = .{ .y = p.y, .x = 0 } }).?,
+            br_pin,
+            false,
+        );
+    }
+
+    // Row is somewhere between our selection lines so we return the full line.
+    return init(
+        s.pages.pin(.{ .screen = .{ .y = p.y, .x = 0 } }).?,
+        s.pages.pin(.{ .screen = .{ .y = p.y, .x = s.pages.cols - 1 } }).?,
+        false,
+    );
+}
+
 /// Possible adjustments to the selection.
 pub const Adjustment = enum {
     left,
@@ -1229,5 +1285,125 @@ test "Selection: contains, rectangle" {
         try testing.expect(sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 6, .y = 1 } }).?));
         try testing.expect(!sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 2, .y = 1 } }).?));
         try testing.expect(!sel.contains(&s, s.pages.pin(.{ .screen = .{ .x = 12, .y = 1 } }).?));
+    }
+}
+
+test "Selection: containedRow" {
+    const testing = std.testing;
+    var s = try Screen.init(testing.allocator, 10, 5, 0);
+    defer s.deinit();
+
+    {
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 5, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 3 } }).?,
+            false,
+        );
+
+        // Not contained
+        try testing.expect(sel.containedRow(
+            &s,
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 4 } }).?,
+        ) == null);
+
+        // Start line
+        try testing.expectEqual(Selection.init(
+            sel.start(),
+            s.pages.pin(.{ .screen = .{ .x = s.pages.cols - 1, .y = 1 } }).?,
+            false,
+        ), sel.containedRow(
+            &s,
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 1 } }).?,
+        ).?);
+
+        // End line
+        try testing.expectEqual(Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 0, .y = 3 } }).?,
+            sel.end(),
+            false,
+        ), sel.containedRow(
+            &s,
+            s.pages.pin(.{ .screen = .{ .x = 2, .y = 3 } }).?,
+        ).?);
+
+        // Middle line
+        try testing.expectEqual(Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 0, .y = 2 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = s.pages.cols - 1, .y = 2 } }).?,
+            false,
+        ), sel.containedRow(
+            &s,
+            s.pages.pin(.{ .screen = .{ .x = 2, .y = 2 } }).?,
+        ).?);
+    }
+
+    // Rectangle
+    {
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 6, .y = 3 } }).?,
+            true,
+        );
+
+        // Not contained
+        try testing.expect(sel.containedRow(
+            &s,
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 4 } }).?,
+        ) == null);
+
+        // Start line
+        try testing.expectEqual(Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 6, .y = 1 } }).?,
+            true,
+        ), sel.containedRow(
+            &s,
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 1 } }).?,
+        ).?);
+
+        // End line
+        try testing.expectEqual(Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 3 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 6, .y = 3 } }).?,
+            true,
+        ), sel.containedRow(
+            &s,
+            s.pages.pin(.{ .screen = .{ .x = 2, .y = 3 } }).?,
+        ).?);
+
+        // Middle line
+        try testing.expectEqual(Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 3, .y = 2 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 6, .y = 2 } }).?,
+            true,
+        ), sel.containedRow(
+            &s,
+            s.pages.pin(.{ .screen = .{ .x = 2, .y = 2 } }).?,
+        ).?);
+    }
+
+    // Single-line selection
+    {
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 2, .y = 1 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 6, .y = 1 } }).?,
+            false,
+        );
+
+        // Not contained
+        try testing.expect(sel.containedRow(
+            &s,
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 0 } }).?,
+        ) == null);
+        try testing.expect(sel.containedRow(
+            &s,
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 2 } }).?,
+        ) == null);
+
+        // Contained
+        try testing.expectEqual(sel, sel.containedRow(
+            &s,
+            s.pages.pin(.{ .screen = .{ .x = 1, .y = 1 } }).?,
+        ).?);
     }
 }
