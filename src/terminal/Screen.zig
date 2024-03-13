@@ -1691,6 +1691,7 @@ pub fn dumpString(
     var iter = opts.tl.rowIterator(.right_down, opts.br);
     while (iter.next()) |row_offset| {
         const rac = row_offset.rowAndCell();
+        const row = rac.row;
         const cells = cells: {
             const cells: [*]pagepkg.Cell = @ptrCast(rac.cell);
             break :cells cells[0..self.pages.cols];
@@ -1705,8 +1706,12 @@ pub fn dumpString(
             blank_rows = 0;
         }
 
-        // TODO: handle wrap
-        blank_rows += 1;
+        if (!row.wrap or !opts.unwrap) {
+            // If we're not wrapped, we always add a newline.
+            // If we are wrapped, we only add a new line if we're unwrapping
+            // soft-wrapped lines.
+            blank_rows += 1;
+        }
 
         var blank_cells: usize = 0;
         for (cells) |*cell| {
