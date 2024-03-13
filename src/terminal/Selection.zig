@@ -382,11 +382,7 @@ pub fn adjust(
         },
 
         .left => {
-            var it = s.pages.cellIterator(
-                .left_up,
-                .{ .screen = .{} },
-                s.pages.pointFromPin(.screen, end_pin.*).?,
-            );
+            var it = end_pin.cellIterator(.left_up, null);
             _ = it.next();
             while (it.next()) |next| {
                 const rac = next.rowAndCell();
@@ -400,11 +396,7 @@ pub fn adjust(
         .right => {
             // Step right, wrapping to the next row down at the start of each new line,
             // until we find a non-empty cell.
-            var it = s.pages.cellIterator(
-                .right_down,
-                s.pages.pointFromPin(.screen, end_pin.*).?,
-                null,
-            );
+            var it = end_pin.cellIterator(.right_down, null);
             _ = it.next();
             while (it.next()) |next| {
                 const rac = next.rowAndCell();
