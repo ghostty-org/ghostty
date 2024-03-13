@@ -581,23 +581,19 @@ pub const ImageStorage = struct {
             s.pages.untrackPin(self.pin);
         }
 
-        /// Returns a selection of the entire rectangle this placement
-        /// occupies within the screen.
-        pub fn rect(
+        /// Returns the size in grid cells that this placement takes up.
+        pub fn gridSize(
             self: Placement,
             image: Image,
             t: *const terminal.Terminal,
-        ) Rect {
-            // If we have columns/rows specified we can simplify this whole thing.
-            if (self.columns > 0 and self.rows > 0) {
-                var br = switch (self.pin.downOverflow(self.rows)) {
-                    .offset => |v| v,
-                    .overflow => |v| v.end,
-                };
-                br.x = @min(self.pin.x + self.columns, t.cols - 1);
-
-                return .{ .top_left = self.pin.*, .bottom_right = br };
-            }
+        ) struct {
+            cols: u32,
+            rows: u32,
+        } {
+            if (self.columns > 0 and self.rows > 0) return .{
+                .cols = self.columns,
+                .rows = self.rows,
+            };
 
             // Calculate our cell size.
             const terminal_width_f64: f64 = @floatFromInt(t.width_px);
@@ -617,12 +613,26 @@ pub const ImageStorage = struct {
             const width_cells: u32 = @intFromFloat(@ceil(width_f64 / cell_width_f64));
             const height_cells: u32 = @intFromFloat(@ceil(height_f64 / cell_height_f64));
 
-            // TODO(paged-terminal): clean this logic up above
-            var br = switch (self.pin.downOverflow(height_cells)) {
+            return .{
+                .cols = width_cells,
+                .rows = height_cells,
+            };
+        }
+
+        /// Returns a selection of the entire rectangle this placement
+        /// occupies within the screen.
+        pub fn rect(
+            self: Placement,
+            image: Image,
+            t: *const terminal.Terminal,
+        ) Rect {
+            const grid_size = self.gridSize(image, t);
+
+            var br = switch (self.pin.downOverflow(grid_size.rows)) {
                 .offset => |v| v,
                 .overflow => |v| v.end,
             };
-            br.x = @min(self.pin.x + width_cells, t.cols - 1);
+            br.x = @min(self.pin.x + grid_size.cols, t.cols - 1);
 
             return .{
                 .top_left = self.pin.*,
