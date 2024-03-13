@@ -1252,14 +1252,12 @@ fn prepKittyGraphics(
         // If the top left is outside the viewport we need to calc an offset
         // so that we render (0, 0) with some offset for the texture.
         const offset_y: u32 = if (rect.top_left.before(top)) offset_y: {
-            break :offset_y 0;
-            // TODO(paged-terminal)
-            // const vp_y = t.screen.pages.pointFromPin(.screen, top).?.screen.y;
-            // const img_y = t.screen.pages.pointFromPin(.screen, rect.top_left).?.screen.y;
-            // std.log.warn("vp_y={} img_y={}", .{ vp_y, img_y });
-            // const offset_cells = vp_y - img_y;
-            // const offset_pixels = offset_cells * self.grid_metrics.cell_height;
-            // break :offset_y @intCast(offset_pixels);
+            const vp_y = t.screen.pages.pointFromPin(.screen, top).?.screen.y;
+            const img_y = t.screen.pages.pointFromPin(.screen, rect.top_left).?.screen.y;
+            std.log.warn("vp_y={} img_y={}", .{ vp_y, img_y });
+            const offset_cells = vp_y - img_y;
+            const offset_pixels = offset_cells * self.grid_metrics.cell_height;
+            break :offset_y @intCast(offset_pixels);
         } else 0;
 
         // We need to prep this image for upload if it isn't in the cache OR
@@ -1303,13 +1301,10 @@ fn prepKittyGraphics(
         }
 
         // Convert our screen point to a viewport point
-        const viewport = t.screen.pages.pointFromPin(.viewport, p.pin.*) orelse {
-            log.warn(
-                "failed to convert image point to viewport point image_id={} placement_id={}",
-                .{ kv.key_ptr.image_id, kv.key_ptr.placement_id.id },
-            );
-            continue;
-        };
+        const viewport: terminal.point.Point = t.screen.pages.pointFromPin(
+            .viewport,
+            p.pin.*,
+        ) orelse .{ .viewport = .{} };
 
         // Calculate the source rectangle
         const source_x = @min(image.width, p.source_x);
