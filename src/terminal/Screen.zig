@@ -1033,6 +1033,48 @@ pub fn manualStyleUpdate(self: *Screen) !void {
     self.cursor.style_ref = &md.ref;
 }
 
+/// Append a grapheme to the given cell within the current cursor row.
+pub fn appendGrapheme(self: *Screen, cell: *Cell, cp: u21) !void {
+    self.cursor.page_pin.page.data.appendGrapheme(
+        self.cursor.page_row,
+        cell,
+        cp,
+    ) catch |err| switch (err) {
+        error.OutOfMemory => {
+            // We need to determine the actual cell index of the cell so
+            // that after we adjust the capacity we can reload the cell.
+            const cell_idx: usize = cell_idx: {
+                const cells: [*]Cell = @ptrCast(self.cursor.page_cell);
+                const zero: [*]Cell = cells - self.cursor.x;
+                const target: [*]Cell = @ptrCast(cell);
+                const cell_idx = (@intFromPtr(target) - @intFromPtr(zero)) / @sizeOf(Cell);
+                break :cell_idx cell_idx;
+            };
+
+            // Adjust our capacity. This will update our cursor page pin and
+            // force us to reload.
+            const original_node = self.cursor.page_pin.page;
+            const new_bytes = original_node.data.capacity.grapheme_bytes * 2;
+            _ = try self.pages.adjustCapacity(original_node, .{ .grapheme_bytes = new_bytes });
+            self.cursorReload();
+
+            // The cell pointer is now invalid, so we need to get it from
+            // the reloaded cursor pointers.
+            const reloaded_cell: *Cell = switch (std.math.order(cell_idx, self.cursor.x)) {
+                .eq => self.cursor.page_cell,
+                .lt => self.cursorCellLeft(@intCast(self.cursor.x - cell_idx)),
+                .gt => self.cursorCellRight(@intCast(cell_idx - self.cursor.x)),
+            };
+
+            try self.cursor.page_pin.page.data.appendGrapheme(
+                self.cursor.page_row,
+                reloaded_cell,
+                cp,
+            );
+        },
+    };
+}
+
 /// Set the selection to the given selection. If this is a tracked selection
 /// then the screen will take overnship of the selection. If this is untracked
 /// then the screen will convert it to tracked internally. This will automatically

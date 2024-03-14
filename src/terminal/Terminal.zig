@@ -351,11 +351,7 @@ pub fn print(self: *Terminal, c: u21) !void {
             }
 
             log.debug("c={x} grapheme attach to left={}", .{ c, prev.left });
-            try self.screen.cursor.page_pin.page.data.appendGrapheme(
-                self.screen.cursor.page_row,
-                prev.cell,
-                c,
-            );
+            try self.screen.appendGrapheme(prev.cell, c);
             return;
         }
     }
@@ -408,11 +404,7 @@ pub fn print(self: *Terminal, c: u21) !void {
             if (!emoji) return;
         }
 
-        try self.screen.cursor.page_pin.page.data.appendGrapheme(
-            self.screen.cursor.page_row,
-            prev,
-            c,
-        );
+        try self.screen.appendGrapheme(prev, c);
         return;
     }
 
@@ -2296,6 +2288,17 @@ test "Terminal: input unique style per cell" {
             } });
             try t.print('x');
         }
+    }
+}
+
+test "Terminal: input glitch text" {
+    const glitch = @embedFile("res/glitch.txt");
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .cols = 30, .rows = 30 });
+    defer t.deinit(alloc);
+
+    for (0..100) |_| {
+        try t.printString(glitch);
     }
 }
 
