@@ -89,7 +89,7 @@ pub const ModePacked = packed_struct: {
     }
 
     break :packed_struct @Type(.{ .Struct = .{
-        .layout = .Packed,
+        .layout = .@"packed",
         .fields = &fields,
         .decls = &.{},
         .is_tuple = false,
