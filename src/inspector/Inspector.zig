@@ -491,6 +491,67 @@ fn renderScreenWindow(self: *Inspector) void {
             }
         } // table
     } // kitty graphics
+
+    if (cimgui.c.igCollapsingHeader_TreeNodeFlags(
+        "Internal Terminal State",
+        cimgui.c.ImGuiTreeNodeFlags_DefaultOpen,
+    )) {
+        const pages = &screen.pages;
+
+        {
+            _ = cimgui.c.igBeginTable(
+                "##terminal_state",
+                2,
+                cimgui.c.ImGuiTableFlags_None,
+                .{ .x = 0, .y = 0 },
+                0,
+            );
+            defer cimgui.c.igEndTable();
+
+            {
+                cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+                {
+                    _ = cimgui.c.igTableSetColumnIndex(0);
+                    cimgui.c.igText("Memory Usage");
+                }
+                {
+                    _ = cimgui.c.igTableSetColumnIndex(1);
+                    cimgui.c.igText("%d bytes", pages.page_size);
+                }
+            }
+
+            {
+                cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+                {
+                    _ = cimgui.c.igTableSetColumnIndex(0);
+                    cimgui.c.igText("Memory Limit");
+                }
+                {
+                    _ = cimgui.c.igTableSetColumnIndex(1);
+                    cimgui.c.igText("%d bytes", pages.max_size);
+                }
+            }
+
+            {
+                cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+                {
+                    _ = cimgui.c.igTableSetColumnIndex(0);
+                    cimgui.c.igText("Viewport Location");
+                }
+                {
+                    _ = cimgui.c.igTableSetColumnIndex(1);
+                    cimgui.c.igText("%s", @tagName(pages.viewport).ptr);
+                }
+            }
+        } // table
+        //
+        if (cimgui.c.igCollapsingHeader_TreeNodeFlags(
+            "Active Page",
+            cimgui.c.ImGuiTreeNodeFlags_DefaultOpen,
+        )) {
+            inspector.page.render(&pages.pages.last.?.data);
+        }
+    } // terminal state
 }
 
 /// The modes window shows the currently active terminal modes and allows
