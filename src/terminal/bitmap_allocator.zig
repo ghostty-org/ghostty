@@ -76,6 +76,7 @@ pub fn BitmapAllocator(comptime chunk_size: comptime_int) type {
             // fixed but we haven't needed it. Contributor friendly: add tests
             // and fix this.
             assert(chunk_size % @alignOf(T) == 0);
+            assert(n > 0);
 
             const byte_count = std.math.mul(usize, @sizeOf(T), n) catch
                 return error.OutOfMemory;
@@ -193,7 +194,7 @@ fn findFreeChunks(bitmaps: []u64, n: usize) ?usize {
             bitmap.* ^= mask;
         }
 
-        return (idx * 63) + bit;
+        return (idx * 64) + bit;
     }
 
     return null;
@@ -229,7 +230,7 @@ test "findFreeChunks multiple found" {
         0b10000000_00111110_00000000_00000000_00000000_00000000_00111110_00000000,
     };
     const idx = findFreeChunks(&bitmaps, 4).?;
-    try testing.expectEqual(@as(usize, 72), idx);
+    try testing.expectEqual(@as(usize, 73), idx);
     try testing.expectEqual(
         0b10000000_00111110_00000000_00000000_00000000_00000000_00100000_00000000,
         bitmaps[1],
