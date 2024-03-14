@@ -37,8 +37,7 @@ mouse: struct {
     last_ypos: f64 = 0,
 
     // Last hovered screen point
-    // TODO(paged-terminal)
-    // last_point: terminal.point.ScreenPoint = .{},
+    last_point: ?terminal.Pin = null,
 } = .{},
 
 /// A selected cell.
@@ -696,25 +695,32 @@ fn renderSizeWindow(self: *Inspector) void {
         defer cimgui.c.igEndTable();
 
         const mouse = &self.surface.mouse;
-        //const t = self.surface.renderer_state.terminal;
+        const t = self.surface.renderer_state.terminal;
 
-        // TODO(paged-terminal)
-        // {
-        //     const hover_point = self.mouse.last_point.toViewport(&t.screen);
-        //     cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
-        //     {
-        //         _ = cimgui.c.igTableSetColumnIndex(0);
-        //         cimgui.c.igText("Hover Grid");
-        //     }
-        //     {
-        //         _ = cimgui.c.igTableSetColumnIndex(1);
-        //         cimgui.c.igText(
-        //             "row=%d, col=%d",
-        //             hover_point.y,
-        //             hover_point.x,
-        //         );
-        //     }
-        // }
+        {
+            const hover_point: terminal.point.Coordinate = pt: {
+                const p = self.mouse.last_point orelse break :pt .{};
+                const pt = t.screen.pages.pointFromPin(
+                    .active,
+                    p,
+                ) orelse break :pt .{};
+                break :pt pt.coord();
+            };
+
+            cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+            {
+                _ = cimgui.c.igTableSetColumnIndex(0);
+                cimgui.c.igText("Hover Grid");
+            }
+            {
+                _ = cimgui.c.igTableSetColumnIndex(1);
+                cimgui.c.igText(
+                    "row=%d, col=%d",
+                    hover_point.y,
+                    hover_point.x,
+                );
+            }
+        }
 
         {
             cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
@@ -771,23 +777,30 @@ fn renderSizeWindow(self: *Inspector) void {
             }
         }
 
-        // TODO(paged-terminal)
-        // {
-        //     const left_click_point = mouse.left_click_point.toViewport(&t.screen);
-        //     cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
-        //     {
-        //         _ = cimgui.c.igTableSetColumnIndex(0);
-        //         cimgui.c.igText("Click Grid");
-        //     }
-        //     {
-        //         _ = cimgui.c.igTableSetColumnIndex(1);
-        //         cimgui.c.igText(
-        //             "row=%d, col=%d",
-        //             left_click_point.y,
-        //             left_click_point.x,
-        //         );
-        //     }
-        // }
+        {
+            const left_click_point: terminal.point.Coordinate = pt: {
+                const p = mouse.left_click_pin orelse break :pt .{};
+                const pt = t.screen.pages.pointFromPin(
+                    .active,
+                    p.*,
+                ) orelse break :pt .{};
+                break :pt pt.coord();
+            };
+
+            cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+            {
+                _ = cimgui.c.igTableSetColumnIndex(0);
+                cimgui.c.igText("Click Grid");
+            }
+            {
+                _ = cimgui.c.igTableSetColumnIndex(1);
+                cimgui.c.igText(
+                    "row=%d, col=%d",
+                    left_click_point.y,
+                    left_click_point.x,
+                );
+            }
+        }
 
         {
             cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);

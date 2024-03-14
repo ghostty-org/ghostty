@@ -2564,8 +2564,12 @@ pub fn cursorPosCallback(
     if (self.inspector) |insp| {
         insp.mouse.last_xpos = pos.x;
         insp.mouse.last_ypos = pos.y;
-        // TODO(paged-terminal)
-        //insp.mouse.last_point = pos_vp.toScreen(&self.io.terminal.screen);
+
+        const screen = &self.renderer_state.terminal.screen;
+        insp.mouse.last_point = screen.pages.pin(.{ .viewport = .{
+            .x = pos_vp.x,
+            .y = pos_vp.y,
+        } });
         try self.queueRender();
     }
 
