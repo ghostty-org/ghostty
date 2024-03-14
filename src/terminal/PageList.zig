@@ -1596,6 +1596,9 @@ pub const AdjustCapacity = struct {
     /// rounded up if necessary to fit alignment requirements,
     /// but it will never be rounded down.
     styles: ?u16 = null,
+
+    /// Adjust the number of available grapheme bytes in the page.
+    grapheme_bytes: ?usize = null,
 };
 
 /// Adjust the capcaity of the given page in the list. This should
@@ -1623,10 +1626,13 @@ pub fn adjustCapacity(
     // ensures we never shrink from what we need.
     var cap = page.data.capacity;
 
-    // From there, we increase our capacity as required
     if (adjustment.styles) |v| {
         const aligned = try std.math.ceilPowerOfTwo(u16, v);
         cap.styles = @max(cap.styles, aligned);
+    }
+    if (adjustment.grapheme_bytes) |v| {
+        const aligned = try std.math.ceilPowerOfTwo(usize, v);
+        cap.grapheme_bytes = @max(cap.grapheme_bytes, aligned);
     }
 
     log.info("adjusting page capacity={}", .{cap});
@@ -3301,6 +3307,49 @@ test "PageList adjustCapacity to increase styles" {
     _ = try s.adjustCapacity(
         s.pages.first.?,
         .{ .styles = std_capacity.styles * 2 },
+    );
+
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+        for (0..s.rows) |y| {
+            for (0..s.cols) |x| {
+                const rac = page.getRowAndCell(x, y);
+                try testing.expectEqual(
+                    @as(u21, @intCast(x)),
+                    rac.cell.content.codepoint,
+                );
+            }
+        }
+    }
+}
+
+test "PageList adjustCapacity to increase graphemes" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 2, 0);
+    defer s.deinit();
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+
+        // Write all our data so we can assert its the same after
+        for (0..s.rows) |y| {
+            for (0..s.cols) |x| {
+                const rac = page.getRowAndCell(x, y);
+                rac.cell.* = .{
+                    .content_tag = .codepoint,
+                    .content = .{ .codepoint = @intCast(x) },
+                };
+            }
+        }
+    }
+
+    // Increase our graphemes
+    _ = try s.adjustCapacity(
+        s.pages.first.?,
+        .{ .grapheme_bytes = std_capacity.grapheme_bytes * 2 },
     );
 
     {
