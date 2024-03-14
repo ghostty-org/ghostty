@@ -20,8 +20,3 @@ Major Features:
 
 - Bell
 - Sixels: https://saitoha.github.io/libsixel/
-
-paged-terminal branch:
-
-- tests and logic for overflowing page capacities:
-  - graphemes

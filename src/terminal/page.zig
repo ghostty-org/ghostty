@@ -373,7 +373,7 @@ pub const Page = struct {
     }
 
     /// Append a codepoint to the given cell as a grapheme.
-    pub fn appendGrapheme(self: *Page, row: *Row, cell: *Cell, cp: u21) !void {
+    pub fn appendGrapheme(self: *Page, row: *Row, cell: *Cell, cp: u21) Allocator.Error!void {
         if (comptime std.debug.runtime_safety) assert(cell.hasText());
 
         const cell_offset = getOffset(Cell, self.memory, cell);
