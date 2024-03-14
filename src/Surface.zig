@@ -2143,19 +2143,19 @@ pub fn mouseButtonCallback(
         {
             const pos = try self.rt_surface.getCursorPos();
             const point = self.posToViewport(pos.x, pos.y);
-            // TODO(paged-terminal)
-            // const cell = self.renderer_state.terminal.screen.getCell(
-            //     .viewport,
-            //     point.y,
-            //     point.x,
-            // );
+            const screen = &self.renderer_state.terminal.screen;
+            const p = screen.pages.pin(.{ .active = point }) orelse {
+                log.warn("failed to get pin for clicked point", .{});
+                return;
+            };
 
-            insp.cell = .{
-                .selected = .{
-                    .row = point.y,
-                    .col = point.x,
-                    //.cell = cell,
-                },
+            insp.cell.select(
+                self.alloc,
+                p,
+                point.x,
+                point.y,
+            ) catch |err| {
+                log.warn("error selecting cell for inspector err={}", .{err});
             };
             return;
         }

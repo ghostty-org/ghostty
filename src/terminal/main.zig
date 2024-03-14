@@ -7,6 +7,7 @@ const stream = @import("stream.zig");
 const ansi = @import("ansi.zig");
 const csi = @import("csi.zig");
 const sgr = @import("sgr.zig");
+const style = @import("style.zig");
 pub const apc = @import("apc.zig");
 pub const dcs = @import("dcs.zig");
 pub const osc = @import("osc.zig");
@@ -34,6 +35,7 @@ pub const Pin = PageList.Pin;
 pub const Screen = @import("Screen.zig");
 pub const ScreenType = Terminal.ScreenType;
 pub const Selection = @import("Selection.zig");
+pub const Style = style.Style;
 pub const Terminal = @import("Terminal.zig");
 pub const Stream = stream.Stream;
 pub const Cursor = Screen.Cursor;
@@ -57,5 +59,4 @@ test {
     _ = @import("bitmap_allocator.zig");
     _ = @import("hash_map.zig");
     _ = @import("size.zig");
-    _ = @import("style.zig");
 }
