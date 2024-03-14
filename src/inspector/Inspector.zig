@@ -4,6 +4,7 @@
 const Inspector = @This();
 
 const std = @import("std");
+const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const builtin = @import("builtin");
 const cimgui = @import("cimgui");
@@ -62,17 +63,46 @@ const CellInspect = union(enum) {
     selected: Selected,
 
     const Selected = struct {
+        alloc: Allocator,
         row: usize,
         col: usize,
-        // TODO(paged-terminal)
-        //cell: terminal.Screen.Cell,
+        cell: inspector.Cell,
     };
+
+    pub fn deinit(self: *CellInspect) void {
+        switch (self.*) {
+            .idle, .requested => {},
+            .selected => |*v| v.cell.deinit(v.alloc),
+        }
+    }
 
     pub fn request(self: *CellInspect) void {
         switch (self.*) {
-            .idle, .selected => self.* = .requested,
+            .idle => self.* = .requested,
+            .selected => |*v| {
+                v.cell.deinit(v.alloc);
+                self.* = .requested;
+            },
             .requested => {},
         }
+    }
+
+    pub fn select(
+        self: *CellInspect,
+        alloc: Allocator,
+        pin: terminal.Pin,
+        x: usize,
+        y: usize,
+    ) !void {
+        assert(self.* == .requested);
+        const cell = try inspector.Cell.init(alloc, pin);
+        errdefer cell.deinit(alloc);
+        self.* = .{ .selected = .{
+            .alloc = alloc,
+            .row = y,
+            .col = x,
+            .cell = cell,
+        } };
     }
 };
 
@@ -136,6 +166,8 @@ pub fn init(surface: *Surface) !Inspector {
 }
 
 pub fn deinit(self: *Inspector) void {
+    self.cell.deinit();
+
     {
         var it = self.key_events.iterator(.forward);
         while (it.next()) |v| v.deinit(self.surface.alloc);
