@@ -874,6 +874,12 @@ test "Page capacity adjust cols down" {
     const adjusted = try original.adjust(.{ .cols = original.cols / 2 });
     const adjusted_size = Page.layout(adjusted).total_size;
     try testing.expectEqual(original_size, adjusted_size);
+    // If we layout a page with 1 more row and it's still the same size
+    // then adjust is not producing enough rows.
+    var bigger = adjusted;
+    bigger.rows += 1;
+    const bigger_size = Page.layout(bigger).total_size;
+    try testing.expect(bigger_size > original_size);
 }
 
 test "Page capacity adjust cols down to 1" {
@@ -882,6 +888,12 @@ test "Page capacity adjust cols down to 1" {
     const adjusted = try original.adjust(.{ .cols = 1 });
     const adjusted_size = Page.layout(adjusted).total_size;
     try testing.expectEqual(original_size, adjusted_size);
+    // If we layout a page with 1 more row and it's still the same size
+    // then adjust is not producing enough rows.
+    var bigger = adjusted;
+    bigger.rows += 1;
+    const bigger_size = Page.layout(bigger).total_size;
+    try testing.expect(bigger_size > original_size);
 }
 
 test "Page capacity adjust cols up" {
@@ -890,6 +902,29 @@ test "Page capacity adjust cols up" {
     const adjusted = try original.adjust(.{ .cols = original.cols * 2 });
     const adjusted_size = Page.layout(adjusted).total_size;
     try testing.expectEqual(original_size, adjusted_size);
+    // If we layout a page with 1 more row and it's still the same size
+    // then adjust is not producing enough rows.
+    var bigger = adjusted;
+    bigger.rows += 1;
+    const bigger_size = Page.layout(bigger).total_size;
+    try testing.expect(bigger_size > original_size);
+}
+
+test "Page capacity adjust cols sweep" {
+    var cap = std_capacity;
+    const original_cols = cap.cols;
+    const original_size = Page.layout(cap).total_size;
+    for (1..original_cols*2) |c| {
+        cap = try cap.adjust(.{ .cols = @as(u16, @intCast(c)) });
+        const adjusted_size = Page.layout(cap).total_size;
+        try testing.expectEqual(original_size, adjusted_size);
+        // If we layout a page with 1 more row and it's still the same size
+        // then adjust is not producing enough rows.
+        var bigger = cap;
+        bigger.rows += 1;
+        const bigger_size = Page.layout(bigger).total_size;
+        try testing.expect(bigger_size > original_size);
+    }
 }
 
 test "Page capacity adjust cols too high" {
