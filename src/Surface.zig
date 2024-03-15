@@ -2356,7 +2356,7 @@ pub fn mouseButtonCallback(
                 const sel_ = if (mods.ctrl)
                     self.io.terminal.screen.selectOutput(pin.*)
                 else
-                    self.io.terminal.screen.selectLine(pin.*);
+                    self.io.terminal.screen.selectLine(.{ .pin = pin.* });
                 if (sel_) |sel| {
                     try self.setSelection(sel);
                     try self.queueRender();
@@ -2716,12 +2716,12 @@ fn dragLeftClickTriple(
     const click_pin = self.mouse.left_click_pin.?.*;
 
     // Get the word under our current point. If there isn't a word, do nothing.
-    const word = screen.selectLine(drag_pin) orelse return;
+    const word = screen.selectLine(.{ .pin = drag_pin }) orelse return;
 
     // Get our selection to grow it. If we don't have a selection, start it now.
     // We may not have a selection if we started our dbl-click in an area
     // that had no data, then we dragged our mouse into an area with data.
-    var sel = screen.selectLine(click_pin) orelse {
+    var sel = screen.selectLine(.{ .pin = click_pin }) orelse {
         try self.setSelection(word);
         return;
     };

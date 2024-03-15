@@ -1229,30 +1229,42 @@ pub fn selectionString(
     return string;
 }
 
+pub const SelectLine = struct {
+    /// The pin of some part of the line to select.
+    pin: Pin,
+
+    /// These are the codepoints to consider whitespace to trim
+    /// from the ends of the selection.
+    whitespace: ?[]const u21 = &.{ 0, ' ', '\t' },
+
+    /// If true, line selection will consider semantic prompt
+    /// state changing a boundary. State changing is ANY state
+    /// change.
+    semantic_prompt_boundary: bool = true,
+};
+
 /// Select the line under the given point. This will select across soft-wrapped
 /// lines and will omit the leading and trailing whitespace. If the point is
 /// over whitespace but the line has non-whitespace characters elsewhere, the
 /// line will be selected.
-pub fn selectLine(self: *Screen, pin: Pin) ?Selection {
+pub fn selectLine(self: *Screen, opts: SelectLine) ?Selection {
     _ = self;
-
-    // Whitespace characters for selection purposes
-    const whitespace = &[_]u32{ 0, ' ', '\t' };
 
     // Get the current point semantic prompt state since that determines
     // boundary conditions too. This makes it so that line selection can
     // only happen within the same prompt state. For example, if you triple
     // click output, but the shell uses spaces to soft-wrap to the prompt
     // then the selection will stop prior to the prompt. See issue #1329.
-    const semantic_prompt_state = state: {
-        const rac = pin.rowAndCell();
+    const semantic_prompt_state: ?bool = state: {
+        if (!opts.semantic_prompt_boundary) break :state null;
+        const rac = opts.pin.rowAndCell();
         break :state rac.row.semantic_prompt.promptOrInput();
     };
 
     // The real start of the row is the first row in the soft-wrap.
     const start_pin: Pin = start_pin: {
-        var it = pin.rowIterator(.left_up, null);
-        var it_prev: Pin = pin;
+        var it = opts.pin.rowIterator(.left_up, null);
+        var it_prev: Pin = opts.pin;
         while (it.next()) |p| {
             const row = p.rowAndCell().row;
 
@@ -1262,12 +1274,14 @@ pub fn selectLine(self: *Screen, pin: Pin) ?Selection {
                 break :start_pin copy;
             }
 
-            // See semantic_prompt_state comment for why
-            const current_prompt = row.semantic_prompt.promptOrInput();
-            if (current_prompt != semantic_prompt_state) {
-                var copy = it_prev;
-                copy.x = 0;
-                break :start_pin copy;
+            if (semantic_prompt_state) |v| {
+                // See semantic_prompt_state comment for why
+                const current_prompt = row.semantic_prompt.promptOrInput();
+                if (current_prompt != v) {
+                    var copy = it_prev;
+                    copy.x = 0;
+                    break :start_pin copy;
+                }
             }
 
             it_prev = p;
@@ -1280,16 +1294,18 @@ pub fn selectLine(self: *Screen, pin: Pin) ?Selection {
 
     // The real end of the row is the final row in the soft-wrap.
     const end_pin: Pin = end_pin: {
-        var it = pin.rowIterator(.right_down, null);
+        var it = opts.pin.rowIterator(.right_down, null);
         while (it.next()) |p| {
             const row = p.rowAndCell().row;
 
-            // See semantic_prompt_state comment for why
-            const current_prompt = row.semantic_prompt.promptOrInput();
-            if (current_prompt != semantic_prompt_state) {
-                var prev = p.up(1).?;
-                prev.x = p.page.data.size.cols - 1;
-                break :end_pin prev;
+            if (semantic_prompt_state) |v| {
+                // See semantic_prompt_state comment for why
+                const current_prompt = row.semantic_prompt.promptOrInput();
+                if (current_prompt != v) {
+                    var prev = p.up(1).?;
+                    prev.x = p.page.data.size.cols - 1;
+                    break :end_pin prev;
+                }
             }
 
             if (!row.wrap) {
@@ -1304,6 +1320,7 @@ pub fn selectLine(self: *Screen, pin: Pin) ?Selection {
 
     // Go forward from the start to find the first non-whitespace character.
     const start: Pin = start: {
+        const whitespace = opts.whitespace orelse break :start start_pin;
         var it = start_pin.cellIterator(.right_down, end_pin);
         while (it.next()) |p| {
             const cell = p.rowAndCell().cell;
@@ -1311,9 +1328,9 @@ pub fn selectLine(self: *Screen, pin: Pin) ?Selection {
 
             // Non-empty means we found it.
             const this_whitespace = std.mem.indexOfAny(
-                u32,
+                u21,
                 whitespace,
-                &[_]u32{cell.content.codepoint},
+                &[_]u21{cell.content.codepoint},
             ) != null;
             if (this_whitespace) continue;
 
@@ -1325,6 +1342,7 @@ pub fn selectLine(self: *Screen, pin: Pin) ?Selection {
 
     // Go backward from the end to find the first non-whitespace character.
     const end: Pin = end: {
+        const whitespace = opts.whitespace orelse break :end end_pin;
         var it = end_pin.cellIterator(.left_up, start_pin);
         while (it.next()) |p| {
             const cell = p.rowAndCell().cell;
@@ -1332,9 +1350,9 @@ pub fn selectLine(self: *Screen, pin: Pin) ?Selection {
 
             // Non-empty means we found it.
             const this_whitespace = std.mem.indexOfAny(
-                u32,
+                u21,
                 whitespace,
-                &[_]u32{cell.content.codepoint},
+                &[_]u21{cell.content.codepoint},
             ) != null;
             if (this_whitespace) continue;
 
@@ -4883,10 +4901,10 @@ test "Screen: selectLine" {
 
     // Going forward
     {
-        var sel = s.selectLine(s.pages.pin(.{ .active = .{
+        var sel = s.selectLine(.{ .pin = s.pages.pin(.{ .active = .{
             .x = 0,
             .y = 0,
-        } }).?).?;
+        } }).? }).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
@@ -4900,10 +4918,10 @@ test "Screen: selectLine" {
 
     // Going backward
     {
-        var sel = s.selectLine(s.pages.pin(.{ .active = .{
+        var sel = s.selectLine(.{ .pin = s.pages.pin(.{ .active = .{
             .x = 7,
             .y = 0,
-        } }).?).?;
+        } }).? }).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
@@ -4917,10 +4935,10 @@ test "Screen: selectLine" {
 
     // Going forward and backward
     {
-        var sel = s.selectLine(s.pages.pin(.{ .active = .{
+        var sel = s.selectLine(.{ .pin = s.pages.pin(.{ .active = .{
             .x = 3,
             .y = 0,
-        } }).?).?;
+        } }).? }).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
@@ -4934,10 +4952,10 @@ test "Screen: selectLine" {
 
     // Outside active area
     {
-        var sel = s.selectLine(s.pages.pin(.{ .active = .{
+        var sel = s.selectLine(.{ .pin = s.pages.pin(.{ .active = .{
             .x = 9,
             .y = 0,
-        } }).?).?;
+        } }).? }).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
@@ -4960,10 +4978,10 @@ test "Screen: selectLine across soft-wrap" {
 
     // Going forward
     {
-        var sel = s.selectLine(s.pages.pin(.{ .active = .{
+        var sel = s.selectLine(.{ .pin = s.pages.pin(.{ .active = .{
             .x = 1,
             .y = 0,
-        } }).?).?;
+        } }).? }).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 1,
@@ -4986,10 +5004,10 @@ test "Screen: selectLine across soft-wrap ignores blank lines" {
 
     // Going forward
     {
-        var sel = s.selectLine(s.pages.pin(.{ .active = .{
+        var sel = s.selectLine(.{ .pin = s.pages.pin(.{ .active = .{
             .x = 1,
             .y = 0,
-        } }).?).?;
+        } }).? }).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 1,
@@ -5003,10 +5021,10 @@ test "Screen: selectLine across soft-wrap ignores blank lines" {
 
     // Going backward
     {
-        var sel = s.selectLine(s.pages.pin(.{ .active = .{
+        var sel = s.selectLine(.{ .pin = s.pages.pin(.{ .active = .{
             .x = 1,
             .y = 1,
-        } }).?).?;
+        } }).? }).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 1,
@@ -5020,10 +5038,10 @@ test "Screen: selectLine across soft-wrap ignores blank lines" {
 
     // Going forward and backward
     {
-        var sel = s.selectLine(s.pages.pin(.{ .active = .{
+        var sel = s.selectLine(.{ .pin = s.pages.pin(.{ .active = .{
             .x = 3,
             .y = 0,
-        } }).?).?;
+        } }).? }).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 1,
@@ -5032,6 +5050,55 @@ test "Screen: selectLine across soft-wrap ignores blank lines" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 3,
             .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
+    }
+}
+
+test "Screen: selectLine disabled whitespace trimming" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 10, 0);
+    defer s.deinit();
+    try s.testWriteString(" 12 34012   \n 123");
+
+    // Going forward
+    {
+        var sel = s.selectLine(.{
+            .pin = s.pages.pin(.{ .active = .{
+                .x = 1,
+                .y = 0,
+            } }).?,
+            .whitespace = null,
+        }).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 4,
+            .y = 2,
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
+    }
+
+    // Non-wrapped
+    {
+        var sel = s.selectLine(.{
+            .pin = s.pages.pin(.{ .active = .{
+                .x = 1,
+                .y = 3,
+            } }).?,
+            .whitespace = null,
+        }).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 3,
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 4,
+            .y = 3,
         } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
 }
@@ -5046,10 +5113,10 @@ test "Screen: selectLine with scrollback" {
 
     // Selecting first line
     {
-        var sel = s.selectLine(s.pages.pin(.{ .active = .{
+        var sel = s.selectLine(.{ .pin = s.pages.pin(.{ .active = .{
             .x = 0,
             .y = 0,
-        } }).?).?;
+        } }).? }).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
@@ -5063,10 +5130,10 @@ test "Screen: selectLine with scrollback" {
 
     // Selecting last line
     {
-        var sel = s.selectLine(s.pages.pin(.{ .active = .{
+        var sel = s.selectLine(.{ .pin = s.pages.pin(.{ .active = .{
             .x = 0,
             .y = 2,
-        } }).?).?;
+        } }).? }).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
@@ -5102,10 +5169,10 @@ test "Screen: selectLine semantic prompt boundary" {
 
     // Selecting output stops at the prompt even if soft-wrapped
     {
-        var sel = s.selectLine(s.pages.pin(.{ .active = .{
+        var sel = s.selectLine(.{ .pin = s.pages.pin(.{ .active = .{
             .x = 1,
             .y = 1,
-        } }).?).?;
+        } }).? }).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
@@ -5117,10 +5184,10 @@ test "Screen: selectLine semantic prompt boundary" {
         } }, s.pages.pointFromPin(.active, sel.end()).?);
     }
     {
-        var sel = s.selectLine(s.pages.pin(.{ .active = .{
+        var sel = s.selectLine(.{ .pin = s.pages.pin(.{ .active = .{
             .x = 1,
             .y = 2,
-        } }).?).?;
+        } }).? }).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
