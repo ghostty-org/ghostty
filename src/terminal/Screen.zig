@@ -1106,22 +1106,25 @@ pub fn clearSelection(self: *Screen) void {
     self.selection = null;
 }
 
+pub const SelectionString = struct {
+    /// The selection to convert to a string.
+    sel: Selection,
+
+    /// If true, trim whitespace around the selection.
+    trim: bool,
+};
+
 /// Returns the raw text associated with a selection. This will unwrap
 /// soft-wrapped edges. The returned slice is owned by the caller and allocated
 /// using alloc, not the allocator associated with the screen (unless they match).
-pub fn selectionString(
-    self: *Screen,
-    alloc: Allocator,
-    sel: Selection,
-    trim: bool,
-) ![:0]const u8 {
+pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) ![:0]const u8 {
     // Use an ArrayList so that we can grow the array as we go. We
     // build an initial capacity of just our rows in our selection times
     // columns. It can be more or less based on graphemes, newlines, etc.
     var strbuilder = std.ArrayList(u8).init(alloc);
     defer strbuilder.deinit();
 
-    const sel_ordered = sel.ordered(self, .forward);
+    const sel_ordered = opts.sel.ordered(self, .forward);
     const sel_start = start: {
         var start = sel_ordered.start();
         const cell = start.rowAndCell().cell;
@@ -1199,7 +1202,7 @@ pub fn selectionString(
     // Remove any trailing spaces on lines. We could do optimize this by
     // doing this in the loop above but this isn't very hot path code and
     // this is simple.
-    if (trim) {
+    if (opts.trim) {
         var it = std.mem.tokenizeScalar(u8, strbuilder.items, '\n');
 
         // Reset our items. We retain our capacity. Because we're only
@@ -6020,7 +6023,10 @@ test "Screen: selectionString basic" {
             s.pages.pin(.{ .screen = .{ .x = 2, .y = 2 } }).?,
             false,
         );
-        const contents = try s.selectionString(alloc, sel, true);
+        const contents = try s.selectionString(alloc, .{
+            .sel = sel,
+            .trim = true,
+        });
         defer alloc.free(contents);
         const expected = "2EFGH\n3IJ";
         try testing.expectEqualStrings(expected, contents);
@@ -6042,7 +6048,10 @@ test "Screen: selectionString start outside of written area" {
             s.pages.pin(.{ .screen = .{ .x = 2, .y = 6 } }).?,
             false,
         );
-        const contents = try s.selectionString(alloc, sel, true);
+        const contents = try s.selectionString(alloc, .{
+            .sel = sel,
+            .trim = true,
+        });
         defer alloc.free(contents);
         const expected = "";
         try testing.expectEqualStrings(expected, contents);
@@ -6064,7 +6073,10 @@ test "Screen: selectionString end outside of written area" {
             s.pages.pin(.{ .screen = .{ .x = 2, .y = 6 } }).?,
             false,
         );
-        const contents = try s.selectionString(alloc, sel, true);
+        const contents = try s.selectionString(alloc, .{
+            .sel = sel,
+            .trim = true,
+        });
         defer alloc.free(contents);
         const expected = "3IJKL";
         try testing.expectEqualStrings(expected, contents);
@@ -6087,7 +6099,10 @@ test "Screen: selectionString trim space" {
     );
 
     {
-        const contents = try s.selectionString(alloc, sel, true);
+        const contents = try s.selectionString(alloc, .{
+            .sel = sel,
+            .trim = true,
+        });
         defer alloc.free(contents);
         const expected = "1AB\n2EF";
         try testing.expectEqualStrings(expected, contents);
@@ -6095,7 +6110,10 @@ test "Screen: selectionString trim space" {
 
     // No trim
     {
-        const contents = try s.selectionString(alloc, sel, false);
+        const contents = try s.selectionString(alloc, .{
+            .sel = sel,
+            .trim = false,
+        });
         defer alloc.free(contents);
         const expected = "1AB  \n2EF";
         try testing.expectEqualStrings(expected, contents);
@@ -6118,7 +6136,10 @@ test "Screen: selectionString trim empty line" {
     );
 
     {
-        const contents = try s.selectionString(alloc, sel, true);
+        const contents = try s.selectionString(alloc, .{
+            .sel = sel,
+            .trim = true,
+        });
         defer alloc.free(contents);
         const expected = "1AB\n\n2EF";
         try testing.expectEqualStrings(expected, contents);
@@ -6126,7 +6147,10 @@ test "Screen: selectionString trim empty line" {
 
     // No trim
     {
-        const contents = try s.selectionString(alloc, sel, false);
+        const contents = try s.selectionString(alloc, .{
+            .sel = sel,
+            .trim = false,
+        });
         defer alloc.free(contents);
         const expected = "1AB  \n     \n2EF";
         try testing.expectEqualStrings(expected, contents);
@@ -6148,7 +6172,10 @@ test "Screen: selectionString soft wrap" {
             s.pages.pin(.{ .screen = .{ .x = 2, .y = 2 } }).?,
             false,
         );
-        const contents = try s.selectionString(alloc, sel, true);
+        const contents = try s.selectionString(alloc, .{
+            .sel = sel,
+            .trim = true,
+        });
         defer alloc.free(contents);
         const expected = "2EFGH3IJ";
         try testing.expectEqualStrings(expected, contents);
@@ -6170,7 +6197,10 @@ test "Screen: selectionString wide char" {
             s.pages.pin(.{ .screen = .{ .x = 3, .y = 0 } }).?,
             false,
         );
-        const contents = try s.selectionString(alloc, sel, true);
+        const contents = try s.selectionString(alloc, .{
+            .sel = sel,
+            .trim = true,
+        });
         defer alloc.free(contents);
         const expected = str;
         try testing.expectEqualStrings(expected, contents);
@@ -6182,7 +6212,10 @@ test "Screen: selectionString wide char" {
             s.pages.pin(.{ .screen = .{ .x = 2, .y = 0 } }).?,
             false,
         );
-        const contents = try s.selectionString(alloc, sel, true);
+        const contents = try s.selectionString(alloc, .{
+            .sel = sel,
+            .trim = true,
+        });
         defer alloc.free(contents);
         const expected = str;
         try testing.expectEqualStrings(expected, contents);
@@ -6194,7 +6227,10 @@ test "Screen: selectionString wide char" {
             s.pages.pin(.{ .screen = .{ .x = 3, .y = 0 } }).?,
             false,
         );
-        const contents = try s.selectionString(alloc, sel, true);
+        const contents = try s.selectionString(alloc, .{
+            .sel = sel,
+            .trim = true,
+        });
         defer alloc.free(contents);
         const expected = "⚡";
         try testing.expectEqualStrings(expected, contents);
@@ -6216,7 +6252,10 @@ test "Screen: selectionString wide char with header" {
             s.pages.pin(.{ .screen = .{ .x = 4, .y = 0 } }).?,
             false,
         );
-        const contents = try s.selectionString(alloc, sel, true);
+        const contents = try s.selectionString(alloc, .{
+            .sel = sel,
+            .trim = true,
+        });
         defer alloc.free(contents);
         const expected = str;
         try testing.expectEqualStrings(expected, contents);
@@ -6247,7 +6286,10 @@ test "Screen: selectionString empty with soft wrap" {
             s.pages.pin(.{ .screen = .{ .x = 2, .y = 0 } }).?,
             false,
         );
-        const contents = try s.selectionString(alloc, sel, true);
+        const contents = try s.selectionString(alloc, .{
+            .sel = sel,
+            .trim = true,
+        });
         defer alloc.free(contents);
         const expected = "👨";
         try testing.expectEqualStrings(expected, contents);
@@ -6280,7 +6322,10 @@ test "Screen: selectionString with zero width joiner" {
             s.pages.pin(.{ .screen = .{ .x = 1, .y = 0 } }).?,
             false,
         );
-        const contents = try s.selectionString(alloc, sel, true);
+        const contents = try s.selectionString(alloc, .{
+            .sel = sel,
+            .trim = true,
+        });
         defer alloc.free(contents);
         const expected = "👨‍";
         try testing.expectEqualStrings(expected, contents);
@@ -6312,7 +6357,10 @@ test "Screen: selectionString, rectangle, basic" {
     ;
     try s.testWriteString(str);
 
-    const contents = try s.selectionString(alloc, sel, true);
+    const contents = try s.selectionString(alloc, .{
+        .sel = sel,
+        .trim = true,
+    });
     defer alloc.free(contents);
     try testing.expectEqualStrings(expected, contents);
 }
@@ -6344,7 +6392,10 @@ test "Screen: selectionString, rectangle, w/EOL" {
     ;
     try s.testWriteString(str);
 
-    const contents = try s.selectionString(alloc, sel, true);
+    const contents = try s.selectionString(alloc, .{
+        .sel = sel,
+        .trim = true,
+    });
     defer alloc.free(contents);
     try testing.expectEqualStrings(expected, contents);
 }
@@ -6380,7 +6431,10 @@ test "Screen: selectionString, rectangle, more complex w/breaks" {
     ;
     try s.testWriteString(str);
 
-    const contents = try s.selectionString(alloc, sel, true);
+    const contents = try s.selectionString(alloc, .{
+        .sel = sel,
+        .trim = true,
+    });
     defer alloc.free(contents);
     try testing.expectEqualStrings(expected, contents);
 }
@@ -6398,13 +6452,19 @@ test "Screen: lineIterator" {
     var iter = s.lineIterator(s.pages.pin(.{ .viewport = .{} }).?);
     {
         const sel = iter.next().?;
-        const actual = try s.selectionString(alloc, sel, false);
+        const actual = try s.selectionString(alloc, .{
+            .sel = sel,
+            .trim = false,
+        });
         defer alloc.free(actual);
         try testing.expectEqualStrings("1ABCD", actual);
     }
     {
         const sel = iter.next().?;
-        const actual = try s.selectionString(alloc, sel, false);
+        const actual = try s.selectionString(alloc, .{
+            .sel = sel,
+            .trim = false,
+        });
         defer alloc.free(actual);
         try testing.expectEqualStrings("2EFGH", actual);
     }
@@ -6423,13 +6483,19 @@ test "Screen: lineIterator soft wrap" {
     var iter = s.lineIterator(s.pages.pin(.{ .viewport = .{} }).?);
     {
         const sel = iter.next().?;
-        const actual = try s.selectionString(alloc, sel, false);
+        const actual = try s.selectionString(alloc, .{
+            .sel = sel,
+            .trim = false,
+        });
         defer alloc.free(actual);
         try testing.expectEqualStrings("1ABCD2EFGH", actual);
     }
     {
         const sel = iter.next().?;
-        const actual = try s.selectionString(alloc, sel, false);
+        const actual = try s.selectionString(alloc, .{
+            .sel = sel,
+            .trim = false,
+        });
         defer alloc.free(actual);
         try testing.expectEqualStrings("3ABCD", actual);
     }

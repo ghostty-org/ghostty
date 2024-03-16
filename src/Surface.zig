@@ -946,7 +946,10 @@ pub fn selectionString(self: *Surface, alloc: Allocator) !?[]const u8 {
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
     const sel = self.io.terminal.screen.selection orelse return null;
-    return try self.io.terminal.screen.selectionString(alloc, sel, false);
+    return try self.io.terminal.screen.selectionString(alloc, .{
+        .sel = sel,
+        .trim = false,
+    });
 }
 
 /// Returns the pwd of the terminal, if any. This is always copied because
@@ -1075,11 +1078,10 @@ fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
         }
     }
 
-    const buf = self.io.terminal.screen.selectionString(
-        self.alloc,
-        sel,
-        self.config.clipboard_trim_trailing_spaces,
-    ) catch |err| {
+    const buf = self.io.terminal.screen.selectionString(self.alloc, .{
+        .sel = sel,
+        .trim = self.config.clipboard_trim_trailing_spaces,
+    }) catch |err| {
         log.err("error reading selection string err={}", .{err});
         return;
     };
@@ -2531,11 +2533,10 @@ fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
     const link, const sel = try self.linkAtPos(pos) orelse return false;
     switch (link.action) {
         .open => {
-            const str = try self.io.terminal.screen.selectionString(
-                self.alloc,
-                sel,
-                false,
-            );
+            const str = try self.io.terminal.screen.selectionString(self.alloc, .{
+                .sel = sel,
+                .trim = false,
+            });
             defer self.alloc.free(str);
             try internal_os.open(self.alloc, str);
         },
@@ -3092,11 +3093,10 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             // We can read from the renderer state without holding
             // the lock because only we will write to this field.
             if (self.io.terminal.screen.selection) |sel| {
-                const buf = self.io.terminal.screen.selectionString(
-                    self.alloc,
-                    sel,
-                    self.config.clipboard_trim_trailing_spaces,
-                ) catch |err| {
+                const buf = self.io.terminal.screen.selectionString(self.alloc, .{
+                    .sel = sel,
+                    .trim = self.config.clipboard_trim_trailing_spaces,
+                }) catch |err| {
                     log.err("error reading selection string err={}", .{err});
                     return true;
                 };
