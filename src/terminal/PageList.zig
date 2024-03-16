@@ -10,6 +10,7 @@ const point = @import("point.zig");
 const pagepkg = @import("page.zig");
 const stylepkg = @import("style.zig");
 const size = @import("size.zig");
+const Selection = @import("Selection.zig");
 const OffsetBuf = size.OffsetBuf;
 const Capacity = pagepkg.Capacity;
 const Page = pagepkg.Page;
