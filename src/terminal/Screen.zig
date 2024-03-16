@@ -10,6 +10,7 @@ const sgr = @import("sgr.zig");
 const unicode = @import("../unicode/main.zig");
 const Selection = @import("Selection.zig");
 const PageList = @import("PageList.zig");
+const StringMap = @import("StringMap.zig");
 const pagepkg = @import("page.zig");
 const point = @import("point.zig");
 const size = @import("size.zig");
@@ -1111,7 +1112,12 @@ pub const SelectionString = struct {
     sel: Selection,
 
     /// If true, trim whitespace around the selection.
-    trim: bool,
+    trim: bool = true,
+
+    /// If non-null, a stringmap will be written here. This will use
+    /// the same allocator as the call to selectionString. The string will
+    /// be duplicated here and in the return value so both must be freed.
+    map: ?*StringMap = null,
 };
 
 /// Returns the raw text associated with a selection. This will unwrap
@@ -1123,6 +1129,11 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
     // columns. It can be more or less based on graphemes, newlines, etc.
     var strbuilder = std.ArrayList(u8).init(alloc);
     defer strbuilder.deinit();
+
+    // If we're building a stringmap, create our builder for the pins.
+    const MapBuilder = std.ArrayList(Pin);
+    var mapbuilder: ?MapBuilder = if (opts.map != null) MapBuilder.init(alloc) else null;
+    defer if (mapbuilder) |*b| b.deinit();
 
     const sel_ordered = opts.sel.ordered(self, .forward);
     const sel_start = start: {
@@ -1153,7 +1164,7 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
     var row_count: usize = 0;
     while (page_it.next()) |chunk| {
         const rows = chunk.rows();
-        for (rows) |row| {
+        for (rows, chunk.start..) |row, y| {
             const cells_ptr = row.cells.ptr(chunk.page.data.memory);
 
             const start_x = if (row_count == 0 or sel_ordered.rectangle)
@@ -1166,7 +1177,7 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
                 self.pages.cols;
 
             const cells = cells_ptr[start_x..end_x];
-            for (cells) |*cell| {
+            for (cells, start_x..) |*cell, x| {
                 // Skip wide spacers
                 switch (cell.wide) {
                     .narrow, .wide => {},
@@ -1179,12 +1190,26 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
                     const char = if (raw > 0) raw else ' ';
                     const encode_len = try std.unicode.utf8Encode(char, &buf);
                     try strbuilder.appendSlice(buf[0..encode_len]);
+                    if (mapbuilder) |*b| {
+                        for (0..encode_len) |_| try b.append(.{
+                            .page = chunk.page,
+                            .y = y,
+                            .x = x,
+                        });
+                    }
                 }
                 if (cell.hasGrapheme()) {
                     const cps = chunk.page.data.lookupGrapheme(cell).?;
                     for (cps) |cp| {
                         const encode_len = try std.unicode.utf8Encode(cp, &buf);
                         try strbuilder.appendSlice(buf[0..encode_len]);
+                        if (mapbuilder) |*b| {
+                            for (0..encode_len) |_| try b.append(.{
+                                .page = chunk.page,
+                                .y = y,
+                                .x = x,
+                            });
+                        }
                     }
                 }
             }
@@ -1193,10 +1218,30 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
                 (!row.wrap or sel_ordered.rectangle))
             {
                 try strbuilder.append('\n');
+                if (mapbuilder) |*b| try b.append(.{
+                    .page = chunk.page,
+                    .y = y,
+                    .x = chunk.page.data.size.cols - 1,
+                });
             }
 
             row_count += 1;
         }
+    }
+
+    if (comptime std.debug.runtime_safety) {
+        if (mapbuilder) |b| assert(strbuilder.items.len == b.items.len);
+    }
+
+    // If we have a mapbuilder, we need to setup our string map.
+    if (mapbuilder) |*b| {
+        var strclone = try strbuilder.clone();
+        defer strclone.deinit();
+        const str = try strclone.toOwnedSliceSentinel(0);
+        errdefer alloc.free(str);
+        const map = try b.toOwnedSlice();
+        errdefer alloc.free(map);
+        opts.map.?.* = .{ .string = str, .map = map };
     }
 
     // Remove any trailing spaces on lines. We could do optimize this by
@@ -1267,7 +1312,7 @@ pub fn selectLine(self: *const Screen, opts: SelectLine) ?Selection {
     // The real start of the row is the first row in the soft-wrap.
     const start_pin: Pin = start_pin: {
         var it = opts.pin.rowIterator(.left_up, null);
-        var it_prev: Pin = opts.pin;
+        var it_prev: Pin = it.next().?; // skip self
         while (it.next()) |p| {
             const row = p.rowAndCell().row;
 
@@ -5021,6 +5066,31 @@ test "Screen: selectLine across soft-wrap" {
         } }, s.pages.pointFromPin(.screen, sel.start()).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 3,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, sel.end()).?);
+    }
+}
+
+test "Screen: selectLine across full soft-wrap" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 5, 0);
+    defer s.deinit();
+    try s.testWriteString("1ABCD2EFGH\n3IJKL");
+
+    {
+        var sel = s.selectLine(.{ .pin = s.pages.pin(.{ .active = .{
+            .x = 2,
+            .y = 1,
+        } }).? }).?;
+        defer sel.deinit(&s);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, sel.start()).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 4,
             .y = 1,
         } }, s.pages.pointFromPin(.screen, sel.end()).?);
     }
