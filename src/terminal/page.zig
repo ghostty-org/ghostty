@@ -15,6 +15,7 @@ const BitmapAllocator = @import("bitmap_allocator.zig").BitmapAllocator;
 const hash_map = @import("hash_map.zig");
 const AutoOffsetHashMap = hash_map.AutoOffsetHashMap;
 const alignForward = std.mem.alignForward;
+const alignBackward = std.mem.alignBackward;
 
 /// The allocator to use for multi-codepoint grapheme data. We use
 /// a chunk size of 4 codepoints. It'd be best to set this empirically
@@ -587,16 +588,39 @@ pub const Capacity = struct {
     pub fn adjust(self: Capacity, req: Adjustment) Allocator.Error!Capacity {
         var adjusted = self;
         if (req.cols) |cols| {
-            // The calculations below only work if cells/rows match size.
-            assert(@sizeOf(Cell) == @sizeOf(Row));
+            // The math below only works if there is no alignment gap between
+            // the end of the rows array and the start of the cells array.
+            //
+            // To guarantee this, we assert that Row's size is a multiple of
+            // Cell's alignment, so that any length array of Rows will end on
+            // a valid alignment for the start of the Cell array.
+            assert(@sizeOf(Row) % @alignOf(Cell) == 0);
 
-            // total_size = (Nrows * sizeOf(Row)) + (Nrows * Ncells * sizeOf(Cell))
-            // with some algebra:
-            // Nrows = total_size / (sizeOf(Row) + (Ncells * sizeOf(Cell)))
             const layout = Page.layout(self);
-            const total_size = layout.rows_size + layout.cells_size;
-            const denom = @sizeOf(Row) + (@sizeOf(Cell) * @as(usize, @intCast(cols)));
-            const new_rows = @divFloor(total_size, denom);
+
+            // In order to determine the amount of space in the page available
+            // for rows & cells (which will allow us to calculate the number of
+            // rows we can fit at a certain column width) we need to layout the
+            // "meta" members of the page (i.e. everything else) from the end.
+            const grapheme_map_start = alignBackward(
+                usize,
+                layout.total_size - layout.grapheme_map_layout.total_size,
+                GraphemeMap.base_align
+            );
+            const grapheme_alloc_start = alignBackward(
+                usize,
+                grapheme_map_start - layout.grapheme_alloc_layout.total_size,
+                GraphemeAlloc.base_align
+            );
+            const styles_start = alignBackward(
+                usize,
+                grapheme_alloc_start - layout.styles_layout.total_size,
+                style.Set.base_align
+            );
+
+            const available_size = styles_start;
+            const size_per_row = @sizeOf(Row) + (@sizeOf(Cell) * @as(usize, @intCast(cols)));
+            const new_rows = @divFloor(available_size, size_per_row);
 
             // If our rows go to zero then we can't fit any row metadata
             // for the desired number of columns.
@@ -604,24 +628,6 @@ pub const Capacity = struct {
 
             adjusted.cols = cols;
             adjusted.rows = @intCast(new_rows);
-        }
-
-        // Adjust our rows so that we have an exact total size count.
-        // I think we could do this with basic math but my grade school
-        // algebra skills are failing me and I'm embarassed so please someone
-        // fix this. This is tested so you can fiddle around.
-        const old_size = Page.layout(self).total_size;
-        var new_size = Page.layout(adjusted).total_size;
-        while (old_size != new_size) {
-            // Our math above is usually PRETTY CLOSE (like within 1 row)
-            // so we can just adjust by 1 row at a time.
-            if (new_size > old_size) {
-                adjusted.rows -= 1;
-            } else {
-                adjusted.rows += 1;
-            }
-
-            new_size = Page.layout(adjusted).total_size;
         }
 
         return adjusted;
@@ -868,6 +874,12 @@ test "Page capacity adjust cols down" {
     const adjusted = try original.adjust(.{ .cols = original.cols / 2 });
     const adjusted_size = Page.layout(adjusted).total_size;
     try testing.expectEqual(original_size, adjusted_size);
+    // If we layout a page with 1 more row and it's still the same size
+    // then adjust is not producing enough rows.
+    var bigger = adjusted;
+    bigger.rows += 1;
+    const bigger_size = Page.layout(bigger).total_size;
+    try testing.expect(bigger_size > original_size);
 }
 
 test "Page capacity adjust cols down to 1" {
@@ -876,6 +888,12 @@ test "Page capacity adjust cols down to 1" {
     const adjusted = try original.adjust(.{ .cols = 1 });
     const adjusted_size = Page.layout(adjusted).total_size;
     try testing.expectEqual(original_size, adjusted_size);
+    // If we layout a page with 1 more row and it's still the same size
+    // then adjust is not producing enough rows.
+    var bigger = adjusted;
+    bigger.rows += 1;
+    const bigger_size = Page.layout(bigger).total_size;
+    try testing.expect(bigger_size > original_size);
 }
 
 test "Page capacity adjust cols up" {
@@ -884,6 +902,29 @@ test "Page capacity adjust cols up" {
     const adjusted = try original.adjust(.{ .cols = original.cols * 2 });
     const adjusted_size = Page.layout(adjusted).total_size;
     try testing.expectEqual(original_size, adjusted_size);
+    // If we layout a page with 1 more row and it's still the same size
+    // then adjust is not producing enough rows.
+    var bigger = adjusted;
+    bigger.rows += 1;
+    const bigger_size = Page.layout(bigger).total_size;
+    try testing.expect(bigger_size > original_size);
+}
+
+test "Page capacity adjust cols sweep" {
+    var cap = std_capacity;
+    const original_cols = cap.cols;
+    const original_size = Page.layout(cap).total_size;
+    for (1..original_cols*2) |c| {
+        cap = try cap.adjust(.{ .cols = @as(u16, @intCast(c)) });
+        const adjusted_size = Page.layout(cap).total_size;
+        try testing.expectEqual(original_size, adjusted_size);
+        // If we layout a page with 1 more row and it's still the same size
+        // then adjust is not producing enough rows.
+        var bigger = cap;
+        bigger.rows += 1;
+        const bigger_size = Page.layout(bigger).total_size;
+        try testing.expect(bigger_size > original_size);
+    }
 }
 
 test "Page capacity adjust cols too high" {
