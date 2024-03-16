@@ -1553,17 +1553,14 @@ fn rebuildCells(
     var arena = ArenaAllocator.init(self.alloc);
     defer arena.deinit();
     const arena_alloc = arena.allocator();
-    _ = arena_alloc;
-    _ = mouse;
 
     // Create our match set for the links.
-    // TODO(paged-terminal)
-    // var link_match_set: link.MatchSet = if (mouse.point) |mouse_pt| try self.config.links.matchSet(
-    //     arena_alloc,
-    //     screen,
-    //     mouse_pt,
-    //     mouse.mods,
-    // ) else .{};
+    var link_match_set: link.MatchSet = if (mouse.point) |mouse_pt| try self.config.links.matchSet(
+        arena_alloc,
+        screen,
+        mouse_pt,
+        mouse.mods,
+    ) else .{};
 
     // Determine our x/y range for preedit. We don't want to render anything
     // here because we will render the preedit separately.
@@ -1672,21 +1669,15 @@ fn rebuildCells(
                     var copy = row;
                     copy.x = shaper_cell.x;
                     break :cell copy;
-
-                    // TODO(paged-terminal)
-                    // // If our links contain this cell then we want to
-                    // // underline it.
-                    // if (link_match_set.orderedContains(.{
-                    //     .x = shaper_cell.x,
-                    //     .y = y,
-                    // })) {
-                    //     cell.attrs.underline = .single;
-                    // }
                 };
 
                 if (self.updateCell(
                     screen,
                     cell,
+                    if (link_match_set.orderedContains(screen, cell))
+                        .single
+                    else
+                        null,
                     color_palette,
                     shaper_cell,
                     run,
@@ -1754,6 +1745,7 @@ fn updateCell(
     self: *Metal,
     screen: *const terminal.Screen,
     cell_pin: terminal.Pin,
+    cell_underline: ?terminal.Attribute.Underline,
     palette: *const terminal.color.Palette,
     shaper_cell: font.shape.Cell,
     shaper_run: font.shape.TextRun,
@@ -1781,6 +1773,7 @@ fn updateCell(
     const rac = cell_pin.rowAndCell();
     const cell = rac.cell;
     const style = cell_pin.style(cell);
+    const underline = cell_underline orelse style.flags.underline;
 
     // The colors for the cell.
     const colors: BgFg = colors: {
@@ -1910,8 +1903,8 @@ fn updateCell(
         });
     }
 
-    if (style.flags.underline != .none) {
-        const sprite: font.Sprite = switch (style.flags.underline) {
+    if (underline != .none) {
+        const sprite: font.Sprite = switch (underline) {
             .none => unreachable,
             .single => .underline,
             .double => .underline_double,
