@@ -2480,10 +2480,12 @@ fn linkAtPos(
         .semantic_prompt_boundary = false,
     }) orelse return null;
 
-    // TODO(paged-terminal)
-    if (true) return null;
-
-    const strmap = try line.stringMap(self.alloc);
+    var strmap: terminal.StringMap = undefined;
+    self.alloc.free(try screen.selectionString(self.alloc, .{
+        .sel = line,
+        .trim = false,
+        .map = &strmap,
+    }));
     defer strmap.deinit(self.alloc);
 
     // Go through each link and see if we clicked it
