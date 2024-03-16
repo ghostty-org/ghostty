@@ -3717,6 +3717,7 @@ test "Screen: write long emoji" {
     try testing.expectEqual(@as(usize, 5), s.cursor.x);
 }
 
+// X
 test "Screen: lineIterator" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -3745,6 +3746,7 @@ test "Screen: lineIterator" {
     try testing.expect(iter.next() == null);
 }
 
+// X
 test "Screen: lineIterator soft wrap" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -3773,6 +3775,7 @@ test "Screen: lineIterator soft wrap" {
     try testing.expect(iter.next() == null);
 }
 
+// X - selectLine in new screen
 test "Screen: getLine soft wrap" {
     const testing = std.testing;
     const alloc = testing.allocator;

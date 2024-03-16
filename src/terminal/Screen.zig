@@ -1247,7 +1247,7 @@ pub const SelectLine = struct {
 /// lines and will omit the leading and trailing whitespace. If the point is
 /// over whitespace but the line has non-whitespace characters elsewhere, the
 /// line will be selected.
-pub fn selectLine(self: *Screen, opts: SelectLine) ?Selection {
+pub fn selectLine(self: *const Screen, opts: SelectLine) ?Selection {
     _ = self;
 
     // Get the current point semantic prompt state since that determines
@@ -1711,6 +1711,35 @@ pub fn selectPrompt(self: *Screen, pin: Pin) ?Selection {
     };
 
     return Selection.init(start, end, false);
+}
+
+pub const LineIterator = struct {
+    screen: *const Screen,
+    current: ?Pin = null,
+
+    pub fn next(self: *LineIterator) ?Selection {
+        const current = self.current orelse return null;
+        const result = self.screen.selectLine(.{
+            .pin = current,
+            .whitespace = null,
+            .semantic_prompt_boundary = false,
+        }) orelse {
+            self.current = null;
+            return null;
+        };
+
+        self.current = result.end().down(1);
+        return result;
+    }
+};
+
+/// Returns an iterator to move through the soft-wrapped lines starting
+/// from pin.
+pub fn lineIterator(self: *const Screen, start: Pin) LineIterator {
+    return LineIterator{
+        .screen = self,
+        .current = start,
+    };
 }
 
 /// Returns the change in x/y that is needed to reach "to" from "from"
@@ -6354,4 +6383,55 @@ test "Screen: selectionString, rectangle, more complex w/breaks" {
     const contents = try s.selectionString(alloc, sel, true);
     defer alloc.free(contents);
     try testing.expectEqualStrings(expected, contents);
+}
+
+test "Screen: lineIterator" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 5, 0);
+    defer s.deinit();
+    const str = "1ABCD\n2EFGH";
+    try s.testWriteString(str);
+
+    // Test the line iterator
+    var iter = s.lineIterator(s.pages.pin(.{ .viewport = .{} }).?);
+    {
+        const sel = iter.next().?;
+        const actual = try s.selectionString(alloc, sel, false);
+        defer alloc.free(actual);
+        try testing.expectEqualStrings("1ABCD", actual);
+    }
+    {
+        const sel = iter.next().?;
+        const actual = try s.selectionString(alloc, sel, false);
+        defer alloc.free(actual);
+        try testing.expectEqualStrings("2EFGH", actual);
+    }
+}
+
+test "Screen: lineIterator soft wrap" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 5, 0);
+    defer s.deinit();
+    const str = "1ABCD2EFGH\n3ABCD";
+    try s.testWriteString(str);
+
+    // Test the line iterator
+    var iter = s.lineIterator(s.pages.pin(.{ .viewport = .{} }).?);
+    {
+        const sel = iter.next().?;
+        const actual = try s.selectionString(alloc, sel, false);
+        defer alloc.free(actual);
+        try testing.expectEqualStrings("1ABCD2EFGH", actual);
+    }
+    {
+        const sel = iter.next().?;
+        const actual = try s.selectionString(alloc, sel, false);
+        defer alloc.free(actual);
+        try testing.expectEqualStrings("3ABCD", actual);
+    }
+    // try testing.expect(iter.next() == null);
 }
