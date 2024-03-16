@@ -2454,24 +2454,33 @@ fn linkAtPos(
     DerivedConfig.Link,
     terminal.Selection,
 } {
-    // TODO(paged-terminal)
-    if (true) return null;
-
     // If we have no configured links we can save a lot of work
     if (self.config.links.len == 0) return null;
 
     // Convert our cursor position to a screen point.
-    const mouse_pt = mouse_pt: {
-        const viewport_point = self.posToViewport(pos.x, pos.y);
-        break :mouse_pt viewport_point.toScreen(&self.io.terminal.screen);
+    const screen = &self.renderer_state.terminal.screen;
+    const mouse_pin: terminal.Pin = mouse_pin: {
+        const point = self.posToViewport(pos.x, pos.y);
+        const pin = screen.pages.pin(.{ .viewport = point }) orelse {
+            log.warn("failed to get pin for clicked point", .{});
+            return null;
+        };
+        break :mouse_pin pin;
     };
 
     // Get our comparison mods
     const mouse_mods = self.mouseModsWithCapture(self.mouse.mods);
 
     // Get the line we're hovering over.
-    const line = self.io.terminal.screen.getLine(mouse_pt) orelse
-        return null;
+    const line = screen.selectLine(.{
+        .pin = mouse_pin,
+        .whitespace = null,
+        .semantic_prompt_boundary = false,
+    }) orelse return null;
+
+    // TODO(paged-terminal)
+    if (true) return null;
+
     const strmap = try line.stringMap(self.alloc);
     defer strmap.deinit(self.alloc);
 
@@ -2487,7 +2496,7 @@ fn linkAtPos(
             var match = (try it.next()) orelse break;
             defer match.deinit();
             const sel = match.selection();
-            if (!sel.contains(mouse_pt)) continue;
+            if (!sel.contains(screen, mouse_pin)) continue;
             return .{ link, sel };
         }
     }
