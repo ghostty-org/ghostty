@@ -42,7 +42,6 @@ pub const EraseLine = csi.EraseLine;
 pub const TabClear = csi.TabClear;
 pub const Attribute = sgr.Attribute;
 
-// TODO(paged-terminal)
 pub const StringMap = @import("StringMap.zig");
 
 /// If we're targeting wasm then we export some wasm APIs.
