@@ -132,6 +132,18 @@ in
       chmod u+rwX -R $ZIG_GLOBAL_CACHE_DIR
     '';
 
+    buildPhase = ''
+      runHook preBuild
+      zig build -Dcpu=baseline -Doptimize=ReleaseSafe -Dversion-string=${finalAttrs.version}-${revision}-nix
+      runHook postBuild
+    '';
+
+    installPhase = ''
+      runHook preInstall
+      zig build install -Dcpu=baseline -Doptimize=ReleaseSafe -Dversion-string=${finalAttrs.version}-${revision}-nix --prefix $out
+      runHook postInstall
+    '';
+
     outputs = ["out" "terminfo" "shell_integration"];
 
     postInstall = ''
