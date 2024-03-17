@@ -2706,6 +2706,63 @@ test "Screen: scrolling moves selection" {
     }
 }
 
+test "Screen: scrolling moves viewport" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 3, 1);
+    defer s.deinit();
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL\n");
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL");
+    s.scroll(.{ .delta_row = -2 });
+
+    {
+        // Test our contents rotated
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("2EFGH\n3IJKL\n1ABCD", contents);
+    }
+
+    {
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 1,
+        } }, s.pages.pointFromPin(.screen, s.pages.getTopLeft(.viewport)));
+    }
+}
+
+test "Screen: scrolling when viewport is pruned" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 215, 3, 1);
+    defer s.deinit();
+
+    // Write some to create scrollback and move back into our scrollback.
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL\n");
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL");
+    s.scroll(.{ .delta_row = -2 });
+
+    // Our viewport is now somewhere pinned. Create so much scrollback
+    // that we prune it.
+    for (0..1000) |_| try s.testWriteString("1ABCD\n2EFGH\n3IJKL\n");
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL");
+
+    {
+        // Test our contents rotated
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("2EFGH\n3IJKL\n1ABCD", contents);
+    }
+
+    {
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pages.pointFromPin(.screen, s.pages.getTopLeft(.viewport)));
+    }
+}
+
 test "Screen: scroll and clear full screen" {
     const testing = std.testing;
     const alloc = testing.allocator;

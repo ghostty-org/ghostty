@@ -1571,6 +1571,17 @@ pub fn grow(self: *PageList) !?*List.Node {
         first.data.size.rows = 1;
         self.pages.insertAfter(last, first);
 
+        // Update any tracked pins that point to this page to point to the
+        // new first page to the top-left.
+        var it = self.tracked_pins.keyIterator();
+        while (it.next()) |p_ptr| {
+            const p = p_ptr.*;
+            if (p.page != first) continue;
+            p.page = self.pages.first.?;
+            p.y = 0;
+            p.x = 0;
+        }
+
         // In this case we do NOT need to update page_size because
         // we're reusing an existing page so nothing has changed.
 
@@ -3271,6 +3282,11 @@ test "PageList grow prune scrollback" {
     // Get our page size
     const old_page_size = s.page_size;
 
+    // Create a tracked pin in the first page
+    const p = try s.trackPin(s.pin(.{ .screen = .{} }).?);
+    defer s.untrackPin(p);
+    try testing.expect(p.page == s.pages.first.?);
+
     // Next should create a new page, but it should reuse our first
     // page since we're at max size.
     const new = (try s.grow()).?;
@@ -3280,6 +3296,11 @@ test "PageList grow prune scrollback" {
     // Our first should now be page2 and our last should be page1
     try testing.expectEqual(page2_node, s.pages.first.?);
     try testing.expectEqual(page1_node, s.pages.last.?);
+
+    // Our tracked pin should point to the top-left of the first page
+    try testing.expect(p.page == s.pages.first.?);
+    try testing.expect(p.x == 0);
+    try testing.expect(p.y == 0);
 }
 
 test "PageList adjustCapacity to increase styles" {
