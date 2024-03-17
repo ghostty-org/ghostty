@@ -25,6 +25,7 @@
   zig_0_12,
   pandoc,
   revision ? "dirty",
+  optimize ? "Debug",
 }: let
   # The Zig hook has no way to select the release type without actual
   # overriding of the default flags.
@@ -34,7 +35,7 @@
   # ultimately acted on and has made its way to a nixpkgs implementation, this
   # can probably be removed in favor of that.
   zig012Hook = zig_0_12.hook.overrideAttrs {
-    zig_default_flags = "-Dcpu=baseline -Doptimize=ReleaseFast";
+    zig_default_flags = "-Dcpu=baseline -Doptimize=${optimize}";
   };
 
   # This hash is the computation of the zigCache fixed-output derivation. This
@@ -130,18 +131,6 @@ in
       rm -rf $ZIG_GLOBAL_CACHE_DIR
       cp -r --reflink=auto ${zigCache finalAttrs.src} $ZIG_GLOBAL_CACHE_DIR
       chmod u+rwX -R $ZIG_GLOBAL_CACHE_DIR
-    '';
-
-    buildPhase = ''
-      runHook preBuild
-      zig build -Dcpu=baseline -Doptimize=ReleaseSafe -Dversion-string=${finalAttrs.version}-${revision}-nix
-      runHook postBuild
-    '';
-
-    installPhase = ''
-      runHook preInstall
-      zig build install -Dcpu=baseline -Doptimize=ReleaseSafe -Dversion-string=${finalAttrs.version}-${revision}-nix --prefix $out
-      runHook postInstall
     '';
 
     outputs = ["out" "terminfo" "shell_integration"];

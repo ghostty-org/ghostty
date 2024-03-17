@@ -53,10 +53,22 @@
       };
 
       packages.${system} = rec {
-        ghostty = pkgs-stable.callPackage ./nix/package.nix {
+        ghostty-debug = pkgs-stable.callPackage ./nix/package.nix {
           inherit (pkgs-zig-0-12) zig_0_12;
           revision = self.shortRev or self.dirtyShortRev or "dirty";
+          optimize = "Debug";
         };
+        ghostty-releasesafe = pkgs-stable.callPackage ./nix/package.nix {
+          inherit (pkgs-zig-0-12) zig_0_12;
+          revision = self.shortRev or self.dirtyShortRev or "dirty";
+          optimize = "ReleaseSafe";
+        };
+        ghostty-releasefast = pkgs-stable.callPackage ./nix/package.nix {
+          inherit (pkgs-zig-0-12) zig_0_12;
+          revision = self.shortRev or self.dirtyShortRev or "dirty";
+          optimize = "ReleaseFast";
+        };
+        ghostty = ghostty-releasesafe;
         default = ghostty;
       };
 
