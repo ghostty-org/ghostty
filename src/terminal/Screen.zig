@@ -479,10 +479,35 @@ pub fn cursorDownScroll(self: *Screen) !void {
             page_pin.page.data.getCells(self.cursor.page_row),
         );
     } else {
+        const old_pin = self.cursor.page_pin.*;
+
         // Grow our pages by one row. The PageList will handle if we need to
         // allocate, prune scrollback, whatever.
         _ = try self.pages.grow();
-        const page_pin = self.cursor.page_pin.down(1).?;
+
+        // If our pin page change it means that the page that the pin
+        // was on was pruned. In this case, grow() moves the pin to
+        // the top-left of the new page. This effectively moves it by
+        // one already, we just need to fix up the x value.
+        const page_pin = if (old_pin.page == self.cursor.page_pin.page)
+            self.cursor.page_pin.down(1).?
+        else reuse: {
+            var pin = self.cursor.page_pin.*;
+            pin.x = self.cursor.x;
+            break :reuse pin;
+        };
+
+        // These assertions help catch some pagelist math errors. Our
+        // x/y should be unchanged after the grow.
+        if (comptime std.debug.runtime_safety) {
+            const active = self.pages.pointFromPin(
+                .active,
+                page_pin,
+            ).?.active;
+            assert(active.x == self.cursor.x);
+            assert(active.y == self.cursor.y);
+        }
+
         const page_rac = page_pin.rowAndCell();
         self.cursor.page_pin.* = page_pin;
         self.cursor.page_row = page_rac.row;
@@ -2745,6 +2770,7 @@ test "Screen: scrolling when viewport is pruned" {
 
     // Our viewport is now somewhere pinned. Create so much scrollback
     // that we prune it.
+    try s.testWriteString("\n");
     for (0..1000) |_| try s.testWriteString("1ABCD\n2EFGH\n3IJKL\n");
     try s.testWriteString("1ABCD\n2EFGH\n3IJKL");
 
@@ -2752,7 +2778,7 @@ test "Screen: scrolling when viewport is pruned" {
         // Test our contents rotated
         const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
         defer alloc.free(contents);
-        try testing.expectEqualStrings("2EFGH\n3IJKL\n1ABCD", contents);
+        try testing.expectEqualStrings("1ABCD\n2EFGH\n3IJKL", contents);
     }
 
     {

@@ -1962,7 +1962,7 @@ pub fn pointFromPin(self: *const PageList, tag: point.Tag, p: Pin) ?point.Point 
         if (tl.y > p.y) return null;
         coord.y = p.y - tl.y;
     } else {
-        coord.y += tl.page.data.size.rows - tl.y - 1;
+        coord.y += tl.page.data.size.rows - tl.y;
         var page_ = tl.page.next;
         while (page_) |page| : (page_ = page.next) {
             if (page == p.page) {
@@ -2879,6 +2879,43 @@ test "PageList pointFromPin active from prior page" {
     }
 }
 
+test "PageList pointFromPin traverse pages" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+    const page = &s.pages.last.?.data;
+    for (0..page.capacity.rows * 2) |_| {
+        _ = try s.grow();
+    }
+
+    {
+        const pages = s.totalPages();
+        const page_cap = page.capacity.rows;
+        const expected_y = page_cap * (pages - 2) + 5;
+
+        try testing.expectEqual(point.Point{
+            .screen = .{
+                .y = expected_y,
+                .x = 2,
+            },
+        }, s.pointFromPin(.screen, .{
+            .page = s.pages.last.?.prev.?,
+            .y = 5,
+            .x = 2,
+        }).?);
+    }
+
+    // Prior page
+    {
+        try testing.expect(s.pointFromPin(.active, .{
+            .page = s.pages.first.?,
+            .y = 0,
+            .x = 0,
+        }) == null);
+    }
+}
 test "PageList active after grow" {
     const testing = std.testing;
     const alloc = testing.allocator;
