@@ -251,6 +251,22 @@ pub const GlobalState = struct {
 
         // Output some debug information right away
         std.log.info("ghostty version={s}", .{build_config.version_string});
+        const mode = mode: {
+            const m = @tagName(builtin.mode);
+            if (std.mem.lastIndexOfScalar(u8, m, '.')) |i| break :mode m[i..];
+            break :mode m;
+        };
+        const baseline = baseline: {
+            const baseline = std.Target.Cpu.baseline(builtin.target.cpu.arch);
+            if (std.Target.Cpu.Feature.Set.eql(baseline.features, builtin.target.cpu.features)) break :baseline " -Dcpu=baseline";
+            break :baseline "";
+        };
+        std.log.info("ghostty built with{s} -Doptimize={s}", .{ baseline, mode });
+        {
+            const target = try builtin.target.zigTriple(self.alloc);
+            defer self.alloc.free(target);
+            std.log.info("zig triple: {s}", .{target});
+        }
         std.log.info("runtime={}", .{build_config.app_runtime});
         std.log.info("font_backend={}", .{build_config.font_backend});
         std.log.info("dependency harfbuzz={s}", .{harfbuzz.versionString()});
