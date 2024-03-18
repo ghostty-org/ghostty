@@ -306,7 +306,7 @@ pub const Clone = struct {
 
 /// Clone this pagelist from the top to bottom (inclusive).
 ///
-/// The viewport is always moved to the top-left.
+/// The viewport is always moved to the active area.
 ///
 /// The cloned pagelist must contain at least enough rows for the active
 /// area. If the region specified has less rows than the active area then
@@ -478,7 +478,7 @@ pub fn clone(
         .cols = self.cols,
         .rows = self.rows,
         .tracked_pins = tracked_pins,
-        .viewport = .{ .top = {} },
+        .viewport = .{ .active = {} },
         .viewport_pin = viewport_pin,
     };
 
