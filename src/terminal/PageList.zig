@@ -1600,7 +1600,9 @@ pub fn scrollClear(self: *PageList) !void {
     for (0..non_empty) |_| _ = try self.grow();
 }
 
-fn maxSize(self: *const PageList) usize {
+/// Returns the actual max size. This may be greater than the explicit
+/// value if the explicit value is less than the min_max_size.
+pub fn maxSize(self: *const PageList) usize {
     return @max(self.explicit_max_size, self.min_max_size);
 }
 

@@ -528,7 +528,7 @@ fn renderScreenWindow(self: *Inspector) void {
                 }
                 {
                     _ = cimgui.c.igTableSetColumnIndex(1);
-                    cimgui.c.igText("%d bytes", pages.max_size);
+                    cimgui.c.igText("%d bytes", pages.maxSize());
                 }
             }
 
