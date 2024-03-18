@@ -1247,8 +1247,15 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
             // pages may not have the capacity for this. If they don't have
             // the capacity we need to allocate a new page and copy the data.
             .gt => {
+                // See the comment in the while loop when setting self.cols
+                const old_cols = self.cols;
+
                 var it = self.pageIterator(.right_down, .{ .screen = .{} }, null);
                 while (it.next()) |chunk| {
+                    // We need to restore our old cols after we resize because
+                    // we have an assertion on this and we want to be able to
+                    // call this method multiple times.
+                    self.cols = old_cols;
                     try self.resizeWithoutReflowGrowCols(cols, chunk);
                 }
 
