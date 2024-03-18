@@ -1191,6 +1191,62 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
     ) else old_min_max_size;
     errdefer self.min_max_size = old_min_max_size;
 
+    // Important! We have to do cols first because cols may cause us to
+    // destroy pages if we're increasing cols which will free up page_size
+    // so that when we call grow() in the row mods, we won't prune.
+    if (opts.cols) |cols| {
+        switch (std.math.order(cols, self.cols)) {
+            .eq => {},
+
+            // Making our columns smaller. We always have space for this
+            // in existing pages so we need to go through the pages,
+            // resize the columns, and clear any cells that are beyond
+            // the new size.
+            .lt => {
+                var it = self.pageIterator(.right_down, .{ .screen = .{} }, null);
+                while (it.next()) |chunk| {
+                    const page = &chunk.page.data;
+                    const rows = page.rows.ptr(page.memory);
+                    for (0..page.size.rows) |i| {
+                        const row = &rows[i];
+                        page.clearCells(row, cols, self.cols);
+                    }
+
+                    page.size.cols = cols;
+                }
+
+                // Update all our tracked pins. If they have an X
+                // beyond the edge, clamp it.
+                var pin_it = self.tracked_pins.keyIterator();
+                while (pin_it.next()) |p_ptr| {
+                    const p = p_ptr.*;
+                    if (p.x >= cols) p.x = cols - 1;
+                }
+
+                self.cols = cols;
+            },
+
+            // Make our columns larger. This is a bit more complicated because
+            // pages may not have the capacity for this. If they don't have
+            // the capacity we need to allocate a new page and copy the data.
+            .gt => {
+                // See the comment in the while loop when setting self.cols
+                const old_cols = self.cols;
+
+                var it = self.pageIterator(.right_down, .{ .screen = .{} }, null);
+                while (it.next()) |chunk| {
+                    // We need to restore our old cols after we resize because
+                    // we have an assertion on this and we want to be able to
+                    // call this method multiple times.
+                    self.cols = old_cols;
+                    try self.resizeWithoutReflowGrowCols(cols, chunk);
+                }
+
+                self.cols = cols;
+            },
+        }
+    }
+
     if (opts.rows) |rows| {
         switch (std.math.order(rows, self.rows)) {
             .eq => {},
@@ -1252,58 +1308,9 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
                 self.rows = rows;
             },
         }
-    }
 
-    if (opts.cols) |cols| {
-        switch (std.math.order(cols, self.cols)) {
-            .eq => {},
-
-            // Making our columns smaller. We always have space for this
-            // in existing pages so we need to go through the pages,
-            // resize the columns, and clear any cells that are beyond
-            // the new size.
-            .lt => {
-                var it = self.pageIterator(.right_down, .{ .screen = .{} }, null);
-                while (it.next()) |chunk| {
-                    const page = &chunk.page.data;
-                    const rows = page.rows.ptr(page.memory);
-                    for (0..page.size.rows) |i| {
-                        const row = &rows[i];
-                        page.clearCells(row, cols, self.cols);
-                    }
-
-                    page.size.cols = cols;
-                }
-
-                // Update all our tracked pins. If they have an X
-                // beyond the edge, clamp it.
-                var pin_it = self.tracked_pins.keyIterator();
-                while (pin_it.next()) |p_ptr| {
-                    const p = p_ptr.*;
-                    if (p.x >= cols) p.x = cols - 1;
-                }
-
-                self.cols = cols;
-            },
-
-            // Make our columns larger. This is a bit more complicated because
-            // pages may not have the capacity for this. If they don't have
-            // the capacity we need to allocate a new page and copy the data.
-            .gt => {
-                // See the comment in the while loop when setting self.cols
-                const old_cols = self.cols;
-
-                var it = self.pageIterator(.right_down, .{ .screen = .{} }, null);
-                while (it.next()) |chunk| {
-                    // We need to restore our old cols after we resize because
-                    // we have an assertion on this and we want to be able to
-                    // call this method multiple times.
-                    self.cols = old_cols;
-                    try self.resizeWithoutReflowGrowCols(cols, chunk);
-                }
-
-                self.cols = cols;
-            },
+        if (comptime std.debug.runtime_safety) {
+            assert(self.totalRows() >= self.rows);
         }
     }
 }
@@ -4616,7 +4623,7 @@ test "PageList resize (no reflow) more rows and less cols" {
     }
 }
 
-test "PageList resize (no reflow) more rows and cols" {
+test "PageList resize more rows and cols doesn't fit in single std page" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
