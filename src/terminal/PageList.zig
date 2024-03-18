@@ -107,7 +107,12 @@ page_size: usize,
 /// Maximum size of the page allocation in bytes. This only includes pages
 /// that are used ONLY for scrollback. If the active area is still partially
 /// in a page that also includes scrollback, then that page is not included.
-max_size: usize,
+explicit_max_size: usize,
+
+/// This is the minimum max size that we will respect due to the rows/cols
+/// of the PageList. We must always be able to fit at least the active area
+/// and at least two pages for our algorithms.
+min_max_size: usize,
 
 /// The list of tracked pins. These are kept up to date automatically.
 tracked_pins: PinSet,
@@ -148,6 +153,29 @@ pub const Viewport = union(enum) {
     /// allocations.
     pin,
 };
+
+/// Returns the minimum valid "max size" for a given number of rows and cols
+/// such that we can fit the active area AND at least two pages. Note we
+/// need the two pages for algorithms to work properly (such as grow) but
+/// we don't need to fit double the active area.
+fn minMaxSize(cols: size.CellCountInt, rows: size.CellCountInt) !usize {
+    // Get our capacity to fit our rows. If the cols are too big, it may
+    // force less rows than we want meaning we need more than one page to
+    // represent a viewport.
+    const cap = try std_capacity.adjust(.{ .cols = cols });
+
+    // Calculate the number of standard sized pages we need to represent
+    // an active area. We always need at least two pages so if we can fit
+    // all our rows in one cap then we say 2, otherwise we do the math.
+    const pages = if (cap.rows >= rows) 2 else try std.math.divCeil(
+        usize,
+        rows,
+        cap.rows,
+    );
+    assert(pages >= 2);
+
+    return std_size * pages;
+}
 
 /// Initialize the page. The top of the first page in the list is always the
 /// top of the active area of the screen (important knowledge for quickly
@@ -201,14 +229,8 @@ pub fn init(
     page_list.prepend(page);
     const page_size = page_buf.len;
 
-    // The max size has to be adjusted to at least fit one viewport.
-    // We use item_size*2 because the active area can always span two
-    // pages as we scroll, otherwise we'd have to constantly copy in the
-    // small limit case.
-    const max_size_actual = @max(
-        max_size orelse std.math.maxInt(usize),
-        PagePool.item_size * 2,
-    );
+    // Get our minimum max size, see doc comments for more details.
+    const min_max_size = try minMaxSize(cols, rows);
 
     // We always track our viewport pin to ensure this is never an allocation
     const viewport_pin = try pool.pins.create();
@@ -223,7 +245,8 @@ pub fn init(
         .pool_owned = true,
         .pages = page_list,
         .page_size = page_size,
-        .max_size = max_size_actual,
+        .explicit_max_size = max_size orelse std.math.maxInt(usize),
+        .min_max_size = min_max_size,
         .tracked_pins = tracked_pins,
         .viewport = .{ .active = {} },
         .viewport_pin = viewport_pin,
@@ -450,7 +473,8 @@ pub fn clone(
         },
         .pages = page_list,
         .page_size = page_size,
-        .max_size = self.max_size,
+        .explicit_max_size = self.explicit_max_size,
+        .min_max_size = self.min_max_size,
         .cols = self.cols,
         .rows = self.rows,
         .tracked_pins = tracked_pins,
@@ -501,6 +525,16 @@ pub const Resize = struct {
 /// TODO: docs
 pub fn resize(self: *PageList, opts: Resize) !void {
     if (!opts.reflow) return try self.resizeWithoutReflow(opts);
+
+    // Recalculate our minimum max size. This allows grow to work properly
+    // when increasing beyond our initial minimum max size or explicit max
+    // size to fit the active area.
+    const old_min_max_size = self.min_max_size;
+    self.min_max_size = try minMaxSize(
+        opts.cols orelse self.cols,
+        opts.rows orelse self.rows,
+    );
+    errdefer self.min_max_size = old_min_max_size;
 
     // On reflow, the main thing that causes reflow is column changes. If
     // only rows change, reflow is impossible. So we change our behavior based
@@ -1148,6 +1182,15 @@ fn reflowUpdateCursor(
 }
 
 fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
+    // We only set the new min_max_size if we're not reflowing. If we are
+    // reflowing, then resize handles this for us.
+    const old_min_max_size = self.min_max_size;
+    self.min_max_size = if (!opts.reflow) try minMaxSize(
+        opts.cols orelse self.cols,
+        opts.rows orelse self.rows,
+    ) else old_min_max_size;
+    errdefer self.min_max_size = old_min_max_size;
+
     if (opts.rows) |rows| {
         switch (std.math.order(rows, self.rows)) {
             .eq => {},
@@ -1550,6 +1593,10 @@ pub fn scrollClear(self: *PageList) !void {
     for (0..non_empty) |_| _ = try self.grow();
 }
 
+fn maxSize(self: *const PageList) usize {
+    return @max(self.explicit_max_size, self.min_max_size);
+}
+
 /// Grow the active area by exactly one row.
 ///
 /// This may allocate, but also may not if our current page has more
@@ -1570,7 +1617,7 @@ pub fn grow(self: *PageList) !?*List.Node {
     // If allocation would exceed our max size, we prune the first page.
     // We don't need to reallocate because we can simply reuse that first
     // page.
-    if (self.page_size + PagePool.item_size > self.max_size) {
+    if (self.page_size + PagePool.item_size > self.maxSize()) {
         const layout = Page.layout(try std_capacity.adjust(.{ .cols = self.cols }));
 
         // Get our first page and reset it to prepare for reuse.
@@ -1610,7 +1657,7 @@ pub fn grow(self: *PageList) !?*List.Node {
 
     // We should never be more than our max size here because we've
     // verified the case above.
-    assert(self.page_size <= self.max_size);
+    assert(self.page_size <= self.maxSize());
 
     return next_page;
 }
@@ -4567,6 +4614,25 @@ test "PageList resize (no reflow) more rows and less cols" {
         const cells = offset.page.data.getCells(rac.row);
         try testing.expectEqual(@as(usize, 5), cells.len);
     }
+}
+
+test "PageList resize (no reflow) more rows and cols" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 10, 0);
+    defer s.deinit();
+
+    // Resize to a size that requires more than one page to fit our rows.
+    const new_cols = 600;
+    const new_rows = 600;
+    const cap = try std_capacity.adjust(.{ .cols = new_cols });
+    try testing.expect(cap.rows < new_rows);
+
+    try s.resize(.{ .cols = new_cols, .rows = new_rows, .reflow = true });
+    try testing.expectEqual(@as(usize, new_cols), s.cols);
+    try testing.expectEqual(@as(usize, new_rows), s.rows);
+    try testing.expectEqual(@as(usize, new_rows), s.totalRows());
 }
 
 test "PageList resize (no reflow) empty screen" {
