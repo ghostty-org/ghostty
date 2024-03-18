@@ -1370,25 +1370,31 @@ fn trimTrailingBlankRows(
     max: size.CellCountInt,
 ) size.CellCountInt {
     var trimmed: size.CellCountInt = 0;
-    var it = self.pages.last;
-    while (it) |page| : (it = page.prev) {
-        const len = page.data.size.rows;
-        const rows_slice = page.data.rows.ptr(page.data.memory)[0..len];
-        for (0..len) |i| {
-            const rev_i = len - i - 1;
-            const row = &rows_slice[rev_i];
-            const cells = row.cells.ptr(page.data.memory)[0..page.data.size.cols];
+    const bl_pin = self.getBottomRight(.screen).?;
+    var it = bl_pin.rowIterator(.left_up, null);
+    while (it.next()) |row_pin| {
+        const cells = row_pin.cells(.all);
 
-            // If the row has any text then we're done.
-            if (pagepkg.Cell.hasTextAny(cells)) return trimmed;
+        // If the row has any text then we're done.
+        if (pagepkg.Cell.hasTextAny(cells)) return trimmed;
 
-            // No text, we can trim this row. Because it has
-            // no text we can also be sure it has no styling
-            // so we don't need to worry about memory.
-            page.data.size.rows -= 1;
-            trimmed += 1;
-            if (trimmed >= max) return trimmed;
+        // If our tracked pins are in this row then we cannot trim it
+        // because it implies some sort of importance. If we trimmed this
+        // we'd invalidate this pin, as well.
+        var tracked_it = self.tracked_pins.keyIterator();
+        while (tracked_it.next()) |p_ptr| {
+            const p = p_ptr.*;
+            if (p.page != row_pin.page or
+                p.y != row_pin.y) continue;
+            return trimmed;
         }
+
+        // No text, we can trim this row. Because it has
+        // no text we can also be sure it has no styling
+        // so we don't need to worry about memory.
+        row_pin.page.data.size.rows -= 1;
+        trimmed += 1;
+        if (trimmed >= max) return trimmed;
     }
 
     return trimmed;
@@ -4306,6 +4312,49 @@ test "PageList resize (no reflow) less rows trims blank lines" {
             .y = 0,
         } }, pt);
     }
+}
+
+test "PageList resize (no reflow) less rows trims blank lines cursor in blank line" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 5, 0);
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+
+    // Write codepoint into first line
+    {
+        const rac = page.getRowAndCell(0, 0);
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = 'A' },
+        };
+    }
+
+    // Fill remaining lines with a background color
+    for (1..s.rows) |y| {
+        const rac = page.getRowAndCell(0, y);
+        rac.cell.* = .{
+            .content_tag = .bg_color_rgb,
+            .content = .{ .color_rgb = .{ .r = 0xFF, .g = 0, .b = 0 } },
+        };
+    }
+
+    // Put a tracked pin in a blank line
+    const p = try s.trackPin(s.pin(.{ .active = .{ .x = 0, .y = 3 } }).?);
+    defer s.untrackPin(p);
+
+    // Resize
+    try s.resize(.{ .rows = 2, .reflow = false });
+    try testing.expectEqual(@as(usize, 2), s.rows);
+    try testing.expectEqual(@as(usize, 4), s.totalRows());
+
+    // Our cursor should not move since we trimmed
+    try testing.expectEqual(point.Point{ .active = .{
+        .x = 0,
+        .y = 1,
+    } }, s.pointFromPin(.active, p.*).?);
 }
 
 test "PageList resize (no reflow) more rows extends blank lines" {
