@@ -2369,17 +2369,18 @@ pub fn getTopLeft(self: *const PageList, tag: point.Tag) Pin {
         // much faster because we don't need to update the top left. Under
         // heavy load this makes a measurable difference.
         .active => active: {
-            var page = self.pages.last.?;
             var rem = self.rows;
-            while (rem > page.data.size.rows) {
+            var it = self.pages.last;
+            while (it) |page| : (it = page.prev) {
+                if (rem <= page.data.size.rows) break :active .{
+                    .page = page,
+                    .y = page.data.size.rows - rem,
+                };
+
                 rem -= page.data.size.rows;
-                page = page.prev.?; // assertion: we always have enough rows for active
             }
 
-            break :active .{
-                .page = page,
-                .y = page.data.size.rows - rem,
-            };
+            unreachable; // assertion: we always have enough rows for active
         },
     };
 }
