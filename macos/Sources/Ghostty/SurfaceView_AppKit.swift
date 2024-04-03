@@ -508,9 +508,9 @@ extension Ghostty {
             // tab is created. In this scenario, we only want to process our
             // callback once since this is stateful and we expect balancing.
             if (mouseEntered) { return }
-            
+
             mouseEntered = true
-            
+
             // Update our cursor when we enter so we fully process our
             // cursorVisible state.
             cursorUpdate(with: NSEvent())
@@ -519,20 +519,15 @@ extension Ghostty {
         override func mouseExited(with event: NSEvent) {
             // See mouseEntered
             if (!mouseEntered) { return }
-            
+
             mouseEntered = false
-            
+
             // If the mouse is currently hidden, we want to show it when we exit
             // this view. We go through the cursorVisible dance so that only
             // cursorUpdate manages cursor state.
             if (cursorVisible == .hidden) {
-                cursorVisible = .pendingVisible
+                self.setCursorVisibility(true)
                 cursorUpdate(with: NSEvent())
-                assert(cursorVisible == .visible)
-                
-                // We set the state to pending hidden again for the next time
-                // we enter.
-                cursorVisible = .pendingHidden
             }
         }
 
@@ -584,16 +579,16 @@ extension Ghostty {
             case .visible, .hidden:
                 // Do nothing, stable state
                 break
-                
+
             case .pendingHidden:
                 NSCursor.hide()
                 cursorVisible = .hidden
-                
+
             case .pendingVisible:
                 NSCursor.unhide()
                 cursorVisible = .visible
             }
-            
+
             cursor.set()
         }
 

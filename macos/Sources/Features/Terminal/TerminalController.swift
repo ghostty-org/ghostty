@@ -722,7 +722,7 @@ class TerminalController: NSWindowController, NSWindowDelegate,
             Ghostty.App.completeClipboardRequest(surface, data: "", state: state, confirmed: true)
             return
         }
-        
+
         // Show our paste confirmation
         self.clipboardConfirmation = ClipboardConfirmationController(
             surface: surface,
@@ -732,5 +732,8 @@ class TerminalController: NSWindowController, NSWindowDelegate,
             delegate: self
         )
         window.beginSheet(self.clipboardConfirmation!.window!)
+
+        // Force the cursor to be shown when the sheet opens
+        NSCursor.unhide()
     }
 }
