@@ -493,11 +493,11 @@ pub const Wasm = struct {
     const wasm = @import("../../os/wasm.zig");
     const alloc = wasm.alloc;
 
-    export fn face_new(ptr: [*]const u8, len: usize, pts: u16, p: u16) ?*Face {
+    export fn face_new(ptr: [*]const u8, len: usize, pts: u8, p: u16) ?*Face {
         return face_new_(ptr, len, pts, p) catch null;
     }
 
-    fn face_new_(ptr: [*]const u8, len: usize, pts: u16, presentation: u16) !*Face {
+    fn face_new_(ptr: [*]const u8, len: usize, pts: u8, presentation: u16) !*Face {
         var face = try Face.initNamed(
             alloc,
             ptr[0..len],

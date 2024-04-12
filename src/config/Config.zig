@@ -1770,7 +1770,7 @@ pub fn finalize(self: *Config) !void {
 
     // We always load the theme first because it may set other fields
     // in our config.
-    if (self.theme) |theme| try self.loadTheme(theme);
+    // if (self.theme) |theme| try self.loadTheme(theme);
 
     // If we have a font-family set and don't set the others, default
     // the others to the font family. This way, if someone does

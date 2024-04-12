@@ -228,7 +228,7 @@ fn loadWebCanvas(
     opts: font.face.Options,
 ) !Face {
     const wc = self.wc.?;
-    return try Face.initNamed(wc.alloc, wc.font_str, opts, wc.presentation);
+    return try Face.initNamed(wc.alloc, wc.font_str, opts.size, wc.presentation);
 }
 
 /// Returns true if this face can satisfy the given codepoint and
@@ -355,8 +355,8 @@ pub const Wasm = struct {
         }
     }
 
-    export fn deferred_face_load(self: *DeferredFace, pts: u16) void {
-        self.load(.{}, .{ .points = pts }) catch |err| {
+    export fn deferred_face_load(self: *DeferredFace, pts: u8) void {
+        _ = self.load(.{}, .{ .size = .{ .points = pts } }) catch |err| {
             log.warn("error loading deferred face err={}", .{err});
             return;
         };

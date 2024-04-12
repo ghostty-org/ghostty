@@ -649,6 +649,7 @@ pub fn build(b: *std.Build) !void {
             .target = b.resolveTargetQuery(wasm_crosstarget),
             .optimize = optimize,
         });
+        wasm.entry = .disabled;
 
         // So that we can use web workers with our wasm binary
         wasm.import_memory = true;

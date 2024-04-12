@@ -8,7 +8,6 @@ const Face = font.Face;
 const Collection = font.Collection;
 const DeferredFace = font.DeferredFace;
 const Group = font.Group;
-const GroupCache = font.GroupCache;
 const Library = font.Library;
 const SharedGrid = font.SharedGrid;
 const Style = font.Style;

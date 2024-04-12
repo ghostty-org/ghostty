@@ -9,16 +9,16 @@ pub usingnamespace @import("terminal/main.zig");
 pub usingnamespace @import("config.zig").Wasm;
 pub usingnamespace @import("App.zig").Wasm;
 
-pub const std_options = struct {
+pub const std_options: std.Options = .{
     // Set our log level. We try to get as much logging as possible but in
     // ReleaseSmall mode where we're optimizing for space, we elevate the
     // log level.
-    pub const log_level: std.log.Level = switch (builtin.mode) {
+    .log_level = switch (builtin.mode) {
         .Debug => .debug,
         .ReleaseSmall => .warn,
         else => .info,
-    };
+    },
 
     // Set our log function
-    pub const logFn = @import("os/wasm/log.zig").log;
+    .logFn = @import("os/wasm/log.zig").log,
 };
