@@ -6,7 +6,7 @@ const importObject = {
   env: {
     memory: new WebAssembly.Memory({
       initial: 25,
-      maximum: 65536,
+      maximum: 1024,
       shared: true,
     }),
     log: (ptr: number, len: number) => {

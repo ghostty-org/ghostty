@@ -650,11 +650,15 @@ pub fn build(b: *std.Build) !void {
             .optimize = optimize,
         });
         wasm.entry = .disabled;
+        wasm.use_llvm = false;
+        wasm.use_lld = false;
+        wasm.rdynamic = true;
 
         // So that we can use web workers with our wasm binary
         wasm.import_memory = true;
+        wasm.export_memory = true;
         wasm.initial_memory = 65536 * 25;
-        wasm.max_memory = 65536 * 65536; // Maximum number of pages in wasm32
+        wasm.max_memory = 65536 * 1024; // Maximum number of pages in wasm32
         wasm.shared_memory = wasm_shared;
 
         // Stack protector adds extern requirements that we don't satisfy.
@@ -941,7 +945,6 @@ fn addDeps(
         .target = target,
         .optimize = optimize,
     });
-    std.debug.print("PATH!!!! {s}\n", .{js_dep.path("").getPath(b)});
     const libxev_dep = b.dependency("libxev", .{
         .target = target,
         .optimize = optimize,
