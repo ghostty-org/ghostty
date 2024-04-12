@@ -1,0 +1,8 @@
+.DS_Store
+.eslintrc
+.parcel-cache
+coverage
+src
+tests
+jest.config.js
+tsconfig.json

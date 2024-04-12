@@ -643,7 +643,7 @@ pub fn build(b: *std.Build) !void {
             break :config copy;
         };
 
-        const wasm = b.addSharedLibrary(.{
+        const wasm = b.addExecutable(.{
             .name = "ghostty-wasm",
             .root_source_file = .{ .path = "src/main_wasm.zig" },
             .target = b.resolveTargetQuery(wasm_crosstarget),
@@ -940,6 +940,7 @@ fn addDeps(
         .target = target,
         .optimize = optimize,
     });
+    std.debug.print("PATH!!!! {s}\n", .{js_dep.path("").getPath(b)});
     const libxev_dep = b.dependency("libxev", .{
         .target = target,
         .optimize = optimize,
@@ -1013,6 +1014,7 @@ fn addDeps(
     // Wasm we do manually since it is such a different build.
     if (step.rootModuleTarget().cpu.arch == .wasm32) {
         step.root_module.addImport("zig-js", js_dep.module("zig-js"));
+        step.root_module.addImport("ziglyph", ziglyph_dep.module("ziglyph"));
 
         return static_libs;
     }

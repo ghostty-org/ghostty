@@ -1,0 +1,4 @@
+.parcel-cache/
+dist/
+node_modules/
+example.wasm*

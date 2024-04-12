@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "alwaysStrict": true,
+    "sourceMap": false,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictPropertyInitialization": true,
+    "strictBindCallApply": true,
+    "module": "es2015",
+    "jsx": "react",
+    "target": "es5",
+    "moduleResolution": "node",
+    "experimentalDecorators": true,
+    "esModuleInterop": true,
+    "declaration": true,
+    "lib": ["dom", "es2017", "es5", "es6", "es7"],
+    "outDir": ".",
+    "strict": true,
+    "noImplicitAny": true,
+    "noImplicitThis": true,
+    "noImplicitReturns": true,
+    "skipLibCheck": true
+  },
+  "exclude": ["*.js", "tests", "examples", "src/*.test.tsx"]
+}
