@@ -7,7 +7,7 @@ const importObject = {
     memory: new WebAssembly.Memory({
       initial: 25,
       maximum: 1024,
-      shared: true,
+      shared: false,
     }),
     log: (ptr: number, len: number) => {
       const arr = new Uint8ClampedArray(zjs.memory.buffer, ptr, len);

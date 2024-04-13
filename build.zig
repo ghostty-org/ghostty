@@ -614,16 +614,16 @@ pub fn build(b: *std.Build) !void {
                 .atomics,
 
                 // Not explicitly used but compiler could use them if they want.
-                .bulk_memory,
-                .reference_types,
-                .sign_ext,
+                // .bulk_memory,
+                // .reference_types,
+                // .sign_ext,
             }),
         };
 
         // Whether we're using wasm shared memory. Some behaviors change.
         // For now we require this but I wanted to make the code handle both
         // up front.
-        const wasm_shared: bool = true;
+        const wasm_shared: bool = false;
 
         // Modify our build configuration for wasm builds.
         const wasm_config: BuildConfig = config: {
@@ -649,16 +649,19 @@ pub fn build(b: *std.Build) !void {
             .target = b.resolveTargetQuery(wasm_crosstarget),
             .optimize = optimize,
         });
+        wasm.global_base = 6560;
+
         wasm.entry = .disabled;
-        wasm.use_llvm = false;
-        wasm.use_lld = false;
+        // wasm.use_llvm = false;
+        // wasm.use_lld = false;
         wasm.rdynamic = true;
 
         // So that we can use web workers with our wasm binary
         wasm.import_memory = true;
-        wasm.export_memory = true;
-        wasm.initial_memory = 65536 * 25;
-        wasm.max_memory = 65536 * 1024; // Maximum number of pages in wasm32
+        // wasm.export_memory = true;
+        wasm.initial_memory = std.wasm.page_size * 25;
+        wasm.stack_size = std.wasm.page_size;
+        wasm.max_memory = std.wasm.page_size * 1024;
         wasm.shared_memory = wasm_shared;
 
         // Stack protector adds extern requirements that we don't satisfy.

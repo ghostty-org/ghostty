@@ -1066,6 +1066,12 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
     };
     errdefer result.deinit();
     const alloc = result._arena.?.allocator();
+    const bytes = alloc.alloc(u8, 5) catch {
+        return result;
+    };
+    // var bytes = try alloc.alignedAlloc(inputpkg.Link, @alignOf(inputpkg.Link), 16);
+    @memcpy(bytes, "hello");
+    try result.link.links.ensureTotalCapacityPrecise(alloc_gpa, 1024);
 
     // Add our default keybindings
 
