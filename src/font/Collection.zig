@@ -64,6 +64,33 @@ pub const AddError = Allocator.Error || error{
     DeferredLoadingUnavailable,
 };
 
+pub const Wasm = struct {
+    const wasm = @import("../os/wasm.zig");
+    const alloc = wasm.alloc;
+
+    export fn collection_new() ?*Collection {
+        return collection_new_() catch null;
+    }
+
+    fn collection_new_() !*Collection {
+        var collection = try Collection.init(alloc);
+        errdefer collection.deinit(alloc);
+
+        const result = try alloc.create(Collection);
+        errdefer alloc.destroy(result);
+        result.* = collection;
+        return result;
+    }
+
+    export fn collection_add(self: *Collection, style: u16, face: *DeferredFace) void {
+        _ = self.add(alloc, @enumFromInt(style), .{ .deferred = face.* }) catch |err| {
+            log.warn("error adding face to collection err:{}", .{err});
+            return;
+        };
+        return;
+    }
+};
+
 /// Add a face to the collection for the given style. This face will be added
 /// next in priority if others exist already, i.e. it'll be the _last_ to be
 /// searched for a glyph in that list.

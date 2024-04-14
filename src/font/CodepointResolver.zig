@@ -218,6 +218,62 @@ pub fn getIndex(
     return self.collection.getIndex(cp, .regular, .{ .any = {} });
 }
 
+pub const Wasm = struct {
+    const wasm = @import("../os/wasm.zig");
+    const alloc = wasm.alloc;
+
+    export fn codepoint_resolver_new(collection: *Collection) ?*CodepointResolver {
+        return codepoint_resolver_new_(collection) catch null;
+    }
+    fn codepoint_resolver_new_(collection: *Collection) !?*CodepointResolver {
+        var resolver: CodepointResolver = .{ .collection = collection.* };
+        errdefer resolver.deinit(alloc);
+
+        const result = try alloc.create(CodepointResolver);
+        errdefer alloc.destroy(result);
+        result.* = resolver;
+        return result;
+    }
+
+    export fn codepoint_resolver_index_for_codepoint(self: *CodepointResolver, cp: u32, style: u16, p: i16) i16 {
+        const presentation: ?Presentation = if (p < 0) null else @enumFromInt(p);
+        if (self.getIndex(alloc, cp, @enumFromInt(style), presentation)) |idx| {
+            return @intCast(@as(i16, @bitCast(idx)));
+        }
+        return -1;
+    }
+
+    export fn codepoint_resolver_render_glyph(
+        self: *CodepointResolver,
+        atlas: *Atlas,
+        idx: i16,
+        cp: u32,
+        max_height: u16,
+    ) ?*Glyph {
+        return codepoint_resolver_render_glyph_(self, atlas, idx, cp, max_height) catch |err| {
+            log.warn("error rendering group cache glyph err={}", .{err});
+            return null;
+        };
+    }
+
+    fn codepoint_resolver_render_glyph_(
+        self: *CodepointResolver,
+        atlas: *Atlas,
+        idx_: i16,
+        cp: u32,
+        max_height_: u16,
+    ) !*Glyph {
+        const idx = @as(Collection.Index, @bitCast(@as(u16, @intCast(idx_))));
+        _ = if (max_height_ <= 0) null else max_height_;
+        const glyph = try self.renderGlyph(alloc, atlas, idx, cp, .{});
+
+        const result = try alloc.create(Glyph);
+        errdefer alloc.destroy(result);
+        result.* = glyph;
+        return result;
+    }
+};
+
 /// Checks if the codepoint is in the map of codepoint overrides,
 /// finds the override font, and returns it.
 fn getIndexCodepointOverride(

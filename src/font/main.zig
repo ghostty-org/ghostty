@@ -26,6 +26,9 @@ pub usingnamespace @import("library.zig");
 /// If we're targeting wasm then we export some wasm APIs.
 pub usingnamespace if (builtin.target.isWasm()) struct {
     pub usingnamespace Atlas.Wasm;
+    pub usingnamespace CodepointResolver.Wasm;
+    pub usingnamespace Collection.Wasm;
+    pub usingnamespace SharedGrid.Wasm;
     pub usingnamespace DeferredFace.Wasm;
     pub usingnamespace face.web_canvas.Wasm;
     pub usingnamespace shape.web_canvas.Wasm;

@@ -41,9 +41,12 @@ fetch(url.href)
       deferred_face_free,
       deferred_face_load,
       deferred_face_face,
-      group_new,
-      group_free,
-      group_add_face,
+      collection_new,
+      collection_free,
+      collection_add,
+      codepoint_resolver_new,
+      codepoint_resolver_index_for_codepoint,
+      codepoint_resolver_render_glyph,
       group_init_sprite_face,
       group_index_for_codepoint,
       group_render_glyph,
@@ -83,7 +86,7 @@ fetch(url.href)
     free(config_str.ptr);
 
     // Create our atlas
-    // const atlas = atlas_new(512, 0 /* greyscale */);
+    const atlas = atlas_new(512, 0 /* greyscale */);
 
     // Create some memory for our string
     const font_name = makeStr("monospace");
@@ -98,30 +101,36 @@ fetch(url.href)
     //free(font_ptr);
 
     // Create our group
-    const group = group_new(32 /* size */);
-    group_add_face(
-      group,
+    // const group = group_new(32 /* size */);
+    const collection = collection_new();
+    collection_add(
+      collection,
       0 /* regular */,
+      // Collection.add actually takes an Entry instead of a DeferredFace
+      // but we are simplifying for now.
       deferred_face_new(font_name.ptr, font_name.len, 0 /* text */)
     );
-    group_add_face(
-      group,
+    collection_add(
+      collection,
       0 /* regular */,
       deferred_face_new(font_name.ptr, font_name.len, 1 /* emoji */)
     );
 
+    // const shared_grid = shared_grid_new();
+
     // Initialize our sprite font, without this we just use the browser.
-    group_init_sprite_face(group);
+    // TODO lets see how far we get without this..
+    // group_init_sprite_face(group);
 
     // Create our group cache
-    const group_cache = group_cache_new(group);
+    const resolver = codepoint_resolver_new(collection);
 
     // Render a glyph
-    // for (let i = 33; i <= 126; i++) {
-    //   const font_idx = group_cache_index_for_codepoint(group_cache, i, 0, -1);
-    //   group_cache_render_glyph(group_cache, font_idx, i, 0);
-    //   //face_render_glyph(face, atlas, i);
-    // }
+    for (let i = 33; i <= 126; i++) {
+      const font_idx = codepoint_resolver_index_for_codepoint(resolver, i, 0, -1);
+      codepoint_resolver_render_glyph(resolver, atlas, font_idx, i, 0);
+      face_render_glyph(face, atlas, i);
+    }
     //
     // const emoji = ["🐏","🌞","🌚","🍱","💿","🐈","📃","📀","🕡","🙃"];
     // for (let i = 0; i < emoji.length; i++) {
@@ -129,49 +138,49 @@ fetch(url.href)
     //   const font_idx = group_cache_index_for_codepoint(group_cache, cp, 0, -1 /* best choice */);
     //   group_cache_render_glyph(group_cache, font_idx, cp, 0);
     // }
-
-    for (let i = 0x2500; i <= 0x257f; i++) {
-      const font_idx = group_cache_index_for_codepoint(group_cache, i, 0, -1);
-      group_cache_render_glyph(group_cache, font_idx, i, 0);
-    }
-    for (let i = 0x2580; i <= 0x259f; i++) {
-      const font_idx = group_cache_index_for_codepoint(group_cache, i, 0, -1);
-      group_cache_render_glyph(group_cache, font_idx, i, 0);
-    }
-    for (let i = 0x2800; i <= 0x28ff; i++) {
-      const font_idx = group_cache_index_for_codepoint(group_cache, i, 0, -1);
-      group_cache_render_glyph(group_cache, font_idx, i, 0);
-    }
-    for (let i = 0x1fb00; i <= 0x1fb3b; i++) {
-      const font_idx = group_cache_index_for_codepoint(group_cache, i, 0, -1);
-      group_cache_render_glyph(group_cache, font_idx, i, 0);
-    }
-    for (let i = 0x1fb3c; i <= 0x1fb6b; i++) {
-      const font_idx = group_cache_index_for_codepoint(group_cache, i, 0, -1);
-      group_cache_render_glyph(group_cache, font_idx, i, 0);
-    }
-
+    //
+    // for (let i = 0x2500; i <= 0x257f; i++) {
+    //   const font_idx = collection_index_for_codepoint(collection, i, 0, -1);
+    //   shared_grid_render_glyph(shared_grid, font_idx, i, 0);
+    // }
+    // for (let i = 0x2580; i <= 0x259f; i++) {
+    //   const font_idx = collection_index_for_codepoint(collection, i, 0, -1);
+    //   shared_grid_render_glyph(shared_grid, font_idx, i, 0);
+    // }
+    // for (let i = 0x2800; i <= 0x28ff; i++) {
+    //   const font_idx = collection_index_for_codepoint(collection, i, 0, -1);
+    //   shared_grid_render_glyph(shared_grid, font_idx, i, 0);
+    // }
+    // for (let i = 0x1fb00; i <= 0x1fb3b; i++) {
+    //   const font_idx = collection_index_for_codepoint(collection, i, 0, -1);
+    //   shared_grid_render_glyph(shared_grid, font_idx, i, 0);
+    // }
+    // for (let i = 0x1fb3c; i <= 0x1fb6b; i++) {
+    //   const font_idx = collection_index_for_codepoint(collection, i, 0, -1);
+    //   shared_grid_render_glyph(shared_grid, font_idx, i, 0);
+    // }
+    //
     //face_render_glyph(face, atlas, "橋".codePointAt(0));
-    //face_render_glyph(face, atlas, "p".codePointAt(0));
+    face_render_glyph(face, atlas, "p".codePointAt(0));
 
     // Debug our canvas
-    //face_debug_canvas(face);
-
-    // Let's try shaping
-    const shaper = shaper_new(120);
-    //const input = makeStr("hello🐏");
-    const input = makeStr("hello🐏👍🏽");
-    shaper_test(shaper, group_cache, input.ptr, input.len);
-
-    const cp = 1114112;
-    const font_idx = group_cache_index_for_codepoint(
-      group_cache,
-      cp,
-      0,
-      -1 /* best choice */
-    );
-    group_cache_render_glyph(group_cache, font_idx, cp, -1);
-
+    face_debug_canvas(face);
+    //
+    // // Let's try shaping
+    // const shaper = shaper_new(120);
+    // //const input = makeStr("hello🐏");
+    // const input = makeStr("hello🐏👍🏽");
+    // shaper_test(shaper, group_cache, input.ptr, input.len);
+    //
+    // const cp = 1114112;
+    // const font_idx = group_cache_index_for_codepoint(
+    //   group_cache,
+    //   cp,
+    //   0,
+    //   -1 /* best choice */
+    // );
+    // group_cache_render_glyph(group_cache, font_idx, cp, -1);
+    //
     // Debug our atlas canvas
     {
       const atlas = group_cache_atlas_greyscale(group_cache);

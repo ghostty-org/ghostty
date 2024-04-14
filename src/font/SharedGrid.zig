@@ -227,6 +227,33 @@ pub fn renderCodepoint(
     return try self.renderGlyph(alloc, index, glyph_index, opts);
 }
 
+/// The wasm-compatible API.
+pub const Wasm = struct {
+    const wasm = @import("../os/wasm.zig");
+    const alloc = wasm.alloc;
+
+    export fn shared_grid_new(resolver: *CodepointResolver) ?*SharedGrid {
+        return shared_grid_new_(resolver) catch null;
+    }
+
+    fn shared_grid_new_(resolver: *CodepointResolver) !*SharedGrid {
+        var gc = try SharedGrid.init(alloc, resolver.*, false);
+        errdefer gc.deinit(alloc);
+
+        const result = try alloc.create(SharedGrid);
+        errdefer alloc.destroy(result);
+        result.* = gc;
+        return result;
+    }
+
+    export fn shared_grid_free(ptr: ?*SharedGrid) void {
+        if (ptr) |v| {
+            v.deinit(alloc);
+            alloc.destroy(v);
+        }
+    }
+};
+
 /// Render a glyph index. This automatically determines the correct texture
 /// atlas to use and caches the result.
 pub fn renderGlyph(
