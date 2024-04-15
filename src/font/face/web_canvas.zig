@@ -302,9 +302,12 @@ pub const Face = struct {
         }
 
         // Set our context font
+        // TODO encountering something bizarre where the static characters
+        // of the format string turn into question marks. To hack past it
+        // for now I prepended `px ` to the font name in `app.ts`.
         const font_val = try std.fmt.allocPrint(
             self.alloc,
-            "{d}px {s}",
+            "{d}{s}",
             .{ self.size.points, self.font_str },
         );
         defer self.alloc.free(font_val);

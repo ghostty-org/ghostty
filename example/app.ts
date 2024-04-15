@@ -53,9 +53,10 @@ fetch(url.href)
       group_cache_new,
       group_cache_free,
       group_cache_index_for_codepoint,
-      group_cache_render_glyph,
-      group_cache_atlas_greyscale,
-      group_cache_atlas_color,
+      shared_grid_new,
+      shared_grid_render_glyph,
+      shared_grid_atlas_greyscale,
+      shared_grid_atlas_color,
       atlas_new,
       atlas_free,
       atlas_debug_canvas,
@@ -89,26 +90,17 @@ fetch(url.href)
     const atlas = atlas_new(512, 0 /* greyscale */);
 
     // Create some memory for our string
-    const font_name = makeStr("monospace");
+    const font_name = makeStr("px monospace");
 
-    // Initialize our deferred face
-    // const df = deferred_face_new(font_ptr, font.byteLength, 0 /* text */);
-    //deferred_face_load(df, 72 /* size */);
-    //const face = deferred_face_face(df);
 
-    // Initialize our font face
-    //const face = face_new(font_ptr, font.byteLength, 72 /* size in px */);
-    //free(font_ptr);
-
-    // Create our group
-    // const group = group_new(32 /* size */);
     const collection = collection_new();
+    const face = deferred_face_new(font_name.ptr, font_name.len, 0 /* text */);
     collection_add(
       collection,
       0 /* regular */,
       // Collection.add actually takes an Entry instead of a DeferredFace
       // but we are simplifying for now.
-      deferred_face_new(font_name.ptr, font_name.len, 0 /* text */)
+      face
     );
     collection_add(
       collection,
@@ -116,55 +108,53 @@ fetch(url.href)
       deferred_face_new(font_name.ptr, font_name.len, 1 /* emoji */)
     );
 
-    // const shared_grid = shared_grid_new();
 
     // Initialize our sprite font, without this we just use the browser.
-    // TODO lets see how far we get without this..
+    // TODO Figure out how this should work
     // group_init_sprite_face(group);
 
-    // Create our group cache
     const resolver = codepoint_resolver_new(collection);
+    const shared_grid = shared_grid_new(resolver);
 
     // Render a glyph
     for (let i = 33; i <= 126; i++) {
       const font_idx = codepoint_resolver_index_for_codepoint(resolver, i, 0, -1);
-      codepoint_resolver_render_glyph(resolver, atlas, font_idx, i, 0);
-      face_render_glyph(face, atlas, i);
+      shared_grid_render_glyph(shared_grid, font_idx, i, 0);
     }
     //
-    // const emoji = ["🐏","🌞","🌚","🍱","💿","🐈","📃","📀","🕡","🙃"];
-    // for (let i = 0; i < emoji.length; i++) {
-    //   const cp = emoji[i].codePointAt(0);
-    //   const font_idx = group_cache_index_for_codepoint(group_cache, cp, 0, -1 /* best choice */);
-    //   group_cache_render_glyph(group_cache, font_idx, cp, 0);
-    // }
+    const emoji = ["🐏","🌞","🌚","🍱","💿","🐈","📃","📀","🕡","🙃"];
+    for (let i = 0; i < emoji.length; i++) {
+      const cp = emoji[i].codePointAt(0);
+      const font_idx = codepoint_resolver_index_for_codepoint(resolver, i, 0, -1);
+      shared_grid_render_glyph(shared_grid, font_idx, i, 0);
+    }
     //
-    // for (let i = 0x2500; i <= 0x257f; i++) {
-    //   const font_idx = collection_index_for_codepoint(collection, i, 0, -1);
-    //   shared_grid_render_glyph(shared_grid, font_idx, i, 0);
-    // }
-    // for (let i = 0x2580; i <= 0x259f; i++) {
-    //   const font_idx = collection_index_for_codepoint(collection, i, 0, -1);
-    //   shared_grid_render_glyph(shared_grid, font_idx, i, 0);
-    // }
-    // for (let i = 0x2800; i <= 0x28ff; i++) {
-    //   const font_idx = collection_index_for_codepoint(collection, i, 0, -1);
-    //   shared_grid_render_glyph(shared_grid, font_idx, i, 0);
-    // }
-    // for (let i = 0x1fb00; i <= 0x1fb3b; i++) {
-    //   const font_idx = collection_index_for_codepoint(collection, i, 0, -1);
-    //   shared_grid_render_glyph(shared_grid, font_idx, i, 0);
-    // }
-    // for (let i = 0x1fb3c; i <= 0x1fb6b; i++) {
-    //   const font_idx = collection_index_for_codepoint(collection, i, 0, -1);
-    //   shared_grid_render_glyph(shared_grid, font_idx, i, 0);
-    // }
+    for (let i = 0x2500; i <= 0x257f; i++) {
+      const font_idx = codepoint_resolver_index_for_codepoint(resolver, i, 0, -1);
+      shared_grid_render_glyph(shared_grid, font_idx, i, 0);
+    }
+    for (let i = 0x2580; i <= 0x259f; i++) {
+      const font_idx = codepoint_resolver_index_for_codepoint(resolver, i, 0, -1);
+      shared_grid_render_glyph(shared_grid, font_idx, i, 0);
+    }
+    for (let i = 0x2800; i <= 0x28ff; i++) {
+      const font_idx = codepoint_resolver_index_for_codepoint(resolver, i, 0, -1);
+      shared_grid_render_glyph(shared_grid, font_idx, i, 0);
+    }
+    for (let i = 0x1fb00; i <= 0x1fb3b; i++) {
+      const font_idx = codepoint_resolver_index_for_codepoint(resolver, i, 0, -1);
+      shared_grid_render_glyph(shared_grid, font_idx, i, 0);
+    }
+    for (let i = 0x1fb3c; i <= 0x1fb6b; i++) {
+      const font_idx = codepoint_resolver_index_for_codepoint(resolver, i, 0, -1);
+      shared_grid_render_glyph(shared_grid, font_idx, i, 0);
+    }
     //
     //face_render_glyph(face, atlas, "橋".codePointAt(0));
-    face_render_glyph(face, atlas, "p".codePointAt(0));
+    // face_render_glyph(face, atlas, "p".codePointAt(0));
 
     // Debug our canvas
-    face_debug_canvas(face);
+    // face_debug_canvas(face);
     //
     // // Let's try shaping
     // const shaper = shaper_new(120);
@@ -183,13 +173,13 @@ fetch(url.href)
     //
     // Debug our atlas canvas
     {
-      const atlas = group_cache_atlas_greyscale(group_cache);
+      const atlas = shared_grid_atlas_greyscale(shared_grid);
       const id = atlas_debug_canvas(atlas);
       document.getElementById("atlas-canvas").append(zjs.deleteValue(id));
     }
-
+    //
     {
-      const atlas = group_cache_atlas_color(group_cache);
+      const atlas = shared_grid_atlas_color(shared_grid);
       const id = atlas_debug_canvas(atlas);
       document.getElementById("atlas-color-canvas").append(zjs.deleteValue(id));
     }

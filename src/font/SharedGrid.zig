@@ -252,6 +252,38 @@ pub const Wasm = struct {
             alloc.destroy(v);
         }
     }
+
+    export fn shared_grid_atlas_greyscale(self: *SharedGrid) *font.Atlas {
+        return &self.atlas_greyscale;
+    }
+    export fn shared_grid_atlas_color(self: *SharedGrid) *font.Atlas {
+        return &self.atlas_color;
+    }
+
+    export fn shared_grid_render_glyph(
+        self: *SharedGrid,
+        idx: i16,
+        cp: u32,
+    ) ?*Render {
+        return shared_grid_render_glyph_(self, idx, cp) catch |err| {
+            log.warn("error rendering shared grid glyph err={}", .{err});
+            return null;
+        };
+    }
+
+    fn shared_grid_render_glyph_(
+        self: *SharedGrid,
+        idx_: i16,
+        cp: u32,
+    ) !*Render {
+        const idx = @as(Collection.Index, @bitCast(@as(u16, @intCast(idx_))));
+        const glyph = try self.renderGlyph(alloc, idx, cp, .{});
+
+        const result = try alloc.create(Render);
+        errdefer alloc.destroy(result);
+        result.* = glyph;
+        return result;
+    }
 };
 
 /// Render a glyph index. This automatically determines the correct texture

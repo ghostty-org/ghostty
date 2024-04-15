@@ -75,6 +75,9 @@ pub const Wasm = struct {
     fn collection_new_() !*Collection {
         var collection = try Collection.init(alloc);
         errdefer collection.deinit(alloc);
+        collection.load_options = .{
+            .library = try Library.init(),
+        };
 
         const result = try alloc.create(Collection);
         errdefer alloc.destroy(result);
