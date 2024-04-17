@@ -291,6 +291,8 @@ extension Ghostty {
     /// The configuration for a surface. For any configuration not set, defaults will be chosen from
     /// libghostty, usually from the Ghostty configuration.
     struct SurfaceConfiguration {
+        var kind: ghostty_surface_kind_e? = nil;
+
         /// Explicit font size to use in points
         var fontSize: Float32? = nil
         
@@ -303,6 +305,7 @@ extension Ghostty {
         init() {}
         
         init(from config: ghostty_surface_config_s) {
+            self.kind = config.kind;
             self.fontSize = config.font_size
             self.workingDirectory = String.init(cString: config.working_directory, encoding: .utf8)
             self.command = String.init(cString: config.command, encoding: .utf8)
@@ -334,6 +337,7 @@ extension Ghostty {
             #error("unsupported target")
             #endif
             
+            if let kind = kind { config.kind = kind }
             if let fontSize = fontSize { config.font_size = fontSize }
             if let workingDirectory = workingDirectory {
                 config.working_directory = (workingDirectory as NSString).utf8String

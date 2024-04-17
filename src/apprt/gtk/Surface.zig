@@ -543,7 +543,8 @@ fn realize(self: *Surface) !void {
     errdefer self.app.core_app.deleteSurface(self);
 
     // Get our new surface config
-    var config = try apprt.surface.newConfig(self.app.core_app, &self.app.config);
+    const kind: CoreSurface.Kind = .window; // TODO
+    var config = try apprt.surface.newConfig(self.app.core_app, &self.app.config, kind);
     defer config.deinit();
     if (!self.parent_surface) {
         // A hack, see the "parent_surface" field for more information.

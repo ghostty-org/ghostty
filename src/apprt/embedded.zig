@@ -308,6 +308,9 @@ pub const Surface = struct {
 
     /// Surface initialization options.
     pub const Options = extern struct {
+        /// The initial kind of surface.
+        kind: CoreSurface.Kind = .window,
+
         /// The platform that this surface is being initialized for and
         /// the associated platform-specific configuration.
         platform_tag: c_int = 0,
@@ -365,7 +368,7 @@ pub const Surface = struct {
         errdefer app.core_app.deleteSurface(self);
 
         // Shallow copy the config so that we can modify it.
-        var config = try apprt.surface.newConfig(app.core_app, app.config);
+        var config = try apprt.surface.newConfig(app.core_app, app.config, opts.kind);
         defer config.deinit();
 
         // If we have a working directory from the options then we set it.
@@ -473,7 +476,7 @@ pub const Surface = struct {
             return;
         };
 
-        const options = self.newSurfaceOptions();
+        const options = self.newSurfaceOptions(.split);
         func(self.userdata, direction, options);
     }
 
@@ -1024,7 +1027,7 @@ pub const Surface = struct {
             return;
         };
 
-        const options = self.newSurfaceOptions();
+        const options = self.newSurfaceOptions(.tab);
         func(self.userdata, options);
     }
 
@@ -1034,7 +1037,7 @@ pub const Surface = struct {
             return;
         };
 
-        const options = self.newSurfaceOptions();
+        const options = self.newSurfaceOptions(.window);
         func(self.userdata, options);
     }
 
@@ -1065,13 +1068,14 @@ pub const Surface = struct {
         func(self.userdata, width, height);
     }
 
-    fn newSurfaceOptions(self: *const Surface) apprt.Surface.Options {
+    fn newSurfaceOptions(self: *const Surface, kind: CoreSurface.Kind) apprt.Surface.Options {
         const font_size: f32 = font_size: {
             if (!self.app.config.@"window-inherit-font-size") break :font_size 0;
             break :font_size self.core_surface.font_size.points;
         };
 
         return .{
+            .kind = kind,
             .font_size = font_size,
         };
     }

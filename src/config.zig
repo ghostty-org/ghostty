@@ -20,6 +20,7 @@ pub const RepeatableCodepointMap = Config.RepeatableCodepointMap;
 pub const RepeatableFontVariation = Config.RepeatableFontVariation;
 pub const RepeatableString = Config.RepeatableString;
 pub const ShellIntegrationFeatures = Config.ShellIntegrationFeatures;
+pub const WindowInheritWorkingDirectory = Config.WindowInheritWorkingDirectory;
 
 // Alternate APIs
 pub const CAPI = @import("config/CAPI.zig");

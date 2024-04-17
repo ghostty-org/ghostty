@@ -32,6 +32,12 @@ typedef void* ghostty_inspector_t;
 
 // Enums are up top so we can reference them later.
 typedef enum {
+  GHOSTTY_SURFACE_KIND_SPLIT,
+  GHOSTTY_SURFACE_KIND_TAB,
+  GHOSTTY_SURFACE_KIND_WINDOW,
+} ghostty_surface_kind_e;
+
+typedef enum {
   GHOSTTY_PLATFORM_INVALID,
   GHOSTTY_PLATFORM_MACOS,
   GHOSTTY_PLATFORM_IOS,
@@ -395,6 +401,7 @@ typedef union {
 } ghostty_platform_u;
 
 typedef struct {
+  ghostty_surface_kind_e kind;
   ghostty_platform_e platform_tag;
   ghostty_platform_u platform;
   void* userdata;

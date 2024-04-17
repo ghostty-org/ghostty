@@ -1,3 +1,4 @@
+const std = @import("std");
 const apprt = @import("../apprt.zig");
 const App = @import("../App.zig");
 const Surface = @import("../Surface.zig");
@@ -85,7 +86,7 @@ pub const Mailbox = struct {
 /// Returns a new config for a surface for the given app that should be
 /// used for any new surfaces. The resulting config should be deinitialized
 /// after the surface is initialized.
-pub fn newConfig(app: *const App, config: *const Config) !Config {
+pub fn newConfig(app: *const App, config: *const Config, kind: Surface.Kind) !Config {
     // Create a shallow clone
     var copy = config.shallowClone(app.alloc);
 
@@ -95,7 +96,12 @@ pub fn newConfig(app: *const App, config: *const Config) !Config {
     // Get our previously focused surface for some inherited values.
     const prev = app.focusedSurface();
     if (prev) |p| {
-        if (config.@"window-inherit-working-directory") {
+        const inherit_pwd: bool = switch (kind) {
+            .split => config.@"window-inherit-working-directory".split,
+            .tab => config.@"window-inherit-working-directory".tab,
+            .window => config.@"window-inherit-working-directory".window,
+        };
+        if (inherit_pwd) {
             if (try p.pwd(alloc)) |pwd| {
                 copy.@"working-directory" = pwd;
             }

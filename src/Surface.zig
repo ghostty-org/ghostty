@@ -125,6 +125,13 @@ config: DerivedConfig,
 /// This is used to determine if we need to confirm, hold open, etc.
 child_exited: bool = false,
 
+/// The kind of surface.
+pub const Kind = enum(c_int) {
+    split,
+    tab,
+    window,
+};
+
 /// The effect of an input event. This can be used by callers to take
 /// the appropriate action after an input event. For example, key
 /// input can be forwarded to the OS for further processing if it
