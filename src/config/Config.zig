@@ -687,9 +687,11 @@ keybind: Keybinds = .{},
 /// focused, the default working directory will be used (the `working-directory`
 /// option).
 ///
-/// Value value are `split`, `tab`, and `window`. You can specify multiple
+/// Valid values are `split`, `tab`, and `window`. You can specify multiple
 /// values using a comma-delimited string (`tab` or `split,window`). You
 /// can also set this to `true` (always inherit) or `false` (never inherit).
+///
+/// `split`, `tab`, and `window` are currently only supported on macOS.
 @"window-inherit-working-directory": WindowInheritWorkingDirectory = .{},
 
 /// If true, new windows and tabs will inherit the font size of the previously
@@ -3750,9 +3752,9 @@ pub const WindowNewTabPosition = enum {
 pub const WindowInheritWorkingDirectory = packed struct {
     const Self = @This();
 
-    split: bool = false,
-    tab: bool = false,
-    window: bool = false,
+    split: bool = true,
+    tab: bool = true,
+    window: bool = true,
 
     pub fn parseCLI(self: *Self, _: Allocator, input: ?[]const u8) !void {
         const value = input orelse return error.ValueRequired;
@@ -3769,7 +3771,7 @@ pub const WindowInheritWorkingDirectory = packed struct {
         }
 
         // Enable all of the fields named in the comma-separated value.
-        self.* = .{};
+        self.* = .{ .split = false, .tab = false, .window = false };
         var iter = std.mem.splitSequence(u8, value, ",");
         loop: while (iter.next()) |part_raw| {
             const part = std.mem.trim(u8, part_raw, whitespace);
