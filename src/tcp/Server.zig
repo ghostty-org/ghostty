@@ -105,9 +105,6 @@ pub fn parseAddress(raw_addr: ?[:0]const u8) BindError!std.net.Address {
 /// Deinitializes the server
 pub fn deinit(self: *Server) void {
     log.info("shutting down server", .{});
-    var c: xev.Completion = undefined;
-    self.socket.close(&self.loop, &c, Server, self, closeHandler);
-
     self.buf_pool.deinit();
     self.comp_pool.deinit();
     self.sock_pool.deinit();
