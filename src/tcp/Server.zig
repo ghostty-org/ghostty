@@ -1,9 +1,7 @@
 const std = @import("std");
 const xev = @import("xev");
 const Config = @import("../config/Config.zig");
-
-const reject_client = @import("./handlers/reject.zig").reject_client;
-const read_client = @import("./handlers/reader.zig").read_client;
+const connections = @import("./handlers/connections.zig");
 
 const Allocator = std.mem.Allocator;
 const CompletionPool = std.heap.MemoryPool(xev.Completion);
@@ -103,16 +101,11 @@ pub fn deinit(self: *Server) void {
 pub fn start(self: *Server) !void {
     try self.socket.bind(self.addr);
     try self.socket.listen(self.max_clients);
+    try connections.startAccepting(self);
     log.info("bound server to socket={any}", .{self.socket});
 
-    // Each acceptor borrows a completion from the pool
-    // We do this because the completion is passed to the client TCP handlers
-    const c = self.comp_pool.create() catch {
-        log.err("couldn't allocate completion in pool", .{});
-        return error.OutOfMemory;
-    };
-
-    self.socket.accept(&self.loop, c, Server, self, acceptHandler);
+    // TODO: Stop flag? Only necessary if we support signaling the server
+    // from the main thread on an event, ie. configuration reloading.
     while (true) {
         try self.loop.run(.until_done);
     }
@@ -125,81 +118,40 @@ pub fn destroyBuffer(self: *Server, buf: []const u8) void {
     ));
 }
 
-/// Accepts a new client connection and starts reading from it until EOF.
-/// Once an accept handler enters, it queues for a new client connection.
-/// It essentially recursively calls itself until shutdown.
-fn acceptHandler(
-    self_: ?*Server,
-    _: *xev.Loop,
-    c: *xev.Completion,
-    e: xev.TCP.AcceptError!xev.TCP,
-) xev.CallbackAction {
-    const self = self_.?;
-    const new_c = self.comp_pool.create() catch {
-        log.err("couldn't allocate completion in pool", .{});
-        return .disarm;
+const BindError = error{
+    NoAddress,
+    InvalidAddress,
+};
+
+/// Tries to generate a valid address to bind to, expects that the address will
+/// start with tcp:// when binding to an IP and unix:// when binding to a file
+/// based socket.
+pub fn parseAddress(raw_addr: ?[:0]const u8) BindError!std.net.Address {
+    const addr = raw_addr orelse {
+        return BindError.NoAddress;
     };
 
-    // Accept a new client connection now that we have a new completion
-    self.socket.accept(&self.loop, new_c, Server, self, acceptHandler);
-
-    const sock = self.sock_pool.create() catch {
-        log.err("couldn't allocate socket in pool", .{});
-        return .disarm;
-    };
-
-    sock.* = e catch {
-        log.err("accept error", .{});
-        self.sock_pool.destroy(sock);
-        return .disarm;
-    };
-
-    if (self.clients_count == self.max_clients) {
-        log.warn("max clients reached, rejecting fd={d}", .{sock.fd});
-        reject_client(self, sock) catch return .rearm;
-        return .disarm;
+    if (addr.len == 0) {
+        return BindError.NoAddress;
     }
 
-    log.info("accepted connection fd={d}", .{sock.fd});
-    self.clients_count += 1;
+    const uri = std.Uri.parse(addr) catch return BindError.InvalidAddress;
+    if (std.mem.eql(u8, uri.scheme, "tcp")) {
+        const host = uri.host orelse return BindError.InvalidAddress;
+        const port = uri.port orelse return BindError.InvalidAddress;
 
-    read_client(self, sock, c) catch {
-        log.err("couldn't read from client", .{});
-    };
+        return std.net.Address.parseIp4(host.percent_encoded, port) catch {
+            return BindError.InvalidAddress;
+        };
+    }
 
-    return .disarm;
-}
+    // TODO: Should we check for valid file paths or just rely on the initUnix
+    // function to return an error?
+    if (std.mem.eql(u8, uri.scheme, "unix")) {
+        return std.net.Address.initUnix(uri.path.percent_encoded) catch {
+            return BindError.InvalidAddress;
+        };
+    }
 
-fn shutdownHandler(
-    self_: ?*Server,
-    loop: *xev.Loop,
-    comp: *xev.Completion,
-    sock: xev.TCP,
-    e: xev.TCP.ShutdownError!void,
-) xev.CallbackAction {
-    e catch {
-        // Is this even possible?
-        log.err("couldn't shutdown socket", .{});
-    };
-
-    const self = self_.?;
-
-    sock.close(loop, comp, Server, self, closeHandler);
-    return .disarm;
-}
-
-pub fn closeHandler(
-    self_: ?*Server,
-    _: *xev.Loop,
-    comp: *xev.Completion,
-    _: xev.TCP,
-    e: xev.TCP.CloseError!void,
-) xev.CallbackAction {
-    e catch {
-        log.err("couldn't close socket", .{});
-    };
-
-    const self = self_.?;
-    self.comp_pool.destroy(comp);
-    return .disarm;
+    return BindError.InvalidAddress;
 }

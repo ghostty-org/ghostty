@@ -2,6 +2,7 @@ const xev = @import("xev");
 const std = @import("std");
 const Server = @import("../Server.zig").Server;
 const Command = @import("../Command.zig").Command;
+const connections = @import("./connections.zig");
 
 const log = std.log.scoped(.tcp_thread);
 
@@ -29,7 +30,7 @@ fn rHandler(
             error.EOF => {
                 log.info("client disconnected fd={d}", .{s.fd});
                 self.clients_count -= 1;
-                s.close(l, c, Server, self, Server.closeHandler);
+                s.close(l, c, Server, self, connections.cHandler);
                 return .disarm;
             },
 

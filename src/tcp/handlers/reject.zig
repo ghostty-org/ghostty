@@ -1,6 +1,7 @@
 const xev = @import("xev");
 const std = @import("std");
 const Server = @import("../Server.zig").Server;
+const connections = @import("./connections.zig");
 
 const log = std.log.scoped(.tcp_thread);
 
@@ -36,6 +37,6 @@ fn wHandler(
         return .disarm;
     };
 
-    client.close(l, c, Server, self, Server.closeHandler);
+    client.close(l, c, Server, self, connections.cHandler);
     return .disarm;
 }
