@@ -18,6 +18,7 @@ const fontconfig = @import("fontconfig");
 const harfbuzz = @import("harfbuzz");
 const renderer = @import("renderer.zig");
 const apprt = @import("apprt.zig");
+const tcp = @import("tcp.zig");
 
 const App = @import("App.zig");
 const Ghostty = @import("main_c.zig").Ghostty;
@@ -111,6 +112,18 @@ pub fn main() !MainReturn {
     // quit timer may need to be started. The start timer will get cancelled if/
     // when the first surface is created.
     if (@hasDecl(apprt.App, "startQuitTimer")) app_runtime.startQuitTimer();
+
+    // Not sure where this should go tbh
+    var tcp_thread = try tcp.Thread.init(alloc);
+    defer tcp_thread.deinit();
+
+    var tcp_thr = try std.Thread.spawn(
+        .{},
+        tcp.Thread.threadMain,
+        .{&tcp_thread},
+    );
+
+    tcp_thr.setName("tcp") catch {};
 
     // Run the GUI event loop
     try app_runtime.run();
