@@ -1,6 +1,6 @@
 const std = @import("std");
 const xev = @import("xev");
-const Config = @import("../Config.zig").Config;
+const Config = @import("../config/Config.zig");
 
 const reject_client = @import("./handlers/reject.zig").reject_client;
 const read_client = @import("./handlers/reader.zig").read_client;
@@ -37,10 +37,6 @@ socket: xev.TCP,
 
 /// Timer for accepting connections
 acceptor: xev.Timer,
-
-/// Array of client sockets
-/// TODO: Merge with `sock_pool`? or make a hashmap
-clients: SocketPool,
 
 /// Number of clients connected
 clients_count: usize,

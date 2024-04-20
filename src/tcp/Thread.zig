@@ -5,7 +5,7 @@ const std = @import("std");
 const xev = @import("xev");
 const tcp = @import("../tcp.zig");
 const App = @import("../App.zig");
-const Config = @import("../Config.zig").Config;
+const Config = @import("../config/Config.zig");
 
 const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.tcp_thread);
