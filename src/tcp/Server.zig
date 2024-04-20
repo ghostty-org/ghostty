@@ -58,36 +58,6 @@ pub fn init(
     };
 }
 
-const BindError = error{
-    NoAddress,
-    InvalidAddress,
-};
-
-/// Tries to generate a valid address to bind to
-/// TODO: Maybe unix sockets should start with unix://
-pub fn parseAddress(raw_addr: ?[:0]const u8) BindError!std.net.Address {
-    const addr = raw_addr orelse {
-        return BindError.NoAddress;
-    };
-
-    if (addr.len == 0) {
-        return BindError.NoAddress;
-    }
-
-    var iter = std.mem.splitScalar(u8, addr, ':');
-    const host = iter.next() orelse return BindError.InvalidAddress;
-    const port = iter.next() orelse return BindError.InvalidAddress;
-    const numPort = std.fmt.parseInt(u16, port, 10) catch {
-        return std.net.Address.initUnix(addr) catch BindError.InvalidAddress;
-    };
-
-    const ip = std.net.Address.parseIp4(host, numPort) catch {
-        return std.net.Address.initUnix(addr) catch BindError.InvalidAddress;
-    };
-
-    return ip;
-}
-
 /// Deinitializes the server
 pub fn deinit(self: *Server) void {
     log.info("shutting down server", .{});

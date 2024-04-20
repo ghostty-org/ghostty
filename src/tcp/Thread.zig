@@ -14,7 +14,7 @@ const log = std.log.scoped(.tcp_thread);
 alloc: std.mem.Allocator,
 
 /// The TCP server for handling incoming connections.
-server: tcp.Server,
+server: ?tcp.Server,
 
 /// Initialize the thread. This does not START the thread. This only sets
 /// up all the internal state necessary prior to starting the thread. It
@@ -26,7 +26,10 @@ pub fn init(alloc: Allocator) !Thread {
 
     const parsedAddr = tcp.Server.parseAddress(addr) catch |err| {
         log.err("failed to parse address addr={any} err={any}", .{ addr, err });
-        return err;
+        return Thread{
+            .alloc = alloc,
+            .server = undefined,
+        };
     };
 
     log.debug("parsed address addr={any}", .{parsedAddr});
@@ -42,7 +45,9 @@ pub fn init(alloc: Allocator) !Thread {
 /// Clean up the thread. This is only safe to call once the thread
 /// completes executing; the caller must join prior to this.
 pub fn deinit(self: *Thread) void {
-    self.server.deinit();
+    if (self.server) |*server| {
+        server.deinit();
+    }
 }
 
 /// The main entrypoint for the thread.
@@ -53,7 +58,9 @@ pub fn threadMain(self: *Thread) void {
 }
 
 fn threadMain_(self: *Thread) !void {
-    log.debug("starting tcp thread", .{});
-    try self.server.start();
-    errdefer log.debug("tcp thread exited", .{});
+    if (self.server) |*server| {
+        log.debug("starting tcp thread", .{});
+        defer log.debug("tcp thread exited", .{});
+        try server.start();
+    }
 }
