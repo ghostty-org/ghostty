@@ -11,9 +11,6 @@ const SocketPool = std.heap.MemoryPool(xev.TCP);
 const BufferPool = std.heap.MemoryPool([1024]u8);
 const log = std.log.scoped(.tcp_thread);
 
-/// Acceptor polling rate in milliseconds
-const ACCEPTOR_RATE = 1;
-
 /// A wrapper around the TCP server socket
 pub const Server = @This();
 
@@ -34,9 +31,6 @@ loop: xev.Loop,
 
 /// Server socket
 socket: xev.TCP,
-
-/// Timer for accepting connections
-acceptor: xev.Timer,
 
 /// Number of clients connected
 clients_count: usize,
@@ -60,7 +54,6 @@ pub fn init(
         .buf_pool = BufferPool.init(alloc),
         .loop = try xev.Loop.init(.{}),
         .socket = try xev.TCP.init(addr),
-        .acceptor = try xev.Timer.init(),
         .clients_count = 0,
         .addr = addr,
         .max_clients = max_clients,
@@ -104,7 +97,6 @@ pub fn deinit(self: *Server) void {
     self.sock_pool.deinit();
     self.buf_pool.deinit();
     self.loop.deinit();
-    self.acceptor.deinit();
 }
 
 /// Starts the timer which tries to accept connections
@@ -120,7 +112,7 @@ pub fn start(self: *Server) !void {
         return error.OutOfMemory;
     };
 
-    self.acceptor.run(&self.loop, c, ACCEPTOR_RATE, Server, self, acceptor);
+    self.socket.accept(&self.loop, c, Server, self, acceptHandler);
     while (true) {
         try self.loop.run(.until_done);
     }
@@ -133,38 +125,9 @@ pub fn destroyBuffer(self: *Server, buf: []const u8) void {
     ));
 }
 
-/// This runs on a loop and attempts to accept a connection to pass into the
-/// handlers that manage client communication. It is very important to note
-/// that the xev.Completion is shared between the acceptor and other handlers.
-/// When a client disconnects, only then the completion is freed.
-fn acceptor(
-    self_: ?*Server,
-    loop: *xev.Loop,
-    c: *xev.Completion,
-    e: xev.Timer.RunError!void,
-) xev.CallbackAction {
-    const self = self_.?;
-    e catch {
-        log.err("timer error", .{});
-        return .disarm;
-    };
-
-    self.socket.accept(loop, c, Server, self, acceptHandler);
-
-    // We need to create a new completion for the next acceptor since each
-    // TCP connection will need its own if it successfully accepts.
-    const c_a = self.comp_pool.create() catch {
-        log.err("couldn't allocate completion in pool", .{});
-        return .disarm;
-    };
-
-    // We can't rearm because it'll repeat *this* instance of the acceptor
-    // So if the socket fails to accept it won't actually accept anything new
-    self.acceptor.run(loop, c_a, ACCEPTOR_RATE, Server, self, acceptor);
-    return .disarm;
-}
-
 /// Accepts a new client connection and starts reading from it until EOF.
+/// Once an accept handler enters, it queues for a new client connection.
+/// It essentially recursively calls itself until shutdown.
 fn acceptHandler(
     self_: ?*Server,
     _: *xev.Loop,
@@ -172,6 +135,14 @@ fn acceptHandler(
     e: xev.TCP.AcceptError!xev.TCP,
 ) xev.CallbackAction {
     const self = self_.?;
+    const new_c = self.comp_pool.create() catch {
+        log.err("couldn't allocate completion in pool", .{});
+        return .disarm;
+    };
+
+    // Accept a new client connection now that we have a new completion
+    self.socket.accept(&self.loop, new_c, Server, self, acceptHandler);
+
     const sock = self.sock_pool.create() catch {
         log.err("couldn't allocate socket in pool", .{});
         return .disarm;
