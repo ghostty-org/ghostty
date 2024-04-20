@@ -26,7 +26,8 @@ pub const Command = enum {
         const cmdName = iter.next() orelse return error.InvalidInput;
         // TODO: Handle/support arguments
 
-        return std.meta.stringToEnum(Command, cmdName) orelse return error.InvalidCommand;
+        return std.meta.stringToEnum(Command, cmdName) orelse
+            return error.InvalidCommand;
     }
 
     pub fn handle(self: Command) ![]const u8 {

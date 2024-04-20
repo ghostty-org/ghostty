@@ -54,17 +54,16 @@ pub fn init(
     max_clients: u8,
 ) !Server {
     return Server{
+        .alloc = alloc,
         .comp_pool = CompletionPool.init(alloc),
         .sock_pool = SocketPool.init(alloc),
         .buf_pool = BufferPool.init(alloc),
         .loop = try xev.Loop.init(.{}),
         .socket = try xev.TCP.init(addr),
         .acceptor = try xev.Timer.init(),
-        .clients = undefined,
         .clients_count = 0,
-        .alloc = alloc,
-        .max_clients = max_clients,
         .addr = addr,
+        .max_clients = max_clients,
     };
 }
 
@@ -101,9 +100,9 @@ pub fn parseAddress(raw_addr: ?[:0]const u8) BindError!std.net.Address {
 /// Deinitializes the server
 pub fn deinit(self: *Server) void {
     log.info("shutting down server", .{});
-    self.buf_pool.deinit();
     self.comp_pool.deinit();
     self.sock_pool.deinit();
+    self.buf_pool.deinit();
     self.loop.deinit();
     self.acceptor.deinit();
 }
@@ -154,14 +153,14 @@ fn acceptor(
 
     // We need to create a new completion for the next acceptor since each
     // TCP connection will need its own if it successfully accepts.
-    const accept_recomp = self.comp_pool.create() catch {
+    const c_a = self.comp_pool.create() catch {
         log.err("couldn't allocate completion in pool", .{});
         return .disarm;
     };
 
     // We can't rearm because it'll repeat *this* instance of the acceptor
     // So if the socket fails to accept it won't actually accept anything new
-    self.acceptor.run(loop, accept_recomp, ACCEPTOR_RATE, Server, self, acceptor);
+    self.acceptor.run(loop, c_a, ACCEPTOR_RATE, Server, self, acceptor);
     return .disarm;
 }
 
@@ -191,7 +190,6 @@ fn acceptHandler(
     }
 
     log.info("accepted connection fd={d}", .{sock.fd});
-    // self.clients[self.clients_count] = sock;
     self.clients_count += 1;
 
     read_client(self, sock, c) catch {
