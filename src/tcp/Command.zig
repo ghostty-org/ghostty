@@ -24,7 +24,6 @@ pub const Command = enum {
         // Not using .first() because it returns everything if there is no space
         // Instead we're doing what's equivalent to popping the first element
         const cmdName = iter.next() orelse return error.InvalidInput;
-        log.debug("got command name={s}", .{cmdName});
         // TODO: Handle/support arguments
 
         return std.meta.stringToEnum(Command, cmdName) orelse return error.InvalidCommand;

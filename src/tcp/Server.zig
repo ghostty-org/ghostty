@@ -1,6 +1,6 @@
 const std = @import("std");
 const xev = @import("xev");
-const tcp = @import("../tcp.zig");
+const Config = @import("../Config.zig").Config;
 
 const reject_client = @import("./handlers/reject.zig").reject_client;
 const read_client = @import("./handlers/reader.zig").read_client;
@@ -10,9 +10,6 @@ const CompletionPool = std.heap.MemoryPool(xev.Completion);
 const SocketPool = std.heap.MemoryPool(xev.TCP);
 const BufferPool = std.heap.MemoryPool([1024]u8);
 const log = std.log.scoped(.tcp_thread);
-
-/// Maximum connections we allow at once
-const MAX_CLIENTS = 2;
 
 /// Acceptor polling rate in milliseconds
 const ACCEPTOR_RATE = 1;
@@ -32,9 +29,6 @@ sock_pool: SocketPool,
 /// Memory pool that stores buffers for reading and writing
 buf_pool: BufferPool,
 
-/// Stop flag
-stop: bool,
-
 /// Event loop
 loop: xev.Loop,
 
@@ -45,32 +39,75 @@ socket: xev.TCP,
 acceptor: xev.Timer,
 
 /// Array of client sockets
-clients: [MAX_CLIENTS]*xev.TCP,
+/// TODO: Merge with `sock_pool`? or make a hashmap
+clients: SocketPool,
 
 /// Number of clients connected
 clients_count: usize,
 
-/// Initializes the server with the given allocator and address
-pub fn init(alloc: Allocator, addr: std.net.Address) !Server {
-    const socket = try xev.TCP.init(addr);
-    try socket.bind(addr);
+/// Address to bind to
+addr: std.net.Address,
 
+/// Maximum clients allowed
+max_clients: u8,
+
+/// Initializes the server with the given allocator and address
+pub fn init(
+    alloc: Allocator,
+    addr: std.net.Address,
+    max_clients: u8,
+) !Server {
     return Server{
         .comp_pool = CompletionPool.init(alloc),
         .sock_pool = SocketPool.init(alloc),
         .buf_pool = BufferPool.init(alloc),
-        .stop = false,
         .loop = try xev.Loop.init(.{}),
-        .socket = socket,
+        .socket = try xev.TCP.init(addr),
         .acceptor = try xev.Timer.init(),
         .clients = undefined,
         .clients_count = 0,
         .alloc = alloc,
+        .max_clients = max_clients,
+        .addr = addr,
     };
+}
+
+const BindError = error{
+    NoAddress,
+    InvalidAddress,
+};
+
+/// Tries to generate a valid address to bind to
+/// TODO: Maybe unix sockets should start with unix://
+pub fn parseAddress(raw_addr: ?[:0]const u8) BindError!std.net.Address {
+    const addr = raw_addr orelse {
+        return BindError.NoAddress;
+    };
+
+    if (addr.len == 0) {
+        return BindError.NoAddress;
+    }
+
+    var iter = std.mem.splitScalar(u8, addr, ':');
+    const host = iter.next() orelse return BindError.InvalidAddress;
+    const port = iter.next() orelse return BindError.InvalidAddress;
+    const numPort = std.fmt.parseInt(u16, port, 10) catch {
+        return std.net.Address.initUnix(addr) catch BindError.InvalidAddress;
+    };
+
+    const ip = std.net.Address.parseIp4(host, numPort) catch {
+        return std.net.Address.initUnix(addr) catch BindError.InvalidAddress;
+    };
+
+    return ip;
 }
 
 /// Deinitializes the server
 pub fn deinit(self: *Server) void {
+    log.info("shutting down server", .{});
+    var c: xev.Completion = undefined;
+    self.socket.close(&self.loop, &c, Server, self, closeHandler);
+
     self.buf_pool.deinit();
     self.comp_pool.deinit();
     self.sock_pool.deinit();
@@ -80,7 +117,8 @@ pub fn deinit(self: *Server) void {
 
 /// Starts the timer which tries to accept connections
 pub fn start(self: *Server) !void {
-    try self.socket.listen(MAX_CLIENTS);
+    try self.socket.bind(self.addr);
+    try self.socket.listen(self.max_clients);
     log.info("bound server to socket={any}", .{self.socket});
 
     // Each acceptor borrows a completion from the pool
@@ -91,7 +129,7 @@ pub fn start(self: *Server) !void {
     };
 
     self.acceptor.run(&self.loop, c, ACCEPTOR_RATE, Server, self, acceptor);
-    while (!self.stop) {
+    while (true) {
         try self.loop.run(.until_done);
     }
 }
@@ -153,14 +191,14 @@ fn acceptHandler(
         return .disarm;
     };
 
-    if (self.clients_count == MAX_CLIENTS) {
+    if (self.clients_count == self.max_clients) {
         log.warn("max clients reached, rejecting fd={d}", .{sock.fd});
         reject_client(self, sock) catch return .rearm;
         return .disarm;
     }
 
     log.info("accepted connection fd={d}", .{sock.fd});
-    self.clients[self.clients_count] = sock;
+    // self.clients[self.clients_count] = sock;
     self.clients_count += 1;
 
     read_client(self, sock, c) catch {

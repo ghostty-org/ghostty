@@ -1353,6 +1353,17 @@ keybind: Keybinds = .{},
 /// If `true`, the bold text will use the bright color palette.
 @"bold-is-bright": bool = false,
 
+/// If set, Ghostty will start a TCP server on the specified socket path. Valid
+/// values can include a valid Unix socket path or an IP address and port. For
+/// example, `0.0.0.0:9393` will start a TCP server on all interfaces on port
+/// 9393. A value such as `/tmp/ghostty.sock` will start a socket on that path.
+@"remote-tcp-socket": ?[:0]const u8 = null,
+
+/// The maximum number of connections (default 10) that can be made to the
+/// remote TCP server. If this limit is reached, new connections will be
+/// rejected with a message and the connection will be closed.
+@"remote-max-connections": u8 = 10,
+
 /// This will be used to set the `TERM` environment variable.
 /// HACK: We set this with an `xterm` prefix because vim uses that to enable key
 /// protocols (specifically this will enable `modifyOtherKeys`), among other

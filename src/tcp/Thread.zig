@@ -5,6 +5,7 @@ const std = @import("std");
 const xev = @import("xev");
 const tcp = @import("../tcp.zig");
 const App = @import("../App.zig");
+const Config = @import("../Config.zig").Config;
 
 const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.tcp_thread);
@@ -19,9 +20,17 @@ server: tcp.Server,
 /// up all the internal state necessary prior to starting the thread. It
 /// is up to the caller to start the thread with the threadMain entrypoint.
 pub fn init(alloc: Allocator) !Thread {
-    // TODO: Configurable addresses and socket paths
-    const addr = try std.net.Address.parseIp4("127.0.0.1", 9090);
-    var server = try tcp.Server.init(alloc, addr);
+    const config = try Config.load(alloc);
+    const max_clients = config.@"remote-max-connections";
+    const addr = config.@"remote-tcp-socket";
+
+    const parsedAddr = tcp.Server.parseAddress(addr) catch |err| {
+        log.err("failed to parse address addr={any} err={any}", .{ addr, err });
+        return err;
+    };
+
+    log.debug("parsed address addr={any}", .{parsedAddr});
+    var server = try tcp.Server.init(alloc, parsedAddr, max_clients);
     errdefer server.deinit();
 
     return Thread{
@@ -45,6 +54,6 @@ pub fn threadMain(self: *Thread) void {
 
 fn threadMain_(self: *Thread) !void {
     log.debug("starting tcp thread", .{});
-    defer log.debug("tcp thread exited", .{});
     try self.server.start();
+    errdefer log.debug("tcp thread exited", .{});
 }
