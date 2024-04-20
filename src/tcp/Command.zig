@@ -1,6 +1,8 @@
 const std = @import("std");
 const log = std.log.scoped(.tcp_thread);
 
+const ping = @import("commands/ping.zig").ping;
+
 pub const Command = enum {
     ping,
 
@@ -19,7 +21,7 @@ pub const Command = enum {
 
         var iter = std.mem.splitScalar(u8, trimmed, ' ');
 
-        // Not using .first() because it returns the remainder of the slice
+        // Not using .first() because it returns everything if there is no space
         // Instead we're doing what's equivalent to popping the first element
         const cmdName = iter.next() orelse return error.InvalidInput;
         log.debug("got command name={s}", .{cmdName});
@@ -41,10 +43,5 @@ pub const Command = enum {
         }
     }
 };
-
-// Want to move this to different file, not sure how I want it organized yet
-fn ping() []const u8 {
-    return "PONG\n";
-}
 
 // TODO: These need proper testing.
