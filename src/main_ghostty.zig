@@ -114,7 +114,7 @@ pub fn main() !MainReturn {
     if (@hasDecl(apprt.App, "startQuitTimer")) app_runtime.startQuitTimer();
 
     // Not sure where this should go tbh
-    var tcp_thread = try tcp.Thread.init(alloc);
+    var tcp_thread = try tcp.Thread.init(alloc, &app.mailbox);
     defer tcp_thread.deinit();
 
     var tcp_thr = try std.Thread.spawn(

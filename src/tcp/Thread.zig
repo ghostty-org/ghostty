@@ -3,9 +3,9 @@ pub const Thread = @This();
 
 const std = @import("std");
 const xev = @import("xev");
-const tcp = @import("../tcp.zig");
 const App = @import("../App.zig");
 const Config = @import("../config/Config.zig");
+const Server = @import("Server.zig");
 
 const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.tcp_thread);
@@ -14,17 +14,17 @@ const log = std.log.scoped(.tcp_thread);
 alloc: std.mem.Allocator,
 
 /// The TCP server for handling incoming connections.
-server: ?tcp.Server,
+server: ?Server,
 
 /// Initialize the thread. This does not START the thread. This only sets
 /// up all the internal state necessary prior to starting the thread. It
 /// is up to the caller to start the thread with the threadMain entrypoint.
-pub fn init(alloc: Allocator) !Thread {
+pub fn init(alloc: Allocator, mailbox: *App.Mailbox.Queue) !Thread {
     const config = try Config.load(alloc);
     const max_clients = config.@"remote-max-connections";
     const addr = config.@"remote-tcp-socket";
 
-    const parsedAddr = tcp.Server.parseAddress(addr) catch |err| {
+    const parsedAddr = Server.parseAddress(addr) catch |err| {
         log.err("failed to parse address addr={any} err={any}", .{ addr, err });
         return Thread{
             .alloc = alloc,
@@ -33,9 +33,14 @@ pub fn init(alloc: Allocator) !Thread {
     };
 
     log.debug("parsed address addr={any}", .{parsedAddr});
-    var server = try tcp.Server.init(alloc, parsedAddr, max_clients);
-    errdefer server.deinit();
+    var server = try Server.init(
+        alloc,
+        parsedAddr,
+        max_clients,
+        mailbox,
+    );
 
+    errdefer server.deinit();
     return Thread{
         .alloc = alloc,
         .server = server,

@@ -59,7 +59,7 @@ fn rHandler(
             continue;
         };
 
-        const res = try Command.handle(cmd);
+        const res = try Command.handle(cmd, self);
         @memcpy(b_w.ptr, res.ptr[0..res.len]);
     }
 

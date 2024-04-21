@@ -1,5 +1,6 @@
 const std = @import("std");
 const log = std.log.scoped(.tcp_thread);
+const Server = @import("Server.zig");
 
 const ping = @import("commands/ping.zig").ping;
 
@@ -30,7 +31,8 @@ pub const Command = enum {
             return error.InvalidCommand;
     }
 
-    pub fn handle(self: Command) ![]const u8 {
+    pub fn handle(self: Command, server: *Server) ![]const u8 {
+        _ = server; // TODO: Only pass into commands that actually need it
         switch (self) {
             .ping => return ping(),
         }

@@ -2,6 +2,7 @@ const std = @import("std");
 const xev = @import("xev");
 const Config = @import("../config/Config.zig");
 const connections = @import("./handlers/connections.zig");
+const App = @import("../App.zig");
 
 const Allocator = std.mem.Allocator;
 const CompletionPool = std.heap.MemoryPool(xev.Completion);
@@ -39,11 +40,15 @@ addr: std.net.Address,
 /// Maximum clients allowed
 max_clients: u8,
 
+/// A reference to the app's main mailbox to dispathc messages
+mailbox: *App.Mailbox.Queue,
+
 /// Initializes the server with the given allocator and address
 pub fn init(
     alloc: Allocator,
     addr: std.net.Address,
     max_clients: u8,
+    mailbox: *App.Mailbox.Queue,
 ) !Server {
     return Server{
         .alloc = alloc,
@@ -55,6 +60,7 @@ pub fn init(
         .clients_count = 0,
         .addr = addr,
         .max_clients = max_clients,
+        .mailbox = mailbox,
     };
 }
 
