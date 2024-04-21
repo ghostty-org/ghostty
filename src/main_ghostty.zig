@@ -325,6 +325,7 @@ test {
     _ = @import("termio.zig");
     _ = @import("input.zig");
     _ = @import("cli.zig");
+    _ = @import("tcp.zig");
     _ = @import("surface_mouse.zig");
 
     // Libraries

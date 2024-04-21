@@ -125,3 +125,19 @@ pub fn parseAddress(raw_addr: ?[:0]const u8) BindError!std.net.Address {
 
     return BindError.InvalidAddress;
 }
+
+test "parseAddress unix socket" {
+    const addr = "unix:///tmp/test.sock";
+    const expected = try std.net.Address.initUnix("/tmp/test.sock");
+    const actual = try parseAddress(addr);
+    const result = std.net.Address.eql(actual, expected);
+    try std.testing.expect(result == true);
+}
+
+test "parseAddress IP address" {
+    const addr = "tcp://127.0.0.1:9090";
+    const expected = try std.net.Address.parseIp4("127.0.0.1", 9090);
+    const actual = try parseAddress(addr);
+    const result = std.net.Address.eql(actual, expected);
+    try std.testing.expect(result == true);
+}

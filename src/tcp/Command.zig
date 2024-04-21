@@ -44,4 +44,15 @@ pub const Command = enum {
     }
 };
 
-// TODO: These need proper testing.
+test "Command.parse ping" {
+    const input = "ping";
+    const expected = Command.ping;
+    const result = try Command.parse(input);
+    try std.testing.expect(result == expected);
+}
+
+test "Command.parse invalid input" {
+    const input = "";
+    const result = Command.parse(input);
+    try std.testing.expectError(Command.Error.InvalidInput, result);
+}
