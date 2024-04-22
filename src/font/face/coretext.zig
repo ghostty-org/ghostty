@@ -325,20 +325,6 @@ pub const Face = struct {
         );
         defer ctx.release();
 
-        // Perform an initial fill. This ensures that we don't have any
-        // uninitialized pixels in the bitmap.
-        if (color.color)
-            ctx.setRGBFillColor(1, 1, 1, 0)
-        else
-            ctx.setGrayFillColor(0, 0);
-        ctx.fillRect(.{
-            .origin = .{ .x = 0, .y = 0 },
-            .size = .{
-                .width = @floatFromInt(width),
-                .height = @floatFromInt(height),
-            },
-        });
-
         ctx.setAllowsFontSmoothing(true);
         ctx.setShouldSmoothFonts(opts.thicken); // The amadeus "enthicken"
         ctx.setAllowsFontSubpixelQuantization(true);
