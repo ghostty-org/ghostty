@@ -66,7 +66,7 @@ pub fn init(
 
 /// Deinitializes the server
 pub fn deinit(self: *Server) void {
-    log.info("shutting down server", .{});
+    self.close();
     self.comp_pool.deinit();
     self.sock_pool.deinit();
     self.buf_pool.deinit();
@@ -77,6 +77,7 @@ pub fn deinit(self: *Server) void {
 pub fn start(self: *Server) !void {
     try self.socket.bind(self.addr);
     try self.socket.listen(self.max_clients);
+
     try connections.startAccepting(self);
     log.info("bound server to socket={any}", .{self.socket});
 
@@ -85,6 +86,27 @@ pub fn start(self: *Server) !void {
     while (true) {
         try self.loop.run(.until_done);
     }
+}
+
+/// Closes the server socket
+pub fn close(self: *Server) void {
+    log.info("closing server socket", .{});
+    var c: xev.Completion = undefined;
+    self.socket.close(&self.loop, &c, bool, null, (struct {
+        fn callback(
+            _: ?*bool,
+            _: *xev.Loop,
+            _: *xev.Completion,
+            _: xev.TCP,
+            e: xev.TCP.CloseError!void,
+        ) xev.CallbackAction {
+            e catch {
+                log.err("failed to close server socket: {any}", .{e});
+            };
+
+            return .disarm;
+        }
+    }).callback);
 }
 
 /// Convenience function to destroy a buffer in our pool
