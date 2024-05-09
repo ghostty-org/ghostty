@@ -44,7 +44,7 @@ pub const Entry = struct {
 /// key value for Entry.
 const code_to_key = code_to_key: {
     @setEvalBranchQuota(5000);
-    break :code_to_key std.ComptimeStringMap(Key, .{
+    break :code_to_key std.StaticStringMap(Key).initComptime(.{
         .{ "KeyA", .a },
         .{ "KeyB", .b },
         .{ "KeyC", .c },

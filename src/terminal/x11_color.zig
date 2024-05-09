@@ -5,7 +5,7 @@ const RGB = @import("color.zig").RGB;
 /// The map of all available X11 colors.
 pub const map = colorMap() catch @compileError("failed to parse rgb.txt");
 
-fn colorMap() !type {
+fn colorMap() !std.StaticStringMapWithEql(RGB, std.static_string_map.eqlAsciiIgnoreCase) {
     @setEvalBranchQuota(100_000);
 
     const KV = struct { []const u8, RGB };
@@ -31,11 +31,10 @@ fn colorMap() !type {
     }
     assert(i == len);
 
-    return std.ComptimeStringMapWithEql(
+    return std.StaticStringMapWithEql(
         RGB,
-        kvs,
-        std.comptime_string_map.eqlAsciiIgnoreCase,
-    );
+        std.static_string_map.eqlAsciiIgnoreCase,
+    ).initComptime(kvs);
 }
 
 /// This is the rgb.txt file from the X11 project. This was last sourced

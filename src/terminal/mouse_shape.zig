@@ -47,7 +47,7 @@ pub const MouseShape = enum(c_int) {
     }
 };
 
-const string_map = std.ComptimeStringMap(MouseShape, .{
+const string_map = std.StaticStringMap(MouseShape).initComptime(.{
     // W3C
     .{ "default", .default },
     .{ "context-menu", .context_menu },
