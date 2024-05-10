@@ -757,6 +757,13 @@ fn changeConfig(self: *Surface, config: *const configpkg.Config) !void {
         self.showMouse();
     }
 
+    // Before sending any other config changes, we give the renderer a new font
+    // grid. We could check to see if there was an actual change to the font,
+    // but this is easier and pretty rare so it's not a performance concern.
+    //
+    // (Calling setFontSize builds and sends a new font grid to the renderer.)
+    try self.setFontSize(self.font_size);
+
     // We need to store our configs in a heap-allocated pointer so that
     // our messages aren't huge.
     var renderer_message = try renderer.Message.initChangeConfig(self.alloc, config);

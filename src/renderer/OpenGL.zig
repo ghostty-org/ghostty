@@ -595,7 +595,7 @@ pub fn setVisible(self: *OpenGL, visible: bool) void {
     _ = visible;
 }
 
-/// Set the new font size.
+/// Set the new font grid.
 ///
 /// Must be called on the render thread.
 pub fn setFontGrid(self: *OpenGL, grid: *font.SharedGrid) void {
@@ -609,6 +609,13 @@ pub fn setFontGrid(self: *OpenGL, grid: *font.SharedGrid) void {
     self.texture_greyscale_resized = 0;
     self.texture_color_modified = 0;
     self.texture_color_resized = 0;
+
+    // Reset our shaper cache. If our font changed (not just the size) then
+    // the data in the shaper cache may be invalid and cannot be used, so we
+    // always clear the cache just in case.
+    const font_shaper_cache = font.ShaperCache.init();
+    self.font_shaper_cache.deinit(self.alloc);
+    self.font_shaper_cache = font_shaper_cache;
 
     // Defer our GPU updates
     self.deferred_font_size = .{ .metrics = grid.metrics };
@@ -1576,6 +1583,12 @@ pub fn changeConfig(self: *OpenGL, config: *DerivedConfig) !void {
         self.font_shaper.deinit();
         self.font_shaper = font_shaper;
     }
+
+    // We also need to reset the shaper cache so shaper info
+    // from the previous font isn't re-used for the new font.
+    const font_shaper_cache = font.ShaperCache.init();
+    self.font_shaper_cache.deinit(self.alloc);
+    self.font_shaper_cache = font_shaper_cache;
 
     // Set our new colors
     self.background_color = config.background;
