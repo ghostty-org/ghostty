@@ -144,6 +144,10 @@ health: std.atomic.Value(Health) = .{ .raw = .healthy },
 /// Our GPU state
 gpu_state: GPUState,
 
+// A cache of row hashes used in debug mode to check
+// that rows not marked as dirty are indeed not dirty.
+debug_row_hash_cache: if (builtin.mode == .Debug) std.ArrayList(u64) else void,
+
 /// State we need for the GPU that is shared between all frames.
 pub const GPUState = struct {
     // The count of buffers we use for double/triple buffering. If
@@ -611,6 +615,9 @@ pub fn init(alloc: Allocator, options: renderer.Options) !Metal {
         .display_link = display_link,
         .custom_shader_state = custom_shader_state,
         .gpu_state = gpu_state,
+
+        // Debug non-dirty assertion row hash cache
+        .debug_row_hash_cache = if (comptime builtin.mode == .Debug) std.ArrayList(u64).init(alloc) else void,
     };
 }
 
@@ -641,6 +648,10 @@ pub fn deinit(self: *Metal) void {
     if (self.custom_shader_state) |*state| state.deinit();
 
     self.shaders.deinit(self.alloc);
+
+    if (comptime builtin.mode == .Debug) {
+        self.debug_row_hash_cache.deinit();
+    }
 
     self.* = undefined;
 }
@@ -1895,6 +1906,12 @@ fn rebuildCells(
     // If we are doing a full rebuild, then we clear the entire cell buffer.
     if (rebuild) self.cells.reset();
 
+    // Ensure we have enough capacity in the debug row hash cache.
+    if (comptime builtin.mode == .Debug) {
+        try self.debug_row_hash_cache.ensureTotalCapacity(screen.pages.rows);
+        self.debug_row_hash_cache.items.len = screen.pages.rows;
+    }
+
     // Go row-by-row to build the cells. We go row by row because we do
     // font shaping by row. In the future, we will also do dirty tracking
     // by row.
@@ -1905,10 +1922,33 @@ fn rebuildCells(
 
         if (!rebuild) {
             // Only rebuild if we are doing a full rebuild or this row is dirty.
-            if (!row.isDirty()) continue;
+            if (!row.isDirty()) {
+                // In Debug mode we do non-dirty assertions to make sure we
+                // always mark changed rows as dirty.
+                if (comptime builtin.mode == .Debug) {
+                    // Hash the row and compare it to our stored hash.
+                    // If it doesn't match then the row should have been
+                    // marked as dirty, but wasn't, so we return an error.
+                    const hash = row.rowHash();
+                    if (hash != self.debug_row_hash_cache.items[y]) {
+                        log.err(
+                            "Row {} not marked as dirty, but hash is different from cached hash! hash={} cached={}",
+                            .{ y, hash, self.debug_row_hash_cache.items[y] },
+                        );
+                        continue;
+                    }
+                }
+                continue;
+            }
 
             // Clear the cells if the row is dirty
             self.cells.clear(y);
+        }
+
+        // In Debug mode we keep track of the last built version of each row
+        // so that we can do non-dirty assertions on rows not marked as dirty.
+        if (comptime builtin.mode == .Debug) {
+            self.debug_row_hash_cache.items[y] = row.rowHash();
         }
 
         // True if we want to do font shaping around the cursor. We want to

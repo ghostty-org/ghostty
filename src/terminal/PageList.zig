@@ -3056,6 +3056,30 @@ pub const Pin = struct {
         set.set(self.y);
     }
 
+    /// Get a hash value for the full state of this pin's row.
+    /// This is made for testing purposes, in order to perform
+    /// non-dirty assertions when in Debug mode.
+    pub fn rowHash(self: Pin) u64 {
+        const row = self.rowAndCell().row.*;
+        var hasher = std.hash.Wyhash.init(0);
+
+        // Hash various metadata
+        std.hash.autoHash(&hasher, row.wrap);
+        std.hash.autoHash(&hasher, row.styled);
+        std.hash.autoHash(&hasher, row.grapheme);
+        std.hash.autoHash(&hasher, row.semantic_prompt);
+        std.hash.autoHash(&hasher, row.wrap_continuation);
+ 
+        // Hash all cells in row
+        const cells_multi = row.cells.ptr(self.page.data.memory);
+        const row_cells = cells_multi[0..self.page.data.size.cols];
+        for (row_cells) |*cell| {
+            std.hash.autoHash(&hasher, @as(*u64, @ptrCast(cell)).*);
+        }
+
+        return hasher.final();
+    }
+
     /// Iterators. These are the same as PageList iterator funcs but operate
     /// on pins rather than points. This is MUCH more efficient than calling
     /// pointFromPin and building up the iterator from points.
