@@ -307,6 +307,10 @@ pub const Key = enum(c_int) {
     backspace,
     print_screen,
     pause,
+    undo,
+    cut,
+    copy,
+    paste,
 
     // function keys
     f1,
@@ -616,6 +620,10 @@ pub const Key = enum(c_int) {
 
             // These keys aren't represented in cimgui
             .plus,
+            .undo,
+            .cut,
+            .copy,
+            .paste,
             => null,
         };
     }

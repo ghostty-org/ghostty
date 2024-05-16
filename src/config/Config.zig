@@ -1125,6 +1125,16 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
             .{ .paste_from_clipboard = {} },
         );
     }
+    try result.keybind.set.put(
+        alloc,
+        .{ .key = .copy },
+        .{ .copy_to_clipboard = {} },
+    );
+    try result.keybind.set.put(
+        alloc,
+        .{ .key = .paste },
+        .{ .paste_from_clipboard = {} },
+    );
 
     // Fonts
     try result.keybind.set.put(
