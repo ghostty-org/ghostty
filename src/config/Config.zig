@@ -33,9 +33,6 @@ const help_strings = @import("help_strings");
 
 const log = std.log.scoped(.config);
 
-// For trimming
-const whitespace = " \t";
-
 /// Used on Unixes for some defaults.
 const c = @cImport({
     @cInclude("unistd.h");
@@ -687,11 +684,15 @@ keybind: Keybinds = .{},
 /// focused, the default working directory will be used (the `working-directory`
 /// option).
 ///
-/// Valid values are `split`, `tab`, and `window`. You can specify multiple
-/// values using a comma-delimited string (`tab` or `split,window`). You
-/// can also set this to `true` (always inherit) or `false` (never inherit).
+/// The format is a list of values to enable, separated by commas. If you
+/// prefix a value with `no-` then it is disabled. If you omit a feature,
+/// its default value is used, so you must explicitly disable features you
+/// don't want. You can also use `true` or `false` to turn all values on or
+/// off.
 ///
-/// `split`, `tab`, and `window` are currently only supported on macOS.
+/// Valid values are `split`, `tab`, and `window`.
+///
+/// `split` and `tab` are currently only supported on macOS.
 @"window-inherit-working-directory": WindowInheritWorkingDirectory = .{},
 
 /// If true, new windows and tabs will inherit the font size of the previously
@@ -2966,6 +2967,7 @@ pub const RepeatableFontVariation = struct {
     pub fn parseCLI(self: *Self, alloc: Allocator, input_: ?[]const u8) !void {
         const input = input_ orelse return error.ValueRequired;
         const eql_idx = std.mem.indexOf(u8, input, "=") orelse return error.InvalidValue;
+        const whitespace = " \t";
         const key = std.mem.trim(u8, input[0..eql_idx], whitespace);
         const value = std.mem.trim(u8, input[eql_idx + 1 ..], whitespace);
         if (key.len != 4) return error.InvalidValue;
@@ -3228,6 +3230,7 @@ pub const RepeatableCodepointMap = struct {
     pub fn parseCLI(self: *Self, alloc: Allocator, input_: ?[]const u8) !void {
         const input = input_ orelse return error.ValueRequired;
         const eql_idx = std.mem.indexOf(u8, input, "=") orelse return error.InvalidValue;
+        const whitespace = " \t";
         const key = std.mem.trim(u8, input[0..eql_idx], whitespace);
         const value = std.mem.trim(u8, input[eql_idx + 1 ..], whitespace);
         const valueZ = try alloc.dupeZ(u8, value);
@@ -3748,68 +3751,11 @@ pub const WindowNewTabPosition = enum {
     end,
 };
 
-/// Options for inheriting the working directory of the previous window.
+/// See window-inherit-working-directory
 pub const WindowInheritWorkingDirectory = packed struct {
-    const Self = @This();
-
     split: bool = true,
     tab: bool = true,
     window: bool = true,
-
-    pub fn parseCLI(self: *Self, _: Allocator, input: ?[]const u8) !void {
-        const value = input orelse return error.ValueRequired;
-        const fields = @typeInfo(Self).Struct.fields;
-
-        if (std.mem.eql(u8, value, "true")) {
-            self.* = .{ .split = true, .tab = true, .window = true };
-            return;
-        }
-
-        if (std.mem.eql(u8, value, "false")) {
-            self.* = .{ .split = false, .tab = false, .window = false };
-            return;
-        }
-
-        // Enable all of the fields named in the comma-separated value.
-        self.* = .{ .split = false, .tab = false, .window = false };
-        var iter = std.mem.splitSequence(u8, value, ",");
-        loop: while (iter.next()) |part_raw| {
-            const part = std.mem.trim(u8, part_raw, whitespace);
-
-            inline for (fields) |field| {
-                assert(field.type == bool);
-                if (std.mem.eql(u8, field.name, part)) {
-                    @field(self, field.name) = true;
-                    continue :loop;
-                }
-            }
-
-            // No field matched
-            return error.InvalidValue;
-        }
-    }
-
-    test "parseCLI" {
-        const testing = std.testing;
-        var arena = ArenaAllocator.init(testing.allocator);
-        defer arena.deinit();
-        const alloc = arena.allocator();
-
-        var p: Self = .{};
-        try p.parseCLI(alloc, "true");
-        try testing.expectEqual(Self{ .split = true, .tab = true, .window = true }, p);
-
-        try p.parseCLI(alloc, "false");
-        try testing.expectEqual(Self{ .split = false, .tab = false, .window = false }, p);
-
-        try p.parseCLI(alloc, "tab");
-        try testing.expectEqual(Self{ .split = false, .tab = true, .window = false }, p);
-
-        try p.parseCLI(alloc, "split,window");
-        try testing.expectEqual(Self{ .split = true, .tab = false, .window = true }, p);
-
-        try testing.expectError(error.InvalidValue, p.parseCLI(alloc, "unknown"));
-    }
 };
 
 /// See grapheme-width-method
