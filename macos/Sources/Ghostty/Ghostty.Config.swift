@@ -131,6 +131,9 @@ extension Ghostty {
                     return nil
                 }
                 
+            case GHOSTTY_TRIGGER_UNICODE:
+                equiv = String(trigger.key.unicode)
+                
             default:
                 return nil
             }

@@ -89,11 +89,7 @@ pub fn parse(raw_input: []const u8) !Binding {
                 if (!std.mem.eql(u8, field.name, "invalid")) {
                     if (std.mem.eql(u8, key_part, field.name)) {
                         // Repeat not allowed
-                        if (result.key != .translated or
-                            result.key.translated != .invalid)
-                        {
-                            return Error.InvalidFormat;
-                        }
+                        if (!result.isKeyUnset()) return Error.InvalidFormat;
 
                         const keyval = @field(key.Key, field.name);
                         result.key = if (physical)
@@ -103,6 +99,21 @@ pub fn parse(raw_input: []const u8) !Binding {
                         continue :loop;
                     }
                 }
+            }
+
+            // If we're still unset and we have exactly one unicode
+            // character then we can use that as a key.
+            if (result.isKeyUnset()) unicode: {
+                // Invalid UTF8 drops to invalid format
+                const view = std.unicode.Utf8View.init(key_part) catch break :unicode;
+                var it = view.iterator();
+
+                // No codepoints or multiple codepoints drops to invalid format
+                const cp = it.nextCodepoint() orelse break :unicode;
+                if (it.nextCodepoint() != null) break :unicode;
+
+                result.key = .{ .unicode = cp };
+                continue :loop;
             }
 
             // We didn't recognize this value
@@ -524,6 +535,11 @@ pub const Trigger = struct {
         /// is used to bind to a physical key location rather than a translated
         /// key.
         physical: key.Key,
+
+        /// This is used for binding to keys that produce a certain unicode
+        /// codepoint. This is useful for binding to keys that don't have a
+        /// registered keycode with Ghostty.
+        unicode: u21,
     };
 
     /// The extern struct used for triggers in the C API.
@@ -535,13 +551,23 @@ pub const Trigger = struct {
         pub const Tag = enum(c_int) {
             translated,
             physical,
+            unicode,
         };
 
         pub const Key = extern union {
             translated: key.Key,
             physical: key.Key,
+            unicode: u32,
         };
     };
+
+    /// Returns true if this trigger has no key set.
+    pub fn isKeyUnset(self: Trigger) bool {
+        return switch (self.key) {
+            .translated => |v| v == .invalid,
+            else => false,
+        };
+    }
 
     /// Returns a hash code that can be used to uniquely identify this trigger.
     pub fn hash(self: Trigger) u64 {
@@ -558,6 +584,7 @@ pub const Trigger = struct {
             .key = switch (self.key) {
                 .translated => |v| .{ .translated = v },
                 .physical => |v| .{ .physical = v },
+                .unicode => |v| .{ .unicode = @intCast(v) },
             },
             .mods = self.mods,
         };
@@ -583,6 +610,7 @@ pub const Trigger = struct {
         switch (self.key) {
             .translated => |k| try writer.print("{s}", .{@tagName(k)}),
             .physical => |k| try writer.print("physical:{s}", .{@tagName(k)}),
+            .unicode => |c| try writer.print("{u}", .{c}),
         }
     }
 };
@@ -812,6 +840,15 @@ test "parse: triggers" {
         },
         .action = .{ .ignore = {} },
     }, try parse("shift+physical:a=ignore"));
+
+    // unicode keys
+    try testing.expectEqual(Binding{
+        .trigger = .{
+            .mods = .{ .shift = true },
+            .key = .{ .unicode = 'ö' },
+        },
+        .action = .{ .ignore = {} },
+    }, try parse("shift+ö=ignore"));
 
     // unconsumed keys
     try testing.expectEqual(Binding{

@@ -1205,6 +1205,15 @@ pub fn keyCallback(
                 set.getConsumed(trigger),
             };
 
+            if (event.unshifted_codepoint > 0) {
+                trigger.key = .{ .unicode = event.unshifted_codepoint };
+                if (set.get(trigger)) |v| break :action .{
+                    v,
+                    trigger,
+                    set.getConsumed(trigger),
+                };
+            }
+
             break :binding;
         };
 
