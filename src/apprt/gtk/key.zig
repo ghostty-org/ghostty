@@ -14,7 +14,10 @@ pub fn accelFromTrigger(buf: []u8, trigger: input.Binding.Trigger) !?[:0]const u
     if (trigger.mods.super) try writer.writeAll("<Super>");
 
     // Write our key
-    const keyval = keyvalFromKey(trigger.key) orelse return null;
+    const keyval = switch (trigger.key) {
+        .physical, .translated => |k| keyvalFromKey(k) orelse return null,
+        .unicode => return null,
+    };
     try writer.writeAll(std.mem.sliceTo(c.gdk_keyval_name(keyval), 0));
 
     // We need to make the string null terminated.
