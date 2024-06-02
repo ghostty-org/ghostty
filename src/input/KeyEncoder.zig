@@ -178,23 +178,30 @@ fn kitty(
             const view = try std.unicode.Utf8View.init(self.event.utf8);
             var it = view.iterator();
 
-            // We break early if there are codepoints...there are no alt keys.
-            const cp1 = it.nextCodepoint() orelse break :alternates;
+            // If we have a codepoint in our UTF-8 sequence, then we can
+            // report the shifted version.
+            if (it.nextCodepoint()) |cp1| {
+                // Set the first alternate (shifted version)
+                if (cp1 != seq.key and seq.mods.shift) seq.alternates[0] = cp1;
 
-            // We want to know if there are additional codepoints because
-            // our logic below depends on the utf8 being a single codepoint.
-            const has_cp2 = it.nextCodepoint() != null;
+                // We want to know if there are additional codepoints because
+                // our logic below depends on the utf8 being a single codepoint.
+                const has_cp2 = it.nextCodepoint() != null;
 
-            // Set the first alternate (shifted version)
-            if (cp1 != seq.key and seq.mods.shift) seq.alternates[0] = cp1;
-
-            // Set the base layout key. We only report this if this codepoint
-            // differs from our pressed key.
-            if (self.event.key.codepoint()) |base| {
-                if (base != seq.key and
-                    (cp1 != base and !has_cp2))
-                {
-                    seq.alternates[1] = base;
+                // Set the base layout key. We only report this if this codepoint
+                // differs from our pressed key.
+                if (self.event.key.codepoint()) |base| {
+                    if (base != seq.key and
+                        (cp1 != base and !has_cp2))
+                    {
+                        seq.alternates[1] = base;
+                    }
+                }
+            } else {
+                // No UTF-8 so we can't report a shifted key but we can still
+                // report a base layout key.
+                if (self.event.key.codepoint()) |base| {
+                    if (base != seq.key) seq.alternates[1] = base;
                 }
             }
         }
@@ -1385,6 +1392,29 @@ test "kitty: report alternates with ru layout caps lock" {
 
     const actual = try enc.kitty(&buf);
     try testing.expectEqualStrings("\x1b[1095::59;65;1063u", actual);
+}
+
+test "kitty: report alternates with hu layout release" {
+    var buf: [128]u8 = undefined;
+    var enc: KeyEncoder = .{
+        .event = .{
+            .action = .release,
+            .key = .left_bracket,
+            .mods = .{ .ctrl = true },
+            .utf8 = "",
+            .unshifted_codepoint = 337,
+        },
+        .kitty_flags = .{
+            .disambiguate = true,
+            .report_all = true,
+            .report_alternates = true,
+            .report_associated = true,
+            .report_events = true,
+        },
+    };
+
+    const actual = try enc.kitty(&buf);
+    try testing.expectEqualStrings("[337::91;5:3u", actual[1..]);
 }
 
 // macOS generates utf8 text for arrow keys.
