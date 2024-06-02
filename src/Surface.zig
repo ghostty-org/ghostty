@@ -1188,7 +1188,7 @@ pub fn keyCallback(
             const binding_mods = event.mods.binding();
             var trigger: input.Binding.Trigger = .{
                 .mods = binding_mods,
-                .key = event.key,
+                .key = .{ .translated = event.key },
             };
 
             const set = self.config.keybind.set;
@@ -1198,8 +1198,7 @@ pub fn keyCallback(
                 set.getConsumed(trigger),
             };
 
-            trigger.key = event.physical_key;
-            trigger.physical = true;
+            trigger.key = .{ .physical = event.physical_key };
             if (set.get(trigger)) |v| break :action .{
                 v,
                 trigger,

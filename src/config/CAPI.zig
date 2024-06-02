@@ -96,7 +96,7 @@ export fn ghostty_config_trigger(
     self: *Config,
     str: [*]const u8,
     len: usize,
-) inputpkg.Binding.Trigger {
+) inputpkg.Binding.Trigger.C {
     return config_trigger_(self, str[0..len]) catch |err| err: {
         log.err("error finding trigger err={}", .{err});
         break :err .{};
@@ -106,9 +106,10 @@ export fn ghostty_config_trigger(
 fn config_trigger_(
     self: *Config,
     str: []const u8,
-) !inputpkg.Binding.Trigger {
+) !inputpkg.Binding.Trigger.C {
     const action = try inputpkg.Binding.Action.parse(str);
-    return self.keybind.set.getTrigger(action) orelse .{};
+    const trigger: inputpkg.Binding.Trigger = self.keybind.set.getTrigger(action) orelse .{};
+    return trigger.cval();
 }
 
 export fn ghostty_config_errors_count(self: *Config) u32 {

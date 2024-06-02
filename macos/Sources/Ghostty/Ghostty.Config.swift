@@ -115,7 +115,25 @@ extension Ghostty {
             guard let cfg = self.config else { return nil }
             
             let trigger = ghostty_config_trigger(cfg, action, UInt(action.count))
-            guard let equiv = Ghostty.keyEquivalent(key: trigger.key) else { return nil }
+            let equiv: String
+            switch (trigger.tag) {
+            case GHOSTTY_TRIGGER_TRANSLATED:
+                if let v = Ghostty.keyEquivalent(key: trigger.key.translated) {
+                    equiv = v
+                } else {
+                    return nil
+                }
+                
+            case GHOSTTY_TRIGGER_PHYSICAL:
+                if let v = Ghostty.keyEquivalent(key: trigger.key.physical) {
+                    equiv = v
+                } else {
+                    return nil
+                }
+                
+            default:
+                return nil
+            }
             
             return KeyEquivalent(
                 key: equiv,

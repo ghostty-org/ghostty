@@ -79,11 +79,9 @@ pub fn parse(raw_input: []const u8) !Binding {
             }
 
             // If the key starts with "physical" then this is an physical key.
-            const physical = "physical:";
-            const key_part = if (std.mem.startsWith(u8, part, physical)) key_part: {
-                result.physical = true;
-                break :key_part part[physical.len..];
-            } else part;
+            const physical_prefix = "physical:";
+            const physical = std.mem.startsWith(u8, part, physical_prefix);
+            const key_part = if (physical) part[physical_prefix.len..] else part;
 
             // Check if its a key
             const keysInfo = @typeInfo(key.Key).Enum;
@@ -91,9 +89,17 @@ pub fn parse(raw_input: []const u8) !Binding {
                 if (!std.mem.eql(u8, field.name, "invalid")) {
                     if (std.mem.eql(u8, key_part, field.name)) {
                         // Repeat not allowed
-                        if (result.key != .invalid) return Error.InvalidFormat;
+                        if (result.key != .translated or
+                            result.key.translated != .invalid)
+                        {
+                            return Error.InvalidFormat;
+                        }
 
-                        result.key = @field(key.Key, field.name);
+                        const keyval = @field(key.Key, field.name);
+                        result.key = if (physical)
+                            .{ .physical = keyval }
+                        else
+                            .{ .translated = keyval };
                         continue :loop;
                     }
                 }
@@ -499,26 +505,62 @@ pub const Key = enum(c_int) {
 /// This is an extern struct because this is also used in the C API.
 ///
 /// This must be kept in sync with include/ghostty.h ghostty_input_trigger_s
-pub const Trigger = extern struct {
+pub const Trigger = struct {
     /// The key that has to be pressed for a binding to take action.
-    key: key.Key = .invalid,
+    key: Trigger.Key = .{ .translated = .invalid },
 
     /// The key modifiers that must be active for this to match.
     mods: key.Mods = .{},
 
-    /// key is the "physical" version. This is the same as mapped for
-    /// standard US keyboard layouts. For non-US keyboard layouts, this
-    /// is used to bind to a physical key location rather than a translated
-    /// key.
-    physical: bool = false,
+    pub const Key = union(C.Tag) {
+        /// key is the translated version of a key. This is the key that
+        /// a logical keyboard layout at the OS level would translate the
+        /// physical key to. For example if you use a US hardware keyboard
+        /// but have a Dvorak layout, the key would be the Dvorak key.
+        translated: key.Key,
+
+        /// key is the "physical" version. This is the same as mapped for
+        /// standard US keyboard layouts. For non-US keyboard layouts, this
+        /// is used to bind to a physical key location rather than a translated
+        /// key.
+        physical: key.Key,
+    };
+
+    /// The extern struct used for triggers in the C API.
+    pub const C = extern struct {
+        tag: Tag = .translated,
+        key: C.Key = .{ .translated = .invalid },
+        mods: key.Mods = .{},
+
+        pub const Tag = enum(c_int) {
+            translated,
+            physical,
+        };
+
+        pub const Key = extern union {
+            translated: key.Key,
+            physical: key.Key,
+        };
+    };
 
     /// Returns a hash code that can be used to uniquely identify this trigger.
     pub fn hash(self: Trigger) u64 {
         var hasher = std.hash.Wyhash.init(0);
         std.hash.autoHash(&hasher, self.key);
         std.hash.autoHash(&hasher, self.mods.binding());
-        std.hash.autoHash(&hasher, self.physical);
         return hasher.final();
+    }
+
+    /// Convert the trigger to a C API compatible trigger.
+    pub fn cval(self: Trigger) C {
+        return .{
+            .tag = self.key,
+            .key = switch (self.key) {
+                .translated => |v| .{ .translated = v },
+                .physical => |v| .{ .physical = v },
+            },
+            .mods = self.mods,
+        };
     }
 
     /// Format implementation for fmt package.
@@ -538,8 +580,10 @@ pub const Trigger = extern struct {
         if (self.mods.shift) try writer.writeAll("shift+");
 
         // Key
-        if (self.physical) try writer.writeAll("physical:");
-        try writer.print("{s}", .{@tagName(self.key)});
+        switch (self.key) {
+            .translated => |k| try writer.print("{s}", .{@tagName(k)}),
+            .physical => |k| try writer.print("physical:{s}", .{@tagName(k)}),
+        }
     }
 };
 
@@ -720,7 +764,7 @@ test "parse: triggers" {
     // single character
     try testing.expectEqual(
         Binding{
-            .trigger = .{ .key = .a },
+            .trigger = .{ .key = .{ .translated = .a } },
             .action = .{ .ignore = {} },
         },
         try parse("a=ignore"),
@@ -730,14 +774,14 @@ test "parse: triggers" {
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .shift = true },
-            .key = .a,
+            .key = .{ .translated = .a },
         },
         .action = .{ .ignore = {} },
     }, try parse("shift+a=ignore"));
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .ctrl = true },
-            .key = .a,
+            .key = .{ .translated = .a },
         },
         .action = .{ .ignore = {} },
     }, try parse("ctrl+a=ignore"));
@@ -746,7 +790,7 @@ test "parse: triggers" {
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .shift = true, .ctrl = true },
-            .key = .a,
+            .key = .{ .translated = .a },
         },
         .action = .{ .ignore = {} },
     }, try parse("shift+ctrl+a=ignore"));
@@ -755,7 +799,7 @@ test "parse: triggers" {
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .shift = true },
-            .key = .a,
+            .key = .{ .translated = .a },
         },
         .action = .{ .ignore = {} },
     }, try parse("a+shift=ignore"));
@@ -764,8 +808,7 @@ test "parse: triggers" {
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .shift = true },
-            .key = .a,
-            .physical = true,
+            .key = .{ .physical = .a },
         },
         .action = .{ .ignore = {} },
     }, try parse("shift+physical:a=ignore"));
@@ -774,7 +817,7 @@ test "parse: triggers" {
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .shift = true },
-            .key = .a,
+            .key = .{ .translated = .a },
         },
         .action = .{ .ignore = {} },
         .consumed = false,
@@ -784,8 +827,7 @@ test "parse: triggers" {
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .shift = true },
-            .key = .a,
-            .physical = true,
+            .key = .{ .physical = .a },
         },
         .action = .{ .ignore = {} },
         .consumed = false,
@@ -807,14 +849,14 @@ test "parse: modifier aliases" {
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .super = true },
-            .key = .a,
+            .key = .{ .translated = .a },
         },
         .action = .{ .ignore = {} },
     }, try parse("cmd+a=ignore"));
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .super = true },
-            .key = .a,
+            .key = .{ .translated = .a },
         },
         .action = .{ .ignore = {} },
     }, try parse("command+a=ignore"));
@@ -822,14 +864,14 @@ test "parse: modifier aliases" {
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .alt = true },
-            .key = .a,
+            .key = .{ .translated = .a },
         },
         .action = .{ .ignore = {} },
     }, try parse("opt+a=ignore"));
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .alt = true },
-            .key = .a,
+            .key = .{ .translated = .a },
         },
         .action = .{ .ignore = {} },
     }, try parse("option+a=ignore"));
@@ -837,7 +879,7 @@ test "parse: modifier aliases" {
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .ctrl = true },
-            .key = .a,
+            .key = .{ .translated = .a },
         },
         .action = .{ .ignore = {} },
     }, try parse("control+a=ignore"));
@@ -855,7 +897,10 @@ test "parse: action no parameters" {
 
     // no parameters
     try testing.expectEqual(
-        Binding{ .trigger = .{ .key = .a }, .action = .{ .ignore = {} } },
+        Binding{
+            .trigger = .{ .key = .{ .translated = .a } },
+            .action = .{ .ignore = {} },
+        },
         try parse("a=ignore"),
     );
     try testing.expectError(Error.InvalidFormat, parse("a=ignore:A"));
@@ -949,24 +994,24 @@ test "set: maintains reverse mapping" {
     var s: Set = .{};
     defer s.deinit(alloc);
 
-    try s.put(alloc, .{ .key = .a }, .{ .new_window = {} });
+    try s.put(alloc, .{ .key = .{ .translated = .a } }, .{ .new_window = {} });
     {
         const trigger = s.getTrigger(.{ .new_window = {} }).?;
-        try testing.expect(trigger.key == .a);
+        try testing.expect(trigger.key.translated == .a);
     }
 
     // should be most recent
-    try s.put(alloc, .{ .key = .b }, .{ .new_window = {} });
+    try s.put(alloc, .{ .key = .{ .translated = .b } }, .{ .new_window = {} });
     {
         const trigger = s.getTrigger(.{ .new_window = {} }).?;
-        try testing.expect(trigger.key == .b);
+        try testing.expect(trigger.key.translated == .b);
     }
 
     // removal should replace
-    s.remove(.{ .key = .b });
+    s.remove(.{ .key = .{ .translated = .b } });
     {
         const trigger = s.getTrigger(.{ .new_window = {} }).?;
-        try testing.expect(trigger.key == .a);
+        try testing.expect(trigger.key.translated == .a);
     }
 }
 
@@ -977,14 +1022,14 @@ test "set: overriding a mapping updates reverse" {
     var s: Set = .{};
     defer s.deinit(alloc);
 
-    try s.put(alloc, .{ .key = .a }, .{ .new_window = {} });
+    try s.put(alloc, .{ .key = .{ .translated = .a } }, .{ .new_window = {} });
     {
         const trigger = s.getTrigger(.{ .new_window = {} }).?;
-        try testing.expect(trigger.key == .a);
+        try testing.expect(trigger.key.translated == .a);
     }
 
     // should be most recent
-    try s.put(alloc, .{ .key = .a }, .{ .new_tab = {} });
+    try s.put(alloc, .{ .key = .{ .translated = .a } }, .{ .new_tab = {} });
     {
         const trigger = s.getTrigger(.{ .new_window = {} });
         try testing.expect(trigger == null);
@@ -998,12 +1043,12 @@ test "set: consumed state" {
     var s: Set = .{};
     defer s.deinit(alloc);
 
-    try s.put(alloc, .{ .key = .a }, .{ .new_window = {} });
-    try testing.expect(s.getConsumed(.{ .key = .a }));
+    try s.put(alloc, .{ .key = .{ .translated = .a } }, .{ .new_window = {} });
+    try testing.expect(s.getConsumed(.{ .key = .{ .translated = .a } }));
 
-    try s.putUnconsumed(alloc, .{ .key = .a }, .{ .new_window = {} });
-    try testing.expect(!s.getConsumed(.{ .key = .a }));
+    try s.putUnconsumed(alloc, .{ .key = .{ .translated = .a } }, .{ .new_window = {} });
+    try testing.expect(!s.getConsumed(.{ .key = .{ .translated = .a } }));
 
-    try s.put(alloc, .{ .key = .a }, .{ .new_window = {} });
-    try testing.expect(s.getConsumed(.{ .key = .a }));
+    try s.put(alloc, .{ .key = .{ .translated = .a } }, .{ .new_window = {} });
+    try testing.expect(s.getConsumed(.{ .key = .{ .translated = .a } }));
 }
