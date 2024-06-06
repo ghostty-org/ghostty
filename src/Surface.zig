@@ -3193,6 +3193,46 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             try self.io_thread.wakeup.notify();
         },
 
+        .write_selection_file => write_selection_file: {
+            // Create a temporary directory to store our selection.
+            var tmp_dir = try internal_os.TempDir.init();
+            errdefer tmp_dir.deinit();
+
+            // Open our selection file
+            var file = try tmp_dir.dir.createFile("selection", .{});
+            defer file.close();
+
+            // Write the selection contents. This requires a lock.
+            {
+                self.renderer_state.mutex.lock();
+                defer self.renderer_state.mutex.unlock();
+
+                // We do not support this for alternate screens
+                // because they don't have output anyways.
+                if (self.io.terminal.active_screen == .alternate) {
+                    tmp_dir.deinit();
+                    break :write_selection_file;
+                }
+
+                if (self.io.terminal.screen.selection) |selection| {
+                    try self.io.terminal.screen.dumpString(
+                        file.writer(),
+                        .{ .tl = selection.start(), .br = selection.end(), .unwrap = true },
+                    );
+                }
+            }
+
+            // Get the final path
+            var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+            const path = try tmp_dir.dir.realpath("selection", &path_buf);
+
+            _ = self.io_thread.mailbox.push(try termio.Message.writeReq(
+                self.alloc,
+                path,
+            ), .{ .forever = {} });
+            try self.io_thread.wakeup.notify();
+        },
+
         .write_scrollback_file => write_scrollback_file: {
             // Create a temporary directory to store our scrollback.
             var tmp_dir = try internal_os.TempDir.init();

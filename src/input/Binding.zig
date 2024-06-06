@@ -199,6 +199,10 @@ pub const Action = union(enum) {
     /// number of prompts to jump forward, negative is backwards.
     jump_to_prompt: i16,
 
+    /// Write the selection into a temporary file and write the path to the file
+    /// to the tty.
+    write_selection_file: void,
+
     /// Write the entire scrollback into a temporary file and write the path to
     /// the file to the tty.
     write_scrollback_file: void,

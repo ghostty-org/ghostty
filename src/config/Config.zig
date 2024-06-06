@@ -1216,6 +1216,12 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
 
     try result.keybind.set.put(
         alloc,
+        .{ .key = .{ .translated = .j }, .mods = inputpkg.ctrlOrSuper(.{ .ctrl = true }) },
+        .{ .write_selection_file = {} },
+    );
+
+    try result.keybind.set.put(
+        alloc,
         .{ .key = .{ .translated = .j }, .mods = inputpkg.ctrlOrSuper(.{ .shift = true }) },
         .{ .write_scrollback_file = {} },
     );
