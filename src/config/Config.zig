@@ -976,6 +976,9 @@ keybind: Keybinds = .{},
 /// This option only applies to new windows when changed.
 @"macos-titlebar-tabs": bool = false,
 
+/// If `true`, render the drop shadow behind the macOS window.
+@"macos-window-shadow": bool = true,
+
 /// If `true`, the *Option* key will be treated as *Alt*. This makes terminal
 /// sequences expecting *Alt* to work properly, but will break Unicode input
 /// sequences on macOS if you use them via the *Alt* key. You may set this to

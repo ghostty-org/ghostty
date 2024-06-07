@@ -9,8 +9,8 @@ extension Ghostty {
         @FocusedValue(\.ghosttySurfaceTitle) private var surfaceTitle: String?
 
         var body: some View {
-            if let app = self.ghostty.app {
-                SurfaceForApp(app) { surfaceView in
+            if self.ghostty.app != nil {
+                SurfaceForApp(self.ghostty) { surfaceView in
                     SurfaceWrapper(surfaceView: surfaceView)
                 }
                 .navigationTitle(surfaceTitle ?? "Ghostty")
@@ -24,7 +24,7 @@ extension Ghostty {
 
         @StateObject private var surfaceView: SurfaceView
 
-        init(_ app: ghostty_app_t, @ViewBuilder content: @escaping ((SurfaceView) -> Content)) {
+        init(_ app: Ghostty.App, @ViewBuilder content: @escaping ((SurfaceView) -> Content)) {
             _surfaceView = StateObject(wrappedValue: SurfaceView(app))
             self.content = content
         }

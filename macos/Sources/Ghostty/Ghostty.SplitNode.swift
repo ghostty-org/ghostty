@@ -168,13 +168,13 @@ extension Ghostty {
         }
 
         class Leaf: ObservableObject, Equatable, Hashable, Codable {
-            let app: ghostty_app_t
+            let app: Ghostty.App
             @Published var surface: SurfaceView
 
             weak var parent: SplitNode.Container?
 
             /// Initialize a new leaf which creates a new terminal surface.
-            init(_ app: ghostty_app_t, baseConfig: SurfaceConfiguration? = nil, uuid: UUID? = nil) {
+            init(_ app: Ghostty.App, baseConfig: SurfaceConfiguration? = nil, uuid: UUID? = nil) {
                 self.app = app
                 self.surface = SurfaceView(app, baseConfig: baseConfig, uuid: uuid)
             }
@@ -182,14 +182,14 @@ extension Ghostty {
             // MARK: - Hashable
             
             func hash(into hasher: inout Hasher) {
-                hasher.combine(app)
+                hasher.combine(app.app)
                 hasher.combine(surface)
             }
             
             // MARK: - Equatable
             
             static func == (lhs: Leaf, rhs: Leaf) -> Bool {
-                return lhs.app == rhs.app && lhs.surface === rhs.surface
+                return lhs.app.app == rhs.app.app && lhs.surface === rhs.surface
             }
             
             // MARK: - Codable
@@ -203,7 +203,7 @@ extension Ghostty {
                 // Decoding uses the global Ghostty app
                 guard let del = NSApplication.shared.delegate,
                       let appDel = del as? AppDelegate,
-                      let app = appDel.ghostty.app else {
+                      appDel.ghostty.app != nil else {
                     throw TerminalRestoreError.delegateInvalid
                 }
                 
@@ -212,7 +212,7 @@ extension Ghostty {
                 var config = SurfaceConfiguration()
                 config.workingDirectory = try container.decode(String?.self, forKey: .pwd)
                 
-                self.init(app, baseConfig: config, uuid: uuid)
+                self.init(appDel.ghostty, baseConfig: config, uuid: uuid)
             }
             
             func encode(to encoder: Encoder) throws {
@@ -223,7 +223,7 @@ extension Ghostty {
         }
 
         class Container: ObservableObject, Equatable, Hashable, Codable {
-            let app: ghostty_app_t
+            let app: Ghostty.App
             let direction: SplitViewDirection
 
             @Published var topLeft: SplitNode
@@ -335,7 +335,7 @@ extension Ghostty {
             // MARK: - Hashable
             
             func hash(into hasher: inout Hasher) {
-                hasher.combine(app)
+                hasher.combine(app.app)
                 hasher.combine(direction)
                 hasher.combine(topLeft)
                 hasher.combine(bottomRight)
@@ -344,7 +344,7 @@ extension Ghostty {
             // MARK: - Equatable
             
             static func == (lhs: Container, rhs: Container) -> Bool {
-                return lhs.app == rhs.app &&
+                return lhs.app.app == rhs.app.app &&
                     lhs.direction == rhs.direction &&
                     lhs.topLeft == rhs.topLeft &&
                     lhs.bottomRight == rhs.bottomRight
@@ -363,12 +363,12 @@ extension Ghostty {
                 // Decoding uses the global Ghostty app
                 guard let del = NSApplication.shared.delegate,
                       let appDel = del as? AppDelegate,
-                      let app = appDel.ghostty.app else {
+                      appDel.ghostty.app != nil else {
                     throw TerminalRestoreError.delegateInvalid
                 }
                 
                 let container = try decoder.container(keyedBy: CodingKeys.self)
-                self.app = app
+                self.app = appDel.ghostty
                 self.direction = try container.decode(SplitViewDirection.self, forKey: .direction)
                 self.split = try container.decode(CGFloat.self, forKey: .split)
                 self.topLeft = try container.decode(SplitNode.self, forKey: .topLeft)

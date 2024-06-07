@@ -85,6 +85,8 @@ extension Ghostty {
         // I don't think we need this but this lets us know we should redraw our layer
         // so we'll use that to tell ghostty to refresh.
         override var wantsUpdateLayer: Bool { return true }
+        
+        private let app: Ghostty.App
 
         // State machine for mouse cursor visibility because every call to
         // NSCursor.hide/unhide must be balanced.
@@ -95,9 +97,10 @@ extension Ghostty {
             case pendingHidden
         }
 
-        init(_ app: ghostty_app_t, baseConfig: SurfaceConfiguration? = nil, uuid: UUID? = nil) {
+        init(_ app: Ghostty.App, baseConfig: SurfaceConfiguration? = nil, uuid: UUID? = nil) {
             self.markedText = NSMutableAttributedString()
             self.uuid = uuid ?? .init()
+            self.app = app
 
             // Initialize with some default frame size. The important thing is that this
             // is non-zero so that our layer bounds are non-zero so that our renderer
@@ -121,7 +124,7 @@ extension Ghostty {
             // Setup our surface. This will also initialize all the terminal IO.
             let surface_cfg = baseConfig ?? SurfaceConfiguration()
             var surface_cfg_c = surface_cfg.ghosttyConfig(view: self)
-            guard let surface = ghostty_surface_new(app, &surface_cfg_c) else {
+            guard let surface = ghostty_surface_new(app.app, &surface_cfg_c) else {
                 self.error = AppError.surfaceCreateError
                 return
             }
@@ -369,8 +372,16 @@ extension Ghostty {
             
             // Set the window transparency settings
             window.isOpaque = false
-            window.hasShadow = false
-            window.backgroundColor = .clear
+            
+            if app.config.macosWindowShadow {
+                window.hasShadow = true
+                // NOTE(haze): I have no idea why this works, but it does. This emulates the
+                // aesthetic of `Terminal.app`.
+                window.backgroundColor = .white.withAlphaComponent(0.001)
+            } else {
+                window.hasShadow = false
+                window.backgroundColor = .clear
+            }
 
             // If we have a blur, set the blur
             ghostty_set_window_background_blur(surface, Unmanaged.passUnretained(window).toOpaque())
