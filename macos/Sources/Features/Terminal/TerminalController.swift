@@ -265,6 +265,8 @@ class TerminalController: NSWindowController, NSWindowDelegate,
         if let windowTheme = ghostty.config.windowTheme {
             window.windowTheme = .init(rawValue: windowTheme)
         }
+        
+        window.titleBarLuminanceCheck = ghostty.config.titleBarLuminanceCheck
 
         // Handle titlebar tabs config option. Something about what we do while setting up the
         // titlebar tabs interferes with the window restore process unless window.tabbingMode

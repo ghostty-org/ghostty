@@ -236,6 +236,14 @@ extension Ghostty {
             return v
         }
         
+        var titleBarLuminanceCheck: Bool {
+            guard let config = self.config else { return false }
+            var v = false;
+            let key = "macos-title-bar-luminance-check"
+            _ = ghostty_config_get(config, &v, key, UInt(key.count))
+            return v
+        }
+
         var backgroundColor: Color {
             var rgb: UInt32 = 0
             let bg_key = "background"

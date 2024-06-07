@@ -976,6 +976,10 @@ keybind: Keybinds = .{},
 /// This option only applies to new windows when changed.
 @"macos-titlebar-tabs": bool = false,
 
+/// If `true`, check the luminance of the background and show the custom effect
+/// (custom colored titlebars) )if the luminance is too low.
+@"macos-title-bar-luminance-check": bool = true,
+
 /// If `true`, the *Option* key will be treated as *Alt*. This makes terminal
 /// sequences expecting *Alt* to work properly, but will break Unicode input
 /// sequences on macOS if you use them via the *Alt* key. You may set this to
