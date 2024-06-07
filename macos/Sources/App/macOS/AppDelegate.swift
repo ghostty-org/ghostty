@@ -72,6 +72,8 @@ class AppDelegate: NSObject,
     let updaterController: SPUStandardUpdaterController
     let updaterDelegate: UpdaterDelegate = UpdaterDelegate()
     
+    private var appearanceObserver: NSKeyValueObservation? = nil
+    
     override init() {
         terminalManager = TerminalManager(ghostty)
         updaterController = SPUStandardUpdaterController(
@@ -96,6 +98,8 @@ class AppDelegate: NSObject,
     }
     
     func applicationDidFinishLaunching(_ notification: Notification) {
+        updateTerminalTheme()
+        
         // System settings overrides
         UserDefaults.standard.register(defaults: [
             // Disable this so that repeated key events make it through to our terminal views.
@@ -130,6 +134,16 @@ class AppDelegate: NSObject,
             )
         ])
         center.delegate = self
+        
+        appearanceObserver = NSApp.observe(\.effectiveAppearance, options: [.new, .old]) { [weak self] app, change in
+            guard let self else { return }
+            if change.newValue?.name == change.oldValue?.name {
+                return
+            }
+            
+            self.updateTerminalTheme()
+            self.reloadConfig(nil)
+        }
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -392,6 +406,13 @@ class AppDelegate: NSObject,
                 c.showWindow(self)
             }
         }
+    }
+    
+    private func updateTerminalTheme() {
+        let configDir = "\(NSHomeDirectory())/.config/ghostty"
+        let currentTheme = NSApp.effectiveAppearance.name == .darkAqua ? "dark" : "light"
+        unlink("\(configDir)/theme")
+        symlink("\(configDir)/theme-\(currentTheme)", "\(configDir)/theme")
     }
     
     /// Sync the appearance of our app with the theme specified in the config.
