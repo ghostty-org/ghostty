@@ -3201,6 +3201,8 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             // Open our scrollback file
             var file = try tmp_dir.dir.createFile("scrollback", .{});
             defer file.close();
+            // Screen.dumpString writes byte-by-byte, so buffer it
+            var buf_writer = std.io.bufferedWriter(file.writer());
 
             // Write the scrollback contents. This requires a lock.
             {
@@ -3221,11 +3223,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 if (pages.getBottomRight(.active)) |br| {
                     const tl = pages.getTopLeft(.history);
                     try self.io.terminal.screen.dumpString(
-                        file.writer(),
+                        buf_writer.writer(),
                         .{ .tl = tl, .br = br, .unwrap = true },
                     );
                 }
             }
+            try buf_writer.flush();
 
             // Get the final path
             var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
