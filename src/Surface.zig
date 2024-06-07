@@ -3231,9 +3231,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
             const path = try tmp_dir.dir.realpath("scrollback", &path_buf);
 
+            var cmd_buf: [std.fs.MAX_PATH_BYTES + 1024]u8 = undefined;
+            const cmd = try std.fmt.bufPrint(&cmd_buf, "\nless --chop-long-lines --RAW-CONTROL-CHARS +G {s}\n?", .{path});
+
             _ = self.io_thread.mailbox.push(try termio.Message.writeReq(
                 self.alloc,
-                path,
+                cmd,
             ), .{ .forever = {} });
             try self.io_thread.wakeup.notify();
         },
