@@ -151,7 +151,7 @@ class TerminalWindow: NSWindow {
 			if let titlebarContainer = contentView?.superview?.subviews.first(where: {
 				$0.className == "NSTitlebarContainerView"
 			}), let effectView = titlebarContainer.descendants(withClassName: "NSVisualEffectView").first {
-				effectView.isHidden = titlebarTabs || !titlebarTabs && !hasVeryDarkBackground && !titleBarLuminanceCheck
+				effectView.isHidden = titlebarTabs || titleBarLuminanceCheck && !titlebarTabs && !hasVeryDarkBackground
 			}
 
 			effectViewIsHidden = true
@@ -189,7 +189,7 @@ class TerminalWindow: NSWindow {
         backgroundColor.luminance < 0.05
     }
     
-    var titleBarLuminanceCheck: Bool
+    var titleBarLuminanceCheck: Bool = true
 
     private var newTabButtonImageLayer: VibrantLayer? = nil
 
