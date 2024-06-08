@@ -24,6 +24,9 @@ extension Ghostty {
         /// Optional delegate
         weak var delegate: GhosttyAppDelegate?
         
+        // TODO: this needs to be per-tab-group
+        var lastActiveTabIndex = 0
+        
         /// The readiness value of the state.
         @Published var readiness: Readiness = .loading
         

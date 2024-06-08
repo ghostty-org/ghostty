@@ -108,6 +108,13 @@ class TerminalWindow: NSWindow {
         resetZoomTabButton.contentTintColor = .secondaryLabelColor
         resetZoomToolbarButton.contentTintColor = .tertiaryLabelColor
         tab.attributedTitle = attributedTitle
+        
+        // if resigned key and not selected tab, then we were the last active tab
+        if let tabGroup,
+           tabGroup.selectedWindow != self,
+           let selfIndex = tabGroup.windows.firstIndex(of: self) {
+            (windowController as? TerminalController)?.ghostty.lastActiveTabIndex = selfIndex
+        }
     }
 
 	override func layoutIfNeeded() {

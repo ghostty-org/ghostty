@@ -142,6 +142,7 @@ typedef enum {
 typedef enum {
   GHOSTTY_TAB_PREVIOUS = -1,
   GHOSTTY_TAB_NEXT = -2,
+  GHOSTTY_TAB_LAST_ACTIVE = -3,
 } ghostty_tab_e;
 
 typedef enum {
