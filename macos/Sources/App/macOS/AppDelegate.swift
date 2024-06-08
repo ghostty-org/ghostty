@@ -36,6 +36,7 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuPaste: NSMenuItem?
     @IBOutlet private var menuSelectAll: NSMenuItem?
 
+    @IBOutlet private var menuLastActiveTab: NSMenuItem?
     @IBOutlet private var menuToggleFullScreen: NSMenuItem?
     @IBOutlet private var menuZoomSplit: NSMenuItem?
     @IBOutlet private var menuPreviousSplit: NSMenuItem?

@@ -550,6 +550,17 @@ class TerminalController: NSWindowController, NSWindowDelegate,
         splitMoveFocus(direction: .right)
     }
 
+    @IBAction func selectLastActiveTab(_ sender: Any) {
+        guard let surface = focusedSurface else { return }
+        NotificationCenter.default.post(
+            name: Ghostty.Notification.ghosttyGotoTab,
+            object: surface,
+            userInfo: [
+                Ghostty.Notification.GotoTabKey: GHOSTTY_TAB_LAST_ACTIVE.rawValue,
+            ]
+        )
+    }
+
     @IBAction func equalizeSplits(_ sender: Any) {
         guard let surface = focusedSurface?.surface else { return }
         ghostty.splitEqualize(surface: surface)
@@ -710,6 +721,8 @@ class TerminalController: NSWindowController, NSWindowDelegate,
                 } else {
                     finalIndex = selectedIndex + 1
                 }
+            } else if (tabIndex == GHOSTTY_TAB_LAST_ACTIVE.rawValue) {
+                finalIndex = ghostty.lastActiveTabIndex
             } else {
                 return
             }

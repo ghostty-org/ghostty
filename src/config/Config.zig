@@ -1567,6 +1567,11 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
         );
         try result.keybind.set.put(
             alloc,
+            .{ .key = .{ .translated = .tab }, .mods = .{ .ctrl = true } },
+            .{ .last_active_tab = {} },
+        );
+        try result.keybind.set.put(
+            alloc,
             .{ .key = .{ .translated = .d }, .mods = .{ .super = true } },
             .{ .new_split = .right },
         );
