@@ -14,12 +14,12 @@
             .lazy = true,
         },
         .zig_objc = .{
-            .url = "https://github.com/mitchellh/zig-objc/archive/9e2174ed9b5a2c11bf1779cf6c819260c8091888.tar.gz",
-            .hash = "1220014cd3774aa0b18320e6527ed7b3270412c70958ab16a3c55070ffb7f2042f87",
+            .url = "https://github.com/mitchellh/zig-objc/archive/0d9ad4a9fe9eaaa3be58ab9ab7a03c69e04a2cbd.tar.gz",
+            .hash = "1220b153ba8c90de9eeccd3f36802e00e2e3b615610a1f0dfe7472255d8d982bed53",
         },
         .zig_js = .{
-            .url = "https://github.com/mitchellh/zig-js/archive/d4edb682733aef8dc3933683272bdf7c8b9fe658.tar.gz",
-            .hash = "1220df81f0e65cc9ccd3628572c611e6f267a71f1bff1be19d50f4ac49ee2a83c324",
+            .url = "https://github.com/mitchellh/zig-js/archive/d0b8b0a57c52fbc89f9d9fecba75ca29da7dd7d1.tar.gz",
+            .hash = "12205a66d423259567764fa0fc60c82be35365c21aeb76c5a7dc99698401f4f6fefc",
         },
         .ziglyph = .{
             .url = "https://deps.files.ghostty.dev/ziglyph-b89d43d1e3fb01b6074bc1f7fc980324b04d26a5.tar.gz",
