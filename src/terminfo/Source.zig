@@ -68,7 +68,7 @@ pub fn encode(self: Source, writer: anytype) !void {
 /// Returns a ComptimeStringMap for all of the capabilities in this terminfo.
 /// The value is the value that should be sent as a response to XTGETTCAP.
 /// Important: the value is the FULL response included the escape sequences.
-pub fn xtgettcapMap(comptime self: Source) type {
+pub fn xtgettcapMap(comptime self: Source) std.StaticStringMap([]const u8) {
     const KV = struct { []const u8, []const u8 };
 
     // We have all of our capabilities plus To, TN, and RGB which aren't
@@ -145,7 +145,7 @@ pub fn xtgettcapMap(comptime self: Source) type {
     }
 
     const kvs_final = kvs;
-    return std.ComptimeStringMap([]const u8, &kvs_final);
+    return std.StaticStringMap([]const u8).initComptime(&kvs_final);
 }
 
 fn hexencode(comptime input: []const u8) []const u8 {

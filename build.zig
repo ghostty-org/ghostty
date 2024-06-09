@@ -1485,7 +1485,7 @@ fn root() []const u8 {
 }
 
 /// ANSI escape codes for colored log output
-const color_map = std.ComptimeStringMap([]const u8, .{
+const color_map = std.StaticStringMap([]const u8).initComptime(.{
     &.{ "black", "30m" },
     &.{ "blue", "34m" },
     &.{ "b", "1m" },

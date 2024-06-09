@@ -622,7 +622,10 @@ test "image load: rgb, not compressed, temporary file" {
     var tmp_dir = try internal_os.TempDir.init();
     defer tmp_dir.deinit();
     const data = @embedFile("testdata/image-rgb-none-20x15-2147483647-raw.data");
-    try tmp_dir.dir.writeFile("image.data", data);
+    try tmp_dir.dir.writeFile(.{
+        .sub_path = "image.data",
+        .data = data,
+    });
 
     var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     const path = try tmp_dir.dir.realpath("image.data", &buf);
@@ -656,7 +659,10 @@ test "image load: rgb, not compressed, regular file" {
     var tmp_dir = try internal_os.TempDir.init();
     defer tmp_dir.deinit();
     const data = @embedFile("testdata/image-rgb-none-20x15-2147483647-raw.data");
-    try tmp_dir.dir.writeFile("image.data", data);
+    try tmp_dir.dir.writeFile(.{
+        .sub_path = "image.data",
+        .data = data,
+    });
 
     var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     const path = try tmp_dir.dir.realpath("image.data", &buf);
@@ -688,7 +694,10 @@ test "image load: png, not compressed, regular file" {
     var tmp_dir = try internal_os.TempDir.init();
     defer tmp_dir.deinit();
     const data = @embedFile("testdata/image-png-none-50x76-2147483647-raw.data");
-    try tmp_dir.dir.writeFile("image.data", data);
+    try tmp_dir.dir.writeFile(.{
+        .sub_path = "image.data",
+        .data = data,
+    });
 
     var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     const path = try tmp_dir.dir.realpath("image.data", &buf);
