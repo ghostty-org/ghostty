@@ -123,8 +123,8 @@ fn logFn(
     const prefix = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
 
     // Lock so we are thread-safe
-    std.debug.getStderrMutex().lock();
-    defer std.debug.getStderrMutex().unlock();
+    std.debug.lockStdErr();
+    defer std.debug.unlockStdErr();
 
     // On Mac, we use unified logging. To view this:
     //

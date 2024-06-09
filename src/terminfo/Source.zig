@@ -65,7 +65,7 @@ pub fn encode(self: Source, writer: anytype) !void {
     }
 }
 
-/// Returns a ComptimeStringMap for all of the capabilities in this terminfo.
+/// Returns a StaticStringMap for all of the capabilities in this terminfo.
 /// The value is the value that should be sent as a response to XTGETTCAP.
 /// Important: the value is the FULL response included the escape sequences.
 pub fn xtgettcapMap(comptime self: Source) std.StaticStringMap([]const u8) {

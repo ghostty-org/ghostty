@@ -7,6 +7,7 @@
 .direnv/
 .flatpak-builder/
 zig-cache/
+.zig-cache/
 zig-out/
 /result*
 example/*.wasm

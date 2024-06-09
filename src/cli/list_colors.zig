@@ -31,7 +31,7 @@ pub fn run(alloc: std.mem.Allocator) !u8 {
 
     var keys = std.ArrayList([]const u8).init(alloc);
     defer keys.deinit();
-    for (x11_color.map.kvs) |kv| try keys.append(kv.key);
+    for (x11_color.map.keys()) |key| try keys.append(key);
 
     std.mem.sortUnstable([]const u8, keys.items, {}, struct {
         fn lessThan(_: void, lhs: []const u8, rhs: []const u8) bool {
