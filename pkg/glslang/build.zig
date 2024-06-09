@@ -5,7 +5,7 @@ pub fn build(b: *std.Build) !void {
     const optimize = b.standardOptimizeOption(.{});
 
     const module = b.addModule("glslang", .{
-        .root_source_file = .{ .path = "main.zig" },
+        .root_source_file = b.path("main.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -15,7 +15,7 @@ pub fn build(b: *std.Build) !void {
     b.installArtifact(lib);
 
     module.addIncludePath(upstream.path(""));
-    module.addIncludePath(.{ .path = "override" });
+    module.addIncludePath(b.path("override"));
     if (target.result.isDarwin()) {
         const apple_sdk = @import("apple_sdk");
         try apple_sdk.addPaths(b, module);
@@ -24,7 +24,7 @@ pub fn build(b: *std.Build) !void {
     if (target.query.isNative()) {
         const test_exe = b.addTest(.{
             .name = "test",
-            .root_source_file = .{ .path = "main.zig" },
+            .root_source_file = b.path("main.zig"),
             .target = target,
             .optimize = optimize,
         });
@@ -52,7 +52,7 @@ fn buildGlslang(
     lib.linkLibC();
     lib.linkLibCpp();
     lib.addIncludePath(upstream.path(""));
-    lib.addIncludePath(.{ .path = "override" });
+    lib.addIncludePath(b.path("override"));
     if (target.result.isDarwin()) {
         const apple_sdk = @import("apple_sdk");
         try apple_sdk.addPaths(b, &lib.root_module);

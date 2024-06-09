@@ -13,7 +13,7 @@ pub fn build(b: *std.Build) !void {
     ) orelse (target.result.os.tag != .windows);
     const freetype_enabled = b.option(bool, "enable-freetype", "Build freetype") orelse true;
 
-    const module = b.addModule("fontconfig", .{ .root_source_file = .{ .path = "main.zig" } });
+    const module = b.addModule("fontconfig", .{ .root_source_file = b.path("main.zig") });
 
     const upstream = b.dependency("fontconfig", .{});
     const lib = b.addStaticLibrary(.{
@@ -39,9 +39,9 @@ pub fn build(b: *std.Build) !void {
     }
 
     lib.addIncludePath(upstream.path(""));
-    lib.addIncludePath(.{ .path = "override/include" });
+    lib.addIncludePath(b.path("override/include"));
     module.addIncludePath(upstream.path(""));
-    module.addIncludePath(.{ .path = "override/include" });
+    module.addIncludePath(b.path("override/include"));
 
     var flags = std.ArrayList([]const u8).init(b.allocator);
     defer flags.deinit();
@@ -172,7 +172,7 @@ pub fn build(b: *std.Build) !void {
 
     const test_exe = b.addTest(.{
         .name = "test",
-        .root_source_file = .{ .path = "main.zig" },
+        .root_source_file = b.path("main.zig"),
         .target = target,
         .optimize = optimize,
     });

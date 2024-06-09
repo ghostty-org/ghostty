@@ -5,7 +5,7 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const module = b.addModule("oniguruma", .{ .root_source_file = .{ .path = "main.zig" } });
+    const module = b.addModule("oniguruma", .{ .root_source_file = b.path("main.zig") });
 
     const upstream = b.dependency("oniguruma", .{});
     const lib = try buildOniguruma(b, upstream, target, optimize);
@@ -15,7 +15,7 @@ pub fn build(b: *std.Build) !void {
     if (target.query.isNative()) {
         const test_exe = b.addTest(.{
             .name = "test",
-            .root_source_file = .{ .path = "main.zig" },
+            .root_source_file = b.path("main.zig"),
             .target = target,
             .optimize = optimize,
         });

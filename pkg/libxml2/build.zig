@@ -14,12 +14,12 @@ pub fn build(b: *std.Build) !void {
     lib.linkLibC();
 
     lib.addIncludePath(upstream.path("include"));
-    lib.addIncludePath(.{ .path = "override/include" });
+    lib.addIncludePath(b.path("override/include"));
     if (target.result.os.tag == .windows) {
-        lib.addIncludePath(.{ .path = "override/config/win32" });
+        lib.addIncludePath(b.path("override/config/win32"));
         lib.linkSystemLibrary("ws2_32");
     } else {
-        lib.addIncludePath(.{ .path = "override/config/posix" });
+        lib.addIncludePath(b.path("override/config/posix"));
     }
 
     var flags = std.ArrayList([]const u8).init(b.allocator);
@@ -101,7 +101,7 @@ pub fn build(b: *std.Build) !void {
     });
 
     lib.installHeader(
-        .{ .path = "override/include/libxml/xmlversion.h" },
+        b.path("override/include/libxml/xmlversion.h"),
         "libxml/xmlversion.h",
     );
     lib.installHeadersDirectory(

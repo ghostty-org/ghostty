@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) !void {
     const optimize = b.standardOptimizeOption(.{});
 
     const module = b.addModule("cimgui", .{
-        .root_source_file = .{ .path = "main.zig" },
+        .root_source_file = b.path("main.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -30,7 +30,7 @@ pub fn build(b: *std.Build) !void {
     }
 
     lib.addIncludePath(imgui.path(""));
-    module.addIncludePath(.{ .path = "vendor" });
+    module.addIncludePath(b.path("vendor"));
 
     var flags = std.ArrayList([]const u8).init(b.allocator);
     defer flags.deinit();
@@ -49,7 +49,7 @@ pub fn build(b: *std.Build) !void {
         });
     }
 
-    lib.addCSourceFile(.{ .file = .{ .path = "vendor/cimgui.cpp" }, .flags = flags.items });
+    lib.addCSourceFile(.{ .file = b.path("vendor/cimgui.cpp"), .flags = flags.items });
     lib.addCSourceFile(.{ .file = imgui.path("imgui.cpp"), .flags = flags.items });
     lib.addCSourceFile(.{ .file = imgui.path("imgui_draw.cpp"), .flags = flags.items });
     lib.addCSourceFile(.{ .file = imgui.path("imgui_demo.cpp"), .flags = flags.items });
@@ -80,7 +80,7 @@ pub fn build(b: *std.Build) !void {
     }
 
     lib.installHeadersDirectory(
-        .{ .path = "vendor" },
+        b.path("vendor"),
         "",
         .{ .include_extensions = &.{".h"} },
     );
@@ -89,7 +89,7 @@ pub fn build(b: *std.Build) !void {
 
     const test_exe = b.addTest(.{
         .name = "test",
-        .root_source_file = .{ .path = "main.zig" },
+        .root_source_file = b.path("main.zig"),
         .target = target,
         .optimize = optimize,
     });

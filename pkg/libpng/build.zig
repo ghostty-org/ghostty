@@ -23,7 +23,7 @@ pub fn build(b: *std.Build) !void {
     const zlib_dep = b.dependency("zlib", .{ .target = target, .optimize = optimize });
     lib.linkLibrary(zlib_dep.artifact("z"));
     lib.addIncludePath(upstream.path(""));
-    lib.addIncludePath(.{ .path = "" });
+    lib.addIncludePath(b.path(""));
 
     var flags = std.ArrayList([]const u8).init(b.allocator);
     defer flags.deinit();
@@ -40,7 +40,7 @@ pub fn build(b: *std.Build) !void {
         .flags = flags.items,
     });
 
-    lib.installHeader(.{ .path = "pnglibconf.h" }, "pnglibconf.h");
+    lib.installHeader(b.path("pnglibconf.h"), "pnglibconf.h");
     lib.installHeadersDirectory(
         upstream.path(""),
         "",

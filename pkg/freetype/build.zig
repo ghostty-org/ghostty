@@ -5,7 +5,7 @@ pub fn build(b: *std.Build) !void {
     const optimize = b.standardOptimizeOption(.{});
     const libpng_enabled = b.option(bool, "enable-libpng", "Build libpng") orelse false;
 
-    const module = b.addModule("freetype", .{ .root_source_file = .{ .path = "main.zig" } });
+    const module = b.addModule("freetype", .{ .root_source_file = b.path("main.zig") });
 
     const upstream = b.dependency("freetype", .{});
     const lib = b.addStaticLibrary(.{
@@ -21,7 +21,7 @@ pub fn build(b: *std.Build) !void {
     }
 
     module.addIncludePath(upstream.path("include"));
-    module.addIncludePath(.{ .path = "" });
+    module.addIncludePath(b.path(""));
 
     // Dependencies
     const zlib_dep = b.dependency("zlib", .{ .target = target, .optimize = optimize });
@@ -81,7 +81,7 @@ pub fn build(b: *std.Build) !void {
         }),
     }
 
-    lib.installHeader(.{ .path = "freetype-zig.h" }, "freetype-zig.h");
+    lib.installHeader(b.path("freetype-zig.h"), "freetype-zig.h");
     lib.installHeadersDirectory(
         upstream.path("include"),
         "",
@@ -93,7 +93,7 @@ pub fn build(b: *std.Build) !void {
     if (target.query.isNative()) {
         const test_exe = b.addTest(.{
             .name = "test",
-            .root_source_file = .{ .path = "main.zig" },
+            .root_source_file = b.path("main.zig"),
             .target = target,
             .optimize = optimize,
         });

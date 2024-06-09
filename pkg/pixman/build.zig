@@ -4,7 +4,7 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const module = b.addModule("pixman", .{ .root_source_file = .{ .path = "main.zig" } });
+    const module = b.addModule("pixman", .{ .root_source_file = b.path("main.zig") });
 
     const upstream = b.dependency("pixman", .{});
     const lib = b.addStaticLibrary(.{
@@ -22,9 +22,9 @@ pub fn build(b: *std.Build) !void {
     }
 
     lib.addIncludePath(upstream.path(""));
-    lib.addIncludePath(.{ .path = "" });
+    lib.addIncludePath(b.path(""));
     module.addIncludePath(upstream.path("pixman"));
-    module.addIncludePath(.{ .path = "" });
+    module.addIncludePath(b.path(""));
 
     var flags = std.ArrayList([]const u8).init(b.allocator);
     defer flags.deinit();
@@ -62,7 +62,7 @@ pub fn build(b: *std.Build) !void {
         .flags = flags.items,
     });
 
-    lib.installHeader(.{ .path = "pixman-version.h" }, "pixman-version.h");
+    lib.installHeader(b.path("pixman-version.h"), "pixman-version.h");
     lib.installHeadersDirectory(
         upstream.path("pixman"),
         "",
@@ -74,7 +74,7 @@ pub fn build(b: *std.Build) !void {
     if (target.query.isNative()) {
         const test_exe = b.addTest(.{
             .name = "test",
-            .root_source_file = .{ .path = "main.zig" },
+            .root_source_file = b.path("main.zig"),
             .target = target,
             .optimize = optimize,
         });

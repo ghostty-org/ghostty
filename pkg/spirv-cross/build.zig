@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) !void {
 
     const upstream = b.dependency("spirv_cross", .{});
 
-    const module = b.addModule("spirv_cross", .{ .root_source_file = .{ .path = "main.zig" } });
+    const module = b.addModule("spirv_cross", .{ .root_source_file = b.path("main.zig") });
     module.addIncludePath(upstream.path(""));
 
     const lib = try buildSpirvCross(b, upstream, target, optimize);
@@ -15,7 +15,7 @@ pub fn build(b: *std.Build) !void {
     if (target.query.isNative()) {
         const test_exe = b.addTest(.{
             .name = "test",
-            .root_source_file = .{ .path = "main.zig" },
+            .root_source_file = b.path("main.zig"),
             .target = target,
             .optimize = optimize,
         });

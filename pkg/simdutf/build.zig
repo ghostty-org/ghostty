@@ -10,7 +10,7 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
     lib.linkLibCpp();
-    lib.addIncludePath(.{ .path = "vendor" });
+    lib.addIncludePath(b.path("vendor"));
 
     if (target.result.isDarwin()) {
         const apple_sdk = @import("apple_sdk");
@@ -28,7 +28,7 @@ pub fn build(b: *std.Build) !void {
         },
     });
     lib.installHeadersDirectory(
-        .{ .path = "vendor" },
+        b.path("vendor"),
         "",
         .{ .include_extensions = &.{".h"} },
     );

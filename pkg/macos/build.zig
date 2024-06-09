@@ -7,7 +7,7 @@ pub fn build(b: *std.Build) !void {
     const optimize = b.standardOptimizeOption(.{});
 
     const module = b.addModule("macos", .{
-        .root_source_file = .{ .path = "main.zig" },
+        .root_source_file = b.path("main.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -21,11 +21,11 @@ pub fn build(b: *std.Build) !void {
     var flags = std.ArrayList([]const u8).init(b.allocator);
     defer flags.deinit();
     lib.addCSourceFile(.{
-        .file = .{ .path = "os/log.c" },
+        .file = b.path("os/log.c"),
         .flags = flags.items,
     });
     lib.addCSourceFile(.{
-        .file = .{ .path = "text/ext.c" },
+        .file = b.path("text/ext.c"),
         .flags = flags.items,
     });
     lib.linkFramework("CoreFoundation");
@@ -55,7 +55,7 @@ pub fn build(b: *std.Build) !void {
     {
         const test_exe = b.addTest(.{
             .name = "test",
-            .root_source_file = .{ .path = "main.zig" },
+            .root_source_file = b.path("main.zig"),
             .target = target,
             .optimize = optimize,
         });

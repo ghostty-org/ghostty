@@ -7,7 +7,7 @@ pub fn build(b: *std.Build) !void {
     const upstream = b.dependency("highway", .{});
 
     const module = b.addModule("highway", .{
-        .root_source_file = .{ .path = "main.zig" },
+        .root_source_file = b.path("main.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -95,7 +95,7 @@ pub fn build(b: *std.Build) !void {
     {
         const test_exe = b.addTest(.{
             .name = "test",
-            .root_source_file = .{ .path = "main.zig" },
+            .root_source_file = b.path("main.zig"),
             .target = target,
             .optimize = optimize,
         });
