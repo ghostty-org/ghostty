@@ -3201,6 +3201,8 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             // Open our selection file
             var file = try tmp_dir.dir.createFile("selection", .{});
             defer file.close();
+            // Screen.dumpString writes byte-by-byte, so buffer it
+            var buf_writer = std.io.bufferedWriter(file.writer());
 
             // Write the selection contents. This requires a lock.
             {
@@ -3216,11 +3218,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
 
                 if (self.io.terminal.screen.selection) |selection| {
                     try self.io.terminal.screen.dumpString(
-                        file.writer(),
+                        buf_writer.writer(),
                         .{ .tl = selection.start(), .br = selection.end(), .unwrap = true },
                     );
                 }
             }
+            try buf_writer.flush();
 
             // Get the final path
             var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
