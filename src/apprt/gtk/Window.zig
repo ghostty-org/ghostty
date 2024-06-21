@@ -30,6 +30,8 @@ window: *c.GtkWindow,
 /// The notebook (tab grouping) for this window.
 notebook: *c.GtkNotebook,
 
+last_active_tab_index: c_int = 0,
+
 pub fn create(alloc: Allocator, app: *App) !*Window {
     // Allocate a fixed pointer for our window. We try to minimize
     // allocations but windows and other GUI requirements are so minimal
@@ -248,6 +250,9 @@ pub fn gotoPreviousTab(self: *Window, surface: *Surface) void {
     // Do nothing if we have one tab
     if (next_idx == page_idx) return;
 
+    // Cache the last active tab index for our last-active-tab hotkey.
+    self.last_active_tab_index = page_idx;
+
     c.gtk_notebook_set_current_page(self.notebook, next_idx);
     self.focusCurrentTab();
 }
@@ -265,6 +270,9 @@ pub fn gotoNextTab(self: *Window, surface: *Surface) void {
     const next_idx = if (page_idx < max) page_idx + 1 else 0;
     if (next_idx == page_idx) return;
 
+    // Cache the last active tab index for our last-active-tab hotkey.
+    self.last_active_tab_index = page_idx;
+
     c.gtk_notebook_set_current_page(self.notebook, next_idx);
     self.focusCurrentTab();
 }
@@ -277,6 +285,20 @@ pub fn gotoTab(self: *Window, n: usize) void {
     if (page_idx < max) {
         c.gtk_notebook_set_current_page(self.notebook, page_idx);
         self.focusCurrentTab();
+    }
+
+    // Cache the last active tab index for our last-active-tab hotkey.
+    self.last_active_tab_index = page_idx;
+}
+
+// Goto the more recently selected tab.
+pub fn gotoLastActiveTab(self: *Window) void {
+    if (self.last_active_tab_index >= 0) {
+        const page_idx = c.gtk_notebook_get_current_page(self.notebook);
+        c.gtk_notebook_set_current_page(self.notebook, self.last_active_tab_index);
+        self.focusCurrentTab();
+        log.debug("going to last active tab", .{});
+        self.last_active_tab_index = page_idx;
     }
 }
 

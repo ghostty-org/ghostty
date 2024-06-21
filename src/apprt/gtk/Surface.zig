@@ -695,6 +695,18 @@ pub fn gotoTab(self: *Surface, n: usize) void {
     window.gotoTab(n);
 }
 
+pub fn gotoLastActiveTab(self: *Surface) void {
+    const window = self.container.window() orelse {
+        log.info(
+            "gotoLastActiveTab invalid for container={s}",
+            .{@tagName(self.container)},
+        );
+        return;
+    };
+
+    window.gotoLastActiveTab();
+}
+
 pub fn setShouldClose(self: *Surface) void {
     _ = self;
 }
