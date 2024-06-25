@@ -207,6 +207,13 @@ pub fn closeTab(self: *Window, tab: *Tab) void {
     // Find page and tab which we're closing
     const page_idx = getNotebookPageIndex(page);
 
+    // If the page we are closing is the last active tab,
+    // then make the last active tab keybind a noop until
+    // a new tab is selected.
+    if (page_idx == self.last_active_tab_index) {
+        self.last_active_tab_index = -1;
+    }
+
     // Remove the page. This will destroy the GTK widgets in the page which
     // will trigger Tab cleanup.
     c.gtk_notebook_remove_page(self.notebook, page_idx);
@@ -297,7 +304,6 @@ pub fn gotoLastActiveTab(self: *Window) void {
         const page_idx = c.gtk_notebook_get_current_page(self.notebook);
         c.gtk_notebook_set_current_page(self.notebook, self.last_active_tab_index);
         self.focusCurrentTab();
-        log.debug("going to last active tab", .{});
         self.last_active_tab_index = page_idx;
     }
 }
