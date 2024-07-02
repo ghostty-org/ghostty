@@ -600,7 +600,7 @@ iOS SDKs installed (from inside Xcode → Settings → Platforms), and let's mov
 on to building Ghostty:
 
 ```shell-session
-$ zig build -Doptimize=ReleaseFast
+$ zig build -Doptimize=ReleaseFast -Demit-docs
 $ cd macos && xcodebuild
 ```
 
