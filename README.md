@@ -720,7 +720,51 @@ Below is an example:
 }
 ```
 
-You can also test the build of the nix package at any time by running `nix build .`.
+The `default` version of the Nix package builds Ghostty with NixOS 24.05.
+
+There are many variations of the package that use different versions of NixOS
+and different optimization flags to build:
+
+| Package                      | NixOS version | Optimization | glibc version | GTK version | Gnome version |
+| ---------------------------- | ------------- | ------------ | ------------- | ----------- | ------------- |
+| ghostty-24-05-debug          | 24.05         | Debug        | 2.39          | 4.14        | 46            |
+| ghostty-24-05-releasesafe    | 24.05         | ReleaseSafe  | 2.39          | 4.14        | 46            |
+| ghostty-24-05-releasefast    | 24.05         | ReleaseFast  | 2.39          | 4.14        | 46            |
+| ghostty-unstable-debug       | unstable      | Debug        | 2.39          | 4.14        | 46            |
+| ghostty-unstable-releasesafe | unstable      | ReleaseSafe  | 2.39          | 4.14        | 46            |
+| ghostty-unstable-releasefast | unstable      | ReleaseFast  | 2.39          | 4.14        | 46            |
+
+An example of how to use a non-default build of Ghostty:
+
+```nix
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+    # NOTE: This will require your git SSH access to the repo.
+    #
+    # WARNING: Do NOT pin the `nixpkgs` input, as that will
+    # declare the cache useless. If you do, you will have
+    # to compile LLVM, Zig and Ghostty itself on your machine,
+    # which will take a very very long time.
+    ghostty = {
+      url = "git+ssh://git@github.com/ghostty-org/ghostty";
+    };
+  };
+
+  outputs = { nixpkgs, ghostty, ... }: {
+    nixosConfigurations.mysystem = nixpkgs.lib.nixosSystem {
+      modules = [
+        {
+          environment.systemPackages = [
+            ghostty.packages.x86_64-linux.ghostty-unstable-releasefast
+          ];
+        }
+      ];
+    };
+  };
+}
+```
 
 #### Updating the Zig Cache Fixed-Output Derivation Hash
 

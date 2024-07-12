@@ -5,7 +5,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ["namespace-profile-ghostty-md"]
+        os: ["namespace-profile-ghostty-24-04-md"]
 
         target: [
             aarch64-linux,
@@ -49,7 +49,7 @@ jobs:
 
   build-bench:
     # We build benchmarks on large because it uses ReleaseFast
-    runs-on: namespace-profile-ghostty-lg
+    runs-on: namespace-profile-ghostty-24-04-lg
     needs: test
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
@@ -78,7 +78,7 @@ jobs:
         run: nix develop -c zig build -Dapp-runtime=glfw -Demit-bench
 
   build-linux-libghostty:
-    runs-on: namespace-profile-ghostty-md
+    runs-on: namespace-profile-ghostty-24-04-md
     needs: test
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
@@ -110,7 +110,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [namespace-profile-ghostty-md, namespace-profile-ghostty-md-arm64]
+        os:
+          [
+            namespace-profile-ghostty-24-04-md,
+            namespace-profile-ghostty-24-04-arm64-md,
+          ]
     runs-on: ${{ matrix.os }}
     needs: test
     env:
@@ -138,6 +142,25 @@ jobs:
 
       - name: Test NixOS package build
         run: nix build .#ghostty
+
+  build-nix-unstable:
+    runs-on: namespace-profile-ghostty-24-04-md
+    needs: test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Install Nix and use that to run our tests so our environment matches exactly.
+      - uses: cachix/install-nix-action@V27
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@v15
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Test NixOS package build
+        run: nix build .#ghostty-unstable-releasefast
 
   build-macos:
     runs-on: namespace-profile-ghostty-macos
@@ -287,7 +310,7 @@ jobs:
         run: Get-Content -Path ".\build.log"
 
   test:
-    runs-on: namespace-profile-ghostty-md
+    runs-on: namespace-profile-ghostty-24-04-md
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
@@ -343,7 +366,7 @@ jobs:
         run: nix develop -c zig build test
 
   prettier:
-    runs-on: namespace-profile-ghostty-sm
+    runs-on: namespace-profile-ghostty-24-04-sm
     timeout-minutes: 60
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
@@ -369,7 +392,7 @@ jobs:
         run: nix develop -c prettier --check .
 
   alejandra:
-    runs-on: namespace-profile-ghostty-sm
+    runs-on: namespace-profile-ghostty-24-04-sm
     timeout-minutes: 60
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache

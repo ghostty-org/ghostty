@@ -102,12 +102,12 @@ fetch(url.href)
     group_add_face(
       group,
       0 /* regular */,
-      deferred_face_new(font_name.ptr, font_name.len, 0 /* text */)
+      deferred_face_new(font_name.ptr, font_name.len, 0 /* text */),
     );
     group_add_face(
       group,
       0 /* regular */,
-      deferred_face_new(font_name.ptr, font_name.len, 1 /* emoji */)
+      deferred_face_new(font_name.ptr, font_name.len, 1 /* emoji */),
     );
 
     // Initialize our sprite font, without this we just use the browser.
@@ -168,7 +168,7 @@ fetch(url.href)
       group_cache,
       cp,
       0,
-      -1 /* best choice */
+      -1 /* best choice */,
     );
     group_cache_render_glyph(group_cache, font_idx, cp, -1);
 

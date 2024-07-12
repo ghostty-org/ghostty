@@ -21,7 +21,7 @@
   wabt,
   wasmtime,
   wraptest,
-  zig,
+  zig_0_13,
   zip,
   zls,
   llvmPackages_latest,
@@ -86,7 +86,7 @@ in
         pandoc
         pkg-config
         scdoc
-        zig
+        zig_0_13
         zip
 
         # For web and wasm stuff
@@ -99,7 +99,6 @@ in
         # Testing
         parallel
         python3
-        tracy
         vttest
         hyperfine
 
