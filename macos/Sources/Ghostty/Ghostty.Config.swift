@@ -331,5 +331,16 @@ extension Ghostty {
             let newColor = isLightBackground ? backgroundColor.darken(by: 0.08) : backgroundColor.darken(by: 0.4)
             return Color(newColor)
         }
+        
+        var autoUpdates: String {
+            let defaultValue = "off"
+            guard let config = self.config else { return defaultValue }
+            
+            let key = "auto-updates"
+            var value: UnsafePointer<Int8>? = nil
+            guard ghostty_config_get(config, &value, key, UInt(key.count)) else { return defaultValue }
+            guard let pointer = value else { return defaultValue }
+            return String(cString: pointer)
+        }
     }
 }

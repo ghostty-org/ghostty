@@ -109,6 +109,12 @@ class AppDelegate: NSObject,
         // Initial config loading
         configDidReload(ghostty)
         
+        updaterController.updater.updateCheckInterval = 60
+        updaterController.updater.automaticallyChecksForUpdates =
+            ghostty.config.autoUpdates == "check" || ghostty.config.autoUpdates == "download"
+        updaterController.updater.automaticallyDownloadsUpdates =
+            ghostty.config.autoUpdates == "download"
+        
         // Register our service provider. This must happen after everything is initialized.
         NSApp.servicesProvider = ServiceProvider()
         

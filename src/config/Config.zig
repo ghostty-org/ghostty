@@ -1161,6 +1161,13 @@ term: []const u8 = "xterm-ghostty",
 /// running. Defaults to an empty string if not set.
 @"enquiry-response": []const u8 = "",
 
+/// This controls the automatic update functionality on macOS by setting the
+/// properties on the Squirrel automatic update component. By default this is
+/// set to "off" which doesn't do anything. The "check" option will automatically
+/// check for updates but will NOT download them, while as the "download" option
+/// will both check AND download updates automatically for the user.
+@"auto-updates": AutoUpdates = .off,
+
 /// This is set by the CLI parser for deinit.
 _arena: ?ArenaAllocator = null,
 
@@ -3639,4 +3646,11 @@ pub const LinuxCgroup = enum {
     never,
     always,
     @"single-instance",
+};
+
+/// See auto-updates
+pub const AutoUpdates = enum {
+    check,
+    download,
+    off,
 };
