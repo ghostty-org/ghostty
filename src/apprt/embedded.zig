@@ -8,6 +8,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
 const objc = @import("objc");
 const apprt = @import("../apprt.zig");
 const font = @import("../font/main.zig");
@@ -308,9 +309,6 @@ pub const Surface = struct {
 
     /// Surface initialization options.
     pub const Options = extern struct {
-        /// The initial kind of surface.
-        kind: CoreSurface.Kind = .window,
-
         /// The platform that this surface is being initialized for and
         /// the associated platform-specific configuration.
         platform_tag: c_int = 0,
@@ -332,6 +330,17 @@ pub const Surface = struct {
         /// the "wait-after-command" option is also automatically set to true,
         /// since this is used for scripting.
         command: [*:0]const u8 = "",
+
+        _arena: ?*anyopaque = null,
+
+        pub fn deinit(self: *Options) void {
+            if (self._arena) |ptr| {
+                const arena: *ArenaAllocator = @ptrCast(@alignCast(ptr));
+                const alloc = arena.child_allocator;
+                arena.deinit();
+                alloc.destroy(arena);
+            }
+        }
     };
 
     /// This is the key event sent for ghostty_surface_key.
@@ -368,7 +377,7 @@ pub const Surface = struct {
         errdefer app.core_app.deleteSurface(self);
 
         // Shallow copy the config so that we can modify it.
-        var config = try apprt.surface.newConfig(app.core_app, app.config, opts.kind);
+        var config = try apprt.surface.newConfig(app.core_app, app.config);
         defer config.deinit();
 
         // If we have a working directory from the options then we set it.
@@ -476,7 +485,7 @@ pub const Surface = struct {
             return;
         };
 
-        const options = self.newSurfaceOptions(.split);
+        const options = try self.newSurfaceOptions(.split);
         func(self.userdata, direction, options);
     }
 
@@ -1027,7 +1036,7 @@ pub const Surface = struct {
             return;
         };
 
-        const options = self.newSurfaceOptions(.tab);
+        const options = try self.newSurfaceOptions(.tab);
         func(self.userdata, options);
     }
 
@@ -1037,7 +1046,7 @@ pub const Surface = struct {
             return;
         };
 
-        const options = self.newSurfaceOptions(.window);
+        const options = try self.newSurfaceOptions(.window);
         func(self.userdata, options);
     }
 
@@ -1068,15 +1077,44 @@ pub const Surface = struct {
         func(self.userdata, width, height);
     }
 
-    fn newSurfaceOptions(self: *const Surface, kind: CoreSurface.Kind) apprt.Surface.Options {
+    fn newSurfaceOptions(self: *const Surface, kind: CoreSurface.Kind) !apprt.Surface.Options {
         const font_size: f32 = font_size: {
             if (!self.app.config.@"window-inherit-font-size") break :font_size 0;
             break :font_size self.core_surface.font_size.points;
         };
 
+        const working_directory: [*:0]const u8, const arena: ?*ArenaAllocator = dir: {
+            const prev = self.app.core_app.focusedSurface();
+            if (prev) |p| {
+                const inherit_pwd: bool = switch (kind) {
+                    .split => self.app.config.@"window-inherit-working-directory".split,
+                    .tab => self.app.config.@"window-inherit-working-directory".tab,
+                    .window => self.app.config.@"window-inherit-working-directory".window,
+                };
+                if (inherit_pwd) {
+                    const app_alloc = self.app.core_app.alloc;
+
+                    var arena = try app_alloc.create(ArenaAllocator);
+                    errdefer app_alloc.destroy(arena);
+
+                    arena.* = ArenaAllocator.init(app_alloc);
+                    errdefer arena.deinit();
+
+                    const arena_alloc = arena.allocator();
+
+                    if (try p.pwd(app_alloc)) |pwd| {
+                        defer app_alloc.free(pwd);
+                        break :dir .{ try arena_alloc.dupeZ(u8, pwd), arena };
+                    }
+                }
+            }
+            break :dir .{ "", null };
+        };
+
         return .{
-            .kind = kind,
             .font_size = font_size,
+            .working_directory = working_directory,
+            ._arena = arena,
         };
     }
 
@@ -1503,6 +1541,7 @@ pub const CAPI = struct {
         app: *App,
         opts: *const apprt.Surface.Options,
     ) !*Surface {
+        defer @constCast(opts).deinit();
         return try app.newSurface(opts.*);
     }
 

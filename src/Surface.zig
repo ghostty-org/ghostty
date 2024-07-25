@@ -126,7 +126,7 @@ config: DerivedConfig,
 child_exited: bool = false,
 
 /// The kind of surface.
-pub const Kind = enum(c_int) {
+pub const Kind = enum {
     split,
     tab,
     window,

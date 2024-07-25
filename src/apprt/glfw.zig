@@ -448,8 +448,7 @@ pub const Surface = struct {
         errdefer app.app.deleteSurface(self);
 
         // Get our new surface config
-        const kind: CoreSurface.Kind = .window; // TODO
-        var config = try apprt.surface.newConfig(app.app, &app.config, kind);
+        var config = try apprt.surface.newConfig(app.app, &app.config);
         defer config.deinit();
 
         // Initialize our surface now that we have the stable pointer.
