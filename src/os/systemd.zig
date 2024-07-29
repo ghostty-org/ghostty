@@ -70,7 +70,7 @@ pub fn launchedBySystemd() bool {
                 };
                 const comm_data = comm_data_buf[0..comm_size];
 
-                if (std.mem.eql(u8, comm_data, "systemd")) break :linux true;
+                if (std.mem.eql(u8, std.mem.trimRight(u8, comm_data, "\n"), "systemd")) break :linux true;
 
                 break :linux false;
             };
