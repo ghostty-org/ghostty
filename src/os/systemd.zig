@@ -47,7 +47,9 @@ pub fn launchedBySystemd() bool {
             var link_buf: [std.fs.max_path_bytes]u8 = undefined;
             const link = std.fs.readLinkAbsolute(path, &link_buf) catch {
                 log.err("unable to read link '{s}'", .{path});
-                break :linux false;
+                // Some systems prohibit access to /proc/<pid>/exe for some
+                // reason so don't fail if we can't read the link.
+                break :linux true;
             };
 
             if (std.mem.endsWith(u8, link, "/systemd")) break :linux true;
