@@ -545,6 +545,7 @@ fn realize(self: *Surface) !void {
     // Get our new surface config
     var config = try apprt.surface.newConfig(self.app.core_app, &self.app.config);
     defer config.deinit();
+
     if (!self.parent_surface) {
         // A hack, see the "parent_surface" field for more information.
         config.@"working-directory" = self.app.config.@"working-directory";

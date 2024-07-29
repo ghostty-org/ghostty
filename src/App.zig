@@ -309,7 +309,7 @@ pub const Message = union(enum) {
     redraw_inspector: *apprt.Surface,
 
     const NewWindow = struct {
-        /// The parent surface
+        /// The parent surface.
         parent: ?*Surface = null,
     };
 };

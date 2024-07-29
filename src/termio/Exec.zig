@@ -691,6 +691,17 @@ const Subprocess = struct {
             env.remove("GSK_RENDERER");
         }
 
+        // On Linux, remove some environment variables that are set when Ghostty
+        // is launched from a `.desktop` file or by D-Bus activation.
+        if (comptime builtin.os.tag == .linux) {
+            env.remove("GIO_LAUNCHED_DESKTOP_FILE");
+            env.remove("GIO_LAUNCHED_DESKTOP_FILE_PID");
+            env.remove("DBUS_STARTER_ADDRESS");
+            env.remove("DBUS_STARTER_BUS_TYPE");
+            env.remove("INVOCATION_ID");
+            env.remove("JOURNAL_STREAM");
+        }
+
         // Setup our shell integration, if we can.
         const integrated_shell: ?shell_integration.Shell, const shell_command: []const u8 = shell: {
             const default_shell_command = cfg.command orelse switch (builtin.os.tag) {

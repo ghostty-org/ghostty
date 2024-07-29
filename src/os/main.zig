@@ -3,6 +3,7 @@
 //! also OS-specific features and conventions.
 
 pub usingnamespace @import("env.zig");
+pub usingnamespace @import("dbus.zig");
 pub usingnamespace @import("desktop.zig");
 pub usingnamespace @import("file.zig");
 pub usingnamespace @import("flatpak.zig");
@@ -13,6 +14,7 @@ pub usingnamespace @import("mouse.zig");
 pub usingnamespace @import("open.zig");
 pub usingnamespace @import("pipe.zig");
 pub usingnamespace @import("resourcesdir.zig");
+pub usingnamespace @import("systemd.zig");
 pub const CFReleaseThread = @import("cf_release_thread.zig");
 pub const TempDir = @import("TempDir.zig");
 pub const cgroup = @import("cgroup.zig");

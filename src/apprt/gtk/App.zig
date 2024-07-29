@@ -32,6 +32,7 @@ const c = @import("c.zig");
 const inspector = @import("inspector.zig");
 const key = @import("key.zig");
 const x11 = @import("x11.zig");
+
 const testing = std.testing;
 
 const log = std.log.scoped(.gtk);
@@ -108,7 +109,7 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
     const single_instance = switch (config.@"gtk-single-instance") {
         .true => true,
         .false => false,
-        .desktop => internal_os.launchedFromDesktop(),
+        .detect => internal_os.launchedFromDesktop() or internal_os.launchedByDBusActivation() or internal_os.launchedBySystemd(),
     };
 
     // Setup the flags for our application.
@@ -178,6 +179,7 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
         break :app @ptrCast(adw_app);
     };
     errdefer c.g_object_unref(app);
+
     const gapp = @as(*c.GApplication, @ptrCast(app));
 
     // force the resource path to a known value so that it doesn't depend on
@@ -253,10 +255,13 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
         break :x11_xkb try x11.Xkb.init(display);
     };
 
-    // This just calls the "activate" signal but its part of the normal
-    // startup routine so we just call it:
+    // This just calls the `activate` signal but its part of the normal startup
+    // routine so we just call it, but only if we were not launched by D-Bus
+    // activation or systemd.  D-Bus activation will send it's own `activate`
+    // signal later.
     // https://gitlab.gnome.org/GNOME/glib/-/blob/bd2ccc2f69ecfd78ca3f34ab59e42e2b462bad65/gio/gapplication.c#L2302
-    c.g_application_activate(gapp);
+    if (!internal_os.launchedByDBusActivation() and !internal_os.launchedBySystemd())
+        c.g_application_activate(gapp);
 
     // Register for dbus events
     if (c.g_application_get_dbus_connection(gapp)) |dbus_connection| {
@@ -277,6 +282,10 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
     const css_provider = c.gtk_css_provider_new();
     try loadRuntimeCss(&config, css_provider);
 
+    // Run a small no-op function so that we don't get stuck in
+    // g_main_context_iteration forever if there are no open surfaces.
+    _ = c.g_timeout_add(500, gtkTimeout, null);
+
     return .{
         .core_app = core_app,
         .app = app,
@@ -291,6 +300,12 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
         .running = c.g_application_get_is_remote(gapp) == 0,
         .css_provider = css_provider,
     };
+}
+
+// This timeout function is run periodically so that we don't get stuck in
+// g_main_context_iteration forever if there are no open surfaces.
+pub fn gtkTimeout(_: ?*anyopaque) callconv(.C) c.gboolean {
+    return 1;
 }
 
 // Terminate the application. The application will not be restarted after
@@ -463,7 +478,10 @@ pub fn run(self: *App) !void {
         self.transient_cgroup_base = path;
     } else log.debug("cgroup isoation disabled config={}", .{self.config.@"linux-cgroup"});
 
-    // Setup our menu items
+    // The last instant that one or more surfaces were open
+    var last_one = try std.time.Instant.now();
+
+    // If we're not remote, then we also setup our actions and menus.
     self.initActions();
     self.initMenu();
     self.initContextMenu();
@@ -478,9 +496,48 @@ pub fn run(self: *App) !void {
     while (self.running) {
         _ = c.g_main_context_iteration(self.ctx, 1);
 
-        // Tick the terminal app
+        // Tick the terminal app and see if we should quit.
         const should_quit = try self.core_app.tick(self);
-        if (should_quit or self.core_app.surfaces.items.len == 0) self.quit();
+
+        // If there are one or more surfaces open, update the timer.
+        if (self.core_app.surfaces.items.len > 0) last_one = try std.time.Instant.now();
+
+        const q = q: {
+            // If we've been told by GTK that we should quit, do so regardless
+            // of any other setting.
+            if (should_quit) break :q true;
+
+            // If there are no surfaces check to see if we should stay in the
+            // background or not.
+            if (self.core_app.surfaces.items.len == 0) {
+                switch (self.config.@"quit-after-last-window-closed") {
+                    .always => break :q true,
+                    .never => break :q false,
+                    .@"after-timeout" => {
+
+                        // If the background timeout is not null, check to see
+                        // if the timeout has elapsed.
+                        if (self.config.@"background-timeout".duration) |duration| {
+                            const now = try std.time.Instant.now();
+
+                            if (now.since(last_one) > duration)
+                                // The timeout has elapsed, quit.
+                                break :q true;
+
+                            // Not enough time has elapsed, don't quit.
+                            break :q false;
+                        }
+
+                        // `background-timeout` is null, don't quit.
+                        break :q false;
+                    },
+                }
+            }
+
+            break :q false;
+        };
+
+        if (q) self.quit();
     }
 }
 
@@ -567,8 +624,7 @@ fn quit(self: *App) void {
 }
 
 /// This immediately destroys all windows, forcing the application to quit.
-fn quitNow(self: *App) void {
-    _ = self;
+fn quitNow(_: *App) void {
     const list = c.gtk_window_list_toplevels();
     defer c.g_list_free(list);
     c.g_list_foreach(list, struct {
@@ -598,11 +654,10 @@ fn gtkQuitConfirmation(
     self.quitNow();
 }
 
-/// This is called by the "activate" signal. This is sent on program
-/// startup and also when a secondary instance launches and requests
-/// a new window.
-fn gtkActivate(app: *c.GtkApplication, ud: ?*anyopaque) callconv(.C) void {
-    _ = app;
+/// This is called by the `activate` signal. This is sent on program startup and
+/// also when a secondary instance launches and requests a new window.
+fn gtkActivate(_: *c.GtkApplication, ud: ?*anyopaque) callconv(.C) void {
+    log.info("received activate signal", .{});
 
     const core_app: *CoreApp = @ptrCast(@alignCast(ud orelse return));
 
@@ -726,11 +781,25 @@ fn gtkActionQuit(
     _: *c.GVariant,
     ud: ?*anyopaque,
 ) callconv(.C) void {
+    log.info("gtk quit action received", .{});
+
     const self: *App = @ptrCast(@alignCast(ud orelse return));
     self.core_app.setQuit() catch |err| {
         log.warn("error setting quit err={}", .{err});
         return;
     };
+}
+
+fn gtkActionNewWindow(
+    _: *c.GSimpleAction,
+    _: *c.GVariant,
+    ud: ?*anyopaque,
+) callconv(.C) void {
+    log.info("received new window action", .{});
+    const self: *App = @ptrCast(@alignCast(ud orelse return));
+    _ = self.core_app.mailbox.push(.{
+        .new_window = .{},
+    }, .{ .forever = {} });
 }
 
 /// This is called to setup the action map that this application supports.
@@ -740,6 +809,7 @@ fn initActions(self: *App) void {
         .{ "quit", &gtkActionQuit },
         .{ "open_config", &gtkActionOpenConfig },
         .{ "reload_config", &gtkActionReloadConfig },
+        .{ "new_window", &gtkActionNewWindow },
     };
 
     inline for (actions) |entry| {

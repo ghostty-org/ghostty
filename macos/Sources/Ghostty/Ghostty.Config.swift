@@ -151,12 +151,13 @@ extension Ghostty {
         /// details on what each means. We only add documentation if there is a strange conversion
         /// due to the embedded library and Swift.
         
-        var shouldQuitAfterLastWindowClosed: Bool {
-            guard let config = self.config else { return true }
-            var v = false;
+        var shouldQuitAfterLastWindowClosed: String {
+            guard let config = self.config else { return "never" }
+            var v: UnsafePointer<Int8>? = nil;
             let key = "quit-after-last-window-closed"
-            _ = ghostty_config_get(config, &v, key, UInt(key.count))
-            return v
+            guard ghostty_config_get(config, &v, key, UInt(key.count)) else { return "never" }
+            guard let ptr = v else { return "never" };
+            return String(cString: ptr)
         }
         
         var windowColorspace: String {

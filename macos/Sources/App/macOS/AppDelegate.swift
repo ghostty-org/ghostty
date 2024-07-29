@@ -146,7 +146,7 @@ class AppDelegate: NSObject,
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        return ghostty.config.shouldQuitAfterLastWindowClosed
+        return ghostty.config.shouldQuitAfterLastWindowClosed != "never"
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
