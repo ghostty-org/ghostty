@@ -282,8 +282,8 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
     const css_provider = c.gtk_css_provider_new();
     try loadRuntimeCss(&config, css_provider);
 
-    // Run a small no-op function so that we don't get stuck in
-    // g_main_context_iteration forever if there are no open surfaces.
+    // Run a small no-op function every 500 milliseconds so that we don't get
+    // stuck in g_main_context_iteration forever if there are no open surfaces.
     _ = c.g_timeout_add(500, gtkTimeout, null);
 
     return .{
@@ -517,7 +517,7 @@ pub fn run(self: *App) !void {
 
                         // If the background timeout is not null, check to see
                         // if the timeout has elapsed.
-                        if (self.config.@"background-timeout".duration) |duration| {
+                        if (self.config.@"quit-after-last-window-closed-delay".duration) |duration| {
                             const now = try std.time.Instant.now();
 
                             if (now.since(last_one) > duration)

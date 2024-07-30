@@ -896,11 +896,11 @@ else switch (builtin.os.tag) {
 
 /// If `quit-after-last-window-closed` is set to `after-timeout`, this controls
 /// how long Ghostty will stay running after the last open surface has been
-/// closed.  If the `background-timeout` is unset Ghostty will remain running
-/// indefinitely. The duration should be long enough to allow Ghostty to
-/// initialize and open it's first window. The duration is specified as a series
-/// of numbers followed by time units. Whitespace is allowed between numbers and
-/// units. The allowed time units are as follows:
+/// closed.  If `quit-after-last-window-closed-delay` is unset Ghostty will
+/// remain running indefinitely. The duration should be long enough to allow
+/// Ghostty to initialize and open it's first window. The duration is specified
+/// as a series of numbers followed by time units. Whitespace is allowed between
+/// numbers and units. The allowed time units are as follows:
 ///
 ///   * `y` - 365 SI days, or 8760 hours, or 31536000 seconds. No adjustments
 ///     are made for leap years or leap seconds.
@@ -918,10 +918,10 @@ else switch (builtin.os.tag) {
 ///
 /// The maximum value is `584y 49w 23h 34m 33s 709ms 551µs 615ns`.
 ///
-/// By default the `background-timeout` is set to five minutes.
+/// By default `quit-after-last-window-closed-delay` is set to five minutes.
 ///
 /// Only implemented on Linux.
-@"background-timeout": Duration = .{ .duration = 5 * std.time.ns_per_min },
+@"quit-after-last-window-closed-delay": Duration = .{ .duration = 5 * std.time.ns_per_min },
 
 /// Whether to enable shell integration auto-injection or not. Shell integration
 /// greatly enhances the terminal experience by enabling a number of features:
