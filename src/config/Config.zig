@@ -2962,9 +2962,9 @@ pub const Color = packed struct(u24) {
         var result: Color = undefined;
         comptime var i: usize = 0;
         inline while (i < 6) : (i += 2) {
-            const v: u8 =
-                ((try std.fmt.charToDigit(trimmed[i], 16)) * 16) +
-                try std.fmt.charToDigit(trimmed[i + 1], 16);
+            const hi = std.fmt.charToDigit(trimmed[i], 16) catch return error.InvalidValue;
+            const lo = std.fmt.charToDigit(trimmed[i + 1], 16) catch return error.InvalidValue;
+            const v: u8 = hi * 16 + lo;
 
             @field(result, switch (i) {
                 0 => "r",
@@ -3017,7 +3017,7 @@ pub const Palette = struct {
         const eqlIdx = std.mem.indexOf(u8, value, "=") orelse
             return error.InvalidValue;
 
-        const key = try std.fmt.parseInt(u8, value[0..eqlIdx], 10);
+        const key = std.fmt.parseInt(u8, value[0..eqlIdx], 10) catch return error.InvalidValue;
         const rgb = try Color.parseCLI(value[eqlIdx + 1 ..]);
         self.value[key] = .{ .r = rgb.r, .g = rgb.g, .b = rgb.b };
     }
@@ -3061,7 +3061,7 @@ pub const Palette = struct {
         const testing = std.testing;
 
         var p: Self = .{};
-        try testing.expectError(error.Overflow, p.parseCLI("256=#AABBCC"));
+        try testing.expectError(error.InvalidValue, p.parseCLI("256=#AABBCC"));
     }
 
     test "formatConfig" {
