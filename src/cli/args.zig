@@ -102,43 +102,111 @@ pub fn parse(comptime T: type, comptime Iter: type, alloc: Allocator, dst: *T, i
                 // The error set is dependent on comptime T, so we always add
                 // an extra error so we can have the "else" below.
                 const ErrSet = @TypeOf(err) || error{Unknown};
+                var message: [:0]u8 = undefined;
                 switch (@as(ErrSet, @errorCast(err))) {
                     // OOM is not recoverable since we need to allocate to
                     // track more error messages.
                     error.OutOfMemory => return err,
 
-                    error.InvalidField => try dst._errors.add(arena_alloc, .{
-                        .message = try std.fmt.allocPrintZ(
-                            arena_alloc,
-                            "{s}: unknown field",
-                            .{key},
-                        ),
-                    }),
+                    error.InvalidField => {
+                        if (@hasDecl(Iter, "lineContext")) {
+                            const line_context = iter.lineContext();
+                            message = try std.fmt.allocPrintZ(
+                                arena_alloc,
+                                "{s}:{}:{}: unknown field {s}",
+                                .{
+                                    iter.filepath,
+                                    line_context.line_number,
+                                    line_context.column_number_key,
+                                    key,
+                                },
+                            );
+                        } else {
+                            message = try std.fmt.allocPrintZ(
+                                arena_alloc,
+                                "{s}: unknown field",
+                                .{key},
+                            );
+                        }
+                    },
 
-                    error.ValueRequired => try dst._errors.add(arena_alloc, .{
-                        .message = try std.fmt.allocPrintZ(
-                            arena_alloc,
-                            "{s}: value required",
-                            .{key},
-                        ),
-                    }),
+                    error.ValueRequired => {
+                        if (@hasDecl(Iter, "lineContext")) {
+                            const line_context = iter.lineContext();
+                            message = try std.fmt.allocPrintZ(
+                                arena_alloc,
+                                "{s}:{}:{}: value required for {s}",
+                                .{
+                                    iter.filepath,
+                                    line_context.line_number,
+                                    if (line_context.column_number_value) |column_number_value|
+                                        column_number_value
+                                    else
+                                        line_context.column_number_key,
+                                    key,
+                                },
+                            );
+                        } else {
+                            message = try std.fmt.allocPrintZ(
+                                arena_alloc,
+                                "{s}: value required",
+                                .{key},
+                            );
+                        }
+                    },
 
-                    error.InvalidValue => try dst._errors.add(arena_alloc, .{
-                        .message = try std.fmt.allocPrintZ(
-                            arena_alloc,
-                            "{s}: invalid value",
-                            .{key},
-                        ),
-                    }),
+                    error.InvalidValue => {
+                        // The value must exist if it was invalid.
+                        assert(value != null);
+                        if (@hasDecl(Iter, "lineContext")) {
+                            const line_context = iter.lineContext();
+                            message = try std.fmt.allocPrintZ(
+                                arena_alloc,
+                                "{s}:{}:{}: invalid value {s} for {s}",
+                                .{
+                                    iter.filepath,
+                                    line_context.line_number,
+                                    line_context.column_number_value.?,
+                                    value.?,
+                                    key,
+                                },
+                            );
+                        } else {
+                            message = try std.fmt.allocPrintZ(
+                                arena_alloc,
+                                "{s}: invalid value {s}",
+                                .{ key, value.? },
+                            );
+                        }
+                    },
 
-                    else => try dst._errors.add(arena_alloc, .{
-                        .message = try std.fmt.allocPrintZ(
-                            arena_alloc,
-                            "{s}: unknown error {}",
-                            .{ key, err },
-                        ),
-                    }),
+                    else => {
+                        // Any other errors will likely be an issue with the value since we've
+                        // already handled errors for invalid keys and missing values above.
+                        assert(value != null);
+                        if (@hasDecl(Iter, "lineContext")) {
+                            const line_context = iter.lineContext();
+                            message = try std.fmt.allocPrintZ(
+                                arena_alloc,
+                                "{s}:{}:{}: {} for value {s}",
+                                .{
+                                    iter.filepath,
+                                    line_context.line_number,
+                                    line_context.column_number_value.?,
+                                    err,
+                                    value.?,
+                                },
+                            );
+                        } else {
+                            message = try std.fmt.allocPrintZ(
+                                arena_alloc,
+                                "{s}: {} for value {s}",
+                                .{ key, err, value.? },
+                            );
+                        }
+                    },
                 }
+                try dst._errors.add(arena_alloc, .{ .message = message });
             };
         }
     }
@@ -748,6 +816,12 @@ test "parseIntoField: struct with parse func with unsupported error tracking" {
 /// configuration files.
 pub fn LineIterator(comptime ReaderType: type) type {
     return struct {
+        const LineContext = struct {
+            line_number: usize,
+            column_number_key: usize,
+            column_number_value: ?usize,
+        };
+
         const Self = @This();
 
         /// The maximum size a single line can be. We don't expect any
@@ -756,7 +830,13 @@ pub fn LineIterator(comptime ReaderType: type) type {
         pub const MAX_LINE_SIZE = 4096;
 
         r: ReaderType,
+        filepath: []const u8,
         entry: [MAX_LINE_SIZE]u8 = [_]u8{ '-', '-' } ++ ([_]u8{0} ** (MAX_LINE_SIZE - 2)),
+        line_context: LineContext = LineContext{
+            .line_number = 0,
+            .column_number_key = 0,
+            .column_number_value = null,
+        },
 
         pub fn next(self: *Self) ?[]const u8 {
             // TODO: detect "--" prefixed lines and give a friendlier error
@@ -767,6 +847,33 @@ pub fn LineIterator(comptime ReaderType: type) type {
                         // TODO: handle errors
                         unreachable;
                     } orelse return null;
+
+                    self.line_context.line_number += 1;
+                    if (mem.indexOfNone(u8, entry, whitespace)) |index_key| {
+                        self.line_context.column_number_key = index_key + 1;
+                        if (mem.indexOf(u8, entry, "=")) |index_separator| {
+                            const entry_after_separator = entry[index_separator + 1 ..];
+                            if (mem.indexOfNone(
+                                u8,
+                                entry_after_separator,
+                                whitespace ++ "\"",
+                            )) |index_value| {
+                                // We add two because each index is 0-based and we need to represent
+                                // them as 1-based.
+                                self.line_context.column_number_value = index_separator + index_value + 2;
+                            } else {
+                                // No value found after a separator, point to it instead in case
+                                // this is an error for a missing value.
+                                self.line_context.column_number_value = index_separator + 1;
+                            }
+                        } else {
+                            self.line_context.column_number_value = null;
+                        }
+                    } else {
+                        // Empty line, we'll skip it below.
+                        self.line_context.column_number_key = 0;
+                        self.line_context.column_number_value = null;
+                    }
 
                     // Trim any whitespace (including CR) around it
                     const trim = std.mem.trim(u8, entry, whitespace ++ "\r");
@@ -815,12 +922,16 @@ pub fn LineIterator(comptime ReaderType: type) type {
             // as CLI args.
             return self.entry[0 .. buf.len + 2];
         }
+
+        pub fn lineContext(self: *Self) LineContext {
+            return self.line_context;
+        }
     };
 }
 
 // Constructs a LineIterator (see docs for that).
-pub fn lineIterator(reader: anytype) LineIterator(@TypeOf(reader)) {
-    return .{ .r = reader };
+pub fn lineIterator(reader: anytype, filepath: []const u8) LineIterator(@TypeOf(reader)) {
+    return .{ .r = reader, .filepath = filepath };
 }
 
 /// An iterator valid for arg parsing from a slice.
@@ -853,28 +964,57 @@ test "LineIterator" {
         \\D
         \\
         \\  # An indented comment
-        \\  E
+        \\  E = value
         \\
         \\# A quoted string with whitespace
         \\F=  "value "
+        \\
     );
 
-    var iter = lineIterator(fbs.reader());
+    var iter = lineIterator(fbs.reader(), "");
     try testing.expectEqualStrings("--A", iter.next().?);
+    try testing.expectEqual(1, iter.lineContext().line_number);
+    try testing.expectEqual(1, iter.lineContext().column_number_key);
+    try testing.expectEqual(null, iter.lineContext().column_number_value);
+
     try testing.expectEqualStrings("--B=42", iter.next().?);
+    try testing.expectEqual(2, iter.lineContext().line_number);
+    try testing.expectEqual(1, iter.lineContext().column_number_key);
+    try testing.expectEqual(3, iter.lineContext().column_number_value.?);
+
     try testing.expectEqualStrings("--C", iter.next().?);
+    try testing.expectEqual(3, iter.lineContext().line_number);
+    try testing.expectEqual(1, iter.lineContext().column_number_key);
+    try testing.expectEqual(null, iter.lineContext().column_number_value);
+
     try testing.expectEqualStrings("--D", iter.next().?);
-    try testing.expectEqualStrings("--E", iter.next().?);
+    try testing.expectEqual(6, iter.lineContext().line_number);
+    try testing.expectEqual(1, iter.lineContext().column_number_key);
+    try testing.expectEqual(null, iter.lineContext().column_number_value);
+
+    try testing.expectEqualStrings("--E=value", iter.next().?);
+    try testing.expectEqual(9, iter.lineContext().line_number);
+    try testing.expectEqual(3, iter.lineContext().column_number_key);
+    try testing.expectEqual(7, iter.lineContext().column_number_value.?);
+
     try testing.expectEqualStrings("--F=value ", iter.next().?);
+    try testing.expectEqual(12, iter.lineContext().line_number);
+    try testing.expectEqual(1, iter.lineContext().column_number_key);
+    try testing.expectEqual(6, iter.lineContext().column_number_value.?);
+
+    // No lines left, line context remains the same.
     try testing.expectEqual(@as(?[]const u8, null), iter.next());
     try testing.expectEqual(@as(?[]const u8, null), iter.next());
+    try testing.expectEqual(12, iter.lineContext().line_number);
+    try testing.expectEqual(1, iter.lineContext().column_number_key);
+    try testing.expectEqual(6, iter.lineContext().column_number_value);
 }
 
 test "LineIterator end in newline" {
     const testing = std.testing;
     var fbs = std.io.fixedBufferStream("A\n\n");
 
-    var iter = lineIterator(fbs.reader());
+    var iter = lineIterator(fbs.reader(), "");
     try testing.expectEqualStrings("--A", iter.next().?);
     try testing.expectEqual(@as(?[]const u8, null), iter.next());
     try testing.expectEqual(@as(?[]const u8, null), iter.next());
@@ -884,7 +1024,7 @@ test "LineIterator spaces around '='" {
     const testing = std.testing;
     var fbs = std.io.fixedBufferStream("A = B\n\n");
 
-    var iter = lineIterator(fbs.reader());
+    var iter = lineIterator(fbs.reader(), "");
     try testing.expectEqualStrings("--A=B", iter.next().?);
     try testing.expectEqual(@as(?[]const u8, null), iter.next());
     try testing.expectEqual(@as(?[]const u8, null), iter.next());
@@ -894,7 +1034,7 @@ test "LineIterator no value" {
     const testing = std.testing;
     var fbs = std.io.fixedBufferStream("A = \n\n");
 
-    var iter = lineIterator(fbs.reader());
+    var iter = lineIterator(fbs.reader(), "");
     try testing.expectEqualStrings("--A=", iter.next().?);
     try testing.expectEqual(@as(?[]const u8, null), iter.next());
 }
@@ -903,7 +1043,7 @@ test "LineIterator with CRLF line endings" {
     const testing = std.testing;
     var fbs = std.io.fixedBufferStream("A\r\nB = C\r\n");
 
-    var iter = lineIterator(fbs.reader());
+    var iter = lineIterator(fbs.reader(), "");
     try testing.expectEqualStrings("--A", iter.next().?);
     try testing.expectEqualStrings("--B=C", iter.next().?);
     try testing.expectEqual(@as(?[]const u8, null), iter.next());

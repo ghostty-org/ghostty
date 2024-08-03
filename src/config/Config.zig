@@ -2077,7 +2077,7 @@ pub fn loadFile(self: *Config, alloc: Allocator, path: []const u8) !void {
     std.log.info("reading configuration file path={s}", .{path});
 
     var buf_reader = std.io.bufferedReader(file.reader());
-    var iter = cli.args.lineIterator(buf_reader.reader());
+    var iter = cli.args.lineIterator(buf_reader.reader(), path);
     try self.loadIter(@TypeOf(iter), alloc, &iter);
     try self.expandPaths(std.fs.path.dirname(path).?);
 }
@@ -2271,7 +2271,7 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
 
         log.info("loading config-file path={s}", .{path});
         var buf_reader = std.io.bufferedReader(file.reader());
-        var iter = cli.args.lineIterator(buf_reader.reader());
+        var iter = cli.args.lineIterator(buf_reader.reader(), path);
         try self.loadIter(@TypeOf(iter), alloc_gpa, &iter);
         try self.expandPaths(std.fs.path.dirname(path).?);
     }
@@ -2302,11 +2302,13 @@ fn expandPaths(self: *Config, base: []const u8) !void {
 
 fn loadTheme(self: *Config, theme: []const u8) !void {
     // Find our theme file and open it. See the open function for details.
-    const file: std.fs.File = (try themepkg.open(
+    const file_with_path = (try themepkg.open(
         self._arena.?.allocator(),
         theme,
         &self._errors,
     )) orelse return;
+    const path = file_with_path.path;
+    const file = file_with_path.file;
     defer file.close();
 
     // From this point onwards, we load the theme and do a bit of a dance
@@ -2332,7 +2334,7 @@ fn loadTheme(self: *Config, theme: []const u8) !void {
 
     // Load our theme
     var buf_reader = std.io.bufferedReader(file.reader());
-    var iter = cli.args.lineIterator(buf_reader.reader());
+    var iter = cli.args.lineIterator(buf_reader.reader(), path);
     try new_config.loadIter(@TypeOf(iter), alloc_gpa, &iter);
 
     // Replay our previous inputs so that we can override values

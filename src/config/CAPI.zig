@@ -43,17 +43,19 @@ export fn ghostty_config_load_cli_args(self: *Config) void {
 /// the file-based syntax for the desktop version of the terminal.
 export fn ghostty_config_load_string(
     self: *Config,
-    str: [*]const u8,
-    len: usize,
+    filepath: [*]const u8,
+    filepath_len: usize,
+    contents: [*]const u8,
+    contents_len: usize,
 ) void {
-    config_load_string_(self, str[0..len]) catch |err| {
+    config_load_string_(self, filepath[0..filepath_len], contents[0..contents_len]) catch |err| {
         log.err("error loading config err={}", .{err});
     };
 }
 
-fn config_load_string_(self: *Config, str: []const u8) !void {
-    var fbs = std.io.fixedBufferStream(str);
-    var iter = cli.args.lineIterator(fbs.reader());
+fn config_load_string_(self: *Config, filepath: []const u8, contents: []const u8) !void {
+    var fbs = std.io.fixedBufferStream(contents);
+    var iter = cli.args.lineIterator(fbs.reader(), filepath);
     try cli.args.parse(Config, @TypeOf(iter), global.alloc, self, &iter);
 }
 

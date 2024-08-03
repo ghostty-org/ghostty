@@ -108,14 +108,13 @@ pub fn open(
     arena_alloc: Allocator,
     theme: []const u8,
     errors: *ErrorList,
-) error{OutOfMemory}!?std.fs.File {
+) error{OutOfMemory}!?struct { path: []const u8, file: std.fs.File } {
 
     // Absolute themes are loaded a different path.
-    if (std.fs.path.isAbsolute(theme)) return try openAbsolute(
-        arena_alloc,
-        theme,
-        errors,
-    );
+    if (std.fs.path.isAbsolute(theme)) {
+        const file = try openAbsolute(arena_alloc, theme, errors) orelse return null;
+        return .{ .path = theme, .file = file };
+    }
 
     const basename = std.fs.path.basename(theme);
     if (!std.mem.eql(u8, theme, basename)) {
@@ -136,7 +135,7 @@ pub fn open(
     while (try it.next()) |loc| {
         const path = try std.fs.path.join(arena_alloc, &.{ loc.dir, theme });
         if (cwd.openFile(path, .{})) |file| {
-            return file;
+            return .{ .path = path, .file = file };
         } else |err| switch (err) {
             // Not an error, just continue to the next location.
             error.FileNotFound => {},
