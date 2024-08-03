@@ -2058,10 +2058,11 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
 /// command-line arguments, i.e. `--key=value`.
 pub fn loadIter(
     self: *Config,
+    comptime Iter: type,
     alloc: Allocator,
-    iter: anytype,
+    iter: *Iter,
 ) !void {
-    try cli.args.parse(Config, alloc, self, iter);
+    try cli.args.parse(Config, Iter, alloc, self, iter);
 }
 
 /// Load configuration from the target config file at `path`.
@@ -2077,7 +2078,7 @@ pub fn loadFile(self: *Config, alloc: Allocator, path: []const u8) !void {
 
     var buf_reader = std.io.bufferedReader(file.reader());
     var iter = cli.args.lineIterator(buf_reader.reader());
-    try self.loadIter(alloc, &iter);
+    try self.loadIter(@TypeOf(iter), alloc, &iter);
     try self.expandPaths(std.fs.path.dirname(path).?);
 }
 
@@ -2178,7 +2179,7 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
     // Parse the config from the CLI args
     var iter = try std.process.argsWithAllocator(alloc_gpa);
     defer iter.deinit();
-    try self.loadIter(alloc_gpa, &iter);
+    try self.loadIter(@TypeOf(iter), alloc_gpa, &iter);
 
     // If we are not loading the default files, then we need to
     // replay the steps up to this point so that we can rebuild
@@ -2193,7 +2194,7 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
             self._replay_steps.items[replay_len_start..replay_len_end],
             &new_config,
         );
-        try new_config.loadIter(alloc_gpa, &it);
+        try new_config.loadIter(@TypeOf(it), alloc_gpa, &it);
         self.deinit();
         self.* = new_config;
     } else {
@@ -2271,7 +2272,7 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
         log.info("loading config-file path={s}", .{path});
         var buf_reader = std.io.bufferedReader(file.reader());
         var iter = cli.args.lineIterator(buf_reader.reader());
-        try self.loadIter(alloc_gpa, &iter);
+        try self.loadIter(@TypeOf(iter), alloc_gpa, &iter);
         try self.expandPaths(std.fs.path.dirname(path).?);
     }
 }
@@ -2332,12 +2333,12 @@ fn loadTheme(self: *Config, theme: []const u8) !void {
     // Load our theme
     var buf_reader = std.io.bufferedReader(file.reader());
     var iter = cli.args.lineIterator(buf_reader.reader());
-    try new_config.loadIter(alloc_gpa, &iter);
+    try new_config.loadIter(@TypeOf(iter), alloc_gpa, &iter);
 
     // Replay our previous inputs so that we can override values
     // from the theme.
     var slice_it = Replay.iterator(self._replay_steps.items[0..replay_len], &new_config);
-    try new_config.loadIter(alloc_gpa, &slice_it);
+    try new_config.loadIter(@TypeOf(slice_it), alloc_gpa, &slice_it);
 
     // Success, swap our new config in and free the old.
     self.deinit();

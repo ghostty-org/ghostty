@@ -47,7 +47,7 @@ pub fn main() !void {
     {
         var iter = try std.process.argsWithAllocator(alloc);
         defer iter.deinit();
-        try cli.args.parse(Args, alloc, &args, &iter);
+        try cli.args.parse(Args, @TypeOf(iter), alloc, &args, &iter);
     }
 
     // Handle the modes that do not depend on terminal state first.

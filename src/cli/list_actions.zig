@@ -31,7 +31,7 @@ pub fn run(alloc: Allocator) !u8 {
     {
         var iter = try std.process.argsWithAllocator(alloc);
         defer iter.deinit();
-        try args.parse(Options, alloc, &opts, &iter);
+        try args.parse(Options, @TypeOf(iter), alloc, &opts, &iter);
     }
 
     const stdout = std.io.getStdOut().writer();

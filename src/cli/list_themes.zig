@@ -56,7 +56,7 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
     {
         var iter = try std.process.argsWithAllocator(gpa_alloc);
         defer iter.deinit();
-        try args.parse(Options, gpa_alloc, &opts, &iter);
+        try args.parse(Options, @TypeOf(iter), gpa_alloc, &opts, &iter);
     }
 
     var arena = std.heap.ArenaAllocator.init(gpa_alloc);

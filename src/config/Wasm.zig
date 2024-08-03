@@ -44,7 +44,7 @@ export fn config_load_string(
 fn config_load_string_(self: *Config, str: []const u8) !void {
     var fbs = std.io.fixedBufferStream(str);
     var iter = cli.args.lineIterator(fbs.reader());
-    try cli.args.parse(Config, alloc, self, &iter);
+    try cli.args.parse(Config, @TypeOf(iter), alloc, self, &iter);
 }
 
 export fn config_finalize(self: *Config) void {

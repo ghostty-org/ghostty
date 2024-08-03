@@ -55,13 +55,13 @@ pub const Config = struct {
 pub fn run(alloc: Allocator) !u8 {
     var iter = try std.process.argsWithAllocator(alloc);
     defer iter.deinit();
-    return try runArgs(alloc, &iter);
+    return try runArgs(@TypeOf(iter), alloc, &iter);
 }
 
-fn runArgs(alloc_gpa: Allocator, argsIter: anytype) !u8 {
+fn runArgs(comptime Iter: type, alloc_gpa: Allocator, argsIter: *Iter) !u8 {
     var config: Config = .{};
     defer config.deinit();
-    try args.parse(Config, alloc_gpa, &config, argsIter);
+    try args.parse(Config, Iter, alloc_gpa, &config, argsIter);
 
     // Use an arena for all our memory allocs
     var arena = ArenaAllocator.init(alloc_gpa);

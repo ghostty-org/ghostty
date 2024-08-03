@@ -38,9 +38,10 @@ pub const Error = error{
 ///
 /// Note: If the arena is already non-null, then it will be used. In this
 /// case, in the case of an error some memory might be leaked into the arena.
-pub fn parse(comptime T: type, alloc: Allocator, dst: *T, iter: anytype) !void {
+pub fn parse(comptime T: type, comptime Iter: type, alloc: Allocator, dst: *T, iter: *Iter) !void {
     const info = @typeInfo(T);
     assert(info == .Struct);
+    assert(@typeInfo(Iter) == .Struct);
 
     // Make an arena for all our allocations if we support it. Otherwise,
     // use an allocator that always fails. If the arena is already set on
@@ -357,7 +358,7 @@ test "parse: simple" {
         "--a=42 --b --b-f=false",
     );
     defer iter.deinit();
-    try parse(@TypeOf(data), testing.allocator, &data, &iter);
+    try parse(@TypeOf(data), @TypeOf(iter), testing.allocator, &data, &iter);
     try testing.expect(data._arena != null);
     try testing.expectEqualStrings("42", data.a);
     try testing.expect(data.b);
@@ -369,7 +370,7 @@ test "parse: simple" {
         "--a=84",
     );
     defer iter2.deinit();
-    try parse(@TypeOf(data), testing.allocator, &data, &iter2);
+    try parse(@TypeOf(data), @TypeOf(iter), testing.allocator, &data, &iter2);
     try testing.expect(data._arena != null);
     try testing.expectEqualStrings("84", data.a);
     try testing.expect(data.b);
@@ -391,7 +392,7 @@ test "parse: quoted value" {
         "--a=\"42\" --b=\"hello!\"",
     );
     defer iter.deinit();
-    try parse(@TypeOf(data), testing.allocator, &data, &iter);
+    try parse(@TypeOf(data), @TypeOf(iter), testing.allocator, &data, &iter);
     try testing.expectEqual(@as(u8, 42), data.a);
     try testing.expectEqualStrings("hello!", data.b);
 }
@@ -411,7 +412,7 @@ test "parse: empty value resets to default" {
         "--a= --b=",
     );
     defer iter.deinit();
-    try parse(@TypeOf(data), testing.allocator, &data, &iter);
+    try parse(@TypeOf(data), @TypeOf(iter), testing.allocator, &data, &iter);
     try testing.expectEqual(@as(u8, 42), data.a);
     try testing.expect(!data.b);
 }
@@ -433,7 +434,7 @@ test "parse: error tracking" {
         "--what --a=42",
     );
     defer iter.deinit();
-    try parse(@TypeOf(data), testing.allocator, &data, &iter);
+    try parse(@TypeOf(data), @TypeOf(iter), testing.allocator, &data, &iter);
     try testing.expect(data._arena != null);
     try testing.expectEqualStrings("42", data.a);
     try testing.expect(!data._errors.empty());

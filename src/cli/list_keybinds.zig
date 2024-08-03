@@ -54,7 +54,7 @@ pub fn run(alloc: Allocator) !u8 {
     {
         var iter = try std.process.argsWithAllocator(alloc);
         defer iter.deinit();
-        try args.parse(Options, alloc, &opts, &iter);
+        try args.parse(Options, @TypeOf(iter), alloc, &opts, &iter);
     }
 
     var config = if (opts.default) try Config.default(alloc) else try Config.load(alloc);

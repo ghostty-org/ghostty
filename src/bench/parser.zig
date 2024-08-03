@@ -29,7 +29,7 @@ pub fn main() !void {
         errdefer args.deinit();
         var iter = try std.process.argsWithAllocator(alloc);
         defer iter.deinit();
-        try cli.args.parse(Args, alloc, &args, &iter);
+        try cli.args.parse(Args, @TypeOf(iter), alloc, &args, &iter);
         break :args args;
     };
     defer args.deinit();
