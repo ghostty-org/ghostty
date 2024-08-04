@@ -3337,6 +3337,11 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             }, .unlocked);
         },
 
+        .write_all_file => |v| try self.writeScreenFile(
+            .all,
+            v,
+        ),
+
         .write_screen_file => |v| try self.writeScreenFile(
             .screen,
             v,
@@ -3537,6 +3542,7 @@ fn closingAction(action: input.Binding.Action) bool {
 
 /// The portion of the screen to write for writeScreenFile.
 const WriteScreenLoc = enum {
+    all, // Full screen and history (scrollback)
     screen, // Full screen
     history, // History (scrollback)
     selection, // Selected text
@@ -3587,6 +3593,14 @@ fn writeScreenFile(
                     pages.getTopLeft(.screen),
                     pages.getBottomRight(.screen) orelse
                         break :screen null,
+                    false,
+                );
+            },
+
+            .all => all: {
+                break :all terminal.Selection.init(
+                    pages.getTopLeft(.history),
+                    pages.getBottomRight(.screen) orelse break :all null,
                     false,
                 );
             },

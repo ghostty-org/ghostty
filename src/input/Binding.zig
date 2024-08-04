@@ -203,22 +203,35 @@ pub const Action = union(enum) {
     /// number of prompts to jump forward, negative is backwards.
     jump_to_prompt: i16,
 
-    /// Write the entire scrollback into a temporary file. The action
-    /// determines what to do with the filepath. Valid values are:
+    /// Write the entire scrollback _and_ the active screen into a temporary
+    /// file. The action determines what to do with the filepath. Valid values
+    /// are:
     ///
     ///   - "paste": Paste the file path into the terminal.
     ///   - "open": Open the file in the default OS editor for text files.
+    write_all_file: WriteScreenAction,
+
+    /// Write the entire scrollback into a temporary file. Note that this does
+    /// not include the contents of the active screen. The action determines
+    /// what to do with the filepath. Valid values are:
     ///
+    ///   - "paste": Paste the file path into the terminal.
+    ///   - "open": Open the file in the default OS editor for text files.
     write_scrollback_file: WriteScreenAction,
 
-    /// Same as write_scrollback_file but writes the full screen contents.
-    /// See write_scrollback_file for available values.
+    /// Write the active screen into a temporary file. The action determines
+    /// what to do with the filepath. Valid values are:
+    ///
+    ///   - "paste": Paste the file path into the terminal.
+    ///   - "open": Open the file in the default OS editor for text files.
     write_screen_file: WriteScreenAction,
 
-    /// Same as write_scrollback_file but writes the selected text.
-    /// If there is no selected text this does nothing (it doesn't
-    /// even create an empty file). See write_scrollback_file for
-    /// available values.
+    /// Write the selected text into a temporary file. If there is no selected
+    /// text this does nothing (it doesn't even create an empty file). The
+    /// action determines what to do with the filepath. Valid values are:
+    ///
+    ///   - "paste": Paste the file path into the terminal.
+    ///   - "open": Open the file in the default OS editor for text files.
     write_selection_file: WriteScreenAction,
 
     /// Open a new window.
