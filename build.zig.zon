@@ -25,6 +25,10 @@
             .url = "https://deps.files.ghostty.dev/ziglyph-b89d43d1e3fb01b6074bc1f7fc980324b04d26a5.tar.gz",
             .hash = "12207831bce7d4abce57b5a98e8f3635811cfefd160bca022eb91fe905d36a02cf25",
         },
+        .zigwin32 = .{
+            .url = "https://github.com/marlersoft/zigwin32/archive/6f9ebf17f42aa7b37f466b195159893ed8eae8fc.tar.gz",
+            .hash = "1220ff2400a1974b2a9dc52cfe5c9c0b2cc87a2e75291ca781dc5b78908afe5af0e8",
+        },
 
         // C libs
         .cimgui = .{ .path = "./pkg/cimgui" },

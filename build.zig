@@ -263,6 +263,7 @@ pub fn build(b: *std.Build) !void {
 
         if (target.result.os.tag == .windows) {
             exe.subsystem = .Windows;
+            exe.addIncludePath(.{ .path = "dist/windows/inc" });
             exe.addWin32ResourceFile(.{
                 .file = b.path("dist/windows/ghostty.rc"),
             });
@@ -1093,6 +1094,7 @@ fn addDeps(
     step.root_module.addImport("opengl", opengl_dep.module("opengl"));
     step.root_module.addImport("pixman", pixman_dep.module("pixman"));
     step.root_module.addImport("ziglyph", ziglyph_dep.module("ziglyph"));
+    const zigwin32_dep = b.dependency("zigwin32", .{});
 
     // Mac Stuff
     if (step.rootModuleTarget().isDarwin()) {
@@ -1247,6 +1249,10 @@ fn addDeps(
                     generate_resources_h.extra_file_dependencies = if (config.libadwaita) &gresource.dependencies_libadwaita else &gresource.dependencies_gtk;
                     step.addIncludePath(ghostty_resources_h.dirname());
                 }
+            },
+
+            .win32 => {
+                step.root_module.addImport("zigwin32", zigwin32_dep.module("zigwin32"));
             },
         }
     }
