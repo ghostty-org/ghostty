@@ -67,10 +67,12 @@ pub fn init(
 /// Deinitializes the server
 pub fn deinit(self: *Server) void {
     self.close();
+    log.info("closing server socket", .{});
+    log.info("deinitializing server", .{});
+    self.loop.deinit();
     self.comp_pool.deinit();
     self.sock_pool.deinit();
     self.buf_pool.deinit();
-    self.loop.deinit();
 }
 
 /// Starts the timer which tries to accept connections
@@ -81,16 +83,13 @@ pub fn start(self: *Server) !void {
     try connections.startAccepting(self);
     log.info("bound server to socket={any}", .{self.socket});
 
-    // TODO: Stop flag? Only necessary if we support signaling the server
+    // TODO(tale): Stop flag? Only necessary if we support signaling the server
     // from the main thread on an event, ie. configuration reloading.
-    while (true) {
-        try self.loop.run(.until_done);
-    }
+    try self.loop.run(.until_done);
 }
 
 /// Closes the server socket
 pub fn close(self: *Server) void {
-    log.info("closing server socket", .{});
     var c: xev.Completion = undefined;
     self.socket.close(&self.loop, &c, bool, null, (struct {
         fn callback(

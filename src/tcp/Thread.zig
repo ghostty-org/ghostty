@@ -20,7 +20,9 @@ server: ?Server,
 /// up all the internal state necessary prior to starting the thread. It
 /// is up to the caller to start the thread with the threadMain entrypoint.
 pub fn init(alloc: Allocator, mailbox: *App.Mailbox.Queue) !Thread {
-    const config = try Config.load(alloc);
+    var config = try Config.load(alloc);
+    defer config.deinit();
+
     const max_clients = config.@"remote-max-connections";
     const addr = config.@"remote-tcp-socket";
 
