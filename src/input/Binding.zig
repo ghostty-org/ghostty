@@ -227,22 +227,56 @@ pub const Action = union(enum) {
     /// number of prompts to jump forward, negative is backwards.
     jump_to_prompt: i16,
 
-    /// Write the entire scrollback into a temporary file. The action
-    /// determines what to do with the filepath. Valid values are:
+    /// Write the entire scrollback into a temporary file. The action determines
+    /// what to do with the file. Valid values are:
     ///
-    ///   - "paste": Paste the file path into the terminal.
-    ///   - "open": Open the file in the default OS editor for text files.
+    ///   - `paste`: Paste the file path into the terminal.
+    ///   - `open`: Open the file in the default OS editor for text files.
+    ///   - `edit_window`: Create a new window, and open the file in your editor.
+    ///   - `edit_tab`: Create a new tab, and open the file in your editor.
+    ///   - `edit_split_right`: Create a new split right, and open the file in your editor.
+    ///   - `edit_split_down`: Create a new split down, and open the file in your editor.
     ///
+    /// `edit_window`, `edit_tab`, `edit_split_right`, and `edit_split_down` are
+    /// supported on GTK only.
+    ///
+    /// See the configuration setting `editor` for more information on how
+    /// Ghostty determines your editor.
     write_scrollback_file: WriteScreenAction,
 
-    /// Same as write_scrollback_file but writes the full screen contents.
-    /// See write_scrollback_file for available values.
+    /// Write the full screen contents into a temporary file. The action
+    /// determines what to do with the file. Valid values are:
+    ///
+    ///   - `paste`: Paste the file path into the terminal.
+    ///   - `open`: Open the file in the default OS editor for text files.
+    ///   - `edit_window`: Create a new window, and open the file in your editor.
+    ///   - `edit_tab`: Create a new tab, and open the file in your editor.
+    ///   - `edit_split_right`: Create a new split right, and open the file in your editor.
+    ///   - `edit_split_down`: Create a new split down, and open the file in your editor.
+    ///
+    /// `edit_window`, `edit_tab`, `edit_split_right`, and `edit_split_down` are
+    /// supported on GTK only.
+    ///
+    /// See the configuration setting `editor` for more information on how
+    /// Ghostty determines your editor.
     write_screen_file: WriteScreenAction,
 
-    /// Same as write_scrollback_file but writes the selected text.
-    /// If there is no selected text this does nothing (it doesn't
-    /// even create an empty file). See write_scrollback_file for
-    /// available values.
+    /// Writes the selected text into a temporary file. If there is no selected
+    /// text this action does nothing (it doesn't even create an empty file).
+    /// The action determines what to do with the file. Valid values are:
+    ///
+    ///   - `paste`: Paste the file path into the terminal.
+    ///   - `open`: Open the file in the default OS editor for text files.
+    ///   - `edit_window`: Create a new window, and open the file in your editor.
+    ///   - `edit_tab`: Create a new tab, and open the file in your editor.
+    ///   - `edit_split_right`: Create a new split right, and open the file in your editor.
+    ///   - `edit_split_down`: Create a new split down, and open the file in your editor.
+    ///
+    /// `edit_window`, `edit_tab`, `edit_split_right`, and `edit_split_down` are
+    /// supported on GTK only.
+    ///
+    /// See the configuration setting `editor` for more information on how
+    /// Ghostty determines your editor.
     write_selection_file: WriteScreenAction,
 
     /// Open a new window.
@@ -367,6 +401,10 @@ pub const Action = union(enum) {
     pub const WriteScreenAction = enum {
         paste,
         open,
+        edit_window,
+        edit_tab,
+        edit_split_right,
+        edit_split_down,
     };
 
     // Extern because it is used in the embedded runtime ABI.

@@ -253,7 +253,7 @@ pub fn newWindow(self: *App, rt_app: *apprt.App, msg: Message.NewWindow) !void {
             null;
     } else null;
 
-    try rt_app.newWindow(parent);
+    try rt_app.newWindow(.{ .parent = parent, .config = msg.config });
 }
 
 /// Start quitting
@@ -321,6 +321,9 @@ pub const Message = union(enum) {
     const NewWindow = struct {
         /// The parent surface
         parent: ?*Surface = null,
+
+        /// Custom configuration to use for the new window.
+        config: ?*Config = null,
     };
 };
 

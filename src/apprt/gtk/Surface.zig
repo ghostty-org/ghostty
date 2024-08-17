@@ -4,6 +4,8 @@
 const Surface = @This();
 
 const std = @import("std");
+const builtin = @import("builtin");
+const build_options = @import("build_options");
 const Allocator = std.mem.Allocator;
 const configpkg = @import("../../config.zig");
 const apprt = @import("../../apprt.zig");
@@ -34,6 +36,9 @@ pub const Options = struct {
     /// The parent surface to inherit settings such as font size, working
     /// directory, etc. from.
     parent: ?*CoreSurface = null,
+
+    /// A custom config to use in the surface.
+    config: ?*configpkg.Config = null,
 };
 
 /// The container that this surface is directly attached to.
@@ -310,6 +315,8 @@ realized: bool = false,
 /// True if this surface had a parent to start with.
 parent_surface: bool = false,
 
+config: ?*configpkg.Config = null,
+
 /// The GUI container that this surface has been attached to. This
 /// dictates some behaviors such as new splits, etc.
 container: Container = .{ .none = {} },
@@ -455,6 +462,7 @@ pub fn init(self: *Surface, app: *App, opts: Options) !void {
 
     // Inherit the parent's font size if we have a parent.
     const font_size: ?font.face.DesiredSize = font_size: {
+        if (opts.config) |config| if (!config.@"window-inherit-font-size") break :font_size null;
         if (!app.config.@"window-inherit-font-size") break :font_size null;
         const parent = opts.parent orelse break :font_size null;
         break :font_size parent.font_size;
@@ -501,6 +509,7 @@ pub fn init(self: *Surface, app: *App, opts: Options) !void {
         .core_surface = undefined,
         .font_size = font_size,
         .parent_surface = opts.parent != null,
+        .config = opts.config,
         .size = .{ .width = 800, .height = 600 },
         .cursor_pos = .{ .x = 0, .y = 0 },
         .im_context = im_context,
@@ -548,7 +557,10 @@ fn realize(self: *Surface) !void {
     errdefer self.app.core_app.deleteSurface(self);
 
     // Get our new surface config
-    var config = try apprt.surface.newConfig(self.app.core_app, &self.app.config);
+    var config = cfg: {
+        if (self.config) |config| break :cfg try apprt.surface.newConfig(self.app.core_app, config);
+        break :cfg try apprt.surface.newConfig(self.app.core_app, &self.app.config);
+    };
     defer config.deinit();
     if (!self.parent_surface) {
         // A hack, see the "parent_surface" field for more information.
@@ -603,6 +615,11 @@ pub fn deinit(self: *Surface) void {
         self.unfocused_widget = null;
     }
     self.resize_overlay.deinit();
+
+    if (self.config) |config| {
+        config.deinit();
+        self.app.core_app.alloc.destroy(config);
+    }
 }
 
 // unref removes the long-held reference to the gl_area and kicks off the
@@ -749,9 +766,18 @@ pub fn getTitleLabel(self: *Surface) ?*c.GtkWidget {
     }
 }
 
-pub fn newSplit(self: *Surface, direction: apprt.SplitDirection) !void {
+pub fn newSplit(
+    self: *Surface,
+    direction: apprt.SplitDirection,
+    opts: struct { config: ?*configpkg.Config = null },
+) !void {
     const alloc = self.app.core_app.alloc;
-    _ = try Split.create(alloc, self, direction);
+    _ = try Split.create(
+        alloc,
+        self,
+        direction,
+        .{ .config = opts.config },
+    );
 }
 
 pub fn gotoSplit(self: *const Surface, direction: input.SplitFocusDirection) void {
@@ -781,13 +807,18 @@ pub fn equalizeSplits(self: *const Surface) void {
     _ = top_split.equalize();
 }
 
-pub fn newTab(self: *Surface) !void {
+pub fn newTab(self: *Surface, opts: struct {
+    config: ?*configpkg.Config = null,
+}) !void {
     const window = self.container.window() orelse {
         log.info("surface cannot create new tab when not attached to a window", .{});
         return;
     };
 
-    try window.newTab(&self.core_surface);
+    try window.newTab(.{
+        .parent = &self.core_surface,
+        .config = opts.config,
+    });
 }
 
 pub fn hasTabs(self: *const Surface) bool {
@@ -1985,4 +2016,35 @@ fn translateMods(state: c.GdkModifierType) input.Mods {
     // Lock is dependent on the X settings but we just assume caps lock.
     if (state & c.GDK_LOCK_MASK != 0) mods.caps_lock = true;
     return mods;
+}
+
+pub fn openEditorWithPath(
+    self: *Surface,
+    location: enum {
+        window,
+        tab,
+        split_right,
+        split_down,
+    },
+    path: []const u8,
+) !void {
+    const alloc = self.app.core_app.alloc;
+    const config = try alloc.create(configpkg.Config);
+    config.* = try self.app.config.clone(alloc);
+
+    const editor = try internal_os.getEditor(alloc, config);
+    defer alloc.free(editor);
+
+    config.command = try std.fmt.allocPrint(
+        config._arena.?.allocator(),
+        "{s} {s}",
+        .{ editor, path },
+    );
+
+    switch (location) {
+        .window => try self.app.newWindow(.{ .parent = &self.core_surface, .config = config }),
+        .tab => try self.newTab(.{ .config = config }),
+        .split_right => try self.newSplit(.right, .{ .config = config }),
+        .split_down => try self.newSplit(.down, .{ .config = config }),
+    }
 }

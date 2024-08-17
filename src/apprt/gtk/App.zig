@@ -565,7 +565,10 @@ pub fn redrawInspector(self: *App, surface: *Surface) void {
 }
 
 /// Called by CoreApp to create a new window with a new surface.
-pub fn newWindow(self: *App, parent_: ?*CoreSurface) !void {
+pub fn newWindow(self: *App, opts: struct {
+    parent: ?*CoreSurface = null,
+    config: ?*configpkg.Config = null,
+}) !void {
     const alloc = self.core_app.alloc;
 
     // Allocate a fixed pointer for our window. We try to minimize
@@ -578,7 +581,7 @@ pub fn newWindow(self: *App, parent_: ?*CoreSurface) !void {
     var window = try Window.create(alloc, self);
 
     // Add our initial tab
-    try window.newTab(parent_);
+    try window.newTab(.{ .parent = opts.parent, .config = opts.config });
 }
 
 fn quit(self: *App) void {

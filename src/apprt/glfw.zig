@@ -196,22 +196,31 @@ pub const App = struct {
     }
 
     /// Create a new window for the app.
-    pub fn newWindow(self: *App, parent_: ?*CoreSurface) !void {
-        _ = try self.newSurface(parent_);
+    pub fn newWindow(self: *App, opts: struct {
+        parent: ?*CoreSurface = null,
+        config: ?*Config = null,
+    }) !void {
+        if (opts.config != null) log.warn("glfw runtime does not support creating new windows with a custom config", .{});
+        _ = try self.newSurface(opts.parent);
     }
 
     /// Create a new tab in the parent surface.
-    fn newTab(self: *App, parent: *CoreSurface) !void {
+    fn newTab(self: *App, opts: struct {
+        parent: *CoreSurface,
+        config: ?*Config = null,
+    }) !void {
         if (!Darwin.enabled) {
             log.warn("tabbing is not supported on this platform", .{});
             return;
         }
 
+        if (opts.config == null) log.warn("glfw runtime does not support creating new tabs with a custom config", .{});
+
         // Create the new window
-        const window = try self.newSurface(parent);
+        const window = try self.newSurface(opts.parent);
 
         // Add the new window the parent window
-        const parent_win = glfwNative.getCocoaWindow(parent.rt_surface.window).?;
+        const parent_win = glfwNative.getCocoaWindow(opts.parent.rt_surface.window).?;
         const other_win = glfwNative.getCocoaWindow(window.window).?;
         const NSWindowOrderingMode = enum(isize) { below = -1, out = 0, above = 1 };
         const nswindow = objc.Object.fromId(parent_win);
@@ -224,11 +233,11 @@ pub const App = struct {
         // our viewport size. We need to call the size callback in order to
         // update values. For example, we need this to set the proper mouse selection
         // point in the grid.
-        const size = parent.rt_surface.getSize() catch |err| {
+        const size = opts.parent.rt_surface.getSize() catch |err| {
             log.err("error querying window size for size callback on new tab err={}", .{err});
             return;
         };
-        parent.sizeCallback(size) catch |err| {
+        opts.parent.sizeCallback(size) catch |err| {
             log.err("error in size callback from new tab err={}", .{err});
             return;
         };
@@ -526,8 +535,10 @@ pub const Surface = struct {
     }
 
     /// Create a new tab in the window containing this surface.
-    pub fn newTab(self: *Surface) !void {
-        try self.app.newTab(&self.core_surface);
+    pub fn newTab(self: *Surface, opts: struct {
+        config: ?*Config = null,
+    }) !void {
+        try self.app.newTab(.{ .parent = &self.core_surface, .config = opts.config });
     }
 
     /// Checks if the glfw window is in fullscreen.

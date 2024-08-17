@@ -459,6 +459,25 @@ palette: Palette = .{},
 /// instance is launched and the CLI args are respected.
 command: ?[]const u8 = null,
 
+/// A command to use to open/edit text files in a terminal window (using
+/// something like Helix, Flow, Vim, NeoVim, Emacs, or Nano). If this is not set,
+/// Ghostty will check the `EDITOR` environment variable for the command. If
+/// the `EDITOR` environment variable is not set, Ghostty will fall back to `vi`
+/// (similar to how many Linux/Unix systems operate).
+///
+/// This command will be used to open/edit files when Ghostty receives a signal
+/// from the operating system to open a file. Currently implemented on the GTK
+/// runtime only.
+///
+/// The command may contain additional arguments besides the path to the
+/// editor's binary. The files that are to be opened will be added to the end of
+/// the command. For example, if `editor` was set to `emacs -nx` and you tried
+/// to open `README` and `hello.c` in your home directory, the final command
+/// would look like
+///
+///     emacs -nx /home/user/README /home/user/hello.c
+editor: ?[]const u8 = null,
+
 /// If true, keep the terminal open after the command exits. Normally, the
 /// terminal window closes when the running command (such as a shell) exits.
 /// With this true, the terminal window will stay open until any keypress is

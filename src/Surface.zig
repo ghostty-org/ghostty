@@ -3399,7 +3399,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
 
         .new_tab => {
             if (@hasDecl(apprt.Surface, "newTab")) {
-                try self.rt_surface.newTab();
+                try self.rt_surface.newTab(.{});
             } else log.warn("runtime doesn't implement newTab", .{});
         },
 
@@ -3437,14 +3437,17 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
 
         .new_split => |direction| {
             if (@hasDecl(apprt.Surface, "newSplit")) {
-                try self.rt_surface.newSplit(switch (direction) {
-                    .right => .right,
-                    .down => .down,
-                    .auto => if (self.screen_size.width > self.screen_size.height)
-                        .right
-                    else
-                        .down,
-                });
+                try self.rt_surface.newSplit(
+                    switch (direction) {
+                        .right => .right,
+                        .down => .down,
+                        .auto => if (self.screen_size.width > self.screen_size.height)
+                            .right
+                        else
+                            .down,
+                    },
+                    .{},
+                );
             } else log.warn("runtime doesn't implement newSplit", .{});
         },
 
@@ -3663,6 +3666,22 @@ fn writeScreenFile(
             self.alloc,
             path,
         ), .unlocked),
+        .edit_window => {
+            if (@hasDecl(apprt.runtime.Surface, "openEditorWithPath"))
+                try self.rt_surface.openEditorWithPath(.window, path);
+        },
+        .edit_tab => {
+            if (@hasDecl(apprt.runtime.Surface, "openEditorWithPath"))
+                try self.rt_surface.openEditorWithPath(.tab, path);
+        },
+        .edit_split_right => {
+            if (@hasDecl(apprt.runtime.Surface, "openEditorWithPath"))
+                try self.rt_surface.openEditorWithPath(.split_right, path);
+        },
+        .edit_split_down => {
+            if (@hasDecl(apprt.runtime.Surface, "openEditorWithPath"))
+                try self.rt_surface.openEditorWithPath(.split_down, path);
+        },
     }
 }
 

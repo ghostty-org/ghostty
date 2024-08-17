@@ -225,13 +225,18 @@ pub const App = struct {
         surface.queueInspectorRender();
     }
 
-    pub fn newWindow(self: *App, parent: ?*CoreSurface) !void {
+    pub fn newWindow(self: *App, opts: struct {
+        parent: ?*CoreSurface = null,
+        config: ?*Config = null,
+    }) !void {
         _ = self;
+
+        if (opts.config != null) log.warn("embedded runtime does not support creating new windows with custom configs", .{});
 
         // Right now we only support creating a new window with a parent
         // through this code.
         // The other case is handled by the embedding runtime.
-        if (parent) |surface| {
+        if (opts.parent) |surface| {
             try surface.rt_surface.newWindow();
         }
     }
@@ -474,11 +479,15 @@ pub const Surface = struct {
         func(self.userdata, mode);
     }
 
-    pub fn newSplit(self: *const Surface, direction: apprt.SplitDirection) !void {
+    pub fn newSplit(self: *const Surface, direction: apprt.SplitDirection, opts: struct {
+        config: ?*Config = null,
+    }) !void {
         const func = self.app.opts.new_split orelse {
             log.info("runtime embedder does not support splits", .{});
             return;
         };
+
+        if (opts.config != null) log.warn("embedded runtime does not support creating new splits with a custom config", .{});
 
         const options = self.newSurfaceOptions();
         func(self.userdata, direction, options);
@@ -1035,11 +1044,15 @@ pub const Surface = struct {
         func(self.userdata, nonNativeFullscreen);
     }
 
-    pub fn newTab(self: *const Surface) !void {
+    pub fn newTab(self: *const Surface, opts: struct {
+        config: ?*Config = null,
+    }) !void {
         const func = self.app.opts.new_tab orelse {
             log.info("runtime embedder does not support new_tab", .{});
             return;
         };
+
+        if (opts.config != null) log.warn("embedded runtime does not support creating new tabs with a custom config", .{});
 
         const options = self.newSurfaceOptions();
         func(self.userdata, options);

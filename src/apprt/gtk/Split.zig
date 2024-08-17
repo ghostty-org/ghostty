@@ -9,6 +9,7 @@ const apprt = @import("../../apprt.zig");
 const font = @import("../../font/main.zig");
 const input = @import("../../input.zig");
 const CoreSurface = @import("../../Surface.zig");
+const Config = @import("../../config.zig").Config;
 
 const Surface = @import("Surface.zig");
 const Tab = @import("Tab.zig");
@@ -59,10 +60,13 @@ pub fn create(
     alloc: Allocator,
     sibling: *Surface,
     direction: apprt.SplitDirection,
+    opts: struct {
+        config: ?*Config = null,
+    },
 ) !*Split {
     var split = try alloc.create(Split);
     errdefer alloc.destroy(split);
-    try split.init(sibling, direction);
+    try split.init(sibling, direction, .{ .config = opts.config });
     return split;
 }
 
@@ -70,11 +74,15 @@ pub fn init(
     self: *Split,
     sibling: *Surface,
     direction: apprt.SplitDirection,
+    opts: struct {
+        config: ?*Config = null,
+    },
 ) !void {
     // Create the new child surface for the other direction.
     const alloc = sibling.app.core_app.alloc;
     var surface = try Surface.create(alloc, sibling.app, .{
         .parent = &sibling.core_surface,
+        .config = opts.config,
     });
     errdefer surface.destroy(alloc);
     sibling.dimSurface();

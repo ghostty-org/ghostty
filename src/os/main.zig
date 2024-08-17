@@ -13,6 +13,7 @@ const mouse = @import("mouse.zig");
 const openpkg = @import("open.zig");
 const pipepkg = @import("pipe.zig");
 const resourcesdir = @import("resourcesdir.zig");
+const editor = @import("editor.zig");
 
 // Namespaces
 pub const cgroup = @import("cgroup.zig");
@@ -41,3 +42,4 @@ pub const clickInterval = mouse.clickInterval;
 pub const open = openpkg.open;
 pub const pipe = pipepkg.pipe;
 pub const resourcesDir = resourcesdir.resourcesDir;
+pub const getEditor = editor.getEditor;
