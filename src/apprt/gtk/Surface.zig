@@ -2018,7 +2018,8 @@ fn translateMods(state: c.GdkModifierType) input.Mods {
     return mods;
 }
 
-pub fn openEditorWithPath(
+/// Run the specified command in a new window, tab or a split.
+pub fn runInternalCommand(
     self: *Surface,
     location: enum {
         window,
@@ -2026,23 +2027,23 @@ pub fn openEditorWithPath(
         split_right,
         split_down,
     },
-    path: []const u8,
+    command: []const u8,
 ) !void {
-    const alloc = self.app.core_app.alloc;
-    const config = try alloc.create(configpkg.Config);
-    config.* = try self.app.config.clone(alloc);
+    const gpa_alloc = self.app.core_app.alloc;
 
-    const editor = try internal_os.getEditor(alloc, config);
-    defer alloc.free(editor);
+    const config = try gpa_alloc.create(configpkg.Config);
+    config.* = try self.app.config.clone(gpa_alloc);
+    errdefer config.deinit();
 
-    config.command = try std.fmt.allocPrint(
-        config._arena.?.allocator(),
-        "{s} {s}",
-        .{ editor, path },
-    );
+    const arena_alloc = config._arena.?.allocator();
+
+    config.command = try arena_alloc.dupe(u8, command);
 
     switch (location) {
-        .window => try self.app.newWindow(.{ .parent = &self.core_surface, .config = config }),
+        .window => try self.app.newWindow(.{
+            .parent = &self.core_surface,
+            .config = config,
+        }),
         .tab => try self.newTab(.{ .config = config }),
         .split_right => try self.newSplit(.right, .{ .config = config }),
         .split_down => try self.newSplit(.down, .{ .config = config }),

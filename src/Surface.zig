@@ -224,6 +224,8 @@ const DerivedConfig = struct {
     window_padding_balance: bool,
     title: ?[:0]const u8,
     links: []Link,
+    editor: ?[]const u8,
+    uri_handlers: configpkg.RepeatableURIHandler,
 
     const Link = struct {
         regex: oni.Regex,
@@ -284,6 +286,8 @@ const DerivedConfig = struct {
             .window_padding_balance = config.@"window-padding-balance",
             .title = config.title,
             .links = links,
+            .editor = if (config.editor) |editor| try alloc.dupe(u8, editor) else null,
+            .uri_handlers = try config.@"uri-handler".clone(alloc),
 
             // Assignments happen sequentially so we have to do this last
             // so that the memory is captured from allocs above.
@@ -2611,7 +2615,7 @@ fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
                 .trim = false,
             });
             defer self.alloc.free(str);
-            try internal_os.open(self.alloc, str);
+            try self.handleURI(str);
         },
 
         ._open_osc8 => {
@@ -2619,7 +2623,7 @@ fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
                 log.warn("failed to get URI for OSC8 hyperlink", .{});
                 return false;
             };
-            try internal_os.open(self.alloc, uri);
+            try self.handleURI(uri);
         },
     }
 
@@ -2635,6 +2639,93 @@ fn osc8URI(self: *Surface, pin: terminal.Pin) ?[]const u8 {
     const link_id = page.lookupHyperlink(cell) orelse return null;
     const entry = page.hyperlink_set.get(page.memory, link_id);
     return entry.uri.offset.ptr(page.memory)[0..entry.uri.len];
+}
+
+fn handleURI(self: *Surface, uri: []const u8) !void {
+    const parsed = std.Uri.parse(uri) catch |err| {
+        log.warn("URI \"{s}\" was not able to be parsed: {}", .{ uri, err });
+        return;
+    };
+
+    const scheme = self.config.uri_handlers.getSupportedScheme(parsed.scheme) orelse {
+        log.warn("ignoring unsupported scheme \"{s}\"", .{parsed.scheme});
+        return;
+    };
+    const location = self.config.uri_handlers.getLocation(scheme);
+
+    var arena = std.heap.ArenaAllocator.init(self.alloc);
+    const alloc = arena.allocator();
+    defer arena.deinit();
+
+    const command = switch (location) {
+        .disabled => {
+            log.warn("handling {s} uris has beel disabled in the config, ignoring", .{@tagName(scheme)});
+            return;
+        },
+        .open => {
+            try internal_os.open(self.alloc, uri);
+            return;
+        },
+        else => switch (scheme) {
+            .http => command: {
+                const cmd = self.config.uri_handlers.getCommand(.http) orelse {
+                    log.warn("no command is configured for http, ignoring", .{});
+                    return;
+                };
+                break :command try std.fmt.allocPrint(alloc, "{s} {}", .{ cmd, parsed });
+            },
+            .ssh => command: {
+                const cmd = self.config.uri_handlers.getCommand(.ssh) orelse {
+                    log.warn("no command is configured for ssh, ignoring", .{});
+                    return;
+                };
+                const host = parsed.host orelse {
+                    log.warn("ssh url does not have a host!", .{});
+                    return;
+                };
+                const user = if (parsed.user) |user| try std.fmt.allocPrint(alloc, "{s}@", .{try user.toRawMaybeAlloc(alloc)}) else "";
+                const port = if (parsed.port) |port| try std.fmt.allocPrint(alloc, ":{d}", .{port}) else "";
+                break :command try std.fmt.allocPrint(
+                    alloc,
+                    "{s} ssh://{s}{s}{s}",
+                    .{ cmd, user, try host.toRawMaybeAlloc(alloc), port },
+                );
+            },
+            .file => command: {
+                const cmd = self.config.uri_handlers.getCommand(.file) orelse {
+                    log.warn("no command is configured for file, ignoring", .{});
+                    return;
+                };
+                const path = try parsed.path.toRawMaybeAlloc(alloc);
+                if (path.len == 0) {
+                    log.warn("zero length path", .{});
+                }
+                break :command try std.fmt.allocPrint(
+                    alloc,
+                    "{s} {s}",
+                    .{ cmd, path },
+                );
+            },
+        },
+    };
+
+    if (location == .silent) {
+        try internal_os.run(self.alloc, command);
+        return;
+    }
+
+    if (@hasDecl(apprt.runtime.Surface, "runInternalCommand")) {
+        switch (location) {
+            // these should have been handled above
+            .disabled, .open, .silent => unreachable,
+            .window => try self.rt_surface.runInternalCommand(.window, command),
+            .tab => try self.rt_surface.runInternalCommand(.tab, command),
+            .split_right => try self.rt_surface.runInternalCommand(.split_right, command),
+            .split_down => try self.rt_surface.runInternalCommand(.split_down, command),
+        }
+    } else {
+        log.warn("runtime does not support running internal commands", .{});
+    }
 }
 
 pub fn mousePressureCallback(
@@ -3666,21 +3757,28 @@ fn writeScreenFile(
             self.alloc,
             path,
         ), .unlocked),
-        .edit_window => {
-            if (@hasDecl(apprt.runtime.Surface, "openEditorWithPath"))
-                try self.rt_surface.openEditorWithPath(.window, path);
-        },
-        .edit_tab => {
-            if (@hasDecl(apprt.runtime.Surface, "openEditorWithPath"))
-                try self.rt_surface.openEditorWithPath(.tab, path);
-        },
-        .edit_split_right => {
-            if (@hasDecl(apprt.runtime.Surface, "openEditorWithPath"))
-                try self.rt_surface.openEditorWithPath(.split_right, path);
-        },
-        .edit_split_down => {
-            if (@hasDecl(apprt.runtime.Surface, "openEditorWithPath"))
-                try self.rt_surface.openEditorWithPath(.split_down, path);
+        else => {
+            const editor = try internal_os.getEditor(self.alloc, self.config.editor);
+            defer self.alloc.free(editor);
+            const command = try std.fmt.allocPrint(
+                self.alloc,
+                "{s} {s}",
+                .{ editor, path },
+            );
+            defer self.alloc.free(command);
+            switch (write_action) {
+                .open, .paste => unreachable,
+                .silent => try internal_os.run(self.alloc, command),
+                else => if (@hasDecl(apprt.runtime.Surface, "runInternalCommand")) switch (write_action) {
+                    .open, .paste, .silent => unreachable,
+                    .edit_window => try self.rt_surface.runInternalCommand(.window, command),
+                    .edit_tab => try self.rt_surface.runInternalCommand(.tab, command),
+                    .edit_split_right => try self.rt_surface.runInternalCommand(.split_right, command),
+                    .edit_split_down => try self.rt_surface.runInternalCommand(.split_down, command),
+                } else {
+                    log.warn("runtime does not support running internal commands", .{});
+                },
+            }
         },
     }
 }

@@ -24,6 +24,7 @@ pub const RepeatableFontVariation = Config.RepeatableFontVariation;
 pub const RepeatableString = Config.RepeatableString;
 pub const ShellIntegrationFeatures = Config.ShellIntegrationFeatures;
 pub const WindowPaddingColor = Config.WindowPaddingColor;
+pub const RepeatableURIHandler = Config.RepeatableURIHandler;
 
 // Alternate APIs
 pub const CAPI = @import("config/CAPI.zig");

@@ -20,8 +20,8 @@ action: Action,
 highlight: Highlight,
 
 pub const Action = union(enum) {
-    /// Open the full matched value using the default open program.
-    /// For example, on macOS this is "open" and on Linux this is "xdg-open".
+    /// Use the `uri-handler` configuation setting to handle clicking on the
+    /// link.
     open: void,
 
     /// Open the OSC8 hyperlink under the mouse position. _-prefixed means

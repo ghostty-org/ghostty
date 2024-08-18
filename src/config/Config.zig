@@ -460,23 +460,106 @@ palette: Palette = .{},
 command: ?[]const u8 = null,
 
 /// A command to use to open/edit text files in a terminal window (using
-/// something like Helix, Flow, Vim, NeoVim, Emacs, or Nano). If this is not set,
-/// Ghostty will check the `EDITOR` environment variable for the command. If
-/// the `EDITOR` environment variable is not set, Ghostty will fall back to `vi`
-/// (similar to how many Linux/Unix systems operate).
-///
-/// This command will be used to open/edit files when Ghostty receives a signal
-/// from the operating system to open a file. Currently implemented on the GTK
-/// runtime only.
+/// something like Helix, Flow, Vim, NeoVim, Emacs, or Nano). If this is not
+/// set, Ghostty will check the `EDITOR` environment variable for the command.
+/// If the `EDITOR` environment variable is not set, Ghostty will fall back to
+/// `vi` (similar to how many Linux/Unix systems operate).
 ///
 /// The command may contain additional arguments besides the path to the
 /// editor's binary. The files that are to be opened will be added to the end of
-/// the command. For example, if `editor` was set to `emacs -nx` and you tried
+/// the command. For example, if `editor` was set to `emacs -nw` and you tried
 /// to open `README` and `hello.c` in your home directory, the final command
-/// would look like
+/// would look like:
 ///
-///     emacs -nx /home/user/README /home/user/hello.c
+///     emacs -nw /home/user/README /home/user/hello.c
 editor: ?[]const u8 = null,
+
+/// This setting controls how Ghostty handles clicking on a URI. Ghostty
+/// detects URIs in the terminal in two ways. First by using a regular
+/// expression to scan the output (see the `link` configuration setting for more
+/// information). Second, commands can use the OSC 8 protocol to tell Ghostty
+/// about URIs (much like how <a> is used in HTML).
+///
+/// Entries look like:
+///
+///     uri-handler = <scheme>:<location>:<command>
+///
+/// Entries may be repeated, but later entries will override earlier ones. The handlers
+/// can be reset to the default with an empty entry.
+///
+///     uri-handler =
+///
+/// The default is:
+///
+///     uri-handler = http:open:
+///     uri-handler = ssh:open:
+///     uri-handler = file:open:
+///
+/// The following schemes are supported:
+///
+///   * `http` - This is also used for `https` URIs.
+///   * `ssh`
+///   * `file`
+///
+/// The following location are supported:
+///
+///   * `open` - Use an OS-provided utility to launch the OS's default handler
+///     for that URI. On macOS the `open` command is used. On Linux the
+///     `xdg-open` command is used. On Windows the `url.dll` library is used.
+///     The `command` part of the configuration entry is ignored.
+///   * `disabled` - Clicks on URIs with this scheme will be ignored.
+///   * `silent` - The command will be run "in the background" without opening
+///     a new window, tab, or split. Ths could be useful for running a command
+///     that passes the URI to a long running command like an editor that has a
+///     client-server model of operation.
+///   * `window` - The command will open in a new window. (GTK only).
+///   * `tab` - The command will open in a new tab. (GTK only).
+///   * `split_right` - The focused surface will split horizontally and the
+///     command will run in the right split. (GTK only).
+///   * `split_down` - The focused surface will split vertically and the command
+///     will run in the lower split. (GTK only).
+///
+/// Clicking on unparsable (by Zig's URI parser) URIs will be silently ignored.
+///
+/// For `ssh` URIs, the command that is actually run is constructed by parsing
+/// the URI and then building a command that looks like this:
+///
+///     <command> ssh://(<user>@)<host>(:<port)
+///
+/// The `user` and `port` parts will be left off if they were not in the
+/// original URI. If the URI does not have a host clicking on the URI will be
+/// silently ignored.
+///
+/// For `file` URIs, the `path` part of the URI is parsed out of the URI and a
+/// command that looks like this is constructed:
+///
+///     <command> <path>
+///
+/// Note that `file` URIs cannot be used to access files located on a remote
+/// system as `file` URIs do not include hostname information.
+@"uri-handler": RepeatableURIHandler = .{},
+
+/// Match a regular expression against the terminal text and associate clicking
+/// it with an action. This can be used to match URLs, file paths, etc. Actions
+/// can be "opened" using commands specified by the `uri-handlers` or by
+/// executing any arbitrary binding action.
+///
+/// Links that are configured earlier take precedence over links that are
+/// configured later.
+///
+/// A default link that matches a URL and opens it in the system opener always
+/// exists. This can be disabled using `link-url`.
+///
+/// TODO: This can't currently be set!
+link: RepeatableLink = .{},
+
+/// Enable URL matching. URLs are matched on hover with control (Linux) or
+/// super (macOS) pressed and open using the default system application for
+/// the linked URL.
+///
+/// The URL matcher is always lowest priority of any configured links (see
+/// `link`). If you want to customize URL matching, use `link` and disable this.
+@"link-url": bool = true,
 
 /// If true, keep the terminal open after the command exits. Normally, the
 /// terminal window closes when the running command (such as a shell) exits.
@@ -515,28 +598,6 @@ editor: ?[]const u8 = null,
 ///
 /// This can be changed at runtime but will only affect new terminal surfaces.
 @"scrollback-limit": u32 = 10_000_000, // 10MB
-
-/// Match a regular expression against the terminal text and associate clicking
-/// it with an action. This can be used to match URLs, file paths, etc. Actions
-/// can be opening using the system opener (i.e. `open` or `xdg-open`) or
-/// executing any arbitrary binding action.
-///
-/// Links that are configured earlier take precedence over links that are
-/// configured later.
-///
-/// A default link that matches a URL and opens it in the system opener always
-/// exists. This can be disabled using `link-url`.
-///
-/// TODO: This can't currently be set!
-link: RepeatableLink = .{},
-
-/// Enable URL matching. URLs are matched on hover with control (Linux) or
-/// super (macOS) pressed and open using the default system application for
-/// the linked URL.
-///
-/// The URL matcher is always lowest priority of any configured links (see
-/// `link`). If you want to customize URL matching, use `link` and disable this.
-@"link-url": bool = true,
 
 /// Start new windows in fullscreen. This setting applies to new windows and
 /// does not apply to tabs, splits, etc. However, this setting will apply to all
@@ -4346,3 +4407,188 @@ test "test entryFormatter" {
     try p.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
     try std.testing.expectEqualStrings("a = 584y 49w 23h 34m 33s 709ms 551µs 615ns\n", buf.items);
 }
+
+/// See `uri-handler` documentation
+pub const RepeatableURIHandler = struct {
+    const Self = @This();
+
+    const Scheme = enum {
+        // `http` handles both `http` and `https`
+        http,
+        ssh,
+        file,
+    };
+
+    const Location = enum {
+        /// Use OS utilities to launch default handler for a URL.
+        open,
+        /// Clicks on URLs with this scheme will be ignored.
+        disabled,
+        /// Commands will be run silently in the background.
+        silent,
+        /// A new window will be opened to run the command.
+        window,
+        /// A new tab will be opened to run the command.
+        tab,
+        /// The focused surface will be split right to run the command.
+        split_right,
+        /// The focused surface will be split down to run the command.
+        split_down,
+    };
+
+    const Entry = struct {
+        location: Location = .open,
+        command: ?[]const u8 = null,
+    };
+
+    const count = @typeInfo(Scheme).Enum.fields.len;
+
+    entries: [count]Entry = [_]Entry{.{}} ** count,
+
+    /// Return an enum if this is a scheme that we support, otherwise null.
+    /// `https` is converted to `http`
+    pub fn getSupportedScheme(_: *Self, scheme: []const u8) ?Scheme {
+        if (std.mem.eql(u8, "https", scheme)) return .http;
+        return std.meta.stringToEnum(Scheme, scheme);
+    }
+
+    pub fn getLocation(self: *Self, scheme: Scheme) Location {
+        const index = @intFromEnum(scheme);
+        return self.entries[index].location;
+    }
+
+    pub fn getCommand(self: *Self, scheme: Scheme) ?[]const u8 {
+        const index = @intFromEnum(scheme);
+        return self.entries[index].command;
+    }
+
+    pub fn parseCLI(self: *Self, alloc: Allocator, input: ?[]const u8) !void {
+        const value = input orelse return error.ValueRequired;
+
+        // Empty value resets the list
+        if (value.len == 0) {
+            self.entries = [_]Entry{.{}} ** count;
+            return;
+        }
+
+        var it = std.mem.splitScalar(u8, value, ':');
+
+        const scheme = std.meta.stringToEnum(Scheme, it.next() orelse return error.ValueRequired) orelse return error.ValueRequired;
+        const location = std.meta.stringToEnum(Location, it.next() orelse return error.ValueRequired) orelse return error.ValueRequired;
+        const command = command: {
+            const command = it.rest();
+            if (command.len == 0) break :command null;
+            break :command try alloc.dupe(u8, command);
+        };
+
+        const index = @intFromEnum(scheme);
+        self.entries[index] = .{
+            .location = if (command == null) .open else location,
+            .command = command,
+        };
+    }
+
+    /// Deep copy of the struct. Required by Config.
+    pub fn clone(self: *const Self, alloc: Allocator) !Self {
+        var new: Self = .{};
+
+        for (self.entries, 0..) |entry, index| {
+            if (entry.command) |command| {
+                new.entries[index] = .{
+                    .location = entry.location,
+                    .command = try alloc.dupe(u8, command),
+                };
+            }
+        }
+
+        return new;
+    }
+
+    /// Compare if two of our value are requal. Required by Config.
+    pub fn equal(self: Self, other: Self) bool {
+        for (self.entries, other.entries) |a, b| {
+            if (a.location != b.location) return false;
+            if (a.command == null and b.command == null) continue;
+            if (a.command == null) return false;
+            if (b.command == null) return false;
+            if (!std.mem.eql(u8, a.command.?, b.command.?)) return false;
+        } else return true;
+    }
+
+    /// Used by Formatter
+    pub fn formatEntry(self: Self, formatter: anytype) !void {
+        for (self.entries, 0..) |value, index| {
+            const scheme: Scheme = @enumFromInt(index);
+            // this "should" be enough as most operating systems have limits on
+            // the length of commands that they will execute anyway
+            var buf: [512]u8 = undefined;
+            var fbs = std.io.fixedBufferStream(&buf);
+            const writer = fbs.writer();
+            writer.print("{s}:{s}:{s}", .{
+                @tagName(scheme),
+                @tagName(value.location),
+                if (value.command) |command| command else "",
+            }) catch return error.OutOfMemory;
+            try formatter.formatEntry([]const u8, fbs.getWritten());
+        }
+    }
+
+    test "parseCLI" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var list: Self = .{} ** count;
+
+        try list.parseCLI(alloc, "ssh:window:ssh");
+        try list.parseCLI(alloc, "file:split_right:hx");
+
+        try testing.expectEqual(@as(Location, .open), list.entries[@intFromEnum(@as(Scheme, .http))].location);
+        try testing.expect(list.entries[@intFromEnum(@as(Scheme, .http))].command == null);
+
+        try testing.expectEqual(@as(Location, .window), list.entries[@intFromEnum(@as(Scheme, .ssh))].location);
+        try testing.expect(list.entries[@intFromEnum(@as(Scheme, .ssh))].command != null);
+        try testing.expectEqualStrings("ssh", list.entries[@intFromEnum(@as(Scheme, .ssh))].command.?);
+
+        try testing.expectEqual(@as(Location, .split_right), list.entries[@intFromEnum(@as(Scheme, .file))].location);
+        try testing.expect(list.entries[@intFromEnum(@as(Scheme, .file))].command != null);
+        try testing.expectEqualStrings("hx", list.entries[@intFromEnum(@as(Scheme, .file))].command.?);
+
+        try list.parseCLI(alloc, "");
+
+        try testing.expectEqual(@as(Location, .open), list.entries[@intFromEnum(@as(Scheme, .http))].location);
+        try testing.expect(list.entries[@intFromEnum(@as(Scheme, .http))].command == null);
+
+        try testing.expectEqual(@as(Location, .open), list.entries[@intFromEnum(@as(Scheme, .ssh))].location);
+        try testing.expect(list.entries[@intFromEnum(@as(Scheme, .ssh))].command == null);
+
+        try testing.expectEqual(@as(Location, .open), list.entries[@intFromEnum(@as(Scheme, .file))].location);
+        try testing.expect(list.entries[@intFromEnum(@as(Scheme, .file))].command == null);
+    }
+
+    test "formatEntry 1" {
+        const testing = std.testing;
+        var buf = std.ArrayList(u8).init(testing.allocator);
+        defer buf.deinit();
+
+        var list: Self = .{};
+        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
+        try std.testing.expectEqualSlices(u8, "a = http:open:\na = ssh:open:\na = file:open:\n", buf.items);
+    }
+
+    test "formatEntry 2" {
+        const testing = std.testing;
+        var buf = std.ArrayList(u8).init(testing.allocator);
+        defer buf.deinit();
+
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var list: Self = .{};
+        try list.parseCLI(alloc, "ssh:window:ssh");
+        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
+        try std.testing.expectEqualSlices(u8, "a = http:open:\na = ssh:window:ssh\na = file:open:\n", buf.items);
+    }
+};

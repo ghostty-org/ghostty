@@ -40,6 +40,7 @@ pub const ensureLocale = locale.ensureLocale;
 pub const macosVersionAtLeast = macos_version.macosVersionAtLeast;
 pub const clickInterval = mouse.clickInterval;
 pub const open = openpkg.open;
+pub const run = openpkg.run;
 pub const pipe = pipepkg.pipe;
 pub const resourcesDir = resourcesdir.resourcesDir;
 pub const getEditor = editor.getEditor;

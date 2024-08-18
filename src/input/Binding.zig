@@ -232,13 +232,23 @@ pub const Action = union(enum) {
     ///
     ///   - `paste`: Paste the file path into the terminal.
     ///   - `open`: Open the file in the default OS editor for text files.
-    ///   - `edit_window`: Create a new window, and open the file in your editor.
-    ///   - `edit_tab`: Create a new tab, and open the file in your editor.
-    ///   - `edit_split_right`: Create a new split right, and open the file in your editor.
-    ///   - `edit_split_down`: Create a new split down, and open the file in your editor.
-    ///
-    /// `edit_window`, `edit_tab`, `edit_split_right`, and `edit_split_down` are
-    /// supported on GTK only.
+    ///   - `silent`: Run a command "in the background" to process the file. The
+    ///     command is constructed using the `editor` configuration setting or
+    ///     your `EDITOR` environment variable.
+    ///   - `edit_window`: Create a new window, and open the file in your
+    ///     editor. The command is constructed using the `editor` configuration
+    ///     setting or your `EDITOR` environment variable. (GTK only.)
+    ///   - `edit_tab`: Create a new tab, and open the file in your editor. The
+    ///     command is constructed using the `editor` configuration setting or
+    ///     your `EDITOR` environment variable. (GTK only.)
+    ///   - `edit_split_right`: Create a new split right, and open the file
+    ///     in your editor. The command is constructed using the `editor`
+    ///     configuration setting or your `EDITOR` environment variable. (GTK
+    ///     only.)
+    ///   - `edit_split_down`: Create a new split down, and open the file
+    ///     in your editor. The command is constructed using the `editor`
+    ///     configuration setting or your `EDITOR` environment variable. (GTK
+    ///     only.)
     ///
     /// See the configuration setting `editor` for more information on how
     /// Ghostty determines your editor.
@@ -249,13 +259,23 @@ pub const Action = union(enum) {
     ///
     ///   - `paste`: Paste the file path into the terminal.
     ///   - `open`: Open the file in the default OS editor for text files.
-    ///   - `edit_window`: Create a new window, and open the file in your editor.
-    ///   - `edit_tab`: Create a new tab, and open the file in your editor.
-    ///   - `edit_split_right`: Create a new split right, and open the file in your editor.
-    ///   - `edit_split_down`: Create a new split down, and open the file in your editor.
-    ///
-    /// `edit_window`, `edit_tab`, `edit_split_right`, and `edit_split_down` are
-    /// supported on GTK only.
+    ///   - `silent`: Run a command "in the background" to process the file. The
+    ///     command is constructed using the `editor` configuration setting or
+    ///     your `EDITOR` environment variable.
+    ///   - `edit_window`: Create a new window, and open the file in your
+    ///     editor. The command is constructed using the `editor` configuration
+    ///     setting or your `EDITOR` environment variable. (GTK only.)
+    ///   - `edit_tab`: Create a new tab, and open the file in your editor. The
+    ///     command is constructed using the `editor` configuration setting or
+    ///     your `EDITOR` environment variable. (GTK only.)
+    ///   - `edit_split_right`: Create a new split right, and open the file
+    ///     in your editor. The command is constructed using the `editor`
+    ///     configuration setting or your `EDITOR` environment variable. (GTK
+    ///     only.)
+    ///   - `edit_split_down`: Create a new split down, and open the file
+    ///     in your editor. The command is constructed using the `editor`
+    ///     configuration setting or your `EDITOR` environment variable. (GTK
+    ///     only.)
     ///
     /// See the configuration setting `editor` for more information on how
     /// Ghostty determines your editor.
@@ -267,13 +287,23 @@ pub const Action = union(enum) {
     ///
     ///   - `paste`: Paste the file path into the terminal.
     ///   - `open`: Open the file in the default OS editor for text files.
-    ///   - `edit_window`: Create a new window, and open the file in your editor.
-    ///   - `edit_tab`: Create a new tab, and open the file in your editor.
-    ///   - `edit_split_right`: Create a new split right, and open the file in your editor.
-    ///   - `edit_split_down`: Create a new split down, and open the file in your editor.
-    ///
-    /// `edit_window`, `edit_tab`, `edit_split_right`, and `edit_split_down` are
-    /// supported on GTK only.
+    ///   - `silent`: Run a command "in the background" to process the file. The
+    ///     command is constructed using the `editor` configuration setting or
+    ///     your `EDITOR` environment variable.
+    ///   - `edit_window`: Create a new window, and open the file in your
+    ///     editor. The command is constructed using the `editor` configuration
+    ///     setting or your `EDITOR` environment variable. (GTK only.)
+    ///   - `edit_tab`: Create a new tab, and open the file in your editor. The
+    ///     command is constructed using the `editor` configuration setting or
+    ///     your `EDITOR` environment variable. (GTK only.)
+    ///   - `edit_split_right`: Create a new split right, and open the file
+    ///     in your editor. The command is constructed using the `editor`
+    ///     configuration setting or your `EDITOR` environment variable. (GTK
+    ///     only.)
+    ///   - `edit_split_down`: Create a new split down, and open the file
+    ///     in your editor. The command is constructed using the `editor`
+    ///     configuration setting or your `EDITOR` environment variable. (GTK
+    ///     only.)
     ///
     /// See the configuration setting `editor` for more information on how
     /// Ghostty determines your editor.
@@ -401,6 +431,7 @@ pub const Action = union(enum) {
     pub const WriteScreenAction = enum {
         paste,
         open,
+        silent,
         edit_window,
         edit_tab,
         edit_split_right,

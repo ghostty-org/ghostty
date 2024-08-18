@@ -1783,7 +1783,7 @@ pub const CAPI = struct {
 
     /// Request that the surface split in the given direction.
     export fn ghostty_surface_split(ptr: *Surface, direction: apprt.SplitDirection) void {
-        ptr.newSplit(direction) catch {};
+        ptr.newSplit(direction, .{}) catch {};
     }
 
     /// Focus on the next split (if any).
