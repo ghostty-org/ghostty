@@ -103,6 +103,10 @@ pub const flatpak = options.flatpak;
 pub const app_runtime: apprt.Runtime = config.app_runtime;
 pub const font_backend: font.Backend = config.font_backend;
 pub const renderer: rendererpkg.Impl = config.renderer;
+pub const building_docs = switch (exe_entrypoint) {
+    .helpgen, .jsongen => true,
+    else => false,
+};
 
 pub const Artifact = enum {
     /// Standalone executable
@@ -144,6 +148,7 @@ pub const Artifact = enum {
 pub const ExeEntrypoint = enum {
     ghostty,
     helpgen,
+    jsongen,
     mdgen_ghostty_1,
     mdgen_ghostty_5,
     bench_parser,

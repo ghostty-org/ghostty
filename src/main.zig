@@ -4,6 +4,7 @@ const build_config = @import("build_config.zig");
 const entrypoint = switch (build_config.exe_entrypoint) {
     .ghostty => @import("main_ghostty.zig"),
     .helpgen => @import("helpgen.zig"),
+    .jsongen => @import("jsongen.zig"),
     .mdgen_ghostty_1 => @import("build/mdgen/main_ghostty_1.zig"),
     .mdgen_ghostty_5 => @import("build/mdgen/main_ghostty_5.zig"),
     .bench_parser => @import("bench/parser.zig"),

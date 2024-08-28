@@ -124,6 +124,12 @@ pub fn build(b: *std.Build) !void {
         "Build and install the helpgen executable.",
     ) orelse false;
 
+    const emit_jsongen = b.option(
+        bool,
+        "emit-jsongen",
+        "Build and install the helpgen executable.",
+    ) orelse false;
+
     const emit_docs = b.option(
         bool,
         "emit-docs",
@@ -146,7 +152,7 @@ pub fn build(b: *std.Build) !void {
     ) orelse builtin.target.isDarwin() and
         target.result.os.tag == .macos and
         config.app_runtime == .none and
-        (!emit_bench and !emit_test_exe and !emit_helpgen);
+        (!emit_bench and !emit_test_exe and !emit_helpgen and !emit_jsongen);
 
     // On NixOS, the built binary from `zig build` needs to patch the rpath
     // into the built binary for it to be portable across the NixOS system
@@ -214,6 +220,8 @@ pub fn build(b: *std.Build) !void {
     // Help exe. This must be run before any dependent executables because
     // otherwise the build will be cached without emit. That's clunky but meh.
     if (emit_helpgen) try addHelp(b, null, config);
+
+    if (emit_jsongen) try addJson(b, null, config);
 
     // Add our benchmarks
     try benchSteps(b, target, config, emit_bench);
@@ -1269,6 +1277,7 @@ fn addDeps(
     }
 
     try addHelp(b, step, config);
+    try addJson(b, step, config);
     try addUnicodeTables(b, step);
 
     return static_libs;
@@ -1329,6 +1338,55 @@ fn addHelp(
         help_output.addStepDependencies(&step.step);
         step.root_module.addAnonymousImport("help_strings", .{
             .root_source_file = help_output,
+        });
+    }
+}
+
+/// Generate help files
+fn addJson(
+    b: *std.Build,
+    step_: ?*std.Build.Step.Compile,
+    config: BuildConfig,
+) !void {
+    // Our static state between runs. We memoize our help strings
+    // so that we only execute the help generation once.
+    const JsonState = struct {
+        var generated: ?std.Build.LazyPath = null;
+    };
+
+    const json_output = JsonState.generated orelse strings: {
+        const json_exe = b.addExecutable(.{
+            .name = "jsongen",
+            .root_source_file = b.path("src/jsongen.zig"),
+            .target = b.host,
+        });
+        if (step_ == null) b.installArtifact(json_exe);
+
+        const json_config = config: {
+            var copy = config;
+            copy.exe_entrypoint = .jsongen;
+            break :config copy;
+        };
+        const options = b.addOptions();
+        try json_config.addOptions(options);
+        json_exe.root_module.addOptions("build_options", options);
+
+        const json_run = b.addRunArtifact(json_exe);
+        JsonState.generated = json_run.captureStdOut();
+        if (step_) |_| {
+            b.getInstallStep().dependOn(&b.addInstallFile(
+                JsonState.generated.?,
+                "share/ghostty/doc/ghostty-help.json",
+            ).step);
+        }
+
+        break :strings JsonState.generated.?;
+    };
+
+    if (step_) |step| {
+        json_output.addStepDependencies(&step.step);
+        step.root_module.addAnonymousImport("json_help", .{
+            .root_source_file = json_output,
         });
     }
 }

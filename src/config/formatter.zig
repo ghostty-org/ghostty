@@ -1,6 +1,7 @@
 const formatter = @This();
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const build_config = @import("../build_config.zig");
 const help_strings = @import("help_strings");
 const Config = @import("Config.zig");
 const Key = @import("key.zig").Key;
@@ -168,7 +169,7 @@ pub const FileFormatter = struct {
             } else true;
 
             if (do_format) {
-                const do_docs = self.docs and @hasDecl(help_strings.Config, field.name);
+                const do_docs = !build_config.building_docs and self.docs and @hasDecl(help_strings.Config, field.name);
                 if (do_docs) {
                     const help = @field(help_strings.Config, field.name);
                     var lines = std.mem.splitScalar(u8, help, '\n');

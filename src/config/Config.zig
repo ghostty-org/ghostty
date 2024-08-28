@@ -12,6 +12,7 @@ const Config = @This();
 
 const std = @import("std");
 const builtin = @import("builtin");
+const build_config = @import("../build_config.zig");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
@@ -3449,6 +3450,8 @@ pub const Keybinds = struct {
 
     /// Like formatEntry but has an option to include docs.
     pub fn formatEntryDocs(self: Keybinds, formatter: anytype, docs: bool) !void {
+        if (build_config.building_docs) return;
+
         if (self.set.bindings.size == 0) {
             try formatter.formatEntry(void, {});
             return;
