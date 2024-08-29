@@ -11,6 +11,7 @@ const list_colors = @import("list_colors.zig");
 const list_actions = @import("list_actions.zig");
 const show_config = @import("show_config.zig");
 const validate_config = @import("validate_config.zig");
+const notify = @import("notify.zig");
 
 /// Special commands that can be invoked via CLI flags. These are all
 /// invoked by using `+<action>` as a CLI flag. The only exception is
@@ -42,6 +43,9 @@ pub const Action = enum {
 
     // Validate passed config file
     @"validate-config",
+
+    // Send a desktop notification
+    notify,
 
     pub const Error = error{
         /// Multiple actions were detected. You can specify at most one
@@ -134,6 +138,7 @@ pub const Action = enum {
             .@"list-actions" => try list_actions.run(alloc),
             .@"show-config" => try show_config.run(alloc),
             .@"validate-config" => try validate_config.run(alloc),
+            .notify => try notify.run(alloc),
         };
     }
 
