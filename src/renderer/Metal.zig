@@ -97,6 +97,9 @@ cursor_color: ?terminal.color.RGB,
 /// foreground color as the cursor color.
 cursor_invert: bool,
 
+/// Whether blinking cells are currently visible. Synchronized with cursor blinking.
+blink_visible: bool = true,
+
 /// The current frame background color. This is only updated during
 /// the updateFrame method.
 current_background_color: terminal.color.RGB,
@@ -867,7 +870,7 @@ pub fn updateFrame(
     self: *Metal,
     surface: *apprt.Surface,
     state: *renderer.State,
-    cursor_blink_visible: bool,
+    blink_visible: bool,
 ) !void {
     _ = surface;
 
@@ -950,7 +953,7 @@ pub fn updateFrame(
         const cursor_style = renderer.cursorStyle(
             state,
             self.focused,
-            cursor_blink_visible,
+            blink_visible,
         );
 
         // Get our preedit state
@@ -1027,6 +1030,9 @@ pub fn updateFrame(
             .full_rebuild = full_rebuild,
         };
     };
+
+    self.blink_visible = blink_visible;
+
     defer {
         critical.screen.deinit();
         if (critical.preedit) |p| p.deinit(self.alloc);
@@ -1100,6 +1106,8 @@ pub fn drawFrame(self: *Metal, surface: *apprt.Surface) !void {
     const frame = self.gpu_state.nextFrame();
     errdefer self.gpu_state.releaseFrame();
     // log.debug("drawing frame index={}", .{self.gpu_state.frame_index});
+
+    self.uniforms.blink_visible = self.blink_visible;
 
     // Setup our frame data
     try frame.uniforms.sync(self.gpu_state.device, &.{self.uniforms});
@@ -1602,6 +1610,11 @@ fn drawCellFgs(
             frame.color.value,
             @as(c_ulong, 1),
         },
+    );
+    encoder.msgSend(
+        void,
+        objc.sel("setFragmentBuffer:offset:atIndex:"),
+        .{ frame.uniforms.buffer.value, @as(c_ulong, 0), @as(c_ulong, 1) },
     );
 
     encoder.msgSend(
@@ -2539,15 +2552,19 @@ fn updateCell(
             break :glyph;
         }
 
-        const mode: mtl_shaders.CellText.Mode = switch (try fgMode(
+        var mode: mtl_shaders.CellText.Mode = .{ .fg = true };
+
+        switch (try fgMode(
             render.presentation,
             cell_pin,
         )) {
-            .normal => .fg,
-            .color => .fg_color,
-            .constrained => .fg_constrained,
-            .powerline => .fg_powerline,
-        };
+            .normal => {},
+            .color => mode.fg_color = true,
+            .constrained => mode.fg_constrained = true,
+            .powerline => mode.fg_powerline = true,
+        }
+
+        mode.fg_blink = style.flags.blink;
 
         try self.cells.add(self.alloc, .text, .{
             .mode = mode,

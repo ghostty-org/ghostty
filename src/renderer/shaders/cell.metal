@@ -18,6 +18,7 @@ struct Uniforms {
   float min_contrast;
   ushort2 cursor_pos;
   uchar4 cursor_color;
+  bool blink_visible;
 };
 
 //-------------------------------------------------------------------
@@ -161,9 +162,9 @@ fragment float4 cell_bg_fragment(
 enum CellTextMode : uint8_t {
   MODE_TEXT = 1u,
   MODE_TEXT_CONSTRAINED = 2u,
-  MODE_TEXT_COLOR = 3u,
-  MODE_TEXT_CURSOR = 4u,
-  MODE_TEXT_POWERLINE = 5u,
+  MODE_TEXT_COLOR = 4u,
+  MODE_TEXT_CURSOR = 8u,
+  MODE_TEXT_POWERLINE = 16u,
 };
 
 struct CellTextVertexIn {
@@ -257,7 +258,7 @@ vertex CellTextVertexOut cell_text_vertex(
   // If we're constrained then we need to scale the glyph.
   // We also always constrain colored glyphs since we should have
   // their scaled cell size exactly correct.
-  if (in.mode == MODE_TEXT_CONSTRAINED || in.mode == MODE_TEXT_COLOR) {
+  if (in.mode & (MODE_TEXT_CONSTRAINED | MODE_TEXT_COLOR)) {
     float max_width = uniforms.cell_size.x * in.constraint_width;
     if (size.x > max_width) {
       float new_y = size.y * (max_width / size.x);
@@ -285,14 +286,14 @@ vertex CellTextVertexOut cell_text_vertex(
   // since we want color glyphs to appear in their original color
   // and Powerline glyphs to be unaffected (else parts of the line would
   // have different colors as some parts are displayed via background colors).
-  if (uniforms.min_contrast > 1.0f && in.mode == MODE_TEXT) {
+  if (uniforms.min_contrast > 1.0f && !(mode & ~(MODE_TEXT | MODE_TEXT_BLINK))) {
     float4 bg_color = float4(bg_colors[in.grid_pos.y * uniforms.grid_size.x + in.grid_pos.x]) / 255.0f;
     out.color = contrasted_color(uniforms.min_contrast, out.color, bg_color);
   }
 
   // If this cell is the cursor cell, then we need to change the color.
   if (
-    in.mode != MODE_TEXT_CURSOR &&
+    !(in.mode & MODE_TEXT_CURSOR) &&
     in.grid_pos.x == uniforms.cursor_pos.x &&
     in.grid_pos.y == uniforms.cursor_pos.y
   ) {
@@ -305,7 +306,8 @@ vertex CellTextVertexOut cell_text_vertex(
 fragment float4 cell_text_fragment(
   CellTextVertexOut in [[stage_in]],
   texture2d<float> textureGrayscale [[texture(0)]],
-  texture2d<float> textureColor [[texture(1)]]
+  texture2d<float> textureColor [[texture(1)]],
+  constant Uniforms& uniforms [[buffer(1)]]
 ) {
   constexpr sampler textureSampler(
     coord::pixel,
@@ -313,28 +315,23 @@ fragment float4 cell_text_fragment(
     filter::nearest
   );
 
-  switch (in.mode) {
-    default:
-    case MODE_TEXT_CURSOR:
-    case MODE_TEXT_CONSTRAINED:
-    case MODE_TEXT_POWERLINE:
-    case MODE_TEXT: {
-      // We premult the alpha to our whole color since our blend function
-      // uses One/OneMinusSourceAlpha to avoid blurry edges.
-      // We first premult our given color.
-      float4 premult = float4(in.color.rgb * in.color.a, in.color.a);
-
-      // Then premult the texture color
-      float a = textureGrayscale.sample(textureSampler, in.tex_coord).r;
-      premult = premult * a;
-
-      return premult;
-    }
-
-    case MODE_TEXT_COLOR: {
-      return textureColor.sample(textureSampler, in.tex_coord);
-    }
+  if (in.mode & MODE_TEXT_COLOR) {
+    return textureColor.sample(textureSampler, in.tex_coord);
   }
+  if (in.mode & MODE_TEXT_BLINK && !uniforms.blink_visible) {
+    discard_fragment();
+  }
+
+  // We premult the alpha to our whole color since our blend function
+  // uses One/OneMinusSourceAlpha to avoid blurry edges.
+  // We first premult our given color.
+  float4 premult = float4(in.color.rgb * in.color.a, in.color.a);
+
+  // Then premult the texture color
+  float a = textureGrayscale.sample(textureSampler, in.tex_coord).r;
+  premult = premult * a;
+
+  return premult;
 }
 //-------------------------------------------------------------------
 // Image Shader
