@@ -85,6 +85,11 @@ pub fn parse(comptime T: type, alloc: Allocator, dst: *T, iter: anytype) !void {
 
         if (mem.startsWith(u8, arg, "--")) {
             var key: []const u8 = arg[2..];
+
+            // Enables using --version as a CLI action, without
+            // expecting it to be parsed into key=value pairs.
+            if (mem.eql(u8, key, "version")) continue;
+
             const value: ?[]const u8 = value: {
                 // If the arg has "=" then the value is after the "=".
                 if (mem.indexOf(u8, key, "=")) |idx| {
@@ -354,7 +359,7 @@ test "parse: simple" {
 
     var iter = try std.process.ArgIteratorGeneral(.{}).init(
         testing.allocator,
-        "--a=42 --b --b-f=false",
+        "--a=42 --b --b-f=false --version",
     );
     defer iter.deinit();
     try parse(@TypeOf(data), testing.allocator, &data, &iter);
@@ -437,6 +442,22 @@ test "parse: error tracking" {
     try testing.expect(data._arena != null);
     try testing.expectEqualStrings("42", data.a);
     try testing.expect(!data._errors.empty());
+}
+
+test "parse: ignore version flag" {
+    const testing = std.testing;
+
+    var data: struct {
+        a: u8 = 0,
+    } = .{};
+
+    var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        testing.allocator,
+        "--version --a=42",
+    );
+    defer iter.deinit();
+    try parse(@TypeOf(data), testing.allocator, &data, &iter);
+    try testing.expectEqual(@as(u8, 42), data.a);
 }
 
 test "parseIntoField: ignore underscore-prefixed fields" {
