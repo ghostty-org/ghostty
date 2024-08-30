@@ -108,6 +108,9 @@ cursor_color: ?terminal.color.RGB,
 /// foreground color as the cursor color.
 cursor_invert: bool,
 
+/// Whether blinking cells are currently visible. Synchronized with cursor blinking.
+blink_visible: bool = true,
+
 /// Padding options
 padding: renderer.Options.Padding,
 
@@ -701,7 +704,7 @@ pub fn updateFrame(
     self: *OpenGL,
     surface: *apprt.Surface,
     state: *renderer.State,
-    cursor_blink_visible: bool,
+    blink_visible: bool,
 ) !void {
     _ = surface;
 
@@ -770,7 +773,7 @@ pub fn updateFrame(
         const cursor_style = renderer.cursorStyle(
             state,
             self.focused,
-            cursor_blink_visible,
+            blink_visible,
         );
 
         // Get our preedit state
@@ -854,6 +857,9 @@ pub fn updateFrame(
             .color_palette = state.terminal.color_palette.colors,
         };
     };
+
+    self.blink_visible = blink_visible;
+
     defer {
         critical.screen.deinit();
         if (critical.preedit) |p| p.deinit(self.alloc);
@@ -1279,7 +1285,7 @@ pub fn rebuildCells(
             const screen_cell = row.cells(.all)[screen.cursor.x];
             const x = screen.cursor.x - @intFromBool(screen_cell.wide == .spacer_tail);
             for (self.cells.items[start_i..]) |cell| {
-                if (cell.grid_col == x and cell.mode.isFg()) {
+                if (cell.grid_col == x and cell.mode.fg) {
                     cursor_cell = cell;
                     break;
                 }
@@ -1416,7 +1422,7 @@ pub fn rebuildCells(
 
         _ = try self.addCursor(screen, cursor_style, cursor_color);
         if (cursor_cell) |*cell| {
-            if (cell.mode.isFg() and cell.mode != .fg_color) {
+            if (cell.mode.fg and !cell.mode.fg_color) {
                 const cell_color = if (self.cursor_invert) blk: {
                     const sty = screen.cursor.page_pin.style(screen.cursor.page_cell);
                     break :blk sty.bg(screen.cursor.page_cell, color_palette) orelse self.background_color;
@@ -1436,8 +1442,8 @@ pub fn rebuildCells(
 
     // Some debug mode safety checks
     if (std.debug.runtime_safety) {
-        for (self.cells_bg.items) |cell| assert(cell.mode == .bg);
-        for (self.cells.items) |cell| assert(cell.mode != .bg);
+        for (self.cells_bg.items) |cell| assert(!cell.mode.fg);
+        for (self.cells.items) |cell| assert(cell.mode.fg);
     }
 }
 
@@ -1469,7 +1475,7 @@ fn addPreeditCell(
 
     // Add our opaque background cell
     try self.cells_bg.append(self.alloc, .{
-        .mode = .bg,
+        .mode = .{ .fg = false },
         .grid_col = @intCast(x),
         .grid_row = @intCast(y),
         .grid_width = if (cp.wide) 2 else 1,
@@ -1491,7 +1497,7 @@ fn addPreeditCell(
 
     // Add our text
     try self.cells.append(self.alloc, .{
-        .mode = .fg,
+        .mode = .{ .fg = true },
         .grid_col = @intCast(x),
         .grid_row = @intCast(y),
         .grid_width = if (cp.wide) 2 else 1,
@@ -1558,7 +1564,7 @@ fn addCursor(
     };
 
     try self.cells.append(self.alloc, .{
-        .mode = .fg,
+        .mode = .{ .fg = true },
         .grid_col = @intCast(x),
         .grid_row = @intCast(screen.cursor.y),
         .grid_width = if (wide) 2 else 1,
@@ -1702,7 +1708,7 @@ fn updateCell(
         };
 
         try self.cells_bg.append(self.alloc, .{
-            .mode = .bg,
+            .mode = .{ .fg = false },
             .grid_col = @intCast(x),
             .grid_row = @intCast(y),
             .grid_width = cell.gridWidth(),
@@ -1743,16 +1749,20 @@ fn updateCell(
             },
         );
 
+        var mode: CellProgram.CellMode = .{ .fg = true };
+
         // If we're rendering a color font, we use the color atlas
-        const mode: CellProgram.CellMode = switch (try fgMode(
+        switch (try fgMode(
             render.presentation,
             cell_pin,
         )) {
-            .normal => .fg,
-            .color => .fg_color,
-            .constrained => .fg_constrained,
-            .powerline => .fg_powerline,
-        };
+            .normal => {},
+            .color => mode.fg_color = true,
+            .constrained => mode.fg_constrained = true,
+            .powerline => mode.fg_powerline = true,
+        }
+
+        mode.fg_blink = style.flags.blink;
 
         try self.cells.append(self.alloc, .{
             .mode = mode,
@@ -1799,7 +1809,7 @@ fn updateCell(
         const color = style.underlineColor(palette) orelse colors.fg;
 
         try self.cells.append(self.alloc, .{
-            .mode = .fg,
+            .mode = .{ .fg = true },
             .grid_col = @intCast(x),
             .grid_row = @intCast(y),
             .grid_width = cell.gridWidth(),
@@ -1832,7 +1842,7 @@ fn updateCell(
         );
 
         try self.cells.append(self.alloc, .{
-            .mode = .fg,
+            .mode = .{ .fg = true },
             .grid_col = @intCast(x),
             .grid_row = @intCast(y),
             .grid_width = cell.gridWidth(),
@@ -2155,6 +2165,10 @@ fn drawCellProgram(
         try program.program.setUniform(
             "padding_vertical_bottom",
             self.padding_extend_bottom,
+        );
+        try program.program.setUniform(
+            "blink_visible",
+            self.blink_visible,
         );
     }
 
