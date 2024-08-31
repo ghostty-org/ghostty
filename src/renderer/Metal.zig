@@ -621,6 +621,7 @@ pub fn init(alloc: Allocator, options: renderer.Options) !Metal {
         .background_color = options.config.background,
         .cursor_color = options.config.cursor_color,
         .cursor_invert = options.config.cursor_invert,
+        .blink_visible = true,
         .current_background_color = options.config.background,
 
         // Render state
@@ -634,6 +635,7 @@ pub fn init(alloc: Allocator, options: renderer.Options) !Metal {
             .min_contrast = options.config.min_contrast,
             .cursor_pos = .{ std.math.maxInt(u16), std.math.maxInt(u16) },
             .cursor_color = undefined,
+            .blink_visible = true,
         },
 
         // Fonts
@@ -2044,6 +2046,7 @@ pub fn setScreenSize(
         .min_contrast = old.min_contrast,
         .cursor_pos = old.cursor_pos,
         .cursor_color = old.cursor_color,
+        .blink_visible = old.blink_visible,
     };
 
     // Reset our cell contents if our grid size has changed.
@@ -2552,7 +2555,14 @@ fn updateCell(
             break :glyph;
         }
 
-        var mode: mtl_shaders.CellText.Mode = .{ .fg = true };
+        var mode: mtl_shaders.CellText.Mode = .{
+            .fg = true,
+            .fg_constrained = false,
+            .fg_color = false,
+            .cursor = false,
+            .fg_powerline = false,
+            .fg_blink = false,
+        };
 
         switch (try fgMode(
             render.presentation,
@@ -2603,7 +2613,14 @@ fn updateCell(
         const color = style.underlineColor(palette) orelse colors.fg;
 
         try self.cells.add(self.alloc, .underline, .{
-            .mode = .fg,
+            .mode = .{
+                .fg = true,
+                .fg_constrained = false,
+                .fg_color = false,
+                .cursor = false,
+                .fg_powerline = false,
+                .fg_blink = false,
+            },
             .grid_pos = .{ @intCast(coord.x), @intCast(coord.y) },
             .constraint_width = cell.gridWidth(),
             .color = .{ color.r, color.g, color.b, alpha },
@@ -2628,7 +2645,14 @@ fn updateCell(
         );
 
         try self.cells.add(self.alloc, .strikethrough, .{
-            .mode = .fg,
+            .mode = .{
+                .fg = true,
+                .fg_constrained = false,
+                .fg_color = false,
+                .cursor = false,
+                .fg_powerline = false,
+                .fg_blink = false,
+            },
             .grid_pos = .{ @intCast(coord.x), @intCast(coord.y) },
             .constraint_width = cell.gridWidth(),
             .color = .{ colors.fg.r, colors.fg.g, colors.fg.b, alpha },
@@ -2690,7 +2714,14 @@ fn addCursor(
     };
 
     self.cells.setCursor(.{
-        .mode = .cursor,
+        .mode = .{
+            .fg = false,
+            .fg_constrained = false,
+            .fg_color = false,
+            .cursor = true,
+            .fg_powerline = false,
+            .fg_blink = false,
+        },
         .grid_pos = .{ x, screen.cursor.y },
         .color = .{ cursor_color.r, cursor_color.g, cursor_color.b, alpha },
         .glyph_pos = .{ render.glyph.atlas_x, render.glyph.atlas_y },
@@ -2739,7 +2770,14 @@ fn addPreeditCell(
 
     // Add our text
     try self.cells.add(self.alloc, .text, .{
-        .mode = .fg,
+        .mode = .{
+            .fg = true,
+            .fg_constrained = false,
+            .fg_color = false,
+            .cursor = false,
+            .fg_powerline = false,
+            .fg_blink = false,
+        },
         .grid_pos = .{ @intCast(coord.x), @intCast(coord.y) },
         .color = .{ fg.r, fg.g, fg.b, 255 },
         .glyph_pos = .{ render.glyph.atlas_x, render.glyph.atlas_y },

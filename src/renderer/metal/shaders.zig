@@ -335,7 +335,7 @@ pub const CellText = extern struct {
         fg_powerline: bool,
         fg_blink: bool,
 
-        _padding: u3 = 0,
+        _padding: u2 = 0,
     };
 
     test {
@@ -668,6 +668,7 @@ fn autoAttribute(T: type, attrs: objc.Object) void {
             [2]u32 => mtl.MTLVertexFormat.uint2,
             [4]u32 => mtl.MTLVertexFormat.uint4,
             u8 => mtl.MTLVertexFormat.uchar,
+            CellText.Mode => mtl.MTLVertexFormat.uchar,
             else => comptime unreachable,
         };
 
