@@ -165,6 +165,7 @@ enum CellTextMode : uint8_t {
   MODE_TEXT_COLOR = 4u,
   MODE_TEXT_CURSOR = 8u,
   MODE_TEXT_POWERLINE = 16u,
+  MODE_TEXT_BLINK = 32u,
 };
 
 struct CellTextVertexIn {
@@ -286,7 +287,7 @@ vertex CellTextVertexOut cell_text_vertex(
   // since we want color glyphs to appear in their original color
   // and Powerline glyphs to be unaffected (else parts of the line would
   // have different colors as some parts are displayed via background colors).
-  if (uniforms.min_contrast > 1.0f && !(mode & ~(MODE_TEXT | MODE_TEXT_BLINK))) {
+  if (uniforms.min_contrast > 1.0f && !(in.mode & ~(MODE_TEXT | MODE_TEXT_BLINK))) {
     float4 bg_color = float4(bg_colors[in.grid_pos.y * uniforms.grid_size.x + in.grid_pos.x]) / 255.0f;
     out.color = contrasted_color(uniforms.min_contrast, out.color, bg_color);
   }
