@@ -2555,14 +2555,7 @@ fn updateCell(
             break :glyph;
         }
 
-        var mode: mtl_shaders.CellText.Mode = .{
-            .fg = true,
-            .fg_constrained = false,
-            .fg_color = false,
-            .cursor = false,
-            .fg_powerline = false,
-            .fg_blink = false,
-        };
+        var mode: mtl_shaders.CellText.Mode = .{ .fg = true };
 
         switch (try fgMode(
             render.presentation,
@@ -2613,14 +2606,7 @@ fn updateCell(
         const color = style.underlineColor(palette) orelse colors.fg;
 
         try self.cells.add(self.alloc, .underline, .{
-            .mode = .{
-                .fg = true,
-                .fg_constrained = false,
-                .fg_color = false,
-                .cursor = false,
-                .fg_powerline = false,
-                .fg_blink = false,
-            },
+            .mode = .{ .fg = true },
             .grid_pos = .{ @intCast(coord.x), @intCast(coord.y) },
             .constraint_width = cell.gridWidth(),
             .color = .{ color.r, color.g, color.b, alpha },
@@ -2645,14 +2631,7 @@ fn updateCell(
         );
 
         try self.cells.add(self.alloc, .strikethrough, .{
-            .mode = .{
-                .fg = true,
-                .fg_constrained = false,
-                .fg_color = false,
-                .cursor = false,
-                .fg_powerline = false,
-                .fg_blink = false,
-            },
+            .mode = .{ .fg = true },
             .grid_pos = .{ @intCast(coord.x), @intCast(coord.y) },
             .constraint_width = cell.gridWidth(),
             .color = .{ colors.fg.r, colors.fg.g, colors.fg.b, alpha },
@@ -2714,14 +2693,7 @@ fn addCursor(
     };
 
     self.cells.setCursor(.{
-        .mode = .{
-            .fg = false,
-            .fg_constrained = false,
-            .fg_color = false,
-            .cursor = true,
-            .fg_powerline = false,
-            .fg_blink = false,
-        },
+        .mode = .{ .fg = false, .cursor = true },
         .grid_pos = .{ x, screen.cursor.y },
         .color = .{ cursor_color.r, cursor_color.g, cursor_color.b, alpha },
         .glyph_pos = .{ render.glyph.atlas_x, render.glyph.atlas_y },
@@ -2770,14 +2742,7 @@ fn addPreeditCell(
 
     // Add our text
     try self.cells.add(self.alloc, .text, .{
-        .mode = .{
-            .fg = true,
-            .fg_constrained = false,
-            .fg_color = false,
-            .cursor = false,
-            .fg_powerline = false,
-            .fg_blink = false,
-        },
+        .mode = .{ .fg = true },
         .grid_pos = .{ @intCast(coord.x), @intCast(coord.y) },
         .color = .{ fg.r, fg.g, fg.b, 255 },
         .glyph_pos = .{ render.glyph.atlas_x, render.glyph.atlas_y },

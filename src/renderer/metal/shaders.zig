@@ -329,11 +329,11 @@ pub const CellText = extern struct {
 
     pub const Mode = packed struct(u8) {
         fg: bool,
-        fg_constrained: bool,
-        fg_color: bool,
-        cursor: bool,
-        fg_powerline: bool,
-        fg_blink: bool,
+        fg_constrained: bool = false,
+        fg_color: bool = false,
+        cursor: bool = false,
+        fg_powerline: bool = false,
+        fg_blink: bool = false,
 
         _padding: u2 = 0,
     };
