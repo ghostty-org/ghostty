@@ -873,6 +873,7 @@ pub fn updateFrame(
     surface: *apprt.Surface,
     state: *renderer.State,
     blink_visible: bool,
+    cursor_blink_visible: bool,
 ) !void {
     _ = surface;
 
@@ -955,7 +956,7 @@ pub fn updateFrame(
         const cursor_style = renderer.cursorStyle(
             state,
             self.focused,
-            blink_visible,
+            cursor_blink_visible,
         );
 
         // Get our preedit state

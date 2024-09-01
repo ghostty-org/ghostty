@@ -56,7 +56,16 @@ draw_active: bool = false,
 draw_now: xev.Async,
 draw_now_c: xev.Completion = .{},
 
-/// The timer used for cursor blinking
+/// The timer used for text blinking. This timer will always run, uninterrupted by
+/// user text input, unlike the cursor blink timer which gets reset during typing.
+blink_h: xev.Timer,
+blink_c: xev.Completion = .{},
+blink_c_cancel: xev.Completion = .{},
+
+/// The timer used for cursor blinking. This timer will get reset on user text input,
+/// ensuring the cursor will always remain visible while typing.
+/// When the user stops typing, the timer will wait till the main blink timer fires,
+/// ensuring that the cursor remains in sync with text blinking.
 cursor_h: xev.Timer,
 cursor_c: xev.Completion = .{},
 cursor_c_cancel: xev.Completion = .{},
@@ -81,6 +90,11 @@ app_mailbox: App.Mailbox,
 config: DerivedConfig,
 
 flags: packed struct {
+    /// This is true when blinking text should be visible and false
+    /// when it should not be visible. This is toggled on a timer by the
+    /// thread automatically.
+    blink_visible: bool = false,
+
     /// This is true when a blinking cursor should be visible and false
     /// when it should not be visible. This is toggled on a timer by the
     /// thread automatically.
@@ -139,6 +153,10 @@ pub fn init(
     var draw_now = try xev.Async.init();
     errdefer draw_now.deinit();
 
+    // Setup a timer for blinking the text
+    var blink_timer = try xev.Timer.init();
+    errdefer blink_timer.deinit();
+
     // Setup a timer for blinking the cursor
     var cursor_timer = try xev.Timer.init();
     errdefer cursor_timer.deinit();
@@ -156,6 +174,7 @@ pub fn init(
         .render_h = render_h,
         .draw_h = draw_h,
         .draw_now = draw_now,
+        .blink_h = blink_timer,
         .cursor_h = cursor_timer,
         .surface = surface,
         .renderer = renderer_impl,
@@ -173,6 +192,7 @@ pub fn deinit(self: *Thread) void {
     self.render_h.deinit();
     self.draw_h.deinit();
     self.draw_now.deinit();
+    self.blink_h.deinit();
     self.cursor_h.deinit();
     self.loop.deinit();
 
@@ -218,7 +238,15 @@ fn threadMain_(self: *Thread) !void {
     // Send an initial wakeup message so that we render right away.
     try self.wakeup.notify();
 
-    // Start blinking the cursor.
+    // Start blinking the cursor and the text on screen.
+    self.blink_h.run(
+        &self.loop,
+        &self.blink_c,
+        CURSOR_BLINK_INTERVAL,
+        Thread,
+        self,
+        blinkTimerCallback,
+    );
     self.cursor_h.run(
         &self.loop,
         &self.cursor_c,
@@ -338,15 +366,15 @@ fn drainMailbox(self: *Thread) !void {
 
             .reset_cursor_blink => {
                 self.flags.cursor_blink_visible = true;
+
                 if (self.cursor_c.state() == .active) {
-                    self.cursor_h.reset(
+                    self.cursor_h.cancel(
                         &self.loop,
                         &self.cursor_c,
                         &self.cursor_c_cancel,
-                        CURSOR_BLINK_INTERVAL,
-                        Thread,
-                        self,
-                        cursorTimerCallback,
+                        void,
+                        null,
+                        cursorCancelCallback,
                     );
                 }
             },
@@ -529,6 +557,7 @@ fn renderCallback(
     t.renderer.updateFrame(
         t.surface,
         t.state,
+        t.flags.blink_visible,
         t.flags.cursor_blink_visible,
     ) catch |err|
         log.warn("error rendering err={}", .{err});
@@ -539,6 +568,28 @@ fn renderCallback(
     return .disarm;
 }
 
+fn blinkTimerCallback(
+    self_: ?*Thread,
+    _: *xev.Loop,
+    _: *xev.Completion,
+    r: xev.Timer.RunError!void,
+) xev.CallbackAction {
+    _ = r catch unreachable;
+
+    const t: *Thread = self_ orelse {
+        // This shouldn't happen so we log it.
+        log.warn("render callback fired without data set", .{});
+        return .disarm;
+    };
+
+    t.flags.blink_visible = !t.flags.blink_visible;
+    t.wakeup.notify() catch {};
+
+    t.cursor_h.run(&t.loop, &t.cursor_c, CURSOR_BLINK_INTERVAL, Thread, t, cursorTimerCallback);
+    t.blink_h.run(&t.loop, &t.blink_c, CURSOR_BLINK_INTERVAL, Thread, t, blinkTimerCallback);
+
+    return .disarm;
+}
 fn cursorTimerCallback(
     self_: ?*Thread,
     _: *xev.Loop,
@@ -561,10 +612,8 @@ fn cursorTimerCallback(
         return .disarm;
     };
 
-    t.flags.cursor_blink_visible = !t.flags.cursor_blink_visible;
-    t.wakeup.notify() catch {};
-
-    t.cursor_h.run(&t.loop, &t.cursor_c, CURSOR_BLINK_INTERVAL, Thread, t, cursorTimerCallback);
+    t.flags.cursor_blink_visible = !t.flags.blink_visible;
+    // We intentionally don't call `t.wakeup.notify()` here to avoid a double redraw.
     return .disarm;
 }
 
