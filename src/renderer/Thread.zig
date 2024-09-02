@@ -16,7 +16,6 @@ const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.renderer_thread);
 
 const DRAW_INTERVAL = 8; // 120 FPS
-const BLINK_INTERVAL = 600;
 
 /// The type used for sending messages to the IO thread. For now this is
 /// hardcoded with a capacity. We can make this a comptime parameter in
@@ -109,12 +108,18 @@ flags: packed struct {
 
 pub const DerivedConfig = struct {
     custom_shader_animation: configpkg.CustomShaderAnimation,
-    text_blink: bool,
+    blink_interval: u64,
 
     pub fn init(config: *const configpkg.Config) DerivedConfig {
+        const blink_interval = std.math.divTrunc(
+            u64,
+            config.@"blink-interval".duration,
+            std.time.ns_per_ms,
+        ) catch std.math.maxInt(u64);
+
         return .{
             .custom_shader_animation = config.@"custom-shader-animation",
-            .text_blink = config.@"text-blink",
+            .blink_interval = blink_interval,
         };
     }
 };
@@ -240,14 +245,16 @@ fn threadMain_(self: *Thread) !void {
     try self.wakeup.notify();
 
     // Start blinking the cursor and the text on screen.
-    self.blink_h.run(
-        &self.loop,
-        &self.blink_c,
-        BLINK_INTERVAL,
-        Thread,
-        self,
-        blinkTimerCallback,
-    );
+    if (self.config.blink_interval > 0) {
+        self.blink_h.run(
+            &self.loop,
+            &self.blink_c,
+            self.config.blink_interval,
+            Thread,
+            self,
+            blinkTimerCallback,
+        );
+    }
 
     // Start the draw timer
     self.startDrawTimer();
@@ -343,12 +350,12 @@ fn drainMailbox(self: *Thread) !void {
 
                     // If we're focused, we immediately make blinking cells visible
                     // again and then restart the timer.
-                    if (self.blink_c.state() != .active) {
+                    if (self.blink_c.state() != .active and self.config.blink_interval > 0) {
                         self.flags.blink_visible = true;
                         self.blink_h.run(
                             &self.loop,
                             &self.blink_c,
-                            BLINK_INTERVAL,
+                            self.config.blink_interval,
                             Thread,
                             self,
                             blinkTimerCallback,
@@ -360,15 +367,17 @@ fn drainMailbox(self: *Thread) !void {
             .reset_cursor_blink => {
                 self.flags.cursor_always_visible = true;
 
-                self.cursor_h.reset(
-                    &self.loop,
-                    &self.cursor_c,
-                    &self.cursor_c_cancel,
-                    BLINK_INTERVAL,
-                    Thread,
-                    self,
-                    resetCursorBlinkCallback,
-                );
+                if (self.config.blink_interval > 0) {
+                    self.cursor_h.reset(
+                        &self.loop,
+                        &self.cursor_c,
+                        &self.cursor_c_cancel,
+                        self.config.blink_interval,
+                        Thread,
+                        self,
+                        resetCursorBlinkCallback,
+                    );
+                }
             },
 
             .font_grid => |grid| {
@@ -549,7 +558,7 @@ fn renderCallback(
     t.renderer.updateFrame(
         t.surface,
         t.state,
-        !t.config.text_blink or t.flags.blink_visible,
+        t.flags.blink_visible,
         t.flags.cursor_always_visible or t.flags.blink_visible,
     ) catch |err|
         log.warn("error rendering err={}", .{err});
@@ -584,7 +593,7 @@ fn blinkTimerCallback(
 
     t.flags.blink_visible = !t.flags.blink_visible;
     t.wakeup.notify() catch {};
-    t.blink_h.run(&t.loop, &t.blink_c, BLINK_INTERVAL, Thread, t, blinkTimerCallback);
+    t.blink_h.run(&t.loop, &t.blink_c, t.config.blink_interval, Thread, t, blinkTimerCallback);
 
     return .disarm;
 }
