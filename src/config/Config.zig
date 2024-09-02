@@ -346,6 +346,13 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 /// This value does not apply to Emoji or images.
 @"minimum-contrast": f64 = 1,
 
+/// Whether to enable blinking text.
+/// Text can be made to blink via a SGR sequence, which is synchronized with
+/// cursor blinking when that is enabled. Text blinking and cursor blinking
+/// can be independently toggled on or off without interfering with each other:
+/// to adjust cursor blinking settings, see `cursor-style-blink`.
+@"text-blink": bool = true,
+
 /// Color palette for the 256 color form that many terminal applications use.
 /// The syntax of this configuration is `N=HEXCODE` where `N` is 0 to 255 (for
 /// the 256 colors in the terminal color table) and `HEXCODE` is a typical RGB

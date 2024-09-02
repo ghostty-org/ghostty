@@ -93,7 +93,7 @@ flags: packed struct {
     /// This is true when blinking text should be visible and false
     /// when it should not be visible. This is toggled on a timer by the
     /// thread automatically.
-    blink_visible: bool = false,
+    blink_visible: bool = true,
 
     /// Whether the cursor should be forced into staying visible regardless
     /// of blinking. Used when the user is typing.
@@ -109,10 +109,12 @@ flags: packed struct {
 
 pub const DerivedConfig = struct {
     custom_shader_animation: configpkg.CustomShaderAnimation,
+    text_blink: bool,
 
     pub fn init(config: *const configpkg.Config) DerivedConfig {
         return .{
             .custom_shader_animation = config.@"custom-shader-animation",
+            .text_blink = config.@"text-blink",
         };
     }
 };
@@ -547,7 +549,7 @@ fn renderCallback(
     t.renderer.updateFrame(
         t.surface,
         t.state,
-        t.flags.blink_visible,
+        !t.config.text_blink or t.flags.blink_visible,
         t.flags.cursor_always_visible or t.flags.blink_visible,
     ) catch |err|
         log.warn("error rendering err={}", .{err});
