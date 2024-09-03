@@ -125,7 +125,7 @@ pub const Contents = struct {
         const bg_cells = try alloc.alloc(mtl_shaders.CellBg, cell_count);
         errdefer alloc.free(bg_cells);
 
-        @memset(bg_cells, .{0, 0, 0, 0});
+        @memset(bg_cells, .{ 0, 0, 0, 0 });
 
         // The foreground lists can hold 3 types of items:
         // - Glyphs
@@ -231,7 +231,7 @@ test Contents {
     for (0..rows) |y| {
         try testing.expect(c.fg_rows.lists[y + 1].items.len == 0);
         for (0..cols) |x| {
-            try testing.expectEqual(.{0, 0, 0, 0}, c.bgCell(y, x).*);
+            try testing.expectEqual(.{ 0, 0, 0, 0 }, c.bgCell(y, x).*);
         }
     }
     // And the cursor row should have a capacity of 1 and also be empty.
@@ -241,7 +241,7 @@ test Contents {
     // Add some contents.
     const bg_cell: mtl_shaders.CellBg = .{ 0, 0, 0, 1 };
     const fg_cell: mtl_shaders.CellText = .{
-        .mode = .fg,
+        .mode = .{ .fg = true },
         .grid_pos = .{ 4, 1 },
         .color = .{ 0, 0, 0, 1 },
     };
@@ -256,13 +256,16 @@ test Contents {
     for (0..rows) |y| {
         try testing.expect(c.fg_rows.lists[y + 1].items.len == 0);
         for (0..cols) |x| {
-            try testing.expectEqual(.{0, 0, 0, 0}, c.bgCell(y, x).*);
+            try testing.expectEqual(.{ 0, 0, 0, 0 }, c.bgCell(y, x).*);
         }
     }
 
     // Add a cursor.
     const cursor_cell: mtl_shaders.CellText = .{
-        .mode = .cursor,
+        .mode = .{
+            .fg = false,
+            .cursor = true,
+        },
         .grid_pos = .{ 2, 3 },
         .color = .{ 0, 0, 0, 1 },
     };
@@ -289,7 +292,7 @@ test "Contents clear retains other content" {
     // bg and fg cells in row 1
     const bg_cell_1: mtl_shaders.CellBg = .{ 0, 0, 0, 1 };
     const fg_cell_1: mtl_shaders.CellText = .{
-        .mode = .fg,
+        .mode = .{ .fg = true },
         .grid_pos = .{ 4, 1 },
         .color = .{ 0, 0, 0, 1 },
     };
@@ -298,7 +301,7 @@ test "Contents clear retains other content" {
     // bg and fg cells in row 2
     const bg_cell_2: mtl_shaders.CellBg = .{ 0, 0, 0, 1 };
     const fg_cell_2: mtl_shaders.CellText = .{
-        .mode = .fg,
+        .mode = .{ .fg = true },
         .grid_pos = .{ 4, 2 },
         .color = .{ 0, 0, 0, 1 },
     };
@@ -329,7 +332,7 @@ test "Contents clear last added content" {
     // bg and fg cells in row 1
     const bg_cell_1: mtl_shaders.CellBg = .{ 0, 0, 0, 1 };
     const fg_cell_1: mtl_shaders.CellText = .{
-        .mode = .fg,
+        .mode = .{ .fg = true },
         .grid_pos = .{ 4, 1 },
         .color = .{ 0, 0, 0, 1 },
     };
@@ -338,7 +341,7 @@ test "Contents clear last added content" {
     // bg and fg cells in row 2
     const bg_cell_2: mtl_shaders.CellBg = .{ 0, 0, 0, 1 };
     const fg_cell_2: mtl_shaders.CellText = .{
-        .mode = .fg,
+        .mode = .{ .fg = true },
         .grid_pos = .{ 4, 2 },
         .color = .{ 0, 0, 0, 1 },
     };
