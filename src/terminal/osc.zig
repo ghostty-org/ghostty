@@ -227,7 +227,10 @@ pub const Parser = struct {
     complete: bool = false,
 
     /// Temporary state that is dependent on the current state.
-    temp_state: union {
+    temp_state: union(enum) {
+        /// Default empty state
+        empty: void,
+
         /// Current string parameter being populated
         str: *[]const u8,
 
@@ -236,7 +239,7 @@ pub const Parser = struct {
 
         /// Temporary state for key/value pairs
         key: []const u8,
-    } = undefined,
+    } = .{ .empty = {} },
 
     // Maximum length of a single OSC command. This is the full OSC command
     // sequence length (excluding ESC ]). This is arbitrary, I couldn't find
@@ -342,6 +345,7 @@ pub const Parser = struct {
         }
 
         self.state = .empty;
+        self.temp_state = .{ .empty = {} };
         self.buf_start = 0;
         self.buf_idx = 0;
         self.complete = false;
@@ -1011,14 +1015,24 @@ pub const Parser = struct {
     }
 
     fn endKittyColorProtocolOption(self: *Parser, kind: enum { key_only, key_and_value }, final: bool) void {
-        if (self.temp_state.key.len == 0) {
-            log.warn("zero length key in kitty color protocol", .{});
-            return;
-        }
+        const key = key: {
+            switch (self.temp_state) {
+                .key => {
+                    if (self.temp_state.key.len == 0) {
+                        log.warn("zero length key in kitty color protocol", .{});
+                        return;
+                    }
 
-        const key = kitty.color.Kind.parse(self.temp_state.key) orelse {
-            log.warn("unknown key in kitty color protocol: {s}", .{self.temp_state.key});
-            return;
+                    break :key kitty.color.Kind.parse(self.temp_state.key) orelse {
+                        log.warn("unknown key in kitty color protocol: {s}", .{self.temp_state.key});
+                        return;
+                    };
+                },
+                else => {
+                    log.warn("no key in kitty color protocol", .{});
+                    return;
+                },
+            }
         };
 
         const value = value: {
@@ -1729,4 +1743,18 @@ test "OSC: kitty color protocol double reset" {
 
     p.reset();
     p.reset();
+}
+
+test "OSC: kitty color protocol no key" {
+    const testing = std.testing;
+
+    var p: Parser = .{ .alloc = testing.allocator };
+    defer p.deinit();
+
+    const input = "21;";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?;
+    try testing.expect(cmd == .kitty_color_protocol);
+    try testing.expectEqual(0, cmd.kitty_color_protocol.list.items.len);
 }
