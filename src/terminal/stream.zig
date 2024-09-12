@@ -1407,6 +1407,11 @@ pub fn Stream(comptime Handler: type) type {
                     } else log.warn("unimplemented OSC callback: {}", .{cmd});
                 },
 
+                .kitty_desktop_notification => |v| {
+                    _ = v;
+                    log.warn("ignoring kitty desktop notification", .{});
+                },
+
                 .hyperlink_start => |v| {
                     if (@hasDecl(T, "startHyperlink")) {
                         try self.handler.startHyperlink(v.uri, v.id);

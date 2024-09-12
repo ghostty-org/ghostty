@@ -199,18 +199,37 @@ pub const VTEvent = struct {
             void => {},
             []const u8 => try md.put("data", try alloc.dupeZ(u8, v)),
             else => |T| switch (@typeInfo(T)) {
-                .Struct => |info| inline for (info.fields) |field| {
-                    try encodeMetadataSingle(
-                        alloc,
-                        md,
-                        field.name,
-                        @field(v, field.name),
-                    );
+                .Struct => |info| {
+                    if (@hasDecl(T, "encodeForInspector"))
+                        try v.encodeForInspector(alloc, md)
+                    else inline for (info.fields) |field| {
+                        try encodeMetadataSingle(
+                            alloc,
+                            md,
+                            field.name,
+                            @field(v, field.name),
+                        );
+                    }
+                },
+
+                .Optional => {
+                    if (v) |v1| {
+                        try encodeMetadata(alloc, md, v1);
+                    } else {
+                        try md.put("data", try alloc.dupeZ(u8, "(unset)"));
+                    }
+                },
+
+                .Opaque => {
+                    try md.put("data", try alloc.dupeZ(u8, "(opaque)"));
+                },
+
+                .Pointer => {
+                    try encodeMetadata(alloc, md, v.*);
                 },
 
                 else => {
-                    @compileLog(T);
-                    @compileError("unsupported type, see log");
+                    try md.put("data", try alloc.dupeZ(u8, "(unknown)"));
                 },
             },
         }
@@ -231,6 +250,11 @@ pub const VTEvent = struct {
                 try md.put(key, try alloc.dupeZ(u8, "(unset)"));
             },
 
+            .Int => try md.put(
+                key,
+                try std.fmt.allocPrintZ(alloc, "{d}", .{value}),
+            ),
+
             .Bool => try md.put(
                 key,
                 try alloc.dupeZ(u8, if (value) "true" else "false"),
@@ -246,23 +270,19 @@ pub const VTEvent = struct {
                 const tag_name = @tagName(@as(Tag, value));
                 inline for (u.fields) |field| {
                     if (std.mem.eql(u8, field.name, tag_name)) {
-                        const s = if (field.type == void)
-                            try alloc.dupeZ(u8, tag_name)
-                        else
-                            try std.fmt.allocPrintZ(alloc, "{s}={}", .{
-                                tag_name,
-                                @field(value, field.name),
-                            });
-
-                        try md.put(key, s);
+                        try encodeMetadataSingle(alloc, md, tag_name, @field(value, field.name));
                     }
                 }
             },
 
-            .Struct => try md.put(
-                key,
-                try alloc.dupeZ(u8, @typeName(Value)),
-            ),
+            .Struct => {
+                try md.put(
+                    key,
+                    try alloc.dupeZ(u8, @typeName(Value)),
+                );
+            },
+
+            .Void => try md.put(key, try alloc.dupeZ(u8, "(void)")),
 
             else => switch (Value) {
                 u8 => try md.put(
@@ -272,9 +292,11 @@ pub const VTEvent = struct {
 
                 []const u8 => try md.put(key, try alloc.dupeZ(u8, value)),
 
-                else => |T| {
-                    @compileLog(T);
-                    @compileError("unsupported type, see log");
+                else => {
+                    var l = std.ArrayList(u8).init(alloc);
+                    errdefer l.deinit();
+                    try std.json.stringify(value, .{}, l.writer());
+                    try md.put(key, try l.toOwnedSliceSentinel(0));
                 },
             },
         }
