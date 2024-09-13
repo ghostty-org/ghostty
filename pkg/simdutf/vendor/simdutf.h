@@ -2328,7 +2328,7 @@ simdutf_warn_unused size_t maximal_binary_length_from_base64(const char * input,
 simdutf_warn_unused size_t maximal_binary_length_from_base64(const char16_t * input, size_t length) noexcept;
 
 /**
- * Convert a base64 input to a binary ouput.
+ * Convert a base64 input to a binary output.
  *
  * This function follows the WHATWG forgiving-base64 format, which means that it will
  * ignore any ASCII spaces in the input. You may provide a padded input (with one or two
@@ -2365,7 +2365,7 @@ simdutf_warn_unused result base64_to_binary(const char * input, size_t length, c
 simdutf_warn_unused size_t base64_length_from_binary(size_t length, base64_options options = base64_default) noexcept;
 
 /**
- * Convert a binary input to a base64 ouput. The output is always padded with equal signs so that it is
+ * Convert a binary input to a base64 output. The output is always padded with equal signs so that it is
  * a multiple of 4 bytes long.
  *
  * This function always succeeds.
@@ -2379,7 +2379,7 @@ simdutf_warn_unused size_t base64_length_from_binary(size_t length, base64_optio
 size_t binary_to_base64(const char * input, size_t length, char* output, base64_options options = base64_default) noexcept;
 
 /**
- * Convert a base64 input to a binary ouput.
+ * Convert a base64 input to a binary output.
  *
  * This function follows the WHATWG forgiving-base64 format, which means that it will
  * ignore any ASCII spaces in the input. You may provide a padded input (with one or two
@@ -2408,7 +2408,7 @@ size_t binary_to_base64(const char * input, size_t length, char* output, base64_
 simdutf_warn_unused result base64_to_binary(const char16_t * input, size_t length, char* output, base64_options options = base64_default)  noexcept;
 
 /**
- * Convert a base64 input to a binary ouput.
+ * Convert a base64 input to a binary output.
  *
  * This function follows the WHATWG forgiving-base64 format, which means that it will
  * ignore any ASCII spaces in the input. You may provide a padded input (with one or two
@@ -3531,7 +3531,7 @@ public:
   simdutf_warn_unused virtual size_t maximal_binary_length_from_base64(const char16_t * input, size_t length) const noexcept = 0;
 
   /**
-   * Convert a base64 input to a binary ouput.
+   * Convert a base64 input to a binary output.
    *
    * This function follows the WHATWG forgiving-base64 format, which means that it will
    * ignore any ASCII spaces in the input. You may provide a padded input (with one or two
@@ -3556,7 +3556,7 @@ public:
   simdutf_warn_unused virtual result base64_to_binary(const char * input, size_t length, char* output, base64_options options = base64_default) const noexcept = 0;
 
   /**
-   * Convert a base64 input to a binary ouput.
+   * Convert a base64 input to a binary output.
    *
    * This function follows the WHATWG forgiving-base64 format, which means that it will
    * ignore any ASCII spaces in the input. You may provide a padded input (with one or two
@@ -3584,13 +3584,13 @@ public:
    * Provide the base64 length in bytes given the length of a binary input.
    *
    * @param length        the length of the input in bytes
-   * @parem options       the base64 options to use, can be base64_default or base64_url, is base64_default by default.
+   * @param options       the base64 options to use, can be base64_default or base64_url, is base64_default by default.
    * @return number of base64 bytes
    */
   simdutf_warn_unused virtual size_t base64_length_from_binary(size_t length, base64_options options = base64_default) const noexcept = 0;
 
   /**
-   * Convert a binary input to a base64 ouput. The output is always padded with equal signs so that it is
+   * Convert a binary input to a base64 output. The output is always padded with equal signs so that it is
    * a multiple of 4 bytes long.
    *
    * This function always succeeds.

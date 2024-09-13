@@ -107,7 +107,7 @@ Whitespace
         x / unit_x
 
 * Do not put spaces after the address-of operator, the * when used as
-  a pointer derefernce or the ! and ~ operators:
+  a pointer dereference or the ! and ~ operators:
 
      &foo;
 

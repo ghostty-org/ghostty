@@ -102,7 +102,7 @@ fn kitty(
 
         // IME confirmation still sends an enter key so if we have enter
         // and UTF8 text we just send it directly since we assume that is
-        // whats happening.
+        // what's happening.
         if (self.event.key == .enter and
             self.event.utf8.len > 0)
         {

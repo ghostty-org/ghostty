@@ -307,7 +307,7 @@
 
 /*
  * Macros for interleaving src and dst pixels to rrrr gggg bbbb aaaa form.
- * Interleave should be done when maks is enabled or operator is 'over'.
+ * Interleave should be done when mask is enabled or operator is 'over'.
  */
 .macro bilinear_interleave src0, src1, dst0, dst1
     vuzp.8      src0, src1
@@ -579,7 +579,7 @@
 /*
  * Main template macro for generating NEON optimized bilinear scanline functions.
  *
- * Bilinear scanline generator macro take folling arguments:
+ * Bilinear scanline generator macro take following arguments:
  *  fname			- name of the function to generate
  *  src_fmt			- source color format (8888 or 0565)
  *  dst_fmt			- destination color format (8888 or 0565)

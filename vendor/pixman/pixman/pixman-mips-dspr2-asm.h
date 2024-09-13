@@ -112,7 +112,7 @@ LEAF_MIPS32R2(symbol)                                   \
 
 /*
  * Saves set of registers on stack. Maximum number of registers that
- * can be saved on stack is limitted to 14 (a0-a3, v0-v1 and s0-s7).
+ * can be saved on stack is limited to 14 (a0-a3, v0-v1 and s0-s7).
  * Stack offset is number of bytes that are added to stack pointer (sp)
  * before registers are pushed in order to provide enough space on stack
  * (offset must be multiple of 4, and must be big enough, as described by
@@ -128,7 +128,7 @@ LEAF_MIPS32R2(symbol)                                   \
                           r11 = 0, r12 = 0, r13 = 0, \
                           r14 = 0
     .if (\stack_offset < 0) || (\stack_offset - (\stack_offset / 4) * 4)
-    .error "Stack offset must be pozitive and multiple of 4."
+    .error "Stack offset must be positive and multiple of 4."
     .endif
     .if \stack_offset != 0
     addiu           sp, sp, -\stack_offset
@@ -187,7 +187,7 @@ LEAF_MIPS32R2(symbol)                                   \
 
 /*
  * Restores set of registers from stack. Maximum number of registers that
- * can be restored from stack is limitted to 14 (a0-a3, v0-v1 and s0-s7).
+ * can be restored from stack is limited to 14 (a0-a3, v0-v1 and s0-s7).
  * Stack offset is number of bytes that are added to stack pointer (sp)
  * after registers are restored (offset must be multiple of 4, and must
  * be big enough, as described by CHECK_STACK_OFFSET macro). This macro is
@@ -203,7 +203,7 @@ LEAF_MIPS32R2(symbol)                                   \
                                r11 = 0, r12 = 0, r13 = 0, \
                                r14 = 0
     .if (\stack_offset < 0) || (\stack_offset - (\stack_offset/4)*4)
-    .error "Stack offset must be pozitive and multiple of 4."
+    .error "Stack offset must be positive and multiple of 4."
     .endif
     lw              \r1, 0(sp)
     .if \r2 != 0

@@ -335,7 +335,7 @@ fn processExit(
     // exited flag is set to true. This allows the terminal window to remain
     // open.
     if (execdata.wait_after_command) {
-        // We output a message so that the user knows whats going on and
+        // We output a message so that the user knows what's going on and
         // doesn't think their terminal just froze.
         terminal: {
             td.renderer_state.mutex.lock();

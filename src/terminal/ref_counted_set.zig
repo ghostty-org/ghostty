@@ -205,7 +205,7 @@ pub fn RefCountedSet(
             OutOfMemory,
 
             /// The set needs to be rehashed, as there are many dead
-            /// items with lower IDs which are inaccessible for re-use.
+            /// items with lower IDs which are inaccessible for reuse.
             NeedsRehash,
         };
 
@@ -557,7 +557,7 @@ pub fn RefCountedSet(
                 const item = &items[id];
 
                 // If there's a dead item then we resurrect it
-                // for our value so that we can re-use its ID.
+                // for our value so that we can reuse its ID.
                 if (item.meta.ref == 0) {
                     if (comptime @hasDecl(Context, "deleted")) {
                         // Inform the context struct that we're

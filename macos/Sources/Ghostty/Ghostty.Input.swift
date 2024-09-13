@@ -28,7 +28,7 @@ extension Ghostty {
         if (flags.contains(.capsLock)) { mods |= GHOSTTY_MODS_CAPS.rawValue }
 
         // Handle sided input. We can't tell that both are pressed in the
-        // Ghostty structure but thats okay -- we don't use that information.
+        // Ghostty structure but that's okay -- we don't use that information.
         let rawFlags = flags.rawValue
         if (rawFlags & UInt(NX_DEVICERSHIFTKEYMASK) != 0) { mods |= GHOSTTY_MODS_SHIFT_RIGHT.rawValue }
         if (rawFlags & UInt(NX_DEVICERCTLKEYMASK) != 0) { mods |= GHOSTTY_MODS_CTRL_RIGHT.rawValue }

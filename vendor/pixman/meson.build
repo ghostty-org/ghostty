@@ -464,7 +464,7 @@ if pthreads_found
 endif
 
 funcs = ['sigaction', 'alarm', 'mprotect', 'getpagesize', 'mmap', 'getisax', 'gettimeofday']
-# mingw claimes to have posix_memalign, but it doesn't
+# mingw claims to have posix_memalign, but it doesn't
 if host_machine.system() != 'windows'
   funcs += 'posix_memalign'
 endif

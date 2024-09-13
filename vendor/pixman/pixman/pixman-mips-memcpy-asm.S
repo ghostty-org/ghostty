@@ -61,7 +61,7 @@ LEAF_MIPS32R2(pixman_mips_fast_memcpy)
 
 	andi	a3, a3, 0x3	/* we need to copy a3 bytes to make a0/a1 aligned */
 	beq	a3, zero, $chk16w	/* when a3=0 then the dst (a0) is word-aligned */
-	subu	a2, a2, a3	/* now a2 is the remining bytes count */
+	subu	a2, a2, a3	/* now a2 is the remaining bytes count */
 
 	LWHI	t8, 0(a1)
 	addu	a1, a1, a3

@@ -627,7 +627,7 @@ pixman_coalesce (region_type_t * region,      /* Region to coalesce		 */
     return prev_start;
 }
 
-/* Quicky macro to avoid trivial reject procedure calls to pixman_coalesce */
+/* Quickie macro to avoid trivial reject procedure calls to pixman_coalesce */
 
 #define COALESCE(new_reg, prev_band, cur_band)                          \
     do									\
@@ -1544,7 +1544,7 @@ quick_sort_rects (
  *
  * Side Effects:
  *      The passed-in ``region'' may be modified.
- *	overlap set to TRUE if any retangles overlapped,
+ *	overlap set to TRUE if any rectangles overlapped,
  *      else FALSE;
  *
  * Strategy:

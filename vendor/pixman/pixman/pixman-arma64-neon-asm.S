@@ -67,7 +67,7 @@
  * as NOP to workaround some HW bugs or for whatever other reason)
  *
  * PREFETCH_TYPE_SIMPLE (may be useful for simple single-issue ARM cores where
- * advanced prefetch intruduces heavy overhead)
+ * advanced prefetch introduces heavy overhead)
  *
  * PREFETCH_TYPE_ADVANCED (useful for superscalar cores such as ARM Cortex-A8
  * which can run ARM and NEON instructions simultaneously so that extra ARM
@@ -96,7 +96,7 @@
  * handling unaligned leading/trailing pixels), so we only need to deal with
  * the data in NEON registers.
  *
- * NEON registers allocation in general is recommented to be the following:
+ * NEON registers allocation in general is recommended to be the following:
  * v0,  v1,  v2,  v3  - contain loaded source pixel data
  * v4,  v5,  v6,  v7  - contain loaded destination pixels (if they are needed)
  * v24, v25, v26, v27 - contain loading mask pixel data (if mask is used)
@@ -113,7 +113,7 @@
  */
 
 /*
- * Step one. We need to have some code to do some arithmetics on pixel data.
+ * Step one. We need to have some code to do some arithmetic on pixel data.
  * This is implemented as a pair of macros: '*_head' and '*_tail'. When used
  * back-to-back, they take pixel data from {v0, v1, v2, v3} and {v4, v5},
  * perform all the needed calculations and write the result to {v28, v29}.
@@ -222,7 +222,7 @@
  *   cache_preload 8, 8
  *
  * Now it also got some VLD/VST instructions. We simply can't move from
- * processing one block of pixels to the other one with just arithmetics.
+ * processing one block of pixels to the other one with just arithmetic.
  * The previously processed data needs to be written to memory and new
  * data needs to be fetched. Fortunately, this main loop does not deal
  * with partial leading/trailing pixels and can load/store a full block

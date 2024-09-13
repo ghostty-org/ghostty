@@ -787,7 +787,7 @@ sse2_combine_over_reverse_u (pixman_implementation_t *imp,
 		    &xmm_alpha_lo, &xmm_alpha_hi,
 		    &xmm_src_lo, &xmm_src_hi);
 
-	/* rebuid the 4 pixel data and save*/
+	/* rebuild the 4 pixel data and save*/
 	save_128_aligned ((__m128i*)pd,
 			  pack_2x128_128 (xmm_src_lo, xmm_src_hi));
 
@@ -2437,7 +2437,7 @@ sse2_composite_over_n_8888 (pixman_implementation_t *imp,
 			&xmm_alpha, &xmm_alpha,
 			&xmm_dst_lo, &xmm_dst_hi);
 
-	    /* rebuid the 4 pixel data and save*/
+	    /* rebuild the 4 pixel data and save*/
 	    save_128_aligned (
 		(__m128i*)dst, pack_2x128_128 (xmm_dst_lo, xmm_dst_hi));
 
@@ -3155,7 +3155,7 @@ sse2_composite_over_8888_0565 (pixman_implementation_t *imp,
 				&xmm_alpha_lo, &xmm_alpha_hi);
 
 	    /* I'm loading next 4 pixels from memory
-	     * before to optimze the memory read.
+	     * before to optimize the memory read.
 	     */
 	    xmm_src = load_128_unaligned ((__m128i*) (src + 4));
 
@@ -5395,7 +5395,7 @@ scaled_nearest_scanline_sse2_8888_8888_OVER (uint32_t*       pd,
 			&xmm_alpha_lo, &xmm_alpha_hi,
 			&xmm_dst_lo, &xmm_dst_hi);
 
-	    /* rebuid the 4 pixel data and save*/
+	    /* rebuild the 4 pixel data and save*/
 	    save_128_aligned ((__m128i*)pd,
 			      pack_2x128_128 (xmm_dst_lo, xmm_dst_hi));
 	}

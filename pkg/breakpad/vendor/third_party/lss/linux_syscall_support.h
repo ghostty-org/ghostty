@@ -3031,7 +3031,7 @@ struct kernel_statx {
        * Unfortunately, we cannot just reference the glibc version of this
        * function, as glibc goes out of its way to make it inaccessible.
        *
-       * This is simular to __kernel_rt_sigreturn().
+       * This is similar to __kernel_rt_sigreturn().
        */
       long long res;
       __asm__ __volatile__("b      2f\n"
@@ -3040,7 +3040,7 @@ struct kernel_statx {
                            * see aarch64's vdso/sigreturn.S in the kernel.
                            */
                           "nop\n"
-                          /* Some system softwares recognize this instruction
+                          /* Some system software recognize this instruction
                            * sequence to unwind from * signal handlers. Do not
                            * modify the next two instructions.
                            */
@@ -4466,7 +4466,7 @@ struct kernel_statx {
       /* On aarch64, the kernel requires us to always set our own
        * SA_RESTORER in order to be able to return from a signal handler.
        * This function must have a known "magic" instruction sequence
-       * that system softwares like a stack unwinder can recognize.
+       * that system software like a stack unwinder can recognize.
        */
       if (act != NULL && !(act->sa_flags & SA_RESTORER)) {
         struct kernel_sigaction a = *act;

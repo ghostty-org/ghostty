@@ -155,7 +155,7 @@ static const filter_info_t filters[] =
  *
  * This function assumes that the intervals are within
  * the kernels in question. E.g., the caller must not
- * try to integrate a linear kernel ouside of [-1:1]
+ * try to integrate a linear kernel outside of [-1:1]
  */
 static double
 integral (pixman_kernel_t kernel1, double x1,

@@ -463,7 +463,7 @@ palette: Palette = .{},
 /// than 0.01 or greater than 10,000 will be clamped to the nearest valid
 /// value.
 ///
-/// A value of "1" (default) scrolls te default amount. A value of "2" scrolls
+/// A value of "1" (default) scrolls the default amount. A value of "2" scrolls
 /// double the default amount. A value of "0.5" scrolls half the default amount.
 /// Et cetera.
 @"mouse-scroll-multiplier": f64 = 1.0,
@@ -1049,7 +1049,7 @@ keybind: Keybinds = .{},
 @"clipboard-paste-bracketed-safe": bool = true,
 
 /// The total amount of bytes that can be used for image data (i.e. the Kitty
-/// image protocol) per terminal scren. The maximum value is 4,294,967,295
+/// image protocol) per terminal screen. The maximum value is 4,294,967,295
 /// (4GiB). The default is 320MB. If this is set to zero, then all image
 /// protocols will be disabled.
 ///
@@ -2174,7 +2174,7 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
     self.@"config-default-files" = true;
 
     // Keep track of the replay steps up to this point so we
-    // can replay if we are disgarding the default files.
+    // can replay if we are discarding the default files.
     const replay_len_start = self._replay_steps.items.len;
 
     // Keep track of font families because if they are set from the CLI

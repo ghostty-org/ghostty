@@ -1610,7 +1610,7 @@ fn keyEvent(
         else
             // On Wayland, we have to use the GDK device because the mods sent
             // to this event do not have the modifier key applied if it was
-            // presssed (i.e. left control).
+            // pressed (i.e. left control).
             translateMods(c.gdk_device_get_modifier_state(device));
 
         mods.num_lock = c.gdk_device_get_num_lock_state(device) == 1;
