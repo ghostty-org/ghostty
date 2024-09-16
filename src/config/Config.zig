@@ -1732,7 +1732,7 @@ term: []const u8 = "xterm-ghostty",
 ///   * `audio` - Play an audible sound. (Currently Linux-only if libcanberra
 ///     support has been compiled in.)
 ///
-///   * `visual` - Flashes a visiual indication in the surface that triggered
+///   * `visual` - Flashes a visual indication in the surface that triggered
 ///     the bell. (Currently not implemented.)
 ///
 ///   * `notification` - Displays a desktop notification.
