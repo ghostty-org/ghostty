@@ -4999,37 +4999,6 @@ pub const BellAudio = union(enum) {
     message: void,
     custom: [:0]const u8,
 
-    pub fn parseCLI(self: *BellAudio, alloc: std.mem.Allocator, input: ?[]const u8) !void {
-        const value = input orelse return error.ValueRequired;
-        const key_str = value[0 .. std.mem.indexOfScalar(u8, value, ':') orelse value.len];
-        if (std.meta.stringToEnum(std.meta.Tag(BellAudio), std.mem.trim(u8, key_str, &std.ascii.whitespace))) |key| switch (key) {
-            .bell => {
-                self.* = .{ .bell = {} };
-            },
-            .message => {
-                self.* = .{ .message = {} };
-            },
-            .custom => {
-                if (key_str.len == value.len) return error.ValueRequired;
-                const rest = std.mem.trim(u8, value[key_str.len + 1 ..], &std.ascii.whitespace);
-                if (rest.len == 0) return error.ValueRequired;
-                if (std.fs.path.isAbsolute(rest))
-                    self.* = .{
-                        .custom = try alloc.dupeZ(u8, rest),
-                    }
-                else
-                    self.* = .{
-                        .custom = try std.fs.path.joinZ(alloc, &.{
-                            try internal_os.xdg.config(alloc, .{ .subdir = "ghostty/media" }),
-                            rest,
-                        }),
-                    };
-            },
-        } else {
-            return error.ValueRequired;
-        }
-    }
-
     pub fn formatEntry(self: BellAudio, formatter: anytype) !void {
         switch (self) {
             .bell, .message => try formatter.formatEntry([]const u8, @tagName(self)),
@@ -5044,65 +5013,6 @@ pub const BellAudio = union(enum) {
                     ) catch return error.OutOfMemory,
                 );
             },
-        }
-    }
-
-    test "parseCLI" {
-        var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-        defer arena.deinit();
-        const alloc = arena.allocator();
-
-        {
-            var b: BellAudio = undefined;
-            try b.parseCLI(alloc, "bell");
-            try std.testing.expect(b == .bell);
-        }
-        {
-            var b: BellAudio = undefined;
-            try b.parseCLI(alloc, "message");
-            try std.testing.expect(b == .message);
-        }
-        {
-            var b: BellAudio = undefined;
-            try b.parseCLI(alloc, "message:");
-            try std.testing.expect(b == .message);
-        }
-        {
-            var b: BellAudio = undefined;
-            try b.parseCLI(alloc, " message : ");
-            try std.testing.expect(b == .message);
-        }
-        {
-            var b: BellAudio = undefined;
-            try b.parseCLI(alloc, "custom:/tmp/bell.oga");
-            try std.testing.expect(b == .custom);
-            try std.testing.expectEqualStrings("/tmp/bell.oga", b.custom);
-        }
-        {
-            var b: BellAudio = undefined;
-            try b.parseCLI(alloc, " custom : /tmp/bell.oga ");
-            try std.testing.expect(b == .custom);
-            try std.testing.expectEqualStrings("/tmp/bell.oga", b.custom);
-        }
-        {
-            var b: BellAudio = undefined;
-            try std.testing.expectError(error.ValueRequired, b.parseCLI(alloc, " custom :  "));
-        }
-        {
-            var b: BellAudio = undefined;
-            try std.testing.expectError(error.ValueRequired, b.parseCLI(alloc, " custom   "));
-        }
-        {
-            var b: BellAudio = undefined;
-            try std.testing.expectError(error.ValueRequired, b.parseCLI(alloc, "  "));
-        }
-        {
-            var b: BellAudio = undefined;
-            try std.testing.expectError(error.ValueRequired, b.parseCLI(alloc, ""));
-        }
-        {
-            var b: BellAudio = undefined;
-            try std.testing.expectError(error.ValueRequired, b.parseCLI(alloc, null));
         }
     }
 

@@ -1154,11 +1154,32 @@ fn showContextMenu(self: *Surface, x: f32, y: f32) void {
 }
 
 pub fn bell(self: *Surface) !void {
-    if (self.app.config.@"bell-features".audio) {
+    if (self.app.config.@"bell-features".audio) audio: {
         const stream = switch (self.app.config.@"bell-audio") {
             .bell => c.gtk_media_file_new_for_resource("/com/mitchellh/ghostty/media/bell.oga"),
             .message => c.gtk_media_file_new_for_resource("/com/mitchellh/ghostty/media/message.oga"),
-            .custom => |filename| c.gtk_media_file_new_for_filename(filename),
+            .custom => |filename| stream: {
+                var arena = std.heap.ArenaAllocator.init(self.app.core_app.alloc);
+                defer arena.deinit();
+                const alloc = arena.allocator();
+                const pathname = pathname: {
+                    if (std.fs.path.isAbsolute(filename))
+                        break :pathname try alloc.dupeZ(u8, filename)
+                    else
+                        break :pathname try std.fs.path.joinZ(alloc, &.{
+                            try internal_os.xdg.config(
+                                alloc,
+                                .{ .subdir = "ghostty/media" },
+                            ),
+                            filename,
+                        });
+                };
+                std.fs.accessAbsoluteZ(pathname, .{ .mode = .read_only }) catch {
+                    log.warn("unable to find sound file: {s}", .{filename});
+                    break :audio;
+                };
+                break :stream c.gtk_media_file_new_for_filename(pathname);
+            },
         };
         _ = c.g_signal_connect_data(
             stream,
