@@ -1729,18 +1729,19 @@ term: []const u8 = "xterm-ghostty",
 ///
 /// Available features:
 ///
-///   * `audio` - Play an audible sound. (Currently Linux-only if libcanberra
-///     support has been compiled in.)
+///   * `audio` - Play an audible sound. (GTK only).
 ///
 ///   * `visual` - Flashes a visual indication in the surface that triggered
 ///     the bell. (Currently not implemented.)
 ///
-///   * `notification` - Displays a desktop notification.
+///   * `notification` - Displays a desktop notification. (Currently not
+///     implemented.)
 ///
 ///   * `title` - Will add a visual indicator to the window/tab title.
+///     (Currently not implemented.)
 ///
 ///   * `command` - Will run a command (e.g. for haptic feedback or flashing a
-///     physical light).
+///     physical light). (Currently not implemented.)
 ///
 /// Example: `audio`, `no-audio`, `visual`, `no-visual`, `notification`, `no-notification`
 ///
