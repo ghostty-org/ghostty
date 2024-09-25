@@ -4,11 +4,11 @@
 // used to multiplex multiple render modes into a single shader.
 //
 // NOTE: this must be kept in sync with the fragment shader
-const uint MODE_BG = 1u;
-const uint MODE_FG = 2u;
-const uint MODE_FG_CONSTRAINED = 3u;
-const uint MODE_FG_COLOR = 7u;
-const uint MODE_FG_POWERLINE = 15u;
+const uint MODE_FG             = 1u;
+const uint MODE_FG_CONSTRAINED = 2u;
+const uint MODE_FG_COLOR       = 4u;
+const uint MODE_FG_POWERLINE   = 8u;
+const uint MODE_FG_BLINK       = 16u;
 
 // The grid coordinates (x, y) where x < columns and y < rows
 layout (location = 0) in vec2 grid_coord;
@@ -170,8 +170,8 @@ void main() {
     vec2 cell_size_scaled = cell_size;
     cell_size_scaled.x = cell_size_scaled.x * grid_width;
 
-    switch (mode) {
-    case MODE_BG:
+    if ((mode & MODE_FG) == 0u) {
+        // Draw background
         // If we're at the edge of the grid, we add our padding to the background
         // to extend it. Note: grid_padding is top/right/bottom/left.
         if (grid_coord.y == 0 && padding_vertical_top) {
@@ -194,12 +194,7 @@ void main() {
 
         gl_Position = projection * vec4(cell_pos, cell_z, 1.0);
         color = color_in / 255.0;
-        break;
-
-    case MODE_FG:
-    case MODE_FG_CONSTRAINED:
-    case MODE_FG_COLOR:
-    case MODE_FG_POWERLINE:
+    } else {
         vec2 glyph_offset_calc = glyph_offset;
 
         // The glyph_offset.y is the y bearing, a y value that when added
@@ -211,7 +206,7 @@ void main() {
         // We also always constrain colored glyphs since we should have
         // their scaled cell size exactly correct.
         vec2 glyph_size_calc = glyph_size;
-        if (mode == MODE_FG_CONSTRAINED || mode == MODE_FG_COLOR) {
+        if ((mode & (MODE_FG_CONSTRAINED | MODE_FG_COLOR)) != 0u) {
             if (glyph_size.x > cell_size_scaled.x) {
                 float new_y = glyph_size.y * (cell_size_scaled.x / glyph_size.x);
                 glyph_offset_calc.y = glyph_offset_calc.y + ((glyph_size.y - new_y) / 2);
@@ -227,16 +222,10 @@ void main() {
         // We need to convert our texture position and size to normalized
         // device coordinates (0 to 1.0) by dividing by the size of the texture.
         ivec2 text_size;
-        switch(mode) {
-        case MODE_FG_CONSTRAINED:
-        case MODE_FG_POWERLINE:
-        case MODE_FG:
-            text_size = textureSize(text, 0);
-            break;
-
-        case MODE_FG_COLOR:
-            text_size = textureSize(text_color, 0);
-            break;
+        if ((mode & MODE_FG_COLOR) != 0u) {
+          text_size = textureSize(text_color, 0);
+        } else {
+          text_size = textureSize(text, 0);
         }
         vec2 glyph_tex_pos = glyph_pos / text_size;
         vec2 glyph_tex_size = glyph_size / text_size;
@@ -250,11 +239,10 @@ void main() {
         // and Powerline glyphs to be unaffected (else parts of the line would
         // have different colors as some parts are displayed via background colors).
         vec4 color_final = color_in / 255.0;
-        if (min_contrast > 1.0 && mode == MODE_FG) {
+        if (min_contrast > 1.0 && (mode & ~(MODE_FG | MODE_FG_BLINK)) != 0u) {
             vec4 bg_color = bg_color_in / 255.0;
             color_final = contrasted_color(min_contrast, color_final, bg_color);
         }
         color = color_final;
-        break;
     }
 }

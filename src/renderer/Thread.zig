@@ -16,7 +16,6 @@ const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.renderer_thread);
 
 const DRAW_INTERVAL = 8; // 120 FPS
-const CURSOR_BLINK_INTERVAL = 600;
 
 /// The type used for sending messages to the IO thread. For now this is
 /// hardcoded with a capacity. We can make this a comptime parameter in
@@ -56,7 +55,16 @@ draw_active: bool = false,
 draw_now: xev.Async,
 draw_now_c: xev.Completion = .{},
 
-/// The timer used for cursor blinking
+/// The timer used for text blinking. This timer will always run, uninterrupted by
+/// user text input.
+blink_h: xev.Timer,
+blink_c: xev.Completion = .{},
+blink_c_cancel: xev.Completion = .{},
+
+/// The timer used to reset cursor blinking. When the cursor is set to always visible
+/// (for example, while typing), this timer introduces a delay that synchronizes with
+/// the main blink timer, to unset the always visible flag and allow the cursor to blink
+/// in sync with the rest of the screen again.
 cursor_h: xev.Timer,
 cursor_c: xev.Completion = .{},
 cursor_c_cancel: xev.Completion = .{},
@@ -81,10 +89,14 @@ app_mailbox: App.Mailbox,
 config: DerivedConfig,
 
 flags: packed struct {
-    /// This is true when a blinking cursor should be visible and false
+    /// This is true when blinking text should be visible and false
     /// when it should not be visible. This is toggled on a timer by the
     /// thread automatically.
-    cursor_blink_visible: bool = false,
+    blink_visible: bool = true,
+
+    /// Whether the cursor should be forced into staying visible regardless
+    /// of blinking. Used when the user is typing.
+    cursor_always_visible: bool = false,
 
     /// This is true when the inspector is active.
     has_inspector: bool = false,
@@ -96,10 +108,18 @@ flags: packed struct {
 
 pub const DerivedConfig = struct {
     custom_shader_animation: configpkg.CustomShaderAnimation,
+    blink_interval: u64,
 
     pub fn init(config: *const configpkg.Config) DerivedConfig {
+        const blink_interval = std.math.divTrunc(
+            u64,
+            config.@"blink-interval".duration,
+            std.time.ns_per_ms,
+        ) catch std.math.maxInt(u64);
+
         return .{
             .custom_shader_animation = config.@"custom-shader-animation",
+            .blink_interval = blink_interval,
         };
     }
 };
@@ -139,6 +159,10 @@ pub fn init(
     var draw_now = try xev.Async.init();
     errdefer draw_now.deinit();
 
+    // Setup a timer for blinking the text
+    var blink_timer = try xev.Timer.init();
+    errdefer blink_timer.deinit();
+
     // Setup a timer for blinking the cursor
     var cursor_timer = try xev.Timer.init();
     errdefer cursor_timer.deinit();
@@ -156,6 +180,7 @@ pub fn init(
         .render_h = render_h,
         .draw_h = draw_h,
         .draw_now = draw_now,
+        .blink_h = blink_timer,
         .cursor_h = cursor_timer,
         .surface = surface,
         .renderer = renderer_impl,
@@ -173,6 +198,7 @@ pub fn deinit(self: *Thread) void {
     self.render_h.deinit();
     self.draw_h.deinit();
     self.draw_now.deinit();
+    self.blink_h.deinit();
     self.cursor_h.deinit();
     self.loop.deinit();
 
@@ -218,15 +244,17 @@ fn threadMain_(self: *Thread) !void {
     // Send an initial wakeup message so that we render right away.
     try self.wakeup.notify();
 
-    // Start blinking the cursor.
-    self.cursor_h.run(
-        &self.loop,
-        &self.cursor_c,
-        CURSOR_BLINK_INTERVAL,
-        Thread,
-        self,
-        cursorTimerCallback,
-    );
+    // Start blinking the cursor and the text on screen.
+    if (self.config.blink_interval > 0) {
+        self.blink_h.run(
+            &self.loop,
+            &self.blink_c,
+            self.config.blink_interval,
+            Thread,
+            self,
+            blinkTimerCallback,
+        );
+    }
 
     // Start the draw timer
     self.startDrawTimer();
@@ -303,50 +331,51 @@ fn drainMailbox(self: *Thread) !void {
                         self.stopDrawTimer();
                     }
 
-                    // If we're not focused, then we stop the cursor blink
-                    if (self.cursor_c.state() == .active and
-                        self.cursor_c_cancel.state() == .dead)
+                    // If we're not focused, then we stop the blink
+                    if (self.blink_c.state() == .active and
+                        self.blink_c_cancel.state() == .dead)
                     {
-                        self.cursor_h.cancel(
+                        self.blink_h.cancel(
                             &self.loop,
-                            &self.cursor_c,
-                            &self.cursor_c_cancel,
+                            &self.blink_c,
+                            &self.blink_c_cancel,
                             void,
                             null,
-                            cursorCancelCallback,
+                            blinkCancelCallback,
                         );
                     }
                 } else {
                     // Start the draw timer
                     self.startDrawTimer();
 
-                    // If we're focused, we immediately show the cursor again
-                    // and then restart the timer.
-                    if (self.cursor_c.state() != .active) {
-                        self.flags.cursor_blink_visible = true;
-                        self.cursor_h.run(
+                    // If we're focused, we immediately make blinking cells visible
+                    // again and then restart the timer.
+                    if (self.blink_c.state() != .active and self.config.blink_interval > 0) {
+                        self.flags.blink_visible = true;
+                        self.blink_h.run(
                             &self.loop,
-                            &self.cursor_c,
-                            CURSOR_BLINK_INTERVAL,
+                            &self.blink_c,
+                            self.config.blink_interval,
                             Thread,
                             self,
-                            cursorTimerCallback,
+                            blinkTimerCallback,
                         );
                     }
                 }
             },
 
             .reset_cursor_blink => {
-                self.flags.cursor_blink_visible = true;
-                if (self.cursor_c.state() == .active) {
+                self.flags.cursor_always_visible = true;
+
+                if (self.config.blink_interval > 0) {
                     self.cursor_h.reset(
                         &self.loop,
                         &self.cursor_c,
                         &self.cursor_c_cancel,
-                        CURSOR_BLINK_INTERVAL,
+                        self.config.blink_interval,
                         Thread,
                         self,
-                        cursorTimerCallback,
+                        resetCursorBlinkCallback,
                     );
                 }
             },
@@ -529,7 +558,8 @@ fn renderCallback(
     t.renderer.updateFrame(
         t.surface,
         t.state,
-        t.flags.cursor_blink_visible,
+        t.flags.blink_visible,
+        t.flags.cursor_always_visible or t.flags.blink_visible,
     ) catch |err|
         log.warn("error rendering err={}", .{err});
 
@@ -539,7 +569,7 @@ fn renderCallback(
     return .disarm;
 }
 
-fn cursorTimerCallback(
+fn blinkTimerCallback(
     self_: ?*Thread,
     _: *xev.Loop,
     _: *xev.Completion,
@@ -561,14 +591,14 @@ fn cursorTimerCallback(
         return .disarm;
     };
 
-    t.flags.cursor_blink_visible = !t.flags.cursor_blink_visible;
+    t.flags.blink_visible = !t.flags.blink_visible;
     t.wakeup.notify() catch {};
+    t.blink_h.run(&t.loop, &t.blink_c, t.config.blink_interval, Thread, t, blinkTimerCallback);
 
-    t.cursor_h.run(&t.loop, &t.cursor_c, CURSOR_BLINK_INTERVAL, Thread, t, cursorTimerCallback);
     return .disarm;
 }
 
-fn cursorCancelCallback(
+fn blinkCancelCallback(
     _: ?*void,
     _: *xev.Loop,
     _: *xev.Completion,
@@ -586,11 +616,29 @@ fn cursorCancelCallback(
         error.Canceled => {}, // success
         error.NotFound => {}, // completed before it could cancel
         else => {
-            log.warn("error in cursor cancel callback err={}", .{err});
+            log.warn("error in blink cancel callback err={}", .{err});
             unreachable;
         },
     };
 
+    return .disarm;
+}
+
+fn resetCursorBlinkCallback(
+    self_: ?*Thread,
+    _: *xev.Loop,
+    _: *xev.Completion,
+    r: xev.Timer.RunError!void,
+) xev.CallbackAction {
+    _ = r catch unreachable;
+
+    const t: *Thread = self_ orelse {
+        // This shouldn't happen so we log it.
+        log.warn("render callback fired without data set", .{});
+        return .disarm;
+    };
+
+    t.flags.cursor_always_visible = false;
     return .disarm;
 }
 

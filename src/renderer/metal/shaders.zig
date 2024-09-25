@@ -137,6 +137,9 @@ pub const Uniforms = extern struct {
     cursor_pos: [2]u16 align(4),
     cursor_color: [4]u8 align(4),
 
+    /// Whether blinking cells and cursors are visible on this frame.
+    blink_visible: bool align(1),
+
     const PaddingExtend = packed struct(u8) {
         left: bool = false,
         right: bool = false,
@@ -324,12 +327,15 @@ pub const CellText = extern struct {
     mode: Mode align(1),
     constraint_width: u8 align(1) = 0,
 
-    pub const Mode = enum(u8) {
-        fg = 1,
-        fg_constrained = 2,
-        fg_color = 3,
-        cursor = 4,
-        fg_powerline = 5,
+    pub const Mode = packed struct(u8) {
+        fg: bool,
+        fg_constrained: bool = false,
+        fg_color: bool = false,
+        cursor: bool = false,
+        fg_powerline: bool = false,
+        fg_blink: bool = false,
+
+        _padding: u2 = 0,
     };
 
     test {
@@ -662,6 +668,7 @@ fn autoAttribute(T: type, attrs: objc.Object) void {
             [2]u32 => mtl.MTLVertexFormat.uint2,
             [4]u32 => mtl.MTLVertexFormat.uint4,
             u8 => mtl.MTLVertexFormat.uchar,
+            CellText.Mode => mtl.MTLVertexFormat.uchar,
             else => comptime unreachable,
         };
 

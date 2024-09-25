@@ -346,6 +346,41 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 /// This value does not apply to Emoji or images.
 @"minimum-contrast": f64 = 1,
 
+/// The amount of time it takes for blinking text and cursors to toggle between
+/// being invisible and visible.
+/// Any cell on the screen could be set to blink by setting SGR attribute 5,
+/// while cursor blinking is controlled by the `cursor-style-blink` setting.
+///
+/// The interval is specified as a series of numbers followed by time units.
+/// Whitespace is allowed between numbers and units. Each number and unit will
+/// be added together to form the total interval.
+///
+/// Blinking is disabled when the interval is set to zero.
+///
+/// The allowed time units are as follows:
+///
+///   * `y` - 365 SI days, or 8760 hours, or 31536000 seconds. No adjustments
+///     are made for leap years or leap seconds.
+///   * `d` - one SI day, or 86400 seconds.
+///   * `h` - one hour, or 3600 seconds.
+///   * `m` - one minute, or 60 seconds.
+///   * `s` - one second.
+///   * `ms` - one millisecond, or 0.001 second.
+///   * `us` or `µs` - one microsecond, or 0.000001 second.
+///   * `ns` - one nanosecond, or 0.000000001 second.
+///
+/// Examples:
+///   * `1h30m`
+///   * `45s`
+///
+/// Units can be repeated and will be added together. This means that
+/// `1h1h` is equivalent to `2h`. This is confusing and should be avoided.
+/// A future update may disallow this.
+///
+/// The maximum value is `584y 49w 23h 34m 33s 709ms 551µs 615ns`. Any
+/// value larger than this will be clamped to the maximum value.
+@"blink-interval": Duration = .{ .duration = 600 * std.time.ns_per_ms },
+
 /// Color palette for the 256 color form that many terminal applications use.
 /// The syntax of this configuration is `N=HEXCODE` where `N` is 0 to 255 (for
 /// the 256 colors in the terminal color table) and `HEXCODE` is a typical RGB

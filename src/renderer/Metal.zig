@@ -97,6 +97,9 @@ cursor_color: ?terminal.color.RGB,
 /// foreground color as the cursor color.
 cursor_invert: bool,
 
+/// Whether blinking cells are currently visible. Synchronized with cursor blinking.
+blink_visible: bool = true,
+
 /// The current frame background color. This is only updated during
 /// the updateFrame method.
 current_background_color: terminal.color.RGB,
@@ -618,6 +621,7 @@ pub fn init(alloc: Allocator, options: renderer.Options) !Metal {
         .background_color = options.config.background,
         .cursor_color = options.config.cursor_color,
         .cursor_invert = options.config.cursor_invert,
+        .blink_visible = true,
         .current_background_color = options.config.background,
 
         // Render state
@@ -631,6 +635,7 @@ pub fn init(alloc: Allocator, options: renderer.Options) !Metal {
             .min_contrast = options.config.min_contrast,
             .cursor_pos = .{ std.math.maxInt(u16), std.math.maxInt(u16) },
             .cursor_color = undefined,
+            .blink_visible = true,
         },
 
         // Fonts
@@ -867,6 +872,7 @@ pub fn updateFrame(
     self: *Metal,
     surface: *apprt.Surface,
     state: *renderer.State,
+    blink_visible: bool,
     cursor_blink_visible: bool,
 ) !void {
     _ = surface;
@@ -1030,6 +1036,9 @@ pub fn updateFrame(
             .full_rebuild = full_rebuild,
         };
     };
+
+    self.blink_visible = blink_visible;
+
     defer {
         critical.screen.deinit();
         if (critical.preedit) |p| p.deinit(self.alloc);
@@ -1103,6 +1112,8 @@ pub fn drawFrame(self: *Metal, surface: *apprt.Surface) !void {
     const frame = self.gpu_state.nextFrame();
     errdefer self.gpu_state.releaseFrame();
     // log.debug("drawing frame index={}", .{self.gpu_state.frame_index});
+
+    self.uniforms.blink_visible = self.blink_visible;
 
     // Setup our frame data
     try frame.uniforms.sync(self.gpu_state.device, &.{self.uniforms});
@@ -1606,6 +1617,11 @@ fn drawCellFgs(
             @as(c_ulong, 1),
         },
     );
+    encoder.msgSend(
+        void,
+        objc.sel("setFragmentBuffer:offset:atIndex:"),
+        .{ frame.uniforms.buffer.value, @as(c_ulong, 0), @as(c_ulong, 1) },
+    );
 
     encoder.msgSend(
         void,
@@ -2034,6 +2050,7 @@ pub fn setScreenSize(
         .min_contrast = old.min_contrast,
         .cursor_pos = old.cursor_pos,
         .cursor_color = old.cursor_color,
+        .blink_visible = old.blink_visible,
     };
 
     // Reset our cell contents if our grid size has changed.
@@ -2542,15 +2559,19 @@ fn updateCell(
             break :glyph;
         }
 
-        const mode: mtl_shaders.CellText.Mode = switch (try fgMode(
+        var mode: mtl_shaders.CellText.Mode = .{ .fg = true };
+
+        switch (try fgMode(
             render.presentation,
             cell_pin,
         )) {
-            .normal => .fg,
-            .color => .fg_color,
-            .constrained => .fg_constrained,
-            .powerline => .fg_powerline,
-        };
+            .normal => {},
+            .color => mode.fg_color = true,
+            .constrained => mode.fg_constrained = true,
+            .powerline => mode.fg_powerline = true,
+        }
+
+        mode.fg_blink = style.flags.blink;
 
         try self.cells.add(self.alloc, .text, .{
             .mode = mode,
@@ -2589,7 +2610,7 @@ fn updateCell(
         const color = style.underlineColor(palette) orelse colors.fg;
 
         try self.cells.add(self.alloc, .underline, .{
-            .mode = .fg,
+            .mode = .{ .fg = true },
             .grid_pos = .{ @intCast(coord.x), @intCast(coord.y) },
             .constraint_width = cell.gridWidth(),
             .color = .{ color.r, color.g, color.b, alpha },
@@ -2614,7 +2635,7 @@ fn updateCell(
         );
 
         try self.cells.add(self.alloc, .strikethrough, .{
-            .mode = .fg,
+            .mode = .{ .fg = true },
             .grid_pos = .{ @intCast(coord.x), @intCast(coord.y) },
             .constraint_width = cell.gridWidth(),
             .color = .{ colors.fg.r, colors.fg.g, colors.fg.b, alpha },
@@ -2704,7 +2725,7 @@ fn addCursor(
     };
 
     self.cells.setCursor(.{
-        .mode = .cursor,
+        .mode = .{ .fg = false, .cursor = true },
         .grid_pos = .{ x, screen.cursor.y },
         .color = .{ cursor_color.r, cursor_color.g, cursor_color.b, alpha },
         .glyph_pos = .{ render.glyph.atlas_x, render.glyph.atlas_y },
@@ -2753,7 +2774,7 @@ fn addPreeditCell(
 
     // Add our text
     try self.cells.add(self.alloc, .text, .{
-        .mode = .fg,
+        .mode = .{ .fg = true },
         .grid_pos = .{ @intCast(coord.x), @intCast(coord.y) },
         .color = .{ fg.r, fg.g, fg.b, 255 },
         .glyph_pos = .{ render.glyph.atlas_x, render.glyph.atlas_y },

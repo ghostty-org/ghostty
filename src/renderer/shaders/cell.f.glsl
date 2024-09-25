@@ -22,32 +22,29 @@ uniform sampler2D text_color;
 
 // Dimensions of the cell
 uniform vec2 cell_size;
+uniform bool blink_visible;
 
 // See vertex shader
-const uint MODE_BG = 1u;
-const uint MODE_FG = 2u;
-const uint MODE_FG_CONSTRAINED = 3u;
-const uint MODE_FG_COLOR = 7u;
-const uint MODE_FG_POWERLINE = 15u;
+const uint MODE_FG             = 1u;
+const uint MODE_FG_CONSTRAINED = 2u;
+const uint MODE_FG_COLOR       = 4u;
+const uint MODE_FG_POWERLINE   = 8u;
+const uint MODE_FG_BLINK       = 16u;
 
 void main() {
-    float a;
-
-    switch (mode) {
-    case MODE_BG:
-        out_FragColor = color;
-        break;
-
-    case MODE_FG:
-    case MODE_FG_CONSTRAINED:
-    case MODE_FG_POWERLINE:
-        a = texture(text, glyph_tex_coords).r;
-        vec3 premult = color.rgb * color.a;
-        out_FragColor = vec4(premult.rgb*a, a);
-        break;
-
-    case MODE_FG_COLOR:
-        out_FragColor = texture(text_color, glyph_tex_coords);
-        break;
+    if ((mode & MODE_FG) == 0u) {
+      // Background
+      out_FragColor = color;
     }
+    if ((mode & MODE_FG_BLINK) != 0u && !blink_visible) {
+        discard;
+    }
+    if ((mode & MODE_FG_COLOR) != 0u) {
+        out_FragColor = texture(text_color, glyph_tex_coords);
+        return;
+    }
+
+    float a = texture(text, glyph_tex_coords).r;
+    vec3 premult = color.rgb * color.a;
+    out_FragColor = vec4(premult.rgb*a, a);
 }
