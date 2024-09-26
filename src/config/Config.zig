@@ -1721,6 +1721,50 @@ term: []const u8 = "xterm-ghostty",
 /// Changing this value at runtime works after a small delay.
 @"auto-update": AutoUpdate = .check,
 
+/// Bell features to enable if bell support is available in your runtime. The
+/// format of this is a list of features to enable separated by commas. If you
+/// prefix a feature with `no-` then it is disabled. If you omit a feature, its
+/// default value is used, so you must explicitly disable features you don't
+/// want.
+///
+/// Available features:
+///
+///   * `audio` - Play an audible sound. (Currently Linux-only if libcanberra
+///     support has been compiled in.)
+///
+///   * `visual` - Flashes a visiual indication in the surface that triggered
+///     the bell. (Currently not implemented.)
+///
+///   * `notification` - Displays a desktop notification.
+///
+///   * `title` - Will add a visual indicator to the window/tab title.
+///
+///   * `command` - Will run a command (e.g. for haptic feedback or flashing a
+///     physical light).
+///
+/// Example: `audio`, `no-audio`, `visual`, `no-visual`, `notification`, `no-notification`
+///
+/// By default, no bell features are enabled.
+@"bell-features": BellFeatures = .{},
+
+/// If `audio` is an enabled bell feature, this determines whether to use an
+/// internal audio file or whether to use a custom file on disk.
+///
+///   * `bell` - A simple bell sound.
+///
+///   * `message` - Another bell sound.
+///
+///   * `custom:<filename>` - The filename of an audio file to play as the bell.
+///     If the filename is not an absolute pathname the directory `~/.config/
+///     ghostty/media` will be searched for the file.
+///
+/// The default value is `bell`
+@"bell-audio": BellAudio = .{ .bell = {} },
+
+/// If `command` is an enabled bell feature, the command to be run. By default,
+/// this value is unset and no command will run.
+@"bell-command": ?[:0]const u8 = null,
+
 /// This is set by the CLI parser for deinit.
 _arena: ?ArenaAllocator = null,
 
@@ -4940,3 +4984,152 @@ test "test entryFormatter" {
     try p.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
     try std.testing.expectEqualStrings("a = 584y 49w 23h 34m 33s 709ms 551µs 615ns\n", buf.items);
 }
+
+/// Bell features
+pub const BellFeatures = packed struct {
+    audio: bool = false,
+    visual: bool = false,
+    notification: bool = false,
+    title: bool = false,
+    command: bool = false,
+};
+
+pub const BellAudio = union(enum) {
+    bell: void,
+    message: void,
+    custom: [:0]const u8,
+
+    pub fn parseCLI(self: *BellAudio, alloc: std.mem.Allocator, input: ?[]const u8) !void {
+        const value = input orelse return error.ValueRequired;
+        const key_str = value[0 .. std.mem.indexOfScalar(u8, value, ':') orelse value.len];
+        if (std.meta.stringToEnum(std.meta.Tag(BellAudio), std.mem.trim(u8, key_str, &std.ascii.whitespace))) |key| switch (key) {
+            .bell => {
+                self.* = .{ .bell = {} };
+            },
+            .message => {
+                self.* = .{ .message = {} };
+            },
+            .custom => {
+                if (key_str.len == value.len) return error.ValueRequired;
+                const rest = std.mem.trim(u8, value[key_str.len + 1 ..], &std.ascii.whitespace);
+                if (rest.len == 0) return error.ValueRequired;
+                if (std.fs.path.isAbsolute(rest))
+                    self.* = .{
+                        .custom = try alloc.dupeZ(u8, rest),
+                    }
+                else
+                    self.* = .{
+                        .custom = try std.fs.path.joinZ(alloc, &.{
+                            try internal_os.xdg.config(alloc, .{ .subdir = "ghostty/media" }),
+                            rest,
+                        }),
+                    };
+            },
+        } else {
+            return error.ValueRequired;
+        }
+    }
+
+    pub fn formatEntry(self: BellAudio, formatter: anytype) !void {
+        switch (self) {
+            .bell, .message => try formatter.formatEntry([]const u8, @tagName(self)),
+            .custom => |filename| {
+                var buf: [std.fs.max_path_bytes + 7]u8 = undefined;
+                try formatter.formatEntry(
+                    []const u8,
+                    std.fmt.bufPrint(
+                        &buf,
+                        "custom:{s}",
+                        .{filename},
+                    ) catch return error.OutOfMemory,
+                );
+            },
+        }
+    }
+
+    test "parseCLI" {
+        var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        {
+            var b: BellAudio = undefined;
+            try b.parseCLI(alloc, "bell");
+            try std.testing.expect(b == .bell);
+        }
+        {
+            var b: BellAudio = undefined;
+            try b.parseCLI(alloc, "message");
+            try std.testing.expect(b == .message);
+        }
+        {
+            var b: BellAudio = undefined;
+            try b.parseCLI(alloc, "message:");
+            try std.testing.expect(b == .message);
+        }
+        {
+            var b: BellAudio = undefined;
+            try b.parseCLI(alloc, " message : ");
+            try std.testing.expect(b == .message);
+        }
+        {
+            var b: BellAudio = undefined;
+            try b.parseCLI(alloc, "custom:/tmp/bell.oga");
+            try std.testing.expect(b == .custom);
+            try std.testing.expectEqualStrings("/tmp/bell.oga", b.custom);
+        }
+        {
+            var b: BellAudio = undefined;
+            try b.parseCLI(alloc, " custom : /tmp/bell.oga ");
+            try std.testing.expect(b == .custom);
+            try std.testing.expectEqualStrings("/tmp/bell.oga", b.custom);
+        }
+        {
+            var b: BellAudio = undefined;
+            try std.testing.expectError(error.ValueRequired, b.parseCLI(alloc, " custom :  "));
+        }
+        {
+            var b: BellAudio = undefined;
+            try std.testing.expectError(error.ValueRequired, b.parseCLI(alloc, " custom   "));
+        }
+        {
+            var b: BellAudio = undefined;
+            try std.testing.expectError(error.ValueRequired, b.parseCLI(alloc, "  "));
+        }
+        {
+            var b: BellAudio = undefined;
+            try std.testing.expectError(error.ValueRequired, b.parseCLI(alloc, ""));
+        }
+        {
+            var b: BellAudio = undefined;
+            try std.testing.expectError(error.ValueRequired, b.parseCLI(alloc, null));
+        }
+    }
+
+    test "test formatEntry 1" {
+        var buf = std.ArrayList(u8).init(std.testing.allocator);
+        defer buf.deinit();
+
+        var b: BellAudio = .{ .bell = {} };
+        try b.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
+        try std.testing.expectEqualStrings("a = bell\n", buf.items);
+    }
+
+    test "test formatEntry 2" {
+        var buf = std.ArrayList(u8).init(std.testing.allocator);
+        defer buf.deinit();
+
+        var b: BellAudio = .{ .message = {} };
+        try b.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
+        try std.testing.expectEqualStrings("a = message\n", buf.items);
+    }
+
+    test "test formatEntry 3" {
+        var buf = std.ArrayList(u8).init(std.testing.allocator);
+        defer buf.deinit();
+
+        var b: BellAudio = .{ .custom = "custom.oga" };
+        try b.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
+        try std.testing.expectEqualStrings("a = custom:custom.oga\n", buf.items);
+    }
+};
