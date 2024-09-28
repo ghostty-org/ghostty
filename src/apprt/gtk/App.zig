@@ -57,6 +57,10 @@ menu: ?*c.GMenu = null,
 /// The shared context menu.
 context_menu: ?*c.GMenu = null,
 
+/// The search submenu of the context menu. Saved here so that we can easily
+/// update it later in refreshContextMenu.
+context_menu_search: ?*c.GMenu = null,
+
 /// The configuration errors window, if it is currently open.
 config_errors_window: ?*ConfigErrorsWindow = null,
 
@@ -740,6 +744,7 @@ fn syncActionAccelerators(self: *App) !void {
     try self.syncActionAccelerator("win.split_right", .{ .new_split = .right });
     try self.syncActionAccelerator("win.split_down", .{ .new_split = .down });
     try self.syncActionAccelerator("win.copy", .{ .copy_to_clipboard = {} });
+    try self.syncActionAccelerator("win.search", .{ .search_with_selection = {} });
     try self.syncActionAccelerator("win.paste", .{ .paste_from_clipboard = {} });
     try self.syncActionAccelerator("win.reset", .{ .reset = {} });
 }
@@ -1271,12 +1276,6 @@ fn initMenu(self: *App) void {
         c.g_menu_append(section, "About Ghostty", "win.about");
     }
 
-    // {
-    //     const section = c.g_menu_new();
-    //     defer c.g_object_unref(section);
-    //     c.g_menu_append_submenu(menu, "File", @ptrCast(@alignCast(section)));
-    // }
-
     self.menu = menu;
 }
 
@@ -1284,7 +1283,21 @@ fn initContextMenu(self: *App) void {
     const menu = c.g_menu_new();
     errdefer c.g_object_unref(menu);
 
-    createContextMenuCopyPasteSection(menu, false);
+    {
+        const section = c.g_menu_new();
+        defer c.g_object_unref(section);
+        c.g_menu_prepend_section(menu, null, @ptrCast(@alignCast(section)));
+        c.g_menu_append(section, "Copy", "win.copy");
+        c.g_menu_append(section, "Paste", "win.paste");
+    }
+
+    {
+        const section = c.g_menu_new();
+        defer c.g_object_unref(section);
+        c.g_menu_append_section(menu, null, @ptrCast(@alignCast(section)));
+        c.g_menu_append(section, "Search", "win.search");
+        self.context_menu_search = section;
+    }
 
     {
         const section = c.g_menu_new();
@@ -1305,18 +1318,33 @@ fn initContextMenu(self: *App) void {
     self.context_menu = menu;
 }
 
-fn createContextMenuCopyPasteSection(menu: ?*c.GMenu, has_selection: bool) void {
-    const section = c.g_menu_new();
-    defer c.g_object_unref(section);
-    c.g_menu_prepend_section(menu, null, @ptrCast(@alignCast(section)));
-    // FIXME: Feels really hackish, but disabling sensitivity on this doesn't seems to work(?)
-    c.g_menu_append(section, "Copy", if (has_selection) "win.copy" else "noop");
-    c.g_menu_append(section, "Paste", "win.paste");
-}
+pub fn refreshContextMenu(self: *App, window: ?*c.GtkWindow, selection: ?[:0]const u8) void {
+    var buf: [128]u8 = undefined;
 
-pub fn refreshContextMenu(self: *App, has_selection: bool) void {
-    c.g_menu_remove(self.context_menu, 0);
-    createContextMenuCopyPasteSection(self.context_menu, has_selection);
+    const snippet_size = 16;
+
+    const enabled: c.gboolean, const search_label: [:0]const u8 =
+        if (selection) |s|
+        .{
+            1, if (s.len > snippet_size)
+                std.fmt.bufPrintZ(&buf, "Search for “{s}…” with {s}", .{ s[0..snippet_size], self.config.@"search-provider".name() }) catch "Search"
+            else
+                std.fmt.bufPrintZ(&buf, "Search for “{s}” with {s}", .{ s, self.config.@"search-provider".name() }) catch "Search",
+        }
+    else
+        .{ 0, "Search" };
+
+    {
+        const action: ?*c.GSimpleAction = @ptrCast(c.g_action_map_lookup_action(@ptrCast(window), "copy"));
+        c.g_simple_action_set_enabled(action, enabled);
+    }
+
+    {
+        c.g_menu_remove_all(self.context_menu_search);
+        c.g_menu_append(self.context_menu_search, search_label, "win.search");
+        const action: ?*c.GSimpleAction = @ptrCast(c.g_action_map_lookup_action(@ptrCast(window), "search"));
+        c.g_simple_action_set_enabled(action, enabled);
+    }
 }
 
 fn isValidAppId(app_id: [:0]const u8) bool {

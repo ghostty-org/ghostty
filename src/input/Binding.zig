@@ -232,6 +232,12 @@ pub const Action = union(enum) {
     paste_from_clipboard: void,
     paste_from_selection: void,
 
+    /// Launch an internet search using the native OS mechanisms with the
+    /// selected text from the focused surface. This is a no-op if there is no
+    /// selected text in the focused surface. See the configuration variable
+    /// `search-provider` for information on how to select a search provider.
+    search_with_selection: void,
+
     /// Increase/decrease the font size by a certain amount.
     increase_font_size: f32,
     decrease_font_size: f32,
@@ -600,6 +606,7 @@ pub const Action = union(enum) {
             .toggle_window_decorations,
             .toggle_secure_input,
             .crash,
+            .search_with_selection,
             => .surface,
 
             // These are less obvious surface actions. They're surface

@@ -1599,6 +1599,31 @@ term: []const u8 = "xterm-ghostty",
 /// Changing this value at runtime works after a small delay.
 @"auto-update": AutoUpdate = .check,
 
+/// A search provider to use when searching either from the right click context
+/// menu or with a keybind. There must be text selected in the surface for the
+/// search to be active. The search provider will be used to generate a URI
+/// which will then be launched using OS native mechanisms (`open` on macOS or
+/// `xdg-open` on Linux) so it should open up a new tab in your default browser.
+///
+///  * `bing` - `https://bing.com/search?q=%s`
+///  * `brave` - `https://search.brave.com/search?q=%s`
+///  * `duckduckgo` - `https://duckduckgo.com/?q=%s`
+///  * `google` - `https://google.com/search?q=%s`
+///  * `kagi` - `https://kagi.com/search?q=%s`
+///  * `searx` - `https://searx.thegpm.org/?q=%s`
+///  * `custom` - This allows you to specify a custom URI for searching if none
+///    of the other options meet your needs. The format is:
+///
+///     `custom:<uri>`
+///
+/// A `%s` in the URI's query string will be replaced with the search string. If
+/// there is no query string, or the query string does not include at least one
+/// `%s` the entire query string will be set to `q=<selection>`, replacing any
+/// previous query string.
+///
+/// The default is `duckduckgo`.
+@"search-provider": SearchProvider = .{ .duckduckgo = {} },
+
 /// This is set by the CLI parser for deinit.
 _arena: ?ArenaAllocator = null,
 
@@ -4749,3 +4774,72 @@ test "test entryFormatter" {
     try p.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
     try std.testing.expectEqualStrings("a = 584y 49w 23h 34m 33s 709ms 551µs 615ns\n", buf.items);
 }
+
+pub const SearchProvider = union(enum) {
+    const Self = @This();
+
+    bing: void,
+    brave: void,
+    duckduckgo: void,
+    google: void,
+    kagi: void,
+    searx: void,
+    custom: []const u8,
+
+    pub fn formatEntry(self: Self, formatter: anytype) !void {
+        switch (self) {
+            .bing,
+            .brave,
+            .duckduckgo,
+            .google,
+            .kagi,
+            .searx,
+            => try formatter.formatEntry([]const u8, @tagName(self)),
+            .custom => |u| {
+                var buf: [256]u8 = undefined;
+                try formatter.formatEntry([]const u8, try std.fmt.bufPrint(
+                    &buf,
+                    "custom:{s}",
+                    .{u},
+                ));
+            },
+        }
+    }
+
+    pub fn name(self: Self) []const u8 {
+        return switch (self) {
+            .bing => "Bing",
+            .brave => "Brave",
+            .duckduckgo => "Duck Duck Go",
+            .google => "Google",
+            .kagi => "Kagi",
+            .searx => "SearX",
+            .custom => "custom URI",
+        };
+    }
+
+    pub fn uri(self: Self) []const u8 {
+        return switch (self) {
+            .bing => "https://bing.com/search?q=%s",
+            .brave => "https://search.brave.com/search?q=%s",
+            .duckduckgo => "https://duckduckgo.com/?q=%s",
+            .google => "https://google.com/search?q=%s",
+            .kagi => "https://kagi.com/search?q=%s",
+            .searx => "https://searx.thegpm.org/?q=%s",
+            .custom => |u| u,
+        };
+    }
+
+    pub fn clone(self: Self, alloc: std.mem.Allocator) !Self {
+        switch (self) {
+            .bing,
+            .brave,
+            .duckduckgo,
+            .google,
+            .kagi,
+            .searx,
+            => return self,
+            .custom => |u| return .{ .custom = try alloc.dupe(u8, u) },
+        }
+    }
+};

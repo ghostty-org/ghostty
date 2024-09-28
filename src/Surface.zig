@@ -252,6 +252,7 @@ const DerivedConfig = struct {
     window_padding_balance: bool,
     title: ?[:0]const u8,
     links: []Link,
+    search_provider: configpkg.SearchProvider,
 
     const Link = struct {
         regex: oni.Regex,
@@ -312,6 +313,7 @@ const DerivedConfig = struct {
             .window_padding_balance = config.@"window-padding-balance",
             .title = config.title,
             .links = links,
+            .search_provider = try config.@"search-provider".clone(alloc),
 
             // Assignments happen sequentially so we have to do this last
             // so that the memory is captured from allocs above.
@@ -3647,6 +3649,26 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             .{ .paste = {} },
         ),
 
+        .search_with_selection => {
+            // We can read from the renderer state without holding
+            // the lock because only we will write to this field.
+            if (self.io.terminal.screen.selection) |sel| {
+                const buf = self.io.terminal.screen.selectionString(self.alloc, .{
+                    .sel = sel,
+                    .trim = self.config.clipboard_trim_trailing_spaces,
+                }) catch |err| {
+                    log.err("error reading selection string err={}", .{err});
+                    return true;
+                };
+                defer self.alloc.free(buf);
+
+                self.searchWithSelection(buf) catch |err| {
+                    log.err("error searching with selection err={}", .{err});
+                    return true;
+                };
+            }
+        },
+
         .increase_font_size => |delta| {
             // Max delta is somewhat arbitrary.
             const clamped_delta = @max(0, @min(255, delta));
@@ -4320,6 +4342,45 @@ fn presentSurface(self: *Surface) !void {
         .present_terminal,
         {},
     );
+}
+
+/// Launch an internet search with the given selection.
+pub fn searchWithSelection(self: *Surface, selection: [:0]const u8) !void {
+    var arena = std.heap.ArenaAllocator.init(self.alloc);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var uri = try std.Uri.parse(self.config.search_provider.uri());
+
+    uri.query = .{
+        .raw = query: {
+            if (uri.query) |q| {
+                const qp = try q.toRawMaybeAlloc(alloc);
+                const query = try alloc.alloc(
+                    u8,
+                    std.mem.replacementSize(u8, qp, "%s", selection),
+                );
+                const replacements = std.mem.replace(u8, qp, "%s", selection, query);
+                if (replacements > 0) break :query query;
+            }
+            break :query try std.fmt.allocPrint(alloc, "q={s}", .{selection});
+        },
+    };
+
+    var uri_buf = std.ArrayList(u8).init(alloc);
+    errdefer uri_buf.deinit();
+
+    try uri.writeToStream(.{
+        .scheme = true,
+        .authentication = true,
+        .authority = true,
+        .path = true,
+        .query = true,
+        .fragment = true,
+        .port = true,
+    }, uri_buf.writer());
+
+    try internal_os.open(self.alloc, try uri_buf.toOwnedSlice());
 }
 
 pub const face_ttf = @embedFile("font/res/JetBrainsMono-Regular.ttf");

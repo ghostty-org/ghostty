@@ -1112,7 +1112,9 @@ fn showContextMenu(self: *Surface, x: f32, y: f32) void {
     };
 
     c.gtk_popover_set_pointing_to(@ptrCast(@alignCast(window.context_menu)), &rect);
-    self.app.refreshContextMenu(self.core_surface.hasSelection());
+    const selection = self.core_surface.selectionString(self.app.core_app.alloc) catch null;
+    defer if (selection) |s| self.app.core_app.alloc.free(s);
+    self.app.refreshContextMenu(window.window, selection);
     c.gtk_popover_popup(@ptrCast(@alignCast(window.context_menu)));
 }
 
