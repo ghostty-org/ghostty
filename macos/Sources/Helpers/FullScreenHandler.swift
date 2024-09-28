@@ -24,7 +24,7 @@ class FullScreenHandler {
         default:
             false
         }
-        
+
         if isInFullscreen {
             if useNonNativeFullscreen || isInNonNativeFullscreen {
                 leaveFullscreen(window: window)
@@ -110,7 +110,8 @@ class FullScreenHandler {
         window.styleMask.remove(.titled)
 
         // Set frame to screen size, accounting for the menu bar if needed
-        let frame = calculateFullscreenFrame(screen: screen, subtractMenu: !hideMenu)
+        let windowHasTabs = previousTabGroup?.windows.isEmpty == false
+        let frame = calculateFullscreenFrame(screen: screen, subtractMenu: !hideMenu, windowHasTabs: windowHasTabs)
         window.setFrame(frame, display: true)
 
         // Focus window
@@ -141,14 +142,16 @@ class FullScreenHandler {
         NSApp.presentationOptions.remove(.autoHideDock)
     }
 
-    func calculateFullscreenFrame(screen: NSScreen, subtractMenu: Bool)->NSRect {
+    func calculateFullscreenFrame(screen: NSScreen, subtractMenu: Bool, windowHasTabs: Bool)->NSRect {
+        let hasNotch = screen.safeAreaInsets.top > 0
+
         if (subtractMenu) {
             if let menuHeight = NSApp.mainMenu?.menuBarHeight {
                 var padding: CGFloat = 0
 
                 // Detect the notch. If there is a safe area on top it includes the
                 // menu height as a safe area so we also subtract that from it.
-                if (screen.safeAreaInsets.top > 0) {
+                if (hasNotch) {
                     padding = screen.safeAreaInsets.top - menuHeight;
                 }
 
@@ -159,6 +162,17 @@ class FullScreenHandler {
                     screen.frame.height - (menuHeight + padding)
                 )
             }
+        }
+
+        if (windowHasTabs && !hasNotch) {
+            // TODO: Figure out a proper way to get to the tabBarHeight
+            let tabBarHeight: CGFloat = 28;
+            return NSMakeRect(
+                screen.frame.minX,
+                screen.frame.minY - tabBarHeight,
+                screen.frame.width,
+                screen.frame.height
+            )
         }
         return screen.frame
     }
