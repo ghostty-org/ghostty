@@ -10,6 +10,8 @@ const fastmem = @import("../fastmem.zig");
 const kitty = @import("kitty.zig");
 const sgr = @import("sgr.zig");
 const unicode = @import("../unicode/main.zig");
+const url = @import("../config/url.zig");
+const oni = @import("oniguruma");
 const Selection = @import("Selection.zig");
 const PageList = @import("PageList.zig");
 const StringMap = @import("StringMap.zig");
@@ -2388,6 +2390,116 @@ pub fn selectWordBetween(
 
         // If we found a word, then return it
         if (self.selectWord(pin)) |sel| return sel;
+    }
+
+    return null;
+}
+
+/// Returns a potentially null selection of a link
+/// if it is null then there is no link match found.
+pub fn selectLink(self: *Screen, pin: Pin) !?Selection {
+    // Boundary character, only need to check for whitespace
+    const boundary = &[_]u32{
+        ' ',
+        '\t',
+    };
+
+    const start_cell = pin.rowAndCell().cell;
+    if (!start_cell.hasText()) return null;
+
+    // Determine if we are a boundary or not to determine what our boundary is.
+    const expect_boundary = std.mem.indexOfAny(
+        u32,
+        boundary,
+        &[_]u32{start_cell.content.codepoint},
+    ) != null;
+
+    // Go forwards to find our end boundary
+    const end: Pin = end: {
+        var it = pin.cellIterator(.right_down, null);
+        var prev = it.next().?; // Consume one, our start
+        while (it.next()) |p| {
+            const rac = p.rowAndCell();
+            const cell = rac.cell;
+
+            // If we reached an empty cell its always a boundary
+            if (!cell.hasText()) break :end prev;
+
+            // If we do not match our expected set, we hit a boundary
+            const this_boundary = std.mem.indexOfAny(
+                u32,
+                boundary,
+                &[_]u32{cell.content.codepoint},
+            ) != null;
+            if (this_boundary != expect_boundary) break :end prev;
+
+            // If we are going to the next row and it isn't wrapped, we
+            // return the previous.
+            if (p.x == p.page.data.size.cols - 1 and !rac.row.wrap) {
+                break :end p;
+            }
+
+            prev = p;
+        }
+
+        break :end prev;
+    };
+
+    // Go backwards to find our start boundary
+    const start: Pin = start: {
+        var it = pin.cellIterator(.left_up, null);
+        var prev = it.next().?; // Consume one, our start
+        while (it.next()) |p| {
+            const rac = p.rowAndCell();
+            const cell = rac.cell;
+
+            // If we are going to the next row and it isn't wrapped, we
+            // return the previous.
+            if (p.x == p.page.data.size.cols - 1 and !rac.row.wrap) {
+                break :start prev;
+            }
+
+            // If we reached an empty cell its always a boundary
+            if (!cell.hasText()) break :start prev;
+
+            // If we do not match our expected set, we hit a boundary
+            const this_boundary = std.mem.indexOfAny(
+                u32,
+                boundary,
+                &[_]u32{cell.content.codepoint},
+            ) != null;
+            if (this_boundary != expect_boundary) break :start prev;
+
+            prev = p;
+        }
+
+        break :start prev;
+    };
+
+    // Get the selection and convert it into a usable format for regex matching.
+    const sel = Selection.init(start, end, false);
+    const raw_str = try selectionString(self, self.alloc, .{
+        .sel = sel,
+    });
+    defer self.alloc.free(raw_str);
+
+    var re = try oni.Regex.init(
+        url.regex,
+        .{ .capture_group = true },
+        oni.Encoding.utf8,
+        oni.Syntax.default,
+        null,
+    );
+    defer re.deinit();
+
+    // Search the regex we just created for any matches
+    // If the count is greater than 0, meaning there's at least one match
+    // It will return the link selection
+    // Otherwise it returns null
+    var search = try re.search(raw_str, .{});
+    defer search.deinit();
+    if (search.count() > 0) {
+        return sel;
     }
 
     return null;

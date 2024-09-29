@@ -2735,9 +2735,16 @@ pub fn mouseButtonCallback(
             // word selection where we clicked.
         }
 
-        const sel = screen.selectWord(pin) orelse break :sel;
-        try self.setSelection(sel);
-        try self.queueRender();
+        // Check if the selection contains a link, if it does
+        // select the whole link, if it doesn't select a word.
+        if (screen.selectLink(pin) catch null) |sel| {
+            try self.setSelection(sel);
+            try self.queueRender();
+        } else {
+            const sel = screen.selectWord(pin) orelse break :sel;
+            try self.setSelection(sel);
+            try self.queueRender();
+        }
     }
 
     return false;
