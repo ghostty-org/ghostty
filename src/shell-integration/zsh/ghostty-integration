@@ -37,7 +37,7 @@
 # builtins with `builtin` to avoid accidentally invoking user-defined functions.
 # We avoid `function` reserved word as an additional defensive measure.
 
-builtin emulate -L zsh -o no_warn_create_global -o no_aliases
+builtin emulate -L zsh -o no_warn_create_global
 
 [[ -o interactive ]]              || builtin return 0  # non-interactive shell
 (( ! $+_ghostty_state ))          || builtin return 0  # already initialized
@@ -82,7 +82,7 @@ builtin typeset -ag precmd_functions
 precmd_functions+=(_ghostty_deferred_init)
 
 _ghostty_deferred_init() {
-    builtin emulate -L zsh -o no_warn_create_global -o no_aliases
+    builtin emulate -L zsh -o no_warn_create_global
 
     # The directory where ghostty-integration is located: /../shell-integration/zsh.
     builtin local self_dir="${functions_source[_ghostty_deferred_init]:A:h}"
@@ -90,7 +90,7 @@ _ghostty_deferred_init() {
     # Enable semantic markup with OSC 133.
     _ghostty_precmd() {
         builtin local -i cmd_status=$?
-        builtin emulate -L zsh -o no_warn_create_global -o no_aliases
+        builtin emulate -L zsh -o no_warn_create_global
 
         # Don't write OSC 133 D when our precmd handler is invoked from zle.
         # Some plugins do that to update prompt on cd.
@@ -164,7 +164,7 @@ _ghostty_deferred_init() {
     }
 
     _ghostty_preexec() {
-        builtin emulate -L zsh -o no_warn_create_global -o no_aliases
+        builtin emulate -L zsh -o no_warn_create_global
 
         # This can potentially break user prompt. Oh well. The robustness of
         # this code can be improved in the case prompt_subst is set because
