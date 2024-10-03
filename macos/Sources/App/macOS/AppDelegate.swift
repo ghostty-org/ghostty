@@ -575,14 +575,14 @@ class AppDelegate: NSObject,
     /// Toggles visibility of all Ghosty Terminal windows. When hidden, activates Ghostty as the frontmost application
     @IBAction func toggleVisibility(_ sender: Any) {
         // We only care about terminal windows.
-        for window in NSApp.windows.filter({ $0.windowController is BaseTerminalController }) {
+        for controller in NSApp.windows.compactMap({ $0.windowController as? BaseTerminalController }) {
             if isVisible {
-                window.orderOut(nil)
+                controller.window?.orderOut(nil)
             } else {
-                window.makeKeyAndOrderFront(nil)
+                controller.window?.makeKeyAndOrderFront(nil)
             }
         }
-
+        
         // After bringing them all to front we make sure our app is active too.
         if !isVisible {
             NSApp.activate(ignoringOtherApps: true)
