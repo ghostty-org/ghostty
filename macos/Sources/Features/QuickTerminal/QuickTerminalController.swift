@@ -67,7 +67,7 @@ class QuickTerminalController: BaseTerminalController {
         syncAppearance()
 
         // Setup our initial size based on our configured position
-        position.setLoaded(window)
+        position.setLoaded(window, size: ghostty.config.quickTerminalSize)
 
         // Setup our content
         window.contentView = NSHostingView(rootView: TerminalView(

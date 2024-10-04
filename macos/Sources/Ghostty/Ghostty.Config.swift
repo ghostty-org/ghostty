@@ -382,6 +382,14 @@ extension Ghostty {
             let str = String(cString: ptr)
             return QuickTerminalScreen(fromGhosttyConfig: str) ?? .main
         }
+
+        var quickTerminalSize: Double {
+            guard let config = self.config else { return 0.25 }
+            var v: Double = 0.25
+            let key = "quick-terminal-size"
+            _ = ghostty_config_get(config, &v, key, UInt(key.count))
+            return v
+        }
         #endif
 
         var resizeOverlay: ResizeOverlay {

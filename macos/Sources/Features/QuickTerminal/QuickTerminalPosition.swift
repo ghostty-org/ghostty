@@ -7,7 +7,7 @@ enum QuickTerminalPosition : String {
     case right
 
     /// Set the loaded state for a window.
-    func setLoaded(_ window: NSWindow) {
+    func setLoaded(_ window: NSWindow, size: Double) {
         guard let screen = window.screen ?? NSScreen.main else { return }
         switch (self) {
         case .top, .bottom:
@@ -15,14 +15,14 @@ enum QuickTerminalPosition : String {
                 origin: window.frame.origin,
                 size: .init(
                     width: screen.frame.width,
-                    height: screen.frame.height / 4)
+                    height: screen.frame.height * CGFloat(size))
             ), display: false)
 
         case .left, .right:
             window.setFrame(.init(
                 origin: window.frame.origin,
                 size: .init(
-                    width: screen.frame.width / 4,
+                    width: screen.frame.width / CGFloat(size),
                     height: screen.frame.height)
             ), display: false)
         }

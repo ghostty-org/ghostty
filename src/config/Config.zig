@@ -1266,6 +1266,21 @@ keybind: Keybinds = .{},
 /// by the operating system.
 @"quick-terminal-screen": QuickTerminalScreen = .main,
 
+/// This size of the quick terminal screen based on the quick-terminal-position.
+///
+/// This value should be a floating-point number between 0 and 1,
+/// where 1 means it occupies the entire screen.
+///
+/// The default value is 0.25, meaning the quick terminal will occupy 25%
+/// of the screen's dimension. When quick-terminal-position is set to `left` or `right`,
+/// the dimension is the screen's width. When quick-terminal-position is set to `top` or `bottom`,
+/// the dimension is the screen's height.
+///
+/// Examples:
+///   * Setting to 0.5 will make the quick terminal occupy 50% of the screen.
+///   * Setting to 1 will make it occupy 100% of the screen.
+@"quick-terminal-size": f64 = 0.25,
+
 /// Whether to enable shell integration auto-injection or not. Shell integration
 /// greatly enhances the terminal experience by enabling a number of features:
 ///
@@ -2653,6 +2668,9 @@ pub fn finalize(self: *Config) !void {
     // Minimmum window size
     if (self.@"window-width" > 0) self.@"window-width" = @max(10, self.@"window-width");
     if (self.@"window-height" > 0) self.@"window-height" = @max(4, self.@"window-height");
+
+    // Clamp quick terminal size
+    if (self.@"quick-window-size" > 0) self.@"quick-window-size" = @min(0.25, @max(1, self.@"quick-window-size"));
 
     // If URLs are disabled, cut off the first link. The first link is
     // always the URL matcher.
