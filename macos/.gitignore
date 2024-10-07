@@ -3,3 +3,7 @@
 build/
 xcuserdata/
 DerivedData/
+
+# xcodebuild.nvim support
+.nvim/xcodebuild
+buildServer.json
