@@ -2623,10 +2623,46 @@ pub fn plainStringUnwrapped(self: *Terminal, alloc: Allocator) ![]const u8 {
 
 /// Full reset
 pub fn fullReset(self: *Terminal) void {
-    // Switch back to primary screen and clear it. We do not restore cursor
-    // because see the next step...
-    self.primaryScreen(.{ .clear_on_exit = true, .cursor_save = false });
+    // Attempt to initialize new screens.
+    var new_primary = Screen.init(self.screen.alloc, self.cols, self.rows, self.screen.pages.explicit_max_size) catch |err| {
+        log.warn("Failed to allocate new primary screen: {}", .{err});
+        // Fall back to clearing existing screens.
+        self.fallbackReset();
+        return;
+    };
+    const new_secondary = Screen.init(self.secondary_screen.alloc, self.cols, self.rows, 0) catch |err| {
+        log.warn("Failed to allocate new secondary screen: {}", .{err});
+        // Clean up the successfully allocated primary screen.
+        new_primary.deinit();
+        // Fall back to clearing existing screens.
+        self.fallbackReset();
+        return;
+    };
 
+    // If we got here, both new screens were successfully allocated
+    // and we can deinitialize the old screens.
+    self.screen.deinit();
+    self.secondary_screen.deinit();
+
+    // Replace with the newly allocated screens.
+    self.screen = new_primary;
+    self.secondary_screen = new_secondary;
+
+    self.resetCommonState();
+}
+
+fn fallbackReset(self: *Terminal) void {
+    // Clear existing screens without reallocation
+    self.primaryScreen(.{ .clear_on_exit = true, .cursor_save = false });
+    self.screen.clearSelection();
+    self.eraseDisplay(.scrollback, false);
+    self.eraseDisplay(.complete, false);
+    self.screen.cursorAbsolute(0, 0);
+
+    self.resetCommonState();
+}
+
+fn resetCommonState(self: *Terminal) void {
     // We set the saved cursor to null and then restore. This will force
     // our cursor to go back to the default which will also move the cursor
     // to the top-left.
@@ -2640,7 +2676,6 @@ pub fn fullReset(self: *Terminal) void {
     self.modes = .{};
     self.flags = .{};
     self.tabstops.reset(TABSTOP_INTERVAL);
-    self.screen.clearSelection();
     self.screen.kitty_keyboard = .{};
     self.secondary_screen.kitty_keyboard = .{};
     self.screen.protected_mode = .off;
@@ -2651,9 +2686,6 @@ pub fn fullReset(self: *Terminal) void {
         .right = self.cols - 1,
     };
     self.previous_char = null;
-    self.eraseDisplay(.scrollback, false);
-    self.eraseDisplay(.complete, false);
-    self.screen.cursorAbsolute(0, 0);
     self.pwd.clearRetainingCapacity();
     self.status_display = .main;
 }
