@@ -5,7 +5,7 @@ const Surface = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const configpkg = @import("../../config.zig");
+const Config = @import("../../config.zig").Config;
 const apprt = @import("../../apprt.zig");
 const font = @import("../../font/main.zig");
 const input = @import("../../input.zig");
@@ -341,6 +341,12 @@ cursor: ?*c.GdkCursor = null,
 /// When set the text in this buf will be null-terminated, because we need to
 /// pass it to GTK.
 title_text: ?[:0]const u8 = null,
+
+/// Local background color override.
+background_color: ?Config.Color = null,
+
+/// Local foreground color override.
+foreground_color: ?Config.Color = null,
 
 /// The core surface backing this surface
 core_surface: CoreSurface,
@@ -835,6 +841,32 @@ pub fn setTitle(self: *Surface, slice: [:0]const u8) !void {
 
 pub fn getTitle(self: *Surface) ?[:0]const u8 {
     return self.title_text;
+}
+
+fn updateStyle(self: *Surface) !void {
+    // If we have no style, then we have nothing to update.
+    if (self.background_color == null and self.foreground_color == null) return;
+
+    try self.app.syncColorChanges(self.background_color, self.foreground_color);
+}
+
+pub fn colorChange(self: *Surface, value: apprt.action.ColorChange) !void {
+    const color: Config.Color = .{
+        .r = value.r,
+        .g = value.g,
+        .b = value.b,
+    };
+    switch (value.kind) {
+        .background => {
+            self.background_color = color;
+            try self.updateStyle();
+        },
+        .foreground => {
+            self.foreground_color = color;
+            try self.updateStyle();
+        },
+        else => {},
+    }
 }
 
 pub fn setMouseShape(

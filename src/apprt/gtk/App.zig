@@ -473,6 +473,7 @@ pub fn performAction(
         .toggle_tab_overview => self.toggleTabOverview(target),
         .toggle_window_decorations => self.toggleWindowDecorations(target),
         .quit_timer => self.quitTimer(value),
+        .color_change => try self.colorChange(target, value),
 
         // Unimplemented
         .close_all_windows,
@@ -485,7 +486,6 @@ pub fn performAction(
         .key_sequence,
         .render_inspector,
         .renderer_health,
-        .color_change,
         => log.warn("unimplemented action={}", .{action}),
     }
 }
@@ -797,6 +797,17 @@ fn showDesktopNotification(
     c.g_application_send_notification(g_app, n.body.ptr, notification);
 }
 
+fn colorChange(
+    _: *App,
+    target: apprt.Target,
+    value: apprt.action.ColorChange,
+) !void {
+    switch (target) {
+        .app => {},
+        .surface => |v| try v.rt_surface.colorChange(value),
+    }
+}
+
 /// Reload the configuration. This should return the new configuration.
 /// The old value can be freed immediately at this point assuming a
 /// successful return.
@@ -899,6 +910,25 @@ fn loadRuntimeCss(
     config: *const Config,
     provider: *c.GtkCssProvider,
 ) Allocator.Error!void {
+    const headerbar_background = config.background;
+    const headerbar_foreground = config.foreground;
+
+    return loadRuntimeCssRGB(
+        alloc,
+        config,
+        provider,
+        headerbar_background,
+        headerbar_foreground,
+    );
+}
+
+fn loadRuntimeCssRGB(
+    alloc: Allocator,
+    config: *const Config,
+    provider: *c.GtkCssProvider,
+    background_color: Config.Color,
+    foreground_color: Config.Color,
+) Allocator.Error!void {
     var stack_alloc = std.heap.stackFallback(4096, alloc);
     var buf = std.ArrayList(u8).init(stack_alloc.get());
     defer buf.deinit();
@@ -906,8 +936,8 @@ fn loadRuntimeCss(
 
     const window_theme = config.@"window-theme";
     const unfocused_fill: Config.Color = config.@"unfocused-split-fill" orelse config.background;
-    const headerbar_background = config.background;
-    const headerbar_foreground = config.foreground;
+    const headerbar_background = background_color;
+    const headerbar_foreground = foreground_color;
 
     try writer.print(
         \\widget.unfocused-split {{
@@ -970,6 +1000,28 @@ fn loadRuntimeCss(
         buf.items.ptr,
         @intCast(buf.items.len),
     );
+}
+
+/// Call this anytime the color scheme changes.
+pub fn syncColorChanges(
+    self: *App,
+    background_color: ?Config.Color,
+    foreground_color: ?Config.Color,
+) !void {
+    // Load our runtime CSS. If this fails then our window is just stuck
+    // with the old CSS but we don't want to fail the entire sync operation.
+    loadRuntimeCssRGB(
+        self.core_app.alloc,
+        &self.config,
+        self.css_provider,
+        background_color orelse self.config.background,
+        foreground_color orelse self.config.foreground,
+    ) catch |err| switch (err) {
+        error.OutOfMemory => log.warn(
+            "out of memory loading runtime CSS, no runtime CSS applied",
+            .{},
+        ),
+    };
 }
 
 /// Called by CoreApp to wake up the event loop.
