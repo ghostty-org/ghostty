@@ -316,6 +316,9 @@ class TerminalController: BaseTerminalController {
             // Disallow tabbing if the titlebar is hidden, since that will (should) also hide the tab bar.
             window.tabbingMode = .disallowed
 
+            // Prevent the native window drag gesture from the top of the window
+            window.dragAreaHeight = 0
+
             // Nuke it from orbit -- hide the titlebar container entirely, just in case. There are
             // some operations that appear to bring back the titlebar visibility so this ensures
             // it is gone forever.

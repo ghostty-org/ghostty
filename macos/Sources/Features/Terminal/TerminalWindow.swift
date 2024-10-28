@@ -184,6 +184,22 @@ class TerminalWindow: NSWindow {
         }
     }
 
+    /// If not nil, adjusts the content layout rect to leave this much space free at the top of the window.
+    ///
+    /// The effect of this is that the native window drag gesture is only active in an area this tall.
+    ///
+    /// Currently this is only used to disable the native gesture by setting this to 0.
+    var dragAreaHeight: CGFloat? = nil
+
+    override var contentLayoutRect: CGRect {
+        var rect = super.contentLayoutRect
+        rect.origin.y = 0
+        if let height = dragAreaHeight {
+            rect.size.height = self.frame.height - height
+        }
+        return rect
+    }
+
     // MARK: - Tab Bar Styling
 
     // This is true if we should apply styles to the titlebar or tab bar.
