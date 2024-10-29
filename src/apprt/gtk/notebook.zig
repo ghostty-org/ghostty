@@ -9,6 +9,7 @@ const adwaita = @import("adwaita.zig");
 const log = std.log.scoped(.gtk);
 
 const AdwTabView = if (adwaita.versionAtLeast(0, 0, 0)) c.AdwTabView else anyopaque;
+const AdwTabPage = if (adwaita.versionAtLeast(0, 0, 0)) c.AdwTabPage else anyopaque;
 
 /// An abstraction over the GTK notebook and Adwaita tab view to manage
 /// all the terminal tabs in a window.
@@ -72,8 +73,11 @@ pub const Notebook = union(enum) {
             c.adw_tab_view_remove_shortcuts(tab_view, c.ADW_TAB_VIEW_SHORTCUT_ALL_SHORTCUTS);
         }
 
+        c.adw_tab_view_set_menu_model(tab_view, @ptrCast(@alignCast(app.context_menu)));
+
         _ = c.g_signal_connect_data(tab_view, "page-attached", c.G_CALLBACK(&adwPageAttached), window, null, c.G_CONNECT_DEFAULT);
         _ = c.g_signal_connect_data(tab_view, "create-window", c.G_CALLBACK(&adwTabViewCreateWindow), window, null, c.G_CONNECT_DEFAULT);
+        _ = c.g_signal_connect_data(tab_view, "setup-menu", c.G_CALLBACK(&adwTabViewSetupMenu), window, null, c.G_CONNECT_DEFAULT);
         _ = c.g_signal_connect_data(tab_view, "notify::selected-page", c.G_CALLBACK(&adwSelectPage), window, null, c.G_CONNECT_DEFAULT);
 
         return .{ .adw_tab_view = tab_view };
@@ -491,4 +495,16 @@ fn createWindow(currentWindow: *Window) !*Window {
 
     // Create a new window
     return Window.create(alloc, app);
+}
+
+fn adwTabViewSetupMenu(tab_view: *AdwTabView, page: *AdwTabPage, ud: ?*anyopaque) callconv(.C) void {
+    const window: *Window = @ptrCast(@alignCast(ud.?));
+
+    const child = c.adw_tab_page_get_child(page);
+    const tab: *Tab = @ptrCast(@alignCast(
+        c.g_object_get_data(@ptrCast(child), Tab.GHOSTTY_TAB) orelse return,
+    ));
+    window.app.refreshContextMenu(if (tab.focus_child) |focus_child| focus_child.core_surface.hasSelection() else false);
+
+    c.adw_tab_view_set_menu_model(tab_view, @ptrCast(@alignCast(window.app.context_menu)));
 }
