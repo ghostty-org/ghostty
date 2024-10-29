@@ -504,7 +504,7 @@ fn adwTabViewSetupMenu(tab_view: *AdwTabView, page: *AdwTabPage, ud: ?*anyopaque
     const tab: *Tab = @ptrCast(@alignCast(
         c.g_object_get_data(@ptrCast(child), Tab.GHOSTTY_TAB) orelse return,
     ));
-    window.app.refreshContextMenu(if (tab.focus_child) |focus_child| focus_child.core_surface.hasSelection() else false);
+    window.app.refreshContextMenu(window.window, if (tab.focus_child) |focus_child| focus_child.core_surface.hasSelection() else false);
 
     c.adw_tab_view_set_menu_model(tab_view, @ptrCast(@alignCast(window.app.context_menu)));
 }

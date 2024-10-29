@@ -1156,7 +1156,7 @@ fn showContextMenu(self: *Surface, x: f32, y: f32) void {
     };
 
     c.gtk_popover_set_pointing_to(@ptrCast(@alignCast(window.context_menu)), &rect);
-    self.app.refreshContextMenu(self.core_surface.hasSelection());
+    self.app.refreshContextMenu(window.window, self.core_surface.hasSelection());
     c.gtk_popover_popup(@ptrCast(@alignCast(window.context_menu)));
 }
 
