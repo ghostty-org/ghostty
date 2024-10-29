@@ -7,7 +7,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     <div className="max-w-[850px] justify-center ml-auto mr-auto">
       <div className="mt-4 mb-4">
         <Link href="/">
-          <Image src="/icon.png" width={50} height={50} alt="Ghostty Logo" />
+          <Image src="/icon-gs.png" width={50} height={50} alt="Ghostty Logo" />
         </Link>
       </div>
 

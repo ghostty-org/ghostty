@@ -8,7 +8,7 @@ export default function Home() {
       <div className="relative flex place-items-center before:absolute before:h-[300px] before:w-[480px] before:-translate-x-1/2 before:rounded-full after:absolute after:-z-20 after:h-[180px] after:w-[240px] after:translate-x-1/3 after:content-[''] before:lg:h-[360px] z-[-1]">
         <p className="text-9xl">
           <Image
-            src="/icon.png"
+            src="/icon-gs.png"
             alt="Ghostty Icon"
             width={250}
             height={250}
