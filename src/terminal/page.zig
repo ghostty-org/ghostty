@@ -808,7 +808,7 @@ pub const Page = struct {
 
                     // If our page can't support an additional cell with
                     // a hyperlink then we have to return an error.
-                    if (self.hyperlinkCount() >= self.hyperlinkCapacity() - 1) {
+                    if (self.hyperlinkCount() >= self.hyperlinkCapacity()) {
                         // The hyperlink map capacity needs to be increased.
                         return error.HyperlinkMapOutOfMemory;
                     }
@@ -1140,6 +1140,101 @@ pub const Page = struct {
         const cells = row.cells.ptr(self.memory)[0..self.size.cols];
         for (cells) |c| if (c.hyperlink) return;
         row.hyperlink = false;
+    }
+
+    pub const InsertHyperlinkError = error{
+        /// string_alloc errors
+        StringsOutOfMemory,
+
+        /// hyperlink_set errors
+        SetOutOfMemory,
+        SetNeedsRehash,
+    };
+
+    /// Convert a hyperlink into a page entry, returning the ID.
+    ///
+    /// This does not de-dupe any strings, so if the URI, explicit ID,
+    /// etc. is already in the strings table this will duplicate it.
+    ///
+    /// To release the memory associated with the given hyperlink,
+    /// release the ID from the `hyperlink_set`. If the refcount reaches
+    /// zero and the slot is needed then the context will reap the
+    /// memory.
+    pub fn insertHyperlink(
+        self: *Page,
+        link: hyperlink.Hyperlink,
+    ) InsertHyperlinkError!hyperlink.Id {
+        // Insert our URI into the page strings table.
+        const page_uri: Offset(u8).Slice = uri: {
+            const buf = self.string_alloc.alloc(
+                u8,
+                self.memory,
+                link.uri.len,
+            ) catch |err| switch (err) {
+                error.OutOfMemory => return error.StringsOutOfMemory,
+            };
+            errdefer self.string_alloc.free(self.memory, buf);
+            @memcpy(buf, link.uri);
+
+            break :uri .{
+                .offset = size.getOffset(u8, self.memory, &buf[0]),
+                .len = link.uri.len,
+            };
+        };
+        errdefer self.string_alloc.free(
+            self.memory,
+            page_uri.offset.ptr(self.memory)[0..page_uri.len],
+        );
+
+        // Allocate an ID for our page memory if we have to.
+        const page_id: hyperlink.PageEntry.Id = switch (link.id) {
+            .explicit => |id| explicit: {
+                const buf = self.string_alloc.alloc(
+                    u8,
+                    self.memory,
+                    id.len,
+                ) catch |err| switch (err) {
+                    error.OutOfMemory => return error.StringsOutOfMemory,
+                };
+                errdefer self.string_alloc.free(self.memory, buf);
+                @memcpy(buf, id);
+
+                break :explicit .{
+                    .explicit = .{
+                        .offset = size.getOffset(u8, self.memory, &buf[0]),
+                        .len = id.len,
+                    },
+                };
+            },
+
+            .implicit => |id| .{ .implicit = id },
+        };
+        errdefer switch (page_id) {
+            .implicit => {},
+            .explicit => |slice| self.string_alloc.free(
+                self.memory,
+                slice.offset.ptr(self.memory)[0..slice.len],
+            ),
+        };
+
+        // Build our entry
+        const entry: hyperlink.PageEntry = .{
+            .id = page_id,
+            .uri = page_uri,
+        };
+
+        // Put our hyperlink into the hyperlink set to get an ID
+        const id = self.hyperlink_set.addContext(
+            self.memory,
+            entry,
+            .{ .page = self },
+        ) catch |err| switch (err) {
+            error.OutOfMemory => return error.SetOutOfMemory,
+            error.NeedsRehash => return error.SetNeedsRehash,
+        };
+        errdefer self.hyperlink_set.release(self.memory, id);
+
+        return id;
     }
 
     /// Set the hyperlink for the given cell. If the cell already has a
@@ -2235,6 +2330,50 @@ test "Page cloneFrom partial" {
         const rac = page2.getRowAndCell(1, y);
         try testing.expectEqual(@as(u21, 0), rac.cell.content.codepoint);
     }
+}
+
+test "Page cloneFrom hyperlinks exact capacity" {
+    var page = try Page.init(.{
+        .cols = 50,
+        .rows = 50,
+    });
+    defer page.deinit();
+
+    // Ensure our page can accommodate the capacity.
+    const hyperlink_cap = page.hyperlinkCapacity();
+    try testing.expect(hyperlink_cap <= page.size.cols * page.size.rows);
+
+    // Create a hyperlink.
+    const hyperlink_id = try page.insertHyperlink(.{
+        .id = .{ .implicit = 0 },
+        .uri = "https://example.com",
+    });
+
+    // Fill the exact cap with cells.
+    fill: for (0..page.size.cols) |x| {
+        for (0..page.size.rows) |y| {
+            const rac = page.getRowAndCell(x, y);
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = 42 },
+            };
+            try page.setHyperlink(rac.row, rac.cell, hyperlink_id);
+            page.hyperlink_set.use(page.memory, hyperlink_id);
+
+            if (page.hyperlinkCount() == hyperlink_cap) {
+                break :fill;
+            }
+        }
+    }
+    try testing.expectEqual(page.hyperlinkCount(), page.hyperlinkCapacity());
+
+    // Clone the full page
+    var page2 = try Page.init(page.capacity);
+    defer page2.deinit();
+    try page2.cloneFrom(&page, 0, page.size.rows);
+
+    // We should have the same number of hyperlinks
+    try testing.expectEqual(page2.hyperlinkCount(), page.hyperlinkCount());
 }
 
 test "Page cloneFrom graphemes" {

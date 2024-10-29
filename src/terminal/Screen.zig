@@ -125,7 +125,7 @@ pub const Cursor = struct {
     /// the cursor page pin changes. We can't get it from the old screen
     /// state because the page may be cleared. This is heap allocated
     /// because its most likely null.
-    hyperlink: ?*Hyperlink = null,
+    hyperlink: ?*hyperlink.Hyperlink = null,
 
     /// The pointers into the page list where the cursor is currently
     /// located. This makes it faster to move the cursor.
@@ -134,7 +134,10 @@ pub const Cursor = struct {
     page_cell: *pagepkg.Cell,
 
     pub fn deinit(self: *Cursor, alloc: Allocator) void {
-        if (self.hyperlink) |link| link.destroy(alloc);
+        if (self.hyperlink) |link| {
+            link.deinit(alloc);
+            alloc.destroy(link);
+        }
     }
 };
 
@@ -180,31 +183,6 @@ pub const CharsetState = struct {
 
     /// An array to map a charset slot to a lookup table.
     const CharsetArray = std.EnumArray(charsets.Slots, charsets.Charset);
-};
-
-pub const Hyperlink = struct {
-    id: ?[]const u8,
-    uri: []const u8,
-
-    pub fn create(
-        alloc: Allocator,
-        uri: []const u8,
-        id: ?[]const u8,
-    ) !*Hyperlink {
-        const self = try alloc.create(Hyperlink);
-        errdefer alloc.destroy(self);
-        self.id = if (id) |v| try alloc.dupe(u8, v) else null;
-        errdefer if (self.id) |v| alloc.free(v);
-        self.uri = try alloc.dupe(u8, uri);
-        errdefer alloc.free(self.uri);
-        return self;
-    }
-
-    pub fn destroy(self: *Hyperlink, alloc: Allocator) void {
-        if (self.id) |id| alloc.free(id);
-        alloc.free(self.uri);
-        alloc.destroy(self);
-    }
 };
 
 /// Initialize a new screen.
@@ -471,10 +449,11 @@ pub fn adjustCapacity(
         self.cursor.hyperlink = null;
 
         // Re-add
-        self.startHyperlinkOnce(link.uri, link.id) catch unreachable;
+        self.startHyperlinkOnce(link.*) catch unreachable;
 
         // Remove our old link
-        link.destroy(self.alloc);
+        link.deinit(self.alloc);
+        self.alloc.destroy(link);
     }
 
     // Reload the cursor information because the pin changed.
@@ -1023,7 +1002,10 @@ fn cursorChangePin(self: *Screen, new: Pin) void {
         self.cursor.hyperlink = null;
 
         // Re-add
-        self.startHyperlink(link.uri, link.id) catch |err| {
+        self.startHyperlink(link.uri, switch (link.id) {
+            .explicit => |v| v,
+            .implicit => null,
+        }) catch |err| {
             // This shouldn't happen because startHyperlink should handle
             // resizing. This only happens if we're truly out of RAM. Degrade
             // to forgetting the hyperlink.
@@ -1031,7 +1013,8 @@ fn cursorChangePin(self: *Screen, new: Pin) void {
         };
 
         // Remove our old link
-        link.destroy(self.alloc);
+        link.deinit(self.alloc);
+        self.alloc.destroy(link);
     }
 }
 
@@ -1550,7 +1533,10 @@ fn resizeInternal(
 
     // Fix up our hyperlink if we had one.
     if (hyperlink_) |link| {
-        self.startHyperlink(link.uri, link.id) catch |err| {
+        self.startHyperlink(link.uri, switch (link.id) {
+            .explicit => |v| v,
+            .implicit => null,
+        }) catch |err| {
             // This shouldn't happen because startHyperlink should handle
             // resizing. This only happens if we're truly out of RAM. Degrade
             // to forgetting the hyperlink.
@@ -1558,7 +1544,8 @@ fn resizeInternal(
         };
 
         // Remove our old link
-        link.destroy(self.alloc);
+        link.deinit(self.alloc);
+        self.alloc.destroy(link);
     }
 }
 
@@ -1805,6 +1792,8 @@ pub fn appendGrapheme(self: *Screen, cell: *Cell, cp: u21) !void {
     };
 }
 
+pub const StartHyperlinkError = Allocator.Error || PageList.AdjustCapacityError;
+
 /// Start the hyperlink state. Future cells will be marked as hyperlinks with
 /// this state. Note that various terminal operations may clear the hyperlink
 /// state, such as switching screens (alt screen).
@@ -1812,14 +1801,29 @@ pub fn startHyperlink(
     self: *Screen,
     uri: []const u8,
     id_: ?[]const u8,
-) !void {
+) StartHyperlinkError!void {
+    // Create our pending entry.
+    const link: hyperlink.Hyperlink = .{
+        .uri = uri,
+        .id = if (id_) |id| .{
+            .explicit = id,
+        } else implicit: {
+            defer self.cursor.hyperlink_implicit_id += 1;
+            break :implicit .{ .implicit = self.cursor.hyperlink_implicit_id };
+        },
+    };
+    errdefer switch (link.id) {
+        .explicit => {},
+        .implicit => self.cursor.hyperlink_implicit_id -= 1,
+    };
+
     // Loop until we have enough page memory to add the hyperlink
     while (true) {
-        if (self.startHyperlinkOnce(uri, id_)) {
+        if (self.startHyperlinkOnce(link)) {
             return;
         } else |err| switch (err) {
             // An actual self.alloc OOM is a fatal error.
-            error.RealOutOfMemory => return error.OutOfMemory,
+            error.OutOfMemory => return error.OutOfMemory,
 
             // strings table is out of memory, adjust it up
             error.StringsOutOfMemory => _ = try self.adjustCapacity(
@@ -1849,74 +1853,21 @@ pub fn startHyperlink(
 /// all the previous state and try again.
 fn startHyperlinkOnce(
     self: *Screen,
-    uri: []const u8,
-    id_: ?[]const u8,
-) !void {
+    source: hyperlink.Hyperlink,
+) (Allocator.Error || Page.InsertHyperlinkError)!void {
     // End any prior hyperlink
     self.endHyperlink();
 
-    // Create our hyperlink state.
-    const link = Hyperlink.create(self.alloc, uri, id_) catch |err| switch (err) {
-        error.OutOfMemory => return error.RealOutOfMemory,
-    };
-    errdefer link.destroy(self.alloc);
+    // Allocate our new Hyperlink entry in non-page memory. This
+    // lets us quickly get access to URI, ID.
+    const link = try self.alloc.create(hyperlink.Hyperlink);
+    errdefer self.alloc.destroy(link);
+    link.* = try source.dupe(self.alloc);
+    errdefer link.deinit(self.alloc);
 
-    // Copy our URI into the page memory.
+    // Insert the hyperlink into page memory
     var page = &self.cursor.page_pin.page.data;
-    const string_alloc = &page.string_alloc;
-    const page_uri: Offset(u8).Slice = uri: {
-        const buf = string_alloc.alloc(u8, page.memory, uri.len) catch |err| switch (err) {
-            error.OutOfMemory => return error.StringsOutOfMemory,
-        };
-        errdefer string_alloc.free(page.memory, buf);
-        @memcpy(buf, uri);
-
-        break :uri .{
-            .offset = size.getOffset(u8, page.memory, &buf[0]),
-            .len = uri.len,
-        };
-    };
-    errdefer string_alloc.free(
-        page.memory,
-        page_uri.offset.ptr(page.memory)[0..page_uri.len],
-    );
-
-    // Copy our ID into page memory or create an implicit ID via the counter
-    const page_id: hyperlink.Hyperlink.Id = if (id_) |id| explicit: {
-        const buf = string_alloc.alloc(u8, page.memory, id.len) catch |err| switch (err) {
-            error.OutOfMemory => return error.StringsOutOfMemory,
-        };
-        errdefer string_alloc.free(page.memory, buf);
-        @memcpy(buf, id);
-
-        break :explicit .{
-            .explicit = .{
-                .offset = size.getOffset(u8, page.memory, &buf[0]),
-                .len = id.len,
-            },
-        };
-    } else implicit: {
-        defer self.cursor.hyperlink_implicit_id += 1;
-        break :implicit .{ .implicit = self.cursor.hyperlink_implicit_id };
-    };
-    errdefer switch (page_id) {
-        .implicit => self.cursor.hyperlink_implicit_id -= 1,
-        .explicit => |slice| string_alloc.free(
-            page.memory,
-            slice.offset.ptr(page.memory)[0..slice.len],
-        ),
-    };
-
-    // Put our hyperlink into the hyperlink set to get an ID
-    const id = page.hyperlink_set.addContext(
-        page.memory,
-        .{ .id = page_id, .uri = page_uri },
-        .{ .page = page },
-    ) catch |err| switch (err) {
-        error.OutOfMemory => return error.SetOutOfMemory,
-        error.NeedsRehash => return error.SetNeedsRehash,
-    };
-    errdefer page.hyperlink_set.release(page.memory, id);
+    const id: hyperlink.Id = try page.insertHyperlink(link.*);
 
     // Save it all
     self.cursor.hyperlink = link;
@@ -1944,7 +1895,8 @@ pub fn endHyperlink(self: *Screen) void {
     // will be called.
     var page = &self.cursor.page_pin.page.data;
     page.hyperlink_set.release(page.memory, self.cursor.hyperlink_id);
-    self.cursor.hyperlink.?.destroy(self.alloc);
+    self.cursor.hyperlink.?.deinit(self.alloc);
+    self.alloc.destroy(self.cursor.hyperlink.?);
     self.cursor.hyperlink_id = 0;
     self.cursor.hyperlink = null;
 }

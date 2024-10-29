@@ -160,6 +160,10 @@ pub const Font = opaque {
         return @ptrFromInt(@intFromPtr(c.CTFontCopyDisplayName(@ptrCast(self))));
     }
 
+    pub fn copyPostScriptName(self: *Font) *foundation.String {
+        return @ptrFromInt(@intFromPtr(c.CTFontCopyPostScriptName(@ptrCast(self))));
+    }
+
     pub fn getSymbolicTraits(self: *Font) text.FontSymbolicTraits {
         return @bitCast(c.CTFontGetSymbolicTraits(@ptrCast(self)));
     }

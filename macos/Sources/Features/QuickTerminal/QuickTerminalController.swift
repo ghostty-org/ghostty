@@ -197,7 +197,7 @@ class QuickTerminalController: BaseTerminalController {
         // Run the animation that moves our window into the proper place and makes
         // it visible.
         NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.2
+            context.duration = ghostty.config.quickTerminalAnimationDuration
             context.timingFunction = .init(name: .easeIn)
             position.setFinal(in: window.animator(), on: screen)
         }, completionHandler: {
@@ -287,7 +287,7 @@ class QuickTerminalController: BaseTerminalController {
         }
 
         NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.2
+            context.duration = ghostty.config.quickTerminalAnimationDuration
             context.timingFunction = .init(name: .easeIn)
             position.setInitial(in: window.animator(), on: screen)
         }, completionHandler: {

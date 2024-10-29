@@ -458,6 +458,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_TOGGLE_FULLSCREEN:
                 toggleFullscreen(app, target: target, mode: action.action.toggle_fullscreen)
 
+            case GHOSTTY_ACTION_MOVE_TAB:
+                moveTab(app, target: target, move: action.action.move_tab)
+
             case GHOSTTY_ACTION_GOTO_TAB:
                 gotoTab(app, target: target, tab: action.action.goto_tab)
 
@@ -664,6 +667,31 @@ extension Ghostty {
         ) {
             guard let appDelegate = NSApplication.shared.delegate as? AppDelegate else { return }
             appDelegate.toggleVisibility(self)
+        }
+
+        private static func moveTab(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            move: ghostty_action_move_tab_s) {
+                switch (target.tag) {
+                case GHOSTTY_TARGET_APP:
+                    Ghostty.logger.warning("move tab does nothing with an app target")
+                    return
+
+                case GHOSTTY_TARGET_SURFACE:
+                    guard let surface = target.target.surface else { return }
+                    guard let surfaceView = self.surfaceView(from: surface) else { return }
+                    NotificationCenter.default.post(
+                        name: .ghosttyMoveTab,
+                        object: surfaceView,
+                        userInfo: [
+                            SwiftUI.Notification.Name.GhosttyMoveTabKey: Action.MoveTab(c: move),
+                        ]
+                    )
+
+                default:
+                    assertionFailure()
+                }
         }
 
         private static func gotoTab(

@@ -1,4 +1,5 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const hash_map = @import("hash_map.zig");
 const AutoOffsetHashMap = hash_map.AutoOffsetHashMap;
@@ -21,9 +22,63 @@ pub const Id = size.CellCountInt;
 // the hyperlink ID in the cell itself.
 pub const Map = AutoOffsetHashMap(Offset(Cell), Id);
 
-/// The main entry for hyperlinks.
+/// A fully decoded hyperlink that may or may not have its
+/// memory within a page. The memory location of this is dependent
+/// on the context so users should check with the source of the
+/// hyperlink.
 pub const Hyperlink = struct {
     id: Hyperlink.Id,
+    uri: []const u8,
+
+    /// See PageEntry.Id
+    pub const Id = union(enum) {
+        explicit: []const u8,
+        implicit: size.OffsetInt,
+    };
+
+    /// Deinit and deallocate all the pointers using the given
+    /// allocator.
+    ///
+    /// WARNING: This should only be called if the hyperlink was
+    /// heap-allocated. This DOES NOT need to be unconditionally
+    /// called.
+    pub fn deinit(self: *const Hyperlink, alloc: Allocator) void {
+        alloc.free(self.uri);
+        switch (self.id) {
+            .implicit => {},
+            .explicit => |v| alloc.free(v),
+        }
+    }
+
+    /// Duplicate a hyperlink by allocating all values with the
+    /// given allocator. The returned hyperlink should have deinit
+    /// called.
+    pub fn dupe(
+        self: *const Hyperlink,
+        alloc: Allocator,
+    ) Allocator.Error!Hyperlink {
+        const uri = try alloc.dupe(u8, self.uri);
+        errdefer alloc.free(uri);
+
+        const id: Hyperlink.Id = switch (self.id) {
+            .implicit => self.id,
+            .explicit => |v| .{ .explicit = try alloc.dupe(u8, v) },
+        };
+        errdefer switch (id) {
+            .implicit => {},
+            .explicit => |v| alloc.free(v),
+        };
+
+        return .{ .id = id, .uri = uri };
+    }
+};
+
+/// A hyperlink that has been committed to page memory. This
+/// is a "page entry" because while it represents a hyperlink,
+/// some decoding (pointer chasing) is still necessary to get the
+/// fully realized ID, URI, etc.
+pub const PageEntry = struct {
+    id: PageEntry.Id,
     uri: Offset(u8).Slice,
 
     pub const Id = union(enum) {
@@ -37,10 +92,10 @@ pub const Hyperlink = struct {
 
     /// Duplicate this hyperlink from one page to another.
     pub fn dupe(
-        self: *const Hyperlink,
+        self: *const PageEntry,
         self_page: *const Page,
         dst_page: *Page,
-    ) error{OutOfMemory}!Hyperlink {
+    ) error{OutOfMemory}!PageEntry {
         var copy = self.*;
 
         // If the pages are the same then we can return a shallow copy.
@@ -85,7 +140,7 @@ pub const Hyperlink = struct {
         return copy;
     }
 
-    pub fn hash(self: *const Hyperlink, base: anytype) u64 {
+    pub fn hash(self: *const PageEntry, base: anytype) u64 {
         var hasher = Wyhash.init(0);
         autoHash(&hasher, std.meta.activeTag(self.id));
         switch (self.id) {
@@ -105,9 +160,9 @@ pub const Hyperlink = struct {
     }
 
     pub fn eql(
-        self: *const Hyperlink,
+        self: *const PageEntry,
         self_base: anytype,
-        other: *const Hyperlink,
+        other: *const PageEntry,
         other_base: anytype,
     ) bool {
         if (std.meta.activeTag(self.id) != std.meta.activeTag(other.id)) return false;
@@ -135,21 +190,21 @@ pub const Hyperlink = struct {
 /// The set of hyperlinks. This is ref-counted so that a set of cells
 /// can share the same hyperlink without duplicating the data.
 pub const Set = RefCountedSet(
-    Hyperlink,
+    PageEntry,
     Id,
     size.CellCountInt,
     struct {
         page: ?*Page = null,
 
-        pub fn hash(self: *const @This(), link: Hyperlink) u64 {
+        pub fn hash(self: *const @This(), link: PageEntry) u64 {
             return link.hash(self.page.?.memory);
         }
 
-        pub fn eql(self: *const @This(), a: Hyperlink, b: Hyperlink) bool {
+        pub fn eql(self: *const @This(), a: PageEntry, b: PageEntry) bool {
             return a.eql(self.page.?.memory, &b, self.page.?.memory);
         }
 
-        pub fn deleted(self: *const @This(), link: Hyperlink) void {
+        pub fn deleted(self: *const @This(), link: PageEntry) void {
             const page = self.page.?;
             const alloc = &page.string_alloc;
             switch (link.id) {

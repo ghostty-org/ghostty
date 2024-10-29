@@ -42,6 +42,11 @@ class TerminalController: BaseTerminalController {
             object: nil)
         center.addObserver(
             self,
+            selector: #selector(onMoveTab),
+            name: .ghosttyMoveTab,
+            object: nil)
+        center.addObserver(
+            self,
             selector: #selector(onGotoTab),
             name: Ghostty.Notification.ghosttyGotoTab,
             object: nil)
@@ -481,6 +486,44 @@ class TerminalController: BaseTerminalController {
     }
 
     //MARK: - Notifications
+
+    @objc private func onMoveTab(notification: SwiftUI.Notification) {
+        guard let target = notification.object as? Ghostty.SurfaceView else { return }
+        guard target == self.focusedSurface else { return }
+        guard let window = self.window else { return }
+
+        // Get the move action
+        guard let action = notification.userInfo?[Notification.Name.GhosttyMoveTabKey] as? Ghostty.Action.MoveTab else { return }
+        guard action.amount != 0 else { return }
+
+        // Determine our current selected index
+        guard let windowController = window.windowController else { return }
+        guard let tabGroup = windowController.window?.tabGroup else { return }
+        guard let selectedWindow = tabGroup.selectedWindow else { return }
+        let tabbedWindows = tabGroup.windows
+        guard tabbedWindows.count > 0 else { return }
+        guard let selectedIndex = tabbedWindows.firstIndex(where: { $0 == selectedWindow }) else { return }
+
+        // Determine the final index we want to insert our tab
+        let finalIndex: Int
+        if action.amount < 0 {
+            finalIndex = selectedIndex - min(selectedIndex, -action.amount)
+        } else {
+            let remaining: Int = tabbedWindows.count - 1 - selectedIndex
+            finalIndex = selectedIndex + min(remaining, action.amount)
+        }
+
+        // If our index is the same we do nothing
+        guard finalIndex != selectedIndex else { return }
+
+        // Get our parent
+        let parent = tabbedWindows[finalIndex]
+
+        // Move our current selected window to the proper index
+        tabGroup.removeWindow(selectedWindow)
+        parent.addTabbedWindow(selectedWindow, ordered: action.amount < 0 ? .below : .above)
+        selectedWindow.makeKeyAndOrderFront(nil)
+    }
 
     @objc private func onGotoTab(notification: SwiftUI.Notification) {
         guard let target = notification.object as? Ghostty.SurfaceView else { return }

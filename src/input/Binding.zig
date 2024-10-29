@@ -301,6 +301,11 @@ pub const Action = union(enum) {
     /// is higher than the number of tabs, this will go to the last tab.
     goto_tab: usize,
 
+    /// Moves a tab by a relative offset.
+    /// Adjusts the tab position based on `offset` (e.g., -1 for left, +1 for right).
+    /// If the new position is out of bounds, it wraps around cyclically within the tab range.
+    move_tab: isize,
+
     /// Toggle the tab overview.
     /// This only works with libadwaita enabled currently.
     toggle_tab_overview: void,
@@ -312,7 +317,8 @@ pub const Action = union(enum) {
     /// Focus on a split in a given direction.
     goto_split: SplitFocusDirection,
 
-    /// zoom/unzoom the current split.
+    /// zoom/unzoom the current split. This is currently only supported
+    /// on macOS. Contributions welcome for other platforms.
     toggle_split_zoom: void,
 
     /// Resize the current split by moving the split divider in the given
@@ -647,6 +653,7 @@ pub const Action = union(enum) {
             .next_tab,
             .last_tab,
             .goto_tab,
+            .move_tab,
             .toggle_tab_overview,
             .new_split,
             .goto_split,

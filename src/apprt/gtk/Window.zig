@@ -456,6 +456,15 @@ pub fn gotoNextTab(self: *Window, surface: *Surface) void {
     self.focusCurrentTab();
 }
 
+/// Move the current tab for a surface.
+pub fn moveTab(self: *Window, surface: *Surface, position: c_int) void {
+    const tab = surface.container.tab() orelse {
+        log.info("surface is not attached to a tab bar, cannot navigate", .{});
+        return;
+    };
+    self.notebook.moveTab(tab, position);
+}
+
 /// Go to the next tab for a surface.
 pub fn gotoLastTab(self: *Window) void {
     const max = self.notebook.nPages() -| 1;

@@ -213,6 +213,7 @@ pub const App = struct {
             .toggle_quick_terminal,
             .toggle_visibility,
             .goto_tab,
+            .move_tab,
             .inspector,
             .render_inspector,
             .quit_timer,

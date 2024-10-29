@@ -896,7 +896,7 @@ const ReflowCursor = struct {
 
                 // If our page can't support an additional cell with
                 // graphemes then we create a new page for this row.
-                if (self.page.graphemeCount() >= self.page.graphemeCapacity() - 1) {
+                if (self.page.graphemeCount() >= self.page.graphemeCapacity()) {
                     try self.moveLastRowToNewPage(list, cap);
                 } else {
                     // Attempt to allocate the space that would be required for
@@ -924,7 +924,7 @@ const ReflowCursor = struct {
 
                 // If our page can't support an additional cell with
                 // a hyperlink ID then we create a new page for this row.
-                if (self.page.hyperlinkCount() >= self.page.hyperlinkCapacity() - 1) {
+                if (self.page.hyperlinkCount() >= self.page.hyperlinkCapacity()) {
                     try self.moveLastRowToNewPage(list, cap);
                 }
 

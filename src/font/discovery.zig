@@ -424,7 +424,30 @@ pub const CoreText = struct {
             };
         }
 
-        return try self.discover(alloc, desc);
+        const it = try self.discover(alloc, desc);
+
+        // If our normal discovery doesn't find anything and we have a specific
+        // codepoint, then fallback to using CTFontCreateForString to find a
+        // matching font CoreText wants to use. See:
+        // https://github.com/ghostty-org/ghostty/issues/2499
+        if (it.list.len == 0 and desc.codepoint > 0) codepoint: {
+            const ct_desc = try self.discoverCodepoint(
+                collection,
+                desc,
+            ) orelse break :codepoint;
+
+            const list = try alloc.alloc(*macos.text.FontDescriptor, 1);
+            errdefer alloc.free(list);
+            list[0] = ct_desc;
+
+            return DiscoverIterator{
+                .alloc = alloc,
+                .list = list,
+                .i = 0,
+            };
+        }
+
+        return it;
     }
 
     /// Discover a font for a specific codepoint using the CoreText
@@ -491,16 +514,45 @@ pub const CoreText = struct {
         );
         defer str.release();
 
+        // Get our range length for CTFontCreateForString. It looks like
+        // the range uses UTF-16 codepoints and not UTF-32 codepoints.
+        const range_len: usize = range_len: {
+            var unichars: [2]u16 = undefined;
+            const pair = macos.foundation.stringGetSurrogatePairForLongCharacter(
+                desc.codepoint,
+                &unichars,
+            );
+            break :range_len if (pair) 2 else 1;
+        };
+
         // Get our font
         const font = original.font.createForString(
             str,
-            macos.foundation.Range.init(0, 1),
+            macos.foundation.Range.init(0, range_len),
         ) orelse return null;
         defer font.release();
+
+        // Do not allow the last resort font to go through. This is the
+        // last font used by CoreText if it can't find anything else and
+        // only contains replacement characters.
+        last_resort: {
+            const name_str = font.copyPostScriptName();
+            defer name_str.release();
+
+            // If the name doesn't fit in our buffer, then it can't
+            // be the last resort font so we break out.
+            var name_buf: [64]u8 = undefined;
+            const name: []const u8 = name_str.cstring(&name_buf, .utf8) orelse
+                break :last_resort;
+
+            // If the name is "LastResort" then we don't want to use it.
+            if (std.mem.eql(u8, "LastResort", name)) return null;
+        }
 
         // Get the descriptor
         return font.copyDescriptor();
     }
+
     fn copyMatchingDescriptors(
         alloc: Allocator,
         list: *macos.foundation.Array,

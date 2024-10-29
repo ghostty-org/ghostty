@@ -203,8 +203,16 @@ extension Ghostty {
     
 }
 
-// MARK: Surface Notifications
+// MARK: Surface Notification
 
+extension Notification.Name {
+    /// Goto tab. Has tab index in the userinfo.
+    static let ghosttyMoveTab = Notification.Name("com.mitchellh.ghostty.moveTab")
+    static let GhosttyMoveTabKey = ghosttyMoveTab.rawValue
+}
+
+// NOTE: I am moving all of these to Notification.Name extensions over time. This
+// namespace was the old namespace.
 extension Ghostty.Notification {
     /// Used to pass a configuration along when creating a new tab/window/split.
     static let NewSurfaceConfigKey = "com.mitchellh.ghostty.newSurfaceConfig"
