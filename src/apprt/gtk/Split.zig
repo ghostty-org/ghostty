@@ -20,7 +20,7 @@ pub const Orientation = enum {
     horizontal,
     vertical,
 
-    pub fn fromDirection(direction: apprt.action.SplitDirection) Orientation {
+    pub fn fromDirection(direction: apprt.action.SplitDirection.Direction) Orientation {
         return switch (direction) {
             .right, .left => .horizontal,
             .down, .up => .vertical,
@@ -57,18 +57,18 @@ bottom_right: Surface.Container.Elem,
 pub fn create(
     alloc: Allocator,
     sibling: *Surface,
-    direction: apprt.action.SplitDirection,
+    new_split: apprt.action.SplitDirection,
 ) !*Split {
     var split = try alloc.create(Split);
     errdefer alloc.destroy(split);
-    try split.init(sibling, direction);
+    try split.init(sibling, new_split);
     return split;
 }
 
 pub fn init(
     self: *Split,
     sibling: *Surface,
-    direction: apprt.action.SplitDirection,
+    new_split: apprt.action.SplitDirection,
 ) !void {
     // Create the new child surface for the other direction.
     const alloc = sibling.app.core_app.alloc;
@@ -79,7 +79,7 @@ pub fn init(
     sibling.dimSurface();
 
     // Create the actual GTKPaned, attach the proper children.
-    const orientation: c_uint = switch (direction) {
+    const orientation: c_uint = switch (new_split.direction) {
         .right, .left => c.GTK_ORIENTATION_HORIZONTAL,
         .down, .up => c.GTK_ORIENTATION_VERTICAL,
     };
@@ -94,7 +94,7 @@ pub fn init(
     // we're inheriting its parent. The sibling points to its location
     // in the split, and the surface points to the other location.
     const container = sibling.container;
-    const tl: *Surface, const br: *Surface = switch (direction) {
+    const tl: *Surface, const br: *Surface = switch (new_split.direction) {
         .right, .down => right_down: {
             sibling.container = .{ .split_tl = &self.top_left };
             surface.container = .{ .split_br = &self.bottom_right };
@@ -113,7 +113,7 @@ pub fn init(
         .container = container,
         .top_left = .{ .surface = tl },
         .bottom_right = .{ .surface = br },
-        .orientation = Orientation.fromDirection(direction),
+        .orientation = Orientation.fromDirection(new_split.direction),
     };
 
     // Replace the previous containers element with our split.
@@ -124,6 +124,25 @@ pub fn init(
     // Update our children so that our GL area is properly
     // added to the paned.
     self.updateChildren();
+
+    // Skip resize logic if percentage is 50 (this is the default behavior)
+    if (new_split.percent != 50) {
+        const allocation = sibling.size;
+        const split_percentage: f32 = @as(f32, @floatFromInt(new_split.percent)) / 100;
+        const total_surface_size: f32 = switch (self.orientation) {
+            .horizontal => @floatFromInt(allocation.width),
+            .vertical => @floatFromInt(allocation.height),
+        };
+
+        // percentage to apply based on direction
+        const pct = switch (new_split.direction) {
+            .right, .down => 1 - split_percentage,
+            .left, .up => split_percentage,
+        };
+
+        const divider_position = @as(c_int, @intFromFloat(total_surface_size * pct));
+        c.gtk_paned_set_position(self.paned, divider_position);
+    }
 
     // The new surface should always grab focus
     surface.grabFocus();

@@ -3919,18 +3919,25 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             .{ .amount = position },
         ),
 
-        .new_split => |direction| try self.rt_app.performAction(
+        .new_split => |value| try self.rt_app.performAction(
             .{ .surface = self },
             .new_split,
-            switch (direction) {
-                .right => .right,
-                .left => .left,
-                .down => .down,
-                .up => .up,
-                .auto => if (self.screen_size.width > self.screen_size.height)
-                    .right
-                else
-                    .down,
+            .{
+                .percent = std.fmt.parseInt(
+                    u16,
+                    value[1],
+                    10,
+                ) catch return error.InvalidType,
+                .direction = switch (value[0]) {
+                    .right => .right,
+                    .left => .left,
+                    .down => .down,
+                    .up => .up,
+                    .auto => if (self.screen_size.width > self.screen_size.height)
+                        .right
+                    else
+                        .down,
+                },
             },
         ),
 

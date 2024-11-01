@@ -310,9 +310,9 @@ pub const Action = union(enum) {
     /// This only works with libadwaita enabled currently.
     toggle_tab_overview: void,
 
-    /// Create a new split in the given direction. The new split will appear in
+    /// Create a new split in the given direction and percentage. The new split will appear in
     /// the direction given.
-    new_split: SplitDirection,
+    new_split: SplitParameter,
 
     /// Focus on a split in a given direction.
     goto_split: SplitFocusDirection,
@@ -454,6 +454,13 @@ pub const Action = union(enum) {
         auto, // splits along the larger direction
     };
 
+    pub const Percentage = []const u8;
+
+    pub const SplitParameter = struct {
+        SplitDirection,
+        Percentage,
+    };
+
     pub const SplitFocusDirection = enum {
         previous,
         next,
@@ -500,6 +507,14 @@ pub const Action = union(enum) {
         return std.fmt.parseFloat(T, value) catch return Error.InvalidFormat;
     }
 
+    fn parsePercentage(value: []const u8) !Percentage {
+        if (value.len < 2) return Error.InvalidFormat;
+        if (value[value.len - 1] != '%') return Error.InvalidFormat;
+        const percent = value[0 .. value.len - 1];
+        _ = std.fmt.parseInt(u16, percent, 10) catch return Error.InvalidFormat;
+        return percent;
+    }
+
     fn parseParameter(
         comptime field: std.builtin.Type.UnionField,
         param: []const u8,
@@ -521,6 +536,7 @@ pub const Action = union(enum) {
                         .Enum => try parseEnum(field_.type, next),
                         .Int => try parseInt(field_.type, next),
                         .Float => try parseFloat(field_.type, next),
+                        .Pointer => if (field_.type == Percentage) try parsePercentage(next),
                         else => unreachable,
                     };
                 }
@@ -1688,10 +1704,21 @@ test "parse: action with enum" {
 
     // parameter
     {
-        const binding = try parseSingle("a=new_split:right");
+        // Note: The "50%" in the binding string gets parsed to just "50"
+        const binding = try parseSingle("a=new_split:right,50%");
         try testing.expect(binding.action == .new_split);
-        try testing.expectEqual(Action.SplitDirection.right, binding.action.new_split);
+        try testing.expectEqual(Action.SplitDirection.right, binding.action.new_split[0]);
+        try testing.expectEqualSlices(u8, "50", binding.action.new_split[1]);
     }
+
+    // missing unit %
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=new_split:right,50"));
+
+    // too many
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=new_split:right,30%,50%"));
+
+    // invalid type
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=new_split:right,0.5%"));
 }
 
 test "parse: action with int" {

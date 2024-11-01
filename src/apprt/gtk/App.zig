@@ -548,13 +548,13 @@ fn moveTab(_: *App, target: apprt.Target, move_tab: apprt.action.MoveTab) void {
 fn newSplit(
     self: *App,
     target: apprt.Target,
-    direction: apprt.action.SplitDirection,
+    new_split: apprt.action.SplitDirection,
 ) !void {
     switch (target) {
         .app => {},
         .surface => |v| {
             const alloc = self.core_app.alloc;
-            _ = try Split.create(alloc, v.rt_surface, direction);
+            _ = try Split.create(alloc, v.rt_surface, new_split);
         },
     }
 }
@@ -863,10 +863,10 @@ fn syncActionAccelerators(self: *App) !void {
     try self.syncActionAccelerator("win.close", .{ .close_surface = {} });
     try self.syncActionAccelerator("win.new_window", .{ .new_window = {} });
     try self.syncActionAccelerator("win.new_tab", .{ .new_tab = {} });
-    try self.syncActionAccelerator("win.split_right", .{ .new_split = .right });
-    try self.syncActionAccelerator("win.split_down", .{ .new_split = .down });
-    try self.syncActionAccelerator("win.split_left", .{ .new_split = .left });
-    try self.syncActionAccelerator("win.split_up", .{ .new_split = .up });
+    try self.syncActionAccelerator("win.split_right", .{ .new_split = .{ .right, "50%" } });
+    try self.syncActionAccelerator("win.split_down", .{ .new_split = .{ .down, "50%" } });
+    try self.syncActionAccelerator("win.split_left", .{ .new_split = .{ .left, "50%" } });
+    try self.syncActionAccelerator("win.split_up", .{ .new_split = .{ .up, "50%" } });
     try self.syncActionAccelerator("win.copy", .{ .copy_to_clipboard = {} });
     try self.syncActionAccelerator("win.paste", .{ .paste_from_clipboard = {} });
     try self.syncActionAccelerator("win.reset", .{ .reset = {} });

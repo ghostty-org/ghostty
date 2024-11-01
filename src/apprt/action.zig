@@ -282,13 +282,19 @@ pub const Action = union(Key) {
     }
 };
 
-// This is made extern (c_int) to make interop easier with our embedded
-// runtime. The small size cost doesn't make a difference in our union.
-pub const SplitDirection = enum(c_int) {
-    right,
-    down,
-    left,
-    up,
+/// The percentage and direction to create the split
+pub const SplitDirection = extern struct {
+    percent: u16,
+    direction: Direction,
+
+    // This is made extern (c_int) to make interop easier with our embedded
+    // runtime. The small size cost doesn't make a difference in our union.
+    pub const Direction = enum(c_int) {
+        right,
+        down,
+        left,
+        up,
+    };
 };
 
 // This is made extern (c_int) to make interop easier with our embedded
