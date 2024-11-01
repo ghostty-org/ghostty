@@ -79,6 +79,15 @@ const Quads = packed struct(u4) {
     br: bool = false,
 };
 
+/// Specification of a git branch node, which can have any of
+/// 4 lines connecting to it in vertical or horizontal alignment
+const NodeAlign = packed struct(u4) {
+    up: bool = false,
+    down: bool = false,
+    left: bool = false,
+    right: bool = false,
+};
+
 /// Alignment of a figure within a cell
 const Alignment = struct {
     horizontal: enum {
@@ -1302,6 +1311,320 @@ fn draw(self: Box, alloc: Allocator, canvas: *font.sprite.Canvas, cp: u32) !void
         // '🯯'
         0x1fbef => self.draw_circle(canvas, Alignment.top_left, true),
 
+        // ''
+        0x0f5d0 => self.hline_middle(canvas, Thickness.light),
+
+        // ''
+        0x0f5d1 => self.vline_middle(canvas, Thickness.light),
+
+        // ''
+        // 0x0f5d2 => self.draw_dash_fading(canvas, 4, Direction.LEFT, Thickness.light.height(self.thickness)),
+
+        // ''
+        // 0x0f5d3 => self.draw_dash_fading(canvas, 4, Direction.RIGHT, Thickness.light.height(self.thickness)),
+
+        // ''
+        // 0x0f5d4 => self.draw_dash_fading(canvas, 5, Direction.UP, Thickness.light.height(self.thickness)),
+
+        // ''
+        // 0x0f5d5 => self.draw_dash_fading(canvas, 5, Direction.DOWN, Thickness.light.height(self.thickness)),
+
+        // ''
+        0x0f5d6 => try self.draw_light_arc(canvas, .br),
+
+        // ''
+        0x0f5d7 => try self.draw_light_arc(canvas, .bl),
+
+        // ''
+        0x0f5d8 => try self.draw_light_arc(canvas, .tr),
+
+        // ''
+        0x0f5d9 => try self.draw_light_arc(canvas, .tl),
+
+        // ''
+        0x0f5da => {
+            self.vline_middle(canvas, Thickness.light);
+            try self.draw_light_arc(canvas, .tr);
+        },
+
+        // ''
+        0x0f5db => {
+            self.vline_middle(canvas, Thickness.light);
+            try self.draw_light_arc(canvas, .br);
+        },
+
+        // ''
+        0x0f5dc => {
+            try self.draw_light_arc(canvas, .tr);
+            try self.draw_light_arc(canvas, .br);
+        },
+
+        // ''
+        0x0f5dd => {
+            self.vline_middle(canvas, Thickness.light);
+            try self.draw_light_arc(canvas, .tl);
+        },
+
+        // ''
+        0x0f5de => {
+            self.vline_middle(canvas, Thickness.light);
+            try self.draw_light_arc(canvas, .bl);
+        },
+
+        // ''
+        0x0f5df => {
+            try self.draw_light_arc(canvas, .tl);
+            try self.draw_light_arc(canvas, .bl);
+        },
+
+        // ''
+        0x0f5e0 => {
+            try self.draw_light_arc(canvas, .bl);
+            self.hline_middle(canvas, Thickness.light);
+        },
+
+        // ''
+        0x0f5e1 => {
+            try self.draw_light_arc(canvas, .br);
+            self.hline_middle(canvas, Thickness.light);
+        },
+
+        // ''
+        0x0f5e2 => {
+            try self.draw_light_arc(canvas, .br);
+            try self.draw_light_arc(canvas, .bl);
+        },
+
+        // ''
+        0x0f5e3 => {
+            try self.draw_light_arc(canvas, .tl);
+            self.hline_middle(canvas, Thickness.light);
+        },
+
+        // ''
+        0x0f5e4 => {
+            try self.draw_light_arc(canvas, .tr);
+            self.hline_middle(canvas, Thickness.light);
+        },
+
+        // ''
+        0x0f5e5 => {
+            try self.draw_light_arc(canvas, .tr);
+            try self.draw_light_arc(canvas, .tl);
+        },
+
+        // ''
+        0x0f5e6 => {
+            self.vline_middle(canvas, Thickness.light);
+            try self.draw_light_arc(canvas, .tl);
+            try self.draw_light_arc(canvas, .tr);
+        },
+
+        // ''
+        0x0f5e7 => {
+            self.vline_middle(canvas, Thickness.light);
+            try self.draw_light_arc(canvas, .bl);
+            try self.draw_light_arc(canvas, .br);
+        },
+
+        // ''
+        0x0f5e8 => {
+            self.hline_middle(canvas, Thickness.light);
+            try self.draw_light_arc(canvas, .bl);
+            try self.draw_light_arc(canvas, .tl);
+        },
+
+        // ''
+        0x0f5e9 => {
+            self.hline_middle(canvas, Thickness.light);
+            try self.draw_light_arc(canvas, .tr);
+            try self.draw_light_arc(canvas, .br);
+        },
+
+        // ''
+        0x0f5ea => {
+            self.vline_middle(canvas, Thickness.light);
+            try self.draw_light_arc(canvas, .tl);
+            try self.draw_light_arc(canvas, .br);
+        },
+
+        // ''
+        0x0f5eb => {
+            self.vline_middle(canvas, Thickness.light);
+            try self.draw_light_arc(canvas, .tr);
+            try self.draw_light_arc(canvas, .bl);
+        },
+
+        // ''
+        0x0f5ec => {
+            self.hline_middle(canvas, Thickness.light);
+            try self.draw_light_arc(canvas, .tl);
+            try self.draw_light_arc(canvas, .br);
+        },
+
+        // ''
+        0x0f5ed => {
+            self.hline_middle(canvas, Thickness.light);
+            try self.draw_light_arc(canvas, .tr);
+            try self.draw_light_arc(canvas, .bl);
+        },
+
+        // ''
+        0x0f5ee => self.draw_git_node(canvas, .{}, Thickness.light, true),
+
+        // ''
+        0x0f5ef => self.draw_git_node(canvas, .{}, Thickness.light, false),
+
+        // ''
+        0x0f5f0 => {
+            self.draw_git_node(canvas, .{ .right = true }, Thickness.light, true);
+        },
+
+        // ''
+        0x0f5f1 => {
+            self.draw_git_node(canvas, .{ .right = true }, Thickness.light, false);
+        },
+
+        // ''
+        0x0f5f2 => {
+            self.draw_git_node(canvas, .{ .left = true }, Thickness.light, true);
+        },
+
+        // ''
+        0x0f5f3 => {
+            self.draw_git_node(canvas, .{ .left = true }, Thickness.light, false);
+        },
+
+        // ''
+        0x0f5f4 => {
+            self.draw_git_node(canvas, .{ .left = true, .right = true }, Thickness.light, true);
+        },
+
+        // ''
+        0x0f5f5 => {
+            self.draw_git_node(canvas, .{ .left = true, .right = true }, Thickness.light, false);
+        },
+
+        // ''
+        0x0f5f6 => {
+            self.draw_git_node(canvas, .{ .down = true }, Thickness.light, true);
+        },
+
+        // ''
+        0x0f5f7 => {
+            self.draw_git_node(canvas, .{ .down = true }, Thickness.light, false);
+        },
+
+        // ''
+        0x0f5f8 => {
+            self.draw_git_node(canvas, .{ .up = true }, Thickness.light, true);
+        },
+
+        // ''
+        0x0f5f9 => {
+            self.draw_git_node(canvas, .{ .up = true }, Thickness.light, false);
+        },
+
+        // ''
+        0x0f5fa => {
+            self.draw_git_node(canvas, .{ .up = true, .down = true }, Thickness.light, true);
+        },
+
+        // ''
+        0x0f5fb => {
+            self.draw_git_node(canvas, .{ .up = true, .down = true }, Thickness.light, false);
+        },
+
+        // ''
+        0x0f5fc => {
+            self.draw_git_node(canvas, .{ .right = true, .down = true }, Thickness.light, true);
+        },
+
+        // ''
+        0x0f5fd => {
+            self.draw_git_node(canvas, .{ .right = true, .down = true }, Thickness.light, false);
+        },
+
+        // ''
+        0x0f5fe => {
+            self.draw_git_node(canvas, .{ .left = true, .down = true }, Thickness.light, true);
+        },
+
+        // ''
+        0x0f5ff => {
+            self.draw_git_node(canvas, .{ .left = true, .down = true }, Thickness.light, false);
+        },
+
+        // ''
+        0x0f600 => {
+            self.draw_git_node(canvas, .{ .up = true, .right = true }, Thickness.light, true);
+        },
+
+        // ''
+        0x0f601 => {
+            self.draw_git_node(canvas, .{ .up = true, .right = true }, Thickness.light, false);
+        },
+
+        // ''
+        0x0f602 => {
+            self.draw_git_node(canvas, .{ .up = true, .left = true }, Thickness.light, true);
+        },
+
+        // ''
+        0x0f603 => {
+            self.draw_git_node(canvas, .{ .up = true, .left = true }, Thickness.light, false);
+        },
+
+        // ''
+        0x0f604 => {
+            self.draw_git_node(canvas, .{ .up = true, .down = true, .right = true }, Thickness.light, true);
+        },
+
+        // ''
+        0x0f605 => {
+            self.draw_git_node(canvas, .{ .up = true, .down = true, .right = true }, Thickness.light, false);
+        },
+
+        // ''
+        0x0f606 => {
+            self.draw_git_node(canvas, .{ .up = true, .down = true, .left = true }, Thickness.light, true);
+        },
+
+        // ''
+        0x0f607 => {
+            self.draw_git_node(canvas, .{ .up = true, .down = true, .left = true }, Thickness.light, false);
+        },
+
+        // ''
+        0x0f608 => {
+            self.draw_git_node(canvas, .{ .down = true, .left = true, .right = true }, Thickness.light, true);
+        },
+
+        // ''
+        0x0f609 => {
+            self.draw_git_node(canvas, .{ .down = true, .left = true, .right = true }, Thickness.light, false);
+        },
+
+        // ''
+        0x0f60a => {
+            self.draw_git_node(canvas, .{ .up = true, .left = true, .right = true }, Thickness.light, true);
+        },
+
+        // ''
+        0x0f60b => {
+            self.draw_git_node(canvas, .{ .up = true, .left = true, .right = true }, Thickness.light, false);
+        },
+
+        // ''
+        0x0f60c => {
+            self.draw_git_node(canvas, .{ .up = true, .down = true, .left = true, .right = true }, Thickness.light, true);
+        },
+
+        // ''
+        0x0f60d => {
+            self.draw_git_node(canvas, .{ .up = true, .down = true, .left = true, .right = true }, Thickness.light, false);
+        },
+
         // Not official box characters but special characters we hide
         // in the high bits of a unicode codepoint.
         @intFromEnum(Sprite.cursor_rect) => self.draw_cursor_rect(canvas),
@@ -1791,6 +2114,57 @@ fn draw_cell_diagonal(
         .{ .x = x1, .y = y1 },
         .light,
     ) catch {};
+}
+
+fn draw_git_node(
+    self: Box,
+    canvas: *font.sprite.Canvas,
+    comptime nodes: NodeAlign,
+    comptime thickness: Thickness,
+    comptime filled: bool,
+) void {
+    const float_width: f64 = @floatFromInt(self.width);
+    const float_height: f64 = @floatFromInt(self.height);
+
+    const x: f64 = float_width / 2;
+    const y: f64 = float_height / 2;
+
+    // we need at least 1px leeway to see node + right/left line
+    const r: f64 = 0.47 * @min(float_width, float_height);
+
+    var ctx: z2d.Context = .{
+        .surface = canvas.sfc,
+        .pattern = .{
+            .opaque_pattern = .{
+                .pixel = .{ .alpha8 = .{ .a = @intFromEnum(Shade.on) } },
+            },
+        },
+        .line_width = @floatFromInt(thickness.height(self.thickness)),
+    };
+
+    var path = z2d.Path.init(canvas.alloc);
+    defer path.deinit();
+
+    const int_radius: u32 = @intFromFloat(r);
+
+    if (nodes.up)
+        self.vline_middle_xy(canvas, 0, (self.height / 2) - int_radius, self.width, thickness);
+    if (nodes.down)
+        self.vline_middle_xy(canvas, (self.height / 2) + int_radius, self.height, self.width, thickness);
+    if (nodes.left)
+        self.hline_middle_xy(canvas, 0, (self.width / 2) - int_radius, self.height, thickness);
+    if (nodes.right)
+        self.hline_middle_xy(canvas, (self.width / 2) + int_radius, self.width, self.height, thickness);
+
+    if (filled) {
+        path.arc(x, y, r, 0, std.math.pi * 2, false, null) catch return;
+        path.close() catch return;
+        ctx.fill(canvas.alloc, path) catch return;
+    } else {
+        path.arc(x, y, r - ctx.line_width / 2, 0, std.math.pi * 2, false, null) catch return;
+        path.close() catch return;
+        ctx.stroke(canvas.alloc, path) catch return;
+    }
 }
 
 fn draw_circle(
@@ -2377,6 +2751,16 @@ fn draw_cursor_bar(self: Box, canvas: *font.sprite.Canvas) void {
     self.vline(canvas, 0, self.height, 0, thick_px);
 }
 
+fn vline_middle_xy(self: Box, canvas: *font.sprite.Canvas, y: u32, y2: u32, x: u32, thickness: Thickness) void {
+    const thick_px = thickness.height(self.thickness);
+    self.vline(canvas, y, y2, (x -| thick_px) / 2, thick_px);
+}
+
+fn hline_middle_xy(self: Box, canvas: *font.sprite.Canvas, x: u32, x2: u32, y: u32, thickness: Thickness) void {
+    const thick_px = thickness.height(self.thickness);
+    self.hline(canvas, x, x2, (y -| thick_px) / 2, thick_px);
+}
+
 fn vline_middle(self: Box, canvas: *font.sprite.Canvas, thickness: Thickness) void {
     const thick_px = thickness.height(self.thickness);
     self.vline(canvas, 0, self.height, (self.width -| thick_px) / 2, thick_px);
@@ -2478,6 +2862,20 @@ fn testRenderAll(self: Box, alloc: Allocator, atlas: *font.Atlas) !void {
             atlas,
             cp,
         );
+    }
+
+    // Git Branch characters
+    cp = 0xf5d0;
+    while (cp <= 0xf60d) : (cp += 1) {
+        switch (cp) {
+            0xf5d0...0xf60d,
+            => _ = try self.renderGlyph(
+                alloc,
+                atlas,
+                cp,
+            ),
+            else => {},
+        }
     }
 
     // Symbols for Legacy Computing.
