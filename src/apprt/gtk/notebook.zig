@@ -14,16 +14,36 @@ const AdwTabPage = if (adwaita.versionAtLeast(0, 0, 0)) c.AdwTabPage else anyopa
 /// An abstraction over the GTK notebook and Adwaita tab view to manage
 /// all the terminal tabs in a window.
 pub const Notebook = union(enum) {
-    adw_tab_view: *AdwTabView,
+    adw_tab_view: struct {
+        /// the tab view
+        tab_view: *AdwTabView,
+
+        /// the last tab to have the context menu shown
+        last_tab: ?*Tab,
+    },
+
     gtk_notebook: *c.GtkNotebook,
 
-    pub fn create(window: *Window) Notebook {
+    pub fn create(alloc: std.mem.Allocator, window: *Window) std.mem.Allocator.Error!*Notebook {
+        // Allocate a fixed pointer for our notebook. We try to minimize
+        // allocations but windows and other GUI requirements are so minimal
+        // compared to the steady-state terminal operation so we use heap
+        // allocation for this.
+        //
+        // The allocation is owned by the GtkWindow created. It will be
+        // freed when the window is closed.
+        var notebook = try alloc.create(Notebook);
+        errdefer alloc.destroy(notebook);
         const app = window.app;
-        if (adwaita.enabled(&app.config)) return initAdw(window);
-        return initGtk(window);
+        if (adwaita.enabled(&app.config)) {
+            notebook.initAdw(window);
+            return notebook;
+        }
+        notebook.initGtk(window);
+        return notebook;
     }
 
-    fn initGtk(window: *Window) Notebook {
+    fn initGtk(self: *Notebook, window: *Window) void {
         const app = window.app;
 
         // Create a notebook to hold our tabs.
@@ -58,10 +78,10 @@ pub const Notebook = union(enum) {
         _ = c.g_signal_connect_data(notebook, "switch-page", c.G_CALLBACK(&gtkSwitchPage), window, null, c.G_CONNECT_DEFAULT);
         _ = c.g_signal_connect_data(notebook, "create-window", c.G_CALLBACK(&gtkNotebookCreateWindow), window, null, c.G_CONNECT_DEFAULT);
 
-        return .{ .gtk_notebook = notebook };
+        self.* = .{ .gtk_notebook = notebook };
     }
 
-    fn initAdw(window: *Window) Notebook {
+    fn initAdw(self: *Notebook, window: *Window) void {
         const app = window.app;
         assert(adwaita.enabled(&app.config));
 
@@ -73,19 +93,24 @@ pub const Notebook = union(enum) {
             c.adw_tab_view_remove_shortcuts(tab_view, c.ADW_TAB_VIEW_SHORTCUT_ALL_SHORTCUTS);
         }
 
-        c.adw_tab_view_set_menu_model(tab_view, @ptrCast(@alignCast(app.context_menu)));
+        self.* = .{
+            .adw_tab_view = .{
+                .tab_view = tab_view,
+                .last_tab = null,
+            },
+        };
+
+        self.initContextMenu(window);
 
         _ = c.g_signal_connect_data(tab_view, "page-attached", c.G_CALLBACK(&adwPageAttached), window, null, c.G_CONNECT_DEFAULT);
         _ = c.g_signal_connect_data(tab_view, "create-window", c.G_CALLBACK(&adwTabViewCreateWindow), window, null, c.G_CONNECT_DEFAULT);
-        _ = c.g_signal_connect_data(tab_view, "setup-menu", c.G_CALLBACK(&adwTabViewSetupMenu), window, null, c.G_CONNECT_DEFAULT);
         _ = c.g_signal_connect_data(tab_view, "notify::selected-page", c.G_CALLBACK(&adwSelectPage), window, null, c.G_CONNECT_DEFAULT);
-
-        return .{ .adw_tab_view = tab_view };
+        _ = c.g_signal_connect_data(tab_view, "setup-menu", c.G_CALLBACK(&adwTabViewSetupMenu), self, null, c.G_CONNECT_DEFAULT);
     }
 
     pub fn asWidget(self: Notebook) *c.GtkWidget {
         return switch (self) {
-            .adw_tab_view => |tab_view| @ptrCast(@alignCast(tab_view)),
+            .adw_tab_view => |tab_view| @ptrCast(@alignCast(tab_view.tab_view)),
             .gtk_notebook => |notebook| @ptrCast(@alignCast(notebook)),
         };
     }
@@ -94,7 +119,7 @@ pub const Notebook = union(enum) {
         return switch (self) {
             .gtk_notebook => |notebook| c.gtk_notebook_get_n_pages(notebook),
             .adw_tab_view => |tab_view| if (comptime adwaita.versionAtLeast(0, 0, 0))
-                c.adw_tab_view_get_n_pages(tab_view)
+                c.adw_tab_view_get_n_pages(tab_view.tab_view)
             else
                 unreachable,
         };
@@ -106,8 +131,8 @@ pub const Notebook = union(enum) {
         switch (self) {
             .adw_tab_view => |tab_view| {
                 if (comptime !adwaita.versionAtLeast(0, 0, 0)) unreachable;
-                const page = c.adw_tab_view_get_selected_page(tab_view) orelse return null;
-                return c.adw_tab_view_get_page_position(tab_view, page);
+                const page = c.adw_tab_view_get_selected_page(tab_view.tab_view) orelse return null;
+                return c.adw_tab_view_get_page_position(tab_view.tab_view, page);
             },
 
             .gtk_notebook => |notebook| {
@@ -122,7 +147,7 @@ pub const Notebook = union(enum) {
         const child = switch (self) {
             .adw_tab_view => |tab_view| child: {
                 if (comptime !adwaita.versionAtLeast(0, 0, 0)) unreachable;
-                const page = c.adw_tab_view_get_selected_page(tab_view) orelse return null;
+                const page = c.adw_tab_view_get_selected_page(tab_view.tab_view) orelse return null;
                 const child = c.adw_tab_page_get_child(page);
                 break :child child;
             },
@@ -141,8 +166,8 @@ pub const Notebook = union(enum) {
         switch (self) {
             .adw_tab_view => |tab_view| {
                 if (comptime !adwaita.versionAtLeast(0, 0, 0)) unreachable;
-                const page_to_select = c.adw_tab_view_get_nth_page(tab_view, position);
-                c.adw_tab_view_set_selected_page(tab_view, page_to_select);
+                const page_to_select = c.adw_tab_view_get_nth_page(tab_view.tab_view, position);
+                c.adw_tab_view_set_selected_page(tab_view.tab_view, page_to_select);
             },
             .gtk_notebook => |notebook| c.gtk_notebook_set_current_page(notebook, position),
         }
@@ -152,8 +177,8 @@ pub const Notebook = union(enum) {
         return switch (self) {
             .adw_tab_view => |tab_view| page_idx: {
                 if (comptime !adwaita.versionAtLeast(0, 0, 0)) unreachable;
-                const page = c.adw_tab_view_get_page(tab_view, @ptrCast(tab.box)) orelse return null;
-                break :page_idx c.adw_tab_view_get_page_position(tab_view, page);
+                const page = c.adw_tab_view_get_page(tab_view.tab_view, @ptrCast(tab.box)) orelse return null;
+                break :page_idx c.adw_tab_view_get_page_position(tab_view.tab_view, page);
             },
             .gtk_notebook => |notebook| page_idx: {
                 const page = c.gtk_notebook_get_page(notebook, @ptrCast(tab.box)) orelse return null;
@@ -210,8 +235,8 @@ pub const Notebook = union(enum) {
             },
             .adw_tab_view => |tab_view| {
                 if (comptime !adwaita.versionAtLeast(0, 0, 0)) unreachable;
-                const page = c.adw_tab_view_get_page(tab_view, @ptrCast(tab.box));
-                _ = c.adw_tab_view_reorder_page(tab_view, page, position);
+                const page = c.adw_tab_view_get_page(tab_view.tab_view, @ptrCast(tab.box));
+                _ = c.adw_tab_view_reorder_page(tab_view.tab_view, page, position);
             },
         }
     }
@@ -220,7 +245,7 @@ pub const Notebook = union(enum) {
         switch (self) {
             .adw_tab_view => |tab_view| {
                 if (comptime !adwaita.versionAtLeast(0, 0, 0)) unreachable;
-                const page = c.adw_tab_view_get_page(tab_view, @ptrCast(tab.box));
+                const page = c.adw_tab_view_get_page(tab_view.tab_view, @ptrCast(tab.box));
                 c.adw_tab_page_set_title(page, title.ptr);
             },
             .gtk_notebook => c.gtk_label_set_text(tab.label_text, title.ptr),
@@ -253,11 +278,11 @@ pub const Notebook = union(enum) {
             .adw_tab_view => |tab_view| {
                 if (comptime !adwaita.versionAtLeast(0, 0, 0)) unreachable;
 
-                const page = c.adw_tab_view_insert(tab_view, box_widget, self.newTabInsertPosition(tab));
+                const page = c.adw_tab_view_insert(tab_view.tab_view, box_widget, self.newTabInsertPosition(tab));
                 c.adw_tab_page_set_title(page, title.ptr);
 
                 // Switch to the new tab
-                c.adw_tab_view_set_selected_page(tab_view, page);
+                c.adw_tab_view_set_selected_page(tab_view.tab_view, page);
             },
             .gtk_notebook => |notebook| {
                 // Build the tab label
@@ -327,8 +352,8 @@ pub const Notebook = union(enum) {
             .adw_tab_view => |tab_view| {
                 if (comptime !adwaita.versionAtLeast(0, 0, 0)) unreachable;
 
-                const page = c.adw_tab_view_get_page(tab_view, @ptrCast(tab.box)) orelse return;
-                c.adw_tab_view_close_page(tab_view, page);
+                const page = c.adw_tab_view_get_page(tab_view.tab_view, @ptrCast(tab.box)) orelse return;
+                c.adw_tab_view_close_page(tab_view.tab_view, page);
 
                 // If we have no more tabs we close the window
                 if (self.nPages() == 0) {
@@ -384,6 +409,53 @@ pub const Notebook = union(enum) {
         );
 
         return c.g_value_get_int(&value);
+    }
+
+    pub fn initContextMenu(self: *Notebook, window: *Window) void {
+        switch (self.*) {
+            .adw_tab_view => |tab_view| {
+                {
+                    var buf: [32]u8 = undefined;
+                    const action_name = std.fmt.bufPrintZ(
+                        &buf,
+                        "close-tab-{x:8>0}",
+                        .{@intFromPtr(self)},
+                    ) catch unreachable;
+
+                    const action = c.g_simple_action_new(action_name, null);
+                    defer c.g_object_unref(action);
+                    _ = c.g_signal_connect_data(
+                        action,
+                        "activate",
+                        c.G_CALLBACK(&adwTabViewCloseTab),
+                        self,
+                        null,
+                        c.G_CONNECT_DEFAULT,
+                    );
+                    c.g_action_map_add_action(@ptrCast(window.window), @ptrCast(action));
+                }
+
+                const menu = c.g_menu_new();
+                errdefer c.g_object_unref(menu);
+
+                {
+                    var buf: [32]u8 = undefined;
+                    const action_name = std.fmt.bufPrintZ(
+                        &buf,
+                        "win.close-tab-{x:8>0}",
+                        .{@intFromPtr(self)},
+                    ) catch unreachable;
+
+                    const section = c.g_menu_new();
+                    defer c.g_object_unref(section);
+                    c.g_menu_append_section(menu, null, @ptrCast(@alignCast(section)));
+                    c.g_menu_append(section, "Close Tab", action_name);
+                }
+
+                c.adw_tab_view_set_menu_model(tab_view.tab_view, @ptrCast(@alignCast(menu)));
+            },
+            .gtk_notebook => {},
+        }
     }
 };
 
@@ -442,7 +514,7 @@ fn gtkPageAdded(
 
 fn adwSelectPage(_: *c.GObject, _: *c.GParamSpec, ud: ?*anyopaque) void {
     const window: *Window = @ptrCast(@alignCast(ud.?));
-    const page = c.adw_tab_view_get_selected_page(window.notebook.adw_tab_view) orelse return;
+    const page = c.adw_tab_view_get_selected_page(window.notebook.adw_tab_view.tab_view) orelse return;
     const title = c.adw_tab_page_get_title(page);
     c.gtk_window_set_title(window.window, title);
 }
@@ -464,7 +536,7 @@ fn adwTabViewCreateWindow(
         log.warn("error creating new window error={}", .{err});
         return null;
     };
-    return window.notebook.adw_tab_view;
+    return window.notebook.adw_tab_view.tab_view;
 }
 
 fn gtkNotebookCreateWindow(
@@ -497,14 +569,19 @@ fn createWindow(currentWindow: *Window) !*Window {
     return Window.create(alloc, app);
 }
 
-fn adwTabViewSetupMenu(tab_view: *AdwTabView, page: *AdwTabPage, ud: ?*anyopaque) callconv(.C) void {
-    const window: *Window = @ptrCast(@alignCast(ud.?));
+fn adwTabViewSetupMenu(_: *AdwTabView, page: *AdwTabPage, ud: ?*anyopaque) callconv(.C) void {
+    const self: *Notebook = @ptrCast(@alignCast(ud.?));
+    self.adw_tab_view.last_tab = null;
 
     const child = c.adw_tab_page_get_child(page);
     const tab: *Tab = @ptrCast(@alignCast(
         c.g_object_get_data(@ptrCast(child), Tab.GHOSTTY_TAB) orelse return,
     ));
-    window.app.refreshContextMenu(window.window, if (tab.focus_child) |focus_child| focus_child.core_surface.hasSelection() else false);
 
-    c.adw_tab_view_set_menu_model(tab_view, @ptrCast(@alignCast(window.app.context_menu)));
+    self.adw_tab_view.last_tab = tab;
+}
+
+fn adwTabViewCloseTab(_: *c.GSimpleAction, _: *c.GVariant, ud: ?*anyopaque) callconv(.C) void {
+    const self: *Notebook = @ptrCast(@alignCast(ud.?));
+    self.closeTab(self.adw_tab_view.last_tab orelse return);
 }

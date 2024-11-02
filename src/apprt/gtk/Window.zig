@@ -42,8 +42,7 @@ header: ?*c.GtkWidget,
 tab_overview: ?*c.GtkWidget,
 
 /// The notebook (tab grouping) for this window.
-/// can be either c.GtkNotebook or c.AdwTabView.
-notebook: Notebook,
+notebook: *Notebook,
 
 context_menu: *c.GtkWidget,
 
@@ -54,7 +53,7 @@ toast_overlay: ?*c.GtkWidget,
 /// See adwTabOverviewOpen for why we have this.
 adw_tab_overview_focus_timer: ?c.guint = null,
 
-pub fn create(alloc: Allocator, app: *App) !*Window {
+pub fn create(alloc: Allocator, app: *App) std.mem.Allocator.Error!*Window {
     // Allocate a fixed pointer for our window. We try to minimize
     // allocations but windows and other GUI requirements are so minimal
     // compared to the steady-state terminal operation so we use heap
@@ -64,11 +63,11 @@ pub fn create(alloc: Allocator, app: *App) !*Window {
     // freed when the window is closed.
     var window = try alloc.create(Window);
     errdefer alloc.destroy(window);
-    try window.init(app);
+    try window.init(alloc, app);
     return window;
 }
 
-pub fn init(self: *Window, app: *App) !void {
+pub fn init(self: *Window, alloc: Allocator, app: *App) std.mem.Allocator.Error!void {
     // Set up our own state
     self.* = .{
         .app = app,
@@ -226,7 +225,7 @@ pub fn init(self: *Window, app: *App) !void {
     }
 
     // Setup our notebook
-    self.notebook = Notebook.create(self);
+    self.notebook = try Notebook.create(alloc, self);
 
     // Setup our toast overlay if we have one
     self.toast_overlay = if (adwaita.enabled(&self.app.config)) toast: {
@@ -245,8 +244,8 @@ pub fn init(self: *Window, app: *App) !void {
     // If we have a tab overview then we can set it on our notebook.
     if (self.tab_overview) |tab_overview| {
         if (comptime !adwaita.versionAtLeast(1, 4, 0)) unreachable;
-        assert(self.notebook == .adw_tab_view);
-        c.adw_tab_overview_set_view(@ptrCast(tab_overview), self.notebook.adw_tab_view);
+        assert(self.notebook.* == .adw_tab_view);
+        c.adw_tab_overview_set_view(@ptrCast(tab_overview), self.notebook.adw_tab_view.tab_view);
     }
 
     self.context_menu = c.gtk_popover_menu_new_from_model(@ptrCast(@alignCast(self.app.context_menu)));
@@ -280,7 +279,7 @@ pub fn init(self: *Window, app: *App) !void {
         const header_widget: *c.GtkWidget = @ptrCast(@alignCast(self.header.?));
         c.adw_toolbar_view_add_top_bar(toolbar_view, header_widget);
         const tab_bar = c.adw_tab_bar_new();
-        c.adw_tab_bar_set_view(tab_bar, self.notebook.adw_tab_view);
+        c.adw_tab_bar_set_view(tab_bar, self.notebook.adw_tab_view.tab_view);
 
         if (!app.config.@"gtk-wide-tabs") c.adw_tab_bar_set_expand_tabs(tab_bar, 0);
 
@@ -323,7 +322,7 @@ pub fn init(self: *Window, app: *App) !void {
             );
         }
     } else {
-        switch (self.notebook) {
+        switch (self.notebook.*) {
             .adw_tab_view => |tab_view| if (comptime adwaita.versionAtLeast(0, 0, 0)) {
                 // In earlier adwaita versions, we need to add the tabbar manually since we do not use
                 // an AdwToolbarView.
@@ -344,7 +343,7 @@ pub fn init(self: *Window, app: *App) !void {
                         @ptrCast(@alignCast(tab_bar)),
                     ),
                 }
-                c.adw_tab_bar_set_view(tab_bar, tab_view);
+                c.adw_tab_bar_set_view(tab_bar, tab_view.tab_view);
 
                 if (!app.config.@"gtk-wide-tabs") {
                     c.adw_tab_bar_set_expand_tabs(tab_bar, 0);
@@ -403,6 +402,8 @@ pub fn deinit(self: *Window) void {
     if (self.adw_tab_overview_focus_timer) |timer| {
         _ = c.g_source_remove(timer);
     }
+
+    self.app.core_app.alloc.destroy(self.notebook);
 }
 
 /// Returns true if this window should use an Adwaita window.
@@ -552,14 +553,14 @@ fn gtkNewTabFromOverview(_: *c.GtkWidget, ud: ?*anyopaque) callconv(.C) ?*c.AdwT
     const alloc = self.app.core_app.alloc;
     const surface = self.actionSurface();
     const tab = Tab.create(alloc, self, surface) catch return null;
-    return c.adw_tab_view_get_page(self.notebook.adw_tab_view, @ptrCast(@alignCast(tab.box)));
+    return c.adw_tab_view_get_page(self.notebook.adw_tab_view.tab_view, @ptrCast(@alignCast(tab.box)));
 }
 
 fn adwTabOverviewOpen(
     object: *c.GObject,
     _: *c.GParamSpec,
     ud: ?*anyopaque,
-) void {
+) callconv(.C) void {
     const tab_overview: *c.AdwTabOverview = @ptrCast(@alignCast(object));
 
     // We only care about when the tab overview is closed.
