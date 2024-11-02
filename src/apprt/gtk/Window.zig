@@ -122,12 +122,12 @@ pub fn init(self: *Window, app: *App) !void {
     const box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 0);
 
     // Setup our notebook
-    self.notebook = Notebook.create(self);
+    self.notebook.init();
 
     // If we are using an AdwWindow then we can support the tab overview.
     self.tab_overview = if (self.isAdwWindow()) overview: {
         const tab_overview = c.adw_tab_overview_new();
-        c.adw_tab_overview_set_view(@ptrCast(tab_overview), self.notebook.adw_tab_view);
+        c.adw_tab_overview_set_view(@ptrCast(tab_overview), self.notebook.adw.tab_view);
         c.adw_tab_overview_set_enable_new_tab(@ptrCast(tab_overview), 1);
         _ = c.g_signal_connect_data(
             tab_overview,
@@ -186,7 +186,7 @@ pub fn init(self: *Window, app: *App) !void {
 
                 .hidden => btn: {
                     const btn = c.adw_tab_button_new();
-                    c.adw_tab_button_set_view(@ptrCast(btn), self.notebook.adw_tab_view);
+                    c.adw_tab_button_set_view(@ptrCast(btn), self.notebook.adw.tab_view);
                     c.gtk_actionable_set_action_name(@ptrCast(btn), "overview.open");
                     break :btn btn;
                 },
@@ -251,8 +251,8 @@ pub fn init(self: *Window, app: *App) !void {
     // If we have a tab overview then we can set it on our notebook.
     if (self.tab_overview) |tab_overview| {
         if (comptime !adwaita.versionAtLeast(1, 4, 0)) unreachable;
-        assert(self.notebook == .adw_tab_view);
-        c.adw_tab_overview_set_view(@ptrCast(tab_overview), self.notebook.adw_tab_view);
+        assert(self.notebook == .adw);
+        c.adw_tab_overview_set_view(@ptrCast(tab_overview), self.notebook.adw.tab_view);
     }
 
     self.context_menu = c.gtk_popover_menu_new_from_model(@ptrCast(@alignCast(self.app.context_menu)));
@@ -288,7 +288,7 @@ pub fn init(self: *Window, app: *App) !void {
 
         if (self.app.config.@"gtk-tabs-location" != .hidden) {
             const tab_bar = c.adw_tab_bar_new();
-            c.adw_tab_bar_set_view(tab_bar, self.notebook.adw_tab_view);
+            c.adw_tab_bar_set_view(tab_bar, self.notebook.adw.tab_view);
 
             if (!app.config.@"gtk-wide-tabs") c.adw_tab_bar_set_expand_tabs(tab_bar, 0);
 
@@ -334,9 +334,8 @@ pub fn init(self: *Window, app: *App) !void {
         }
     } else tab_bar: {
         switch (self.notebook) {
-            .adw_tab_view => |tab_view| if (comptime adwaita.versionAtLeast(0, 0, 0)) {
+            .adw => |*adw| if (comptime adwaita.versionAtLeast(0, 0, 0)) {
                 if (app.config.@"gtk-tabs-location" == .hidden) break :tab_bar;
-
                 // In earlier adwaita versions, we need to add the tabbar manually since we do not use
                 // an AdwToolbarView.
                 const tab_bar: *c.AdwTabBar = c.adw_tab_bar_new().?;
@@ -356,12 +355,12 @@ pub fn init(self: *Window, app: *App) !void {
                     ),
                     .hidden => unreachable,
                 }
-                c.adw_tab_bar_set_view(tab_bar, tab_view);
+                c.adw_tab_bar_set_view(tab_bar, adw.tab_view);
 
                 if (!app.config.@"gtk-wide-tabs") c.adw_tab_bar_set_expand_tabs(tab_bar, 0);
             },
 
-            .gtk_notebook => {},
+            .gtk => {},
         }
 
         // The box is our main child
@@ -562,7 +561,7 @@ fn gtkNewTabFromOverview(_: *c.GtkWidget, ud: ?*anyopaque) callconv(.C) ?*c.AdwT
     const alloc = self.app.core_app.alloc;
     const surface = self.actionSurface();
     const tab = Tab.create(alloc, self, surface) catch return null;
-    return c.adw_tab_view_get_page(self.notebook.adw_tab_view, @ptrCast(@alignCast(tab.box)));
+    return c.adw_tab_view_get_page(self.notebook.adw.tab_view, @ptrCast(@alignCast(tab.box)));
 }
 
 fn adwTabOverviewOpen(
