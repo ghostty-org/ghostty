@@ -66,7 +66,7 @@ The file format is documented below as an example:
 ```ini
 # The syntax is "key = value". The whitespace around the equals doesn't matter.
 background = 282c34
-foreground= ffffff
+foreground = ffffff
 
 # Comments start with a `#` and are only valid on their own line.
 # Blank lines are ignored!
