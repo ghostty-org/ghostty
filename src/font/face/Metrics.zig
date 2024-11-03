@@ -25,7 +25,7 @@ strikethrough_thickness: u32,
 /// because it is not determined by fonts but rather by user configuration.
 cursor_thickness: u32 = 1,
 
-/// cursor height as a percentage of cell_height
+/// cursor height as a percentage of adjusted cell_height
 cursor_height: u32 = 100,
 
 /// Original cell width and height. These are used to render the cursor
@@ -51,6 +51,7 @@ pub fn apply(self: *Metrics, mods: ModifierSet) void {
                 const new = @max(entry.value_ptr.apply(original), 1);
                 if (new == original) continue;
 
+                // Preserve the original cell width and height if not set.
                 if (self.original_cell_width == null) {
                     self.original_cell_width = self.cell_width;
                     self.original_cell_height = self.cell_height * self.cursor_height / 100;
