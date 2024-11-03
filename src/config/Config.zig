@@ -247,7 +247,8 @@ const c = @cImport({
 ///
 ///   * The font will be centered vertically in the cell.
 ///
-///   * The cursor will remain the same size as the font.
+///   * The cursor will remain the same size as the font, unless adjusted with
+///     `adjust-cursor-height`.
 ///
 ///   * Powerline glyphs will be adjusted along with the cell height so
 ///     that things like status lines continue to look aligned.
@@ -259,6 +260,7 @@ const c = @cImport({
 @"adjust-strikethrough-position": ?MetricModifier = null,
 @"adjust-strikethrough-thickness": ?MetricModifier = null,
 @"adjust-cursor-thickness": ?MetricModifier = null,
+@"adjust-cursor-height": ?MetricModifier = null,
 
 /// The method to use for calculating the cell width of a grapheme cluster.
 /// The default value is `unicode` which uses the Unicode standard to determine

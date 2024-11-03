@@ -427,6 +427,7 @@ pub const DerivedConfig = struct {
     @"adjust-strikethrough-position": ?Metrics.Modifier,
     @"adjust-strikethrough-thickness": ?Metrics.Modifier,
     @"adjust-cursor-thickness": ?Metrics.Modifier,
+    @"adjust-cursor-height": ?Metrics.Modifier,
 
     /// Initialize a DerivedConfig. The config should be either a
     /// config.Config or another DerivedConfig to clone from.
@@ -461,6 +462,7 @@ pub const DerivedConfig = struct {
             .@"adjust-strikethrough-position" = config.@"adjust-strikethrough-position",
             .@"adjust-strikethrough-thickness" = config.@"adjust-strikethrough-thickness",
             .@"adjust-cursor-thickness" = config.@"adjust-cursor-thickness",
+            .@"adjust-cursor-height" = config.@"adjust-cursor-height",
 
             // This must be last so the arena contains all our allocations
             // from above since Zig does assignment in order.
@@ -598,6 +600,7 @@ pub const Key = struct {
             if (config.@"adjust-strikethrough-position") |m| try set.put(alloc, .strikethrough_position, m);
             if (config.@"adjust-strikethrough-thickness") |m| try set.put(alloc, .strikethrough_thickness, m);
             if (config.@"adjust-cursor-thickness") |m| try set.put(alloc, .cursor_thickness, m);
+            if (config.@"adjust-cursor-height") |m| try set.put(alloc, .cursor_height, m);
             break :set set;
         };
 
