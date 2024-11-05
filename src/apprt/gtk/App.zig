@@ -929,6 +929,13 @@ fn loadRuntimeCss(
                 \\  --headerbar-bg-color: rgb({d},{d},{d});
                 \\  --headerbar-backdrop-color: oklab(from var(--headerbar-bg-color) calc(l * 0.9) a b / alpha);
                 \\}}
+                \\windowhandle {{
+                \\  background-color: var(--headerbar-bg-color);
+                \\  color: var(--headerbar-fg-color);
+                \\}}
+                \\windowhandle:backdrop {{
+                \\ background-color: var(--headerbar-backdrop-color);
+                \\}}
             , .{
                 headerbar_foreground.r,
                 headerbar_foreground.g,

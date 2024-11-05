@@ -14,6 +14,7 @@ pub const emoji = @embedFile("res/NotoColorEmoji.ttf");
 pub const emoji_text = @embedFile("res/NotoEmoji-Regular.ttf");
 
 /// Fonts with general properties
+pub const arabic = @embedFile("res/KawkabMono-Regular.ttf");
 pub const variable = @embedFile("res/Lilex-VF.ttf");
 
 /// Font with nerd fonts embedded.

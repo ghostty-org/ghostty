@@ -499,6 +499,22 @@ pub fn build(b: *std.Build) !void {
         });
     }
 
+    // Neovim plugin
+    // This is just a copy-paste of the Vim plugin, but using a Neovim subdir.
+    // By default, Neovim doesn't look inside share/vim/vimfiles. Some distros
+    // configure it to do that however. Fedora, does not as a counterexample.
+    {
+        const wf = b.addWriteFiles();
+        _ = wf.add("syntax/ghostty.vim", config_vim.syntax);
+        _ = wf.add("ftdetect/ghostty.vim", config_vim.ftdetect);
+        _ = wf.add("ftplugin/ghostty.vim", config_vim.ftplugin);
+        b.installDirectory(.{
+            .source_dir = wf.getDirectory(),
+            .install_dir = .prefix,
+            .install_subdir = "share/nvim/site",
+        });
+    }
+
     // Documentation
     if (emit_docs) {
         try buildDocumentation(b, config);
@@ -1227,14 +1243,7 @@ fn addDeps(
             .optimize = optimize,
         });
 
-        // This is a bit of a hack that should probably be fixed upstream
-        // in zig-objc, but we need to add the apple SDK paths to the
-        // zig-objc module so that it can find the objc runtime headers.
-        const module = objc_dep.module("objc");
-        module.resolved_target = step.root_module.resolved_target;
-        try @import("apple_sdk").addPaths(b, module);
-        step.root_module.addImport("objc", module);
-
+        step.root_module.addImport("objc", objc_dep.module("objc"));
         step.root_module.addImport("macos", macos_dep.module("macos"));
         step.linkLibrary(macos_dep.artifact("macos"));
         try static_libs.append(macos_dep.artifact("macos").getEmittedBin());

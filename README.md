@@ -63,7 +63,7 @@ placed at `$XDG_CONFIG_HOME/ghostty/config`, which defaults to
 
 The file format is documented below as an example:
 
-```
+```ini
 # The syntax is "key = value". The whitespace around the equals doesn't matter.
 background = 282c34
 foreground= ffffff
@@ -375,9 +375,9 @@ test cases.
 
 We believe Ghostty is one of the most compliant terminal emulators available.
 
-Terminal behavior is partially a dejour standard
+Terminal behavior is partially a de jure standard
 (i.e. [ECMA-48](https://ecma-international.org/publications-and-standards/standards/ecma-48/))
-but mostly a defacto standard as defined by popular terminal emulators
+but mostly a de facto standard as defined by popular terminal emulators
 worldwide. Ghostty takes the approach that our behavior is defined by
 (1) standards, if available, (2) xterm, if the feature exists, (3)
 other popular terminals, in that order. This defines what the Ghostty project
