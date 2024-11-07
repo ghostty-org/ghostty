@@ -92,13 +92,9 @@ pub fn init(self: *Window, app: *App) !void {
             break :window window;
         }
     };
+    errdefer c.gtk_window_destroy(@ptrCast(window));
 
     const gtk_window: *c.GtkWindow = @ptrCast(window);
-    errdefer if (self.isAdwWindow()) {
-        c.adw_application_window_destroy(window);
-    } else {
-        c.gtk_application_window_destroy(gtk_window);
-    };
     self.window = gtk_window;
     c.gtk_window_set_title(gtk_window, "Ghostty");
     c.gtk_window_set_default_size(gtk_window, 1000, 600);

@@ -10,6 +10,7 @@ const font = @import("src/font/main.zig");
 const renderer = @import("src/renderer.zig");
 const terminfo = @import("src/terminfo/main.zig");
 const config_vim = @import("src/config/vim.zig");
+const config_sublime_syntax = @import("src/config/sublime_syntax.zig");
 const fish_completions = @import("src/build/fish_completions.zig");
 const build_config = @import("src/build_config.zig");
 const BuildConfig = build_config.BuildConfig;
@@ -499,6 +500,38 @@ pub fn build(b: *std.Build) !void {
         });
     }
 
+    // Neovim plugin
+    // This is just a copy-paste of the Vim plugin, but using a Neovim subdir.
+    // By default, Neovim doesn't look inside share/vim/vimfiles. Some distros
+    // configure it to do that however. Fedora, does not as a counterexample.
+    {
+        const wf = b.addWriteFiles();
+        _ = wf.add("syntax/ghostty.vim", config_vim.syntax);
+        _ = wf.add("ftdetect/ghostty.vim", config_vim.ftdetect);
+        _ = wf.add("ftplugin/ghostty.vim", config_vim.ftplugin);
+        b.installDirectory(.{
+            .source_dir = wf.getDirectory(),
+            .install_dir = .prefix,
+            .install_subdir = "share/nvim/site",
+        });
+    }
+
+    // Sublime syntax highlighting for bat cli tool
+    // NOTE: The current implementation requires symlinking the generated
+    // 'ghostty.sublime-syntax' file from zig-out to the '~.config/bat/syntaxes'
+    // directory. The syntax then needs to be mapped to the correct language in
+    // the config file within the '~.config/bat' directory
+    // (ex: --map-syntax "/Users/user/.config/ghostty/config:Ghostty Config").
+    {
+        const wf = b.addWriteFiles();
+        _ = wf.add("ghostty.sublime-syntax", config_sublime_syntax.syntax);
+        b.installDirectory(.{
+            .source_dir = wf.getDirectory(),
+            .install_dir = .prefix,
+            .install_subdir = "share/bat/syntaxes",
+        });
+    }
+
     // Documentation
     if (emit_docs) {
         try buildDocumentation(b, config);
@@ -975,7 +1008,7 @@ fn addDeps(
 
         if (b.systemIntegrationOption("freetype", .{})) {
             step.linkSystemLibrary2("bzip2", dynamic_link_opts);
-            step.linkSystemLibrary2("freetype", dynamic_link_opts);
+            step.linkSystemLibrary2("freetype2", dynamic_link_opts);
         } else {
             step.linkLibrary(freetype_dep.artifact("freetype"));
             try static_libs.append(freetype_dep.artifact("freetype").getEmittedBin());
@@ -1068,6 +1101,7 @@ fn addDeps(
     step.root_module.addImport("glslang", glslang_dep.module("glslang"));
     if (b.systemIntegrationOption("glslang", .{})) {
         step.linkSystemLibrary2("glslang", dynamic_link_opts);
+        step.linkSystemLibrary2("glslang-default-resource-limits", dynamic_link_opts);
     } else {
         step.linkLibrary(glslang_dep.artifact("glslang"));
         try static_libs.append(glslang_dep.artifact("glslang").getEmittedBin());
@@ -1226,14 +1260,7 @@ fn addDeps(
             .optimize = optimize,
         });
 
-        // This is a bit of a hack that should probably be fixed upstream
-        // in zig-objc, but we need to add the apple SDK paths to the
-        // zig-objc module so that it can find the objc runtime headers.
-        const module = objc_dep.module("objc");
-        module.resolved_target = step.root_module.resolved_target;
-        try @import("apple_sdk").addPaths(b, module);
-        step.root_module.addImport("objc", module);
-
+        step.root_module.addImport("objc", objc_dep.module("objc"));
         step.root_module.addImport("macos", macos_dep.module("macos"));
         step.linkLibrary(macos_dep.artifact("macos"));
         try static_libs.append(macos_dep.artifact("macos").getEmittedBin());

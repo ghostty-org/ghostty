@@ -146,14 +146,18 @@ class BaseTerminalController: NSWindowController,
     }
 
     // MARK: Notifications
-
+    
     @objc private func didChangeScreenParametersNotification(_ notification: Notification) {
         // If we have a window that is visible and it is outside the bounds of the
         // screen then we clamp it back to within the screen.
         guard let window else { return }
         guard window.isVisible else { return }
-        guard let screen = window.screen else { return }
 
+        // We ignore fullscreen windows because macOS automatically resizes
+        // those back to the fullscreen bounds.
+        guard !window.styleMask.contains(.fullScreen) else { return }
+
+        guard let screen = window.screen else { return }
         let visibleFrame = screen.visibleFrame
         var newFrame = window.frame
 

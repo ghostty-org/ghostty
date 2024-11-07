@@ -71,6 +71,13 @@ pub const Action = enum {
         var pending_help: bool = false;
         var pending: ?Action = null;
         while (iter.next()) |arg| {
+            // If we see a "-e" and we haven't seen a command yet, then
+            // we are done looking for commands. This special case enables
+            // `ghostty -e ghostty +command`. If we've seen a command we
+            // still want to keep looking because
+            // `ghostty +command -e +command` is invalid.
+            if (std.mem.eql(u8, arg, "-e") and pending == null) return null;
+
             // Special case, --version always outputs the version no
             // matter what, no matter what other args exist.
             if (std.mem.eql(u8, arg, "--version")) return .version;
@@ -238,5 +245,32 @@ test "parse action plus" {
         defer iter.deinit();
         const action = try Action.detectIter(&iter);
         try testing.expect(action.? == .version);
+    }
+}
+
+test "parse action plus ignores -e" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    {
+        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+            alloc,
+            "--a=42 -e +version",
+        );
+        defer iter.deinit();
+        const action = try Action.detectIter(&iter);
+        try testing.expect(action == null);
+    }
+
+    {
+        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+            alloc,
+            "+list-fonts --a=42 -e +version",
+        );
+        defer iter.deinit();
+        try testing.expectError(
+            Action.Error.MultipleActions,
+            Action.detectIter(&iter),
+        );
     }
 }

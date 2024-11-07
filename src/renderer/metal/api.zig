@@ -175,4 +175,4 @@ pub const MTLSize = extern struct {
     depth: c_ulong,
 };
 
-pub extern "c" fn MTLCreateSystemDefaultDevice() ?*anyopaque;
+pub extern "c" fn MTLCopyAllDevices() ?*anyopaque;

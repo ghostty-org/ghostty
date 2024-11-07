@@ -66,6 +66,11 @@ font_grid_set: font.SharedGridSet,
 last_notification_time: ?std.time.Instant = null,
 last_notification_digest: u64 = 0,
 
+/// Set to false once we've created at least one surface. This
+/// never goes true again. This can be used by surfaces to determine
+/// if they are the first surface.
+first: bool = true,
+
 pub const CreateError = Allocator.Error || font.SharedGridSet.InitError;
 
 /// Initialize the main app instance. This creates the main window, sets

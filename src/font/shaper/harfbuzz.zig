@@ -190,6 +190,11 @@ pub const Shaper = struct {
             // Reset the buffer for our current run
             self.shaper.hb_buf.reset();
             self.shaper.hb_buf.setContentType(.unicode);
+
+            // We don't support RTL text because RTL in terminals is messy.
+            // Its something we want to improve. For now, we force LTR because
+            // our renderers assume a strictly increasing X value.
+            self.shaper.hb_buf.setDirection(.ltr);
         }
 
         pub fn addCodepoint(self: RunIteratorHook, cp: u32, cluster: u32) !void {
@@ -451,6 +456,46 @@ test "shape monaspace ligs" {
         }
         try testing.expectEqual(@as(usize, 1), count);
     }
+}
+
+// Ghostty doesn't currently support RTL and our renderers assume
+// that cells are in strict LTR order. This means that we need to
+// force RTL text to be LTR for rendering. This test ensures that
+// we are correctly forcing RTL text to be LTR.
+test "shape arabic forced LTR" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var testdata = try testShaperWithFont(alloc, .arabic);
+    defer testdata.deinit();
+
+    var screen = try terminal.Screen.init(alloc, 120, 30, 0);
+    defer screen.deinit();
+    try screen.testWriteString(@embedFile("testdata/arabic.txt"));
+
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(
+        testdata.grid,
+        &screen,
+        screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+        null,
+        null,
+    );
+    var count: usize = 0;
+    while (try it.next(alloc)) |run| {
+        count += 1;
+        try testing.expectEqual(@as(usize, 25), run.cells);
+
+        const cells = try shaper.shape(run);
+        try testing.expectEqual(@as(usize, 25), cells.len);
+
+        var x: u16 = cells[0].x;
+        for (cells[1..]) |cell| {
+            try testing.expectEqual(x + 1, cell.x);
+            x = cell.x;
+        }
+    }
+    try testing.expectEqual(@as(usize, 1), count);
 }
 
 test "shape emoji width" {
@@ -1146,6 +1191,7 @@ const TestShaper = struct {
 const TestFont = enum {
     inconsolata,
     monaspace_neon,
+    arabic,
 };
 
 /// Helper to return a fully initialized shaper.
@@ -1159,6 +1205,7 @@ fn testShaperWithFont(alloc: Allocator, font_req: TestFont) !TestShaper {
     const testFont = switch (font_req) {
         .inconsolata => font.embedded.inconsolata,
         .monaspace_neon => font.embedded.monaspace_neon,
+        .arabic => font.embedded.arabic,
     };
 
     var lib = try Library.init();

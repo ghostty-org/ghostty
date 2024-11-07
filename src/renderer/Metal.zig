@@ -175,9 +175,9 @@ pub const GPUState = struct {
     instance: InstanceBuffer, // MTLBuffer
 
     pub fn init() !GPUState {
-        const device = objc.Object.fromId(mtl.MTLCreateSystemDefaultDevice());
+        const device = try chooseDevice();
         const queue = device.msgSend(objc.Object, objc.sel("newCommandQueue"), .{});
-        errdefer queue.msgSend(void, objc.sel("release"), .{});
+        errdefer queue.release();
 
         var instance = try InstanceBuffer.initFill(device, &.{
             0, 1, 3, // Top-left triangle
@@ -200,13 +200,33 @@ pub const GPUState = struct {
         return result;
     }
 
+    fn chooseDevice() error{NoMetalDevice}!objc.Object {
+        const devices = objc.Object.fromId(mtl.MTLCopyAllDevices());
+        defer devices.release();
+        var chosen_device: ?objc.Object = null;
+        var iter = devices.iterate();
+        while (iter.next()) |device| {
+            // We want a GPU that’s connected to a display.
+            if (device.getProperty(bool, "isHeadless")) continue;
+            chosen_device = device;
+            // If the user has an eGPU plugged in, they probably want
+            // to use it. Otherwise, integrated GPUs are better for
+            // battery life and thermals.
+            if (device.getProperty(bool, "isRemovable") or
+                device.getProperty(bool, "isLowPower")) break;
+        }
+        const device = chosen_device orelse return error.NoMetalDevice;
+        return device.retain();
+    }
+
     pub fn deinit(self: *GPUState) void {
         // Wait for all of our inflight draws to complete so that
         // we can cleanly deinit our GPU state.
         for (0..BufferCount) |_| self.frame_sema.wait();
         for (&self.frames) |*frame| frame.deinit();
         self.instance.deinit();
-        self.queue.msgSend(void, objc.sel("release"), .{});
+        self.queue.release();
+        self.device.release();
     }
 
     /// Get the next frame state to draw to. This will wait on the
@@ -269,13 +289,13 @@ pub const FrameState = struct {
             .size = 8,
             .format = .grayscale,
         });
-        errdefer deinitMTLResource(grayscale);
+        errdefer grayscale.release();
         const color = try initAtlasTexture(device, &.{
             .data = undefined,
             .size = 8,
             .format = .rgba,
         });
-        errdefer deinitMTLResource(color);
+        errdefer color.release();
 
         return .{
             .uniforms = uniforms,
@@ -290,8 +310,8 @@ pub const FrameState = struct {
         self.uniforms.deinit();
         self.cells.deinit();
         self.cells_bg.deinit();
-        deinitMTLResource(self.grayscale);
-        deinitMTLResource(self.color);
+        self.grayscale.release();
+        self.color.release();
     }
 };
 
@@ -319,8 +339,8 @@ pub const CustomShaderState = struct {
     }
 
     pub fn deinit(self: *CustomShaderState) void {
-        deinitMTLResource(self.front_texture);
-        deinitMTLResource(self.back_texture);
+        self.front_texture.release();
+        self.back_texture.release();
         self.sampler.deinit();
     }
 };
@@ -2057,8 +2077,8 @@ pub fn setScreenSize(
         // Only free our previous texture if this isn't our first
         // time setting the custom shader state.
         if (state.uniforms.resolution[0] > 0) {
-            deinitMTLResource(state.front_texture);
-            deinitMTLResource(state.back_texture);
+            state.front_texture.release();
+            state.back_texture.release();
         }
 
         state.uniforms.resolution = .{
@@ -2982,7 +3002,7 @@ fn syncAtlasTexture(device: objc.Object, atlas: *const font.Atlas, texture: *obj
     const width = texture.getProperty(c_ulong, "width");
     if (atlas.size > width) {
         // Free our old texture
-        deinitMTLResource(texture.*);
+        texture.*.release();
 
         // Reallocate
         texture.* = try initAtlasTexture(device, atlas);
@@ -3047,12 +3067,6 @@ fn initAtlasTexture(device: objc.Object, atlas: *const font.Atlas) !objc.Object 
     ) orelse return error.MetalFailed;
 
     return objc.Object.fromId(id);
-}
-
-/// Deinitialize a metal resource (buffer, texture, etc.) and free the
-/// memory associated with it.
-fn deinitMTLResource(obj: objc.Object) void {
-    obj.msgSend(void, objc.sel("release"), .{});
 }
 
 test {

@@ -32,7 +32,7 @@ pub fn build(b: *std.Build) !void {
     };
 
     if (b.systemIntegrationOption("freetype", .{})) {
-        lib.linkSystemLibrary2("freetype", dynamic_link_opts);
+        lib.linkSystemLibrary2("freetype2", dynamic_link_opts);
     } else {
         const freetype = b.dependency("freetype", .{
             .target = target,

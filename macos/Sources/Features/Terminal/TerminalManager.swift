@@ -227,7 +227,19 @@ class TerminalManager {
             // are closing a tabbed window, we want to set the cascade point to be
             // the next cascade point from this window.
             if focusedWindow != controller.window {
+                // The cascadeTopLeft call below should NOT move the window. Starting with
+                // macOS 15, we found that specifically when used with the new window snapping
+                // features of macOS 15, this WOULD move the frame. So we keep track of the
+                // old frame and restore it if necessary. Issue:
+                // https://github.com/ghostty-org/ghostty/issues/2565
+                let oldFrame = focusedWindow.frame
+
                 Self.lastCascadePoint = focusedWindow.cascadeTopLeft(from: NSZeroPoint)
+
+                if focusedWindow.frame != oldFrame {
+                    focusedWindow.setFrame(oldFrame, display: true)
+                }
+
                 return
             }
 

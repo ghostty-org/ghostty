@@ -513,7 +513,26 @@ palette: Palette = .{},
 /// arguments are provided, the command will be executed using `/bin/sh -c`.
 /// Ghostty does not do any shell command parsing.
 ///
-/// If you're using the `ghostty` CLI there is also a shortcut to run a command
+/// This command will be used for all new terminal surfaces, i.e. new windows,
+/// tabs, etc. If you want to run a command only for the first terminal surface
+/// created when Ghostty starts, use the `initial-command` configuration.
+///
+/// Ghostty supports the common `-e` flag for executing a command with
+/// arguments. For example, `ghostty -e fish --with --custom --args`.
+/// This flag sets the `initial-command` configuration, see that for more
+/// information.
+command: ?[]const u8 = null,
+
+/// This is the same as "command", but only applies to the first terminal
+/// surface created when Ghostty starts. Subsequent terminal surfaces will use
+/// the `command` configuration.
+///
+/// After the first terminal surface is created (or closed), there is no
+/// way to run this initial command again automatically. As such, setting
+/// this at runtime works but will only affect the next terminal surface
+/// if it is the first one ever created.
+///
+/// If you're using the `ghostty` CLI there is also a shortcut to set this
 /// with arguments directly: you can use the `-e` flag. For example: `ghostty -e
 /// fish --with --custom --args`. The `-e` flag automatically forces some
 /// other behaviors as well:
@@ -525,7 +544,7 @@ palette: Palette = .{},
 ///     process will exit when the command exits. Additionally, the
 ///     `quit-after-last-window-closed-delay` is unset.
 ///
-command: ?[]const u8 = null,
+@"initial-command": ?[]const u8 = null,
 
 /// If true, keep the terminal open after the command exits. Normally, the
 /// terminal window closes when the running command (such as a shell) exits.
@@ -2356,7 +2375,7 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
             }
 
             self.@"_xdg-terminal-exec" = true;
-            self.command = command.items[0 .. command.items.len - 1];
+            self.@"initial-command" = command.items[0 .. command.items.len - 1];
             return;
         }
     }
@@ -2755,7 +2774,7 @@ pub fn parseManuallyHook(
             return false;
         }
 
-        self.command = command.items[0 .. command.items.len - 1];
+        self.@"initial-command" = command.items[0 .. command.items.len - 1];
 
         // See "command" docs for the implied configurations and why.
         self.@"gtk-single-instance" = .false;
@@ -2945,7 +2964,7 @@ test "parse e: command only" {
 
     var it: TestIterator = .{ .data = &.{"foo"} };
     try testing.expect(!try cfg.parseManuallyHook(alloc, "-e", &it));
-    try testing.expectEqualStrings("foo", cfg.command.?);
+    try testing.expectEqualStrings("foo", cfg.@"initial-command".?);
 }
 
 test "parse e: command and args" {
@@ -2956,7 +2975,7 @@ test "parse e: command and args" {
 
     var it: TestIterator = .{ .data = &.{ "echo", "foo", "bar baz" } };
     try testing.expect(!try cfg.parseManuallyHook(alloc, "-e", &it));
-    try testing.expectEqualStrings("echo foo bar baz", cfg.command.?);
+    try testing.expectEqualStrings("echo foo bar baz", cfg.@"initial-command".?);
 }
 
 test "clone default" {

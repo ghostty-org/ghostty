@@ -70,6 +70,12 @@ pub const Message = union(enum) {
     /// unless the surface exits.
     password_input: bool,
 
+    /// A terminal color was changed using OSC sequences.
+    color_change: struct {
+        kind: terminal.osc.Command.ColorKind,
+        color: terminal.color.RGB,
+    },
+
     pub const ReportTitleStyle = enum {
         csi_21_t,
 

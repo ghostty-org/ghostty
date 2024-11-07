@@ -130,6 +130,11 @@ config: DerivedConfig,
 /// This is used to determine if we need to confirm, hold open, etc.
 child_exited: bool = false,
 
+/// We maintain our focus state and assume we're focused by default.
+/// If we're not initially focused then apprts can call focusCallback
+/// to let us know.
+focused: bool = true,
+
 /// The effect of an input event. This can be used by callers to take
 /// the appropriate action after an input event. For example, key
 /// input can be forwarded to the OS for further processing if it
@@ -469,13 +474,19 @@ pub fn init(
         .config = derived_config,
     };
 
+    // The command we're going to execute
+    const command: ?[]const u8 = if (app.first)
+        config.@"initial-command" orelse config.command
+    else
+        config.command;
+
     // Start our IO implementation
     // This separate block ({}) is important because our errdefers must
     // be scoped here to be valid.
     {
         // Initialize our IO backend
         var io_exec = try termio.Exec.init(alloc, .{
-            .command = config.command,
+            .command = command,
             .shell_integration = config.@"shell-integration",
             .shell_integration_features = config.@"shell-integration-features",
             .working_directory = config.@"working-directory",
@@ -613,9 +624,9 @@ pub fn init(
         // For xdg-terminal-exec execution we special-case and set the window
         // title to the command being executed. This allows window managers
         // to set custom styling based on the command being executed.
-        const command = config.command orelse break :xdg;
-        if (command.len > 0) {
-            const title = alloc.dupeZ(u8, command) catch |err| {
+        const v = command orelse break :xdg;
+        if (v.len > 0) {
+            const title = alloc.dupeZ(u8, v) catch |err| {
                 log.warn(
                     "error copying command for title, title will not be set err={}",
                     .{err},
@@ -630,6 +641,9 @@ pub fn init(
             );
         }
     }
+
+    // We are no longer the first surface
+    app.first = false;
 }
 
 pub fn deinit(self: *Surface) void {
@@ -798,6 +812,22 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
                 },
             }, .unlocked);
         },
+
+        .color_change => |change| try self.rt_app.performAction(
+            .{ .surface = self },
+            .color_change,
+            .{
+                .kind = switch (change.kind) {
+                    .background => .background,
+                    .foreground => .foreground,
+                    .cursor => .cursor,
+                    .palette => |v| @enumFromInt(v),
+                },
+                .r = change.color.r,
+                .g = change.color.g,
+                .b = change.color.b,
+            },
+        ),
 
         .set_mouse_shape => |shape| {
             log.debug("changing mouse shape: {}", .{shape});
@@ -1972,6 +2002,10 @@ pub fn focusCallback(self: *Surface, focused: bool) !void {
     crash.sentry.thread_state = self.crashThreadState();
     defer crash.sentry.thread_state = null;
 
+    // If our focus state is the same we do nothing.
+    if (self.focused == focused) return;
+    self.focused = focused;
+
     // Notify our render thread of the new state
     _ = self.renderer_thread.mailbox.push(.{
         .focus = focused,
@@ -2027,6 +2061,12 @@ pub fn focusCallback(self: *Surface, focused: bool) !void {
 
     // Schedule render which also drains our mailbox
     try self.queueRender();
+
+    // Whenever our focus changes we unhide the mouse. The mouse will be
+    // hidden again if the user starts typing. This helps alleviate some
+    // buggy behavior upstream in macOS with the mouse never becoming visible
+    // again when tabbing between programs (see #2525).
+    self.showMouse();
 
     // Update the focus state and notify the terminal
     {
@@ -2713,12 +2753,20 @@ pub fn mouseButtonCallback(
     }
 
     // For left button click release we check if we are moving our cursor.
-    if (button == .left and action == .release and mods.alt) click_move: {
+    if (button == .left and
+        action == .release and
+        mods.alt)
+    click_move: {
+        self.renderer_state.mutex.lock();
+        defer self.renderer_state.mutex.unlock();
+
+        // If we have a selection then we do not do click to move because
+        // it means that we moved our cursor while pressing the mouse button.
+        if (self.io.terminal.screen.selection != null) break :click_move;
+
         // Moving always resets the click count so that we don't highlight.
         self.mouse.left_click_count = 0;
         const pin = self.mouse.left_click_pin orelse break :click_move;
-        self.renderer_state.mutex.lock();
-        defer self.renderer_state.mutex.unlock();
         try self.clickMoveCursor(pin.*);
         return true;
     }
@@ -3437,7 +3485,7 @@ fn dragLeftClickSingle(
         try self.setSelection(if (selected) terminal.Selection.init(
             drag_pin,
             drag_pin,
-            self.mouse.mods.ctrlOrSuper() and self.mouse.mods.alt,
+            SurfaceMouse.isRectangleSelectState(self.mouse.mods),
         ) else null);
 
         return;
@@ -3472,7 +3520,7 @@ fn dragLeftClickSingle(
         try self.setSelection(terminal.Selection.init(
             start,
             drag_pin,
-            self.mouse.mods.ctrlOrSuper() and self.mouse.mods.alt,
+            SurfaceMouse.isRectangleSelectState(self.mouse.mods),
         ));
         return;
     }

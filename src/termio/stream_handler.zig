@@ -5,6 +5,7 @@ const xev = @import("xev");
 const apprt = @import("../apprt.zig");
 const build_config = @import("../build_config.zig");
 const configpkg = @import("../config.zig");
+const internal_os = @import("../os/main.zig");
 const renderer = @import("../renderer.zig");
 const termio = @import("../termio.zig");
 const terminal = @import("../terminal/main.zig");
@@ -1048,31 +1049,38 @@ pub const StreamHandler = struct {
             return;
         }
 
+        // RFC 793 defines port numbers as 16-bit numbers. 5 digits is sufficient to represent
+        // the maximum since 2^16 - 1 = 65_535.
+        // See https://www.rfc-editor.org/rfc/rfc793#section-3.1.
+        const PORT_NUMBER_MAX_DIGITS = 5;
+        // Make sure there is space for a max length hostname + the max number of digits.
+        var host_and_port_buf: [posix.HOST_NAME_MAX + PORT_NUMBER_MAX_DIGITS]u8 = undefined;
+        const hostname_from_uri = internal_os.hostname.bufPrintHostnameFromFileUri(
+            &host_and_port_buf,
+            uri,
+        ) catch |err| switch (err) {
+            error.NoHostnameInUri => {
+                log.warn("OSC 7 uri must contain a hostname: {}", .{err});
+                return;
+            },
+            error.NoSpaceLeft => |e| {
+                log.warn("failed to get full hostname for OSC 7 validation: {}", .{e});
+                return;
+            },
+        };
+
         // OSC 7 is a little sketchy because anyone can send any value from
         // any host (such an SSH session). The best practice terminals follow
         // is to valid the hostname to be local.
-        const host_valid = host_valid: {
-            const host_component = uri.host orelse break :host_valid false;
-
-            // Get the raw string of the URI. Its unclear to me if the various
-            // tags of this enum guarantee no percent-encoding so we just
-            // check all of it. This isn't a performance critical path.
-            const host = switch (host_component) {
-                .raw => |v| v,
-                .percent_encoded => |v| v,
-            };
-            if (host.len == 0 or std.mem.eql(u8, "localhost", host)) {
-                break :host_valid true;
-            }
-
-            // Otherwise, it must match our hostname.
-            var buf: [posix.HOST_NAME_MAX]u8 = undefined;
-            const hostname = posix.gethostname(&buf) catch |err| {
+        const host_valid = internal_os.hostname.isLocalHostname(
+            hostname_from_uri,
+        ) catch |err| switch (err) {
+            error.PermissionDenied,
+            error.Unexpected,
+            => {
                 log.warn("failed to get hostname for OSC 7 validation: {}", .{err});
-                break :host_valid false;
-            };
-
-            break :host_valid std.mem.eql(u8, host, hostname);
+                return;
+            },
         };
         if (!host_valid) {
             log.warn("OSC 7 host must be local", .{});
@@ -1229,6 +1237,12 @@ pub const StreamHandler = struct {
                 }, .{ .forever = {} });
             },
         }
+
+        // Notify the surface of the color change
+        self.surfaceMessageWriter(.{ .color_change = .{
+            .kind = kind,
+            .color = color,
+        } });
     }
 
     pub fn resetColor(
@@ -1247,6 +1261,11 @@ pub const StreamHandler = struct {
                         self.terminal.flags.dirty.palette = true;
                         self.terminal.color_palette.colors[i] = self.terminal.default_palette[i];
                         mask.unset(i);
+
+                        self.surfaceMessageWriter(.{ .color_change = .{
+                            .kind = .{ .palette = @intCast(i) },
+                            .color = self.terminal.color_palette.colors[i],
+                        } });
                     }
                 } else {
                     var it = std.mem.tokenizeScalar(u8, value, ';');
@@ -1257,6 +1276,11 @@ pub const StreamHandler = struct {
                             self.terminal.flags.dirty.palette = true;
                             self.terminal.color_palette.colors[i] = self.terminal.default_palette[i];
                             mask.unset(i);
+
+                            self.surfaceMessageWriter(.{ .color_change = .{
+                                .kind = .{ .palette = @intCast(i) },
+                                .color = self.terminal.color_palette.colors[i],
+                            } });
                         }
                     }
                 }
@@ -1266,18 +1290,35 @@ pub const StreamHandler = struct {
                 _ = self.renderer_mailbox.push(.{
                     .foreground_color = self.foreground_color,
                 }, .{ .forever = {} });
+
+                self.surfaceMessageWriter(.{ .color_change = .{
+                    .kind = .foreground,
+                    .color = self.foreground_color,
+                } });
             },
             .background => {
                 self.background_color = self.default_background_color;
                 _ = self.renderer_mailbox.push(.{
                     .background_color = self.background_color,
                 }, .{ .forever = {} });
+
+                self.surfaceMessageWriter(.{ .color_change = .{
+                    .kind = .background,
+                    .color = self.background_color,
+                } });
             },
             .cursor => {
                 self.cursor_color = self.default_cursor_color;
                 _ = self.renderer_mailbox.push(.{
                     .cursor_color = self.cursor_color,
                 }, .{ .forever = {} });
+
+                if (self.cursor_color) |color| {
+                    self.surfaceMessageWriter(.{ .color_change = .{
+                        .kind = .cursor,
+                        .color = color,
+                    } });
+                }
             },
         }
     }

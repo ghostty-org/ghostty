@@ -186,6 +186,10 @@ pub const Action = union(Key) {
     /// key mode because other input may be ignored.
     key_sequence: KeySequence,
 
+    /// A terminal color was changed programmatically through things
+    /// such as OSC 10/11.
+    color_change: ColorChange,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         new_window,
@@ -219,6 +223,7 @@ pub const Action = union(Key) {
         quit_timer,
         secure_input,
         key_sequence,
+        color_change,
     };
 
     /// Sync with: ghostty_action_u
@@ -453,4 +458,21 @@ pub const KeySequence = union(enum) {
             .end => .{ .active = false, .trigger = .{} },
         };
     }
+};
+
+pub const ColorChange = extern struct {
+    kind: ColorKind,
+    r: u8,
+    g: u8,
+    b: u8,
+};
+
+pub const ColorKind = enum(c_int) {
+    // Negative numbers indicate some named kind
+    foreground = -1,
+    background = -2,
+    cursor = -3,
+
+    // 0+ values indicate a palette index
+    _,
 };

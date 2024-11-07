@@ -229,6 +229,9 @@ pub const Face = struct {
         vs: []const font.face.Variation,
         opts: font.face.Options,
     ) !void {
+        // If we have no variations, we don't need to do anything.
+        if (vs.len == 0) return;
+
         // Create a new font descriptor with all the variations set.
         var desc = self.font.copyDescriptor();
         defer desc.release();

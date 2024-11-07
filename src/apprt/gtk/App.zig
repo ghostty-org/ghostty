@@ -485,6 +485,7 @@ pub fn performAction(
         .key_sequence,
         .render_inspector,
         .renderer_health,
+        .color_change,
         => log.warn("unimplemented action={}", .{action}),
     }
 }
@@ -927,6 +928,13 @@ fn loadRuntimeCss(
                 \\  --headerbar-fg-color: rgb({d},{d},{d});
                 \\  --headerbar-bg-color: rgb({d},{d},{d});
                 \\  --headerbar-backdrop-color: oklab(from var(--headerbar-bg-color) calc(l * 0.9) a b / alpha);
+                \\}}
+                \\windowhandle {{
+                \\  background-color: var(--headerbar-bg-color);
+                \\  color: var(--headerbar-fg-color);
+                \\}}
+                \\windowhandle:backdrop {{
+                \\ background-color: var(--headerbar-backdrop-color);
                 \\}}
             , .{
                 headerbar_foreground.r,

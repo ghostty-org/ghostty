@@ -521,6 +521,8 @@ extension Ghostty {
             case GHOSTTY_ACTION_KEY_SEQUENCE:
                 keySequence(app, target: target, v: action.action.key_sequence)
 
+            case GHOSTTY_ACTION_COLOR_CHANGE:
+                fallthrough
             case GHOSTTY_ACTION_CLOSE_ALL_WINDOWS:
                 fallthrough
             case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW:

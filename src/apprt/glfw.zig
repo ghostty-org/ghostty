@@ -223,6 +223,7 @@ pub const App = struct {
             .mouse_over_link,
             .cell_size,
             .renderer_health,
+            .color_change,
             => log.info("unimplemented action={}", .{action}),
         }
     }

@@ -17,6 +17,7 @@ const resourcesdir = @import("resourcesdir.zig");
 // Namespaces
 pub const args = @import("args.zig");
 pub const cgroup = @import("cgroup.zig");
+pub const hostname = @import("hostname.zig");
 pub const passwd = @import("passwd.zig");
 pub const xdg = @import("xdg.zig");
 pub const windows = @import("windows.zig");

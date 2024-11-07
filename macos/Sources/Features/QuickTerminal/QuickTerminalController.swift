@@ -310,6 +310,19 @@ class QuickTerminalController: BaseTerminalController {
             return
         }
 
+        // Terminals typically operate in sRGB color space and macOS defaults
+        // to "native" which is typically P3. There is a lot more resources
+        // covered in this GitHub issue: https://github.com/mitchellh/ghostty/pull/376
+        // Ghostty defaults to sRGB but this can be overridden.
+        switch (ghostty.config.windowColorspace) {
+        case "display-p3":
+            window.colorSpace = .displayP3
+        case "srgb":
+            fallthrough
+        default:
+            window.colorSpace = .sRGB
+        }
+
         // If we have window transparency then set it transparent. Otherwise set it opaque.
         if (ghostty.config.backgroundOpacity < 1) {
             window.isOpaque = false
