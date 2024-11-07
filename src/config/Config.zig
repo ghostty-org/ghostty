@@ -1927,12 +1927,12 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
         try result.keybind.set.put(
             alloc,
             .{ .key = .{ .translated = .o }, .mods = .{ .ctrl = true, .shift = true } },
-            .{ .new_split = .{ .right, "50%" } },
+            .{ .new_split = .{ .right, 0.5 } },
         );
         try result.keybind.set.put(
             alloc,
             .{ .key = .{ .translated = .e }, .mods = .{ .ctrl = true, .shift = true } },
-            .{ .new_split = .{ .down, "50%" } },
+            .{ .new_split = .{ .down, 0.5 } },
         );
         try result.keybind.set.put(
             alloc,
@@ -2190,12 +2190,12 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
         try result.keybind.set.put(
             alloc,
             .{ .key = .{ .translated = .d }, .mods = .{ .super = true } },
-            .{ .new_split = .{ .right, "50%" } },
+            .{ .new_split = .{ .right, 0.5 } },
         );
         try result.keybind.set.put(
             alloc,
             .{ .key = .{ .translated = .d }, .mods = .{ .super = true, .shift = true } },
-            .{ .new_split = .{ .down, "50%" } },
+            .{ .new_split = .{ .down, 0.5 } },
         );
         try result.keybind.set.put(
             alloc,

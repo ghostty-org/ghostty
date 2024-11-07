@@ -3971,11 +3971,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             .{ .surface = self },
             .new_split,
             .{
-                .percent = std.fmt.parseInt(
-                    u16,
-                    value[1],
-                    10,
-                ) catch return error.InvalidType,
+                .percent = value[1],
                 .direction = switch (value[0]) {
                     .right => .right,
                     .left => .left,

@@ -807,7 +807,7 @@ fn gtkActionSplitRight(
 ) callconv(.C) void {
     const self: *Window = @ptrCast(@alignCast(ud orelse return));
     const surface = self.actionSurface() orelse return;
-    _ = surface.performBindingAction(.{ .new_split = .{ .right, "50%" } }) catch |err| {
+    _ = surface.performBindingAction(.{ .new_split = .{ .right, 0.5 } }) catch |err| {
         log.warn("error performing binding action error={}", .{err});
         return;
     };
@@ -820,7 +820,7 @@ fn gtkActionSplitDown(
 ) callconv(.C) void {
     const self: *Window = @ptrCast(@alignCast(ud orelse return));
     const surface = self.actionSurface() orelse return;
-    _ = surface.performBindingAction(.{ .new_split = .{ .down, "50%" } }) catch |err| {
+    _ = surface.performBindingAction(.{ .new_split = .{ .down, 0.5 } }) catch |err| {
         log.warn("error performing binding action error={}", .{err});
         return;
     };
@@ -833,7 +833,7 @@ fn gtkActionSplitLeft(
 ) callconv(.C) void {
     const self: *Window = @ptrCast(@alignCast(ud orelse return));
     const surface = self.actionSurface() orelse return;
-    _ = surface.performBindingAction(.{ .new_split = .{ .left, "50%" } }) catch |err| {
+    _ = surface.performBindingAction(.{ .new_split = .{ .left, 0.5 } }) catch |err| {
         log.warn("error performing binding action error={}", .{err});
         return;
     };
@@ -846,7 +846,7 @@ fn gtkActionSplitUp(
 ) callconv(.C) void {
     const self: *Window = @ptrCast(@alignCast(ud orelse return));
     const surface = self.actionSurface() orelse return;
-    _ = surface.performBindingAction(.{ .new_split = .{ .up, "50%" } }) catch |err| {
+    _ = surface.performBindingAction(.{ .new_split = .{ .up, 0.5 } }) catch |err| {
         log.warn("error performing binding action error={}", .{err});
         return;
     };

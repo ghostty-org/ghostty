@@ -125,10 +125,9 @@ pub fn init(
     // added to the paned.
     self.updateChildren();
 
-    // Skip resize logic if percentage is 50 (this is the default behavior)
-    if (new_split.percent != 50) {
+    // Skip resize logic if percent is 0.5 (this is the default behavior)
+    if (new_split.percent != 0.5) {
         const allocation = sibling.size;
-        const split_percentage: f32 = @as(f32, @floatFromInt(new_split.percent)) / 100;
         const total_surface_size: f32 = switch (self.orientation) {
             .horizontal => @floatFromInt(allocation.width),
             .vertical => @floatFromInt(allocation.height),
@@ -136,8 +135,8 @@ pub fn init(
 
         // percentage to apply based on direction
         const pct = switch (new_split.direction) {
-            .right, .down => 1 - split_percentage,
-            .left, .up => split_percentage,
+            .right, .down => 1 - new_split.percent,
+            .left, .up => new_split.percent,
         };
 
         const divider_position = @as(c_int, @intFromFloat(total_surface_size * pct));
