@@ -383,7 +383,7 @@ const Preview = struct {
                                 self.themes[self.filtered.items[self.current]].theme,
                                 alloc,
                             );
-                        if (key.matches('c', .{ .shift = true }))
+                        if (key.matches('C', .{ .shift = true }))
                             try self.vx.copyToSystemClipboard(
                                 self.tty.anyWriter(),
                                 self.themes[self.filtered.items[self.current]].path,
