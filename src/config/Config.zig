@@ -2755,9 +2755,14 @@ pub fn parseManuallyHook(
         var command = std.ArrayList(u8).init(alloc);
         errdefer command.deinit();
 
+        // Parameters following `-e` must be enclosed in double quotes
+        // to prevent arguments with spaces from being treated
+        // as two separate parameters.
         while (iter.next()) |param| {
             try self._replay_steps.append(alloc, .{ .arg = try alloc.dupe(u8, param) });
+            try command.append('"');
             try command.appendSlice(param);
+            try command.append('"');
             try command.append(' ');
         }
 
