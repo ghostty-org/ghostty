@@ -916,7 +916,7 @@ keybind: Keybinds = .{},
 ///   * `false` - windows won't have native decorations, i.e. titlebar and
 ///      borders. On macOS this also disables tabs and tab overview.
 ///
-/// The "toggle_window_decoration" keybind action can be used to create
+/// The "toggle_window_decorations" keybind action can be used to create
 /// a keybinding to toggle this setting at runtime.
 ///
 /// Changing this configuration in your configuration and reloading will
