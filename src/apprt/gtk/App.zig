@@ -470,6 +470,7 @@ pub fn performAction(
         .mouse_visibility => self.setMouseVisibility(target, value),
         .mouse_shape => try self.setMouseShape(target, value),
         .mouse_over_link => self.setMouseOverLink(target, value),
+        .toggle_tab_bar => self.toggleTabBar(target),
         .toggle_tab_overview => self.toggleTabOverview(target),
         .toggle_window_decorations => self.toggleWindowDecorations(target),
         .quit_timer => self.quitTimer(value),
@@ -650,6 +651,23 @@ fn toggleFullscreen(
             };
 
             window.toggleFullscreen();
+        },
+    }
+}
+
+fn toggleTabBar(_: *App, target: apprt.Target) void {
+    switch (target) {
+        .app => {},
+        .surface => |v| {
+            const window = v.rt_surface.container.window() orelse {
+                log.info(
+                    "toggleTabBar invalid for container={s}",
+                    .{@tagName(v.rt_surface.container)},
+                );
+                return;
+            };
+
+            window.toggleTabBar();
         },
     }
 }

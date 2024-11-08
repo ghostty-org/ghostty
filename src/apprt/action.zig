@@ -88,6 +88,9 @@ pub const Action = union(Key) {
     /// Toggle fullscreen mode.
     toggle_fullscreen: Fullscreen,
 
+    /// Toggle tab bar.
+    toggle_tab_bar,
+
     /// Toggle tab overview.
     toggle_tab_overview,
 
@@ -197,6 +200,7 @@ pub const Action = union(Key) {
         new_split,
         close_all_windows,
         toggle_fullscreen,
+        toggle_tab_bar,
         toggle_tab_overview,
         toggle_window_decorations,
         toggle_quick_terminal,

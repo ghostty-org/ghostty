@@ -306,6 +306,9 @@ pub const Action = union(enum) {
     /// If the new position is out of bounds, it wraps around cyclically within the tab range.
     move_tab: isize,
 
+    /// Toggle the tab bar. This works only on Linux.
+    toggle_tab_bar: void,
+
     /// Toggle the tab overview.
     /// This only works with libadwaita enabled currently.
     toggle_tab_overview: void,
@@ -639,6 +642,7 @@ pub const Action = union(enum) {
             .close_surface,
             .close_window,
             .toggle_fullscreen,
+            .toggle_tab_bar,
             .toggle_window_decorations,
             .toggle_secure_input,
             .crash,

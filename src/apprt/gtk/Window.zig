@@ -37,6 +37,8 @@ window: *c.GtkWindow,
 /// GtkHeaderBar depending on if adw is enabled and linked.
 header: ?*c.GtkWidget,
 
+tab_bar: ?*c.AdwTabBar,
+
 /// The tab overview for the window. This is possibly null since there is no
 /// taboverview without a AdwApplicationWindow (libadwaita >= 1.4.0).
 tab_overview: ?*c.GtkWidget,
@@ -74,6 +76,7 @@ pub fn init(self: *Window, app: *App) !void {
         .app = app,
         .window = undefined,
         .header = null,
+        .tab_bar = null,
         .tab_overview = null,
         .notebook = undefined,
         .context_menu = undefined,
@@ -322,6 +325,8 @@ pub fn init(self: *Window, app: *App) !void {
                 @ptrCast(@alignCast(toolbar_view)),
             );
         }
+
+        self.tab_bar = tab_bar;
     } else {
         switch (self.notebook) {
             .adw_tab_view => |tab_view| if (comptime adwaita.versionAtLeast(0, 0, 0)) {
@@ -349,6 +354,7 @@ pub fn init(self: *Window, app: *App) !void {
                 if (!app.config.@"gtk-wide-tabs") {
                     c.adw_tab_bar_set_expand_tabs(tab_bar, 0);
                 }
+                self.tab_bar = tab_bar;
             },
 
             .gtk_notebook => {},
@@ -493,6 +499,18 @@ pub fn toggleFullscreen(self: *Window) void {
         c.gtk_window_fullscreen(self.window);
     } else {
         c.gtk_window_unfullscreen(self.window);
+    }
+}
+
+pub fn toggleTabBar(self: *Window) void {
+    if (self.tab_bar) |tab_bar| {
+        const is_visible = c.gtk_widget_get_visible(
+            @ptrCast(@alignCast(tab_bar)),
+        ) == 1;
+        c.gtk_widget_set_visible(@ptrCast(@alignCast(tab_bar)), @intFromBool(!is_visible));
+    } else {
+        const is_visible = c.gtk_notebook_get_show_tabs(self.notebook.gtk_notebook) == 1;
+        c.gtk_notebook_set_show_tabs(self.notebook.gtk_notebook, @intFromBool(!is_visible));
     }
 }
 

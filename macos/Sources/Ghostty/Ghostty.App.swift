@@ -111,7 +111,7 @@ extension Ghostty {
         deinit {
             // This will force the didSet callbacks to run which free.
             self.app = nil
-            
+
 #if os(macOS)
             NotificationCenter.default.removeObserver(self)
 #endif
@@ -524,6 +524,8 @@ extension Ghostty {
             case GHOSTTY_ACTION_COLOR_CHANGE:
                 fallthrough
             case GHOSTTY_ACTION_CLOSE_ALL_WINDOWS:
+                fallthrough
+            case GHOSTTY_ACTION_TOGGLE_TAB_BAR:
                 fallthrough
             case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW:
                 fallthrough
