@@ -365,6 +365,12 @@ pub fn init(self: *Window, app: *App) !void {
         if (self.header) |h| c.gtk_window_set_titlebar(gtk_window, @ptrCast(@alignCast(h)));
     }
 
+    // Hide the tab bar if we don't want it
+    if (!app.config.@"gtk-tabbar")
+        if (self.tab_bar) |tab_bar| {
+            c.gtk_widget_set_visible(@ptrCast(@alignCast(tab_bar)), 0);
+        } else c.gtk_notebook_set_show_tabs(self.notebook.gtk_notebook, 0);
+
     // Show the window
     c.gtk_widget_show(window);
 }

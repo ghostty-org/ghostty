@@ -1622,6 +1622,12 @@ keybind: Keybinds = .{},
 /// back to `top`.
 @"gtk-tabs-location": GtkTabsLocation = .top,
 
+/// Determines whether the GTK tab bar will be visible. The default is true.
+///
+/// The "toggle_tab_bar" keybind action can be used to create
+/// a keybinding to toggle this setting at runtime.
+@"gtk-tabbar": bool = true,
+
 /// Determines the appearance of the top and bottom bars when using the
 /// adwaita tab bar. This requires `gtk-adwaita` to be enabled (it is
 /// by default).
