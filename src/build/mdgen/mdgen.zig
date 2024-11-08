@@ -26,7 +26,7 @@ pub fn genConfig(writer: anytype, cli: bool) !void {
         \\
     );
 
-    @setEvalBranchQuota(2000);
+    @setEvalBranchQuota(3000);
     inline for (@typeInfo(Config).Struct.fields) |field| {
         if (field.name[0] == '_') continue;
 
