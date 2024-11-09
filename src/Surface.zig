@@ -3250,6 +3250,12 @@ pub fn cursorPosCallback(
         try self.queueRender();
     }
 
+    // Process new links. This used to happen after mouse reporting/click detection but
+    // led to indeterminate behavior. Moving this to the top of the function ensures that
+    // the link state is always correct and properly displayed for the user. Mouse events
+    // are still captured correctly and escaped when shift is utilized.
+    try self.mouseRefreshLinks(pos, pos_vp, over_link);
+
     // Do a mouse report
     if (self.io.terminal.flags.mouse_event != .none) report: {
         // Shift overrides mouse "grabbing" in the window, taken from Kitty.
@@ -3358,9 +3364,6 @@ pub fn cursorPosCallback(
             return;
         }
     }
-
-    // We can process new links.
-    try self.mouseRefreshLinks(pos, pos_vp, over_link);
 }
 
 /// Double-click dragging moves the selection one "word" at a time.
