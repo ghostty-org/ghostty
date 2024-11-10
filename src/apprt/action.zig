@@ -289,7 +289,7 @@ pub const Action = union(Key) {
 
 /// The percentage and direction to create the split
 pub const SplitDirection = extern struct {
-    percent: f32,
+    percent: u16,
     direction: Direction,
 
     // This is made extern (c_int) to make interop easier with our embedded

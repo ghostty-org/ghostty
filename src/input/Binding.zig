@@ -453,7 +453,7 @@ pub const Action = union(enum) {
         auto, // splits along the larger direction
     };
 
-    pub const Percentage = f32;
+    pub const Percentage = u16;
 
     pub const SplitParameter = struct {
         SplitDirection,
@@ -499,21 +499,21 @@ pub const Action = union(enum) {
     }
 
     fn parseInt(comptime T: type, value: []const u8) !T {
-        return std.fmt.parseInt(T, value, 10) catch return Error.InvalidFormat;
-    }
-
-    fn parseFloat(comptime T: type, value: []const u8) !T {
         return switch (T) {
             Action.Percentage => blk: {
                 if (value.len < 2) return Error.InvalidFormat;
                 if (value[value.len - 1] != '%') return Error.InvalidFormat;
                 const percent = value[0 .. value.len - 1];
-                const parsed_percent = std.fmt.parseFloat(f32, percent) catch return Error.InvalidFormat;
-                const clamped_percent: f32 = @min(@max(parsed_percent / 100.0, 0.0), 1.0);
+                const parsed_percent = std.fmt.parseInt(u16, percent, 10) catch return Error.InvalidFormat;
+                const clamped_percent: u16 = @min(parsed_percent, 100);
                 break :blk clamped_percent;
             },
-            else => std.fmt.parseFloat(T, value) catch return Error.InvalidFormat,
+            else => std.fmt.parseInt(T, value, 10) catch return Error.InvalidFormat,
         };
+    }
+
+    fn parseFloat(comptime T: type, value: []const u8) !T {
+        return std.fmt.parseFloat(T, value) catch return Error.InvalidFormat;
     }
 
     fn parseParameter(
@@ -824,13 +824,6 @@ pub const Action = union(enum) {
                         hasher,
                         @as(u64, @bitCast(field)),
                     ),
-
-                    // Handle SplitParameter specifically
-                    Action.SplitParameter => {
-                        std.hash.autoHash(hasher, field[0]);
-                        const bits = @as(u32, @bitCast(field[1]));
-                        std.hash.autoHash(hasher, bits);
-                    },
 
                     // Everything else automatically handle.
                     else => std.hash.autoHashStrat(
@@ -1714,7 +1707,7 @@ test "parse: action with enum" {
         const binding = try parseSingle("a=new_split:right,50%");
         try testing.expect(binding.action == .new_split);
         try testing.expectEqual(Action.SplitDirection.right, binding.action.new_split[0]);
-        try testing.expectEqual(@as(f32, 0.5), binding.action.new_split[1]);
+        try testing.expectEqual(@as(u16, 50), binding.action.new_split[1]);
     }
 
     // missing unit %
@@ -1725,10 +1718,9 @@ test "parse: action with enum" {
 
     // clamping value
     {
-        var binding = try parseSingle("a=new_split:right,150%");
-        try testing.expectEqual(@as(f32, 1.0), binding.action.new_split[1]);
-        binding = try parseSingle("a=new_split:right,-50%");
-        try testing.expectEqual(@as(f32, 0.0), binding.action.new_split[1]);
+        const binding = try parseSingle("a=new_split:right,150%");
+        try testing.expectEqual(@as(u16, 100), binding.action.new_split[1]);
+        try testing.expectError(Error.InvalidFormat, parseSingle("a=new_split:right,-50%"));
     }
 }
 

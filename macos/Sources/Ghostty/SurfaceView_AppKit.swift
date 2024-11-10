@@ -963,12 +963,12 @@ extension Ghostty {
 
         @IBAction func splitRight(_ sender: Any) {
             guard let surface = self.surface else { return }
-            ghostty_surface_split(surface, GHOSTTY_SPLIT_DIRECTION_RIGHT, 0.5)
+            ghostty_surface_split(surface, GHOSTTY_SPLIT_DIRECTION_RIGHT, 50)
         }
 
         @IBAction func splitDown(_ sender: Any) {
             guard let surface = self.surface else { return }
-            ghostty_surface_split(surface, GHOSTTY_SPLIT_DIRECTION_DOWN, 0.5)
+            ghostty_surface_split(surface, GHOSTTY_SPLIT_DIRECTION_DOWN, 50)
         }
 
         @objc func resetTerminal(_ sender: Any) {

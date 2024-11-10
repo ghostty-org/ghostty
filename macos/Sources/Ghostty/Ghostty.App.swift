@@ -170,7 +170,7 @@ extension Ghostty {
             }
         }
 
-        func split(surface: ghostty_surface_t, direction: ghostty_action_split_direction_e, percent: Float) {
+        func split(surface: ghostty_surface_t, direction: ghostty_action_split_direction_e, percent: UInt16) {
             ghostty_surface_split(surface, direction, percent)
         }
 
