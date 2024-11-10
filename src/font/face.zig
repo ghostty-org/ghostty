@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const options = @import("main.zig").options;
 pub const Metrics = @import("face/Metrics.zig");
+const config = @import("../config.zig");
 const freetype = @import("face/freetype.zig");
 const coretext = @import("face/coretext.zig");
 pub const web_canvas = @import("face/web_canvas.zig");
@@ -26,10 +27,19 @@ pub const Face = switch (options.backend) {
 /// using whatever platform method you can.
 pub const default_dpi = if (builtin.os.tag == .macos) 72 else 96;
 
+/// These are the flags to customize how freetype loads fonts. This is
+/// only non-void if the freetype backend is enabled.
+pub const FreetypeLoadFlags = if (options.backend.hasFreetype())
+    config.FreetypeLoadFlags
+else
+    void;
+pub const freetype_load_flags_default = if (FreetypeLoadFlags != void) .{} else {};
+
 /// Options for initializing a font face.
 pub const Options = struct {
     size: DesiredSize,
     metric_modifiers: ?*const Metrics.ModifierSet = null,
+    freetype_load_flags: FreetypeLoadFlags = freetype_load_flags_default,
 };
 
 /// The desired size for loading a font.

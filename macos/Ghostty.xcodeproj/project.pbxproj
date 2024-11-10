@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		29C15B1D2CDC3B2900520DD4 /* bat in Resources */ = {isa = PBXBuildFile; fileRef = 29C15B1C2CDC3B2000520DD4 /* bat */; };
 		55154BE02B33911F001622DC /* ghostty in Resources */ = {isa = PBXBuildFile; fileRef = 55154BDF2B33911F001622DC /* ghostty */; };
 		552964E62B34A9B400030505 /* vim in Resources */ = {isa = PBXBuildFile; fileRef = 552964E52B34A9B400030505 /* vim */; };
 		857F63812A5E64F200CA4815 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = 857F63802A5E64F200CA4815 /* MainMenu.xib */; };
@@ -95,6 +96,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		29C15B1C2CDC3B2000520DD4 /* bat */ = {isa = PBXFileReference; lastKnownFileType = folder; name = bat; path = "../zig-out/share/bat"; sourceTree = "<group>"; };
 		3B39CAA42B33949B00DABEB8 /* GhosttyReleaseLocal.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = GhosttyReleaseLocal.entitlements; sourceTree = "<group>"; };
 		55154BDF2B33911F001622DC /* ghostty */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ghostty; path = "../zig-out/share/ghostty"; sourceTree = "<group>"; };
 		552964E52B34A9B400030505 /* vim */ = {isa = PBXFileReference; lastKnownFileType = folder; name = vim; path = "../zig-out/share/vim"; sourceTree = "<group>"; };
@@ -366,6 +368,7 @@
 		A5A1F8862A489D7400D1E8BC /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				29C15B1C2CDC3B2000520DD4 /* bat */,
 				55154BDF2B33911F001622DC /* ghostty */,
 				552964E52B34A9B400030505 /* vim */,
 				A586167B2B7703CC009BDB1D /* fish */,
@@ -538,6 +541,7 @@
 				A5E112932AF73E6E00C6E0C2 /* ClipboardConfirmation.xib in Resources */,
 				A5CDF1912AAF9A5800513312 /* ConfigurationErrors.xib in Resources */,
 				857F63812A5E64F200CA4815 /* MainMenu.xib in Resources */,
+				29C15B1D2CDC3B2900520DD4 /* bat in Resources */,
 				A596309A2AEE1C6400D64628 /* Terminal.xib in Resources */,
 				A586167C2B7703CC009BDB1D /* fish in Resources */,
 				55154BE02B33911F001622DC /* ghostty in Resources */,

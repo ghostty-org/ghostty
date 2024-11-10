@@ -3115,7 +3115,7 @@ fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
 /// if there is no hyperlink.
 fn osc8URI(self: *Surface, pin: terminal.Pin) ?[]const u8 {
     _ = self;
-    const page = &pin.page.data;
+    const page = &pin.node.data;
     const cell = pin.rowAndCell().cell;
     const link_id = page.lookupHyperlink(cell) orelse return null;
     const entry = page.hyperlink_set.get(page.memory, link_id);

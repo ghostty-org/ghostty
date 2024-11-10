@@ -17,7 +17,7 @@ const builtin = @import("builtin");
 const xev = @import("xev");
 const crash = @import("../crash/main.zig");
 const termio = @import("../termio.zig");
-const BlockingQueue = @import("../blocking_queue.zig").BlockingQueue;
+const BlockingQueue = @import("../datastruct/main.zig").BlockingQueue;
 
 const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.io_thread);

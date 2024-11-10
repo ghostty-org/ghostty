@@ -9,7 +9,7 @@ const crash = @import("../crash/main.zig");
 const renderer = @import("../renderer.zig");
 const apprt = @import("../apprt.zig");
 const configpkg = @import("../config.zig");
-const BlockingQueue = @import("../blocking_queue.zig").BlockingQueue;
+const BlockingQueue = @import("../datastruct/main.zig").BlockingQueue;
 const App = @import("../App.zig");
 
 const Allocator = std.mem.Allocator;

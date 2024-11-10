@@ -2,7 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const cimgui = @import("cimgui");
 const terminal = @import("../terminal/main.zig");
-const CircBuf = @import("../circ_buf.zig").CircBuf;
+const CircBuf = @import("../datastruct/main.zig").CircBuf;
 const Surface = @import("../Surface.zig");
 
 /// The stream handler for our inspector.

@@ -36,15 +36,16 @@ pub fn bufPrintHostnameFromFileUri(
     // it's not a partial MAC-address.
     const port = uri.port orelse return host;
 
-    // If the port is not a 2-digit number we're not looking at a partial
+    // If the port is not a 1 or 2-digit number we're not looking at a partial
     // MAC-address, and instead just a regular port so we return the plain
     // URI hostname.
-    if (port < 10 or port > 99) return host;
+    if (port > 99) return host;
 
     var fbs = std.io.fixedBufferStream(buf);
     try std.fmt.format(
         fbs.writer(),
-        "{s}:{d}",
+        // Make sure "port" is always 2 digits, prefixed with a 0 when "port" is a 1-digit number.
+        "{s}:{d:0>2}",
         .{ host, port },
     );
 
@@ -83,6 +84,14 @@ test "bufPrintHostnameFromFileUri succeeds with hostname as mac address" {
     var buf: [posix.HOST_NAME_MAX]u8 = undefined;
     const actual = try bufPrintHostnameFromFileUri(&buf, uri);
     try std.testing.expectEqualStrings("12:34:56:78:90:12", actual);
+}
+
+test "bufPrintHostnameFromFileUri succeeds with hostname as a mac address and the last section is < 10" {
+    const uri = try std.Uri.parse("file://12:34:56:78:90:05");
+
+    var buf: [posix.HOST_NAME_MAX]u8 = undefined;
+    const actual = try bufPrintHostnameFromFileUri(&buf, uri);
+    try std.testing.expectEqualStrings("12:34:56:78:90:05", actual);
 }
 
 test "bufPrintHostnameFromFileUri returns only hostname when there is a port component in the URI" {

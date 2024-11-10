@@ -844,7 +844,7 @@ pub fn updateFrame(
                 null,
             );
             while (it.next()) |chunk| {
-                var dirty_set = chunk.page.data.dirtyBitSet();
+                var dirty_set = chunk.node.data.dirtyBitSet();
                 dirty_set.unsetAll();
             }
         }
@@ -1411,7 +1411,7 @@ pub fn rebuildCells(
             // True if this cell is selected
             const selected: bool = if (screen.selection) |sel|
                 sel.contains(screen, .{
-                    .page = row.page,
+                    .node = row.node,
                     .y = row.y,
                     .x = @intCast(
                         // Spacer tails should show the selection

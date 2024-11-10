@@ -92,10 +92,10 @@ pub fn build(b: *std.Build) !void {
         "The app runtime to use. Not all values supported on all platforms.",
     ) orelse renderer.Impl.default(target.result, wasm_target);
 
-    config.libadwaita = b.option(
+    config.adwaita = b.option(
         bool,
-        "gtk-libadwaita",
-        "Enables the use of libadwaita when using the gtk rendering backend.",
+        "gtk-adwaita",
+        "Enables the use of Adwaita when using the GTK rendering backend.",
     ) orelse true;
 
     const conformance = b.option(
@@ -1321,7 +1321,7 @@ fn addDeps(
 
             .gtk => {
                 step.linkSystemLibrary2("gtk4", dynamic_link_opts);
-                if (config.libadwaita) step.linkSystemLibrary2("adwaita-1", dynamic_link_opts);
+                if (config.adwaita) step.linkSystemLibrary2("adwaita-1", dynamic_link_opts);
 
                 {
                     const gresource = @import("src/apprt/gtk/gresource.zig");

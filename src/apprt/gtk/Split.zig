@@ -77,6 +77,7 @@ pub fn init(
     });
     errdefer surface.destroy(alloc);
     sibling.dimSurface();
+    sibling.setSplitZoom(false);
 
     // Create the actual GTKPaned, attach the proper children.
     const orientation: c_uint = switch (new_split.direction) {
@@ -276,7 +277,7 @@ pub fn grabFocus(self: *Split) void {
 /// Update the paned children to represent the current state.
 /// This should be called anytime the top/left or bottom/right
 /// element is changed.
-fn updateChildren(self: *const Split) void {
+pub fn updateChildren(self: *const Split) void {
     // We have to set both to null. If we overwrite the pane with
     // the same value, then GTK bugs out (the GL area unrealizes
     // and never rerealizes).
@@ -390,7 +391,15 @@ fn directionNext(self: *const Split, from: Side) ?struct {
     }
 }
 
+pub fn detachTopLeft(self: *const Split) void {
+    c.gtk_paned_set_start_child(self.paned, null);
+}
+
+pub fn detachBottomRight(self: *const Split) void {
+    c.gtk_paned_set_end_child(self.paned, null);
+}
+
 fn removeChildren(self: *const Split) void {
-    c.gtk_paned_set_start_child(@ptrCast(self.paned), null);
-    c.gtk_paned_set_end_child(@ptrCast(self.paned), null);
+    self.detachTopLeft();
+    self.detachBottomRight();
 }

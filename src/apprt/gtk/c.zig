@@ -1,7 +1,7 @@
 /// Imported C API directly from header files
 pub const c = @cImport({
     @cInclude("gtk/gtk.h");
-    if (@import("build_options").libadwaita) {
+    if (@import("build_options").adwaita) {
         @cInclude("libadwaita-1/adwaita.h");
     }
 

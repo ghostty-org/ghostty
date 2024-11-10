@@ -5,7 +5,7 @@ const Allocator = std.mem.Allocator;
 const xev = @import("xev");
 const renderer = @import("../renderer.zig");
 const termio = @import("../termio.zig");
-const BlockingQueue = @import("../blocking_queue.zig").BlockingQueue;
+const BlockingQueue = @import("../datastruct/main.zig").BlockingQueue;
 
 const log = std.log.scoped(.io_writer);
 

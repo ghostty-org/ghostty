@@ -15,7 +15,6 @@ const posix = std.posix;
 const termio = @import("../termio.zig");
 const Command = @import("../Command.zig");
 const Pty = @import("../pty.zig").Pty;
-const SegmentedPool = @import("../segmented_pool.zig").SegmentedPool;
 const StreamHandler = @import("stream_handler.zig").StreamHandler;
 const terminal = @import("../terminal/main.zig");
 const terminfo = @import("../terminfo/main.zig");

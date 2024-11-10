@@ -7,8 +7,9 @@ const std = @import("std");
 const build_config = @import("../build_config.zig");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const color = @import("color.zig");
 const fastmem = @import("../fastmem.zig");
+const DoublyLinkedList = @import("../datastruct/main.zig").IntrusiveDoublyLinkedList;
+const color = @import("color.zig");
 const kitty = @import("kitty.zig");
 const point = @import("point.zig");
 const pagepkg = @import("page.zig");
@@ -33,7 +34,16 @@ const page_preheat = 4;
 /// The list of pages in the screen. These are expected to be in order
 /// where the first page is the topmost page (scrollback) and the last is
 /// the bottommost page (the current active page).
-pub const List = std.DoublyLinkedList(Page);
+pub const List = DoublyLinkedList(Node);
+
+/// A single node within the PageList linked list.
+///
+/// This isn't pub because you can access the type via List.Node.
+const Node = struct {
+    prev: ?*Node = null,
+    next: ?*Node = null,
+    data: Page,
+};
 
 /// The memory pool we get page nodes from.
 const NodePool = std.heap.MemoryPool(List.Node);
@@ -69,15 +79,15 @@ pub const MemoryPool = struct {
         page_alloc: Allocator,
         preheat: usize,
     ) !MemoryPool {
-        var pool = try NodePool.initPreheated(gen_alloc, preheat);
-        errdefer pool.deinit();
+        var node_pool = try NodePool.initPreheated(gen_alloc, preheat);
+        errdefer node_pool.deinit();
         var page_pool = try PagePool.initPreheated(page_alloc, preheat);
         errdefer page_pool.deinit();
         var pin_pool = try PinPool.initPreheated(gen_alloc, 8);
         errdefer pin_pool.deinit();
         return .{
             .alloc = gen_alloc,
-            .nodes = pool,
+            .nodes = node_pool,
             .pages = page_pool,
             .pins = pin_pool,
         };
@@ -265,7 +275,7 @@ fn initPages(
     const cap = try std_capacity.adjust(.{ .cols = cols });
     var rem = rows;
     while (rem > 0) {
-        const page = try pool.nodes.create();
+        const node = try pool.nodes.create();
         const page_buf = try pool.pages.create();
         // no errdefer because the pool deinit will clean these up
 
@@ -276,17 +286,17 @@ fn initPages(
 
         // Initialize the first set of pages to contain our viewport so that
         // the top of the first page is always the active area.
-        page.* = .{
+        node.* = .{
             .data = Page.initBuf(
                 OffsetBuf.init(page_buf),
                 Page.layout(cap),
             ),
         };
-        page.data.size.rows = @min(rem, page.data.capacity.rows);
-        rem -= page.data.size.rows;
+        node.data.size.rows = @min(rem, node.data.capacity.rows);
+        rem -= node.data.size.rows;
 
         // Add the page to the list
-        page_list.append(page);
+        page_list.append(node);
         page_size += page_buf.len;
     }
 
@@ -412,23 +422,23 @@ pub fn clone(
     while (it.next()) |chunk| {
         // Clone the page. We have to use createPageExt here because
         // we don't know if the source page has a standard size.
-        const page = try createPageExt(
+        const node = try createPageExt(
             pool,
-            chunk.page.data.capacity,
+            chunk.node.data.capacity,
             &page_size,
         );
-        assert(page.data.capacity.rows >= chunk.end - chunk.start);
-        defer page.data.assertIntegrity();
-        page.data.size.rows = chunk.end - chunk.start;
-        try page.data.cloneFrom(
-            &chunk.page.data,
+        assert(node.data.capacity.rows >= chunk.end - chunk.start);
+        defer node.data.assertIntegrity();
+        node.data.size.rows = chunk.end - chunk.start;
+        try node.data.cloneFrom(
+            &chunk.node.data,
             chunk.start,
             chunk.end,
         );
 
-        page_list.append(page);
+        page_list.append(node);
 
-        total_rows += page.data.size.rows;
+        total_rows += node.data.size.rows;
 
         // Remap our tracked pins by changing the page and
         // offsetting the Y position based on the chunk start.
@@ -436,12 +446,12 @@ pub fn clone(
             const pin_keys = self.tracked_pins.keys();
             for (pin_keys) |p| {
                 // We're only interested in pins that were within the chunk.
-                if (p.page != chunk.page or
+                if (p.node != chunk.node or
                     p.y < chunk.start or
                     p.y >= chunk.end) continue;
                 const new_p = try pool.pins.create();
                 new_p.* = p.*;
-                new_p.page = page;
+                new_p.node = node;
                 new_p.y -= chunk.start;
                 try remap.putNoClobber(p, new_p);
                 try tracked_pins.putNoClobber(pool.alloc, new_p, {});
@@ -626,8 +636,8 @@ fn resizeCols(
         try dst_cursor.reflowRow(self, row);
 
         // Once we're done reflowing a page, destroy it.
-        if (row.y == row.page.data.size.rows - 1) {
-            self.destroyPage(row.page);
+        if (row.y == row.node.data.size.rows - 1) {
+            self.destroyNode(row.node);
         }
     }
 
@@ -716,7 +726,7 @@ const ReflowCursor = struct {
         list: *PageList,
         row: Pin,
     ) !void {
-        const src_page = &row.page.data;
+        const src_page: *Page = &row.node.data;
         const src_row = row.rowAndCell().row;
         const src_y = row.y;
 
@@ -744,7 +754,7 @@ const ReflowCursor = struct {
         {
             const pin_keys = list.tracked_pins.keys();
             for (pin_keys) |p| {
-                if (&p.page.data != src_page or
+                if (&p.node.data != src_page or
                     p.y != src_y) continue;
 
                 // If this pin is in the blanks on the right and past the end
@@ -794,11 +804,11 @@ const ReflowCursor = struct {
             {
                 const pin_keys = list.tracked_pins.keys();
                 for (pin_keys) |p| {
-                    if (&p.page.data != src_page or
+                    if (&p.node.data != src_page or
                         p.y != src_y or
                         p.x != x) continue;
 
-                    p.page = self.node;
+                    p.node = self.node;
                     p.x = self.x;
                     p.y = self.y;
                 }
@@ -1036,7 +1046,7 @@ const ReflowCursor = struct {
         // then we should remove it from the list.
         if (old_page.size.rows == 0) {
             list.pages.remove(old_node);
-            list.destroyPage(old_node);
+            list.destroyNode(old_node);
         }
     }
 
@@ -1187,7 +1197,7 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
             .lt => {
                 var it = self.pageIterator(.right_down, .{ .screen = .{} }, null);
                 while (it.next()) |chunk| {
-                    const page = &chunk.page.data;
+                    const page = &chunk.node.data;
                     defer page.assertIntegrity();
                     const rows = page.rows.ptr(page.memory);
                     for (0..page.size.rows) |i| {
@@ -1307,7 +1317,7 @@ fn resizeWithoutReflowGrowCols(
     chunk: PageIterator.Chunk,
 ) !void {
     assert(cols > self.cols);
-    const page = &chunk.page.data;
+    const page = &chunk.node.data;
     const cap = try page.capacity.adjust(.{ .cols = cols });
 
     // Update our col count
@@ -1326,14 +1336,14 @@ fn resizeWithoutReflowGrowCols(
     // to allocate a page, and copy the old data into it.
 
     // On error, we need to undo all the pages we've added.
-    const prev = chunk.page.prev;
+    const prev = chunk.node.prev;
     errdefer {
-        var current = chunk.page.prev;
+        var current = chunk.node.prev;
         while (current) |p| {
             if (current == prev) break;
             current = p.prev;
             self.pages.remove(p);
-            self.destroyPage(p);
+            self.destroyNode(p);
         }
     }
 
@@ -1391,8 +1401,8 @@ fn resizeWithoutReflowGrowCols(
     // We need to loop because our col growth may force us
     // to split pages.
     while (copied < page.size.rows) {
-        const new_page = try self.createPage(cap);
-        defer new_page.data.assertIntegrity();
+        const new_node = try self.createPage(cap);
+        defer new_node.data.assertIntegrity();
 
         // The length we can copy into the new page is at most the number
         // of rows in our cap. But if we can finish our source page we use that.
@@ -1402,11 +1412,11 @@ fn resizeWithoutReflowGrowCols(
         const y_start = copied;
         const y_end = copied + len;
         const src_rows = page.rows.ptr(page.memory)[y_start..y_end];
-        const dst_rows = new_page.data.rows.ptr(new_page.data.memory)[0..len];
+        const dst_rows = new_node.data.rows.ptr(new_node.data.memory)[0..len];
         for (dst_rows, src_rows) |*dst_row, *src_row| {
-            new_page.data.size.rows += 1;
-            errdefer new_page.data.size.rows -= 1;
-            try new_page.data.cloneRowFrom(
+            new_node.data.size.rows += 1;
+            errdefer new_node.data.size.rows -= 1;
+            try new_node.data.cloneRowFrom(
                 page,
                 dst_row,
                 src_row,
@@ -1415,15 +1425,15 @@ fn resizeWithoutReflowGrowCols(
         copied = y_end;
 
         // Insert our new page
-        self.pages.insertBefore(chunk.page, new_page);
+        self.pages.insertBefore(chunk.node, new_node);
 
         // Update our tracked pins that pointed to this previous page.
         const pin_keys = self.tracked_pins.keys();
         for (pin_keys) |p| {
-            if (p.page != chunk.page or
+            if (p.node != chunk.node or
                 p.y < y_start or
                 p.y >= y_end) continue;
-            p.page = new_page;
+            p.node = new_node;
             p.y -= y_start;
         }
     }
@@ -1431,8 +1441,8 @@ fn resizeWithoutReflowGrowCols(
 
     // Remove the old page.
     // Deallocate the old page.
-    self.pages.remove(chunk.page);
-    self.destroyPage(chunk.page);
+    self.pages.remove(chunk.node);
+    self.destroyNode(chunk.node);
 }
 
 /// Returns the number of trailing blank lines, not to exceed max. Max
@@ -1485,7 +1495,7 @@ fn trimTrailingBlankRows(
         // we'd invalidate this pin, as well.
         const pin_keys = self.tracked_pins.keys();
         for (pin_keys) |p| {
-            if (p.page != row_pin.page or
+            if (p.node != row_pin.node or
                 p.y != row_pin.y) continue;
             return trimmed;
         }
@@ -1493,11 +1503,11 @@ fn trimTrailingBlankRows(
         // No text, we can trim this row. Because it has
         // no text we can also be sure it has no styling
         // so we don't need to worry about memory.
-        row_pin.page.data.size.rows -= 1;
-        if (row_pin.page.data.size.rows == 0) {
-            self.erasePage(row_pin.page);
+        row_pin.node.data.size.rows -= 1;
+        if (row_pin.node.data.size.rows == 0) {
+            self.erasePage(row_pin.node);
         } else {
-            row_pin.page.data.assertIntegrity();
+            row_pin.node.data.assertIntegrity();
         }
 
         trimmed += 1;
@@ -1699,7 +1709,8 @@ pub fn grow(self: *PageList) !?*List.Node {
     // reuses the popped page. It is possible to have a single page and
     // exceed the max size if that page was adjusted to be larger after
     // initial allocation.
-    if (self.pages.len > 1 and
+    if (self.pages.first != null and
+        self.pages.first != self.pages.last and
         self.page_size + PagePool.item_size > self.maxSize())
     prune: {
         // If we need to add more memory to ensure our active area is
@@ -1723,8 +1734,8 @@ pub fn grow(self: *PageList) !?*List.Node {
         // new first page to the top-left.
         const pin_keys = self.tracked_pins.keys();
         for (pin_keys) |p| {
-            if (p.page != first) continue;
-            p.page = self.pages.first.?;
+            if (p.node != first) continue;
+            p.node = self.pages.first.?;
             p.y = 0;
             p.x = 0;
         }
@@ -1737,17 +1748,17 @@ pub fn grow(self: *PageList) !?*List.Node {
     }
 
     // We need to allocate a new memory buffer.
-    const next_page = try self.createPage(try std_capacity.adjust(.{ .cols = self.cols }));
+    const next_node = try self.createPage(try std_capacity.adjust(.{ .cols = self.cols }));
     // we don't errdefer this because we've added it to the linked
     // list and its fine to have dangling unused pages.
-    self.pages.append(next_page);
-    next_page.data.size.rows = 1;
+    self.pages.append(next_node);
+    next_node.data.size.rows = 1;
 
     // We should never be more than our max size here because we've
     // verified the case above.
-    next_page.data.assertIntegrity();
+    next_node.data.assertIntegrity();
 
-    return next_page;
+    return next_node;
 }
 
 /// Adjust the capacity of the given page in the list.
@@ -1787,12 +1798,14 @@ pub const AdjustCapacityError = Allocator.Error || Page.CloneFromError;
 /// any requests to decrease will be ignored.
 pub fn adjustCapacity(
     self: *PageList,
-    page: *List.Node,
+    node: *List.Node,
     adjustment: AdjustCapacity,
 ) AdjustCapacityError!*List.Node {
+    const page: *Page = &node.data;
+
     // We always start with the base capacity of the existing page. This
     // ensures we never shrink from what we need.
-    var cap = page.data.capacity;
+    var cap = page.capacity;
 
     // All ceilPowerOfTwo is unreachable because we're always same or less
     // bit width so maxInt is always possible.
@@ -1820,26 +1833,27 @@ pub fn adjustCapacity(
     log.info("adjusting page capacity={}", .{cap});
 
     // Create our new page and clone the old page into it.
-    const new_page = try self.createPage(cap);
-    errdefer self.destroyPage(new_page);
-    assert(new_page.data.capacity.rows >= page.data.capacity.rows);
-    new_page.data.size.rows = page.data.size.rows;
-    try new_page.data.cloneFrom(&page.data, 0, page.data.size.rows);
+    const new_node = try self.createPage(cap);
+    errdefer self.destroyNode(new_node);
+    const new_page: *Page = &new_node.data;
+    assert(new_page.capacity.rows >= page.capacity.rows);
+    new_page.size.rows = page.size.rows;
+    try new_page.cloneFrom(page, 0, page.size.rows);
 
     // Fix up all our tracked pins to point to the new page.
     const pin_keys = self.tracked_pins.keys();
     for (pin_keys) |p| {
-        if (p.page != page) continue;
-        p.page = new_page;
+        if (p.node != node) continue;
+        p.node = new_node;
     }
 
     // Insert this page and destroy the old page
-    self.pages.insertBefore(page, new_page);
-    self.pages.remove(page);
-    self.destroyPage(page);
+    self.pages.insertBefore(node, new_node);
+    self.pages.remove(node);
+    self.destroyNode(node);
 
-    new_page.data.assertIntegrity();
-    return new_page;
+    new_page.assertIntegrity();
+    return new_node;
 }
 
 /// Create a new page node. This does not add it to the list and this
@@ -1897,30 +1911,33 @@ fn createPageExt(
     return page;
 }
 
-/// Destroy the memory of the given page and return it to the pool. The
-/// page is assumed to already be removed from the linked list.
-fn destroyPage(self: *PageList, page: *List.Node) void {
-    destroyPageExt(&self.pool, page, &self.page_size);
+/// Destroy the memory of the given node in the PageList linked list
+/// and return it to the pool. The node is assumed to already be removed
+/// from the linked list.
+fn destroyNode(self: *PageList, node: *List.Node) void {
+    destroyNodeExt(&self.pool, node, &self.page_size);
 }
 
-fn destroyPageExt(
+fn destroyNodeExt(
     pool: *MemoryPool,
-    page: *List.Node,
+    node: *List.Node,
     total_size: ?*usize,
 ) void {
-    // Update our accounting for page size
-    if (total_size) |v| v.* -= page.data.memory.len;
+    const page: *Page = &node.data;
 
-    if (page.data.memory.len <= std_size) {
+    // Update our accounting for page size
+    if (total_size) |v| v.* -= page.memory.len;
+
+    if (page.memory.len <= std_size) {
         // Reset the memory to zero so it can be reused
-        @memset(page.data.memory, 0);
-        pool.pages.destroy(@ptrCast(page.data.memory.ptr));
+        @memset(page.memory, 0);
+        pool.pages.destroy(@ptrCast(page.memory.ptr));
     } else {
         const page_alloc = pool.pages.arena.child_allocator;
-        page_alloc.free(page.data.memory);
+        page_alloc.free(page.memory);
     }
 
-    pool.nodes.destroy(page);
+    pool.nodes.destroy(node);
 }
 
 /// Fast-path function to erase exactly 1 row. Erasing means that the row
@@ -1936,32 +1953,32 @@ pub fn eraseRow(
 ) !void {
     const pn = self.pin(pt).?;
 
-    var page = pn.page;
-    var rows = page.data.rows.ptr(page.data.memory.ptr);
+    var node = pn.node;
+    var rows = node.data.rows.ptr(node.data.memory.ptr);
 
     // In order to move the following rows up we rotate the rows array by 1.
     // The rotate operation turns e.g. [ 0 1 2 3 ] in to [ 1 2 3 0 ], which
     // works perfectly to move all of our elements where they belong.
-    fastmem.rotateOnce(Row, rows[pn.y..page.data.size.rows]);
+    fastmem.rotateOnce(Row, rows[pn.y..node.data.size.rows]);
 
     // We adjust the tracked pins in this page, moving up any that were below
     // the removed row.
     {
         const pin_keys = self.tracked_pins.keys();
         for (pin_keys) |p| {
-            if (p.page == page and p.y > pn.y) p.y -= 1;
+            if (p.node == node and p.y > pn.y) p.y -= 1;
         }
     }
 
     {
         // Set all the rows as dirty in this page
-        var dirty = page.data.dirtyBitSet();
-        dirty.setRangeValue(.{ .start = pn.y, .end = page.data.size.rows }, true);
+        var dirty = node.data.dirtyBitSet();
+        dirty.setRangeValue(.{ .start = pn.y, .end = node.data.size.rows }, true);
     }
 
     // We iterate through all of the following pages in order to move their
     // rows up by 1 as well.
-    while (page.next) |next| {
+    while (node.next) |next| {
         const next_rows = next.data.rows.ptr(next.data.memory.ptr);
 
         // We take the top row of the page and clone it in to the bottom
@@ -1979,30 +1996,30 @@ pub fn eraseRow(
         //    5         5         5  |      6
         //    6         6         6  |      7
         //    7         7         7 <'      4
-        try page.data.cloneRowFrom(
+        try node.data.cloneRowFrom(
             &next.data,
-            &rows[page.data.size.rows - 1],
+            &rows[node.data.size.rows - 1],
             &next_rows[0],
         );
 
-        page = next;
+        node = next;
         rows = next_rows;
 
-        fastmem.rotateOnce(Row, rows[0..page.data.size.rows]);
+        fastmem.rotateOnce(Row, rows[0..node.data.size.rows]);
 
         // Set all the rows as dirty
-        var dirty = page.data.dirtyBitSet();
-        dirty.setRangeValue(.{ .start = 0, .end = page.data.size.rows }, true);
+        var dirty = node.data.dirtyBitSet();
+        dirty.setRangeValue(.{ .start = 0, .end = node.data.size.rows }, true);
 
         // Our tracked pins for this page need to be updated.
         // If the pin is in row 0 that means the corresponding row has
         // been moved to the previous page. Otherwise, move it up by 1.
         const pin_keys = self.tracked_pins.keys();
         for (pin_keys) |p| {
-            if (p.page != page) continue;
+            if (p.node != node) continue;
             if (p.y == 0) {
-                p.page = page.prev.?;
-                p.y = p.page.data.size.rows - 1;
+                p.node = node.prev.?;
+                p.y = p.node.data.size.rows - 1;
                 continue;
             }
             p.y -= 1;
@@ -2010,7 +2027,7 @@ pub fn eraseRow(
     }
 
     // Clear the final row which was rotated from the top of the page.
-    page.data.clearCells(&rows[page.data.size.rows - 1], 0, page.data.size.cols);
+    node.data.clearCells(&rows[node.data.size.rows - 1], 0, node.data.size.cols);
 }
 
 /// A variant of eraseRow that shifts only a bounded number of following
@@ -2031,24 +2048,24 @@ pub fn eraseRowBounded(
 
     const pn = self.pin(pt).?;
 
-    var page = pn.page;
-    var rows = page.data.rows.ptr(page.data.memory.ptr);
+    var node: *List.Node = pn.node;
+    var rows = node.data.rows.ptr(node.data.memory.ptr);
 
     // If the row limit is less than the remaining rows before the end of the
     // page, then we clear the row, rotate it to the end of the boundary limit
     // and update our pins.
-    if (page.data.size.rows - pn.y > limit) {
-        page.data.clearCells(&rows[pn.y], 0, page.data.size.cols);
+    if (node.data.size.rows - pn.y > limit) {
+        node.data.clearCells(&rows[pn.y], 0, node.data.size.cols);
         fastmem.rotateOnce(Row, rows[pn.y..][0 .. limit + 1]);
 
         // Set all the rows as dirty
-        var dirty = page.data.dirtyBitSet();
+        var dirty = node.data.dirtyBitSet();
         dirty.setRangeValue(.{ .start = pn.y, .end = pn.y + limit }, true);
 
         // Update pins in the shifted region.
         const pin_keys = self.tracked_pins.keys();
         for (pin_keys) |p| {
-            if (p.page == page and
+            if (p.node == node and
                 p.y >= pn.y and
                 p.y <= pn.y + limit)
             {
@@ -2063,24 +2080,24 @@ pub fn eraseRowBounded(
         return;
     }
 
-    fastmem.rotateOnce(Row, rows[pn.y..page.data.size.rows]);
+    fastmem.rotateOnce(Row, rows[pn.y..node.data.size.rows]);
 
     // All the rows in the page are dirty below the erased row.
     {
-        var dirty = page.data.dirtyBitSet();
-        dirty.setRangeValue(.{ .start = pn.y, .end = page.data.size.rows }, true);
+        var dirty = node.data.dirtyBitSet();
+        dirty.setRangeValue(.{ .start = pn.y, .end = node.data.size.rows }, true);
     }
 
     // We need to keep track of how many rows we've shifted so that we can
     // determine at what point we need to do a partial shift on subsequent
     // pages.
-    var shifted: usize = page.data.size.rows - pn.y;
+    var shifted: usize = node.data.size.rows - pn.y;
 
     // Update tracked pins.
     {
         const pin_keys = self.tracked_pins.keys();
         for (pin_keys) |p| {
-            if (p.page == page and p.y >= pn.y) {
+            if (p.node == node and p.y >= pn.y) {
                 if (p.y == 0) {
                     p.x = 0;
                 } else {
@@ -2090,16 +2107,16 @@ pub fn eraseRowBounded(
         }
     }
 
-    while (page.next) |next| {
+    while (node.next) |next| {
         const next_rows = next.data.rows.ptr(next.data.memory.ptr);
 
-        try page.data.cloneRowFrom(
+        try node.data.cloneRowFrom(
             &next.data,
-            &rows[page.data.size.rows - 1],
+            &rows[node.data.size.rows - 1],
             &next_rows[0],
         );
 
-        page = next;
+        node = next;
         rows = next_rows;
 
         // We check to see if this page contains enough rows to satisfy the
@@ -2108,21 +2125,21 @@ pub fn eraseRowBounded(
         //
         // The logic here is very similar to the one before the loop.
         const shifted_limit = limit - shifted;
-        if (page.data.size.rows > shifted_limit) {
-            page.data.clearCells(&rows[0], 0, page.data.size.cols);
+        if (node.data.size.rows > shifted_limit) {
+            node.data.clearCells(&rows[0], 0, node.data.size.cols);
             fastmem.rotateOnce(Row, rows[0 .. shifted_limit + 1]);
 
             // Set all the rows as dirty
-            var dirty = page.data.dirtyBitSet();
+            var dirty = node.data.dirtyBitSet();
             dirty.setRangeValue(.{ .start = 0, .end = shifted_limit }, true);
 
             // Update pins in the shifted region.
             const pin_keys = self.tracked_pins.keys();
             for (pin_keys) |p| {
-                if (p.page != page or p.y > shifted_limit) continue;
+                if (p.node != node or p.y > shifted_limit) continue;
                 if (p.y == 0) {
-                    p.page = page.prev.?;
-                    p.y = p.page.data.size.rows - 1;
+                    p.node = node.prev.?;
+                    p.y = p.node.data.size.rows - 1;
                     continue;
                 }
                 p.y -= 1;
@@ -2131,22 +2148,22 @@ pub fn eraseRowBounded(
             return;
         }
 
-        fastmem.rotateOnce(Row, rows[0..page.data.size.rows]);
+        fastmem.rotateOnce(Row, rows[0..node.data.size.rows]);
 
         // Set all the rows as dirty
-        var dirty = page.data.dirtyBitSet();
-        dirty.setRangeValue(.{ .start = 0, .end = page.data.size.rows }, true);
+        var dirty = node.data.dirtyBitSet();
+        dirty.setRangeValue(.{ .start = 0, .end = node.data.size.rows }, true);
 
-        // Account for the rows shifted in this page.
-        shifted += page.data.size.rows;
+        // Account for the rows shifted in this node.
+        shifted += node.data.size.rows;
 
         // Update tracked pins.
         const pin_keys = self.tracked_pins.keys();
         for (pin_keys) |p| {
-            if (p.page != page) continue;
+            if (p.node != node) continue;
             if (p.y == 0) {
-                p.page = page.prev.?;
-                p.y = p.page.data.size.rows - 1;
+                p.node = node.prev.?;
+                p.y = p.node.data.size.rows - 1;
                 continue;
             }
             p.y -= 1;
@@ -2155,7 +2172,7 @@ pub fn eraseRowBounded(
 
     // We reached the end of the page list before the limit, so we clear
     // the final row since it was rotated down from the top of this page.
-    page.data.clearCells(&rows[page.data.size.rows - 1], 0, page.data.size.cols);
+    node.data.clearCells(&rows[node.data.size.rows - 1], 0, node.data.size.cols);
 }
 
 /// Erase the rows from the given top to bottom (inclusive). Erasing
@@ -2183,28 +2200,28 @@ pub fn eraseRows(
             // in our linked list. erasePage requires at least one other
             // page so to handle this we reinit this page, set it to zero
             // size which will let us grow our active area back.
-            if (chunk.page.next == null and chunk.page.prev == null) {
-                const page = &chunk.page.data;
+            if (chunk.node.next == null and chunk.node.prev == null) {
+                const page = &chunk.node.data;
                 erased += page.size.rows;
                 page.reinit();
                 page.size.rows = 0;
                 break;
             }
 
-            self.erasePage(chunk.page);
-            erased += chunk.page.data.size.rows;
+            self.erasePage(chunk.node);
+            erased += chunk.node.data.size.rows;
             continue;
         }
 
         // We are modifying our chunk so make sure it is in a good state.
-        defer chunk.page.data.assertIntegrity();
+        defer chunk.node.data.assertIntegrity();
 
         // The chunk is not a full page so we need to move the rows.
         // This is a cheap operation because we're just moving cell offsets,
         // not the actual cell contents.
         assert(chunk.start == 0);
-        const rows = chunk.page.data.rows.ptr(chunk.page.data.memory);
-        const scroll_amount = chunk.page.data.size.rows - chunk.end;
+        const rows = chunk.node.data.rows.ptr(chunk.node.data.memory);
+        const scroll_amount = chunk.node.data.size.rows - chunk.end;
         for (0..scroll_amount) |i| {
             const src: *Row = &rows[i + chunk.end];
             const dst: *Row = &rows[i];
@@ -2215,12 +2232,12 @@ pub fn eraseRows(
 
         // Clear our remaining cells that we didn't shift or swapped
         // in case we grow back into them.
-        for (scroll_amount..chunk.page.data.size.rows) |i| {
+        for (scroll_amount..chunk.node.data.size.rows) |i| {
             const row: *Row = &rows[i];
-            chunk.page.data.clearCells(
+            chunk.node.data.clearCells(
                 row,
                 0,
-                chunk.page.data.size.cols,
+                chunk.node.data.size.cols,
             );
         }
 
@@ -2228,7 +2245,7 @@ pub fn eraseRows(
         // row then we move it to the top of this page.
         const pin_keys = self.tracked_pins.keys();
         for (pin_keys) |p| {
-            if (p.page != chunk.page) continue;
+            if (p.node != chunk.node) continue;
             if (p.y >= chunk.end) {
                 p.y -= chunk.end;
             } else {
@@ -2238,12 +2255,12 @@ pub fn eraseRows(
         }
 
         // Our new size is the amount we scrolled
-        chunk.page.data.size.rows = @intCast(scroll_amount);
+        chunk.node.data.size.rows = @intCast(scroll_amount);
         erased += chunk.end;
 
         // Set all the rows as dirty
-        var dirty = chunk.page.data.dirtyBitSet();
-        dirty.setRangeValue(.{ .start = 0, .end = chunk.page.data.size.rows }, true);
+        var dirty = chunk.node.data.dirtyBitSet();
+        dirty.setRangeValue(.{ .start = 0, .end = chunk.node.data.size.rows }, true);
     }
 
     // If we deleted active, we need to regrow because one of our invariants
@@ -2271,7 +2288,7 @@ pub fn eraseRows(
 
         // For top, we move back to active if our erasing moved our
         // top page into the active area.
-        .top => if (self.pinIsActive(.{ .page = self.pages.first.? })) {
+        .top => if (self.pinIsActive(.{ .node = self.pages.first.? })) {
             self.viewport = .{ .active = {} };
         },
     }
@@ -2280,21 +2297,21 @@ pub fn eraseRows(
 /// Erase a single page, freeing all its resources. The page can be
 /// anywhere in the linked list but must NOT be the final page in the
 /// entire list (i.e. must not make the list empty).
-fn erasePage(self: *PageList, page: *List.Node) void {
-    assert(page.next != null or page.prev != null);
+fn erasePage(self: *PageList, node: *List.Node) void {
+    assert(node.next != null or node.prev != null);
 
     // Update any tracked pins to move to the next page.
     const pin_keys = self.tracked_pins.keys();
     for (pin_keys) |p| {
-        if (p.page != page) continue;
-        p.page = page.next orelse page.prev orelse unreachable;
+        if (p.node != node) continue;
+        p.node = node.next orelse node.prev orelse unreachable;
         p.y = 0;
         p.x = 0;
     }
 
     // Remove the page from the linked list
-    self.pages.remove(page);
-    self.destroyPage(page);
+    self.pages.remove(node);
+    self.destroyNode(node);
 }
 
 /// Returns the pin for the given point. The pin is NOT tracked so it
@@ -2341,10 +2358,10 @@ pub fn countTrackedPins(self: *const PageList) usize {
 /// worst case. Only for runtime safety/debug.
 fn pinIsValid(self: *const PageList, p: Pin) bool {
     var it = self.pages.first;
-    while (it) |page| : (it = page.next) {
-        if (page != p.page) continue;
-        return p.y < page.data.size.rows and
-            p.x < page.data.size.cols;
+    while (it) |node| : (it = node.next) {
+        if (node != p.node) continue;
+        return p.y < node.data.size.rows and
+            p.x < node.data.size.cols;
     }
 
     return false;
@@ -2356,19 +2373,19 @@ fn pinIsActive(self: *const PageList, p: Pin) bool {
     // If the pin is in the active page, then we can quickly determine
     // if we're beyond the end.
     const active = self.getTopLeft(.active);
-    if (p.page == active.page) return p.y >= active.y;
+    if (p.node == active.node) return p.y >= active.y;
 
-    var page_ = active.page.next;
-    while (page_) |page| {
+    var node_ = active.node.next;
+    while (node_) |node| {
         // This loop is pretty fast because the active area is
-        // never that large so this is at most one, two pages for
+        // never that large so this is at most one, two nodes for
         // reasonable terminals (including very large real world
         // ones).
 
-        // A page forward in the active area is our page, so we're
+        // A node forward in the active area is our node, so we're
         // definitely in the active area.
-        if (page == p.page) return true;
-        page_ = page.next;
+        if (node == p.node) return true;
+        node_ = node.next;
     }
 
     return false;
@@ -2388,22 +2405,22 @@ pub fn pointFromPin(self: *const PageList, tag: point.Tag, p: Pin) ?point.Point 
 
     // Count our first page which is special because it may be partial.
     var coord: point.Coordinate = .{ .x = p.x };
-    if (p.page == tl.page) {
+    if (p.node == tl.node) {
         // If our top-left is after our y then we're outside the range.
         if (tl.y > p.y) return null;
         coord.y = p.y - tl.y;
     } else {
-        coord.y += tl.page.data.size.rows - tl.y;
-        var page_ = tl.page.next;
-        while (page_) |page| : (page_ = page.next) {
-            if (page == p.page) {
+        coord.y += tl.node.data.size.rows - tl.y;
+        var node_ = tl.node.next;
+        while (node_) |node| : (node_ = node.next) {
+            if (node == p.node) {
                 coord.y += p.y;
                 break;
             }
 
-            coord.y += page.data.size.rows;
+            coord.y += node.data.size.rows;
         } else {
-            // We never saw our page, meaning we're outside the range.
+            // We never saw our node, meaning we're outside the range.
             return null;
         }
     }
@@ -2423,9 +2440,9 @@ pub fn pointFromPin(self: *const PageList, tag: point.Tag, p: Pin) ?point.Point 
 /// Warning: this is slow and should not be used in performance critical paths
 pub fn getCell(self: *const PageList, pt: point.Point) ?Cell {
     const pt_pin = self.pin(pt) orelse return null;
-    const rac = pt_pin.page.data.getRowAndCell(pt_pin.x, pt_pin.y);
+    const rac = pt_pin.node.data.getRowAndCell(pt_pin.x, pt_pin.y);
     return .{
-        .page = pt_pin.page,
+        .node = pt_pin.node,
         .row = rac.row,
         .cell = rac.cell,
         .row_idx = pt_pin.y,
@@ -2463,16 +2480,16 @@ pub fn diagram(self: *const PageList, writer: anytype) !void {
 
     var it = self.pageIterator(.right_down, .{ .screen = .{} }, null);
     while (it.next()) |chunk| : (page_index += 1) {
-        cols = chunk.page.data.size.cols;
+        cols = chunk.node.data.size.cols;
 
         // Whether we've just skipped some number of rows and drawn
         // an ellipsis row (this is reset when a row is not skipped).
         var skipped = false;
 
-        for (0..chunk.page.data.size.rows) |y| {
+        for (0..chunk.node.data.size.rows) |y| {
             // Active header
             if (!active and
-                chunk.page == active_pin.page and
+                chunk.node == active_pin.node and
                 active_pin.y == y)
             {
                 active = true;
@@ -2494,8 +2511,8 @@ pub fn diagram(self: *const PageList, writer: anytype) !void {
 
             // Row contents
             {
-                const row = chunk.page.data.getRow(y);
-                const cells = chunk.page.data.getCells(row)[0..cols];
+                const row = chunk.node.data.getRow(y);
+                const cells = chunk.node.data.getCells(row)[0..cols];
 
                 var row_has_content = false;
 
@@ -2544,7 +2561,7 @@ pub fn diagram(self: *const PageList, writer: anytype) !void {
                         }
                         try writer.print("{u}", .{cell.codepoint()});
                         if (cell.hasGrapheme()) {
-                            const grapheme = chunk.page.data.lookupGrapheme(cell).?;
+                            const grapheme = chunk.node.data.lookupGrapheme(cell).?;
                             for (grapheme) |cp| {
                                 try writer.print("{u}", .{cp});
                             }
@@ -2572,7 +2589,7 @@ pub fn diagram(self: *const PageList, writer: anytype) !void {
                 var pin_count: usize = 0;
                 const pin_keys = self.tracked_pins.keys();
                 for (pin_keys) |p| {
-                    if (p.page != chunk.page) continue;
+                    if (p.node != chunk.node) continue;
                     if (p.y != y) continue;
                     pin_buf[pin_count] = p;
                     pin_count += 1;
@@ -2651,7 +2668,7 @@ pub const CellIterator = struct {
 
         switch (self.row_it.page_it.direction) {
             .right_down => {
-                if (cell.x + 1 < cell.page.data.size.cols) {
+                if (cell.x + 1 < cell.node.data.size.cols) {
                     // We still have cells in this row, increase x.
                     var copy = cell;
                     copy.x += 1;
@@ -2672,7 +2689,7 @@ pub const CellIterator = struct {
                     // We need to move to the previous row and last col
                     if (self.row_it.next()) |next_cell| {
                         var copy = next_cell;
-                        copy.x = next_cell.page.data.size.cols - 1;
+                        copy.x = next_cell.node.data.size.cols - 1;
                         self.cell = copy;
                     } else {
                         self.cell = null;
@@ -2711,7 +2728,7 @@ pub const RowIterator = struct {
 
     pub fn next(self: *RowIterator) ?Pin {
         const chunk = self.chunk orelse return null;
-        const row: Pin = .{ .page = chunk.page, .y = self.offset };
+        const row: Pin = .{ .node = chunk.node, .y = self.offset };
 
         switch (self.page_it.direction) {
             .right_down => {
@@ -2798,20 +2815,20 @@ pub const PageIterator = struct {
                 // If we have no limit, then we consume this entire page. Our
                 // next row is the next page.
                 self.row = next: {
-                    const next_page = row.page.next orelse break :next null;
-                    break :next .{ .page = next_page };
+                    const next_page = row.node.next orelse break :next null;
+                    break :next .{ .node = next_page };
                 };
 
                 break :none .{
-                    .page = row.page,
+                    .node = row.node,
                     .start = row.y,
-                    .end = row.page.data.size.rows,
+                    .end = row.node.data.size.rows,
                 };
             },
 
             .count => |*limit| count: {
                 assert(limit.* > 0); // should be handled already
-                const len = @min(row.page.data.size.rows - row.y, limit.*);
+                const len = @min(row.node.data.size.rows - row.y, limit.*);
                 if (len > limit.*) {
                     self.row = row.down(len);
                     limit.* -= len;
@@ -2820,7 +2837,7 @@ pub const PageIterator = struct {
                 }
 
                 break :count .{
-                    .page = row.page,
+                    .node = row.node,
                     .start = row.y,
                     .end = row.y + len,
                 };
@@ -2829,16 +2846,16 @@ pub const PageIterator = struct {
             .row => |limit_row| row: {
                 // If this is not the same page as our limit then we
                 // can consume the entire page.
-                if (limit_row.page != row.page) {
+                if (limit_row.node != row.node) {
                     self.row = next: {
-                        const next_page = row.page.next orelse break :next null;
-                        break :next .{ .page = next_page };
+                        const next_page = row.node.next orelse break :next null;
+                        break :next .{ .node = next_page };
                     };
 
                     break :row .{
-                        .page = row.page,
+                        .node = row.node,
                         .start = row.y,
-                        .end = row.page.data.size.rows,
+                        .end = row.node.data.size.rows,
                     };
                 }
 
@@ -2847,7 +2864,7 @@ pub const PageIterator = struct {
                 self.row = null;
                 if (row.y > limit_row.y) return null;
                 break :row .{
-                    .page = row.page,
+                    .node = row.node,
                     .start = row.y,
                     .end = limit_row.y + 1,
                 };
@@ -2864,15 +2881,15 @@ pub const PageIterator = struct {
                 // If we have no limit, then we consume this entire page. Our
                 // next row is the next page.
                 self.row = next: {
-                    const next_page = row.page.prev orelse break :next null;
+                    const next_page = row.node.prev orelse break :next null;
                     break :next .{
-                        .page = next_page,
+                        .node = next_page,
                         .y = next_page.data.size.rows - 1,
                     };
                 };
 
                 break :none .{
-                    .page = row.page,
+                    .node = row.node,
                     .start = 0,
                     .end = row.y + 1,
                 };
@@ -2889,7 +2906,7 @@ pub const PageIterator = struct {
                 }
 
                 break :count .{
-                    .page = row.page,
+                    .node = row.node,
                     .start = row.y - len,
                     .end = row.y - 1,
                 };
@@ -2898,17 +2915,17 @@ pub const PageIterator = struct {
             .row => |limit_row| row: {
                 // If this is not the same page as our limit then we
                 // can consume the entire page.
-                if (limit_row.page != row.page) {
+                if (limit_row.node != row.node) {
                     self.row = next: {
-                        const next_page = row.page.prev orelse break :next null;
+                        const next_page = row.node.prev orelse break :next null;
                         break :next .{
-                            .page = next_page,
+                            .node = next_page,
                             .y = next_page.data.size.rows - 1,
                         };
                     };
 
                     break :row .{
-                        .page = row.page,
+                        .node = row.node,
                         .start = 0,
                         .end = row.y + 1,
                     };
@@ -2919,7 +2936,7 @@ pub const PageIterator = struct {
                 self.row = null;
                 if (row.y < limit_row.y) return null;
                 break :row .{
-                    .page = row.page,
+                    .node = row.node,
                     .start = limit_row.y,
                     .end = row.y + 1,
                 };
@@ -2928,18 +2945,18 @@ pub const PageIterator = struct {
     }
 
     pub const Chunk = struct {
-        page: *List.Node,
+        node: *List.Node,
         start: size.CellCountInt,
         end: size.CellCountInt,
 
         pub fn rows(self: Chunk) []Row {
-            const rows_ptr = self.page.data.rows.ptr(self.page.data.memory);
+            const rows_ptr = self.node.data.rows.ptr(self.node.data.memory);
             return rows_ptr[self.start..self.end];
         }
 
         /// Returns true if this chunk represents every row in the page.
         pub fn fullPage(self: Chunk) bool {
-            return self.start == 0 and self.end == self.page.data.size.rows;
+            return self.start == 0 and self.end == self.node.data.size.rows;
         }
     };
 };
@@ -2986,7 +3003,7 @@ pub fn pageIterator(
 pub fn getTopLeft(self: *const PageList, tag: point.Tag) Pin {
     return switch (tag) {
         // The full screen or history is always just the first page.
-        .screen, .history => .{ .page = self.pages.first.? },
+        .screen, .history => .{ .node = self.pages.first.? },
 
         .viewport => switch (self.viewport) {
             .active => self.getTopLeft(.active),
@@ -3001,13 +3018,13 @@ pub fn getTopLeft(self: *const PageList, tag: point.Tag) Pin {
         .active => active: {
             var rem = self.rows;
             var it = self.pages.last;
-            while (it) |page| : (it = page.prev) {
-                if (rem <= page.data.size.rows) break :active .{
-                    .page = page,
-                    .y = page.data.size.rows - rem,
+            while (it) |node| : (it = node.prev) {
+                if (rem <= node.data.size.rows) break :active .{
+                    .node = node,
+                    .y = node.data.size.rows - rem,
                 };
 
-                rem -= page.data.size.rows;
+                rem -= node.data.size.rows;
             }
 
             unreachable; // assertion: we always have enough rows for active
@@ -3021,11 +3038,11 @@ pub fn getTopLeft(self: *const PageList, tag: point.Tag) Pin {
 pub fn getBottomRight(self: *const PageList, tag: point.Tag) ?Pin {
     return switch (tag) {
         .screen, .active => last: {
-            const page = self.pages.last.?;
+            const node = self.pages.last.?;
             break :last .{
-                .page = page,
-                .y = page.data.size.rows - 1,
-                .x = page.data.size.cols - 1,
+                .node = node,
+                .y = node.data.size.rows - 1,
+                .x = node.data.size.cols - 1,
             };
         },
 
@@ -3048,10 +3065,10 @@ pub fn getBottomRight(self: *const PageList, tag: point.Tag) ?Pin {
 /// rows, so it is not pub. This is only used for testing/debugging.
 fn totalRows(self: *const PageList) usize {
     var rows: usize = 0;
-    var page = self.pages.first;
-    while (page) |p| {
-        rows += p.data.size.rows;
-        page = p.next;
+    var node_ = self.pages.first;
+    while (node_) |node| {
+        rows += node.data.size.rows;
+        node_ = node.next;
     }
 
     return rows;
@@ -3060,10 +3077,10 @@ fn totalRows(self: *const PageList) usize {
 /// The total number of pages in this list.
 fn totalPages(self: *const PageList) usize {
     var pages: usize = 0;
-    var page = self.pages.first;
-    while (page) |p| {
+    var node_ = self.pages.first;
+    while (node_) |node| {
         pages += 1;
-        page = p.next;
+        node_ = node.next;
     }
 
     return pages;
@@ -3126,7 +3143,7 @@ fn markDirty(self: *PageList, pt: point.Point) void {
 /// all up to date as the pagelist is modified. This isn't cheap so callers
 /// should limit the number of active pins as much as possible.
 pub const Pin = struct {
-    page: *List.Node,
+    node: *List.Node,
     y: size.CellCountInt = 0,
     x: size.CellCountInt = 0,
 
@@ -3134,7 +3151,7 @@ pub const Pin = struct {
         row: *pagepkg.Row,
         cell: *pagepkg.Cell,
     } {
-        const rac = self.page.data.getRowAndCell(self.x, self.y);
+        const rac = self.node.data.getRowAndCell(self.x, self.y);
         return .{ .row = rac.row, .cell = rac.cell };
     }
 
@@ -3145,7 +3162,7 @@ pub const Pin = struct {
     /// inclusive of the x coordinate of the pin.
     pub fn cells(self: Pin, subset: CellSubset) []pagepkg.Cell {
         const rac = self.rowAndCell();
-        const all = self.page.data.getCells(rac.row);
+        const all = self.node.data.getCells(rac.row);
         return switch (subset) {
             .all => all,
             .left => all[0 .. self.x + 1],
@@ -3156,26 +3173,26 @@ pub const Pin = struct {
     /// Returns the grapheme codepoints for the given cell. These are only
     /// the EXTRA codepoints and not the first codepoint.
     pub fn grapheme(self: Pin, cell: *const pagepkg.Cell) ?[]u21 {
-        return self.page.data.lookupGrapheme(cell);
+        return self.node.data.lookupGrapheme(cell);
     }
 
     /// Returns the style for the given cell in this pin.
     pub fn style(self: Pin, cell: *const pagepkg.Cell) stylepkg.Style {
         if (cell.style_id == stylepkg.default_id) return .{};
-        return self.page.data.styles.get(
-            self.page.data.memory,
+        return self.node.data.styles.get(
+            self.node.data.memory,
             cell.style_id,
         ).*;
     }
 
     /// Check if this pin is dirty.
     pub fn isDirty(self: Pin) bool {
-        return self.page.data.isRowDirty(self.y);
+        return self.node.data.isRowDirty(self.y);
     }
 
     /// Mark this pin location as dirty.
     pub fn markDirty(self: Pin) void {
-        var set = self.page.data.dirtyBitSet();
+        var set = self.node.data.dirtyBitSet();
         set.set(self.y);
     }
 
@@ -3289,7 +3306,7 @@ pub const Pin = struct {
     // graphics deletion code.
     pub fn isBetween(self: Pin, top: Pin, bottom: Pin) bool {
         if (build_config.slow_runtime_safety) {
-            if (top.page == bottom.page) {
+            if (top.node == bottom.node) {
                 // If top is bottom, must be ordered.
                 assert(top.y <= bottom.y);
                 if (top.y == bottom.y) {
@@ -3297,14 +3314,14 @@ pub const Pin = struct {
                 }
             } else {
                 // If top is not bottom, top must be before bottom.
-                var page = top.page.next;
-                while (page) |p| : (page = p.next) {
-                    if (p == bottom.page) break;
+                var node_ = top.node.next;
+                while (node_) |node| : (node_ = node.next) {
+                    if (node == bottom.node) break;
                 } else assert(false);
             }
         }
 
-        if (self.page == top.page) {
+        if (self.node == top.node) {
             // If our pin is the top page and our y is less than the top y
             // then we can't possibly be between the top and bottom.
             if (self.y < top.y) return false;
@@ -3316,7 +3333,7 @@ pub const Pin = struct {
             // at least the full top page and since we're the same page
             // we're in the range.
             if (self.y > top.y) {
-                return if (self.page == bottom.page)
+                return if (self.node == bottom.node)
                     self.y <= bottom.y
                 else
                     true;
@@ -3327,7 +3344,7 @@ pub const Pin = struct {
             assert(self.y == top.y);
             if (self.x < top.x) return false;
         }
-        if (self.page == bottom.page) {
+        if (self.node == bottom.node) {
             // Our page is the bottom page so we're between the top and
             // bottom if our y is less than the bottom y.
             if (self.y > bottom.y) return false;
@@ -3345,11 +3362,11 @@ pub const Pin = struct {
         // Since our loop starts at top.page.next we need to check that
         // top != bottom because if they're the same then we can't possibly
         // be between them.
-        if (top.page == bottom.page) return false;
-        var page = top.page.next;
-        while (page) |p| : (page = p.next) {
-            if (p == bottom.page) break;
-            if (p == self.page) return true;
+        if (top.node == bottom.node) return false;
+        var node_ = top.node.next;
+        while (node_) |node| : (node_ = node.next) {
+            if (node == bottom.node) break;
+            if (node == self.node) return true;
         }
 
         return false;
@@ -3359,22 +3376,22 @@ pub const Pin = struct {
     /// it requires traversing the linked list of pages. This should not
     /// be called in performance critical paths.
     pub fn before(self: Pin, other: Pin) bool {
-        if (self.page == other.page) {
+        if (self.node == other.node) {
             if (self.y < other.y) return true;
             if (self.y > other.y) return false;
             return self.x < other.x;
         }
 
-        var page = self.page.next;
-        while (page) |p| : (page = p.next) {
-            if (p == other.page) return true;
+        var node_ = self.node.next;
+        while (node_) |node| : (node_ = node.next) {
+            if (node == other.node) return true;
         }
 
         return false;
     }
 
     pub fn eql(self: Pin, other: Pin) bool {
-        return self.page == other.page and
+        return self.node == other.node and
             self.y == other.y and
             self.x == other.x;
     }
@@ -3389,7 +3406,7 @@ pub const Pin = struct {
 
     /// Move the pin right n columns. n must fit within the size.
     pub fn right(self: Pin, n: usize) Pin {
-        assert(self.x + n < self.page.data.size.cols);
+        assert(self.x + n < self.node.data.size.cols);
         var result = self;
         result.x +|= std.math.cast(size.CellCountInt, n) orelse
             std.math.maxInt(size.CellCountInt);
@@ -3424,33 +3441,33 @@ pub const Pin = struct {
         },
     } {
         // Index fits within this page
-        const rows = self.page.data.size.rows - (self.y + 1);
+        const rows = self.node.data.size.rows - (self.y + 1);
         if (n <= rows) return .{ .offset = .{
-            .page = self.page,
+            .node = self.node,
             .y = std.math.cast(size.CellCountInt, self.y + n) orelse
                 std.math.maxInt(size.CellCountInt),
             .x = self.x,
         } };
 
         // Need to traverse page links to find the page
-        var page: *List.Node = self.page;
+        var node: *List.Node = self.node;
         var n_left: usize = n - rows;
         while (true) {
-            page = page.next orelse return .{ .overflow = .{
+            node = node.next orelse return .{ .overflow = .{
                 .end = .{
-                    .page = page,
-                    .y = page.data.size.rows - 1,
+                    .node = node,
+                    .y = node.data.size.rows - 1,
                     .x = self.x,
                 },
                 .remaining = n_left,
             } };
-            if (n_left <= page.data.size.rows) return .{ .offset = .{
-                .page = page,
+            if (n_left <= node.data.size.rows) return .{ .offset = .{
+                .node = node,
                 .y = std.math.cast(size.CellCountInt, n_left - 1) orelse
                     std.math.maxInt(size.CellCountInt),
                 .x = self.x,
             } };
-            n_left -= page.data.size.rows;
+            n_left -= node.data.size.rows;
         }
     }
 
@@ -3465,33 +3482,33 @@ pub const Pin = struct {
     } {
         // Index fits within this page
         if (n <= self.y) return .{ .offset = .{
-            .page = self.page,
+            .node = self.node,
             .y = std.math.cast(size.CellCountInt, self.y - n) orelse
                 std.math.maxInt(size.CellCountInt),
             .x = self.x,
         } };
 
         // Need to traverse page links to find the page
-        var page: *List.Node = self.page;
+        var node: *List.Node = self.node;
         var n_left: usize = n - self.y;
         while (true) {
-            page = page.prev orelse return .{ .overflow = .{
-                .end = .{ .page = page, .y = 0, .x = self.x },
+            node = node.prev orelse return .{ .overflow = .{
+                .end = .{ .node = node, .y = 0, .x = self.x },
                 .remaining = n_left,
             } };
-            if (n_left <= page.data.size.rows) return .{ .offset = .{
-                .page = page,
-                .y = std.math.cast(size.CellCountInt, page.data.size.rows - n_left) orelse
+            if (n_left <= node.data.size.rows) return .{ .offset = .{
+                .node = node,
+                .y = std.math.cast(size.CellCountInt, node.data.size.rows - n_left) orelse
                     std.math.maxInt(size.CellCountInt),
                 .x = self.x,
             } };
-            n_left -= page.data.size.rows;
+            n_left -= node.data.size.rows;
         }
     }
 };
 
 const Cell = struct {
-    page: *List.Node,
+    node: *List.Node,
     row: *pagepkg.Row,
     cell: *pagepkg.Cell,
     row_idx: size.CellCountInt,
@@ -3502,7 +3519,7 @@ const Cell = struct {
     /// This is not very performant this is primarily used for assertions
     /// and testing.
     pub fn isDirty(self: Cell) bool {
-        return self.page.data.isRowDirty(self.row_idx);
+        return self.node.data.isRowDirty(self.row_idx);
     }
 
     /// Get the cell style.
@@ -3510,8 +3527,8 @@ const Cell = struct {
     /// Not meant for non-test usage since this is inefficient.
     pub fn style(self: Cell) stylepkg.Style {
         if (self.cell.style_id == stylepkg.default_id) return .{};
-        return self.page.data.styles.get(
-            self.page.data.memory,
+        return self.node.data.styles.get(
+            self.node.data.memory,
             self.cell.style_id,
         ).*;
     }
@@ -3524,10 +3541,10 @@ const Cell = struct {
     /// carefully if you really need this.
     pub fn screenPoint(self: Cell) point.Point {
         var y: size.CellCountInt = self.row_idx;
-        var page = self.page;
-        while (page.prev) |prev| {
-            y += prev.data.size.rows;
-            page = prev;
+        var node_ = self.node;
+        while (node_.prev) |node| {
+            y += node.data.size.rows;
+            node_ = node;
         }
 
         return .{ .screen = .{
@@ -3549,7 +3566,7 @@ test "PageList" {
 
     // Active area should be the top
     try testing.expectEqual(Pin{
-        .page = s.pages.first.?,
+        .node = s.pages.first.?,
         .y = 0,
         .x = 0,
     }, s.getTopLeft(.active));
@@ -3592,7 +3609,7 @@ test "PageList pointFromPin active no history" {
                 .x = 0,
             },
         }, s.pointFromPin(.active, .{
-            .page = s.pages.first.?,
+            .node = s.pages.first.?,
             .y = 0,
             .x = 0,
         }).?);
@@ -3604,7 +3621,7 @@ test "PageList pointFromPin active no history" {
                 .x = 4,
             },
         }, s.pointFromPin(.active, .{
-            .page = s.pages.first.?,
+            .node = s.pages.first.?,
             .y = 2,
             .x = 4,
         }).?);
@@ -3626,7 +3643,7 @@ test "PageList pointFromPin active with history" {
                 .x = 2,
             },
         }, s.pointFromPin(.active, .{
-            .page = s.pages.first.?,
+            .node = s.pages.first.?,
             .y = 30,
             .x = 2,
         }).?);
@@ -3635,7 +3652,7 @@ test "PageList pointFromPin active with history" {
     // In history, invalid
     {
         try testing.expect(s.pointFromPin(.active, .{
-            .page = s.pages.first.?,
+            .node = s.pages.first.?,
             .y = 21,
             .x = 2,
         }) == null);
@@ -3660,7 +3677,7 @@ test "PageList pointFromPin active from prior page" {
                 .x = 2,
             },
         }, s.pointFromPin(.active, .{
-            .page = s.pages.last.?,
+            .node = s.pages.last.?,
             .y = 0,
             .x = 2,
         }).?);
@@ -3669,7 +3686,7 @@ test "PageList pointFromPin active from prior page" {
     // Prior page
     {
         try testing.expect(s.pointFromPin(.active, .{
-            .page = s.pages.first.?,
+            .node = s.pages.first.?,
             .y = 0,
             .x = 0,
         }) == null);
@@ -3698,7 +3715,7 @@ test "PageList pointFromPin traverse pages" {
                 .x = 2,
             },
         }, s.pointFromPin(.screen, .{
-            .page = s.pages.last.?.prev.?,
+            .node = s.pages.last.?.prev.?,
             .y = 5,
             .x = 2,
         }).?);
@@ -3707,7 +3724,7 @@ test "PageList pointFromPin traverse pages" {
     // Prior page
     {
         try testing.expect(s.pointFromPin(.active, .{
-            .page = s.pages.first.?,
+            .node = s.pages.first.?,
             .y = 0,
             .x = 0,
         }) == null);
@@ -4159,7 +4176,7 @@ test "PageList grow allocate" {
     try testing.expect(last_node.next.? == new);
     {
         const cell = s.getCell(.{ .active = .{ .y = s.rows - 1 } }).?;
-        try testing.expect(cell.page == new);
+        try testing.expect(cell.node == new);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = last.capacity.rows,
@@ -4195,7 +4212,7 @@ test "PageList grow prune scrollback" {
     // Create a tracked pin in the first page
     const p = try s.trackPin(s.pin(.{ .screen = .{} }).?);
     defer s.untrackPin(p);
-    try testing.expect(p.page == s.pages.first.?);
+    try testing.expect(p.node == s.pages.first.?);
 
     // Next should create a new page, but it should reuse our first
     // page since we're at max size.
@@ -4208,7 +4225,7 @@ test "PageList grow prune scrollback" {
     try testing.expectEqual(page1_node, s.pages.last.?);
 
     // Our tracked pin should point to the top-left of the first page
-    try testing.expect(p.page == s.pages.first.?);
+    try testing.expect(p.node == s.pages.first.?);
     try testing.expect(p.x == 0);
     try testing.expect(p.y == 0);
 }
@@ -4356,7 +4373,7 @@ test "PageList pageIterator single page" {
     var it = s.pageIterator(.right_down, .{ .active = .{} }, null);
     {
         const chunk = it.next().?;
-        try testing.expect(chunk.page == s.pages.first.?);
+        try testing.expect(chunk.node == s.pages.first.?);
         try testing.expectEqual(@as(usize, 0), chunk.start);
         try testing.expectEqual(@as(usize, s.rows), chunk.end);
     }
@@ -4384,14 +4401,14 @@ test "PageList pageIterator two pages" {
     var it = s.pageIterator(.right_down, .{ .active = .{} }, null);
     {
         const chunk = it.next().?;
-        try testing.expect(chunk.page == s.pages.first.?);
-        const start = chunk.page.data.size.rows - s.rows + 1;
+        try testing.expect(chunk.node == s.pages.first.?);
+        const start = chunk.node.data.size.rows - s.rows + 1;
         try testing.expectEqual(start, chunk.start);
-        try testing.expectEqual(chunk.page.data.size.rows, chunk.end);
+        try testing.expectEqual(chunk.node.data.size.rows, chunk.end);
     }
     {
         const chunk = it.next().?;
-        try testing.expect(chunk.page == s.pages.last.?);
+        try testing.expect(chunk.node == s.pages.last.?);
         const start: usize = 0;
         try testing.expectEqual(start, chunk.start);
         try testing.expectEqual(start + 1, chunk.end);
@@ -4419,7 +4436,7 @@ test "PageList pageIterator history two pages" {
     {
         const active_tl = s.getTopLeft(.active);
         const chunk = it.next().?;
-        try testing.expect(chunk.page == s.pages.first.?);
+        try testing.expect(chunk.node == s.pages.first.?);
         const start: usize = 0;
         try testing.expectEqual(start, chunk.start);
         try testing.expectEqual(active_tl.y, chunk.end);
@@ -4441,7 +4458,7 @@ test "PageList pageIterator reverse single page" {
     var it = s.pageIterator(.left_up, .{ .active = .{} }, null);
     {
         const chunk = it.next().?;
-        try testing.expect(chunk.page == s.pages.first.?);
+        try testing.expect(chunk.node == s.pages.first.?);
         try testing.expectEqual(@as(usize, 0), chunk.start);
         try testing.expectEqual(@as(usize, s.rows), chunk.end);
     }
@@ -4470,7 +4487,7 @@ test "PageList pageIterator reverse two pages" {
     var count: usize = 0;
     {
         const chunk = it.next().?;
-        try testing.expect(chunk.page == s.pages.last.?);
+        try testing.expect(chunk.node == s.pages.last.?);
         const start: usize = 0;
         try testing.expectEqual(start, chunk.start);
         try testing.expectEqual(start + 1, chunk.end);
@@ -4478,10 +4495,10 @@ test "PageList pageIterator reverse two pages" {
     }
     {
         const chunk = it.next().?;
-        try testing.expect(chunk.page == s.pages.first.?);
-        const start = chunk.page.data.size.rows - s.rows + 1;
+        try testing.expect(chunk.node == s.pages.first.?);
+        const start = chunk.node.data.size.rows - s.rows + 1;
         try testing.expectEqual(start, chunk.start);
-        try testing.expectEqual(chunk.page.data.size.rows, chunk.end);
+        try testing.expectEqual(chunk.node.data.size.rows, chunk.end);
         count += chunk.end - chunk.start;
     }
     try testing.expect(it.next() == null);
@@ -4508,7 +4525,7 @@ test "PageList pageIterator reverse history two pages" {
     {
         const active_tl = s.getTopLeft(.active);
         const chunk = it.next().?;
-        try testing.expect(chunk.page == s.pages.first.?);
+        try testing.expect(chunk.node == s.pages.first.?);
         const start: usize = 0;
         try testing.expectEqual(start, chunk.start);
         try testing.expectEqual(active_tl.y, chunk.end);
@@ -4688,7 +4705,7 @@ test "PageList erase row with tracked pin resets to top-left" {
     try testing.expectEqual(s.rows, s.totalRows());
 
     // Our pin should move to the first page
-    try testing.expectEqual(s.pages.first.?, p.page);
+    try testing.expectEqual(s.pages.first.?, p.node);
     try testing.expectEqual(@as(usize, 0), p.y);
     try testing.expectEqual(@as(usize, 0), p.x);
 }
@@ -4709,7 +4726,7 @@ test "PageList erase row with tracked pin shifts" {
     try testing.expectEqual(s.rows, s.totalRows());
 
     // Our pin should move to the first page
-    try testing.expectEqual(s.pages.first.?, p.page);
+    try testing.expectEqual(s.pages.first.?, p.node);
     try testing.expectEqual(@as(usize, 0), p.y);
     try testing.expectEqual(@as(usize, 2), p.x);
 }
@@ -4730,7 +4747,7 @@ test "PageList erase row with tracked pin is erased" {
     try testing.expectEqual(s.rows, s.totalRows());
 
     // Our pin should move to the first page
-    try testing.expectEqual(s.pages.first.?, p.page);
+    try testing.expectEqual(s.pages.first.?, p.node);
     try testing.expectEqual(@as(usize, 0), p.y);
     try testing.expectEqual(@as(usize, 0), p.x);
 }
@@ -4751,7 +4768,7 @@ test "PageList erase resets viewport to active if moves within active" {
     // Move our viewport to the top
     s.scroll(.{ .delta_row = -@as(isize, @intCast(s.totalRows())) });
     try testing.expect(s.viewport == .pin);
-    try testing.expect(s.viewport_pin.page == s.pages.first.?);
+    try testing.expect(s.viewport_pin.node == s.pages.first.?);
 
     // Erase the entire history, we should be back to just our active set.
     s.eraseRows(.{ .history = .{} }, null);
@@ -4774,12 +4791,12 @@ test "PageList erase resets viewport if inside erased page but not active" {
     // Move our viewport to the top
     s.scroll(.{ .delta_row = -@as(isize, @intCast(s.totalRows())) });
     try testing.expect(s.viewport == .pin);
-    try testing.expect(s.viewport_pin.page == s.pages.first.?);
+    try testing.expect(s.viewport_pin.node == s.pages.first.?);
 
     // Erase the entire history, we should be back to just our active set.
     s.eraseRows(.{ .history = .{} }, .{ .history = .{ .y = 2 } });
     try testing.expect(s.viewport == .pin);
-    try testing.expect(s.viewport_pin.page == s.pages.first.?);
+    try testing.expect(s.viewport_pin.node == s.pages.first.?);
 }
 
 test "PageList erase resets viewport to active if top is inside active" {
@@ -4868,15 +4885,15 @@ test "PageList eraseRowBounded less than full row" {
     try testing.expect(s.isDirty(.{ .active = .{ .x = 0, .y = 7 } }));
     try testing.expect(!s.isDirty(.{ .active = .{ .x = 0, .y = 8 } }));
 
-    try testing.expectEqual(s.pages.first.?, p_top.page);
+    try testing.expectEqual(s.pages.first.?, p_top.node);
     try testing.expectEqual(@as(usize, 4), p_top.y);
     try testing.expectEqual(@as(usize, 0), p_top.x);
 
-    try testing.expectEqual(s.pages.first.?, p_bot.page);
+    try testing.expectEqual(s.pages.first.?, p_bot.node);
     try testing.expectEqual(@as(usize, 7), p_bot.y);
     try testing.expectEqual(@as(usize, 0), p_bot.x);
 
-    try testing.expectEqual(s.pages.first.?, p_out.page);
+    try testing.expectEqual(s.pages.first.?, p_out.node);
     try testing.expectEqual(@as(usize, 9), p_out.y);
     try testing.expectEqual(@as(usize, 0), p_out.x);
 }
@@ -4902,7 +4919,7 @@ test "PageList eraseRowBounded with pin at top" {
     try testing.expect(s.isDirty(.{ .active = .{ .x = 0, .y = 2 } }));
     try testing.expect(!s.isDirty(.{ .active = .{ .x = 0, .y = 3 } }));
 
-    try testing.expectEqual(s.pages.first.?, p_top.page);
+    try testing.expectEqual(s.pages.first.?, p_top.node);
     try testing.expectEqual(@as(usize, 0), p_top.y);
     try testing.expectEqual(@as(usize, 0), p_top.x);
 }
@@ -4932,11 +4949,11 @@ test "PageList eraseRowBounded full rows single page" {
     } }));
 
     // Our pin should move to the first page
-    try testing.expectEqual(s.pages.first.?, p_in.page);
+    try testing.expectEqual(s.pages.first.?, p_in.node);
     try testing.expectEqual(@as(usize, 6), p_in.y);
     try testing.expectEqual(@as(usize, 0), p_in.x);
 
-    try testing.expectEqual(s.pages.first.?, p_out.page);
+    try testing.expectEqual(s.pages.first.?, p_out.node);
     try testing.expectEqual(@as(usize, 8), p_out.y);
     try testing.expectEqual(@as(usize, 0), p_out.x);
 }
@@ -4968,19 +4985,19 @@ test "PageList eraseRowBounded full rows two pages" {
     defer s.untrackPin(p_out);
 
     {
-        try testing.expectEqual(s.pages.last.?.prev.?, p_first.page);
-        try testing.expectEqual(@as(usize, p_first.page.data.size.rows - 1), p_first.y);
+        try testing.expectEqual(s.pages.last.?.prev.?, p_first.node);
+        try testing.expectEqual(@as(usize, p_first.node.data.size.rows - 1), p_first.y);
         try testing.expectEqual(@as(usize, 0), p_first.x);
 
-        try testing.expectEqual(s.pages.last.?.prev.?, p_first_out.page);
-        try testing.expectEqual(@as(usize, p_first_out.page.data.size.rows - 2), p_first_out.y);
+        try testing.expectEqual(s.pages.last.?.prev.?, p_first_out.node);
+        try testing.expectEqual(@as(usize, p_first_out.node.data.size.rows - 2), p_first_out.y);
         try testing.expectEqual(@as(usize, 0), p_first_out.x);
 
-        try testing.expectEqual(s.pages.last.?, p_in.page);
+        try testing.expectEqual(s.pages.last.?, p_in.node);
         try testing.expectEqual(@as(usize, 3), p_in.y);
         try testing.expectEqual(@as(usize, 0), p_in.x);
 
-        try testing.expectEqual(s.pages.last.?, p_out.page);
+        try testing.expectEqual(s.pages.last.?, p_out.node);
         try testing.expectEqual(@as(usize, 4), p_out.y);
         try testing.expectEqual(@as(usize, 0), p_out.x);
     }
@@ -4996,22 +5013,22 @@ test "PageList eraseRowBounded full rows two pages" {
     } }));
 
     // In page in first page is shifted
-    try testing.expectEqual(s.pages.last.?.prev.?, p_first.page);
-    try testing.expectEqual(@as(usize, p_first.page.data.size.rows - 2), p_first.y);
+    try testing.expectEqual(s.pages.last.?.prev.?, p_first.node);
+    try testing.expectEqual(@as(usize, p_first.node.data.size.rows - 2), p_first.y);
     try testing.expectEqual(@as(usize, 0), p_first.x);
 
     // Out page in first page should not be shifted
-    try testing.expectEqual(s.pages.last.?.prev.?, p_first_out.page);
-    try testing.expectEqual(@as(usize, p_first_out.page.data.size.rows - 2), p_first_out.y);
+    try testing.expectEqual(s.pages.last.?.prev.?, p_first_out.node);
+    try testing.expectEqual(@as(usize, p_first_out.node.data.size.rows - 2), p_first_out.y);
     try testing.expectEqual(@as(usize, 0), p_first_out.x);
 
     // In page is shifted
-    try testing.expectEqual(s.pages.last.?, p_in.page);
+    try testing.expectEqual(s.pages.last.?, p_in.node);
     try testing.expectEqual(@as(usize, 2), p_in.y);
     try testing.expectEqual(@as(usize, 0), p_in.x);
 
     // Out page is not shifted
-    try testing.expectEqual(s.pages.last.?, p_out.page);
+    try testing.expectEqual(s.pages.last.?, p_out.node);
     try testing.expectEqual(@as(usize, 4), p_out.y);
     try testing.expectEqual(@as(usize, 0), p_out.x);
 }
@@ -5669,7 +5686,7 @@ test "PageList resize (no reflow) less cols" {
     var it = s.rowIterator(.right_down, .{ .screen = .{} }, null);
     while (it.next()) |offset| {
         const rac = offset.rowAndCell();
-        const cells = offset.page.data.getCells(rac.row);
+        const cells = offset.node.data.getCells(rac.row);
         try testing.expectEqual(@as(usize, 5), cells.len);
     }
 }
@@ -5693,7 +5710,7 @@ test "PageList resize (no reflow) less cols pin in trimmed cols" {
     var it = s.rowIterator(.right_down, .{ .screen = .{} }, null);
     while (it.next()) |offset| {
         const rac = offset.rowAndCell();
-        const cells = offset.page.data.getCells(rac.row);
+        const cells = offset.node.data.getCells(rac.row);
         try testing.expectEqual(@as(usize, 5), cells.len);
     }
 
@@ -5729,7 +5746,7 @@ test "PageList resize (no reflow) less cols clears graphemes" {
 
     var it = s.pageIterator(.right_down, .{ .screen = .{} }, null);
     while (it.next()) |chunk| {
-        try testing.expectEqual(@as(usize, 0), chunk.page.data.graphemeCount());
+        try testing.expectEqual(@as(usize, 0), chunk.node.data.graphemeCount());
     }
 }
 
@@ -5748,7 +5765,7 @@ test "PageList resize (no reflow) more cols" {
     var it = s.rowIterator(.right_down, .{ .screen = .{} }, null);
     while (it.next()) |offset| {
         const rac = offset.rowAndCell();
-        const cells = offset.page.data.getCells(rac.row);
+        const cells = offset.node.data.getCells(rac.row);
         try testing.expectEqual(@as(usize, 10), cells.len);
     }
 }
@@ -5921,7 +5938,7 @@ test "PageList resize (no reflow) less cols then more cols" {
     var it = s.rowIterator(.right_down, .{ .screen = .{} }, null);
     while (it.next()) |offset| {
         const rac = offset.rowAndCell();
-        const cells = offset.page.data.getCells(rac.row);
+        const cells = offset.node.data.getCells(rac.row);
         try testing.expectEqual(@as(usize, 5), cells.len);
     }
 }
@@ -5941,7 +5958,7 @@ test "PageList resize (no reflow) less rows and cols" {
     var it = s.rowIterator(.right_down, .{ .screen = .{} }, null);
     while (it.next()) |offset| {
         const rac = offset.rowAndCell();
-        const cells = offset.page.data.getCells(rac.row);
+        const cells = offset.node.data.getCells(rac.row);
         try testing.expectEqual(@as(usize, 5), cells.len);
     }
 }
@@ -5962,7 +5979,7 @@ test "PageList resize (no reflow) more rows and less cols" {
     var it = s.rowIterator(.right_down, .{ .screen = .{} }, null);
     while (it.next()) |offset| {
         const rac = offset.rowAndCell();
-        const cells = offset.page.data.getCells(rac.row);
+        const cells = offset.node.data.getCells(rac.row);
         try testing.expectEqual(@as(usize, 5), cells.len);
     }
 }
@@ -6002,7 +6019,7 @@ test "PageList resize (no reflow) empty screen" {
     var it = s.rowIterator(.right_down, .{ .screen = .{} }, null);
     while (it.next()) |offset| {
         const rac = offset.rowAndCell();
-        const cells = offset.page.data.getCells(rac.row);
+        const cells = offset.node.data.getCells(rac.row);
         try testing.expectEqual(@as(usize, 10), cells.len);
     }
 }
@@ -6041,7 +6058,7 @@ test "PageList resize (no reflow) more cols forces smaller cap" {
     var it = s.rowIterator(.right_down, .{ .screen = .{} }, null);
     while (it.next()) |offset| {
         const rac = offset.rowAndCell();
-        const cells = offset.page.data.getCells(rac.row);
+        const cells = offset.node.data.getCells(rac.row);
         try testing.expectEqual(@as(usize, cap2.cols), cells.len);
         try testing.expectEqual(@as(u21, 'A'), cells[0].content.codepoint);
     }
@@ -6146,7 +6163,7 @@ test "PageList resize reflow more cols no wrapped rows" {
     var it = s.rowIterator(.right_down, .{ .screen = .{} }, null);
     while (it.next()) |offset| {
         const rac = offset.rowAndCell();
-        const cells = offset.page.data.getCells(rac.row);
+        const cells = offset.node.data.getCells(rac.row);
         try testing.expectEqual(@as(usize, 10), cells.len);
         try testing.expectEqual(@as(u21, 'A'), cells[0].content.codepoint);
     }
@@ -6197,7 +6214,7 @@ test "PageList resize reflow more cols wrapped rows" {
         // First row should be unwrapped
         const offset = it.next().?;
         const rac = offset.rowAndCell();
-        const cells = offset.page.data.getCells(rac.row);
+        const cells = offset.node.data.getCells(rac.row);
         try testing.expect(!rac.row.wrap);
         try testing.expectEqual(@as(usize, 4), cells.len);
         try testing.expectEqual(@as(u21, 'A'), cells[0].content.codepoint);
@@ -6453,7 +6470,7 @@ test "PageList resize reflow more cols wrap across page boundary cursor in secon
     // Put a tracked pin in wrapped row on the last page
     const p = try s.trackPin(s.pin(.{ .active = .{ .x = 1, .y = 9 } }).?);
     defer s.untrackPin(p);
-    try testing.expect(p.page == s.pages.last.?);
+    try testing.expect(p.node == s.pages.last.?);
 
     // We expect one fewer rows since we unwrapped a row.
     const end_rows = s.totalRows() - 1;
@@ -6537,7 +6554,7 @@ test "PageList resize reflow less cols wrap across page boundary cursor in secon
     // Put a tracked pin in wrapped row on the last page
     const p = try s.trackPin(s.pin(.{ .active = .{ .x = 2, .y = 5 } }).?);
     defer s.untrackPin(p);
-    try testing.expect(p.page == s.pages.last.?);
+    try testing.expect(p.node == s.pages.last.?);
     try testing.expect(p.y == 0);
 
     // PageList.diagram ->
@@ -7235,7 +7252,7 @@ test "PageList resize reflow less cols no wrapped rows" {
             var offset_copy = offset;
             offset_copy.x = @intCast(x);
             const rac = offset_copy.rowAndCell();
-            const cells = offset.page.data.getCells(rac.row);
+            const cells = offset.node.data.getCells(rac.row);
             try testing.expectEqual(@as(usize, 5), cells.len);
             try testing.expectEqual(@as(u21, @intCast(x)), cells[x].content.codepoint);
         }
@@ -7279,7 +7296,7 @@ test "PageList resize reflow less cols wrapped rows" {
         // First row should be wrapped
         const offset = it.next().?;
         const rac = offset.rowAndCell();
-        const cells = offset.page.data.getCells(rac.row);
+        const cells = offset.node.data.getCells(rac.row);
         try testing.expect(rac.row.wrap);
         try testing.expectEqual(@as(usize, 2), cells.len);
         try testing.expectEqual(@as(u21, 0), cells[0].content.codepoint);
@@ -7287,7 +7304,7 @@ test "PageList resize reflow less cols wrapped rows" {
     {
         const offset = it.next().?;
         const rac = offset.rowAndCell();
-        const cells = offset.page.data.getCells(rac.row);
+        const cells = offset.node.data.getCells(rac.row);
         try testing.expect(!rac.row.wrap);
         try testing.expectEqual(@as(usize, 2), cells.len);
         try testing.expectEqual(@as(u21, 2), cells[0].content.codepoint);
@@ -7296,7 +7313,7 @@ test "PageList resize reflow less cols wrapped rows" {
         // First row should be wrapped
         const offset = it.next().?;
         const rac = offset.rowAndCell();
-        const cells = offset.page.data.getCells(rac.row);
+        const cells = offset.node.data.getCells(rac.row);
         try testing.expect(rac.row.wrap);
         try testing.expectEqual(@as(usize, 2), cells.len);
         try testing.expectEqual(@as(u21, 0), cells[0].content.codepoint);
@@ -7304,7 +7321,7 @@ test "PageList resize reflow less cols wrapped rows" {
     {
         const offset = it.next().?;
         const rac = offset.rowAndCell();
-        const cells = offset.page.data.getCells(rac.row);
+        const cells = offset.node.data.getCells(rac.row);
         try testing.expect(!rac.row.wrap);
         try testing.expectEqual(@as(usize, 2), cells.len);
         try testing.expectEqual(@as(u21, 2), cells[0].content.codepoint);
@@ -7355,7 +7372,7 @@ test "PageList resize reflow less cols wrapped rows with graphemes" {
         // First row should be wrapped
         const offset = it.next().?;
         const rac = offset.rowAndCell();
-        const cells = offset.page.data.getCells(rac.row);
+        const cells = offset.node.data.getCells(rac.row);
         try testing.expect(rac.row.wrap);
         try testing.expectEqual(@as(usize, 2), cells.len);
         try testing.expectEqual(@as(u21, 0), cells[0].content.codepoint);
@@ -7363,7 +7380,7 @@ test "PageList resize reflow less cols wrapped rows with graphemes" {
     {
         const offset = it.next().?;
         const rac = offset.rowAndCell();
-        const cells = offset.page.data.getCells(rac.row);
+        const cells = offset.node.data.getCells(rac.row);
         try testing.expect(!rac.row.wrap);
         try testing.expect(rac.row.grapheme);
         try testing.expectEqual(@as(usize, 2), cells.len);
@@ -7377,7 +7394,7 @@ test "PageList resize reflow less cols wrapped rows with graphemes" {
         // First row should be wrapped
         const offset = it.next().?;
         const rac = offset.rowAndCell();
-        const cells = offset.page.data.getCells(rac.row);
+        const cells = offset.node.data.getCells(rac.row);
         try testing.expect(rac.row.wrap);
         try testing.expectEqual(@as(usize, 2), cells.len);
         try testing.expectEqual(@as(u21, 0), cells[0].content.codepoint);
@@ -7385,7 +7402,7 @@ test "PageList resize reflow less cols wrapped rows with graphemes" {
     {
         const offset = it.next().?;
         const rac = offset.rowAndCell();
-        const cells = offset.page.data.getCells(rac.row);
+        const cells = offset.node.data.getCells(rac.row);
         try testing.expect(!rac.row.wrap);
         try testing.expect(rac.row.grapheme);
         try testing.expectEqual(@as(usize, 2), cells.len);
@@ -7721,7 +7738,7 @@ test "PageList resize reflow less cols blank lines" {
         // First row should be wrapped
         const offset = it.next().?;
         const rac = offset.rowAndCell();
-        const cells = offset.page.data.getCells(rac.row);
+        const cells = offset.node.data.getCells(rac.row);
         try testing.expect(rac.row.wrap);
         try testing.expectEqual(@as(usize, 2), cells.len);
         try testing.expectEqual(@as(u21, 0), cells[0].content.codepoint);
@@ -7729,7 +7746,7 @@ test "PageList resize reflow less cols blank lines" {
     {
         const offset = it.next().?;
         const rac = offset.rowAndCell();
-        const cells = offset.page.data.getCells(rac.row);
+        const cells = offset.node.data.getCells(rac.row);
         try testing.expect(!rac.row.wrap);
         try testing.expectEqual(@as(usize, 2), cells.len);
         try testing.expectEqual(@as(u21, 2), cells[0].content.codepoint);
@@ -7777,7 +7794,7 @@ test "PageList resize reflow less cols blank lines between" {
     {
         const offset = it.next().?;
         const rac = offset.rowAndCell();
-        const cells = offset.page.data.getCells(rac.row);
+        const cells = offset.node.data.getCells(rac.row);
         try testing.expect(rac.row.wrap);
         try testing.expectEqual(@as(usize, 2), cells.len);
         try testing.expectEqual(@as(u21, 0), cells[0].content.codepoint);
@@ -7785,7 +7802,7 @@ test "PageList resize reflow less cols blank lines between" {
     {
         const offset = it.next().?;
         const rac = offset.rowAndCell();
-        const cells = offset.page.data.getCells(rac.row);
+        const cells = offset.node.data.getCells(rac.row);
         try testing.expect(!rac.row.wrap);
         try testing.expectEqual(@as(usize, 2), cells.len);
         try testing.expectEqual(@as(u21, 2), cells[0].content.codepoint);
@@ -7824,7 +7841,7 @@ test "PageList resize reflow less cols blank lines between no scrollback" {
     {
         const offset = it.next().?;
         const rac = offset.rowAndCell();
-        const cells = offset.page.data.getCells(rac.row);
+        const cells = offset.node.data.getCells(rac.row);
         try testing.expect(!rac.row.wrap);
         try testing.expectEqual(@as(usize, 2), cells.len);
         try testing.expectEqual(@as(u21, 'A'), cells[0].content.codepoint);
@@ -7832,13 +7849,13 @@ test "PageList resize reflow less cols blank lines between no scrollback" {
     {
         const offset = it.next().?;
         const rac = offset.rowAndCell();
-        const cells = offset.page.data.getCells(rac.row);
+        const cells = offset.node.data.getCells(rac.row);
         try testing.expectEqual(@as(u21, 0), cells[0].content.codepoint);
     }
     {
         const offset = it.next().?;
         const rac = offset.rowAndCell();
-        const cells = offset.page.data.getCells(rac.row);
+        const cells = offset.node.data.getCells(rac.row);
         try testing.expect(!rac.row.wrap);
         try testing.expectEqual(@as(usize, 2), cells.len);
         try testing.expectEqual(@as(u21, 'C'), cells[0].content.codepoint);
@@ -7931,8 +7948,8 @@ test "PageList resize reflow less cols copy style" {
             const style_id = rac.cell.style_id;
             try testing.expect(style_id != 0);
 
-            const style = offset.page.data.styles.get(
-                offset.page.data.memory,
+            const style = offset.node.data.styles.get(
+                offset.node.data.memory,
                 style_id,
             );
             try testing.expect(style.flags.bold);

@@ -382,8 +382,8 @@ const Preview = struct {
                                 self.tty.anyWriter(),
                                 self.themes[self.filtered.items[self.current]].theme,
                                 alloc,
-                            );
-                        if (key.matches('c', .{ .shift = true }))
+                            )
+                        else if (key.matches('c', .{ .shift = true }))
                             try self.vx.copyToSystemClipboard(
                                 self.tty.anyWriter(),
                                 self.themes[self.filtered.items[self.current]].path,

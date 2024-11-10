@@ -12,7 +12,7 @@ const Config = @import("../../config.zig").Config;
 /// This must be `inline` so that the comptime check noops conditional
 /// paths that are not enabled.
 pub inline fn enabled(config: *const Config) bool {
-    return build_options.libadwaita and
+    return build_options.adwaita and
         config.@"gtk-adwaita";
 }
 
@@ -30,7 +30,7 @@ pub fn versionAtLeast(
     comptime minor: u16,
     comptime micro: u16,
 ) bool {
-    if (comptime !build_options.libadwaita) return false;
+    if (comptime !build_options.adwaita) return false;
 
     // If our header has lower versions than the given version,
     // we can return false immediately. This prevents us from

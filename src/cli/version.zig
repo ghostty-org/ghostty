@@ -42,7 +42,7 @@ pub fn run(alloc: Allocator) !u8 {
             gtk.gtk_get_minor_version(),
             gtk.gtk_get_micro_version(),
         });
-        if (comptime build_options.libadwaita) {
+        if (comptime build_options.adwaita) {
             try stdout.print("  - libadwaita : enabled\n", .{});
             try stdout.print("    build      : {s}\n", .{
                 gtk.ADW_VERSION_S,

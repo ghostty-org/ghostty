@@ -203,7 +203,7 @@ pub fn init(
     errdefer pages.deinit();
 
     // Create our tracked pin for the cursor.
-    const page_pin = try pages.trackPin(.{ .page = pages.pages.first.? });
+    const page_pin = try pages.trackPin(.{ .node = pages.pages.first.? });
     errdefer pages.untrackPin(page_pin);
     const page_rac = page_pin.rowAndCell();
 
@@ -331,7 +331,7 @@ pub fn clonePool(
             };
         }
 
-        const page_pin = try pages.trackPin(.{ .page = pages.pages.first.? });
+        const page_pin = try pages.trackPin(.{ .node = pages.pages.first.? });
         const page_rac = page_pin.rowAndCell();
         break :cursor .{
             .x = 0,
@@ -376,7 +376,7 @@ pub fn clonePool(
                 if (!sel.contains(self, clone_top)) break :sel null;
             }
 
-            break :start try pages.trackPin(.{ .page = pages.pages.first.? });
+            break :start try pages.trackPin(.{ .node = pages.pages.first.? });
         };
 
         const end_pin = pin_remap.get(ordered.br) orelse end: {
@@ -414,21 +414,21 @@ pub fn clonePool(
 /// cursor page.
 pub fn adjustCapacity(
     self: *Screen,
-    page: *PageList.List.Node,
+    node: *PageList.List.Node,
     adjustment: PageList.AdjustCapacity,
 ) PageList.AdjustCapacityError!*PageList.List.Node {
     // If the page being modified isn't our cursor page then
     // this is a quick operation because we have no additional
     // accounting.
-    if (page != self.cursor.page_pin.page) {
-        return try self.pages.adjustCapacity(page, adjustment);
+    if (node != self.cursor.page_pin.node) {
+        return try self.pages.adjustCapacity(node, adjustment);
     }
 
     // We're modifying the cursor page. When we adjust the
     // capacity below it will be short the ref count on our
     // current style and hyperlink, so we need to init those.
-    const node = try self.pages.adjustCapacity(page, adjustment);
-    const new_page = &node.data;
+    const new_node = try self.pages.adjustCapacity(node, adjustment);
+    const new_page: *Page = &new_node.data;
 
     // All additions below have unreachable catches because when
     // we adjust cap we should have enough memory to fit the
@@ -460,7 +460,7 @@ pub fn adjustCapacity(
     // So our page row/cell and so on are all off.
     self.cursorReload();
 
-    return node;
+    return new_node;
 }
 
 pub fn cursorCellRight(self: *Screen, n: size.CellCountInt) *pagepkg.Cell {
@@ -636,13 +636,14 @@ pub fn cursorDownScroll(self: *Screen) !void {
         // so our cursor is in the correct place we just have to clear
         // the cells.
         if (self.pages.rows == 1) {
+            const page: *Page = &self.cursor.page_pin.node.data;
             self.clearCells(
-                &self.cursor.page_pin.page.data,
+                page,
                 self.cursor.page_row,
-                self.cursor.page_pin.page.data.getCells(self.cursor.page_row),
+                page.getCells(self.cursor.page_row),
             );
 
-            var dirty = self.cursor.page_pin.page.data.dirtyBitSet();
+            var dirty = page.dirtyBitSet();
             dirty.set(0);
         } else {
             // eraseRow will shift everything below it up.
@@ -684,7 +685,7 @@ pub fn cursorDownScroll(self: *Screen) !void {
         // was on was pruned. In this case, grow() moves the pin to
         // the top-left of the new page. This effectively moves it by
         // one already, we just need to fix up the x value.
-        const page_pin = if (old_pin.page == self.cursor.page_pin.page)
+        const page_pin = if (old_pin.node == self.cursor.page_pin.node)
             self.cursor.page_pin.down(1).?
         else reuse: {
             var pin = self.cursor.page_pin.*;
@@ -714,10 +715,11 @@ pub fn cursorDownScroll(self: *Screen) !void {
         // Clear the new row so it gets our bg color. We only do this
         // if we have a bg color at all.
         if (self.cursor.style.bg_color != .none) {
+            const page: *Page = &page_pin.node.data;
             self.clearCells(
-                &page_pin.page.data,
+                page,
                 self.cursor.page_row,
-                page_pin.page.data.getCells(self.cursor.page_row),
+                page.getCells(self.cursor.page_row),
             );
         }
     }
@@ -753,15 +755,15 @@ pub fn cursorScrollAbove(self: *Screen) !void {
     } else {
         // In this case, it means grow() didn't allocate a new page.
 
-        if (self.cursor.page_pin.page == self.pages.pages.last) {
+        if (self.cursor.page_pin.node == self.pages.pages.last) {
             // If we're on the last page we can do a very fast path because
             // all the rows we need to move around are within a single page.
 
-            assert(old_pin.page == self.cursor.page_pin.page);
+            assert(old_pin.node == self.cursor.page_pin.node);
             self.cursor.page_pin.* = self.cursor.page_pin.down(1).?;
 
             const pin = self.cursor.page_pin;
-            const page = &self.cursor.page_pin.page.data;
+            const page: *Page = &self.cursor.page_pin.node.data;
 
             // Rotate the rows so that the newly created empty row is at the
             // beginning. e.g. [ 0 1 2 3 ] in to [ 3 0 1 2 ].
@@ -822,7 +824,7 @@ fn cursorScrollAboveRotate(self: *Screen) !void {
     // Go through each of the pages following our pin, shift all rows
     // down by one, and copy the last row of the previous page.
     var current = self.pages.pages.last.?;
-    while (current != self.cursor.page_pin.page) : (current = current.prev.?) {
+    while (current != self.cursor.page_pin.node) : (current = current.prev.?) {
         const prev = current.prev.?;
         const prev_page = &prev.data;
         const cur_page = &current.data;
@@ -846,7 +848,7 @@ fn cursorScrollAboveRotate(self: *Screen) !void {
 
     // Our current is our cursor page, we need to rotate down from
     // our cursor and clear our row.
-    assert(current == self.cursor.page_pin.page);
+    assert(current == self.cursor.page_pin.node);
     const cur_page = &current.data;
     const cur_rows = cur_page.rows.ptr(cur_page.memory.ptr);
     fastmem.rotateOnceR(Row, cur_rows[self.cursor.page_pin.y..cur_page.size.rows]);
@@ -922,7 +924,7 @@ pub fn cursorCopy(self: *Screen, other: Cursor, opts: struct {
     // If the other cursor had a hyperlink, add it to ours.
     if (opts.hyperlink and other.hyperlink_id != 0) {
         // Get the hyperlink from the other cursor's page.
-        const other_page = &other.page_pin.page.data;
+        const other_page = &other.page_pin.node.data;
         const other_link = other_page.hyperlink_set.get(other_page.memory, other.hyperlink_id);
 
         const uri = other_link.uri.offset.ptr(other_page.memory)[0..other_link.uri.len];
@@ -957,7 +959,7 @@ fn cursorChangePin(self: *Screen, new: Pin) void {
 
     // If our pin is on the same page, then we can just update the pin.
     // We don't need to migrate any state.
-    if (self.cursor.page_pin.page == new.page) {
+    if (self.cursor.page_pin.node == new.node) {
         self.cursor.page_pin.* = new;
         return;
     }
@@ -974,7 +976,7 @@ fn cursorChangePin(self: *Screen, new: Pin) void {
 
     // If we have a hyperlink then we need to release it from the old page.
     if (self.cursor.hyperlink != null) {
-        const old_page = &self.cursor.page_pin.page.data;
+        const old_page: *Page = &self.cursor.page_pin.node.data;
         old_page.hyperlink_set.release(old_page.memory, self.cursor.hyperlink_id);
     }
 
@@ -1049,12 +1051,12 @@ pub fn cursorResetWrap(self: *Screen) void {
 
     // If the last cell in the row is a spacer head we need to clear it.
     const cells = self.cursor.page_pin.cells(.all);
-    const cell = cells[self.cursor.page_pin.page.data.size.cols - 1];
+    const cell = cells[self.cursor.page_pin.node.data.size.cols - 1];
     if (cell.wide == .spacer_head) {
         self.clearCells(
-            &self.cursor.page_pin.page.data,
+            &self.cursor.page_pin.node.data,
             page_row,
-            cells[self.cursor.page_pin.page.data.size.cols - 1 ..][0..1],
+            cells[self.cursor.page_pin.node.data.size.cols - 1 ..][0..1],
         );
     }
 }
@@ -1144,22 +1146,22 @@ pub fn clearRows(
     var it = self.pages.pageIterator(.right_down, tl, bl);
     while (it.next()) |chunk| {
         // Mark everything in this chunk as dirty
-        var dirty = chunk.page.data.dirtyBitSet();
+        var dirty = chunk.node.data.dirtyBitSet();
         dirty.setRangeValue(.{ .start = chunk.start, .end = chunk.end }, true);
 
         for (chunk.rows()) |*row| {
             const cells_offset = row.cells;
-            const cells_multi: [*]Cell = row.cells.ptr(chunk.page.data.memory);
+            const cells_multi: [*]Cell = row.cells.ptr(chunk.node.data.memory);
             const cells = cells_multi[0..self.pages.cols];
 
             // Clear all cells
             if (protected) {
-                self.clearUnprotectedCells(&chunk.page.data, row, cells);
+                self.clearUnprotectedCells(&chunk.node.data, row, cells);
                 // We need to preserve other row attributes since we only
                 // cleared unprotected cells.
                 row.cells = cells_offset;
             } else {
-                self.clearCells(&chunk.page.data, row, cells);
+                self.clearCells(&chunk.node.data, row, cells);
                 row.* = .{ .cells = cells_offset };
             }
         }
@@ -1294,8 +1296,8 @@ pub fn clearPrompt(self: *Screen) void {
         var clear_it = top.rowIterator(.right_down, null);
         while (clear_it.next()) |p| {
             const row = p.rowAndCell().row;
-            p.page.data.clearCells(row, 0, p.page.data.size.cols);
-            p.page.data.assertIntegrity();
+            p.node.data.clearCells(row, 0, p.node.data.size.cols);
+            p.node.data.assertIntegrity();
         }
     }
 }
@@ -1336,12 +1338,12 @@ pub fn splitCellBoundary(
     self: *Screen,
     x: size.CellCountInt,
 ) void {
-    const page = &self.cursor.page_pin.page.data;
+    const page = &self.cursor.page_pin.node.data;
 
     page.pauseIntegrityChecks(true);
     defer page.pauseIntegrityChecks(false);
 
-    const cols = self.cursor.page_pin.page.data.size.cols;
+    const cols = self.cursor.page_pin.node.data.size.cols;
 
     // `x` may be up to an INCLUDING `cols`, since that signifies splitting
     // the boundary to the right of the final cell in the row.
@@ -1385,12 +1387,12 @@ pub fn splitCellBoundary(
             if (self.cursor.page_pin.up(1)) |p_row| {
                 const p_rac = p_row.rowAndCell();
                 const p_cells = p_row.cells(.all);
-                const p_cell = p_cells[p_row.page.data.size.cols - 1];
+                const p_cell = p_cells[p_row.node.data.size.cols - 1];
                 if (p_cell.wide == .spacer_head) {
                     self.clearCells(
-                        &p_row.page.data,
+                        &p_row.node.data,
                         p_rac.row,
-                        p_cells[p_row.page.data.size.cols - 1 ..][0..1],
+                        p_cells[p_row.node.data.size.cols - 1 ..][0..1],
                     );
                 }
             }
@@ -1506,7 +1508,7 @@ fn resizeInternal(
     if (self.cursor.hyperlink_id != 0) {
         // Note we do NOT use endHyperlink because we want to keep
         // our allocated self.cursor.hyperlink valid.
-        var page = &self.cursor.page_pin.page.data;
+        var page = &self.cursor.page_pin.node.data;
         page.hyperlink_set.release(page.memory, self.cursor.hyperlink_id);
         self.cursor.hyperlink_id = 0;
         self.cursor.hyperlink = null;
@@ -1701,7 +1703,7 @@ pub fn setAttribute(self: *Screen, attr: sgr.Attribute) !void {
 
 /// Call this whenever you manually change the cursor style.
 pub fn manualStyleUpdate(self: *Screen) !void {
-    var page = &self.cursor.page_pin.page.data;
+    var page: *Page = &self.cursor.page_pin.node.data;
 
     // std.log.warn("active styles={}", .{page.styles.count()});
 
@@ -1730,7 +1732,7 @@ pub fn manualStyleUpdate(self: *Screen) !void {
         // and double the style capacity for it if it was
         // full.
         const node = try self.adjustCapacity(
-            self.cursor.page_pin.page,
+            self.cursor.page_pin.node,
             switch (err) {
                 error.OutOfMemory => .{ .styles = page.capacity.styles * 2 },
                 error.NeedsRehash => .{},
@@ -1749,8 +1751,8 @@ pub fn manualStyleUpdate(self: *Screen) !void {
 
 /// Append a grapheme to the given cell within the current cursor row.
 pub fn appendGrapheme(self: *Screen, cell: *Cell, cp: u21) !void {
-    defer self.cursor.page_pin.page.data.assertIntegrity();
-    self.cursor.page_pin.page.data.appendGrapheme(
+    defer self.cursor.page_pin.node.data.assertIntegrity();
+    self.cursor.page_pin.node.data.appendGrapheme(
         self.cursor.page_row,
         cell,
         cp,
@@ -1768,7 +1770,7 @@ pub fn appendGrapheme(self: *Screen, cell: *Cell, cp: u21) !void {
 
             // Adjust our capacity. This will update our cursor page pin and
             // force us to reload.
-            const original_node = self.cursor.page_pin.page;
+            const original_node = self.cursor.page_pin.node;
             const new_bytes = original_node.data.capacity.grapheme_bytes * 2;
             _ = try self.adjustCapacity(
                 original_node,
@@ -1783,7 +1785,7 @@ pub fn appendGrapheme(self: *Screen, cell: *Cell, cp: u21) !void {
                 .gt => self.cursorCellRight(@intCast(cell_idx - self.cursor.x)),
             };
 
-            try self.cursor.page_pin.page.data.appendGrapheme(
+            try self.cursor.page_pin.node.data.appendGrapheme(
                 self.cursor.page_row,
                 reloaded_cell,
                 cp,
@@ -1827,19 +1829,19 @@ pub fn startHyperlink(
 
             // strings table is out of memory, adjust it up
             error.StringsOutOfMemory => _ = try self.adjustCapacity(
-                self.cursor.page_pin.page,
-                .{ .string_bytes = self.cursor.page_pin.page.data.capacity.string_bytes * 2 },
+                self.cursor.page_pin.node,
+                .{ .string_bytes = self.cursor.page_pin.node.data.capacity.string_bytes * 2 },
             ),
 
             // hyperlink set is out of memory, adjust it up
             error.SetOutOfMemory => _ = try self.adjustCapacity(
-                self.cursor.page_pin.page,
-                .{ .hyperlink_bytes = self.cursor.page_pin.page.data.capacity.hyperlink_bytes * 2 },
+                self.cursor.page_pin.node,
+                .{ .hyperlink_bytes = self.cursor.page_pin.node.data.capacity.hyperlink_bytes * 2 },
             ),
 
             // hyperlink set is too full, rehash it
             error.SetNeedsRehash => _ = try self.adjustCapacity(
-                self.cursor.page_pin.page,
+                self.cursor.page_pin.node,
                 .{},
             ),
         }
@@ -1866,7 +1868,7 @@ fn startHyperlinkOnce(
     errdefer link.deinit(self.alloc);
 
     // Insert the hyperlink into page memory
-    var page = &self.cursor.page_pin.page.data;
+    var page = &self.cursor.page_pin.node.data;
     const id: hyperlink.Id = try page.insertHyperlink(link.*);
 
     // Save it all
@@ -1893,7 +1895,7 @@ pub fn endHyperlink(self: *Screen) void {
     // how RefCountedSet works). This causes some memory fragmentation but
     // is fine because if it is ever pruned the context deleted callback
     // will be called.
-    var page = &self.cursor.page_pin.page.data;
+    var page: *Page = &self.cursor.page_pin.node.data;
     page.hyperlink_set.release(page.memory, self.cursor.hyperlink_id);
     self.cursor.hyperlink.?.deinit(self.alloc);
     self.alloc.destroy(self.cursor.hyperlink.?);
@@ -1905,7 +1907,7 @@ pub fn endHyperlink(self: *Screen) void {
 pub fn cursorSetHyperlink(self: *Screen) !void {
     assert(self.cursor.hyperlink_id != 0);
 
-    var page = &self.cursor.page_pin.page.data;
+    var page = &self.cursor.page_pin.node.data;
     if (page.setHyperlink(
         self.cursor.page_row,
         self.cursor.page_cell,
@@ -1918,7 +1920,7 @@ pub fn cursorSetHyperlink(self: *Screen) !void {
         // hyperlink_map is out of space, realloc the page to be larger
         error.HyperlinkMapOutOfMemory => {
             _ = try self.adjustCapacity(
-                self.cursor.page_pin.page,
+                self.cursor.page_pin.node,
                 .{ .hyperlink_bytes = page.capacity.hyperlink_bytes * 2 },
             );
 
@@ -2021,7 +2023,7 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
     while (page_it.next()) |chunk| {
         const rows = chunk.rows();
         for (rows, chunk.start..) |row, y| {
-            const cells_ptr = row.cells.ptr(chunk.page.data.memory);
+            const cells_ptr = row.cells.ptr(chunk.node.data.memory);
 
             const start_x = if (row_count == 0 or sel_ordered.rectangle)
                 sel_start.x
@@ -2048,20 +2050,20 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
                     try strbuilder.appendSlice(buf[0..encode_len]);
                     if (mapbuilder) |*b| {
                         for (0..encode_len) |_| try b.append(.{
-                            .page = chunk.page,
+                            .node = chunk.node,
                             .y = @intCast(y),
                             .x = @intCast(x),
                         });
                     }
                 }
                 if (cell.hasGrapheme()) {
-                    const cps = chunk.page.data.lookupGrapheme(cell).?;
+                    const cps = chunk.node.data.lookupGrapheme(cell).?;
                     for (cps) |cp| {
                         const encode_len = try std.unicode.utf8Encode(cp, &buf);
                         try strbuilder.appendSlice(buf[0..encode_len]);
                         if (mapbuilder) |*b| {
                             for (0..encode_len) |_| try b.append(.{
-                                .page = chunk.page,
+                                .node = chunk.node,
                                 .y = @intCast(y),
                                 .x = @intCast(x),
                             });
@@ -2070,16 +2072,16 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
                 }
             }
 
-            const is_final_row = chunk.page == sel_end.page and y == sel_end.y;
+            const is_final_row = chunk.node == sel_end.node and y == sel_end.y;
 
             if (!is_final_row and
                 (!row.wrap or sel_ordered.rectangle))
             {
                 try strbuilder.append('\n');
                 if (mapbuilder) |*b| try b.append(.{
-                    .page = chunk.page,
+                    .node = chunk.node,
                     .y = @intCast(y),
-                    .x = chunk.page.data.size.cols - 1,
+                    .x = chunk.node.data.size.cols - 1,
                 });
             }
 
@@ -2209,14 +2211,14 @@ pub fn selectLine(self: *const Screen, opts: SelectLine) ?Selection {
                 const current_prompt = row.semantic_prompt.promptOrInput();
                 if (current_prompt != v) {
                     var prev = p.up(1).?;
-                    prev.x = p.page.data.size.cols - 1;
+                    prev.x = p.node.data.size.cols - 1;
                     break :end_pin prev;
                 }
             }
 
             if (!row.wrap) {
                 var copy = p;
-                copy.x = p.page.data.size.cols - 1;
+                copy.x = p.node.data.size.cols - 1;
                 break :end_pin copy;
             }
         }
@@ -2417,7 +2419,7 @@ pub fn selectWord(self: *Screen, pin: Pin) ?Selection {
 
             // If we are going to the next row and it isn't wrapped, we
             // return the previous.
-            if (p.x == p.page.data.size.cols - 1 and !rac.row.wrap) {
+            if (p.x == p.node.data.size.cols - 1 and !rac.row.wrap) {
                 break :end p;
             }
 
@@ -2437,7 +2439,7 @@ pub fn selectWord(self: *Screen, pin: Pin) ?Selection {
 
             // If we are going to the next row and it isn't wrapped, we
             // return the previous.
-            if (p.x == p.page.data.size.cols - 1 and !rac.row.wrap) {
+            if (p.x == p.node.data.size.cols - 1 and !rac.row.wrap) {
                 break :start prev;
             }
 
@@ -2491,7 +2493,7 @@ pub fn selectOutput(self: *Screen, pin: Pin) ?Selection {
             switch (row.semantic_prompt) {
                 .input, .prompt_continuation, .prompt => {
                     var copy = it_prev;
-                    copy.x = it_prev.page.data.size.cols - 1;
+                    copy.x = it_prev.node.data.size.cols - 1;
                     break :boundary copy;
                 },
                 else => {},
@@ -2504,10 +2506,10 @@ pub fn selectOutput(self: *Screen, pin: Pin) ?Selection {
         it = it_prev.rowIterator(.left_up, null);
         while (it.next()) |p| {
             const row = p.rowAndCell().row;
-            const cells = p.page.data.getCells(row);
+            const cells = p.node.data.getCells(row);
             if (Cell.hasTextAny(cells)) {
                 var copy = p;
-                copy.x = p.page.data.size.cols - 1;
+                copy.x = p.node.data.size.cols - 1;
                 break :boundary copy;
             }
         }
@@ -2598,7 +2600,7 @@ pub fn selectPrompt(self: *Screen, pin: Pin) ?Selection {
     const end: Pin = end: {
         var it = pin.rowIterator(.right_down, null);
         var it_prev = it.next().?;
-        it_prev.x = it_prev.page.data.size.cols - 1;
+        it_prev.x = it_prev.node.data.size.cols - 1;
         while (it.next()) |p| {
             const row = p.rowAndCell().row;
             switch (row.semantic_prompt) {
@@ -2610,7 +2612,7 @@ pub fn selectPrompt(self: *Screen, pin: Pin) ?Selection {
             }
 
             it_prev = p;
-            it_prev.x = it_prev.page.data.size.cols - 1;
+            it_prev.x = it_prev.node.data.size.cols - 1;
         }
 
         break :end it_prev;
@@ -2764,7 +2766,7 @@ pub fn dumpString(
 
                 .codepoint_grapheme => {
                     try writer.print("{u}", .{cell.content.codepoint});
-                    const cps = row_offset.page.data.lookupGrapheme(cell).?;
+                    const cps = row_offset.node.data.lookupGrapheme(cell).?;
                     for (cps) |cp| {
                         try writer.print("{u}", .{cp});
                     }
@@ -2843,7 +2845,7 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
                 break :cell cell;
             };
 
-            try self.cursor.page_pin.page.data.appendGrapheme(
+            try self.cursor.page_pin.node.data.appendGrapheme(
                 self.cursor.page_row,
                 cell,
                 c,
@@ -2872,7 +2874,7 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
 
                 // If we have a ref-counted style, increase.
                 if (self.cursor.style_id != style.default_id) {
-                    const page = self.cursor.page_pin.page.data;
+                    const page = self.cursor.page_pin.node.data;
                     page.styles.use(page.memory, self.cursor.style_id);
                     self.cursor.page_row.styled = true;
                 }
@@ -2914,7 +2916,7 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
 
                 // If we have a ref-counted style, increase twice.
                 if (self.cursor.style_id != style.default_id) {
-                    const page = self.cursor.page_pin.page.data;
+                    const page = self.cursor.page_pin.node.data;
                     page.styles.use(page.memory, self.cursor.style_id);
                     page.styles.use(page.memory, self.cursor.style_id);
                     self.cursor.page_row.styled = true;
@@ -3054,7 +3056,7 @@ test "Screen cursorCopy style deref" {
 
     var s2 = try Screen.init(alloc, 10, 10, 0);
     defer s2.deinit();
-    const page = &s2.cursor.page_pin.page.data;
+    const page = &s2.cursor.page_pin.node.data;
 
     // Bold should create our style
     try s2.setAttribute(.{ .bold = {} });
@@ -3110,12 +3112,12 @@ test "Screen cursorCopy style deref new page" {
     //     +-------------+
 
     // This should be PAGE 1
-    const page = &s2.cursor.page_pin.page.data;
+    const page = &s2.cursor.page_pin.node.data;
 
     // It should be the last page in the list.
     try testing.expectEqual(&s2.pages.pages.last.?.data, page);
     // It should have a previous page.
-    try testing.expect(s2.cursor.page_pin.page.prev != null);
+    try testing.expect(s2.cursor.page_pin.node.prev != null);
 
     // The cursor should be at 2, 9
     try testing.expect(s2.cursor.x == 2);
@@ -3132,7 +3134,7 @@ test "Screen cursorCopy style deref new page" {
     try testing.expect(!s2.cursor.style.flags.bold);
     try testing.expectEqual(@as(usize, 0), page.styles.count());
     // The page after the page the cursor is now in should be page 1.
-    try testing.expectEqual(page, &s2.cursor.page_pin.page.next.?.data);
+    try testing.expectEqual(page, &s2.cursor.page_pin.node.next.?.data);
     // The cursor should be at 0, 0
     try testing.expect(s2.cursor.x == 0);
     try testing.expect(s2.cursor.y == 0);
@@ -3148,7 +3150,7 @@ test "Screen cursorCopy style copy" {
 
     var s2 = try Screen.init(alloc, 10, 10, 0);
     defer s2.deinit();
-    const page = &s2.cursor.page_pin.page.data;
+    const page = &s2.cursor.page_pin.node.data;
     try s2.cursorCopy(s.cursor, .{});
     try testing.expect(s2.cursor.style.flags.bold);
     try testing.expectEqual(@as(usize, 1), page.styles.count());
@@ -3163,7 +3165,7 @@ test "Screen cursorCopy hyperlink deref" {
 
     var s2 = try Screen.init(alloc, 10, 10, 0);
     defer s2.deinit();
-    const page = &s2.cursor.page_pin.page.data;
+    const page = &s2.cursor.page_pin.node.data;
 
     // Create a hyperlink for the cursor.
     try s2.startHyperlink("https://example.com/", null);
@@ -3219,12 +3221,12 @@ test "Screen cursorCopy hyperlink deref new page" {
     //     +-------------+
 
     // This should be PAGE 1
-    const page = &s2.cursor.page_pin.page.data;
+    const page = &s2.cursor.page_pin.node.data;
 
     // It should be the last page in the list.
     try testing.expectEqual(&s2.pages.pages.last.?.data, page);
     // It should have a previous page.
-    try testing.expect(s2.cursor.page_pin.page.prev != null);
+    try testing.expect(s2.cursor.page_pin.node.prev != null);
 
     // The cursor should be at 2, 9
     try testing.expect(s2.cursor.x == 2);
@@ -3241,7 +3243,7 @@ test "Screen cursorCopy hyperlink deref new page" {
     try testing.expectEqual(@as(usize, 0), page.hyperlink_set.count());
     try testing.expect(s2.cursor.hyperlink_id == 0);
     // The page after the page the cursor is now in should be page 1.
-    try testing.expectEqual(page, &s2.cursor.page_pin.page.next.?.data);
+    try testing.expectEqual(page, &s2.cursor.page_pin.node.next.?.data);
     // The cursor should be at 0, 0
     try testing.expect(s2.cursor.x == 0);
     try testing.expect(s2.cursor.y == 0);
@@ -3256,12 +3258,12 @@ test "Screen cursorCopy hyperlink copy" {
 
     // Create a hyperlink for the cursor.
     try s.startHyperlink("https://example.com/", null);
-    try testing.expectEqual(@as(usize, 1), s.cursor.page_pin.page.data.hyperlink_set.count());
+    try testing.expectEqual(@as(usize, 1), s.cursor.page_pin.node.data.hyperlink_set.count());
     try testing.expect(s.cursor.hyperlink_id != 0);
 
     var s2 = try Screen.init(alloc, 10, 10, 0);
     defer s2.deinit();
-    const page = &s2.cursor.page_pin.page.data;
+    const page = &s2.cursor.page_pin.node.data;
 
     try testing.expectEqual(@as(usize, 0), page.hyperlink_set.count());
     try testing.expect(s2.cursor.hyperlink_id == 0);
@@ -3281,12 +3283,12 @@ test "Screen cursorCopy hyperlink copy disabled" {
 
     // Create a hyperlink for the cursor.
     try s.startHyperlink("https://example.com/", null);
-    try testing.expectEqual(@as(usize, 1), s.cursor.page_pin.page.data.hyperlink_set.count());
+    try testing.expectEqual(@as(usize, 1), s.cursor.page_pin.node.data.hyperlink_set.count());
     try testing.expect(s.cursor.hyperlink_id != 0);
 
     var s2 = try Screen.init(alloc, 10, 10, 0);
     defer s2.deinit();
-    const page = &s2.cursor.page_pin.page.data;
+    const page = &s2.cursor.page_pin.node.data;
 
     try testing.expectEqual(@as(usize, 0), page.hyperlink_set.count());
     try testing.expect(s2.cursor.hyperlink_id == 0);
@@ -3303,7 +3305,7 @@ test "Screen style basics" {
 
     var s = try Screen.init(alloc, 80, 24, 1000);
     defer s.deinit();
-    const page = &s.cursor.page_pin.page.data;
+    const page = &s.cursor.page_pin.node.data;
     try testing.expectEqual(@as(usize, 0), page.styles.count());
 
     // Set a new style
@@ -3325,7 +3327,7 @@ test "Screen style reset to default" {
 
     var s = try Screen.init(alloc, 80, 24, 1000);
     defer s.deinit();
-    const page = &s.cursor.page_pin.page.data;
+    const page = &s.cursor.page_pin.node.data;
     try testing.expectEqual(@as(usize, 0), page.styles.count());
 
     // Set a new style
@@ -3345,7 +3347,7 @@ test "Screen style reset with unset" {
 
     var s = try Screen.init(alloc, 80, 24, 1000);
     defer s.deinit();
-    const page = &s.cursor.page_pin.page.data;
+    const page = &s.cursor.page_pin.node.data;
     try testing.expectEqual(@as(usize, 0), page.styles.count());
 
     // Set a new style
@@ -3402,7 +3404,7 @@ test "Screen clearRows active styled line" {
     try s.setAttribute(.{ .unset = {} });
 
     // We should have one style
-    const page = &s.cursor.page_pin.page.data;
+    const page = &s.cursor.page_pin.node.data;
     try testing.expectEqual(@as(usize, 1), page.styles.count());
 
     s.clearRows(.{ .active = .{} }, null, false);
@@ -3628,21 +3630,21 @@ test "Screen: cursorDown across pages preserves style" {
     // assertion fails then the bug is in the test: we should be scrolling
     // above enough for a new page to show up.
     {
-        const page = &s.cursor.page_pin.page.data;
+        const page = &s.cursor.page_pin.node.data;
         try testing.expect(start_page != page);
     }
 
     // Scroll back to the previous page
     s.cursorUp(1);
     {
-        const page = &s.cursor.page_pin.page.data;
+        const page = &s.cursor.page_pin.node.data;
         try testing.expect(start_page == page);
     }
 
     // Go back up, set a style
     try s.setAttribute(.{ .bold = {} });
     {
-        const page = &s.cursor.page_pin.page.data;
+        const page = &s.cursor.page_pin.node.data;
         const styleval = page.styles.get(
             page.memory,
             s.cursor.style_id,
@@ -3653,7 +3655,7 @@ test "Screen: cursorDown across pages preserves style" {
     // Go back down into the next page and we should have that style
     s.cursorDown(1);
     {
-        const page = &s.cursor.page_pin.page.data;
+        const page = &s.cursor.page_pin.node.data;
         const styleval = page.styles.get(
             page.memory,
             s.cursor.style_id,
@@ -3678,14 +3680,14 @@ test "Screen: cursorUp across pages preserves style" {
     // assertion fails then the bug is in the test: we should be scrolling
     // above enough for a new page to show up.
     {
-        const page = &s.cursor.page_pin.page.data;
+        const page = &s.cursor.page_pin.node.data;
         try testing.expect(start_page != page);
     }
 
     // Go back up, set a style
     try s.setAttribute(.{ .bold = {} });
     {
-        const page = &s.cursor.page_pin.page.data;
+        const page = &s.cursor.page_pin.node.data;
         const styleval = page.styles.get(
             page.memory,
             s.cursor.style_id,
@@ -3696,7 +3698,7 @@ test "Screen: cursorUp across pages preserves style" {
     // Go back down into the prev page and we should have that style
     s.cursorUp(1);
     {
-        const page = &s.cursor.page_pin.page.data;
+        const page = &s.cursor.page_pin.node.data;
         try testing.expect(start_page == page);
 
         const styleval = page.styles.get(
@@ -3723,14 +3725,14 @@ test "Screen: cursorAbsolute across pages preserves style" {
     // assertion fails then the bug is in the test: we should be scrolling
     // above enough for a new page to show up.
     {
-        const page = &s.cursor.page_pin.page.data;
+        const page = &s.cursor.page_pin.node.data;
         try testing.expect(start_page != page);
     }
 
     // Go back up, set a style
     try s.setAttribute(.{ .bold = {} });
     {
-        const page = &s.cursor.page_pin.page.data;
+        const page = &s.cursor.page_pin.node.data;
         const styleval = page.styles.get(
             page.memory,
             s.cursor.style_id,
@@ -3741,7 +3743,7 @@ test "Screen: cursorAbsolute across pages preserves style" {
     // Go back down into the prev page and we should have that style
     s.cursorAbsolute(1, 1);
     {
-        const page = &s.cursor.page_pin.page.data;
+        const page = &s.cursor.page_pin.node.data;
         try testing.expect(start_page == page);
 
         const styleval = page.styles.get(
@@ -4345,7 +4347,7 @@ test "Screen: scroll above same page but cursor on previous page" {
     s.pages.clearDirty();
 
     // Ensure we're still on the first page and have a second
-    try testing.expect(s.cursor.page_pin.page == s.pages.pages.first.?);
+    try testing.expect(s.cursor.page_pin.node == s.pages.pages.first.?);
     try testing.expect(s.pages.pages.first.?.next != null);
 
     // At this point:
@@ -4403,7 +4405,7 @@ test "Screen: scroll above same page but cursor on previous page last row" {
     s.pages.clearDirty();
 
     // Ensure we're still on the first page and have a second
-    try testing.expect(s.cursor.page_pin.page == s.pages.pages.first.?);
+    try testing.expect(s.cursor.page_pin.node == s.pages.pages.first.?);
     try testing.expect(s.pages.pages.first.?.next != null);
 
     // At this point:
@@ -4478,7 +4480,7 @@ test "Screen: scroll above creates new page" {
     s.pages.clearDirty();
 
     // Ensure we're still on the first page
-    try testing.expect(s.cursor.page_pin.page == s.pages.pages.first.?);
+    try testing.expect(s.cursor.page_pin.node == s.pages.pages.first.?);
     try s.cursorScrollAbove();
 
     {
@@ -8150,7 +8152,7 @@ test "Screen: selectionString with zero width joiner" {
         const cell = pin.rowAndCell().cell;
         try testing.expectEqual(@as(u21, 0x1F468), cell.content.codepoint);
         try testing.expectEqual(Cell.Wide.wide, cell.wide);
-        const cps = pin.page.data.lookupGrapheme(cell).?;
+        const cps = pin.node.data.lookupGrapheme(cell).?;
         try testing.expectEqual(@as(usize, 1), cps.len);
     }
 
@@ -8381,21 +8383,21 @@ test "Screen: hyperlink start/end" {
     defer s.deinit();
     try testing.expect(s.cursor.hyperlink_id == 0);
     {
-        const page = &s.cursor.page_pin.page.data;
+        const page = &s.cursor.page_pin.node.data;
         try testing.expectEqual(0, page.hyperlink_set.count());
     }
 
     try s.startHyperlink("http://example.com", null);
     try testing.expect(s.cursor.hyperlink_id != 0);
     {
-        const page = &s.cursor.page_pin.page.data;
+        const page = &s.cursor.page_pin.node.data;
         try testing.expectEqual(1, page.hyperlink_set.count());
     }
 
     s.endHyperlink();
     try testing.expect(s.cursor.hyperlink_id == 0);
     {
-        const page = &s.cursor.page_pin.page.data;
+        const page = &s.cursor.page_pin.node.data;
         try testing.expectEqual(0, page.hyperlink_set.count());
     }
 }
@@ -8409,7 +8411,7 @@ test "Screen: hyperlink reuse" {
 
     try testing.expect(s.cursor.hyperlink_id == 0);
     {
-        const page = &s.cursor.page_pin.page.data;
+        const page = &s.cursor.page_pin.node.data;
         try testing.expectEqual(0, page.hyperlink_set.count());
     }
 
@@ -8422,14 +8424,14 @@ test "Screen: hyperlink reuse" {
     try s.startHyperlink("http://example.com", null);
     try testing.expectEqual(id, s.cursor.hyperlink_id);
     {
-        const page = &s.cursor.page_pin.page.data;
+        const page = &s.cursor.page_pin.node.data;
         try testing.expectEqual(1, page.hyperlink_set.count());
     }
 
     s.endHyperlink();
     try testing.expect(s.cursor.hyperlink_id == 0);
     {
-        const page = &s.cursor.page_pin.page.data;
+        const page = &s.cursor.page_pin.node.data;
         try testing.expectEqual(0, page.hyperlink_set.count());
     }
 }
@@ -8449,7 +8451,7 @@ test "Screen: hyperlink cursor state on resize" {
     try s.startHyperlink("http://example.com", null);
     try testing.expect(s.cursor.hyperlink_id != 0);
     {
-        const page = &s.cursor.page_pin.page.data;
+        const page = &s.cursor.page_pin.node.data;
         try testing.expectEqual(1, page.hyperlink_set.count());
     }
 
@@ -8457,14 +8459,14 @@ test "Screen: hyperlink cursor state on resize" {
     try s.resize(10, 10);
     try testing.expect(s.cursor.hyperlink_id != 0);
     {
-        const page = &s.cursor.page_pin.page.data;
+        const page = &s.cursor.page_pin.node.data;
         try testing.expectEqual(1, page.hyperlink_set.count());
     }
 
     s.endHyperlink();
     try testing.expect(s.cursor.hyperlink_id == 0);
     {
-        const page = &s.cursor.page_pin.page.data;
+        const page = &s.cursor.page_pin.node.data;
         try testing.expectEqual(0, page.hyperlink_set.count());
     }
 }
@@ -8489,8 +8491,8 @@ test "Screen: adjustCapacity cursor style ref count" {
 
     // This forces the page to change.
     _ = try s.adjustCapacity(
-        s.cursor.page_pin.page,
-        .{ .grapheme_bytes = s.cursor.page_pin.page.data.capacity.grapheme_bytes * 2 },
+        s.cursor.page_pin.node,
+        .{ .grapheme_bytes = s.cursor.page_pin.node.data.capacity.grapheme_bytes * 2 },
     );
 
     // Our ref counts should still be the same

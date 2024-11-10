@@ -471,12 +471,12 @@ pub fn performAction(
         .mouse_shape => try self.setMouseShape(target, value),
         .mouse_over_link => self.setMouseOverLink(target, value),
         .toggle_tab_overview => self.toggleTabOverview(target),
+        .toggle_split_zoom => self.toggleSplitZoom(target),
         .toggle_window_decorations => self.toggleWindowDecorations(target),
         .quit_timer => self.quitTimer(value),
 
         // Unimplemented
         .close_all_windows,
-        .toggle_split_zoom,
         .toggle_quick_terminal,
         .toggle_visibility,
         .size_limit,
@@ -668,6 +668,13 @@ fn toggleTabOverview(_: *App, target: apprt.Target) void {
 
             window.toggleTabOverview();
         },
+    }
+}
+
+fn toggleSplitZoom(_: *App, target: apprt.Target) void {
+    switch (target) {
+        .app => {},
+        .surface => |surface| surface.rt_surface.toggleSplitZoom(),
     }
 }
 

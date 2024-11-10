@@ -168,7 +168,6 @@ pub const std_options: std.Options = .{
 };
 
 test {
-    _ = @import("circ_buf.zig");
     _ = @import("pty.zig");
     _ = @import("Command.zig");
     _ = @import("font/main.zig");
@@ -180,17 +179,11 @@ test {
     _ = @import("surface_mouse.zig");
 
     // Libraries
-    _ = @import("segmented_pool.zig");
     _ = @import("crash/main.zig");
+    _ = @import("datastruct/main.zig");
     _ = @import("inspector/main.zig");
     _ = @import("terminal/main.zig");
     _ = @import("terminfo/main.zig");
     _ = @import("simd/main.zig");
     _ = @import("unicode/main.zig");
-
-    // TODO
-    _ = @import("blocking_queue.zig");
-    _ = @import("cache_table.zig");
-    _ = @import("config.zig");
-    _ = @import("lru.zig");
 }
