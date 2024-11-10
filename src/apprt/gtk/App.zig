@@ -457,6 +457,7 @@ pub fn performAction(
         .new_tab => try self.newTab(target),
         .goto_tab => self.gotoTab(target, value),
         .move_tab => self.moveTab(target, value),
+        .move_tab_to_new_window => self.moveTabToNewWindow(target),
         .new_split => try self.newSplit(target, value),
         .resize_split => self.resizeSplit(target, value),
         .equalize_splits => self.equalizeSplits(target),
@@ -543,6 +544,23 @@ fn moveTab(_: *App, target: apprt.Target, move_tab: apprt.action.MoveTab) void {
             };
 
             window.moveTab(v.rt_surface, @intCast(move_tab.amount));
+        },
+    }
+}
+
+fn moveTabToNewWindow(_: *App, target: apprt.Target) void {
+    switch (target) {
+        .app => {},
+        .surface => |v| {
+            const window = v.rt_surface.container.window() orelse {
+                log.info(
+                    "moveTabToNewWindow invalid for container={s}",
+                    .{@tagName(v.rt_surface.container)},
+                );
+                return;
+            };
+
+            window.moveTabToNewWindow(v.rt_surface);
         },
     }
 }
@@ -887,6 +905,7 @@ fn syncActionAccelerators(self: *App) !void {
     try self.syncActionAccelerator("win.split_down", .{ .new_split = .down });
     try self.syncActionAccelerator("win.split_left", .{ .new_split = .left });
     try self.syncActionAccelerator("win.split_up", .{ .new_split = .up });
+    try self.syncActionAccelerator("win.move_tab_to_new_window", .{ .move_tab_to_new_window = {} });
     try self.syncActionAccelerator("win.copy", .{ .copy_to_clipboard = {} });
     try self.syncActionAccelerator("win.paste", .{ .paste_from_clipboard = {} });
     try self.syncActionAccelerator("win.reset", .{ .reset = {} });
@@ -1545,6 +1564,7 @@ fn initContextMenu(self: *App) void {
         c.g_menu_append_section(menu, null, @ptrCast(@alignCast(section)));
         c.g_menu_append(section, "Split Right", "win.split_right");
         c.g_menu_append(section, "Split Down", "win.split_down");
+        c.g_menu_append(section, "Move Tab to New Window", "win.move_tab_to_new_window");
     }
 
     {

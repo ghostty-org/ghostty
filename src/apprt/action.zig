@@ -107,6 +107,9 @@ pub const Action = union(Key) {
     /// cyclically within the tab range.
     move_tab: MoveTab,
 
+    /// Moves the tab that contains the target surface to a new window.
+    move_tab_to_new_window,
+
     /// Jump to a specific tab. Must handle the scenario that the tab
     /// value is invalid.
     goto_tab: GotoTab,
@@ -205,6 +208,7 @@ pub const Action = union(Key) {
         toggle_quick_terminal,
         toggle_visibility,
         move_tab,
+        move_tab_to_new_window,
         goto_tab,
         goto_split,
         resize_split,

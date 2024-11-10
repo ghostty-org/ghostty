@@ -121,6 +121,13 @@ pub const Notebook = union(enum) {
         self.reorderPage(tab, new_position);
     }
 
+    pub fn moveTabToNewWindow(self: *Notebook, tab: *Tab) void {
+        switch (self.*) {
+            .adw => |*adw| adw.moveTabToNewWindow(tab),
+            .gtk => log.warn("move_tab_to_new_window is not implemented for non-Adwaita notebooks", .{}),
+        }
+    }
+
     pub fn reorderPage(self: *Notebook, tab: *Tab, position: c_int) void {
         switch (self.*) {
             .adw => |*adw| adw.reorderPage(tab, position),

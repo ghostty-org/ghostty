@@ -375,6 +375,7 @@ fn initActions(self: *Window) void {
         .{ "split_down", &gtkActionSplitDown },
         .{ "split_left", &gtkActionSplitLeft },
         .{ "split_up", &gtkActionSplitUp },
+        .{ "move_tab_to_new_window", &gtkActionMoveTabToNewWindow },
         .{ "toggle_inspector", &gtkActionToggleInspector },
         .{ "copy", &gtkActionCopy },
         .{ "paste", &gtkActionPaste },
@@ -460,6 +461,15 @@ pub fn moveTab(self: *Window, surface: *Surface, position: c_int) void {
         return;
     };
     self.notebook.moveTab(tab, position);
+}
+
+/// Move the current tab for a surface to a new window.
+pub fn moveTabToNewWindow(self: *Window, surface: *Surface) void {
+    const tab = surface.container.tab() orelse {
+        log.info("surface is not attached to a tab bar, cannot navigate", .{});
+        return;
+    };
+    self.notebook.moveTabToNewWindow(tab);
 }
 
 /// Go to the next tab for a surface.
@@ -848,6 +858,19 @@ fn gtkActionSplitUp(
     const self: *Window = @ptrCast(@alignCast(ud orelse return));
     const surface = self.actionSurface() orelse return;
     _ = surface.performBindingAction(.{ .new_split = .up }) catch |err| {
+        log.warn("error performing binding action error={}", .{err});
+        return;
+    };
+}
+
+fn gtkActionMoveTabToNewWindow(
+    _: *c.GSimpleAction,
+    _: *c.GVariant,
+    ud: ?*anyopaque,
+) callconv(.C) void {
+    const self: *Window = @ptrCast(@alignCast(ud orelse return));
+    const surface = self.actionSurface() orelse return;
+    _ = surface.performBindingAction(.{ .move_tab_to_new_window = {} }) catch |err| {
         log.warn("error performing binding action error={}", .{err});
         return;
     };

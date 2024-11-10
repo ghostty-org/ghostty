@@ -306,6 +306,10 @@ pub const Action = union(enum) {
     /// If the new position is out of bounds, it wraps around cyclically within the tab range.
     move_tab: isize,
 
+    /// Move tab to a new window, where it will become the first and only tab in
+    /// that window.
+    move_tab_to_new_window: void,
+
     /// Toggle the tab overview.
     /// This only works with libadwaita enabled currently.
     toggle_tab_overview: void,
@@ -653,6 +657,7 @@ pub const Action = union(enum) {
             .last_tab,
             .goto_tab,
             .move_tab,
+            .move_tab_to_new_window,
             .toggle_tab_overview,
             .new_split,
             .goto_split,
