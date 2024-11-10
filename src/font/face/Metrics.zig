@@ -82,6 +82,7 @@ pub fn apply(self: *Metrics, mods: ModifierSet) void {
             },
 
             inline else => |tag| {
+                if (tag == .cursor_height) continue; // Skip cursor_height since it's handled above
                 @field(self, @tagName(tag)) = entry.value_ptr.apply(@field(self, @tagName(tag)));
             },
         }
