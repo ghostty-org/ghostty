@@ -828,6 +828,7 @@ pub const Action = union(enum) {
 
                     // Handle SplitParameter specifically
                     Action.SplitParameter => {
+                        std.hash.autoHash(hasher, field[0]);
                         const bits = @as(u32, @bitCast(field[1]));
                         std.hash.autoHash(hasher, bits);
                     },
