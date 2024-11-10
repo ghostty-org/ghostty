@@ -170,8 +170,8 @@ extension Ghostty {
             }
         }
 
-        func split(surface: ghostty_surface_t, direction: ghostty_action_split_direction_e) {
-            ghostty_surface_split(surface, direction)
+        func split(surface: ghostty_surface_t, direction: ghostty_action_split_direction_e, percent: Float) {
+            ghostty_surface_split(surface, direction, percent)
         }
 
         func splitMoveFocus(surface: ghostty_surface_t, direction: SplitFocusDirection) {
@@ -453,7 +453,7 @@ extension Ghostty {
                 newTab(app, target: target)
 
             case GHOSTTY_ACTION_NEW_SPLIT:
-                newSplit(app, target: target, direction: action.action.new_split)
+                newSplit(app, target: target, split: action.action.new_split)
 
             case GHOSTTY_ACTION_TOGGLE_FULLSCREEN:
                 toggleFullscreen(app, target: target, mode: action.action.toggle_fullscreen)
@@ -607,7 +607,7 @@ extension Ghostty {
         private static func newSplit(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
-            direction: ghostty_action_split_direction_e) {
+            split: ghostty_action_split_s) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
                 // New split does nothing with an app target
@@ -622,7 +622,8 @@ extension Ghostty {
                     name: Notification.ghosttyNewSplit,
                     object: surfaceView,
                     userInfo: [
-                        "direction": direction,
+                        "direction": split.direction,
+                        "percent": split.percent,
                         Notification.NewSurfaceConfigKey: SurfaceConfiguration(from: ghostty_surface_inherited_config(surface)),
                     ]
                 )

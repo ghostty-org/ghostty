@@ -217,9 +217,11 @@ extension Ghostty {
             let configAny = notification.userInfo?[Ghostty.Notification.NewSurfaceConfigKey]
             let config = configAny as? SurfaceConfiguration
 
-            // Determine our desired direction
+            // Determine our desired direction and percent
             guard let directionAny = notification.userInfo?["direction"] else { return }
             guard let direction = directionAny as? ghostty_action_split_direction_e else { return }
+            guard let percentAny = notification.userInfo?["percent"] else { return }
+            guard let percent = percentAny as? Float else { return }
             let splitDirection: SplitViewDirection
             let swap: Bool
             switch (direction) {
@@ -242,6 +244,9 @@ extension Ghostty {
 
             // Setup our new container since we are now split
             let container = SplitNode.Container(from: leaf, direction: splitDirection, baseConfig: config)
+
+            // Set the split ratio
+            container.split = 1.0 - CGFloat(percent)
 
             // Change the parent node. This will trigger the parent to relayout our views.
             node = .split(container)

@@ -1634,11 +1634,16 @@ pub const CAPI = struct {
     }
 
     /// Request that the surface split in the given direction.
-    export fn ghostty_surface_split(ptr: *Surface, direction: apprt.action.SplitDirection) void {
+    export fn ghostty_surface_split(ptr: *Surface, direction: apprt.action.SplitDirection.Direction, percent: f32) void {
+        const split_direction = apprt.action.SplitDirection{
+            .direction = direction,
+            .percent = percent,
+        };
+
         ptr.app.performAction(
             .{ .surface = &ptr.core_surface },
             .new_split,
-            direction,
+            split_direction,
         ) catch |err| {
             log.err("error creating new split err={}", .{err});
             return;

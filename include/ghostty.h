@@ -348,13 +348,19 @@ typedef struct {
   ghostty_target_u target;
 } ghostty_target_s;
 
-// apprt.action.SplitDirection
+// apprt.action.SplitDirection.direction
 typedef enum {
   GHOSTTY_SPLIT_DIRECTION_RIGHT,
   GHOSTTY_SPLIT_DIRECTION_DOWN,
   GHOSTTY_SPLIT_DIRECTION_LEFT,
   GHOSTTY_SPLIT_DIRECTION_UP,
 } ghostty_action_split_direction_e;
+
+// apprt.action.SplitDirection
+typedef struct {
+  float percent;
+  ghostty_action_split_direction_e direction;
+} ghostty_action_split_s;
 
 // apprt.action.GotoSplit
 typedef enum {
@@ -564,7 +570,7 @@ typedef enum {
 } ghostty_action_tag_e;
 
 typedef union {
-  ghostty_action_split_direction_e new_split;
+  ghostty_action_split_s new_split;
   ghostty_action_fullscreen_e toggle_fullscreen;
   ghostty_action_move_tab_s move_tab;
   ghostty_action_goto_tab_e goto_tab;
@@ -693,7 +699,9 @@ void ghostty_surface_mouse_scroll(ghostty_surface_t,
 void ghostty_surface_mouse_pressure(ghostty_surface_t, uint32_t, double);
 void ghostty_surface_ime_point(ghostty_surface_t, double*, double*);
 void ghostty_surface_request_close(ghostty_surface_t);
-void ghostty_surface_split(ghostty_surface_t, ghostty_action_split_direction_e);
+void ghostty_surface_split(ghostty_surface_t, 
+                           ghostty_action_split_direction_e,
+                           float);
 void ghostty_surface_split_focus(ghostty_surface_t,
                                  ghostty_action_goto_split_e);
 void ghostty_surface_split_resize(ghostty_surface_t,
