@@ -498,13 +498,13 @@ pub const Action = union(enum) {
         return std.meta.stringToEnum(T, value) orelse return Error.InvalidFormat;
     }
 
-    fn parseInt(comptime T: type, value: []const u8) !T {
-        return switch (T) {
-            Action.Percentage => blk: {
+    fn parseInt(comptime T: type, value: []const u8, comptime ParentType: ?type) !T {
+        return switch (ParentType orelse void) {
+            Action.SplitParameter => blk: {
                 if (value.len < 2) return Error.InvalidFormat;
                 if (value[value.len - 1] != '%') return Error.InvalidFormat;
                 const percent = value[0 .. value.len - 1];
-                const parsed_percent = std.fmt.parseInt(u16, percent, 10) catch return Error.InvalidFormat;
+                const parsed_percent = std.fmt.parseInt(T, percent, 10) catch return Error.InvalidFormat;
                 const clamped_percent: u16 = @min(parsed_percent, 100);
                 break :blk clamped_percent;
             },
@@ -522,7 +522,7 @@ pub const Action = union(enum) {
     ) !field.type {
         return switch (@typeInfo(field.type)) {
             .Enum => try parseEnum(field.type, param),
-            .Int => try parseInt(field.type, param),
+            .Int => try parseInt(field.type, param, null),
             .Float => try parseFloat(field.type, param),
             .Struct => |info| blk: {
                 // Only tuples are supported to avoid ambiguity with field
@@ -535,7 +535,7 @@ pub const Action = union(enum) {
                     const next = it.next() orelse return Error.InvalidFormat;
                     @field(value, field_.name) = switch (@typeInfo(field_.type)) {
                         .Enum => try parseEnum(field_.type, next),
-                        .Int => try parseInt(field_.type, next),
+                        .Int => try parseInt(field_.type, next, field.type),
                         .Float => try parseFloat(field_.type, next),
                         else => unreachable,
                     };
