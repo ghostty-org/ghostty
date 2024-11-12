@@ -98,6 +98,12 @@ pub fn build(b: *std.Build) !void {
         "Enables the use of Adwaita when using the GTK rendering backend.",
     ) orelse true;
 
+    const pie = b.option(
+        bool,
+        "pie",
+        "Build a Position Independent Executable",
+    ) orelse false;
+
     const conformance = b.option(
         []const u8,
         "conformance",
@@ -282,6 +288,9 @@ pub fn build(b: *std.Build) !void {
 
     // Exe
     if (exe_) |exe| {
+        // Set PIE if requested
+        if (pie) exe.pie = true;
+
         // Add the shared dependencies
         _ = try addDeps(b, exe, config);
 

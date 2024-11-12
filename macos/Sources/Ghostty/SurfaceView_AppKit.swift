@@ -704,12 +704,6 @@ extension Ghostty {
 
         /// Special case handling for some control keys
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
-            // Only process keys when Control is the only modifier
-            if (!event.modifierFlags.contains(.control) ||
-                !event.modifierFlags.isDisjoint(with: [.shift, .command, .option])) {
-                return false
-            }
-
             // Only process key down events
             if (event.type != .keyDown) {
                 return false
@@ -722,11 +716,23 @@ extension Ghostty {
                 return false
             }
 
+            // Only process keys when Control is active. All known issues we're
+            // resolving happen only in this scenario. This probably isn't fully robust
+            // but we can broaden the scope as we find more cases.
+            if (!event.modifierFlags.contains(.control)) {
+                return false
+            }
+
             let equivalent: String
             switch (event.charactersIgnoringModifiers) {
             case "/":
                 // Treat C-/ as C-_. We do this because C-/ makes macOS make a beep
                 // sound and we don't like the beep sound.
+                if (!event.modifierFlags.contains(.control) ||
+                    !event.modifierFlags.isDisjoint(with: [.shift, .command, .option])) {
+                    return false
+                }
+
                 equivalent = "_"
 
             case "\r":
@@ -742,7 +748,7 @@ extension Ghostty {
             let newEvent = NSEvent.keyEvent(
                 with: .keyDown,
                 location: event.locationInWindow,
-                modifierFlags: .control,
+                modifierFlags: event.modifierFlags,
                 timestamp: event.timestamp,
                 windowNumber: event.windowNumber,
                 context: nil,
