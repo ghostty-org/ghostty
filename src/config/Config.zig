@@ -289,6 +289,29 @@ const c = @cImport({
 /// terminals. Only new terminals will use the new configuration.
 @"grapheme-width-method": GraphemeWidthMethod = .unicode,
 
+/// FreeType load flags to enable. The format of this is a list of flags to
+/// enable separated by commas. If you prefix a flag with `no-` then it is
+/// disabled. If you omit a flag, it's default value is used, so you must
+/// explicitly disable flags you don't want. You can also use `true` or `false`
+/// to turn all flags on or off.
+///
+/// This configuration only applies to Ghostty builds that use FreeType.
+/// This is usually the case only for Linux builds. macOS uses CoreText
+/// and does not have an equivalent configuration.
+///
+/// Available flags:
+///
+///   * `hinting` - Enable or disable hinting, enabled by default.
+///   * `force-autohint` - Use the freetype auto-hinter rather than the
+///     font's native hinter. Enabled by default.
+///   * `monochrome` - Instructs renderer to use 1-bit monochrome
+///     rendering. This option doesn't impact the hinter.
+///     Enabled by default.
+///   * `autohint` - Use the freetype auto-hinter. Enabled by default.
+///
+/// Example: `hinting`, `no-hinting`, `force-autohint`, `no-force-autohint`
+@"freetype-load-flags": FreetypeLoadFlags = .{},
+
 /// A theme to use. If the theme is an absolute pathname, Ghostty will attempt
 /// to load that file as a theme. If that file does not exist or is inaccessible,
 /// an error will be logged and no other directories will be searched.
@@ -515,7 +538,26 @@ palette: Palette = .{},
 /// arguments are provided, the command will be executed using `/bin/sh -c`.
 /// Ghostty does not do any shell command parsing.
 ///
-/// If you're using the `ghostty` CLI there is also a shortcut to run a command
+/// This command will be used for all new terminal surfaces, i.e. new windows,
+/// tabs, etc. If you want to run a command only for the first terminal surface
+/// created when Ghostty starts, use the `initial-command` configuration.
+///
+/// Ghostty supports the common `-e` flag for executing a command with
+/// arguments. For example, `ghostty -e fish --with --custom --args`.
+/// This flag sets the `initial-command` configuration, see that for more
+/// information.
+command: ?[]const u8 = null,
+
+/// This is the same as "command", but only applies to the first terminal
+/// surface created when Ghostty starts. Subsequent terminal surfaces will use
+/// the `command` configuration.
+///
+/// After the first terminal surface is created (or closed), there is no
+/// way to run this initial command again automatically. As such, setting
+/// this at runtime works but will only affect the next terminal surface
+/// if it is the first one ever created.
+///
+/// If you're using the `ghostty` CLI there is also a shortcut to set this
 /// with arguments directly: you can use the `-e` flag. For example: `ghostty -e
 /// fish --with --custom --args`. The `-e` flag automatically forces some
 /// other behaviors as well:
@@ -527,7 +569,7 @@ palette: Palette = .{},
 ///     process will exit when the command exits. Additionally, the
 ///     `quit-after-last-window-closed-delay` is unset.
 ///
-command: ?[]const u8 = null,
+@"initial-command": ?[]const u8 = null,
 
 /// If true, keep the terminal open after the command exits. Normally, the
 /// terminal window closes when the running command (such as a shell) exits.
@@ -923,7 +965,7 @@ keybind: Keybinds = .{},
 ///   * `dark` - Use the dark theme regardless of system theme.
 ///   * `ghostty` - Use the background and foreground colors specified in the
 ///     Ghostty configuration. This is only supported on Linux builds with
-///     libadwaita and `gtk-adwaita` enabled.
+///     Adwaita and `gtk-adwaita` enabled.
 ///
 /// On macOS, if `macos-titlebar-style` is "tabs", the window theme will be
 /// automatically set based on the luminosity of the terminal background color.
@@ -1601,12 +1643,12 @@ keybind: Keybinds = .{},
 /// Determines the side of the screen that the GTK tab bar will stick to.
 /// Top, bottom, left, and right are supported. The default is top.
 ///
-/// If this option has value `left` or `right` when using `libadwaita`, it falls
+/// If this option has value `left` or `right` when using Adwaita, it falls
 /// back to `top`.
 @"gtk-tabs-location": GtkTabsLocation = .top,
 
 /// Determines the appearance of the top and bottom bars when using the
-/// adwaita tab bar. This requires `gtk-adwaita` to be enabled (it is
+/// Adwaita tab bar. This requires `gtk-adwaita` to be enabled (it is
 /// by default).
 ///
 /// Valid values are:
@@ -1625,7 +1667,7 @@ keybind: Keybinds = .{},
 /// which is the old style.
 @"gtk-wide-tabs": bool = true,
 
-/// If `true` (default), Ghostty will enable libadwaita theme support. This
+/// If `true` (default), Ghostty will enable Adwaita theme support. This
 /// will make `window-theme` work properly and will also allow Ghostty to
 /// properly respond to system theme changes, light/dark mode changing, etc.
 /// This requires a GTK4 desktop with a GTK4 theme.
@@ -1636,7 +1678,7 @@ keybind: Keybinds = .{},
 /// expected.
 ///
 /// This configuration only has an effect if Ghostty was built with
-/// libadwaita support.
+/// Adwaita support.
 @"gtk-adwaita": bool = true,
 
 /// If `true` (default), applications running in the terminal can show desktop
@@ -2358,7 +2400,7 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
             }
 
             self.@"_xdg-terminal-exec" = true;
-            self.command = command.items[0 .. command.items.len - 1];
+            self.@"initial-command" = command.items[0 .. command.items.len - 1];
             return;
         }
     }
@@ -2757,7 +2799,7 @@ pub fn parseManuallyHook(
             return false;
         }
 
-        self.command = command.items[0 .. command.items.len - 1];
+        self.@"initial-command" = command.items[0 .. command.items.len - 1];
 
         // See "command" docs for the implied configurations and why.
         self.@"gtk-single-instance" = .false;
@@ -2947,7 +2989,7 @@ test "parse e: command only" {
 
     var it: TestIterator = .{ .data = &.{"foo"} };
     try testing.expect(!try cfg.parseManuallyHook(alloc, "-e", &it));
-    try testing.expectEqualStrings("foo", cfg.command.?);
+    try testing.expectEqualStrings("foo", cfg.@"initial-command".?);
 }
 
 test "parse e: command and args" {
@@ -2958,7 +3000,7 @@ test "parse e: command and args" {
 
     var it: TestIterator = .{ .data = &.{ "echo", "foo", "bar baz" } };
     try testing.expect(!try cfg.parseManuallyHook(alloc, "-e", &it));
-    try testing.expectEqualStrings("echo foo bar baz", cfg.command.?);
+    try testing.expectEqualStrings("echo foo bar baz", cfg.@"initial-command".?);
 }
 
 test "clone default" {
@@ -4546,6 +4588,17 @@ pub const QuickTerminalScreen = enum {
 pub const GraphemeWidthMethod = enum {
     legacy,
     unicode,
+};
+
+/// See freetype-load-flag
+pub const FreetypeLoadFlags = packed struct {
+    // The defaults here at the time of writing this match the defaults
+    // for Freetype itself. Ghostty hasn't made any opinionated changes
+    // to these defaults.
+    hinting: bool = true,
+    @"force-autohint": bool = true,
+    monochrome: bool = true,
+    autohint: bool = true,
 };
 
 /// See linux-cgroup

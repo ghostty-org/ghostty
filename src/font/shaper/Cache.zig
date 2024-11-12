@@ -14,7 +14,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const font = @import("../main.zig");
-const CacheTable = @import("../../cache_table.zig").CacheTable;
+const CacheTable = @import("../../datastruct/main.zig").CacheTable;
 
 const log = std.log.scoped(.font_shaper_cache);
 

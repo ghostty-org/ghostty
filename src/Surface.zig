@@ -474,13 +474,19 @@ pub fn init(
         .config = derived_config,
     };
 
+    // The command we're going to execute
+    const command: ?[]const u8 = if (app.first)
+        config.@"initial-command" orelse config.command
+    else
+        config.command;
+
     // Start our IO implementation
     // This separate block ({}) is important because our errdefers must
     // be scoped here to be valid.
     {
         // Initialize our IO backend
         var io_exec = try termio.Exec.init(alloc, .{
-            .command = config.command,
+            .command = command,
             .shell_integration = config.@"shell-integration",
             .shell_integration_features = config.@"shell-integration-features",
             .working_directory = config.@"working-directory",
@@ -618,9 +624,9 @@ pub fn init(
         // For xdg-terminal-exec execution we special-case and set the window
         // title to the command being executed. This allows window managers
         // to set custom styling based on the command being executed.
-        const command = config.command orelse break :xdg;
-        if (command.len > 0) {
-            const title = alloc.dupeZ(u8, command) catch |err| {
+        const v = command orelse break :xdg;
+        if (v.len > 0) {
+            const title = alloc.dupeZ(u8, v) catch |err| {
                 log.warn(
                     "error copying command for title, title will not be set err={}",
                     .{err},
@@ -635,6 +641,9 @@ pub fn init(
             );
         }
     }
+
+    // We are no longer the first surface
+    app.first = false;
 }
 
 pub fn deinit(self: *Surface) void {
@@ -3106,7 +3115,7 @@ fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
 /// if there is no hyperlink.
 fn osc8URI(self: *Surface, pin: terminal.Pin) ?[]const u8 {
     _ = self;
-    const page = &pin.page.data;
+    const page = &pin.node.data;
     const cell = pin.rowAndCell().cell;
     const link_id = page.lookupHyperlink(cell) orelse return null;
     const entry = page.hyperlink_set.get(page.memory, link_id);

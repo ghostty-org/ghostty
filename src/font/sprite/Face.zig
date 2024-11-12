@@ -263,6 +263,21 @@ const Kind = enum {
             0x1FBCE...0x1FBEF,
             => .box,
 
+            // Branch drawing character set, used for drawing git-like
+            // graphs in the terminal. Originally implemented in Kitty.
+            // Ref:
+            // - https://github.com/kovidgoyal/kitty/pull/7681
+            // - https://github.com/kovidgoyal/kitty/pull/7805
+            // NOTE: Kitty is GPL licensed, and its code was not referenced
+            //       for these characters, only the loose specification of
+            //       the character set in the pull request descriptions.
+            //
+            //          
+            //                    
+            //                    
+            //            
+            0xF5D0...0xF60D => .box,
+
             // Powerline fonts
             0xE0B0,
             0xE0B4,

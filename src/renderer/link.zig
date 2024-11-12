@@ -122,7 +122,7 @@ pub const Set = struct {
         if (!mouse_cell.hyperlink) return;
 
         // Get our hyperlink entry
-        const page = &mouse_pin.page.data;
+        const page: *terminal.Page = &mouse_pin.node.data;
         const link_id = page.lookupHyperlink(mouse_cell) orelse {
             log.warn("failed to find hyperlink for cell", .{});
             return;
@@ -165,7 +165,7 @@ pub const Set = struct {
             for (row_pin.cells(.right), 0..) |*cell, x| {
                 const match = match: {
                     if (cell.hyperlink) {
-                        if (row_pin.page.data.lookupHyperlink(cell)) |cell_link_id| {
+                        if (row_pin.node.data.lookupHyperlink(cell)) |cell_link_id| {
                             break :match cell_link_id == link_id;
                         }
                     }
@@ -215,7 +215,7 @@ pub const Set = struct {
         // Expand it to the left.
         var it = mouse_pin.cellIterator(.left_up, null);
         while (it.next()) |cell_pin| {
-            const page = &cell_pin.page.data;
+            const page: *terminal.Page = &cell_pin.node.data;
             const rac = cell_pin.rowAndCell();
             const cell = rac.cell;
 
@@ -241,7 +241,7 @@ pub const Set = struct {
         // Expand it to the right
         it = mouse_pin.cellIterator(.right_down, null);
         while (it.next()) |cell_pin| {
-            const page = &cell_pin.page.data;
+            const page: *terminal.Page = &cell_pin.node.data;
             const rac = cell_pin.rowAndCell();
             const cell = rac.cell;
 

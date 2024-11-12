@@ -13,7 +13,7 @@ const Surface = @import("Surface.zig");
 const tracy = @import("tracy");
 const input = @import("input.zig");
 const Config = @import("config.zig").Config;
-const BlockingQueue = @import("./blocking_queue.zig").BlockingQueue;
+const BlockingQueue = @import("datastruct/main.zig").BlockingQueue;
 const renderer = @import("renderer.zig");
 const font = @import("font/main.zig");
 const internal_os = @import("os/main.zig");
@@ -65,6 +65,11 @@ font_grid_set: font.SharedGridSet,
 // will kill Ghostty.
 last_notification_time: ?std.time.Instant = null,
 last_notification_digest: u64 = 0,
+
+/// Set to false once we've created at least one surface. This
+/// never goes true again. This can be used by surfaces to determine
+/// if they are the first surface.
+first: bool = true,
 
 pub const CreateError = Allocator.Error || font.SharedGridSet.InitError;
 

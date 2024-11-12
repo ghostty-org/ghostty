@@ -49,8 +49,8 @@
         // Other
         .apple_sdk = .{ .path = "./pkg/apple-sdk" },
         .iterm2_themes = .{
-            .url = "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/b4a9c4d.tar.gz",
-            .hash = "122056fbb29863ec1678b7954fb76b1533ad8c581a34577c1b2efe419e29e05596df",
+            .url = "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/da56d590c4237c96d81cc5ed987ea098eebefdf6.tar.gz",
+            .hash = "1220fac17a112b0dd11ec85e5b31a30f05bfaed897c03f31285276544db30d010c41",
         },
         .vaxis = .{
             .url = "git+https://github.com/rockorager/libvaxis?ref=main#a1b43d24653670d612b91f0855b165e6c987b809",

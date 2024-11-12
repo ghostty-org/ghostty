@@ -21,7 +21,7 @@ const WasmTarget = @import("os/wasm/target.zig").Target;
 pub const BuildConfig = struct {
     version: std.SemanticVersion = .{ .major = 0, .minor = 0, .patch = 0 },
     flatpak: bool = false,
-    libadwaita: bool = false,
+    adwaita: bool = false,
     app_runtime: apprt.Runtime = .none,
     renderer: rendererpkg.Impl = .opengl,
     font_backend: font.Backend = .freetype,
@@ -40,7 +40,7 @@ pub const BuildConfig = struct {
         // We need to break these down individual because addOption doesn't
         // support all types.
         step.addOption(bool, "flatpak", self.flatpak);
-        step.addOption(bool, "libadwaita", self.libadwaita);
+        step.addOption(bool, "adwaita", self.adwaita);
         step.addOption(apprt.Runtime, "app_runtime", self.app_runtime);
         step.addOption(font.Backend, "font_backend", self.font_backend);
         step.addOption(rendererpkg.Impl, "renderer", self.renderer);
@@ -67,7 +67,7 @@ pub const BuildConfig = struct {
         return .{
             .version = options.app_version,
             .flatpak = options.flatpak,
-            .libadwaita = options.libadwaita,
+            .adwaita = options.adwaita,
             .app_runtime = std.meta.stringToEnum(apprt.Runtime, @tagName(options.app_runtime)).?,
             .font_backend = std.meta.stringToEnum(font.Backend, @tagName(options.font_backend)).?,
             .renderer = std.meta.stringToEnum(rendererpkg.Impl, @tagName(options.renderer)).?,

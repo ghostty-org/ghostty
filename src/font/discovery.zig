@@ -79,7 +79,7 @@ pub const Descriptor = struct {
 
             // This is not correct, but we don't currently depend on the
             // hash value being different based on decimal values of variations.
-            autoHash(hasher, @as(u64, @intFromFloat(variation.value)));
+            autoHash(hasher, @as(i64, @intFromFloat(variation.value)));
         }
     }
 
@@ -235,21 +235,7 @@ pub const Descriptor = struct {
             );
         }
 
-        // Build our descriptor from attrs
-        var desc = try macos.text.FontDescriptor.createWithAttributes(@ptrCast(attrs));
-        errdefer desc.release();
-
-        // Variations are built by copying the descriptor. I don't know a way
-        // to set it on attrs directly.
-        for (self.variations) |v| {
-            const id = try macos.foundation.Number.create(.int, @ptrCast(&v.id));
-            defer id.release();
-            const next = try desc.createCopyWithVariation(id, v.value);
-            desc.release();
-            desc = next;
-        }
-
-        return desc;
+        return try macos.text.FontDescriptor.createWithAttributes(@ptrCast(attrs));
     }
 };
 
@@ -384,6 +370,7 @@ pub const CoreText = struct {
         return DiscoverIterator{
             .alloc = alloc,
             .list = zig_list,
+            .variations = desc.variations,
             .i = 0,
         };
     }
@@ -420,6 +407,7 @@ pub const CoreText = struct {
             return DiscoverIterator{
                 .alloc = alloc,
                 .list = list,
+                .variations = desc.variations,
                 .i = 0,
             };
         }
@@ -443,6 +431,7 @@ pub const CoreText = struct {
             return DiscoverIterator{
                 .alloc = alloc,
                 .list = list,
+                .variations = desc.variations,
                 .i = 0,
             };
         }
@@ -682,30 +671,29 @@ pub const CoreText = struct {
                 break :style .unmatched;
             defer style.release();
 
+            // Get our style string
+            var buf: [128]u8 = undefined;
+            const style_str = style.cstring(&buf, .utf8) orelse break :style .unmatched;
+
             // If we have a specific desired style, attempt to search for that.
             if (desc.style) |desired_style| {
-                var buf: [128]u8 = undefined;
-                const style_str = style.cstring(&buf, .utf8) orelse break :style .unmatched;
-
                 // Matching style string gets highest score
                 if (std.mem.eql(u8, desired_style, style_str)) break :style .match;
-
-                // Otherwise the score is based on the length of the style string.
-                // Shorter styles are scored higher.
-                break :style @enumFromInt(100 -| style_str.len);
+            } else if (!desc.bold and !desc.italic) {
+                // If we do not, and we have no symbolic traits, then we try
+                // to find "regular" (or no style). If we have symbolic traits
+                // we do nothing but we can improve scoring by taking that into
+                // account, too.
+                if (std.mem.eql(u8, "Regular", style_str)) {
+                    break :style .match;
+                }
             }
 
-            // If we do not, and we have no symbolic traits, then we try
-            // to find "regular" (or no style). If we have symbolic traits
-            // we do nothing but we can improve scoring by taking that into
-            // account, too.
-            if (!desc.bold and !desc.italic) {
-                var buf: [128]u8 = undefined;
-                const style_str = style.cstring(&buf, .utf8) orelse break :style .unmatched;
-                if (std.mem.eql(u8, "Regular", style_str)) break :style .match;
-            }
-
-            break :style .unmatched;
+            // Otherwise the score is based on the length of the style string.
+            // Shorter styles are scored higher. This is a heuristic that
+            // if we don't have a desired style then shorter tends to be
+            // more often the "regular" style.
+            break :style @enumFromInt(100 -| style_str.len);
         };
 
         score_acc.traits = traits: {
@@ -721,6 +709,7 @@ pub const CoreText = struct {
     pub const DiscoverIterator = struct {
         alloc: Allocator,
         list: []const *macos.text.FontDescriptor,
+        variations: []const Variation,
         i: usize,
 
         pub fn deinit(self: *DiscoverIterator) void {
@@ -756,7 +745,10 @@ pub const CoreText = struct {
             defer self.i += 1;
 
             return DeferredFace{
-                .ct = .{ .font = font },
+                .ct = .{
+                    .font = font,
+                    .variations = self.variations,
+                },
             };
         }
     };

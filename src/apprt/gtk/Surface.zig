@@ -330,6 +330,9 @@ url_widget: ?URLWidget = null,
 /// The overlay that shows resizing information.
 resize_overlay: ResizeOverlay = .{},
 
+/// Whether or not the current surface is zoomed in (see `toggle_split_zoom`).
+zoomed_in: bool = false,
+
 /// If non-null this is the widget on the overlay which dims the surface when it is unfocused
 unfocused_widget: ?*c.GtkWidget = null,
 
@@ -643,6 +646,8 @@ pub fn redraw(self: *Surface) void {
 
 /// Close this surface.
 pub fn close(self: *Surface, processActive: bool) void {
+    self.setSplitZoom(false);
+
     // If we're not part of a window hierarchy, we never confirm
     // so we can just directly remove ourselves and exit.
     const window = self.container.window() orelse {
@@ -791,7 +796,16 @@ pub fn setInitialWindowSize(self: *const Surface, width: u32, height: u32) !void
 }
 
 pub fn grabFocus(self: *Surface) void {
-    if (self.container.tab()) |tab| tab.focus_child = self;
+    if (self.container.tab()) |tab| {
+        // If any other surface was focused and zoomed in, set it to non zoomed in
+        // so that self can grab focus.
+        if (tab.focus_child) |focus_child| {
+            if (focus_child.zoomed_in and focus_child != self) {
+                focus_child.setSplitZoom(false);
+            }
+        }
+        tab.focus_child = self;
+    }
 
     const widget = @as(*c.GtkWidget, @ptrCast(self.gl_area));
     _ = c.gtk_widget_grab_focus(widget);
@@ -801,7 +815,7 @@ pub fn grabFocus(self: *Surface) void {
 
 fn updateTitleLabels(self: *Surface) void {
     // If we have no title, then we have nothing to update.
-    const title = self.title_text orelse return;
+    const title = self.getTitle() orelse return;
 
     // If we have a tab and are the focused child, then we have to update the tab
     if (self.container.tab()) |tab| {
@@ -822,9 +836,19 @@ fn updateTitleLabels(self: *Surface) void {
     }
 }
 
+const zoom_title_prefix = "🔍 ";
+
 pub fn setTitle(self: *Surface, slice: [:0]const u8) !void {
     const alloc = self.app.core_app.alloc;
-    const copy = try alloc.dupeZ(u8, slice);
+
+    // Always allocate with the "🔍 " at the beginning and slice accordingly
+    // is the surface is zoomed in or not.
+    const copy: [:0]const u8 = copy: {
+        const new_title = try alloc.allocSentinel(u8, zoom_title_prefix.len + slice.len, 0);
+        @memcpy(new_title[0..zoom_title_prefix.len], zoom_title_prefix);
+        @memcpy(new_title[zoom_title_prefix.len..], slice);
+        break :copy new_title;
+    };
     errdefer alloc.free(copy);
 
     if (self.title_text) |old| alloc.free(old);
@@ -834,7 +858,14 @@ pub fn setTitle(self: *Surface, slice: [:0]const u8) !void {
 }
 
 pub fn getTitle(self: *Surface) ?[:0]const u8 {
-    return self.title_text;
+    if (self.title_text) |title_text| {
+        return if (self.zoomed_in)
+            title_text
+        else
+            title_text[zoom_title_prefix.len..];
+    }
+
+    return null;
 }
 
 pub fn setMouseShape(
@@ -1874,4 +1905,42 @@ pub fn present(self: *Surface) void {
     }
 
     self.grabFocus();
+}
+
+fn detachFromSplit(self: *Surface) void {
+    const split = self.container.split() orelse return;
+    switch (self.container.splitSide() orelse unreachable) {
+        .top_left => split.detachTopLeft(),
+        .bottom_right => split.detachBottomRight(),
+    }
+}
+
+fn attachToSplit(self: *Surface) void {
+    const split = self.container.split() orelse return;
+    split.updateChildren();
+}
+
+pub fn setSplitZoom(self: *Surface, new_split_zoom: bool) void {
+    if (new_split_zoom == self.zoomed_in) return;
+    const tab = self.container.tab() orelse return;
+
+    const tab_widget = tab.elem.widget();
+    const surface_widget = self.primaryWidget();
+
+    if (new_split_zoom) {
+        self.detachFromSplit();
+        c.gtk_box_remove(tab.box, tab_widget);
+        c.gtk_box_append(tab.box, surface_widget);
+    } else {
+        c.gtk_box_remove(tab.box, surface_widget);
+        self.attachToSplit();
+        c.gtk_box_append(tab.box, tab_widget);
+    }
+
+    self.zoomed_in = new_split_zoom;
+    self.grabFocus();
+}
+
+pub fn toggleSplitZoom(self: *Surface) void {
+    self.setSplitZoom(!self.zoomed_in);
 }

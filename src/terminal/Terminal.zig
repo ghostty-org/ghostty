@@ -313,7 +313,7 @@ pub fn print(self: *Terminal, c: u21) !void {
             var state: unicode.GraphemeBreakState = .{};
             var cp1: u21 = prev.cell.content.codepoint;
             if (prev.cell.hasGrapheme()) {
-                const cps = self.screen.cursor.page_pin.page.data.lookupGrapheme(prev.cell).?;
+                const cps = self.screen.cursor.page_pin.node.data.lookupGrapheme(prev.cell).?;
                 for (cps) |cp2| {
                     // log.debug("cp1={x} cp2={x}", .{ cp1, cp2 });
                     assert(!unicode.graphemeBreak(cp1, cp2, &state));
@@ -567,7 +567,7 @@ fn printCell(
 
                 const spacer_cell = self.screen.cursorCellRight(1);
                 self.screen.clearCells(
-                    &self.screen.cursor.page_pin.page.data,
+                    &self.screen.cursor.page_pin.node.data,
                     self.screen.cursor.page_row,
                     spacer_cell[0..1],
                 );
@@ -588,7 +588,7 @@ fn printCell(
 
                 const wide_cell = self.screen.cursorCellLeft(1);
                 self.screen.clearCells(
-                    &self.screen.cursor.page_pin.page.data,
+                    &self.screen.cursor.page_pin.node.data,
                     self.screen.cursor.page_row,
                     wide_cell[0..1],
                 );
@@ -607,7 +607,7 @@ fn printCell(
 
     // If the prior value had graphemes, clear those
     if (cell.hasGrapheme()) {
-        self.screen.cursor.page_pin.page.data.clearGrapheme(
+        self.screen.cursor.page_pin.node.data.clearGrapheme(
             self.screen.cursor.page_row,
             cell,
         );
@@ -617,7 +617,7 @@ fn printCell(
     // cell's new style will be different after writing.
     const style_changed = cell.style_id != self.screen.cursor.style_id;
     if (style_changed) {
-        var page = &self.screen.cursor.page_pin.page.data;
+        var page = &self.screen.cursor.page_pin.node.data;
 
         // Release the old style.
         if (cell.style_id != style.default_id) {
@@ -639,7 +639,7 @@ fn printCell(
     };
 
     if (style_changed) {
-        var page = &self.screen.cursor.page_pin.page.data;
+        var page = &self.screen.cursor.page_pin.node.data;
 
         // Use the new style.
         if (cell.style_id != style.default_id) {
@@ -664,7 +664,7 @@ fn printCell(
         };
     } else if (had_hyperlink) {
         // If the previous cell had a hyperlink then we need to clear it.
-        var page = &self.screen.cursor.page_pin.page.data;
+        var page = &self.screen.cursor.page_pin.node.data;
         page.clearHyperlink(self.screen.cursor.page_row, cell);
     }
 }
@@ -1500,8 +1500,8 @@ pub fn insertLines(self: *Terminal, count: usize) void {
             const off_rac = off_p.rowAndCell();
             const off_row: *Row = off_rac.row;
 
-            self.rowWillBeShifted(&cur_p.page.data, cur_row);
-            self.rowWillBeShifted(&off_p.page.data, off_row);
+            self.rowWillBeShifted(&cur_p.node.data, cur_row);
+            self.rowWillBeShifted(&off_p.node.data, off_row);
 
             // If our scrolling region is full width, then we unset wrap.
             if (!left_right) {
@@ -1518,19 +1518,19 @@ pub fn insertLines(self: *Terminal, count: usize) void {
 
             // If our page doesn't match, then we need to do a copy from
             // one page to another. This is the slow path.
-            if (src_p.page != dst_p.page) {
-                dst_p.page.data.clonePartialRowFrom(
-                    &src_p.page.data,
+            if (src_p.node != dst_p.node) {
+                dst_p.node.data.clonePartialRowFrom(
+                    &src_p.node.data,
                     dst_row,
                     src_row,
                     self.scrolling_region.left,
                     self.scrolling_region.right + 1,
                 ) catch |err| {
-                    const cap = dst_p.page.data.capacity;
+                    const cap = dst_p.node.data.capacity;
                     // Adjust our page capacity to make
                     // room for we didn't have space for
                     _ = self.screen.adjustCapacity(
-                        dst_p.page,
+                        dst_p.node,
                         switch (err) {
                             // Rehash the sets
                             error.StyleSetNeedsRehash,
@@ -1589,11 +1589,11 @@ pub fn insertLines(self: *Terminal, count: usize) void {
                     src_row.* = dst;
 
                     // Ensure what we did didn't corrupt the page
-                    cur_p.page.data.assertIntegrity();
+                    cur_p.node.data.assertIntegrity();
                 } else {
                     // Left/right scroll margins we have to
                     // copy cells, which is much slower...
-                    const page = &cur_p.page.data;
+                    const page = &cur_p.node.data;
                     page.moveCells(
                         src_row,
                         self.scrolling_region.left,
@@ -1605,7 +1605,7 @@ pub fn insertLines(self: *Terminal, count: usize) void {
             }
         } else {
             // Clear the cells for this row, it has been shifted.
-            const page = &cur_p.page.data;
+            const page = &cur_p.node.data;
             const cells = page.getCells(cur_row);
             self.screen.clearCells(
                 page,
@@ -1698,8 +1698,8 @@ pub fn deleteLines(self: *Terminal, count: usize) void {
             const off_rac = off_p.rowAndCell();
             const off_row: *Row = off_rac.row;
 
-            self.rowWillBeShifted(&cur_p.page.data, cur_row);
-            self.rowWillBeShifted(&off_p.page.data, off_row);
+            self.rowWillBeShifted(&cur_p.node.data, cur_row);
+            self.rowWillBeShifted(&off_p.node.data, off_row);
 
             // If our scrolling region is full width, then we unset wrap.
             if (!left_right) {
@@ -1716,19 +1716,19 @@ pub fn deleteLines(self: *Terminal, count: usize) void {
 
             // If our page doesn't match, then we need to do a copy from
             // one page to another. This is the slow path.
-            if (src_p.page != dst_p.page) {
-                dst_p.page.data.clonePartialRowFrom(
-                    &src_p.page.data,
+            if (src_p.node != dst_p.node) {
+                dst_p.node.data.clonePartialRowFrom(
+                    &src_p.node.data,
                     dst_row,
                     src_row,
                     self.scrolling_region.left,
                     self.scrolling_region.right + 1,
                 ) catch |err| {
-                    const cap = dst_p.page.data.capacity;
+                    const cap = dst_p.node.data.capacity;
                     // Adjust our page capacity to make
                     // room for we didn't have space for
                     _ = self.screen.adjustCapacity(
-                        dst_p.page,
+                        dst_p.node,
                         switch (err) {
                             // Rehash the sets
                             error.StyleSetNeedsRehash,
@@ -1782,11 +1782,11 @@ pub fn deleteLines(self: *Terminal, count: usize) void {
                     src_row.* = dst;
 
                     // Ensure what we did didn't corrupt the page
-                    cur_p.page.data.assertIntegrity();
+                    cur_p.node.data.assertIntegrity();
                 } else {
                     // Left/right scroll margins we have to
                     // copy cells, which is much slower...
-                    const page = &cur_p.page.data;
+                    const page = &cur_p.node.data;
                     page.moveCells(
                         src_row,
                         self.scrolling_region.left,
@@ -1798,7 +1798,7 @@ pub fn deleteLines(self: *Terminal, count: usize) void {
             }
         } else {
             // Clear the cells for this row, it's from out of bounds.
-            const page = &cur_p.page.data;
+            const page = &cur_p.node.data;
             const cells = page.getCells(cur_row);
             self.screen.clearCells(
                 page,
@@ -1843,7 +1843,7 @@ pub fn insertBlanks(self: *Terminal, count: usize) void {
 
     // left is just the cursor position but as a multi-pointer
     const left: [*]Cell = @ptrCast(self.screen.cursor.page_cell);
-    var page = &self.screen.cursor.page_pin.page.data;
+    var page = &self.screen.cursor.page_pin.node.data;
 
     // If our X is a wide spacer tail then we need to erase the
     // previous cell too so we don't split a multi-cell character.
@@ -1914,7 +1914,7 @@ pub fn deleteChars(self: *Terminal, count_req: usize) void {
 
     // left is just the cursor position but as a multi-pointer
     const left: [*]Cell = @ptrCast(self.screen.cursor.page_cell);
-    var page = &self.screen.cursor.page_pin.page.data;
+    var page = &self.screen.cursor.page_pin.node.data;
 
     // Remaining cols from our cursor to the right margin.
     const rem = self.scrolling_region.right - self.screen.cursor.x + 1;
@@ -1995,7 +1995,7 @@ pub fn eraseChars(self: *Terminal, count_req: usize) void {
     // mode was not ISO we also always ignore protection attributes.
     if (self.screen.protected_mode != .iso) {
         self.screen.clearCells(
-            &self.screen.cursor.page_pin.page.data,
+            &self.screen.cursor.page_pin.node.data,
             self.screen.cursor.page_row,
             cells[0..end],
         );
@@ -2003,7 +2003,7 @@ pub fn eraseChars(self: *Terminal, count_req: usize) void {
     }
 
     self.screen.clearUnprotectedCells(
-        &self.screen.cursor.page_pin.page.data,
+        &self.screen.cursor.page_pin.node.data,
         self.screen.cursor.page_row,
         cells[0..end],
     );
@@ -2075,7 +2075,7 @@ pub fn eraseLine(
     // to fill the entire line.
     if (!protected) {
         self.screen.clearCells(
-            &self.screen.cursor.page_pin.page.data,
+            &self.screen.cursor.page_pin.node.data,
             self.screen.cursor.page_row,
             cells[start..end],
         );
@@ -2083,7 +2083,7 @@ pub fn eraseLine(
     }
 
     self.screen.clearUnprotectedCells(
-        &self.screen.cursor.page_pin.page.data,
+        &self.screen.cursor.page_pin.node.data,
         self.screen.cursor.page_row,
         cells[start..end],
     );
@@ -2257,7 +2257,7 @@ pub fn decaln(self: *Terminal) !void {
 
     // Fill with Es by moving the cursor but reset it after.
     while (true) {
-        const page = &self.screen.cursor.page_pin.page.data;
+        const page = &self.screen.cursor.page_pin.node.data;
         const row = self.screen.cursor.page_row;
         const cells_multi: [*]Cell = row.cells.ptr(page.memory);
         const cells = cells_multi[0..page.size.cols];
@@ -2986,7 +2986,7 @@ test "Terminal: print over wide char with bold" {
     try t.print(0x1F600); // Smiley face
     // verify we have styles in our style map
     {
-        const page = &t.screen.cursor.page_pin.page.data;
+        const page = &t.screen.cursor.page_pin.node.data;
         try testing.expectEqual(@as(usize, 1), page.styles.count());
     }
 
@@ -2997,7 +2997,7 @@ test "Terminal: print over wide char with bold" {
 
     // verify our style is gone
     {
-        const page = &t.screen.cursor.page_pin.page.data;
+        const page = &t.screen.cursor.page_pin.node.data;
         try testing.expectEqual(@as(usize, 0), page.styles.count());
     }
 
@@ -3016,7 +3016,7 @@ test "Terminal: print over wide char with bg color" {
     try t.print(0x1F600); // Smiley face
     // verify we have styles in our style map
     {
-        const page = &t.screen.cursor.page_pin.page.data;
+        const page = &t.screen.cursor.page_pin.node.data;
         try testing.expectEqual(@as(usize, 1), page.styles.count());
     }
 
@@ -3027,7 +3027,7 @@ test "Terminal: print over wide char with bg color" {
 
     // verify our style is gone
     {
-        const page = &t.screen.cursor.page_pin.page.data;
+        const page = &t.screen.cursor.page_pin.node.data;
         try testing.expectEqual(@as(usize, 0), page.styles.count());
     }
 
@@ -3058,7 +3058,7 @@ test "Terminal: print multicodepoint grapheme, disabled mode 2027" {
         try testing.expectEqual(@as(u21, 0x1F468), cell.content.codepoint);
         try testing.expect(cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.wide, cell.wide);
-        const cps = list_cell.page.data.lookupGrapheme(cell).?;
+        const cps = list_cell.node.data.lookupGrapheme(cell).?;
         try testing.expectEqual(@as(usize, 1), cps.len);
     }
     {
@@ -3067,7 +3067,7 @@ test "Terminal: print multicodepoint grapheme, disabled mode 2027" {
         try testing.expectEqual(@as(u21, 0), cell.content.codepoint);
         try testing.expect(!cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
-        try testing.expect(list_cell.page.data.lookupGrapheme(cell) == null);
+        try testing.expect(list_cell.node.data.lookupGrapheme(cell) == null);
     }
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 2, .y = 0 } }).?;
@@ -3075,7 +3075,7 @@ test "Terminal: print multicodepoint grapheme, disabled mode 2027" {
         try testing.expectEqual(@as(u21, 0x1F469), cell.content.codepoint);
         try testing.expect(cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.wide, cell.wide);
-        const cps = list_cell.page.data.lookupGrapheme(cell).?;
+        const cps = list_cell.node.data.lookupGrapheme(cell).?;
         try testing.expectEqual(@as(usize, 1), cps.len);
     }
     {
@@ -3084,7 +3084,7 @@ test "Terminal: print multicodepoint grapheme, disabled mode 2027" {
         try testing.expectEqual(@as(u21, 0), cell.content.codepoint);
         try testing.expect(!cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
-        try testing.expect(list_cell.page.data.lookupGrapheme(cell) == null);
+        try testing.expect(list_cell.node.data.lookupGrapheme(cell) == null);
     }
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 4, .y = 0 } }).?;
@@ -3092,7 +3092,7 @@ test "Terminal: print multicodepoint grapheme, disabled mode 2027" {
         try testing.expectEqual(@as(u21, 0x1F467), cell.content.codepoint);
         try testing.expect(!cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.wide, cell.wide);
-        try testing.expect(list_cell.page.data.lookupGrapheme(cell) == null);
+        try testing.expect(list_cell.node.data.lookupGrapheme(cell) == null);
     }
     {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 5, .y = 0 } }).?;
@@ -3100,7 +3100,7 @@ test "Terminal: print multicodepoint grapheme, disabled mode 2027" {
         try testing.expectEqual(@as(u21, 0), cell.content.codepoint);
         try testing.expect(!cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
-        try testing.expect(list_cell.page.data.lookupGrapheme(cell) == null);
+        try testing.expect(list_cell.node.data.lookupGrapheme(cell) == null);
     }
 
     try testing.expect(t.isDirty(.{ .screen = .{ .x = 0, .y = 0 } }));
@@ -3128,7 +3128,7 @@ test "Terminal: VS16 doesn't make character with 2027 disabled" {
         try testing.expectEqual(@as(u21, 0x2764), cell.content.codepoint);
         try testing.expect(cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.narrow, cell.wide);
-        const cps = list_cell.page.data.lookupGrapheme(cell).?;
+        const cps = list_cell.node.data.lookupGrapheme(cell).?;
         try testing.expectEqual(@as(usize, 1), cps.len);
     }
 }
@@ -3221,7 +3221,7 @@ test "Terminal: print multicodepoint grapheme, mode 2027" {
         try testing.expectEqual(@as(u21, 0x1F468), cell.content.codepoint);
         try testing.expect(cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.wide, cell.wide);
-        const cps = list_cell.page.data.lookupGrapheme(cell).?;
+        const cps = list_cell.node.data.lookupGrapheme(cell).?;
         try testing.expectEqual(@as(usize, 4), cps.len);
     }
     {
@@ -3288,7 +3288,7 @@ test "Terminal: VS15 to make narrow character" {
         try testing.expectEqual(@as(u21, 0x26C8), cell.content.codepoint);
         try testing.expect(cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.narrow, cell.wide);
-        const cps = list_cell.page.data.lookupGrapheme(cell).?;
+        const cps = list_cell.node.data.lookupGrapheme(cell).?;
         try testing.expectEqual(@as(usize, 1), cps.len);
     }
 }
@@ -3319,7 +3319,7 @@ test "Terminal: VS16 to make wide character with mode 2027" {
         try testing.expectEqual(@as(u21, 0x2764), cell.content.codepoint);
         try testing.expect(cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.wide, cell.wide);
-        const cps = list_cell.page.data.lookupGrapheme(cell).?;
+        const cps = list_cell.node.data.lookupGrapheme(cell).?;
         try testing.expectEqual(@as(usize, 1), cps.len);
     }
 }
@@ -3350,7 +3350,7 @@ test "Terminal: VS16 repeated with mode 2027" {
         try testing.expectEqual(@as(u21, 0x2764), cell.content.codepoint);
         try testing.expect(cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.wide, cell.wide);
-        const cps = list_cell.page.data.lookupGrapheme(cell).?;
+        const cps = list_cell.node.data.lookupGrapheme(cell).?;
         try testing.expectEqual(@as(usize, 1), cps.len);
     }
     {
@@ -3359,7 +3359,7 @@ test "Terminal: VS16 repeated with mode 2027" {
         try testing.expectEqual(@as(u21, 0x2764), cell.content.codepoint);
         try testing.expect(cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.wide, cell.wide);
-        const cps = list_cell.page.data.lookupGrapheme(cell).?;
+        const cps = list_cell.node.data.lookupGrapheme(cell).?;
         try testing.expectEqual(@as(usize, 1), cps.len);
     }
 }
@@ -3482,7 +3482,7 @@ test "Terminal: overwrite multicodepoint grapheme clears grapheme data" {
     try testing.expectEqual(@as(usize, 2), t.screen.cursor.x);
 
     // We should have one cell with graphemes
-    const page = &t.screen.cursor.page_pin.page.data;
+    const page = &t.screen.cursor.page_pin.node.data;
     try testing.expectEqual(@as(usize, 1), page.graphemeCount());
 
     // Move back and overwrite wide
@@ -3522,7 +3522,7 @@ test "Terminal: overwrite multicodepoint grapheme tail clears grapheme data" {
     try testing.expectEqual(@as(usize, 2), t.screen.cursor.x);
 
     // We should have one cell with graphemes
-    const page = &t.screen.cursor.page_pin.page.data;
+    const page = &t.screen.cursor.page_pin.node.data;
     try testing.expectEqual(@as(usize, 1), page.graphemeCount());
 
     // Move back and overwrite wide
@@ -3971,7 +3971,7 @@ test "Terminal: print with hyperlink" {
         try testing.expect(row.hyperlink);
         const cell = list_cell.cell;
         try testing.expect(cell.hyperlink);
-        const id = list_cell.page.data.lookupHyperlink(cell).?;
+        const id = list_cell.node.data.lookupHyperlink(cell).?;
         try testing.expectEqual(@as(hyperlink.Id, 1), id);
     }
 
@@ -3998,7 +3998,7 @@ test "Terminal: print over cell with same hyperlink" {
         try testing.expect(row.hyperlink);
         const cell = list_cell.cell;
         try testing.expect(cell.hyperlink);
-        const id = list_cell.page.data.lookupHyperlink(cell).?;
+        const id = list_cell.node.data.lookupHyperlink(cell).?;
         try testing.expectEqual(@as(hyperlink.Id, 1), id);
     }
 
@@ -4025,7 +4025,7 @@ test "Terminal: print and end hyperlink" {
         try testing.expect(row.hyperlink);
         const cell = list_cell.cell;
         try testing.expect(cell.hyperlink);
-        const id = list_cell.page.data.lookupHyperlink(cell).?;
+        const id = list_cell.node.data.lookupHyperlink(cell).?;
         try testing.expectEqual(@as(hyperlink.Id, 1), id);
     }
     for (3..6) |x| {
@@ -4060,7 +4060,7 @@ test "Terminal: print and change hyperlink" {
         } }).?;
         const cell = list_cell.cell;
         try testing.expect(cell.hyperlink);
-        const id = list_cell.page.data.lookupHyperlink(cell).?;
+        const id = list_cell.node.data.lookupHyperlink(cell).?;
         try testing.expectEqual(@as(hyperlink.Id, 1), id);
     }
     for (3..6) |x| {
@@ -4070,7 +4070,7 @@ test "Terminal: print and change hyperlink" {
         } }).?;
         const cell = list_cell.cell;
         try testing.expect(cell.hyperlink);
-        const id = list_cell.page.data.lookupHyperlink(cell).?;
+        const id = list_cell.node.data.lookupHyperlink(cell).?;
         try testing.expectEqual(@as(hyperlink.Id, 2), id);
     }
 
@@ -4094,7 +4094,7 @@ test "Terminal: overwrite hyperlink" {
             .x = @intCast(x),
             .y = 0,
         } }).?;
-        const page = &list_cell.page.data;
+        const page = &list_cell.node.data;
         const row = list_cell.row;
         try testing.expect(!row.hyperlink);
         const cell = list_cell.cell;
@@ -4865,7 +4865,7 @@ test "Terminal: insertLines handles style refs" {
     try t.setAttribute(.{ .unset = {} });
 
     // verify we have styles in our style map
-    const page = &t.screen.cursor.page_pin.page.data;
+    const page = &t.screen.cursor.page_pin.node.data;
     try testing.expectEqual(@as(usize, 1), page.styles.count());
 
     t.setCursorPos(2, 2);
@@ -5233,9 +5233,9 @@ test "Terminal: scrollUp moves hyperlink" {
         try testing.expect(row.hyperlink);
         const cell = list_cell.cell;
         try testing.expect(cell.hyperlink);
-        const id = list_cell.page.data.lookupHyperlink(cell).?;
+        const id = list_cell.node.data.lookupHyperlink(cell).?;
         try testing.expectEqual(@as(hyperlink.Id, 1), id);
-        const page = &list_cell.page.data;
+        const page = &list_cell.node.data;
         try testing.expectEqual(1, page.hyperlink_set.count());
     }
     for (0..3) |x| {
@@ -5247,7 +5247,7 @@ test "Terminal: scrollUp moves hyperlink" {
         try testing.expect(!row.hyperlink);
         const cell = list_cell.cell;
         try testing.expect(!cell.hyperlink);
-        const id = list_cell.page.data.lookupHyperlink(cell);
+        const id = list_cell.node.data.lookupHyperlink(cell);
         try testing.expect(id == null);
     }
 }
@@ -5284,7 +5284,7 @@ test "Terminal: scrollUp clears hyperlink" {
         try testing.expect(!row.hyperlink);
         const cell = list_cell.cell;
         try testing.expect(!cell.hyperlink);
-        const id = list_cell.page.data.lookupHyperlink(cell);
+        const id = list_cell.node.data.lookupHyperlink(cell);
         try testing.expect(id == null);
     }
 }
@@ -5386,7 +5386,7 @@ test "Terminal: scrollUp left/right scroll region hyperlink" {
             } }).?;
             const cell = list_cell.cell;
             try testing.expect(!cell.hyperlink);
-            const id = list_cell.page.data.lookupHyperlink(cell);
+            const id = list_cell.node.data.lookupHyperlink(cell);
             try testing.expect(id == null);
         }
         for (1..4) |x| {
@@ -5398,9 +5398,9 @@ test "Terminal: scrollUp left/right scroll region hyperlink" {
             try testing.expect(row.hyperlink);
             const cell = list_cell.cell;
             try testing.expect(cell.hyperlink);
-            const id = list_cell.page.data.lookupHyperlink(cell).?;
+            const id = list_cell.node.data.lookupHyperlink(cell).?;
             try testing.expectEqual(@as(hyperlink.Id, 1), id);
-            const page = &list_cell.page.data;
+            const page = &list_cell.node.data;
             try testing.expectEqual(1, page.hyperlink_set.count());
         }
         for (4..6) |x| {
@@ -5410,7 +5410,7 @@ test "Terminal: scrollUp left/right scroll region hyperlink" {
             } }).?;
             const cell = list_cell.cell;
             try testing.expect(!cell.hyperlink);
-            const id = list_cell.page.data.lookupHyperlink(cell);
+            const id = list_cell.node.data.lookupHyperlink(cell);
             try testing.expect(id == null);
         }
     }
@@ -5426,9 +5426,9 @@ test "Terminal: scrollUp left/right scroll region hyperlink" {
             try testing.expect(row.hyperlink);
             const cell = list_cell.cell;
             try testing.expect(cell.hyperlink);
-            const id = list_cell.page.data.lookupHyperlink(cell).?;
+            const id = list_cell.node.data.lookupHyperlink(cell).?;
             try testing.expectEqual(@as(hyperlink.Id, 1), id);
-            const page = &list_cell.page.data;
+            const page = &list_cell.node.data;
             try testing.expectEqual(1, page.hyperlink_set.count());
         }
         for (1..4) |x| {
@@ -5438,7 +5438,7 @@ test "Terminal: scrollUp left/right scroll region hyperlink" {
             } }).?;
             const cell = list_cell.cell;
             try testing.expect(!cell.hyperlink);
-            const id = list_cell.page.data.lookupHyperlink(cell);
+            const id = list_cell.node.data.lookupHyperlink(cell);
             try testing.expect(id == null);
         }
         for (4..6) |x| {
@@ -5450,9 +5450,9 @@ test "Terminal: scrollUp left/right scroll region hyperlink" {
             try testing.expect(row.hyperlink);
             const cell = list_cell.cell;
             try testing.expect(cell.hyperlink);
-            const id = list_cell.page.data.lookupHyperlink(cell).?;
+            const id = list_cell.node.data.lookupHyperlink(cell).?;
             try testing.expectEqual(@as(hyperlink.Id, 1), id);
-            const page = &list_cell.page.data;
+            const page = &list_cell.node.data;
             try testing.expectEqual(1, page.hyperlink_set.count());
         }
     }
@@ -5596,9 +5596,9 @@ test "Terminal: scrollDown hyperlink moves" {
         try testing.expect(row.hyperlink);
         const cell = list_cell.cell;
         try testing.expect(cell.hyperlink);
-        const id = list_cell.page.data.lookupHyperlink(cell).?;
+        const id = list_cell.node.data.lookupHyperlink(cell).?;
         try testing.expectEqual(@as(hyperlink.Id, 1), id);
-        const page = &list_cell.page.data;
+        const page = &list_cell.node.data;
         try testing.expectEqual(1, page.hyperlink_set.count());
     }
     for (0..3) |x| {
@@ -5610,7 +5610,7 @@ test "Terminal: scrollDown hyperlink moves" {
         try testing.expect(!row.hyperlink);
         const cell = list_cell.cell;
         try testing.expect(!cell.hyperlink);
-        const id = list_cell.page.data.lookupHyperlink(cell);
+        const id = list_cell.node.data.lookupHyperlink(cell);
         try testing.expect(id == null);
     }
 }
@@ -5720,9 +5720,9 @@ test "Terminal: scrollDown left/right scroll region hyperlink" {
             try testing.expect(row.hyperlink);
             const cell = list_cell.cell;
             try testing.expect(cell.hyperlink);
-            const id = list_cell.page.data.lookupHyperlink(cell).?;
+            const id = list_cell.node.data.lookupHyperlink(cell).?;
             try testing.expectEqual(@as(hyperlink.Id, 1), id);
-            const page = &list_cell.page.data;
+            const page = &list_cell.node.data;
             try testing.expectEqual(1, page.hyperlink_set.count());
         }
         for (1..4) |x| {
@@ -5732,7 +5732,7 @@ test "Terminal: scrollDown left/right scroll region hyperlink" {
             } }).?;
             const cell = list_cell.cell;
             try testing.expect(!cell.hyperlink);
-            const id = list_cell.page.data.lookupHyperlink(cell);
+            const id = list_cell.node.data.lookupHyperlink(cell);
             try testing.expect(id == null);
         }
         for (4..6) |x| {
@@ -5744,9 +5744,9 @@ test "Terminal: scrollDown left/right scroll region hyperlink" {
             try testing.expect(row.hyperlink);
             const cell = list_cell.cell;
             try testing.expect(cell.hyperlink);
-            const id = list_cell.page.data.lookupHyperlink(cell).?;
+            const id = list_cell.node.data.lookupHyperlink(cell).?;
             try testing.expectEqual(@as(hyperlink.Id, 1), id);
-            const page = &list_cell.page.data;
+            const page = &list_cell.node.data;
             try testing.expectEqual(1, page.hyperlink_set.count());
         }
     }
@@ -5760,7 +5760,7 @@ test "Terminal: scrollDown left/right scroll region hyperlink" {
             } }).?;
             const cell = list_cell.cell;
             try testing.expect(!cell.hyperlink);
-            const id = list_cell.page.data.lookupHyperlink(cell);
+            const id = list_cell.node.data.lookupHyperlink(cell);
             try testing.expect(id == null);
         }
         for (1..4) |x| {
@@ -5772,9 +5772,9 @@ test "Terminal: scrollDown left/right scroll region hyperlink" {
             try testing.expect(row.hyperlink);
             const cell = list_cell.cell;
             try testing.expect(cell.hyperlink);
-            const id = list_cell.page.data.lookupHyperlink(cell).?;
+            const id = list_cell.node.data.lookupHyperlink(cell).?;
             try testing.expectEqual(@as(hyperlink.Id, 1), id);
-            const page = &list_cell.page.data;
+            const page = &list_cell.node.data;
             try testing.expectEqual(1, page.hyperlink_set.count());
         }
         for (4..6) |x| {
@@ -5784,7 +5784,7 @@ test "Terminal: scrollDown left/right scroll region hyperlink" {
             } }).?;
             const cell = list_cell.cell;
             try testing.expect(!cell.hyperlink);
-            const id = list_cell.page.data.lookupHyperlink(cell);
+            const id = list_cell.node.data.lookupHyperlink(cell);
             try testing.expect(id == null);
         }
     }
@@ -6018,7 +6018,7 @@ test "Terminal: eraseChars handles refcounted styles" {
     try t.print('C');
 
     // verify we have styles in our style map
-    const page = &t.screen.cursor.page_pin.page.data;
+    const page = &t.screen.cursor.page_pin.node.data;
     try testing.expectEqual(@as(usize, 1), page.styles.count());
 
     t.setCursorPos(1, 1);
@@ -6095,7 +6095,7 @@ test "Terminal: eraseChars wide char boundary conditions" {
 
     t.setCursorPos(1, 2);
     t.eraseChars(3);
-    t.screen.cursor.page_pin.page.data.assertIntegrity();
+    t.screen.cursor.page_pin.node.data.assertIntegrity();
 
     {
         const str = try t.plainString(alloc);
@@ -6122,7 +6122,7 @@ test "Terminal: eraseChars wide char wrap boundary conditions" {
 
     t.setCursorPos(2, 2);
     t.eraseChars(3);
-    t.screen.cursor.page_pin.page.data.assertIntegrity();
+    t.screen.cursor.page_pin.node.data.assertIntegrity();
 
     {
         const str = try t.plainString(alloc);
@@ -6425,7 +6425,7 @@ test "Terminal: index scrolling with hyperlink" {
         try testing.expect(row.hyperlink);
         const cell = list_cell.cell;
         try testing.expect(cell.hyperlink);
-        const id = list_cell.page.data.lookupHyperlink(cell).?;
+        const id = list_cell.node.data.lookupHyperlink(cell).?;
         try testing.expectEqual(@as(hyperlink.Id, 1), id);
     }
     {
@@ -6437,7 +6437,7 @@ test "Terminal: index scrolling with hyperlink" {
         try testing.expect(!row.hyperlink);
         const cell = list_cell.cell;
         try testing.expect(!cell.hyperlink);
-        const id = list_cell.page.data.lookupHyperlink(cell);
+        const id = list_cell.node.data.lookupHyperlink(cell);
         try testing.expect(id == null);
     }
 }
@@ -6599,7 +6599,7 @@ test "Terminal: index bottom of scroll region with hyperlinks" {
         try testing.expect(row.hyperlink);
         const cell = list_cell.cell;
         try testing.expect(cell.hyperlink);
-        const id = list_cell.page.data.lookupHyperlink(cell).?;
+        const id = list_cell.node.data.lookupHyperlink(cell).?;
         try testing.expectEqual(@as(hyperlink.Id, 1), id);
     }
     {
@@ -6611,7 +6611,7 @@ test "Terminal: index bottom of scroll region with hyperlinks" {
         try testing.expect(!row.hyperlink);
         const cell = list_cell.cell;
         try testing.expect(!cell.hyperlink);
-        const id = list_cell.page.data.lookupHyperlink(cell);
+        const id = list_cell.node.data.lookupHyperlink(cell);
         try testing.expect(id == null);
     }
 }
@@ -6648,9 +6648,9 @@ test "Terminal: index bottom of scroll region clear hyperlinks" {
         try testing.expect(!row.hyperlink);
         const cell = list_cell.cell;
         try testing.expect(!cell.hyperlink);
-        const id = list_cell.page.data.lookupHyperlink(cell);
+        const id = list_cell.node.data.lookupHyperlink(cell);
         try testing.expect(id == null);
-        const page = &list_cell.page.data;
+        const page = &list_cell.node.data;
         try testing.expectEqual(0, page.hyperlink_set.count());
     }
 }
@@ -7972,7 +7972,7 @@ test "Terminal: bold style" {
         const cell = list_cell.cell;
         try testing.expectEqual(@as(u21, 'A'), cell.content.codepoint);
         try testing.expect(cell.style_id != 0);
-        const page = &t.screen.cursor.page_pin.page.data;
+        const page = &t.screen.cursor.page_pin.node.data;
         try testing.expect(page.styles.refCount(page.memory, t.screen.cursor.style_id) > 1);
     }
 }
@@ -7996,7 +7996,7 @@ test "Terminal: garbage collect overwritten" {
     }
 
     // verify we have no styles in our style map
-    const page = &t.screen.cursor.page_pin.page.data;
+    const page = &t.screen.cursor.page_pin.node.data;
     try testing.expectEqual(@as(usize, 0), page.styles.count());
 }
 
@@ -8018,7 +8018,7 @@ test "Terminal: do not garbage collect old styles in use" {
     }
 
     // verify we have no styles in our style map
-    const page = &t.screen.cursor.page_pin.page.data;
+    const page = &t.screen.cursor.page_pin.node.data;
     try testing.expectEqual(@as(usize, 1), page.styles.count());
 }
 
@@ -8390,7 +8390,7 @@ test "Terminal: insertBlanks deleting graphemes" {
     try t.print(0x1F467);
 
     // We should have one cell with graphemes
-    const page = &t.screen.cursor.page_pin.page.data;
+    const page = &t.screen.cursor.page_pin.node.data;
     try testing.expectEqual(@as(usize, 1), page.graphemeCount());
 
     t.setCursorPos(1, 1);
@@ -8426,7 +8426,7 @@ test "Terminal: insertBlanks shift graphemes" {
     try t.print(0x1F467);
 
     // We should have one cell with graphemes
-    const page = &t.screen.cursor.page_pin.page.data;
+    const page = &t.screen.cursor.page_pin.node.data;
     try testing.expectEqual(@as(usize, 1), page.graphemeCount());
 
     t.setCursorPos(1, 1);
@@ -8494,7 +8494,7 @@ test "Terminal: insertBlanks shifts hyperlinks" {
         try testing.expect(row.hyperlink);
         const cell = list_cell.cell;
         try testing.expect(cell.hyperlink);
-        const id = list_cell.page.data.lookupHyperlink(cell).?;
+        const id = list_cell.node.data.lookupHyperlink(cell).?;
         try testing.expectEqual(@as(hyperlink.Id, 1), id);
     }
     for (0..2) |x| {
@@ -8504,7 +8504,7 @@ test "Terminal: insertBlanks shifts hyperlinks" {
         } }).?;
         const cell = list_cell.cell;
         try testing.expect(!cell.hyperlink);
-        const id = list_cell.page.data.lookupHyperlink(cell);
+        const id = list_cell.node.data.lookupHyperlink(cell);
         try testing.expect(id == null);
     }
 }
@@ -8534,7 +8534,7 @@ test "Terminal: insertBlanks pushes hyperlink off end completely" {
         try testing.expect(!row.hyperlink);
         const cell = list_cell.cell;
         try testing.expect(!cell.hyperlink);
-        const id = list_cell.page.data.lookupHyperlink(cell);
+        const id = list_cell.node.data.lookupHyperlink(cell);
         try testing.expect(id == null);
     }
 }
@@ -9036,7 +9036,7 @@ test "Terminal: deleteChars wide char boundary conditions" {
 
     t.setCursorPos(1, 2);
     t.deleteChars(3);
-    t.screen.cursor.page_pin.page.data.assertIntegrity();
+    t.screen.cursor.page_pin.node.data.assertIntegrity();
 
     {
         const str = try t.plainString(alloc);
@@ -9088,7 +9088,7 @@ test "Terminal: deleteChars wide char wrap boundary conditions" {
 
     t.setCursorPos(2, 2);
     t.deleteChars(3);
-    t.screen.cursor.page_pin.page.data.assertIntegrity();
+    t.screen.cursor.page_pin.node.data.assertIntegrity();
 
     {
         const str = try t.plainString(alloc);
@@ -9127,7 +9127,7 @@ test "Terminal: deleteChars wide char across right margin" {
 
     t.setCursorPos(1, 2);
     t.deleteChars(1);
-    t.screen.cursor.page_pin.page.data.assertIntegrity();
+    t.screen.cursor.page_pin.node.data.assertIntegrity();
 
     // NOTE: This behavior is slightly inconsistent with xterm. xterm
     // _visually_ splits the wide character (half the wide character shows

@@ -372,7 +372,7 @@ pub fn adjust(
             var current = end_pin.*;
             while (current.down(1)) |next| : (current = next) {
                 const rac = next.rowAndCell();
-                const cells = next.page.data.getCells(rac.row);
+                const cells = next.node.data.getCells(rac.row);
                 if (page.Cell.hasTextAny(cells)) {
                     end_pin.* = next;
                     break;
@@ -434,7 +434,7 @@ pub fn adjust(
             );
             while (it.next()) |next| {
                 const rac = next.rowAndCell();
-                const cells = next.page.data.getCells(rac.row);
+                const cells = next.node.data.getCells(rac.row);
                 if (page.Cell.hasTextAny(cells)) {
                     end_pin.* = next;
                     end_pin.x = @intCast(cells.len - 1);
@@ -445,7 +445,7 @@ pub fn adjust(
 
         .beginning_of_line => end_pin.x = 0,
 
-        .end_of_line => end_pin.x = end_pin.page.data.size.cols - 1,
+        .end_of_line => end_pin.x = end_pin.node.data.size.cols - 1,
     }
 }
 

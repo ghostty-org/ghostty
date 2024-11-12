@@ -1040,7 +1040,7 @@ pub fn updateFrame(
                 null,
             );
             while (it.next()) |chunk| {
-                var dirty_set = chunk.page.data.dirtyBitSet();
+                var dirty_set = chunk.node.data.dirtyBitSet();
                 dirty_set.unsetAll();
             }
         }
@@ -2364,7 +2364,7 @@ fn rebuildCells(
             // True if this cell is selected
             const selected: bool = if (screen.selection) |sel|
                 sel.contains(screen, .{
-                    .page = row.page,
+                    .node = row.node,
                     .y = row.y,
                     .x = @intCast(
                         // Spacer tails should show the selection
@@ -2512,12 +2512,7 @@ fn rebuildCells(
                 );
             };
 
-            if (style.flags.overline) self.addOverline(
-                @intCast(x),
-                @intCast(y),
-                fg,
-                alpha
-            ) catch |err| {
+            if (style.flags.overline) self.addOverline(@intCast(x), @intCast(y), fg, alpha) catch |err| {
                 log.warn(
                     "error adding overline to cell, will be invalid x={} y={}, err={}",
                     .{ x, y, err },

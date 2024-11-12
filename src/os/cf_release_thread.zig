@@ -9,7 +9,7 @@ const builtin = @import("builtin");
 const xev = @import("xev");
 const macos = @import("macos");
 
-const BlockingQueue = @import("../blocking_queue.zig").BlockingQueue;
+const BlockingQueue = @import("../datastruct/main.zig").BlockingQueue;
 
 const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.cf_release_thread);

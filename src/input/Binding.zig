@@ -317,8 +317,7 @@ pub const Action = union(enum) {
     /// Focus on a split in a given direction.
     goto_split: SplitFocusDirection,
 
-    /// zoom/unzoom the current split. This is currently only supported
-    /// on macOS. Contributions welcome for other platforms.
+    /// zoom/unzoom the current split.
     toggle_split_zoom: void,
 
     /// Resize the current split by moving the split divider in the given

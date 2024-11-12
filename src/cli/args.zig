@@ -132,8 +132,8 @@ pub fn parse(
                 // track more error messages.
                 error.OutOfMemory => return err,
                 error.InvalidField => "unknown field",
-                error.ValueRequired => "value required",
-                error.InvalidValue => "invalid value",
+                error.ValueRequired => formatValueRequired(T, arena_alloc, key) catch "value required",
+                error.InvalidValue => formatInvalidValue(T, arena_alloc, key, value) catch "invalid value",
                 else => try std.fmt.allocPrintZ(
                     arena_alloc,
                     "unknown error {}",
@@ -148,6 +148,54 @@ pub fn parse(
                 .location = diags.Location.fromIter(iter),
             });
         };
+    }
+}
+
+fn formatValueRequired(
+    comptime T: type,
+    arena_alloc: std.mem.Allocator,
+    key: []const u8,
+) std.mem.Allocator.Error![:0]const u8 {
+    var buf = std.ArrayList(u8).init(arena_alloc);
+    errdefer buf.deinit();
+    const writer = buf.writer();
+    try writer.print("value required", .{});
+    try formatValues(T, key, writer);
+    try writer.writeByte(0);
+    return buf.items[0 .. buf.items.len - 1 :0];
+}
+
+fn formatInvalidValue(
+    comptime T: type,
+    arena_alloc: std.mem.Allocator,
+    key: []const u8,
+    value: ?[]const u8,
+) std.mem.Allocator.Error![:0]const u8 {
+    var buf = std.ArrayList(u8).init(arena_alloc);
+    errdefer buf.deinit();
+    const writer = buf.writer();
+    try writer.print("invalid value \"{?s}\"", .{value});
+    try formatValues(T, key, writer);
+    try writer.writeByte(0);
+    return buf.items[0 .. buf.items.len - 1 :0];
+}
+
+fn formatValues(comptime T: type, key: []const u8, writer: anytype) std.mem.Allocator.Error!void {
+    const typeinfo = @typeInfo(T);
+    inline for (typeinfo.Struct.fields) |f| {
+        if (std.mem.eql(u8, key, f.name)) {
+            switch (@typeInfo(f.type)) {
+                .Enum => |e| {
+                    try writer.print(", valid values are: ", .{});
+                    inline for (e.fields, 0..) |field, i| {
+                        if (i != 0) try writer.print(", ", .{});
+                        try writer.print("{s}", .{field.name});
+                    }
+                },
+                else => {},
+            }
+            break;
+        }
     }
 }
 
