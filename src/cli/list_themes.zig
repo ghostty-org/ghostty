@@ -289,9 +289,11 @@ const Preview = struct {
             while (it.next()) |token| try tokens.append(token);
 
             for (self.themes, 0..) |*theme, i| {
-                theme.rank = zf.rank(theme.theme, tokens.items, false, true);
-                if (theme.rank) |_|
-                    try self.filtered.append(i);
+                theme.rank = zf.rank(theme.theme, tokens.items, .{
+                    .to_lower = false,
+                    .plain = true,
+                });
+                if (theme.rank != null) try self.filtered.append(i);
             }
         } else {
             for (self.themes, 0..) |*theme, i| {

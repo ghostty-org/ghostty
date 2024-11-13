@@ -49,16 +49,16 @@
         // Other
         .apple_sdk = .{ .path = "./pkg/apple-sdk" },
         .iterm2_themes = .{
-            .url = "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/da56d590c4237c96d81cc5ed987ea098eebefdf6.tar.gz",
-            .hash = "1220fac17a112b0dd11ec85e5b31a30f05bfaed897c03f31285276544db30d010c41",
+            .url = "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/80543b14552b7c9fef88fad826552e6ac5632abe.tar.gz",
+            .hash = "1220217ae916146a4c598f8ba5bfff0ff940335d00572e337f20b4accf24fa2ca4fc",
         },
         .vaxis = .{
-            .url = "git+https://github.com/rockorager/libvaxis?ref=main#a1b43d24653670d612b91f0855b165e6c987b809",
-            .hash = "1220e4d6fc82c487178339422887fdfd5094b15c242fe31ad596c4b2fcdc60ef667f",
+            .url = "https://github.com/rockorager/libvaxis/archive/refs/tags/v0.5.1.tar.gz",
+            .hash = "1220de23a3240e503397ea579de4fd85db422f537e10036ef74717c50164475813ce",
         },
         .zf = .{
-            .url = "git+https://github.com/natecraddock/zf.git?ref=main#bb27a917c3513785c6a91f0b1c10002a5029cacc",
-            .hash = "1220a74107c7f153a2f809e41c7fa7e8dbf75c91043e39fad998247804e5edac2cc8",
+            .url = "https://github.com/natecraddock/zf/archive/refs/tags/0.10.2.tar.gz",
+            .hash = "1220014ae47a57902e90aa7b4ff9751832ba1f426d7b138580db06859e0e9b51dfe5",
         },
         .z2d = .{
             .url = "git+https://github.com/vancluever/z2d?ref=main#285a796eb9c25a2389f087d008f0e60faf0b8eda",
