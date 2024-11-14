@@ -312,8 +312,8 @@ class AppDelegate: NSObject,
         syncMenuShortcut(action: "close_surface", menuItem: self.menuClose)
         syncMenuShortcut(action: "close_window", menuItem: self.menuCloseWindow)
         syncMenuShortcut(action: "close_all_windows", menuItem: self.menuCloseAllWindows)
-        syncMenuShortcut(action: "new_split:right", menuItem: self.menuSplitRight)
-        syncMenuShortcut(action: "new_split:down", menuItem: self.menuSplitDown)
+        syncMenuShortcut(action: "new_split:right,50%", menuItem: self.menuSplitRight)
+        syncMenuShortcut(action: "new_split:down,50%", menuItem: self.menuSplitDown)
 
         syncMenuShortcut(action: "copy_to_clipboard", menuItem: self.menuCopy)
         syncMenuShortcut(action: "paste_from_clipboard", menuItem: self.menuPaste)

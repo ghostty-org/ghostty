@@ -310,9 +310,9 @@ pub const Action = union(enum) {
     /// This only works with libadwaita enabled currently.
     toggle_tab_overview: void,
 
-    /// Create a new split in the given direction. The new split will appear in
+    /// Create a new split in the given direction and percentage. The new split will appear in
     /// the direction given.
-    new_split: SplitDirection,
+    new_split: SplitParameter,
 
     /// Focus on a split in a given direction.
     goto_split: SplitFocusDirection,
@@ -453,6 +453,13 @@ pub const Action = union(enum) {
         auto, // splits along the larger direction
     };
 
+    pub const Percentage = u16;
+
+    pub const SplitParameter = struct {
+        SplitDirection,
+        Percentage,
+    };
+
     pub const SplitFocusDirection = enum {
         previous,
         next,
@@ -491,8 +498,18 @@ pub const Action = union(enum) {
         return std.meta.stringToEnum(T, value) orelse return Error.InvalidFormat;
     }
 
-    fn parseInt(comptime T: type, value: []const u8) !T {
-        return std.fmt.parseInt(T, value, 10) catch return Error.InvalidFormat;
+    fn parseInt(comptime T: type, value: []const u8, comptime ParentType: ?type) !T {
+        return switch (ParentType orelse void) {
+            Action.SplitParameter => blk: {
+                if (value.len < 2) return Error.InvalidFormat;
+                if (value[value.len - 1] != '%') return Error.InvalidFormat;
+                const percent = value[0 .. value.len - 1];
+                const parsed_percent = std.fmt.parseInt(T, percent, 10) catch return Error.InvalidFormat;
+                const clamped_percent: u16 = @min(parsed_percent, 100);
+                break :blk clamped_percent;
+            },
+            else => std.fmt.parseInt(T, value, 10) catch return Error.InvalidFormat,
+        };
     }
 
     fn parseFloat(comptime T: type, value: []const u8) !T {
@@ -505,7 +522,7 @@ pub const Action = union(enum) {
     ) !field.type {
         return switch (@typeInfo(field.type)) {
             .Enum => try parseEnum(field.type, param),
-            .Int => try parseInt(field.type, param),
+            .Int => try parseInt(field.type, param, null),
             .Float => try parseFloat(field.type, param),
             .Struct => |info| blk: {
                 // Only tuples are supported to avoid ambiguity with field
@@ -518,7 +535,7 @@ pub const Action = union(enum) {
                     const next = it.next() orelse return Error.InvalidFormat;
                     @field(value, field_.name) = switch (@typeInfo(field_.type)) {
                         .Enum => try parseEnum(field_.type, next),
-                        .Int => try parseInt(field_.type, next),
+                        .Int => try parseInt(field_.type, next, field.type),
                         .Float => try parseFloat(field_.type, next),
                         else => unreachable,
                     };
@@ -1687,9 +1704,23 @@ test "parse: action with enum" {
 
     // parameter
     {
-        const binding = try parseSingle("a=new_split:right");
+        const binding = try parseSingle("a=new_split:right,50%");
         try testing.expect(binding.action == .new_split);
-        try testing.expectEqual(Action.SplitDirection.right, binding.action.new_split);
+        try testing.expectEqual(Action.SplitDirection.right, binding.action.new_split[0]);
+        try testing.expectEqual(@as(u16, 50), binding.action.new_split[1]);
+    }
+
+    // missing unit %
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=new_split:right,50"));
+
+    // too many
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=new_split:right,30%,50%"));
+
+    // clamping value
+    {
+        const binding = try parseSingle("a=new_split:right,150%");
+        try testing.expectEqual(@as(u16, 100), binding.action.new_split[1]);
+        try testing.expectError(Error.InvalidFormat, parseSingle("a=new_split:right,-50%"));
     }
 }
 
