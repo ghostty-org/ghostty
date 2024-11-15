@@ -129,10 +129,14 @@ pub fn init(
     // Skip resize logic if percent is 50 (this is the default behavior)
     if (new_split.percent != 50) {
         const allocation = sibling.size;
+
+        // get the content scale to handle scaled HiDPI displays
+        const scale = try sibling.getContentScale();
+
         const split_percentage: f32 = @as(f32, @floatFromInt(new_split.percent)) / 100;
         const total_surface_size: f32 = switch (self.orientation) {
-            .horizontal => @floatFromInt(allocation.width),
-            .vertical => @floatFromInt(allocation.height),
+            .horizontal => @as(f32, @floatFromInt(allocation.width)) / scale.x,
+            .vertical => @as(f32, @floatFromInt(allocation.height)) / scale.y,
         };
 
         // percentage to apply based on direction
