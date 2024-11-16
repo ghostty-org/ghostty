@@ -4511,6 +4511,7 @@ pub const GtkTabsLocation = enum {
     bottom,
     left,
     right,
+    headerbar,
 };
 
 /// See adw-toolbar-style
