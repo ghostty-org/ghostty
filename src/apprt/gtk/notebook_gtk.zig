@@ -259,7 +259,7 @@ fn gtkSwitchPage(_: *c.GtkNotebook, page: *c.GtkWidget, _: usize, ud: ?*anyopaqu
     const gtk_label_box = @as(*c.GtkWidget, @ptrCast(c.gtk_notebook_get_tab_label(self.notebook, page)));
     const gtk_label = @as(*c.GtkLabel, @ptrCast(c.gtk_widget_get_first_child(gtk_label_box)));
     const label_text = c.gtk_label_get_text(gtk_label);
-    c.gtk_window_set_title(window.window, label_text);
+    window.setTitle(std.mem.span(label_text));
 }
 
 fn gtkNotebookCreateWindow(

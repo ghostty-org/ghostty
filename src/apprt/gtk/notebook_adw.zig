@@ -159,5 +159,5 @@ fn adwSelectPage(_: *c.GObject, _: *c.GParamSpec, ud: ?*anyopaque) void {
     const window: *Window = @ptrCast(@alignCast(ud.?));
     const page = c.adw_tab_view_get_selected_page(window.notebook.adw.tab_view) orelse return;
     const title = c.adw_tab_page_get_title(page);
-    c.gtk_window_set_title(window.window, title);
+    window.setTitle(std.mem.span(title));
 }
