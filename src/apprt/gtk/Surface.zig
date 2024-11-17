@@ -346,6 +346,11 @@ cursor: ?*c.GdkCursor = null,
 /// pass it to GTK.
 title_text: ?[:0]const u8 = null,
 
+/// Our current working directory. We use this value for setting tooltips in
+/// the headerbar subtitle if we have focus. When set, the text in this buf
+/// will be null-terminated because we need to pass it to GTK.
+pwd: ?[:0]const u8 = null,
+
 /// The core surface backing this surface
 core_surface: CoreSurface,
 
@@ -624,6 +629,7 @@ fn realize(self: *Surface) !void {
 pub fn deinit(self: *Surface) void {
     self.init_config.deinit(self.app.core_app.alloc);
     if (self.title_text) |title| self.app.core_app.alloc.free(title);
+    if (self.pwd) |pwd| self.app.core_app.alloc.free(pwd);
 
     // We don't allocate anything if we aren't realized.
     if (!self.realized) return;
@@ -871,7 +877,7 @@ fn updateTitleLabels(self: *Surface) void {
             // I don't know a way around this yet. I've tried re-hiding the
             // cursor after setting the title but it doesn't work, I think
             // due to some gtk event loop things...
-            c.gtk_window_set_title(window.window, title.ptr);
+            window.setTitle(title);
         }
     }
 }
@@ -908,11 +914,33 @@ pub fn getTitle(self: *Surface) ?[:0]const u8 {
     return null;
 }
 
-pub fn setPwd(self: *Surface, pwd: [:0]const u8) !void {
-    // If we have a tab and are the focused child, then we have to update the tab
+/// Update the subtitle of the surface's window if it has one.
+fn updateSubtitle(self: *Surface, subtitle: [:0]const u8) void {
+    const window = self.container.window() orelse return;
+    window.setSubtitle(subtitle);
+}
+
+/// Set the current working directory of the surface.
+///
+/// In addition, update the tab's tooltip text, and if we are the focused child,
+/// update the subtitle of the containing window.
+pub fn setPwd(self: *Surface, slice: [:0]const u8) !void {
     if (self.container.tab()) |tab| {
-        tab.setTooltipText(pwd);
+        tab.setTooltipText(slice);
+
+        if (tab.focus_child == self) {
+            if (self.container.window()) |window| {
+                window.setSubtitle(slice);
+            }
+        }
     }
+
+    const alloc = self.app.core_app.alloc;
+
+    // Failing to set the surface's current working directory is not a big
+    // deal since we just used our slice parameter which is the same value.
+    if (self.pwd) |old| alloc.free(old);
+    self.pwd = alloc.dupeZ(u8, slice) catch null;
 }
 
 pub fn setMouseShape(
@@ -1858,6 +1886,12 @@ fn gtkFocusEnter(_: *c.GtkEventControllerFocus, ud: ?*anyopaque) callconv(.C) vo
     if (self.unfocused_widget) |widget| {
         c.gtk_overlay_remove_overlay(self.overlay, widget);
         self.unfocused_widget = null;
+    }
+
+    if (self.pwd) |pwd| {
+        if (self.container.window()) |window| {
+            window.setSubtitle(pwd);
+        }
     }
 
     // Notify our surface

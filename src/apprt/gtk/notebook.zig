@@ -440,7 +440,7 @@ fn adwSelectPage(_: *c.GObject, _: *c.GParamSpec, ud: ?*anyopaque) void {
     const window: *Window = @ptrCast(@alignCast(ud.?));
     const page = c.adw_tab_view_get_selected_page(window.notebook.adw_tab_view) orelse return;
     const title = c.adw_tab_page_get_title(page);
-    c.gtk_window_set_title(window.window, title);
+    window.setTitle(std.mem.span(title));
 }
 
 fn gtkSwitchPage(_: *c.GtkNotebook, page: *c.GtkWidget, _: usize, ud: ?*anyopaque) callconv(.C) void {
@@ -448,7 +448,7 @@ fn gtkSwitchPage(_: *c.GtkNotebook, page: *c.GtkWidget, _: usize, ud: ?*anyopaqu
     const gtk_label_box = @as(*c.GtkWidget, @ptrCast(c.gtk_notebook_get_tab_label(window.notebook.gtk_notebook, page)));
     const gtk_label = @as(*c.GtkLabel, @ptrCast(c.gtk_widget_get_first_child(gtk_label_box)));
     const label_text = c.gtk_label_get_text(gtk_label);
-    c.gtk_window_set_title(window.window, label_text);
+    window.setTitle(std.mem.span(label_text));
 }
 
 fn adwTabViewCreateWindow(
