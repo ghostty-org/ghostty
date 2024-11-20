@@ -17,6 +17,7 @@
   glib,
   gtk4,
   libadwaita,
+  gst_all_1,
   wrapGAppsHook4,
   gsettings-desktop-schemas,
   git,
@@ -51,6 +52,7 @@
         ../conformance
         ../images
         ../include
+        ../media
         ../pkg
         ../src
         ../vendor
@@ -144,6 +146,10 @@ in
         libadwaita
         gtk4
         glib
+        gst_all_1.gstreamer
+        gst_all_1.gst-plugins-base
+        gst_all_1.gst-plugins-good
+
         gsettings-desktop-schemas
       ];
 
@@ -177,6 +183,10 @@ in
       mv "$out/share/ghostty/shell-integration" "$shell_integration/shell-integration"
       ln -sf "$shell_integration/shell-integration" "$out/share/ghostty/shell-integration"
       echo "$shell_integration" >> "$out/nix-support/propagated-user-env-packages"
+
+      echo "gst_all_1.gstreamer" >> "$out/nix-support/propagated-user-env-packages"
+      echo "gst_all_1.gst-plugins-base" >> "$out/nix-support/propagated-user-env-packages"
+      echo "gst_all_1.gst-plugins-good" >> "$out/nix-support/propagated-user-env-packages"
     '';
 
     postFixup = ''

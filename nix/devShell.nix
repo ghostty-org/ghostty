@@ -51,6 +51,7 @@
   pandoc,
   hyperfine,
   typos,
+  gst_all_1,
 }: let
   # See package.nix. Keep in sync.
   rpathLibs =
@@ -153,6 +154,9 @@ in
         libadwaita
         gtk4
         glib
+        gst_all_1.gstreamer
+        gst_all_1.gst-plugins-base
+        gst_all_1.gst-plugins-good
       ];
 
     # This should be set onto the rpath of the ghostty binary if you want

@@ -1736,6 +1736,51 @@ term: []const u8 = "xterm-ghostty",
 /// Changing this value at runtime works after a small delay.
 @"auto-update": AutoUpdate = .check,
 
+/// Bell features to enable if bell support is available in your runtime. The
+/// format of this is a list of features to enable separated by commas. If you
+/// prefix a feature with `no-` then it is disabled. If you omit a feature, its
+/// default value is used, so you must explicitly disable features you don't
+/// want.
+///
+/// Available features:
+///
+///   * `audio` - Play an audible sound. (GTK only).
+///
+///   * `visual` - Flashes a visual indication in the surface that triggered
+///     the bell. (Currently not implemented.)
+///
+///   * `notification` - Displays a desktop notification. (Currently not
+///     implemented.)
+///
+///   * `title` - Will add a visual indicator to the window/tab title.
+///     (Currently not implemented.)
+///
+///   * `command` - Will run a command (e.g. for haptic feedback or flashing a
+///     physical light). (Currently not implemented.)
+///
+/// Example: `audio`, `no-audio`, `visual`, `no-visual`, `notification`, `no-notification`
+///
+/// By default, no bell features are enabled.
+@"bell-features": BellFeatures = .{},
+
+/// If `audio` is an enabled bell feature, this determines whether to use an
+/// internal audio file or whether to use a custom file on disk.
+///
+///   * `bell` - A simple bell sound.
+///
+///   * `message` - Another bell sound.
+///
+///   * `custom:<filename>` - The filename of an audio file to play as the bell.
+///     If the filename is not an absolute pathname the directory `~/.config/
+///     ghostty/media` will be searched for the file.
+///
+/// The default value is `bell`
+@"bell-audio": BellAudio = .{ .bell = {} },
+
+/// If `command` is an enabled bell feature, the command to be run. By default,
+/// this value is unset and no command will run.
+@"bell-command": ?[:0]const u8 = null,
+
 /// This is set by the CLI parser for deinit.
 _arena: ?ArenaAllocator = null,
 
@@ -4955,3 +5000,62 @@ test "test entryFormatter" {
     try p.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
     try std.testing.expectEqualStrings("a = 584y 49w 23h 34m 33s 709ms 551µs 615ns\n", buf.items);
 }
+
+/// Bell features
+pub const BellFeatures = packed struct {
+    audio: bool = false,
+    visual: bool = false,
+    notification: bool = false,
+    title: bool = false,
+    command: bool = false,
+};
+
+pub const BellAudio = union(enum) {
+    bell: void,
+    message: void,
+    custom: [:0]const u8,
+
+    pub fn formatEntry(self: BellAudio, formatter: anytype) !void {
+        switch (self) {
+            .bell, .message => try formatter.formatEntry([]const u8, @tagName(self)),
+            .custom => |filename| {
+                var buf: [std.fs.max_path_bytes + 7]u8 = undefined;
+                try formatter.formatEntry(
+                    []const u8,
+                    std.fmt.bufPrint(
+                        &buf,
+                        "custom:{s}",
+                        .{filename},
+                    ) catch return error.OutOfMemory,
+                );
+            },
+        }
+    }
+
+    test "test formatEntry 1" {
+        var buf = std.ArrayList(u8).init(std.testing.allocator);
+        defer buf.deinit();
+
+        var b: BellAudio = .{ .bell = {} };
+        try b.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
+        try std.testing.expectEqualStrings("a = bell\n", buf.items);
+    }
+
+    test "test formatEntry 2" {
+        var buf = std.ArrayList(u8).init(std.testing.allocator);
+        defer buf.deinit();
+
+        var b: BellAudio = .{ .message = {} };
+        try b.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
+        try std.testing.expectEqualStrings("a = message\n", buf.items);
+    }
+
+    test "test formatEntry 3" {
+        var buf = std.ArrayList(u8).init(std.testing.allocator);
+        defer buf.deinit();
+
+        var b: BellAudio = .{ .custom = "custom.oga" };
+        try b.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
+        try std.testing.expectEqualStrings("a = custom:custom.oga\n", buf.items);
+    }
+};
