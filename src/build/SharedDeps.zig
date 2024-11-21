@@ -84,6 +84,44 @@ fn initTarget(
     try self.config.addOptions(self.options);
 }
 
+pub fn addWasm(
+    self: *const SharedDeps,
+    step: *std.Build.Step.Compile,
+) !LazyPathList {
+    const b = step.step.owner;
+
+    // We could use our config.target/optimize fields here but its more
+    // correct to always match our step.
+    const target = step.root_module.resolved_target.?;
+    const optimize = step.root_module.optimize.?;
+
+    // We maintain a list of our static libraries and return it so that
+    // we can build a single fat static library for the final app.
+    var static_libs = LazyPathList.init(b.allocator);
+    errdefer static_libs.deinit();
+
+    // Every exe gets build options populated
+    step.root_module.addOptions("build_options", self.options);
+
+    const js_dep = b.dependency("zig_js", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    step.root_module.addImport("zig-js", js_dep.module("zig-js"));
+    step.root_module.addImport("z2d", b.addModule("z2d", .{
+        .root_source_file = b.dependency("z2d", .{}).path("src/z2d.zig"),
+        .target = target,
+        .optimize = optimize,
+    }));
+    step.root_module.addImport("ziglyph", b.dependency("ziglyph", .{
+        .target = target,
+        .optimize = optimize,
+    }).module("ziglyph"));
+
+    self.unicode_tables.addImport(step);
+    return static_libs;
+}
+
 pub fn add(
     self: *const SharedDeps,
     step: *std.Build.Step.Compile,
@@ -259,17 +297,6 @@ pub fn add(
             .optimize = optimize,
         });
         try static_libs.append(breakpad_dep.artifact("breakpad").getEmittedBin());
-    }
-
-    // Wasm we do manually since it is such a different build.
-    if (step.rootModuleTarget().cpu.arch == .wasm32) {
-        const js_dep = b.dependency("zig_js", .{
-            .target = target,
-            .optimize = optimize,
-        });
-        step.root_module.addImport("zig-js", js_dep.module("zig-js"));
-
-        return static_libs;
     }
 
     // On Linux, we need to add a couple common library paths that aren't

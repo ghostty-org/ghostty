@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 
 const terminal = @import("../main.zig");
+const internal_os = @import("../../os/main.zig");
 const point = @import("../point.zig");
 const size = @import("../size.zig");
 const command = @import("graphics_command.zig");
@@ -498,7 +499,7 @@ pub const ImageStorage = struct {
         // bit is fine compared to the megabytes we're looking to save.
         const Candidate = struct {
             id: u32,
-            time: std.time.Instant,
+            time: internal_os.Instant,
             used: bool,
         };
 

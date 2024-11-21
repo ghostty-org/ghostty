@@ -15,6 +15,8 @@ pub fn build(b: *std.Build) !void {
     // Ghostty dependencies used by many artifacts.
     const deps = try buildpkg.SharedDeps.init(b, &config);
     const exe = try buildpkg.GhosttyExe.init(b, &config, &deps);
+    const wasm = try buildpkg.GhosttyWasm.init(b, &config, &deps);
+    _ = wasm;
     if (config.emit_helpgen) deps.help_strings.install();
 
     // Ghostty docs

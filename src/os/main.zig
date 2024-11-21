@@ -12,6 +12,8 @@ const mouse = @import("mouse.zig");
 const openpkg = @import("open.zig");
 const pipepkg = @import("pipe.zig");
 const resourcesdir = @import("resourcesdir.zig");
+const builtin = @import("builtin");
+const std = @import("std");
 
 // Namespaces
 pub const args = @import("args.zig");
@@ -51,3 +53,8 @@ pub const OpenType = openpkg.Type;
 pub const pipe = pipepkg.pipe;
 pub const resourcesDir = resourcesdir.resourcesDir;
 pub const ShellEscapeWriter = shell.ShellEscapeWriter;
+pub const Instant = if (builtin.cpu.arch != .wasm32) std.time.Instant else struct {
+    fn now() !@This() {
+        return .{};
+    }
+};
