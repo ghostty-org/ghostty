@@ -116,7 +116,7 @@ pub fn build(b: *std.Build) !void {
             .flags = flags.items,
         }),
 
-        .freestanding => {},
+        .freestanding, .wasi => {},
 
         else => {
             std.log.warn("target={} not supported", .{target.result.os.tag});

@@ -325,6 +325,23 @@ pub const Face = struct {
         return ctx;
     }
 
+    pub fn isColorGlyph(self: *const Face, cp: u32) bool {
+        // Render the glyph
+        var render = self.renderGlyphInternal(self.alloc, cp) catch unreachable;
+        defer render.deinit();
+
+        // Inspect the image data for any non-zeros in the RGB value.
+        // NOTE(perf): this is an easy candidate for SIMD.
+        var i: usize = 0;
+        while (i < render.bitmap.len) : (i += 4) {
+            if (render.bitmap[i] > 0 or
+                render.bitmap[i + 1] > 0 or
+                render.bitmap[i + 2] > 0) return true;
+        }
+
+        return false;
+    }
+
     /// An internal (web-canvas-only) format for rendered glyphs
     /// since we do render passes in multiple different situations.
     const RenderedGlyph = struct {
@@ -494,7 +511,7 @@ pub const Wasm = struct {
     const alloc = wasm.alloc;
 
     export fn face_new(ptr: [*]const u8, len: usize, pts: u16, p: u16) ?*Face {
-        return face_new_(ptr, len, pts, p) catch null;
+        return face_new_(ptr, len, @floatFromInt(pts), p) catch null;
     }
 
     fn face_new_(ptr: [*]const u8, len: usize, pts: f32, presentation: u16) !*Face {

@@ -174,7 +174,7 @@ const Mouse = struct {
     /// The left click time was the last time the left click was done. This
     /// is always set on the first left click.
     left_click_count: u8 = 0,
-    left_click_time: std.time.Instant = undefined,
+    left_click_time: internal_os.Instant = undefined,
 
     /// The last x/y sent for mouse reports.
     event_point: ?terminal.point.Coordinate = null,
@@ -2724,7 +2724,7 @@ pub fn mouseButtonCallback(
 
             // If we are within the interval that the click would register
             // an increment then we do not extend the selection.
-            if (std.time.Instant.now()) |now| {
+            if (internal_os.Instant.now()) |now| {
                 const since = now.since(self.mouse.left_click_time);
                 if (since <= self.config.mouse_interval) {
                     // Click interval very short, we may be increasing
@@ -2870,7 +2870,7 @@ pub fn mouseButtonCallback(
         self.mouse.left_click_ypos = pos.y;
 
         // Setup our click counter and timer
-        if (std.time.Instant.now()) |now| {
+        if (internal_os.Instant.now()) |now| {
             // If we have mouse clicks, then we check if the time elapsed
             // is less than and our interval and if so, increase the count.
             if (self.mouse.left_click_count > 0) {
@@ -4478,7 +4478,7 @@ fn showDesktopNotification(self: *Surface, title: [:0]const u8, body: [:0]const 
     // how fast identical notifications can be sent sequentially.
     const hash_algorithm = std.hash.Wyhash;
 
-    const now = try std.time.Instant.now();
+    const now = try internal_os.Instant.now();
 
     // Set a limit of one desktop notification per second so that the OS
     // doesn't kill us when we run out of resources.

@@ -2752,19 +2752,21 @@ fn loadTheme(self: *Config, theme: Theme) !void {
 pub fn finalize(self: *Config) !void {
     // We always load the theme first because it may set other fields
     // in our config.
-    if (self.theme) |theme| {
-        const different = !std.mem.eql(u8, theme.light, theme.dark);
+    if (builtin.cpu.arch != .wasm32) {
+        if (self.theme) |theme| {
+            const different = !std.mem.eql(u8, theme.light, theme.dark);
 
-        // Warning: loadTheme will deinit our existing config and replace
-        // it so all memory from self prior to this point will be freed.
-        try self.loadTheme(theme);
+            // Warning: loadTheme will deinit our existing config and replace
+            // it so all memory from self prior to this point will be freed.
+            try self.loadTheme(theme);
 
-        // If we have different light vs dark mode themes, disable
-        // window-theme = auto since that breaks it.
-        if (different) {
-            // This setting doesn't make sense with different light/dark themes
-            // because it'll force the theme based on the Ghostty theme.
-            if (self.@"window-theme" == .auto) self.@"window-theme" = .system;
+            // If we have different light vs dark mode themes, disable
+            // window-theme = auto since that breaks it.
+            if (different) {
+                // This setting doesn't make sense with different light/dark themes
+                // because it'll force the theme based on the Ghostty theme.
+                if (self.@"window-theme" == .auto) self.@"window-theme" = .system;
+            }
         }
     }
 

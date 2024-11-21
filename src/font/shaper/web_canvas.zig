@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const ziglyph = @import("ziglyph");
 const font = @import("../main.zig");
 const terminal = @import("../../terminal/main.zig");
+const SharedGrid = font.SharedGrid;
 
 const log = std.log.scoped(.font_shaper);
 
@@ -30,19 +31,19 @@ pub const Shaper = struct {
     alloc: Allocator,
 
     /// The shared memory used for shaping results.
-    cell_buf: []font.shape.Cell,
+    cell_buf: std.ArrayListUnmanaged(font.shape.Cell),
 
     /// The shared memory used for storing information about a run.
     run_buf: RunBuf,
 
     /// The cell_buf argument is the buffer to use for storing shaped results.
     /// This should be at least the number of columns in the terminal.
-    pub fn init(alloc: Allocator, opts: font.shape.Options) !Shaper {
+    pub fn init(alloc: Allocator, _: font.shape.Options) !Shaper {
         // Note: we do not support opts.font_features
 
         return Shaper{
             .alloc = alloc,
-            .cell_buf = opts.cell_buf,
+            .cell_buf = .{},
             .run_buf = .{},
         };
     }
@@ -61,14 +62,16 @@ pub const Shaper = struct {
     /// for a Shaper struct since they share state.
     pub fn runIterator(
         self: *Shaper,
-        group: *font.GroupCache,
-        row: terminal.Screen.Row,
+        grid: *SharedGrid,
+        screen: *const terminal.Screen,
+        row: terminal.Pin,
         selection: ?terminal.Selection,
         cursor_x: ?usize,
     ) font.shape.RunIterator {
         return .{
             .hooks = .{ .shaper = self },
-            .group = group,
+            .grid = grid,
+            .screen = screen,
             .row = row,
             .selection = selection,
             .cursor_x = cursor_x,
@@ -90,21 +93,22 @@ pub const Shaper = struct {
         const clusters = self.run_buf.items(.cluster);
         assert(codepoints.len == clusters.len);
 
+        self.cell_buf.clearRetainingCapacity();
         switch (codepoints.len) {
             // Special cases: if we have no codepoints (is this possible?)
             // then our result is also an empty cell run.
-            0 => return self.cell_buf[0..0],
+            0 => return self.cell_buf.items[0..0],
 
             // If we have only 1 codepoint, then we assume that it is
             // a single grapheme and just let it through. At this point,
             // we can't have any more information to do anything else.
             1 => {
-                self.cell_buf[0] = .{
+                try self.cell_buf.append(self.alloc, .{
                     .x = @intCast(clusters[0]),
                     .glyph_index = codepoints[0],
-                };
+                });
 
-                return self.cell_buf[0..1];
+                return self.cell_buf.items[0..1];
             },
 
             else => {},
@@ -151,10 +155,10 @@ pub const Shaper = struct {
             switch (len) {
                 // If we have only a single codepoint then just render it
                 // as-is.
-                1 => self.cell_buf[cur] = .{
+                1 => try self.cell_buf.append(self.alloc, .{
                     .x = @intCast(clusters[start]),
                     .glyph_index = codepoints[start],
-                },
+                }),
 
                 // We must have multiple codepoints (see assert above). In
                 // this case we UTF-8 encode the codepoints and send them
@@ -190,13 +194,13 @@ pub const Shaper = struct {
                     };
                     defer self.alloc.free(cluster);
 
-                    var face = try run.group.group.faceFromIndex(run.font_index);
+                    var face = try run.grid.resolver.collection.getFace(run.font_index);
                     const index = try face.graphemeGlyphIndex(cluster);
 
-                    self.cell_buf[cur] = .{
+                    try self.cell_buf.append(self.alloc, .{
                         .x = @intCast(clusters[start]),
                         .glyph_index = index,
-                    };
+                    });
                 },
             }
 
@@ -204,7 +208,7 @@ pub const Shaper = struct {
             cur += 1;
         }
 
-        return self.cell_buf[0..cur];
+        return self.cell_buf.items[0..cur];
     }
 
     /// The hooks for RunIterator.
@@ -238,15 +242,12 @@ pub const Wasm = struct {
     const wasm = @import("../../os/wasm.zig");
     const alloc = wasm.alloc;
 
-    export fn shaper_new(cap: usize) ?*Shaper {
-        return shaper_new_(cap) catch null;
+    export fn shaper_new() ?*Shaper {
+        return shaper_new_() catch null;
     }
 
-    fn shaper_new_(cap: usize) !*Shaper {
-        const cell_buf = try alloc.alloc(font.shape.Cell, cap);
-        errdefer alloc.free(cell_buf);
-
-        var shaper = try Shaper.init(alloc, .{ .cell_buf = cell_buf });
+    fn shaper_new_() !*Shaper {
+        var shaper = try Shaper.init(alloc, .{});
         errdefer shaper.deinit();
 
         const result = try alloc.create(Shaper);
@@ -257,7 +258,6 @@ pub const Wasm = struct {
 
     export fn shaper_free(ptr: ?*Shaper) void {
         if (ptr) |v| {
-            alloc.free(v.cell_buf);
             v.deinit();
             alloc.destroy(v);
         }
@@ -266,38 +266,33 @@ pub const Wasm = struct {
     /// Runs a test to verify shaping works properly.
     export fn shaper_test(
         self: *Shaper,
-        group: *font.GroupCache,
+        grid: *SharedGrid,
         str: [*]const u8,
         len: usize,
     ) void {
-        shaper_test_(self, group, str[0..len]) catch |err| {
+        shaper_test_(self, grid, str[0..len]) catch |err| {
             log.warn("error during shaper test err={}", .{err});
         };
     }
 
-    fn shaper_test_(self: *Shaper, group: *font.GroupCache, str: []const u8) !void {
-        // Create a terminal and print all our characters into it.
-        var term = try terminal.Terminal.init(alloc, self.cell_buf.len, 80);
+    fn shaper_test_(self: *Shaper, grid: *SharedGrid, str: []const u8) !void {
+        // Make a screen with some data
+        var term = try terminal.Terminal.init(alloc, .{ .cols = 6, .rows = 5 });
         defer term.deinit(alloc);
+        try term.printString(str);
 
-        // Iterate over unicode codepoints and add to terminal
-        {
-            const view = try std.unicode.Utf8View.init(str);
-            var iter = view.iterator();
-            while (iter.nextCodepoint()) |c| {
-                try term.print(c);
-            }
-        }
+        // Get our run iterator
 
-        // Iterate over the rows and print out all the runs we get.
-        var rowIter = term.screen.rowIterator(.viewport);
+        var row_it = term.screen.pages.rowIterator(.right_down, .{ .viewport = .{} }, null);
         var y: usize = 0;
-        while (rowIter.next()) |row| {
+        while (row_it.next()) |row| {
             defer y += 1;
-
-            var iter = self.runIterator(group, row, null, null);
-            while (try iter.next(alloc)) |run| {
+            var it = self.runIterator(grid, &term.screen, row, null, null);
+            while (try it.next(alloc)) |run| {
                 const cells = try self.shape(run);
+                for (cells) |cell| {
+                    _ = try grid.renderGlyph(wasm.alloc, run.font_index, cell.glyph_index, .{});
+                }
                 log.info("y={} run={d} shape={any} idx={}", .{
                     y,
                     run.cells,

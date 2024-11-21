@@ -17,6 +17,6 @@
     "typescript": "^4.9.3"
   },
   "dependencies": {
-    "zig-js": "file:../vendor/zig-js/js"
+    "zig-js": "https://gitpkg.vercel.app/mitchellh/zig-js/js?main"
   }
 }
