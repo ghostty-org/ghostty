@@ -457,6 +457,7 @@ pub fn performAction(
         .new_tab => try self.newTab(target),
         .goto_tab => self.gotoTab(target, value),
         .move_tab => self.moveTab(target, value),
+        .move_tab_to_new_window => self.moveTabToNewWindow(target),
         .new_split => try self.newSplit(target, value),
         .resize_split => self.resizeSplit(target, value),
         .equalize_splits => self.equalizeSplits(target),
@@ -544,6 +545,23 @@ fn moveTab(_: *App, target: apprt.Target, move_tab: apprt.action.MoveTab) void {
             };
 
             window.moveTab(v.rt_surface, @intCast(move_tab.amount));
+        },
+    }
+}
+
+fn moveTabToNewWindow(_: *App, target: apprt.Target) void {
+    switch (target) {
+        .app => {},
+        .surface => |v| {
+            const window = v.rt_surface.container.window() orelse {
+                log.info(
+                    "moveTabToNewWindow invalid for container={s}",
+                    .{@tagName(v.rt_surface.container)},
+                );
+                return;
+            };
+
+            window.moveTabToNewWindow(v.rt_surface);
         },
     }
 }
@@ -917,6 +935,7 @@ fn syncActionAccelerators(self: *App) !void {
     try self.syncActionAccelerator("win.split_down", .{ .new_split = .down });
     try self.syncActionAccelerator("win.split_left", .{ .new_split = .left });
     try self.syncActionAccelerator("win.split_up", .{ .new_split = .up });
+    try self.syncActionAccelerator("win.move_tab_to_new_window", .{ .move_tab_to_new_window = {} });
     try self.syncActionAccelerator("win.copy", .{ .copy_to_clipboard = {} });
     try self.syncActionAccelerator("win.paste", .{ .paste_from_clipboard = {} });
     try self.syncActionAccelerator("win.reset", .{ .reset = {} });
@@ -1561,7 +1580,13 @@ fn initContextMenu(self: *App) void {
     const menu = c.g_menu_new();
     errdefer c.g_object_unref(menu);
 
-    createContextMenuCopyPasteSection(menu, false);
+    {
+        const section = c.g_menu_new();
+        defer c.g_object_unref(section);
+        c.g_menu_append_section(menu, null, @ptrCast(@alignCast(section)));
+        c.g_menu_append(section, "Copy", "win.copy");
+        c.g_menu_append(section, "Paste", "win.paste");
+    }
 
     {
         const section = c.g_menu_new();
@@ -1569,6 +1594,7 @@ fn initContextMenu(self: *App) void {
         c.g_menu_append_section(menu, null, @ptrCast(@alignCast(section)));
         c.g_menu_append(section, "Split Right", "win.split_right");
         c.g_menu_append(section, "Split Down", "win.split_down");
+        c.g_menu_append(section, "Move Tab to New Window", "win.move_tab_to_new_window");
     }
 
     {
@@ -1582,18 +1608,9 @@ fn initContextMenu(self: *App) void {
     self.context_menu = menu;
 }
 
-fn createContextMenuCopyPasteSection(menu: ?*c.GMenu, has_selection: bool) void {
-    const section = c.g_menu_new();
-    defer c.g_object_unref(section);
-    c.g_menu_prepend_section(menu, null, @ptrCast(@alignCast(section)));
-    // FIXME: Feels really hackish, but disabling sensitivity on this doesn't seems to work(?)
-    c.g_menu_append(section, "Copy", if (has_selection) "win.copy" else "noop");
-    c.g_menu_append(section, "Paste", "win.paste");
-}
-
-pub fn refreshContextMenu(self: *App, has_selection: bool) void {
-    c.g_menu_remove(self.context_menu, 0);
-    createContextMenuCopyPasteSection(self.context_menu, has_selection);
+pub fn refreshContextMenu(_: *App, window: ?*c.GtkWindow, has_selection: bool) void {
+    const action: ?*c.GSimpleAction = @ptrCast(c.g_action_map_lookup_action(@ptrCast(window), "copy"));
+    c.g_simple_action_set_enabled(action, if (has_selection) 1 else 0);
 }
 
 fn isValidAppId(app_id: [:0]const u8) bool {

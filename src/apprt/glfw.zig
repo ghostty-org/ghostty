@@ -214,6 +214,7 @@ pub const App = struct {
             .toggle_visibility,
             .goto_tab,
             .move_tab,
+            .move_tab_to_new_window,
             .inspector,
             .render_inspector,
             .quit_timer,

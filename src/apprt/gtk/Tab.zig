@@ -76,7 +76,7 @@ pub fn init(self: *Tab, window: *Window, parent_: ?*CoreSurface) !void {
 
     // Set the userdata of the box to point to this tab.
     c.g_object_set_data(@ptrCast(box_widget), GHOSTTY_TAB, self);
-    try window.notebook.addTab(self, "Ghostty");
+    window.notebook.addTab(self, "Ghostty");
 
     // Attach all events
     _ = c.g_signal_connect_data(box_widget, "destroy", c.G_CALLBACK(&gtkDestroy), self, null, c.G_CONNECT_DEFAULT);

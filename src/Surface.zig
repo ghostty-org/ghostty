@@ -3948,6 +3948,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             .{ .amount = position },
         ),
 
+        .move_tab_to_new_window => try self.rt_app.performAction(
+            .{ .surface = self },
+            .move_tab_to_new_window,
+            {},
+        ),
+
         .new_split => |direction| try self.rt_app.performAction(
             .{ .surface = self },
             .new_split,
