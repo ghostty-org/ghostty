@@ -57,7 +57,7 @@ fetch(url.href)
     };
 
     // Create our config
-    const config_str = makeStr("font-family = monospace");
+    const config_str = makeStr("font-family = monospace\nfont-size 32\n");
     old(results);
     run(config_str.ptr, config_str.len);
   })

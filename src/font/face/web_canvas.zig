@@ -419,7 +419,7 @@ pub const Face = struct {
         // Get the width and height of the render
         const metrics_2 = try measure_ctx.call(js.Object, "measureText", .{glyph_str});
         const top_desc = try metrics_2.get(f32, "actualBoundingBoxDescent") + 1;
-        const y_offset = @as(i32, @intFromFloat(top_desc)) - @as(i32, @intCast(height));
+        const y_offset = @as(i32, @intCast(height)) - @as(i32, @intFromFloat(top_desc));
         ctx_temp.deinit();
 
         // Note: width and height both get "+ 1" added to them above. This

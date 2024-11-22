@@ -32,6 +32,8 @@ fn run_(str: []const u8) !void {
     var iter = cli.args.lineIterator(fbs.reader());
     try cli.args.parse(Config, alloc, &config, &iter);
     try config.finalize();
+    std.log.err("font-size {}", .{config.@"font-size"});
+    config.@"font-size" = 32;
     const app = try App.create(alloc);
     // Create our runtime app
     var app_runtime = try apprt.App.init(app, .{});
@@ -40,10 +42,8 @@ fn run_(str: []const u8) !void {
     try surface.init(alloc, &config, app, &app_runtime, apprt_surface);
     std.log.err("{}", .{surface.size});
     try surface.renderer.setScreenSize(surface.size);
-    try surface.renderer_state.terminal.printString(
-        \\M_hello
-    );
-    surface.renderer_state.terminal.setCursorPos(2, 2);
+    try surface.renderer_state.terminal.printString("M_yhelloaaaaaaaaa\n🐏\n👍🏽\nM_ghostty");
+    surface.renderer_state.terminal.setCursorPos(4, 2);
     try surface.renderer_state.terminal.setAttribute(.{ .direct_color_bg = .{
         .r = 240,
         .g = 40,
