@@ -1,19 +1,20 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const oni = @import("oniguruma");
 const configpkg = @import("../config.zig");
 const inputpkg = @import("../input.zig");
 const terminal = @import("../terminal/main.zig");
 const point = terminal.point;
 const Screen = terminal.Screen;
 const Terminal = terminal.Terminal;
+const builtin = @import("builtin");
+const js = @import("zig-js");
 
 const log = std.log.scoped(.renderer_link);
 
 /// The link configuration needed for renderers.
 pub const Link = struct {
     /// The regular expression to match the link against.
-    regex: oni.Regex,
+    regex: inputpkg.Link.Regex,
 
     /// The situations in which the link should be highlighted.
     highlight: inputpkg.Link.Highlight,

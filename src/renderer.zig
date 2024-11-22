@@ -44,7 +44,7 @@ pub const Impl = enum {
     ) Impl {
         if (target.cpu.arch == .wasm32) {
             return switch (wasm_target) {
-                .browser => .webgl,
+                .browser => .opengl,
             };
         }
 

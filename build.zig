@@ -716,7 +716,8 @@ pub fn build(b: *std.Build) !void {
         // Build our Wasm target.
         const wasm_crosstarget: std.Target.Query = .{
             .cpu_arch = .wasm32,
-            .os_tag = .freestanding,
+            .os_tag = .wasi,
+            .abi = .musl,
             .cpu_model = .{ .explicit = &std.Target.wasm.cpu.mvp },
             .cpu_features_add = std.Target.wasm.featureSet(&.{
                 // We use this to explicitly request shared memory.
@@ -759,10 +760,12 @@ pub fn build(b: *std.Build) !void {
         wasm.import_memory = true;
         wasm.initial_memory = 65536 * 512;
         wasm.entry = .disabled;
-        // wasm.wasi_exec_model = .reactor;
+        wasm.wasi_exec_model = .reactor;
         wasm.rdynamic = true;
+        wasm.import_symbols = true;
         wasm.max_memory = 65536 * 65536; // Maximum number of pages in wasm32
         wasm.shared_memory = wasm_shared;
+        wasm.root_module.single_threaded = false;
 
         // Stack protector adds extern requirements that we don't satisfy.
         wasm.root_module.stack_protector = false;
@@ -1191,7 +1194,73 @@ fn addDeps(
             .target = target,
             .optimize = optimize,
         }));
-        // step.linkLibC();
+        step.root_module.addImport("opengl", b.dependency(
+            "opengl",
+            .{},
+        ).module("opengl"));
+        step.root_module.addImport("xev", b.dependency("libxev", .{
+            .target = target,
+            .optimize = optimize,
+        }).module("xev"));
+        step.root_module.addImport("wuffs", b.dependency("wuffs", .{
+            .target = target,
+            .optimize = optimize,
+        }).module("wuffs"));
+        const oniguruma_dep = b.dependency("oniguruma", .{
+            .target = target,
+            .optimize = optimize,
+        });
+        step.root_module.addImport("oniguruma", oniguruma_dep.module("oniguruma"));
+        step.linkLibrary(oniguruma_dep.artifact("oniguruma"));
+        try static_libs.append(oniguruma_dep.artifact("oniguruma").getEmittedBin());
+        const simdutf_dep = b.dependency("simdutf", .{
+            .target = target,
+            .optimize = optimize,
+        });
+        const utfcpp_dep = b.dependency("utfcpp", .{
+            .target = target,
+            .optimize = optimize,
+        });
+        step.linkLibrary(utfcpp_dep.artifact("utfcpp"));
+        try static_libs.append(utfcpp_dep.artifact("utfcpp").getEmittedBin());
+        step.linkLibrary(simdutf_dep.artifact("simdutf"));
+        try static_libs.append(simdutf_dep.artifact("simdutf").getEmittedBin());
+        step.linkLibC();
+        step.linkLibCpp();
+        step.addIncludePath(b.path("src"));
+        {
+            // From hwy/detect_targets.h
+            const HWY_AVX3_SPR: c_int = 1 << 4;
+            const HWY_AVX3_ZEN4: c_int = 1 << 6;
+            const HWY_AVX3_DL: c_int = 1 << 7;
+            const HWY_AVX3: c_int = 1 << 8;
+
+            // Zig 0.13 bug: https://github.com/ziglang/zig/issues/20414
+            // To workaround this we just disable AVX512 support completely.
+            // The performance difference between AVX2 and AVX512 is not
+            // significant for our use case and AVX512 is very rare on consumer
+            // hardware anyways.
+            const HWY_DISABLED_TARGETS: c_int = HWY_AVX3_SPR | HWY_AVX3_ZEN4 | HWY_AVX3_DL | HWY_AVX3;
+
+            step.addCSourceFiles(.{
+                .files = &.{
+                    "src/simd/base64.cpp",
+                    "src/simd/codepoint_width.cpp",
+                    "src/simd/index_of.cpp",
+                    "src/simd/vt.cpp",
+                },
+                .flags = if (step.rootModuleTarget().cpu.arch == .x86_64) &.{
+                    b.fmt("-DHWY_DISABLED_TARGETS={}", .{HWY_DISABLED_TARGETS}),
+                } else &.{"-DSIMDUTF_NO_THREADS"},
+            });
+        }
+        const highway_dep = b.dependency("highway", .{
+            .target = target,
+            .optimize = optimize,
+        });
+        step.linkLibrary(highway_dep.artifact("highway"));
+        try static_libs.append(highway_dep.artifact("highway").getEmittedBin());
+
         try addUnicodeTables(b, step);
 
         return static_libs;

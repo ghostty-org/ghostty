@@ -255,42 +255,67 @@ fn collection(
     try c.completeStyles(self.alloc, config.@"font-synthetic-style");
 
     // Our built-in font will be used as a backup
-    _ = try c.add(
-        self.alloc,
-        .regular,
-        .{ .fallback_loaded = try Face.init(
-            self.font_lib,
-            font.embedded.regular,
-            load_options.faceOptions(),
-        ) },
-    );
-    _ = try c.add(
-        self.alloc,
-        .bold,
-        .{ .fallback_loaded = try Face.init(
-            self.font_lib,
-            font.embedded.bold,
-            load_options.faceOptions(),
-        ) },
-    );
-    _ = try c.add(
-        self.alloc,
-        .italic,
-        .{ .fallback_loaded = try Face.init(
-            self.font_lib,
-            font.embedded.italic,
-            load_options.faceOptions(),
-        ) },
-    );
-    _ = try c.add(
-        self.alloc,
-        .bold_italic,
-        .{ .fallback_loaded = try Face.init(
-            self.font_lib,
-            font.embedded.bold_italic,
-            load_options.faceOptions(),
-        ) },
-    );
+    if (builtin.cpu.arch != .wasm32) {
+        _ = try c.add(
+            self.alloc,
+            .regular,
+            .{ .fallback_loaded = try Face.init(
+                self.font_lib,
+                font.embedded.regular,
+                load_options.faceOptions(),
+            ) },
+        );
+        _ = try c.add(
+            self.alloc,
+            .bold,
+            .{ .fallback_loaded = try Face.init(
+                self.font_lib,
+                font.embedded.bold,
+                load_options.faceOptions(),
+            ) },
+        );
+        _ = try c.add(
+            self.alloc,
+            .italic,
+            .{ .fallback_loaded = try Face.init(
+                self.font_lib,
+                font.embedded.italic,
+                load_options.faceOptions(),
+            ) },
+        );
+        _ = try c.add(
+            self.alloc,
+            .bold_italic,
+            .{ .fallback_loaded = try Face.init(
+                self.font_lib,
+                font.embedded.bold_italic,
+                load_options.faceOptions(),
+            ) },
+        );
+    } else {
+        const family = if (config.@"font-family".list.items.len > 0) config.@"font-family".list.items[0] else "monospace";
+
+        _ = try c.add(
+            self.alloc,
+            .regular,
+            .{ .fallback_loaded = try Face.initNamed(
+                self.alloc,
+                family,
+                load_options.size,
+                .text,
+            ) },
+        );
+        _ = try c.add(
+            self.alloc,
+            .regular,
+            .{ .fallback_loaded = try Face.initNamed(
+                self.alloc,
+                family,
+                load_options.size,
+                .emoji,
+            ) },
+        );
+    }
 
     // On macOS, always search for and add the Apple Emoji font
     // as our preferred emoji font for fallback. We do this in case
@@ -314,7 +339,7 @@ fn collection(
 
     // Emoji fallback. We don't include this on Mac since Mac is expected
     // to always have the Apple Emoji available on the system.
-    if (comptime !builtin.target.isDarwin() or Discover == void) {
+    if (builtin.cpu.arch != .wasm32 and comptime !builtin.target.isDarwin() or Discover == void) {
         _ = try c.add(
             self.alloc,
             .regular,

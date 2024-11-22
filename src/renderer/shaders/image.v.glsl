@@ -1,9 +1,9 @@
-#version 330 core
+#version 300 es
 
-layout (location = 0) in vec2 grid_pos;
-layout (location = 1) in vec2 cell_offset;
-layout (location = 2) in vec4 source_rect;
-layout (location = 3) in vec2 dest_size;
+in vec2 grid_pos;
+in vec2 cell_offset;
+in vec4 source_rect;
+in vec2 dest_size;
 
 out vec2 tex_coord;
 
@@ -13,7 +13,7 @@ uniform mat4 projection;
 
 void main() {
     // The size of the image in pixels
-    vec2 image_size = textureSize(image, 0);
+    vec2 image_size = vec2(textureSize(image, 0));
 
     // Turn the cell position into a vertex point depending on the
     // gl_VertexID. Since we use instanced drawing, we have 4 vertices

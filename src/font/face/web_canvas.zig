@@ -58,10 +58,10 @@ pub const Face = struct {
         const font_str = try alloc.dupe(u8, raw);
         errdefer alloc.free(font_str);
 
-        // Create our canvas that we're going to continue to reuse.
-        const doc = try js.global.get(js.Object, "document");
-        defer doc.deinit();
-        const canvas = try doc.call(js.Object, "createElement", .{js.string("canvas")});
+        // Create our canvasxx that we're going to continue to reuse.
+        const OffscreenCanvas = try js.global.get(js.Object, "OffscreenCanvas");
+        defer OffscreenCanvas.deinit();
+        const canvas = try OffscreenCanvas.new(.{ 0, 0 });
         errdefer canvas.deinit();
 
         var result = Face{
@@ -232,7 +232,7 @@ pub const Face = struct {
             .height = render.height,
             // TODO: this can't be right
             .offset_x = 0,
-            .offset_y = 0,
+            .offset_y = render.y_offset,
             .atlas_x = region.x,
             .atlas_y = region.y,
             .advance_x = 0,
@@ -262,8 +262,8 @@ pub const Face = struct {
         // pixel height but this is a more surefire way to get it.
         const height_metrics = try ctx.call(js.Object, "measureText", .{js.string("M_")});
         defer height_metrics.deinit();
-        const asc = try height_metrics.get(f32, "actualBoundingBoxAscent");
-        const desc = try height_metrics.get(f32, "actualBoundingBoxDescent");
+        const asc = try height_metrics.get(f32, "fontBoundingBoxAscent");
+        const desc = try height_metrics.get(f32, "fontBoundingBoxDescent");
         const cell_height = asc + desc;
         const cell_baseline = desc;
 
@@ -325,6 +325,10 @@ pub const Face = struct {
         return ctx;
     }
 
+    pub fn hasColor(_: *const Face) bool {
+        return true;
+    }
+
     pub fn isColorGlyph(self: *const Face, cp: u32) bool {
         // Render the glyph
         var render = self.renderGlyphInternal(self.alloc, cp) catch unreachable;
@@ -349,6 +353,7 @@ pub const Face = struct {
         metrics: js.Object,
         width: u32,
         height: u32,
+        y_offset: i32,
         bitmap: []u8,
 
         pub fn deinit(self: *RenderedGlyph) void {
@@ -409,6 +414,14 @@ pub const Face = struct {
         // Height is our ascender + descender for this char
         const height = if (!broken_bbox) @as(u32, @intFromFloat(@ceil(asc + desc))) + 1 else width;
 
+        const ctx_temp = try self.context();
+        try ctx_temp.set("textBaseline", js.string("top"));
+        // Get the width and height of the render
+        const metrics_2 = try measure_ctx.call(js.Object, "measureText", .{glyph_str});
+        const top_desc = try metrics_2.get(f32, "actualBoundingBoxDescent") + 1;
+        const y_offset = @as(i32, @intFromFloat(top_desc)) - @as(i32, @intCast(height));
+        ctx_temp.deinit();
+
         // Note: width and height both get "+ 1" added to them above. This
         // is important so that there is a 1px border around the glyph to avoid
         // any clipping in the atlas.
@@ -418,15 +431,15 @@ pub const Face = struct {
             try self.canvas.set("width", width);
             try self.canvas.set("height", height);
 
-            const width_str = try std.fmt.allocPrint(alloc, "{d}px", .{width});
-            defer alloc.free(width_str);
-            const height_str = try std.fmt.allocPrint(alloc, "{d}px", .{height});
-            defer alloc.free(height_str);
+            // const width_str = try std.fmt.allocPrint(alloc, "{d}px", .{width});
+            // defer alloc.free(width_str);
+            // const height_str = try std.fmt.allocPrint(alloc, "{d}px", .{height});
+            // defer alloc.free(height_str);
 
-            const style = try self.canvas.get(js.Object, "style");
-            defer style.deinit();
-            try style.set("width", js.string(width_str));
-            try style.set("height", js.string(height_str));
+            // const style = try self.canvas.get(js.Object, "style");
+            // defer style.deinit();
+            // try style.set("width", js.string(width_str));
+            // try style.set("height", js.string(height_str));
         }
 
         // Reload our context since we resized the canvas
@@ -501,6 +514,7 @@ pub const Face = struct {
             .width = width,
             .height = height,
             .bitmap = bitmap,
+            .y_offset = y_offset,
         };
     }
 };

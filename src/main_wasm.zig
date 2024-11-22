@@ -11,6 +11,59 @@ comptime {
     _ = @import("App.zig").Wasm;
 }
 
+const renderer = @import("renderer.zig");
+const Surface = @import("Surface.zig");
+const App = @import("App.zig");
+const apprt = @import("apprt.zig");
+
+const wasm = @import("os/wasm.zig");
+const alloc = wasm.alloc;
+const cli = @import("cli.zig");
+const Config = @import("config/Config.zig");
+
+export fn run(str: [*]const u8, len: usize) void {
+    run_(str[0..len]) catch |err| {
+        std.log.err("err: {?}", .{err});
+    };
+}
+fn run_(str: []const u8) !void {
+    var config = try Config.default(alloc);
+    var fbs = std.io.fixedBufferStream(str);
+    var iter = cli.args.lineIterator(fbs.reader());
+    try cli.args.parse(Config, alloc, &config, &iter);
+    try config.finalize();
+    const app = try App.create(alloc);
+    // Create our runtime app
+    var app_runtime = try apprt.App.init(app, .{});
+    const surface = try alloc.create(Surface);
+    const apprt_surface = try alloc.create(apprt.Surface);
+    try surface.init(alloc, &config, app, &app_runtime, apprt_surface);
+    std.log.err("{}", .{surface.size});
+    try surface.renderer.setScreenSize(surface.size);
+    try surface.renderer_state.terminal.printString(
+        \\M_hello
+    );
+    surface.renderer_state.terminal.setCursorPos(2, 2);
+    try surface.renderer_state.terminal.setAttribute(.{ .direct_color_bg = .{
+        .r = 240,
+        .g = 40,
+        .b = 40,
+    } });
+    try surface.renderer_state.terminal.setAttribute(.{ .direct_color_fg = .{
+        .r = 255,
+        .g = 255,
+        .b = 255,
+    } });
+    try surface.renderer_state.terminal.printString("hello");
+    try surface.renderer.updateFrame(apprt_surface, &surface.renderer_state, false);
+    try surface.renderer.drawFrame(apprt_surface);
+    try surface.renderer.updateFrame(apprt_surface, &surface.renderer_state, false);
+    try surface.renderer.drawFrame(apprt_surface);
+
+    // const webgl = try renderer.OpenGL.init(alloc, .{ .config = try renderer.OpenGL.DerivedConfig.init(alloc, &config) });
+    // _ = webgl;
+}
+
 pub const std_options: std.Options = .{
     // Set our log level. We try to get as much logging as possible but in
     // ReleaseSmall mode where we're optimizing for space, we elevate the

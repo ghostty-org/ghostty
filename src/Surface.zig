@@ -21,7 +21,6 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const global_state = &@import("global.zig").state;
-const oni = @import("oniguruma");
 const crash = @import("crash/main.zig");
 const unicode = @import("unicode/main.zig");
 const renderer = @import("renderer.zig");
@@ -256,7 +255,7 @@ const DerivedConfig = struct {
     links: []Link,
 
     const Link = struct {
-        regex: oni.Regex,
+        regex: input.Link.Regex,
         action: input.Link.Action,
         highlight: input.Link.Highlight,
     };
@@ -586,7 +585,7 @@ pub fn init(
 
     // Start our renderer thread
     self.renderer_thr = try std.Thread.spawn(
-        .{},
+        .{ .allocator = alloc },
         renderer.Thread.threadMain,
         .{&self.renderer_thread},
     );
@@ -594,7 +593,7 @@ pub fn init(
 
     // Start our IO thread
     self.io_thr = try std.Thread.spawn(
-        .{},
+        .{ .allocator = alloc },
         termio.Thread.threadMain,
         .{ &self.io_thread, &self.io },
     );

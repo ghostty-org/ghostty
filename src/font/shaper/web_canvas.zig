@@ -274,10 +274,66 @@ pub const Wasm = struct {
             log.warn("error during shaper test err={}", .{err});
         };
     }
+    const js = @import("zig-js");
+
+    fn createImageData(self: *font.Atlas) !js.Object {
+        // We need to draw pixels so this is format dependent.
+        const buf: []u8 = switch (self.format) {
+            // RGBA is the native ImageData format
+            .rgba => self.data,
+
+            .grayscale => buf: {
+                // Convert from A8 to RGBA so every 4th byte is set to a value.
+                var buf: []u8 = try alloc.alloc(u8, self.data.len * 4);
+                errdefer alloc.free(buf);
+                @memset(buf, 0);
+                for (self.data, 0..) |value, i| {
+                    buf[(i * 4) + 3] = value;
+                }
+                break :buf buf;
+            },
+
+            else => return error.UnsupportedAtlasFormat,
+        };
+        defer if (buf.ptr != self.data.ptr) alloc.free(buf);
+
+        // Create an ImageData from our buffer and then write it to the canvas
+        const image_data: js.Object = data: {
+            // Get our runtime memory
+            const mem = try js.runtime.get(js.Object, "memory");
+            defer mem.deinit();
+            const mem_buf = try mem.get(js.Object, "buffer");
+            defer mem_buf.deinit();
+
+            // Create an array that points to our buffer
+            const arr = arr: {
+                const Uint8ClampedArray = try js.global.get(js.Object, "Uint8ClampedArray");
+                defer Uint8ClampedArray.deinit();
+                const arr = try Uint8ClampedArray.new(.{ mem_buf, buf.ptr, buf.len });
+                if (!wasm.shared_mem) break :arr arr;
+
+                // If we're sharing memory then we have to copy the data since
+                // we can't set ImageData directly using a SharedArrayBuffer.
+                defer arr.deinit();
+                break :arr try arr.call(js.Object, "slice", .{});
+            };
+            defer arr.deinit();
+
+            // Create the image data from our array
+            const ImageData = try js.global.get(js.Object, "ImageData");
+            defer ImageData.deinit();
+            const data = try ImageData.new(.{ arr, self.size, self.size });
+            errdefer data.deinit();
+
+            break :data data;
+        };
+
+        return image_data;
+    }
 
     fn shaper_test_(self: *Shaper, grid: *SharedGrid, str: []const u8) !void {
         // Make a screen with some data
-        var term = try terminal.Terminal.init(alloc, .{ .cols = 6, .rows = 5 });
+        var term = try terminal.Terminal.init(alloc, .{ .cols = 20, .rows = 5 });
         defer term.deinit(alloc);
         try term.printString(str);
 
@@ -285,21 +341,55 @@ pub const Wasm = struct {
 
         var row_it = term.screen.pages.rowIterator(.right_down, .{ .viewport = .{} }, null);
         var y: usize = 0;
+        const Render = struct {
+            render: SharedGrid.Render,
+            y: usize,
+            x: usize,
+        };
+        var cell_list: std.ArrayListUnmanaged(Render) = .{};
+        defer cell_list.deinit(wasm.alloc);
         while (row_it.next()) |row| {
             defer y += 1;
             var it = self.runIterator(grid, &term.screen, row, null, null);
             while (try it.next(alloc)) |run| {
                 const cells = try self.shape(run);
                 for (cells) |cell| {
-                    _ = try grid.renderGlyph(wasm.alloc, run.font_index, cell.glyph_index, .{});
+                    const render = try grid.renderGlyph(wasm.alloc, run.font_index, cell.glyph_index, .{});
+                    try cell_list.append(wasm.alloc, .{ .render = render, .x = cell.x, .y = y });
+
+                    log.info("y={} x={} width={} height={} ax={} ay={} base={}", .{
+                        y * grid.metrics.cell_height,
+                        cell.x * grid.metrics.cell_width,
+                        render.glyph.width,
+                        render.glyph.height,
+                        render.glyph.atlas_x,
+                        render.glyph.atlas_y,
+                        grid.metrics.cell_baseline,
+                    });
                 }
-                log.info("y={} run={d} shape={any} idx={}", .{
-                    y,
-                    run.cells,
-                    cells,
-                    run.font_index,
-                });
             }
+        }
+        const colour_data = try createImageData(&grid.atlas_color);
+        const gray_data = try createImageData(&grid.atlas_grayscale);
+
+        const doc = try js.global.get(js.Object, "document");
+        defer doc.deinit();
+        const canvas = try doc.call(js.Object, "getElementById", .{js.string("shaper-canvas")});
+        errdefer canvas.deinit();
+        const ctx = try canvas.call(js.Object, "getContext", .{js.string("2d")});
+        defer ctx.deinit();
+        for (cell_list.items) |cell| {
+            const x_start = -@as(isize, @intCast(cell.render.glyph.atlas_x));
+            const y_start = -@as(isize, @intCast(cell.render.glyph.atlas_y));
+            try ctx.call(void, "putImageData", .{
+                if (cell.render.presentation == .emoji) colour_data else gray_data,
+                x_start + @as(isize, @intCast(cell.x * grid.metrics.cell_width)) + cell.render.glyph.offset_x,
+                y_start + @as(isize, @intCast(cell.y * grid.metrics.cell_height)) + cell.render.glyph.offset_y,
+                cell.render.glyph.atlas_x,
+                cell.render.glyph.atlas_y,
+                cell.render.glyph.width,
+                cell.render.glyph.height,
+            });
         }
     }
 };

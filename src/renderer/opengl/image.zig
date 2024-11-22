@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const gl = @import("opengl");
 const wuffs = @import("wuffs");
+const internal_os = @import("../../os/main.zig");
 
 /// Represents a single image placement on the grid. A placement is a
 /// request to render an instance of an image.
@@ -34,7 +35,7 @@ pub const Placement = struct {
 /// The map used for storing images.
 pub const ImageMap = std.AutoHashMapUnmanaged(u32, struct {
     image: Image,
-    transmit_time: std.time.Instant,
+    transmit_time: internal_os.Instant,
 });
 
 /// The state for a single image that is to be rendered. The image can be

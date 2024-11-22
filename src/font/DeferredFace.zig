@@ -163,6 +163,7 @@ pub fn load(
     lib: Library,
     opts: font.face.Options,
 ) !Face {
+    log.err("load {}", .{opts.size});
     return switch (options.backend) {
         .fontconfig_freetype => try self.loadFontconfig(lib, opts),
         .coretext, .coretext_harfbuzz, .coretext_noshape => try self.loadCoreText(lib, opts),

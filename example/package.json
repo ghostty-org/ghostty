@@ -13,10 +13,20 @@
   "license": "MIT",
   "devDependencies": {
     "@parcel/transformer-inline-string": "^2.8.0",
+    "buffer": "^5.7.1",
+    "crypto-browserify": "^3.12.1",
+    "events": "^3.3.0",
+    "os-browserify": "^0.3.0",
     "parcel": "^2.8.0",
-    "typescript": "^4.9.3"
+    "path-browserify": "^1.0.1",
+    "process": "^0.11.10",
+    "stream-browserify": "^3.0.0",
+    "string_decoder": "^1.3.0",
+    "typescript": "^4.9.3",
+    "vm-browserify": "^1.1.2"
   },
   "dependencies": {
+    "glslog": "^0.0.10",
     "zig-js": "https://gitpkg.vercel.app/mitchellh/zig-js/js?main"
   }
 }

@@ -1,4 +1,4 @@
-#version 330 core
+#version 300 es
 
 // These are the possible modes that "mode" can be set to. This is
 // used to multiplex multiple render modes into a single shader.
@@ -11,33 +11,33 @@ const uint MODE_FG_COLOR = 7u;
 const uint MODE_FG_POWERLINE = 15u;
 
 // The grid coordinates (x, y) where x < columns and y < rows
-layout (location = 0) in vec2 grid_coord;
+in vec2 grid_coord;
 
 // Position of the glyph in the texture.
-layout (location = 1) in vec2 glyph_pos;
+in vec2 glyph_pos;
 
 // Width/height of the glyph
-layout (location = 2) in vec2 glyph_size;
+in vec2 glyph_size;
 
 // Offset of the top-left corner of the glyph when rendered in a rect.
-layout (location = 3) in vec2 glyph_offset;
+in vec2 glyph_offset;
 
 // The color for this cell in RGBA (0 to 1.0). Background or foreground
 // depends on mode.
-layout (location = 4) in vec4 color_in;
+in vec4 color_in;
 
 // Only set for MODE_FG, this is the background color of the FG text.
 // This is used to detect minimal contrast for the text.
-layout (location = 5) in vec4 bg_color_in;
+in vec4 bg_color_in;
 
 // The mode of this shader. The mode determines what fields are used,
 // what the output will be, etc. This shader is capable of executing in
 // multiple "modes" so that we can share some logic and so that we can draw
 // the entire terminal grid in a single GPU pass.
-layout (location = 6) in uint mode_in;
+in uint mode_in;
 
 // The width in cells of this item.
-layout (location = 7) in uint grid_width;
+in uint grid_width;
 
 // The background or foreground color for the fragment, depending on
 // whether this is a background or foreground pass.
@@ -168,22 +168,22 @@ void main() {
 
     // Scaled for wide chars
     vec2 cell_size_scaled = cell_size;
-    cell_size_scaled.x = cell_size_scaled.x * grid_width;
+    cell_size_scaled.x = cell_size_scaled.x * float(grid_width);
 
     switch (mode) {
     case MODE_BG:
         // If we're at the edge of the grid, we add our padding to the background
         // to extend it. Note: grid_padding is top/right/bottom/left.
-        if (grid_coord.y == 0 && padding_vertical_top) {
+        if (grid_coord.y == 0. && padding_vertical_top) {
             cell_pos.y -= grid_padding.r;
             cell_size_scaled.y += grid_padding.r;
-        } else if (grid_coord.y == grid_size.y - 1 && padding_vertical_bottom) {
+        } else if (grid_coord.y == grid_size.y - 1. && padding_vertical_bottom) {
             cell_size_scaled.y += grid_padding.b;
         }
-        if (grid_coord.x == 0) {
+        if (grid_coord.x == 0.) {
             cell_pos.x -= grid_padding.a;
             cell_size_scaled.x += grid_padding.a;
-        } else if (grid_coord.x == grid_size.x - 1) {
+        } else if (grid_coord.x == grid_size.x - 1.) {
             cell_size_scaled.x += grid_padding.g;
         }
 
@@ -214,7 +214,7 @@ void main() {
         if (mode == MODE_FG_CONSTRAINED || mode == MODE_FG_COLOR) {
             if (glyph_size.x > cell_size_scaled.x) {
                 float new_y = glyph_size.y * (cell_size_scaled.x / glyph_size.x);
-                glyph_offset_calc.y = glyph_offset_calc.y + ((glyph_size.y - new_y) / 2);
+                glyph_offset_calc.y = glyph_offset_calc.y + ((glyph_size.y - new_y) / 2.);
                 glyph_size_calc.y = new_y;
                 glyph_size_calc.x = cell_size_scaled.x;
             }
@@ -238,8 +238,8 @@ void main() {
             text_size = textureSize(text_color, 0);
             break;
         }
-        vec2 glyph_tex_pos = glyph_pos / text_size;
-        vec2 glyph_tex_size = glyph_size / text_size;
+        vec2 glyph_tex_pos = glyph_pos / vec2(text_size);
+        vec2 glyph_tex_size = glyph_size / vec2(text_size);
         glyph_tex_coords = glyph_tex_pos + glyph_tex_size * position;
 
         // If we have a minimum contrast, we need to check if we need to

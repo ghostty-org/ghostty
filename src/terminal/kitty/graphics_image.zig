@@ -108,7 +108,7 @@ pub const LoadingImage = struct {
         path: []const u8,
     ) !void {
         // windows is currently unsupported, does it support shm?
-        if (comptime builtin.target.os.tag == .windows) {
+        if (comptime builtin.target.os.tag == .windows or builtin.cpu.arch == .wasm32) {
             return error.UnsupportedMedium;
         }
 

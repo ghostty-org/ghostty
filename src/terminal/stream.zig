@@ -13,6 +13,7 @@ const osc = @import("osc.zig");
 const sgr = @import("sgr.zig");
 const UTF8Decoder = @import("UTF8Decoder.zig");
 const MouseShape = @import("mouse_shape.zig").MouseShape;
+const builtin = @import("builtin");
 
 const log = std.log.scoped(.stream);
 
@@ -242,8 +243,13 @@ pub fn Stream(comptime Handler: type) type {
                     0x18, 0x1A => self.parser.state = .ground,
                     // A parameter digit:
                     '0'...'9' => if (self.parser.params_idx < 16) {
-                        self.parser.param_acc *|= 10;
-                        self.parser.param_acc +|= c - '0';
+                        if (builtin.cpu.arch == .wasm32) {
+                            self.parser.param_acc *= 10;
+                            self.parser.param_acc += c - '0';
+                        } else {
+                            self.parser.param_acc *|= 10;
+                            self.parser.param_acc +|= c - '0';
+                        }
                         // The parser's CSI param action uses param_acc_idx
                         // to decide if there's a final param that needs to
                         // be consumed or not, but it doesn't matter really

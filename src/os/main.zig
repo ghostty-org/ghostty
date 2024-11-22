@@ -44,8 +44,16 @@ pub const clickInterval = mouse.clickInterval;
 pub const open = openpkg.open;
 pub const pipe = pipepkg.pipe;
 pub const resourcesDir = resourcesdir.resourcesDir;
-pub const Instant = if (builtin.cpu.arch != .wasm32) std.time.Instant else struct {
-    fn now() !@This() {
+pub const Instant = if (true) std.time.Instant else struct {
+    pub fn now() !@This() {
         return .{};
     }
+    pub fn order(self: *const Instant, other: Instant) std.math.Order {
+        _ = self;
+        _ = other;
+        return .eq;
+    }
 };
+pub fn sleep(nanosecond: u64) void {
+    _ = nanosecond;
+}

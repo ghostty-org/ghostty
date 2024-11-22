@@ -127,20 +127,18 @@ pub const Artifact = enum {
     wasm_module,
 
     pub fn detect() Artifact {
-        if (builtin.target.isWasm()) {
-            // assert(builtin.output_mode == .Obj);
-            // assert(builtin.link_mode == .Static);
-            return .wasm_module;
-        }
+        // assert(builtin.output_mode == .Obj);
+        // assert(builtin.link_mode == .Static);
+        return .wasm_module;
 
-        return switch (builtin.output_mode) {
-            .Exe => .exe,
-            .Lib => .lib,
-            else => {
-                @compileLog(builtin.output_mode);
-                @compileError("unsupported artifact output mode");
-            },
-        };
+        // return switch (builtin.output_mode) {
+        //     .Exe => .exe,
+        //     .Lib => .lib,
+        //     else => {
+        //         @compileLog(builtin.output_mode);
+        //         @compileError("unsupported artifact output mode");
+        //     },
+        // };
     }
 };
 

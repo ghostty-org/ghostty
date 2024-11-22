@@ -571,18 +571,23 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
     // process a byte at a time alternating between the inspector handler
     // and the termio handler. This is very slow compared to our optimizations
     // below but at least users only pay for it if they're using the inspector.
-    if (self.renderer_state.inspector) |insp| {
-        for (buf, 0..) |byte, i| {
-            insp.recordPtyRead(buf[i .. i + 1]) catch |err| {
-                log.err("error recording pty read in inspector err={}", .{err});
-            };
-
-            self.terminal_stream.next(byte) catch |err|
-                log.err("error processing terminal data: {}", .{err});
-        }
-    } else {
+    if (builtin.cpu.arch == .wasm32) {
         self.terminal_stream.nextSlice(buf) catch |err|
             log.err("error processing terminal data: {}", .{err});
+    } else {
+        if (self.renderer_state.inspector) |insp| {
+            for (buf, 0..) |byte, i| {
+                insp.recordPtyRead(buf[i .. i + 1]) catch |err| {
+                    log.err("error recording pty read in inspector err={}", .{err});
+                };
+
+                self.terminal_stream.next(byte) catch |err|
+                    log.err("error processing terminal data: {}", .{err});
+            }
+        } else {
+            self.terminal_stream.nextSlice(buf) catch |err|
+                log.err("error processing terminal data: {}", .{err});
+        }
     }
 
     // If our stream handling caused messages to be sent to the mailbox

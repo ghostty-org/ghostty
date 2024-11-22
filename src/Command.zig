@@ -73,7 +73,8 @@ pseudo_console: if (builtin.os.tag == .windows) ?windows.exp.HPCON else void =
 data: ?*anyopaque = null,
 
 /// Process ID is set after start is called.
-pid: ?posix.pid_t = null,
+pid: ?PidT = null,
+pub const PidT = if (builtin.cpu.arch != .wasm32) posix.pid_t else i32;
 
 /// LinuxCGroup type depends on our target OS
 pub const LinuxCgroup = if (builtin.os.tag == .linux) ?[]const u8 else void;
@@ -122,6 +123,7 @@ pub fn start(self: *Command, alloc: Allocator) !void {
 
     switch (builtin.os.tag) {
         .windows => try self.startWindows(arena),
+        .wasi => try self.startWasi(arena),
         else => try self.startPosix(arena),
     }
 }
@@ -185,6 +187,65 @@ fn startPosix(self: *Command, arena: Allocator) !void {
     // we return a very specific error that can be detected to determine
     // we're in the child.
     return error.ExecFailedInChild;
+}
+
+fn startWasi(self: *Command, arena: Allocator) !void {
+    // Null-terminate all our arguments
+    const pathZ = try arena.dupeZ(u8, self.path);
+    const argsZ = try arena.allocSentinel(?[*:0]u8, self.args.len, null);
+    for (self.args, 0..) |arg, i| argsZ[i] = (try arena.dupeZ(u8, arg)).ptr;
+
+    // Determine our env vars
+    const envp = if (self.env) |env_map|
+        (try createNullDelimitedEnvMap(arena, env_map)).ptr
+    else if (builtin.link_libc)
+        std.c.environ
+    else
+        @compileError("missing env vars");
+
+    // Fork. If we have a cgroup specified on Linxu then we use clone
+    const pid: posix.pid_t = switch (builtin.os.tag) {
+        .linux => if (self.linux_cgroup) |cgroup|
+            try internal_os.cgroup.cloneInto(cgroup)
+        else
+            try posix.fork(),
+
+        else => try posix.fork(),
+    };
+
+    if (pid != 0) {
+        // Parent, return immediately.
+        self.pid = @intCast(pid);
+        return;
+    }
+
+    // We are the child.
+
+    // Setup our file descriptors for std streams.
+    if (self.stdin) |f| setupFd(f.handle, posix.STDIN_FILENO) catch
+        return error.ExecFailedInChild;
+    if (self.stdout) |f| setupFd(f.handle, posix.STDOUT_FILENO) catch
+        return error.ExecFailedInChild;
+    if (self.stderr) |f| setupFd(f.handle, posix.STDERR_FILENO) catch
+        return error.ExecFailedInChild;
+
+    // Setup our working directory
+    if (self.cwd) |cwd| posix.chdir(cwd) catch {
+        // This can fail if we don't have permission to go to
+        // this directory or if due to race conditions it doesn't
+        // exist or any various other reasons. We don't want to
+        // crash the entire process if this fails so we ignore it.
+        // We don't log because that'll show up in the output.
+    };
+
+    // If the user requested a pre exec callback, call it now.
+    if (self.pre_exec) |f| f(self);
+    std.log.err("{s} {*}", .{ pathZ, envp });
+
+    // If we are executing this code, the exec failed. In that scenario,
+    // we return a very specific error that can be detected to determine
+    // we're in the child.
+    return;
 }
 
 fn startWindows(self: *Command, arena: Allocator) !void {
@@ -324,6 +385,7 @@ fn setupFd(src: File.Handle, target: i32) !void {
 
             try posix.dup2(src, target);
         },
+        .wasi => {},
         else => @compileError("unsupported platform"),
     }
 }
