@@ -205,7 +205,7 @@ void main() {
         // The glyph_offset.y is the y bearing, a y value that when added
         // to the baseline is the offset (+y is up). Our grid goes down.
         // So we flip it with `cell_size.y - glyph_offset.y`.
-        glyph_offset_calc.y = cell_size_scaled.y - glyph_offset_calc.y;
+        glyph_offset_calc.y = -glyph_offset_calc.y;
 
         // If this is a constrained mode, we need to constrain it!
         // We also always constrain colored glyphs since we should have
