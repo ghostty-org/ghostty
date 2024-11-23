@@ -24,6 +24,7 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuReloadConfig: NSMenuItem?
     @IBOutlet private var menuSecureInput: NSMenuItem?
     @IBOutlet private var menuQuit: NSMenuItem?
+    @IBOutlet private var menuMakeDefaultTerminal: NSMenuItem?
 
     @IBOutlet private var menuNewWindow: NSMenuItem?
     @IBOutlet private var menuNewTab: NSMenuItem?
@@ -662,6 +663,10 @@ class AppDelegate: NSObject,
 
     @IBAction func toggleSecureInput(_ sender: Any) {
         setSecureInput(.toggle)
+    }
+
+    @IBAction func makeDefaultTerminal(_ sender: Any) {
+        Ghostty.logger.debug("Clicked makeDefaultTerminal")
     }
 
     @IBAction func toggleQuickTerminal(_ sender: Any) {

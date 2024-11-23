@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="23094" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES" customObjectInstantitationMethod="direct">
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="23504" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES" customObjectInstantitationMethod="direct">
     <dependencies>
         <deployment identifier="macosx"/>
-        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="23094"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="23504"/>
     </dependencies>
     <objects>
         <customObject id="-2" userLabel="File's Owner" customClass="NSApplication">
@@ -22,6 +22,7 @@
                 <outlet property="menuDecreaseFontSize" destination="kzb-SZ-dOA" id="Y1B-Vh-6Z2"/>
                 <outlet property="menuEqualizeSplits" destination="3gH-VD-vL9" id="SiZ-ce-FOF"/>
                 <outlet property="menuIncreaseFontSize" destination="CIH-ey-Z6x" id="hkc-9C-80E"/>
+                <outlet property="menuMakeDefaultTerminal" destination="gFP-FT-8g6" id="KNl-nG-qQv"/>
                 <outlet property="menuMoveSplitDividerDown" destination="Zj7-2W-fdF" id="997-LL-nlN"/>
                 <outlet property="menuMoveSplitDividerLeft" destination="wSR-ny-j1a" id="HCZ-CI-2ob"/>
                 <outlet property="menuMoveSplitDividerRight" destination="CcX-ql-QU4" id="rIn-PK-fVM"/>
@@ -83,6 +84,12 @@
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="toggleSecureInput:" target="bbz-4X-AYv" id="vWx-z8-5Sy"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Make Default Terminal" id="gFP-FT-8g6">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="makeDefaultTerminal:" target="bbz-4X-AYv" id="CaP-G2-Cph"/>
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="4je-JR-u6R"/>
