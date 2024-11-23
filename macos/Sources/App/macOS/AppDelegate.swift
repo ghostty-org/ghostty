@@ -665,8 +665,44 @@ class AppDelegate: NSObject,
         setSecureInput(.toggle)
     }
 
-    @IBAction func makeDefaultTerminal(_ sender: Any) {
+    @IBAction func makeGhosttyDefaultTerminal(_ sender: Any) {
         Ghostty.logger.debug("Clicked makeDefaultTerminal")
+        let ghosttyBundleID = Bundle.main.bundleIdentifier!
+        setDefaultTerminal(bundleID: ghosttyBundleID)
+    }
+   
+    @IBAction func makeTerminalDefaultTerminal(_ sender: Any) {
+        Ghostty.logger.debug("Clicked makeTerminalDefaultTerminal")
+        let terminalBundleID = "com.apple.terminal"
+        setDefaultTerminal(bundleID: terminalBundleID)
+    }
+   
+    func isGhosttyDefault() -> Bool {
+        return isDefaultTerminal(bundleID: Bundle.main.bundleIdentifier!)
+    }
+    
+    func isTerminalDefault() -> Bool {
+        return isDefaultTerminal(bundleID: "com.apple.terminal")
+    }
+    
+    func isDefaultTerminal(bundleID: String) -> Bool {
+        return bundleID.isEqual(defaultTerminal())
+        // return CFStringCompare(bundleID as CFString, unixHandler?.takeRetainedValue(), CFStringCompareFlags.compareBackwards) == CFComparisonResult.compareEqualTo
+    }
+    
+    func defaultTerminal() -> String {
+        let unixExecutableContentType: CFString = "public.unix-executable" as CFString
+        let unixHandler = LSCopyDefaultRoleHandlerForContentType(unixExecutableContentType, LSRolesMask.shell)
+        let current = unixHandler?.takeRetainedValue() as? String ?? ""
+        
+        return current
+    }
+    
+    func setDefaultTerminal(bundleID: String) {
+        Ghostty.logger.debug("Setting default terminal to \(bundleID)")
+        Ghostty.logger.debug("Is Ghostty default? \(self.isGhosttyDefault())")
+        Ghostty.logger.debug("Is Terminal default? \(self.isTerminalDefault())")
+        Ghostty.logger.debug("Debugging default terminal: \(self.defaultTerminal())")
     }
 
     @IBAction func toggleQuickTerminal(_ sender: Any) {

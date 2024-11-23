@@ -86,10 +86,10 @@
                                     <action selector="toggleSecureInput:" target="bbz-4X-AYv" id="vWx-z8-5Sy"/>
                                 </connections>
                             </menuItem>
-                            <menuItem title="Make Default Terminal" id="gFP-FT-8g6">
+                            <menuItem title="Make Ghostty Default Terminal" id="gFP-FT-8g6">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
-                                    <action selector="makeDefaultTerminal:" target="bbz-4X-AYv" id="CaP-G2-Cph"/>
+                                    <action selector="makeGhosttyDefaultTerminal:" target="bbz-4X-AYv" id="o1U-Dx-VR6"/>
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="4je-JR-u6R"/>
