@@ -383,8 +383,8 @@ pub const Wasm = struct {
             const y_start = -@as(isize, @intCast(cell.render.glyph.atlas_y));
             try ctx.call(void, "putImageData", .{
                 if (cell.render.presentation == .emoji) colour_data else gray_data,
-                x_start + @as(isize, @intCast(cell.x * grid.metrics.cell_width)) + cell.render.glyph.offset_x,
-                y_start + @as(isize, @intCast(cell.y * grid.metrics.cell_height)) + cell.render.glyph.offset_y,
+                x_start + @as(isize, @intCast(cell.x * grid.metrics.cell_width)) - cell.render.glyph.offset_x,
+                y_start + @as(isize, @intCast(cell.y * grid.metrics.cell_height)) - cell.render.glyph.offset_y,
                 cell.render.glyph.atlas_x,
                 cell.render.glyph.atlas_y,
                 cell.render.glyph.width,

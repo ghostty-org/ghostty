@@ -2638,6 +2638,7 @@ pub fn changeConditionalState(
 /// Expand the relative paths in config-files to be absolute paths
 /// relative to the base directory.
 fn expandPaths(self: *Config, base: []const u8) !void {
+    if (builtin.cpu.arch == .wasm32) return error.WasmCannotExpandPaths;
     const arena_alloc = self._arena.?.allocator();
 
     // Keep track of this step for replays

@@ -34,12 +34,14 @@ fn run_(str: []const u8) !void {
     try config.finalize();
     std.log.err("font-size {}", .{config.@"font-size"});
     config.@"font-size" = 32;
+    std.log.err("font-size {}", .{config.@"font-size"});
     const app = try App.create(alloc);
     // Create our runtime app
     var app_runtime = try apprt.App.init(app, .{});
     const surface = try alloc.create(Surface);
     const apprt_surface = try alloc.create(apprt.Surface);
     try surface.init(alloc, &config, app, &app_runtime, apprt_surface);
+    try surface.updateConfig(&config);
     std.log.err("{}", .{surface.size});
     try surface.renderer.setScreenSize(surface.size);
     const esc = "\x1b[";

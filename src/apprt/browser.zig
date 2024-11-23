@@ -67,7 +67,8 @@ pub const App = struct {
             .renderer_health,
             .color_change,
             .pwd,
-            .config_change_conditional_state,
+            .reload_config,
+            .config_change,
             => log.info("unimplemented action={}", .{action}),
         }
     }
