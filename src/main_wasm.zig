@@ -30,10 +30,8 @@ fn run_(str: []const u8) !void {
     var config = try Config.default(alloc);
     var fbs = std.io.fixedBufferStream(str);
     var iter = cli.args.lineIterator(fbs.reader());
-    try cli.args.parse(Config, alloc, &config, &iter);
+    try config.loadIter(alloc, &iter);
     try config.finalize();
-    std.log.err("font-size {}", .{config.@"font-size"});
-    config.@"font-size" = 32;
     std.log.err("font-size {}", .{config.@"font-size"});
     const app = try App.create(alloc);
     // Create our runtime app
@@ -41,7 +39,6 @@ fn run_(str: []const u8) !void {
     const surface = try alloc.create(Surface);
     const apprt_surface = try alloc.create(apprt.Surface);
     try surface.init(alloc, &config, app, &app_runtime, apprt_surface);
-    try surface.updateConfig(&config);
     std.log.err("{}", .{surface.size});
     try surface.renderer.setScreenSize(surface.size);
     const esc = "\x1b[";
