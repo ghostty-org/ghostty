@@ -51,10 +51,8 @@ config: DerivedConfig,
 /// Current font metrics defining our grid.
 grid_metrics: font.face.Metrics,
 
-/// Current screen size dimensions for this grid. This is set on the first
-/// resize event, and is not immediately available.
-screen_size: ?renderer.ScreenSize,
-grid_size: renderer.GridSize,
+/// The size of everything.
+size: renderer.Size,
 
 /// The current set of cells to render. Each set of cells goes into
 /// a separate shader call.
@@ -108,9 +106,6 @@ cursor_color: ?terminal.color.RGB,
 /// foreground color as the cursor color.
 cursor_invert: bool,
 
-/// Padding options
-padding: renderer.Options.Padding,
-
 /// The mailbox for communicating with the window.
 surface_mailbox: apprt.surface.Mailbox,
 
@@ -141,7 +136,7 @@ image_virtual: bool = false,
 
 /// Defererred OpenGL operation to update the screen size.
 const SetScreenSize = struct {
-    size: renderer.ScreenSize,
+    size: renderer.Size,
 
     fn apply(self: SetScreenSize, r: *OpenGL) !void {
         const gl_state: *GLState = if (r.gl_state) |*v|
@@ -150,19 +145,8 @@ const SetScreenSize = struct {
             return error.OpenGLUninitialized;
 
         // Apply our padding
-        const grid_size = r.gridSize(self.size);
-        const padding = if (r.padding.balance)
-            renderer.Padding.balanced(
-                self.size,
-                grid_size,
-                .{
-                    .width = r.grid_metrics.cell_width,
-                    .height = r.grid_metrics.cell_height,
-                },
-            )
-        else
-            r.padding.explicit;
-        const padded_size = self.size.subPadding(padding);
+        const grid_size = self.size.grid();
+        const terminal_size = self.size.terminal();
 
         // Blank space around the grid.
         const blank: renderer.Padding = switch (r.config.padding_color) {
@@ -170,30 +154,20 @@ const SetScreenSize = struct {
             // clear color.
             .background => .{},
 
-            .extend, .@"extend-always" => self.size.blankPadding(padding, grid_size, .{
-                .width = r.grid_metrics.cell_width,
-                .height = r.grid_metrics.cell_height,
-            }).add(padding),
+            .extend, .@"extend-always" => self.size.screen.blankPadding(
+                self.size.padding,
+                grid_size,
+                self.size.cell,
+            ).add(self.size.padding),
         };
-
-        log.debug("GL api: screen size padded={} screen={} grid={} cell={} padding={}", .{
-            padded_size,
-            self.size,
-            r.gridSize(self.size),
-            renderer.CellSize{
-                .width = r.grid_metrics.cell_width,
-                .height = r.grid_metrics.cell_height,
-            },
-            r.padding.explicit,
-        });
 
         // Update our viewport for this context to be the entire window.
         // OpenGL works in pixels, so we have to use the pixel size.
         try gl.viewport(
             0,
             0,
-            @intCast(self.size.width),
-            @intCast(self.size.height),
+            @intCast(self.size.screen.width),
+            @intCast(self.size.screen.height),
         );
 
         // Update the projection uniform within our shader
@@ -206,10 +180,10 @@ const SetScreenSize = struct {
 
                 // 2D orthographic projection with the full w/h
                 math.ortho2d(
-                    -1 * @as(f32, @floatFromInt(padding.left)),
-                    @floatFromInt(padded_size.width + padding.right),
-                    @floatFromInt(padded_size.height + padding.bottom),
-                    -1 * @as(f32, @floatFromInt(padding.top)),
+                    -1 * @as(f32, @floatFromInt(self.size.padding.left)),
+                    @floatFromInt(terminal_size.width + self.size.padding.right),
+                    @floatFromInt(terminal_size.height + self.size.padding.bottom),
+                    -1 * @as(f32, @floatFromInt(self.size.padding.top)),
                 ),
             );
         }
@@ -316,7 +290,7 @@ pub const DerivedConfig = struct {
         const custom_shaders = try config.@"custom-shader".clone(alloc);
 
         // Copy our font features
-        const font_features = try config.@"font-feature".list.clone(alloc);
+        const font_features = try config.@"font-feature".clone(alloc);
 
         // Get our font styles
         var font_styles = font.CodepointResolver.StyleStatus.initFill(true);
@@ -335,7 +309,7 @@ pub const DerivedConfig = struct {
         return .{
             .background_opacity = @max(0, @min(1, config.@"background-opacity")),
             .font_thicken = config.@"font-thicken",
-            .font_features = font_features,
+            .font_features = font_features.list,
             .font_styles = font_styles,
 
             .cursor_color = if (!cursor_invert and config.@"cursor-color" != null)
@@ -405,8 +379,7 @@ pub fn init(alloc: Allocator, options: renderer.Options) !OpenGL {
         .cells_bg = .{},
         .cells = .{},
         .grid_metrics = grid.metrics,
-        .screen_size = null,
-        .grid_size = .{},
+        .size = options.size,
         .gl_state = gl_state,
         .font_grid = grid,
         .font_shaper = shaper,
@@ -417,7 +390,6 @@ pub fn init(alloc: Allocator, options: renderer.Options) !OpenGL {
         .background_color = options.config.background,
         .cursor_color = options.config.cursor_color,
         .cursor_invert = options.config.cursor_invert,
-        .padding = options.padding,
         .surface_mailbox = options.surface_mailbox,
         .deferred_font_size = .{ .metrics = grid.metrics },
         .deferred_config = .{},
@@ -558,9 +530,7 @@ pub fn displayRealize(self: *OpenGL) !void {
     self.texture_color_resized = 0;
 
     // We need to reset our uniforms
-    if (self.screen_size) |size| {
-        self.deferred_screen_size = .{ .size = size };
-    }
+    self.deferred_screen_size = .{ .size = self.size };
     self.deferred_font_size = .{ .metrics = self.grid_metrics };
     self.deferred_config = .{};
 }
@@ -688,15 +658,9 @@ pub fn setFontGrid(self: *OpenGL, grid: *font.SharedGrid) void {
     self.font_shaper_cache.deinit(self.alloc);
     self.font_shaper_cache = font_shaper_cache;
 
-    if (self.screen_size) |size| {
-        // Update our grid size if we have a screen size. If we don't, its okay
-        // because this will get set when we get the screen size set.
-        self.grid_size = self.gridSize(size);
-
-        // Update our screen size because the font grid can affect grid
-        // metrics which update uniforms.
-        self.deferred_screen_size = .{ .size = size };
-    }
+    // Update our screen size because the font grid can affect grid
+    // metrics which update uniforms.
+    self.deferred_screen_size = .{ .size = self.size };
 
     // Defer our GPU updates
     self.deferred_font_size = .{ .metrics = grid.metrics };
@@ -725,6 +689,8 @@ pub fn updateFrame(
 
     // Update all our data as tightly as possible within the mutex.
     var critical: Critical = critical: {
+        const grid_size = self.size.grid();
+
         state.mutex.lock();
         defer state.mutex.unlock();
 
@@ -753,8 +719,8 @@ pub fn updateFrame(
         //
         // For some reason this doesn't seem to cause any significant issues
         // with flickering while resizing. '\_('-')_/'
-        if (self.grid_size.rows != state.terminal.rows or
-            self.grid_size.columns != state.terminal.cols)
+        if (grid_size.rows != state.terminal.rows or
+            grid_size.columns != state.terminal.cols)
         {
             return;
         }
@@ -844,7 +810,7 @@ pub fn updateFrame(
                 null,
             );
             while (it.next()) |chunk| {
-                var dirty_set = chunk.page.data.dirtyBitSet();
+                var dirty_set = chunk.node.data.dirtyBitSet();
                 dirty_set.unsetAll();
             }
         }
@@ -1314,7 +1280,7 @@ pub fn rebuildCells(
                     color_palette,
                     self.background_color,
                 );
-            } else if (y == self.grid_size.rows - 1) {
+            } else if (y == self.size.grid().rows - 1) {
                 self.padding_extend_bottom = !row.neverExtendBg(
                     color_palette,
                     self.background_color,
@@ -1411,7 +1377,7 @@ pub fn rebuildCells(
             // True if this cell is selected
             const selected: bool = if (screen.selection) |sel|
                 sel.contains(screen, .{
-                    .page = row.page,
+                    .node = row.node,
                     .y = row.y,
                     .x = @intCast(
                         // Spacer tails should show the selection
@@ -2115,18 +2081,6 @@ fn addGlyph(
     });
 }
 
-/// Returns the grid size for a given screen size. This is safe to call
-/// on any thread.
-fn gridSize(self: *const OpenGL, screen_size: renderer.ScreenSize) renderer.GridSize {
-    return renderer.GridSize.init(
-        screen_size.subPadding(self.padding.explicit),
-        .{
-            .width = self.grid_metrics.cell_width,
-            .height = self.grid_metrics.cell_height,
-        },
-    );
-}
-
 /// Update the configuration.
 pub fn changeConfig(self: *OpenGL, config: *DerivedConfig) !void {
     // We always redo the font shaper in case font features changed. We
@@ -2164,8 +2118,7 @@ pub fn changeConfig(self: *OpenGL, config: *DerivedConfig) !void {
 /// used for the shader so that the scaling of the grid is correct.
 pub fn setScreenSize(
     self: *OpenGL,
-    dim: renderer.ScreenSize,
-    pad: renderer.Padding,
+    size: renderer.Size,
 ) !void {
     if (single_threaded_draw) self.draw_mutex.lock();
     defer if (single_threaded_draw) self.draw_mutex.unlock();
@@ -2177,22 +2130,12 @@ pub fn setScreenSize(
     self.cells_bg.clearAndFree(self.alloc);
 
     // Store our screen size
-    self.screen_size = dim;
-    self.padding.explicit = pad;
-    self.grid_size = self.gridSize(dim);
-
-    log.debug("screen size screen={} grid={} cell={} padding={}", .{
-        dim,
-        self.grid_size,
-        renderer.CellSize{
-            .width = self.grid_metrics.cell_width,
-            .height = self.grid_metrics.cell_height,
-        },
-        self.padding.explicit,
-    });
+    self.size = size;
 
     // Defer our OpenGL updates
-    self.deferred_screen_size = .{ .size = dim };
+    self.deferred_screen_size = .{ .size = size };
+
+    log.debug("screen size size={}", .{size});
 }
 
 /// Updates the font texture atlas if it is dirty.

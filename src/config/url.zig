@@ -24,7 +24,7 @@ const oni = @import("oniguruma");
 /// handling them well requires a non-regex approach.
 pub const regex =
     "(?:" ++ url_schemes ++
-    \\)(?:[\w\-.~:/?#\[\]@!$&*+,;=%]+(?:\(\w*\))?)+(?<!\.)
+    \\)(?:[\w\-.~:/?#@!$&*+,;=%]+(?:[\(\[]\w*[\)\]])?)+(?<![,.])
 ;
 const url_schemes =
     \\https?://|mailto:|ftp://|file:|ssh:|git://|ssh://|tel:|magnet:|ipfs://|ipns://|gemini://|gopher://|news:
@@ -71,6 +71,10 @@ test "url regex" {
             .expect = "https://example.com",
         },
         .{
+            .input = "Link trailing colon https://example.com, more text.",
+            .expect = "https://example.com",
+        },
+        .{
             .input = "Link in double quotes \"https://example.com\" and more",
             .expect = "https://example.com",
         },
@@ -111,6 +115,11 @@ test "url regex" {
         .{
             .input = "square brackets https://example.com/[foo] and more",
             .expect = "https://example.com/[foo]",
+        },
+        // square bracket following url
+        .{
+            .input = "[13]:TooManyStatements: TempFile#assign_temp_file_to_entity has approx 7 statements [https://example.com/docs/Too-Many-Statements.md]",
+            .expect = "https://example.com/docs/Too-Many-Statements.md",
         },
         // remaining URL schemes tests
         .{

@@ -20,7 +20,7 @@ const shell_integration = @import("shell_integration.zig");
 const terminal = @import("../terminal/main.zig");
 const termio = @import("../termio.zig");
 const Command = @import("../Command.zig");
-const SegmentedPool = @import("../segmented_pool.zig").SegmentedPool;
+const SegmentedPool = @import("../datastruct/main.zig").SegmentedPool;
 const ptypkg = @import("../pty.zig");
 const Pty = ptypkg.Pty;
 const EnvMap = std.process.EnvMap;
@@ -780,7 +780,7 @@ const Subprocess = struct {
             // then we just set it to the directory of the binary.
             if (env.get("PATH")) |path| {
                 // Verify that our path doesn't already contain this entry
-                var it = std.mem.tokenizeScalar(u8, path, internal_os.PATH_SEP[0]);
+                var it = std.mem.tokenizeScalar(u8, path, std.fs.path.delimiter);
                 while (it.next()) |entry| {
                     if (std.mem.eql(u8, entry, exe_dir)) break :ghostty_path;
                 }

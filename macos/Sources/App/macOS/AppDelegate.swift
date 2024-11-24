@@ -69,6 +69,9 @@ class AppDelegate: NSObject,
     /// seconds since the process was launched.
     private var applicationLaunchTime: TimeInterval = 0
 
+    /// This is the current configuration from the Ghostty configuration that we need.
+    private var derivedConfig: DerivedConfig = DerivedConfig()
+
     /// The ghostty global state. Only one per process.
     let ghostty: Ghostty.App = Ghostty.App()
 
@@ -91,6 +94,9 @@ class AppDelegate: NSObject,
     /// brings each window one by one to the front. But at worst its off by one set of toggles and this
     /// makes our logic very easy.
     private var isVisible: Bool = true
+
+    /// The observer for the app appearance.
+    private var appearanceObserver: NSKeyValueObservation? = nil
 
     override init() {
         terminalManager = TerminalManager(ghostty)
@@ -138,7 +144,7 @@ class AppDelegate: NSObject,
         menuCheckForUpdates?.action = #selector(SPUStandardUpdaterController.checkForUpdates(_:))
 
         // Initial config loading
-        configDidReload(ghostty)
+        ghosttyConfigDidChange(config: ghostty.config)
 
         // Start our update checker.
         updaterController.startUpdater()
@@ -162,6 +168,12 @@ class AppDelegate: NSObject,
             name: .quickTerminalDidChangeVisibility,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(ghosttyConfigDidChange(_:)),
+            name: .ghosttyConfigDidChange,
+            object: nil
+        )
 
         // Configure user notifications
         let actions = [
@@ -178,6 +190,23 @@ class AppDelegate: NSObject,
             )
         ])
         center.delegate = self
+
+        // Observe our appearance so we can report the correct value to libghostty.
+        self.appearanceObserver = NSApplication.shared.observe(
+            \.effectiveAppearance,
+             options: [.new, .initial]
+        ) { _, change in
+            guard let appearance = change.newValue else { return }
+            guard let app = self.ghostty.app else { return }
+            let scheme: ghostty_color_scheme_e
+            if (appearance.isDark) {
+                scheme = GHOSTTY_COLOR_SCHEME_DARK
+            } else {
+                scheme = GHOSTTY_COLOR_SCHEME_LIGHT
+            }
+
+            ghostty_app_set_color_scheme(app, scheme)
+        }
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -188,13 +217,13 @@ class AppDelegate: NSObject,
         // is possible to have other windows in a few scenarios:
         //   - if we're opening a URL since `application(_:openFile:)` is called before this.
         //   - if we're restoring from persisted state
-        if terminalManager.windows.count == 0 && ghostty.config.initialWindow {
+        if terminalManager.windows.count == 0 && derivedConfig.initialWindow {
             terminalManager.newWindow()
         }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        return ghostty.config.shouldQuitAfterLastWindowClosed
+        return derivedConfig.shouldQuitAfterLastWindowClosed
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -300,52 +329,52 @@ class AppDelegate: NSObject,
     }
 
     /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.
-    private func syncMenuShortcuts() {
+    private func syncMenuShortcuts(_ config: Ghostty.Config) {
         guard ghostty.readiness == .ready else { return }
 
-        syncMenuShortcut(action: "open_config", menuItem: self.menuOpenConfig)
-        syncMenuShortcut(action: "reload_config", menuItem: self.menuReloadConfig)
-        syncMenuShortcut(action: "quit", menuItem: self.menuQuit)
+        syncMenuShortcut(config, action: "open_config", menuItem: self.menuOpenConfig)
+        syncMenuShortcut(config, action: "reload_config", menuItem: self.menuReloadConfig)
+        syncMenuShortcut(config, action: "quit", menuItem: self.menuQuit)
 
-        syncMenuShortcut(action: "new_window", menuItem: self.menuNewWindow)
-        syncMenuShortcut(action: "new_tab", menuItem: self.menuNewTab)
-        syncMenuShortcut(action: "close_surface", menuItem: self.menuClose)
-        syncMenuShortcut(action: "close_window", menuItem: self.menuCloseWindow)
-        syncMenuShortcut(action: "close_all_windows", menuItem: self.menuCloseAllWindows)
-        syncMenuShortcut(action: "new_split:right", menuItem: self.menuSplitRight)
-        syncMenuShortcut(action: "new_split:down", menuItem: self.menuSplitDown)
+        syncMenuShortcut(config, action: "new_window", menuItem: self.menuNewWindow)
+        syncMenuShortcut(config, action: "new_tab", menuItem: self.menuNewTab)
+        syncMenuShortcut(config, action: "close_surface", menuItem: self.menuClose)
+        syncMenuShortcut(config, action: "close_window", menuItem: self.menuCloseWindow)
+        syncMenuShortcut(config, action: "close_all_windows", menuItem: self.menuCloseAllWindows)
+        syncMenuShortcut(config, action: "new_split:right", menuItem: self.menuSplitRight)
+        syncMenuShortcut(config, action: "new_split:down", menuItem: self.menuSplitDown)
 
-        syncMenuShortcut(action: "copy_to_clipboard", menuItem: self.menuCopy)
-        syncMenuShortcut(action: "paste_from_clipboard", menuItem: self.menuPaste)
-        syncMenuShortcut(action: "select_all", menuItem: self.menuSelectAll)
+        syncMenuShortcut(config, action: "copy_to_clipboard", menuItem: self.menuCopy)
+        syncMenuShortcut(config, action: "paste_from_clipboard", menuItem: self.menuPaste)
+        syncMenuShortcut(config, action: "select_all", menuItem: self.menuSelectAll)
 
-        syncMenuShortcut(action: "toggle_split_zoom", menuItem: self.menuZoomSplit)
-        syncMenuShortcut(action: "goto_split:previous", menuItem: self.menuPreviousSplit)
-        syncMenuShortcut(action: "goto_split:next", menuItem: self.menuNextSplit)
-        syncMenuShortcut(action: "goto_split:top", menuItem: self.menuSelectSplitAbove)
-        syncMenuShortcut(action: "goto_split:bottom", menuItem: self.menuSelectSplitBelow)
-        syncMenuShortcut(action: "goto_split:left", menuItem: self.menuSelectSplitLeft)
-        syncMenuShortcut(action: "goto_split:right", menuItem: self.menuSelectSplitRight)
-        syncMenuShortcut(action: "resize_split:up,10", menuItem: self.menuMoveSplitDividerUp)
-        syncMenuShortcut(action: "resize_split:down,10", menuItem: self.menuMoveSplitDividerDown)
-        syncMenuShortcut(action: "resize_split:right,10", menuItem: self.menuMoveSplitDividerRight)
-        syncMenuShortcut(action: "resize_split:left,10", menuItem: self.menuMoveSplitDividerLeft)
-        syncMenuShortcut(action: "equalize_splits", menuItem: self.menuEqualizeSplits)
+        syncMenuShortcut(config, action: "toggle_split_zoom", menuItem: self.menuZoomSplit)
+        syncMenuShortcut(config, action: "goto_split:previous", menuItem: self.menuPreviousSplit)
+        syncMenuShortcut(config, action: "goto_split:next", menuItem: self.menuNextSplit)
+        syncMenuShortcut(config, action: "goto_split:top", menuItem: self.menuSelectSplitAbove)
+        syncMenuShortcut(config, action: "goto_split:bottom", menuItem: self.menuSelectSplitBelow)
+        syncMenuShortcut(config, action: "goto_split:left", menuItem: self.menuSelectSplitLeft)
+        syncMenuShortcut(config, action: "goto_split:right", menuItem: self.menuSelectSplitRight)
+        syncMenuShortcut(config, action: "resize_split:up,10", menuItem: self.menuMoveSplitDividerUp)
+        syncMenuShortcut(config, action: "resize_split:down,10", menuItem: self.menuMoveSplitDividerDown)
+        syncMenuShortcut(config, action: "resize_split:right,10", menuItem: self.menuMoveSplitDividerRight)
+        syncMenuShortcut(config, action: "resize_split:left,10", menuItem: self.menuMoveSplitDividerLeft)
+        syncMenuShortcut(config, action: "equalize_splits", menuItem: self.menuEqualizeSplits)
 
-        syncMenuShortcut(action: "increase_font_size:1", menuItem: self.menuIncreaseFontSize)
-        syncMenuShortcut(action: "decrease_font_size:1", menuItem: self.menuDecreaseFontSize)
-        syncMenuShortcut(action: "reset_font_size", menuItem: self.menuResetFontSize)
-        syncMenuShortcut(action: "toggle_quick_terminal", menuItem: self.menuQuickTerminal)
-        syncMenuShortcut(action: "toggle_visibility", menuItem: self.menuToggleVisibility)
-        syncMenuShortcut(action: "inspector:toggle", menuItem: self.menuTerminalInspector)
+        syncMenuShortcut(config, action: "increase_font_size:1", menuItem: self.menuIncreaseFontSize)
+        syncMenuShortcut(config, action: "decrease_font_size:1", menuItem: self.menuDecreaseFontSize)
+        syncMenuShortcut(config, action: "reset_font_size", menuItem: self.menuResetFontSize)
+        syncMenuShortcut(config, action: "toggle_quick_terminal", menuItem: self.menuQuickTerminal)
+        syncMenuShortcut(config, action: "toggle_visibility", menuItem: self.menuToggleVisibility)
+        syncMenuShortcut(config, action: "inspector:toggle", menuItem: self.menuTerminalInspector)
 
-        syncMenuShortcut(action: "toggle_secure_input", menuItem: self.menuSecureInput)
+        syncMenuShortcut(config, action: "toggle_secure_input", menuItem: self.menuSecureInput)
 
         // This menu item is NOT synced with the configuration because it disables macOS
         // global fullscreen keyboard shortcut. The shortcut in the Ghostty config will continue
         // to work but it won't be reflected in the menu item.
         //
-        // syncMenuShortcut(action: "toggle_fullscreen", menuItem: self.menuToggleFullScreen)
+        // syncMenuShortcut(config, action: "toggle_fullscreen", menuItem: self.menuToggleFullScreen)
 
         // Dock menu
         reloadDockMenu()
@@ -353,9 +382,9 @@ class AppDelegate: NSObject,
 
     /// Syncs a single menu shortcut for the given action. The action string is the same
     /// action string used for the Ghostty configuration.
-    private func syncMenuShortcut(action: String, menuItem: NSMenuItem?) {
+    private func syncMenuShortcut(_ config: Ghostty.Config, action: String, menuItem: NSMenuItem?) {
         guard let menu = menuItem else { return }
-        guard let equiv = ghostty.config.keyEquivalent(for: action) else {
+        guard let equiv = config.keyEquivalent(for: action) else {
             // No shortcut, clear the menu item
             menu.keyEquivalent = ""
             menu.keyEquivalentModifierMask = []
@@ -422,6 +451,98 @@ class AppDelegate: NSObject,
         self.menuQuickTerminal?.state = if (quickController.visible) { .on } else { .off }
     }
 
+    @objc private func ghosttyConfigDidChange(_ notification: Notification) {
+        // We only care if the configuration is a global configuration, not a surface one.
+        guard notification.object == nil else { return }
+
+        // Get our managed configuration object out
+        guard let config = notification.userInfo?[
+            Notification.Name.GhosttyConfigChangeKey
+        ] as? Ghostty.Config else { return }
+
+        ghosttyConfigDidChange(config: config)
+    }
+
+    private func ghosttyConfigDidChange(config: Ghostty.Config) {
+        // Update the config we need to store
+        self.derivedConfig = DerivedConfig(config)
+
+        // Depending on the "window-save-state" setting we have to set the NSQuitAlwaysKeepsWindows
+        // configuration. This is the only way to carefully control whether macOS invokes the
+        // state restoration system.
+        switch (config.windowSaveState) {
+        case "never": UserDefaults.standard.setValue(false, forKey: "NSQuitAlwaysKeepsWindows")
+        case "always": UserDefaults.standard.setValue(true, forKey: "NSQuitAlwaysKeepsWindows")
+        case "default": fallthrough
+        default: UserDefaults.standard.removeObject(forKey: "NSQuitAlwaysKeepsWindows")
+        }
+
+        // Sync our auto-update settings
+        updaterController.updater.automaticallyChecksForUpdates =
+            config.autoUpdate == .check || config.autoUpdate == .download
+        updaterController.updater.automaticallyDownloadsUpdates =
+            config.autoUpdate == .download
+
+        // Config could change keybindings, so update everything that depends on that
+        syncMenuShortcuts(config)
+        terminalManager.relabelAllTabs()
+
+        // Config could change window appearance. We wrap this in an async queue because when
+        // this is called as part of application launch it can deadlock with an internal
+        // AppKit mutex on the appearance.
+        DispatchQueue.main.async { self.syncAppearance(config: config) }
+
+        // If we have configuration errors, we need to show them.
+        let c = ConfigurationErrorsController.sharedInstance
+        c.errors = config.errors
+        if (c.errors.count > 0) {
+            if (c.window == nil || !c.window!.isVisible) {
+                c.showWindow(self)
+            }
+        }
+
+        // We need to handle our global event tap depending on if there are global
+        // events that we care about in Ghostty.
+        if (ghostty_app_has_global_keybinds(ghostty.app!)) {
+            if (timeSinceLaunch > 5) {
+                // If the process has been running for awhile we enable right away
+                // because no windows are likely to pop up.
+                GlobalEventTap.shared.enable()
+            } else {
+                // If the process just started, we wait a couple seconds to allow
+                // the initial windows and so on to load so our permissions dialog
+                // doesn't get buried.
+                DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(2)) {
+                    GlobalEventTap.shared.enable()
+                }
+            }
+        } else {
+            GlobalEventTap.shared.disable()
+        }
+    }
+
+    /// Sync the appearance of our app with the theme specified in the config.
+    private func syncAppearance(config: Ghostty.Config) {
+        guard let theme = config.windowTheme else { return }
+        switch (theme) {
+        case "dark":
+            let appearance = NSAppearance(named: .darkAqua)
+            NSApplication.shared.appearance = appearance
+
+        case "light":
+            let appearance = NSAppearance(named: .aqua)
+            NSApplication.shared.appearance = appearance
+
+        case "auto":
+            let color = OSColor(config.backgroundColor)
+            let appearance = NSAppearance(named: color.isLightColor ? .aqua : .darkAqua)
+            NSApplication.shared.appearance = appearance
+
+        default:
+            NSApplication.shared.appearance = nil
+        }
+    }
+
     //MARK: - Restorable State
 
     /// We support NSSecureCoding for restorable state. Required as of macOS Sonoma (14) but a good idea anyways.
@@ -468,88 +589,6 @@ class AppDelegate: NSObject,
         }
 
         return nil
-    }
-
-    func configDidReload(_ state: Ghostty.App) {
-        // Depending on the "window-save-state" setting we have to set the NSQuitAlwaysKeepsWindows
-        // configuration. This is the only way to carefully control whether macOS invokes the
-        // state restoration system.
-        switch (ghostty.config.windowSaveState) {
-        case "never": UserDefaults.standard.setValue(false, forKey: "NSQuitAlwaysKeepsWindows")
-        case "always": UserDefaults.standard.setValue(true, forKey: "NSQuitAlwaysKeepsWindows")
-        case "default": fallthrough
-        default: UserDefaults.standard.removeObject(forKey: "NSQuitAlwaysKeepsWindows")
-        }
-
-        // Sync our auto-update settings
-        updaterController.updater.automaticallyChecksForUpdates =
-            ghostty.config.autoUpdate == .check || ghostty.config.autoUpdate == .download
-        updaterController.updater.automaticallyDownloadsUpdates =
-            ghostty.config.autoUpdate == .download
-
-        // Config could change keybindings, so update everything that depends on that
-        syncMenuShortcuts()
-        terminalManager.relabelAllTabs()
-
-        // Config could change window appearance. We wrap this in an async queue because when
-        // this is called as part of application launch it can deadlock with an internal
-        // AppKit mutex on the appearance.
-        DispatchQueue.main.async { self.syncAppearance() }
-
-        // Update all of our windows
-        terminalManager.windows.forEach { window in
-            window.controller.configDidReload()
-        }
-
-        // If we have configuration errors, we need to show them.
-        let c = ConfigurationErrorsController.sharedInstance
-        c.errors = state.config.errors
-        if (c.errors.count > 0) {
-            if (c.window == nil || !c.window!.isVisible) {
-                c.showWindow(self)
-            }
-        }
-
-        // We need to handle our global event tap depending on if there are global
-        // events that we care about in Ghostty.
-        if (ghostty_app_has_global_keybinds(ghostty.app!)) {
-            if (timeSinceLaunch > 5) {
-                // If the process has been running for awhile we enable right away
-                // because no windows are likely to pop up.
-                GlobalEventTap.shared.enable()
-            } else {
-                // If the process just started, we wait a couple seconds to allow
-                // the initial windows and so on to load so our permissions dialog
-                // doesn't get buried.
-                DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(2)) {
-                    GlobalEventTap.shared.enable()
-                }
-            }
-        } else {
-            GlobalEventTap.shared.disable()
-        }
-    }
-
-    /// Sync the appearance of our app with the theme specified in the config.
-    private func syncAppearance() {
-        guard let theme = ghostty.config.windowTheme else { return }
-        switch (theme) {
-        case "dark":
-            let appearance = NSAppearance(named: .darkAqua)
-            NSApplication.shared.appearance = appearance
-
-        case "light":
-            let appearance = NSAppearance(named: .aqua)
-            NSApplication.shared.appearance = appearance
-
-        case "auto":
-            let color = OSColor(ghostty.config.backgroundColor)
-            let appearance = NSAppearance(named: color.isLightColor ? .aqua : .darkAqua)
-            NSApplication.shared.appearance = appearance
-
-        default:
-            NSApplication.shared.appearance = nil
-        }
     }
 
     //MARK: - Dock Menu
@@ -629,7 +668,7 @@ class AppDelegate: NSObject,
         if quickController == nil {
             quickController = QuickTerminalController(
                 ghostty,
-                position: ghostty.config.quickTerminalPosition
+                position: derivedConfig.quickTerminalPosition
             )
         }
 
@@ -654,5 +693,23 @@ class AppDelegate: NSObject,
         }
 
         isVisible.toggle()
+    }
+
+    private struct DerivedConfig {
+        let initialWindow: Bool
+        let shouldQuitAfterLastWindowClosed: Bool
+        let quickTerminalPosition: QuickTerminalPosition
+
+        init() {
+            self.initialWindow = true
+            self.shouldQuitAfterLastWindowClosed = false
+            self.quickTerminalPosition = .top
+        }
+
+        init(_ config: Ghostty.Config) {
+            self.initialWindow = config.initialWindow
+            self.shouldQuitAfterLastWindowClosed = config.shouldQuitAfterLastWindowClosed
+            self.quickTerminalPosition = config.quickTerminalPosition
+        }
     }
 }

@@ -256,7 +256,10 @@ const Preview = struct {
 
     fn updateFiltered(self: *Preview) !void {
         const relative = self.current -| self.window;
-        const selected = self.themes[self.filtered.items[self.current]].theme;
+        var selected: []const u8 = undefined;
+        if (self.filtered.items.len > 0) {
+            selected = self.themes[self.filtered.items[self.current]].theme;
+        }
 
         const hash_algorithm = std.hash.Wyhash;
 
@@ -289,9 +292,11 @@ const Preview = struct {
             while (it.next()) |token| try tokens.append(token);
 
             for (self.themes, 0..) |*theme, i| {
-                theme.rank = zf.rank(theme.theme, tokens.items, false, true);
-                if (theme.rank) |_|
-                    try self.filtered.append(i);
+                theme.rank = zf.rank(theme.theme, tokens.items, .{
+                    .to_lower = true,
+                    .plain = true,
+                });
+                if (theme.rank != null) try self.filtered.append(i);
             }
         } else {
             for (self.themes, 0..) |*theme, i| {
@@ -382,8 +387,8 @@ const Preview = struct {
                                 self.tty.anyWriter(),
                                 self.themes[self.filtered.items[self.current]].theme,
                                 alloc,
-                            );
-                        if (key.matches('c', .{ .shift = true }))
+                            )
+                        else if (key.matches('c', .{ .shift = true }))
                             try self.vx.copyToSystemClipboard(
                                 self.tty.anyWriter(),
                                 self.themes[self.filtered.items[self.current]].path,
@@ -498,8 +503,8 @@ const Preview = struct {
         const theme_list = win.child(.{
             .x_off = 0,
             .y_off = 0,
-            .width = .{ .limit = 32 },
-            .height = .{ .limit = win.height },
+            .width = 32,
+            .height = win.height,
         });
 
         var highlight: ?usize = null;
@@ -541,7 +546,8 @@ const Preview = struct {
 
         theme_list.fill(.{ .style = self.ui_standard() });
 
-        for (0..theme_list.height) |row| {
+        for (0..theme_list.height) |row_capture| {
+            const row: u16 = @intCast(row_capture);
             const index = self.window + row;
             if (index >= self.filtered.items.len) break;
 
@@ -554,7 +560,7 @@ const Preview = struct {
             };
 
             if (style == .selected) {
-                _ = try theme_list.printSegment(
+                _ = theme_list.printSegment(
                     .{
                         .text = "❯ ",
                         .style = self.ui_selected(),
@@ -565,7 +571,7 @@ const Preview = struct {
                     },
                 );
             }
-            _ = try theme_list.printSegment(
+            _ = theme_list.printSegment(
                 .{
                     .text = theme.theme,
                     .style = switch (style) {
@@ -584,8 +590,9 @@ const Preview = struct {
             );
             if (style == .selected) {
                 if (theme.theme.len < theme_list.width - 4) {
-                    for (2 + theme.theme.len..theme_list.width - 2) |i|
-                        _ = try theme_list.printSegment(
+                    for (2 + theme.theme.len..theme_list.width - 2) |i_capture| {
+                        const i: u16 = @intCast(i_capture);
+                        _ = theme_list.printSegment(
                             .{
                                 .text = " ",
                                 .style = self.ui_selected(),
@@ -595,8 +602,9 @@ const Preview = struct {
                                 .col_offset = i,
                             },
                         );
+                    }
                 }
-                _ = try theme_list.printSegment(
+                _ = theme_list.printSegment(
                     .{
                         .text = " ❮",
                         .style = self.ui_selected(),
@@ -623,12 +631,8 @@ const Preview = struct {
                     .{
                         .x_off = win.width / 2 -| width / 2,
                         .y_off = win.height / 2 -| height / 2,
-                        .width = .{
-                            .limit = width,
-                        },
-                        .height = .{
-                            .limit = height,
-                        },
+                        .width = width,
+                        .height = height,
                         .border = .{
                             .where = .all,
                             .style = self.ui_standard(),
@@ -658,8 +662,9 @@ const Preview = struct {
                     .{ .keys = "⏎", .help = "Close search window." },
                 };
 
-                for (key_help, 0..) |help, i| {
-                    _ = try child.printSegment(
+                for (key_help, 0..) |help, captured_i| {
+                    const i: u16 = @intCast(captured_i);
+                    _ = child.printSegment(
                         .{
                             .text = help.keys,
                             .style = self.ui_standard(),
@@ -669,7 +674,7 @@ const Preview = struct {
                             .col_offset = 2,
                         },
                     );
-                    _ = try child.printSegment(
+                    _ = child.printSegment(
                         .{
                             .text = "—",
                             .style = self.ui_standard(),
@@ -679,7 +684,7 @@ const Preview = struct {
                             .col_offset = 15,
                         },
                     );
-                    _ = try child.printSegment(
+                    _ = child.printSegment(
                         .{
                             .text = help.help,
                             .style = self.ui_standard(),
@@ -695,12 +700,8 @@ const Preview = struct {
                 const child = win.child(.{
                     .x_off = 20,
                     .y_off = win.height - 5,
-                    .width = .{
-                        .limit = win.width - 40,
-                    },
-                    .height = .{
-                        .limit = 3,
-                    },
+                    .width = win.width - 40,
+                    .height = 3,
                     .border = .{
                         .where = .all,
                         .style = self.ui_standard(),
@@ -712,786 +713,797 @@ const Preview = struct {
         }
     }
 
-    pub fn drawPreview(self: *Preview, alloc: std.mem.Allocator, win: vaxis.Window, x_off: usize) !void {
-        const width = win.width - x_off;
+    pub fn drawPreview(self: *Preview, alloc: std.mem.Allocator, win: vaxis.Window, x_off_unconverted: i17) !void {
+        const x_off: u16 = @intCast(x_off_unconverted);
+        const width: u16 = win.width - x_off;
 
-        const theme = self.themes[self.filtered.items[self.current]];
+        if (self.filtered.items.len > 0) {
+            const theme = self.themes[self.filtered.items[self.current]];
 
-        var config = try Config.default(alloc);
-        defer config.deinit();
+            var config = try Config.default(alloc);
+            defer config.deinit();
 
-        config.loadFile(config._arena.?.allocator(), theme.path) catch |err| {
-            const child = win.child(
-                .{
-                    .x_off = x_off,
-                    .y_off = 0,
-                    .width = .{
-                        .limit = width,
-                    },
-                    .height = .{
-                        .limit = win.height,
-                    },
-                },
-            );
-            child.fill(.{ .style = self.ui_standard() });
-            const middle = child.height / 2;
-            {
-                const text = try std.fmt.allocPrint(alloc, "Unable to open {s} from:", .{theme.theme});
-                _ = try child.printSegment(
+            config.loadFile(config._arena.?.allocator(), theme.path) catch |err| {
+                const theme_path_len: u16 = @intCast(theme.path.len);
+
+                const child = win.child(
                     .{
-                        .text = text,
-                        .style = self.ui_err(),
-                    },
-                    .{
-                        .row_offset = middle -| 1,
-                        .col_offset = child.width / 2 -| text.len / 2,
+                        .x_off = x_off,
+                        .y_off = 0,
+                        .width = width,
+                        .height = win.height,
                     },
                 );
-            }
+                child.fill(.{ .style = self.ui_standard() });
+                const middle = child.height / 2;
+                {
+                    const text = try std.fmt.allocPrint(alloc, "Unable to open {s} from:", .{theme.theme});
+                    const text_len: u16 = @intCast(text.len);
+                    _ = child.printSegment(
+                        .{
+                            .text = text,
+                            .style = self.ui_err(),
+                        },
+                        .{
+                            .row_offset = middle -| 1,
+                            .col_offset = child.width / 2 -| text_len / 2,
+                        },
+                    );
+                }
+                {
+                    _ = child.printSegment(
+                        .{
+                            .text = theme.path,
+                            .style = self.ui_err(),
+                            .link = .{
+                                .uri = try theme.toUri(alloc),
+                            },
+                        },
+                        .{
+                            .row_offset = middle,
+                            .col_offset = child.width / 2 -| theme_path_len / 2,
+                        },
+                    );
+                }
+                {
+                    const text = try std.fmt.allocPrint(alloc, "{}", .{err});
+                    const text_len: u16 = @intCast(text.len);
+                    _ = child.printSegment(
+                        .{
+                            .text = text,
+                            .style = self.ui_err(),
+                        },
+                        .{
+                            .row_offset = middle + 1,
+                            .col_offset = child.width / 2 -| text_len / 2,
+                        },
+                    );
+                }
+                return;
+            };
+
+            var next_start: u16 = 0;
+
+            const fg: vaxis.Color = .{
+                .rgb = [_]u8{
+                    config.foreground.r,
+                    config.foreground.g,
+                    config.foreground.b,
+                },
+            };
+            const bg: vaxis.Color = .{
+                .rgb = [_]u8{
+                    config.background.r,
+                    config.background.g,
+                    config.background.b,
+                },
+            };
+            const standard: vaxis.Style = .{
+                .fg = fg,
+                .bg = bg,
+            };
+            const standard_bold: vaxis.Style = .{
+                .fg = fg,
+                .bg = bg,
+                .bold = true,
+            };
+            const standard_italic: vaxis.Style = .{
+                .fg = fg,
+                .bg = bg,
+                .italic = true,
+            };
+            const standard_bold_italic: vaxis.Style = .{
+                .fg = fg,
+                .bg = bg,
+                .bold = true,
+                .italic = true,
+            };
+            const standard_underline: vaxis.Style = .{
+                .fg = fg,
+                .bg = bg,
+                .ul_style = .single,
+            };
+            const standard_double_underline: vaxis.Style = .{
+                .fg = fg,
+                .bg = bg,
+                .ul_style = .double,
+            };
+            const standard_dashed_underline: vaxis.Style = .{
+                .fg = fg,
+                .bg = bg,
+                .ul_style = .dashed,
+            };
+            const standard_curly_underline: vaxis.Style = .{
+                .fg = fg,
+                .bg = bg,
+                .ul_style = .curly,
+            };
+            const standard_dotted_underline: vaxis.Style = .{
+                .fg = fg,
+                .bg = bg,
+                .ul_style = .dotted,
+            };
+
             {
-                _ = try child.printSegment(
+                const theme_len: u16 = @intCast(theme.theme.len);
+                const theme_path_len: u16 = @intCast(theme.path.len);
+                const child = win.child(
                     .{
-                        .text = theme.path,
-                        .style = self.ui_err(),
+                        .x_off = x_off,
+                        .y_off = next_start,
+                        .width = width,
+                        .height = 4,
+                    },
+                );
+                child.fill(.{ .style = standard });
+                _ = child.printSegment(
+                    .{
+                        .text = theme.theme,
+                        .style = standard_bold_italic,
                         .link = .{
                             .uri = try theme.toUri(alloc),
                         },
                     },
                     .{
-                        .row_offset = middle,
-                        .col_offset = child.width / 2 -| theme.path.len / 2,
+                        .row_offset = 1,
+                        .col_offset = child.width / 2 -| theme_len / 2,
                     },
                 );
-            }
-            {
-                const text = try std.fmt.allocPrint(alloc, "{}", .{err});
-                _ = try child.printSegment(
+                _ = child.printSegment(
                     .{
-                        .text = text,
-                        .style = self.ui_err(),
+                        .text = theme.path,
+                        .style = standard,
+                        .link = .{
+                            .uri = try theme.toUri(alloc),
+                        },
                     },
                     .{
-                        .row_offset = middle + 1,
-                        .col_offset = child.width / 2 -| text.len / 2,
+                        .row_offset = 2,
+                        .col_offset = child.width / 2 -| theme_path_len / 2,
+                        .wrap = .none,
                     },
                 );
+                next_start += child.height;
             }
-            return;
-        };
 
-        var next_start: usize = 0;
-
-        const fg: vaxis.Color = .{
-            .rgb = [_]u8{
-                config.foreground.r,
-                config.foreground.g,
-                config.foreground.b,
-            },
-        };
-        const bg: vaxis.Color = .{
-            .rgb = [_]u8{
-                config.background.r,
-                config.background.g,
-                config.background.b,
-            },
-        };
-        const standard: vaxis.Style = .{
-            .fg = fg,
-            .bg = bg,
-        };
-        const standard_bold: vaxis.Style = .{
-            .fg = fg,
-            .bg = bg,
-            .bold = true,
-        };
-        const standard_italic: vaxis.Style = .{
-            .fg = fg,
-            .bg = bg,
-            .italic = true,
-        };
-        const standard_bold_italic: vaxis.Style = .{
-            .fg = fg,
-            .bg = bg,
-            .bold = true,
-            .italic = true,
-        };
-        const standard_underline: vaxis.Style = .{
-            .fg = fg,
-            .bg = bg,
-            .ul_style = .single,
-        };
-        const standard_double_underline: vaxis.Style = .{
-            .fg = fg,
-            .bg = bg,
-            .ul_style = .double,
-        };
-        const standard_dashed_underline: vaxis.Style = .{
-            .fg = fg,
-            .bg = bg,
-            .ul_style = .dashed,
-        };
-        const standard_curly_underline: vaxis.Style = .{
-            .fg = fg,
-            .bg = bg,
-            .ul_style = .curly,
-        };
-        const standard_dotted_underline: vaxis.Style = .{
-            .fg = fg,
-            .bg = bg,
-            .ul_style = .dotted,
-        };
-
-        {
-            const child = win.child(
-                .{
-                    .x_off = x_off,
-                    .y_off = next_start,
-                    .width = .{
-                        .limit = width,
-                    },
-                    .height = .{
-                        .limit = 4,
-                    },
-                },
-            );
-            child.fill(.{ .style = standard });
-            _ = try child.printSegment(
-                .{
-                    .text = theme.theme,
-                    .style = standard_bold_italic,
-                    .link = .{
-                        .uri = try theme.toUri(alloc),
-                    },
-                },
-                .{
-                    .row_offset = 1,
-                    .col_offset = child.width / 2 -| theme.theme.len / 2,
-                },
-            );
-            _ = try child.printSegment(
-                .{
-                    .text = theme.path,
-                    .style = standard,
-                    .link = .{
-                        .uri = try theme.toUri(alloc),
-                    },
-                },
-                .{
-                    .row_offset = 2,
-                    .col_offset = child.width / 2 -| theme.path.len / 2,
-                    .wrap = .none,
-                },
-            );
-            next_start += child.height;
-        }
-
-        if (config._diagnostics.items().len > 0) {
-            const child = win.child(
-                .{
-                    .x_off = x_off,
-                    .y_off = next_start,
-                    .width = .{
-                        .limit = width,
-                    },
-                    .height = .{
-                        .limit = if (config._diagnostics.items().len == 0) 0 else 2 + config._diagnostics.items().len,
-                    },
-                },
-            );
-            {
-                const text = "Problems were encountered trying to load the theme:";
-                _ = try child.printSegment(
+            if (config._diagnostics.items().len > 0) {
+                const diagnostic_items_len: u16 = @intCast(config._diagnostics.items().len);
+                const child = win.child(
                     .{
-                        .text = text,
-                        .style = self.ui_err(),
+                        .x_off = x_off,
+                        .y_off = next_start,
+                        .width = width,
+                        .height = if (config._diagnostics.items().len == 0) 0 else 2 + diagnostic_items_len,
+                    },
+                );
+                {
+                    const text = "Problems were encountered trying to load the theme:";
+                    const text_len: u16 = @intCast(text.len);
+                    _ = child.printSegment(
+                        .{
+                            .text = text,
+                            .style = self.ui_err(),
+                        },
+                        .{
+                            .row_offset = 0,
+                            .col_offset = child.width / 2 -| (text_len / 2),
+                        },
+                    );
+                }
+
+                var buf = std.ArrayList(u8).init(alloc);
+                defer buf.deinit();
+                for (config._diagnostics.items(), 0..) |diag, captured_i| {
+                    const i: u16 = @intCast(captured_i);
+                    try diag.write(buf.writer());
+                    _ = child.printSegment(
+                        .{
+                            .text = buf.items,
+                            .style = self.ui_err(),
+                        },
+                        .{
+                            .row_offset = 2 + i,
+                            .col_offset = 2,
+                        },
+                    );
+                    buf.clearRetainingCapacity();
+                }
+                next_start += child.height;
+            }
+            {
+                const child = win.child(.{
+                    .x_off = x_off,
+                    .y_off = next_start,
+                    .width = width,
+                    .height = 6,
+                });
+
+                child.fill(.{ .style = standard });
+
+                for (0..16) |captured_i| {
+                    const i: u16 = @intCast(captured_i);
+                    const r = i / 8;
+                    const c = i % 8;
+                    const text = if (self.hex)
+                        try std.fmt.allocPrint(alloc, " {x:0>2}", .{i})
+                    else
+                        try std.fmt.allocPrint(alloc, "{d:3}", .{i});
+                    _ = child.printSegment(
+                        .{
+                            .text = text,
+                            .style = standard,
+                        },
+                        .{
+                            .row_offset = 3 * r,
+                            .col_offset = c * 8,
+                        },
+                    );
+                    _ = child.printSegment(
+                        .{
+                            .text = "████",
+                            .style = .{
+                                .fg = color(config, i),
+                                .bg = bg,
+                            },
+                        },
+                        .{
+                            .row_offset = 3 * r,
+                            .col_offset = 4 + c * 8,
+                        },
+                    );
+                    _ = child.printSegment(
+                        .{
+                            .text = "████",
+                            .style = .{
+                                .fg = color(config, i),
+                                .bg = bg,
+                            },
+                        },
+                        .{
+                            .row_offset = 3 * r + 1,
+                            .col_offset = 4 + c * 8,
+                        },
+                    );
+                }
+                next_start += child.height;
+            }
+            {
+                const child = win.child(
+                    .{
+                        .x_off = x_off,
+                        .y_off = next_start,
+                        .width = width,
+                        .height = 24,
+                    },
+                );
+                const bold: vaxis.Style = .{
+                    .fg = fg,
+                    .bg = bg,
+                    .bold = true,
+                };
+                const color1: vaxis.Style = .{
+                    .fg = color(config, 1),
+                    .bg = bg,
+                };
+                const color2: vaxis.Style = .{
+                    .fg = color(config, 2),
+                    .bg = bg,
+                };
+                const color3: vaxis.Style = .{
+                    .fg = color(config, 3),
+                    .bg = bg,
+                };
+                const color4: vaxis.Style = .{
+                    .fg = color(config, 4),
+                    .bg = bg,
+                };
+                const color5: vaxis.Style = .{
+                    .fg = color(config, 5),
+                    .bg = bg,
+                };
+                const color6: vaxis.Style = .{
+                    .fg = color(config, 6),
+                    .bg = bg,
+                };
+                const color6ul: vaxis.Style = .{
+                    .fg = color(config, 6),
+                    .bg = bg,
+                    .ul_style = .single,
+                };
+                const color10: vaxis.Style = .{
+                    .fg = color(config, 10),
+                    .bg = bg,
+                };
+                const color12: vaxis.Style = .{
+                    .fg = color(config, 12),
+                    .bg = bg,
+                };
+                const color238: vaxis.Style = .{
+                    .fg = color(config, 238),
+                    .bg = bg,
+                };
+                child.fill(.{ .style = standard });
+                _ = child.print(
+                    &.{
+                        .{ .text = "→", .style = color2 },
+                        .{ .text = " ", .style = standard },
+                        .{ .text = "bat", .style = color4 },
+                        .{ .text = " ", .style = standard },
+                        .{ .text = "ziggzagg.zig", .style = color6ul },
                     },
                     .{
                         .row_offset = 0,
-                        .col_offset = child.width / 2 -| (text.len / 2),
-                    },
-                );
-            }
-
-            var buf = std.ArrayList(u8).init(alloc);
-            defer buf.deinit();
-            for (config._diagnostics.items(), 0..) |diag, i| {
-                try diag.write(buf.writer());
-                _ = try child.printSegment(
-                    .{
-                        .text = buf.items,
-                        .style = self.ui_err(),
-                    },
-                    .{
-                        .row_offset = 2 + i,
                         .col_offset = 2,
                     },
                 );
-                buf.clearRetainingCapacity();
+                {
+                    _ = child.print(
+                        &.{
+                            .{
+                                .text = "───────┬",
+                                .style = color238,
+                            },
+                        },
+                        .{
+                            .row_offset = 1,
+                            .col_offset = 2,
+                        },
+                    );
+                    if (child.width > 10) {
+                        for (10..child.width) |captured_col| {
+                            const col: u16 = @intCast(captured_col);
+                            _ = child.print(
+                                &.{
+                                    .{
+                                        .text = "─",
+                                        .style = color238,
+                                    },
+                                },
+                                .{
+                                    .row_offset = 1,
+                                    .col_offset = col,
+                                },
+                            );
+                        }
+                    }
+                }
+                _ = child.print(
+                    &.{
+                        .{
+                            .text = "       │ ",
+                            .style = color238,
+                        },
+
+                        .{
+                            .text = "File: ",
+                            .style = standard,
+                        },
+
+                        .{
+                            .text = "ziggzag.zig",
+                            .style = bold,
+                        },
+                    },
+                    .{
+                        .row_offset = 2,
+                        .col_offset = 2,
+                    },
+                );
+                {
+                    _ = child.print(
+                        &.{
+                            .{
+                                .text = "───────┼",
+                                .style = color238,
+                            },
+                        },
+                        .{
+                            .row_offset = 3,
+                            .col_offset = 2,
+                        },
+                    );
+                    if (child.width > 10) {
+                        for (10..child.width) |captured_col| {
+                            const col: u16 = @intCast(captured_col);
+                            _ = child.print(
+                                &.{
+                                    .{
+                                        .text = "─",
+                                        .style = color238,
+                                    },
+                                },
+                                .{
+                                    .row_offset = 3,
+                                    .col_offset = col,
+                                },
+                            );
+                        }
+                    }
+                }
+                _ = child.print(
+                    &.{
+                        .{ .text = "   1   │ ", .style = color238 },
+                        .{ .text = "const", .style = color5 },
+                        .{ .text = " std ", .style = standard },
+                        .{ .text = "= @import", .style = color5 },
+                        .{ .text = "(", .style = standard },
+                        .{ .text = "\"std\"", .style = color10 },
+                        .{ .text = ");", .style = standard },
+                    },
+                    .{
+                        .row_offset = 4,
+                        .col_offset = 2,
+                    },
+                );
+                _ = child.print(
+                    &.{
+                        .{ .text = "   2   │", .style = color238 },
+                    },
+                    .{
+                        .row_offset = 5,
+                        .col_offset = 2,
+                    },
+                );
+                _ = child.print(
+                    &.{
+                        .{ .text = "   3   │ ", .style = color238 },
+                        .{ .text = "pub ", .style = color5 },
+                        .{ .text = "fn ", .style = color12 },
+                        .{ .text = "main", .style = color2 },
+                        .{ .text = "() ", .style = standard },
+                        .{ .text = "!", .style = color5 },
+                        .{ .text = "void", .style = color12 },
+                        .{ .text = " {", .style = standard },
+                    },
+                    .{
+                        .row_offset = 6,
+                        .col_offset = 2,
+                    },
+                );
+                _ = child.print(
+                    &.{
+                        .{ .text = "   4   │     ", .style = color238 },
+                        .{ .text = "const ", .style = color5 },
+                        .{ .text = "stdout ", .style = standard },
+                        .{ .text = "=", .style = color5 },
+                        .{ .text = " std.io.getStdOut().writer();", .style = standard },
+                    },
+                    .{
+                        .row_offset = 7,
+                        .col_offset = 2,
+                    },
+                );
+                _ = child.print(
+                    &.{
+                        .{ .text = "   5   │     ", .style = color238 },
+                        .{ .text = "var ", .style = color5 },
+                        .{ .text = "i:", .style = standard },
+                        .{ .text = " usize", .style = color12 },
+                        .{ .text = " =", .style = color5 },
+                        .{ .text = " 1", .style = color4 },
+                        .{ .text = ";", .style = standard },
+                    },
+                    .{
+                        .row_offset = 8,
+                        .col_offset = 2,
+                    },
+                );
+                _ = child.print(
+                    &.{
+                        .{ .text = "   6   │     ", .style = color238 },
+                        .{ .text = "while ", .style = color5 },
+                        .{ .text = "(i ", .style = standard },
+                        .{ .text = "<= ", .style = color5 },
+                        .{ .text = "16", .style = color4 },
+                        .{ .text = ") : (i ", .style = standard },
+                        .{ .text = "+= ", .style = color5 },
+                        .{ .text = "1", .style = color4 },
+                        .{ .text = ") {", .style = standard },
+                    },
+                    .{
+                        .row_offset = 9,
+                        .col_offset = 2,
+                    },
+                );
+                _ = child.print(
+                    &.{
+                        .{ .text = "   7   │         ", .style = color238 },
+                        .{ .text = "if ", .style = color5 },
+                        .{ .text = "(i ", .style = standard },
+                        .{ .text = "% ", .style = color5 },
+                        .{ .text = "15 ", .style = color4 },
+                        .{ .text = "== ", .style = color5 },
+                        .{ .text = "0", .style = color4 },
+                        .{ .text = ") {", .style = standard },
+                    },
+                    .{
+                        .row_offset = 10,
+                        .col_offset = 2,
+                    },
+                );
+                _ = child.print(
+                    &.{
+                        .{ .text = "   8   │             ", .style = color238 },
+                        .{ .text = "try ", .style = color5 },
+                        .{ .text = "stdout.writeAll(", .style = standard },
+                        .{ .text = "\"ZiggZagg", .style = color10 },
+                        .{ .text = "\\n", .style = color12 },
+                        .{ .text = "\"", .style = color10 },
+                        .{ .text = ");", .style = standard },
+                    },
+                    .{
+                        .row_offset = 11,
+                        .col_offset = 2,
+                    },
+                );
+                _ = child.print(
+                    &.{
+                        .{ .text = "   9   │         ", .style = color238 },
+                        .{ .text = "} ", .style = standard },
+                        .{ .text = "else if ", .style = color5 },
+                        .{ .text = "(i ", .style = standard },
+                        .{ .text = "% ", .style = color5 },
+                        .{ .text = "3 ", .style = color4 },
+                        .{ .text = "== ", .style = color5 },
+                        .{ .text = "0", .style = color4 },
+                        .{ .text = ") {", .style = standard },
+                    },
+                    .{
+                        .row_offset = 12,
+                        .col_offset = 2,
+                    },
+                );
+                _ = child.print(
+                    &.{
+                        .{ .text = "  10   │             ", .style = color238 },
+                        .{ .text = "try ", .style = color5 },
+                        .{ .text = "stdout.writeAll(", .style = standard },
+                        .{ .text = "\"Zigg", .style = color10 },
+                        .{ .text = "\\n", .style = color12 },
+                        .{ .text = "\"", .style = color10 },
+                        .{ .text = ");", .style = standard },
+                    },
+                    .{
+                        .row_offset = 13,
+                        .col_offset = 2,
+                    },
+                );
+                _ = child.print(
+                    &.{
+                        .{ .text = "  11   │         ", .style = color238 },
+                        .{ .text = "} ", .style = standard },
+                        .{ .text = "else if ", .style = color5 },
+                        .{ .text = "(i ", .style = standard },
+                        .{ .text = "% ", .style = color5 },
+                        .{ .text = "5 ", .style = color4 },
+                        .{ .text = "== ", .style = color5 },
+                        .{ .text = "0", .style = color4 },
+                        .{ .text = ") {", .style = standard },
+                    },
+                    .{
+                        .row_offset = 14,
+                        .col_offset = 2,
+                    },
+                );
+                _ = child.print(
+                    &.{
+                        .{ .text = "  12   │             ", .style = color238 },
+                        .{ .text = "try ", .style = color5 },
+                        .{ .text = "stdout.writeAll(", .style = standard },
+                        .{ .text = "\"Zagg", .style = color10 },
+                        .{ .text = "\\n", .style = color12 },
+                        .{ .text = "\"", .style = color10 },
+                        .{ .text = ");", .style = standard },
+                    },
+                    .{
+                        .row_offset = 15,
+                        .col_offset = 2,
+                    },
+                );
+                _ = child.print(
+                    &.{
+                        .{ .text = "  13   │         ", .style = color238 },
+                        .{ .text = "} ", .style = standard },
+                        .{ .text = "else ", .style = color5 },
+                        .{ .text = "{", .style = standard },
+                    },
+                    .{
+                        .row_offset = 16,
+                        .col_offset = 2,
+                    },
+                );
+                _ = child.print(
+                    &.{
+                        .{ .text = "  14   │             ", .style = color238 },
+                        .{ .text = "try ", .style = color5 },
+                        .{ .text = "stdout.print(", .style = standard },
+                        .{ .text = "\"{d}", .style = color10 },
+                        .{ .text = "\\n", .style = color12 },
+                        .{ .text = "\"", .style = color10 },
+                        .{ .text = ", .{i});", .style = standard },
+                    },
+                    .{
+                        .row_offset = 17,
+                        .col_offset = 2,
+                    },
+                );
+                _ = child.print(
+                    &.{
+                        .{ .text = "  15   │         ", .style = color238 },
+                        .{ .text = "}", .style = standard },
+                    },
+                    .{
+                        .row_offset = 18,
+                        .col_offset = 2,
+                    },
+                );
+                _ = child.print(
+                    &.{
+                        .{ .text = "  16   │     ", .style = color238 },
+                        .{ .text = "}", .style = standard },
+                    },
+                    .{
+                        .row_offset = 19,
+                        .col_offset = 2,
+                    },
+                );
+                _ = child.print(
+                    &.{
+                        .{ .text = "  17   │ ", .style = color238 },
+                        .{ .text = "}", .style = standard },
+                    },
+                    .{
+                        .row_offset = 20,
+                        .col_offset = 2,
+                    },
+                );
+                {
+                    _ = child.print(
+                        &.{
+                            .{
+                                .text = "───────┴",
+                                .style = color238,
+                            },
+                        },
+                        .{
+                            .row_offset = 21,
+                            .col_offset = 2,
+                        },
+                    );
+                    if (child.width > 10) {
+                        for (10..child.width) |captured_col| {
+                            const col: u16 = @intCast(captured_col);
+                            _ = child.print(
+                                &.{
+                                    .{
+                                        .text = "─",
+                                        .style = color238,
+                                    },
+                                },
+                                .{
+                                    .row_offset = 21,
+                                    .col_offset = col,
+                                },
+                            );
+                        }
+                    }
+                }
+                _ = child.print(
+                    &.{
+                        .{ .text = "ghostty ", .style = color6 },
+                        .{ .text = "on ", .style = standard },
+                        .{ .text = " main ", .style = color4 },
+                        .{ .text = "[+] ", .style = color1 },
+                        .{ .text = "via ", .style = standard },
+                        .{ .text = " v0.13.0 ", .style = color3 },
+                        .{ .text = "via ", .style = standard },
+                        .{ .text = "  impure (ghostty-env)", .style = color4 },
+                    },
+                    .{
+                        .row_offset = 22,
+                        .col_offset = 2,
+                    },
+                );
+                _ = child.print(
+                    &.{
+                        .{ .text = "✦ ", .style = color4 },
+                        .{ .text = "at ", .style = standard },
+                        .{ .text = "10:36:15 ", .style = color3 },
+                        .{ .text = "→", .style = color2 },
+                    },
+                    .{
+                        .row_offset = 23,
+                        .col_offset = 2,
+                    },
+                );
+                next_start += child.height;
             }
-            next_start += child.height;
-        }
-        {
+            if (next_start < win.height) {
+                const child = win.child(
+                    .{
+                        .x_off = x_off,
+                        .y_off = next_start,
+                        .width = width,
+                        .height = win.height - next_start,
+                    },
+                );
+                child.fill(.{ .style = standard });
+                var it = std.mem.splitAny(u8, lorem_ipsum, " \n");
+                var row: u16 = 1;
+                var col: u16 = 2;
+                while (row < child.height) {
+                    const word = it.next() orelse line: {
+                        it.reset();
+                        break :line it.next() orelse unreachable;
+                    };
+                    const word_len: u16 = @intCast(word.len);
+                    if (col + word.len > child.width) {
+                        row += 1;
+                        col = 2;
+                    }
+                    const style: vaxis.Style = style: {
+                        if (std.mem.eql(u8, "ipsum", word)) break :style .{ .fg = color(config, 2), .bg = bg };
+                        if (std.mem.eql(u8, "consectetur", word)) break :style standard_bold;
+                        if (std.mem.eql(u8, "reprehenderit", word)) break :style standard_italic;
+                        if (std.mem.eql(u8, "Praesent", word)) break :style standard_bold_italic;
+                        if (std.mem.eql(u8, "auctor", word)) break :style standard_underline;
+                        if (std.mem.eql(u8, "dui", word)) break :style standard_double_underline;
+                        if (std.mem.eql(u8, "erat", word)) break :style standard_dashed_underline;
+                        if (std.mem.eql(u8, "enim", word)) break :style standard_dotted_underline;
+                        if (std.mem.eql(u8, "odio", word)) break :style standard_curly_underline;
+                        break :style standard;
+                    };
+                    _ = child.printSegment(
+                        .{
+                            .text = word,
+                            .style = style,
+                        },
+                        .{
+                            .row_offset = row,
+                            .col_offset = col,
+                        },
+                    );
+                    col += word_len + 1;
+                }
+            }
+        } else {
             const child = win.child(.{
-                .x_off = x_off,
-                .y_off = next_start,
-                .width = .{
-                    .limit = width,
-                },
-                .height = .{
-                    .limit = 6,
-                },
+                .x_off = 0,
+                .y_off = 0,
+                .width = win.width,
+                .height = win.height,
+            });
+            child.fill(.{
+                .style = self.ui_standard(),
             });
 
-            child.fill(.{ .style = standard });
-
-            for (0..16) |i| {
-                const r = i / 8;
-                const c = i % 8;
-                const text = if (self.hex)
-                    try std.fmt.allocPrint(alloc, " {x:0>2}", .{i})
-                else
-                    try std.fmt.allocPrint(alloc, "{d:3}", .{i});
-                _ = try child.printSegment(
-                    .{
-                        .text = text,
-                        .style = standard,
-                    },
-                    .{
-                        .row_offset = 3 * r,
-                        .col_offset = c * 8,
-                    },
-                );
-                _ = try child.printSegment(
-                    .{
-                        .text = "████",
-                        .style = .{
-                            .fg = color(config, i),
-                            .bg = bg,
-                        },
-                    },
-                    .{
-                        .row_offset = 3 * r,
-                        .col_offset = 4 + c * 8,
-                    },
-                );
-                _ = try child.printSegment(
-                    .{
-                        .text = "████",
-                        .style = .{
-                            .fg = color(config, i),
-                            .bg = bg,
-                        },
-                    },
-                    .{
-                        .row_offset = 3 * r + 1,
-                        .col_offset = 4 + c * 8,
-                    },
-                );
-            }
-            next_start += child.height;
-        }
-        {
-            const child = win.child(
-                .{
-                    .x_off = x_off,
-                    .y_off = next_start,
-                    .width = .{
-                        .limit = width,
-                    },
-                    .height = .{
-                        .limit = 24,
-                    },
-                },
-            );
-            const bold: vaxis.Style = .{
-                .fg = fg,
-                .bg = bg,
-                .bold = true,
-            };
-            const color1: vaxis.Style = .{
-                .fg = color(config, 1),
-                .bg = bg,
-            };
-            const color2: vaxis.Style = .{
-                .fg = color(config, 2),
-                .bg = bg,
-            };
-            const color3: vaxis.Style = .{
-                .fg = color(config, 3),
-                .bg = bg,
-            };
-            const color4: vaxis.Style = .{
-                .fg = color(config, 4),
-                .bg = bg,
-            };
-            const color5: vaxis.Style = .{
-                .fg = color(config, 5),
-                .bg = bg,
-            };
-            const color6: vaxis.Style = .{
-                .fg = color(config, 6),
-                .bg = bg,
-            };
-            const color6ul: vaxis.Style = .{
-                .fg = color(config, 6),
-                .bg = bg,
-                .ul_style = .single,
-            };
-            const color10: vaxis.Style = .{
-                .fg = color(config, 10),
-                .bg = bg,
-            };
-            const color12: vaxis.Style = .{
-                .fg = color(config, 12),
-                .bg = bg,
-            };
-            const color238: vaxis.Style = .{
-                .fg = color(config, 238),
-                .bg = bg,
-            };
-            child.fill(.{ .style = standard });
-            _ = try child.print(
-                &.{
-                    .{ .text = "→", .style = color2 },
-                    .{ .text = " ", .style = standard },
-                    .{ .text = "bat", .style = color4 },
-                    .{ .text = " ", .style = standard },
-                    .{ .text = "ziggzagg.zig", .style = color6ul },
-                },
-                .{
-                    .row_offset = 0,
-                    .col_offset = 2,
-                },
-            );
-            {
-                _ = try child.print(
-                    &.{
-                        .{
-                            .text = "───────┬",
-                            .style = color238,
-                        },
-                    },
-                    .{
-                        .row_offset = 1,
-                        .col_offset = 2,
-                    },
-                );
-                if (child.width > 10) {
-                    for (10..child.width) |col| {
-                        _ = try child.print(
-                            &.{
-                                .{
-                                    .text = "─",
-                                    .style = color238,
-                                },
-                            },
-                            .{
-                                .row_offset = 1,
-                                .col_offset = col,
-                            },
-                        );
-                    }
-                }
-            }
-            _ = try child.print(
-                &.{
-                    .{
-                        .text = "       │ ",
-                        .style = color238,
-                    },
-
-                    .{
-                        .text = "File: ",
-                        .style = standard,
-                    },
-
-                    .{
-                        .text = "ziggzag.zig",
-                        .style = bold,
-                    },
-                },
-                .{
-                    .row_offset = 2,
-                    .col_offset = 2,
-                },
-            );
-            {
-                _ = try child.print(
-                    &.{
-                        .{
-                            .text = "───────┼",
-                            .style = color238,
-                        },
-                    },
-                    .{
-                        .row_offset = 3,
-                        .col_offset = 2,
-                    },
-                );
-                if (child.width > 10) {
-                    for (10..child.width) |col| {
-                        _ = try child.print(
-                            &.{
-                                .{
-                                    .text = "─",
-                                    .style = color238,
-                                },
-                            },
-                            .{
-                                .row_offset = 3,
-                                .col_offset = col,
-                            },
-                        );
-                    }
-                }
-            }
-            _ = try child.print(
-                &.{
-                    .{ .text = "   1   │ ", .style = color238 },
-                    .{ .text = "const", .style = color5 },
-                    .{ .text = " std ", .style = standard },
-                    .{ .text = "= @import", .style = color5 },
-                    .{ .text = "(", .style = standard },
-                    .{ .text = "\"std\"", .style = color10 },
-                    .{ .text = ");", .style = standard },
-                },
-                .{
-                    .row_offset = 4,
-                    .col_offset = 2,
-                },
-            );
-            _ = try child.print(
-                &.{
-                    .{ .text = "   2   │", .style = color238 },
-                },
-                .{
-                    .row_offset = 5,
-                    .col_offset = 2,
-                },
-            );
-            _ = try child.print(
-                &.{
-                    .{ .text = "   3   │ ", .style = color238 },
-                    .{ .text = "pub ", .style = color5 },
-                    .{ .text = "fn ", .style = color12 },
-                    .{ .text = "main", .style = color2 },
-                    .{ .text = "() ", .style = standard },
-                    .{ .text = "!", .style = color5 },
-                    .{ .text = "void", .style = color12 },
-                    .{ .text = " {", .style = standard },
-                },
-                .{
-                    .row_offset = 6,
-                    .col_offset = 2,
-                },
-            );
-            _ = try child.print(
-                &.{
-                    .{ .text = "   4   │     ", .style = color238 },
-                    .{ .text = "const ", .style = color5 },
-                    .{ .text = "stdout ", .style = standard },
-                    .{ .text = "=", .style = color5 },
-                    .{ .text = " std.io.getStdOut().writer();", .style = standard },
-                },
-                .{
-                    .row_offset = 7,
-                    .col_offset = 2,
-                },
-            );
-            _ = try child.print(
-                &.{
-                    .{ .text = "   5   │     ", .style = color238 },
-                    .{ .text = "var ", .style = color5 },
-                    .{ .text = "i:", .style = standard },
-                    .{ .text = " usize", .style = color12 },
-                    .{ .text = " =", .style = color5 },
-                    .{ .text = " 1", .style = color4 },
-                    .{ .text = ";", .style = standard },
-                },
-                .{
-                    .row_offset = 8,
-                    .col_offset = 2,
-                },
-            );
-            _ = try child.print(
-                &.{
-                    .{ .text = "   6   │     ", .style = color238 },
-                    .{ .text = "while ", .style = color5 },
-                    .{ .text = "(i ", .style = standard },
-                    .{ .text = "<= ", .style = color5 },
-                    .{ .text = "16", .style = color4 },
-                    .{ .text = ") : (i ", .style = standard },
-                    .{ .text = "+= ", .style = color5 },
-                    .{ .text = "1", .style = color4 },
-                    .{ .text = ") {", .style = standard },
-                },
-                .{
-                    .row_offset = 9,
-                    .col_offset = 2,
-                },
-            );
-            _ = try child.print(
-                &.{
-                    .{ .text = "   7   │         ", .style = color238 },
-                    .{ .text = "if ", .style = color5 },
-                    .{ .text = "(i ", .style = standard },
-                    .{ .text = "% ", .style = color5 },
-                    .{ .text = "15 ", .style = color4 },
-                    .{ .text = "== ", .style = color5 },
-                    .{ .text = "0", .style = color4 },
-                    .{ .text = ") {", .style = standard },
-                },
-                .{
-                    .row_offset = 10,
-                    .col_offset = 2,
-                },
-            );
-            _ = try child.print(
-                &.{
-                    .{ .text = "   8   │             ", .style = color238 },
-                    .{ .text = "try ", .style = color5 },
-                    .{ .text = "stdout.writeAll(", .style = standard },
-                    .{ .text = "\"ZiggZagg", .style = color10 },
-                    .{ .text = "\\n", .style = color12 },
-                    .{ .text = "\"", .style = color10 },
-                    .{ .text = ");", .style = standard },
-                },
-                .{
-                    .row_offset = 11,
-                    .col_offset = 2,
-                },
-            );
-            _ = try child.print(
-                &.{
-                    .{ .text = "   9   │         ", .style = color238 },
-                    .{ .text = "} ", .style = standard },
-                    .{ .text = "else if ", .style = color5 },
-                    .{ .text = "(i ", .style = standard },
-                    .{ .text = "% ", .style = color5 },
-                    .{ .text = "3 ", .style = color4 },
-                    .{ .text = "== ", .style = color5 },
-                    .{ .text = "0", .style = color4 },
-                    .{ .text = ") {", .style = standard },
-                },
-                .{
-                    .row_offset = 12,
-                    .col_offset = 2,
-                },
-            );
-            _ = try child.print(
-                &.{
-                    .{ .text = "  10   │             ", .style = color238 },
-                    .{ .text = "try ", .style = color5 },
-                    .{ .text = "stdout.writeAll(", .style = standard },
-                    .{ .text = "\"Zigg", .style = color10 },
-                    .{ .text = "\\n", .style = color12 },
-                    .{ .text = "\"", .style = color10 },
-                    .{ .text = ");", .style = standard },
-                },
-                .{
-                    .row_offset = 13,
-                    .col_offset = 2,
-                },
-            );
-            _ = try child.print(
-                &.{
-                    .{ .text = "  11   │         ", .style = color238 },
-                    .{ .text = "} ", .style = standard },
-                    .{ .text = "else if ", .style = color5 },
-                    .{ .text = "(i ", .style = standard },
-                    .{ .text = "% ", .style = color5 },
-                    .{ .text = "5 ", .style = color4 },
-                    .{ .text = "== ", .style = color5 },
-                    .{ .text = "0", .style = color4 },
-                    .{ .text = ") {", .style = standard },
-                },
-                .{
-                    .row_offset = 14,
-                    .col_offset = 2,
-                },
-            );
-            _ = try child.print(
-                &.{
-                    .{ .text = "  12   │             ", .style = color238 },
-                    .{ .text = "try ", .style = color5 },
-                    .{ .text = "stdout.writeAll(", .style = standard },
-                    .{ .text = "\"Zagg", .style = color10 },
-                    .{ .text = "\\n", .style = color12 },
-                    .{ .text = "\"", .style = color10 },
-                    .{ .text = ");", .style = standard },
-                },
-                .{
-                    .row_offset = 15,
-                    .col_offset = 2,
-                },
-            );
-            _ = try child.print(
-                &.{
-                    .{ .text = "  13   │         ", .style = color238 },
-                    .{ .text = "} ", .style = standard },
-                    .{ .text = "else ", .style = color5 },
-                    .{ .text = "{", .style = standard },
-                },
-                .{
-                    .row_offset = 16,
-                    .col_offset = 2,
-                },
-            );
-            _ = try child.print(
-                &.{
-                    .{ .text = "  14   │             ", .style = color238 },
-                    .{ .text = "try ", .style = color5 },
-                    .{ .text = "stdout.print(", .style = standard },
-                    .{ .text = "\"{d}", .style = color10 },
-                    .{ .text = "\\n", .style = color12 },
-                    .{ .text = "\"", .style = color10 },
-                    .{ .text = ", .{i});", .style = standard },
-                },
-                .{
-                    .row_offset = 17,
-                    .col_offset = 2,
-                },
-            );
-            _ = try child.print(
-                &.{
-                    .{ .text = "  15   │         ", .style = color238 },
-                    .{ .text = "}", .style = standard },
-                },
-                .{
-                    .row_offset = 18,
-                    .col_offset = 2,
-                },
-            );
-            _ = try child.print(
-                &.{
-                    .{ .text = "  16   │     ", .style = color238 },
-                    .{ .text = "}", .style = standard },
-                },
-                .{
-                    .row_offset = 19,
-                    .col_offset = 2,
-                },
-            );
-            _ = try child.print(
-                &.{
-                    .{ .text = "  17   │ ", .style = color238 },
-                    .{ .text = "}", .style = standard },
-                },
-                .{
-                    .row_offset = 20,
-                    .col_offset = 2,
-                },
-            );
-            {
-                _ = try child.print(
-                    &.{
-                        .{
-                            .text = "───────┴",
-                            .style = color238,
-                        },
-                    },
-                    .{
-                        .row_offset = 21,
-                        .col_offset = 2,
-                    },
-                );
-                if (child.width > 10) {
-                    for (10..child.width) |col| {
-                        _ = try child.print(
-                            &.{
-                                .{
-                                    .text = "─",
-                                    .style = color238,
-                                },
-                            },
-                            .{
-                                .row_offset = 21,
-                                .col_offset = col,
-                            },
-                        );
-                    }
-                }
-            }
-            _ = try child.print(
-                &.{
-                    .{ .text = "ghostty ", .style = color6 },
-                    .{ .text = "on ", .style = standard },
-                    .{ .text = " main ", .style = color4 },
-                    .{ .text = "[+] ", .style = color1 },
-                    .{ .text = "via ", .style = standard },
-                    .{ .text = " v0.13.0 ", .style = color3 },
-                    .{ .text = "via ", .style = standard },
-                    .{ .text = "  impure (ghostty-env)", .style = color4 },
-                },
-                .{
-                    .row_offset = 22,
-                    .col_offset = 2,
-                },
-            );
-            _ = try child.print(
-                &.{
-                    .{ .text = "✦ ", .style = color4 },
-                    .{ .text = "at ", .style = standard },
-                    .{ .text = "10:36:15 ", .style = color3 },
-                    .{ .text = "→", .style = color2 },
-                },
-                .{
-                    .row_offset = 23,
-                    .col_offset = 2,
-                },
-            );
-            next_start += child.height;
-        }
-        if (next_start < win.height) {
-            const child = win.child(
-                .{
-                    .x_off = x_off,
-                    .y_off = next_start,
-                    .width = .{
-                        .limit = width,
-                    },
-                    .height = .{
-                        .limit = win.height - next_start,
-                    },
-                },
-            );
-            child.fill(.{ .style = standard });
-            var it = std.mem.splitAny(u8, lorem_ipsum, " \n");
-            var row: usize = 1;
-            var col: usize = 2;
-            while (row < child.height) {
-                const word = it.next() orelse line: {
-                    it.reset();
-                    break :line it.next() orelse unreachable;
-                };
-                if (col + word.len > child.width) {
-                    row += 1;
-                    col = 2;
-                }
-                const style: vaxis.Style = style: {
-                    if (std.mem.eql(u8, "ipsum", word)) break :style .{ .fg = color(config, 2), .bg = bg };
-                    if (std.mem.eql(u8, "consectetur", word)) break :style standard_bold;
-                    if (std.mem.eql(u8, "reprehenderit", word)) break :style standard_italic;
-                    if (std.mem.eql(u8, "Praesent", word)) break :style standard_bold_italic;
-                    if (std.mem.eql(u8, "auctor", word)) break :style standard_underline;
-                    if (std.mem.eql(u8, "dui", word)) break :style standard_double_underline;
-                    if (std.mem.eql(u8, "erat", word)) break :style standard_dashed_underline;
-                    if (std.mem.eql(u8, "enim", word)) break :style standard_dotted_underline;
-                    if (std.mem.eql(u8, "odio", word)) break :style standard_curly_underline;
-                    break :style standard;
-                };
-                _ = try child.printSegment(
-                    .{
-                        .text = word,
-                        .style = style,
-                    },
-                    .{
-                        .row_offset = row,
-                        .col_offset = col,
-                    },
-                );
-                col += word.len + 1;
-            }
+            _ = child.printSegment(.{
+                .text = "No theme found!",
+                .style = self.ui_standard(),
+            }, .{
+                .row_offset = win.height / 2 - 1,
+                .col_offset = win.width / 2 - 7,
+            });
         }
     }
 };

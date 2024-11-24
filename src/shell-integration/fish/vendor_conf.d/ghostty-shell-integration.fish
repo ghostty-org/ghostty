@@ -1,5 +1,3 @@
-#!/bin/fish
-#
 # This shell script aims to be written in a way where it can't really fail
 # or all failure scenarios are handled, so that we never leave the shell in
 # a weird state. If you find a way to break this, please report a bug!

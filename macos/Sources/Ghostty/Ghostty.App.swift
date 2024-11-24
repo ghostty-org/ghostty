@@ -3,9 +3,6 @@ import UserNotifications
 import GhosttyKit
 
 protocol GhosttyAppDelegate: AnyObject {
-    /// Called when the configuration did finish reloading.
-    func configDidReload(_ app: Ghostty.App)
-
     #if os(macOS)
     /// Called when a callback needs access to a specific surface. This should return nil
     /// when the surface is no longer valid.
@@ -68,7 +65,6 @@ extension Ghostty {
                 supports_selection_clipboard: false,
                 wakeup_cb: { userdata in App.wakeup(userdata) },
                 action_cb: { app, target, action in App.action(app!, target: target, action: action) },
-                reload_config_cb: { userdata in App.reloadConfig(userdata) },
                 read_clipboard_cb: { userdata, loc, state in App.readClipboard(userdata, location: loc, state: state) },
                 confirm_read_clipboard_cb: { userdata, str, state, request in App.confirmReadClipboard(userdata, string: str, state: state, request: request ) },
                 write_clipboard_cb: { userdata, str, loc, confirm in App.writeClipboard(userdata, string: str, location: loc, confirm: confirm) },
@@ -145,9 +141,47 @@ extension Ghostty {
             ghostty_app_open_config(app)
         }
 
-        func reloadConfig() {
+        /// Reload the configuration.
+        func reloadConfig(soft: Bool = false) {
             guard let app = self.app else { return }
-            ghostty_app_reload_config(app)
+
+            // Soft updates just call with our existing config
+            if (soft) {
+                ghostty_app_update_config(app, config.config!)
+                return
+            }
+
+            // Hard or full updates have to reload the full configuration
+            let newConfig = Config()
+            guard newConfig.loaded else {
+                Ghostty.logger.warning("failed to reload configuration")
+                return
+            }
+
+            ghostty_app_update_config(app, newConfig.config!)
+
+            // We can only set our config after updating it so that we don't free
+            // memory that may still be in use
+            self.config = newConfig
+        }
+
+        func reloadConfig(surface: ghostty_surface_t, soft: Bool = false) {
+            // Soft updates just call with our existing config
+            if (soft) {
+                ghostty_surface_update_config(surface, config.config!)
+                return
+            }
+
+            // Hard or full updates have to reload the full configuration.
+            // NOTE: We never set this on self.config because this is a surface-only
+            // config. We free it after the call.
+            let newConfig = Config()
+            guard newConfig.loaded else {
+                Ghostty.logger.warning("failed to reload configuration")
+                return
+            }
+
+            ghostty_surface_update_config(surface, newConfig.config!)
         }
 
         /// Request that the given surface is closed. This will trigger the full normal surface close event
@@ -240,7 +274,6 @@ extension Ghostty {
 
         static func wakeup(_ userdata: UnsafeMutableRawPointer?) {}
         static func action(_ app: ghostty_app_t, target: ghostty_target_s, action: ghostty_action_s) {}
-        static func reloadConfig(_ userdata: UnsafeMutableRawPointer?) -> ghostty_config_t? { return nil }
         static func readClipboard(
             _ userdata: UnsafeMutableRawPointer?,
             location: ghostty_clipboard_e,
@@ -368,31 +401,6 @@ extension Ghostty {
             )
         }
 
-        static func reloadConfig(_ userdata: UnsafeMutableRawPointer?) -> ghostty_config_t? {
-            let newConfig = Config()
-            guard newConfig.loaded else {
-                AppDelegate.logger.warning("failed to reload configuration")
-                return nil
-            }
-
-            // Assign the new config. This will automatically free the old config.
-            // It is safe to free the old config from within this function call.
-            let state = Unmanaged<Self>.fromOpaque(userdata!).takeUnretainedValue()
-            state.config = newConfig
-
-            // If we have a delegate, notify.
-            if let delegate = state.delegate {
-                delegate.configDidReload(state)
-            }
-
-            // Send an event out
-            NotificationCenter.default.post(
-                name: Ghostty.Notification.ghosttyDidReloadConfig,
-                object: nil)
-
-            return newConfig.config
-        }
-
         static func wakeup(_ userdata: UnsafeMutableRawPointer?) {
             let state = Unmanaged<App>.fromOpaque(userdata!).takeUnretainedValue()
 
@@ -488,6 +496,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_SET_TITLE:
                 setTitle(app, target: target, v: action.action.set_title)
 
+            case GHOSTTY_ACTION_PWD:
+                pwdChanged(app, target: target, v: action.action.pwd)
+
             case GHOSTTY_ACTION_OPEN_CONFIG:
                 ghostty_config_open()
 
@@ -520,6 +531,15 @@ extension Ghostty {
 
             case GHOSTTY_ACTION_KEY_SEQUENCE:
                 keySequence(app, target: target, v: action.action.key_sequence)
+
+            case GHOSTTY_ACTION_CONFIG_CHANGE:
+                configChange(app, target: target, v: action.action.config_change)
+
+            case GHOSTTY_ACTION_RELOAD_CONFIG:
+                configReload(app, target: target, v: action.action.reload_config)
+
+            case GHOSTTY_ACTION_COLOR_CHANGE:
+                colorChange(app, target: target, change: action.action.color_change)
 
             case GHOSTTY_ACTION_CLOSE_ALL_WINDOWS:
                 fallthrough
@@ -941,6 +961,26 @@ extension Ghostty {
             }
         }
 
+        private static func pwdChanged(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_pwd_s) {
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("pwd change does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                guard let pwd = String(cString: v.pwd!, encoding: .utf8) else { return }
+                surfaceView.pwd = pwd
+
+            default:
+                assertionFailure()
+            }
+        }
+
         private static func setMouseShape(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1133,6 +1173,104 @@ extension Ghostty {
                 assertionFailure()
             }
         }
+
+        private static func configReload(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_reload_config_s)
+        {
+            logger.info("config reload notification")
+
+            guard let app_ud = ghostty_app_userdata(app) else { return }
+            let ghostty = Unmanaged<App>.fromOpaque(app_ud).takeUnretainedValue()
+
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                ghostty.reloadConfig(soft: v.soft)
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                ghostty.reloadConfig(surface: surface, soft: v.soft)
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func configChange(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_config_change_s) {
+                logger.info("config change notification")
+
+                // Clone the config so we own the memory. It'd be nicer to not have to do
+                // this but since we async send the config out below we have to own the lifetime.
+                // A future improvement might be to add reference counting to config or
+                // something so apprt's do not have to do this.
+                let config = Config(clone: v.config)
+
+                switch (target.tag) {
+                case GHOSTTY_TARGET_APP:
+                    // Notify the world that the app config changed
+                    NotificationCenter.default.post(
+                        name: .ghosttyConfigDidChange,
+                        object: nil,
+                        userInfo: [
+                            SwiftUI.Notification.Name.GhosttyConfigChangeKey: config,
+                        ]
+                    )
+
+                    // We also REPLACE our app-level config when this happens. This lets
+                    // all the various things that depend on this but are still theme specific
+                    // such as split border color work.
+                    guard let app_ud = ghostty_app_userdata(app) else { return }
+                    let ghostty = Unmanaged<App>.fromOpaque(app_ud).takeUnretainedValue()
+                    ghostty.config = config
+
+                    return
+
+                case GHOSTTY_TARGET_SURFACE:
+                    guard let surface = target.target.surface else { return }
+                    guard let surfaceView = self.surfaceView(from: surface) else { return }
+                    NotificationCenter.default.post(
+                        name: .ghosttyConfigDidChange,
+                        object: surfaceView,
+                        userInfo: [
+                            SwiftUI.Notification.Name.GhosttyConfigChangeKey: config,
+                        ]
+                    )
+
+                default:
+                    assertionFailure()
+                }
+            }
+
+        private static func colorChange(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            change: ghostty_action_color_change_s) {
+                switch (target.tag) {
+                case GHOSTTY_TARGET_APP:
+                    Ghostty.logger.warning("color change does nothing with an app target")
+                    return
+
+                case GHOSTTY_TARGET_SURFACE:
+                    guard let surface = target.target.surface else { return }
+                    guard let surfaceView = self.surfaceView(from: surface) else { return }
+                    NotificationCenter.default.post(
+                        name: .ghosttyColorDidChange,
+                        object: surfaceView,
+                        userInfo: [
+                            SwiftUI.Notification.Name.GhosttyColorChangeKey: Action.ColorChange(c: change)
+                        ]
+                    )
+
+                default:
+                    assertionFailure()
+                }
+        }
+
 
         // MARK: User Notifications
 

@@ -47,11 +47,6 @@ pub const App = struct {
         /// Callback called to handle an action.
         action: *const fn (*App, apprt.Target.C, apprt.Action.C) callconv(.C) void,
 
-        /// Reload the configuration and return the new configuration.
-        /// The old configuration can be freed immediately when this is
-        /// called.
-        reload_config: *const fn (AppUD) callconv(.C) ?*const Config,
-
         /// Read the clipboard value. The return value must be preserved
         /// by the host until the next call. If there is no valid clipboard
         /// value then this should return null.
@@ -90,26 +85,38 @@ pub const App = struct {
     };
 
     core_app: *CoreApp,
-    config: *const Config,
     opts: Options,
     keymap: input.Keymap,
+
+    /// The configuration for the app. This is owned by this structure.
+    config: Config,
 
     /// The keymap state is used for global keybinds only. Each surface
     /// also has its own keymap state for focused keybinds.
     keymap_state: input.Keymap.State,
 
-    pub fn init(core_app: *CoreApp, config: *const Config, opts: Options) !App {
+    pub fn init(
+        core_app: *CoreApp,
+        config: *const Config,
+        opts: Options,
+    ) !App {
+        // We have to clone the config.
+        const alloc = core_app.alloc;
+        var config_clone = try config.clone(alloc);
+        errdefer config_clone.deinit();
+
         return .{
             .core_app = core_app,
-            .config = config,
+            .config = config_clone,
             .opts = opts,
             .keymap = try input.Keymap.init(),
             .keymap_state = .{},
         };
     }
 
-    pub fn terminate(self: App) void {
+    pub fn terminate(self: *App) void {
         self.keymap.deinit();
+        self.config.deinit();
     }
 
     /// Returns true if there are any global keybinds in the configuration.
@@ -375,21 +382,11 @@ pub const App = struct {
         }
     }
 
-    pub fn reloadConfig(self: *App) !?*const Config {
-        // Reload
-        if (self.opts.reload_config(self.opts.userdata)) |new| {
-            self.config = new;
-            return self.config;
-        }
-
-        return null;
-    }
-
-    pub fn wakeup(self: App) void {
+    pub fn wakeup(self: *const App) void {
         self.opts.wakeup(self.opts.userdata);
     }
 
-    pub fn wait(self: App) !void {
+    pub fn wait(self: *const App) !void {
         _ = self;
     }
 
@@ -430,6 +427,28 @@ pub const App = struct {
         comptime action: apprt.Action.Key,
         value: apprt.Action.Value(action),
     ) !void {
+        // Special case certain actions before they are sent to the
+        // embedded apprt.
+        self.performPreAction(target, action, value);
+
+        log.debug("dispatching action target={s} action={} value={}", .{
+            @tagName(target),
+            action,
+            value,
+        });
+        self.opts.action(
+            self,
+            target.cval(),
+            @unionInit(apprt.Action, @tagName(action), value).cval(),
+        );
+    }
+
+    fn performPreAction(
+        self: *App,
+        target: apprt.Target,
+        comptime action: apprt.Action.Key,
+        value: apprt.Action.Value(action),
+    ) void {
         // Special case certain actions before they are sent to the embedder
         switch (action) {
             .set_title => switch (target) {
@@ -443,19 +462,21 @@ pub const App = struct {
                 },
             },
 
+            .config_change => switch (target) {
+                .surface => {},
+
+                // For app updates, we update our core config. We need to
+                // clone it because the caller owns the param.
+                .app => if (value.config.clone(self.core_app.alloc)) |config| {
+                    self.config.deinit();
+                    self.config = config;
+                } else |err| {
+                    log.err("error updating app config err={}", .{err});
+                },
+            },
+
             else => {},
         }
-
-        log.debug("dispatching action target={s} action={} value={}", .{
-            @tagName(target),
-            action,
-            value,
-        });
-        self.opts.action(
-            self,
-            target.cval(),
-            @unionInit(apprt.Action, @tagName(action), value).cval(),
-        );
     }
 };
 
@@ -577,7 +598,7 @@ pub const Surface = struct {
         errdefer app.core_app.deleteSurface(self);
 
         // Shallow copy the config so that we can modify it.
-        var config = try apprt.surface.newConfig(app.core_app, app.config);
+        var config = try apprt.surface.newConfig(app.core_app, &app.config);
         defer config.deinit();
 
         // If we have a working directory from the options then we set it.
@@ -1339,10 +1360,14 @@ pub const CAPI = struct {
         };
     }
 
-    /// Reload the configuration.
-    export fn ghostty_app_reload_config(v: *App) void {
-        _ = v.core_app.reloadConfig(v) catch |err| {
-            log.err("error reloading config err={}", .{err});
+    /// Update the configuration to the provided config. This will propagate
+    /// to all surfaces as well.
+    export fn ghostty_app_update_config(
+        v: *App,
+        config: *const Config,
+    ) void {
+        v.core_app.updateConfig(v, config) catch |err| {
+            log.err("error updating config err={}", .{err});
             return;
         };
     }
@@ -1355,6 +1380,22 @@ pub const CAPI = struct {
     /// Returns true if the app has global keybinds.
     export fn ghostty_app_has_global_keybinds(v: *App) bool {
         return v.hasGlobalKeybinds();
+    }
+
+    /// Update the color scheme of the app.
+    export fn ghostty_app_set_color_scheme(v: *App, scheme_raw: c_int) void {
+        const scheme = std.meta.intToEnum(apprt.ColorScheme, scheme_raw) catch {
+            log.warn(
+                "invalid color scheme to ghostty_surface_set_color_scheme value={}",
+                .{scheme_raw},
+            );
+            return;
+        };
+
+        v.core_app.colorSchemeEvent(v, scheme) catch |err| {
+            log.err("error setting color scheme err={}", .{err});
+            return;
+        };
     }
 
     /// Returns initial surface options.
@@ -1399,6 +1440,17 @@ pub const CAPI = struct {
         return surface.newSurfaceOptions();
     }
 
+    /// Update the configuration to the provided config for only this surface.
+    export fn ghostty_surface_update_config(
+        surface: *Surface,
+        config: *const Config,
+    ) void {
+        surface.core_surface.updateConfig(config) catch |err| {
+            log.err("error updating config err={}", .{err});
+            return;
+        };
+    }
+
     /// Returns true if the surface needs to confirm quitting.
     export fn ghostty_surface_needs_confirm_quit(surface: *Surface) bool {
         return surface.core_surface.needsConfirmQuit();
@@ -1428,25 +1480,6 @@ pub const CAPI = struct {
         return selection.len;
     }
 
-    /// Copies the surface working directory into the provided buffer and
-    /// returns the copied size. If the buffer is too small, there is no pwd,
-    /// or there is an error, then 0 is returned.
-    export fn ghostty_surface_pwd(surface: *Surface, buf: [*]u8, cap: usize) usize {
-        const pwd_ = surface.core_surface.pwd(global.alloc) catch |err| {
-            log.warn("error getting pwd err={}", .{err});
-            return 0;
-        };
-        const pwd = pwd_ orelse return 0;
-        defer global.alloc.free(pwd);
-
-        // If the buffer is too small, return no pwd.
-        if (pwd.len > cap) return 0;
-
-        // Copy into the buffer and return the length
-        @memcpy(buf[0..pwd.len], pwd);
-        return pwd.len;
-    }
-
     /// Tell the surface that it needs to schedule a render
     export fn ghostty_surface_refresh(surface: *Surface) void {
         surface.refresh();
@@ -1466,13 +1499,14 @@ pub const CAPI = struct {
 
     /// Return the size information a surface has.
     export fn ghostty_surface_size(surface: *Surface) SurfaceSize {
+        const grid_size = surface.core_surface.size.grid();
         return .{
-            .columns = surface.core_surface.grid_size.columns,
-            .rows = surface.core_surface.grid_size.rows,
-            .width_px = surface.core_surface.screen_size.width,
-            .height_px = surface.core_surface.screen_size.height,
-            .cell_width_px = surface.core_surface.cell_size.width,
-            .cell_height_px = surface.core_surface.cell_size.height,
+            .columns = grid_size.columns,
+            .rows = grid_size.rows,
+            .width_px = surface.core_surface.size.screen.width,
+            .height_px = surface.core_surface.size.screen.height,
+            .cell_width_px = surface.core_surface.size.cell.width,
+            .cell_height_px = surface.core_surface.size.cell.height,
         };
     }
 
@@ -1822,7 +1856,7 @@ pub const CAPI = struct {
         // This is only supported on macOS
         if (comptime builtin.target.os.tag != .macos) return;
 
-        const config = app.config;
+        const config = &app.config;
 
         // Do nothing if we don't have background transparency enabled
         if (config.@"background-opacity" >= 1.0) return;

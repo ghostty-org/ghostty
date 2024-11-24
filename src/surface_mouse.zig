@@ -113,12 +113,17 @@ fn eligibleMouseShapeKeyEvent(physical_key: input.Key) bool {
         physical_key.leftOrRightAlt();
 }
 
-fn isRectangleSelectState(mods: input.Mods) bool {
-    return mods.ctrlOrSuper() and mods.alt;
-}
-
 fn isMouseModeOverrideState(mods: input.Mods) bool {
     return mods.shift;
+}
+
+/// Returns true if our modifiers put us in a state where dragging
+/// should cause a rectangle select.
+pub fn isRectangleSelectState(mods: input.Mods) bool {
+    return if (comptime builtin.target.isDarwin())
+        mods.alt
+    else
+        mods.ctrlOrSuper() and mods.alt;
 }
 
 test "keyToMouseShape" {

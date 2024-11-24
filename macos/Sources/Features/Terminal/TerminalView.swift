@@ -50,6 +50,7 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
     // Various state values sent back up from the currently focused terminals.
     @FocusedValue(\.ghosttySurfaceView) private var focusedSurface
     @FocusedValue(\.ghosttySurfaceTitle) private var surfaceTitle
+    @FocusedValue(\.ghosttySurfacePwd) private var surfacePwd
     @FocusedValue(\.ghosttySurfaceZoomed) private var zoomedSplit
     @FocusedValue(\.ghosttySurfaceCellSize) private var cellSize
 
@@ -65,14 +66,11 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
 
         return title
     }
-    
-    // The proxy icon URL for our window
-    private var proxyIconURL: URL? {
-        guard let proxyURLString = focusedSurface?.pwd else {
-            return nil
-        }
-        // Use fileURLWithPath initializer for file paths
-        return URL(fileURLWithPath: proxyURLString)
+
+    // The pwd of the focused surface as a URL
+    private var pwdURL: URL? {
+        guard let surfacePwd else { return nil }
+        return URL(fileURLWithPath: surfacePwd)
     }
     
     var body: some View {
@@ -88,7 +86,7 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                 if (Ghostty.info.mode == GHOSTTY_BUILD_MODE_DEBUG || Ghostty.info.mode == GHOSTTY_BUILD_MODE_RELEASE_SAFE) {
                     DebugBuildWarningView()
                 }
-                
+
                 Ghostty.TerminalSplit(node: $viewModel.surfaceTree)
                     .environmentObject(ghostty)
                     .focused($focused)
@@ -99,7 +97,7 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                     .onChange(of: title) { newValue in
                         self.delegate?.titleDidChange(to: newValue)
                     }
-                    .onChange(of: proxyIconURL) { newValue in
+                    .onChange(of: pwdURL) { newValue in
                         self.delegate?.pwdDidChange(to: newValue)
                     }
                     .onChange(of: cellSize) { newValue in

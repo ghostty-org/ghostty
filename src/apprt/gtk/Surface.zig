@@ -308,8 +308,8 @@ pub const URLWidget = struct {
 /// surface has been initialized.
 realized: bool = false,
 
-/// True if this surface had a parent to start with.
-parent_surface: bool = false,
+/// The config to use to initialize a surface.
+init_config: InitConfig,
 
 /// The GUI container that this surface has been attached to. This
 /// dictates some behaviors such as new splits, etc.
@@ -329,6 +329,9 @@ url_widget: ?URLWidget = null,
 
 /// The overlay that shows resizing information.
 resize_overlay: ResizeOverlay = .{},
+
+/// Whether or not the current surface is zoomed in (see `toggle_split_zoom`).
+zoomed_in: bool = false,
 
 /// If non-null this is the widget on the overlay which dims the surface when it is unfocused
 unfocused_widget: ?*c.GtkWidget = null,
@@ -366,6 +369,36 @@ im_len: u7 = 0,
 /// The surface-specific cgroup path. See App.transient_cgroup_path for
 /// details on what this is.
 cgroup_path: ?[]const u8 = null,
+
+/// Configuration used for initializing the surface. We have to copy some
+/// data since initialization is delayed with GTK (on realize).
+pub const InitConfig = struct {
+    parent: bool = false,
+    pwd: ?[]const u8 = null,
+
+    pub fn init(
+        alloc: Allocator,
+        app: *App,
+        opts: Options,
+    ) Allocator.Error!InitConfig {
+        const parent = opts.parent orelse return .{};
+
+        const pwd: ?[]const u8 = if (app.config.@"window-inherit-working-directory")
+            try parent.pwd(alloc)
+        else
+            null;
+        errdefer if (pwd) |p| alloc.free(p);
+
+        return .{
+            .parent = true,
+            .pwd = pwd,
+        };
+    }
+
+    pub fn deinit(self: *InitConfig, alloc: Allocator) void {
+        if (self.pwd) |pwd| alloc.free(pwd);
+    }
+};
 
 pub fn create(alloc: Allocator, app: *App, opts: Options) !*Surface {
     var surface = try alloc.create(Surface);
@@ -491,6 +524,10 @@ pub fn init(self: *Surface, app: *App, opts: Options) !void {
     };
     errdefer if (cgroup_path) |path| app.core_app.alloc.free(path);
 
+    // Build our initialization config
+    const init_config = try InitConfig.init(app.core_app.alloc, app, opts);
+    errdefer init_config.deinit(app.core_app.alloc);
+
     // Build our result
     self.* = .{
         .app = app,
@@ -501,7 +538,7 @@ pub fn init(self: *Surface, app: *App, opts: Options) !void {
         .title_text = null,
         .core_surface = undefined,
         .font_size = font_size,
-        .parent_surface = opts.parent != null,
+        .init_config = init_config,
         .size = .{ .width = 800, .height = 600 },
         .cursor_pos = .{ .x = 0, .y = 0 },
         .im_context = im_context,
@@ -552,7 +589,11 @@ fn realize(self: *Surface) !void {
     // Get our new surface config
     var config = try apprt.surface.newConfig(self.app.core_app, &self.app.config);
     defer config.deinit();
-    if (!self.parent_surface) {
+
+    if (self.init_config.pwd) |pwd| {
+        // If we have a working directory we want, then we force that.
+        config.@"working-directory" = pwd;
+    } else if (!self.init_config.parent) {
         // A hack, see the "parent_surface" field for more information.
         config.@"working-directory" = self.app.config.@"working-directory";
     }
@@ -580,6 +621,7 @@ fn realize(self: *Surface) !void {
 }
 
 pub fn deinit(self: *Surface) void {
+    self.init_config.deinit(self.app.core_app.alloc);
     if (self.title_text) |title| self.app.core_app.alloc.free(title);
 
     // We don't allocate anything if we aren't realized.
@@ -643,6 +685,8 @@ pub fn redraw(self: *Surface) void {
 
 /// Close this surface.
 pub fn close(self: *Surface, processActive: bool) void {
+    self.setSplitZoom(false);
+
     // If we're not part of a window hierarchy, we never confirm
     // so we can just directly remove ourselves and exit.
     const window = self.container.window() orelse {
@@ -791,7 +835,16 @@ pub fn setInitialWindowSize(self: *const Surface, width: u32, height: u32) !void
 }
 
 pub fn grabFocus(self: *Surface) void {
-    if (self.container.tab()) |tab| tab.focus_child = self;
+    if (self.container.tab()) |tab| {
+        // If any other surface was focused and zoomed in, set it to non zoomed in
+        // so that self can grab focus.
+        if (tab.focus_child) |focus_child| {
+            if (focus_child.zoomed_in and focus_child != self) {
+                focus_child.setSplitZoom(false);
+            }
+        }
+        tab.focus_child = self;
+    }
 
     const widget = @as(*c.GtkWidget, @ptrCast(self.gl_area));
     _ = c.gtk_widget_grab_focus(widget);
@@ -801,7 +854,7 @@ pub fn grabFocus(self: *Surface) void {
 
 fn updateTitleLabels(self: *Surface) void {
     // If we have no title, then we have nothing to update.
-    const title = self.title_text orelse return;
+    const title = self.getTitle() orelse return;
 
     // If we have a tab and are the focused child, then we have to update the tab
     if (self.container.tab()) |tab| {
@@ -822,9 +875,19 @@ fn updateTitleLabels(self: *Surface) void {
     }
 }
 
+const zoom_title_prefix = "🔍 ";
+
 pub fn setTitle(self: *Surface, slice: [:0]const u8) !void {
     const alloc = self.app.core_app.alloc;
-    const copy = try alloc.dupeZ(u8, slice);
+
+    // Always allocate with the "🔍 " at the beginning and slice accordingly
+    // is the surface is zoomed in or not.
+    const copy: [:0]const u8 = copy: {
+        const new_title = try alloc.allocSentinel(u8, zoom_title_prefix.len + slice.len, 0);
+        @memcpy(new_title[0..zoom_title_prefix.len], zoom_title_prefix);
+        @memcpy(new_title[zoom_title_prefix.len..], slice);
+        break :copy new_title;
+    };
     errdefer alloc.free(copy);
 
     if (self.title_text) |old| alloc.free(old);
@@ -834,7 +897,21 @@ pub fn setTitle(self: *Surface, slice: [:0]const u8) !void {
 }
 
 pub fn getTitle(self: *Surface) ?[:0]const u8 {
-    return self.title_text;
+    if (self.title_text) |title_text| {
+        return if (self.zoomed_in)
+            title_text
+        else
+            title_text[zoom_title_prefix.len..];
+    }
+
+    return null;
+}
+
+pub fn setPwd(self: *Surface, pwd: [:0]const u8) !void {
+    // If we have a tab and are the focused child, then we have to update the tab
+    if (self.container.tab()) |tab| {
+        tab.setTooltipText(pwd);
+    }
 }
 
 pub fn setMouseShape(
@@ -1874,4 +1951,42 @@ pub fn present(self: *Surface) void {
     }
 
     self.grabFocus();
+}
+
+fn detachFromSplit(self: *Surface) void {
+    const split = self.container.split() orelse return;
+    switch (self.container.splitSide() orelse unreachable) {
+        .top_left => split.detachTopLeft(),
+        .bottom_right => split.detachBottomRight(),
+    }
+}
+
+fn attachToSplit(self: *Surface) void {
+    const split = self.container.split() orelse return;
+    split.updateChildren();
+}
+
+pub fn setSplitZoom(self: *Surface, new_split_zoom: bool) void {
+    if (new_split_zoom == self.zoomed_in) return;
+    const tab = self.container.tab() orelse return;
+
+    const tab_widget = tab.elem.widget();
+    const surface_widget = self.primaryWidget();
+
+    if (new_split_zoom) {
+        self.detachFromSplit();
+        c.gtk_box_remove(tab.box, tab_widget);
+        c.gtk_box_append(tab.box, surface_widget);
+    } else {
+        c.gtk_box_remove(tab.box, surface_widget);
+        self.attachToSplit();
+        c.gtk_box_append(tab.box, tab_widget);
+    }
+
+    self.zoomed_in = new_split_zoom;
+    self.grabFocus();
+}
+
+pub fn toggleSplitZoom(self: *Surface) void {
+    self.setSplitZoom(!self.zoomed_in);
 }

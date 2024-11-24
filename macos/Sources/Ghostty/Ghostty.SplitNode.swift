@@ -38,6 +38,16 @@ extension Ghostty {
             }
         }
 
+        func topLeft() -> SurfaceView {
+            switch (self) {
+            case .leaf(let leaf):
+                return leaf.surface
+
+            case .split(let container):
+                return container.topLeft.topLeft()
+            }
+        }
+
         /// Returns the view that would prefer receiving focus in this tree. This is always the
         /// top-left-most view. This is used when creating a split or closing a split to find the
         /// next view to send focus to.
@@ -133,6 +143,24 @@ extension Ghostty {
             case .split(let container):
                 return container.topLeft.findUUID(uuid: uuid) ??
                     container.bottomRight.findUUID(uuid: uuid)
+            }
+        }
+
+        /// Returns true if the surface borders the top. Assumes the view is in the tree.
+        func doesBorderTop(view: SurfaceView) -> Bool {
+            switch (self) {
+            case .leaf(let leaf):
+                return leaf.surface == view
+
+            case .split(let container):
+                switch (container.direction) {
+                case .vertical:
+                    return container.topLeft.doesBorderTop(view: view)
+
+                case .horizontal:
+                    return container.topLeft.doesBorderTop(view: view) ||
+                        container.bottomRight.doesBorderTop(view: view)
+                }
             }
         }
 

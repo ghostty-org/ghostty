@@ -11,6 +11,7 @@ const cimgui = @import("cimgui");
 const Surface = @import("../Surface.zig");
 const font = @import("../font/main.zig");
 const input = @import("../input.zig");
+const renderer = @import("../renderer.zig");
 const terminal = @import("../terminal/main.zig");
 const inspector = @import("main.zig");
 
@@ -641,8 +642,8 @@ fn renderSizeWindow(self: *Inspector) void {
                 _ = cimgui.c.igTableSetColumnIndex(1);
                 cimgui.c.igText(
                     "%dpx x %dpx",
-                    self.surface.screen_size.width,
-                    self.surface.screen_size.height,
+                    self.surface.size.screen.width,
+                    self.surface.size.screen.height,
                 );
             }
         }
@@ -656,10 +657,11 @@ fn renderSizeWindow(self: *Inspector) void {
             }
             {
                 _ = cimgui.c.igTableSetColumnIndex(1);
+                const grid_size = self.surface.size.grid();
                 cimgui.c.igText(
                     "%dc x %dr",
-                    self.surface.grid_size.columns,
-                    self.surface.grid_size.rows,
+                    grid_size.columns,
+                    grid_size.rows,
                 );
             }
         }
@@ -675,8 +677,8 @@ fn renderSizeWindow(self: *Inspector) void {
                 _ = cimgui.c.igTableSetColumnIndex(1);
                 cimgui.c.igText(
                     "%dpx x %dpx",
-                    self.surface.cell_size.width,
-                    self.surface.cell_size.height,
+                    self.surface.size.cell.width,
+                    self.surface.size.cell.height,
                 );
             }
         }
@@ -692,10 +694,10 @@ fn renderSizeWindow(self: *Inspector) void {
                 _ = cimgui.c.igTableSetColumnIndex(1);
                 cimgui.c.igText(
                     "T=%d B=%d L=%d R=%d px",
-                    self.surface.padding.top,
-                    self.surface.padding.bottom,
-                    self.surface.padding.left,
-                    self.surface.padding.right,
+                    self.surface.size.padding.top,
+                    self.surface.size.padding.bottom,
+                    self.surface.size.padding.left,
+                    self.surface.size.padding.right,
                 );
             }
         }
@@ -785,7 +787,13 @@ fn renderSizeWindow(self: *Inspector) void {
         }
 
         {
-            const adjusted = self.surface.posAdjusted(self.mouse.last_xpos, self.mouse.last_ypos);
+            const coord: renderer.Coordinate.Terminal = (renderer.Coordinate{
+                .surface = .{
+                    .x = self.mouse.last_xpos,
+                    .y = self.mouse.last_ypos,
+                },
+            }).convert(.terminal, self.surface.size).terminal;
+
             cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
             {
                 _ = cimgui.c.igTableSetColumnIndex(0);
@@ -795,8 +803,8 @@ fn renderSizeWindow(self: *Inspector) void {
                 _ = cimgui.c.igTableSetColumnIndex(1);
                 cimgui.c.igText(
                     "(%dpx, %dpx)",
-                    @as(i64, @intFromFloat(adjusted.x)),
-                    @as(i64, @intFromFloat(adjusted.y)),
+                    @as(i64, @intFromFloat(coord.x)),
+                    @as(i64, @intFromFloat(coord.y)),
                 );
             }
         }

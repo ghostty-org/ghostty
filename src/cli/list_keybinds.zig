@@ -111,7 +111,7 @@ fn prettyPrint(alloc: Allocator, keybinds: Config.Keybinds) !u8 {
     // align things nicely
     var iter = keybinds.set.bindings.iterator();
     var bindings = std.ArrayList(Binding).init(alloc);
-    var widest_key: usize = 0;
+    var widest_key: u16 = 0;
     var buf: [64]u8 = undefined;
     while (iter.next()) |bind| {
         const action = switch (bind.value_ptr.*) {
@@ -134,7 +134,7 @@ fn prettyPrint(alloc: Allocator, keybinds: Config.Keybinds) !u8 {
     const alt_style: vaxis.Style = .{ .fg = .{ .index = 3 } };
     const shift_style: vaxis.Style = .{ .fg = .{ .index = 4 } };
 
-    var longest_col: usize = 0;
+    var longest_col: u16 = 0;
 
     // Print the list
     for (bindings.items) |bind| {
@@ -143,20 +143,20 @@ fn prettyPrint(alloc: Allocator, keybinds: Config.Keybinds) !u8 {
         var result: vaxis.Window.PrintResult = .{ .col = 0, .row = 0, .overflow = false };
         const trigger = bind.trigger;
         if (trigger.mods.super) {
-            result = try win.printSegment(.{ .text = "super", .style = super_style }, .{ .col_offset = result.col });
-            result = try win.printSegment(.{ .text = " + " }, .{ .col_offset = result.col });
+            result = win.printSegment(.{ .text = "super", .style = super_style }, .{ .col_offset = result.col });
+            result = win.printSegment(.{ .text = " + " }, .{ .col_offset = result.col });
         }
         if (trigger.mods.ctrl) {
-            result = try win.printSegment(.{ .text = "ctrl ", .style = ctrl_style }, .{ .col_offset = result.col });
-            result = try win.printSegment(.{ .text = " + " }, .{ .col_offset = result.col });
+            result = win.printSegment(.{ .text = "ctrl ", .style = ctrl_style }, .{ .col_offset = result.col });
+            result = win.printSegment(.{ .text = " + " }, .{ .col_offset = result.col });
         }
         if (trigger.mods.alt) {
-            result = try win.printSegment(.{ .text = "alt  ", .style = alt_style }, .{ .col_offset = result.col });
-            result = try win.printSegment(.{ .text = " + " }, .{ .col_offset = result.col });
+            result = win.printSegment(.{ .text = "alt  ", .style = alt_style }, .{ .col_offset = result.col });
+            result = win.printSegment(.{ .text = " + " }, .{ .col_offset = result.col });
         }
         if (trigger.mods.shift) {
-            result = try win.printSegment(.{ .text = "shift", .style = shift_style }, .{ .col_offset = result.col });
-            result = try win.printSegment(.{ .text = " + " }, .{ .col_offset = result.col });
+            result = win.printSegment(.{ .text = "shift", .style = shift_style }, .{ .col_offset = result.col });
+            result = win.printSegment(.{ .text = " + " }, .{ .col_offset = result.col });
         }
 
         const key = switch (trigger.key) {
@@ -166,20 +166,20 @@ fn prettyPrint(alloc: Allocator, keybinds: Config.Keybinds) !u8 {
         };
         // We don't track the key print because we index the action off the *widest* key so we get
         // nice alignment no matter what was printed for mods
-        _ = try win.printSegment(.{ .text = key }, .{ .col_offset = result.col });
+        _ = win.printSegment(.{ .text = key }, .{ .col_offset = result.col });
 
         if (longest_col < result.col) longest_col = result.col;
 
         const action = try std.fmt.allocPrint(alloc, "{}", .{bind.action});
         // If our action has an argument, we print the argument in a different color
         if (std.mem.indexOfScalar(u8, action, ':')) |idx| {
-            _ = try win.print(&.{
+            _ = win.print(&.{
                 .{ .text = action[0..idx] },
                 .{ .text = action[idx .. idx + 1], .style = .{ .dim = true } },
                 .{ .text = action[idx + 1 ..], .style = .{ .fg = .{ .index = 5 } } },
             }, .{ .col_offset = longest_col + widest_key + 2 });
         } else {
-            _ = try win.printSegment(.{ .text = action }, .{ .col_offset = longest_col + widest_key + 2 });
+            _ = win.printSegment(.{ .text = action }, .{ .col_offset = longest_col + widest_key + 2 });
         }
         try vx.prettyPrint(writer);
     }

@@ -10,6 +10,7 @@ const font = @import("src/font/main.zig");
 const renderer = @import("src/renderer.zig");
 const terminfo = @import("src/terminfo/main.zig");
 const config_vim = @import("src/config/vim.zig");
+const config_sublime_syntax = @import("src/config/sublime_syntax.zig");
 const fish_completions = @import("src/build/fish_completions.zig");
 const build_config = @import("src/build_config.zig");
 const BuildConfig = build_config.BuildConfig;
@@ -56,6 +57,11 @@ pub fn build(b: *std.Build) !void {
         break :target result;
     };
 
+    // This is set to true when we're building a system package. For now
+    // this is trivially detected using the "system_package_mode" bool
+    // but we may want to make this more sophisticated in the future.
+    const system_package: bool = b.graph.system_package_mode;
+
     const wasm_target: WasmTarget = .browser;
 
     // We use env vars throughout the build so we grab them immediately here.
@@ -91,11 +97,17 @@ pub fn build(b: *std.Build) !void {
         "The app runtime to use. Not all values supported on all platforms.",
     ) orelse renderer.Impl.default(target.result, wasm_target);
 
-    config.libadwaita = b.option(
+    config.adwaita = b.option(
         bool,
-        "gtk-libadwaita",
-        "Enables the use of libadwaita when using the gtk rendering backend.",
+        "gtk-adwaita",
+        "Enables the use of Adwaita when using the GTK rendering backend.",
     ) orelse true;
+
+    const pie = b.option(
+        bool,
+        "pie",
+        "Build a Position Independent Executable. Default true for system packages.",
+    ) orelse system_package;
 
     const conformance = b.option(
         []const u8,
@@ -128,6 +140,9 @@ pub fn build(b: *std.Build) !void {
     ) orelse emit_docs: {
         // If we are emitting any other artifacts then we default to false.
         if (emit_bench or emit_test_exe or emit_helpgen) break :emit_docs false;
+
+        // We always emit docs in system package mode.
+        if (system_package) break :emit_docs true;
 
         // We only default to true if we can find pandoc.
         const path = Command.expandPath(b.allocator, "pandoc") catch
@@ -281,6 +296,9 @@ pub fn build(b: *std.Build) !void {
 
     // Exe
     if (exe_) |exe| {
+        // Set PIE if requested
+        if (pie) exe.pie = true;
+
         // Add the shared dependencies
         _ = try addDeps(b, exe, config);
 
@@ -496,6 +514,38 @@ pub fn build(b: *std.Build) !void {
             .source_dir = wf.getDirectory(),
             .install_dir = .prefix,
             .install_subdir = "share/vim/vimfiles",
+        });
+    }
+
+    // Neovim plugin
+    // This is just a copy-paste of the Vim plugin, but using a Neovim subdir.
+    // By default, Neovim doesn't look inside share/vim/vimfiles. Some distros
+    // configure it to do that however. Fedora, does not as a counterexample.
+    {
+        const wf = b.addWriteFiles();
+        _ = wf.add("syntax/ghostty.vim", config_vim.syntax);
+        _ = wf.add("ftdetect/ghostty.vim", config_vim.ftdetect);
+        _ = wf.add("ftplugin/ghostty.vim", config_vim.ftplugin);
+        b.installDirectory(.{
+            .source_dir = wf.getDirectory(),
+            .install_dir = .prefix,
+            .install_subdir = "share/nvim/site",
+        });
+    }
+
+    // Sublime syntax highlighting for bat cli tool
+    // NOTE: The current implementation requires symlinking the generated
+    // 'ghostty.sublime-syntax' file from zig-out to the '~.config/bat/syntaxes'
+    // directory. The syntax then needs to be mapped to the correct language in
+    // the config file within the '~.config/bat' directory
+    // (ex: --map-syntax "/Users/user/.config/ghostty/config:Ghostty Config").
+    {
+        const wf = b.addWriteFiles();
+        _ = wf.add("ghostty.sublime-syntax", config_sublime_syntax.syntax);
+        b.installDirectory(.{
+            .source_dir = wf.getDirectory(),
+            .install_dir = .prefix,
+            .install_subdir = "share/bat/syntaxes",
         });
     }
 
@@ -975,7 +1025,7 @@ fn addDeps(
 
         if (b.systemIntegrationOption("freetype", .{})) {
             step.linkSystemLibrary2("bzip2", dynamic_link_opts);
-            step.linkSystemLibrary2("freetype", dynamic_link_opts);
+            step.linkSystemLibrary2("freetype2", dynamic_link_opts);
         } else {
             step.linkLibrary(freetype_dep.artifact("freetype"));
             try static_libs.append(freetype_dep.artifact("freetype").getEmittedBin());
@@ -1054,7 +1104,8 @@ fn addDeps(
     });
     step.root_module.addImport("oniguruma", oniguruma_dep.module("oniguruma"));
     if (b.systemIntegrationOption("oniguruma", .{})) {
-        step.linkSystemLibrary2("oniguruma", dynamic_link_opts);
+        // Oniguruma is compiled and distributed as libonig.so
+        step.linkSystemLibrary2("onig", dynamic_link_opts);
     } else {
         step.linkLibrary(oniguruma_dep.artifact("oniguruma"));
         try static_libs.append(oniguruma_dep.artifact("oniguruma").getEmittedBin());
@@ -1068,6 +1119,7 @@ fn addDeps(
     step.root_module.addImport("glslang", glslang_dep.module("glslang"));
     if (b.systemIntegrationOption("glslang", .{})) {
         step.linkSystemLibrary2("glslang", dynamic_link_opts);
+        step.linkSystemLibrary2("glslang-default-resource-limits", dynamic_link_opts);
     } else {
         step.linkLibrary(glslang_dep.artifact("glslang"));
         try static_libs.append(glslang_dep.artifact("glslang").getEmittedBin());
@@ -1190,8 +1242,6 @@ fn addDeps(
     step.root_module.addImport("vaxis", b.dependency("vaxis", .{
         .target = target,
         .optimize = optimize,
-        .libxev = false,
-        .images = false,
     }).module("vaxis"));
     step.root_module.addImport("wuffs", b.dependency("wuffs", .{
         .target = target,
@@ -1213,6 +1263,7 @@ fn addDeps(
     step.root_module.addImport("zf", b.dependency("zf", .{
         .target = target,
         .optimize = optimize,
+        .with_tui = false,
     }).module("zf"));
 
     // Mac Stuff
@@ -1226,14 +1277,7 @@ fn addDeps(
             .optimize = optimize,
         });
 
-        // This is a bit of a hack that should probably be fixed upstream
-        // in zig-objc, but we need to add the apple SDK paths to the
-        // zig-objc module so that it can find the objc runtime headers.
-        const module = objc_dep.module("objc");
-        module.resolved_target = step.root_module.resolved_target;
-        try @import("apple_sdk").addPaths(b, module);
-        step.root_module.addImport("objc", module);
-
+        step.root_module.addImport("objc", objc_dep.module("objc"));
         step.root_module.addImport("macos", macos_dep.module("macos"));
         step.linkLibrary(macos_dep.artifact("macos"));
         try static_libs.append(macos_dep.artifact("macos").getEmittedBin());
@@ -1294,7 +1338,7 @@ fn addDeps(
 
             .gtk => {
                 step.linkSystemLibrary2("gtk4", dynamic_link_opts);
-                if (config.libadwaita) step.linkSystemLibrary2("adwaita-1", dynamic_link_opts);
+                if (config.adwaita) step.linkSystemLibrary2("adwaita-1", dynamic_link_opts);
 
                 {
                     const gresource = @import("src/apprt/gtk/gresource.zig");

@@ -58,8 +58,10 @@ pub const Message = union(enum) {
     /// Health status change for the renderer.
     renderer_health: renderer.Health,
 
-    /// Report the color scheme
-    report_color_scheme: void,
+    /// Report the color scheme. The bool parameter is whether to force or not.
+    /// If force is true, the color scheme should be reported even if mode
+    /// 2031 is not set.
+    report_color_scheme: bool,
 
     /// Tell the surface to present itself to the user. This may require raising
     /// a window and switching tabs.
@@ -69,6 +71,15 @@ pub const Message = union(enum) {
     /// the terminal. This should always be followed by a false value
     /// unless the surface exits.
     password_input: bool,
+
+    /// A terminal color was changed using OSC sequences.
+    color_change: struct {
+        kind: terminal.osc.Command.ColorKind,
+        color: terminal.color.RGB,
+    },
+
+    /// The terminal has reported a change in the working directory.
+    pwd_change: WriteReq,
 
     pub const ReportTitleStyle = enum {
         csi_21_t,

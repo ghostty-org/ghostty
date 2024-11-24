@@ -80,7 +80,9 @@ relevant to package maintainers:
 
 - `--system`: The path to the offline cache directory. This disables
   any package fetching from the internet. This flag also triggers all
-  dependencies to be dynamically linked by default.
+  dependencies to be dynamically linked by default. This flag also makes
+  the binary a PIE (Position Independent Executable) by default (override
+  with `-Dpie`).
 
 - `-Doptimize=ReleaseFast`: Build with optimizations enabled and safety checks
   disabled. This is the recommended build mode for distribution. I'd prefer
@@ -91,3 +93,8 @@ relevant to package maintainers:
 - `-Dcpu=baseline`: Build for the "baseline" CPU of the target architecture.
   This avoids building for newer CPU features that may not be available on
   all target machines.
+
+- `-Dtarget=$arch-$os-$abi`: Build for a specific target triple. This is
+  often necessary for system packages to specify a specific minimum Linux
+  version, glibc, etc. Run `zig targets` to a get a full list of available
+  targets.

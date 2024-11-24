@@ -462,21 +462,24 @@ pub fn performAction(
         .equalize_splits => self.equalizeSplits(target),
         .goto_split => self.gotoSplit(target, value),
         .open_config => try configpkg.edit.open(self.core_app.alloc),
+        .config_change => self.configChange(value.config),
+        .reload_config => try self.reloadConfig(target, value),
         .inspector => self.controlInspector(target, value),
         .desktop_notification => self.showDesktopNotification(target, value),
         .set_title => try self.setTitle(target, value),
+        .pwd => try self.setPwd(target, value),
         .present_terminal => self.presentTerminal(target),
         .initial_size => try self.setInitialSize(target, value),
         .mouse_visibility => self.setMouseVisibility(target, value),
         .mouse_shape => try self.setMouseShape(target, value),
         .mouse_over_link => self.setMouseOverLink(target, value),
         .toggle_tab_overview => self.toggleTabOverview(target),
+        .toggle_split_zoom => self.toggleSplitZoom(target),
         .toggle_window_decorations => self.toggleWindowDecorations(target),
         .quit_timer => self.quitTimer(value),
 
         // Unimplemented
         .close_all_windows,
-        .toggle_split_zoom,
         .toggle_quick_terminal,
         .toggle_visibility,
         .size_limit,
@@ -485,6 +488,7 @@ pub fn performAction(
         .key_sequence,
         .render_inspector,
         .renderer_health,
+        .color_change,
         => log.warn("unimplemented action={}", .{action}),
     }
 }
@@ -670,6 +674,13 @@ fn toggleTabOverview(_: *App, target: apprt.Target) void {
     }
 }
 
+fn toggleSplitZoom(_: *App, target: apprt.Target) void {
+    switch (target) {
+        .app => {},
+        .surface => |surface| surface.rt_surface.toggleSplitZoom(),
+    }
+}
+
 fn toggleWindowDecorations(
     _: *App,
     target: apprt.Target,
@@ -705,6 +716,17 @@ fn setTitle(
     switch (target) {
         .app => {},
         .surface => |v| try v.rt_surface.setTitle(title.title),
+    }
+}
+
+fn setPwd(
+    _: *App,
+    target: apprt.Target,
+    pwd: apprt.action.Pwd,
+) !void {
+    switch (target) {
+        .app => {},
+        .surface => |v| try v.rt_surface.setPwd(pwd.pwd),
     }
 }
 
@@ -796,19 +818,9 @@ fn showDesktopNotification(
     c.g_application_send_notification(g_app, n.body.ptr, notification);
 }
 
-/// Reload the configuration. This should return the new configuration.
-/// The old value can be freed immediately at this point assuming a
-/// successful return.
-///
-/// The returned pointer value is only valid for a stable self pointer.
-pub fn reloadConfig(self: *App) !?*const Config {
-    // Load our configuration
-    var config = try Config.load(self.core_app.alloc);
-    errdefer config.deinit();
+fn configChange(self: *App, new_config: *const Config) void {
+    _ = new_config;
 
-    // Update the existing config, be sure to clean up the old one.
-    self.config.deinit();
-    self.config = config;
     self.syncConfigChanges() catch |err| {
         log.warn("error handling configuration changes err={}", .{err});
     };
@@ -819,8 +831,36 @@ pub fn reloadConfig(self: *App) !?*const Config {
             if (surface.container.window()) |window| window.onConfigReloaded();
         }
     }
+}
 
-    return &self.config;
+pub fn reloadConfig(
+    self: *App,
+    target: apprt.action.Target,
+    opts: apprt.action.ReloadConfig,
+) !void {
+    if (opts.soft) {
+        switch (target) {
+            .app => try self.core_app.updateConfig(self, &self.config),
+            .surface => |core_surface| try core_surface.updateConfig(
+                &self.config,
+            ),
+        }
+        return;
+    }
+
+    // Load our configuration
+    var config = try Config.load(self.core_app.alloc);
+    errdefer config.deinit();
+
+    // Call into our app to update
+    switch (target) {
+        .app => try self.core_app.updateConfig(self, &config),
+        .surface => |core_surface| try core_surface.updateConfig(&config),
+    }
+
+    // Update the existing config, be sure to clean up the old one.
+    self.config.deinit();
+    self.config = config;
 }
 
 /// Call this anytime the configuration changes.
@@ -927,6 +967,13 @@ fn loadRuntimeCss(
                 \\  --headerbar-fg-color: rgb({d},{d},{d});
                 \\  --headerbar-bg-color: rgb({d},{d},{d});
                 \\  --headerbar-backdrop-color: oklab(from var(--headerbar-bg-color) calc(l * 0.9) a b / alpha);
+                \\}}
+                \\windowhandle {{
+                \\  background-color: var(--headerbar-bg-color);
+                \\  color: var(--headerbar-fg-color);
+                \\}}
+                \\windowhandle:backdrop {{
+                \\ background-color: var(--headerbar-backdrop-color);
                 \\}}
             , .{
                 headerbar_foreground.r,
@@ -1381,9 +1428,9 @@ fn gtkActionReloadConfig(
     ud: ?*anyopaque,
 ) callconv(.C) void {
     const self: *App = @ptrCast(@alignCast(ud orelse return));
-    _ = self.core_app.mailbox.push(.{
-        .reload_config = {},
-    }, .{ .forever = {} });
+    self.reloadConfig(.app, .{}) catch |err| {
+        log.err("error reloading configuration: {}", .{err});
+    };
 }
 
 fn gtkActionQuit(

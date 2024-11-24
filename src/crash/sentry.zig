@@ -177,29 +177,30 @@ fn beforeSend(
         const obj = sentry.Value.initObject();
         errdefer obj.decref();
         const surface = thr_state.surface;
+        const grid_size = surface.size.grid();
         obj.set(
             "screen-width",
-            sentry.Value.initInt32(std.math.cast(i32, surface.screen_size.width) orelse -1),
+            sentry.Value.initInt32(std.math.cast(i32, surface.size.screen.width) orelse -1),
         );
         obj.set(
             "screen-height",
-            sentry.Value.initInt32(std.math.cast(i32, surface.screen_size.height) orelse -1),
+            sentry.Value.initInt32(std.math.cast(i32, surface.size.screen.height) orelse -1),
         );
         obj.set(
             "grid-columns",
-            sentry.Value.initInt32(std.math.cast(i32, surface.grid_size.columns) orelse -1),
+            sentry.Value.initInt32(std.math.cast(i32, grid_size.columns) orelse -1),
         );
         obj.set(
             "grid-rows",
-            sentry.Value.initInt32(std.math.cast(i32, surface.grid_size.rows) orelse -1),
+            sentry.Value.initInt32(std.math.cast(i32, grid_size.rows) orelse -1),
         );
         obj.set(
             "cell-width",
-            sentry.Value.initInt32(std.math.cast(i32, surface.cell_size.width) orelse -1),
+            sentry.Value.initInt32(std.math.cast(i32, surface.size.cell.width) orelse -1),
         );
         obj.set(
             "cell-height",
-            sentry.Value.initInt32(std.math.cast(i32, surface.cell_size.height) orelse -1),
+            sentry.Value.initInt32(std.math.cast(i32, surface.size.cell.height) orelse -1),
         );
 
         contexts.set("Dimensions", obj);

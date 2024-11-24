@@ -18,12 +18,16 @@ class QuickTerminalController: BaseTerminalController {
     /// application to the front.
     private var previousApp: NSRunningApplication? = nil
 
+    /// The configuration derived from the Ghostty config so we don't need to rely on references.
+    private var derivedConfig: DerivedConfig
+
     init(_ ghostty: Ghostty.App,
          position: QuickTerminalPosition = .top,
          baseConfig base: Ghostty.SurfaceConfiguration? = nil,
          surfaceTree tree: Ghostty.SplitNode? = nil
     ) {
         self.position = position
+        self.derivedConfig = DerivedConfig(ghostty.config)
         super.init(ghostty, baseConfig: base, surfaceTree: tree)
 
         // Setup our notifications for behaviors
@@ -35,8 +39,8 @@ class QuickTerminalController: BaseTerminalController {
             object: nil)
         center.addObserver(
             self,
-            selector: #selector(ghosttyDidReloadConfig),
-            name: Ghostty.Notification.ghosttyDidReloadConfig,
+            selector: #selector(ghosttyConfigDidChange(_:)),
+            name: .ghosttyConfigDidChange,
             object: nil)
     }
 
@@ -64,7 +68,7 @@ class QuickTerminalController: BaseTerminalController {
         window.isRestorable = false
 
         // Setup our configured appearance that we support.
-        syncAppearance()
+        syncAppearance(ghostty.config)
 
         // Setup our initial size based on our configured position
         position.setLoaded(window)
@@ -186,7 +190,7 @@ class QuickTerminalController: BaseTerminalController {
     }
 
     private func animateWindowIn(window: NSWindow, from position: QuickTerminalPosition) {
-        guard let screen = ghostty.config.quickTerminalScreen.screen else { return }
+        guard let screen = derivedConfig.quickTerminalScreen.screen else { return }
 
         // Move our window off screen to the top
         position.setInitial(in: window, on: screen)
@@ -197,7 +201,7 @@ class QuickTerminalController: BaseTerminalController {
         // Run the animation that moves our window into the proper place and makes
         // it visible.
         NSAnimationContext.runAnimationGroup({ context in
-            context.duration = ghostty.config.quickTerminalAnimationDuration
+            context.duration = derivedConfig.quickTerminalAnimationDuration
             context.timingFunction = .init(name: .easeIn)
             position.setFinal(in: window.animator(), on: screen)
         }, completionHandler: {
@@ -287,7 +291,7 @@ class QuickTerminalController: BaseTerminalController {
         }
 
         NSAnimationContext.runAnimationGroup({ context in
-            context.duration = ghostty.config.quickTerminalAnimationDuration
+            context.duration = derivedConfig.quickTerminalAnimationDuration
             context.timingFunction = .init(name: .easeIn)
             position.setInitial(in: window.animator(), on: screen)
         }, completionHandler: {
@@ -297,7 +301,7 @@ class QuickTerminalController: BaseTerminalController {
         })
     }
 
-    private func syncAppearance() {
+    private func syncAppearance(_ config: Ghostty.Config) {
         guard let window else { return }
 
         // If our window is not visible, then delay this. This is possible specifically
@@ -306,12 +310,25 @@ class QuickTerminalController: BaseTerminalController {
         // APIs such as window blur have no effect unless the window is visible.
         guard window.isVisible else {
             // Weak window so that if the window changes or is destroyed we aren't holding a ref
-            DispatchQueue.main.async { [weak self] in self?.syncAppearance() }
+            DispatchQueue.main.async { [weak self] in self?.syncAppearance(config) }
             return
         }
 
+        // Terminals typically operate in sRGB color space and macOS defaults
+        // to "native" which is typically P3. There is a lot more resources
+        // covered in this GitHub issue: https://github.com/mitchellh/ghostty/pull/376
+        // Ghostty defaults to sRGB but this can be overridden.
+        switch (config.windowColorspace) {
+        case "display-p3":
+            window.colorSpace = .displayP3
+        case "srgb":
+            fallthrough
+        default:
+            window.colorSpace = .sRGB
+        }
+
         // If we have window transparency then set it transparent. Otherwise set it opaque.
-        if (ghostty.config.backgroundOpacity < 1) {
+        if (config.backgroundOpacity < 1) {
             window.isOpaque = false
 
             // This is weird, but we don't use ".clear" because this creates a look that
@@ -358,8 +375,35 @@ class QuickTerminalController: BaseTerminalController {
         toggleFullscreen(mode: .nonNative)
     }
 
-    @objc private func ghosttyDidReloadConfig(notification: SwiftUI.Notification) {
-        syncAppearance()
+    @objc private func ghosttyConfigDidChange(_ notification: Notification) {
+        // We only care if the configuration is a global configuration, not a
+        // surface-specific one.
+        guard notification.object == nil else { return }
+
+        // Get our managed configuration object out
+        guard let config = notification.userInfo?[
+            Notification.Name.GhosttyConfigChangeKey
+        ] as? Ghostty.Config else { return }
+
+        // Update our derived config
+        self.derivedConfig = DerivedConfig(config)
+
+        syncAppearance(config)
+    }
+
+    private struct DerivedConfig {
+        let quickTerminalScreen: QuickTerminalScreen
+        let quickTerminalAnimationDuration: Double
+
+        init() {
+            self.quickTerminalScreen = .main
+            self.quickTerminalAnimationDuration = 0.2
+        }
+
+        init(_ config: Ghostty.Config) {
+            self.quickTerminalScreen = config.quickTerminalScreen
+            self.quickTerminalAnimationDuration = config.quickTerminalAnimationDuration
+        }
     }
 }
 

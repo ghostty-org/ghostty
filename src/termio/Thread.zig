@@ -17,7 +17,8 @@ const builtin = @import("builtin");
 const xev = @import("xev");
 const crash = @import("../crash/main.zig");
 const termio = @import("../termio.zig");
-const BlockingQueue = @import("../blocking_queue.zig").BlockingQueue;
+const renderer = @import("../renderer.zig");
+const BlockingQueue = @import("../datastruct/main.zig").BlockingQueue;
 
 const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.io_thread);
@@ -28,7 +29,7 @@ const Coalesce = struct {
     /// Not all message types are coalesced.
     const min_ms = 25;
 
-    resize: ?termio.Message.Resize = null,
+    resize: ?renderer.Size = null,
 };
 
 /// The number of milliseconds before we reset the synchronized output flag
@@ -324,7 +325,7 @@ fn startSynchronizedOutput(self: *Thread, cb: *CallbackData) void {
     );
 }
 
-fn handleResize(self: *Thread, cb: *CallbackData, resize: termio.Message.Resize) void {
+fn handleResize(self: *Thread, cb: *CallbackData, resize: renderer.Size) void {
     self.coalesce_data.resize = resize;
 
     // If the timer is already active we just return. In the future we want
@@ -380,13 +381,7 @@ fn coalesceCallback(
 
     if (cb.self.coalesce_data.resize) |v| {
         cb.self.coalesce_data.resize = null;
-        cb.io.resize(
-            &cb.data,
-            v.grid_size,
-            v.cell_size,
-            v.screen_size,
-            v.padding,
-        ) catch |err| {
+        cb.io.resize(&cb.data, v) catch |err| {
             log.warn("error during resize err={}", .{err});
         };
     }

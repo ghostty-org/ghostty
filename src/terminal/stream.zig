@@ -1162,6 +1162,33 @@ pub fn Stream(comptime Handler: type) type {
                                     "ignoring CSI 21 t with extra parameters: {s}",
                                     .{input},
                                 ),
+                                inline 22, 23 => |number| if ((input.params.len == 2 or
+                                    input.params.len == 3) and
+                                    // we only support window title
+                                    (input.params[1] == 0 or
+                                    input.params[1] == 2))
+                                {
+                                    // push/pop title
+                                    if (@hasDecl(T, "pushPopTitle")) {
+                                        self.handler.pushPopTitle(.{
+                                            .op = switch (number) {
+                                                22 => .push,
+                                                23 => .pop,
+                                                else => @compileError("unreachable"),
+                                            },
+                                            .index = if (input.params.len == 3)
+                                                input.params[2]
+                                            else
+                                                0,
+                                        });
+                                    } else log.warn(
+                                        "ignoring unimplemented CSI 22/23 t",
+                                        .{},
+                                    );
+                                } else log.warn(
+                                    "ignoring CSI 22/23 t with extra parameters: {s}",
+                                    .{input},
+                                ),
                                 else => log.warn(
                                     "ignoring CSI t with unimplemented parameter: {s}",
                                     .{input},
@@ -2161,4 +2188,142 @@ test "stream: invalid CSI t" {
 
     try s.nextSlice("\x1b[19t");
     try testing.expectEqual(null, s.handler.style);
+}
+
+test "stream: CSI t push title" {
+    const H = struct {
+        op: ?csi.TitlePushPop = null,
+
+        pub fn pushPopTitle(self: *@This(), op: csi.TitlePushPop) void {
+            self.op = op;
+        }
+    };
+
+    var s: Stream(H) = .{ .handler = .{} };
+
+    try s.nextSlice("\x1b[22;0t");
+    try testing.expectEqual(csi.TitlePushPop{
+        .op = .push,
+        .index = 0,
+    }, s.handler.op.?);
+}
+
+test "stream: CSI t push title with explicit window" {
+    const H = struct {
+        op: ?csi.TitlePushPop = null,
+
+        pub fn pushPopTitle(self: *@This(), op: csi.TitlePushPop) void {
+            self.op = op;
+        }
+    };
+
+    var s: Stream(H) = .{ .handler = .{} };
+
+    try s.nextSlice("\x1b[22;2t");
+    try testing.expectEqual(csi.TitlePushPop{
+        .op = .push,
+        .index = 0,
+    }, s.handler.op.?);
+}
+
+test "stream: CSI t push title with explicit icon" {
+    const H = struct {
+        op: ?csi.TitlePushPop = null,
+
+        pub fn pushPopTitle(self: *@This(), op: csi.TitlePushPop) void {
+            self.op = op;
+        }
+    };
+
+    var s: Stream(H) = .{ .handler = .{} };
+
+    try s.nextSlice("\x1b[22;1t");
+    try testing.expectEqual(null, s.handler.op);
+}
+
+test "stream: CSI t push title with index" {
+    const H = struct {
+        op: ?csi.TitlePushPop = null,
+
+        pub fn pushPopTitle(self: *@This(), op: csi.TitlePushPop) void {
+            self.op = op;
+        }
+    };
+
+    var s: Stream(H) = .{ .handler = .{} };
+
+    try s.nextSlice("\x1b[22;0;5t");
+    try testing.expectEqual(csi.TitlePushPop{
+        .op = .push,
+        .index = 5,
+    }, s.handler.op.?);
+}
+
+test "stream: CSI t pop title" {
+    const H = struct {
+        op: ?csi.TitlePushPop = null,
+
+        pub fn pushPopTitle(self: *@This(), op: csi.TitlePushPop) void {
+            self.op = op;
+        }
+    };
+
+    var s: Stream(H) = .{ .handler = .{} };
+
+    try s.nextSlice("\x1b[23;0t");
+    try testing.expectEqual(csi.TitlePushPop{
+        .op = .pop,
+        .index = 0,
+    }, s.handler.op.?);
+}
+
+test "stream: CSI t pop title with explicit window" {
+    const H = struct {
+        op: ?csi.TitlePushPop = null,
+
+        pub fn pushPopTitle(self: *@This(), op: csi.TitlePushPop) void {
+            self.op = op;
+        }
+    };
+
+    var s: Stream(H) = .{ .handler = .{} };
+
+    try s.nextSlice("\x1b[23;2t");
+    try testing.expectEqual(csi.TitlePushPop{
+        .op = .pop,
+        .index = 0,
+    }, s.handler.op.?);
+}
+
+test "stream: CSI t pop title with explicit icon" {
+    const H = struct {
+        op: ?csi.TitlePushPop = null,
+
+        pub fn pushPopTitle(self: *@This(), op: csi.TitlePushPop) void {
+            self.op = op;
+        }
+    };
+
+    var s: Stream(H) = .{ .handler = .{} };
+
+    try s.nextSlice("\x1b[23;1t");
+    try testing.expectEqual(null, s.handler.op);
+}
+
+test "stream: CSI t pop title with index" {
+    const H = struct {
+        op: ?csi.TitlePushPop = null,
+
+        pub fn pushPopTitle(self: *@This(), op: csi.TitlePushPop) void {
+            self.op = op;
+        }
+    };
+
+    var s: Stream(H) = .{ .handler = .{} };
+
+    try s.nextSlice("\x1b[23;0;5t");
+    try testing.expectEqual(csi.TitlePushPop{
+        .op = .pop,
+        .index = 5,
+    }, s.handler.op.?);
 }

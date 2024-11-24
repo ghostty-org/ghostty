@@ -76,7 +76,8 @@ pub fn build(b: *std.Build) !void {
         });
 
         if (b.systemIntegrationOption("freetype", .{})) {
-            lib.linkSystemLibrary2("freetype", dynamic_link_opts);
+            lib.linkSystemLibrary2("freetype2", dynamic_link_opts);
+            module.linkSystemLibrary("freetype2", dynamic_link_opts);
         } else {
             lib.linkLibrary(freetype.artifact("freetype"));
             module.addIncludePath(freetype.builder.dependency("freetype", .{}).path("include"));

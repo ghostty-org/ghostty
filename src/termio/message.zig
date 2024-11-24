@@ -16,22 +16,6 @@ pub const Message = union(enum) {
     /// in the future.
     pub const WriteReq = MessageData(u8, 38);
 
-    pub const Resize = struct {
-        /// The grid size for the given screen size with padding applied.
-        grid_size: renderer.GridSize,
-
-        /// The updated cell size.
-        cell_size: renderer.CellSize,
-
-        /// The full screen (drawable) size. This does NOT include padding.
-        /// This should be sent on to the renderer.
-        screen_size: renderer.ScreenSize,
-
-        /// The padding, so that the terminal implementation can subtract
-        /// this to send to the pty.
-        padding: renderer.Padding,
-    };
-
     /// Purposely crash the renderer. This is used for testing and debugging.
     /// See the "crash" binding action.
     crash: void,
@@ -47,7 +31,7 @@ pub const Message = union(enum) {
     inspector: bool,
 
     /// Resize the window.
-    resize: Resize,
+    resize: renderer.Size,
 
     /// Request a size report is sent to the pty ([in-band
     /// size report, mode 2048](https://gist.github.com/rockorager/e695fb2924d36b2bcf1fff4a3704bd83) and
@@ -194,9 +178,9 @@ pub fn MessageData(comptime Elem: type, comptime small_size: comptime_int) type 
         }
 
         /// Returns a const slice of the data pointed to by this request.
-        pub fn slice(self: Self) []const Elem {
-            return switch (self) {
-                .small => |v| v.data[0..v.len],
+        pub fn slice(self: *const Self) []const Elem {
+            return switch (self.*) {
+                .small => |*v| v.data[0..v.len],
                 .stable => |v| v,
                 .alloc => |v| v.data,
             };

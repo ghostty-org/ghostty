@@ -78,7 +78,7 @@ pub fn setup(
             try setupXdgDataDirs(alloc_arena, resource_dir, env);
             break :shell .{
                 .shell = .elvish,
-                .command = command,
+                .command = try alloc_arena.dupe(u8, command),
             };
         }
 
@@ -86,7 +86,7 @@ pub fn setup(
             try setupXdgDataDirs(alloc_arena, resource_dir, env);
             break :shell .{
                 .shell = .fish,
-                .command = command,
+                .command = try alloc_arena.dupe(u8, command),
             };
         }
 
@@ -94,7 +94,7 @@ pub fn setup(
             try setupZsh(resource_dir, env);
             break :shell .{
                 .shell = .zsh,
-                .command = command,
+                .command = try alloc_arena.dupe(u8, command),
             };
         }
 
@@ -447,27 +447,31 @@ fn setupXdgDataDirs(
     // so that our modifications don't interfere with other commands.
     try env.put("GHOSTTY_SHELL_INTEGRATION_XDG_DIR", integ_dir);
 
-    if (env.get("XDG_DATA_DIRS")) |old| {
-        // We have an old value, We need to prepend our value to it.
+    {
+        const xdg_data_dir_key = "XDG_DATA_DIRS";
 
         // We attempt to avoid allocating by using the stack up to 4K.
         // Max stack size is considerably larger on macOS and Linux but
         // 4K is a reasonable size for this for most cases. However, env
         // vars can be significantly larger so if we have to we fall
         // back to a heap allocated value.
-        var stack_alloc = std.heap.stackFallback(4096, alloc_arena);
-        const alloc = stack_alloc.get();
-        const prepended = try std.fmt.allocPrint(
-            alloc,
-            "{s}{c}{s}",
-            .{ integ_dir, std.fs.path.delimiter, old },
-        );
-        defer alloc.free(prepended);
+        var stack_alloc_state = std.heap.stackFallback(4096, alloc_arena);
+        const stack_alloc = stack_alloc_state.get();
 
-        try env.put("XDG_DATA_DIRS", prepended);
-    } else {
-        // No XDG_DATA_DIRS set, we just set it our desired value.
-        try env.put("XDG_DATA_DIRS", integ_dir);
+        // If no XDG_DATA_DIRS set use the default value as specified.
+        // This ensures that the default directories aren't lost by setting
+        // our desired integration dir directly. See #2711.
+        // <https://specifications.freedesktop.org/basedir-spec/0.6/#variables>
+        const old = env.get(xdg_data_dir_key) orelse "/usr/local/share:/usr/share";
+
+        const prepended = try std.fmt.allocPrint(stack_alloc, "{s}{c}{s}", .{
+            integ_dir,
+            std.fs.path.delimiter,
+            old,
+        });
+        defer stack_alloc.free(prepended);
+
+        try env.put(xdg_data_dir_key, prepended);
     }
 }
 

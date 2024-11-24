@@ -57,6 +57,11 @@ pub const CoreText = struct {
     /// The initialized font
     font: *macos.text.Font,
 
+    /// Variations to apply to this font. We apply the variations to the
+    /// search descriptor but sometimes when the font collection is
+    /// made the variation axes are reset so we have to reapply them.
+    variations: []const font.face.Variation,
+
     pub fn deinit(self: *CoreText) void {
         self.font.release();
         self.* = undefined;
@@ -194,7 +199,10 @@ fn loadCoreText(
 ) !Face {
     _ = lib;
     const ct = self.ct.?;
-    return try Face.initFontCopy(ct.font, opts);
+    var face = try Face.initFontCopy(ct.font, opts);
+    errdefer face.deinit();
+    try face.setVariations(ct.variations, opts);
+    return face;
 }
 
 fn loadCoreTextFreetype(
@@ -236,43 +244,7 @@ fn loadCoreTextFreetype(
     //std.log.warn("path={s}", .{path_slice});
     var face = try Face.initFile(lib, buf[0..path_slice.len :0], 0, opts);
     errdefer face.deinit();
-
-    // If our ct font has variations, apply them to the face.
-    if (ct.font.copyAttribute(.variation)) |variations| vars: {
-        defer variations.release();
-        if (variations.getCount() == 0) break :vars;
-
-        // This configuration is just used for testing so we don't want to
-        // have to pass a full allocator through so use the stack. We
-        // shouldn't have a lot of variations and if we do we should use
-        // another mechanism.
-        //
-        // On macOS the default stack size for a thread is 512KB and the main
-        // thread gets megabytes so 16KB is a safe stack allocation.
-        var data: [1024 * 16]u8 = undefined;
-        var fba = std.heap.FixedBufferAllocator.init(&data);
-        const alloc = fba.allocator();
-
-        var face_vars = std.ArrayList(font.face.Variation).init(alloc);
-        const kav = try variations.getKeysAndValues(alloc);
-        for (kav.keys, kav.values) |key, value| {
-            const num: *const macos.foundation.Number = @ptrCast(key.?);
-            const val: *const macos.foundation.Number = @ptrCast(value.?);
-
-            var num_i32: i32 = undefined;
-            if (!num.getValue(.sint32, &num_i32)) continue;
-
-            var val_f64: f64 = undefined;
-            if (!val.getValue(.float64, &val_f64)) continue;
-
-            try face_vars.append(.{
-                .id = @bitCast(num_i32),
-                .value = val_f64,
-            });
-        }
-
-        try face.setVariations(face_vars.items, opts);
-    }
+    try face.setVariations(ct.variations, opts);
 
     return face;
 }

@@ -430,6 +430,11 @@ typedef struct {
   const char* title;
 } ghostty_action_set_title_s;
 
+// apprt.action.Pwd.C
+typedef struct {
+  const char* pwd;
+} ghostty_action_pwd_s;
+
 // terminal.MouseShape
 typedef enum {
   GHOSTTY_MOUSE_SHAPE_DEFAULT,
@@ -512,6 +517,31 @@ typedef struct {
   ghostty_input_trigger_s trigger;
 } ghostty_action_key_sequence_s;
 
+// apprt.action.ColorKind
+typedef enum {
+  GHOSTTY_ACTION_COLOR_KIND_FOREGROUND = -1,
+  GHOSTTY_ACTION_COLOR_KIND_BACKGROUND = -2,
+  GHOSTTY_ACTION_COLOR_KIND_CURSOR = -3,
+} ghostty_action_color_kind_e;
+
+// apprt.action.ColorChange
+typedef struct {
+  ghostty_action_color_kind_e kind;
+  uint8_t r;
+  uint8_t g;
+  uint8_t b;
+} ghostty_action_color_change_s;
+
+// apprt.action.ConfigChange
+typedef struct {
+  ghostty_config_t config;
+} ghostty_action_config_change_s;
+
+// apprt.action.ReloadConfig
+typedef struct {
+  bool soft;
+} ghostty_action_reload_config_s;
+
 // apprt.Action.Key
 typedef enum {
   GHOSTTY_ACTION_NEW_WINDOW,
@@ -537,6 +567,7 @@ typedef enum {
   GHOSTTY_ACTION_RENDER_INSPECTOR,
   GHOSTTY_ACTION_DESKTOP_NOTIFICATION,
   GHOSTTY_ACTION_SET_TITLE,
+  GHOSTTY_ACTION_PWD,
   GHOSTTY_ACTION_MOUSE_SHAPE,
   GHOSTTY_ACTION_MOUSE_VISIBILITY,
   GHOSTTY_ACTION_MOUSE_OVER_LINK,
@@ -545,6 +576,9 @@ typedef enum {
   GHOSTTY_ACTION_QUIT_TIMER,
   GHOSTTY_ACTION_SECURE_INPUT,
   GHOSTTY_ACTION_KEY_SEQUENCE,
+  GHOSTTY_ACTION_COLOR_CHANGE,
+  GHOSTTY_ACTION_RELOAD_CONFIG,
+  GHOSTTY_ACTION_CONFIG_CHANGE,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -560,6 +594,7 @@ typedef union {
   ghostty_action_inspector_e inspector;
   ghostty_action_desktop_notification_s desktop_notification;
   ghostty_action_set_title_s set_title;
+  ghostty_action_pwd_s pwd;
   ghostty_action_mouse_shape_e mouse_shape;
   ghostty_action_mouse_visibility_e mouse_visibility;
   ghostty_action_mouse_over_link_s mouse_over_link;
@@ -567,6 +602,9 @@ typedef union {
   ghostty_action_quit_timer_e quit_timer;
   ghostty_action_secure_input_e secure_input;
   ghostty_action_key_sequence_s key_sequence;
+  ghostty_action_color_change_s color_change;
+  ghostty_action_reload_config_s reload_config;
+  ghostty_action_config_change_s config_change;
 } ghostty_action_u;
 
 typedef struct {
@@ -575,7 +613,6 @@ typedef struct {
 } ghostty_action_s;
 
 typedef void (*ghostty_runtime_wakeup_cb)(void*);
-typedef const ghostty_config_t (*ghostty_runtime_reload_config_cb)(void*);
 typedef void (*ghostty_runtime_read_clipboard_cb)(void*,
                                                   ghostty_clipboard_e,
                                                   void*);
@@ -598,7 +635,6 @@ typedef struct {
   bool supports_selection_clipboard;
   ghostty_runtime_wakeup_cb wakeup_cb;
   ghostty_runtime_action_cb action_cb;
-  ghostty_runtime_reload_config_cb reload_config_cb;
   ghostty_runtime_read_clipboard_cb read_clipboard_cb;
   ghostty_runtime_confirm_read_clipboard_cb confirm_read_clipboard_cb;
   ghostty_runtime_write_clipboard_cb write_clipboard_cb;
@@ -614,6 +650,7 @@ ghostty_info_s ghostty_info(void);
 
 ghostty_config_t ghostty_config_new();
 void ghostty_config_free(ghostty_config_t);
+ghostty_config_t ghostty_config_clone(ghostty_config_t);
 void ghostty_config_load_cli_args(ghostty_config_t);
 void ghostty_config_load_default_files(ghostty_config_t);
 void ghostty_config_load_recursive_files(ghostty_config_t);
@@ -635,9 +672,10 @@ void ghostty_app_set_focus(ghostty_app_t, bool);
 bool ghostty_app_key(ghostty_app_t, ghostty_input_key_s);
 void ghostty_app_keyboard_changed(ghostty_app_t);
 void ghostty_app_open_config(ghostty_app_t);
-void ghostty_app_reload_config(ghostty_app_t);
+void ghostty_app_update_config(ghostty_app_t, ghostty_config_t);
 bool ghostty_app_needs_confirm_quit(ghostty_app_t);
 bool ghostty_app_has_global_keybinds(ghostty_app_t);
+void ghostty_app_set_color_scheme(ghostty_app_t, ghostty_color_scheme_e);
 
 ghostty_surface_config_s ghostty_surface_config_new();
 
@@ -646,6 +684,7 @@ void ghostty_surface_free(ghostty_surface_t);
 void* ghostty_surface_userdata(ghostty_surface_t);
 ghostty_app_t ghostty_surface_app(ghostty_surface_t);
 ghostty_surface_config_s ghostty_surface_inherited_config(ghostty_surface_t);
+void ghostty_surface_update_config(ghostty_surface_t, ghostty_config_t);
 bool ghostty_surface_needs_confirm_quit(ghostty_surface_t);
 void ghostty_surface_refresh(ghostty_surface_t);
 void ghostty_surface_draw(ghostty_surface_t);
@@ -688,7 +727,6 @@ void ghostty_surface_complete_clipboard_request(ghostty_surface_t,
                                                 const char*,
                                                 void*,
                                                 bool);
-uintptr_t ghostty_surface_pwd(ghostty_surface_t, char*, uintptr_t);
 bool ghostty_surface_has_selection(ghostty_surface_t);
 uintptr_t ghostty_surface_selection(ghostty_surface_t, char*, uintptr_t);
 

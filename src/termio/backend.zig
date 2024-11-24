@@ -12,7 +12,6 @@ const shell_integration = @import("shell_integration.zig");
 const terminal = @import("../terminal/main.zig");
 const termio = @import("../termio.zig");
 const Command = @import("../Command.zig");
-const SegmentedPool = @import("../segmented_pool.zig").SegmentedPool;
 const Pty = @import("../pty.zig").Pty;
 
 // The preallocation size for the write request pool. This should be big

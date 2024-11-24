@@ -8,17 +8,8 @@ const Command = @import("../Command.zig");
 const Config = @import("../config.zig").Config;
 const termio = @import("../termio.zig");
 
-/// The size of the terminal grid.
-grid_size: renderer.GridSize,
-
-/// The size of a single cell, in pixels.
-cell_size: renderer.CellSize,
-
-/// The size of the viewport in pixels.
-screen_size: renderer.ScreenSize,
-
-/// The padding of the viewport.
-padding: renderer.Padding,
+/// All size metrics for the terminal.
+size: renderer.Size,
 
 /// The full app configuration. This is only available during initialization.
 /// The memory it points to is NOT stable after the init call so any values

@@ -12,8 +12,9 @@ const apprt = @import("apprt.zig");
 const Surface = @import("Surface.zig");
 const tracy = @import("tracy");
 const input = @import("input.zig");
-const Config = @import("config.zig").Config;
-const BlockingQueue = @import("./blocking_queue.zig").BlockingQueue;
+const configpkg = @import("config.zig");
+const Config = configpkg.Config;
+const BlockingQueue = @import("datastruct/main.zig").BlockingQueue;
 const renderer = @import("renderer.zig");
 const font = @import("font/main.zig");
 const internal_os = @import("os/main.zig");
@@ -66,6 +67,16 @@ font_grid_set: font.SharedGridSet,
 last_notification_time: ?std.time.Instant = null,
 last_notification_digest: u64 = 0,
 
+/// The conditional state of the configuration. See the equivalent field
+/// in the Surface struct for more information. In this case, this applies
+/// to the app-level config and as a default for new surfaces.
+config_conditional_state: configpkg.ConditionalState,
+
+/// Set to false once we've created at least one surface. This
+/// never goes true again. This can be used by surfaces to determine
+/// if they are the first surface.
+first: bool = true,
+
 pub const CreateError = Allocator.Error || font.SharedGridSet.InitError;
 
 /// Initialize the main app instance. This creates the main window, sets
@@ -89,6 +100,7 @@ pub fn create(
         .mailbox = .{},
         .quit = false,
         .font_grid_set = font_grid_set,
+        .config_conditional_state = .{},
     };
     errdefer app.surfaces.deinit(alloc);
 
@@ -142,11 +154,31 @@ pub fn tick(self: *App, rt_app: *apprt.App) !bool {
 /// Update the configuration associated with the app. This can only be
 /// called from the main thread. The caller owns the config memory. The
 /// memory can be freed immediately when this returns.
-pub fn updateConfig(self: *App, config: *const Config) !void {
+pub fn updateConfig(self: *App, rt_app: *apprt.App, config: *const Config) !void {
     // Go through and update all of the surface configurations.
     for (self.surfaces.items) |surface| {
         try surface.core_surface.handleMessage(.{ .change_config = config });
     }
+
+    // Apply our conditional state. If we fail to apply the conditional state
+    // then we log and attempt to move forward with the old config.
+    // We only apply this to the app-level config because the surface
+    // config applies its own conditional state.
+    var applied_: ?configpkg.Config = config.changeConditionalState(
+        self.config_conditional_state,
+    ) catch |err| err: {
+        log.warn("failed to apply conditional state to config err={}", .{err});
+        break :err null;
+    };
+    defer if (applied_) |*c| c.deinit();
+    const applied: *const configpkg.Config = if (applied_) |*c| c else config;
+
+    // Notify the apprt that the app has changed configuration.
+    try rt_app.performAction(
+        .app,
+        .config_change,
+        .{ .config = applied },
+    );
 }
 
 /// Add an initialized surface. This is really only for the runtime
@@ -227,7 +259,6 @@ fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
     while (self.mailbox.pop()) |message| {
         log.debug("mailbox message={s}", .{@tagName(message)});
         switch (message) {
-            .reload_config => try self.reloadConfig(rt_app),
             .open_config => try self.performAction(rt_app, .open_config),
             .new_window => |msg| try self.newWindow(rt_app, msg),
             .close => |surface| self.closeSurface(surface),
@@ -245,14 +276,6 @@ fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
                 return;
             },
         }
-    }
-}
-
-pub fn reloadConfig(self: *App, rt_app: *apprt.App) !void {
-    log.debug("reloading configuration", .{});
-    if (try rt_app.reloadConfig()) |new| {
-        log.debug("new configuration received, applying", .{});
-        try self.updateConfig(new);
     }
 }
 
@@ -376,6 +399,33 @@ pub fn keyEvent(
     return true;
 }
 
+/// Call to notify Ghostty that the color scheme for the app has changed.
+/// "Color scheme" in this case refers to system themes such as "light/dark".
+pub fn colorSchemeEvent(
+    self: *App,
+    rt_app: *apprt.App,
+    scheme: apprt.ColorScheme,
+) !void {
+    const new_scheme: configpkg.ConditionalState.Theme = switch (scheme) {
+        .light => .light,
+        .dark => .dark,
+    };
+
+    // If our scheme didn't change, then we don't do anything.
+    if (self.config_conditional_state.theme == new_scheme) return;
+
+    // Setup our conditional state which has the current color theme.
+    self.config_conditional_state.theme = new_scheme;
+
+    // Request our configuration be reloaded because the new scheme may
+    // impact the colors of the app.
+    try rt_app.performAction(
+        .app,
+        .reload_config,
+        .{ .soft = true },
+    );
+}
+
 /// Perform a binding action. This only accepts actions that are scoped
 /// to the app. Callers can use performAllAction to perform any action
 /// and any non-app-scoped actions will be performed on all surfaces.
@@ -390,7 +440,7 @@ pub fn performAction(
         .quit => self.setQuit(),
         .new_window => try self.newWindow(rt_app, .{ .parent = null }),
         .open_config => try rt_app.performAction(.app, .open_config, {}),
-        .reload_config => try self.reloadConfig(rt_app),
+        .reload_config => try rt_app.performAction(.app, .reload_config, .{}),
         .close_all_windows => try rt_app.performAction(.app, .close_all_windows, {}),
         .toggle_quick_terminal => try rt_app.performAction(.app, .toggle_quick_terminal, {}),
         .toggle_visibility => try rt_app.performAction(.app, .toggle_visibility, {}),
@@ -450,10 +500,6 @@ fn hasSurface(self: *const App, surface: *const Surface) bool {
 
 /// The message types that can be sent to the app thread.
 pub const Message = union(enum) {
-    /// Reload the configuration for the entire app and propagate it to
-    /// all the active surfaces.
-    reload_config: void,
-
     // Open the configuration file
     open_config: void,
 

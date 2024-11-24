@@ -19,6 +19,7 @@ export fn ghostty_config_new() ?*Config {
 
     result.* = Config.default(global.alloc) catch |err| {
         log.err("error creating config err={}", .{err});
+        global.alloc.destroy(result);
         return null;
     };
 
@@ -30,6 +31,22 @@ export fn ghostty_config_free(ptr: ?*Config) void {
         v.deinit();
         global.alloc.destroy(v);
     }
+}
+
+/// Deep clone the configuration.
+export fn ghostty_config_clone(self: *Config) ?*Config {
+    const result = global.alloc.create(Config) catch |err| {
+        log.err("error allocating config err={}", .{err});
+        return null;
+    };
+
+    result.* = self.clone(global.alloc) catch |err| {
+        log.err("error cloning config err={}", .{err});
+        global.alloc.destroy(result);
+        return null;
+    };
+
+    return result;
 }
 
 /// Load the configuration from the CLI args.

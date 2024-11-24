@@ -3,32 +3,13 @@ import SwiftUI
 struct AboutView: View {
     @Environment(\.openURL) var openURL
 
-    private let githubLink = URL(string: "https://github.com/ghostty-org/ghostty")
+    private let githubURL = URL(string: "https://github.com/ghostty-org/ghostty")
 
     /// Read the commit from the bundle.
     private var build: String? { Bundle.main.infoDictionary?["CFBundleVersion"] as? String }
     private var commit: String? { Bundle.main.infoDictionary?["GhosttyCommit"] as? String }
     private var version: String? { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String }
     private var copyright: String? { Bundle.main.infoDictionary?["NSHumanReadableCopyright"] as? String }
-
-    private var properties: [KeyValue<String>] {
-        let list: [KeyValue<String?>] = [
-            .init(key: "Version", value: version),
-            .init(key: "Build", value: build),
-            .init(key: "Commit", value: commit == "" ? nil : commit)
-        ]
-
-        return list.compactMap {
-            guard let value = $0.value else { return nil }
-            return .init(key: $0.key, value: value)
-        }
-    }
-
-    private struct KeyValue<Value: Equatable>: Identifiable {
-        var id = UUID()
-        public let key: LocalizedStringResource
-        public let value: Value
-    }
 
     #if os(macOS)
     // This creates a background style similar to the Apple "About My Mac" Window
@@ -80,27 +61,23 @@ struct AboutView: View {
                         .opacity(0.8)
                 }
                 .textSelection(.enabled)
+
                 VStack(spacing: 2) {
-                    ForEach(properties) { item in
-                        HStack(spacing: 4) {
-                                Text(item.key)
-                                    .frame(width: 126, alignment: .trailing)
-                                    .padding(.trailing, 2)
-                                Text(item.value)
-                                    .frame(width: 125, alignment: .leading)
-                                    .padding(.leading, 2)
-                                    .tint(.secondary)
-                                    .opacity(0.8)
-                        }
-                        .font(.callout)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity)
+                    if let version {
+                        PropertyRow(label: "Version", text: version)
+                    }
+                    if let build {
+                        PropertyRow(label: "Build", text: build)
+                    }
+                    if let commit, commit != "",
+                       let url = githubURL?.appendingPathComponent("/commits/\(commit)") {
+                        PropertyRow(label: "Commit", text: commit, url: url)
                     }
                 }
                 .frame(maxWidth: .infinity)
 
                 HStack(spacing: 8) {
-                    if let url = githubLink {
+                    if let url = githubURL {
                         Button("GitHub") {
                             openURL(url)
                         }
@@ -126,6 +103,45 @@ struct AboutView: View {
         #if os(macOS)
         .background(VisualEffectBackground(material: .underWindowBackground).ignoresSafeArea())
         #endif
+    }
+
+    private struct PropertyRow: View {
+        private let label: String
+        private let text: String
+        private let url: URL?
+
+        init(label: String, text: String, url: URL? = nil) {
+            self.label = label
+            self.text = text
+            self.url = url
+        }
+
+        @ViewBuilder private var textView: some View {
+            Text(text)
+                .frame(width: 125, alignment: .leading)
+                .padding(.leading, 2)
+                .tint(.secondary)
+                .opacity(0.8)
+                .monospaced()
+        }
+
+        var body: some View {
+            HStack(spacing: 4) {
+                Text(label)
+                    .frame(width: 126, alignment: .trailing)
+                    .padding(.trailing, 2)
+                if let url {
+                    Link(destination: url) {
+                        textView
+                    }
+                } else {
+                    textView
+                }
+            }
+            .font(.callout)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity)
+        }
     }
 }
 

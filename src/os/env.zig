@@ -3,12 +3,6 @@ const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const posix = std.posix;
 
-/// The separator used in environment variables such as PATH.
-pub const PATH_SEP = switch (builtin.os.tag) {
-    .windows => ";",
-    else => ":",
-};
-
 /// Append a value to an environment variable such as PATH.
 /// The returned value is always allocated so it must be freed.
 pub fn appendEnv(
@@ -33,9 +27,9 @@ pub fn appendEnvAlways(
     current: []const u8,
     value: []const u8,
 ) ![]u8 {
-    return try std.fmt.allocPrint(alloc, "{s}{s}{s}", .{
+    return try std.fmt.allocPrint(alloc, "{s}{c}{s}", .{
         current,
-        PATH_SEP,
+        std.fs.path.delimiter,
         value,
     });
 }

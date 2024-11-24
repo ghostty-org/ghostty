@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		29C15B1D2CDC3B2900520DD4 /* bat in Resources */ = {isa = PBXBuildFile; fileRef = 29C15B1C2CDC3B2000520DD4 /* bat */; };
 		55154BE02B33911F001622DC /* ghostty in Resources */ = {isa = PBXBuildFile; fileRef = 55154BDF2B33911F001622DC /* ghostty */; };
 		552964E62B34A9B400030505 /* vim in Resources */ = {isa = PBXBuildFile; fileRef = 552964E52B34A9B400030505 /* vim */; };
 		857F63812A5E64F200CA4815 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = 857F63802A5E64F200CA4815 /* MainMenu.xib */; };
@@ -59,6 +60,7 @@
 		A5985CD72C320C4500C57AD3 /* String+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5985CD62C320C4500C57AD3 /* String+Extension.swift */; };
 		A5985CD82C320C4500C57AD3 /* String+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5985CD62C320C4500C57AD3 /* String+Extension.swift */; };
 		A5985CE62C33060F00C57AD3 /* man in Resources */ = {isa = PBXBuildFile; fileRef = A5985CE52C33060F00C57AD3 /* man */; };
+		A599CDB02CF103F60049FA26 /* NSAppearance+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A599CDAF2CF103F20049FA26 /* NSAppearance+Extension.swift */; };
 		A59FB5CF2AE0DB50009128F3 /* InspectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59FB5CE2AE0DB50009128F3 /* InspectorView.swift */; };
 		A59FB5D12AE0DEA7009128F3 /* MetalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59FB5D02AE0DEA7009128F3 /* MetalView.swift */; };
 		A5A1F8852A489D6800D1E8BC /* terminfo in Resources */ = {isa = PBXBuildFile; fileRef = A5A1F8842A489D6800D1E8BC /* terminfo */; };
@@ -95,6 +97,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		29C15B1C2CDC3B2000520DD4 /* bat */ = {isa = PBXFileReference; lastKnownFileType = folder; name = bat; path = "../zig-out/share/bat"; sourceTree = "<group>"; };
 		3B39CAA42B33949B00DABEB8 /* GhosttyReleaseLocal.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = GhosttyReleaseLocal.entitlements; sourceTree = "<group>"; };
 		55154BDF2B33911F001622DC /* ghostty */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ghostty; path = "../zig-out/share/ghostty"; sourceTree = "<group>"; };
 		552964E52B34A9B400030505 /* vim */ = {isa = PBXFileReference; lastKnownFileType = folder; name = vim; path = "../zig-out/share/vim"; sourceTree = "<group>"; };
@@ -139,6 +142,7 @@
 		A59630A32AF059BB00D64628 /* Ghostty.SplitNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ghostty.SplitNode.swift; sourceTree = "<group>"; };
 		A5985CD62C320C4500C57AD3 /* String+Extension.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "String+Extension.swift"; sourceTree = "<group>"; };
 		A5985CE52C33060F00C57AD3 /* man */ = {isa = PBXFileReference; lastKnownFileType = folder; name = man; path = "../zig-out/share/man"; sourceTree = "<group>"; };
+		A599CDAF2CF103F20049FA26 /* NSAppearance+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSAppearance+Extension.swift"; sourceTree = "<group>"; };
 		A59FB5CE2AE0DB50009128F3 /* InspectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorView.swift; sourceTree = "<group>"; };
 		A59FB5D02AE0DEA7009128F3 /* MetalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalView.swift; sourceTree = "<group>"; };
 		A5A1F8842A489D6800D1E8BC /* terminfo */ = {isa = PBXFileReference; lastKnownFileType = folder; name = terminfo; path = "../zig-out/share/terminfo"; sourceTree = "<group>"; };
@@ -247,6 +251,7 @@
 				A59FB5D02AE0DEA7009128F3 /* MetalView.swift */,
 				A5CBD0552C9E65A50017A1AE /* DraggableWindowView.swift */,
 				C159E81C2B66A06B00FDFE9C /* OSColor+Extension.swift */,
+				A599CDAF2CF103F20049FA26 /* NSAppearance+Extension.swift */,
 				A52FFF5C2CAB4D05000C6A5B /* NSScreen+Extension.swift */,
 				C1F26EA62B738B9900404083 /* NSView+Extension.swift */,
 				AEE8B3442B9AA39600260C5E /* NSPasteboard+Extension.swift */,
@@ -366,6 +371,7 @@
 		A5A1F8862A489D7400D1E8BC /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				29C15B1C2CDC3B2000520DD4 /* bat */,
 				55154BDF2B33911F001622DC /* ghostty */,
 				552964E52B34A9B400030505 /* vim */,
 				A586167B2B7703CC009BDB1D /* fish */,
@@ -495,7 +501,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1520;
-				LastUpgradeCheck = 1600;
+				LastUpgradeCheck = 1610;
 				TargetAttributes = {
 					A5B30530299BEAAA0047F10C = {
 						CreatedOnToolsVersion = 14.2;
@@ -538,6 +544,7 @@
 				A5E112932AF73E6E00C6E0C2 /* ClipboardConfirmation.xib in Resources */,
 				A5CDF1912AAF9A5800513312 /* ConfigurationErrors.xib in Resources */,
 				857F63812A5E64F200CA4815 /* MainMenu.xib in Resources */,
+				29C15B1D2CDC3B2900520DD4 /* bat in Resources */,
 				A596309A2AEE1C6400D64628 /* Terminal.xib in Resources */,
 				A586167C2B7703CC009BDB1D /* fish in Resources */,
 				55154BE02B33911F001622DC /* ghostty in Resources */,
@@ -607,6 +614,7 @@
 				A53A6C032CCC1B7F00943E98 /* Ghostty.Action.swift in Sources */,
 				A59FB5D12AE0DEA7009128F3 /* MetalView.swift in Sources */,
 				A55685E029A03A9F004303CE /* AppError.swift in Sources */,
+				A599CDB02CF103F60049FA26 /* NSAppearance+Extension.swift in Sources */,
 				A52FFF572CA90484000C6A5B /* QuickTerminalScreen.swift in Sources */,
 				A5CC36132C9CD72D004D6760 /* SecureInputOverlay.swift in Sources */,
 				A535B9DA299C569B0017E2E4 /* ErrorView.swift in Sources */,
@@ -648,6 +656,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
@@ -754,6 +763,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
@@ -815,6 +825,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";

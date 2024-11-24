@@ -11,8 +11,8 @@ config: renderer.Renderer.DerivedConfig,
 /// The font grid that should be used along with the key for deref-ing.
 font_grid: *font.SharedGrid,
 
-/// Padding options for the viewport.
-padding: Padding,
+/// The size of everything.
+size: renderer.Size,
 
 /// The mailbox for sending the surface messages. This is only valid
 /// once the thread has started and should not be used outside of the thread.
@@ -20,12 +20,3 @@ surface_mailbox: apprt.surface.Mailbox,
 
 /// The apprt surface.
 rt_surface: *apprt.Surface,
-
-pub const Padding = struct {
-    // Explicit padding options, in pixels. The surface thread is
-    // expected to convert points to pixels for a given DPI.
-    explicit: renderer.Padding,
-
-    // Balance options
-    balance: bool = false,
-};

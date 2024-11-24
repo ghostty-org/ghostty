@@ -54,14 +54,8 @@ pub const Message = union(enum) {
     /// config file in response to an OSC 12 command.
     cursor_color: ?terminal.color.RGB,
 
-    /// Changes the screen size.
-    resize: struct {
-        /// The full screen (drawable) size. This does NOT include padding.
-        screen_size: renderer.ScreenSize,
-
-        /// The explicit padding values.
-        padding: renderer.Padding,
-    },
+    /// Changes the size. The screen size might change, padding, grid, etc.
+    resize: renderer.Size,
 
     /// The derived configuration to update the renderer with.
     change_config: struct {

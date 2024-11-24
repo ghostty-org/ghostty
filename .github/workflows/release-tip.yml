@@ -158,6 +158,9 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: XCode Select
+        run: sudo xcode-select -s /Applications/Xcode_16.0.app
+
       # Setup Sparkle
       - name: Setup Sparkle
         env:
@@ -187,7 +190,6 @@ jobs:
       - name: Build Ghostty.app
         run: |
           cd macos
-          sudo xcode-select -s /Applications/Xcode_16.0.app
           xcodebuild -target Ghostty -configuration Release
 
       # We inject the "build number" as simply the number of commits since HEAD.
@@ -342,6 +344,9 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: XCode Select
+        run: sudo xcode-select -s /Applications/Xcode_16.0.app
+
       # Setup Sparkle
       - name: Setup Sparkle
         env:
@@ -371,7 +376,6 @@ jobs:
       - name: Build Ghostty.app
         run: |
           cd macos
-          sudo xcode-select -s /Applications/Xcode_16.0.app
           xcodebuild -target Ghostty -configuration Release
 
       # We inject the "build number" as simply the number of commits since HEAD.
@@ -514,6 +518,9 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: XCode Select
+        run: sudo xcode-select -s /Applications/Xcode_16.0.app
+
       # Setup Sparkle
       - name: Setup Sparkle
         env:
@@ -543,7 +550,6 @@ jobs:
       - name: Build Ghostty.app
         run: |
           cd macos
-          sudo xcode-select -s /Applications/Xcode_16.0.app
           xcodebuild -target Ghostty -configuration Release
 
       # We inject the "build number" as simply the number of commits since HEAD.

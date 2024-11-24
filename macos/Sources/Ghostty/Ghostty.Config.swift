@@ -39,6 +39,10 @@ extension Ghostty {
             }
         }
 
+        init(clone config: ghostty_config_t) {
+            self.config = ghostty_config_clone(config)
+        }
+
         deinit {
             self.config = nil
         }

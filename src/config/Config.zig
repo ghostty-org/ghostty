@@ -23,6 +23,8 @@ const internal_os = @import("../os/main.zig");
 const cli = @import("../cli.zig");
 const Command = @import("../Command.zig");
 
+const conditional = @import("conditional.zig");
+const Conditional = conditional.Conditional;
 const formatterpkg = @import("formatter.zig");
 const themepkg = @import("theme.zig");
 const url = @import("url.zig");
@@ -287,9 +289,37 @@ const c = @cImport({
 /// terminals. Only new terminals will use the new configuration.
 @"grapheme-width-method": GraphemeWidthMethod = .unicode,
 
-/// A theme to use. If the theme is an absolute pathname, Ghostty will attempt
-/// to load that file as a theme. If that file does not exist or is inaccessible,
-/// an error will be logged and no other directories will be searched.
+/// FreeType load flags to enable. The format of this is a list of flags to
+/// enable separated by commas. If you prefix a flag with `no-` then it is
+/// disabled. If you omit a flag, it's default value is used, so you must
+/// explicitly disable flags you don't want. You can also use `true` or `false`
+/// to turn all flags on or off.
+///
+/// This configuration only applies to Ghostty builds that use FreeType.
+/// This is usually the case only for Linux builds. macOS uses CoreText
+/// and does not have an equivalent configuration.
+///
+/// Available flags:
+///
+///   * `hinting` - Enable or disable hinting, enabled by default.
+///   * `force-autohint` - Use the freetype auto-hinter rather than the
+///     font's native hinter. Enabled by default.
+///   * `monochrome` - Instructs renderer to use 1-bit monochrome
+///     rendering. This option doesn't impact the hinter.
+///     Enabled by default.
+///   * `autohint` - Use the freetype auto-hinter. Enabled by default.
+///
+/// Example: `hinting`, `no-hinting`, `force-autohint`, `no-force-autohint`
+@"freetype-load-flags": FreetypeLoadFlags = .{},
+
+/// A theme to use. This can be a built-in theme name, a custom theme
+/// name, or an absolute path to a custom theme file. Ghostty also supports
+/// specifying a different them to use for light and dark mode. Each
+/// option is documented below.
+///
+/// If the theme is an absolute pathname, Ghostty will attempt to load that
+/// file as a theme. If that file does not exist or is inaccessible, an error
+/// will be logged and no other directories will be searched.
 ///
 /// If the theme is not an absolute pathname, two different directories will be
 /// searched for a file name that matches the theme. This is case sensitive on
@@ -309,9 +339,34 @@ const c = @cImport({
 ///
 /// To see a list of available themes, run `ghostty +list-themes`.
 ///
+/// A theme file is simply another Ghostty configuration file. They share
+/// the same syntax and same configuration options. A theme can set any valid
+/// configuration option so please do not use a theme file from an untrusted
+/// source. The built-in themes are audited to only set safe configuration
+/// options.
+///
+/// Some options cannot be set within theme files. The reason these are not
+/// supported should be self-evident. A theme file cannot set `theme` or
+/// `config-file`. At the time of writing this, Ghostty will not show any
+/// warnings or errors if you set these options in a theme file but they will
+/// be silently ignored.
+///
 /// Any additional colors specified via background, foreground, palette, etc.
 /// will override the colors specified in the theme.
-theme: ?[]const u8 = null,
+///
+/// To specify a different theme for light and dark mode, use the following
+/// syntax: `light:theme-name,dark:theme-name`. For example:
+/// `light:rose-pine-dawn,dark:rose-pine`. Whitespace around all values are
+/// trimmed and order of light and dark does not matter. Both light and dark
+/// must be specified in this form. In this form, the theme used will be
+/// based on the current desktop environment theme.
+///
+/// There are some known bugs with light/dark mode theming. These will
+/// be fixed in a future update:
+///
+///   - macOS: titlebar tabs style is not updated when switching themes.
+///
+theme: ?Theme = null,
 
 /// Background color for the window.
 background: Color = .{ .r = 0x28, .g = 0x2C, .b = 0x34 },
@@ -426,11 +481,10 @@ palette: Palette = .{},
 /// way to implement it.
 @"cursor-click-to-move": bool = true,
 
-/// Hide the mouse immediately when typing. The mouse becomes visible again when
-/// the mouse is used. The mouse is only hidden if the mouse cursor is over the
-/// active terminal surface.
-///
-/// macOS: This feature requires macOS 15.0 (Sequoia) or later.
+/// Hide the mouse immediately when typing. The mouse becomes visible again
+/// when the mouse is used (button, movement, etc.). Platform-specific behavior
+/// may dictate other scenarios where the mouse is shown. For example on macOS,
+/// the mouse is shown again when a new window, tab, or split is created.
 @"mouse-hide-while-typing": bool = false,
 
 /// Determines whether running programs can detect the shift key pressed with a
@@ -513,7 +567,26 @@ palette: Palette = .{},
 /// arguments are provided, the command will be executed using `/bin/sh -c`.
 /// Ghostty does not do any shell command parsing.
 ///
-/// If you're using the `ghostty` CLI there is also a shortcut to run a command
+/// This command will be used for all new terminal surfaces, i.e. new windows,
+/// tabs, etc. If you want to run a command only for the first terminal surface
+/// created when Ghostty starts, use the `initial-command` configuration.
+///
+/// Ghostty supports the common `-e` flag for executing a command with
+/// arguments. For example, `ghostty -e fish --with --custom --args`.
+/// This flag sets the `initial-command` configuration, see that for more
+/// information.
+command: ?[]const u8 = null,
+
+/// This is the same as "command", but only applies to the first terminal
+/// surface created when Ghostty starts. Subsequent terminal surfaces will use
+/// the `command` configuration.
+///
+/// After the first terminal surface is created (or closed), there is no
+/// way to run this initial command again automatically. As such, setting
+/// this at runtime works but will only affect the next terminal surface
+/// if it is the first one ever created.
+///
+/// If you're using the `ghostty` CLI there is also a shortcut to set this
 /// with arguments directly: you can use the `-e` flag. For example: `ghostty -e
 /// fish --with --custom --args`. The `-e` flag automatically forces some
 /// other behaviors as well:
@@ -525,7 +598,7 @@ palette: Palette = .{},
 ///     process will exit when the command exits. Additionally, the
 ///     `quit-after-last-window-closed-delay` is unset.
 ///
-command: ?[]const u8 = null,
+@"initial-command": ?[]const u8 = null,
 
 /// If true, keep the terminal open after the command exits. Normally, the
 /// terminal window closes when the running command (such as a shell) exits.
@@ -915,13 +988,15 @@ keybind: Keybinds = .{},
 /// The theme to use for the windows. Valid values:
 ///
 ///   * `auto` - Determine the theme based on the configured terminal
-///      background color.
+///      background color. This has no effect if the "theme" configuration
+///      has separate light and dark themes. In that case, the behavior
+///      of "auto" is equivalent to "system".
 ///   * `system` - Use the system theme.
 ///   * `light` - Use the light theme regardless of system theme.
 ///   * `dark` - Use the dark theme regardless of system theme.
 ///   * `ghostty` - Use the background and foreground colors specified in the
 ///     Ghostty configuration. This is only supported on Linux builds with
-///     libadwaita and `gtk-adwaita` enabled.
+///     Adwaita and `gtk-adwaita` enabled.
 ///
 /// On macOS, if `macos-titlebar-style` is "tabs", the window theme will be
 /// automatically set based on the luminosity of the terminal background color.
@@ -1158,6 +1233,21 @@ keybind: Keybinds = .{},
 ///
 /// Cycles are not allowed. If a cycle is detected, an error will be logged and
 /// the configuration file will be ignored.
+///
+/// Configuration files are loaded after the configuration they're defined
+/// within in the order they're defined. **THIS IS A VERY SUBTLE BUT IMPORTANT
+/// POINT.** To put it another way: configuration files do not take effect
+/// until after the entire configuration is loaded. For example, in the
+/// configuration below:
+///
+/// ```
+/// config-file = "foo"
+/// a = 1
+/// ```
+///
+/// If "foo" contains `a = 2`, the final value of `a` will be 2, because
+/// `foo` is loaded after the configuration file that configures the
+/// nested `config-file` value.
 @"config-file": RepeatablePath = .{},
 
 /// When this is true, the default configuration file paths will be loaded.
@@ -1428,6 +1518,13 @@ keybind: Keybinds = .{},
 /// This makes a more seamless window appearance but looks a little less
 /// typical for a macOS application and may not work well with all themes.
 ///
+/// The "transparent" style will also update in real-time to dynamic
+/// changes to the window background color, i.e. via OSC 11. To make this
+/// more aesthetically pleasing, this only happens if the terminal is
+/// a window, tab, or split that borders the top of the window. This
+/// avoids a disjointed appearance where the titlebar color changes
+/// but all the topmost terminals don't match.
+///
 /// The "tabs" style is a completely custom titlebar that integrates the
 /// tab bar into the titlebar. This titlebar always matches the background
 /// color of the terminal. There are some limitations to this style:
@@ -1455,6 +1552,11 @@ keybind: Keybinds = .{},
 /// titlebar.
 ///
 /// The proxy icon is only visible with the native macOS titlebar style.
+///
+/// Valid values are:
+///
+///   * `visible` - Show the proxy icon.
+///   * `hidden` - Hide the proxy icon.
 ///
 /// The default value is `visible`.
 ///
@@ -1599,12 +1701,12 @@ keybind: Keybinds = .{},
 /// Determines the side of the screen that the GTK tab bar will stick to.
 /// Top, bottom, left, and right are supported. The default is top.
 ///
-/// If this option has value `left` or `right` when using `libadwaita`, it falls
+/// If this option has value `left` or `right` when using Adwaita, it falls
 /// back to `top`.
 @"gtk-tabs-location": GtkTabsLocation = .top,
 
 /// Determines the appearance of the top and bottom bars when using the
-/// adwaita tab bar. This requires `gtk-adwaita` to be enabled (it is
+/// Adwaita tab bar. This requires `gtk-adwaita` to be enabled (it is
 /// by default).
 ///
 /// Valid values are:
@@ -1623,7 +1725,7 @@ keybind: Keybinds = .{},
 /// which is the old style.
 @"gtk-wide-tabs": bool = true,
 
-/// If `true` (default), Ghostty will enable libadwaita theme support. This
+/// If `true` (default), Ghostty will enable Adwaita theme support. This
 /// will make `window-theme` work properly and will also allow Ghostty to
 /// properly respond to system theme changes, light/dark mode changing, etc.
 /// This requires a GTK4 desktop with a GTK4 theme.
@@ -1634,7 +1736,7 @@ keybind: Keybinds = .{},
 /// expected.
 ///
 /// This configuration only has an effect if Ghostty was built with
-/// libadwaita support.
+/// Adwaita support.
 @"gtk-adwaita": bool = true,
 
 /// If `true` (default), applications running in the terminal can show desktop
@@ -1686,6 +1788,10 @@ _arena: ?ArenaAllocator = null,
 /// List of diagnostics that were generated during the loading of
 /// the configuration.
 _diagnostics: cli.DiagnosticList = .{},
+
+/// The conditional truths for the configuration. This is used to
+/// determine if a conditional configuration matches or not.
+_conditional_state: conditional.State = .{},
 
 /// The steps we can use to reload the configuration after it has been loaded
 /// without reopening the files. This is used in very specific cases such
@@ -2356,7 +2462,7 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
             }
 
             self.@"_xdg-terminal-exec" = true;
-            self.command = command.items[0 .. command.items.len - 1];
+            self.@"initial-command" = command.items[0 .. command.items.len - 1];
             return;
         }
     }
@@ -2399,7 +2505,8 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
         if (replay_len_end == replay_len_start) break :reload;
         log.info("config-default-files unset, discarding configuration from default files", .{});
 
-        var new_config = try default(alloc_gpa);
+        var new_config = try self.cloneEmpty(alloc_gpa);
+        errdefer new_config.deinit();
         var it = Replay.iterator(
             self._replay_steps.items[replay_len_start..replay_len_end],
             &new_config,
@@ -2498,6 +2605,36 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
     }
 }
 
+/// Change the state of conditionals and reload the configuration
+/// based on the new state. This returns a new configuration based
+/// on the new state. The caller must free the old configuration if they
+/// wish.
+///
+/// This doesn't re-read any files, it just re-applies the same
+/// configuration with the new conditional state. Importantly, this means
+/// that if you change the conditional state and the user in the interim
+/// deleted a file that was referenced in the configuration, then the
+/// configuration can still be reloaded.
+pub fn changeConditionalState(
+    self: *const Config,
+    new: conditional.State,
+) !Config {
+    // Create our new configuration
+    const alloc_gpa = self._arena.?.child_allocator;
+    var new_config = try self.cloneEmpty(alloc_gpa);
+    errdefer new_config.deinit();
+
+    // Set our conditional state so the replay below can use it
+    new_config._conditional_state = new;
+
+    // Replay all of our steps to rebuild the configuration
+    var it = Replay.iterator(self._replay_steps.items, &new_config);
+    try new_config.loadIter(alloc_gpa, &it);
+    try new_config.finalize();
+
+    return new_config;
+}
+
 /// Expand the relative paths in config-files to be absolute paths
 /// relative to the base directory.
 fn expandPaths(self: *Config, base: []const u8) !void {
@@ -2521,11 +2658,19 @@ fn expandPaths(self: *Config, base: []const u8) !void {
     }
 }
 
-fn loadTheme(self: *Config, theme: []const u8) !void {
+fn loadTheme(self: *Config, theme: Theme) !void {
+    // Load the correct theme depending on the conditional state.
+    // Dark/light themes were programmed prior to conditional configuration
+    // so when we introduce that we probably want to replace this.
+    const name: []const u8 = switch (self._conditional_state.theme) {
+        .light => theme.light,
+        .dark => theme.dark,
+    };
+
     // Find our theme file and open it. See the open function for details.
     const themefile = (try themepkg.open(
         self._arena.?.allocator(),
-        theme,
+        name,
         &self._diagnostics,
     )) orelse return;
     const path = themefile.path;
@@ -2542,15 +2687,12 @@ fn loadTheme(self: *Config, theme: []const u8) !void {
     //   (2) We want to free existing memory that we aren't using anymore
     //       as a result of reloading the configuration.
     //
-    // Point 2 is strictly a result of aur approach to point 1.
-
-    // Keep track of our replay length prior to loading the theme
-    // so that we can replay the previous config to override values.
-    const replay_len = self._replay_steps.items.len;
+    // Point 2 is strictly a result of aur approach to point 1, but it is
+    // a nice property to have to limit memory bloat as much as possible.
 
     // Load into a new configuration so that we can free the existing memory.
     const alloc_gpa = self._arena.?.child_allocator;
-    var new_config = try default(alloc_gpa);
+    var new_config = try self.cloneEmpty(alloc_gpa);
     errdefer new_config.deinit();
 
     // Load our theme
@@ -2560,9 +2702,44 @@ fn loadTheme(self: *Config, theme: []const u8) !void {
     var iter: Iter = .{ .r = reader, .filepath = path };
     try new_config.loadIter(alloc_gpa, &iter);
 
+    // Setup our replay to be conditional.
+    for (new_config._replay_steps.items) |*item| switch (item.*) {
+        .expand => {},
+
+        // Change our arg to be conditional on our theme.
+        .arg => |v| {
+            const alloc_arena = new_config._arena.?.allocator();
+            const conds = try alloc_arena.alloc(Conditional, 1);
+            conds[0] = .{
+                .key = .theme,
+                .op = .eq,
+                .value = @tagName(self._conditional_state.theme),
+            };
+            item.* = .{ .conditional_arg = .{
+                .conditions = conds,
+                .arg = v,
+            } };
+        },
+
+        .conditional_arg => |v| {
+            const alloc_arena = new_config._arena.?.allocator();
+            const conds = try alloc_arena.alloc(Conditional, v.conditions.len + 1);
+            conds[0] = .{
+                .key = .theme,
+                .op = .eq,
+                .value = @tagName(self._conditional_state.theme),
+            };
+            @memcpy(conds[1..], v.conditions);
+            item.* = .{ .conditional_arg = .{
+                .conditions = conds,
+                .arg = v.arg,
+            } };
+        },
+    };
+
     // Replay our previous inputs so that we can override values
     // from the theme.
-    var slice_it = Replay.iterator(self._replay_steps.items[0..replay_len], &new_config);
+    var slice_it = Replay.iterator(self._replay_steps.items, &new_config);
     try new_config.loadIter(alloc_gpa, &slice_it);
 
     // Success, swap our new config in and free the old.
@@ -2570,12 +2747,28 @@ fn loadTheme(self: *Config, theme: []const u8) !void {
     self.* = new_config;
 }
 
+/// Call this once after you are done setting configuration. This
+/// is idempotent but will waste memory if called multiple times.
 pub fn finalize(self: *Config) !void {
-    const alloc = self._arena.?.allocator();
-
     // We always load the theme first because it may set other fields
     // in our config.
-    if (self.theme) |theme| try self.loadTheme(theme);
+    if (self.theme) |theme| {
+        const different = !std.mem.eql(u8, theme.light, theme.dark);
+
+        // Warning: loadTheme will deinit our existing config and replace
+        // it so all memory from self prior to this point will be freed.
+        try self.loadTheme(theme);
+
+        // If we have different light vs dark mode themes, disable
+        // window-theme = auto since that breaks it.
+        if (different) {
+            // This setting doesn't make sense with different light/dark themes
+            // because it'll force the theme based on the Ghostty theme.
+            if (self.@"window-theme" == .auto) self.@"window-theme" = .system;
+        }
+    }
+
+    const alloc = self._arena.?.allocator();
 
     // If we have a font-family set and don't set the others, default
     // the others to the font family. This way, if someone does
@@ -2615,7 +2808,9 @@ pub fn finalize(self: *Config) !void {
     // to look up defaults which is kind of expensive. We only do this
     // on desktop.
     const wd_home = std.mem.eql(u8, "home", wd);
-    if (comptime !builtin.target.isWasm()) {
+    if ((comptime !builtin.target.isWasm()) and
+        (comptime !builtin.is_test))
+    {
         if (self.command == null or wd_home) command: {
             // First look up the command using the SHELL env var if needed.
             // We don't do this in flatpak because SHELL in Flatpak is always
@@ -2685,7 +2880,9 @@ pub fn finalize(self: *Config) !void {
     if (std.mem.eql(u8, wd, "inherit")) self.@"working-directory" = null;
 
     // Default our click interval
-    if (self.@"click-repeat-interval" == 0) {
+    if (self.@"click-repeat-interval" == 0 and
+        (comptime !builtin.is_test))
+    {
         self.@"click-repeat-interval" = internal_os.clickInterval() orelse 500;
     }
 
@@ -2755,7 +2952,7 @@ pub fn parseManuallyHook(
             return false;
         }
 
-        self.command = command.items[0 .. command.items.len - 1];
+        self.@"initial-command" = command.items[0 .. command.items.len - 1];
 
         // See "command" docs for the implied configurations and why.
         self.@"gtk-single-instance" = .false;
@@ -2785,29 +2982,52 @@ pub fn shallowClone(self: *const Config, alloc_gpa: Allocator) Config {
     return result;
 }
 
-/// Create a copy of this configuration. This is useful as a starting
-/// point for modifying a configuration since a config can NOT be
-/// modified once it is in use by an app or surface.
+/// Create a copy of the metadata of this configuration but without
+/// the actual values. Metadata includes conditional state.
+pub fn cloneEmpty(
+    self: *const Config,
+    alloc_gpa: Allocator,
+) Allocator.Error!Config {
+    var result = try default(alloc_gpa);
+    result._conditional_state = self._conditional_state;
+    return result;
+}
+
+/// Create a copy of this configuration.
+///
+/// This will not re-read referenced configuration files and operates
+/// purely in-memory.
 pub fn clone(
     self: *const Config,
     alloc_gpa: Allocator,
 ) Allocator.Error!Config {
-    // Start with an empty config with a new arena we're going
-    // to use for all our copies.
-    var result: Config = .{
-        ._arena = ArenaAllocator.init(alloc_gpa),
-    };
+    // Start with an empty config
+    var result = try self.cloneEmpty(alloc_gpa);
     errdefer result.deinit();
-    const alloc = result._arena.?.allocator();
+    const alloc_arena = result._arena.?.allocator();
 
+    // Copy our values
     inline for (@typeInfo(Config).Struct.fields) |field| {
         if (!@hasField(Key, field.name)) continue;
         @field(result, field.name) = try cloneValue(
-            alloc,
+            alloc_arena,
             field.type,
             @field(self, field.name),
         );
     }
+
+    // Preserve our replay steps. We copy them exactly to also preserve
+    // the exact conditionals required for some steps.
+    try result._replay_steps.ensureTotalCapacity(
+        alloc_arena,
+        self._replay_steps.items.len,
+    );
+    for (self._replay_steps.items) |item| {
+        result._replay_steps.appendAssumeCapacity(
+            try item.clone(alloc_arena),
+        );
+    }
+    assert(result._replay_steps.items.len == self._replay_steps.items.len);
 
     return result;
 }
@@ -2914,82 +3134,6 @@ pub const ChangeIterator = struct {
     }
 };
 
-const TestIterator = struct {
-    data: []const []const u8,
-    i: usize = 0,
-
-    pub fn next(self: *TestIterator) ?[]const u8 {
-        if (self.i >= self.data.len) return null;
-        const result = self.data[self.i];
-        self.i += 1;
-        return result;
-    }
-};
-
-test "parse hook: invalid command" {
-    const testing = std.testing;
-    var cfg = try Config.default(testing.allocator);
-    defer cfg.deinit();
-    const alloc = cfg._arena.?.allocator();
-
-    var it: TestIterator = .{ .data = &.{"foo"} };
-    try testing.expect(try cfg.parseManuallyHook(alloc, "--command", &it));
-    try testing.expect(cfg.command == null);
-}
-
-test "parse e: command only" {
-    const testing = std.testing;
-    var cfg = try Config.default(testing.allocator);
-    defer cfg.deinit();
-    const alloc = cfg._arena.?.allocator();
-
-    var it: TestIterator = .{ .data = &.{"foo"} };
-    try testing.expect(!try cfg.parseManuallyHook(alloc, "-e", &it));
-    try testing.expectEqualStrings("foo", cfg.command.?);
-}
-
-test "parse e: command and args" {
-    const testing = std.testing;
-    var cfg = try Config.default(testing.allocator);
-    defer cfg.deinit();
-    const alloc = cfg._arena.?.allocator();
-
-    var it: TestIterator = .{ .data = &.{ "echo", "foo", "bar baz" } };
-    try testing.expect(!try cfg.parseManuallyHook(alloc, "-e", &it));
-    try testing.expectEqualStrings("echo foo bar baz", cfg.command.?);
-}
-
-test "clone default" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    var source = try Config.default(alloc);
-    defer source.deinit();
-    var dest = try source.clone(alloc);
-    defer dest.deinit();
-
-    // Should have no changes
-    var it = source.changeIterator(&dest);
-    try testing.expectEqual(@as(?Key, null), it.next());
-
-    // I want to do this but this doesn't work (the API doesn't work)
-    // try testing.expectEqualDeep(dest, source);
-}
-
-test "changed" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    var source = try Config.default(alloc);
-    defer source.deinit();
-    var dest = try source.clone(alloc);
-    defer dest.deinit();
-    dest.@"font-thicken" = true;
-
-    try testing.expect(source.changed(&dest, .@"font-thicken"));
-    try testing.expect(!source.changed(&dest, .@"font-size"));
-}
-
 /// A config-specific helper to determine if two values of the same
 /// type are equal. This isn't the same as std.mem.eql or std.testing.equals
 /// because we expect structs to implement their own equality.
@@ -3071,6 +3215,32 @@ const Replay = struct {
 
         /// A base path to expand relative paths against.
         expand: []const u8,
+
+        /// A conditional argument. This arg is parsed only if all
+        /// conditions match (an "AND"). An "OR" can be achieved by
+        /// having multiple conditional arg entries.
+        conditional_arg: struct {
+            conditions: []const Conditional,
+            arg: []const u8,
+        },
+
+        fn clone(
+            self: Step,
+            alloc: Allocator,
+        ) Allocator.Error!Step {
+            return switch (self) {
+                .arg => |v| .{ .arg = try alloc.dupe(u8, v) },
+                .expand => |v| .{ .expand = try alloc.dupe(u8, v) },
+                .conditional_arg => |v| conditional: {
+                    var conds = try alloc.alloc(Conditional, v.conditions.len);
+                    for (v.conditions, 0..) |cond, i| conds[i] = try cond.clone(alloc);
+                    break :conditional .{ .conditional_arg = .{
+                        .conditions = conds,
+                        .arg = try alloc.dupe(u8, v.arg),
+                    } };
+                },
+            };
+        }
     };
 
     const Iterator = struct {
@@ -3085,7 +3255,6 @@ const Replay = struct {
                 if (self.idx >= self.slice.len) return null;
                 defer self.idx += 1;
                 switch (self.slice[self.idx]) {
-                    .arg => |arg| return arg,
                     .expand => |base| self.config.expandPaths(base) catch |err| {
                         // This shouldn't happen because to reach this step
                         // means that it succeeded before. Its possible since
@@ -3093,6 +3262,21 @@ const Replay = struct {
                         // world state changed and we can't expand anymore.
                         // In that really unfortunate case, we log a warning.
                         log.warn("error expanding paths err={}", .{err});
+                    },
+
+                    .arg => |arg| {
+                        return arg;
+                    },
+
+                    .conditional_arg => |v| conditional: {
+                        // All conditions must match.
+                        for (v.conditions) |cond| {
+                            if (!self.config._conditional_state.match(cond)) {
+                                break :conditional;
+                            }
+                        }
+
+                        return v.arg;
                     },
                 }
             }
@@ -3340,10 +3524,17 @@ pub const RepeatableString = struct {
     /// Deep copy of the struct. Required by Config.
     pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
         // Copy the list and all the strings in the list.
-        const list = try self.list.clone(alloc);
-        for (list.items) |*item| {
-            const copy = try alloc.dupeZ(u8, item.*);
-            item.* = copy;
+        var list = try std.ArrayListUnmanaged([:0]const u8).initCapacity(
+            alloc,
+            self.list.items.len,
+        );
+        errdefer {
+            for (list.items) |item| alloc.free(item);
+            list.deinit(alloc);
+        }
+        for (self.list.items) |item| {
+            const copy = try alloc.dupeZ(u8, item);
+            list.appendAssumeCapacity(copy);
         }
 
         return .{ .list = list };
@@ -4546,6 +4737,17 @@ pub const GraphemeWidthMethod = enum {
     unicode,
 };
 
+/// See freetype-load-flag
+pub const FreetypeLoadFlags = packed struct {
+    // The defaults here at the time of writing this match the defaults
+    // for Freetype itself. Ghostty hasn't made any opinionated changes
+    // to these defaults.
+    hinting: bool = true,
+    @"force-autohint": bool = true,
+    monochrome: bool = true,
+    autohint: bool = true,
+};
+
 /// See linux-cgroup
 pub const LinuxCgroup = enum {
     never,
@@ -4558,6 +4760,105 @@ pub const AutoUpdate = enum {
     off,
     check,
     download,
+};
+
+/// See theme
+pub const Theme = struct {
+    light: []const u8,
+    dark: []const u8,
+
+    pub fn parseCLI(self: *Theme, alloc: Allocator, input_: ?[]const u8) !void {
+        const input = input_ orelse return error.ValueRequired;
+        if (input.len == 0) return error.ValueRequired;
+
+        // If there is a comma, equal sign, or colon, then we assume that
+        // we're parsing a light/dark mode theme pair. Note that "=" isn't
+        // actually valid for setting a light/dark mode pair but I anticipate
+        // it'll be a common typo.
+        if (std.mem.indexOf(u8, input, ",") != null or
+            std.mem.indexOf(u8, input, "=") != null or
+            std.mem.indexOf(u8, input, ":") != null)
+        {
+            self.* = try cli.args.parseAutoStruct(
+                Theme,
+                alloc,
+                input,
+            );
+            return;
+        }
+
+        // Trim our value
+        const trimmed = std.mem.trim(u8, input, cli.args.whitespace);
+
+        // Set the value to the specified value directly.
+        self.* = .{
+            .light = try alloc.dupeZ(u8, trimmed),
+            .dark = self.light,
+        };
+    }
+
+    /// Deep copy of the struct. Required by Config.
+    pub fn clone(self: *const Theme, alloc: Allocator) Allocator.Error!Theme {
+        return .{
+            .light = try alloc.dupeZ(u8, self.light),
+            .dark = try alloc.dupeZ(u8, self.dark),
+        };
+    }
+
+    /// Used by Formatter
+    pub fn formatEntry(
+        self: Theme,
+        formatter: anytype,
+    ) !void {
+        var buf: [4096]u8 = undefined;
+        if (std.mem.eql(u8, self.light, self.dark)) {
+            try formatter.formatEntry([]const u8, self.light);
+            return;
+        }
+
+        const str = std.fmt.bufPrint(&buf, "light:{s},dark:{s}", .{
+            self.light,
+            self.dark,
+        }) catch return error.OutOfMemory;
+        try formatter.formatEntry([]const u8, str);
+    }
+
+    test "parse Theme" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        // Single
+        {
+            var v: Theme = undefined;
+            try v.parseCLI(alloc, "foo");
+            try testing.expectEqualStrings("foo", v.light);
+            try testing.expectEqualStrings("foo", v.dark);
+        }
+
+        // Single whitespace
+        {
+            var v: Theme = undefined;
+            try v.parseCLI(alloc, "  foo  ");
+            try testing.expectEqualStrings("foo", v.light);
+            try testing.expectEqualStrings("foo", v.dark);
+        }
+
+        // Light/dark
+        {
+            var v: Theme = undefined;
+            try v.parseCLI(alloc, " light:foo,  dark : bar  ");
+            try testing.expectEqualStrings("foo", v.light);
+            try testing.expectEqualStrings("bar", v.dark);
+        }
+
+        var v: Theme = undefined;
+        try testing.expectError(error.ValueRequired, v.parseCLI(alloc, null));
+        try testing.expectError(error.ValueRequired, v.parseCLI(alloc, ""));
+        try testing.expectError(error.InvalidValue, v.parseCLI(alloc, "light:foo"));
+        try testing.expectError(error.InvalidValue, v.parseCLI(alloc, "dark:foo"));
+    }
 };
 
 pub const Duration = struct {
@@ -4887,4 +5188,376 @@ test "test entryFormatter" {
     var p: Duration = .{ .duration = std.math.maxInt(u64) };
     try p.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
     try std.testing.expectEqualStrings("a = 584y 49w 23h 34m 33s 709ms 551µs 615ns\n", buf.items);
+}
+
+const TestIterator = struct {
+    data: []const []const u8,
+    i: usize = 0,
+
+    pub fn next(self: *TestIterator) ?[]const u8 {
+        if (self.i >= self.data.len) return null;
+        const result = self.data[self.i];
+        self.i += 1;
+        return result;
+    }
+};
+
+test "parse hook: invalid command" {
+    const testing = std.testing;
+    var cfg = try Config.default(testing.allocator);
+    defer cfg.deinit();
+    const alloc = cfg._arena.?.allocator();
+
+    var it: TestIterator = .{ .data = &.{"foo"} };
+    try testing.expect(try cfg.parseManuallyHook(alloc, "--command", &it));
+    try testing.expect(cfg.command == null);
+}
+
+test "parse e: command only" {
+    const testing = std.testing;
+    var cfg = try Config.default(testing.allocator);
+    defer cfg.deinit();
+    const alloc = cfg._arena.?.allocator();
+
+    var it: TestIterator = .{ .data = &.{"foo"} };
+    try testing.expect(!try cfg.parseManuallyHook(alloc, "-e", &it));
+    try testing.expectEqualStrings("foo", cfg.@"initial-command".?);
+}
+
+test "parse e: command and args" {
+    const testing = std.testing;
+    var cfg = try Config.default(testing.allocator);
+    defer cfg.deinit();
+    const alloc = cfg._arena.?.allocator();
+
+    var it: TestIterator = .{ .data = &.{ "echo", "foo", "bar baz" } };
+    try testing.expect(!try cfg.parseManuallyHook(alloc, "-e", &it));
+    try testing.expectEqualStrings("echo foo bar baz", cfg.@"initial-command".?);
+}
+
+test "clone default" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var source = try Config.default(alloc);
+    defer source.deinit();
+    var dest = try source.clone(alloc);
+    defer dest.deinit();
+
+    // Should have no changes
+    var it = source.changeIterator(&dest);
+    try testing.expectEqual(@as(?Key, null), it.next());
+
+    // I want to do this but this doesn't work (the API doesn't work)
+    // try testing.expectEqualDeep(dest, source);
+}
+
+test "clone preserves conditional state" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var a = try Config.default(alloc);
+    defer a.deinit();
+    var b = try a.changeConditionalState(.{ .theme = .dark });
+    defer b.deinit();
+    try testing.expectEqual(.dark, b._conditional_state.theme);
+    var dest = try b.clone(alloc);
+    defer dest.deinit();
+
+    // Should have no changes
+    var it = b.changeIterator(&dest);
+    try testing.expectEqual(@as(?Key, null), it.next());
+
+    // Should have the same conditional state
+    try testing.expectEqual(.dark, dest._conditional_state.theme);
+}
+
+test "clone can then change conditional state" {
+    // This tests a particular bug sequence where:
+    //   1. Load light
+    //   2. Convert to dark
+    //   3. Clone dark
+    //   4. Convert to light
+    //   5. Config is still dark (bug)
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var arena = ArenaAllocator.init(alloc);
+    defer arena.deinit();
+    const alloc_arena = arena.allocator();
+
+    // Setup our test theme
+    var td = try internal_os.TempDir.init();
+    defer td.deinit();
+    {
+        var file = try td.dir.createFile("theme_light", .{});
+        defer file.close();
+        try file.writer().writeAll(@embedFile("testdata/theme_light"));
+    }
+    {
+        var file = try td.dir.createFile("theme_dark", .{});
+        defer file.close();
+        try file.writer().writeAll(@embedFile("testdata/theme_dark"));
+    }
+    var light_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const light = try td.dir.realpath("theme_light", &light_buf);
+    var dark_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const dark = try td.dir.realpath("theme_dark", &dark_buf);
+
+    var cfg_light = try Config.default(alloc);
+    defer cfg_light.deinit();
+    var it: TestIterator = .{ .data = &.{
+        try std.fmt.allocPrint(
+            alloc_arena,
+            "--theme=light:{s},dark:{s}",
+            .{ light, dark },
+        ),
+    } };
+    try cfg_light.loadIter(alloc, &it);
+    try cfg_light.finalize();
+
+    var cfg_dark = try cfg_light.changeConditionalState(.{ .theme = .dark });
+    defer cfg_dark.deinit();
+
+    try testing.expectEqual(Color{
+        .r = 0xEE,
+        .g = 0xEE,
+        .b = 0xEE,
+    }, cfg_dark.background);
+
+    var cfg_clone = try cfg_dark.clone(alloc);
+    defer cfg_clone.deinit();
+    try testing.expectEqual(Color{
+        .r = 0xEE,
+        .g = 0xEE,
+        .b = 0xEE,
+    }, cfg_clone.background);
+
+    var cfg_light2 = try cfg_clone.changeConditionalState(.{ .theme = .light });
+    defer cfg_light2.deinit();
+    try testing.expectEqual(Color{
+        .r = 0xFF,
+        .g = 0xFF,
+        .b = 0xFF,
+    }, cfg_light2.background);
+}
+
+test "changed" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var source = try Config.default(alloc);
+    defer source.deinit();
+    var dest = try source.clone(alloc);
+    defer dest.deinit();
+    dest.@"font-thicken" = true;
+
+    try testing.expect(source.changed(&dest, .@"font-thicken"));
+    try testing.expect(!source.changed(&dest, .@"font-size"));
+}
+
+test "theme loading" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var arena = ArenaAllocator.init(alloc);
+    defer arena.deinit();
+    const alloc_arena = arena.allocator();
+
+    // Setup our test theme
+    var td = try internal_os.TempDir.init();
+    defer td.deinit();
+    {
+        var file = try td.dir.createFile("theme", .{});
+        defer file.close();
+        try file.writer().writeAll(@embedFile("testdata/theme_simple"));
+    }
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const path = try td.dir.realpath("theme", &path_buf);
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    var it: TestIterator = .{ .data = &.{
+        try std.fmt.allocPrint(alloc_arena, "--theme={s}", .{path}),
+    } };
+    try cfg.loadIter(alloc, &it);
+    try cfg.finalize();
+
+    try testing.expectEqual(Color{
+        .r = 0x12,
+        .g = 0x3A,
+        .b = 0xBC,
+    }, cfg.background);
+}
+
+test "theme loading preserves conditional state" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var arena = ArenaAllocator.init(alloc);
+    defer arena.deinit();
+    const alloc_arena = arena.allocator();
+
+    // Setup our test theme
+    var td = try internal_os.TempDir.init();
+    defer td.deinit();
+    {
+        var file = try td.dir.createFile("theme", .{});
+        defer file.close();
+        try file.writer().writeAll(@embedFile("testdata/theme_simple"));
+    }
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const path = try td.dir.realpath("theme", &path_buf);
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    cfg._conditional_state = .{ .theme = .dark };
+    var it: TestIterator = .{ .data = &.{
+        try std.fmt.allocPrint(alloc_arena, "--theme={s}", .{path}),
+    } };
+    try cfg.loadIter(alloc, &it);
+    try cfg.finalize();
+
+    try testing.expect(cfg._conditional_state.theme == .dark);
+}
+
+test "theme priority is lower than config" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var arena = ArenaAllocator.init(alloc);
+    defer arena.deinit();
+    const alloc_arena = arena.allocator();
+
+    // Setup our test theme
+    var td = try internal_os.TempDir.init();
+    defer td.deinit();
+    {
+        var file = try td.dir.createFile("theme", .{});
+        defer file.close();
+        try file.writer().writeAll(@embedFile("testdata/theme_simple"));
+    }
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const path = try td.dir.realpath("theme", &path_buf);
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    var it: TestIterator = .{ .data = &.{
+        "--background=#ABCDEF",
+        try std.fmt.allocPrint(alloc_arena, "--theme={s}", .{path}),
+    } };
+    try cfg.loadIter(alloc, &it);
+    try cfg.finalize();
+
+    try testing.expectEqual(Color{
+        .r = 0xAB,
+        .g = 0xCD,
+        .b = 0xEF,
+    }, cfg.background);
+}
+
+test "theme loading correct light/dark" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var arena = ArenaAllocator.init(alloc);
+    defer arena.deinit();
+    const alloc_arena = arena.allocator();
+
+    // Setup our test theme
+    var td = try internal_os.TempDir.init();
+    defer td.deinit();
+    {
+        var file = try td.dir.createFile("theme_light", .{});
+        defer file.close();
+        try file.writer().writeAll(@embedFile("testdata/theme_light"));
+    }
+    {
+        var file = try td.dir.createFile("theme_dark", .{});
+        defer file.close();
+        try file.writer().writeAll(@embedFile("testdata/theme_dark"));
+    }
+    var light_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const light = try td.dir.realpath("theme_light", &light_buf);
+    var dark_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const dark = try td.dir.realpath("theme_dark", &dark_buf);
+
+    // Light
+    {
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        var it: TestIterator = .{ .data = &.{
+            try std.fmt.allocPrint(
+                alloc_arena,
+                "--theme=light:{s},dark:{s}",
+                .{ light, dark },
+            ),
+        } };
+        try cfg.loadIter(alloc, &it);
+        try cfg.finalize();
+
+        try testing.expectEqual(Color{
+            .r = 0xFF,
+            .g = 0xFF,
+            .b = 0xFF,
+        }, cfg.background);
+    }
+
+    // Dark
+    {
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        cfg._conditional_state = .{ .theme = .dark };
+        var it: TestIterator = .{ .data = &.{
+            try std.fmt.allocPrint(
+                alloc_arena,
+                "--theme=light:{s},dark:{s}",
+                .{ light, dark },
+            ),
+        } };
+        try cfg.loadIter(alloc, &it);
+        try cfg.finalize();
+
+        try testing.expectEqual(Color{
+            .r = 0xEE,
+            .g = 0xEE,
+            .b = 0xEE,
+        }, cfg.background);
+    }
+
+    // Light to Dark
+    {
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        var it: TestIterator = .{ .data = &.{
+            try std.fmt.allocPrint(
+                alloc_arena,
+                "--theme=light:{s},dark:{s}",
+                .{ light, dark },
+            ),
+        } };
+        try cfg.loadIter(alloc, &it);
+        try cfg.finalize();
+
+        var new = try cfg.changeConditionalState(.{ .theme = .dark });
+        defer new.deinit();
+        try testing.expectEqual(Color{
+            .r = 0xEE,
+            .g = 0xEE,
+            .b = 0xEE,
+        }, new.background);
+    }
+}
+
+test "theme specifying light/dark changes window-theme from auto" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    {
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        var it: TestIterator = .{ .data = &.{
+            "--theme=light:foo,dark:bar",
+            "--window-theme=auto",
+        } };
+        try cfg.loadIter(alloc, &it);
+        try cfg.finalize();
+
+        try testing.expect(cfg.@"window-theme" == .system);
+    }
 }

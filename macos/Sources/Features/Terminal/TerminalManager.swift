@@ -37,8 +37,12 @@ class TerminalManager {
         return windows.last
     }
 
+    /// The configuration derived from the Ghostty config so we don't need to rely on references.
+    private var derivedConfig: DerivedConfig
+
     init(_ ghostty: Ghostty.App) {
         self.ghostty = ghostty
+        self.derivedConfig = DerivedConfig(ghostty.config)
 
         let center = NotificationCenter.default
         center.addObserver(
@@ -50,6 +54,11 @@ class TerminalManager {
             self,
             selector: #selector(onNewWindow),
             name: Ghostty.Notification.ghosttyNewWindow,
+            object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(ghosttyConfigDidChange(_:)),
+            name: .ghosttyConfigDidChange,
             object: nil)
     }
 
@@ -70,8 +79,8 @@ class TerminalManager {
         if let parent = focusedSurface?.window,
             parent.styleMask.contains(.fullScreen) {
             window.toggleFullScreen(nil)
-        } else if ghostty.config.windowFullscreen {
-            switch (ghostty.config.windowFullscreenMode) {
+        } else if derivedConfig.windowFullscreen {
+            switch (derivedConfig.windowFullscreenMode) {
             case .native:
                 // Native has to be done immediately so that our stylemask contains
                 // fullscreen for the logic later in this method.
@@ -81,7 +90,7 @@ class TerminalManager {
                 // If we're non-native then we have to do it on a later loop
                 // so that the content view is setup.
                 DispatchQueue.main.async {
-                    c.toggleFullscreen(mode: self.ghostty.config.windowFullscreenMode)
+                    c.toggleFullscreen(mode: self.derivedConfig.windowFullscreenMode)
                 }
             }
         }
@@ -159,9 +168,9 @@ class TerminalManager {
 
         // If we have the "hidden" titlebar style we want to create new
         // tabs as windows instead, so just skip adding it to the parent.
-        if (ghostty.config.macosTitlebarStyle != "hidden") {
+        if (derivedConfig.macosTitlebarStyle != "hidden") {
             // Add the window to the tab group and show it.
-            switch ghostty.config.windowNewTabPosition {
+            switch derivedConfig.windowNewTabPosition {
             case "end":
                 // If we already have a tab group and we want the new tab to open at the end,
                 // then we use the last window in the tab group as the parent.
@@ -227,7 +236,19 @@ class TerminalManager {
             // are closing a tabbed window, we want to set the cascade point to be
             // the next cascade point from this window.
             if focusedWindow != controller.window {
+                // The cascadeTopLeft call below should NOT move the window. Starting with
+                // macOS 15, we found that specifically when used with the new window snapping
+                // features of macOS 15, this WOULD move the frame. So we keep track of the
+                // old frame and restore it if necessary. Issue:
+                // https://github.com/ghostty-org/ghostty/issues/2565
+                let oldFrame = focusedWindow.frame
+
                 Self.lastCascadePoint = focusedWindow.cascadeTopLeft(from: NSZeroPoint)
+
+                if focusedWindow.frame != oldFrame {
+                    focusedWindow.setFrame(oldFrame, display: true)
+                }
+
                 return
             }
 
@@ -312,5 +333,40 @@ class TerminalManager {
         let config = configAny as? Ghostty.SurfaceConfiguration
 
         self.newTab(to: window, withBaseConfig: config)
+    }
+
+    @objc private func ghosttyConfigDidChange(_ notification: Notification) {
+        // We only care if the configuration is a global configuration, not a
+        // surface-specific one.
+        guard notification.object == nil else { return }
+
+        // Get our managed configuration object out
+        guard let config = notification.userInfo?[
+            Notification.Name.GhosttyConfigChangeKey
+        ] as? Ghostty.Config else { return }
+
+        // Update our derived config
+        self.derivedConfig = DerivedConfig(config)
+    }
+
+    private struct DerivedConfig {
+        let windowFullscreen: Bool
+        let windowFullscreenMode: FullscreenMode
+        let macosTitlebarStyle: String
+        let windowNewTabPosition: String
+
+        init() {
+            self.windowFullscreen = false
+            self.windowFullscreenMode = .native
+            self.macosTitlebarStyle = "transparent"
+            self.windowNewTabPosition = ""
+        }
+
+        init(_ config: Ghostty.Config) {
+            self.windowFullscreen = config.windowFullscreen
+            self.windowFullscreenMode = config.windowFullscreenMode
+            self.macosTitlebarStyle = config.macosTitlebarStyle
+            self.windowNewTabPosition = config.windowNewTabPosition
+        }
     }
 }

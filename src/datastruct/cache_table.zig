@@ -1,4 +1,4 @@
-const fastmem = @import("./fastmem.zig");
+const fastmem = @import("../fastmem.zig");
 
 const std = @import("std");
 const assert = std.debug.assert;

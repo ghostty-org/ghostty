@@ -70,12 +70,8 @@ surface_mailbox: apprt.surface.Mailbox,
 /// Current font metrics defining our grid.
 grid_metrics: font.face.Metrics,
 
-/// Current screen size dimensions for this grid. This is set on the first
-/// resize event, and is not immediately available.
-screen_size: ?renderer.ScreenSize,
-
-/// Explicit padding.
-padding: renderer.Options.Padding,
+/// The size of everything.
+size: renderer.Size,
 
 /// True if the window is focused
 focused: bool,
@@ -175,9 +171,9 @@ pub const GPUState = struct {
     instance: InstanceBuffer, // MTLBuffer
 
     pub fn init() !GPUState {
-        const device = objc.Object.fromId(mtl.MTLCreateSystemDefaultDevice());
+        const device = try chooseDevice();
         const queue = device.msgSend(objc.Object, objc.sel("newCommandQueue"), .{});
-        errdefer queue.msgSend(void, objc.sel("release"), .{});
+        errdefer queue.release();
 
         var instance = try InstanceBuffer.initFill(device, &.{
             0, 1, 3, // Top-left triangle
@@ -200,13 +196,33 @@ pub const GPUState = struct {
         return result;
     }
 
+    fn chooseDevice() error{NoMetalDevice}!objc.Object {
+        const devices = objc.Object.fromId(mtl.MTLCopyAllDevices());
+        defer devices.release();
+        var chosen_device: ?objc.Object = null;
+        var iter = devices.iterate();
+        while (iter.next()) |device| {
+            // We want a GPU that’s connected to a display.
+            if (device.getProperty(bool, "isHeadless")) continue;
+            chosen_device = device;
+            // If the user has an eGPU plugged in, they probably want
+            // to use it. Otherwise, integrated GPUs are better for
+            // battery life and thermals.
+            if (device.getProperty(bool, "isRemovable") or
+                device.getProperty(bool, "isLowPower")) break;
+        }
+        const device = chosen_device orelse return error.NoMetalDevice;
+        return device.retain();
+    }
+
     pub fn deinit(self: *GPUState) void {
         // Wait for all of our inflight draws to complete so that
         // we can cleanly deinit our GPU state.
         for (0..BufferCount) |_| self.frame_sema.wait();
         for (&self.frames) |*frame| frame.deinit();
         self.instance.deinit();
-        self.queue.msgSend(void, objc.sel("release"), .{});
+        self.queue.release();
+        self.device.release();
     }
 
     /// Get the next frame state to draw to. This will wait on the
@@ -269,13 +285,13 @@ pub const FrameState = struct {
             .size = 8,
             .format = .grayscale,
         });
-        errdefer deinitMTLResource(grayscale);
+        errdefer grayscale.release();
         const color = try initAtlasTexture(device, &.{
             .data = undefined,
             .size = 8,
             .format = .rgba,
         });
-        errdefer deinitMTLResource(color);
+        errdefer color.release();
 
         return .{
             .uniforms = uniforms,
@@ -290,8 +306,8 @@ pub const FrameState = struct {
         self.uniforms.deinit();
         self.cells.deinit();
         self.cells_bg.deinit();
-        deinitMTLResource(self.grayscale);
-        deinitMTLResource(self.color);
+        self.grayscale.release();
+        self.color.release();
     }
 };
 
@@ -319,8 +335,8 @@ pub const CustomShaderState = struct {
     }
 
     pub fn deinit(self: *CustomShaderState) void {
-        deinitMTLResource(self.front_texture);
-        deinitMTLResource(self.back_texture);
+        self.front_texture.release();
+        self.back_texture.release();
         self.sampler.deinit();
     }
 };
@@ -363,7 +379,7 @@ pub const DerivedConfig = struct {
         const custom_shaders = try config.@"custom-shader".clone(alloc);
 
         // Copy our font features
-        const font_features = try config.@"font-feature".list.clone(alloc);
+        const font_features = try config.@"font-feature".clone(alloc);
 
         // Get our font styles
         var font_styles = font.CodepointResolver.StyleStatus.initFill(true);
@@ -382,7 +398,7 @@ pub const DerivedConfig = struct {
         return .{
             .background_opacity = @max(0, @min(1, config.@"background-opacity")),
             .font_thicken = config.@"font-thicken",
-            .font_features = font_features,
+            .font_features = font_features.list,
             .font_styles = font_styles,
 
             .cursor_color = if (!cursor_invert and config.@"cursor-color" != null)
@@ -606,13 +622,12 @@ pub fn init(alloc: Allocator, options: renderer.Options) !Metal {
     };
     errdefer if (display_link) |v| v.release();
 
-    return Metal{
+    var result: Metal = .{
         .alloc = alloc,
         .config = options.config,
         .surface_mailbox = options.surface_mailbox,
         .grid_metrics = font_critical.metrics,
-        .screen_size = null,
-        .padding = options.padding,
+        .size = options.size,
         .focused = true,
         .foreground_color = options.config.foreground,
         .background_color = options.config.background,
@@ -648,6 +663,12 @@ pub fn init(alloc: Allocator, options: renderer.Options) !Metal {
         .custom_shader_state = custom_shader_state,
         .gpu_state = gpu_state,
     };
+
+    // Do an initialize screen size setup to ensure our undefined values
+    // above are initialized.
+    try result.setScreenSize(result.size);
+
+    return result;
 }
 
 pub fn deinit(self: *Metal) void {
@@ -776,19 +797,6 @@ pub fn hasVsync(self: *const Metal) bool {
     return display_link.isRunning();
 }
 
-/// Returns the grid size for a given screen size. This is safe to call
-/// on any thread.
-fn gridSize(self: *Metal) ?renderer.GridSize {
-    const screen_size = self.screen_size orelse return null;
-    return renderer.GridSize.init(
-        screen_size.subPadding(self.padding.explicit),
-        .{
-            .width = self.grid_metrics.cell_width,
-            .height = self.grid_metrics.cell_height,
-        },
-    );
-}
-
 /// Callback when the focus changes for the terminal this is rendering.
 ///
 /// Must be called on the render thread.
@@ -858,15 +866,13 @@ pub fn setFontGrid(self: *Metal, grid: *font.SharedGrid) void {
     //
     // If the screen size isn't set, it will be eventually so that'll call
     // the setScreenSize automatically.
-    if (self.screen_size) |size| {
-        self.setScreenSize(size, self.padding.explicit) catch |err| {
-            // The setFontGrid function can't fail but resizing our cell
-            // buffer definitely can fail. If it does, our renderer is probably
-            // screwed but let's just log it and continue until we can figure
-            // out a better way to handle this.
-            log.err("error resizing cells buffer err={}", .{err});
-        };
-    }
+    self.setScreenSize(self.size) catch |err| {
+        // The setFontGrid function can't fail but resizing our cell
+        // buffer definitely can fail. If it does, our renderer is probably
+        // screwed but let's just log it and continue until we can figure
+        // out a better way to handle this.
+        log.err("error resizing cells buffer err={}", .{err});
+    };
 }
 
 /// Update the frame data.
@@ -877,9 +883,6 @@ pub fn updateFrame(
     cursor_blink_visible: bool,
 ) !void {
     _ = surface;
-
-    // If we don't have a screen size yet then we can't render anything.
-    if (self.screen_size == null) return;
 
     // Data we extract out of the critical area.
     const Critical = struct {
@@ -1020,7 +1023,7 @@ pub fn updateFrame(
                 null,
             );
             while (it.next()) |chunk| {
-                var dirty_set = chunk.page.data.dirtyBitSet();
+                var dirty_set = chunk.node.data.dirtyBitSet();
                 dirty_set.unsetAll();
             }
         }
@@ -1095,9 +1098,6 @@ pub fn updateFrame(
 /// Draw the frame to the screen.
 pub fn drawFrame(self: *Metal, surface: *apprt.Surface) !void {
     _ = surface;
-
-    // If we don't have a screen size yet then we can't render anything.
-    if (self.screen_size == null) return;
 
     // If we have no cells rebuilt we can usually skip drawing since there
     // is no changed data. However, if we have active animations we still
@@ -1952,38 +1952,19 @@ pub fn changeConfig(self: *Metal, config: *DerivedConfig) !void {
 /// Resize the screen.
 pub fn setScreenSize(
     self: *Metal,
-    dim: renderer.ScreenSize,
-    pad: renderer.Padding,
+    size: renderer.Size,
 ) !void {
     // Store our sizes
-    self.screen_size = dim;
-    self.padding.explicit = pad;
-
-    // Recalculate the rows/columns. This can't fail since we just set
-    // the screen size above.
-    const grid_size = self.gridSize().?;
-
-    // Determine if we need to pad the window. For "auto" padding, we take
-    // the leftover amounts on the right/bottom that don't fit a full grid cell
-    // and we split them equal across all boundaries.
-    const padding = if (self.padding.balance)
-        renderer.Padding.balanced(
-            dim,
-            grid_size,
-            .{
-                .width = self.grid_metrics.cell_width,
-                .height = self.grid_metrics.cell_height,
-            },
-        )
-    else
-        self.padding.explicit;
-    const padded_dim = dim.subPadding(padding);
+    self.size = size;
+    const grid_size = size.grid();
+    const terminal_size = size.terminal();
 
     // Blank space around the grid.
-    const blank: renderer.Padding = dim.blankPadding(padding, grid_size, .{
-        .width = self.grid_metrics.cell_width,
-        .height = self.grid_metrics.cell_height,
-    }).add(padding);
+    const blank: renderer.Padding = size.screen.blankPadding(
+        size.padding,
+        grid_size,
+        size.cell,
+    ).add(size.padding);
 
     var padding_extend = self.uniforms.padding_extend;
     switch (self.config.padding_color) {
@@ -2010,18 +1991,18 @@ pub fn setScreenSize(
 
     // Set the size of the drawable surface to the bounds
     self.layer.setProperty("drawableSize", macos.graphics.Size{
-        .width = @floatFromInt(dim.width),
-        .height = @floatFromInt(dim.height),
+        .width = @floatFromInt(size.screen.width),
+        .height = @floatFromInt(size.screen.height),
     });
 
     // Setup our uniforms
     const old = self.uniforms;
     self.uniforms = .{
         .projection_matrix = math.ortho2d(
-            -1 * @as(f32, @floatFromInt(padding.left)),
-            @floatFromInt(padded_dim.width + padding.right),
-            @floatFromInt(padded_dim.height + padding.bottom),
-            -1 * @as(f32, @floatFromInt(padding.top)),
+            -1 * @as(f32, @floatFromInt(size.padding.left)),
+            @floatFromInt(terminal_size.width + size.padding.right),
+            @floatFromInt(terminal_size.height + size.padding.bottom),
+            -1 * @as(f32, @floatFromInt(size.padding.top)),
         ),
         .cell_size = .{
             @floatFromInt(self.grid_metrics.cell_width),
@@ -2057,13 +2038,13 @@ pub fn setScreenSize(
         // Only free our previous texture if this isn't our first
         // time setting the custom shader state.
         if (state.uniforms.resolution[0] > 0) {
-            deinitMTLResource(state.front_texture);
-            deinitMTLResource(state.back_texture);
+            state.front_texture.release();
+            state.back_texture.release();
         }
 
         state.uniforms.resolution = .{
-            @floatFromInt(dim.width),
-            @floatFromInt(dim.height),
+            @floatFromInt(size.screen.width),
+            @floatFromInt(size.screen.height),
             1,
         };
 
@@ -2077,8 +2058,8 @@ pub fn setScreenSize(
                 break :init id_init;
             };
             desc.setProperty("pixelFormat", @intFromEnum(mtl.MTLPixelFormat.bgra8unorm));
-            desc.setProperty("width", @as(c_ulong, @intCast(dim.width)));
-            desc.setProperty("height", @as(c_ulong, @intCast(dim.height)));
+            desc.setProperty("width", @as(c_ulong, @intCast(size.screen.width)));
+            desc.setProperty("height", @as(c_ulong, @intCast(size.screen.height)));
             desc.setProperty(
                 "usage",
                 @intFromEnum(mtl.MTLTextureUsage.render_target) |
@@ -2107,8 +2088,8 @@ pub fn setScreenSize(
                 break :init id_init;
             };
             desc.setProperty("pixelFormat", @intFromEnum(mtl.MTLPixelFormat.bgra8unorm));
-            desc.setProperty("width", @as(c_ulong, @intCast(dim.width)));
-            desc.setProperty("height", @as(c_ulong, @intCast(dim.height)));
+            desc.setProperty("width", @as(c_ulong, @intCast(size.screen.width)));
+            desc.setProperty("height", @as(c_ulong, @intCast(size.screen.height)));
             desc.setProperty(
                 "usage",
                 @intFromEnum(mtl.MTLTextureUsage.render_target) |
@@ -2128,7 +2109,7 @@ pub fn setScreenSize(
         };
     }
 
-    log.debug("screen size screen={} grid={}, cell_width={} cell_height={}", .{ dim, grid_size, self.grid_metrics.cell_width, self.grid_metrics.cell_height });
+    log.debug("screen size size={}", .{size});
 }
 
 /// Convert the terminal state to GPU cells stored in CPU memory. These
@@ -2344,7 +2325,7 @@ fn rebuildCells(
             // True if this cell is selected
             const selected: bool = if (screen.selection) |sel|
                 sel.contains(screen, .{
-                    .page = row.page,
+                    .node = row.node,
                     .y = row.y,
                     .x = @intCast(
                         // Spacer tails should show the selection
@@ -2492,12 +2473,7 @@ fn rebuildCells(
                 );
             };
 
-            if (style.flags.overline) self.addOverline(
-                @intCast(x),
-                @intCast(y),
-                fg,
-                alpha
-            ) catch |err| {
+            if (style.flags.overline) self.addOverline(@intCast(x), @intCast(y), fg, alpha) catch |err| {
                 log.warn(
                     "error adding overline to cell, will be invalid x={} y={}, err={}",
                     .{ x, y, err },
@@ -2982,7 +2958,7 @@ fn syncAtlasTexture(device: objc.Object, atlas: *const font.Atlas, texture: *obj
     const width = texture.getProperty(c_ulong, "width");
     if (atlas.size > width) {
         // Free our old texture
-        deinitMTLResource(texture.*);
+        texture.*.release();
 
         // Reallocate
         texture.* = try initAtlasTexture(device, atlas);
@@ -3047,12 +3023,6 @@ fn initAtlasTexture(device: objc.Object, atlas: *const font.Atlas) !objc.Object 
     ) orelse return error.MetalFailed;
 
     return objc.Object.fromId(id);
-}
-
-/// Deinitialize a metal resource (buffer, texture, etc.) and free the
-/// memory associated with it.
-fn deinitMTLResource(obj: objc.Object) void {
-    obj.msgSend(void, objc.sel("release"), .{});
 }
 
 test {

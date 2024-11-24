@@ -40,3 +40,11 @@ pub const SizeReportStyle = enum {
     csi_18_t,
     csi_21_t,
 };
+
+/// XTWINOPS CSI 22/23
+pub const TitlePushPop = struct {
+    op: Op,
+    index: u16,
+
+    pub const Op = enum { push, pop };
+};

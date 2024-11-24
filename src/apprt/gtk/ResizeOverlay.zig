@@ -94,13 +94,14 @@ fn gtkUpdate(ud: ?*anyopaque) callconv(.C) c.gboolean {
         return c.FALSE;
     };
 
+    const grid_size = surface.core_surface.size.grid();
     var buf: [32]u8 = undefined;
     const text = std.fmt.bufPrintZ(
         &buf,
         "{d}c ⨯ {d}r",
         .{
-            surface.core_surface.grid_size.columns,
-            surface.core_surface.grid_size.rows,
+            grid_size.columns,
+            grid_size.rows,
         },
     ) catch |err| {
         log.err("unable to format text: {}", .{err});

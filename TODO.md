@@ -19,4 +19,3 @@ Mac:
 Major Features:
 
 - Bell
-- Sixels: https://saitoha.github.io/libsixel/

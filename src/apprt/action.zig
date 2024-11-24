@@ -1,6 +1,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const apprt = @import("../apprt.zig");
+const configpkg = @import("../config.zig");
 const input = @import("../input.zig");
 const renderer = @import("../renderer.zig");
 const terminal = @import("../terminal/main.zig");
@@ -151,6 +152,9 @@ pub const Action = union(Key) {
     /// Set the title of the target.
     set_title: SetTitle,
 
+    /// The current working directory has changed for the target terminal.
+    pwd: Pwd,
+
     /// Set the mouse cursor shape.
     mouse_shape: terminal.MouseShape,
 
@@ -186,6 +190,33 @@ pub const Action = union(Key) {
     /// key mode because other input may be ignored.
     key_sequence: KeySequence,
 
+    /// A terminal color was changed programmatically through things
+    /// such as OSC 10/11.
+    color_change: ColorChange,
+
+    /// A request to reload the configuration. The reload request can be
+    /// from a user or for some internal reason. The reload request may
+    /// request it is a soft reload or a full reload. See the struct for
+    /// more documentation.
+    ///
+    /// The configuration should be passed to updateConfig either at the
+    /// app or surface level depending on the target.
+    reload_config: ReloadConfig,
+
+    /// The configuration has changed. The value is a pointer to the new
+    /// configuration. The pointer is only valid for the duration of the
+    /// action and should not be stored.
+    ///
+    /// This should be used by apprts to update any internal state that
+    /// depends on configuration for the given target (i.e. headerbar colors).
+    /// The apprt should copy any data it needs since the memory lifetime
+    /// is only valid for the duration of the action.
+    ///
+    /// This allows an apprt to have config-dependent state reactively
+    /// change without having to store the entire configuration or poll
+    /// for changes.
+    config_change: ConfigChange,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         new_window,
@@ -211,6 +242,7 @@ pub const Action = union(Key) {
         render_inspector,
         desktop_notification,
         set_title,
+        pwd,
         mouse_shape,
         mouse_visibility,
         mouse_over_link,
@@ -219,6 +251,9 @@ pub const Action = union(Key) {
         quit_timer,
         secure_input,
         key_sequence,
+        color_change,
+        reload_config,
+        config_change,
     };
 
     /// Sync with: ghostty_action_u
@@ -412,6 +447,21 @@ pub const SetTitle = struct {
     }
 };
 
+pub const Pwd = struct {
+    pwd: [:0]const u8,
+
+    // Sync with: ghostty_action_set_pwd_s
+    pub const C = extern struct {
+        pwd: [*:0]const u8,
+    };
+
+    pub fn cval(self: Pwd) C {
+        return .{
+            .pwd = self.pwd.ptr,
+        };
+    }
+};
+
 /// The desktop notification to show.
 pub const DesktopNotification = struct {
     title: [:0]const u8,
@@ -445,6 +495,45 @@ pub const KeySequence = union(enum) {
         return switch (self) {
             .trigger => |t| .{ .active = true, .trigger = t.cval() },
             .end => .{ .active = false, .trigger = .{} },
+        };
+    }
+};
+
+pub const ColorChange = extern struct {
+    kind: ColorKind,
+    r: u8,
+    g: u8,
+    b: u8,
+};
+
+pub const ColorKind = enum(c_int) {
+    // Negative numbers indicate some named kind
+    foreground = -1,
+    background = -2,
+    cursor = -3,
+
+    // 0+ values indicate a palette index
+    _,
+};
+
+pub const ReloadConfig = extern struct {
+    /// A soft reload means that the configuration doesn't need to be
+    /// read off disk, but libghostty needs the full config again so call
+    /// updateConfig with it.
+    soft: bool = false,
+};
+
+pub const ConfigChange = struct {
+    config: *const configpkg.Config,
+
+    // Sync with: ghostty_action_config_change_s
+    pub const C = extern struct {
+        config: *const configpkg.Config,
+    };
+
+    pub fn cval(self: ConfigChange) C {
+        return .{
+            .config = self.config,
         };
     }
 };

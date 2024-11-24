@@ -112,7 +112,6 @@ pub fn open(
     path: []const u8,
     file: std.fs.File,
 } {
-
     // Absolute themes are loaded a different path.
     if (std.fs.path.isAbsolute(theme)) {
         const file: std.fs.File = try openAbsolute(

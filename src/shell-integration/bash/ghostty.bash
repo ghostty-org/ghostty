@@ -1,5 +1,3 @@
-#!/usr/bin/env bash
-#
 # This is originally based on the recommended bash integration from
 # the semantic prompts proposal as well as some logic from Kitty's
 # bash integration.

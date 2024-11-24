@@ -59,23 +59,6 @@ extension Ghostty {
 
         @EnvironmentObject private var ghostty: Ghostty.App
 
-        #if canImport(AppKit)
-        // The visibility state of the mouse pointer
-        private var pointerVisibility: BackportVisibility {
-            // If our window or surface loses focus we always bring it back
-            if (!windowFocus || !surfaceFocus) {
-                return .visible
-            }
-
-            // If we have window focus then it depends on surface state
-            if (surfaceView.pointerVisible) {
-                return .visible
-            } else {
-                return .hidden
-            }
-        }
-        #endif
-
         var body: some View {
             let center = NotificationCenter.default
 
@@ -92,10 +75,10 @@ extension Ghostty {
                     Surface(view: surfaceView, size: geo.size)
                         .focused($surfaceFocus)
                         .focusedValue(\.ghosttySurfaceTitle, surfaceView.title)
+                        .focusedValue(\.ghosttySurfacePwd, surfaceView.pwd)
                         .focusedValue(\.ghosttySurfaceView, surfaceView)
                         .focusedValue(\.ghosttySurfaceCellSize, surfaceView.cellSize)
                     #if canImport(AppKit)
-                        .backport.pointerVisibility(pointerVisibility)
                         .backport.pointerStyle(surfaceView.pointerStyle)
                         .onReceive(pubBecomeKey) { notification in
                             guard let window = notification.object as? NSWindow else { return }
@@ -171,7 +154,8 @@ extension Ghostty {
 
                 // If we have a URL from hovering a link, we show that.
                 if let url = surfaceView.hoverUrl {
-                    let padding: CGFloat = 3
+                    let padding: CGFloat = 5
+                    let cornerRadius: CGFloat = 9
                     ZStack {
                         HStack {
                             Spacer()
@@ -180,7 +164,10 @@ extension Ghostty {
 
                                 Text(verbatim: url)
                                     .padding(.init(top: padding, leading: padding, bottom: padding, trailing: padding))
-                                    .background(.background)
+                                    .background(
+                                        UnevenRoundedRectangle(cornerRadii: .init(topLeading: cornerRadius))
+                                            .fill(.background)
+                                    )
                                     .lineLimit(1)
                                     .truncationMode(.middle)
                                     .opacity(isHoveringURLLeft ? 1 : 0)
@@ -193,7 +180,10 @@ extension Ghostty {
 
                                 Text(verbatim: url)
                                     .padding(.init(top: padding, leading: padding, bottom: padding, trailing: padding))
-                                    .background(.background)
+                                    .background(
+                                        UnevenRoundedRectangle(cornerRadii: .init(topTrailing: cornerRadius))
+                                            .fill(.background)
+                                    )
                                     .lineLimit(1)
                                     .truncationMode(.middle)
                                     .opacity(isHoveringURLLeft ? 0 : 1)
@@ -512,9 +502,7 @@ extension FocusedValues {
     struct FocusedGhosttySurface: FocusedValueKey {
         typealias Value = Ghostty.SurfaceView
     }
-}
 
-extension FocusedValues {
     var ghosttySurfaceTitle: String? {
         get { self[FocusedGhosttySurfaceTitle.self] }
         set { self[FocusedGhosttySurfaceTitle.self] = newValue }
@@ -523,9 +511,16 @@ extension FocusedValues {
     struct FocusedGhosttySurfaceTitle: FocusedValueKey {
         typealias Value = String
     }
-}
 
-extension FocusedValues {
+    var ghosttySurfacePwd: String? {
+        get { self[FocusedGhosttySurfacePwd.self] }
+        set { self[FocusedGhosttySurfacePwd.self] = newValue }
+    }
+
+    struct FocusedGhosttySurfacePwd: FocusedValueKey {
+        typealias Value = String
+    }
+
     var ghosttySurfaceZoomed: Bool? {
         get { self[FocusedGhosttySurfaceZoomed.self] }
         set { self[FocusedGhosttySurfaceZoomed.self] = newValue }
@@ -534,9 +529,7 @@ extension FocusedValues {
     struct FocusedGhosttySurfaceZoomed: FocusedValueKey {
         typealias Value = Bool
     }
-}
 
-extension FocusedValues {
     var ghosttySurfaceCellSize: OSSize? {
         get { self[FocusedGhosttySurfaceCellSize.self] }
         set { self[FocusedGhosttySurfaceCellSize.self] = newValue }

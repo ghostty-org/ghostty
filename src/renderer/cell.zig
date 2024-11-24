@@ -70,7 +70,7 @@ pub fn fgMode(
             }
 
             // If we are at the end of the screen its definitely constrained
-            if (cell_pin.x == cell_pin.page.data.size.cols - 1) break :text .constrained;
+            if (cell_pin.x == cell_pin.node.data.size.cols - 1) break :text .constrained;
 
             // If we have a previous cell and it was PUA then we need to
             // also constrain. This is so that multiple PUA glyphs align.

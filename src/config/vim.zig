@@ -70,7 +70,7 @@ fn writeSyntax(writer: anytype) !void {
     try writer.writeAll(
         \\
         \\
-        \\syn match ghosttyConfigComment /#.*/ contains=@Spell
+        \\syn match ghosttyConfigComment /^\s*#.*/ contains=@Spell
         \\
         \\hi def link ghosttyConfigComment Comment
         \\hi def link ghosttyConfigKeyword Keyword

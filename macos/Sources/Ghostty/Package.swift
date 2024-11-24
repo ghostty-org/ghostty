@@ -206,6 +206,14 @@ extension Ghostty {
 // MARK: Surface Notification
 
 extension Notification.Name {
+    /// Configuration change. If the object is nil then it is app-wide. Otherwise its surface-specific.
+    static let ghosttyConfigDidChange = Notification.Name("com.mitchellh.ghostty.configDidChange")
+    static let GhosttyConfigChangeKey = ghosttyConfigDidChange.rawValue
+
+    /// Color change. Object is the surface changing.
+    static let ghosttyColorDidChange = Notification.Name("com.mitchellh.ghostty.ghosttyColorDidChange")
+    static let GhosttyColorChangeKey = ghosttyColorDidChange.rawValue
+
     /// Goto tab. Has tab index in the userinfo.
     static let ghosttyMoveTab = Notification.Name("com.mitchellh.ghostty.moveTab")
     static let GhosttyMoveTabKey = ghosttyMoveTab.rawValue
@@ -216,9 +224,6 @@ extension Notification.Name {
 extension Ghostty.Notification {
     /// Used to pass a configuration along when creating a new tab/window/split.
     static let NewSurfaceConfigKey = "com.mitchellh.ghostty.newSurfaceConfig"
-
-    /// Posted when the application configuration is reloaded.
-    static let ghosttyDidReloadConfig = Notification.Name("com.mitchellh.ghostty.didReloadConfig")
 
     /// Posted when a new split is requested. The sending object will be the surface that had focus. The
     /// userdata has one key "direction" with the direction to split to.

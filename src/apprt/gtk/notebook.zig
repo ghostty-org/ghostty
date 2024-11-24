@@ -223,6 +223,17 @@ pub const Notebook = union(enum) {
         }
     }
 
+    pub fn setTabTooltip(self: Notebook, tab: *Tab, tooltip: [:0]const u8) void {
+        switch (self) {
+            .adw_tab_view => |tab_view| {
+                if (comptime !adwaita.versionAtLeast(0, 0, 0)) unreachable;
+                const page = c.adw_tab_view_get_page(tab_view, @ptrCast(tab.box));
+                c.adw_tab_page_set_tooltip(page, tooltip.ptr);
+            },
+            .gtk_notebook => c.gtk_widget_set_tooltip_text(@ptrCast(@alignCast(tab.label_text)), tooltip.ptr),
+        }
+    }
+
     fn newTabInsertPosition(self: Notebook, tab: *Tab) c_int {
         const numPages = self.nPages();
         return switch (tab.window.app.config.@"window-new-tab-position") {

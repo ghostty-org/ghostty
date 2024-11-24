@@ -203,7 +203,7 @@ const ButtonsView = struct {
 
     fn gtkReloadClick(_: *c.GtkWidget, ud: ?*anyopaque) callconv(.C) void {
         const self: *ConfigErrors = @ptrCast(@alignCast(ud));
-        _ = self.app.reloadConfig() catch |err| {
+        self.app.reloadConfig(.app, .{}) catch |err| {
             log.warn("error reloading config error={}", .{err});
             return;
         };

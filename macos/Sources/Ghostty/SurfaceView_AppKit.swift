@@ -14,6 +14,10 @@ extension Ghostty {
         // to the app level and it is set from there.
         @Published var title: String = "👻"
 
+        // The current pwd of the surface as defined by the pty. This can be
+        // changed with escape codes.
+        @Published var pwd: String? = nil
+
         // The cell size of this surface. This is set by the core when the
         // surface is first created and any time the cell size changes (i.e.
         // when the font size changes). This is used to allow windows to be
@@ -42,8 +46,14 @@ extension Ghostty {
         @Published var surfaceSize: ghostty_surface_size_s? = nil
 
         // Whether the pointer should be visible or not
-        @Published private(set) var pointerVisible: Bool = true
         @Published private(set) var pointerStyle: BackportPointerStyle = .default
+
+        /// The configuration derived from the Ghostty config so we don't need to rely on references.
+        @Published private(set) var derivedConfig: DerivedConfig
+
+        /// The background color within the color palette of the surface. This is only set if it is
+        /// dynamically updated. Otherwise, the background color is the default background color.
+        @Published private(set) var backgroundColor: Color? = nil
 
         // An initial size to request for a window. This will only affect
         // then the view is moved to a new window.
@@ -69,17 +79,6 @@ extension Ghostty {
         var needsConfirmQuit: Bool {
             guard let surface = self.surface else { return false }
             return ghostty_surface_needs_confirm_quit(surface)
-        }
-
-        /// Returns the pwd of the surface if it has one.
-        var pwd: String? {
-            guard let surface = self.surface else { return nil }
-            let v = String(unsafeUninitializedCapacity: 1024) {
-                Int(ghostty_surface_pwd(surface, $0.baseAddress, UInt($0.count)))
-            }
-
-            if (v.count == 0) { return nil }
-            return v
         }
 
         // Returns the inspector instance for this surface, or nil if the
@@ -122,6 +121,13 @@ extension Ghostty {
             self.markedText = NSMutableAttributedString()
             self.uuid = uuid ?? .init()
 
+            // Our initial config always is our application wide config.
+            if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
+                self.derivedConfig = DerivedConfig(appDelegate.ghostty.config)
+            } else {
+                self.derivedConfig = DerivedConfig()
+            }
+
             // Initialize with some default frame size. The important thing is that this
             // is non-zero so that our layer bounds are non-zero so that our renderer
             // can do SOMETHING.
@@ -144,6 +150,16 @@ extension Ghostty {
                 self,
                 selector: #selector(ghosttyDidEndKeySequence),
                 name: Ghostty.Notification.didEndKeySequence,
+                object: self)
+            center.addObserver(
+                self,
+                selector: #selector(ghosttyConfigDidChange(_:)),
+                name: .ghosttyConfigDidChange,
+                object: self)
+            center.addObserver(
+                self,
+                selector: #selector(ghosttyColorDidChange(_:)),
+                name: .ghosttyColorDidChange,
                 object: self)
             center.addObserver(
                 self,
@@ -316,7 +332,11 @@ extension Ghostty {
         }
 
         func setCursorVisibility(_ visible: Bool) {
-            pointerVisible = visible
+            // Technically this action could be called anytime we want to
+            // change the mouse visibility but at the time of writing this
+            // mouse-hide-while-typing is the only use case so this is the
+            // preferred method.
+            NSCursor.setHiddenUntilMouseMoves(!visible)
         }
 
         // MARK: - Notifications
@@ -335,6 +355,31 @@ extension Ghostty {
 
         @objc private func ghosttyDidEndKeySequence(notification: SwiftUI.Notification) {
             keySequence = []
+        }
+
+        @objc private func ghosttyConfigDidChange(_ notification: SwiftUI.Notification) {
+            // Get our managed configuration object out
+            guard let config = notification.userInfo?[
+                SwiftUI.Notification.Name.GhosttyConfigChangeKey
+            ] as? Ghostty.Config else { return }
+
+            // Update our derived config
+            self.derivedConfig = DerivedConfig(config)
+        }
+
+        @objc private func ghosttyColorDidChange(_ notification: SwiftUI.Notification) {
+            guard let change = notification.userInfo?[
+                SwiftUI.Notification.Name.GhosttyColorChangeKey
+            ] as? Ghostty.Action.ColorChange else { return }
+
+            switch (change.kind) {
+            case .background:
+                self.backgroundColor = change.color
+
+            default:
+                // We don't do anything for the other colors yet.
+                break
+            }
         }
 
         @objc private func windowDidChangeScreen(notification: SwiftUI.Notification) {
@@ -704,12 +749,6 @@ extension Ghostty {
 
         /// Special case handling for some control keys
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
-            // Only process keys when Control is the only modifier
-            if (!event.modifierFlags.contains(.control) ||
-                !event.modifierFlags.isDisjoint(with: [.shift, .command, .option])) {
-                return false
-            }
-
             // Only process key down events
             if (event.type != .keyDown) {
                 return false
@@ -722,11 +761,23 @@ extension Ghostty {
                 return false
             }
 
+            // Only process keys when Control is active. All known issues we're
+            // resolving happen only in this scenario. This probably isn't fully robust
+            // but we can broaden the scope as we find more cases.
+            if (!event.modifierFlags.contains(.control)) {
+                return false
+            }
+
             let equivalent: String
             switch (event.charactersIgnoringModifiers) {
             case "/":
                 // Treat C-/ as C-_. We do this because C-/ makes macOS make a beep
                 // sound and we don't like the beep sound.
+                if (!event.modifierFlags.contains(.control) ||
+                    !event.modifierFlags.isDisjoint(with: [.shift, .command, .option])) {
+                    return false
+                }
+
                 equivalent = "_"
 
             case "\r":
@@ -742,7 +793,7 @@ extension Ghostty {
             let newEvent = NSEvent.keyEvent(
                 with: .keyDown,
                 location: event.locationInWindow,
-                modifierFlags: .control,
+                modifierFlags: event.modifierFlags,
                 timestamp: event.timestamp,
                 windowNumber: event.windowNumber,
                 context: nil,
@@ -1021,6 +1072,27 @@ extension Ghostty {
             if focus {
                 self.window?.makeKeyAndOrderFront(self)
                 Ghostty.moveFocus(to: self)
+            }
+        }
+
+        struct DerivedConfig {
+            let backgroundColor: Color
+            let backgroundOpacity: Double
+            let macosWindowShadow: Bool
+            let windowTitleFontFamily: String?
+
+            init() {
+                self.backgroundColor = Color(NSColor.windowBackgroundColor)
+                self.backgroundOpacity = 1
+                self.macosWindowShadow = true
+                self.windowTitleFontFamily = nil
+            }
+
+            init(_ config: Ghostty.Config) {
+                self.backgroundColor = config.backgroundColor
+                self.backgroundOpacity = config.backgroundOpacity
+                self.macosWindowShadow = config.macosWindowShadow
+                self.windowTitleFontFamily = config.windowTitleFontFamily
             }
         }
     }

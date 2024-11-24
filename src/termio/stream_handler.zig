@@ -1,10 +1,12 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const xev = @import("xev");
 const apprt = @import("../apprt.zig");
 const build_config = @import("../build_config.zig");
 const configpkg = @import("../config.zig");
+const internal_os = @import("../os/main.zig");
 const renderer = @import("../renderer.zig");
 const termio = @import("../termio.zig");
 const terminal = @import("../terminal/main.zig");
@@ -24,7 +26,7 @@ const disable_kitty_keyboard_protocol = apprt.runtime == apprt.glfw;
 /// unless all of the member fields are copied.
 pub const StreamHandler = struct {
     alloc: Allocator,
-    grid_size: *renderer.GridSize,
+    size: *renderer.Size,
     terminal: *terminal.Terminal,
 
     /// Mailbox for data to the termio thread.
@@ -50,20 +52,20 @@ pub const StreamHandler = struct {
     default_cursor_blink: ?bool,
     default_cursor_color: ?terminal.color.RGB,
 
-    /// Actual cursor color. This can be changed with OSC 12.
+    /// Actual cursor color. This can be changed with OSC 12. If unset, falls
+    /// back to the default cursor color.
     cursor_color: ?terminal.color.RGB,
 
     /// The default foreground and background color are those set by the user's
-    /// config file. These can be overridden by terminal applications using OSC
-    /// 10 and OSC 11, respectively.
+    /// config file.
     default_foreground_color: terminal.color.RGB,
     default_background_color: terminal.color.RGB,
 
-    /// The actual foreground and background color. Normally this will be the
-    /// same as the default foreground and background color, unless changed by a
-    /// terminal application.
-    foreground_color: terminal.color.RGB,
-    background_color: terminal.color.RGB,
+    /// The foreground and background color as set by an OSC 10 or OSC 11
+    /// sequence. If unset then the respective color falls back to the default
+    /// value.
+    foreground_color: ?terminal.color.RGB,
+    background_color: ?terminal.color.RGB,
 
     /// The response to use for ENQ requests. The memory is owned by
     /// whoever owns StreamHandler.
@@ -124,6 +126,9 @@ pub const StreamHandler = struct {
         if (self.default_cursor) self.setCursorStyle(.default) catch |err| {
             log.warn("failed to set default cursor style: {}", .{err});
         };
+
+        // The config could have changed any of our colors so update mode 2031
+        self.surfaceMessageWriter(.{ .report_color_scheme = false });
     }
 
     inline fn surfaceMessageWriter(
@@ -609,12 +614,15 @@ pub const StreamHandler = struct {
             },
 
             // Force resize back to the window size
-            .enable_mode_3 => self.terminal.resize(
-                self.alloc,
-                self.grid_size.columns,
-                self.grid_size.rows,
-            ) catch |err| {
-                log.err("error updating terminal size: {}", .{err});
+            .enable_mode_3 => {
+                const grid_size = self.size.grid();
+                self.terminal.resize(
+                    self.alloc,
+                    grid_size.columns,
+                    grid_size.rows,
+                ) catch |err| {
+                    log.err("error updating terminal size: {}", .{err});
+                };
             },
 
             .@"132_column" => try self.terminal.deccolm(
@@ -762,7 +770,7 @@ pub const StreamHandler = struct {
                 self.messageWriter(msg);
             },
 
-            .color_scheme => self.surfaceMessageWriter(.{ .report_color_scheme = {} }),
+            .color_scheme => self.surfaceMessageWriter(.{ .report_color_scheme = true }),
         }
     }
 
@@ -887,6 +895,9 @@ pub const StreamHandler = struct {
     ) !void {
         self.terminal.fullReset();
         try self.setMouseShape(.text);
+
+        // Reset resets our palette so we report it for mode 2031.
+        self.surfaceMessageWriter(.{ .report_color_scheme = false });
     }
 
     pub fn queryKittyKeyboard(self: *StreamHandler) !void {
@@ -964,7 +975,23 @@ pub const StreamHandler = struct {
         @memcpy(buf[0..title.len], title);
         buf[title.len] = 0;
 
-        // Mark that we've seen a title
+        // Special handling for the empty title. We treat the empty title
+        // as resetting to as if we never saw a title. Other terminals
+        // behave this way too (e.g. iTerm2).
+        if (title.len == 0) {
+            // If we have a pwd then we set the title as the pwd else
+            // we just set it to blank.
+            if (self.terminal.getPwd()) |pwd| pwd: {
+                if (pwd.len >= buf.len) break :pwd;
+                @memcpy(buf[0..pwd.len], pwd);
+                buf[pwd.len] = 0;
+            }
+
+            self.surfaceMessageWriter(.{ .set_title = buf });
+            self.seen_title = false;
+            return;
+        }
+
         self.seen_title = true;
         self.surfaceMessageWriter(.{ .set_title = buf });
     }
@@ -1031,6 +1058,28 @@ pub const StreamHandler = struct {
     }
 
     pub fn reportPwd(self: *StreamHandler, url: []const u8) !void {
+        // Special handling for the empty URL. We treat the empty URL
+        // as resetting the pwd as if we never saw a pwd. I can't find any
+        // other terminal that does this but it seems like a reasonable
+        // behavior that enables some useful features. For example, the macOS
+        // proxy icon can be hidden when a program reports it doesn't know
+        // the pwd rather than showing a stale pwd.
+        if (url.len == 0) {
+            // Blank value can never fail because no allocs happen.
+            self.terminal.setPwd("") catch unreachable;
+
+            // If we haven't seen a title, we're using the pwd as our title.
+            // Set it to blank which will reset our title behavior.
+            if (!self.seen_title) {
+                try self.changeWindowTitle("");
+                assert(!self.seen_title);
+            }
+
+            // Report the change.
+            self.surfaceMessageWriter(.{ .pwd_change = .{ .stable = "" } });
+            return;
+        }
+
         if (builtin.os.tag == .windows) {
             log.warn("reportPwd unimplemented on windows", .{});
             return;
@@ -1048,31 +1097,38 @@ pub const StreamHandler = struct {
             return;
         }
 
+        // RFC 793 defines port numbers as 16-bit numbers. 5 digits is sufficient to represent
+        // the maximum since 2^16 - 1 = 65_535.
+        // See https://www.rfc-editor.org/rfc/rfc793#section-3.1.
+        const PORT_NUMBER_MAX_DIGITS = 5;
+        // Make sure there is space for a max length hostname + the max number of digits.
+        var host_and_port_buf: [posix.HOST_NAME_MAX + PORT_NUMBER_MAX_DIGITS]u8 = undefined;
+        const hostname_from_uri = internal_os.hostname.bufPrintHostnameFromFileUri(
+            &host_and_port_buf,
+            uri,
+        ) catch |err| switch (err) {
+            error.NoHostnameInUri => {
+                log.warn("OSC 7 uri must contain a hostname: {}", .{err});
+                return;
+            },
+            error.NoSpaceLeft => |e| {
+                log.warn("failed to get full hostname for OSC 7 validation: {}", .{e});
+                return;
+            },
+        };
+
         // OSC 7 is a little sketchy because anyone can send any value from
         // any host (such an SSH session). The best practice terminals follow
         // is to valid the hostname to be local.
-        const host_valid = host_valid: {
-            const host_component = uri.host orelse break :host_valid false;
-
-            // Get the raw string of the URI. Its unclear to me if the various
-            // tags of this enum guarantee no percent-encoding so we just
-            // check all of it. This isn't a performance critical path.
-            const host = switch (host_component) {
-                .raw => |v| v,
-                .percent_encoded => |v| v,
-            };
-            if (host.len == 0 or std.mem.eql(u8, "localhost", host)) {
-                break :host_valid true;
-            }
-
-            // Otherwise, it must match our hostname.
-            var buf: [posix.HOST_NAME_MAX]u8 = undefined;
-            const hostname = posix.gethostname(&buf) catch |err| {
+        const host_valid = internal_os.hostname.isLocalHostname(
+            hostname_from_uri,
+        ) catch |err| switch (err) {
+            error.PermissionDenied,
+            error.Unexpected,
+            => {
                 log.warn("failed to get hostname for OSC 7 validation: {}", .{err});
-                break :host_valid false;
-            };
-
-            break :host_valid std.mem.eql(u8, host, hostname);
+                return;
+            },
         };
         if (!host_valid) {
             log.warn("OSC 7 host must be local", .{});
@@ -1115,6 +1171,14 @@ pub const StreamHandler = struct {
         log.debug("terminal pwd: {s}", .{path});
         try self.terminal.setPwd(path);
 
+        // Report it to the surface. If creating our write request fails
+        // then we just ignore it.
+        if (apprt.surface.Message.WriteReq.init(self.alloc, path)) |req| {
+            self.surfaceMessageWriter(.{ .pwd_change = req });
+        } else |err| {
+            log.warn("error notifying surface of pwd change err={}", .{err});
+        }
+
         // If we haven't seen a title, use our pwd as the title.
         if (!self.seen_title) {
             try self.changeWindowTitle(path);
@@ -1133,9 +1197,12 @@ pub const StreamHandler = struct {
 
         const color = switch (kind) {
             .palette => |i| self.terminal.color_palette.colors[i],
-            .foreground => self.foreground_color,
-            .background => self.background_color,
-            .cursor => self.cursor_color orelse self.foreground_color,
+            .foreground => self.foreground_color orelse self.default_foreground_color,
+            .background => self.background_color orelse self.default_background_color,
+            .cursor => self.cursor_color orelse
+                self.default_cursor_color orelse
+                self.foreground_color orelse
+                self.default_foreground_color,
         };
 
         var msg: termio.Message = .{ .write_small = .{} };
@@ -1229,6 +1296,12 @@ pub const StreamHandler = struct {
                 }, .{ .forever = {} });
             },
         }
+
+        // Notify the surface of the color change
+        self.surfaceMessageWriter(.{ .color_change = .{
+            .kind = kind,
+            .color = color,
+        } });
     }
 
     pub fn resetColor(
@@ -1247,6 +1320,11 @@ pub const StreamHandler = struct {
                         self.terminal.flags.dirty.palette = true;
                         self.terminal.color_palette.colors[i] = self.terminal.default_palette[i];
                         mask.unset(i);
+
+                        self.surfaceMessageWriter(.{ .color_change = .{
+                            .kind = .{ .palette = @intCast(i) },
+                            .color = self.terminal.color_palette.colors[i],
+                        } });
                     }
                 } else {
                     var it = std.mem.tokenizeScalar(u8, value, ';');
@@ -1257,27 +1335,50 @@ pub const StreamHandler = struct {
                             self.terminal.flags.dirty.palette = true;
                             self.terminal.color_palette.colors[i] = self.terminal.default_palette[i];
                             mask.unset(i);
+
+                            self.surfaceMessageWriter(.{ .color_change = .{
+                                .kind = .{ .palette = @intCast(i) },
+                                .color = self.terminal.color_palette.colors[i],
+                            } });
                         }
                     }
                 }
             },
             .foreground => {
-                self.foreground_color = self.default_foreground_color;
+                self.foreground_color = null;
                 _ = self.renderer_mailbox.push(.{
-                    .foreground_color = self.foreground_color,
+                    .foreground_color = self.default_foreground_color,
                 }, .{ .forever = {} });
+
+                self.surfaceMessageWriter(.{ .color_change = .{
+                    .kind = .foreground,
+                    .color = self.default_foreground_color,
+                } });
             },
             .background => {
-                self.background_color = self.default_background_color;
+                self.background_color = null;
                 _ = self.renderer_mailbox.push(.{
-                    .background_color = self.background_color,
+                    .background_color = self.default_background_color,
                 }, .{ .forever = {} });
+
+                self.surfaceMessageWriter(.{ .color_change = .{
+                    .kind = .background,
+                    .color = self.default_background_color,
+                } });
             },
             .cursor => {
-                self.cursor_color = self.default_cursor_color;
+                self.cursor_color = null;
+
                 _ = self.renderer_mailbox.push(.{
-                    .cursor_color = self.cursor_color,
+                    .cursor_color = self.default_cursor_color,
                 }, .{ .forever = {} });
+
+                if (self.default_cursor_color) |color| {
+                    self.surfaceMessageWriter(.{ .color_change = .{
+                        .kind = .cursor,
+                        .color = color,
+                    } });
+                }
             },
         }
     }
@@ -1325,9 +1426,9 @@ pub const StreamHandler = struct {
                     const color: terminal.color.RGB = switch (key) {
                         .palette => |palette| self.terminal.color_palette.colors[palette],
                         .special => |special| switch (special) {
-                            .foreground => self.foreground_color,
-                            .background => self.background_color,
-                            .cursor => self.cursor_color,
+                            .foreground => self.foreground_color orelse self.default_foreground_color,
+                            .background => self.background_color orelse self.default_background_color,
+                            .cursor => self.cursor_color orelse self.default_cursor_color,
                             else => {
                                 log.warn("ignoring unsupported kitty color protocol key: {}", .{key});
                                 continue;
@@ -1388,15 +1489,15 @@ pub const StreamHandler = struct {
                     .special => |special| {
                         const msg: renderer.Message = switch (special) {
                             .foreground => msg: {
-                                self.foreground_color = self.default_foreground_color;
+                                self.foreground_color = null;
                                 break :msg .{ .foreground_color = self.default_foreground_color };
                             },
                             .background => msg: {
-                                self.background_color = self.default_background_color;
+                                self.background_color = null;
                                 break :msg .{ .background_color = self.default_background_color };
                             },
                             .cursor => msg: {
-                                self.cursor_color = self.default_cursor_color;
+                                self.cursor_color = null;
                                 break :msg .{ .cursor_color = self.default_cursor_color };
                             },
                             else => {

@@ -9,7 +9,7 @@ const crash = @import("../crash/main.zig");
 const renderer = @import("../renderer.zig");
 const apprt = @import("../apprt.zig");
 const configpkg = @import("../config.zig");
-const BlockingQueue = @import("../blocking_queue.zig").BlockingQueue;
+const BlockingQueue = @import("../datastruct/main.zig").BlockingQueue;
 const App = @import("../App.zig");
 
 const Allocator = std.mem.Allocator;
@@ -371,9 +371,7 @@ fn drainMailbox(self: *Thread) !void {
                 self.renderer.markDirty();
             },
 
-            .resize => |v| {
-                try self.renderer.setScreenSize(v.screen_size, v.padding);
-            },
+            .resize => |v| try self.renderer.setScreenSize(v),
 
             .change_config => |config| {
                 defer config.alloc.destroy(config.thread);

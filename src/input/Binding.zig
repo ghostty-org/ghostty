@@ -317,8 +317,7 @@ pub const Action = union(enum) {
     /// Focus on a split in a given direction.
     goto_split: SplitFocusDirection,
 
-    /// zoom/unzoom the current split. This is currently only supported
-    /// on macOS. Contributions welcome for other platforms.
+    /// zoom/unzoom the current split.
     toggle_split_zoom: void,
 
     /// Resize the current split by moving the split divider in the given
@@ -422,6 +421,8 @@ pub const Action = union(enum) {
     ///
     crash: CrashThread,
 
+    pub const Key = @typeInfo(Action).Union.tag_type.?;
+
     pub const CrashThread = enum {
         main,
         io,
@@ -431,6 +432,16 @@ pub const Action = union(enum) {
     pub const CursorKey = struct {
         normal: []const u8,
         application: []const u8,
+
+        pub fn clone(
+            self: CursorKey,
+            alloc: Allocator,
+        ) Allocator.Error!CursorKey {
+            return .{
+                .normal = try alloc.dupe(u8, self.normal),
+                .application = try alloc.dupe(u8, self.application),
+            };
+        }
     };
 
     pub const AdjustSelection = enum {
@@ -774,6 +785,50 @@ pub const Action = union(enum) {
         }
     }
 
+    /// Clone this action with the given allocator. The allocator
+    /// should be an arena-style allocator since fine-grained
+    /// deallocation is not possible.
+    pub fn clone(self: Action, alloc: Allocator) Allocator.Error!Action {
+        return switch (self) {
+            inline else => |value, tag| @unionInit(
+                Action,
+                @tagName(tag),
+                try cloneValue(alloc, value),
+            ),
+        };
+    }
+
+    fn cloneValue(
+        alloc: Allocator,
+        value: anytype,
+    ) Allocator.Error!@TypeOf(value) {
+        return switch (@typeInfo(@TypeOf(value))) {
+            .Void,
+            .Int,
+            .Float,
+            .Enum,
+            => value,
+
+            .Pointer => |info| slice: {
+                comptime assert(info.size == .Slice);
+                break :slice try alloc.dupe(
+                    info.child,
+                    value,
+                );
+            },
+
+            .Struct => |info| if (info.is_tuple)
+                value
+            else
+                try value.clone(alloc),
+
+            else => {
+                @compileLog(@TypeOf(value));
+                @compileError("unexpected type");
+            },
+        };
+    }
+
     /// Returns a hash code that can be used to uniquely identify this
     /// action.
     pub fn hash(self: Action) u64 {
@@ -1102,6 +1157,16 @@ pub const Set = struct {
         action: Action,
         flags: Flags,
 
+        pub fn clone(
+            self: Leaf,
+            alloc: Allocator,
+        ) Allocator.Error!Leaf {
+            return .{
+                .action = try self.action.clone(alloc),
+                .flags = self.flags,
+            };
+        }
+
         pub fn hash(self: Leaf) u64 {
             var hasher = std.hash.Wyhash.init(0);
             self.action.hash(&hasher);
@@ -1391,8 +1456,9 @@ pub const Set = struct {
         // If we have any leaders we need to clone them.
         var it = result.bindings.iterator();
         while (it.next()) |entry| switch (entry.value_ptr.*) {
-            // No data to clone
-            .leaf => {},
+            // Leaves could have data to clone (i.e. text actions
+            // contain allocated strings).
+            .leaf => |*s| s.* = try s.clone(alloc),
 
             // Must be deep cloned.
             .leader => |*s| {
@@ -2128,4 +2194,23 @@ test "set: consumed state" {
     try s.put(alloc, .{ .key = .{ .translated = .a } }, .{ .new_window = {} });
     try testing.expect(s.get(.{ .key = .{ .translated = .a } }).?.value_ptr.* == .leaf);
     try testing.expect(s.get(.{ .key = .{ .translated = .a } }).?.value_ptr.*.leaf.flags.consumed);
+}
+
+test "Action: clone" {
+    const testing = std.testing;
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    {
+        var a: Action = .ignore;
+        const b = try a.clone(alloc);
+        try testing.expect(b == .ignore);
+    }
+
+    {
+        var a: Action = .{ .text = "foo" };
+        const b = try a.clone(alloc);
+        try testing.expect(b == .text);
+    }
 }

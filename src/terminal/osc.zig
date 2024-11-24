@@ -400,7 +400,7 @@ pub const Parser = struct {
             .@"0" => switch (c) {
                 ';' => {
                     self.command = .{ .change_window_title = undefined };
-
+                    self.complete = true;
                     self.state = .string;
                     self.temp_state = .{ .str = &self.command.change_window_title };
                     self.buf_start = self.buf_idx;
@@ -477,7 +477,7 @@ pub const Parser = struct {
                 '2' => self.state = .@"22",
                 ';' => {
                     self.command = .{ .change_window_title = undefined };
-
+                    self.complete = true;
                     self.state = .string;
                     self.temp_state = .{ .str = &self.command.change_window_title };
                     self.buf_start = self.buf_idx;
@@ -641,7 +641,7 @@ pub const Parser = struct {
             .@"7" => switch (c) {
                 ';' => {
                     self.command = .{ .report_pwd = .{ .value = "" } };
-
+                    self.complete = true;
                     self.state = .string;
                     self.temp_state = .{ .str = &self.command.report_pwd.value };
                     self.buf_start = self.buf_idx;
@@ -1159,6 +1159,17 @@ test "OSC: change_window_title with utf8" {
     try testing.expectEqualStrings("— ‐", cmd.change_window_title);
 }
 
+test "OSC: change_window_title empty" {
+    const testing = std.testing;
+
+    var p: Parser = .{};
+    p.next('2');
+    p.next(';');
+    const cmd = p.end(null).?;
+    try testing.expect(cmd == .change_window_title);
+    try testing.expectEqualStrings("", cmd.change_window_title);
+}
+
 test "OSC: change_window_icon" {
     const testing = std.testing;
 
@@ -1371,6 +1382,18 @@ test "OSC: report pwd" {
     try testing.expect(std.mem.eql(u8, "file:///tmp/example", cmd.report_pwd.value));
 }
 
+test "OSC: report pwd empty" {
+    const testing = std.testing;
+
+    var p: Parser = .{};
+
+    const input = "7;";
+    for (input) |ch| p.next(ch);
+    const cmd = p.end(null).?;
+    try testing.expect(cmd == .report_pwd);
+    try testing.expect(std.mem.eql(u8, "", cmd.report_pwd.value));
+}
+
 test "OSC: pointer cursor" {
     const testing = std.testing;
 
@@ -1382,17 +1405,6 @@ test "OSC: pointer cursor" {
     const cmd = p.end(null).?;
     try testing.expect(cmd == .mouse_shape);
     try testing.expect(std.mem.eql(u8, "pointer", cmd.mouse_shape.value));
-}
-
-test "OSC: report pwd empty" {
-    const testing = std.testing;
-
-    var p: Parser = .{};
-
-    const input = "7;";
-    for (input) |ch| p.next(ch);
-
-    try testing.expect(p.end(null) == null);
 }
 
 test "OSC: longer than buffer" {

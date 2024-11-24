@@ -2,10 +2,12 @@ const builtin = @import("builtin");
 
 const formatter = @import("config/formatter.zig");
 pub const Config = @import("config/Config.zig");
+pub const conditional = @import("config/conditional.zig");
 pub const string = @import("config/string.zig");
 pub const edit = @import("config/edit.zig");
 pub const url = @import("config/url.zig");
 
+pub const ConditionalState = conditional.State;
 pub const FileFormatter = formatter.FileFormatter;
 pub const entryFormatter = formatter.entryFormatter;
 pub const formatEntry = formatter.formatEntry;
@@ -16,6 +18,7 @@ pub const CopyOnSelect = Config.CopyOnSelect;
 pub const CustomShaderAnimation = Config.CustomShaderAnimation;
 pub const FontSyntheticStyle = Config.FontSyntheticStyle;
 pub const FontStyle = Config.FontStyle;
+pub const FreetypeLoadFlags = Config.FreetypeLoadFlags;
 pub const Keybinds = Config.Keybinds;
 pub const MouseShiftCapture = Config.MouseShiftCapture;
 pub const NonNativeFullscreen = Config.NonNativeFullscreen;

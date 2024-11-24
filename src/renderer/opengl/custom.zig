@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const gl = @import("opengl");
-const ScreenSize = @import("../size.zig").ScreenSize;
+const Size = @import("../size.zig").Size;
 
 const log = std.log.scoped(.opengl_custom);
 
@@ -154,11 +154,11 @@ pub const State = struct {
         self.fbo.destroy();
     }
 
-    pub fn setScreenSize(self: *State, size: ScreenSize) !void {
+    pub fn setScreenSize(self: *State, size: Size) !void {
         // Update our uniforms
         self.uniforms.resolution = .{
-            @floatFromInt(size.width),
-            @floatFromInt(size.height),
+            @floatFromInt(size.screen.width),
+            @floatFromInt(size.screen.height),
             1,
         };
         try self.syncUniforms();
@@ -168,8 +168,8 @@ pub const State = struct {
         try texbind.image2D(
             0,
             .rgb,
-            @intCast(size.width),
-            @intCast(size.height),
+            @intCast(size.screen.width),
+            @intCast(size.screen.height),
             0,
             .rgb,
             .UnsignedByte,

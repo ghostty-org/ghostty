@@ -15,7 +15,6 @@ const posix = std.posix;
 const termio = @import("../termio.zig");
 const Command = @import("../Command.zig");
 const Pty = @import("../pty.zig").Pty;
-const SegmentedPool = @import("../segmented_pool.zig").SegmentedPool;
 const StreamHandler = @import("stream_handler.zig").StreamHandler;
 const terminal = @import("../terminal/main.zig");
 const terminfo = @import("../terminfo/main.zig");
@@ -57,11 +56,8 @@ renderer_mailbox: *renderer.Thread.Mailbox,
 /// The mailbox for communicating with the surface.
 surface_mailbox: apprt.surface.Mailbox,
 
-/// The cached grid size whenever a resize is called.
-grid_size: renderer.GridSize,
-
-/// The size of a single cell. Used for size reports.
-cell_size: renderer.CellSize,
+/// The cached size info
+size: renderer.Size,
 
 /// The mailbox implementation to use.
 mailbox: termio.Mailbox,
@@ -132,10 +128,13 @@ pub const DerivedConfig = struct {
 /// to run a child process.
 pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
     // Create our terminal
-    var term = try terminal.Terminal.init(alloc, .{
-        .cols = opts.grid_size.columns,
-        .rows = opts.grid_size.rows,
-        .max_scrollback = opts.full_config.@"scrollback-limit",
+    var term = try terminal.Terminal.init(alloc, opts: {
+        const grid_size = opts.size.grid();
+        break :opts .{
+            .cols = grid_size.columns,
+            .rows = grid_size.rows,
+            .max_scrollback = opts.full_config.@"scrollback-limit",
+        };
     });
     errdefer term.deinit(alloc);
     term.default_palette = opts.config.palette;
@@ -169,13 +168,13 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
     // Set our default cursor style
     term.screen.cursor.cursor_style = opts.config.cursor_style;
 
+    // Setup our terminal size in pixels for certain requests.
+    term.width_px = term.cols * opts.size.cell.width;
+    term.height_px = term.rows * opts.size.cell.height;
+
     // Setup our backend.
     var backend = opts.backend;
     backend.initTerminal(&term);
-
-    // Setup our terminal size in pixels for certain requests.
-    term.width_px = opts.grid_size.columns * opts.cell_size.width;
-    term.height_px = opts.grid_size.rows * opts.cell_size.height;
 
     // Create our stream handler. This points to memory in self so it
     // isn't safe to use until self.* is set.
@@ -192,7 +191,7 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
             .renderer_state = opts.renderer_state,
             .renderer_wakeup = opts.renderer_wakeup,
             .renderer_mailbox = opts.renderer_mailbox,
-            .grid_size = &self.grid_size,
+            .size = &self.size,
             .terminal = &self.terminal,
             .osc_color_report_format = opts.config.osc_color_report_format,
             .enquiry_response = opts.config.enquiry_response,
@@ -201,9 +200,9 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
             .default_cursor_style = opts.config.cursor_style,
             .default_cursor_blink = opts.config.cursor_blink,
             .default_cursor_color = default_cursor_color,
-            .cursor_color = default_cursor_color,
-            .foreground_color = opts.config.foreground.toTerminalRGB(),
-            .background_color = opts.config.background.toTerminalRGB(),
+            .cursor_color = null,
+            .foreground_color = null,
+            .background_color = null,
         };
     };
 
@@ -215,8 +214,7 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
         .renderer_wakeup = opts.renderer_wakeup,
         .renderer_mailbox = opts.renderer_mailbox,
         .surface_mailbox = opts.surface_mailbox,
-        .grid_size = opts.grid_size,
-        .cell_size = opts.cell_size,
+        .size = opts.size,
         .backend = opts.backend,
         .mailbox = opts.mailbox,
         .terminal_stream = .{
@@ -350,18 +348,13 @@ pub fn changeConfig(self: *Termio, td: *ThreadData, config: *DerivedConfig) !voi
 pub fn resize(
     self: *Termio,
     td: *ThreadData,
-    grid_size: renderer.GridSize,
-    cell_size: renderer.CellSize,
-    screen_size: renderer.ScreenSize,
-    padding: renderer.Padding,
+    size: renderer.Size,
 ) !void {
-    // Update the size of our pty.
-    const padded_size = screen_size.subPadding(padding);
-    try self.backend.resize(grid_size, padded_size);
+    self.size = size;
+    const grid_size = size.grid();
 
-    // Update our cached grid size
-    self.grid_size = grid_size;
-    self.cell_size = cell_size;
+    // Update the size of our pty.
+    try self.backend.resize(grid_size, size.terminal());
 
     // Enter the critical area that we want to keep small
     {
@@ -376,8 +369,8 @@ pub fn resize(
         );
 
         // Update our pixel sizes
-        self.terminal.width_px = self.grid_size.columns * self.cell_size.width;
-        self.terminal.height_px = self.grid_size.rows * self.cell_size.height;
+        self.terminal.width_px = grid_size.columns * self.size.cell.width;
+        self.terminal.height_px = grid_size.rows * self.size.cell.height;
 
         // Disable synchronized output mode so that we show changes
         // immediately for a resize. This is allowed by the spec.
@@ -390,12 +383,7 @@ pub fn resize(
     }
 
     // Mail the renderer so that it can update the GPU and re-render
-    _ = self.renderer_mailbox.push(.{
-        .resize = .{
-            .screen_size = screen_size,
-            .padding = padding,
-        },
-    }, .{ .forever = {} });
+    _ = self.renderer_mailbox.push(.{ .resize = size }, .{ .forever = {} });
     self.renderer_wakeup.notify() catch {};
 }
 
@@ -407,6 +395,8 @@ pub fn sizeReport(self: *Termio, td: *ThreadData, style: termio.Message.SizeRepo
 }
 
 fn sizeReportLocked(self: *Termio, td: *ThreadData, style: termio.Message.SizeReport) !void {
+    const grid_size = self.size.grid();
+
     // 1024 bytes should be enough for size report since report
     // in columns and pixels.
     var buf: [1024]u8 = undefined;
@@ -415,34 +405,34 @@ fn sizeReportLocked(self: *Termio, td: *ThreadData, style: termio.Message.SizeRe
             &buf,
             "\x1B[48;{};{};{};{}t",
             .{
-                self.grid_size.rows,
-                self.grid_size.columns,
-                self.grid_size.rows * self.cell_size.height,
-                self.grid_size.columns * self.cell_size.width,
+                grid_size.rows,
+                grid_size.columns,
+                grid_size.rows * self.size.cell.height,
+                grid_size.columns * self.size.cell.width,
             },
         ),
         .csi_14_t => try std.fmt.bufPrint(
             &buf,
             "\x1b[4;{};{}t",
             .{
-                self.grid_size.rows * self.cell_size.height,
-                self.grid_size.columns * self.cell_size.width,
+                grid_size.rows * self.size.cell.height,
+                grid_size.columns * self.size.cell.width,
             },
         ),
         .csi_16_t => try std.fmt.bufPrint(
             &buf,
             "\x1b[6;{};{}t",
             .{
-                self.cell_size.height,
-                self.cell_size.width,
+                self.size.cell.height,
+                self.size.cell.width,
             },
         ),
         .csi_18_t => try std.fmt.bufPrint(
             &buf,
             "\x1b[8;{};{}t",
             .{
-                self.grid_size.rows,
-                self.grid_size.columns,
+                grid_size.rows,
+                grid_size.columns,
             },
         ),
     };

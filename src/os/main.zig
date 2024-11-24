@@ -17,6 +17,7 @@ const resourcesdir = @import("resourcesdir.zig");
 // Namespaces
 pub const args = @import("args.zig");
 pub const cgroup = @import("cgroup.zig");
+pub const hostname = @import("hostname.zig");
 pub const passwd = @import("passwd.zig");
 pub const xdg = @import("xdg.zig");
 pub const windows = @import("windows.zig");
@@ -24,7 +25,6 @@ pub const windows = @import("windows.zig");
 // Functions and types
 pub const CFReleaseThread = @import("cf_release_thread.zig");
 pub const TempDir = @import("TempDir.zig");
-pub const PATH_SEP = env.PATH_SEP;
 pub const appendEnv = env.appendEnv;
 pub const appendEnvAlways = env.appendEnvAlways;
 pub const getenv = env.getenv;
