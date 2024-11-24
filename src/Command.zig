@@ -203,48 +203,9 @@ fn startWasi(self: *Command, arena: Allocator) !void {
     else
         @compileError("missing env vars");
 
-    // Fork. If we have a cgroup specified on Linxu then we use clone
-    const pid: posix.pid_t = switch (builtin.os.tag) {
-        .linux => if (self.linux_cgroup) |cgroup|
-            try internal_os.cgroup.cloneInto(cgroup)
-        else
-            try posix.fork(),
+    self.pid = 100;
 
-        else => try posix.fork(),
-    };
-
-    if (pid != 0) {
-        // Parent, return immediately.
-        self.pid = @intCast(pid);
-        return;
-    }
-
-    // We are the child.
-
-    // Setup our file descriptors for std streams.
-    if (self.stdin) |f| setupFd(f.handle, posix.STDIN_FILENO) catch
-        return error.ExecFailedInChild;
-    if (self.stdout) |f| setupFd(f.handle, posix.STDOUT_FILENO) catch
-        return error.ExecFailedInChild;
-    if (self.stderr) |f| setupFd(f.handle, posix.STDERR_FILENO) catch
-        return error.ExecFailedInChild;
-
-    // Setup our working directory
-    if (self.cwd) |cwd| posix.chdir(cwd) catch {
-        // This can fail if we don't have permission to go to
-        // this directory or if due to race conditions it doesn't
-        // exist or any various other reasons. We don't want to
-        // crash the entire process if this fails so we ignore it.
-        // We don't log because that'll show up in the output.
-    };
-
-    // If the user requested a pre exec callback, call it now.
-    if (self.pre_exec) |f| f(self);
-    std.log.err("{s} {*}", .{ pathZ, envp });
-
-    // If we are executing this code, the exec failed. In that scenario,
-    // we return a very specific error that can be detected to determine
-    // we're in the child.
+    std.log.err("need to fork {s} {*}", .{ pathZ, envp });
     return;
 }
 

@@ -1,13 +1,142 @@
 import { ZigJS } from "zig-js/src/index.ts";
-
+import {
+  WASI_ESUCCESS,
+  WASI_EBADF,
+  WASI_EINVAL,
+  WASI_ENOSYS,
+  WASI_EPERM,
+  //WASI_ENOTCAPABLE,
+  WASI_FILETYPE_UNKNOWN,
+  WASI_FILETYPE_BLOCK_DEVICE,
+  WASI_FILETYPE_CHARACTER_DEVICE,
+  WASI_FILETYPE_DIRECTORY,
+  WASI_FILETYPE_REGULAR_FILE,
+  WASI_FILETYPE_SOCKET_STREAM,
+  WASI_FILETYPE_SYMBOLIC_LINK,
+  WASI_FILETYPE,
+  WASI_FDFLAG_APPEND,
+  WASI_FDFLAG_DSYNC,
+  WASI_FDFLAG_NONBLOCK,
+  WASI_FDFLAG_RSYNC,
+  WASI_FDFLAG_SYNC,
+  WASI_RIGHT_FD_DATASYNC,
+  WASI_RIGHT_FD_READ,
+  WASI_RIGHT_FD_SEEK,
+  WASI_RIGHT_FD_FDSTAT_SET_FLAGS,
+  WASI_RIGHT_FD_SYNC,
+  WASI_RIGHT_FD_TELL,
+  WASI_RIGHT_FD_WRITE,
+  WASI_RIGHT_FD_ADVISE,
+  WASI_RIGHT_FD_ALLOCATE,
+  WASI_RIGHT_PATH_CREATE_DIRECTORY,
+  WASI_RIGHT_PATH_CREATE_FILE,
+  WASI_RIGHT_PATH_LINK_SOURCE,
+  WASI_RIGHT_PATH_LINK_TARGET,
+  WASI_RIGHT_PATH_OPEN,
+  WASI_RIGHT_FD_READDIR,
+  WASI_RIGHT_PATH_READLINK,
+  WASI_RIGHT_PATH_RENAME_SOURCE,
+  WASI_RIGHT_PATH_RENAME_TARGET,
+  WASI_RIGHT_PATH_FILESTAT_GET,
+  WASI_RIGHT_PATH_FILESTAT_SET_SIZE,
+  WASI_RIGHT_PATH_FILESTAT_SET_TIMES,
+  WASI_RIGHT_FD_FILESTAT_GET,
+  WASI_RIGHT_FD_FILESTAT_SET_SIZE,
+  WASI_RIGHT_FD_FILESTAT_SET_TIMES,
+  WASI_RIGHT_PATH_SYMLINK,
+  WASI_RIGHT_PATH_REMOVE_DIRECTORY,
+  WASI_RIGHT_POLL_FD_READWRITE,
+  WASI_RIGHT_PATH_UNLINK_FILE,
+  RIGHTS_BLOCK_DEVICE_BASE,
+  RIGHTS_BLOCK_DEVICE_INHERITING,
+  RIGHTS_CHARACTER_DEVICE_BASE,
+  RIGHTS_CHARACTER_DEVICE_INHERITING,
+  RIGHTS_REGULAR_FILE_BASE,
+  RIGHTS_REGULAR_FILE_INHERITING,
+  RIGHTS_DIRECTORY_BASE,
+  RIGHTS_DIRECTORY_INHERITING,
+  RIGHTS_SOCKET_BASE,
+  RIGHTS_SOCKET_INHERITING,
+  RIGHTS_TTY_BASE,
+  RIGHTS_TTY_INHERITING,
+  WASI_CLOCK_MONOTONIC,
+  WASI_CLOCK_PROCESS_CPUTIME_ID,
+  WASI_CLOCK_REALTIME,
+  WASI_CLOCK_THREAD_CPUTIME_ID,
+  WASI_EVENTTYPE_CLOCK,
+  WASI_EVENTTYPE_FD_READ,
+  WASI_EVENTTYPE_FD_WRITE,
+  WASI_FILESTAT_SET_ATIM,
+  WASI_FILESTAT_SET_ATIM_NOW,
+  WASI_FILESTAT_SET_MTIM,
+  WASI_FILESTAT_SET_MTIM_NOW,
+  WASI_O_CREAT,
+  WASI_O_DIRECTORY,
+  WASI_O_EXCL,
+  WASI_O_TRUNC,
+  WASI_PREOPENTYPE_DIR,
+  WASI_STDIN_FILENO,
+  WASI_STDOUT_FILENO,
+  WASI_STDERR_FILENO,
+  ERROR_MAP,
+  SIGNAL_MAP,
+  WASI_WHENCE_CUR,
+  WASI_WHENCE_END,
+  WASI_WHENCE_SET,
+} from "./wasi";
 const textDecoder = new TextDecoder("utf-8");
+let stdin = new SharedArrayBuffer(1024);
+export function setStdin(buf: SharedArrayBuffer) {
+  stdin = buf;
+}
+let bytes: null | Uint8ClampedArray = null
+function perfNow() {
+  return performance.now() + performance.timeOrigin;
+}
+function readStdin() {
+  const len = new Int32Array(stdin);
+  if (len[0] == 0) {
+    Atomics.wait(len, 0, 0, 1000);
+  }
+  const length = len[0];
+  console.error("stdin", length);
+  if (length === 0) {
+    bytes = null;
+    return;
+  }
+  bytes = new Uint8ClampedArray(stdin, 4, length).slice();
+  console.log(textDecoder.decode(bytes));
+  Atomics.store(len, 0, 0);
+  Atomics.notify(len, 0);
+}
+function sleep(ms: number) {
+  const buf = new SharedArrayBuffer(4);
+  const view = new Int32Array(buf);
+  view[0] = 1;
+  Atomics.wait(view, 0, 1, ms);
 
+
+}
+let wasmModule;
+export function setWasmModule(mod) {
+  wasmModule = mod;
+}
+let mainThread = true;
+export function setMainThread(isMain) {
+  mainThread = isMain;
+}
 let gl: WebGL2RenderingContext;
 export function setGl(l) {
   gl = l;
 }
 
 export const zjs = new ZigJS();
+globalThis.fontCanvas = new OffscreenCanvas(0, 0);
+// window.fontContext = () => {
+//   const ctx = fontCanvas.getContext("2d");
+//   ctx.willReadFrequently = true;
+//   return ctx;
+// }
 try {
   const $webgl = document.getElementById("main-canvas");
   let webgl2Supported = typeof WebGL2RenderingContext !== "undefined";
@@ -28,7 +157,7 @@ try {
       throw new Error("The browser supports WebGL2, but initialization failed.");
     }
   }
-} catch (e){console.error(e) }
+} catch (e) { console.error(e) }
 
 // OpenGL operates on numeric IDs while WebGL on objects. The following is a
 // hack made to allow keeping current API on the native side while resolving IDs
@@ -230,7 +359,7 @@ const glBufferData = (type, count, pointer, drawType) => {
   // The Float32Array multiplies by size of float which is 4, and the call to
   // this method, due to OpenGL compatibility, also receives already
   // pre-multiplied value.
-  gl.bufferData(type, zjs.memory.buffer.slice(pointer, pointer+count), drawType);
+  gl.bufferData(type, zjs.memory.buffer.slice(pointer, pointer + count), drawType);
 };
 
 const glBufferSubData = (target, offset, size, data) => {
@@ -506,6 +635,39 @@ const webgl = {
   glDrawElementsInstanced,
   glBindBufferBase,
 }
+const nsToMs = (ns: number | bigint) => {
+  if (typeof ns === "number") {
+    ns = Math.trunc(ns);
+  }
+  const nsInt = BigInt(ns);
+  return Number(nsInt / BigInt(1000000));
+};
+const msToNs = (ms: number) => {
+  const msInt = Math.trunc(ms);
+  const decimal = BigInt(Math.round((ms - msInt) * 1000000));
+  const ns = BigInt(msInt) * BigInt(1000000);
+  return ns + decimal;
+};
+const CPUTIME_START = msToNs(perfNow());
+const now = (clockId?: number) => {
+  switch (clockId) {
+    case WASI_CLOCK_MONOTONIC:
+      return msToNs(perfNow());
+    case WASI_CLOCK_REALTIME:
+      return msToNs(Date.now());
+    case WASI_CLOCK_PROCESS_CPUTIME_ID:
+    case WASI_CLOCK_THREAD_CPUTIME_ID: // TODO -- this assumes 1 thread
+      return msToNs(perfNow()) - CPUTIME_START;
+    default:
+      return null;
+  }
+};
+let files: { polling: SharedArrayBuffer, nextFd: SharedArrayBuffer, has: SharedArrayBuffer };
+export function setFiles(file) {
+  files = file;
+}
+const fdStart = 4;
+
 export const importObject = {
   module: {},
   env: {
@@ -520,6 +682,11 @@ export const importObject = {
       const data = arr.slice();
       const str = textDecoder.decode(data);
       console.error(str);
+    },
+    eventFd() {
+      const next = new Int32Array(files.nextFd);
+      return Atomics.add(next, 0, 1);
+
     },
     fork: (...params) => {
       console.error("fork", params);
@@ -555,17 +722,32 @@ export const importObject = {
   },
   wasi_snapshot_preview1: {
     fd_write: (fd, iovs, iovs_len, nwritten_ptr) => {
-      const memory = new DataView(zjs.memory.buffer);
-      let buf = "";
-      let nwritten = 0;
-      for (let offset = iovs; offset < iovs + iovs_len * 8; offset += 8) {
-        const iov_base = memory.getUint32(offset, true);
-        const iov_len = memory.getUint32(offset + 4, true);
-        buf += textDecoder.decode(new Uint8ClampedArray(memory.buffer.slice(iov_base, iov_base + iov_len)).slice());
-        nwritten += iov_len;
+      if (fd >= fdStart) {
+        const memory = new DataView(zjs.memory.buffer);
+        let nwritten = 0;
+        for (let offset = iovs; offset < iovs + iovs_len * 8; offset += 8) {
+          const iov_len = memory.getUint32(offset + 4, true);
+          nwritten += iov_len;
+        }
+        const has = new Int32Array(files.has);
+        Atomics.store(has, fd - fdStart, 1);
+        Atomics.notify(has, fd - fdStart);
+        console.error("notify", fd);
+        memory.setUint32(nwritten_ptr, nwritten, true);
+
+      } else {
+        const memory = new DataView(zjs.memory.buffer);
+        let buf = "";
+        let nwritten = 0;
+        for (let offset = iovs; offset < iovs + iovs_len * 8; offset += 8) {
+          const iov_base = memory.getUint32(offset, true);
+          const iov_len = memory.getUint32(offset + 4, true);
+          buf += textDecoder.decode(new Uint8ClampedArray(memory.buffer.slice(iov_base, iov_base + iov_len)).slice());
+          nwritten += iov_len;
+        }
+        memory.setUint32(nwritten_ptr, nwritten, true);
+        console.error(buf);
       }
-      memory.setUint32(nwritten_ptr, nwritten, true);
-      console.error(buf);
     },
     fd_close: (...params) => {
       console.error("fd_close", params);
@@ -591,8 +773,38 @@ export const importObject = {
     fd_pwrite: (...params) => {
       console.error("fd_pwrite", params);
     },
-    fd_read: (...params) => {
-      console.error("fd_read", params);
+    fd_read(fd, iovs, iovsLen, nreadPtr) {
+      if (fd >= fdStart) {
+        const memory = new DataView(zjs.memory.buffer);
+        let nwritten = 0;
+        for (let offset = iovs; offset < iovs + iovsLen * 8; offset += 8) {
+          const iov_base = memory.getUint32(offset, true);
+          const iov_len = memory.getUint32(offset + 4, true);
+          // new Uint8ClampedArray(memory.buffer.slice(iov_base, iov_base + iov_len)).fill(1);
+          nwritten += iov_len;
+          memory.setUint32(nreadPtr, nwritten, true);
+        }
+      } else {
+        const memory = new DataView(zjs.memory.buffer);
+        let nwritten = 0;
+        for (let offset = iovs; offset < iovs + iovsLen * 8; offset += 8) {
+          if (bytes == null) readStdin();
+          if (bytes == null) break;
+          const iov_base = memory.getUint32(offset, true);
+          const iov_len = memory.getUint32(offset + 4, true);
+          const read = Math.min(iov_len, bytes.length);
+          const io = new Uint8ClampedArray(zjs.memory.buffer, iov_base, iov_len);
+          io.set(bytes.slice(0, read));
+          bytes = bytes.slice(read);
+          if (bytes.length === 0) bytes = null;
+          nwritten += read;
+          if (read !== iov_len) break;
+        }
+
+        memory.setUint32(nreadPtr, nwritten, true);
+        if (nwritten > 0)
+        console.error("fd_read", nwritten);
+      }
     },
     fd_seek: (...params) => {
       console.error("fd_seek", params);
@@ -606,7 +818,207 @@ export const importObject = {
     path_unlink_file: (...params) => {
       console.error("path_unlink_file", params);
     },
-    poll_oneoff: (...params) => {
+    poll_oneoff(
+      sin: number,
+      sout: number,
+      nsubscriptions: number,
+      neventsPtr: number
+    ) {
+      
+      let nevents = 0;
+      let name = "";
+
+      // May have to wait this long (this gets computed below in the WASI_EVENTTYPE_CLOCK case).
+
+      let waitTimeNs = BigInt(0);
+
+      let fd = -1;
+      let fd_type: "read" | "write" = "read";
+      let fd_timeout_ms = 0;
+
+      const startNs = BigInt(msToNs(perfNow()));
+      let view = new DataView(zjs.memory.buffer);
+      let last_sin = sin;
+      for (let i = 0; i < nsubscriptions; i += 1) {
+        const userdata = view.getBigUint64(sin, true);
+        sin += 8;
+        const type = view.getUint8(sin);
+        sin += 1;
+        sin += 7; // padding
+        if (type == WASI_EVENTTYPE_CLOCK) {
+          name = "poll_oneoff (type=WASI_EVENTTYPE_CLOCK): ";
+        } else if (type == WASI_EVENTTYPE_FD_READ) {
+          name = "poll_oneoff (type=WASI_EVENTTYPE_FD_READ): ";
+        } else {
+          name = "poll_oneoff (type=WASI_EVENTTYPE_FD_WRITE): ";
+        }
+        console.log(name);
+        switch (type) {
+          case WASI_EVENTTYPE_CLOCK: {
+            // see packages/zig/dist/lib/libc/include/wasm-wasi-musl/wasi/api.h
+            // for exactly how these values are encoded.  I carefully looked
+            // at that header and **this is definitely right**.  Same with the fd
+            // in the other case below.
+            const clockid = view.getUint32(sin, true);
+            sin += 4;
+            sin += 4; // padding
+            let timeout = view.getBigUint64(sin, true);
+            console.log(timeout);
+            sin += 8;
+            // const precision = view.getBigUint64(sin, true);
+            sin += 8;
+            const subclockflags = view.getUint16(sin, true);
+            sin += 2;
+            sin += 6; // padding
+
+            const absolute = subclockflags === 1;
+            console.log(name, { clockid, timeout, absolute });
+            if (!absolute) {
+              fd_timeout_ms = Number(timeout / BigInt(1000000));
+            }
+
+            let e = WASI_ESUCCESS;
+            const t = now(clockid);
+            // logToFile(t, clockid, timeout, subclockflags, absolute);
+            if (t == null) {
+              e = WASI_EINVAL;
+            } else {
+              const end = absolute ? timeout : t + timeout;
+              const waitNs = end - t;
+              if (waitNs > waitTimeNs) {
+                waitTimeNs = waitNs;
+              }
+            }
+
+            view = new DataView(zjs.memory.buffer);
+            view.setBigUint64(sout, userdata, true);
+            sout += 8;
+            view.setUint16(sout, e, true); // error
+            sout += 8; // pad offset 2
+            view.setUint8(sout, WASI_EVENTTYPE_CLOCK);
+            sout += 8; // pad offset 1
+            sout += 8; // padding to 8
+
+            nevents += 1;
+
+            break;
+          }
+          case WASI_EVENTTYPE_FD_READ:
+          case WASI_EVENTTYPE_FD_WRITE: {
+            /*
+            Look at
+             lib/libc/wasi/libc-bottom-half/cloudlibc/src/libc/sys/select/pselect.c
+            to see how poll_oneoff is actually used by wasi to implement pselect.
+            It's also used in
+             lib/libc/wasi/libc-bottom-half/cloudlibc/src/libc/poll/poll.c
+
+            "If none of the selected descriptors are ready for the
+            requested operation, the pselect() or select() function shall
+            block until at least one of the requested operations becomes
+            ready, until the timeout occurs, or until interrupted by a signal."
+            Thus what is supposed to happen below is supposed
+            to block until the fd is ready to read from or write
+            to, etc.
+
+            For now at least if reading from stdin then we block for a short amount
+            of time if getStdin defined; otherwise, we at least *pause* for a moment
+            (to avoid cpu burn) if this.sleep is available.
+            */
+            fd = view.getUint32(sin, true);
+            fd_type = type == WASI_EVENTTYPE_FD_READ ? "read" : "write";
+            sin += 4;
+            console.log(name, "fd =", fd);
+            sin += 28;
+            let notify = true;
+            if (fd >= fdStart) {
+              const has = new Int32Array(files.has);
+              Atomics.wait(has, fd - fdStart, 0, 500);
+              if (has[fd - fdStart] == 0) {
+                console.warn("not notify");
+                notify = false;
+              } else {
+                console.warn("notify");
+                notify = true;
+                Atomics.store(has, fd - fdStart, 0)
+              }
+            }
+
+            if (notify) {
+              view = new DataView(zjs.memory.buffer);
+              view.setBigUint64(sout, userdata, true);
+              sout += 8;
+              view.setUint16(sout, WASI_ENOSYS, true); // error
+              sout += 8; // pad offset 2
+              view.setUint8(sout, type);
+              sout += 8; // pad offset 3
+              sout += 8; // padding to 8
+
+              nevents += 1;
+            }
+            /*
+            TODO: for now for stdin we are just doing a dumb hack.
+
+            We just do something really naive, which is "pause for a little while".
+            It seems to work for every application I have so far, from Python to
+            to ncurses, etc.  This also makes it easy to have non-blocking sleep
+            in node.js at the terminal without a worker thread, which is very nice!
+
+            Before I had it block here via getStdin when available, but that does not work
+            in general; in particular, it breaks ncurses completely. In
+               ncurses/tty/tty_update.c
+            the following call is assumed not to block, and if it does, then ncurses
+            interaction becomes totally broken:
+
+               select(SP_PARM->_checkfd + 1, &fdset, NULL, NULL, &ktimeout)
+
+            */
+            if (fd == WASI_STDIN_FILENO && WASI_EVENTTYPE_FD_READ == type) {
+              sleep(5000);
+            }
+
+            break;
+          }
+          default:
+            return WASI_EINVAL;
+        }
+
+        // Consistency check that we consumed exactly the right amount
+        // of the __wasi_subscription_t. See zig/lib/libc/include/wasm-wasi-musl/wasi/api.h
+        if (sin - last_sin != 48) {
+          console.warn("*** BUG in wasi-js in poll_oneoff ", {
+            i,
+            sin,
+            last_sin,
+            diff: sin - last_sin,
+          });
+        }
+        last_sin = sin;
+      }
+
+      view = new DataView(zjs.memory.buffer);
+      view.setUint32(neventsPtr, nevents, true);
+
+      // if (nevents == 2 && fd >= 0) {
+      //   const r = this.wasiImport.sock_pollSocket(fd, fd_type, fd_timeout_ms);
+      //   if (r != WASI_ENOSYS) {
+      //     // special implementation from outside
+      //     return r;
+      //   }
+      //   // fall back to below
+      // }
+
+      // Account for the time it took to do everything above, which
+      // can be arbitrarily long:
+      if (waitTimeNs > 0) {
+        waitTimeNs -= msToNs(perfNow()) - startNs;
+        // logToFile("waitTimeNs", waitTimeNs);
+        if (waitTimeNs >= 1000000) {
+          const ms = nsToMs(waitTimeNs);
+          sleep(ms);
+        }
+      }
+
+      return WASI_ESUCCESS;
     },
     proc_exit: (...params) => {
       console.error("proc_exit", params);
@@ -632,7 +1044,7 @@ export const importObject = {
     },
     clock_time_get: (_clock, _precision, ptr) => {
       const data = new DataView(zjs.memory.buffer);
-      data.setBigUint64(ptr, BigInt(Date.now()) * 1000000n, true)
+      data.setBigUint64(ptr, msToNs(perfNow()), true)
     },
     environ_sizes_get: (...params) => {
       console.error("environ_sizes_get", params);
@@ -640,11 +1052,22 @@ export const importObject = {
   },
   wasi: {
     "thread-spawn": (instance) => {
-      const worker = new Worker(new URL("worker.ts", import.meta.url), { type: "module" });
-      worker.postMessage([zjs.memory, instance]);
+      if (mainThread) {
+        spawnWorker(instance)
+      } else {
+        postMessage([instance])
+      }
 
     }
   },
 
   ...zjs.importObject(),
 };
+function spawnWorker(instance) {
+  const worker = new Worker(new URL("worker.ts", import.meta.url), { type: "module" });
+  worker.postMessage([zjs.memory, instance, stdin, wasmModule, files]);
+  worker.onmessage = (event) => {
+    const [instance] = event.data;
+    spawnWorker(instance);
+  }
+}

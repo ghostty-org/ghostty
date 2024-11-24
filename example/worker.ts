@@ -1,11 +1,14 @@
-import { importObject, zjs } from "./imports";
+import { importObject, setFiles, setMainThread, setStdin, zjs } from "./imports";
 
 onmessage = async (e) => {
   console.log("module received from main thread");
-  const [memory, instance] = e.data;
+  const [memory, instance, stdin, wasmModule, files] = e.data;
+  console.log(wasmModule)
+  setStdin(stdin);
+  setMainThread(false);
+  setFiles(files);
   importObject.env.memory = memory;
-const url = new URL("ghostty-wasm.wasm", import.meta.url);
-  const results = await WebAssembly.instantiateStreaming(fetch(url), importObject)
+  const results = await WebAssembly.instantiate(wasmModule, importObject);
   zjs.memory = memory;
-  results.instance.exports.wasi_thread_start(100, instance);
+  results.exports.wasi_thread_start(100, instance);
 };

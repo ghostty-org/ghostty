@@ -126,7 +126,7 @@ pub fn threadEnter(
 
     // Start our read thread
     const read_thread = try std.Thread.spawn(
-        .{},
+        .{ .allocator = alloc },
         if (builtin.os.tag == .windows) ReadThread.threadMainWindows else ReadThread.threadMainPosix,
         .{ pty_fds.read, io, pipe[0] },
     );
@@ -1424,6 +1424,7 @@ pub const ReadThread = struct {
                 // child process dies. To be safe, we just break the loop
                 // and let our poll happen.
                 if (n == 0) break;
+                std.log.err("{} {} {}", .{ buf[0], n, @intFromPtr(&buf) });
 
                 // log.info("DATA: {d}", .{n});
                 @call(.always_inline, termio.Termio.processOutput, .{ io, buf[0..n] });

@@ -1,11 +1,11 @@
-import { importObject, zjs } from "./imports";
+import { importObject, setFiles, setStdin, setWasmModule, zjs } from "./imports";
 import { old } from "./old";
 
 const url = new URL("ghostty-wasm.wasm", import.meta.url);
 fetch(url.href)
   .then((response) => response.arrayBuffer())
   .then((bytes) => WebAssembly.instantiate(bytes, importObject))
-  .then((results) => {
+  .then(async (results) => {
     const memory = importObject.env.memory;
     const {
       atlas_clear,
@@ -39,6 +39,7 @@ fetch(url.href)
       shared_grid_index_for_codepoint,
       shared_grid_render_glyph,
       run,
+      draw,
     } = results.instance.exports;
 
     // Give us access to the zjs value for debugging.
@@ -59,5 +60,42 @@ fetch(url.href)
     // Create our config
     const config_str = makeStr("font-family = monospace\nfont-size = 32\n");
     old(results);
+    setWasmModule(results.module);
+    const stdin = new SharedArrayBuffer(1024);
+    const files = {
+      nextFd: new SharedArrayBuffer(4),
+      polling: new SharedArrayBuffer(4),
+      has: new SharedArrayBuffer(1024),
+    }
+    new Int32Array(files.nextFd)[0] = 4;
+    setFiles(files);
+    setStdin(stdin);
     run(config_str.ptr, config_str.len);
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    const io = new Uint8ClampedArray(stdin, 4);
+    const text = new TextEncoder().encode("hello world\n\r");
+    io.set(text);
+    const n = new Int32Array(stdin);
+    console.error("storing");
+    Atomics.store(n, 0, text.length)
+    Atomics.notify(n, 0);
+    console.error("done storing");
+    function drawing() {
+      setTimeout(() => {
+        draw();
+        drawing();
+      }, 100);
+
+    }
+    drawing()
+    setTimeout(() => {
+      const io = new Uint8ClampedArray(stdin, 4);
+      const text = new TextEncoder().encode("🐏\n\r👍🏽\n\rM_ghostty\033[2;2H\033[48;2;240;40;40m\033[38;2;23;255;80mhello");
+      io.set(text);
+      const n = new Int32Array(stdin);
+      console.error("storing");
+      Atomics.store(n, 0, text.length)
+      Atomics.notify(n, 0);
+      console.error("done storing");
+    }, 5000)
   })

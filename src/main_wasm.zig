@@ -26,6 +26,14 @@ export fn run(str: [*]const u8, len: usize) void {
         std.log.err("err: {?}", .{err});
     };
 }
+
+var surf: ?*Surface = null;
+export fn draw() void {
+    surf.?.renderer.drawFrame(surf.?.rt_surface) catch |err| {
+        std.log.err("err: {?}", .{err});
+    };
+}
+
 fn run_(str: []const u8) !void {
     var config = try Config.default(alloc);
     var fbs = std.io.fixedBufferStream(str);
@@ -41,28 +49,29 @@ fn run_(str: []const u8) !void {
     try surface.init(alloc, &config, app, &app_runtime, apprt_surface);
     std.log.err("{}", .{surface.size});
     try surface.renderer.setScreenSize(surface.size);
-    const esc = "\x1b[";
-    surface.io.processOutput("M_yhelloaaaaaaaaa\n\r🐏\n\r👍🏽\n\rM_ghostty" ++ esc ++ "2;2H" ++ esc ++ "48;2;240;40;40m" ++ esc ++ "38;2;23;255;80mhello");
-    // try surface.renderer_state.terminal.printString("M_yhelloaaaaaaaaa\n🐏\n👍🏽\nM_ghostty");
-    // surface.renderer_state.terminal.setCursorPos(4, 2);
-    // try surface.renderer_state.terminal.setAttribute(.{ .direct_color_bg = .{
-    //     .r = 240,
-    //     .g = 40,
-    //     .b = 40,
-    // } });
-    // try surface.renderer_state.terminal.setAttribute(.{ .direct_color_fg = .{
-    //     .r = 255,
-    //     .g = 255,
-    //     .b = 255,
-    // } });
-    // try surface.renderer_state.terminal.printString("hello");
-    try surface.renderer.updateFrame(apprt_surface, &surface.renderer_state, false);
-    try surface.renderer.drawFrame(apprt_surface);
-    try surface.renderer.updateFrame(apprt_surface, &surface.renderer_state, false);
-    try surface.renderer.drawFrame(apprt_surface);
+    surf = surface;
+    // const esc = "\x1b[";
+    // surface.io.processOutput("M_yhelloaaaaaaaaa\n\r🐏\n\r👍🏽\n\rM_ghostty" ++ esc ++ "2;2H" ++ esc ++ "48;2;240;40;40m" ++ esc ++ "38;2;23;255;80mhello");
+    // // try surface.renderer_state.terminal.printString("M_yhelloaaaaaaaaa\n🐏\n👍🏽\nM_ghostty");
+    // // surface.renderer_state.terminal.setCursorPos(4, 2);
+    // // try surface.renderer_state.terminal.setAttribute(.{ .direct_color_bg = .{
+    // //     .r = 240,
+    // //     .g = 40,
+    // //     .b = 40,
+    // // } });
+    // // try surface.renderer_state.terminal.setAttribute(.{ .direct_color_fg = .{
+    // //     .r = 255,
+    // //     .g = 255,
+    // //     .b = 255,
+    // // } });
+    // // try surface.renderer_state.terminal.printString("hello");
+    // try surface.renderer.updateFrame(apprt_surface, &surface.renderer_state, false);
+    // try surface.renderer.drawFrame(apprt_surface);
+    // try surface.renderer.updateFrame(apprt_surface, &surface.renderer_state, false);
+    // try surface.renderer.drawFrame(apprt_surface);
 
-    // const webgl = try renderer.OpenGL.init(alloc, .{ .config = try renderer.OpenGL.DerivedConfig.init(alloc, &config) });
-    // _ = webgl;
+    // // const webgl = try renderer.OpenGL.init(alloc, .{ .config = try renderer.OpenGL.DerivedConfig.init(alloc, &config) });
+    // // _ = webgl;
 }
 
 pub const std_options: std.Options = .{

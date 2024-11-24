@@ -29,9 +29,6 @@ pub const Face = struct {
     /// Metrics for this font face. These are useful for renderers.
     metrics: font.face.Metrics,
 
-    /// The canvas element that we will reuse to render glyphs
-    canvas: js.Object,
-
     /// The map to store multi-codepoint grapheme clusters that are rendered.
     /// We use 1 above the maximum unicode codepoint up to the max 32-bit
     /// unsigned integer to store the "glyph index" for graphemes.
@@ -58,19 +55,11 @@ pub const Face = struct {
         const font_str = try alloc.dupe(u8, raw);
         errdefer alloc.free(font_str);
 
-        // Create our canvasxx that we're going to continue to reuse.
-        const OffscreenCanvas = try js.global.get(js.Object, "OffscreenCanvas");
-        defer OffscreenCanvas.deinit();
-        const canvas = try OffscreenCanvas.new(.{ 0, 0 });
-        errdefer canvas.deinit();
-
         var result = Face{
             .alloc = alloc,
             .font_str = font_str,
             .size = size,
             .presentation = presentation,
-
-            .canvas = canvas,
 
             // We're going to calculate these right after initialization.
             .metrics = undefined,
@@ -89,7 +78,6 @@ pub const Face = struct {
             while (it.next()) |value| self.alloc.free(value.*);
             self.glyph_to_grapheme.deinit(self.alloc);
         }
-        self.canvas.deinit();
         self.* = undefined;
     }
 
@@ -291,13 +279,15 @@ pub const Face = struct {
     fn context(self: Face) !js.Object {
         // This will return the same context on subsequent calls so it
         // is important to reset it.
-        const ctx = try self.canvas.call(js.Object, "getContext", .{js.string("2d")});
+        const canvas = try js.global.get(js.Object, "fontCanvas");
+        defer canvas.deinit();
+        const ctx = try canvas.call(js.Object, "getContext", .{js.string("2d")});
         errdefer ctx.deinit();
 
         // Clear the canvas
         {
-            const width = try self.canvas.get(f64, "width");
-            const height = try self.canvas.get(f64, "height");
+            const width = try canvas.get(f64, "width");
+            const height = try canvas.get(f64, "height");
             try ctx.call(void, "clearRect", .{ 0, 0, width, height });
         }
 
@@ -428,8 +418,10 @@ pub const Face = struct {
 
         // Resize canvas to match the glyph size exactly
         {
-            try self.canvas.set("width", width);
-            try self.canvas.set("height", height);
+            const canvas = try js.global.get(js.Object, "fontCanvas");
+            defer canvas.deinit();
+            try canvas.set("width", width);
+            try canvas.set("height", height);
 
             // const width_str = try std.fmt.allocPrint(alloc, "{d}px", .{width});
             // defer alloc.free(width_str);
@@ -562,25 +554,25 @@ pub const Wasm = struct {
         };
     }
 
-    export fn face_debug_canvas(face: *Face) void {
-        face_debug_canvas_(face) catch |err| {
-            log.warn("error adding debug canvas err={}", .{err});
-        };
-    }
+    // export fn face_debug_canvas(face: *Face) void {
+    //     face_debug_canvas_(face) catch |err| {
+    //         log.warn("error adding debug canvas err={}", .{err});
+    //     };
+    // }
 
-    fn face_debug_canvas_(face: *Face) !void {
-        const doc = try js.global.get(js.Object, "document");
-        defer doc.deinit();
+    // fn face_debug_canvas_(face: *Face) !void {
+    //     const doc = try js.global.get(js.Object, "document");
+    //     defer doc.deinit();
 
-        const elem = try doc.call(
-            ?js.Object,
-            "getElementById",
-            .{js.string("face-canvas")},
-        ) orelse return error.CanvasContainerNotFound;
-        defer elem.deinit();
+    //     const elem = try doc.call(
+    //         ?js.Object,
+    //         "getElementById",
+    //         .{js.string("face-canvas")},
+    //     ) orelse return error.CanvasContainerNotFound;
+    //     defer elem.deinit();
 
-        try elem.call(void, "append", .{face.canvas});
-    }
+    //     try elem.call(void, "append", .{face.canvas});
+    // }
 
     fn face_render_glyph_(face: *Face, atlas: *font.Atlas, codepoint: u32) !*font.Glyph {
         const glyph = try face.renderGlyph(alloc, atlas, codepoint, .{});

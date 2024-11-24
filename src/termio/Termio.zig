@@ -554,6 +554,7 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
     // use a timer under the covers
     if (internal_os.Instant.now()) |now| cursor_reset: {
         if (self.last_cursor_reset) |last| {
+            log.err("now: {} last: {}", .{ now, last });
             if (now.since(last) <= (500 * std.time.ns_per_ms)) {
                 break :cursor_reset;
             }
@@ -571,6 +572,7 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
     // process a byte at a time alternating between the inspector handler
     // and the termio handler. This is very slow compared to our optimizations
     // below but at least users only pay for it if they're using the inspector.
+    std.log.err("to print {s}", .{buf});
     if (builtin.cpu.arch == .wasm32) {
         self.terminal_stream.nextSlice(buf) catch |err|
             log.err("error processing terminal data: {}", .{err});

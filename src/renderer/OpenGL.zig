@@ -683,6 +683,7 @@ pub fn updateFrame(
 ) !void {
     _ = surface;
 
+    std.log.err("update frame", .{});
     // Data we extract out of the critical area.
     const Critical = struct {
         full_rebuild: bool,
@@ -701,6 +702,7 @@ pub fn updateFrame(
 
         state.mutex.lock();
         defer state.mutex.unlock();
+        std.log.err("critical", .{});
 
         // If we're in a synchronized output state, we pause all rendering.
         if (state.terminal.modes.get(.synchronized_output)) {
@@ -2229,8 +2231,9 @@ fn flushAtlasSingle(
 /// the cells.
 pub fn drawFrame(self: *OpenGL, surface: *apprt.Surface) !void {
     // If we're in single-threaded more we grab a lock since we use shared data.
-    if (single_threaded_draw) self.draw_mutex.lock();
-    defer if (single_threaded_draw) self.draw_mutex.unlock();
+    // wasm can't use a mutex on the main thread because it uses Atomic.wait
+    if (single_threaded_draw and builtin.cpu.arch != .wasm32) self.draw_mutex.lock();
+    defer if (single_threaded_draw and builtin.cpu.arch != .wasm32) self.draw_mutex.unlock();
     const gl_state: *GLState = if (self.gl_state) |*v| v else return;
 
     // Go through our images and see if we need to setup any textures.
