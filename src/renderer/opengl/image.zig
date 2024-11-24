@@ -35,7 +35,7 @@ pub const Placement = struct {
 /// The map used for storing images.
 pub const ImageMap = std.AutoHashMapUnmanaged(u32, struct {
     image: Image,
-    transmit_time: internal_os.Instant,
+    transmit_time: std.time.Instant,
 });
 
 /// The state for a single image that is to be rendered. The image can be

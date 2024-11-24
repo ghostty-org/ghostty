@@ -795,6 +795,7 @@ export const importObject = {
           const read = Math.min(iov_len, bytes.length);
           const io = new Uint8ClampedArray(zjs.memory.buffer, iov_base, iov_len);
           io.set(bytes.slice(0, read));
+          console.error(bytes[read-1]);
           bytes = bytes.slice(read);
           if (bytes.length === 0) bytes = null;
           nwritten += read;

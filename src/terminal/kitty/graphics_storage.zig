@@ -496,7 +496,7 @@ pub const ImageStorage = struct {
         // bit is fine compared to the megabytes we're looking to save.
         const Candidate = struct {
             id: u32,
-            time: internal_os.Instant,
+            time: std.time.Instant,
             used: bool,
         };
 

@@ -73,13 +73,11 @@ fetch(url.href)
     run(config_str.ptr, config_str.len);
     await new Promise((resolve) => setTimeout(resolve, 500))
     const io = new Uint8ClampedArray(stdin, 4);
-    const text = new TextEncoder().encode("hello world\n\r");
+    const text = new TextEncoder().encode("hello world\r\n");
     io.set(text);
     const n = new Int32Array(stdin);
-    console.error("storing");
     Atomics.store(n, 0, text.length)
     Atomics.notify(n, 0);
-    console.error("done storing");
     function drawing() {
       requestAnimationFrame(() => {
         draw();
@@ -88,14 +86,13 @@ fetch(url.href)
 
     }
     drawing()
-    setTimeout(() => {
-      const text = new TextEncoder().encode("🐏\n\r👍🏽\n\rM_ghostty\033[2;2H\033[48;2;240;40;40m\033[38;2;23;255;80mhello");
+    setInterval(() => {
+      // const text = new TextEncoder().encode("🐏\n\r👍🏽\n\rM_ghostty\033[2;2H\033[48;2;240;40;40m\033[38;2;23;255;80mhello");
+      const text = new TextEncoder().encode("🐏\r\n👍🏽\r\nM_ghostty\033[48;2;240;40;40m\033[38;2;23;255;80mhello\r\n");
       const n = new Int32Array(stdin);
-      console.error("storing");
       const place = Atomics.add(n, 0, text.length)
       const io = new Uint8ClampedArray(stdin, 4 + place);
       io.set(text);
       Atomics.notify(n, 0);
-      console.error("done storing");
     }, 5000)
   })

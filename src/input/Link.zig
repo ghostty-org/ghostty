@@ -8,8 +8,6 @@ const oni = @import("oniguruma");
 const Mods = @import("key.zig").Mods;
 const builtin = @import("builtin");
 
-pub const Regex = oni.Regex;
-
 /// The regular expression that will be used to match the link. Ownership
 /// of this memory is up to the caller. The link will never free this memory.
 regex: []const u8,
