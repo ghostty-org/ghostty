@@ -2182,7 +2182,6 @@ fn flushAtlasSingle(
     internal_format: gl.Texture.InternalFormat,
     format: gl.Texture.Format,
 ) !void {
-    std.log.err("starging flushing atlas", .{});
     // If the texture isn't modified we do nothing
     const new_modified = atlas.modified.load(.monotonic);
     if (new_modified <= modified.*) return;
@@ -2195,7 +2194,6 @@ fn flushAtlasSingle(
     defer texbind.unbind();
 
     const new_resized = atlas.resized.load(.monotonic);
-    std.log.err("flushing atlas", .{});
     if (new_resized > resized.*) {
         try texbind.image2D(
             0,
@@ -2231,9 +2229,15 @@ fn flushAtlasSingle(
 /// the cells.
 pub fn drawFrame(self: *OpenGL, surface: *apprt.Surface) !void {
     // If we're in single-threaded more we grab a lock since we use shared data.
-    // wasm can't use a mutex on the main thread because it uses Atomic.wait
-    if (single_threaded_draw and builtin.cpu.arch != .wasm32) self.draw_mutex.lock();
-    defer if (single_threaded_draw and builtin.cpu.arch != .wasm32) self.draw_mutex.unlock();
+    // wasm can't lock a mutex on the main thread because it uses Atomic.wait
+    if (single_threaded_draw) {
+        if (builtin.cpu.arch == .wasm32) {
+            if (!self.draw_mutex.tryLock()) return;
+        } else {
+            self.draw_mutex.lock();
+        }
+    }
+    defer if (single_threaded_draw) self.draw_mutex.unlock();
     const gl_state: *GLState = if (self.gl_state) |*v| v else return;
 
     // Go through our images and see if we need to setup any textures.
@@ -2465,10 +2469,8 @@ fn drawCells(
     gl_state: *const GLState,
     cells: std.ArrayListUnmanaged(CellProgram.Cell),
 ) !void {
-    std.log.err("start drawing cells", .{});
     // If we have no cells to render, then we render nothing.
     if (cells.items.len == 0) return;
-    std.log.err("have cells", .{});
 
     // Todo: get rid of this completely
     self.gl_cells_written = 0;
@@ -2489,10 +2491,10 @@ fn drawCells(
     // Our allocated buffer on the GPU is smaller than our capacity.
     // We reallocate a new buffer with the full new capacity.
     if (self.gl_cells_size < cells.capacity) {
-        log.info("reallocating GPU buffer old={} new={}", .{
-            self.gl_cells_size,
-            cells.capacity,
-        });
+        // log.info("reallocating GPU buffer old={} new={}", .{
+        //     self.gl_cells_size,
+        //     cells.capacity,
+        // });
 
         try bind.vbo.setDataNullManual(
             @sizeOf(CellProgram.Cell) * cells.capacity,
@@ -2506,7 +2508,7 @@ fn drawCells(
     // If we have data to write to the GPU, send it.
     if (self.gl_cells_written < cells.items.len) {
         const data = cells.items[self.gl_cells_written..];
-        log.info("sending {} cells to GPU", .{data.len});
+        // log.info("sending {} cells to GPU", .{data.len});
         try bind.vbo.setSubData(self.gl_cells_written * @sizeOf(CellProgram.Cell), data);
 
         self.gl_cells_written += data.len;

@@ -59,7 +59,7 @@ fetch(url.href)
 
     // Create our config
     const config_str = makeStr("font-family = monospace\nfont-size = 32\n");
-    old(results);
+    // old(results);
     setWasmModule(results.module);
     const stdin = new SharedArrayBuffer(1024);
     const files = {
@@ -81,20 +81,20 @@ fetch(url.href)
     Atomics.notify(n, 0);
     console.error("done storing");
     function drawing() {
-      setTimeout(() => {
+      requestAnimationFrame(() => {
         draw();
         drawing();
-      }, 100);
+      });
 
     }
     drawing()
     setTimeout(() => {
-      const io = new Uint8ClampedArray(stdin, 4);
       const text = new TextEncoder().encode("🐏\n\r👍🏽\n\rM_ghostty\033[2;2H\033[48;2;240;40;40m\033[38;2;23;255;80mhello");
-      io.set(text);
       const n = new Int32Array(stdin);
       console.error("storing");
-      Atomics.store(n, 0, text.length)
+      const place = Atomics.add(n, 0, text.length)
+      const io = new Uint8ClampedArray(stdin, 4 + place);
+      io.set(text);
       Atomics.notify(n, 0);
       console.error("done storing");
     }, 5000)

@@ -78,12 +78,11 @@ pub const std_options: std.Options = .{
     // Set our log level. We try to get as much logging as possible but in
     // ReleaseSmall mode where we're optimizing for space, we elevate the
     // log level.
-    // .log_level = switch (builtin.mode) {
-    //     .Debug => .debug,
-    //     .ReleaseSmall => .warn,
-    //     else => .info,
-    // },
-    .log_level = .info,
+    .log_level = switch (builtin.mode) {
+        .Debug => .debug,
+        .ReleaseSmall => .warn,
+        else => .info,
+    },
 
     // Set our log function
     .logFn = @import("os/wasm/log.zig").log,
