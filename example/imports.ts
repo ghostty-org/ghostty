@@ -99,7 +99,6 @@ function readStdin() {
     Atomics.wait(len, 0, 0, 1000);
   }
   const length = len[0];
-  console.error("stdin", length);
   if (length === 0) {
     bytes = null;
     return;
@@ -113,6 +112,7 @@ function sleep(ms: number) {
   const buf = new SharedArrayBuffer(4);
   const view = new Int32Array(buf);
   view[0] = 1;
+  console.error("sleep", ms);
   Atomics.wait(view, 0, 1, ms);
 
 
@@ -732,6 +732,7 @@ export const importObject = {
         const has = new Int32Array(files.has);
         Atomics.store(has, fd - fdStart, 1);
         Atomics.notify(has, fd - fdStart);
+        if (!mainThread) Atomics.wait(has, fd-fdStart, 1, 1000);
         console.error("notify", fd);
         memory.setUint32(nwritten_ptr, nwritten, true);
 
@@ -784,6 +785,10 @@ export const importObject = {
           nwritten += iov_len;
           memory.setUint32(nreadPtr, nwritten, true);
         }
+        const has = new Int32Array(files.has);
+        Atomics.store(has, fd - fdStart, 0)
+        Atomics.notify(has, fd-fdStart);
+        console.error("read", fd);
       } else {
         const memory = new DataView(zjs.memory.buffer);
         let nwritten = 0;
@@ -795,7 +800,6 @@ export const importObject = {
           const read = Math.min(iov_len, bytes.length);
           const io = new Uint8ClampedArray(zjs.memory.buffer, iov_base, iov_len);
           io.set(bytes.slice(0, read));
-          console.error(bytes[read-1]);
           bytes = bytes.slice(read);
           if (bytes.length === 0) bytes = null;
           nwritten += read;
@@ -803,8 +807,6 @@ export const importObject = {
         }
 
         memory.setUint32(nreadPtr, nwritten, true);
-        if (nwritten > 0)
-        console.error("fd_read", nwritten);
       }
     },
     fd_seek: (...params) => {
@@ -940,7 +942,6 @@ export const importObject = {
               } else {
                 console.warn("notify");
                 notify = true;
-                Atomics.store(has, fd - fdStart, 0)
               }
             }
 
@@ -973,9 +974,9 @@ export const importObject = {
                select(SP_PARM->_checkfd + 1, &fdset, NULL, NULL, &ktimeout)
 
             */
-            if (fd == WASI_STDIN_FILENO && WASI_EVENTTYPE_FD_READ == type) {
-              sleep(5000);
-            }
+            // if (fd == WASI_STDIN_FILENO && WASI_EVENTTYPE_FD_READ == type) {
+            //   sleep(5000);
+            // }
 
             break;
           }
@@ -1064,9 +1065,10 @@ export const importObject = {
 
   ...zjs.importObject(),
 };
+let pid = 100;
 function spawnWorker(instance) {
   const worker = new Worker(new URL("worker.ts", import.meta.url), { type: "module" });
-  worker.postMessage([zjs.memory, instance, stdin, wasmModule, files]);
+  worker.postMessage([zjs.memory, instance, stdin, wasmModule, files, pid++]);
   worker.onmessage = (event) => {
     const [instance] = event.data;
     spawnWorker(instance);

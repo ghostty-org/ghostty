@@ -94,5 +94,5 @@ fetch(url.href)
       const io = new Uint8ClampedArray(stdin, 4 + place);
       io.set(text);
       Atomics.notify(n, 0);
-    }, 5000)
+    }, 10000)
   })
