@@ -22,7 +22,7 @@
                 <outlet property="menuDecreaseFontSize" destination="kzb-SZ-dOA" id="Y1B-Vh-6Z2"/>
                 <outlet property="menuEqualizeSplits" destination="3gH-VD-vL9" id="SiZ-ce-FOF"/>
                 <outlet property="menuIncreaseFontSize" destination="CIH-ey-Z6x" id="hkc-9C-80E"/>
-                <outlet property="menuMakeDefaultTerminal" destination="gFP-FT-8g6" id="KNl-nG-qQv"/>
+                <outlet property="menuMakeGhosttyDefaultTerminal" destination="gFP-FT-8g6" id="m5T-sE-1oX"/>
                 <outlet property="menuMoveSplitDividerDown" destination="Zj7-2W-fdF" id="997-LL-nlN"/>
                 <outlet property="menuMoveSplitDividerLeft" destination="wSR-ny-j1a" id="HCZ-CI-2ob"/>
                 <outlet property="menuMoveSplitDividerRight" destination="CcX-ql-QU4" id="rIn-PK-fVM"/>

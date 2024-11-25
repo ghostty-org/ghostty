@@ -24,7 +24,7 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuReloadConfig: NSMenuItem?
     @IBOutlet private var menuSecureInput: NSMenuItem?
     @IBOutlet private var menuQuit: NSMenuItem?
-    @IBOutlet private var menuMakeDefaultTerminal: NSMenuItem?
+    @IBOutlet private var menuMakeGhosttyDefaultTerminal: NSMenuItem?
 
     @IBOutlet private var menuNewWindow: NSMenuItem?
     @IBOutlet private var menuNewTab: NSMenuItem?
@@ -208,6 +208,9 @@ class AppDelegate: NSObject,
 
             ghostty_app_set_color_scheme(app, scheme)
         }
+        
+        // Check if Ghostty is already the default terminal
+        updateDefaultTerminalMenuItem()
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -666,13 +669,11 @@ class AppDelegate: NSObject,
     }
 
     @IBAction func makeGhosttyDefaultTerminal(_ sender: Any) {
-        Ghostty.logger.debug("Clicked makeDefaultTerminal")
         let ghosttyBundleID = Bundle.main.bundleIdentifier!
         setDefaultTerminal(bundleID: ghosttyBundleID)
     }
    
     @IBAction func makeTerminalDefaultTerminal(_ sender: Any) {
-        Ghostty.logger.debug("Clicked makeTerminalDefaultTerminal")
         let terminalBundleID = "com.apple.terminal"
         setDefaultTerminal(bundleID: terminalBundleID)
     }
@@ -687,7 +688,6 @@ class AppDelegate: NSObject,
     
     func isDefaultTerminal(bundleID: String) -> Bool {
         return bundleID.isEqual(defaultTerminal())
-        // return CFStringCompare(bundleID as CFString, unixHandler?.takeRetainedValue(), CFStringCompareFlags.compareBackwards) == CFComparisonResult.compareEqualTo
     }
     
     func defaultTerminal() -> String {
@@ -699,10 +699,14 @@ class AppDelegate: NSObject,
     }
     
     func setDefaultTerminal(bundleID: String) {
-        Ghostty.logger.debug("Setting default terminal to \(bundleID)")
-        Ghostty.logger.debug("Is Ghostty default? \(self.isGhosttyDefault())")
-        Ghostty.logger.debug("Is Terminal default? \(self.isTerminalDefault())")
-        Ghostty.logger.debug("Debugging default terminal: \(self.defaultTerminal())")
+     let unixExecutableContentType: CFString = "public.unix-executable" as CFString
+        LSSetDefaultRoleHandlerForContentType(unixExecutableContentType, LSRolesMask.shell, bundleID as CFString)
+       
+        updateDefaultTerminalMenuItem()
+    }
+    
+    func updateDefaultTerminalMenuItem() {
+        menuMakeGhosttyDefaultTerminal?.isEnabled = !self.isGhosttyDefault()
     }
 
     @IBAction func toggleQuickTerminal(_ sender: Any) {
