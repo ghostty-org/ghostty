@@ -1,65 +1,47 @@
-import { ZigJS } from "zig-js";
-
-const zjs = new ZigJS();
-const importObject = {
-  module: {},
-  env: {
-    memory: new WebAssembly.Memory({
-      initial: 25,
-      maximum: 65536,
-      shared: true,
-    }),
-    log: (ptr: number, len: number) => {
-      const arr = new Uint8ClampedArray(zjs.memory.buffer, ptr, len);
-      const data = arr.slice();
-      const str = new TextDecoder("utf-8").decode(data);
-      console.log(str);
-    },
-  },
-
-  ...zjs.importObject(),
-};
+import { importObject, setFiles, setStdin, setWasmModule, zjs } from "./imports";
+import { old } from "./old";
 
 const url = new URL("ghostty-wasm.wasm", import.meta.url);
 fetch(url.href)
   .then((response) => response.arrayBuffer())
   .then((bytes) => WebAssembly.instantiate(bytes, importObject))
-  .then((results) => {
+  .then(async (results) => {
     const memory = importObject.env.memory;
     const {
-      malloc,
-      free,
-      config_new,
+      atlas_clear,
+      atlas_debug_canvas,
+      atlas_free,
+      atlas_grow,
+      atlas_new,
+      atlas_reserve,
+      atlas_set,
+      config_finalize,
       config_free,
       config_load_string,
-      config_finalize,
-      face_new,
-      face_free,
-      face_render_glyph,
-      face_debug_canvas,
-      deferred_face_new,
+      config_new,
       deferred_face_free,
       deferred_face_load,
-      deferred_face_face,
-      group_new,
-      group_free,
-      group_add_face,
-      group_init_sprite_face,
-      group_index_for_codepoint,
-      group_render_glyph,
-      group_cache_new,
-      group_cache_free,
-      group_cache_index_for_codepoint,
-      group_cache_render_glyph,
-      group_cache_atlas_grayscale,
-      group_cache_atlas_color,
-      atlas_new,
-      atlas_free,
-      atlas_debug_canvas,
-      shaper_new,
+      deferred_face_new,
+      face_debug_canvas,
+      face_free,
+      face_new,
+      face_render_glyph,
+      free,
+      malloc,
       shaper_free,
+      shaper_new,
       shaper_test,
+      collection_new,
+      collection_add_deferred_face,
+      shared_grid_new,
+      shared_grid_atlas_grayscale,
+      shared_grid_atlas_color,
+      shared_grid_index_for_codepoint,
+      shared_grid_render_glyph,
+      run,
+      draw,
     } = results.instance.exports;
+
     // Give us access to the zjs value for debugging.
     globalThis.zjs = zjs;
     console.log(zjs);
@@ -76,114 +58,41 @@ fetch(url.href)
     };
 
     // Create our config
-    const config = config_new();
-    const config_str = makeStr("font-family = monospace");
-    config_load_string(config, config_str.ptr, config_str.len);
-    config_finalize(config);
-    free(config_str.ptr);
-
-    // Create our atlas
-    // const atlas = atlas_new(512, 0 /* grayscale */);
-
-    // Create some memory for our string
-    const font_name = makeStr("monospace");
-
-    // Initialize our deferred face
-    // const df = deferred_face_new(font_ptr, font.byteLength, 0 /* text */);
-    //deferred_face_load(df, 72 /* size */);
-    //const face = deferred_face_face(df);
-
-    // Initialize our font face
-    //const face = face_new(font_ptr, font.byteLength, 72 /* size in px */);
-    //free(font_ptr);
-
-    // Create our group
-    const group = group_new(32 /* size */);
-    group_add_face(
-      group,
-      0 /* regular */,
-      deferred_face_new(font_name.ptr, font_name.len, 0 /* text */),
-    );
-    group_add_face(
-      group,
-      0 /* regular */,
-      deferred_face_new(font_name.ptr, font_name.len, 1 /* emoji */),
-    );
-
-    // Initialize our sprite font, without this we just use the browser.
-    group_init_sprite_face(group);
-
-    // Create our group cache
-    const group_cache = group_cache_new(group);
-
-    // Render a glyph
-    // for (let i = 33; i <= 126; i++) {
-    //   const font_idx = group_cache_index_for_codepoint(group_cache, i, 0, -1);
-    //   group_cache_render_glyph(group_cache, font_idx, i, 0);
-    //   //face_render_glyph(face, atlas, i);
-    // }
-    //
-    // const emoji = ["🐏","🌞","🌚","🍱","💿","🐈","📃","📀","🕡","🙃"];
-    // for (let i = 0; i < emoji.length; i++) {
-    //   const cp = emoji[i].codePointAt(0);
-    //   const font_idx = group_cache_index_for_codepoint(group_cache, cp, 0, -1 /* best choice */);
-    //   group_cache_render_glyph(group_cache, font_idx, cp, 0);
-    // }
-
-    for (let i = 0x2500; i <= 0x257f; i++) {
-      const font_idx = group_cache_index_for_codepoint(group_cache, i, 0, -1);
-      group_cache_render_glyph(group_cache, font_idx, i, 0);
+    const config_str = makeStr("font-family = monospace\nfont-size = 32\n");
+    // old(results);
+    setWasmModule(results.module);
+    const stdin = new SharedArrayBuffer(1024);
+    const files = {
+      nextFd: new SharedArrayBuffer(4),
+      polling: new SharedArrayBuffer(4),
+      has: new SharedArrayBuffer(1024),
     }
-    for (let i = 0x2580; i <= 0x259f; i++) {
-      const font_idx = group_cache_index_for_codepoint(group_cache, i, 0, -1);
-      group_cache_render_glyph(group_cache, font_idx, i, 0);
+    new Int32Array(files.nextFd)[0] = 4;
+    setFiles(files);
+    setStdin(stdin);
+    run(config_str.ptr, config_str.len);
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    const io = new Uint8ClampedArray(stdin, 4);
+    const text = new TextEncoder().encode("hello world\r\n");
+    io.set(text);
+    const n = new Int32Array(stdin);
+    Atomics.store(n, 0, text.length)
+    Atomics.notify(n, 0);
+    function drawing() {
+      requestAnimationFrame(() => {
+        draw();
+        drawing();
+      });
+
     }
-    for (let i = 0x2800; i <= 0x28ff; i++) {
-      const font_idx = group_cache_index_for_codepoint(group_cache, i, 0, -1);
-      group_cache_render_glyph(group_cache, font_idx, i, 0);
-    }
-    for (let i = 0x1fb00; i <= 0x1fb3b; i++) {
-      const font_idx = group_cache_index_for_codepoint(group_cache, i, 0, -1);
-      group_cache_render_glyph(group_cache, font_idx, i, 0);
-    }
-    for (let i = 0x1fb3c; i <= 0x1fb6b; i++) {
-      const font_idx = group_cache_index_for_codepoint(group_cache, i, 0, -1);
-      group_cache_render_glyph(group_cache, font_idx, i, 0);
-    }
-
-    //face_render_glyph(face, atlas, "橋".codePointAt(0));
-    //face_render_glyph(face, atlas, "p".codePointAt(0));
-
-    // Debug our canvas
-    //face_debug_canvas(face);
-
-    // Let's try shaping
-    const shaper = shaper_new(120);
-    //const input = makeStr("hello🐏");
-    const input = makeStr("hello🐏👍🏽");
-    shaper_test(shaper, group_cache, input.ptr, input.len);
-
-    const cp = 1114112;
-    const font_idx = group_cache_index_for_codepoint(
-      group_cache,
-      cp,
-      0,
-      -1 /* best choice */,
-    );
-    group_cache_render_glyph(group_cache, font_idx, cp, -1);
-
-    // Debug our atlas canvas
-    {
-      const atlas = group_cache_atlas_grayscale(group_cache);
-      const id = atlas_debug_canvas(atlas);
-      document.getElementById("atlas-canvas").append(zjs.deleteValue(id));
-    }
-
-    {
-      const atlas = group_cache_atlas_color(group_cache);
-      const id = atlas_debug_canvas(atlas);
-      document.getElementById("atlas-color-canvas").append(zjs.deleteValue(id));
-    }
-
-    //face_free(face);
-  });
+    drawing()
+    setInterval(() => {
+      // const text = new TextEncoder().encode("🐏\n\r👍🏽\n\rM_ghostty\033[2;2H\033[48;2;240;40;40m\033[38;2;23;255;80mhello");
+      const text = new TextEncoder().encode("🐏\r\n👍🏽\r\nM_ghostty\033[48;2;240;40;40m\033[38;2;23;255;80mhello\r\n");
+      const n = new Int32Array(stdin);
+      const place = Atomics.add(n, 0, text.length)
+      const io = new Uint8ClampedArray(stdin, 4 + place);
+      io.set(text);
+      Atomics.notify(n, 0);
+    }, 10000)
+  })

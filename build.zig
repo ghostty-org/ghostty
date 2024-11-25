@@ -716,7 +716,8 @@ pub fn build(b: *std.Build) !void {
         // Build our Wasm target.
         const wasm_crosstarget: std.Target.Query = .{
             .cpu_arch = .wasm32,
-            .os_tag = .freestanding,
+            .os_tag = .wasi,
+            .abi = .musl,
             .cpu_model = .{ .explicit = &std.Target.wasm.cpu.mvp },
             .cpu_features_add = std.Target.wasm.featureSet(&.{
                 // We use this to explicitly request shared memory.
@@ -748,7 +749,7 @@ pub fn build(b: *std.Build) !void {
             break :config copy;
         };
 
-        const wasm = b.addSharedLibrary(.{
+        const wasm = b.addExecutable(.{
             .name = "ghostty-wasm",
             .root_source_file = b.path("src/main_wasm.zig"),
             .target = b.resolveTargetQuery(wasm_crosstarget),
@@ -757,9 +758,14 @@ pub fn build(b: *std.Build) !void {
 
         // So that we can use web workers with our wasm binary
         wasm.import_memory = true;
-        wasm.initial_memory = 65536 * 25;
+        wasm.initial_memory = 65536 * 512;
+        wasm.entry = .disabled;
+        wasm.wasi_exec_model = .reactor;
+        wasm.rdynamic = true;
+        wasm.import_symbols = true;
         wasm.max_memory = 65536 * 65536; // Maximum number of pages in wasm32
         wasm.shared_memory = wasm_shared;
+        wasm.root_module.single_threaded = false;
 
         // Stack protector adds extern requirements that we don't satisfy.
         wasm.root_module.stack_protector = false;
@@ -769,10 +775,11 @@ pub fn build(b: *std.Build) !void {
 
         // Install
         const wasm_install = b.addInstallArtifact(wasm, .{});
-        wasm_install.dest_dir = .{ .prefix = {} };
+        const install = b.addInstallFile(wasm.getEmittedBin(), "../example/ghostty-wasm.wasm");
+        wasm_install.step.dependOn(&install.step);
 
         const step = b.step("wasm", "Build the wasm library");
-        step.dependOn(&wasm_install.step);
+        step.dependOn(&install.step);
 
         // We support tests via wasmtime. wasmtime uses WASI so this
         // isn't an exact match to our freestanding target above but
@@ -1073,81 +1080,82 @@ fn addDeps(
             try static_libs.append(fontconfig_dep.artifact("fontconfig").getEmittedBin());
         }
     }
+    if (step.rootModuleTarget().cpu.arch != .wasm32) {
+        // Libpng - Ghostty doesn't actually use this directly, its only used
+        // through dependencies, so we only need to add it to our static
+        // libs list if we're not using system integration. The dependencies
+        // will handle linking it.
+        if (!b.systemIntegrationOption("libpng", .{})) {
+            const libpng_dep = b.dependency("libpng", .{
+                .target = target,
+                .optimize = optimize,
+            });
+            step.linkLibrary(libpng_dep.artifact("png"));
+            try static_libs.append(libpng_dep.artifact("png").getEmittedBin());
+        }
 
-    // Libpng - Ghostty doesn't actually use this directly, its only used
-    // through dependencies, so we only need to add it to our static
-    // libs list if we're not using system integration. The dependencies
-    // will handle linking it.
-    if (!b.systemIntegrationOption("libpng", .{})) {
-        const libpng_dep = b.dependency("libpng", .{
+        // Zlib - same as libpng, only used through dependencies.
+        if (!b.systemIntegrationOption("zlib", .{})) {
+            const zlib_dep = b.dependency("zlib", .{
+                .target = target,
+                .optimize = optimize,
+            });
+            step.linkLibrary(zlib_dep.artifact("z"));
+            try static_libs.append(zlib_dep.artifact("z").getEmittedBin());
+        }
+
+        // Oniguruma
+        const oniguruma_dep = b.dependency("oniguruma", .{
             .target = target,
             .optimize = optimize,
         });
-        step.linkLibrary(libpng_dep.artifact("png"));
-        try static_libs.append(libpng_dep.artifact("png").getEmittedBin());
-    }
+        step.root_module.addImport("oniguruma", oniguruma_dep.module("oniguruma"));
+        if (b.systemIntegrationOption("oniguruma", .{})) {
+            // Oniguruma is compiled and distributed as libonig.so
+            step.linkSystemLibrary2("onig", dynamic_link_opts);
+        } else {
+            step.linkLibrary(oniguruma_dep.artifact("oniguruma"));
+            try static_libs.append(oniguruma_dep.artifact("oniguruma").getEmittedBin());
+        }
 
-    // Zlib - same as libpng, only used through dependencies.
-    if (!b.systemIntegrationOption("zlib", .{})) {
-        const zlib_dep = b.dependency("zlib", .{
+        // Glslang
+        const glslang_dep = b.dependency("glslang", .{
             .target = target,
             .optimize = optimize,
         });
-        step.linkLibrary(zlib_dep.artifact("z"));
-        try static_libs.append(zlib_dep.artifact("z").getEmittedBin());
-    }
+        step.root_module.addImport("glslang", glslang_dep.module("glslang"));
+        if (b.systemIntegrationOption("glslang", .{})) {
+            step.linkSystemLibrary2("glslang", dynamic_link_opts);
+            step.linkSystemLibrary2("glslang-default-resource-limits", dynamic_link_opts);
+        } else {
+            step.linkLibrary(glslang_dep.artifact("glslang"));
+            try static_libs.append(glslang_dep.artifact("glslang").getEmittedBin());
+        }
 
-    // Oniguruma
-    const oniguruma_dep = b.dependency("oniguruma", .{
-        .target = target,
-        .optimize = optimize,
-    });
-    step.root_module.addImport("oniguruma", oniguruma_dep.module("oniguruma"));
-    if (b.systemIntegrationOption("oniguruma", .{})) {
-        // Oniguruma is compiled and distributed as libonig.so
-        step.linkSystemLibrary2("onig", dynamic_link_opts);
-    } else {
-        step.linkLibrary(oniguruma_dep.artifact("oniguruma"));
-        try static_libs.append(oniguruma_dep.artifact("oniguruma").getEmittedBin());
-    }
-
-    // Glslang
-    const glslang_dep = b.dependency("glslang", .{
-        .target = target,
-        .optimize = optimize,
-    });
-    step.root_module.addImport("glslang", glslang_dep.module("glslang"));
-    if (b.systemIntegrationOption("glslang", .{})) {
-        step.linkSystemLibrary2("glslang", dynamic_link_opts);
-        step.linkSystemLibrary2("glslang-default-resource-limits", dynamic_link_opts);
-    } else {
-        step.linkLibrary(glslang_dep.artifact("glslang"));
-        try static_libs.append(glslang_dep.artifact("glslang").getEmittedBin());
-    }
-
-    // Spirv-cross
-    const spirv_cross_dep = b.dependency("spirv_cross", .{
-        .target = target,
-        .optimize = optimize,
-    });
-    step.root_module.addImport("spirv_cross", spirv_cross_dep.module("spirv_cross"));
-    if (b.systemIntegrationOption("spirv-cross", .{})) {
-        step.linkSystemLibrary2("spirv-cross", dynamic_link_opts);
-    } else {
-        step.linkLibrary(spirv_cross_dep.artifact("spirv_cross"));
-        try static_libs.append(spirv_cross_dep.artifact("spirv_cross").getEmittedBin());
-    }
-
-    // Simdutf
-    if (b.systemIntegrationOption("simdutf", .{})) {
-        step.linkSystemLibrary2("simdutf", dynamic_link_opts);
-    } else {
-        const simdutf_dep = b.dependency("simdutf", .{
+        // Spirv-cross
+        const spirv_cross_dep = b.dependency("spirv_cross", .{
             .target = target,
             .optimize = optimize,
         });
-        step.linkLibrary(simdutf_dep.artifact("simdutf"));
-        try static_libs.append(simdutf_dep.artifact("simdutf").getEmittedBin());
+        step.root_module.addImport("spirv_cross", spirv_cross_dep.module("spirv_cross"));
+        if (b.systemIntegrationOption("spirv-cross", .{})) {
+            step.linkSystemLibrary2("spirv-cross", dynamic_link_opts);
+        } else {
+            step.linkLibrary(spirv_cross_dep.artifact("spirv_cross"));
+            try static_libs.append(spirv_cross_dep.artifact("spirv_cross").getEmittedBin());
+        }
+
+        // Simdutf
+        if (b.systemIntegrationOption("simdutf", .{})) {
+            step.linkSystemLibrary2("simdutf", dynamic_link_opts);
+        } else {
+            const simdutf_dep = b.dependency("simdutf", .{
+                .target = target,
+                .optimize = optimize,
+            });
+            step.linkLibrary(simdutf_dep.artifact("simdutf"));
+            try static_libs.append(simdutf_dep.artifact("simdutf").getEmittedBin());
+        }
     }
 
     // Sentry
@@ -1157,7 +1165,7 @@ fn addDeps(
         .backend = .breakpad,
     });
     step.root_module.addImport("sentry", sentry_dep.module("sentry"));
-    if (target.result.os.tag != .windows) {
+    if (target.result.os.tag != .windows and target.result.cpu.arch != .wasm32) {
         // Sentry
         step.linkLibrary(sentry_dep.artifact("sentry"));
         try static_libs.append(sentry_dep.artifact("sentry").getEmittedBin());
@@ -1177,6 +1185,83 @@ fn addDeps(
             .optimize = optimize,
         });
         step.root_module.addImport("zig-js", js_dep.module("zig-js"));
+        step.root_module.addImport("ziglyph", b.dependency("ziglyph", .{
+            .target = target,
+            .optimize = optimize,
+        }).module("ziglyph"));
+        step.root_module.addImport("z2d", b.addModule("z2d", .{
+            .root_source_file = b.dependency("z2d", .{}).path("src/z2d.zig"),
+            .target = target,
+            .optimize = optimize,
+        }));
+        step.root_module.addImport("opengl", b.dependency(
+            "opengl",
+            .{},
+        ).module("opengl"));
+        step.root_module.addImport("xev", b.dependency("libxev", .{
+            .target = target,
+            .optimize = optimize,
+        }).module("xev"));
+        step.root_module.addImport("wuffs", b.dependency("wuffs", .{
+            .target = target,
+            .optimize = optimize,
+        }).module("wuffs"));
+        const oniguruma_dep = b.dependency("oniguruma", .{
+            .target = target,
+            .optimize = optimize,
+        });
+        step.root_module.addImport("oniguruma", oniguruma_dep.module("oniguruma"));
+        step.linkLibrary(oniguruma_dep.artifact("oniguruma"));
+        try static_libs.append(oniguruma_dep.artifact("oniguruma").getEmittedBin());
+        const simdutf_dep = b.dependency("simdutf", .{
+            .target = target,
+            .optimize = optimize,
+        });
+        const utfcpp_dep = b.dependency("utfcpp", .{
+            .target = target,
+            .optimize = optimize,
+        });
+        step.linkLibrary(utfcpp_dep.artifact("utfcpp"));
+        try static_libs.append(utfcpp_dep.artifact("utfcpp").getEmittedBin());
+        step.linkLibrary(simdutf_dep.artifact("simdutf"));
+        try static_libs.append(simdutf_dep.artifact("simdutf").getEmittedBin());
+        step.linkLibC();
+        step.linkLibCpp();
+        step.addIncludePath(b.path("src"));
+        {
+            // From hwy/detect_targets.h
+            const HWY_AVX3_SPR: c_int = 1 << 4;
+            const HWY_AVX3_ZEN4: c_int = 1 << 6;
+            const HWY_AVX3_DL: c_int = 1 << 7;
+            const HWY_AVX3: c_int = 1 << 8;
+
+            // Zig 0.13 bug: https://github.com/ziglang/zig/issues/20414
+            // To workaround this we just disable AVX512 support completely.
+            // The performance difference between AVX2 and AVX512 is not
+            // significant for our use case and AVX512 is very rare on consumer
+            // hardware anyways.
+            const HWY_DISABLED_TARGETS: c_int = HWY_AVX3_SPR | HWY_AVX3_ZEN4 | HWY_AVX3_DL | HWY_AVX3;
+
+            step.addCSourceFiles(.{
+                .files = &.{
+                    "src/simd/base64.cpp",
+                    "src/simd/codepoint_width.cpp",
+                    "src/simd/index_of.cpp",
+                    "src/simd/vt.cpp",
+                },
+                .flags = if (step.rootModuleTarget().cpu.arch == .x86_64) &.{
+                    b.fmt("-DHWY_DISABLED_TARGETS={}", .{HWY_DISABLED_TARGETS}),
+                } else &.{"-DSIMDUTF_NO_THREADS"},
+            });
+        }
+        const highway_dep = b.dependency("highway", .{
+            .target = target,
+            .optimize = optimize,
+        });
+        step.linkLibrary(highway_dep.artifact("highway"));
+        try static_libs.append(highway_dep.artifact("highway").getEmittedBin());
+
+        try addUnicodeTables(b, step);
 
         return static_libs;
     }

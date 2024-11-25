@@ -73,7 +73,8 @@ pseudo_console: if (builtin.os.tag == .windows) ?windows.exp.HPCON else void =
 data: ?*anyopaque = null,
 
 /// Process ID is set after start is called.
-pid: ?posix.pid_t = null,
+pid: ?PidT = null,
+pub const PidT = if (builtin.cpu.arch != .wasm32) posix.pid_t else i32;
 
 /// LinuxCGroup type depends on our target OS
 pub const LinuxCgroup = if (builtin.os.tag == .linux) ?[]const u8 else void;
@@ -122,6 +123,7 @@ pub fn start(self: *Command, alloc: Allocator) !void {
 
     switch (builtin.os.tag) {
         .windows => try self.startWindows(arena),
+        .wasi => try self.startWasi(arena),
         else => try self.startPosix(arena),
     }
 }
@@ -185,6 +187,26 @@ fn startPosix(self: *Command, arena: Allocator) !void {
     // we return a very specific error that can be detected to determine
     // we're in the child.
     return error.ExecFailedInChild;
+}
+
+fn startWasi(self: *Command, arena: Allocator) !void {
+    // Null-terminate all our arguments
+    const pathZ = try arena.dupeZ(u8, self.path);
+    const argsZ = try arena.allocSentinel(?[*:0]u8, self.args.len, null);
+    for (self.args, 0..) |arg, i| argsZ[i] = (try arena.dupeZ(u8, arg)).ptr;
+
+    // Determine our env vars
+    const envp = if (self.env) |env_map|
+        (try createNullDelimitedEnvMap(arena, env_map)).ptr
+    else if (builtin.link_libc)
+        std.c.environ
+    else
+        @compileError("missing env vars");
+
+    self.pid = 100;
+
+    std.log.err("need to fork {s} {*}", .{ pathZ, envp });
+    return;
 }
 
 fn startWindows(self: *Command, arena: Allocator) !void {
@@ -324,6 +346,7 @@ fn setupFd(src: File.Handle, target: i32) !void {
 
             try posix.dup2(src, target);
         },
+        .wasi => {},
         else => @compileError("unsupported platform"),
     }
 }

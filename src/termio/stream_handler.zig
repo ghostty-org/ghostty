@@ -1102,7 +1102,7 @@ pub const StreamHandler = struct {
         // See https://www.rfc-editor.org/rfc/rfc793#section-3.1.
         const PORT_NUMBER_MAX_DIGITS = 5;
         // Make sure there is space for a max length hostname + the max number of digits.
-        var host_and_port_buf: [posix.HOST_NAME_MAX + PORT_NUMBER_MAX_DIGITS]u8 = undefined;
+        var host_and_port_buf: [(if (builtin.cpu.arch == .wasm32) 64 else posix.HOST_NAME_MAX) + PORT_NUMBER_MAX_DIGITS]u8 = undefined;
         const hostname_from_uri = internal_os.hostname.bufPrintHostnameFromFileUri(
             &host_and_port_buf,
             uri,

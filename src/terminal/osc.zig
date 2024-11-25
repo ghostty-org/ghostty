@@ -11,6 +11,7 @@ const assert = std.debug.assert;
 const Allocator = mem.Allocator;
 const RGB = @import("color.zig").RGB;
 const kitty = @import("kitty.zig");
+const builtin = @import("builtin");
 
 const log = std.log.scoped(.osc);
 
@@ -871,7 +872,11 @@ pub const Parser = struct {
                     self.complete = true;
 
                     const idx = self.buf_idx - self.buf_start;
-                    if (idx > 0) self.temp_state.num *|= 10;
+                    if (builtin.cpu.arch == .wasm32) {
+                        if (idx > 0) self.temp_state.num *= 10;
+                    } else {
+                        if (idx > 0) self.temp_state.num *|= 10;
+                    }
                     self.temp_state.num +|= c - '0';
                 },
                 ';' => {

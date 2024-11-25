@@ -29,9 +29,6 @@ pub const Face = struct {
     /// Metrics for this font face. These are useful for renderers.
     metrics: font.face.Metrics,
 
-    /// The canvas element that we will reuse to render glyphs
-    canvas: js.Object,
-
     /// The map to store multi-codepoint grapheme clusters that are rendered.
     /// We use 1 above the maximum unicode codepoint up to the max 32-bit
     /// unsigned integer to store the "glyph index" for graphemes.
@@ -58,19 +55,11 @@ pub const Face = struct {
         const font_str = try alloc.dupe(u8, raw);
         errdefer alloc.free(font_str);
 
-        // Create our canvas that we're going to continue to reuse.
-        const doc = try js.global.get(js.Object, "document");
-        defer doc.deinit();
-        const canvas = try doc.call(js.Object, "createElement", .{js.string("canvas")});
-        errdefer canvas.deinit();
-
         var result = Face{
             .alloc = alloc,
             .font_str = font_str,
             .size = size,
             .presentation = presentation,
-
-            .canvas = canvas,
 
             // We're going to calculate these right after initialization.
             .metrics = undefined,
@@ -89,7 +78,6 @@ pub const Face = struct {
             while (it.next()) |value| self.alloc.free(value.*);
             self.glyph_to_grapheme.deinit(self.alloc);
         }
-        self.canvas.deinit();
         self.* = undefined;
     }
 
@@ -232,7 +220,7 @@ pub const Face = struct {
             .height = render.height,
             // TODO: this can't be right
             .offset_x = 0,
-            .offset_y = 0,
+            .offset_y = render.y_offset,
             .atlas_x = region.x,
             .atlas_y = region.y,
             .advance_x = 0,
@@ -262,8 +250,8 @@ pub const Face = struct {
         // pixel height but this is a more surefire way to get it.
         const height_metrics = try ctx.call(js.Object, "measureText", .{js.string("M_")});
         defer height_metrics.deinit();
-        const asc = try height_metrics.get(f32, "actualBoundingBoxAscent");
-        const desc = try height_metrics.get(f32, "actualBoundingBoxDescent");
+        const asc = try height_metrics.get(f32, "fontBoundingBoxAscent");
+        const desc = try height_metrics.get(f32, "fontBoundingBoxDescent");
         const cell_height = asc + desc;
         const cell_baseline = desc;
 
@@ -291,13 +279,15 @@ pub const Face = struct {
     fn context(self: Face) !js.Object {
         // This will return the same context on subsequent calls so it
         // is important to reset it.
-        const ctx = try self.canvas.call(js.Object, "getContext", .{js.string("2d")});
+        const canvas = try js.global.get(js.Object, "fontCanvas");
+        defer canvas.deinit();
+        const ctx = try canvas.call(js.Object, "getContext", .{js.string("2d")});
         errdefer ctx.deinit();
 
         // Clear the canvas
         {
-            const width = try self.canvas.get(f64, "width");
-            const height = try self.canvas.get(f64, "height");
+            const width = try canvas.get(f64, "width");
+            const height = try canvas.get(f64, "height");
             try ctx.call(void, "clearRect", .{ 0, 0, width, height });
         }
 
@@ -325,6 +315,27 @@ pub const Face = struct {
         return ctx;
     }
 
+    pub fn hasColor(_: *const Face) bool {
+        return true;
+    }
+
+    pub fn isColorGlyph(self: *const Face, cp: u32) bool {
+        // Render the glyph
+        var render = self.renderGlyphInternal(self.alloc, cp) catch unreachable;
+        defer render.deinit();
+
+        // Inspect the image data for any non-zeros in the RGB value.
+        // NOTE(perf): this is an easy candidate for SIMD.
+        var i: usize = 0;
+        while (i < render.bitmap.len) : (i += 4) {
+            if (render.bitmap[i] > 0 or
+                render.bitmap[i + 1] > 0 or
+                render.bitmap[i + 2] > 0) return true;
+        }
+
+        return false;
+    }
+
     /// An internal (web-canvas-only) format for rendered glyphs
     /// since we do render passes in multiple different situations.
     const RenderedGlyph = struct {
@@ -332,6 +343,7 @@ pub const Face = struct {
         metrics: js.Object,
         width: u32,
         height: u32,
+        y_offset: i32,
         bitmap: []u8,
 
         pub fn deinit(self: *RenderedGlyph) void {
@@ -392,24 +404,34 @@ pub const Face = struct {
         // Height is our ascender + descender for this char
         const height = if (!broken_bbox) @as(u32, @intFromFloat(@ceil(asc + desc))) + 1 else width;
 
+        const ctx_temp = try self.context();
+        try ctx_temp.set("textBaseline", js.string("top"));
+        // Get the width and height of the render
+        const metrics_2 = try measure_ctx.call(js.Object, "measureText", .{glyph_str});
+        const top_desc = try metrics_2.get(f32, "actualBoundingBoxDescent") + 1;
+        const y_offset = @as(i32, @intCast(height)) - @as(i32, @intFromFloat(top_desc));
+        ctx_temp.deinit();
+
         // Note: width and height both get "+ 1" added to them above. This
         // is important so that there is a 1px border around the glyph to avoid
         // any clipping in the atlas.
 
         // Resize canvas to match the glyph size exactly
         {
-            try self.canvas.set("width", width);
-            try self.canvas.set("height", height);
+            const canvas = try js.global.get(js.Object, "fontCanvas");
+            defer canvas.deinit();
+            try canvas.set("width", width);
+            try canvas.set("height", height);
 
-            const width_str = try std.fmt.allocPrint(alloc, "{d}px", .{width});
-            defer alloc.free(width_str);
-            const height_str = try std.fmt.allocPrint(alloc, "{d}px", .{height});
-            defer alloc.free(height_str);
+            // const width_str = try std.fmt.allocPrint(alloc, "{d}px", .{width});
+            // defer alloc.free(width_str);
+            // const height_str = try std.fmt.allocPrint(alloc, "{d}px", .{height});
+            // defer alloc.free(height_str);
 
-            const style = try self.canvas.get(js.Object, "style");
-            defer style.deinit();
-            try style.set("width", js.string(width_str));
-            try style.set("height", js.string(height_str));
+            // const style = try self.canvas.get(js.Object, "style");
+            // defer style.deinit();
+            // try style.set("width", js.string(width_str));
+            // try style.set("height", js.string(height_str));
         }
 
         // Reload our context since we resized the canvas
@@ -484,6 +506,7 @@ pub const Face = struct {
             .width = width,
             .height = height,
             .bitmap = bitmap,
+            .y_offset = y_offset,
         };
     }
 };
@@ -494,7 +517,7 @@ pub const Wasm = struct {
     const alloc = wasm.alloc;
 
     export fn face_new(ptr: [*]const u8, len: usize, pts: u16, p: u16) ?*Face {
-        return face_new_(ptr, len, pts, p) catch null;
+        return face_new_(ptr, len, @floatFromInt(pts), p) catch null;
     }
 
     fn face_new_(ptr: [*]const u8, len: usize, pts: f32, presentation: u16) !*Face {
@@ -531,25 +554,25 @@ pub const Wasm = struct {
         };
     }
 
-    export fn face_debug_canvas(face: *Face) void {
-        face_debug_canvas_(face) catch |err| {
-            log.warn("error adding debug canvas err={}", .{err});
-        };
-    }
+    // export fn face_debug_canvas(face: *Face) void {
+    //     face_debug_canvas_(face) catch |err| {
+    //         log.warn("error adding debug canvas err={}", .{err});
+    //     };
+    // }
 
-    fn face_debug_canvas_(face: *Face) !void {
-        const doc = try js.global.get(js.Object, "document");
-        defer doc.deinit();
+    // fn face_debug_canvas_(face: *Face) !void {
+    //     const doc = try js.global.get(js.Object, "document");
+    //     defer doc.deinit();
 
-        const elem = try doc.call(
-            ?js.Object,
-            "getElementById",
-            .{js.string("face-canvas")},
-        ) orelse return error.CanvasContainerNotFound;
-        defer elem.deinit();
+    //     const elem = try doc.call(
+    //         ?js.Object,
+    //         "getElementById",
+    //         .{js.string("face-canvas")},
+    //     ) orelse return error.CanvasContainerNotFound;
+    //     defer elem.deinit();
 
-        try elem.call(void, "append", .{face.canvas});
-    }
+    //     try elem.call(void, "append", .{face.canvas});
+    // }
 
     fn face_render_glyph_(face: *Face, atlas: *font.Atlas, codepoint: u32) !*font.Glyph {
         const glyph = try face.renderGlyph(alloc, atlas, codepoint, .{});

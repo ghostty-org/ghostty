@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 
 const terminal = @import("../main.zig");
+const internal_os = @import("../../os/main.zig");
 const point = @import("../point.zig");
 const size = @import("../size.zig");
 const command = @import("graphics_command.zig");

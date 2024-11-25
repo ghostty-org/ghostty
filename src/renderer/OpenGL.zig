@@ -460,6 +460,9 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
             // to compile for OpenGL targets but libghostty is strictly
             // broken for rendering on this platforms.
         },
+        apprt.browser => {
+            gl.glad.context.init();
+        },
     }
 
     // These are very noisy so this is commented, but easy to uncomment
@@ -574,6 +577,10 @@ pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
             // to compile for OpenGL targets but libghostty is strictly
             // broken for rendering on this platforms.
         },
+        apprt.browser => {
+            log.err("context init", .{});
+            gl.glad.context.init();
+        },
     }
 }
 
@@ -597,6 +604,7 @@ pub fn threadExit(self: *const OpenGL) void {
         apprt.embedded => {
             // TODO: see threadEnter
         },
+        apprt.browser => {},
     }
 }
 
@@ -675,6 +683,7 @@ pub fn updateFrame(
 ) !void {
     _ = surface;
 
+    std.log.err("update frame", .{});
     // Data we extract out of the critical area.
     const Critical = struct {
         full_rebuild: bool,
@@ -693,6 +702,7 @@ pub fn updateFrame(
 
         state.mutex.lock();
         defer state.mutex.unlock();
+        std.log.err("critical", .{});
 
         // If we're in a synchronized output state, we pause all rendering.
         if (state.terminal.modes.get(.synchronized_output)) {
@@ -2219,7 +2229,14 @@ fn flushAtlasSingle(
 /// the cells.
 pub fn drawFrame(self: *OpenGL, surface: *apprt.Surface) !void {
     // If we're in single-threaded more we grab a lock since we use shared data.
-    if (single_threaded_draw) self.draw_mutex.lock();
+    // wasm can't lock a mutex on the main thread because it uses Atomic.wait
+    if (single_threaded_draw) {
+        if (builtin.cpu.arch == .wasm32) {
+            if (!self.draw_mutex.tryLock()) return;
+        } else {
+            self.draw_mutex.lock();
+        }
+    }
     defer if (single_threaded_draw) self.draw_mutex.unlock();
     const gl_state: *GLState = if (self.gl_state) |*v| v else return;
 
@@ -2278,6 +2295,7 @@ pub fn drawFrame(self: *OpenGL, surface: *apprt.Surface) !void {
         apprt.glfw => surface.window.swapBuffers(),
         apprt.gtk => {},
         apprt.embedded => {},
+        apprt.browser => {},
         else => @compileError("unsupported runtime"),
     }
 }
@@ -2473,10 +2491,10 @@ fn drawCells(
     // Our allocated buffer on the GPU is smaller than our capacity.
     // We reallocate a new buffer with the full new capacity.
     if (self.gl_cells_size < cells.capacity) {
-        log.info("reallocating GPU buffer old={} new={}", .{
-            self.gl_cells_size,
-            cells.capacity,
-        });
+        // log.info("reallocating GPU buffer old={} new={}", .{
+        //     self.gl_cells_size,
+        //     cells.capacity,
+        // });
 
         try bind.vbo.setDataNullManual(
             @sizeOf(CellProgram.Cell) * cells.capacity,
@@ -2526,7 +2544,7 @@ const GLState = struct {
         const arena_alloc = arena.allocator();
 
         // Load our custom shaders
-        const custom_state: ?custom.State = custom: {
+        const custom_state: ?custom.State = if (builtin.cpu.arch == .wasm32) null else custom: {
             const shaders: []const [:0]const u8 = shadertoy.loadFromFiles(
                 arena_alloc,
                 config.custom_shaders,

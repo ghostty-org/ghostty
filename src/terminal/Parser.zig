@@ -328,8 +328,14 @@ fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
             }
 
             // A numeric value. Add it to our accumulator.
-            if (self.param_acc_idx > 0) {
-                self.param_acc *|= 10;
+            if (builtin.cpu.arch == .wasm32) {
+                if (self.param_acc_idx > 0) {
+                    self.param_acc *= 10;
+                }
+            } else {
+                if (self.param_acc_idx > 0) {
+                    self.param_acc *|= 10;
+                }
             }
             self.param_acc +|= c - '0';
 

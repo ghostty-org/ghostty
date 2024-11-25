@@ -13,6 +13,8 @@ const mouse = @import("mouse.zig");
 const openpkg = @import("open.zig");
 const pipepkg = @import("pipe.zig");
 const resourcesdir = @import("resourcesdir.zig");
+const builtin = @import("builtin");
+const std = @import("std");
 
 // Namespaces
 pub const args = @import("args.zig");

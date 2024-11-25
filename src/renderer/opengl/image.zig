@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const gl = @import("opengl");
 const wuffs = @import("wuffs");
+const internal_os = @import("../../os/main.zig");
 
 /// Represents a single image placement on the grid. A placement is a
 /// request to render an instance of an image.

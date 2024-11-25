@@ -1,12 +1,12 @@
-#version 330 core
+#version 300 es
 
-in vec2 tex_coord;
+in mediump vec2 tex_coord;
 
-layout(location = 0) out vec4 out_FragColor;
+out mediump vec4 out_FragColor;
 
 uniform sampler2D image;
 
 void main() {
-    vec4 color = texture(image, tex_coord);
+    mediump vec4 color = texture(image, tex_coord);
     out_FragColor = vec4(color.rgb * color.a, color.a);
 }

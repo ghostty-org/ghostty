@@ -18,6 +18,7 @@ pub const winsize = extern struct {
 pub const Pty = switch (builtin.os.tag) {
     .windows => WindowsPty,
     .ios => NullPty,
+    .freestanding, .wasi => NullPty,
     else => PosixPty,
 };
 
@@ -41,7 +42,7 @@ pub const Mode = packed struct {
 // a termio that doesn't use a pty. This isn't used in any user-facing
 // artifacts, this is just a stopgap to get compilation to work on iOS.
 const NullPty = struct {
-    pub const Fd = posix.fd_t;
+    pub const Fd = i32;
 
     master: Fd,
     slave: Fd,

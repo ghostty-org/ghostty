@@ -20,6 +20,8 @@ pub inline fn home(buf: []u8) !?[]u8 {
         // iOS doesn't have a user-writable home directory
         .ios => null,
 
+        .wasi => null,
+
         else => @compileError("unimplemented"),
     };
 }
