@@ -53,7 +53,7 @@ fn writeFishCompletions(writer: anytype) !void {
         if (std.mem.startsWith(u8, field.name, "font-family"))
             try writer.writeAll(" -f  -a \"(ghostty +list-fonts | grep '^[A-Z]')\"")
         else if (std.mem.eql(u8, "theme", field.name))
-            try writer.writeAll(" -f -a \"(ghostty +list-themes | sed -E 's/^(.*) \\(.*\\$/\\1/')\"")
+            try writer.writeAll(" -f -a \"(ghostty +list-themes | sed -E 's/^(.*) \\(.*\\)$/\\1/')\"")
         else if (std.mem.eql(u8, "working-directory", field.name))
             try writer.writeAll(" -f -k -a \"(__fish_complete_directories)\"")
         else {
