@@ -690,10 +690,10 @@ class AppDelegate: NSObject,
         return bundleID.isEqual(defaultTerminal())
     }
     
-    func defaultTerminal() -> String {
+    func defaultTerminal() -> String? {
         let unixExecutableContentType: CFString = "public.unix-executable" as CFString
         let unixHandler = LSCopyDefaultRoleHandlerForContentType(unixExecutableContentType, LSRolesMask.shell)
-        let current = unixHandler?.takeRetainedValue() as? String ?? ""
+        let current = unixHandler?.takeRetainedValue() as? String
         
         return current
     }
