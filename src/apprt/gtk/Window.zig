@@ -54,7 +54,7 @@ toast_overlay: ?*c.GtkWidget,
 /// See adwTabOverviewOpen for why we have this.
 adw_tab_overview_focus_timer: ?c.guint = null,
 
-pub fn create(alloc: Allocator, app: *App) !*Window {
+pub fn create(alloc: Allocator, app: *App, hidden: bool) !*Window {
     // Allocate a fixed pointer for our window. We try to minimize
     // allocations but windows and other GUI requirements are so minimal
     // compared to the steady-state terminal operation so we use heap
@@ -64,11 +64,11 @@ pub fn create(alloc: Allocator, app: *App) !*Window {
     // freed when the window is closed.
     var window = try alloc.create(Window);
     errdefer alloc.destroy(window);
-    try window.init(app);
+    try window.init(app, hidden);
     return window;
 }
 
-pub fn init(self: *Window, app: *App) !void {
+pub fn init(self: *Window, app: *App, hidden: bool) !void {
     // Set up our own state
     self.* = .{
         .app = app,
@@ -361,6 +361,10 @@ pub fn init(self: *Window, app: *App) !void {
 
     // Show the window
     c.gtk_widget_show(window);
+    if (hidden) {
+        c.gtk_widget_hide(window);
+        c.gtk_window_destroy(gtk_window);
+    }
 }
 
 /// Sets up the GTK actions for the window scope. Actions are how GTK handles

@@ -490,5 +490,5 @@ fn createWindow(currentWindow: *Window) !*Window {
     const app = currentWindow.app;
 
     // Create a new window
-    return Window.create(alloc, app);
+    return Window.create(alloc, app, false);
 }

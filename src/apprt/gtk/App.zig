@@ -68,6 +68,10 @@ clipboard_confirmation_window: ?*ClipboardConfirmationWindow = null,
 /// This is set to false when the main loop should exit.
 running: bool = true,
 
+/// We use this variable to initialize the GL
+/// context without actually creating a window
+hide_window: bool = false,
+
 /// Xkb state (X11 only). Will be null on Wayland.
 x11_xkb: ?x11.Xkb = null,
 
@@ -369,13 +373,10 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
     };
 
     // This just calls the `activate` signal but its part of the normal startup
-    // routine so we just call it, but only if the config allows it (this allows
-    // for launching Ghostty in the "background" without immediately opening
-    // a window)
+    // routine so we just call it
     //
     // https://gitlab.gnome.org/GNOME/glib/-/blob/bd2ccc2f69ecfd78ca3f34ab59e42e2b462bad65/gio/gapplication.c#L2302
-    if (config.@"initial-window")
-        c.g_application_activate(gapp);
+    c.g_application_activate(gapp);
 
     // Register for dbus events
     if (c.g_application_get_dbus_connection(gapp)) |dbus_connection| {
@@ -421,6 +422,9 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
         // our "activate" call above will open a window.
         .running = c.g_application_get_is_remote(gapp) == 0,
         .css_provider = css_provider,
+        // this allows for launching Ghostty in the "background"
+        // without immediately opening a window
+        .hide_window = !config.@"initial-window",
     };
 }
 
@@ -448,10 +452,13 @@ pub fn performAction(
     value: apprt.Action.Value(action),
 ) !void {
     switch (action) {
-        .new_window => _ = try self.newWindow(switch (target) {
-            .app => null,
-            .surface => |v| v,
-        }),
+        .new_window => _ = {
+            try self.newWindow(switch (target) {
+                .app => null,
+                .surface => |v| v,
+            }, self.hide_window);
+            self.hide_window = false;
+        },
         .toggle_fullscreen => self.toggleFullscreen(target, value),
 
         .new_tab => try self.newTab(target),
@@ -1144,7 +1151,7 @@ pub fn redrawInspector(self: *App, surface: *Surface) void {
 }
 
 /// Called by CoreApp to create a new window with a new surface.
-fn newWindow(self: *App, parent_: ?*CoreSurface) !void {
+fn newWindow(self: *App, parent_: ?*CoreSurface, hidden: bool) !void {
     const alloc = self.core_app.alloc;
 
     // Allocate a fixed pointer for our window. We try to minimize
@@ -1154,10 +1161,12 @@ fn newWindow(self: *App, parent_: ?*CoreSurface) !void {
     //
     // The allocation is owned by the GtkWindow created. It will be
     // freed when the window is closed.
-    var window = try Window.create(alloc, self);
+    var window = try Window.create(alloc, self, hidden);
 
-    // Add our initial tab
-    try window.newTab(parent_);
+    if (!hidden) {
+        // Add our initial tab
+        try window.newTab(parent_);
+    }
 }
 
 fn quit(self: *App) void {
