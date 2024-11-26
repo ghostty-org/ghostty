@@ -41,7 +41,6 @@ pub const App = struct {
     pub const Options = struct {};
 
     pub fn init(core_app: *CoreApp, _: Options) !App {
-        internal_os.unsetenv("DISPLAY");
         if (comptime builtin.target.isDarwin()) {
             log.warn("WARNING WARNING WARNING: GLFW ON MAC HAS BUGS.", .{});
             log.warn("You should use the AppKit-based app instead. The official download", .{});
