@@ -1322,7 +1322,7 @@ keybind: Keybinds = .{},
 /// *PASS THIS AS A COMMAND LINE ARGUMENT, NOT A CONFIG FILE VALUE*
 ///
 /// When this value is false, ghostty will both not create an initial window
-/// *and* not send the signal to create a new window in a single-instance.
+/// *and* not send the signal to create a new window in a single-instance
 /// session
 ///
 /// This controls whether an initial window is created when Ghostty
