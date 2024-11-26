@@ -361,6 +361,9 @@ pub fn init(self: *Window, app: *App, hidden: bool) !void {
 
     // Show the window
     c.gtk_widget_show(window);
+    // Showing the window widget should be enough to clear
+    // the startup hurdle of initializing EGL for the first
+    // time. Now we just need to hide and deinit the window
     if (hidden) {
         c.gtk_widget_hide(window);
         c.gtk_window_destroy(gtk_window);

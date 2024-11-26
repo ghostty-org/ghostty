@@ -1163,6 +1163,7 @@ fn newWindow(self: *App, parent_: ?*CoreSurface, hidden: bool) !void {
     // freed when the window is closed.
     var window = try Window.create(alloc, self, hidden);
 
+    // The window should be destroyed if hidden == true
     if (!hidden) {
         // Add our initial tab
         try window.newTab(parent_);
