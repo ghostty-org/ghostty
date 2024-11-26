@@ -51,8 +51,8 @@ pub fn style(
     // If the cursor is explicitly not visible by terminal mode, we don't render.
     if (!state.terminal.modes.get(.cursor_visible)) return null;
 
-    // If we're not focused, our cursor is always visible so that
-    // we can show the hollow box.
+    // If we're not focused, our cursor is always visible showing the
+    // specified style.
     if (!focused) return Style.fromTerminal(state.terminal.screen.cursor.cursor_style_unfocused);
 
     // If the cursor is blinking and our blink state is not visible,
