@@ -53,7 +53,7 @@ pub fn style(
 
     // If we're not focused, our cursor is always visible so that
     // we can show the hollow box.
-    if (!focused) return .block_hollow;
+    if (!focused) return Style.fromTerminal(state.terminal.screen.cursor.cursor_style_unfocused);
 
     // If the cursor is blinking and our blink state is not visible,
     // then we don't show the cursor.
@@ -72,6 +72,7 @@ test "cursor: default uses configured style" {
     defer term.deinit(alloc);
 
     term.screen.cursor.cursor_style = .bar;
+    term.screen.cursor.cursor_style_unfocused = .underline;
     term.modes.set(.cursor_blinking, true);
 
     var state: State = .{
@@ -81,8 +82,8 @@ test "cursor: default uses configured style" {
     };
 
     try testing.expect(style(&state, true, true) == .bar);
-    try testing.expect(style(&state, false, true) == .block_hollow);
-    try testing.expect(style(&state, false, false) == .block_hollow);
+    try testing.expect(style(&state, false, true) == .underline);
+    try testing.expect(style(&state, false, false) == .underline);
     try testing.expect(style(&state, true, false) == null);
 }
 

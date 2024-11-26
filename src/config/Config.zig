@@ -442,6 +442,10 @@ palette: Palette = .{},
 ///
 @"cursor-style": terminal.CursorStyle = .block,
 
+/// The style of the cursor when the window is not focused. All valid values
+/// supported by `cursor-style` are accepted here as well.
+@"cursor-style-unfocused": terminal.CursorStyle = .block_hollow,
+
 /// Sets the default blinking state of the cursor. This is just the default
 /// state; running programs may override the cursor style using `DECSCUSR` (`CSI
 /// q`).

@@ -91,6 +91,9 @@ pub const Cursor = struct {
     /// encouraged to set their own default.
     cursor_style: CursorStyle = .block,
 
+    /// The visual style of the cursor when the window is not focused.
+    cursor_style_unfocused: CursorStyle = .block_hollow,
+
     /// The "last column flag (LCF)" as its called. If this is set then the
     /// next character print will force a soft-wrap.
     pending_wrap: bool = false,

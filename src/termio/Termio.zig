@@ -79,6 +79,7 @@ pub const DerivedConfig = struct {
     palette: terminal.color.Palette,
     image_storage_limit: usize,
     cursor_style: terminal.CursorStyle,
+    cursor_style_unfocused: terminal.CursorStyle,
     cursor_blink: ?bool,
     cursor_color: ?configpkg.Config.Color,
     cursor_invert: bool,
@@ -101,6 +102,7 @@ pub const DerivedConfig = struct {
             .palette = config.palette.value,
             .image_storage_limit = config.@"image-storage-limit",
             .cursor_style = config.@"cursor-style",
+            .cursor_style_unfocused = config.@"cursor-style-unfocused",
             .cursor_blink = config.@"cursor-style-blink",
             .cursor_color = config.@"cursor-color",
             .cursor_invert = config.@"cursor-invert-fg-bg",
@@ -167,6 +169,7 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
 
     // Set our default cursor style
     term.screen.cursor.cursor_style = opts.config.cursor_style;
+    term.screen.cursor.cursor_style_unfocused = opts.config.cursor_style_unfocused;
 
     // Setup our terminal size in pixels for certain requests.
     term.width_px = term.cols * opts.size.cell.width;
