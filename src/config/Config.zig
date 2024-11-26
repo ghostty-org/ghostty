@@ -1319,6 +1319,12 @@ keybind: Keybinds = .{},
 /// Only implemented on Linux.
 @"quit-after-last-window-closed-delay": ?Duration = null,
 
+/// *PASS THIS AS A COMMAND LINE ARGUMENT, NOT A CONFIG FILE VALUE*
+///
+/// When this value is false, ghostty will both not create an initial window
+/// *and* not send the signal to create a new window in a single-instance.
+/// session
+///
 /// This controls whether an initial window is created when Ghostty
 /// is run. Note that if `quit-after-last-window-closed` is `true` and
 /// `quit-after-last-window-closed-delay` is set, setting `initial-window` to
