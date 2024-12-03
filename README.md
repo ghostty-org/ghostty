@@ -190,8 +190,10 @@ ghostty +list-themes
 ...
 ```
 
-On macOS, the themes are built-in to the `Ghostty.app` bundle. On Linux,
-theme support requires a valid Ghostty resources dir ("share" directory).
+On macOS, the themes are built-in to the `Ghostty.app` bundle. Note: to reload the 
+configuration, you must quit (Cmd-Q) and restart ghostty. 
+
+On Linux, theme support requires a valid Ghostty resources dir ("share" directory).
 More details about how to validate the resources directory on Linux
 is covered in the [shell integration section](#shell-integration-installation-and-verification).
 
