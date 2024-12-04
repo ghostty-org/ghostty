@@ -358,6 +358,19 @@ pub const Action = union(enum) {
     /// Toggle fullscreen mode of window.
     toggle_fullscreen: void,
 
+    /// Toggle if option acts as alt.
+    /// 
+    /// Since this is a binary toggle and macos-option-as-alt is not a binary configuration,
+    /// the behavior of the action is as follows:
+    ///
+    /// 1. false is mapped to true
+    /// 2. true is mapped to false
+    /// 3. left is mapped to right
+    /// 4. right is mapped to left
+    ///
+    //  The UI shows the last two as indeterminate states.
+    toggle_macos_option_as_alt: void,
+
     /// Toggle window decorations on and off. This only works on Linux.
     toggle_window_decorations: void,
 
@@ -665,6 +678,7 @@ pub const Action = union(enum) {
             .last_tab,
             .goto_tab,
             .move_tab,
+            .toggle_macos_option_as_alt,
             .toggle_tab_overview,
             .new_split,
             .goto_split,

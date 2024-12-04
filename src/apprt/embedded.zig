@@ -162,7 +162,11 @@ pub const App = struct {
         const translate_mods = translate_mods: {
             var translate_mods = mods;
             if (comptime builtin.target.isDarwin()) {
-                const strip = switch (self.config.@"macos-option-as-alt") {
+                const option_as_alt = switch (target) {
+                    .app => self.config.@"macos-option-as-alt",
+                    .surface => |surface| surface.core_surface.config.macos_option_as_alt,
+                };
+                const strip = switch (option_as_alt) {
                     .false => false,
                     .true => mods.alt,
                     .left => mods.sides.alt == .left,
@@ -1723,6 +1727,10 @@ pub const CAPI = struct {
             log.err("error equalizing splits err={}", .{err});
             return;
         };
+    }
+
+    export fn ghostty_surface_uses_opt_as_alt(ptr: *Surface) c_int {
+        return @intCast(@intFromEnum(ptr.core_surface.usesOptionAsAlt()));
     }
 
     /// Invoke an action on the surface.

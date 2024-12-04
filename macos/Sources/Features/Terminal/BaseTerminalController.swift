@@ -255,6 +255,10 @@ class BaseTerminalController: NSWindowController,
 
     func focusedSurfaceDidChange(to: Ghostty.SurfaceView?) {
         focusedSurface = to
+
+        if let appDelegate = NSApplication.shared.delegate as? AppDelegate, let focusedSurface {
+            appDelegate.setToggleUseOptAsAltMenuState(value:focusedSurface.usesOptAsAlt!)
+        }
     }
 
     func titleDidChange(to: String) {
@@ -473,6 +477,10 @@ class BaseTerminalController: NSWindowController,
         // Becoming/losing key means we have to notify our surface(s) that we have focus
         // so things like cursors blink, pty events are sent, etc.
         self.syncFocusToSurfaceTree()
+
+        if let appDelegate = NSApplication.shared.delegate as? AppDelegate, let focusedSurface {
+            appDelegate.setToggleUseOptAsAltMenuState(value:focusedSurface.usesOptAsAlt!)
+        }
     }
 
     func windowDidResignKey(_ notification: Notification) {
@@ -599,6 +607,11 @@ class BaseTerminalController: NSWindowController,
     @objc func resetTerminal(_ sender: Any) {
         guard let surface = focusedSurface?.surface else { return }
         ghostty.resetTerminal(surface: surface)
+    }
+
+    @IBAction func toggleUseOptionAsMetaKey(_ sender: Any) {
+        guard let surface = focusedSurface?.surface else { return }
+        ghostty.toggleUseOptionAsMetaKey(surface: surface)
     }
 
     private struct DerivedConfig {

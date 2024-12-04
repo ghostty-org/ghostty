@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="23094" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES" customObjectInstantitationMethod="direct">
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="23504" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES" customObjectInstantitationMethod="direct">
     <dependencies>
         <deployment identifier="macosx"/>
-        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="23094"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="23504"/>
     </dependencies>
     <objects>
         <customObject id="-2" userLabel="File's Owner" customClass="NSApplication">
@@ -48,6 +48,7 @@
                 <outlet property="menuTerminalInspector" destination="QwP-M5-fvh" id="wJi-Dh-S9f"/>
                 <outlet property="menuToggleFullScreen" destination="8kY-Pi-KaY" id="yQg-6V-OO6"/>
                 <outlet property="menuToggleVisibility" destination="DOX-wA-ilh" id="iBj-Bc-2bq"/>
+                <outlet property="menuUseOptionAsMetaKey" destination="7fW-nh-YqK" id="b7F-MJ-i0U"/>
                 <outlet property="menuZoomSplit" destination="oPd-mn-IEH" id="wTu-jK-egI"/>
             </connections>
         </customObject>
@@ -192,6 +193,15 @@
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="VYS-RG-uZD"/>
+                            <menuItem title="Use Option as Meta Key" state="on" id="7fW-nh-YqK">
+                                <string key="keyEquivalent" base64-UTF8="YES">
+CQ
+</string>
+                                <connections>
+                                    <action selector="toggleUseOptionAsMetaKey:" target="-1" id="9CI-7C-odU"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="D4E-a6-qFl"/>
                         </items>
                     </menu>
                 </menuItem>

@@ -399,6 +399,14 @@ typedef enum {
   GHOSTTY_FULLSCREEN_NON_NATIVE_VISIBLE_MENU,
 } ghostty_action_fullscreen_e;
 
+// apprt.action.OptionAsAlt
+typedef enum {
+  GHOSTTY_OPTION_AS_ALT_OFF,
+  GHOSTTY_OPTION_AS_ALT_ON,
+  GHOSTTY_OPTION_AS_ALT_LEFT,
+  GHOSTTY_OPTION_AS_ALT_RIGHT,
+} ghostty_action_option_as_alt_e;
+
 // apprt.action.SecureInput
 typedef enum {
   GHOSTTY_SECURE_INPUT_ON,
@@ -579,6 +587,7 @@ typedef enum {
   GHOSTTY_ACTION_COLOR_CHANGE,
   GHOSTTY_ACTION_RELOAD_CONFIG,
   GHOSTTY_ACTION_CONFIG_CHANGE,
+  GHOSTTY_ACTION_TOGGLE_MACOS_USE_OPT_AS_ALT,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -722,6 +731,7 @@ void ghostty_surface_split_resize(ghostty_surface_t,
                                   ghostty_action_resize_split_direction_e,
                                   uint16_t);
 void ghostty_surface_split_equalize(ghostty_surface_t);
+ghostty_action_option_as_alt_e ghostty_surface_uses_opt_as_alt(ghostty_surface_t);
 bool ghostty_surface_binding_action(ghostty_surface_t, const char*, uintptr_t);
 void ghostty_surface_complete_clipboard_request(ghostty_surface_t,
                                                 const char*,

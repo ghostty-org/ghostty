@@ -36,6 +36,7 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuCopy: NSMenuItem?
     @IBOutlet private var menuPaste: NSMenuItem?
     @IBOutlet private var menuSelectAll: NSMenuItem?
+    @IBOutlet private var menuUseOptionAsMetaKey: NSMenuItem?
 
     @IBOutlet private var menuToggleVisibility: NSMenuItem?
     @IBOutlet private var menuToggleFullScreen: NSMenuItem?
@@ -328,6 +329,18 @@ class AppDelegate: NSObject,
         return dockMenu
     }
 
+    func setToggleUseOptAsAltMenuState(value: ghostty_action_option_as_alt_e) {
+        let menu_state = switch value {
+        case GHOSTTY_OPTION_AS_ALT_OFF:
+            NSControl.StateValue.off
+        case GHOSTTY_OPTION_AS_ALT_ON:
+            NSControl.StateValue.on
+        default:
+            NSControl.StateValue.mixed
+        };
+        menuUseOptionAsMetaKey?.state = menu_state;
+    }
+
     /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.
     private func syncMenuShortcuts(_ config: Ghostty.Config) {
         guard ghostty.readiness == .ready else { return }
@@ -364,6 +377,7 @@ class AppDelegate: NSObject,
         syncMenuShortcut(config, action: "increase_font_size:1", menuItem: self.menuIncreaseFontSize)
         syncMenuShortcut(config, action: "decrease_font_size:1", menuItem: self.menuDecreaseFontSize)
         syncMenuShortcut(config, action: "reset_font_size", menuItem: self.menuResetFontSize)
+        syncMenuShortcut(config, action: "toggle_macos_option_as_alt", menuItem: self.menuUseOptionAsMetaKey)
         syncMenuShortcut(config, action: "toggle_quick_terminal", menuItem: self.menuQuickTerminal)
         syncMenuShortcut(config, action: "toggle_visibility", menuItem: self.menuToggleVisibility)
         syncMenuShortcut(config, action: "inspector:toggle", menuItem: self.menuTerminalInspector)

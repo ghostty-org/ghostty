@@ -2207,6 +2207,11 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
             .{ .key = .{ .translated = .a }, .mods = .{ .super = true } },
             .{ .select_all = {} },
         );
+        try result.keybind.set.put(
+            alloc,
+            .{ .key = .{ .translated = .o }, .mods = .{ .super = true, .alt = true } },
+            .{ .toggle_macos_option_as_alt = {} },
+        );
 
         // Viewport scrolling
         try result.keybind.set.put(

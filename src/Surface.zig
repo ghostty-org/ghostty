@@ -3725,6 +3725,15 @@ fn showMouse(self: *Surface) void {
     };
 }
 
+pub fn usesOptionAsAlt(self: *Surface) apprt.action.OptionAsAlt {
+    return switch (self.config.macos_option_as_alt) {
+        .false => .off,
+        .true => .on,
+        .left => .left,
+        .right => .right,
+    };
+}
+
 /// Perform a binding action. A binding is a keybinding. This function
 /// must be called from the GUI thread.
 ///
@@ -4055,6 +4064,20 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             .toggle_split_zoom,
             {},
         ),
+
+        .toggle_macos_option_as_alt => {
+            self.config.macos_option_as_alt = switch (self.config.macos_option_as_alt) {
+                  .false => .true,
+                  .true => .false,
+                  .left => .right,
+                  .right => .left,
+              };
+            try self.rt_app.performAction(
+              .{ .surface = self },
+              .toggle_macos_option_as_alt,
+              {},
+            );
+        },
 
         .toggle_fullscreen => try self.rt_app.performAction(
             .{ .surface = self },

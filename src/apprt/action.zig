@@ -217,6 +217,9 @@ pub const Action = union(Key) {
     /// for changes.
     config_change: ConfigChange,
 
+    /// macOS only: Toggle if option always acts as alt.
+    toggle_macos_option_as_alt,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         new_window,
@@ -254,6 +257,7 @@ pub const Action = union(Key) {
         color_change,
         reload_config,
         config_change,
+        toggle_macos_option_as_alt,
     };
 
     /// Sync with: ghostty_action_u
@@ -373,6 +377,14 @@ pub const Fullscreen = enum(c_int) {
     /// window. This is much faster to enter and exit than the native mode.
     macos_non_native,
     macos_non_native_visible_menu,
+};
+
+/// ghostty.h API wrapper for config.OptionAsAlt.
+pub const OptionAsAlt = enum(c_int) {
+    off,
+    on,
+    left,
+    right,
 };
 
 pub const SecureInput = enum(c_int) {
