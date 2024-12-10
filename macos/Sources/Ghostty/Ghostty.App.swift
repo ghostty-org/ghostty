@@ -1089,7 +1089,7 @@ extension Ghostty {
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
                 let backingSize = NSSize(width: Double(v.width), height: Double(v.height))
-                surfaceView.cellSize = surfaceView.convertFromBacking(backingSize)
+                surfaceView.cellSize = backingSize
 
             default:
                 assertionFailure()
