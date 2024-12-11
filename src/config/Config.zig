@@ -1022,8 +1022,7 @@ keybind: Keybinds = .{},
 @"window-colorspace": WindowColorspace = .srgb,
 
 /// The initial window size. This size is in terminal grid cells by default.
-/// Both values must be set to take effect. If only one value is set, it is
-/// ignored.
+/// Defaults to 100x34.
 ///
 /// We don't currently support specifying a size in pixels but a future change
 /// can enable that. If this isn't specified, the app runtime will determine
@@ -1048,8 +1047,8 @@ keybind: Keybinds = .{},
 /// window-decorations), then this will work as expected.
 ///
 /// Windows smaller than 10 wide by 4 high are not allowed.
-@"window-height": u32 = 0,
-@"window-width": u32 = 0,
+@"window-height": u32 = 34,
+@"window-width": u32 = 100,
 
 /// Whether to enable saving and restoring window state. Window state includes
 /// their position, size, tabs, splits, etc. Some window state requires shell
