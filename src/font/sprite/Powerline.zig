@@ -93,6 +93,11 @@ fn draw(self: Powerline, alloc: Allocator, canvas: *font.sprite.Canvas, cp: u32)
         0xE0BE,
         => try self.draw_wedge_triangle(canvas, cp),
 
+        // Soft Dividers
+        0xE0B1,
+        0xE0B3,
+        => try self.draw_chevron(canvas, cp),
+
         // Half-circles
         0xE0B4,
         0xE0B6,
@@ -105,6 +110,50 @@ fn draw(self: Powerline, alloc: Allocator, canvas: *font.sprite.Canvas, cp: u32)
 
         else => return error.InvalidCodepoint,
     }
+}
+
+fn draw_chevron(self: Powerline, canvas: *font.sprite.Canvas, cp: u32) !void {
+    const width = self.width;
+    const height = self.height;
+    
+    var p1_x: u32 = 0;
+    var p1_y: u32 = 0;
+    var p2_x: u32 = 0;
+    var p2_y: u32 = 0;
+    var p3_x: u32 = 0;
+    var p3_y: u32 = 0;
+
+
+    switch (cp) {
+        0xE0B1 => {
+            p1_x = 0;
+            p1_y = 0;
+            p2_x = width;
+            p2_y = height / 2;
+            p3_x = 0;
+            p3_y = height;
+        },
+        0xE0B3 => {
+            p1_x = width;
+            p1_y = 0;
+            p2_x = 0;
+            p2_y = height / 2;
+            p3_x = width;
+            p3_y = height;
+        },
+        
+        else => unreachable,
+
+    }
+
+    try canvas.triangle_outline(.{
+        .p0 = .{ .x = @floatFromInt(p1_x), .y = @floatFromInt(p1_y) },
+        .p1 = .{ .x = @floatFromInt(p2_x), .y = @floatFromInt(p2_y) },
+        .p2 = .{ .x = @floatFromInt(p3_x), .y = @floatFromInt(p3_y) },
+    }, 
+    @floatFromInt(Thickness.light.height(self.thickness)),
+    .on);
+
 }
 
 fn draw_wedge_triangle(self: Powerline, canvas: *font.sprite.Canvas, cp: u32) !void {
@@ -501,6 +550,8 @@ test "all" {
         0xE0B6,
         0xE0D2,
         0xE0D4,
+        0xE0B1,
+        0xE0B3,
     };
     for (cps) |cp| {
         var atlas_grayscale = try font.Atlas.init(alloc, 512, .grayscale);

@@ -45,20 +45,53 @@ extension FullscreenDelegate {
     func fullscreenDidChange() {}
 }
 
+/// The base class for fullscreen implementations, cannot be used as a FullscreenStyle on its own.
+class FullscreenBase {
+    let window: NSWindow
+    weak var delegate: FullscreenDelegate?
+
+    required init?(_ window: NSWindow) {
+        self.window = window
+
+        // We want to trigger delegate methods on window native fullscreen
+        // changes (didEnterFullScreenNotification, etc.) no matter what our
+        // fullscreen style is.
+        let center = NotificationCenter.default
+        center.addObserver(
+            self,
+            selector: #selector(didEnterFullScreenNotification),
+            name: NSWindow.didEnterFullScreenNotification,
+            object: window)
+        center.addObserver(
+            self,
+            selector: #selector(didExitFullScreenNotification),
+            name: NSWindow.didExitFullScreenNotification,
+            object: window)
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func didEnterFullScreenNotification(_ notification: Notification) {
+        delegate?.fullscreenDidChange()
+    }
+
+    @objc private func didExitFullScreenNotification(_ notification: Notification) {
+        delegate?.fullscreenDidChange()
+    }
+}
+
 /// macOS native fullscreen. This is the typical behavior you get by pressing the green fullscreen
 /// button on regular titlebars.
-class NativeFullscreen: FullscreenStyle {
-    private let window: NSWindow
-
-    weak var delegate: FullscreenDelegate?
+class NativeFullscreen: FullscreenBase, FullscreenStyle {
     var isFullscreen: Bool { window.styleMask.contains(.fullScreen) }
     var supportsTabs: Bool { true }
 
     required init?(_ window: NSWindow) {
         // TODO: There are many requirements for native fullscreen we should
         // check here such as the stylemask.
-
-        self.window = window
+        super.init(window)
     }
 
     func enter() {
@@ -72,8 +105,9 @@ class NativeFullscreen: FullscreenStyle {
         // Enter fullscreen
         window.toggleFullScreen(self)
 
-        // Notify the delegate
-        delegate?.fullscreenDidChange()
+        // Note: we don't call our delegate here because the base class
+        // will always trigger the delegate on native fullscreen notifications
+        // and we don't want to double notify.
     }
 
     func exit() {
@@ -84,14 +118,13 @@ class NativeFullscreen: FullscreenStyle {
 
         window.toggleFullScreen(nil)
 
-        // Notify the delegate
-        delegate?.fullscreenDidChange()
+        // Note: we don't call our delegate here because the base class
+        // will always trigger the delegate on native fullscreen notifications
+        // and we don't want to double notify.
     }
 }
 
-class NonNativeFullscreen: FullscreenStyle {
-    weak var delegate: FullscreenDelegate?
-
+class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
     // Non-native fullscreen never supports tabs because tabs require
     // the "titled" style and we don't have it for non-native fullscreen.
     var supportsTabs: Bool { false }
@@ -110,12 +143,7 @@ class NonNativeFullscreen: FullscreenStyle {
         var hideMenu: Bool = true
     }
 
-    private let window: NSWindow
     private var savedState: SavedState?
-
-    required init?(_ window: NSWindow) {
-        self.window = window
-    }
 
     func enter() {
         // If we are in fullscreen we don't do it again.
@@ -170,6 +198,10 @@ class NonNativeFullscreen: FullscreenStyle {
         // Being untitled let's our content take up the full frame.
         window.styleMask.remove(.titled)
 
+        // We dont' want the non-native fullscreen window to be resizable
+        // from the edges.
+        window.styleMask.remove(.resizable)
+
         // Focus window
         window.makeKeyAndOrderFront(nil)
 
@@ -187,8 +219,12 @@ class NonNativeFullscreen: FullscreenStyle {
         guard isFullscreen else { return }
         guard let savedState else { return }
 
-        // Remove all our notifications
-        NotificationCenter.default.removeObserver(self)
+        // Remove all our notifications. We remove them one by one because
+        // we don't want to remove the observers that our superclass sets.
+        let center = NotificationCenter.default
+        center.removeObserver(self, name: NSWindow.didBecomeMainNotification, object: window)
+        center.removeObserver(self, name: NSWindow.didResignMainNotification, object: window)
+        center.removeObserver(self, name: NSWindow.didChangeScreenNotification, object: window)
 
         // Unhide our elements
         if savedState.dock {

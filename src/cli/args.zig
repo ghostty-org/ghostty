@@ -104,7 +104,7 @@ pub fn parse(
             try dst._diagnostics.append(arena_alloc, .{
                 .key = try arena_alloc.dupeZ(u8, arg),
                 .message = "invalid field",
-                .location = diags.Location.fromIter(iter),
+                .location = try diags.Location.fromIter(iter, arena_alloc),
             });
 
             continue;
@@ -145,7 +145,7 @@ pub fn parse(
             try dst._diagnostics.append(arena_alloc, .{
                 .key = try arena_alloc.dupeZ(u8, key),
                 .message = message,
-                .location = diags.Location.fromIter(iter),
+                .location = try diags.Location.fromIter(iter, arena_alloc),
             });
         };
     }
@@ -1140,7 +1140,7 @@ pub fn ArgsIterator(comptime Iterator: type) type {
         }
 
         /// Returns a location for a diagnostic message.
-        pub fn location(self: *const Self) ?diags.Location {
+        pub fn location(self: *const Self, _: Allocator) error{}!?diags.Location {
             return .{ .cli = self.index };
         }
     };
@@ -1262,12 +1262,15 @@ pub fn LineIterator(comptime ReaderType: type) type {
         }
 
         /// Returns a location for a diagnostic message.
-        pub fn location(self: *const Self) ?diags.Location {
+        pub fn location(
+            self: *const Self,
+            alloc: Allocator,
+        ) Allocator.Error!?diags.Location {
             // If we have no filepath then we have no location.
             if (self.filepath.len == 0) return null;
 
             return .{ .file = .{
-                .path = self.filepath,
+                .path = try alloc.dupe(u8, self.filepath),
                 .line = self.line,
             } };
         }

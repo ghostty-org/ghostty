@@ -127,6 +127,23 @@ pub const DerivedConfig = struct {
 /// This will also start the child process if the termio is configured
 /// to run a child process.
 pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
+    // The default terminal modes based on our config.
+    const default_modes: terminal.ModePacked = modes: {
+        var modes: terminal.ModePacked = .{};
+
+        // Setup our initial grapheme cluster support if enabled. We use a
+        // switch to ensure we get a compiler error if more cases are added.
+        switch (opts.full_config.@"grapheme-width-method") {
+            .unicode => modes.grapheme_cluster = true,
+            .legacy => {},
+        }
+
+        // Set default cursor blink settings
+        modes.cursor_blinking = opts.config.cursor_blink orelse true;
+
+        break :modes modes;
+    };
+
     // Create our terminal
     var term = try terminal.Terminal.init(alloc, opts: {
         const grid_size = opts.size.grid();
@@ -134,18 +151,12 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
             .cols = grid_size.columns,
             .rows = grid_size.rows,
             .max_scrollback = opts.full_config.@"scrollback-limit",
+            .default_modes = default_modes,
         };
     });
     errdefer term.deinit(alloc);
     term.default_palette = opts.config.palette;
     term.color_palette.colors = opts.config.palette;
-
-    // Setup our initial grapheme cluster support if enabled. We use a
-    // switch to ensure we get a compiler error if more cases are added.
-    switch (opts.full_config.@"grapheme-width-method") {
-        .unicode => term.modes.set(.grapheme_cluster, true),
-        .legacy => {},
-    }
 
     // Set the image size limits
     try term.screen.kitty_images.setLimit(
@@ -157,12 +168,6 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
         alloc,
         &term.secondary_screen,
         opts.config.image_storage_limit,
-    );
-
-    // Set default cursor blink settings
-    term.modes.set(
-        .cursor_blinking,
-        opts.config.cursor_blink orelse true,
     );
 
     // Set our default cursor style
@@ -472,6 +477,18 @@ pub fn clearScreen(self: *Termio, td: *ThreadData, history: bool) !void {
                     .{ .active = .{ .y = self.terminal.screen.cursor.y - 1 } },
                 );
             }
+
+            // Clear all Kitty graphics state for this screen. This copies
+            // Kitty's behavior when Cmd+K deletes all Kitty graphics. I
+            // didn't spend time researching whether it only deletes Kitty
+            // graphics that are placed baove the cursor or if it deletes
+            // all of them. We delete all of them for now but if this behavior
+            // isn't fully correct we should fix this later.
+            self.terminal.screen.kitty_images.delete(
+                self.terminal.screen.alloc,
+                &self.terminal,
+                .{ .all = true },
+            );
 
             return;
         }

@@ -330,6 +330,96 @@ pub fn deinit(self: *PageList) void {
     }
 }
 
+/// Reset the PageList back to an empty state. This is similar to
+/// deinit and reinit but it importantly preserves the pointer
+/// stability of tracked pins (they're moved to the top-left since
+/// all contents are cleared).
+///
+/// This can't fail because we always retain at least enough allocated
+/// memory to fit the active area.
+pub fn reset(self: *PageList) void {
+    // We need enough pages/nodes to keep our active area. This should
+    // never fail since we by definition have allocated a page already
+    // that fits our size but I'm not confident to make that assertion.
+    const cap = std_capacity.adjust(
+        .{ .cols = self.cols },
+    ) catch @panic("reset: std_capacity.adjust failed");
+    assert(cap.rows > 0); // adjust should never return 0 rows
+
+    // The number of pages we need is the number of rows in the active
+    // area divided by the row capacity of a page.
+    const page_count = std.math.divCeil(
+        usize,
+        self.rows,
+        cap.rows,
+    ) catch unreachable;
+
+    // Before resetting our pools we need to free any pages that
+    // are non-standard size since those were allocated outside
+    // the pool.
+    {
+        const page_alloc = self.pool.pages.arena.child_allocator;
+        var it = self.pages.first;
+        while (it) |node| : (it = node.next) {
+            if (node.data.memory.len > std_size) {
+                page_alloc.free(node.data.memory);
+            }
+        }
+    }
+
+    // Reset our pools to free as much memory as possible while retaining
+    // the capacity for at least the minimum number of pages we need.
+    // The return value is whether memory was reclaimed or not, but in
+    // either case the pool is left in a valid state.
+    _ = self.pool.pages.reset(.{
+        .retain_with_limit = page_count * PagePool.item_size,
+    });
+    _ = self.pool.nodes.reset(.{
+        .retain_with_limit = page_count * NodePool.item_size,
+    });
+
+    // Our page pool relies on mmap to zero our page memory. Since we're
+    // retaining a certain amount of memory, it won't use mmap and won't
+    // be zeroed. This block zeroes out all the memory in the pool arena.
+    {
+        // Note: we only have to do this for the page pool because the
+        // nodes are always fully overwritten on each allocation.
+        const page_arena = &self.pool.pages.arena;
+        var it = page_arena.state.buffer_list.first;
+        while (it) |node| : (it = node.next) {
+            // The fully allocated buffer
+            const alloc_buf = @as([*]u8, @ptrCast(node))[0..node.data];
+
+            // The buffer minus our header
+            const BufNode = @TypeOf(page_arena.state.buffer_list).Node;
+            const data_buf = alloc_buf[@sizeOf(BufNode)..];
+            @memset(data_buf, 0);
+        }
+    }
+
+    // Initialize our pages. This should not be able to fail since
+    // we retained the capacity for the minimum number of pages we need.
+    self.pages, self.page_size = initPages(
+        &self.pool,
+        self.cols,
+        self.rows,
+    ) catch @panic("initPages failed");
+
+    // Update all our tracked pins to point to our first page top-left
+    {
+        var it = self.tracked_pins.iterator();
+        while (it.next()) |entry| {
+            const p: *Pin = entry.key_ptr.*;
+            p.node = self.pages.first.?;
+            p.x = 0;
+            p.y = 0;
+        }
+    }
+
+    // Move our viewport back to the active area since everything is gone.
+    self.viewport = .active;
+}
+
 pub const Clone = struct {
     /// The top and bottom (inclusive) points of the region to clone.
     /// The x coordinate is ignored; the full row is always cloned.
@@ -2356,7 +2446,11 @@ pub fn countTrackedPins(self: *const PageList) usize {
 /// Checks if a pin is valid for this pagelist. This is a very slow and
 /// expensive operation since we traverse the entire linked list in the
 /// worst case. Only for runtime safety/debug.
-fn pinIsValid(self: *const PageList, p: Pin) bool {
+pub fn pinIsValid(self: *const PageList, p: Pin) bool {
+    // This is very slow so we want to ensure we only ever
+    // call this during slow runtime safety builds.
+    comptime assert(build_config.slow_runtime_safety);
+
     var it = self.pages.first;
     while (it) |node| : (it = node.next) {
         if (node != p.node) continue;
@@ -2448,6 +2542,50 @@ pub fn getCell(self: *const PageList, pt: point.Point) ?Cell {
         .row_idx = pt_pin.y,
         .col_idx = pt_pin.x,
     };
+}
+
+pub const EncodeUtf8Options = struct {
+    /// The start and end points of the dump, both inclusive. The x will
+    /// be ignored and the full row will always be dumped.
+    tl: Pin,
+    br: ?Pin = null,
+
+    /// If true, this will unwrap soft-wrapped lines. If false, this will
+    /// dump the screen as it is visually seen in a rendered window.
+    unwrap: bool = true,
+
+    /// See Page.EncodeUtf8Options.
+    cell_map: ?*Page.CellMap = null,
+};
+
+/// Encode the pagelist to utf8 to the given writer.
+///
+/// The writer should be buffered; this function does not attempt to
+/// efficiently write and often writes one byte at a time.
+///
+/// Note: this is tested using Screen.dumpString. This is a function that
+/// predates this and is a thin wrapper around it so the tests all live there.
+pub fn encodeUtf8(
+    self: *const PageList,
+    writer: anytype,
+    opts: EncodeUtf8Options,
+) anyerror!void {
+    // We don't currently use self at all. There is an argument that this
+    // function should live on Pin instead but there is some future we might
+    // need state on here so... letting it go.
+    _ = self;
+
+    var page_opts: Page.EncodeUtf8Options = .{
+        .unwrap = opts.unwrap,
+        .cell_map = opts.cell_map,
+    };
+    var iter = opts.tl.pageIterator(.right_down, opts.br);
+    while (iter.next()) |chunk| {
+        const page: *const Page = &chunk.node.data;
+        page_opts.start_y = chunk.start;
+        page_opts.end_y = chunk.end;
+        page_opts.preceding = try page.encodeUtf8(writer, page_opts);
+    }
 }
 
 /// Log a debug diagram of the page list to the provided writer.
@@ -8190,4 +8328,67 @@ test "PageList resize reflow wrap moves kitty placeholder" {
         try testing.expect(rac.row.kitty_virtual_placeholder);
     }
     try testing.expect(it.next() == null);
+}
+
+test "PageList reset" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+    s.reset();
+    try testing.expect(s.viewport == .active);
+    try testing.expect(s.pages.first != null);
+    try testing.expectEqual(@as(usize, s.rows), s.totalRows());
+
+    // Active area should be the top
+    try testing.expectEqual(Pin{
+        .node = s.pages.first.?,
+        .y = 0,
+        .x = 0,
+    }, s.getTopLeft(.active));
+}
+
+test "PageList reset across two pages" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Find a cap that makes it so that rows don't fit on one page.
+    const rows = 100;
+    const cap = cap: {
+        var cap = try std_capacity.adjust(.{ .cols = 50 });
+        while (cap.rows >= rows) cap = try std_capacity.adjust(.{
+            .cols = cap.cols + 50,
+        });
+
+        break :cap cap;
+    };
+
+    // Init
+    var s = try init(alloc, cap.cols, rows, null);
+    defer s.deinit();
+    s.reset();
+    try testing.expect(s.viewport == .active);
+    try testing.expect(s.pages.first != null);
+    try testing.expectEqual(@as(usize, s.rows), s.totalRows());
+}
+
+test "PageList clears history" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+    try s.growRows(30);
+    s.reset();
+    try testing.expect(s.viewport == .active);
+    try testing.expect(s.pages.first != null);
+    try testing.expectEqual(@as(usize, s.rows), s.totalRows());
+
+    // Active area should be the top
+    try testing.expectEqual(Pin{
+        .node = s.pages.first.?,
+        .y = 0,
+        .x = 0,
+    }, s.getTopLeft(.active));
 }

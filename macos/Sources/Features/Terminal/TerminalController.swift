@@ -94,6 +94,16 @@ class TerminalController: BaseTerminalController {
         }
     }
 
+
+    override func fullscreenDidChange() {
+        super.fullscreenDidChange()
+
+        // When our fullscreen state changes, we resync our appearance because some
+        // properties change when fullscreen or not.
+        guard let focusedSurface else { return }
+        syncAppearance(focusedSurface.derivedConfig)
+    }
+
     //MARK: - Methods
 
     @objc private func ghosttyConfigDidChange(_ notification: Notification) {
@@ -204,7 +214,13 @@ class TerminalController: BaseTerminalController {
         }
 
         // If we have window transparency then set it transparent. Otherwise set it opaque.
-        if (surfaceConfig.backgroundOpacity < 1) {
+
+        // Window transparency only takes effect if our window is not native fullscreen.
+        // In native fullscreen we disable transparency/opacity because the background
+        // becomes gray and widgets show through.
+        if (!window.styleMask.contains(.fullScreen) &&
+            surfaceConfig.backgroundOpacity < 1
+        ) {
             window.isOpaque = false
 
             // This is weird, but we don't use ".clear" because this creates a look that
@@ -259,6 +275,7 @@ class TerminalController: BaseTerminalController {
     }
 
     override func windowDidLoad() {
+        super.windowDidLoad()
         guard let window = window as? TerminalWindow else { return }
 
         // I copy this because we may change the source in the future but also because

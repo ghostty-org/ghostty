@@ -404,7 +404,21 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
-    //MARK: - NSWindowDelegate
+    // MARK: NSWindowController
+
+    override func windowDidLoad() {
+        guard let window else { return }
+
+        // We always initialize our fullscreen style to native if we can because
+        // initialization sets up some state (i.e. observers). If its set already
+        // somehow we don't do this.
+        if fullscreenStyle == nil {
+            fullscreenStyle = NativeFullscreen(window)
+            fullscreenStyle?.delegate = self
+        }
+    }
+
+    // MARK: NSWindowDelegate
 
     // This is called when performClose is called on a window (NOT when close()
     // is called directly). performClose is called primarily when UI elements such

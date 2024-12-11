@@ -455,6 +455,12 @@ pub const Image = struct {
     data: []const u8 = "",
     transmit_time: std.time.Instant = undefined,
 
+    /// Set this to true if this image was loaded by a command that
+    /// doesn't specify an ID or number, since such commands should
+    /// not be responded to, even though we do currently give them
+    /// IDs in the public range (which is bad!).
+    implicit_id: bool = false,
+
     pub const Error = error{
         InternalError,
         InvalidData,

@@ -231,8 +231,33 @@ pub const Canvas = struct {
         try path.lineTo(t.p1.x, t.p1.y);
         try path.lineTo(t.p2.x, t.p2.y);
         try path.close();
-
+    
         try ctx.fill(self.alloc, path);
+    }
+
+    pub fn triangle_outline(self: *Canvas, t: Triangle(f64), thickness: f64, color: Color) !void {
+        var ctx: z2d.Context = .{
+            .surface = self.sfc,
+            .pattern = .{
+                .opaque_pattern = .{
+                    .pixel = .{ .alpha8 = .{ .a = @intFromEnum(color) } },
+                },
+            },
+            .line_width = thickness,
+            .line_cap_mode = .round,
+        };
+
+        var path = z2d.Path.init(self.alloc);
+        defer path.deinit();
+
+        try path.moveTo(t.p0.x, t.p0.y);
+        try path.lineTo(t.p1.x, t.p1.y);
+        try path.lineTo(t.p2.x, t.p2.y);
+        // try path.close();
+
+        try ctx.stroke(self.alloc, path);
+        // try ctx.fill(self.alloc, path);
+
     }
 
     /// Stroke a line.

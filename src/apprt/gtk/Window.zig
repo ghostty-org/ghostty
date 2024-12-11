@@ -103,7 +103,7 @@ pub fn init(self: *Window, app: *App) !void {
     // to disable this so that terminal programs can capture F10 (such as htop)
     c.gtk_window_set_handle_menubar_accel(gtk_window, 0);
 
-    c.gtk_window_set_icon_name(gtk_window, "com.mitchellh.ghostty");
+    c.gtk_window_set_icon_name(gtk_window, build_config.bundle_id);
 
     // Apply class to color headerbar if window-theme is set to `ghostty` and
     // GTK version is before 4.16. The conditional is because above 4.16

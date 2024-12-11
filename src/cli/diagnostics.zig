@@ -34,6 +34,14 @@ pub const Diagnostic = struct {
 
         try writer.print("{s}", .{self.message});
     }
+
+    pub fn clone(self: *const Diagnostic, alloc: Allocator) Allocator.Error!Diagnostic {
+        return .{
+            .location = try self.location.clone(alloc),
+            .key = try alloc.dupeZ(u8, self.key),
+            .message = try alloc.dupeZ(u8, self.message),
+        };
+    }
 };
 
 /// The possible locations for a diagnostic message. This is used
@@ -48,7 +56,7 @@ pub const Location = union(enum) {
 
     pub const Key = @typeInfo(Location).Union.tag_type.?;
 
-    pub fn fromIter(iter: anytype) Location {
+    pub fn fromIter(iter: anytype, alloc: Allocator) Allocator.Error!Location {
         const Iter = t: {
             const T = @TypeOf(iter);
             break :t switch (@typeInfo(T)) {
@@ -59,7 +67,20 @@ pub const Location = union(enum) {
         };
 
         if (!@hasDecl(Iter, "location")) return .none;
-        return iter.location() orelse .none;
+        return (try iter.location(alloc)) orelse .none;
+    }
+
+    pub fn clone(self: *const Location, alloc: Allocator) Allocator.Error!Location {
+        return switch (self.*) {
+            .none,
+            .cli,
+            => self.*,
+
+            .file => |v| .{ .file = .{
+                .path = try alloc.dupe(u8, v.path),
+                .line = v.line,
+            } },
+        };
     }
 };
 
@@ -88,10 +109,44 @@ pub const DiagnosticList = struct {
         // We specifically want precompute for libghostty.
         .lib => true,
     };
+
     const Precompute = if (precompute_enabled) struct {
         messages: std.ArrayListUnmanaged([:0]const u8) = .{},
+
+        pub fn clone(
+            self: *const Precompute,
+            alloc: Allocator,
+        ) Allocator.Error!Precompute {
+            var result: Precompute = .{};
+            try result.messages.ensureTotalCapacity(alloc, self.messages.items.len);
+            for (self.messages.items) |msg| {
+                result.messages.appendAssumeCapacity(
+                    try alloc.dupeZ(u8, msg),
+                );
+            }
+            return result;
+        }
     } else void;
+
     const precompute_init: Precompute = if (precompute_enabled) .{} else {};
+
+    pub fn clone(
+        self: *const DiagnosticList,
+        alloc: Allocator,
+    ) Allocator.Error!DiagnosticList {
+        var result: DiagnosticList = .{};
+
+        try result.list.ensureTotalCapacity(alloc, self.list.items.len);
+        for (self.list.items) |*diag| result.list.appendAssumeCapacity(
+            try diag.clone(alloc),
+        );
+
+        if (comptime precompute_enabled) {
+            result.precompute = try self.precompute.clone(alloc);
+        }
+
+        return result;
+    }
 
     pub fn append(
         self: *DiagnosticList,

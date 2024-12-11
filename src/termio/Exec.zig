@@ -843,6 +843,7 @@ const Subprocess = struct {
         // Don't leak these environment variables to child processes.
         if (comptime build_config.app_runtime == .gtk) {
             env.remove("GDK_DEBUG");
+            env.remove("GDK_DISABLE");
             env.remove("GSK_RENDERER");
         }
 

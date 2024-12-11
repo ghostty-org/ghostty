@@ -50,7 +50,8 @@ extension Ghostty {
             }
 
         case GHOSTTY_TRIGGER_UNICODE:
-            equiv = String(trigger.key.unicode)
+            guard let scalar = UnicodeScalar(trigger.key.unicode) else { return nil }
+            equiv = String(scalar)
 
         default:
             return nil

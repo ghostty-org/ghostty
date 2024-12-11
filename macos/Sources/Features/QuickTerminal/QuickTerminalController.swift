@@ -57,6 +57,7 @@ class QuickTerminalController: BaseTerminalController {
     // MARK: NSWindowController
 
     override func windowDidLoad() {
+        super.windowDidLoad()
         guard let window = self.window else { return }
 
         // The controller is the window delegate so we can detect events such as

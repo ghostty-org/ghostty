@@ -159,11 +159,20 @@ in
     # it to be "portable" across the system.
     LD_LIBRARY_PATH = lib.makeLibraryPath rpathLibs;
 
-    # On Linux we need to setup the environment so that all GTK data
-    # is available (namely icons).
-    shellHook = lib.optionalString stdenv.hostPlatform.isLinux ''
-      # Minimal subset of env set by wrapGAppsHook4 for icons and global settings
-      export XDG_DATA_DIRS=$XDG_DATA_DIRS:${hicolor-icon-theme}/share:${gnome.adwaita-icon-theme}/share
-      export XDG_DATA_DIRS=$XDG_DATA_DIRS:$GSETTINGS_SCHEMAS_PATH # from glib setup hook
-    '';
+    shellHook =
+      (lib.optionalString stdenv.hostPlatform.isLinux ''
+        # On Linux we need to setup the environment so that all GTK data
+        # is available (namely icons).
+
+        # Minimal subset of env set by wrapGAppsHook4 for icons and global settings
+        export XDG_DATA_DIRS=$XDG_DATA_DIRS:${hicolor-icon-theme}/share:${gnome.adwaita-icon-theme}/share
+        export XDG_DATA_DIRS=$XDG_DATA_DIRS:$GSETTINGS_SCHEMAS_PATH # from glib setup hook
+      '')
+      + (lib.optionalString stdenv.hostPlatform.isDarwin ''
+        # On macOS, we unset the macOS SDK env vars that Nix sets up because
+        # we rely on a system installation. Nix only provides a macOS SDK
+        # and we need iOS too.
+        unset SDKROOT
+        unset DEVELOPER_DIR
+      '');
   }

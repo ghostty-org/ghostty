@@ -45,10 +45,26 @@ pub fn CircBuf(comptime T: type, comptime default: T) type {
                 self.idx += 1;
                 return &self.buf.storage[storage_idx];
             }
+
+            /// Seek the iterator by a given amount. This will clamp
+            /// the values to the bounds of the buffer so overflows are
+            /// not possible.
+            pub fn seekBy(self: *Iterator, amount: isize) void {
+                if (amount > 0) {
+                    self.idx +|= @intCast(amount);
+                } else {
+                    self.idx -|= @intCast(@abs(amount));
+                }
+            }
+
+            /// Reset the iterator back to the first value.
+            pub fn reset(self: *Iterator) void {
+                self.idx = 0;
+            }
         };
 
         /// Initialize a new circular buffer that can store size elements.
-        pub fn init(alloc: Allocator, size: usize) !Self {
+        pub fn init(alloc: Allocator, size: usize) Allocator.Error!Self {
             const buf = try alloc.alloc(T, size);
             @memset(buf, default);
 
@@ -56,7 +72,7 @@ pub fn CircBuf(comptime T: type, comptime default: T) type {
                 .storage = buf,
                 .head = 0,
                 .tail = 0,
-                .full = false,
+                .full = size == 0,
             };
         }
 
@@ -67,12 +83,25 @@ pub fn CircBuf(comptime T: type, comptime default: T) type {
 
         /// Append a single value to the buffer. If the buffer is full,
         /// an error will be returned.
-        pub fn append(self: *Self, v: T) !void {
+        pub fn append(self: *Self, v: T) Allocator.Error!void {
             if (self.full) return error.OutOfMemory;
             self.storage[self.head] = v;
             self.head += 1;
             if (self.head >= self.storage.len) self.head = 0;
             self.full = self.head == self.tail;
+        }
+
+        /// Append a slice to the buffer. If the buffer cannot fit the
+        /// entire slice then an error will be returned. It is up to the
+        /// caller to rotate the circular buffer if they want to overwrite
+        /// the oldest data.
+        pub fn appendSlice(
+            self: *Self,
+            slice: []const T,
+        ) Allocator.Error!void {
+            const storage = self.getPtrSlice(self.len(), slice.len);
+            fastmem.copy(T, storage[0], slice[0..storage[0].len]);
+            fastmem.copy(T, storage[1], slice[storage[0].len..]);
         }
 
         /// Clear the buffer.
@@ -89,6 +118,34 @@ pub fn CircBuf(comptime T: type, comptime default: T) type {
                 .idx = 0,
                 .direction = direction,
             };
+        }
+
+        /// Get the first (oldest) value in the buffer.
+        pub fn first(self: Self) ?*T {
+            // Note: this can be more efficient by not using the
+            // iterator, but this was an easy way to implement it.
+            var it = self.iterator(.forward);
+            return it.next();
+        }
+
+        /// Get the last (newest) value in the buffer.
+        pub fn last(self: Self) ?*T {
+            // Note: this can be more efficient by not using the
+            // iterator, but this was an easy way to implement it.
+            var it = self.iterator(.reverse);
+            return it.next();
+        }
+
+        /// Ensures that there is enough capacity to store amount more
+        /// items via append.
+        pub fn ensureUnusedCapacity(
+            self: *Self,
+            alloc: Allocator,
+            amount: usize,
+        ) Allocator.Error!void {
+            const new_cap = self.len() + amount;
+            if (new_cap <= self.capacity()) return;
+            try self.resize(alloc, new_cap);
         }
 
         /// Resize the buffer to the given size (larger or smaller).
@@ -256,7 +313,7 @@ test {
     try testing.expectEqual(@as(usize, 0), buf.len());
 }
 
-test "append" {
+test "CircBuf append" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -273,7 +330,7 @@ test "append" {
     try testing.expectError(error.OutOfMemory, buf.append(5));
 }
 
-test "forward iterator" {
+test "CircBuf forward iterator" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -319,7 +376,7 @@ test "forward iterator" {
     }
 }
 
-test "reverse iterator" {
+test "CircBuf reverse iterator" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -365,7 +422,95 @@ test "reverse iterator" {
     }
 }
 
-test "getPtrSlice fits" {
+test "CircBuf first/last" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const Buf = CircBuf(u8, 0);
+    var buf = try Buf.init(alloc, 3);
+    defer buf.deinit(alloc);
+
+    try buf.append(1);
+    try buf.append(2);
+    try buf.append(3);
+    try testing.expectEqual(3, buf.last().?.*);
+    try testing.expectEqual(1, buf.first().?.*);
+}
+
+test "CircBuf first/last empty" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const Buf = CircBuf(u8, 0);
+    var buf = try Buf.init(alloc, 0);
+    defer buf.deinit(alloc);
+
+    try testing.expect(buf.first() == null);
+    try testing.expect(buf.last() == null);
+}
+
+test "CircBuf first/last empty with cap" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const Buf = CircBuf(u8, 0);
+    var buf = try Buf.init(alloc, 3);
+    defer buf.deinit(alloc);
+
+    try testing.expect(buf.first() == null);
+    try testing.expect(buf.last() == null);
+}
+
+test "CircBuf append slice" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const Buf = CircBuf(u8, 0);
+    var buf = try Buf.init(alloc, 5);
+    defer buf.deinit(alloc);
+
+    try buf.appendSlice("hello");
+    {
+        var it = buf.iterator(.forward);
+        try testing.expect(it.next().?.* == 'h');
+        try testing.expect(it.next().?.* == 'e');
+        try testing.expect(it.next().?.* == 'l');
+        try testing.expect(it.next().?.* == 'l');
+        try testing.expect(it.next().?.* == 'o');
+        try testing.expect(it.next() == null);
+    }
+}
+
+test "CircBuf append slice with wrap" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const Buf = CircBuf(u8, 0);
+    var buf = try Buf.init(alloc, 4);
+    defer buf.deinit(alloc);
+
+    // Fill the buffer
+    _ = buf.getPtrSlice(0, buf.capacity());
+    try testing.expect(buf.full);
+    try testing.expectEqual(@as(usize, 4), buf.len());
+
+    // Delete
+    buf.deleteOldest(2);
+    try testing.expect(!buf.full);
+    try testing.expectEqual(@as(usize, 2), buf.len());
+
+    try buf.appendSlice("AB");
+    {
+        var it = buf.iterator(.forward);
+        try testing.expect(it.next().?.* == 0);
+        try testing.expect(it.next().?.* == 0);
+        try testing.expect(it.next().?.* == 'A');
+        try testing.expect(it.next().?.* == 'B');
+        try testing.expect(it.next() == null);
+    }
+}
+
+test "CircBuf getPtrSlice fits" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -379,7 +524,7 @@ test "getPtrSlice fits" {
     try testing.expectEqual(@as(usize, 11), buf.len());
 }
 
-test "getPtrSlice wraps" {
+test "CircBuf getPtrSlice wraps" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -435,7 +580,7 @@ test "getPtrSlice wraps" {
     }
 }
 
-test "rotateToZero" {
+test "CircBuf rotateToZero" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -447,7 +592,7 @@ test "rotateToZero" {
     try buf.rotateToZero(alloc);
 }
 
-test "rotateToZero offset" {
+test "CircBuf rotateToZero offset" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -471,7 +616,7 @@ test "rotateToZero offset" {
     try testing.expectEqual(@as(usize, 1), buf.head);
 }
 
-test "rotateToZero wraps" {
+test "CircBuf rotateToZero wraps" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -511,7 +656,7 @@ test "rotateToZero wraps" {
     }
 }
 
-test "rotateToZero full no wrap" {
+test "CircBuf rotateToZero full no wrap" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -549,7 +694,32 @@ test "rotateToZero full no wrap" {
     }
 }
 
-test "resize grow" {
+test "CircBuf resize grow from zero" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const Buf = CircBuf(u8, 0);
+    var buf = try Buf.init(alloc, 0);
+    defer buf.deinit(alloc);
+    try testing.expect(buf.full);
+
+    // Resize
+    try buf.resize(alloc, 2);
+    try testing.expect(!buf.full);
+    try testing.expectEqual(@as(usize, 0), buf.len());
+    try testing.expectEqual(@as(usize, 2), buf.capacity());
+
+    try buf.append(1);
+    try buf.append(2);
+
+    {
+        const slices = buf.getPtrSlice(0, 2);
+        try testing.expectEqual(@as(u8, 1), slices[0][0]);
+        try testing.expectEqual(@as(u8, 2), slices[0][1]);
+    }
+}
+
+test "CircBuf resize grow" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -582,7 +752,7 @@ test "resize grow" {
     }
 }
 
-test "resize shrink" {
+test "CircBuf resize shrink" {
     const testing = std.testing;
     const alloc = testing.allocator;
 

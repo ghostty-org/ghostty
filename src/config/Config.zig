@@ -527,6 +527,10 @@ palette: Palette = .{},
 /// The opacity level (opposite of transparency) of the background. A value of
 /// 1 is fully opaque and a value of 0 is fully transparent. A value less than 0
 /// or greater than 1 will be clamped to the nearest valid value.
+///
+/// On macOS, background opacity is disabled when the terminal enters native
+/// fullscreen. This is because the background becomes gray and it can cause
+/// widgets to show through which isn't generally desirable.
 @"background-opacity": f64 = 1.0,
 
 /// A positive value enables blurring of the background when background-opacity
@@ -664,9 +668,6 @@ link: RepeatableLink = .{},
 /// does not apply to tabs, splits, etc. However, this setting will apply to all
 /// new windows, not just the first one.
 ///
-/// On macOS, this always creates the window in native fullscreen. Non-native
-/// fullscreen is not currently supported with this setting.
-///
 /// On macOS, this setting does not work if window-decoration is set to
 /// "false", because native fullscreen on macOS requires window decorations
 /// to be set.
@@ -675,6 +676,12 @@ fullscreen: bool = false,
 /// The title Ghostty will use for the window. This will force the title of the
 /// window to be this title at all times and Ghostty will ignore any set title
 /// escape sequences programs (such as Neovim) may send.
+///
+/// This configuration can be reloaded at runtime. If it is set, the title
+/// will update for all windows. If it is unset, the next title change escape
+/// sequence will be honored but previous changes will not retroactively
+/// be set. This latter case may require you restart programs such as neovim
+/// to get the new title.
 title: ?[:0]const u8 = null,
 
 /// The setting that will change the application class value.
@@ -1793,6 +1800,10 @@ _diagnostics: cli.DiagnosticList = .{},
 /// determine if a conditional configuration matches or not.
 _conditional_state: conditional.State = .{},
 
+/// The conditional keys that are used at any point during the configuration
+/// loading. This is used to speed up the conditional evaluation process.
+_conditional_set: std.EnumSet(conditional.Key) = .{},
+
 /// The steps we can use to reload the configuration after it has been loaded
 /// without reopening the files. This is used in very specific cases such
 /// as loadTheme which has more details on why.
@@ -1809,9 +1820,10 @@ pub fn deinit(self: *Config) void {
 /// Load the configuration according to the default rules:
 ///
 ///   1. Defaults
-///   2. XDG Config File
-///   3. CLI flags
-///   4. Recursively defined configuration files
+///   2. XDG config dir
+///   3. "Application Support" directory (macOS only)
+///   4. CLI flags
+///   5. Recursively defined configuration files
 ///
 pub fn load(alloc_gpa: Allocator) !Config {
     var result = try default(alloc_gpa);
@@ -2394,23 +2406,35 @@ pub fn loadFile(self: *Config, alloc: Allocator, path: []const u8) !void {
     try self.expandPaths(std.fs.path.dirname(path).?);
 }
 
-/// Load the configuration from the default configuration file. The default
-/// configuration file is at `$XDG_CONFIG_HOME/ghostty/config`.
-pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
-    const config_path = try internal_os.xdg.config(alloc, .{ .subdir = "ghostty/config" });
-    defer alloc.free(config_path);
-
-    self.loadFile(alloc, config_path) catch |err| switch (err) {
+/// Load optional configuration file from `path`. All errors are ignored.
+pub fn loadOptionalFile(self: *Config, alloc: Allocator, path: []const u8) void {
+    self.loadFile(alloc, path) catch |err| switch (err) {
         error.FileNotFound => std.log.info(
-            "homedir config not found, not loading path={s}",
-            .{config_path},
+            "optional config file not found, not loading path={s}",
+            .{path},
         ),
-
         else => std.log.warn(
-            "error reading config file, not loading err={} path={s}",
-            .{ err, config_path },
+            "error reading optional config file, not loading err={} path={s}",
+            .{ err, path },
         ),
     };
+}
+
+/// Load configurations from the default configuration files. The default
+/// configuration file is at `$XDG_CONFIG_HOME/ghostty/config`.
+///
+/// On macOS, `$HOME/Library/Application Support/$CFBundleIdentifier/config`
+/// is also loaded.
+pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
+    const xdg_path = try internal_os.xdg.config(alloc, .{ .subdir = "ghostty/config" });
+    defer alloc.free(xdg_path);
+    self.loadOptionalFile(alloc, xdg_path);
+
+    if (comptime builtin.os.tag == .macos) {
+        const app_support_path = try internal_os.macos.appSupportDir(alloc, "config");
+        defer alloc.free(app_support_path);
+        self.loadOptionalFile(alloc, app_support_path);
+    }
 }
 
 /// Load and parse the CLI args.
@@ -2444,7 +2468,7 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
             // First, we add an artificial "-e" so that if we
             // replay the inputs to rebuild the config (i.e. if
             // a theme is set) then we will get the same behavior.
-            try self._replay_steps.append(arena_alloc, .{ .arg = "-e" });
+            try self._replay_steps.append(arena_alloc, .@"-e");
 
             // Next, take all remaining args and use that to build up
             // a command to execute.
@@ -2552,6 +2576,24 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
 
     const cwd = std.fs.cwd();
 
+    // We need to insert all of our loaded config-file values
+    // PRIOR to the "-e" in our replay steps, since everything
+    // after "-e" becomes an "initial-command". To do this, we
+    // dupe the values if we find it.
+    var replay_suffix = std.ArrayList(Replay.Step).init(alloc_gpa);
+    defer replay_suffix.deinit();
+    for (self._replay_steps.items, 0..) |step, i| if (step == .@"-e") {
+        // We don't need to clone the steps because they should
+        // all be allocated in our arena and we're keeping our
+        // arena.
+        try replay_suffix.appendSlice(self._replay_steps.items[i..]);
+
+        // Remove our old values. Again, don't need to free any
+        // memory here because its all part of our arena.
+        self._replay_steps.shrinkRetainingCapacity(i);
+        break;
+    };
+
     // We must use a while below and not a for(items) because we
     // may add items to the list while iterating for recursive
     // config-file entries.
@@ -2603,12 +2645,24 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
         try self.loadIter(alloc_gpa, &iter);
         try self.expandPaths(std.fs.path.dirname(path).?);
     }
+
+    // If we have a suffix, add that back.
+    if (replay_suffix.items.len > 0) {
+        try self._replay_steps.appendSlice(
+            arena_alloc,
+            replay_suffix.items,
+        );
+    }
 }
 
 /// Change the state of conditionals and reload the configuration
 /// based on the new state. This returns a new configuration based
 /// on the new state. The caller must free the old configuration if they
 /// wish.
+///
+/// This returns null if the conditional state would result in no changes
+/// to the configuration. In this case, the caller can continue to use
+/// the existing configuration or clone if they want a copy.
 ///
 /// This doesn't re-read any files, it just re-applies the same
 /// configuration with the new conditional state. Importantly, this means
@@ -2618,7 +2672,30 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
 pub fn changeConditionalState(
     self: *const Config,
     new: conditional.State,
-) !Config {
+) !?Config {
+    // If the conditional state between the old and new is the same,
+    // then we don't need to do anything.
+    relevant: {
+        inline for (@typeInfo(conditional.Key).Enum.fields) |field| {
+            const key: conditional.Key = @field(conditional.Key, field.name);
+
+            // Conditional set contains the keys that this config uses. So we
+            // only continue if we use this key.
+            if (self._conditional_set.contains(key) and !equalField(
+                @TypeOf(@field(self._conditional_state, field.name)),
+                @field(self._conditional_state, field.name),
+                @field(new, field.name),
+            )) {
+                break :relevant;
+            }
+        }
+
+        // If we got here, then we didn't find any differences between
+        // the old and new conditional state that would affect the
+        // configuration.
+        return null;
+    }
+
     // Create our new configuration
     const alloc_gpa = self._arena.?.child_allocator;
     var new_config = try self.cloneEmpty(alloc_gpa);
@@ -2703,39 +2780,46 @@ fn loadTheme(self: *Config, theme: Theme) !void {
     try new_config.loadIter(alloc_gpa, &iter);
 
     // Setup our replay to be conditional.
-    for (new_config._replay_steps.items) |*item| switch (item.*) {
-        .expand => {},
+    conditional: for (new_config._replay_steps.items) |*item| {
+        switch (item.*) {
+            .expand => {},
 
-        // Change our arg to be conditional on our theme.
-        .arg => |v| {
-            const alloc_arena = new_config._arena.?.allocator();
-            const conds = try alloc_arena.alloc(Conditional, 1);
-            conds[0] = .{
-                .key = .theme,
-                .op = .eq,
-                .value = @tagName(self._conditional_state.theme),
-            };
-            item.* = .{ .conditional_arg = .{
-                .conditions = conds,
-                .arg = v,
-            } };
-        },
+            // If we see "-e" then we do NOT make the following arguments
+            // conditional since they are supposed to be part of the
+            // initial command.
+            .@"-e" => break :conditional,
 
-        .conditional_arg => |v| {
-            const alloc_arena = new_config._arena.?.allocator();
-            const conds = try alloc_arena.alloc(Conditional, v.conditions.len + 1);
-            conds[0] = .{
-                .key = .theme,
-                .op = .eq,
-                .value = @tagName(self._conditional_state.theme),
-            };
-            @memcpy(conds[1..], v.conditions);
-            item.* = .{ .conditional_arg = .{
-                .conditions = conds,
-                .arg = v.arg,
-            } };
-        },
-    };
+            // Change our arg to be conditional on our theme.
+            .arg => |v| {
+                const alloc_arena = new_config._arena.?.allocator();
+                const conds = try alloc_arena.alloc(Conditional, 1);
+                conds[0] = .{
+                    .key = .theme,
+                    .op = .eq,
+                    .value = @tagName(self._conditional_state.theme),
+                };
+                item.* = .{ .conditional_arg = .{
+                    .conditions = conds,
+                    .arg = v,
+                } };
+            },
+
+            .conditional_arg => |v| {
+                const alloc_arena = new_config._arena.?.allocator();
+                const conds = try alloc_arena.alloc(Conditional, v.conditions.len + 1);
+                conds[0] = .{
+                    .key = .theme,
+                    .op = .eq,
+                    .value = @tagName(self._conditional_state.theme),
+                };
+                @memcpy(conds[1..], v.conditions);
+                item.* = .{ .conditional_arg = .{
+                    .conditions = conds,
+                    .arg = v.arg,
+                } };
+            },
+        }
+    }
 
     // Replay our previous inputs so that we can override values
     // from the theme.
@@ -2765,6 +2849,9 @@ pub fn finalize(self: *Config) !void {
             // This setting doesn't make sense with different light/dark themes
             // because it'll force the theme based on the Ghostty theme.
             if (self.@"window-theme" == .auto) self.@"window-theme" = .system;
+
+            // Mark that we use a conditional theme
+            self._conditional_set.insert(.theme);
         }
     }
 
@@ -2924,10 +3011,12 @@ pub fn parseManuallyHook(
     arg: []const u8,
     iter: anytype,
 ) !bool {
-    // Keep track of our input args no matter what..
-    try self._replay_steps.append(alloc, .{ .arg = try alloc.dupe(u8, arg) });
-
     if (std.mem.eql(u8, arg, "-e")) {
+        // Add the special -e marker. This prevents:
+        // (1) config-file from adding args to the end (see #2908)
+        // (2) dark/light theme from making this conditional
+        try self._replay_steps.append(alloc, .@"-e");
+
         // Build up the command. We don't clean this up because we take
         // ownership in our allocator.
         var command = std.ArrayList(u8).init(alloc);
@@ -2941,7 +3030,7 @@ pub fn parseManuallyHook(
 
         if (command.items.len == 0) {
             try self._diagnostics.append(alloc, .{
-                .location = cli.Location.fromIter(iter),
+                .location = try cli.Location.fromIter(iter, alloc),
                 .message = try std.fmt.allocPrintZ(
                     alloc,
                     "missing command after {s}",
@@ -2962,6 +3051,12 @@ pub fn parseManuallyHook(
         // Do not continue, we consumed everything.
         return false;
     }
+
+    // Keep track of our input args for replay
+    try self._replay_steps.append(
+        alloc,
+        .{ .arg = try alloc.dupe(u8, arg) },
+    );
 
     // If we didn't find a special case, continue parsing normally
     return true;
@@ -3016,6 +3111,9 @@ pub fn clone(
         );
     }
 
+    // Copy our diagnostics
+    result._diagnostics = try self._diagnostics.clone(alloc_arena);
+
     // Preserve our replay steps. We copy them exactly to also preserve
     // the exact conditionals required for some steps.
     try result._replay_steps.ensureTotalCapacity(
@@ -3028,6 +3126,9 @@ pub fn clone(
         );
     }
     assert(result._replay_steps.items.len == self._replay_steps.items.len);
+
+    // Copy the conditional set
+    result._conditional_set = self._conditional_set;
 
     return result;
 }
@@ -3224,11 +3325,22 @@ const Replay = struct {
             arg: []const u8,
         },
 
+        /// The start of a "-e" argument. This marks the end of
+        /// traditional configuration and the beginning of the
+        /// "-e" initial command magic. This is separate from "arg"
+        /// because there are some behaviors unique to this (i.e.
+        /// we want to keep this at the end for config-file).
+        ///
+        /// Note: when "-e" is used, ONLY this is present and
+        /// not an additional "arg" with "-e" value.
+        @"-e",
+
         fn clone(
             self: Step,
             alloc: Allocator,
         ) Allocator.Error!Step {
             return switch (self) {
+                .@"-e" => self,
                 .arg => |v| .{ .arg = try alloc.dupe(u8, v) },
                 .expand => |v| .{ .expand = try alloc.dupe(u8, v) },
                 .conditional_arg => |v| conditional: {
@@ -3264,10 +3376,6 @@ const Replay = struct {
                         log.warn("error expanding paths err={}", .{err});
                     },
 
-                    .arg => |arg| {
-                        return arg;
-                    },
-
                     .conditional_arg => |v| conditional: {
                         // All conditions must match.
                         for (v.conditions) |cond| {
@@ -3278,6 +3386,9 @@ const Replay = struct {
 
                         return v.arg;
                     },
+
+                    .arg => |arg| return arg,
+                    .@"-e" => return "-e",
                 }
             }
         }
@@ -4560,17 +4671,33 @@ pub const RepeatableLink = struct {
     }
 
     /// Deep copy of the struct. Required by Config.
-    pub fn clone(self: *const Self, alloc: Allocator) error{}!Self {
-        _ = self;
-        _ = alloc;
-        return .{};
+    pub fn clone(
+        self: *const Self,
+        alloc: Allocator,
+    ) Allocator.Error!Self {
+        // Note: we don't do any errdefers below since the allocation
+        // is expected to be arena allocated.
+
+        var list = try std.ArrayListUnmanaged(inputpkg.Link).initCapacity(
+            alloc,
+            self.links.items.len,
+        );
+        for (self.links.items) |item| {
+            const copy = try item.clone(alloc);
+            list.appendAssumeCapacity(copy);
+        }
+
+        return .{ .links = list };
     }
 
     /// Compare if two of our value are requal. Required by Config.
     pub fn equal(self: Self, other: Self) bool {
-        _ = self;
-        _ = other;
-        return true;
+        const itemsA = self.links.items;
+        const itemsB = other.links.items;
+        if (itemsA.len != itemsB.len) return false;
+        for (itemsA, itemsB) |*a, *b| {
+            if (!a.equal(b)) return false;
+        } else return true;
     }
 
     /// Used by Formatter
@@ -5258,14 +5385,13 @@ test "clone preserves conditional state" {
 
     var a = try Config.default(alloc);
     defer a.deinit();
-    var b = try a.changeConditionalState(.{ .theme = .dark });
-    defer b.deinit();
-    try testing.expectEqual(.dark, b._conditional_state.theme);
-    var dest = try b.clone(alloc);
+    a._conditional_state.theme = .dark;
+    try testing.expectEqual(.dark, a._conditional_state.theme);
+    var dest = try a.clone(alloc);
     defer dest.deinit();
 
     // Should have no changes
-    var it = b.changeIterator(&dest);
+    var it = a.changeIterator(&dest);
     try testing.expectEqual(@as(?Key, null), it.next());
 
     // Should have the same conditional state
@@ -5315,7 +5441,7 @@ test "clone can then change conditional state" {
     try cfg_light.loadIter(alloc, &it);
     try cfg_light.finalize();
 
-    var cfg_dark = try cfg_light.changeConditionalState(.{ .theme = .dark });
+    var cfg_dark = (try cfg_light.changeConditionalState(.{ .theme = .dark })).?;
     defer cfg_dark.deinit();
 
     try testing.expectEqual(Color{
@@ -5332,13 +5458,32 @@ test "clone can then change conditional state" {
         .b = 0xEE,
     }, cfg_clone.background);
 
-    var cfg_light2 = try cfg_clone.changeConditionalState(.{ .theme = .light });
+    var cfg_light2 = (try cfg_clone.changeConditionalState(.{ .theme = .light })).?;
     defer cfg_light2.deinit();
     try testing.expectEqual(Color{
         .r = 0xFF,
         .g = 0xFF,
         .b = 0xFF,
     }, cfg_light2.background);
+}
+
+test "clone preserves conditional set" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    var it: TestIterator = .{ .data = &.{
+        "--theme=light:foo,dark:bar",
+        "--window-theme=auto",
+    } };
+    try cfg.loadIter(alloc, &it);
+    try cfg.finalize();
+
+    var clone1 = try cfg.clone(alloc);
+    defer clone1.deinit();
+
+    try testing.expect(clone1._conditional_set.contains(.theme));
 }
 
 test "changed" {
@@ -5355,6 +5500,44 @@ test "changed" {
     try testing.expect(!source.changed(&dest, .@"font-size"));
 }
 
+test "changeConditionalState ignores irrelevant changes" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    {
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        var it: TestIterator = .{ .data = &.{
+            "--theme=foo",
+        } };
+        try cfg.loadIter(alloc, &it);
+        try cfg.finalize();
+
+        try testing.expect(try cfg.changeConditionalState(
+            .{ .theme = .dark },
+        ) == null);
+    }
+}
+
+test "changeConditionalState applies relevant changes" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    {
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        var it: TestIterator = .{ .data = &.{
+            "--theme=light:foo,dark:bar",
+        } };
+        try cfg.loadIter(alloc, &it);
+        try cfg.finalize();
+
+        var cfg2 = (try cfg.changeConditionalState(.{ .theme = .dark })).?;
+        defer cfg2.deinit();
+
+        try testing.expect(cfg2._conditional_set.contains(.theme));
+    }
+}
 test "theme loading" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -5386,6 +5569,9 @@ test "theme loading" {
         .g = 0x3A,
         .b = 0xBC,
     }, cfg.background);
+
+    // Not a conditional theme
+    try testing.expect(!cfg._conditional_set.contains(.theme));
 }
 
 test "theme loading preserves conditional state" {
@@ -5534,7 +5720,7 @@ test "theme loading correct light/dark" {
         try cfg.loadIter(alloc, &it);
         try cfg.finalize();
 
-        var new = try cfg.changeConditionalState(.{ .theme = .dark });
+        var new = (try cfg.changeConditionalState(.{ .theme = .dark })).?;
         defer new.deinit();
         try testing.expectEqual(Color{
             .r = 0xEE,
@@ -5559,5 +5745,24 @@ test "theme specifying light/dark changes window-theme from auto" {
         try cfg.finalize();
 
         try testing.expect(cfg.@"window-theme" == .system);
+    }
+}
+
+test "theme specifying light/dark sets theme usage in conditional state" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    {
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        var it: TestIterator = .{ .data = &.{
+            "--theme=light:foo,dark:bar",
+            "--window-theme=auto",
+        } };
+        try cfg.loadIter(alloc, &it);
+        try cfg.finalize();
+
+        try testing.expect(cfg.@"window-theme" == .system);
+        try testing.expect(cfg._conditional_set.contains(.theme));
     }
 }

@@ -13,39 +13,39 @@ const icons = [_]struct {
 }{
     .{
         .alias = "16x16",
-        .source = "16x16",
+        .source = "16",
     },
     .{
         .alias = "16x16@2",
-        .source = "16x16@2x@2x",
+        .source = "16@2x",
     },
     .{
         .alias = "32x32",
-        .source = "32x32",
+        .source = "32",
     },
     .{
         .alias = "32x32@2",
-        .source = "32x32@2x@2x",
+        .source = "32@2x",
     },
     .{
         .alias = "128x128",
-        .source = "128x128",
+        .source = "128",
     },
     .{
         .alias = "128x128@2",
-        .source = "128x128@2x@2x",
+        .source = "128@2x",
     },
     .{
         .alias = "256x256",
-        .source = "256x256",
+        .source = "256",
     },
     .{
         .alias = "256x256@2",
-        .source = "256x256@2x@2x",
+        .source = "256@2x",
     },
     .{
         .alias = "512x512",
-        .source = "512x512",
+        .source = "512",
     },
 };
 

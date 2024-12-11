@@ -1418,7 +1418,7 @@ pub const StreamHandler = struct {
         var buf = std.ArrayList(u8).init(self.alloc);
         defer buf.deinit();
         const writer = buf.writer();
-        try writer.writeAll("\x1b[21");
+        try writer.writeAll("\x1b]21");
 
         for (request.list.items) |item| {
             switch (item) {
@@ -1435,7 +1435,7 @@ pub const StreamHandler = struct {
                             },
                         },
                     } orelse {
-                        log.warn("no color configured for {}", .{key});
+                        try writer.print(";{}=", .{key});
                         continue;
                     };
 

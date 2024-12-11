@@ -5,6 +5,7 @@ const Surface = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const build_config = @import("../../build_config.zig");
 const configpkg = @import("../../config.zig");
 const apprt = @import("../../apprt.zig");
 const font = @import("../../font/main.zig");
@@ -1149,7 +1150,7 @@ pub fn showDesktopNotification(
     defer c.g_object_unref(notification);
     c.g_notification_set_body(notification, body.ptr);
 
-    const icon = c.g_themed_icon_new("com.mitchellh.ghostty");
+    const icon = c.g_themed_icon_new(build_config.bundle_id);
     defer c.g_object_unref(icon);
     c.g_notification_set_icon(notification, icon);
 

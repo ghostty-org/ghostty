@@ -724,7 +724,7 @@ pub const Surface = struct {
     /// Set the shape of the cursor.
     fn setMouseShape(self: *Surface, shape: terminal.MouseShape) !void {
         if ((comptime builtin.target.isDarwin()) and
-            !internal_os.macosVersionAtLeast(13, 0, 0))
+            !internal_os.macos.isAtLeastVersion(13, 0, 0))
         {
             // We only set our cursor if we're NOT on Mac, or if we are then the
             // macOS version is >= 13 (Ventura). On prior versions, glfw crashes

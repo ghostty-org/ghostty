@@ -5,10 +5,7 @@ class TerminalWindow: NSWindow {
 
     lazy var titlebarColor: NSColor = backgroundColor {
         didSet {
-            guard let titlebarContainer = contentView?.superview?.subviews.first(where: {
-                $0.className == "NSTitlebarContainerView"
-            }) else { return }
-
+            guard let titlebarContainer else { return }
             titlebarContainer.wantsLayer = true
             titlebarContainer.layer?.backgroundColor = titlebarColor.cgColor
         }
@@ -66,6 +63,48 @@ class TerminalWindow: NSWindow {
 
     deinit {
         bindings.forEach() { $0.invalidate() }
+    }
+
+    // MARK: Titlebar Helpers
+    // These helpers are generic to what we're trying to achieve (i.e. titlebar
+    // style tabs, titlebar styling, etc.). They're just here to make it easier.
+
+    private var titlebarContainer: NSView? {
+        // If we aren't fullscreen then the titlebar container is part of our window.
+        if !styleMask.contains(.fullScreen) {
+            guard let view = contentView?.superview ?? contentView else { return nil }
+            return titlebarContainerView(in: view)
+        }
+
+        // If we are fullscreen, the titlebar container view is part of a separate
+        // "fullscreen window", we need to find the window and then get the view.
+        for window in NSApplication.shared.windows {
+            // This is the private window class that contains the toolbar
+            guard window.className == "NSToolbarFullScreenWindow" else { continue }
+
+            // The parent will match our window. This is used to filter the correct
+            // fullscreen window if we have multiple.
+            guard window.parent == self else { continue }
+
+            guard let view = window.contentView else { continue }
+            return titlebarContainerView(in: view)
+        }
+
+        return nil
+    }
+
+    private func titlebarContainerView(in view: NSView) -> NSView? {
+        if view.className == "NSTitlebarContainerView" {
+            return view
+        }
+
+        for subview in view.subviews {
+            if let found = titlebarContainerView(in: subview) {
+                return found
+            }
+        }
+
+        return nil
     }
 
     // MARK: - NSWindow
@@ -152,9 +191,8 @@ class TerminalWindow: NSWindow {
 			// would be an opaque color. When the titlebar isn't transparent, however, the system applies
 			// a compositing effect to the unselected tab backgrounds, which makes them blend with the
 			// titlebar's/window's background.
-			if let titlebarContainer = contentView?.superview?.subviews.first(where: {
-				$0.className == "NSTitlebarContainerView"
-			}), let effectView = titlebarContainer.descendants(withClassName: "NSVisualEffectView").first {
+			if let effectView = titlebarContainer?.descendants(
+                withClassName: "NSVisualEffectView").first {
 				effectView.isHidden = titlebarTabs || !titlebarTabs && !hasVeryDarkBackground
 			}
 
@@ -223,10 +261,7 @@ class TerminalWindow: NSWindow {
     // window's key status changes in terms of becoming less prominent visually,
     // so we need to do it manually.
     private func updateNewTabButtonOpacity() {
-        guard let titlebarContainer = contentView?.superview?.subviews.first(where: {
-            $0.className == "NSTitlebarContainerView"
-        }) else { return }
-        guard let newTabButton: NSButton = titlebarContainer.firstDescendant(withClassName: "NSTabBarNewTabButton") as? NSButton else { return }
+        guard let newTabButton: NSButton = titlebarContainer?.firstDescendant(withClassName: "NSTabBarNewTabButton") as? NSButton else { return }
         guard let newTabButtonImageView: NSImageView = newTabButton.subviews.first(where: {
             $0 as? NSImageView != nil
         }) as? NSImageView else { return }
@@ -237,10 +272,7 @@ class TerminalWindow: NSWindow {
 	// Color the new tab button's image to match the color of the tab title/keyboard shortcut labels,
 	// just as it does in the stock tab bar.
 	private func updateNewTabButtonImage() {
-		guard let titlebarContainer = contentView?.superview?.subviews.first(where: {
-			$0.className == "NSTitlebarContainerView"
-		}) else { return }
-		guard let newTabButton: NSButton = titlebarContainer.firstDescendant(withClassName: "NSTabBarNewTabButton") as? NSButton else { return }
+		guard let newTabButton: NSButton = titlebarContainer?.firstDescendant(withClassName: "NSTabBarNewTabButton") as? NSButton else { return }
 		guard let newTabButtonImageView: NSImageView = newTabButton.subviews.first(where: {
 			$0 as? NSImageView != nil
 		}) as? NSImageView else { return }
@@ -272,10 +304,7 @@ class TerminalWindow: NSWindow {
 
 	private func updateTabsForVeryDarkBackgrounds() {
 		guard hasVeryDarkBackground else { return }
-
-		guard let titlebarContainer = contentView?.superview?.subviews.first(where: {
-			$0.className == "NSTitlebarContainerView"
-		}) else { return }
+        guard let titlebarContainer else { return }
 
 		if let tabGroup = tabGroup, tabGroup.isTabBarVisible {
 			guard let activeTabBackgroundView = titlebarContainer.firstDescendant(withClassName: "NSTabButton")?.superview?.subviews.last?.firstDescendant(withID: "_backgroundView")
@@ -301,8 +330,7 @@ class TerminalWindow: NSWindow {
     }()
 
     private lazy var resetZoomTitlebarAccessoryViewController: NSTitlebarAccessoryViewController? = {
-        guard let titlebarContainer = contentView?.superview?.subviews.first(where: { $0.className == "NSTitlebarContainerView" }) else { return nil }
-
+        guard let titlebarContainer else { return nil }
         let size = NSSize(width: titlebarContainer.bounds.height, height: titlebarContainer.bounds.height)
         let view = NSView(frame: NSRect(origin: .zero, size: size))
 
@@ -390,9 +418,7 @@ class TerminalWindow: NSWindow {
 
     // Find the NSTextField responsible for displaying the titlebar's title.
     private var titlebarTextField: NSTextField? {
-        guard let titlebarContainer = contentView?.superview?.subviews
-            .first(where: { $0.className == "NSTitlebarContainerView" }) else { return nil }
-        guard let titlebarView = titlebarContainer.subviews
+        guard let titlebarView = titlebarContainer?.subviews
             .first(where: { $0.className == "NSTitlebarView" }) else { return nil }
         return titlebarView.subviews.first(where: { $0 is NSTextField }) as? NSTextField
     }
@@ -450,10 +476,7 @@ class TerminalWindow: NSWindow {
     // For titlebar tabs, we want to hide the separator view so that we get rid
     // of an aesthetically unpleasing shadow.
     private func hideTitleBarSeparators() {
-        guard let titlebarContainer = contentView?.superview?.subviews.first(where: {
-            $0.className == "NSTitlebarContainerView"
-        }) else { return }
-
+        guard let titlebarContainer else { return }
         for v in titlebarContainer.descendants(withClassName: "NSTitlebarSeparatorView") {
             v.isHidden = true
         }

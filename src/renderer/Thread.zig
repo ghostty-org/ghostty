@@ -4,8 +4,10 @@ pub const Thread = @This();
 
 const std = @import("std");
 const builtin = @import("builtin");
+const assert = std.debug.assert;
 const xev = @import("xev");
 const crash = @import("../crash/main.zig");
+const internal_os = @import("../os/main.zig");
 const renderer = @import("../renderer.zig");
 const apprt = @import("../apprt.zig");
 const configpkg = @import("../config.zig");
@@ -92,6 +94,10 @@ flags: packed struct {
     /// This is true when the view is visible. This is used to determine
     /// if we should be rendering or not.
     visible: bool = true,
+
+    /// This is true when the view is focused. This defaults to true
+    /// and it is up to the apprt to set the correct value.
+    focused: bool = true,
 } = .{},
 
 pub const DerivedConfig = struct {
@@ -199,6 +205,9 @@ fn threadMain_(self: *Thread) !void {
     };
     defer crash.sentry.thread_state = null;
 
+    // Setup our thread QoS
+    self.setQosClass();
+
     // Run our loop start/end callbacks if the renderer cares.
     const has_loop = @hasDecl(renderer.Renderer, "loopEnter");
     if (has_loop) try self.renderer.loopEnter(self);
@@ -237,6 +246,36 @@ fn threadMain_(self: *Thread) !void {
     _ = try self.loop.run(.until_done);
 }
 
+fn setQosClass(self: *const Thread) void {
+    // Thread QoS classes are only relevant on macOS.
+    if (comptime !builtin.target.isDarwin()) return;
+
+    const class: internal_os.macos.QosClass = class: {
+        // If we aren't visible (our view is fully occluded) then we
+        // always drop our rendering priority down because it's just
+        // mostly wasted work.
+        //
+        // The renderer itself should be doing this as well (for example
+        // Metal will stop our DisplayLink) but this also helps with
+        // general forced updates and CPU usage i.e. a rebuild cells call.
+        if (!self.flags.visible) break :class .utility;
+
+        // If we're not focused, but we're visible, then we set a higher
+        // than default priority because framerates still matter but it isn't
+        // as important as when we're focused.
+        if (!self.flags.focused) break :class .user_initiated;
+
+        // We are focused and visible, we are the definition of user interactive.
+        break :class .user_interactive;
+    };
+
+    if (internal_os.macos.setQosClass(class)) {
+        log.debug("thread QoS class set class={}", .{class});
+    } else |err| {
+        log.warn("error setting QoS class err={}", .{err});
+    }
+}
+
 fn startDrawTimer(self: *Thread) void {
     // If our renderer doesn't support animations then we never run this.
     if (!@hasDecl(renderer.Renderer, "hasAnimations")) return;
@@ -273,9 +312,15 @@ fn drainMailbox(self: *Thread) !void {
         switch (message) {
             .crash => @panic("crash request, crashing intentionally"),
 
-            .visible => |v| {
+            .visible => |v| visible: {
+                // If our state didn't change we do nothing.
+                if (self.flags.visible == v) break :visible;
+
                 // Set our visible state
                 self.flags.visible = v;
+
+                // Visibility affects our QoS class
+                self.setQosClass();
 
                 // If we became visible then we immediately trigger a draw.
                 // We don't need to update frame data because that should
@@ -293,7 +338,16 @@ fn drainMailbox(self: *Thread) !void {
                 // check the visible state themselves to control their behavior.
             },
 
-            .focus => |v| {
+            .focus => |v| focus: {
+                // If our state didn't change we do nothing.
+                if (self.flags.focused == v) break :focus;
+
+                // Set our state
+                self.flags.focused = v;
+
+                // Focus affects our QoS class
+                self.setQosClass();
+
                 // Set it on the renderer
                 try self.renderer.setFocus(v);
 

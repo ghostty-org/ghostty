@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
+const build_config = @import("../../build_config.zig");
 const App = @import("App.zig");
 const Surface = @import("Surface.zig");
 const TerminalWindow = @import("Window.zig");
@@ -141,7 +142,7 @@ const Window = struct {
         self.window = gtk_window;
         c.gtk_window_set_title(gtk_window, "Ghostty: Terminal Inspector");
         c.gtk_window_set_default_size(gtk_window, 1000, 600);
-        c.gtk_window_set_icon_name(gtk_window, "com.mitchellh.ghostty");
+        c.gtk_window_set_icon_name(gtk_window, build_config.bundle_id);
 
         // Initialize our imgui widget
         try self.imgui_widget.init();

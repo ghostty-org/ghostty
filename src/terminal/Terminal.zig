@@ -193,6 +193,10 @@ pub const Options = struct {
     cols: size.CellCountInt,
     rows: size.CellCountInt,
     max_scrollback: usize = 10_000,
+
+    /// The default mode state. When the terminal gets a reset, it
+    /// will revert back to this state.
+    default_modes: modes.ModePacked = .{},
 };
 
 /// Initialize a new terminal.
@@ -216,6 +220,10 @@ pub fn init(
             .right = cols - 1,
         },
         .pwd = std.ArrayList(u8).init(alloc),
+        .modes = .{
+            .values = opts.default_modes,
+            .default = opts.default_modes,
+        },
     };
 }
 
@@ -1955,13 +1963,9 @@ pub fn deleteChars(self: *Terminal, count_req: usize) void {
 }
 
 pub fn eraseChars(self: *Terminal, count_req: usize) void {
-    const count = @max(count_req, 1);
-
-    // Our last index is at most the end of the number of chars we have
-    // in the current line.
-    const end = end: {
+    const count = end: {
         const remaining = self.cols - self.screen.cursor.x;
-        var end = @min(remaining, count);
+        var end = @min(remaining, @max(count_req, 1));
 
         // If our last cell is a wide char then we need to also clear the
         // cell beyond it since we can't just split a wide char.
@@ -1979,7 +1983,7 @@ pub fn eraseChars(self: *Terminal, count_req: usize) void {
     // protected modes. We need to figure out how to make `clearCells` or at
     // least `clearUnprotectedCells` handle boundary conditions...
     self.screen.splitCellBoundary(self.screen.cursor.x);
-    self.screen.splitCellBoundary(end);
+    self.screen.splitCellBoundary(self.screen.cursor.x + count);
 
     // Reset our row's soft-wrap.
     self.screen.cursorResetWrap();
@@ -1997,7 +2001,7 @@ pub fn eraseChars(self: *Terminal, count_req: usize) void {
         self.screen.clearCells(
             &self.screen.cursor.page_pin.node.data,
             self.screen.cursor.page_row,
-            cells[0..end],
+            cells[0..count],
         );
         return;
     }
@@ -2005,7 +2009,7 @@ pub fn eraseChars(self: *Terminal, count_req: usize) void {
     self.screen.clearUnprotectedCells(
         &self.screen.cursor.page_pin.node.data,
         self.screen.cursor.page_row,
-        cells[0..end],
+        cells[0..count],
     );
 }
 
@@ -2623,82 +2627,38 @@ pub fn plainStringUnwrapped(self: *Terminal, alloc: Allocator) ![]const u8 {
 
 /// Full reset.
 ///
-/// This will attempt to free the existing screen memory and allocate
-/// new screens but if that fails this will reuse the existing memory
-/// from the prior screens. In the latter case, memory may be wasted
-/// (since its unused) but it isn't leaked.
+/// This will attempt to free the existing screen memory but if that fails
+/// this will reuse the existing memory. In the latter case, memory may
+/// be wasted (since its unused) but it isn't leaked.
 pub fn fullReset(self: *Terminal) void {
-    // Attempt to initialize new screens.
-    var new_primary = Screen.init(
-        self.screen.alloc,
-        self.cols,
-        self.rows,
-        self.screen.pages.explicit_max_size,
-    ) catch |err| {
-        log.warn("failed to allocate new primary screen, reusing old memory err={}", .{err});
-        self.fallbackReset();
-        return;
-    };
-    const new_secondary = Screen.init(
-        self.secondary_screen.alloc,
-        self.cols,
-        self.rows,
-        0,
-    ) catch |err| {
-        log.warn("failed to allocate new secondary screen, reusing old memory err={}", .{err});
-        new_primary.deinit();
-        self.fallbackReset();
-        return;
-    };
+    // Reset our screens
+    self.screen.reset();
+    self.secondary_screen.reset();
 
-    // If we got here, both new screens were successfully allocated
-    // and we can deinitialize the old screens.
-    self.screen.deinit();
-    self.secondary_screen.deinit();
+    // Ensure we're back on primary screen
+    if (self.active_screen != .primary) {
+        const old = self.screen;
+        self.screen = self.secondary_screen;
+        self.secondary_screen = old;
+        self.active_screen = .primary;
+    }
 
-    // Replace with the newly allocated screens.
-    self.screen = new_primary;
-    self.secondary_screen = new_secondary;
-
-    self.resetCommonState();
-}
-
-fn fallbackReset(self: *Terminal) void {
-    // Clear existing screens without reallocation
-    self.primaryScreen(.{ .clear_on_exit = true, .cursor_save = false });
-    self.screen.clearSelection();
-    self.eraseDisplay(.scrollback, false);
-    self.eraseDisplay(.complete, false);
-    self.screen.cursorAbsolute(0, 0);
-    self.resetCommonState();
-}
-
-fn resetCommonState(self: *Terminal) void {
-    // We set the saved cursor to null and then restore. This will force
-    // our cursor to go back to the default which will also move the cursor
-    // to the top-left.
-    self.screen.saved_cursor = null;
-    self.restoreCursor() catch |err| {
-        log.warn("restore cursor on primary screen failed err={}", .{err});
-    };
-
-    self.screen.endHyperlink();
-    self.screen.charset = .{};
-    self.modes = .{};
+    // Rest our basic state
+    self.modes.reset();
     self.flags = .{};
     self.tabstops.reset(TABSTOP_INTERVAL);
-    self.screen.kitty_keyboard = .{};
-    self.secondary_screen.kitty_keyboard = .{};
-    self.screen.protected_mode = .off;
+    self.previous_char = null;
+    self.pwd.clearRetainingCapacity();
+    self.status_display = .main;
     self.scrolling_region = .{
         .top = 0,
         .bottom = self.rows - 1,
         .left = 0,
         .right = self.cols - 1,
     };
-    self.previous_char = null;
-    self.pwd.clearRetainingCapacity();
-    self.status_display = .main;
+
+    // Always mark dirty so we redraw everything
+    self.flags.dirty.clear = true;
 }
 
 /// Returns true if the point is dirty, used for testing.
@@ -6101,6 +6061,36 @@ test "Terminal: eraseChars wide char boundary conditions" {
         const str = try t.plainString(alloc);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("     b😀", str);
+    }
+}
+
+test "Terminal: eraseChars wide char splits proper cell boundaries" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .rows = 1, .cols = 30 });
+    defer t.deinit(alloc);
+
+    // This is a test for a bug: https://github.com/ghostty-org/ghostty/issues/2817
+    // To explain the setup:
+    // (1) We need our wide characters starting on an even (1-based) column.
+    // (2) We need our cursor to be in the middle somewhere.
+    // (3) We need our count to be less than our cursor X and on a split cell.
+    // The bug was that we split the wrong cell boundaries.
+
+    try t.printString("x食べて下さい");
+    {
+        const str = try t.plainString(alloc);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("x食べて下さい", str);
+    }
+
+    t.setCursorPos(1, 6); // At: て
+    t.eraseChars(4); // Delete: て下
+    t.screen.cursor.page_pin.node.data.assertIntegrity();
+
+    {
+        const str = try t.plainString(alloc);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("x食べ    さい", str);
     }
 }
 
@@ -10527,6 +10517,28 @@ test "Terminal: fullReset clears alt screen kitty keyboard state" {
 
     t.fullReset();
     try testing.expectEqual(0, t.secondary_screen.kitty_keyboard.current().int());
+}
+
+test "Terminal: fullReset default modes" {
+    var t = try init(testing.allocator, .{
+        .cols = 10,
+        .rows = 10,
+        .default_modes = .{ .grapheme_cluster = true },
+    });
+    defer t.deinit(testing.allocator);
+    try testing.expect(t.modes.get(.grapheme_cluster));
+    t.fullReset();
+    try testing.expect(t.modes.get(.grapheme_cluster));
+}
+
+test "Terminal: fullReset tracked pins" {
+    var t = try init(testing.allocator, .{ .cols = 80, .rows = 80 });
+    defer t.deinit(testing.allocator);
+
+    // Create a tracked pin
+    const p = try t.screen.pages.trackPin(t.screen.cursor.page_pin.*);
+    t.fullReset();
+    try testing.expect(t.screen.pages.pinIsValid(p.*));
 }
 
 // https://github.com/mitchellh/ghostty/issues/272

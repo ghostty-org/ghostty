@@ -21,6 +21,17 @@ pub const ModeState = struct {
     /// a real-world issue but we need to be aware of a DoS vector.
     saved: ModePacked = .{},
 
+    /// The default values for the modes. This is used to reset
+    /// the modes to their default values during reset.
+    default: ModePacked = .{},
+
+    /// Reset the modes to their default values. This also clears the
+    /// saved state.
+    pub fn reset(self: *ModeState) void {
+        self.values = self.default;
+        self.saved = .{};
+    }
+
     /// Set a mode to a value.
     pub fn set(self: *ModeState, mode: Mode, value: bool) void {
         switch (mode) {

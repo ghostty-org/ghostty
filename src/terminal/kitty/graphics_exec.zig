@@ -164,9 +164,9 @@ fn transmit(
     // If there are more chunks expected we do not respond.
     if (load.more) return .{};
 
-    // If our image has no ID or number, we don't respond at all. Conversely,
-    // if we have either an ID or number, we always respond.
-    if (load.image.id == 0 and load.image.number == 0) return .{};
+    // If the loaded image was assigned its ID automatically, not based
+    // on a number or explicitly specified ID, then we don't respond.
+    if (load.image.implicit_id) return .{};
 
     // After the image is added, set the ID in case it changed.
     // The resulting image number and placement ID never change.
@@ -335,6 +335,10 @@ fn loadAndAddImage(
     if (loading.image.id == 0) {
         loading.image.id = storage.next_image_id;
         storage.next_image_id +%= 1;
+
+        // If the image also has no number then its auto-ID is "implicit".
+        // See the doc comment on the Image.implicit_id field for more detail.
+        if (loading.image.number == 0) loading.image.implicit_id = true;
     }
 
     // If this is chunked, this is the beginning of a new chunked transmission.
@@ -528,4 +532,22 @@ test "kittygfx test valid i32 (expect invalid image ID)" {
     const resp = execute(alloc, &t, &cmd).?;
     try testing.expect(!resp.ok());
     try testing.expectEqual(resp.message, "ENOENT: image not found");
+}
+
+test "kittygfx no response with no image ID or number" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var t = try Terminal.init(alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    {
+        const cmd = try command.Parser.parseString(
+            alloc,
+            "a=t,f=24,t=d,s=1,v=2,c=10,r=1,i=0,I=0;////////",
+        );
+        defer cmd.deinit(alloc);
+        const resp = execute(alloc, &t, &cmd);
+        try testing.expect(resp == null);
+    }
 }

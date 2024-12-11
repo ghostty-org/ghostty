@@ -141,7 +141,7 @@ fn logFn(
 
         // Initialize a logger. This is slow to do on every operation
         // but we shouldn't be logging too much.
-        const logger = macos.os.Log.create("com.mitchellh.ghostty", @tagName(scope));
+        const logger = macos.os.Log.create(build_config.bundle_id, @tagName(scope));
         defer logger.release();
         logger.log(std.heap.c_allocator, mac_level, format, args);
     }

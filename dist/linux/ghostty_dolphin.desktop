@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Service
+ServiceTypes=KonqPopupMenu/Plugin
+MimeType=inode/directory
+Actions=RunGhosttyDir
+
+[Desktop Action RunGhosttyDir]
+Name=Open Ghostty Here
+Icon=com.mitchellh.ghostty
+Exec=ghostty --working-directory=%F --gtk-single-instance=false
+

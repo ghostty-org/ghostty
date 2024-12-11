@@ -1454,21 +1454,30 @@ pub const Set = struct {
         };
 
         // If we have any leaders we need to clone them.
-        var it = result.bindings.iterator();
-        while (it.next()) |entry| switch (entry.value_ptr.*) {
-            // Leaves could have data to clone (i.e. text actions
-            // contain allocated strings).
-            .leaf => |*s| s.* = try s.clone(alloc),
+        {
+            var it = result.bindings.iterator();
+            while (it.next()) |entry| switch (entry.value_ptr.*) {
+                // Leaves could have data to clone (i.e. text actions
+                // contain allocated strings).
+                .leaf => |*s| s.* = try s.clone(alloc),
 
-            // Must be deep cloned.
-            .leader => |*s| {
-                const ptr = try alloc.create(Set);
-                errdefer alloc.destroy(ptr);
-                ptr.* = try s.*.clone(alloc);
-                errdefer ptr.deinit(alloc);
-                s.* = ptr;
-            },
-        };
+                // Must be deep cloned.
+                .leader => |*s| {
+                    const ptr = try alloc.create(Set);
+                    errdefer alloc.destroy(ptr);
+                    ptr.* = try s.*.clone(alloc);
+                    errdefer ptr.deinit(alloc);
+                    s.* = ptr;
+                },
+            };
+        }
+
+        // We need to clone the action keys in the reverse map since
+        // they may contain allocated values.
+        {
+            var it = result.reverse.keyIterator();
+            while (it.next()) |action| action.* = try action.clone(alloc);
+        }
 
         return result;
     }

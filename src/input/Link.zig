@@ -4,6 +4,8 @@
 //! action types.
 const Link = @This();
 
+const std = @import("std");
+const Allocator = std.mem.Allocator;
 const oni = @import("oniguruma");
 const Mods = @import("key.zig").Mods;
 
@@ -58,4 +60,20 @@ pub fn oniRegex(self: *const Link) !oni.Regex {
         oni.Syntax.default,
         null,
     );
+}
+
+/// Deep clone the link.
+pub fn clone(self: *const Link, alloc: Allocator) Allocator.Error!Link {
+    return .{
+        .regex = try alloc.dupe(u8, self.regex),
+        .action = self.action,
+        .highlight = self.highlight,
+    };
+}
+
+/// Check if two links are equal.
+pub fn equal(self: *const Link, other: *const Link) bool {
+    return std.meta.eql(self.action, other.action) and
+        std.meta.eql(self.highlight, other.highlight) and
+        std.mem.eql(u8, self.regex, other.regex);
 }

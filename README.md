@@ -1,7 +1,7 @@
 <!-- LOGO -->
 <h1>
 <p align="center">
-  <img src="https://user-images.githubusercontent.com/1299/199110421-9ff5fc30-a244-441e-9882-26070662adf9.png" alt="Logo" width="100">
+  <img src="https://github.com/user-attachments/assets/fe853809-ba8b-400b-83ab-a9a0da25be8a" alt="Logo" width="128">
   <br>Ghostty
 </h1>
   <p align="center">
@@ -107,24 +107,39 @@ palette = 7=#a89984
 palette = 15=#fbf1c7
 ```
 
-You can view all available configuration options and their documentation
-by executing the command `ghostty +show-config --default --docs`. Note that
-this will output the full default configuration with docs to stdout, so
-you may want to pipe that through a pager, an editor, etc.
+#### Configuration Documentation
+
+There are multiple places to find documentation on the configuration options.
+All locations are identical (they're all generated from the same source):
+
+1. There are HTML and Markdown formatted docs in the
+   `$prefix/share/ghostty/docs` directory. This directory is created
+   when you build or install Ghostty. The `$prefix` is `zig-out` if you're
+   building from source (or the specified `--prefix` flag). On macOS,
+   `$prefix` is the `Contents/Resources` subdirectory of the `.app` bundle.
+
+2. There are man pages in the `$prefix/share/man` directory. This directory
+   is created when you build or install Ghostty.
+
+3. In the CLI, you can run `ghostty +show-config --default --docs`.
+   Note that this will output the full default configuration with docs to
+   stdout, so you may want to pipe that through a pager, an editor, etc.
+
+4. In the source code, you can find the configuration structure in the
+   [Config structure](https://github.com/ghostty-org/ghostty/blob/main/src/config/Config.zig).
+   The available keys are the keys verbatim, and their possible values are typically
+   documented in the comments.
+
+5. Not documentation per se, but you can search for the
+   [public config files](https://github.com/search?q=path%3Aghostty%2Fconfig&type=code)
+   of many Ghostty users for examples and inspiration.
 
 > [!NOTE]
 >
-> You'll see a lot of weird blank configurations like `font-family =`. This
+> You may see strange looking blank configurations like `font-family =`. This
 > is a valid syntax to specify the default behavior (no value). The
 > `+show-config` outputs it so it's clear that key is defaulting and also
 > to have something to attach the doc comment to.
-
-You can also see and read all available configuration options in the source
-[Config structure](https://github.com/ghostty-org/ghostty/blob/main/src/config/Config.zig).
-The available keys are the keys verbatim, and their possible values are typically
-documented in the comments. You also can search for the
-[public config files](https://github.com/search?q=path%3Aghostty%2Fconfig&type=code)
-of many Ghostty users for examples and inspiration.
 
 > [!NOTE]
 >

@@ -5,8 +5,8 @@
     .dependencies = .{
         // Zig libs
         .libxev = .{
-            .url = "https://github.com/mitchellh/libxev/archive/b8d1d93e5c899b27abbaa7df23b496c3e6a178c7.tar.gz",
-            .hash = "1220612bc023c21d75234882ec9a8c6a1cbd9d642da3dfb899297f14bb5bd7b6cd78",
+            .url = "https://github.com/mitchellh/libxev/archive/db6a52bafadf00360e675fefa7926e8e6c0e9931.tar.gz",
+            .hash = "12206029de146b685739f69b10a6f08baee86b3d0a5f9a659fa2b2b66c9602078bbf",
         },
         .mach_glfw = .{
             .url = "https://github.com/mitchellh/mach-glfw/archive/37c2995f31abcf7e8378fba68ddcf4a3faa02de0.tar.gz",
