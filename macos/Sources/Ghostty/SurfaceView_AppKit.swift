@@ -88,6 +88,11 @@ extension Ghostty {
             return ghostty_surface_inspector(surface)
         }
 
+        var usesOptAsAlt: ghostty_action_option_as_alt_e? {
+            guard let surface = self.surface else { return nil }
+            return ghostty_surface_uses_opt_as_alt(surface)
+        }
+
         // True if the inspector should be visible
         @Published var inspectorVisible: Bool = false {
             didSet {

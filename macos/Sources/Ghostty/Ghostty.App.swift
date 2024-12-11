@@ -255,6 +255,13 @@ extension Ghostty {
             }
         }
 
+        func toggleUseOptionAsMetaKey(surface: ghostty_surface_t) {
+            let action = "toggle_macos_option_as_alt"
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+                logger.warning("action failed action=\(action)")
+            }
+        }
+
         func toggleTerminalInspector(surface: ghostty_surface_t) {
             let action = "inspector:toggle"
             if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
@@ -522,6 +529,9 @@ extension Ghostty {
 
             case GHOSTTY_ACTION_RENDERER_HEALTH:
                 rendererHealth(app, target: target, v: action.action.renderer_health)
+
+            case GHOSTTY_ACTION_TOGGLE_MACOS_USE_OPT_AS_ALT:
+                toggleMacOSUseOptAsAlt(app, target: target)
 
             case GHOSTTY_ACTION_TOGGLE_QUICK_TERMINAL:
                 toggleQuickTerminal(app, target: target)
@@ -886,6 +896,26 @@ extension Ghostty {
                     surfaceView.showUserNotification(title: title, body: body)
                 }
 
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func toggleMacOSUseOptAsAlt(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s) {
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("macos toggle use opt as alt does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+
+                guard let appDelegate = NSApplication.shared.delegate as? AppDelegate else { return }
+                appDelegate.setToggleUseOptAsAltMenuState(value:surfaceView.usesOptAsAlt!)
 
             default:
                 assertionFailure()
