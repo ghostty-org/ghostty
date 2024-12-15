@@ -507,11 +507,18 @@ pub fn init(
         .config_conditional_state = app.config_conditional_state,
     };
 
-    // The command we're going to execute
-    const command: ?[]const u8 = if (app.first)
-        config.@"initial-command" orelse config.command
-    else
-        config.command;
+    // The command we're going to execute is either 'initial-command'
+    // (from -e or explicit configuration) or 'command' (our shell or
+    // explicit configuration). Shell integration is disabled when
+    // we're using 'initial-command'.
+    const command: ?[]const u8, const shell_integration: configpkg.Config.ShellIntegration = config: {
+        if (app.first) {
+            if (config.@"initial-command") |initial_command| {
+                break :config .{ initial_command, .none };
+            }
+        }
+        break :config .{ config.command, config.@"shell-integration" };
+    };
 
     // Start our IO implementation
     // This separate block ({}) is important because our errdefers must
@@ -520,7 +527,7 @@ pub fn init(
         // Initialize our IO backend
         var io_exec = try termio.Exec.init(alloc, .{
             .command = command,
-            .shell_integration = config.@"shell-integration",
+            .shell_integration = shell_integration,
             .shell_integration_features = config.@"shell-integration-features",
             .working_directory = config.@"working-directory",
             .resources_dir = global_state.resources_dir,
