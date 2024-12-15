@@ -509,12 +509,16 @@ pub fn init(
 
     // The command we're going to execute is either 'initial-command'
     // (from -e or explicit configuration) or 'command' (our shell or
-    // explicit configuration). Shell integration is disabled when
-    // we're using 'initial-command'.
+    // explicit configuration). Forced shell integration is disabled
+    // when we're using 'initial-command'.
     const command: ?[]const u8, const shell_integration: configpkg.Config.ShellIntegration = config: {
         if (app.first) {
             if (config.@"initial-command") |initial_command| {
-                break :config .{ initial_command, .none };
+                const shell_integration: configpkg.Config.ShellIntegration = switch (config.@"shell-integration") {
+                    .detect => .detect,
+                    else => .none,
+                };
+                break :config .{ initial_command, shell_integration };
             }
         }
         break :config .{ config.command, config.@"shell-integration" };
