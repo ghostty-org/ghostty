@@ -289,6 +289,10 @@ pub fn init(self: *Window, app: *App) !void {
             // left and right is not supported in libadwaita.
             .top, .left, .right => c.adw_toolbar_view_add_top_bar(toolbar_view, tab_bar_widget),
             .bottom => c.adw_toolbar_view_add_bottom_bar(toolbar_view, tab_bar_widget),
+            .headerbar => {
+                c.adw_tab_bar_set_autohide(tab_bar, 0);
+                c.adw_header_bar_set_title_widget(@ptrCast(@alignCast(self.header.?)), tab_bar_widget);
+            },
         }
         c.adw_toolbar_view_set_content(toolbar_view, box);
 
@@ -334,6 +338,7 @@ pub fn init(self: *Window, app: *App) !void {
                     .top,
                     .left,
                     .right,
+                    .headerbar,
                     => c.gtk_box_prepend(
                         @ptrCast(box),
                         @ptrCast(@alignCast(tab_bar)),
