@@ -261,7 +261,12 @@ fn writeBashCompletions(writer: anytype) !void {
         \\  return 0
         \\}
         \\
-        \\complete -o nospace -o bashdefault -F _ghostty ghostty
+        \\if ! command -v mapfile 2>&1 >/dev/null
+        \\then
+        \\  echo "mapfile could not be found. ghostty autocomplete requires bash >=4.0"
+        \\else
+        \\  complete -o nospace -o bashdefault -F _ghostty ghostty
+        \\fi
         \\
     );
 }
