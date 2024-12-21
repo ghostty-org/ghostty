@@ -704,7 +704,7 @@ fullscreen: bool = false,
 /// window to be this title at all times and Ghostty will ignore any set title
 /// escape sequences programs (such as Neovim) may send.
 ///
-/// The title may be hidden by setting it to a space character `" "`.
+/// The title can be hidden by setting it to a space character `" "`.
 ///
 /// This configuration can be reloaded at runtime. If it is set, the title
 /// will update for all windows. If it is unset, the next title change escape
