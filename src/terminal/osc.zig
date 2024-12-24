@@ -158,6 +158,12 @@ pub const Command = union(enum) {
     /// End a hyperlink (OSC 8)
     hyperlink_end: void,
 
+    /// Set progress state (OSC 9;4)
+    progress: struct {
+        state: ProgressState,
+        progress: ?u8 = null,
+    },
+
     pub const ColorKind = union(enum) {
         palette: u8,
         foreground,
@@ -172,6 +178,14 @@ pub const Command = union(enum) {
                 .cursor => "12",
             };
         }
+    };
+
+    pub const ProgressState = union(enum) {
+        remove,
+        set,
+        err,
+        indeterminate,
+        pause,
     };
 };
 
@@ -322,6 +336,20 @@ pub const Parser = struct {
         // https://sw.kovidgoyal.net/kitty/color-stack/#id1
         kitty_color_protocol_key,
         kitty_color_protocol_value,
+
+        // OSC 9 is used by ConEmu and iTerm2 for different things
+        // iTerm2 uses it to post a notification
+        // https://iterm2.com/documentation-escape-codes.html
+        // ConEmu uses it to implement many custom functions
+        // https://conemu.github.io/en/AnsiEscapeCodes.html#OSC_Operating_system_commands
+        // Some Linux applications (namely systemd and flatpak) have adopted the ConEmu implementation
+        // but this causes bogus notifications on iTerm2 compatible terminal emulators
+        osc_9,
+
+        // ConEmu specific substates
+        conemu_progress_start,
+        conemu_progress_state,
+        conemu_progress,
     };
 
     /// This must be called to clean up any allocated memory.
@@ -735,16 +763,77 @@ pub const Parser = struct {
 
             .@"9" => switch (c) {
                 ';' => {
-                    self.command = .{ .show_desktop_notification = .{
-                        .title = "",
-                        .body = undefined,
-                    } };
-
-                    self.temp_state = .{ .str = &self.command.show_desktop_notification.body };
                     self.buf_start = self.buf_idx;
-                    self.state = .string;
+                    self.state = .osc_9;
                 },
                 else => self.state = .invalid,
+            },
+
+            .osc_9 => switch (c) {
+                '4' => {
+                    self.state = .conemu_progress_start;
+                },
+                else => self.showDesktopNotification(),
+            },
+
+            .conemu_progress_start => switch (c) {
+                ';' => {
+                    self.command = .{ .progress = .{
+                        .state = undefined,
+                    } };
+                    self.state = .conemu_progress_state;
+                },
+                else => self.showDesktopNotification(),
+            },
+
+            .conemu_progress_state => switch (c) {
+                '0' => {
+                    self.command.progress.state = .remove;
+                    self.state = .conemu_progress;
+                    self.complete = true;
+                },
+                '1' => {
+                    self.command.progress.state = .set;
+                    self.command.progress.progress = 0;
+                    self.state = .conemu_progress;
+                },
+                '2' => {
+                    self.command.progress.state = .err;
+                    self.complete = true;
+                    self.state = .conemu_progress;
+                },
+                '3' => {
+                    self.command.progress.state = .indeterminate;
+                    self.complete = true;
+                    self.state = .conemu_progress;
+                },
+                '4' => {
+                    self.command.progress.state = .pause;
+                    self.complete = true;
+                    self.state = .conemu_progress;
+                },
+                else => self.showDesktopNotification(),
+            },
+
+            .conemu_progress => switch (c) {
+                ';' => {
+                    if (self.command.progress.progress) |progress| {
+                        if (progress > 0)
+                            self.showDesktopNotification();
+                    }
+                },
+                '0'...'9' => {
+                    if (self.command.progress.state == .set and self.command.progress.progress.? < 100) {
+                        if (self.command.progress.progress.? >= 10)
+                            self.command.progress.progress = 100
+                        else {
+                            const d = std.fmt.charToDigit(c, 10) catch 0;
+                            self.command.progress.progress = @min(100, (self.command.progress.progress.? * 10) + d);
+                        }
+                    }
+                    self.complete = true;
+                },
+                else => self.showDesktopNotification(),
             },
 
             .query_fg_color => switch (c) {
@@ -899,6 +988,16 @@ pub const Parser = struct {
 
             .string => self.complete = true,
         }
+    }
+
+    fn showDesktopNotification(self: *Parser) void {
+        self.command = .{ .show_desktop_notification = .{
+            .title = "",
+            .body = undefined,
+        } };
+
+        self.temp_state = .{ .str = &self.command.show_desktop_notification.body };
+        self.state = .string;
     }
 
     fn prepAllocableString(self: *Parser) void {
@@ -1516,6 +1615,20 @@ test "OSC: show desktop notification" {
     try testing.expect(cmd == .show_desktop_notification);
     try testing.expectEqualStrings(cmd.show_desktop_notification.title, "");
     try testing.expectEqualStrings(cmd.show_desktop_notification.body, "Hello world");
+}
+
+test "OSC: set progress" {
+    const testing = std.testing;
+
+    var p: Parser = .{};
+
+    const input = "9;4;1;100";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?;
+    try testing.expect(cmd == .progress);
+    try testing.expect(cmd.progress.state == .set);
+    try testing.expect(cmd.progress.progress == 100);
 }
 
 test "OSC: show desktop notification with title" {

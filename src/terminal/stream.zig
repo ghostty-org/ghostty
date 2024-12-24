@@ -1447,6 +1447,10 @@ pub fn Stream(comptime Handler: type) type {
                         return;
                     } else log.warn("unimplemented OSC callback: {}", .{cmd});
                 },
+
+                .progress => {
+                    log.warn("unimplemented OSC callback: {}", .{cmd});
+                },
             }
 
             // Fall through for when we don't have a handler.
