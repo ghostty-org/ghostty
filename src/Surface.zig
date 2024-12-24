@@ -3394,7 +3394,7 @@ pub fn cursorPosCallback(
         // We allow for a 1 pixel buffer at the top and bottom to detect
         // scroll even in full screen windows.
         // Note: one day, we can change this from distance to time based if we want.
-        //log.warn("CURSOR POS: {} {}", .{ pos, self.size.screen });
+        // log.warn("CURSOR POS: {} {}", .{ pos, self.size.screen });
         const max_y: f32 = @floatFromInt(self.size.screen.height);
         if (pos.y <= 1 or pos.y > max_y - 1) {
             const delta: isize = if (pos.y < 0) -1 else 1;
@@ -3416,6 +3416,12 @@ pub fn cursorPosCallback(
             if (comptime std.debug.runtime_safety) unreachable;
             return;
         };
+
+        // handle the case where we go outside of the viewport
+        // which is represented by a negative position for both x and y
+        if (pos.x < 0 and pos.y < 0) {
+            return;
+        }
 
         // Handle dragging depending on click count
         switch (self.mouse.left_click_count) {
@@ -3548,7 +3554,6 @@ fn dragLeftClickSingle(
     //     ALWAYS selected the current char, but we must move the cursor
     //     left of the xboundary.
     //   - Inverted logic for forwards selections.
-    //
 
     // Our clicking point
     const click_pin = self.mouse.left_click_pin.?.*;
