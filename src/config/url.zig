@@ -4,8 +4,8 @@ const oni = @import("oniguruma");
 /// Default URL regex.
 /// 
 /// Sources:
-/// 1. [Oniguruma GitHub](https://github.com/kkos/oniguruma)  
-/// 2. [Zig stdlib docs](https://ziglang.org/documentation/master/std/)  
+/// 1. [Oniguruma GitHub](https://github.com/kkos/oniguruma)
+/// 2. [Zig stdlib docs](https://ziglang.org/documentation/master/std/)
 ///
 /// Explanation (analysis):
 /// - Matches a set of schemes (URL_SCHEMES).
@@ -39,6 +39,9 @@ const URL_SCHEMES =
     "|gemini://" ++
     "|gopher://" ++
     "|news:";
+
+/// Alias so that external code can refer to `url.regex`.
+pub const regex = URL_REGEX;
 
 // Simple regex test to ensure detection of URLs works as expected.
 test "url regex" {
