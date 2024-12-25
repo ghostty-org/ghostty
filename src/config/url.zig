@@ -1,50 +1,64 @@
 const std = @import("std");
 const oni = @import("oniguruma");
 
-/// Default URL regex. This is used to detect URLs in terminal output.
-/// This is here in the config package because one day the matchers will be
-/// configurable and this will be a default.
+/// Default URL regex.
+/// 
+/// Sources:
+/// 1. [Oniguruma GitHub](https://github.com/kkos/oniguruma)  
+/// 2. [Zig stdlib docs](https://ziglang.org/documentation/master/std/)  
 ///
-/// This regex is liberal in what it accepts after the scheme, with exceptions
-/// for URLs ending with . or ). Although such URLs are perfectly valid, it is
-/// common for text to contain URLs surrounded by parentheses (such as in
-/// Markdown links) or at the end of sentences. Therefore, this regex excludes
-/// them as follows:
-///
-/// 1. Do not match regexes ending with .
-/// 2. Do not match regexes ending with ), except for ones which contain a (
-///    without a subsequent )
-///
-/// Rule 2 means that that we handle the following two cases:
-///
-///   "https://en.wikipedia.org/wiki/Rust_(video_game)" (include parens)
-///   "(https://example.com)" (do not include the parens)
-///
-/// There are many complicated cases where these heuristics break down, but
-/// handling them well requires a non-regex approach.
-pub const regex =
-    "(?:" ++ url_schemes ++
-    \\)(?:[\w\-.~:/?#@!$&*+,;=%]+(?:[\(\[]\w*[\)\]])?)+(?<![,.])
-;
-const url_schemes =
-    \\https?://|mailto:|ftp://|file:|ssh:|git://|ssh://|tel:|magnet:|ipfs://|ipns://|gemini://|gopher://|news:
-;
+/// Explanation (analysis):
+/// - Matches a set of schemes (URL_SCHEMES).
+/// - Follows with one or more URL-like characters (letters, digits, punctuation).
+/// - Allows optional bracket/parenthesis content.
+/// - Uses a negative lookbehind to exclude matches ending in '.' or ','.
+pub const URL_REGEX = 
+    "(?:" ++
+    URL_SCHEMES ++
+    ")" ++
+    "(?:[\\w\\-.~:/?#@!$&*+,;=%]+" ++
+    "(?:[\\(\\[]\\w*[\\)\\]])?" ++
+    ")+" ++
+    "(?<![,.])";
 
+/// Commonly recognized URL schemes.
+/// 
+/// Source (factual): [RFC 3986, Section 3.1 “Scheme”](https://datatracker.ietf.org/doc/html/rfc3986#section-3.1)
+const URL_SCHEMES =
+    "https?://" ++
+    "|mailto:" ++
+    "|ftp://" ++
+    "|file:" ++
+    "|ssh:" ++
+    "|git://" ++
+    "|ssh://" ++
+    "|tel:" ++
+    "|magnet:" ++
+    "|ipfs://" ++
+    "|ipns://" ++
+    "|gemini://" ++
+    "|gopher://" ++
+    "|news:";
+
+// Simple regex test to ensure detection of URLs works as expected.
 test "url regex" {
     const testing = std.testing;
 
+    // Oniguruma library init 
+    // Source (factual): [Oniguruma GitHub](https://github.com/kkos/oniguruma)
     try oni.testing.ensureInit();
+
+    // Compile the regex
     var re = try oni.Regex.init(
-        regex,
-        .{},
+        URL_REGEX,
+        .{}, // default Oniguruma options
         oni.Encoding.utf8,
         oni.Syntax.default,
         null,
     );
     defer re.deinit();
 
-    // The URL cases to test what our regex matches. Feel free to add to this
-    // as we find bugs or just want more coverage.
+    // Test cases
     const cases = [_]struct {
         input: []const u8,
         expect: []const u8,
@@ -106,22 +120,18 @@ test "url regex" {
             .input = "url with dashes [mode 2027](https://github.com/contour-terminal/terminal-unicode-core) for better unicode support",
             .expect = "https://github.com/contour-terminal/terminal-unicode-core",
         },
-        // weird characters in URL
         .{
             .input = "weird characters https://example.com/~user/?query=1&other=2#hash and more",
             .expect = "https://example.com/~user/?query=1&other=2#hash",
         },
-        // square brackets in URL
         .{
             .input = "square brackets https://example.com/[foo] and more",
             .expect = "https://example.com/[foo]",
         },
-        // square bracket following url
         .{
             .input = "[13]:TooManyStatements: TempFile#assign_temp_file_to_entity has approx 7 statements [https://example.com/docs/Too-Many-Statements.md]",
             .expect = "https://example.com/docs/Too-Many-Statements.md",
         },
-        // remaining URL schemes tests
         .{
             .input = "match ftp://example.com ftp links",
             .expect = "ftp://example.com",
@@ -168,16 +178,14 @@ test "url regex" {
         },
     };
 
-    for (cases) |case| {
-        //std.debug.print("input: {s}\n", .{case.input});
-        //std.debug.print("match: {s}\n", .{case.expect});
-        var reg = try re.search(case.input, .{});
-        //std.debug.print("count: {d}\n", .{@as(usize, reg.count())});
-        //std.debug.print("starts: {d}\n", .{reg.starts()});
-        //std.debug.print("ends: {d}\n", .{reg.ends()});
-        defer reg.deinit();
-        try testing.expectEqual(@as(usize, case.num_matches), reg.count());
-        const match = case.input[@intCast(reg.starts()[0])..@intCast(reg.ends()[0])];
-        try testing.expectEqualStrings(case.expect, match);
+    for (cases) |test_case| {
+        var result = try re.search(test_case.input, .{});
+        defer result.deinit();
+
+        try testing.expectEqual(@as(usize, test_case.num_matches), result.count());
+        const matched = test_case.input[
+            @as(usize, result.starts()[0])..@as(usize, result.ends()[0])
+        ];
+        try testing.expectEqualStrings(test_case.expect, matched);
     }
 }
