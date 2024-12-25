@@ -844,7 +844,7 @@ const ReflowCursor = struct {
         {
             const pin_keys = list.tracked_pins.keys();
             for (pin_keys) |p| {
-                if (&p.node.data != src_page or
+                if (p.node != row.node or
                     p.y != src_y) continue;
 
                 // If this pin is in the blanks on the right and past the end
@@ -894,7 +894,7 @@ const ReflowCursor = struct {
             {
                 const pin_keys = list.tracked_pins.keys();
                 for (pin_keys) |p| {
-                    if (&p.node.data != src_page or
+                    if (p.node != row.node or
                         p.y != src_y or
                         p.x != x) continue;
 
@@ -949,6 +949,11 @@ const ReflowCursor = struct {
                         self.page_cell.wide = .narrow;
                         self.cursorForward();
                         // Skip spacer tail so it doesn't cause a wrap.
+                        // BUG: If there's a tracked pin here this will cause
+                        //      it to be skipped, and we'll end up putting it
+                        //      at the end of the row after the while.
+                        //      There's gotta be a better way to do this, but
+                        //      this is *fine* for now.
                         x += 1;
                         continue;
                     },
@@ -1093,6 +1098,21 @@ const ReflowCursor = struct {
         if (!src_row.wrap) {
             self.new_rows += 1;
         }
+
+        // If we missed any tracked pins we shove them at the end of the row.
+        // This is *not* the correct solution, but it works for now and it's
+        // rather rare that this will occur.
+        {
+            const pin_keys = list.tracked_pins.keys();
+            for (pin_keys) |p| {
+                if (p.node != row.node or
+                    p.y != src_y) continue;
+
+                p.node = self.node;
+                p.x = self.x;
+                p.y = self.y;
+            }
+        }
     }
 
     /// Create a new page in the provided list with the provided
@@ -1127,6 +1147,18 @@ const ReflowCursor = struct {
 
         // We expect to have enough capacity to clone the row.
         try self.page.cloneRowFrom(old_page, self.page_row, old_row);
+
+        // Move any tracked pins from the last row of the old page.
+        {
+            const pin_keys = list.tracked_pins.keys();
+            for (pin_keys) |p| {
+                if (p.node != old_node or
+                    p.y != old_page.size.rows - 1) continue;
+
+                p.node = self.node;
+                p.y = 0;
+            }
+        }
 
         // Clear the row from the old page and truncate it.
         old_page.clearCells(old_row, 0, self.page.size.cols);
