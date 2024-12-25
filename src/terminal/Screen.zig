@@ -620,7 +620,7 @@ pub fn cursorAbsolute(self: *Screen, x: size.CellCountInt, y: size.CellCountInt)
     self.cursor.x = x; // Must be set before cursorChangePin
     self.cursor.y = y;
     self.cursorChangePin(page_pin);
-    const page_rac = page_pin.rowAndCell();
+    const page_rac = self.cursor.page_pin.rowAndCell();
     self.cursor.page_row = page_rac.row;
     self.cursor.page_cell = page_rac.cell;
 }
