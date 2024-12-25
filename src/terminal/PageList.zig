@@ -244,6 +244,7 @@ pub fn init(
 
     // We always track our viewport pin to ensure this is never an allocation
     const viewport_pin = try pool.pins.create();
+    viewport_pin.* = .{ .node = page_list.first.? };
     var tracked_pins: PinSet = .{};
     errdefer tracked_pins.deinit(pool.alloc);
     try tracked_pins.putNoClobber(pool.alloc, viewport_pin, {});
