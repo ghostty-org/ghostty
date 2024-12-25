@@ -844,8 +844,12 @@ pub const Parser = struct {
                     // If we aren't a set substate, then we don't care
                     // about the value.
                     const p = &self.command.progress;
-                    if (p.state != .set) break :value;
-                    assert(p.progress != null);
+                    if (p.state != .set and p.state != .@"error" and p.state != .pause) break :value;
+
+                    if (p.state == .set)
+                        assert(p.progress != null)
+                    else if (p.progress == null)
+                        p.progress = 0;
 
                     // If we're over 100% we're done.
                     if (p.progress.? >= 100) break :value;
@@ -1768,6 +1772,62 @@ test "OSC: OSC9 progress remove extra semicolon" {
     try testing.expect(cmd == .show_desktop_notification);
     try testing.expectEqualStrings(cmd.show_desktop_notification.title, "");
     try testing.expectEqualStrings(cmd.show_desktop_notification.body, "4;0;100;");
+}
+
+test "OSC: OSC9 progress error" {
+    const testing = std.testing;
+
+    var p: Parser = .{};
+
+    const input = "9;4;2";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?;
+    try testing.expect(cmd == .progress);
+    try testing.expect(cmd.progress.state == .@"error");
+    try testing.expect(cmd.progress.progress == null);
+}
+
+test "OSC: OSC9 progress error with progress" {
+    const testing = std.testing;
+
+    var p: Parser = .{};
+
+    const input = "9;4;2;100";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?;
+    try testing.expect(cmd == .progress);
+    try testing.expect(cmd.progress.state == .@"error");
+    try testing.expect(cmd.progress.progress == 100);
+}
+
+test "OSC: OSC9 progress pause" {
+    const testing = std.testing;
+
+    var p: Parser = .{};
+
+    const input = "9;4;4";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?;
+    try testing.expect(cmd == .progress);
+    try testing.expect(cmd.progress.state == .pause);
+    try testing.expect(cmd.progress.progress == null);
+}
+
+test "OSC: OSC9 progress pause with progress" {
+    const testing = std.testing;
+
+    var p: Parser = .{};
+
+    const input = "9;4;4;100";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?;
+    try testing.expect(cmd == .progress);
+    try testing.expect(cmd.progress.state == .pause);
+    try testing.expect(cmd.progress.progress == 100);
 }
 
 test "OSC: empty param" {
