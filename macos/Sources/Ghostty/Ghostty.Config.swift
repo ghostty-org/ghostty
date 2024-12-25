@@ -406,6 +406,14 @@ extension Ghostty {
             _ = ghostty_config_get(config, &v, key, UInt(key.count))
             return v
         }
+
+        var quickTerminalSize: QuickTerminalSize {
+            guard let config = self.config else { return .init() }
+            var v: ghostty_config_quick_terminal_size_s = .init()
+            let key = "quick-terminal-size"
+            _ = ghostty_config_get(config, &v, key, UInt(key.count))
+            return .init(config: v);
+        }
         #endif
 
         var resizeOverlay: ResizeOverlay {

@@ -12,10 +12,10 @@ enum QuickTerminalScreen {
 
         case "mouse":
             self = .mouse
-            
+
         case "macos-menu-bar":
             self = .menuBar
-            
+
         default:
             return nil
         }

@@ -1411,6 +1411,31 @@ keybind: Keybinds = .{},
 /// Set it to false for the quick terminal to remain open even when it loses focus.
 @"quick-terminal-autohide": bool = true,
 
+/// Control the size of the quick terminal.
+///
+/// The size can expressed in two units:
+///  * A value ending in `%` specifies a percentage of the screen size.
+///  * A value ending in `px` specifies a fixed size in pixel, which is clamped by the
+///    screen's maximum width or height.
+///
+/// The configuration accept one or two dimensions:
+///  * A single value specifies the dimension that is growable based on the quick terminal
+///   position:
+///    * For `top` and `bottom` positions, the value applies to the height.
+///    * For `right` and `left` positions, the value applies to the width.
+///    * For `center`, the size applied to both the width and height.
+///  * Two comma separated value specifies the width and height.
+///
+/// Examples:
+///
+/// ```
+/// quick-terminal-size = 25%       // 25% of the maximum size for the growable dimension
+/// quick-terminal-size = 42px      // 42 pixels for the growable dimension
+/// quick-terminal-size = 25%,75%   // 25% for the primary dimension, 75% for the secondary
+/// quick-terminal-size = 300px,80% // 300px for the primary dimension, 80% for the secondary
+/// ```
+@"quick-terminal-size": ?QuickTerminalSize = null,
+
 /// Whether to enable shell integration auto-injection or not. Shell integration
 /// greatly enhances the terminal experience by enabling a number of features:
 ///
@@ -5292,6 +5317,240 @@ pub const QuickTerminalScreen = enum {
     main,
     mouse,
     @"macos-menu-bar",
+};
+
+/// See quick-terminal-size
+pub const QuickTerminalSize = struct {
+    const Self = @This();
+
+    pub const Size = union(UnitKey) {
+        // Absolute value in pixel.
+        pixel: u16,
+
+        // Percentage value relative to the screen size. Allowed value [0-100].
+        percent: u8,
+
+        // Sync with `ghostty_config_quick_terminal_unit_e`.
+        pub const UnitKey = enum(c_int) {
+            pixel,
+            percent,
+        };
+
+        pub const C = extern struct {
+            value: u16,
+            tag: UnitKey,
+        };
+
+        pub fn cval(self: Size) Size.C {
+            return .{
+                .tag = @as(UnitKey, self),
+                .value = res: {
+                    switch (self) {
+                        .percent => |v| {
+                            break :res v;
+                        },
+                        .pixel => |v| {
+                            break :res @intCast(v);
+                        },
+                    }
+                },
+            };
+        }
+
+        fn parseValue(input: []const u8) !Size {
+            if (input[input.len - 1] == '%') {
+                const v = std.fmt.parseInt(
+                    u8,
+                    input[0 .. input.len - 1],
+                    10,
+                ) catch return error.InvalidFormat;
+
+                // Percentage value must be between 0-100.
+                if (v > 100) return error.InvalidFormat;
+
+                return .{ .percent = v };
+            } else if (input[input.len - 2] == 'p' and input[input.len - 1] == 'x') {
+                const v = std.fmt.parseInt(
+                    u16,
+                    input[0 .. input.len - 2],
+                    10,
+                ) catch return error.InvalidFormat;
+
+                return .{ .pixel = v };
+            }
+
+            return error.InvalidFormat;
+        }
+
+        pub fn formatBuf(self: Size, buf: []u8) Allocator.Error![]const u8 {
+            return res: {
+                switch (self) {
+                    .percent => |v| {
+                        break :res std.fmt.bufPrint(buf, "{d}%", .{v});
+                    },
+                    .pixel => |v| {
+                        break :res std.fmt.bufPrint(buf, "{d}px", .{v});
+                    },
+                }
+            } catch error.OutOfMemory;
+        }
+
+        pub fn equal(self: Size, other: Size) bool {
+            return std.meta.eql(self, other);
+        }
+    };
+
+    dimensions: std.ArrayListUnmanaged(Size) = .{},
+    dimensions_c: std.ArrayListUnmanaged(Size.C) = .{},
+
+    /// Sync with `ghostty_config_quick_terminal_size_s`
+    pub const C = extern struct {
+        dimensions: [*]Size.C,
+        len: usize,
+    };
+
+    /// Required by Config, for C bindings.
+    pub fn cval(self: *const Self) C {
+        return .{
+            .dimensions = self.dimensions_c.items.ptr,
+            .len = self.dimensions_c.items.len,
+        };
+    }
+
+    /// Required by Config.
+    pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
+        return .{
+            .dimensions = try self.dimensions.clone(alloc),
+            .dimensions_c = try self.dimensions_c.clone(alloc),
+        };
+    }
+
+    /// Required by Config.
+    pub fn equal(self: Self, other: Self) bool {
+        const itemsA = self.dimensions.items;
+        const itemsB = other.dimensions.items;
+        if (itemsA.len != itemsB.len) return false;
+        for (itemsA, itemsB) |a, b| {
+            if (!a.equal(b)) return false;
+        } else return true;
+    }
+
+    /// Required by Config.
+    pub fn parseCLI(self: *Self, alloc: Allocator, input: ?[]const u8) !void {
+        const value = input orelse return error.ValueRequired;
+        if (value.len == 0) return error.InvalidFormat;
+
+        self.* = .{};
+
+        var i: usize = 0;
+        var it = std.mem.tokenizeScalar(u8, value, ',');
+        while (it.next()) |part| {
+            i += 1;
+            if (i > 2) return error.InvalidValue;
+
+            const parsed_value = try Size.parseValue(part);
+            try self.dimensions.append(alloc, parsed_value);
+            try self.dimensions_c.append(alloc, parsed_value.cval());
+        }
+
+        if (self.dimensions.items.len == 0) return error.InvalidValue;
+        assert(self.dimensions.items.len == self.dimensions_c.items.len);
+    }
+
+    /// Required by Config, use for config formatted.
+    pub fn formatEntry(self: Self, formatter: anytype) !void {
+        var buf: [1024]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buf);
+        var writer = fbs.writer();
+
+        for (self.dimensions.items, 0..) |dim, i| {
+            var dim_buf: [128]u8 = undefined;
+            const dim_str = try dim.formatBuf(&dim_buf);
+            if (i != 0) writer.writeByte(',') catch return error.OutOfMemory;
+            writer.writeAll(dim_str) catch return error.OutOfMemory;
+        }
+
+        try formatter.formatEntry([]const u8, fbs.getWritten());
+    }
+
+    test "parseCLI" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+
+        const alloc = arena.allocator();
+
+        var p: Self = .{};
+
+        {
+            var expected_dimensions: [1]Size = .{.{ .pixel = 42 }};
+
+            try p.parseCLI(alloc, "42px");
+            const parsed_dimensions = try p.dimensions.toOwnedSlice(alloc);
+            try testing.expectEqualSlices(Size, &expected_dimensions, parsed_dimensions);
+        }
+
+        {
+            var expected_dimensions = [1]Size{.{ .percent = 15 }};
+
+            try p.parseCLI(alloc, "15%");
+            const parsed_dimensions = try p.dimensions.toOwnedSlice(alloc);
+            try testing.expectEqualSlices(Size, &expected_dimensions, parsed_dimensions);
+        }
+
+        {
+            var expected_dimensions = [_]Size{ .{ .pixel = 4096 }, .{ .percent = 23 } };
+
+            try p.parseCLI(alloc, "4096px,23%");
+            const parsed_dimensions = try p.dimensions.toOwnedSlice(alloc);
+            try testing.expectEqualSlices(Size, &expected_dimensions, parsed_dimensions);
+        }
+
+        {
+            var expected_dimensions = [2]Size{ .{ .percent = 78 }, .{ .pixel = 75 } };
+
+            try p.parseCLI(alloc, "78%,75px");
+            const parsed_dimensions = try p.dimensions.toOwnedSlice(alloc);
+            try testing.expectEqualSlices(Size, &expected_dimensions, parsed_dimensions);
+        }
+
+        try testing.expectError(error.InvalidFormat, p.parseCLI(alloc, ""));
+        try testing.expectError(error.InvalidFormat, p.parseCLI(alloc, "29"));
+        try testing.expectError(error.InvalidFormat, p.parseCLI(alloc, "120%"));
+        try testing.expectError(error.InvalidFormat, p.parseCLI(alloc, "65px,12"));
+    }
+
+    test "formatEntry on one-dimension size" {
+        const testing = std.testing;
+
+        var buf = std.ArrayList(u8).init(testing.allocator);
+        defer buf.deinit();
+
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var p: Self = .{};
+        try p.parseCLI(alloc, "1024px");
+        try p.formatEntry(formatterpkg.entryFormatter("v", buf.writer()));
+        try testing.expectEqualSlices(u8, "v = 1024px\n", buf.items);
+    }
+
+    test "formatEntry on two-dimension size" {
+        const testing = std.testing;
+
+        var buf = std.ArrayList(u8).init(testing.allocator);
+        defer buf.deinit();
+
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var p: Self = .{};
+        try p.parseCLI(alloc, "1024px,80%");
+        try p.formatEntry(formatterpkg.entryFormatter("v", buf.writer()));
+        try testing.expectEqualSlices(u8, "v = 1024px,80%\n", buf.items);
+    }
 };
 
 /// See grapheme-width-method

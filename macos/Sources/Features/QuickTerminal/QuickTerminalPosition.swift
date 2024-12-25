@@ -7,36 +7,6 @@ enum QuickTerminalPosition : String {
     case right
     case center
 
-    /// Set the loaded state for a window.
-    func setLoaded(_ window: NSWindow) {
-        guard let screen = window.screen ?? NSScreen.main else { return }
-        switch (self) {
-        case .top, .bottom:
-            window.setFrame(.init(
-                origin: window.frame.origin,
-                size: .init(
-                    width: screen.frame.width,
-                    height: screen.frame.height / 4)
-            ), display: false)
-
-        case .left, .right:
-            window.setFrame(.init(
-                origin: window.frame.origin,
-                size: .init(
-                    width: screen.frame.width / 4,
-                    height: screen.frame.height)
-            ), display: false)
-
-        case .center:
-            window.setFrame(.init(
-                origin: window.frame.origin,
-                size: .init(
-                    width: screen.frame.width / 2,
-                    height: screen.frame.height / 3)
-            ), display: false)
-        }
-    }
-
     /// Set the initial state for a window for animating out of this position.
     func setInitial(in window: NSWindow, on screen: NSScreen) {
         // We always start invisible
@@ -67,13 +37,12 @@ enum QuickTerminalPosition : String {
         switch (self) {
         case .top, .bottom:
             finalSize.width = screen.frame.width
-
+            
         case .left, .right:
             finalSize.height = screen.frame.height
-
+            
         case .center:
-            finalSize.width = screen.frame.width / 2
-            finalSize.height = screen.frame.height / 3
+            break
         }
 
         return finalSize
