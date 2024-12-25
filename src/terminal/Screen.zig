@@ -878,7 +878,7 @@ pub fn cursorScrollAbove(self: *Screen) !void {
 }
 
 fn cursorScrollAboveRotate(self: *Screen) !void {
-    self.cursor.page_pin.* = self.cursor.page_pin.down(1).?;
+    self.cursorChangePin(self.cursor.page_pin.down(1).?);
 
     // Go through each of the pages following our pin, shift all rows
     // down by one, and copy the last row of the previous page.
