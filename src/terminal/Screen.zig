@@ -69,6 +69,11 @@ kitty_images: kitty.graphics.ImageStorage = .{},
 /// Dirty flags for the renderer.
 dirty: Dirty = .{},
 
+/// If this is true then `assertIntegrity` will do nothing.
+/// This is only present with runtime safety enabled.
+pause_integrity_checks: if (build_config.slow_runtime_safety) usize else void =
+    if (build_config.slow_runtime_safety) 0 else {},
+
 /// See Terminal.Dirty. This behaves the same way.
 pub const Dirty = packed struct {
     /// Set when the selection is set or unset, regardless of if the
@@ -227,12 +232,26 @@ pub fn deinit(self: *Screen) void {
     self.pages.deinit();
 }
 
+/// Temporarily pause integrity checks, making `assertIntegrity` a noop.
+/// Any use of this should be carefully justified and explained.
+fn pauseIntegrityChecks(self: *Screen, v: bool) void {
+    if (build_config.slow_runtime_safety) {
+        if (v) {
+            self.pause_integrity_checks += 1;
+        } else {
+            self.pause_integrity_checks -= 1;
+        }
+    }
+}
+
 /// Assert that the screen is in a consistent state. This doesn't check
 /// all pages in the page list because that is SO SLOW even just for
 /// tests. This only asserts the screen specific data so callers should
 /// ensure they're also calling page integrity checks if necessary.
 pub fn assertIntegrity(self: *const Screen) void {
     if (build_config.slow_runtime_safety) {
+        if (self.pause_integrity_checks > 0) return;
+
         assert(self.cursor.x < self.pages.cols);
         assert(self.cursor.y < self.pages.rows);
 
@@ -640,8 +659,18 @@ pub fn cursorReload(self: *Screen) void {
         self.cursor.page_pin.*,
     ) orelse reset: {
         const pin = self.pages.pin(.{ .active = .{} }).?;
-        self.cursor.page_pin.* = pin;
-        break :reset self.pages.pointFromPin(.active, pin).?;
+        // We use `cursorChangePin` to change the pin so that managed memory
+        // is properly accounted for as necessary, cleared from the old page
+        // and placed in to the new page. The problem is that doing so calls
+        // `manualStyleUpdate` which calls `self.assertIntegrity`, asserting
+        // that the cursor is in the active area and that the cursor x and y
+        // match the page pin, neither of which are true at this moment, but
+        // which we are about to make true, so just disable integrity checks
+        // for now.
+        self.pauseIntegrityChecks(true);
+        defer self.pauseIntegrityChecks(false);
+        self.cursorChangePin(pin);
+        break :reset self.pages.pointFromPin(.active, self.cursor.page_pin.*).?;
     };
 
     self.cursor.x = @intCast(pt.active.x);
@@ -649,20 +678,6 @@ pub fn cursorReload(self: *Screen) void {
     const page_rac = self.cursor.page_pin.rowAndCell();
     self.cursor.page_row = page_rac.row;
     self.cursor.page_cell = page_rac.cell;
-
-    // If we have a style, we need to ensure it is in the page because this
-    // method may also be called after a page change.
-    if (self.cursor.style_id != style.default_id) {
-        self.manualStyleUpdate() catch |err| {
-            // This failure should not happen because manualStyleUpdate
-            // handles page splitting, overflow, and more. This should only
-            // happen if we're out of RAM. In this case, we'll just degrade
-            // gracefully back to the default style.
-            log.err("failed to update style on cursor reload err={}", .{err});
-            self.cursor.style = .{};
-            self.cursor.style_id = 0;
-        };
-    }
 }
 
 /// Scroll the active area and keep the cursor at the bottom of the screen.
