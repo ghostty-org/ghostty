@@ -149,6 +149,10 @@ pub const Command = union(enum) {
         body: []const u8,
     },
 
+    /// Kitty desktop notifications (OSC 99)
+    /// https://sw.kovidgoyal.net/kitty/desktop-notifications/
+    kitty_desktop_notification: ?*kitty.desktop.KittyDesktopNotification,
+
     /// Start a hyperlink (OSC 8)
     hyperlink_start: struct {
         id: ?[]const u8 = null,
@@ -267,6 +271,7 @@ pub const Parser = struct {
         @"777",
         @"8",
         @"9",
+        @"99",
 
         // OSC 10 is used to query or set the current foreground color.
         query_fg_color,
@@ -322,6 +327,11 @@ pub const Parser = struct {
         // https://sw.kovidgoyal.net/kitty/color-stack/#id1
         kitty_color_protocol_key,
         kitty_color_protocol_value,
+
+        // Kitty desktop notifications
+        // https://sw.kovidgoyal.net/kitty/desktop-notifications/
+        kitty_desktop_notification_metadata,
+        kitty_desktop_notification_payload,
     };
 
     /// This must be called to clean up any allocated memory.
@@ -359,6 +369,14 @@ pub const Parser = struct {
         switch (self.command) {
             .kitty_color_protocol => |*v| {
                 v.list.deinit();
+                self.command = default;
+            },
+            .kitty_desktop_notification => |v| {
+                if (v) |k| {
+                    k.deinit();
+                    self.alloc.?.destroy(k);
+                }
+                self.command.kitty_desktop_notification = null;
                 self.command = default;
             },
             else => {},
@@ -734,6 +752,7 @@ pub const Parser = struct {
             },
 
             .@"9" => switch (c) {
+                '9' => self.state = .@"99",
                 ';' => {
                     self.command = .{ .show_desktop_notification = .{
                         .title = "",
@@ -746,6 +765,30 @@ pub const Parser = struct {
                 },
                 else => self.state = .invalid,
             },
+
+            .@"99" => switch (c) {
+                ';' => kitty: {
+                    if (self.alloc == null) {
+                        log.warn("OSC 99 (Kitty desktop notifications) requires an allocator, but none was provided", .{});
+                        self.state = .invalid;
+                        break :kitty;
+                    }
+                    self.state = .kitty_desktop_notification_metadata;
+                    self.buf_start = self.buf_idx;
+                },
+                else => self.state = .invalid,
+            },
+
+            .kitty_desktop_notification_metadata => switch (c) {
+                ';' => {
+                    self.temp_state = .{ .key = self.buf[self.buf_start .. self.buf_idx - 1] };
+                    self.state = .kitty_desktop_notification_payload;
+                    self.buf_start = self.buf_idx;
+                },
+                else => {},
+            },
+
+            .kitty_desktop_notification_payload => {},
 
             .query_fg_color => switch (c) {
                 '?' => {
@@ -1084,6 +1127,40 @@ pub const Parser = struct {
     /// is the final character in the OSC sequence. This is used to determine
     /// the response terminator.
     pub fn end(self: *Parser, terminator_ch: ?u8) ?Command {
+        switch (self.state) {
+            .kitty_desktop_notification_metadata => {
+                self.state = .invalid;
+                self.complete = false;
+            },
+            .kitty_desktop_notification_payload => {
+                self.command = .{
+                    .kitty_desktop_notification = k: {
+                        const alloc = self.alloc orelse {
+                            log.warn("kitty desktop notification requires an allocator", .{});
+                            self.state = .invalid;
+                            self.complete = false;
+                            break :k null;
+                        };
+                        const k = alloc.create(kitty.desktop.KittyDesktopNotification) catch {
+                            self.state = .invalid;
+                            self.complete = false;
+                            break :k null;
+                        };
+                        k.init(alloc, self) catch {
+                            k.deinit();
+                            alloc.destroy(k);
+                            self.state = .invalid;
+                            self.complete = false;
+                            break :k null;
+                        };
+                        self.complete = true;
+                        break :k k;
+                    },
+                };
+            },
+            else => {},
+        }
+
         if (!self.complete) {
             log.warn("invalid OSC command: {s}", .{self.buf[0..self.buf_idx]});
             return null;
@@ -1104,6 +1181,11 @@ pub const Parser = struct {
         switch (self.command) {
             .report_color => |*c| c.terminator = Terminator.init(terminator_ch),
             .kitty_color_protocol => |*c| c.terminator = Terminator.init(terminator_ch),
+            .kitty_desktop_notification => |v| {
+                if (v) |d| {
+                    d.terminator = Terminator.init(terminator_ch);
+                }
+            },
             else => {},
         }
 

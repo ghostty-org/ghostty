@@ -2,6 +2,7 @@
 
 const key = @import("kitty/key.zig");
 pub const color = @import("kitty/color.zig");
+pub const desktop = @import("kitty/desktop.zig");
 pub const graphics = @import("kitty/graphics.zig");
 
 pub const KeyFlags = key.Flags;
