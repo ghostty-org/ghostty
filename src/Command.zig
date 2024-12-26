@@ -182,9 +182,10 @@ fn startPosix(self: *Command, arena: Allocator) !void {
     _ = posix.execveZ(pathZ, argsZ, envp) catch null;
 
     // If we are executing this code, the exec failed. In that scenario,
-    // we return a very specific error that can be detected to determine
-    // we're in the child.
-    return error.ExecFailedInChild;
+    // terminate so we don't duplicate the original process
+    // note: returning to test code from this point would run 2 copies of the test suite
+    std.debug.print("failed to execveZ as child process, terminating", .{});
+    std.process.exit(1);
 }
 
 fn startWindows(self: *Command, arena: Allocator) !void {
@@ -721,4 +722,33 @@ test "Command: custom working directory" {
     } else {
         try testing.expectEqualStrings("/usr/bin\n", contents);
     }
+}
+
+// Duplicating a test process via fork does unexepected things.
+// zig build test will hang
+// test binary created via -Demit-test-exe will run 2 copies of the test suite
+//
+// This test relys on cmd.start -> posix.start terminating the child process rather
+// than returning to avoid those two strange behaviours
+test "Command: posix fork handles execveZ failure" {
+    if (builtin.os.tag == .windows) {
+        return error.SkipZigTest;
+    }
+    var td = try TempDir.init();
+    defer td.deinit();
+    var stdout = try createTestStdout(td.dir);
+    defer stdout.close();
+
+    var cmd: Command = .{
+        .path = "/not/a/binary",
+        .args = &.{ "/not/a/binary", "" },
+        .stdout = stdout,
+        .cwd = "/bin",
+    };
+
+    try cmd.start(testing.allocator);
+    try testing.expect(cmd.pid != null);
+    const exit = try cmd.wait(true);
+    try testing.expect(exit == .Exited);
+    try testing.expect(exit.Exited == 1);
 }
