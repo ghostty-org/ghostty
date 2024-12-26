@@ -182,10 +182,9 @@ fn startPosix(self: *Command, arena: Allocator) !void {
     _ = posix.execveZ(pathZ, argsZ, envp) catch null;
 
     // If we are executing this code, the exec failed. In that scenario,
-    // terminate so we don't duplicate the original process
-    // note: returning to test code from this point would run 2 copies of the test suite
-    std.debug.print("failed to execveZ as child process, terminating", .{});
-    std.process.exit(1);
+    // we return a very specific error that can be detected to determine
+    // we're in the child.
+    return error.ExecFailedInChild;
 }
 
 fn startWindows(self: *Command, arena: Allocator) !void {
@@ -599,7 +598,7 @@ test "Command: pre exec" {
         }).do,
     };
 
-    try cmd.start(testing.allocator);
+    try cmd.testingStart();
     try testing.expect(cmd.pid != null);
     const exit = try cmd.wait(true);
     try testing.expect(exit == .Exited);
@@ -635,7 +634,7 @@ test "Command: redirect stdout to file" {
         .stdout = stdout,
     };
 
-    try cmd.start(testing.allocator);
+    try cmd.testingStart();
     try testing.expect(cmd.pid != null);
     const exit = try cmd.wait(true);
     try testing.expect(exit == .Exited);
@@ -670,7 +669,7 @@ test "Command: custom env vars" {
         .env = &env,
     };
 
-    try cmd.start(testing.allocator);
+    try cmd.testingStart();
     try testing.expect(cmd.pid != null);
     const exit = try cmd.wait(true);
     try testing.expect(exit == .Exited);
@@ -706,7 +705,7 @@ test "Command: custom working directory" {
         .cwd = "/bin",
     };
 
-    try cmd.start(testing.allocator);
+    try cmd.testingStart();
     try testing.expect(cmd.pid != null);
     const exit = try cmd.wait(true);
     try testing.expect(exit == .Exited);
@@ -724,12 +723,12 @@ test "Command: custom working directory" {
     }
 }
 
-// Duplicating a test process via fork does unexepected things.
+// Test validate an execveZ failure correctly terminates when error.ExecFailedInChild is correctly handled
+//
+// Incorrectly handling an error.ExecFailedInChild results in a second copy of the test process running.
+// Duplicating the test process leads to weird behavior
 // zig build test will hang
 // test binary created via -Demit-test-exe will run 2 copies of the test suite
-//
-// This test relys on cmd.start -> posix.start terminating the child process rather
-// than returning to avoid those two strange behaviours
 test "Command: posix fork handles execveZ failure" {
     if (builtin.os.tag == .windows) {
         return error.SkipZigTest;
@@ -746,9 +745,22 @@ test "Command: posix fork handles execveZ failure" {
         .cwd = "/bin",
     };
 
-    try cmd.start(testing.allocator);
+    try cmd.testingStart();
     try testing.expect(cmd.pid != null);
     const exit = try cmd.wait(true);
     try testing.expect(exit == .Exited);
     try testing.expect(exit.Exited == 1);
+}
+
+// If cmd.start fails with error.ExecFailedInChild it's the _child_ process that is running. If it does not
+// terminate in response to that error both the parent and child will continue as if they _are_ the test suite
+// process.
+fn testingStart(self: *Command) !void {
+    self.start(testing.allocator) catch |err| {
+        if (err == error.ExecFailedInChild) {
+            // I am a child process, I must not get confused and continue running the rest of the test suite.
+            posix.exit(1);
+        }
+        return err;
+    };
 }
