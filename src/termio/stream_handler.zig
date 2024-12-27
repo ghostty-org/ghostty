@@ -1347,7 +1347,7 @@ pub const StreamHandler = struct {
             .foreground => {
                 self.foreground_color = null;
                 _ = self.renderer_mailbox.push(.{
-                    .foreground_color = self.default_foreground_color,
+                    .foreground_color = self.foreground_color,
                 }, .{ .forever = {} });
 
                 self.surfaceMessageWriter(.{ .color_change = .{
@@ -1358,7 +1358,7 @@ pub const StreamHandler = struct {
             .background => {
                 self.background_color = null;
                 _ = self.renderer_mailbox.push(.{
-                    .background_color = self.default_background_color,
+                    .background_color = self.background_color,
                 }, .{ .forever = {} });
 
                 self.surfaceMessageWriter(.{ .color_change = .{
@@ -1370,7 +1370,7 @@ pub const StreamHandler = struct {
                 self.cursor_color = null;
 
                 _ = self.renderer_mailbox.push(.{
-                    .cursor_color = self.default_cursor_color,
+                    .cursor_color = self.cursor_color,
                 }, .{ .forever = {} });
 
                 if (self.default_cursor_color) |color| {
@@ -1490,15 +1490,15 @@ pub const StreamHandler = struct {
                         const msg: renderer.Message = switch (special) {
                             .foreground => msg: {
                                 self.foreground_color = null;
-                                break :msg .{ .foreground_color = self.default_foreground_color };
+                                break :msg .{ .foreground_color = self.foreground_color };
                             },
                             .background => msg: {
                                 self.background_color = null;
-                                break :msg .{ .background_color = self.default_background_color };
+                                break :msg .{ .background_color = self.background_color };
                             },
                             .cursor => msg: {
                                 self.cursor_color = null;
-                                break :msg .{ .cursor_color = self.default_cursor_color };
+                                break :msg .{ .cursor_color = self.cursor_color };
                             },
                             else => {
                                 log.warn(

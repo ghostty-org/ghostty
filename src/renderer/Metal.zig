@@ -76,17 +76,29 @@ size: renderer.Size,
 /// True if the window is focused
 focused: bool,
 
-/// The actual foreground color. May differ from the config foreground color if
-/// changed by a terminal application
-foreground_color: terminal.color.RGB,
+/// The foreground color set by an OSC 10 sequence. If unset then
+/// default_foreground_color is used.
+foreground_color: ?terminal.color.RGB,
 
-/// The actual background color. May differ from the config background color if
-/// changed by a terminal application
-background_color: terminal.color.RGB,
+/// Foreground color set in the user's config file.
+default_foreground_color: terminal.color.RGB,
 
-/// The actual cursor color. May differ from the config cursor color if changed
-/// by a terminal application
+/// The background color set by an OSC 11 sequence. If unset then
+/// default_background_color is used.
+background_color: ?terminal.color.RGB,
+
+/// Background color set in the user's config file.
+default_background_color: terminal.color.RGB,
+
+/// The cursor color set by an OSC 12 sequence. If unset then
+/// default_cursor_color is used.
 cursor_color: ?terminal.color.RGB,
+
+/// Default cursor color when no color is set explicitly by an OSC 12 command.
+/// This is cursor color as set in the user's config, if any. If no cursor color
+/// is set in the user's config, then the cursor color is determined by the
+/// current foreground color.
+default_cursor_color: ?terminal.color.RGB,
 
 /// When `cursor_color` is null, swap the foreground and background colors of
 /// the cell under the cursor for the cursor color. Otherwise, use the default
@@ -629,9 +641,12 @@ pub fn init(alloc: Allocator, options: renderer.Options) !Metal {
         .grid_metrics = font_critical.metrics,
         .size = options.size,
         .focused = true,
-        .foreground_color = options.config.foreground,
-        .background_color = options.config.background,
-        .cursor_color = options.config.cursor_color,
+        .foreground_color = null,
+        .default_foreground_color = options.config.foreground,
+        .background_color = null,
+        .default_background_color = options.config.background,
+        .cursor_color = null,
+        .default_cursor_color = options.config.cursor_color,
         .cursor_invert = options.config.cursor_invert,
         .current_background_color = options.config.background,
 
@@ -919,15 +934,34 @@ pub fn updateFrame(
         }
 
         // Swap bg/fg if the terminal is reversed
-        const bg = self.background_color;
-        const fg = self.foreground_color;
+        const bg = self.background_color orelse self.default_background_color;
+        const fg = self.foreground_color orelse self.default_foreground_color;
         defer {
-            self.background_color = bg;
-            self.foreground_color = fg;
+            if (self.background_color) |*c| {
+                c.* = bg;
+            } else {
+                self.default_background_color = bg;
+            }
+
+            if (self.foreground_color) |*c| {
+                c.* = fg;
+            } else {
+                self.default_foreground_color = fg;
+            }
         }
+
         if (state.terminal.modes.get(.reverse_colors)) {
-            self.background_color = fg;
-            self.foreground_color = bg;
+            if (self.background_color) |*c| {
+                c.* = fg;
+            } else {
+                self.default_background_color = fg;
+            }
+
+            if (self.foreground_color) |*c| {
+                c.* = bg;
+            } else {
+                self.default_foreground_color = bg;
+            }
         }
 
         // If our terminal screen size doesn't match our expected renderer
@@ -1029,7 +1063,7 @@ pub fn updateFrame(
         }
 
         break :critical .{
-            .bg = self.background_color,
+            .bg = self.background_color orelse self.default_background_color,
             .screen = screen_copy,
             .screen_type = state.terminal.active_screen,
             .mouse = state.mouse,
@@ -1957,10 +1991,10 @@ pub fn changeConfig(self: *Metal, config: *DerivedConfig) !void {
     self.uniforms.min_contrast = config.min_contrast;
 
     // Set our new colors
-    self.background_color = config.background;
-    self.foreground_color = config.foreground;
+    self.default_background_color = config.background;
+    self.default_foreground_color = config.foreground;
+    self.default_cursor_color = if (!config.cursor_invert) config.cursor_color else null;
     self.cursor_invert = config.cursor_invert;
-    self.cursor_color = if (!config.cursor_invert) config.cursor_color else null;
 
     self.config.deinit();
     self.config = config.*;
@@ -2246,12 +2280,12 @@ fn rebuildCells(
             .extend => if (y == 0) {
                 self.uniforms.padding_extend.up = !row.neverExtendBg(
                     color_palette,
-                    self.background_color,
+                    self.background_color orelse self.default_background_color,
                 );
             } else if (y == self.cells.size.rows - 1) {
                 self.uniforms.padding_extend.down = !row.neverExtendBg(
                     color_palette,
-                    self.background_color,
+                    self.background_color orelse self.default_background_color,
                 );
             },
         }
@@ -2360,7 +2394,7 @@ fn rebuildCells(
                 false;
 
             const bg_style = style.bg(cell, color_palette);
-            const fg_style = style.fg(color_palette, self.config.bold_is_bright) orelse self.foreground_color;
+            const fg_style = style.fg(color_palette, self.config.bold_is_bright) orelse self.foreground_color orelse self.default_foreground_color;
 
             // The final background color for the cell.
             const bg = bg: {
@@ -2380,7 +2414,7 @@ fn rebuildCells(
                         // If we don't have invert selection fg/bg set then we
                         // just use the selection background if set, otherwise
                         // the default fg color.
-                        break :bg self.config.selection_background orelse self.foreground_color;
+                        break :bg self.config.selection_background orelse self.foreground_color orelse self.default_foreground_color;
                 }
 
                 // Not selected
@@ -2402,7 +2436,7 @@ fn rebuildCells(
                     // If we don't have invert selection fg/bg set
                     // then we just use the selection foreground if
                     // set, otherwise the default bg color.
-                    break :fg self.config.selection_foreground orelse self.background_color;
+                    break :fg self.config.selection_foreground orelse self.background_color orelse self.default_background_color;
                 }
 
                 // Whether we need to use the bg color as our fg color:
@@ -2411,7 +2445,7 @@ fn rebuildCells(
                 //    Note: if selected then invert sel fg / bg must be
                 //    false since we separately handle it if true above.
                 break :fg if (style.flags.inverse != selected)
-                    bg_style orelse self.background_color
+                    bg_style orelse self.background_color orelse self.default_background_color
                 else
                     fg_style;
             };
@@ -2438,7 +2472,7 @@ fn rebuildCells(
 
                     // If we have a background and its not the default background
                     // then we apply background opacity
-                    if (style.bg(cell, color_palette) != null and !rgb.eql(self.background_color)) {
+                    if (style.bg(cell, color_palette) != null and !rgb.eql(self.background_color orelse self.default_background_color)) {
                         break :bg_alpha default;
                     }
 
@@ -2601,12 +2635,12 @@ fn rebuildCells(
 
         // Prepare the cursor cell contents.
         const style = cursor_style_ orelse break :cursor;
-        const cursor_color = self.cursor_color orelse color: {
+        const cursor_color = self.cursor_color orelse self.default_cursor_color orelse color: {
             if (self.cursor_invert) {
                 const sty = screen.cursor.page_pin.style(screen.cursor.page_cell);
-                break :color sty.fg(color_palette, self.config.bold_is_bright) orelse self.foreground_color;
+                break :color sty.fg(color_palette, self.config.bold_is_bright) orelse self.foreground_color orelse self.default_foreground_color;
             } else {
-                break :color self.foreground_color;
+                break :color self.foreground_color orelse self.default_foreground_color;
             }
         };
 
@@ -2634,11 +2668,11 @@ fn rebuildCells(
 
             const uniform_color = if (self.cursor_invert) blk: {
                 const sty = screen.cursor.page_pin.style(screen.cursor.page_cell);
-                break :blk sty.bg(screen.cursor.page_cell, color_palette) orelse self.background_color;
+                break :blk sty.bg(screen.cursor.page_cell, color_palette) orelse self.background_color orelse self.default_background_color;
             } else if (self.config.cursor_text) |txt|
                 txt
             else
-                self.background_color;
+                self.background_color orelse self.default_background_color;
 
             self.uniforms.cursor_color = .{
                 uniform_color.r,
@@ -2928,8 +2962,8 @@ fn addPreeditCell(
     coord: terminal.Coordinate,
 ) !void {
     // Preedit is rendered inverted
-    const bg = self.foreground_color;
-    const fg = self.background_color;
+    const bg = self.foreground_color orelse self.default_foreground_color;
+    const fg = self.background_color orelse self.default_background_color;
 
     // Render the glyph for our preedit text
     const render_ = self.font_grid.renderCodepoint(

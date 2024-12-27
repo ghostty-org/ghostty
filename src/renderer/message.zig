@@ -42,13 +42,11 @@ pub const Message = union(enum) {
         old_key: font.SharedGridSet.Key,
     },
 
-    /// Change the foreground color. This can be done separately from changing
-    /// the config file in response to an OSC 10 command.
-    foreground_color: terminal.color.RGB,
+    /// Change the foreground color as set by an OSC 10 command, if any.
+    foreground_color: ?terminal.color.RGB,
 
-    /// Change the background color. This can be done separately from changing
-    /// the config file in response to an OSC 11 command.
-    background_color: terminal.color.RGB,
+    /// Change the background color as set by an OSC 11 command, if any.
+    background_color: ?terminal.color.RGB,
 
     /// Change the cursor color. This can be done separately from changing the
     /// config file in response to an OSC 12 command.
