@@ -12,7 +12,7 @@ pub fn open(alloc: Allocator, url: []const u8) !void {
     // the process to exit to collect stderr.
     const argv, const wait = switch (builtin.os.tag) {
         .linux => .{ &.{ "xdg-open", url }, false },
-        .macos => .{ &.{ "open", url }, true },
+        .macos => .{ &.{ "open -t", url }, true },
         .windows => .{ &.{ "rundll32", "url.dll,FileProtocolHandler", url }, false },
         .ios => return error.Unimplemented,
         else => @compileError("unsupported OS"),
