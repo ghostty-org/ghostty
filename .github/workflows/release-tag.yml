@@ -87,21 +87,21 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: Create Tarball
-        run: git archive --format=tgz --prefix=ghostty-source/ -o ghostty-source.tar.gz HEAD
+        run: git archive --format=tgz --prefix="ghostty-${GHOSTTY_VERSION}/" -o "ghostty-${GHOSTTY_VERSION}.tar.gz" HEAD
 
       - name: Sign Tarball
         run: |
           echo -n "${{ secrets.MINISIGN_KEY }}" > minisign.key
           echo -n "${{ secrets.MINISIGN_PASSWORD }}" > minisign.password
-          nix develop -c minisign -S -m ghostty-source.tar.gz -s minisign.key < minisign.password
+          nix develop -c minisign -S -m "ghostty-${GHOSTTY_VERSION}.tar.gz" -s minisign.key < minisign.password
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: source-tarball
           path: |-
-            ghostty-source.tar.gz
-            ghostty-source.tar.gz.minisig
+            "ghostty-${GHOSTTY_VERSION}.tar.gz"
+            "ghostty-${GHOSTTY_VERSION}.tar.gz.minisig"
 
   build-macos:
     needs: [setup]
@@ -352,8 +352,8 @@ jobs:
         run: |
           mkdir blob
           mkdir -p blob/${GHOSTTY_VERSION}
-          mv ghostty-source.tar.gz blob/${GHOSTTY_VERSION}/ghostty-source.tar.gz
-          mv ghostty-source.tar.gz.minisig blob/${GHOSTTY_VERSION}/ghostty-source.tar.gz.minisig
+          mv "ghostty-${GHOSTTY_VERSION}.tar.gz blob/${GHOSTTY_VERSION}/ghostty-${GHOSTTY_VERSION}.tar.gz"
+          mv ghostty-${GHOSTTY_VERSION}.tar.gz.minisig blob/${GHOSTTY_VERSION}/ghostty-${GHOSTTY_VERSION}.tar.gz.minisig
           mv ghostty-macos-universal.zip blob/${GHOSTTY_VERSION}/ghostty-macos-universal.zip
           mv ghostty-macos-universal-dsym.zip blob/${GHOSTTY_VERSION}/ghostty-macos-universal-dsym.zip
           mv Ghostty.dmg blob/${GHOSTTY_VERSION}/Ghostty.dmg
