@@ -1,0 +1,23 @@
+name: ZLint
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  zlint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Lint with ZLint
+        uses: DonIsaac/zlint-action@v0
+        with:
+          # When true (the default value), only files changed in a
+          # PR get linted. Has no effect on pushes.
+          diff-only: false
