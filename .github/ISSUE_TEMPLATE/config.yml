@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Feature Requests and Others
+    about: Feature Requests, Bug Reports without clear steps to reproduce, etc.
+    url: https://github.com/ghostty-org/ghostty/discussions
