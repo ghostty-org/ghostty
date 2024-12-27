@@ -48,13 +48,7 @@ pub fn open(alloc_gpa: Allocator) !void {
 ///
 /// The allocator must be an arena allocator. No memory is freed by this
 /// function and the resulting path is not all the memory that is allocated.
-///
-/// NOTE: WHY IS THIS INLINE? This is inline because when this is not
-/// inline then Zig 0.13 crashes [most of the time] when trying to compile
-/// this file. This is a workaround for that issue. This function is only
-/// called from one place that is not performance critical so it is fine
-/// to be inline.
-inline fn configPath(alloc_arena: Allocator) ![]const u8 {
+fn configPath(alloc_arena: Allocator) ![]const u8 {
     const paths: []const []const u8 = try configPathCandidates(alloc_arena);
     assert(paths.len > 0);
 

@@ -2668,18 +2668,40 @@ pub fn loadFile(self: *Config, alloc: Allocator, path: []const u8) !void {
     try self.expandPaths(std.fs.path.dirname(path).?);
 }
 
+pub const OptionalFileAction = enum { loaded, not_found, @"error" };
+
 /// Load optional configuration file from `path`. All errors are ignored.
-pub fn loadOptionalFile(self: *Config, alloc: Allocator, path: []const u8) void {
-    self.loadFile(alloc, path) catch |err| switch (err) {
-        error.FileNotFound => std.log.info(
-            "optional config file not found, not loading path={s}",
-            .{path},
-        ),
-        else => std.log.warn(
-            "error reading optional config file, not loading err={} path={s}",
-            .{ err, path },
-        ),
-    };
+///
+/// Returns the action that was taken.
+pub fn loadOptionalFile(
+    self: *Config,
+    alloc: Allocator,
+    path: []const u8,
+) OptionalFileAction {
+    if (self.loadFile(alloc, path)) {
+        return .loaded;
+    } else |err| switch (err) {
+        error.FileNotFound => return .not_found,
+        else => {
+            std.log.warn(
+                "error reading optional config file, not loading err={} path={s}",
+                .{ err, path },
+            );
+
+            return .@"error";
+        },
+    }
+}
+
+fn writeConfigTemplate(path: []const u8) !void {
+    log.info("creating template config file: path={s}", .{path});
+    const file = try std.fs.createFileAbsolute(path, .{});
+    defer file.close();
+    try std.fmt.format(
+        file.writer(),
+        @embedFile("./config-template"),
+        .{ .path = path },
+    );
 }
 
 /// Load configurations from the default configuration files. The default
@@ -2688,14 +2710,30 @@ pub fn loadOptionalFile(self: *Config, alloc: Allocator, path: []const u8) void 
 /// On macOS, `$HOME/Library/Application Support/$CFBundleIdentifier/config`
 /// is also loaded.
 pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
+    // Load XDG first
     const xdg_path = try internal_os.xdg.config(alloc, .{ .subdir = "ghostty/config" });
     defer alloc.free(xdg_path);
-    self.loadOptionalFile(alloc, xdg_path);
+    const xdg_action = self.loadOptionalFile(alloc, xdg_path);
 
+    // On macOS load the app support directory as well
     if (comptime builtin.os.tag == .macos) {
         const app_support_path = try internal_os.macos.appSupportDir(alloc, "config");
         defer alloc.free(app_support_path);
-        self.loadOptionalFile(alloc, app_support_path);
+        const app_support_action = self.loadOptionalFile(alloc, app_support_path);
+
+        // If both files are not found, then we create a template file.
+        // For macOS, we only create the template file in the app support
+        if (app_support_action == .not_found and xdg_action == .not_found) {
+            writeConfigTemplate(app_support_path) catch |err| {
+                log.warn("error creating template config file err={}", .{err});
+            };
+        }
+    } else {
+        if (xdg_action == .not_found) {
+            writeConfigTemplate(xdg_path) catch |err| {
+                log.warn("error creating template config file err={}", .{err});
+            };
+        }
     }
 }
 
