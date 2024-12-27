@@ -74,6 +74,8 @@ jobs:
   source-tarball:
     runs-on: namespace-profile-ghostty-md
     needs: [setup]
+    env:
+      GHOSTTY_VERSION: ${{ needs.setup.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -100,8 +102,8 @@ jobs:
         with:
           name: source-tarball
           path: |-
-            "ghostty-${GHOSTTY_VERSION}.tar.gz"
-            "ghostty-${GHOSTTY_VERSION}.tar.gz.minisig"
+            "ghostty-${{ env.GHOSTTY_VERSION }}.tar.gz"
+            "ghostty-${{ env.GHOSTTY_VERSION }}.tar.gz.minisig"
 
   build-macos:
     needs: [setup]
