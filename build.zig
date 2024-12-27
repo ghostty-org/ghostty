@@ -1210,11 +1210,11 @@ fn addDeps(
     }
 
     // Wasm we do manually since it is such a different build.
-    if (step.rootModuleTarget().cpu.arch == .wasm32) {
-        const js_dep = b.dependency("zig_js", .{
+    if (step.rootModuleTarget().cpu.arch == .wasm32) wasm: {
+        const js_dep = b.lazyDependency("zig_js", .{
             .target = target,
             .optimize = optimize,
-        });
+        }) orelse break :wasm;
         step.root_module.addImport("zig-js", js_dep.module("zig-js"));
 
         return static_libs;
@@ -1306,15 +1306,15 @@ fn addDeps(
     }).module("zf"));
 
     // Mac Stuff
-    if (step.rootModuleTarget().isDarwin()) {
-        const objc_dep = b.dependency("zig_objc", .{
+    if (step.rootModuleTarget().isDarwin()) darwin: {
+        const objc_dep = b.lazyDependency("zig_objc", .{
             .target = target,
             .optimize = optimize,
-        });
-        const macos_dep = b.dependency("macos", .{
+        }) orelse break: darwin;
+        const macos_dep = b.lazyDependency("macos", .{
             .target = target,
             .optimize = optimize,
-        });
+        }) orelse break: darwin;
 
         step.root_module.addImport("objc", objc_dep.module("objc"));
         step.root_module.addImport("macos", macos_dep.module("macos"));
