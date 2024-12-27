@@ -1710,16 +1710,37 @@ pub fn keyCallback(
         // Update our modifiers, this will update mouse mods too
         self.modsChanged(event.mods);
 
-        // Refresh our link state
-        const pos = self.rt_surface.getCursorPos() catch break :mouse_mods;
-        self.mouseRefreshLinks(
-            pos,
-            self.posToViewport(pos.x, pos.y),
-            self.mouse.over_link,
-        ) catch |err| {
-            log.warn("failed to refresh links err={}", .{err});
-            break :mouse_mods;
-        };
+        // We only refresh links if
+        // 1. mouse reporting is off
+        // OR
+        // 2. mouse reporting is on and we are not reporting shift to the terminal
+        if (self.io.terminal.flags.mouse_event == .none or
+            (self.mouse.mods.shift and !self.mouseShiftCapture(false)))
+        {
+            // Refresh our link state
+            const pos = self.rt_surface.getCursorPos() catch break :mouse_mods;
+            self.mouseRefreshLinks(
+                pos,
+                self.posToViewport(pos.x, pos.y),
+                self.mouse.over_link,
+            ) catch |err| {
+                log.warn("failed to refresh links err={}", .{err});
+                break :mouse_mods;
+            };
+        } else if (self.io.terminal.flags.mouse_event != .none and !self.mouse.mods.shift) {
+            // If we have mouse reports on and we don't have shift pressed, we reset state
+            try self.rt_app.performAction(
+                .{ .surface = self },
+                .mouse_shape,
+                self.io.terminal.mouse_shape,
+            );
+            try self.rt_app.performAction(
+                .{ .surface = self },
+                .mouse_over_link,
+                .{ .url = "" },
+            );
+            try self.queueRender();
+        }
     }
 
     // Process the cursor state logic. This will update the cursor shape if
@@ -3350,6 +3371,27 @@ pub fn cursorPosCallback(
         try self.queueRender();
     }
 
+    // Handle link hovering
+    // We refresh links when
+    // 1. we were previously over a link
+    // OR
+    // 2. the cursor position has changed (either we have no previous state, or the state has
+    //    changed)
+    // AND
+    // 1. mouse reporting is off
+    // OR
+    // 2. mouse reporting is on and we are not reporting shift to the terminal
+    if ((over_link or
+        self.mouse.link_point == null or
+        (self.mouse.link_point != null and !self.mouse.link_point.?.eql(pos_vp))) and
+        (self.io.terminal.flags.mouse_event == .none or
+        (self.mouse.mods.shift and !self.mouseShiftCapture(false))))
+    {
+        // If we were previously over a link, we always update. We do this so that if the text
+        // changed underneath us, even if the mouse didn't move, we update the URL hints and state
+        try self.mouseRefreshLinks(pos, pos_vp, over_link);
+    }
+
     // Do a mouse report
     if (self.io.terminal.flags.mouse_event != .none) report: {
         // Shift overrides mouse "grabbing" in the window, taken from Kitty.
@@ -3369,18 +3411,6 @@ pub fn cursorPosCallback(
         } else null;
 
         try self.mouseReport(button, .motion, self.mouse.mods, pos);
-
-        // If we were previously over a link, we need to undo the link state.
-        // We also queue a render so the renderer can undo the rendered link
-        // state.
-        if (over_link) {
-            try self.rt_app.performAction(
-                .{ .surface = self },
-                .mouse_over_link,
-                .{ .url = "" },
-            );
-            try self.queueRender();
-        }
 
         // If we're doing mouse motion tracking, we do not support text
         // selection.
@@ -3437,30 +3467,6 @@ pub fn cursorPosCallback(
 
         return;
     }
-
-    // Handle link hovering
-    if (self.mouse.link_point) |last_vp| {
-        // Mark the link's row as dirty.
-        if (over_link) {
-            self.renderer_state.terminal.screen.dirty.hyperlink_hover = true;
-        }
-
-        // If our last link viewport point is unchanged, then don't process
-        // links. This avoids constantly reprocessing regular expressions
-        // for every pixel change.
-        if (last_vp.eql(pos_vp)) {
-            // We have to restore old values that are always cleared
-            if (over_link) {
-                self.mouse.over_link = over_link;
-                self.renderer_state.mouse.point = pos_vp;
-            }
-
-            return;
-        }
-    }
-
-    // We can process new links.
-    try self.mouseRefreshLinks(pos, pos_vp, over_link);
 }
 
 /// Double-click dragging moves the selection one "word" at a time.
