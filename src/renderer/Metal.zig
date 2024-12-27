@@ -1186,9 +1186,9 @@ pub fn drawFrame(self: *Metal, surface: *apprt.Surface) !void {
                 attachment.setProperty("storeAction", @intFromEnum(mtl.MTLStoreAction.store));
                 attachment.setProperty("texture", screen_texture.value);
                 attachment.setProperty("clearColor", mtl.MTLClearColor{
-                    .red = @as(f32, @floatFromInt(self.current_background_color.r)) / 255,
-                    .green = @as(f32, @floatFromInt(self.current_background_color.g)) / 255,
-                    .blue = @as(f32, @floatFromInt(self.current_background_color.b)) / 255,
+                    .red = @as(f32, @floatFromInt(self.current_background_color.r)) / 255 * self.config.background_opacity,
+                    .green = @as(f32, @floatFromInt(self.current_background_color.g)) / 255 * self.config.background_opacity,
+                    .blue = @as(f32, @floatFromInt(self.current_background_color.b)) / 255 * self.config.background_opacity,
                     .alpha = self.config.background_opacity,
                 });
             }

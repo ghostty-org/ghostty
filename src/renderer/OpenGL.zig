@@ -2344,9 +2344,9 @@ fn drawCellProgram(
 
     // Clear the surface
     gl.clearColor(
-        @as(f32, @floatFromInt(self.draw_background.r)) / 255,
-        @as(f32, @floatFromInt(self.draw_background.g)) / 255,
-        @as(f32, @floatFromInt(self.draw_background.b)) / 255,
+        @as(f32, @floatFromInt(self.draw_background.r)) / 255 * self.config.background_opacity,
+        @as(f32, @floatFromInt(self.draw_background.g)) / 255 * self.config.background_opacity,
+        @as(f32, @floatFromInt(self.draw_background.b)) / 255 * self.config.background_opacity,
         @floatCast(self.config.background_opacity),
     );
     gl.clear(gl.c.GL_COLOR_BUFFER_BIT);
