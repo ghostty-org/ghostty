@@ -485,10 +485,16 @@ class AppDelegate: NSObject,
         }
 
         // Sync our auto-update settings
-        updaterController.updater.automaticallyChecksForUpdates =
-            config.autoUpdate == .check || config.autoUpdate == .download
-        updaterController.updater.automaticallyDownloadsUpdates =
-            config.autoUpdate == .download
+        // Local (source) builds always disable the updater
+        if let commit = Bundle.main.infoDictionary?["GhosttyCommit"] as? String, !commit.isEmpty {
+            updaterController.updater.automaticallyChecksForUpdates =
+                config.autoUpdate == .check || config.autoUpdate == .download
+            updaterController.updater.automaticallyDownloadsUpdates =
+                config.autoUpdate == .download
+        } else {
+            updaterController.updater.automaticallyChecksForUpdates = false
+            updaterController.updater.automaticallyDownloadsUpdates = false
+        }
 
         // Config could change keybindings, so update everything that depends on that
         syncMenuShortcuts(config)
