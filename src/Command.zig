@@ -587,8 +587,8 @@ test "createNullDelimitedEnvMap" {
 test "Command: pre exec" {
     if (builtin.os.tag == .windows) return error.SkipZigTest;
     var cmd: Command = .{
-        .path = "/usr/bin/env",
-        .args = &.{ "/usr/bin/env", "-v" },
+        .path = "/bin/sh",
+        .args = &.{ "/bin/sh", "-v" },
         .pre_exec = (struct {
             fn do(_: *Command) void {
                 // This runs in the child, so we can exit and it won't
@@ -629,8 +629,8 @@ test "Command: redirect stdout to file" {
         .args = &.{"C:\\Windows\\System32\\whoami.exe"},
         .stdout = stdout,
     } else .{
-        .path = "/usr/bin/env",
-        .args = &.{ "/usr/bin/env", "-v" },
+        .path = "/bin/sh",
+        .args = &.{ "/bin/sh", "-c", "echo hello" },
         .stdout = stdout,
     };
 
@@ -663,8 +663,8 @@ test "Command: custom env vars" {
         .stdout = stdout,
         .env = &env,
     } else .{
-        .path = "/usr/bin/env",
-        .args = &.{ "/usr/bin/env", "sh", "-c", "echo $VALUE" },
+        .path = "/bin/sh",
+        .args = &.{ "/bin/sh", "-c", "echo $VALUE" },
         .stdout = stdout,
         .env = &env,
     };
@@ -699,10 +699,10 @@ test "Command: custom working directory" {
         .stdout = stdout,
         .cwd = "C:\\Windows\\System32",
     } else .{
-        .path = "/usr/bin/env",
-        .args = &.{ "/usr/bin/env", "sh", "-c", "pwd" },
+        .path = "/bin/sh",
+        .args = &.{ "/bin/sh", "-c", "pwd" },
         .stdout = stdout,
-        .cwd = "/usr/bin",
+        .cwd = "/tmp",
     };
 
     try cmd.testingStart();
@@ -718,8 +718,10 @@ test "Command: custom working directory" {
 
     if (builtin.os.tag == .windows) {
         try testing.expectEqualStrings("C:\\Windows\\System32\r\n", contents);
+    } else if (builtin.os.tag == .macos) {
+        try testing.expectEqualStrings("/private/tmp\n", contents);
     } else {
-        try testing.expectEqualStrings("/usr/bin\n", contents);
+        try testing.expectEqualStrings("/tmp\n", contents);
     }
 }
 
