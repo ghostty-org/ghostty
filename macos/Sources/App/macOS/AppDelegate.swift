@@ -484,9 +484,10 @@ class AppDelegate: NSObject,
         default: UserDefaults.standard.removeObject(forKey: "NSQuitAlwaysKeepsWindows")
         }
 
-        // Sync our auto-update settings
-        // Local (source) builds always disable the updater
-        if let commit = Bundle.main.infoDictionary?["GhosttyCommit"] as? String, !commit.isEmpty {
+        // Sync our auto-update settings. If SUEnableAutomaticChecks (in our Info.plist) is
+        // explicitly false (NO), auto-updates are disabled. Otherwise, we use the behavior
+        // defined by our "auto-update" configuration.
+        if Bundle.main.infoDictionary?["SUEnableAutomaticChecks"] as? Bool != false {
             updaterController.updater.automaticallyChecksForUpdates =
                 config.autoUpdate == .check || config.autoUpdate == .download
             updaterController.updater.automaticallyDownloadsUpdates =
