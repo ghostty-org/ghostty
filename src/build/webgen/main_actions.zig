@@ -22,9 +22,11 @@ pub fn genKeybindActions(writer: anytype) !void {
     );
 
     @setEvalBranchQuota(5_000);
-    const fields = @typeInfo(KeybindAction).Union.fields;
 
     var buffer = std.ArrayList(u8).init(std.heap.page_allocator);
+    defer buffer.deinit();
+
+    const fields = @typeInfo(KeybindAction).Union.fields;
     inline for (fields) |field| {
         if (field.name[0] == '_') continue;
 
