@@ -342,6 +342,7 @@ jobs:
       matrix:
         adwaita: ["true", "false"]
         x11: ["true", "false"]
+    name: GTK adwaita=${{ matrix.adwaita }} x11=${{ matrix.x11 }}
     runs-on: namespace-profile-ghostty-sm
     needs: test
     env:
@@ -357,6 +358,15 @@ jobs:
           path: |
             /nix
             /zig
+
+      # Install Nix and use that to run our tests so our environment matches exactly.
+      - uses: cachix/install-nix-action@v30
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@v15
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: Test GTK Build
         run: |
