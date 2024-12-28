@@ -196,10 +196,30 @@ _ghostty_deferred_init() {
 
     if [[ "$GHOSTTY_SHELL_INTEGRATION_NO_TITLE" != 1 ]]; then
       # Enable terminal title changes.
+
+      # Heredoc assignment to variable without cat from https://stackoverflow.com/a/1655389
+
+      read -r -d '' _ghostty_precmd_title_epilogue <<'END'
+          if [[ "$GHOSTTY_SHELL_INTEGRATION_TOGGLE_TITLE_OFF" != 1 ]]; then
+              builtin print -rnu $_ghostty_fd $'\e]2;'"${(%):-%(4~|…/%3~|%~)}"$'\a'
+          fi
+END
+
+      read -r -d '' _ghostty_preexec_title_epilogue <<'END'
+          if [[ "$GHOSTTY_SHELL_INTEGRATION_TOGGLE_TITLE_OFF" != 1 ]]; then
+              builtin print -rnu $_ghostty_fd $'\e]2;'"${(V)1}"$'\a'
+          fi
+END
+
       functions[_ghostty_precmd]+="
-          builtin print -rnu $_ghostty_fd \$'\\e]2;'\"\${(%):-%(4~|…/%3~|%~)}\"\$'\\a'"
+        ${_ghostty_precmd_title_epilogue}"
+
       functions[_ghostty_preexec]+="
-          builtin print -rnu $_ghostty_fd \$'\\e]2;'\"\${(V)1}\"\$'\\a'"
+        ${_ghostty_preexec_title_epilogue}"
+
+      unset _ghostty_precmd_title_epilogue
+      unset _ghostty_preexec_title_epilogue
+
     fi
 
     if [[ "$GHOSTTY_SHELL_INTEGRATION_NO_CURSOR" != 1 ]]; then
