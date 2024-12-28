@@ -339,7 +339,7 @@ pub const Notebook = union(enum) {
                         c.g_object_unref(tab.box);
                     }
 
-                    c.gtk_window_destroy(tab.window.window);
+                    c.gtk_window_destroy(window.window);
                 }
             },
             .gtk_notebook => |notebook| {
