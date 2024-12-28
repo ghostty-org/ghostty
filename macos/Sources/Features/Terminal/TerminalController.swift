@@ -245,18 +245,23 @@ class TerminalController: BaseTerminalController {
         // If it does, we match the focused surface. If it doesn't, we use the app
         // configuration.
         let backgroundColor: OSColor
+        let foregroundColor: OSColor
         if let surfaceTree {
             if let focusedSurface, surfaceTree.doesBorderTop(view: focusedSurface) {
                 backgroundColor = OSColor(focusedSurface.backgroundColor ?? surfaceConfig.backgroundColor)
+                foregroundColor = OSColor(focusedSurface.foregroundColor ?? surfaceConfig.foregroundColor)
             } else {
                 // We don't have a focused surface or our surface doesn't border the
                 // top. We choose to match the color of the top-left most surface.
                 backgroundColor = OSColor(surfaceTree.topLeft().backgroundColor ?? derivedConfig.backgroundColor)
+                foregroundColor = OSColor(surfaceTree.topLeft().foregroundColor ?? derivedConfig.foregroundColor)
             }
         } else {
             backgroundColor = OSColor(self.derivedConfig.backgroundColor)
+            foregroundColor = OSColor(self.derivedConfig.foregroundColor)
         }
         window.titlebarColor = backgroundColor.withAlphaComponent(surfaceConfig.backgroundOpacity)
+        window.titleForegroundColor = foregroundColor
 
         if (window.isOpaque) {
             // Bg color is only synced if we have no transparency. This is because
@@ -267,6 +272,11 @@ class TerminalController: BaseTerminalController {
             // If there is transparency, calling this will make the titlebar opaque
             // so we only call this if we are opaque.
             window.updateTabBar()
+        }
+
+        guard let windows = self.window?.tabbedWindows as? [TerminalWindow] else { return }
+        for (w) in windows {
+            w.titleForegroundColor = window.titleForegroundColor
         }
     }
 
@@ -357,6 +367,7 @@ class TerminalController: BaseTerminalController {
 
             // This makes sure our titlebar renders correctly when there is a transparent background
             window.titlebarColor = backgroundColor.withAlphaComponent(config.backgroundOpacity)
+            window.titleForegroundColor = NSColor(config.foregroundColor)
         }
 
         // Initialize our content view to the SwiftUI root
@@ -448,6 +459,10 @@ class TerminalController: BaseTerminalController {
         super.windowDidBecomeKey(notification)
         self.relabelTabs()
         self.fixTabBar()
+
+        if let focusedSurface {
+            self.syncAppearance(focusedSurface.derivedConfig)
+        }
     }
 
     override func windowDidMove(_ notification: Notification) {
@@ -582,6 +597,9 @@ class TerminalController: BaseTerminalController {
         focusedSurface.$backgroundColor
             .sink { [weak self, weak focusedSurface] _ in self?.syncAppearanceOnPropertyChange(focusedSurface) }
             .store(in: &surfaceAppearanceCancellables)
+        focusedSurface.$foregroundColor
+            .sink { [weak self, weak focusedSurface] _ in self?.syncAppearanceOnPropertyChange(focusedSurface) }
+            .store(in: &surfaceAppearanceCancellables)
     }
 
     private func syncAppearanceOnPropertyChange(_ surface: Ghostty.SurfaceView?) {
@@ -705,15 +723,18 @@ class TerminalController: BaseTerminalController {
 
     private struct DerivedConfig {
         let backgroundColor: Color
+        let foregroundColor: Color
         let macosTitlebarStyle: String
 
         init() {
             self.backgroundColor = Color(NSColor.windowBackgroundColor)
+            self.foregroundColor = Color(NSColor.labelColor)
             self.macosTitlebarStyle = "system"
         }
 
         init(_ config: Ghostty.Config) {
             self.backgroundColor = config.backgroundColor
+            self.foregroundColor = config.foregroundColor
             self.macosTitlebarStyle = config.macosTitlebarStyle
         }
     }
