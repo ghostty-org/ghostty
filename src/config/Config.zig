@@ -1304,9 +1304,15 @@ keybind: Keybinds = .{},
 /// This configuration can only be set via CLI arguments.
 @"config-default-files": bool = true,
 
-/// Confirms that a surface should be closed before closing it. This defaults to
-/// true. If set to false, surfaces will close without any confirmation.
-@"confirm-close-surface": bool = true,
+/// Confirms that a surface should be closed before closing it.
+///
+/// Valid values:
+/// - always: Always prompt for confirmation when closing.
+/// - when_process_running: Prompt when a process is running (default).
+/// - never: Never prompt for confirmation.
+///
+/// The default value is `when_process_running`.
+@"confirm-close-surface": ConfirmCloseSurface = .when_process_running,
 
 /// Whether or not to quit after the last surface is closed.
 ///
@@ -5329,6 +5335,13 @@ pub const AutoUpdate = enum {
     off,
     check,
     download,
+};
+
+/// See confirm-close-surface
+pub const ConfirmCloseSurface = enum { 
+    always, 
+    when_process_running, 
+    never,
 };
 
 /// See theme
