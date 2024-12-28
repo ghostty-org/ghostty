@@ -23,6 +23,8 @@ const CoreSurface = @import("../Surface.zig");
 const configpkg = @import("../config.zig");
 const Config = @import("../config.zig").Config;
 
+const LastClosedTabs = @import("../terminal/closedtabs.zig").LastClosedTabs;
+
 // Get native API access on certain platforms so we can do more customization.
 const glfwNative = glfw.Native(.{
     .cocoa = builtin.target.isDarwin(),
@@ -37,6 +39,9 @@ pub const App = struct {
 
     /// Mac-specific state.
     darwin: if (Darwin.enabled) Darwin else void,
+
+    /// Store information about the last closed tabs
+    last_closed_tabs: LastClosedTabs = .{},
 
     pub const Options = struct {};
 
@@ -105,6 +110,7 @@ pub const App = struct {
     }
 
     pub fn terminate(self: *App) void {
+        self.last_closed_tabs.deinit(self.app.alloc);
         self.config.deinit();
         glfw.terminate();
     }
@@ -604,6 +610,24 @@ pub const Surface = struct {
     }
 
     pub fn deinit(self: *Surface) void {
+        // Save the closing tab information
+        const title = if (self.title_text) |t|
+            self.core_surface.alloc.dupe(u8, t) catch null
+        else
+            null;
+        errdefer if (title) |t| self.core_surface.alloc.free(t);
+
+        const cwd = self.core_surface.alloc.dupe(u8, "~") catch null;
+        errdefer if (cwd) |c| self.core_surface.alloc.free(c);
+
+        self.app.last_closed_tabs.push(.{
+            .title = title,
+            .cwd = cwd,
+        }, self.core_surface.alloc);
+
+        log.debug("all last closed tab: {?}", .{self.app.last_closed_tabs.this});
+        log.debug("last closed tab: {?}", .{self.app.last_closed_tabs.getLast()});
+
         if (self.title_text) |t| self.core_surface.alloc.free(t);
 
         // Remove ourselves from the list of known surfaces in the app.
