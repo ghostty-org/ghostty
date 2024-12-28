@@ -7,6 +7,7 @@ const diags = @import("diagnostics.zig");
 const internal_os = @import("../os/main.zig");
 const Diagnostic = diags.Diagnostic;
 const DiagnosticList = diags.DiagnosticList;
+const binding = @import("../input/Binding.zig");
 
 // TODO:
 //   - Only `--long=value` format is accepted. Do we want to allow
@@ -126,7 +127,7 @@ pub fn parse(
 
             // The error set is dependent on comptime T, so we always add
             // an extra error so we can have the "else" below.
-            const ErrSet = @TypeOf(err) || error{ Unknown, OutOfMemory };
+            const ErrSet = @TypeOf(err) || error{ Unknown, OutOfMemory } || binding.Error;
             const message: [:0]const u8 = switch (@as(ErrSet, @errorCast(err))) {
                 // OOM is not recoverable since we need to allocate to
                 // track more error messages.
@@ -134,6 +135,7 @@ pub fn parse(
                 error.InvalidField => "unknown field",
                 error.ValueRequired => formatValueRequired(T, arena_alloc, key) catch "value required",
                 error.InvalidValue => formatInvalidValue(T, arena_alloc, key, value) catch "invalid value",
+                error.InvalidFormat, error.InvalidAction => try formatInvalidKeybind(arena_alloc, err == error.InvalidFormat, value.?),
                 else => try std.fmt.allocPrintZ(
                     arena_alloc,
                     "unknown error {}",
@@ -176,6 +178,28 @@ fn formatInvalidValue(
     const writer = buf.writer();
     try writer.print("invalid value \"{?s}\"", .{value});
     try formatValues(T, key, writer);
+    try writer.writeByte(0);
+    return buf.items[0 .. buf.items.len - 1 :0];
+}
+
+fn formatInvalidKeybind(
+    arena_alloc: std.mem.Allocator,
+    isInvalidFormat: bool,
+    value: []const u8,
+) std.mem.Allocator.Error![:0]const u8 {
+    var buf = std.ArrayList(u8).init(arena_alloc);
+    errdefer buf.deinit();
+    const writer = buf.writer();
+
+    const splitIdx = std.mem.indexOf(u8, value, "=");
+    try writer.print("invalid value \"{s}\"", .{value});
+    const invalid = if (splitIdx) |idx|
+        // If there is an `=` delimiter,
+        if (isInvalidFormat) value[0..idx] else value[idx + 1 ..]
+    else
+        "Missing action";
+    const errorName = if (isInvalidFormat) "InvalidFormat" else "InvalidAction";
+    try writer.print(", {s}: {s}", .{ errorName, invalid });
     try writer.writeByte(0);
     return buf.items[0 .. buf.items.len - 1 :0];
 }
