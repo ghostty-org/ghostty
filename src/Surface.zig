@@ -4061,6 +4061,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             {},
         ),
 
+        .close_tab => try self.rt_app.performAction(
+            .{ .surface = self },
+            .close_tab,
+            {},
+        ),
+
         inline .previous_tab,
         .next_tab,
         .last_tab,
