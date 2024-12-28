@@ -329,24 +329,52 @@ jobs:
       - name: Test GTK Build
         run: nix develop -c zig build -Dapp-runtime=gtk -Dgtk-adwaita=true -Demit-docs
 
-      - name: Test GTK Build (No Libadwaita)
-        run: nix develop -c zig build -Dapp-runtime=gtk -Dgtk-adwaita=false -Demit-docs
-
-      - name: Test GTK build with explicit X11
-        run: nix develop -c zig build -Dapp-runtime=gtk -Dgtk-adwaita=true -Demit-docs -Dgtk-x11=true
-
-      - name: Test GTK build with no X11
-        run: nix develop -c zig build -Dapp-runtime=gtk -Dgtk-adwaita=true -Demit-docs -Dgtk-x11=false
-
-      - name: Test GTK build with no Adwaita and no X11
-        run: nix develop -c zig build -Dapp-runtime=gtk -Dgtk-adwaita=false -Demit-docs -Dgtk-x11=false
-
       - name: Test GLFW Build
         run: nix develop -c zig build -Dapp-runtime=glfw
 
       # This relies on the cache being populated by the commands above.
       - name: Test System Build
         run: nix develop -c zig build --system ${ZIG_GLOBAL_CACHE_DIR}/p
+
+  test-gtk:
+    strategy:
+      fail-fast: false
+      matrix:
+        adwaita: ["true", "false"]
+        x11: ["true", "false"]
+    runs-on: namespace-profile-ghostty-md
+    needs: test
+    env:
+      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@v1.2.0
+        with:
+          path: |
+            /nix
+            /zig
+
+      - name: Test GTK Build
+        run: |
+          nix develop -c \
+            zig build \
+            -Dapp-runtime=gtk \
+            -Dgtk-adwaita=${{ matrix.adwaita }} \
+            -Dgtk-x11=${{ matrix.x11 }}
+
+      # Install Nix and use that to run our tests so our environment matches exactly.
+      - uses: cachix/install-nix-action@v30
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@v15
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
 
   test-macos:
     runs-on: namespace-profile-ghostty-macos
