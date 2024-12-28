@@ -51,6 +51,8 @@
 		<key>GHOSTTY_MAC_APP</key>
 		<string>1</string>
 	</dict>
+	<key>MDItemKeywords</key>
+	<string>Terminal</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSServices</key>
