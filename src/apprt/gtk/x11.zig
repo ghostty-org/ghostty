@@ -1,5 +1,6 @@
 /// Utility functions for X11 handling.
 const std = @import("std");
+const build_options = @import("build_options");
 const c = @import("c.zig").c;
 const input = @import("../../input.zig");
 
@@ -7,6 +8,7 @@ const log = std.log.scoped(.gtk_x11);
 
 /// Returns true if the passed in display is an X11 display.
 pub fn is_display(display: ?*c.GdkDisplay) bool {
+    if (comptime !build_options.x11) return false;
     return c.g_type_check_instance_is_a(
         @ptrCast(@alignCast(display orelse return false)),
         c.gdk_x11_display_get_type(),
@@ -15,11 +17,12 @@ pub fn is_display(display: ?*c.GdkDisplay) bool {
 
 /// Returns true if the app is running on X11
 pub fn is_current_display_server() bool {
+    if (comptime !build_options.x11) return false;
     const display = c.gdk_display_get_default();
     return is_display(display);
 }
 
-pub const Xkb = struct {
+pub const Xkb = if (build_options.x11) struct {
     base_event_code: c_int,
     funcs: Funcs,
 
@@ -111,7 +114,7 @@ pub const Xkb = struct {
 
         return mods;
     }
-};
+} else struct {};
 
 /// The functions that we load dynamically from libX11.so.
 const Funcs = struct {

@@ -332,6 +332,15 @@ jobs:
       - name: Test GTK Build (No Libadwaita)
         run: nix develop -c zig build -Dapp-runtime=gtk -Dgtk-adwaita=false -Demit-docs
 
+      - name: Test GTK build with explicit X11
+        run: nix develop -c zig build -Dapp-runtime=gtk -Dgtk-adwaita=true -Demit-docs -Dgtk-x11=true
+
+      - name: Test GTK build with no X11
+        run: nix develop -c zig build -Dapp-runtime=gtk -Dgtk-adwaita=true -Demit-docs -Dgtk-x11=false
+
+      - name: Test GTK build with no Adwaita and no X11
+        run: nix develop -c zig build -Dapp-runtime=gtk -Dgtk-adwaita=false -Demit-docs -Dgtk-x11=false
+
       - name: Test GLFW Build
         run: nix develop -c zig build -Dapp-runtime=glfw
 

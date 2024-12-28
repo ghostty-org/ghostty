@@ -6,6 +6,7 @@ const Surface = @This();
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const build_config = @import("../../build_config.zig");
+const build_options = @import("build_options");
 const configpkg = @import("../../config.zig");
 const apprt = @import("../../apprt.zig");
 const font = @import("../../font/main.zig");
@@ -1183,7 +1184,7 @@ fn showContextMenu(self: *Surface, x: f32, y: f32) void {
         @ptrCast(window.window),
         &c.GRAPHENE_POINT_INIT(point.x, point.y),
         @ptrCast(&point),
-    ) == c.False) {
+    ) == 0) {
         log.warn("failed computing point for context menu", .{});
         return;
     }
@@ -1899,7 +1900,7 @@ pub fn dimSurface(self: *Surface) void {
     // Don't dim surface if context menu is open.
     // This means we got unfocused due to it opening.
     const context_menu_open = c.gtk_widget_get_visible(window.context_menu);
-    if (context_menu_open == c.True) return;
+    if (context_menu_open == 1) return;
 
     if (self.unfocused_widget != null) return;
     self.unfocused_widget = c.gtk_drawing_area_new();

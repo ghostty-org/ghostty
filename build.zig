@@ -105,6 +105,53 @@ pub fn build(b: *std.Build) !void {
         "Enables the use of Adwaita when using the GTK rendering backend.",
     ) orelse true;
 
+    config.x11 = b.option(
+        bool,
+        "gtk-x11",
+        "Enables linking against X11 libraries when using the GTK rendering backend.",
+    ) orelse x11: {
+        if (target.result.os.tag != .linux) break :x11 false;
+
+        var pkgconfig = std.process.Child.init(&.{ "pkg-config", "--variable=targets", "gtk4" }, b.allocator);
+
+        pkgconfig.stdout_behavior = .Pipe;
+        pkgconfig.stderr_behavior = .Pipe;
+
+        try pkgconfig.spawn();
+
+        const output_max_size = 50 * 1024;
+
+        var stdout = std.ArrayList(u8).init(b.allocator);
+        var stderr = std.ArrayList(u8).init(b.allocator);
+        defer {
+            stdout.deinit();
+            stderr.deinit();
+        }
+
+        try pkgconfig.collectOutput(&stdout, &stderr, output_max_size);
+
+        const term = try pkgconfig.wait();
+
+        if (stderr.items.len > 0) {
+            std.log.warn("pkg-config had errors:\n{s}", .{stderr.items});
+        }
+
+        switch (term) {
+            .Exited => |code| {
+                if (code == 0) {
+                    if (std.mem.indexOf(u8, stdout.items, "x11")) |_| break :x11 true;
+                    break :x11 false;
+                }
+                std.log.warn("pkg-config: {s} with code {d}", .{ @tagName(term), code });
+                return error.Unexpected;
+            },
+            inline else => |code| {
+                std.log.warn("pkg-config: {s} with code {d}", .{ @tagName(term), code });
+                return error.Unexpected;
+            },
+        }
+    };
+
     const pie = b.option(
         bool,
         "pie",

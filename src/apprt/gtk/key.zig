@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_options = @import("build_options");
 const input = @import("../../input.zig");
 const c = @import("c.zig").c;
 const x11 = @import("x11.zig");
@@ -111,21 +112,25 @@ pub fn eventMods(
     x11_xkb: ?*x11.Xkb,
 ) input.Mods {
     const device = c.gdk_event_get_device(event);
-    const display = c.gtk_widget_get_display(widget);
 
-    var mods = if (x11_xkb) |xkb|
-        // Add any modifier state events from Xkb if we have them (X11
-        // only). Null back from the Xkb call means there was no modifier
-        // event to read. This likely means that the key event did not
-        // result in a modifier change and we can safely rely on the GDK
-        // state.
-        xkb.modifier_state_from_notify(display) orelse
-            translateMods(gtk_mods)
-    else
+    var mods = mods: {
+        if (comptime build_options.x11) {
+            const display = c.gtk_widget_get_display(widget);
+            if (x11_xkb) |xkb| {
+                // Add any modifier state events from Xkb if we have them (X11
+                // only). Null back from the Xkb call means there was no modifier
+                // event to read. This likely means that the key event did not
+                // result in a modifier change and we can safely rely on the GDK
+                // state.
+                if (xkb.modifier_state_from_notify(display)) |x11_mods| break :mods x11_mods;
+                break :mods translateMods(gtk_mods);
+            }
+        }
         // On Wayland, we have to use the GDK device because the mods sent
         // to this event do not have the modifier key applied if it was
         // presssed (i.e. left control).
-        translateMods(c.gdk_device_get_modifier_state(device));
+        break :mods translateMods(c.gdk_device_get_modifier_state(device));
+    };
 
     mods.num_lock = c.gdk_device_get_num_lock_state(device) == 1;
 

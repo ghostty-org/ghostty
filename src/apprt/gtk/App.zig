@@ -15,6 +15,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const builtin = @import("builtin");
 const build_config = @import("../../build_config.zig");
+const build_options = @import("build_options");
 const apprt = @import("../../apprt.zig");
 const configpkg = @import("../../config.zig");
 const input = @import("../../input.zig");
@@ -360,6 +361,7 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
     // keyboard state but the block does more than that (i.e. setting up
     // WM_CLASS).
     const x11_xkb: ?x11.Xkb = x11_xkb: {
+        if (comptime !build_options.x11) break :x11_xkb null;
         if (!x11.is_display(display)) break :x11_xkb null;
 
         // Set the X11 window class property (WM_CLASS) if are are on an X11

@@ -257,7 +257,7 @@ pub fn init(self: *Window, app: *App) !void {
 
     self.context_menu = c.gtk_popover_menu_new_from_model(@ptrCast(@alignCast(self.app.context_menu)));
     c.gtk_widget_set_parent(self.context_menu, window);
-    c.gtk_popover_set_has_arrow(@ptrCast(@alignCast(self.context_menu)), c.False);
+    c.gtk_popover_set_has_arrow(@ptrCast(@alignCast(self.context_menu)), 0);
     c.gtk_widget_set_halign(self.context_menu, c.GTK_ALIGN_START);
 
     // If we are in fullscreen mode, new windows start fullscreen.

@@ -61,6 +61,11 @@ pub fn run(alloc: Allocator) !u8 {
         } else {
             try stdout.print("  - libadwaita : disabled\n", .{});
         }
+        if (comptime build_options.x11) {
+            try stdout.print("  - libX11     : enabled\n", .{});
+        } else {
+            try stdout.print("  - libX11     : disabled\n", .{});
+        }
     }
     return 0;
 }
