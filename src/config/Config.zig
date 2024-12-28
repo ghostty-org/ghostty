@@ -1323,9 +1323,13 @@ keybind: Keybinds = .{},
 /// This configuration can only be set via CLI arguments.
 @"config-default-files": bool = true,
 
-/// Confirms that a surface should be closed before closing it. This defaults to
-/// true. If set to false, surfaces will close without any confirmation.
-@"confirm-close-surface": bool = true,
+/// Confirms that a surface should be closed before closing it.
+///
+/// This defaults to `true`. If set to `false`, surfaces will close without
+/// any confirmation. This can also be set to `always`, which will always
+/// confirm closing a surface, even if shell integration says a process isn't
+/// running.
+@"confirm-close-surface": ConfirmCloseSurface = .true,
 
 /// Whether or not to quit after the last surface is closed.
 ///
@@ -3661,6 +3665,15 @@ const Replay = struct {
     fn iterator(slice: []const Replay.Step, dst: *Config) Iterator {
         return .{ .slice = slice, .config = dst };
     }
+};
+
+/// Valid values for confirm-close-surface
+/// c_int because it needs to be extern compatible
+/// If this is changed, you must also update ghostty.h
+pub const ConfirmCloseSurface = enum(c_int) {
+    false,
+    true,
+    always,
 };
 
 /// Valid values for custom-shader-animation
