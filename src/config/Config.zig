@@ -2046,6 +2046,13 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
         .{ .open_config = {} },
     );
 
+    // keybind for reopening last closed tab
+    try result.keybind.set.put(
+        alloc,
+        .{ .key = .{ .translated = .t }, .mods = inputpkg.ctrlOrSuper(.{ .shift = true }) },
+        .{ .reopen_last_tab = {} },
+    );
+
     {
         // On macOS we default to super but Linux ctrl+shift since
         // ctrl+c is to kill the process.

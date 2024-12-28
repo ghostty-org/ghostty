@@ -430,6 +430,9 @@ pub const Action = union(enum) {
     ///
     crash: CrashThread,
 
+    /// Reopen the most recently closed tab
+    reopen_last_tab: void,
+
     pub const Key = @typeInfo(Action).Union.tag_type.?;
 
     pub const CrashThread = enum {
@@ -625,6 +628,7 @@ pub const Action = union(enum) {
             .quit,
             .toggle_quick_terminal,
             .toggle_visibility,
+            .reopen_last_tab,
             => .app,
 
             // These are app but can be special-cased in a surface context.

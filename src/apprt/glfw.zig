@@ -159,6 +159,8 @@ pub const App = struct {
                 .surface => |v| v,
             }),
 
+            .reopen_last_tab => try self.reopenLastTab(),
+
             .size_limit => switch (target) {
                 .app => {},
                 .surface => |surface| try surface.rt_surface.setSizeLimits(.{
@@ -315,6 +317,12 @@ pub const App = struct {
         };
 
         win.setMonitor(monitor, 0, 0, video_mode.getWidth(), video_mode.getHeight(), 0);
+    }
+
+    /// Log that a reopen last tab action was triggered
+    fn reopenLastTab(self: *App) !void {
+        _ = self;
+        std.log.debug("Reopen last tab action triggered", .{});
     }
 
     /// Create a new tab in the parent surface.

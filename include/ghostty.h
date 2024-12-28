@@ -557,6 +557,10 @@ typedef struct {
   bool soft;
 } ghostty_action_reload_config_s;
 
+// apprt.action.ReopenLastTab
+typedef struct {
+} ghostty_action_reopen_last_tab_s;
+
 // apprt.Action.Key
 typedef enum {
   GHOSTTY_ACTION_NEW_WINDOW,
@@ -594,6 +598,7 @@ typedef enum {
   GHOSTTY_ACTION_COLOR_CHANGE,
   GHOSTTY_ACTION_RELOAD_CONFIG,
   GHOSTTY_ACTION_CONFIG_CHANGE,
+  GHOSTTY_ACTION_REOPEN_LAST_TAB,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -620,6 +625,7 @@ typedef union {
   ghostty_action_color_change_s color_change;
   ghostty_action_reload_config_s reload_config;
   ghostty_action_config_change_s config_change;
+  ghostty_action_reopen_last_tab_s reopen_last_tab;
 } ghostty_action_u;
 
 typedef struct {
