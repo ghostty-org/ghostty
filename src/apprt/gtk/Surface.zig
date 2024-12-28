@@ -347,6 +347,9 @@ cursor: ?*c.GdkCursor = null,
 /// pass it to GTK.
 title_text: ?[:0]const u8 = null,
 
+/// The timer used to delay title updates in order to prevent flickering.
+update_title_timer: ?c.guint = null,
+
 /// The core surface backing this surface
 core_surface: CoreSurface,
 
@@ -895,7 +898,23 @@ pub fn setTitle(self: *Surface, slice: [:0]const u8) !void {
     if (self.title_text) |old| alloc.free(old);
     self.title_text = copy;
 
+    // delay the title update to prevent flickering
+    if (self.update_title_timer) |timer| {
+        if (c.g_source_remove(timer) == c.FALSE) {
+            log.warn("unable to remove update title timer", .{});
+        }
+        self.update_title_timer = null;
+    }
+    self.update_title_timer = c.g_timeout_add(75, updateTitleTimerExpired, self);
+}
+
+fn updateTitleTimerExpired(ctx: ?*anyopaque) callconv(.C) c.gboolean {
+    const self: *Surface = @ptrCast(@alignCast(ctx));
+
     self.updateTitleLabels();
+    self.update_title_timer = null;
+
+    return c.FALSE;
 }
 
 pub fn getTitle(self: *Surface) ?[:0]const u8 {
