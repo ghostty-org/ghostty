@@ -25,7 +25,7 @@
 # Ghostty in all shells should add the following lines to their .zshrc:
 #
 #   if [[ -n $GHOSTTY_RESOURCES_DIR ]]; then
-#     "$GHOSTTY_RESOURCES_DIR"/shell-integration/zsh/ghostty-integration
+#     source "$GHOSTTY_RESOURCES_DIR"/shell-integration/zsh/ghostty-integration
 #   fi
 #
 # Implementation note: We can assume that alias expansion is disabled in this
