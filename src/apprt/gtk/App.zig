@@ -968,8 +968,8 @@ fn loadRuntimeCss(
     const config: *const Config = &self.config;
     const window_theme = config.@"window-theme";
     const unfocused_fill: Config.Color = config.@"unfocused-split-fill" orelse config.background;
-    const headerbar_background = config.background;
-    const headerbar_foreground = config.foreground;
+    const headerbar_background = config.@"window-titlebar-background" orelse config.background;
+    const headerbar_foreground = config.@"window-titlebar-foreground" orelse config.foreground;
 
     try writer.print(
         \\widget.unfocused-split {{
