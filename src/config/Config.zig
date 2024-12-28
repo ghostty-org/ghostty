@@ -1191,7 +1191,7 @@ keybind: Keybinds = .{},
 
 /// If true, when there are multiple split panes, the mouse selects the pane
 /// that is focused. This only applies to the currently focused window; i.e.
-/// mousing over a split in an unfocused window will not focus that split
+/// mousing over a split in an unfocused window will now focus that split
 /// and bring the window to front.
 ///
 /// Default is false.
@@ -1812,7 +1812,7 @@ keybind: Keybinds = .{},
 ///
 /// If `false`, each new ghostty process will launch a separate application.
 ///
-/// The default value is `detect` which will default to `true` if Ghostty
+/// The default value is `desktop` which will default to `true` if Ghostty
 /// detects that it was launched from the `.desktop` file such as an app
 /// launcher (like Gnome Shell)  or by D-Bus activation. If Ghostty is launched
 /// from the command line, it will default to `false`.
