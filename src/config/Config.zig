@@ -2580,7 +2580,7 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
         try result.keybind.set.put(
             alloc,
             .{ .key = .{ .translated = .backspace }, .mods = .{ .super = true } },
-            .{ .esc = "w" },
+            .{ .esc = "\x15" },
         );
         try result.keybind.set.put(
             alloc,
