@@ -255,30 +255,40 @@ const c = @cImport({
 ///     that things like status lines continue to look aligned.
 @"adjust-cell-width": ?MetricModifier = null,
 @"adjust-cell-height": ?MetricModifier = null,
-/// Distance in pixels from the bottom of the cell to the text baseline.
+/// Distance in pixels or percentage adjustment from the bottom of the cell to the text baseline.
 /// Increase to move baseline UP, decrease to move baseline DOWN.
+/// See the notes about adjustments in `adjust-cell-width`.
 @"adjust-font-baseline": ?MetricModifier = null,
-/// Distance in pixels from the top of the cell to the top of the underline.
+/// Distance in pixels or percentage adjustment from the top of the cell to the top of the underline.
 /// Increase to move underline DOWN, decrease to move underline UP.
+/// See the notes about adjustments in `adjust-cell-width`.
 @"adjust-underline-position": ?MetricModifier = null,
 /// Thickness in pixels of the underline.
+/// See the notes about adjustments in `adjust-cell-width`.
 @"adjust-underline-thickness": ?MetricModifier = null,
-/// Distance in pixels from the top of the cell to the top of the strikethrough.
+/// Distance in pixels or percentage adjustment from the top of the cell to the top of the strikethrough.
 /// Increase to move strikethrough DOWN, decrease to move underline UP.
+/// See the notes about adjustments in `adjust-cell-width`.
 @"adjust-strikethrough-position": ?MetricModifier = null,
-/// Thickness in pixels of the strikethrough.
+/// Thickness in pixels or percentage adjustment of the strikethrough.
+/// See the notes about adjustments in `adjust-cell-width`.
 @"adjust-strikethrough-thickness": ?MetricModifier = null,
-/// Distance in pixels from the top of the cell to the top of the overline.
+/// Distance in pixels or percentage adjustment from the top of the cell to the top of the overline.
 /// Increase to move overline DOWN, decrease to move underline UP.
+/// See the notes about adjustments in `adjust-cell-width`.
 @"adjust-overline-position": ?MetricModifier = null,
-/// Thickness in pixels of the overline.
+/// Thickness in pixels or percentage adjustment of the overline.
+/// See the notes about adjustments in `adjust-cell-width`.
 @"adjust-overline-thickness": ?MetricModifier = null,
-/// Thickness in pixels of the bar cursor and outlined rect cursor.
+/// Thickness in pixels or percentage adjustment of the bar cursor and outlined rect cursor.
+/// See the notes about adjustments in `adjust-cell-width`.
 @"adjust-cursor-thickness": ?MetricModifier = null,
-/// Height in pixels of the cursor. Currently applies to all cursor types:
+/// Height in pixels or percentage adjustment of the cursor. Currently applies to all cursor types:
 /// bar, rect, and outlined rect.
+/// See the notes about adjustments in `adjust-cell-width`.
 @"adjust-cursor-height": ?MetricModifier = null,
-/// Thickness in pixels of box drawing characters.
+/// Thickness in pixels or percentage adjustment of box drawing characters.
+/// See the notes about adjustments in `adjust-cell-width`.
 @"adjust-box-thickness": ?MetricModifier = null,
 
 /// The method to use for calculating the cell width of a grapheme cluster.
