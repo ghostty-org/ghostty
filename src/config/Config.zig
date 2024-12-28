@@ -769,7 +769,25 @@ class: ?[:0]const u8 = null,
 /// the documentation or using the `ghostty +list-actions` command.
 ///
 /// Trigger: `+`-separated list of keys and modifiers. Example: `ctrl+a`,
-/// `ctrl+shift+b`, `up`. Some notes:
+/// `ctrl+shift+b`, `up`.
+///
+/// Valid keys are currently only listed in the
+/// [Ghostty source code](https://github.com/ghostty-org/ghostty/blob/d6e76858164d52cff460fedc61ddf2e560912d71/src/input/key.zig#L255).
+/// This is a documentation limitation and we will improve this in the future.
+/// A common gotcha is that numeric keys are written as words: i.e. `one`,
+/// `two`, `three`, etc. and not `1`, `2`, `3`. This will also be improved in
+/// the future.
+///
+/// Valid modifiers are `shift`, `ctrl` (alias: `control`), `alt` (alias: `opt`,
+/// `option`), and `super` (alias: `cmd`, `command`). You may use the modifier
+/// or the alias. When debugging keybinds, the non-aliased modifier will always
+/// be used in output.
+///
+/// Note: The fn or "globe" key on keyboards are not supported as a
+/// modifier. This is a limitation of the operating systems and GUI toolkits
+/// that Ghostty uses.
+///
+/// Some additional notes for triggers:
 ///
 ///   * modifiers cannot repeat, `ctrl+ctrl+a` is invalid.
 ///
@@ -782,15 +800,6 @@ class: ?[:0]const u8 = null,
 ///     physical key mapping rather than a logical one. A physical key
 ///     mapping responds to the hardware keycode and not the keycode
 ///     translated by any system keyboard layouts. Example: "ctrl+physical:a"
-///
-/// Valid modifiers are `shift`, `ctrl` (alias: `control`), `alt` (alias: `opt`,
-/// `option`), and `super` (alias: `cmd`, `command`). You may use the modifier
-/// or the alias. When debugging keybinds, the non-aliased modifier will always
-/// be used in output.
-///
-/// Note: The fn or "globe" key on keyboards are not supported as a
-/// modifier. This is a limitation of the operating systems and GUI toolkits
-/// that Ghostty uses.
 ///
 /// You may also specify multiple triggers separated by `>` to require a
 /// sequence of triggers to activate the action. For example,
