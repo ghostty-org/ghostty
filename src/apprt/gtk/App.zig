@@ -537,15 +537,15 @@ fn closeTab(_: *App, target: apprt.Target) !void {
     switch (target) {
         .app => {},
         .surface => |v| {
-            const window = v.rt_surface.container.window() orelse {
+            const tab = v.rt_surface.container.tab() orelse {
                 log.info(
                     "close_tab invalid for container={s}",
                     .{@tagName(v.rt_surface.container)},
                 );
                 return;
             };
-            // TODO: get tab from surface
-            try window.closeTab(v);
+
+            tab.window.closeTab(tab);
         },
     }
 }
