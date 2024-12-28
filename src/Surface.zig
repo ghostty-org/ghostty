@@ -236,7 +236,7 @@ const DerivedConfig = struct {
     clipboard_paste_protection: bool,
     clipboard_paste_bracketed_safe: bool,
     copy_on_select: configpkg.CopyOnSelect,
-    confirm_close_surface: bool,
+    confirm_close_surface: configpkg.ConfirmCloseSurface,
     cursor_click_to_move: bool,
     desktop_notifications: bool,
     font: font.SharedGridSet.DerivedConfig,
@@ -784,13 +784,19 @@ pub fn deactivateInspector(self: *Surface) void {
 /// True if the surface requires confirmation to quit. This should be called
 /// by apprt to determine if the surface should confirm before quitting.
 pub fn needsConfirmQuit(self: *Surface) bool {
-    // If the child has exited then our process is certainly not alive.
-    // We check this first to avoid the locking overhead below.
-    if (self.child_exited) return false;
-
-    // If we are configured to not hold open surfaces explicitly, just
-    // always say there is nothing alive.
-    if (!self.config.confirm_close_surface) return false;
+    // Contract:
+    // always -> confirm always (even if the child process has exited)
+    // true -> confirm only if we have child process running
+    // false -> no need to confirm, just exit
+    switch (self.config.confirm_close_surface) {
+        .false => return false,
+        .true => {
+            if (self.child_exited) {
+                return false;
+            }
+        },
+        .always => {}
+    }
 
     // We have to talk to the terminal.
     self.renderer_state.mutex.lock();

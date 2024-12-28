@@ -1306,7 +1306,7 @@ keybind: Keybinds = .{},
 
 /// Confirms that a surface should be closed before closing it. This defaults to
 /// true. If set to false, surfaces will close without any confirmation.
-@"confirm-close-surface": bool = true,
+@"confirm-close-surface": ConfirmCloseSurface = ConfirmCloseSurface.true,
 
 /// Whether or not to quit after the last surface is closed.
 ///
@@ -5329,6 +5329,13 @@ pub const AutoUpdate = enum {
     off,
     check,
     download,
+};
+
+/// See confirm-close-surface
+pub const ConfirmCloseSurface = enum {
+    false,
+    true,
+    always,
 };
 
 /// See theme
