@@ -1389,6 +1389,9 @@ keybind: Keybinds = .{},
 ///   * `center` - Terminal appears at the center of the screen.
 ///
 /// Changing this configuration requires restarting Ghostty completely.
+///
+/// Note: There is no default keybind for toggling the quick terminal.
+/// To enable this feature, bind the `toggle_quick_terminal` action to a key.
 @"quick-terminal-position": QuickTerminalPosition = .top,
 
 /// The screen where the quick terminal should show up.

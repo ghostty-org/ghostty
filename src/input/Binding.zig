@@ -380,10 +380,17 @@ pub const Action = union(enum) {
     /// is preserved between appearances, so you can always press the keybinding
     /// to bring it back up.
     ///
+    /// To enable the quick terminally globally so that Ghostty doesn't
+    /// have to be focused, prefix your keybind with `global`. Example:
+    ///
+    /// ```ini
+    /// keybind = global:cmd+grave_accent=toggle_quick_terminal
+    /// ```
+    ///
     /// The quick terminal has some limitations:
     ///
     ///   - It is a singleton; only one instance can exist at a time.
-    ///   - It does not support tabs.
+    ///   - It does not support tabs, but it does support splits.
     ///   - It will not be restored when the application is restarted
     ///     (for systems that support window restoration).
     ///   - It supports fullscreen, but fullscreen will always be a non-native
