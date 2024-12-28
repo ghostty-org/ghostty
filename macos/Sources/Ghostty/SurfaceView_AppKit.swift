@@ -55,6 +55,10 @@ extension Ghostty {
         /// dynamically updated. Otherwise, the background color is the default background color.
         @Published private(set) var backgroundColor: Color? = nil
 
+        /// The foreground color within the color palette of the surface. This is only set if it is
+        /// dynamically updated. Otherwise, the background color is the default background color.
+        @Published private(set) var foregroundColor: Color? = nil
+
         // An initial size to request for a window. This will only affect
         // then the view is moved to a new window.
         var initialSize: NSSize? = nil
@@ -442,6 +446,11 @@ extension Ghostty {
             case .background:
                 DispatchQueue.main.async { [weak self] in
                     self?.backgroundColor = change.color
+                }
+                self.backgroundColor = change.color
+            case .foreground:
+                DispatchQueue.main.async { [weak self] in
+                    self?.foregroundColor = change.color
                 }
 
             default:
@@ -1209,6 +1218,7 @@ extension Ghostty {
         struct DerivedConfig {
             let backgroundColor: Color
             let backgroundOpacity: Double
+            let foregroundColor: Color
             let macosWindowShadow: Bool
             let windowTitleFontFamily: String?
             let windowAppearance: NSAppearance?
@@ -1216,6 +1226,7 @@ extension Ghostty {
             init() {
                 self.backgroundColor = Color(NSColor.windowBackgroundColor)
                 self.backgroundOpacity = 1
+                self.foregroundColor = Color(NSColor.labelColor)
                 self.macosWindowShadow = true
                 self.windowTitleFontFamily = nil
                 self.windowAppearance = nil
@@ -1224,6 +1235,7 @@ extension Ghostty {
             init(_ config: Ghostty.Config) {
                 self.backgroundColor = config.backgroundColor
                 self.backgroundOpacity = config.backgroundOpacity
+                self.foregroundColor = config.foregroundColor
                 self.macosWindowShadow = config.macosWindowShadow
                 self.windowTitleFontFamily = config.windowTitleFontFamily
                 self.windowAppearance = .init(ghosttyConfig: config)

@@ -350,6 +350,26 @@ extension Ghostty {
             return v;
         }
 
+        var foregroundColor: Color {
+            var color: ghostty_config_color_s = .init();
+            let bg_key = "foreground"
+            if (!ghostty_config_get(config, &color, bg_key, UInt(bg_key.count))) {
+#if os(macOS)
+                return Color(NSColor.labelColor)
+#elseif os(iOS)
+                return Color(UIColor.label)
+#else
+#error("unsupported")
+#endif
+            }
+
+            return .init(
+                red: Double(color.r) / 255,
+                green: Double(color.g) / 255,
+                blue: Double(color.b) / 255
+            )
+        }
+
         var unfocusedSplitOpacity: Double {
             guard let config = self.config else { return 1 }
             var opacity: Double = 0.85
