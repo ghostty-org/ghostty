@@ -342,7 +342,7 @@ jobs:
       matrix:
         adwaita: ["true", "false"]
         x11: ["true", "false"]
-    runs-on: namespace-profile-ghostty-md
+    runs-on: namespace-profile-ghostty-sm
     needs: test
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
