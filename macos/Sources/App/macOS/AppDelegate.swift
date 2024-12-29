@@ -484,11 +484,18 @@ class AppDelegate: NSObject,
         default: UserDefaults.standard.removeObject(forKey: "NSQuitAlwaysKeepsWindows")
         }
 
-        // Sync our auto-update settings
-        updaterController.updater.automaticallyChecksForUpdates =
-            config.autoUpdate == .check || config.autoUpdate == .download
-        updaterController.updater.automaticallyDownloadsUpdates =
-            config.autoUpdate == .download
+        // Sync our auto-update settings. If SUEnableAutomaticChecks (in our Info.plist) is
+        // explicitly false (NO), auto-updates are disabled. Otherwise, we use the behavior
+        // defined by our "auto-update" configuration.
+        if Bundle.main.infoDictionary?["SUEnableAutomaticChecks"] as? Bool != false {
+            updaterController.updater.automaticallyChecksForUpdates =
+                config.autoUpdate == .check || config.autoUpdate == .download
+            updaterController.updater.automaticallyDownloadsUpdates =
+                config.autoUpdate == .download
+        } else {
+            updaterController.updater.automaticallyChecksForUpdates = false
+            updaterController.updater.automaticallyDownloadsUpdates = false
+        }
 
         // Config could change keybindings, so update everything that depends on that
         syncMenuShortcuts(config)
