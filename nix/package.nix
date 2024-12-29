@@ -26,7 +26,7 @@
   pandoc,
   revision ? "dirty",
   optimize ? "Debug",
-  x11 ? false,
+  x11 ? true,
 }: let
   # The Zig hook has no way to select the release type without actual
   # overriding of the default flags.
@@ -151,7 +151,7 @@ in
 
     dontConfigure = true;
 
-    zigBuildFlags = "-Dversion-string=${finalAttrs.version}-${revision}-nix";
+    zigBuildFlags = "-Dversion-string=${finalAttrs.version}-${revision}-nix -Dgtk-x11=${lib.boolToString x11}";
 
     preBuild = ''
       rm -rf $ZIG_GLOBAL_CACHE_DIR
@@ -188,10 +188,6 @@ in
       mv $out/share/vim/vimfiles "$vim"
       ln -sf "$vim" "$out/share/vim/vimfiles"
       echo "$vim" >> "$out/nix-support/propagated-user-env-packages"
-    '';
-
-    postFixup = lib.optionalString x11 ''
-      patchelf --add-rpath "${lib.makeLibraryPath [libX11]}" "$out/bin/.ghostty-wrapped"
     '';
 
     meta = {

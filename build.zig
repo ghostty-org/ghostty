@@ -1427,6 +1427,7 @@ fn addDeps(
             .gtk => {
                 step.linkSystemLibrary2("gtk4", dynamic_link_opts);
                 if (config.adwaita) step.linkSystemLibrary2("adwaita-1", dynamic_link_opts);
+                if (config.x11) step.linkSystemLibrary2("X11", dynamic_link_opts);
 
                 {
                     const gresource = @import("src/apprt/gtk/gresource.zig");

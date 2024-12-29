@@ -22,13 +22,14 @@ pub fn is_current_display_server() bool {
     return is_display(display);
 }
 
-pub const Xkb = if (build_options.x11) struct {
+pub const Xkb = struct {
     base_event_code: c_int,
-    funcs: Funcs,
 
-    /// Initialize an Xkb struct, for the given GDK display. If the display
-    /// isn't backed by X then this will return null.
+    /// Initialize an Xkb struct for the given GDK display. If the display isn't
+    /// backed by X then this will return null.
     pub fn init(display_: ?*c.GdkDisplay) !?Xkb {
+        if (comptime !build_options.x11) return null;
+
         // Display should never be null but we just treat that as a non-X11
         // display so that the caller can just ignore it and not unwrap it.
         const display = display_ orelse return null;
@@ -40,7 +41,6 @@ pub const Xkb = if (build_options.x11) struct {
         const xdisplay = c.gdk_x11_display_get_xdisplay(display);
         var result: Xkb = .{
             .base_event_code = 0,
-            .funcs = try Funcs.init(),
         };
 
         log.debug("Xkb.init: running XkbQueryExtension", .{});
@@ -48,7 +48,7 @@ pub const Xkb = if (build_options.x11) struct {
         var base_error_code: c_int = 0;
         var major = c.XkbMajorVersion;
         var minor = c.XkbMinorVersion;
-        if (result.funcs.XkbQueryExtension(
+        if (c.XkbQueryExtension(
             xdisplay,
             &opcode,
             &result.base_event_code,
@@ -61,7 +61,7 @@ pub const Xkb = if (build_options.x11) struct {
         }
 
         log.debug("Xkb.init: running XkbSelectEventDetails", .{});
-        if (result.funcs.XkbSelectEventDetails(
+        if (c.XkbSelectEventDetails(
             xdisplay,
             c.XkbUseCoreKbd,
             c.XkbStateNotify,
@@ -86,15 +86,17 @@ pub const Xkb = if (build_options.x11) struct {
     /// back to the standard GDK modifier state (this likely means the key
     /// event did not result in a modifier change).
     pub fn modifier_state_from_notify(self: Xkb, display_: ?*c.GdkDisplay) ?input.Mods {
+        if (comptime !build_options.x11) return null;
+
         const display = display_ orelse return null;
 
         // Shoutout to Mozilla for figuring out a clean way to do this, this is
         // paraphrased from Firefox/Gecko in widget/gtk/nsGtkKeyUtils.cpp.
         const xdisplay = c.gdk_x11_display_get_xdisplay(display);
-        if (self.funcs.XEventsQueued(xdisplay, c.QueuedAfterReading) == 0) return null;
+        if (c.XEventsQueued(xdisplay, c.QueuedAfterReading) == 0) return null;
 
         var nextEvent: c.XEvent = undefined;
-        _ = self.funcs.XPeekEvent(xdisplay, &nextEvent);
+        _ = c.XPeekEvent(xdisplay, &nextEvent);
         if (nextEvent.type != self.base_event_code) return null;
 
         const xkb_event: *c.XkbEvent = @ptrCast(&nextEvent);
@@ -113,41 +115,5 @@ pub const Xkb = if (build_options.x11) struct {
         if (lookup_mods & c.LockMask != 0) mods.caps_lock = true;
 
         return mods;
-    }
-} else struct {};
-
-/// The functions that we load dynamically from libX11.so.
-const Funcs = struct {
-    XkbQueryExtension: XkbQueryExtensionType,
-    XkbSelectEventDetails: XkbSelectEventDetailsType,
-    XEventsQueued: XEventsQueuedType,
-    XPeekEvent: XPeekEventType,
-
-    const XkbQueryExtensionType = *const fn (?*c.struct__XDisplay, [*c]c_int, [*c]c_int, [*c]c_int, [*c]c_int, [*c]c_int) callconv(.C) c_int;
-    const XkbSelectEventDetailsType = *const fn (?*c.struct__XDisplay, c_uint, c_uint, c_ulong, c_ulong) callconv(.C) c_int;
-    const XEventsQueuedType = *const fn (?*c.struct__XDisplay, c_int) callconv(.C) c_int;
-    const XPeekEventType = *const fn (?*c.struct__XDisplay, [*c]c.union__XEvent) callconv(.C) c_int;
-
-    pub fn init() !Funcs {
-        var libX11 = try std.DynLib.open("libX11.so");
-        defer libX11.close();
-
-        var result: Funcs = undefined;
-        inline for (@typeInfo(Funcs).Struct.fields) |field| {
-            const name = comptime name: {
-                const null_term = field.name ++ .{0};
-                break :name null_term[0..field.name.len :0];
-            };
-
-            @field(result, field.name) = libX11.lookup(
-                field.type,
-                name,
-            ) orelse {
-                log.err(" error dynamic loading libX11: missing symbol {s}", .{field.name});
-                return error.XkbInitializationError;
-            };
-        }
-
-        return result;
     }
 };
