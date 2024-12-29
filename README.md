@@ -206,6 +206,14 @@ Other useful commands:
   in the current running terminal emulator so if you want to check the
   behavior of this project, you must run this command in Ghostty.
 
+### Cloning the Repository
+
+To clone the repository using GitHub CLI, use the following command:
+
+```shell-session
+gh repo clone ghostty-org/ghostty
+```
+
 ### Linting
 
 #### Prettier
