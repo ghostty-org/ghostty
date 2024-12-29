@@ -96,10 +96,6 @@
 			</array>
 		</dict>
 	</array>
-#if SPARKLE_CHECKS_DISABLED
-	<key>SUEnableAutomaticChecks</key>
-	<false/>
-#endif
 	<key>SUPublicEDKey</key>
 	<string>wsNcGf5hirwtdXMVnYoxRIX/SqZQLMOsYlD3q3imeok=</string>
 </dict>
