@@ -21,6 +21,7 @@ apps:
   ghostty:
     command: bin/ghostty
     command-chain: [ bin/launcher ]
+    completer: share/bash-completion/completions/ghostty.bash
     desktop: share/applications/com.mitchellh.ghostty.desktop 
     environment:
       PATH: /snap/ghostty/current/bin:/snap/ghostty/current/usr/bin:$PATH
