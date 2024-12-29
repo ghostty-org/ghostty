@@ -81,7 +81,11 @@ fn initThread(gpa: Allocator) !void {
     const alloc = arena.allocator();
 
     const transport = sentry.Transport.init(&Transport.send);
-    errdefer transport.deinit();
+    // This will crash if the transport was never used so we avoid
+    // that for now. This probably leaks some memory but it'd be very
+    // small and a one time cost. Once this is fixed upstream we can
+    // remove this.
+    //errdefer transport.deinit();
 
     const opts = sentry.c.sentry_options_new();
     errdefer sentry.c.sentry_options_free(opts);

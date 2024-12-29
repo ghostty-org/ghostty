@@ -127,7 +127,12 @@ pub const GlobalState = struct {
         internal_os.fixMaxFiles();
 
         // Initialize our crash reporting.
-        try crash.init(self.alloc);
+        crash.init(self.alloc) catch |err| {
+            std.log.warn(
+                "sentry init failed, no crash capture available err={}",
+                .{err},
+            );
+        };
 
         // const sentrylib = @import("sentry");
         // if (sentrylib.captureEvent(sentrylib.Value.initMessageEvent(
