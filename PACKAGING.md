@@ -19,8 +19,8 @@ at `release.files.ghostty.org` in the following URL format where
 `VERSION` is the version number with no prefix such as `1.0.0`:
 
 ```
-https://release.files.ghostty.org/VERSION/ghostty-source.tar.gz
-https://release.files.ghostty.org/VERSION/ghostty-source.tar.gz.minisig
+https://release.files.ghostty.org/VERSION/ghostty-VERSION.tar.gz
+https://release.files.ghostty.org/VERSION/ghostty-VERSION.tar.gz.minisig
 ```
 
 Signature files are signed with
