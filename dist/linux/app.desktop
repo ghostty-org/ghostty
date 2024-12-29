@@ -10,6 +10,11 @@ StartupNotify=true
 Terminal=false
 Actions=new-window;
 X-GNOME-UsesNotifications=true
+X-TerminalArgExec=-e
+X-TerminalArgTitle=--title=
+X-TerminalArgAppId=--class=
+X-TerminalArgDir=--working-directory=
+X-TerminalArgHold=--wait-after-command
 
 [Desktop Action new-window]
 Name=New Window
