@@ -43,26 +43,14 @@ pub fn monoToGrayscale(alloc: Allocator, bm: Bitmap) Allocator.Error!Bitmap {
     var buf = try alloc.alloc(u8, bm.width * bm.rows);
     errdefer alloc.free(buf);
 
-    // width divided by 8 because each byte has 8 pixels. This is therefore
-    // the number of bytes in each row.
-    const bytes_per_row = bm.width >> 3;
-
-    var source_i: usize = 0;
-    var target_i: usize = 0;
-    var i: usize = bm.rows;
-    while (i > 0) : (i -= 1) {
-        var j: usize = bytes_per_row;
-        while (j > 0) : (j -= 1) {
-            var bit: u4 = 8;
-            while (bit > 0) : (bit -= 1) {
-                const mask = @as(u8, 1) << @as(u3, @intCast(bit - 1));
-                const bitval: u8 = if (bm.buffer[source_i + (j - 1)] & mask > 0) 0xFF else 0;
-                buf[target_i] = bitval;
-                target_i += 1;
-            }
+    for (0..bm.rows) |y| {
+        const row_offset = y * @as(usize, @intCast(bm.pitch));
+        for (0..bm.width) |x| {
+            const byte_offset = row_offset + @divTrunc(x, 8);
+            const mask = @as(u8, 1) << @intCast(7 - (x % 8));
+            const bit: u8 = @intFromBool((bm.buffer[byte_offset] & mask) != 0);
+            buf[y * bm.width + x] = bit * 255;
         }
-
-        source_i += @intCast(bm.pitch);
     }
 
     var copy = bm;
