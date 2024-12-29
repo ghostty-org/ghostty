@@ -1102,7 +1102,7 @@ const Preview = struct {
                         },
 
                         .{
-                            .text = "ziggzag.zig",
+                            .text = "ziggzagg.zig",
                             .style = bold,
                         },
                     },
