@@ -23,6 +23,7 @@ const CoreSurface = @import("../Surface.zig");
 const configpkg = @import("../config.zig");
 const Config = @import("../config.zig").Config;
 const LastClosedTab = @import("../terminal/closedtabs.zig").LastClosedTab;
+const sgr = @import("../terminal/sgr.zig");
 
 // Get native API access on certain platforms so we can do more customization.
 const glfwNative = glfw.Native(.{
@@ -380,6 +381,11 @@ pub const App = struct {
             const title_z = try window.core_surface.alloc.dupeZ(u8, title);
             errdefer window.core_surface.alloc.free(title_z);
             try window.core_surface.rt_surface.setTitle(title_z);
+        }
+
+        // Restore terminal contents if available
+        if (last_tab.contents) |contents| {
+            try window.core_surface.io.terminal.printString(contents);
         }
 
         log.debug("Reopening last tab - pwd: {s}, title: {s}", .{

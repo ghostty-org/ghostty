@@ -731,10 +731,14 @@ pub fn close(self: *Surface) void {
     const title = self.rt_surface.getTitle();
     const title_copy = if (title) |t| self.alloc.dupe(u8, t) catch null else null;
 
+    // Save terminal contents including scrollback buffer
+    const contents = self.io.terminal.screen.dumpStringAlloc(self.alloc, .{ .screen = .{} }) catch null;
+
     // Save to last closed tabs
     self.app.last_closed_tabs.push(.{
         .title = title_copy,
         .cwd = cwd_copy,
+        .contents = contents,
     }, self.alloc);
 
     log.debug("closing tab - pwd: {s}, title: {s}", .{

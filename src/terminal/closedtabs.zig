@@ -6,10 +6,12 @@ const max_closed_tabs = 10;
 pub const LastClosedTab = struct {
     title: ?[]const u8,
     cwd: ?[]const u8,
+    contents: ?[]const u8,
 
     pub fn deinit(self: *LastClosedTab, alloc: Allocator) void {
         if (self.title) |t| alloc.free(t);
         if (self.cwd) |c| alloc.free(c);
+        if (self.contents) |c| alloc.free(c);
     }
 };
 
