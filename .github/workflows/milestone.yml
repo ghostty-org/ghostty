@@ -1,0 +1,32 @@
+# Description:
+#   - Add milestone to a merged PR automatically
+#   - Add milestone to a closed issue that has a merged PR fix (if any)
+
+name: Milestone Action
+on:
+  issues:
+    types: [closed]
+  pull_request_target:
+    types: [closed]
+
+jobs:
+  update-milestone:
+    runs-on: namespace-profile-ghostty-sm
+    name: Milestone Update
+    steps:
+      - name: Set Milestone for PR
+        uses: hustcer/milestone-action@v2
+        if: github.event.pull_request.merged == true
+        with:
+          action: bind-pr # `bind-pr` is the default action
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Bind milestone to closed issue that has a merged PR fix
+      - name: Set Milestone for Issue
+        uses: hustcer/milestone-action@v2
+        if: github.event.issue.state == 'closed'
+        with:
+          action: bind-issue
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
