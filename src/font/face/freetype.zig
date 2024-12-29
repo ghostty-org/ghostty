@@ -376,7 +376,7 @@ pub const Face = struct {
                 return error.UnsupportedPixelMode;
             };
 
-            log.warn("converting from pixel_mode={} to atlas_format={}", .{
+            log.debug("converting from pixel_mode={} to atlas_format={}", .{
                 bitmap_ft.pixel_mode,
                 atlas.format,
             });
