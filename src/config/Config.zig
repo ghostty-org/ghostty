@@ -679,7 +679,7 @@ command: ?[]const u8 = null,
 /// This is a future planned feature.
 ///
 /// This can be changed at runtime but will only affect new terminal surfaces.
-@"scrollback-limit": u32 = 10_000_000, // 10MB
+@"scrollback-limit": usize = 10_000_000, // 10MB
 
 /// Match a regular expression against the terminal text and associate clicking
 /// it with an action. This can be used to match URLs, file paths, etc. Actions
