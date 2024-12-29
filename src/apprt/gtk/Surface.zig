@@ -651,6 +651,7 @@ pub fn deinit(self: *Surface) void {
     // and therefore the unfocused_overlay has been destroyed as well.
     c.g_object_unref(self.im_context);
     if (self.cursor) |cursor| c.g_object_unref(cursor);
+    if (self.update_title_timer) |timer| _ = c.g_source_remove(timer);
     self.resize_overlay.deinit();
 }
 
