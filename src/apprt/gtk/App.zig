@@ -987,13 +987,15 @@ fn loadRuntimeCss(
         switch (window_theme) {
             .ghostty => try writer.print(
                 \\:root {{
-                \\  --headerbar-fg-color: rgb({d},{d},{d});
-                \\  --headerbar-bg-color: rgb({d},{d},{d});
+                \\  --ghostty-fg: rgb({d},{d},{d});
+                \\  --ghostty-bg: rgb({d},{d},{d});
+                \\  --headerbar-fg-color: var(--ghostty-fg);
+                \\  --headerbar-bg-color: var(--ghostty-bg);
                 \\  --headerbar-backdrop-color: oklab(from var(--headerbar-bg-color) calc(l * 0.9) a b / alpha);
-                \\  --overview-fg-color: rgb({d},{d},{d});
-                \\  --overview-bg-color: rgb({d},{d},{d});
-                \\  --popover-fg-color: rgb({d},{d},{d});
-                \\  --popover-bg-color: rgb({d},{d},{d});
+                \\  --overview-fg-color: var(--ghostty-fg);
+                \\  --overview-bg-color: var(--ghostty-bg);
+                \\  --popover-fg-color: var(--ghostty-fg);
+                \\  --popover-bg-color: var(--ghostty-bg);
                 \\}}
                 \\windowhandle {{
                 \\  background-color: var(--headerbar-bg-color);
@@ -1003,18 +1005,6 @@ fn loadRuntimeCss(
                 \\ background-color: var(--headerbar-backdrop-color);
                 \\}}
             , .{
-                headerbar_foreground.r,
-                headerbar_foreground.g,
-                headerbar_foreground.b,
-                headerbar_background.r,
-                headerbar_background.g,
-                headerbar_background.b,
-                headerbar_foreground.r,
-                headerbar_foreground.g,
-                headerbar_foreground.b,
-                headerbar_background.r,
-                headerbar_background.g,
-                headerbar_background.b,
                 headerbar_foreground.r,
                 headerbar_foreground.g,
                 headerbar_foreground.b,
