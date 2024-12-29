@@ -247,7 +247,7 @@ class TerminalController: BaseTerminalController {
         let backgroundColor: OSColor
         if let surfaceTree {
             if let focusedSurface, surfaceTree.doesBorderTop(view: focusedSurface) {
-                backgroundColor = OSColor(focusedSurface.backgroundColor ?? surfaceConfig.backgroundColor)
+                backgroundColor = OSColor(focusedSurface.backgroundColor ?? surfaceConfig.backgroundColor).withAlphaComponent(0.0)
             } else {
                 // We don't have a focused surface or our surface doesn't border the
                 // top. We choose to match the color of the top-left most surface.
