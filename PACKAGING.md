@@ -23,6 +23,13 @@ https://release.files.ghostty.org/VERSION/ghostty-VERSION.tar.gz
 https://release.files.ghostty.org/VERSION/ghostty-VERSION.tar.gz.minisig
 ```
 
+> [!NOTE]
+>
+> **Version 1.0.0 the filename is `ghostty-source.tar.gz`.** Future
+> versions will use the `ghostty-VERSION.tar.gz` format since it is more
+> typical for source tarballs. But for version 1.0.0, the filename is
+> `ghostty-source.tar.gz`.
+
 Signature files are signed with
 [minisign](https://jedisct1.github.io/minisign/)
 using the following public key:
