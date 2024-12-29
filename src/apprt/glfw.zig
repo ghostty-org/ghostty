@@ -363,27 +363,27 @@ pub const App = struct {
             return;
         };
 
-        // Get the last closed tab from the app-level storage
-        const last_tab: LastClosedTab = parent.app.last_closed_tabs.pop() orelse {
+        const last_tab_opt = parent.app.last_closed_tabs.pop() orelse {
             log.warn("No last closed tab found", .{});
             return;
         };
 
-        // Create a new tab
+        // Make a mutable copy
+        var last_tab = last_tab_opt;
+        defer last_tab.deinit(parent.app.alloc);
+
         const window = try self.newSurface(parent);
 
-        // Set the working directory and title if available
         if (last_tab.cwd) |cwd| {
             try window.core_surface.io.terminal.setPwd(cwd);
         }
+
         if (last_tab.title) |title| {
-            // Ensure we have a null-terminated string for the title
             const title_z = try window.core_surface.alloc.dupeZ(u8, title);
-            errdefer window.core_surface.alloc.free(title_z);
+            defer window.core_surface.alloc.free(title_z);
             try window.core_surface.rt_surface.setTitle(title_z);
         }
 
-        // Restore terminal contents if available
         if (last_tab.contents) |contents| {
             try window.core_surface.io.terminal.printString(contents);
         }
@@ -656,6 +656,9 @@ pub const Surface = struct {
     }
 
     pub fn deinit(self: *Surface) void {
+        // Free the title text if it exists
+        if (self.title_text) |t| self.core_surface.alloc.free(t);
+
         // Remove ourselves from the list of known surfaces in the app.
         self.app.app.deleteSurface(self);
 

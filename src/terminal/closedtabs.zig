@@ -18,16 +18,14 @@ pub const LastClosedTab = struct {
 pub const LastClosedTabs = struct {
     this: std.BoundedArray(LastClosedTab, max_closed_tabs) = std.BoundedArray(LastClosedTab, max_closed_tabs).init(0) catch unreachable,
 
-    pub fn push(self: *LastClosedTabs, tab: LastClosedTab, alloc: Allocator) void {
+    pub fn push(self: *LastClosedTabs, tab: LastClosedTab) void {
         if (self.this.len == max_closed_tabs) {
             // Remove oldest tab and free its memory
-            self.this.buffer[0].deinit(alloc);
+            self.this.buffer[0] = tab;
             // Shift all elements left
             for (0..self.this.len - 1) |i| {
                 self.this.buffer[i] = self.this.buffer[i + 1];
             }
-            // Add new tab at the end
-            self.this.buffer[self.this.len - 1] = tab;
         } else {
             self.this.append(tab) catch unreachable;
         }
@@ -41,17 +39,13 @@ pub const LastClosedTabs = struct {
     }
 
     pub fn get(self: *LastClosedTabs, index: usize) ?*LastClosedTab {
-        return self.this.get(index);
-    }
-
-    pub fn len(self: *LastClosedTabs) usize {
-        return self.this.len;
+        if (index >= self.this.len) return null;
+        return &self.this.buffer[index];
     }
 
     pub fn pop(self: *LastClosedTabs) ?LastClosedTab {
         if (self.this.len == 0) return null;
-        const last = self.this.buffer[self.this.len - 1];
         self.this.len -= 1;
-        return last;
+        return self.this.buffer[self.this.len];
     }
 };

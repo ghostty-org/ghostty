@@ -727,27 +727,25 @@ pub fn close(self: *Surface) void {
     // Save tab data before closing
     const cwd = self.io.terminal.getPwd();
     const cwd_copy = if (cwd) |c| self.alloc.dupe(u8, c) catch null else null;
+    errdefer if (cwd_copy) |c| self.alloc.free(c);
 
     const title = self.rt_surface.getTitle();
     const title_copy = if (title) |t| self.alloc.dupe(u8, t) catch null else null;
+    errdefer if (title_copy) |t| self.alloc.free(t);
 
     // Save terminal contents including scrollback buffer
     const contents = self.io.terminal.screen.dumpStringAlloc(self.alloc, .{ .screen = .{} }) catch null;
+    errdefer if (contents) |c| self.alloc.free(c);
 
     // Save to last closed tabs
     self.app.last_closed_tabs.push(.{
         .title = title_copy,
         .cwd = cwd_copy,
         .contents = contents,
-    }, self.alloc);
-
-    log.debug("closing tab - pwd: {s}, title: {s}", .{
-        cwd_copy orelse "(null)",
-        title_copy orelse "(null)",
     });
 
-    log.debug("close from surface ptr={X}", .{@intFromPtr(self)});
-    self.rt_surface.close(self.needsConfirmQuit());
+    // Close the surface
+    self.rt_surface.close(true);
 }
 
 /// Forces the surface to render. This is useful for when the surface
