@@ -48,8 +48,10 @@ pub const LastClosedTabs = struct {
         return self.this.len;
     }
 
-    pub fn getLast(self: *LastClosedTabs) ?*LastClosedTab {
+    pub fn pop(self: *LastClosedTabs) ?LastClosedTab {
         if (self.this.len == 0) return null;
-        return &self.this.buffer[self.this.len - 1];
+        const last = self.this.buffer[self.this.len - 1];
+        self.this.len -= 1;
+        return last;
     }
 };

@@ -364,7 +364,7 @@ pub const App = struct {
         };
 
         // Get the last closed tab from the app-level storage
-        const last_tab: *LastClosedTab = parent.app.last_closed_tabs.getLast() orelse {
+        const last_tab: LastClosedTab = parent.app.last_closed_tabs.pop() orelse {
             log.warn("No last closed tab found", .{});
             return;
         };
