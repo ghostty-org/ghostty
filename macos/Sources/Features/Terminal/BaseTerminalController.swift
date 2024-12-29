@@ -45,6 +45,11 @@ class BaseTerminalController: NSWindowController,
         didSet { surfaceTreeDidChange(from: oldValue, to: surfaceTree) }
     }
 
+    /// Whether the terminal surface should focus when the mouse is over it.
+    var focusFollowsMouse: Bool {
+        self.derivedConfig.focusFollowsMouse
+    }
+
     /// Non-nil when an alert is active so we don't overlap multiple.
     private var alert: NSAlert? = nil
 
@@ -262,7 +267,6 @@ class BaseTerminalController: NSWindowController,
         
         // Set the main window title
         window.title = to
-
     }
     
     func pwdDidChange(to: URL?) {
@@ -604,15 +608,18 @@ class BaseTerminalController: NSWindowController,
     private struct DerivedConfig {
         let macosTitlebarProxyIcon: Ghostty.MacOSTitlebarProxyIcon
         let windowStepResize: Bool
+        let focusFollowsMouse: Bool
 
         init() {
             self.macosTitlebarProxyIcon = .visible
             self.windowStepResize = false
+            self.focusFollowsMouse = false
         }
 
         init(_ config: Ghostty.Config) {
             self.macosTitlebarProxyIcon = config.macosTitlebarProxyIcon
             self.windowStepResize = config.windowStepResize
+            self.focusFollowsMouse = config.focusFollowsMouse
         }
     }
 }

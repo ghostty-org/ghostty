@@ -617,11 +617,12 @@ extension Ghostty {
             let mods = Ghostty.ghosttyMods(event.modifierFlags)
             ghostty_surface_mouse_pos(surface, pos.x, frame.height - pos.y, mods)
 
-            // If focus follows mouse is enabled then move focus to this surface.
-            if let window = self.window as? TerminalWindow,
-               window.isKeyWindow &&
-                window.focusFollowsMouse &&
-                !self.focused
+            // Handle focus-follows-mouse
+            if let window,
+               let controller = window.windowController as? BaseTerminalController,
+               (window.isKeyWindow &&
+                    !self.focused &&
+                    controller.focusFollowsMouse)
             {
                 Ghostty.moveFocus(to: self)
             }
