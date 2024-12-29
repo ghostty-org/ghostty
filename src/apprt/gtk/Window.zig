@@ -735,7 +735,7 @@ fn gtkActionAbout(
 
     const name = "Ghostty";
     const icon = "com.mitchellh.ghostty";
-    const website = "https://github.com/ghostty-org/ghostty";
+    const website = "https://ghostty.org";
 
     if ((comptime adwaita.versionAtLeast(1, 5, 0)) and
         adwaita.versionAtLeast(1, 5, 0) and
