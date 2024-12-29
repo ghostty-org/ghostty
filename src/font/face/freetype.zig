@@ -288,7 +288,6 @@ pub const Face = struct {
         self.face.loadGlyph(glyph_id, .{
             .render = true,
             .color = self.face.hasColor(),
-            .no_bitmap = !self.face.hasColor(),
         }) catch return false;
 
         // If the glyph is SVG we assume colorized
@@ -322,14 +321,6 @@ pub const Face = struct {
             // If we have synthetic bold, we have to set some additional
             // glyph properties before render so we don't render here.
             .render = !self.synthetic.bold,
-
-            // Disable bitmap strikes for now since it causes issues with
-            // our cell metrics and rasterization. In the future, this is
-            // all fixable so we can enable it.
-            //
-            // This must be enabled for color faces though because those are
-            // often colored bitmaps, which we support.
-            .no_bitmap = !self.face.hasColor(),
 
             // use options from config
             .no_hinting = !self.load_flags.hinting,
