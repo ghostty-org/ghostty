@@ -25,6 +25,9 @@ This project uses several fonts which fall under the SIL Open Font License (OFL-
   - [Copyright 2013 Google LLC](https://github.com/googlefonts/noto-emoji/blob/main/LICENSE)
 - Cozette (MIT)
   - [Copyright (c) 2020, Slavfox](https://github.com/slavfox/Cozette/blob/main/LICENSE)
+- Terminus TTF (OFL-1.1)
+  - [Copyright (c) 2010-2020 Dimitar Toshkov Zhekov with Reserved Font Name "Terminus Font"](https://sourceforge.net/projects/terminus-font/)
+  - [Copyright (c) 2011-2023 Tilman Blumenbach with Reserved Font Name "Terminus (TTF)"](https://files.ax86.net/terminus-ttf/)
 
 A full copy of the OFL license can be found at [OFL.txt](./OFL.txt).
 An accompanying FAQ is also available at <https://openfontlicense.org/>.

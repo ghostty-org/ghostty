@@ -996,3 +996,55 @@ test "svg font table" {
 
     try testing.expectEqual(430, table.len);
 }
+
+const terminus_i =
+    \\........
+    \\........
+    \\...#....
+    \\...#....
+    \\........
+    \\..##....
+    \\...#....
+    \\...#....
+    \\...#....
+    \\...#....
+    \\...#....
+    \\..###...
+    \\........
+    \\........
+    \\........
+    \\........
+;
+// Including the newline
+const terminus_i_pitch = 9;
+
+test "bitmap glyph" {
+    const alloc = testing.allocator;
+    const testFont = font.embedded.terminus_ttf;
+
+    var lib = try Library.init();
+    defer lib.deinit();
+
+    var atlas = try font.Atlas.init(alloc, 512, .grayscale);
+    defer atlas.deinit(alloc);
+
+    // Any glyph at 12pt @ 96 DPI is a bitmap
+    var ft_font = try Face.init(lib, testFont, .{ .size = .{ .points = 12 } });
+    defer ft_font.deinit();
+
+    // glyph 77 = 'i'
+    const glyph = try ft_font.renderGlyph(alloc, &atlas, 77, .{});
+
+    // should render crisp
+    try testing.expectEqual(8, glyph.width);
+    try testing.expectEqual(16, glyph.height);
+    for (0..glyph.height) |y| {
+        for (0..glyph.width) |x| {
+            const pixel = terminus_i[y * terminus_i_pitch + x];
+            try testing.expectEqual(
+                @as(u8, if (pixel == '#') 255 else 0),
+                atlas.data[(glyph.atlas_y + y) * atlas.size + (glyph.atlas_x + x)],
+            );
+        }
+    }
+}

@@ -34,3 +34,6 @@ pub const cozette = @embedFile("res/CozetteVector.ttf");
 /// Monaspace has weird ligature behaviors we want to test in our shapers
 /// so we embed it here.
 pub const monaspace_neon = @embedFile("res/MonaspaceNeon-Regular.otf");
+
+/// Terminus TTF is a scalable font with bitmap glyphs at various sizes.
+pub const terminus_ttf = @embedFile("res/TerminusTTF-Regular.ttf");
