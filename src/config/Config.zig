@@ -485,7 +485,7 @@ palette: Palette = .{},
 ///
 /// Valid values are:
 ///
-///   * `` (blank)
+///   * ` ` (blank)
 ///   * `true`
 ///   * `false`
 ///
