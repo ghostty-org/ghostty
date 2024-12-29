@@ -58,7 +58,12 @@
       formatter.${system} = pkgs-stable.alejandra;
 
       # Our supported systems are the same supported systems as the Zig binaries.
-    }) (builtins.attrNames zig.packages));
+    }) (builtins.attrNames zig.packages))
+    // {
+      overlays.default = final: prev: {
+        ghostty = self.packages.${prev.system}.default;
+      };
+    };
 
   nixConfig = {
     extra-substituters = ["https://ghostty.cachix.org"];
