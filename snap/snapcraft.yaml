@@ -50,6 +50,9 @@ parts:
 
       if [[ -n $arch ]]; then
         curl -LO --retry-connrefused --retry 10 https://ziglang.org/download/0.13.0/zig-linux-$arch-0.13.0.tar.xz
+      else
+        echo "Unsupported arch"
+        exit 1
       fi
 
       tar xf zig-lin*xz
