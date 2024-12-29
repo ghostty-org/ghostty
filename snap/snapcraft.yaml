@@ -1,0 +1,77 @@
+name: ghostty
+base: core24
+version: git
+summary: A terminal emulator
+description: |
+  Ghostty is a fast, feature-rich, and cross-platform terminal emulator that
+  uses platform-native UI and GPU acceleration.
+grade: stable
+confinement: classic
+contact: https://github.com/ghostty-org/ghostty/discussions
+issues: https://github.com/ghostty-org/ghostty/issues
+website: https://ghostty.org
+license: MIT
+icon: images/icons/icon_512.png
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  ghostty:
+    command: bin/ghostty
+    command-chain: [ bin/launcher ]
+    desktop: share/applications/com.mitchellh.ghostty.desktop 
+    environment:
+      PATH: /snap/ghostty/current/bin:/snap/ghostty/current/usr/bin:$PATH
+      LC_ALL: C.UTF-8
+
+parts:
+  launcher:
+    plugin: dump
+    source: snap/local/
+    organize:
+      launcher: bin/
+
+  zig:
+    plugin: nil
+    build-packages:
+      - curl
+    override-pull: |
+      set -ex
+      case "$CRAFT_TARGET_ARCH" in
+        amd64)  arch=x86_64    ;;
+        arm64)  arch=aarch64  ;;
+        *)      arch=""     ;;
+      esac
+
+      rm -rf $CRAFT_PART_SRC/*
+
+      if [[ -n $arch ]]; then
+        curl -LO --retry-connrefused --retry 10 https://ziglang.org/download/0.13.0/zig-linux-$arch-0.13.0.tar.xz
+      fi
+
+      tar xf zig-lin*xz
+      rm -f *xz
+      mv zig-linux*/* .
+    prime:
+      - -*
+
+  ghostty:
+    source: .
+    after: [ zig ]
+    plugin: nil
+    build-packages:
+      - libgtk-4-dev
+      - libadwaita-1-dev
+      - git
+    stage-packages:
+      - libadwaita-1-0
+      - libgtk-4-1
+      - bash
+      - zsh
+      - fish
+    override-build: |
+      $CRAFT_PART_SRC/../../zig/src/zig build -Doptimize=ReleaseFast
+      cp -rp zig-out/* $CRAFT_PART_INSTALL/
+      sed -i 's|Icon=com.mitchellh.ghostty|Icon=/snap/ghostty/current/share/icons/hicolor/512x512/apps/com.mitchellh.ghostty.png|g' $CRAFT_PART_INSTALL/share/applications/com.mitchellh.ghostty.desktop
