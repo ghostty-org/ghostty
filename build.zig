@@ -669,6 +669,7 @@ pub fn build(b: *std.Build) !void {
         b.installFile("images/icons/icon_128.png", "share/icons/hicolor/128x128/apps/com.mitchellh.ghostty.png");
         b.installFile("images/icons/icon_256.png", "share/icons/hicolor/256x256/apps/com.mitchellh.ghostty.png");
         b.installFile("images/icons/icon_512.png", "share/icons/hicolor/512x512/apps/com.mitchellh.ghostty.png");
+        b.installFile("images/icons/icon_1024.png", "share/icons/hicolor/1024x1024/apps/com.mitchellh.ghostty.png");
         b.installFile("images/icons/icon_16@2x.png", "share/icons/hicolor/16x16@2/apps/com.mitchellh.ghostty.png");
         b.installFile("images/icons/icon_32@2x.png", "share/icons/hicolor/32x32@2/apps/com.mitchellh.ghostty.png");
         b.installFile("images/icons/icon_128@2x.png", "share/icons/hicolor/128x128@2/apps/com.mitchellh.ghostty.png");

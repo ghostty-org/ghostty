@@ -47,6 +47,10 @@ const icons = [_]struct {
         .alias = "512x512",
         .source = "512",
     },
+    .{
+        .alias = "1024x1024",
+        .source = "1024",
+    },
 };
 
 pub const gresource_xml = comptimeGenerateGResourceXML();
