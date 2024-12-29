@@ -124,8 +124,8 @@ pub fn init(self: *Window, app: *App) !void {
     // Setup our notebook
     self.notebook = Notebook.create(self);
 
-    // If we are using an AdwWindow then we can support the tab overview.
-    self.tab_overview = if (self.isAdwWindow()) overview: {
+    // If we are using Adwaita, then we can support the tab overview.
+    self.tab_overview = if ((comptime adwaita.versionAtLeast(1, 3, 0)) and adwaita.enabled(&self.app.config) and adwaita.versionAtLeast(1, 3, 0)) overview: {
         const tab_overview = c.adw_tab_overview_new();
         c.adw_tab_overview_set_view(@ptrCast(tab_overview), self.notebook.adw_tab_view);
         c.adw_tab_overview_set_enable_new_tab(@ptrCast(tab_overview), 1);
@@ -250,7 +250,7 @@ pub fn init(self: *Window, app: *App) !void {
 
     // If we have a tab overview then we can set it on our notebook.
     if (self.tab_overview) |tab_overview| {
-        if (comptime !adwaita.versionAtLeast(1, 4, 0)) unreachable;
+        if (comptime !adwaita.versionAtLeast(1, 3, 0)) unreachable;
         assert(self.notebook == .adw_tab_view);
         c.adw_tab_overview_set_view(@ptrCast(tab_overview), self.notebook.adw_tab_view);
     }
