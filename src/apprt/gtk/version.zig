@@ -19,8 +19,9 @@ pub inline fn atLeast(
     // compiling against unknown symbols and makes runtime checks
     // very slightly faster.
     if (comptime c.GTK_MAJOR_VERSION < major or
-        c.GTK_MINOR_VERSION < minor or
-        c.GTK_MICRO_VERSION < micro) return false;
+        (c.GTK_MAJOR_VERSION == major and c.GTK_MINOR_VERSION < minor) or
+        (c.GTK_MAJOR_VERSION == major and c.GTK_MINOR_VERSION == minor and c.GTK_MICRO_VERSION < micro))
+        return false;
 
     // If we're in comptime then we can't check the runtime version.
     if (@inComptime()) return true;
