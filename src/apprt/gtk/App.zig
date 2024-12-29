@@ -459,6 +459,7 @@ pub fn performAction(
         .toggle_fullscreen => self.toggleFullscreen(target, value),
 
         .new_tab => try self.newTab(target),
+        .reopen_last_tab => try self.reopenLastTab(target),
         .goto_tab => self.gotoTab(target, value),
         .move_tab => self.moveTab(target, value),
         .new_split => try self.newSplit(target, value),
@@ -510,6 +511,23 @@ fn newTab(_: *App, target: apprt.Target) !void {
             };
 
             try window.newTab(v);
+        },
+    }
+}
+
+fn reopenLastTab(_: *App, target: apprt.Target) void {
+    switch (target) {
+        .app => {},
+        .surface => |v| {
+            const window = v.rt_surface.container.window() orelse {
+                log.info(
+                    "reopen_last_tab invalid for container={s}",
+                    .{@tagName(v.rt_surface.container)},
+                );
+                return;
+            };
+
+            window.reopenLastTab();
         },
     }
 }
@@ -927,6 +945,7 @@ fn syncActionAccelerators(self: *App) !void {
     try self.syncActionAccelerator("win.close", .{ .close_surface = {} });
     try self.syncActionAccelerator("win.new_window", .{ .new_window = {} });
     try self.syncActionAccelerator("win.new_tab", .{ .new_tab = {} });
+    try self.syncActionAccelerator("win.reopen_last_tab", .{ .reopen_last_tab = {} });
     try self.syncActionAccelerator("win.split_right", .{ .new_split = .right });
     try self.syncActionAccelerator("win.split_down", .{ .new_split = .down });
     try self.syncActionAccelerator("win.split_left", .{ .new_split = .left });
@@ -1591,6 +1610,7 @@ fn initMenu(self: *App) void {
         c.g_menu_append_section(menu, null, @ptrCast(@alignCast(section)));
         c.g_menu_append(section, "New Window", "win.new_window");
         c.g_menu_append(section, "New Tab", "win.new_tab");
+        c.g_menu_append(section, "Reopen Last Tab", "win.reopen_last_tab");
         c.g_menu_append(section, "Split Right", "win.split_right");
         c.g_menu_append(section, "Split Down", "win.split_down");
         c.g_menu_append(section, "Close Window", "win.close");

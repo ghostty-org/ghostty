@@ -22,8 +22,7 @@ const CoreApp = @import("../App.zig");
 const CoreSurface = @import("../Surface.zig");
 const configpkg = @import("../config.zig");
 const Config = @import("../config.zig").Config;
-
-const LastClosedTabs = @import("../terminal/closedtabs.zig").LastClosedTabs;
+const LastClosedTab = @import("../terminal/closedtabs.zig").LastClosedTab;
 
 // Get native API access on certain platforms so we can do more customization.
 const glfwNative = glfw.Native(.{
@@ -39,9 +38,6 @@ pub const App = struct {
 
     /// Mac-specific state.
     darwin: if (Darwin.enabled) Darwin else void,
-
-    /// Store information about the last closed tabs
-    last_closed_tabs: LastClosedTabs = .{},
 
     pub const Options = struct {};
 
@@ -110,7 +106,6 @@ pub const App = struct {
     }
 
     pub fn terminate(self: *App) void {
-        self.last_closed_tabs.deinit(self.app.alloc);
         self.config.deinit();
         glfw.terminate();
     }
@@ -165,7 +160,10 @@ pub const App = struct {
                 .surface => |v| v,
             }),
 
-            .reopen_last_tab => try self.reopenLastTab(),
+            .reopen_last_tab => try self.reopenLastTab(switch (target) {
+                .app => null,
+                .surface => |v| v,
+            }),
 
             .size_limit => switch (target) {
                 .app => {},
@@ -325,26 +323,8 @@ pub const App = struct {
         win.setMonitor(monitor, 0, 0, video_mode.getWidth(), video_mode.getHeight(), 0);
     }
 
-    /// Log that a reopen last tab action was triggered
-    fn reopenLastTab(self: *App) !void {
+    fn addTab(self: *App, parent: *CoreSurface, window: *Surface) !void {
         _ = self;
-        std.log.debug("Reopen last tab action triggered", .{});
-    }
-
-    /// Create a new tab in the parent surface.
-    fn newTab(self: *App, parent_: ?*CoreSurface) !void {
-        if (!Darwin.enabled) {
-            log.warn("tabbing is not supported on this platform", .{});
-            return;
-        }
-
-        const parent = parent_ orelse {
-            _ = try self.newSurface(null);
-            return;
-        };
-
-        // Create the new window
-        const window = try self.newSurface(parent);
 
         // Add the new window the parent window
         const parent_win = glfwNative.getCocoaWindow(parent.rt_surface.window).?;
@@ -368,6 +348,66 @@ pub const App = struct {
             log.err("error in size callback from new tab err={}", .{err});
             return;
         };
+    }
+
+    /// Log that a reopen last tab action was triggered
+    fn reopenLastTab(self: *App, parent_: ?*CoreSurface) !void {
+        if (!Darwin.enabled) {
+            log.warn("tabbing is not supported on this platform", .{});
+            return;
+        }
+
+        const parent: *CoreSurface = parent_ orelse {
+            log.warn("No parent surface found", .{});
+            return;
+        };
+
+        // Get the last closed tab from the app-level storage
+        const last_tab: *LastClosedTab = parent.app.last_closed_tabs.getLast() orelse {
+            log.warn("No last closed tab found", .{});
+            return;
+        };
+
+        // Create a new tab
+        const window = try self.newSurface(parent);
+
+        // Set the working directory and title if available
+        if (last_tab.cwd) |cwd| {
+            try window.core_surface.io.terminal.setPwd(cwd);
+        }
+        if (last_tab.title) |title| {
+            // Ensure we have a null-terminated string for the title
+            const title_z = try window.core_surface.alloc.dupeZ(u8, title);
+            errdefer window.core_surface.alloc.free(title_z);
+            try window.core_surface.rt_surface.setTitle(title_z);
+        }
+
+        log.debug("Reopening last tab - pwd: {s}, title: {s}", .{
+            last_tab.cwd orelse "(null)",
+            last_tab.title orelse "(null)",
+        });
+
+        try self.addTab(parent, window);
+    }
+
+    /// Create a new tab in the parent surface.
+    fn newTab(self: *App, parent_: ?*CoreSurface) !void {
+        if (!Darwin.enabled) {
+            log.warn("tabbing is not supported on this platform", .{});
+            return;
+        }
+
+        const parent = parent_ orelse {
+            _ = try self.newSurface(null);
+            return;
+        };
+
+        log.debug("New tab: {?}", .{parent});
+
+        // Create the new window
+        const window = try self.newSurface(parent);
+
+        try self.addTab(parent, window);
     }
 
     fn newSurface(self: *App, parent_: ?*CoreSurface) !*Surface {
@@ -610,26 +650,6 @@ pub const Surface = struct {
     }
 
     pub fn deinit(self: *Surface) void {
-        // Save the closing tab information
-        const title = if (self.title_text) |t|
-            self.core_surface.alloc.dupe(u8, t) catch null
-        else
-            null;
-        errdefer if (title) |t| self.core_surface.alloc.free(t);
-
-        const cwd = self.core_surface.alloc.dupe(u8, "~") catch null;
-        errdefer if (cwd) |c| self.core_surface.alloc.free(c);
-
-        self.app.last_closed_tabs.push(.{
-            .title = title,
-            .cwd = cwd,
-        }, self.core_surface.alloc);
-
-        log.debug("all last closed tab: {?}", .{self.app.last_closed_tabs.this});
-        log.debug("last closed tab: {?}", .{self.app.last_closed_tabs.getLast()});
-
-        if (self.title_text) |t| self.core_surface.alloc.free(t);
-
         // Remove ourselves from the list of known surfaces in the app.
         self.app.app.deleteSurface(self);
 

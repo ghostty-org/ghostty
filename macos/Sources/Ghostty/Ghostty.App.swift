@@ -107,7 +107,7 @@ extension Ghostty {
         deinit {
             // This will force the didSet callbacks to run which free.
             self.app = nil
-            
+
 #if os(macOS)
             NotificationCenter.default.removeObserver(self)
 #endif
@@ -192,6 +192,13 @@ extension Ghostty {
 
         func newTab(surface: ghostty_surface_t) {
             let action = "new_tab"
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+                logger.warning("action failed action=\(action)")
+            }
+        }
+
+        func reopenLastTab(surface: ghostty_surface_t) {
+            let action = "reopen_last_tab"
             if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
                 logger.warning("action failed action=\(action)")
             }
@@ -459,6 +466,9 @@ extension Ghostty {
 
             case GHOSTTY_ACTION_NEW_TAB:
                 newTab(app, target: target)
+
+            case GHOSTTY_ACTION_REOPEN_LAST_TAB:
+                reopenLastTab(app, target: target)
 
             case GHOSTTY_ACTION_NEW_SPLIT:
                 newSplit(app, target: target, direction: action.action.new_split)

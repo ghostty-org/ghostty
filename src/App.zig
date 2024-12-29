@@ -24,12 +24,16 @@ const objc = @import("objc");
 const log = std.log.scoped(.app);
 
 const SurfaceList = std.ArrayListUnmanaged(*apprt.Surface);
+const LastClosedTabs = @import("terminal/closedtabs.zig").LastClosedTabs;
 
 /// General purpose allocator
 alloc: Allocator,
 
 /// The list of surfaces that are currently active.
 surfaces: SurfaceList,
+
+/// Storage for recently closed tabs
+last_closed_tabs: LastClosedTabs = .{},
 
 /// This is true if the app that Ghostty is in is focused. This may
 /// mean that no surfaces (terminals) are focused but the app is still
@@ -101,6 +105,7 @@ pub fn create(
         .quit = false,
         .font_grid_set = font_grid_set,
         .config_conditional_state = .{},
+        .last_closed_tabs = .{},
     };
     errdefer app.surfaces.deinit(alloc);
 
@@ -111,6 +116,9 @@ pub fn destroy(self: *App) void {
     // Clean up all our surfaces
     for (self.surfaces.items) |surface| surface.deinit();
     self.surfaces.deinit(self.alloc);
+
+    // Clean up our last closed tabs
+    self.last_closed_tabs.deinit(self.alloc);
 
     // Clean up our font group cache
     // We should have zero items in the grid set at this point because
@@ -444,7 +452,6 @@ pub fn performAction(
         .close_all_windows => try rt_app.performAction(.app, .close_all_windows, {}),
         .toggle_quick_terminal => try rt_app.performAction(.app, .toggle_quick_terminal, {}),
         .toggle_visibility => try rt_app.performAction(.app, .toggle_visibility, {}),
-        .reopen_last_tab => try rt_app.performAction(.app, .reopen_last_tab, {}),
     }
 }
 

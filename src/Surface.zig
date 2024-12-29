@@ -724,6 +724,25 @@ pub fn deinit(self: *Surface) void {
 /// Close this surface. This will trigger the runtime to start the
 /// close process, which should ultimately deinitialize this surface.
 pub fn close(self: *Surface) void {
+    // Save tab data before closing
+    const cwd = self.io.terminal.getPwd();
+    const cwd_copy = if (cwd) |c| self.alloc.dupe(u8, c) catch null else null;
+
+    const title = self.rt_surface.getTitle();
+    const title_copy = if (title) |t| self.alloc.dupe(u8, t) catch null else null;
+
+    // Save to last closed tabs
+    self.app.last_closed_tabs.push(.{
+        .title = title_copy,
+        .cwd = cwd_copy,
+    }, self.alloc);
+
+    log.debug("closing tab - pwd: {s}, title: {s}", .{
+        cwd_copy orelse "(null)",
+        title_copy orelse "(null)",
+    });
+
+    log.debug("close from surface ptr={X}", .{@intFromPtr(self)});
     self.rt_surface.close(self.needsConfirmQuit());
 }
 
@@ -4004,6 +4023,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         .new_tab => try self.rt_app.performAction(
             .{ .surface = self },
             .new_tab,
+            {},
+        ),
+
+        .reopen_last_tab => try self.rt_app.performAction(
+            .{ .surface = self },
+            .reopen_last_tab,
             {},
         ),
 

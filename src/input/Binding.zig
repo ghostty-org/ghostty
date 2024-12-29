@@ -628,7 +628,6 @@ pub const Action = union(enum) {
             .quit,
             .toggle_quick_terminal,
             .toggle_visibility,
-            .reopen_last_tab,
             => .app,
 
             // These are app but can be special-cased in a surface context.
@@ -673,6 +672,7 @@ pub const Action = union(enum) {
             // come from. For example `new_window` needs to be sourced to
             // a surface so inheritance can be done correctly.
             .new_tab,
+            .reopen_last_tab,
             .previous_tab,
             .next_tab,
             .last_tab,
@@ -896,6 +896,7 @@ pub const Key = enum(c_int) {
     paste_from_clipboard,
     new_tab,
     new_window,
+    reopen_last_tab,
 };
 
 /// Trigger is the associated key state that can trigger an action.
