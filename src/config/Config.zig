@@ -1098,7 +1098,7 @@ keybind: Keybinds = .{},
 /// BUG: On Linux with GTK, the calculated window size will not properly take
 /// into account window decorations. As a result, the grid dimensions will not
 /// exactly match this configuration. If window decorations are disabled (see
-/// window-decorations), then this will work as expected.
+/// `window-decoration`), then this will work as expected.
 ///
 /// Windows smaller than 10 wide by 4 high are not allowed.
 @"window-height": u32 = 0,
