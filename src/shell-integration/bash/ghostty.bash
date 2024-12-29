@@ -6,26 +6,6 @@
 # my simple bash usage this is working. If a bash expert wants to
 # improve this please do!
 
-sudo_function() {
-  builtin local sudo_has_sudoedit_flags="no"
-  for arg in "$@"; do
-    # Check if argument is '-e' or '--edit' (sudoedit flags)
-    if [[ "$arg" == "-e" || $arg == "--edit" ]]; then
-      sudo_has_sudoedit_flags="yes"
-      builtin break
-    fi
-    # Check if argument is neither an option nor a key-value pair
-    if [[ "$arg" != -* && "$arg" != *=* ]]; then
-      builtin break
-    fi
-  done
-  if [[ "$sudo_has_sudoedit_flags" == "yes" ]]; then
-    builtin command sudo "$@";
-  else
-    builtin command sudo TERMINFO="$TERMINFO" "$@";
-  fi
-}
-
 # We need to be in interactive mode and we need to have the Ghostty
 # resources dir set which also tells us we're running in Ghostty.
 if [[ "$-" != *i* ]] ; then builtin return; fi
@@ -137,7 +117,41 @@ function __ghostty_precmd() {
       if [[ "$GHOSTTY_SHELL_INTEGRATION_NO_SUDO" != "1" ]] && [[ -n "$TERMINFO" ]]; then
         # Wrap `sudo` command to ensure Ghostty terminfo is preserved
         # shellcheck disable=SC2317
-        alias sudo="sudo_function"
+        if ! [[ "$(alias sudo 2>/dev/null)" ]] || [[ "$(alias sudo)" != "alias sudo='__ghostty_sudo'" ]]; then
+          if declare -F sudo > /dev/null; then
+            original_sudo="$(declare -f sudo)"
+            eval "${original_sudo/sudo/original_sudo}"
+          elif alias sudo &> /dev/null; then
+            original_sudo_value="$(alias sudo | sed -e "s/alias sudo='//" -e "s/'$//")"
+            original_sudo() {
+              $original_sudo_value "$@";
+            }
+            unalias sudo
+          else
+            original_sudo() {
+              command sudo "$@"
+            }
+          fi
+        fi
+
+        __ghostty_sudo() {
+          builtin local sudo_has_sudoedit_flags="no"
+          for arg in "$@"; do
+            if [[ "$arg" == "-e" || $arg == "--edit" ]]; then
+              sudo_has_sudoedit_flags="yes"
+              builtin break
+            fi
+            if [[ "$arg" != -* && "$arg" != *=* ]]; then
+              builtin break
+            fi
+          done
+          if [[ "$sudo_has_sudoedit_flags" == "yes" ]]; then
+            original_sudo "$@"
+          else
+            original_sudo TERMINFO="$TERMINFO" "$@"
+          fi
+        }
+        alias sudo="__ghostty_sudo"
       fi
 
       if [[ "$GHOSTTY_SHELL_INTEGRATION_NO_TITLE" != 1 ]]; then
