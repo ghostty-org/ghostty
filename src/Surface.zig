@@ -253,6 +253,7 @@ const DerivedConfig = struct {
     window_padding_right: u32,
     window_padding_balance: bool,
     title: ?[:0]const u8,
+    title_report: bool,
     links: []Link,
 
     const Link = struct {
@@ -313,6 +314,7 @@ const DerivedConfig = struct {
             .window_padding_right = config.@"window-padding-x".bottom_right,
             .window_padding_balance = config.@"window-padding-balance",
             .title = config.title,
+            .title_report = config.@"title-report",
             .links = links,
 
             // Assignments happen sequentially so we have to do this last
@@ -824,7 +826,12 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             );
         },
 
-        .report_title => |style| {
+        .report_title => |style| report_title: {
+            if (!self.config.title_report) {
+                log.info("report_title requested, but disabled via config", .{});
+                break :report_title;
+            }
+
             const title: ?[:0]const u8 = self.rt_surface.getTitle();
             const data = switch (style) {
                 .csi_21_t => try std.fmt.allocPrint(

@@ -1254,6 +1254,15 @@ keybind: Keybinds = .{},
 /// program, not the terminal emulator).
 @"clipboard-paste-bracketed-safe": bool = true,
 
+/// Enables or disabled title reporting (CSI 21 t). This escape sequence
+/// allows the running program to query the terminal title. This is a common
+/// security issue and is disabled by default.
+///
+/// Warning: This can expose sensitive information at best and enable
+/// arbitrary code execution at worst (with a maliciously crafted title
+/// and a minor amount of user interaction).
+@"title-report": bool = false,
+
 /// The total amount of bytes that can be used for image data (i.e. the Kitty
 /// image protocol) per terminal screen. The maximum value is 4,294,967,295
 /// (4GiB). The default is 320MB. If this is set to zero, then all image
