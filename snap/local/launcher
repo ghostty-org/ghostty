@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+export XDG_CONFIG_HOME="$SNAP_REAL_HOME/.config"
+export XDG_DATA_HOME="$SNAP_REAL_HOME/.local/share"
+
+exec "$@"

@@ -29,7 +29,8 @@ apps:
 parts:
   launcher:
     plugin: dump
-    source: snap/local/
+    source: snap/local
+    source-type: local
     organize:
       launcher: bin/
 
