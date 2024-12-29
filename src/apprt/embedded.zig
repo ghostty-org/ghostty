@@ -1891,9 +1891,6 @@ pub const CAPI = struct {
         // Do nothing if we don't have background transparency enabled
         if (config.@"background-opacity" >= 1.0) return;
 
-        // Do nothing if our blur value is zero
-        if (config.@"background-blur-radius" == 0) return;
-
         const nswindow = objc.Object.fromId(window);
         _ = CGSSetWindowBackgroundBlurRadius(
             CGSDefaultConnectionForThread(),
