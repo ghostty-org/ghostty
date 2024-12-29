@@ -507,7 +507,7 @@ pub fn init(self: *Surface, app: *App, opts: Options) !void {
         var buf: [256]u8 = undefined;
         const name = std.fmt.bufPrint(
             &buf,
-            "surfaces/{X}.service",
+            "surfaces/{X}.scope",
             .{@intFromPtr(self)},
         ) catch unreachable;
 
