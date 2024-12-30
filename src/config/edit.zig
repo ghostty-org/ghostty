@@ -13,11 +13,17 @@ pub fn open(alloc_gpa: Allocator) !void {
         if (comptime builtin.os.tag == .macos) macos: {
             // On macOS, use the XDG path if the app support path doesn't exist.
             const app_support_path = try internal_os.macos.appSupportDir(alloc_gpa, "config");
+
+            // If no configuration file currently exist, it should be created in app support.
+            var no_config_file = false;
+
             if (std.fs.accessAbsolute(app_support_path, .{})) {
                 alloc_gpa.free(xdg_config_path);
                 break :config_path app_support_path;
             } else |err| switch (err) {
-                error.BadPathName, error.FileNotFound => {},
+                error.BadPathName, error.FileNotFound => {
+                    no_config_file = true;
+                },
                 else => break :macos,
             }
 
@@ -25,9 +31,12 @@ pub fn open(alloc_gpa: Allocator) !void {
                 alloc_gpa.free(app_support_path);
                 break :macos;
             } else |err| switch (err) {
-                error.BadPathName, error.FileNotFound => {},
+                error.BadPathName, error.FileNotFound => {
+                    no_config_file = true;
+                },
                 else => break :macos,
             }
+            if (no_config_file) break :config_path app_support_path;
         }
 
         break :config_path xdg_config_path;
