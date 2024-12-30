@@ -265,6 +265,8 @@ pub fn init(self: *Window, app: *App) !void {
     c.gtk_popover_set_has_arrow(@ptrCast(@alignCast(self.context_menu)), 0);
     c.gtk_widget_set_halign(self.context_menu, c.GTK_ALIGN_START);
 
+    if (app.config.@"gtk-maximize") c.gtk_window_maximize(self.window);
+
     // If we are in fullscreen mode, new windows start fullscreen.
     if (app.config.fullscreen) c.gtk_window_fullscreen(self.window);
 

@@ -1851,6 +1851,13 @@ keybind: Keybinds = .{},
 /// must always be able to move themselves into an isolated cgroup.
 @"linux-cgroup-hard-fail": bool = false,
 
+/// Start new windows maximized. This setting applies to new windows and
+/// does not apply to tabs, splits, etc. However, this setting will apply to all
+/// new windows, not just the first one.
+///
+/// This setting is overwritten by `fullscreen` option.
+@"gtk-maximize": bool = false,
+
 /// If `true`, the Ghostty GTK application will run in single-instance mode:
 /// each new `ghostty` process launched will result in a new window if there is
 /// already a running process.
