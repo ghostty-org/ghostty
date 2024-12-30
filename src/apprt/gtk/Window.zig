@@ -216,6 +216,14 @@ pub fn init(self: *Window, app: *App) !void {
         }
     }
 
+    // If Adwaita is enabled and is older than 1.4.0 we don't have the tab overview and so we
+    // need to stick the headerbar into the content box.
+    if (!adwaita.versionAtLeast(1, 4, 0) and adwaita.enabled(&self.app.config)) {
+        if (self.header) |h| {
+            c.gtk_box_append(@ptrCast(box), h.asWidget());
+        }
+    }
+
     // In debug we show a warning and apply the 'devel' class to the window.
     // This is a really common issue where people build from source in debug and performance is really bad.
     if (comptime std.debug.runtime_safety) {
@@ -363,8 +371,17 @@ pub fn init(self: *Window, app: *App) !void {
         }
 
         // The box is our main child
-        c.gtk_window_set_child(gtk_window, box);
-        if (self.header) |h| c.gtk_window_set_titlebar(gtk_window, h.asWidget());
+        if (!adwaita.versionAtLeast(1, 4, 0) and adwaita.enabled(&self.app.config)) {
+            c.adw_application_window_set_content(
+                @ptrCast(gtk_window),
+                box,
+            );
+        } else {
+            c.gtk_window_set_child(gtk_window, box);
+            if (self.header) |h| {
+                c.gtk_window_set_titlebar(gtk_window, h.asWidget());
+            }
+        }
     }
 
     // Show the window
