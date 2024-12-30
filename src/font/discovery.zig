@@ -362,16 +362,9 @@ pub const CoreText = struct {
         const list = set.createMatchingFontDescriptors();
         defer list.release();
 
-        // Bring the list of descriptors in to zig land
-        var zig_list = try copyMatchingDescriptors(alloc, list);
-        errdefer alloc.free(zig_list);
-
-        // Filter them. We don't use `CTFontCollectionSetExclusionDescriptors`
-        // to do this because that requires a mutable collection. This way is
-        // much more straight forward.
-        zig_list = try alloc.realloc(zig_list, filterDescriptors(zig_list));
-
         // Sort our descriptors
+        const zig_list = try copyMatchingDescriptors(alloc, list);
+        errdefer alloc.free(zig_list);
         sortMatchingDescriptors(&desc, zig_list);
 
         return DiscoverIterator{
@@ -558,45 +551,11 @@ pub const CoreText = struct {
         for (0..result.len) |i| {
             result[i] = list.getValueAtIndex(macos.text.FontDescriptor, i);
 
-            // We need to retain because once the list
-            // is freed it will release all its members.
+            // We need to retain becauseonce the list is freed it will
+            // release all its members.
             result[i].retain();
         }
         return result;
-    }
-
-    /// Filter any descriptors out of the list that aren't acceptable for
-    /// some reason or another (e.g. the font isn't in a format we can handle).
-    ///
-    /// Invalid descriptors are filled in from the end of
-    /// the list and the new length for the list is returned.
-    fn filterDescriptors(list: []*macos.text.FontDescriptor) usize {
-        var end = list.len;
-        var i: usize = 0;
-        while (i < end) {
-            if (validDescriptor(list[i])) {
-                i += 1;
-            } else {
-                list[i].release();
-                end -= 1;
-                list[i] = list[end];
-            }
-        }
-        return end;
-    }
-
-    /// Used by `filterDescriptors` to decide whether a descriptor is valid.
-    fn validDescriptor(desc: *macos.text.FontDescriptor) bool {
-        if (desc.copyAttribute(macos.text.FontAttribute.format)) |format| {
-            defer format.release();
-            var value: c_int = undefined;
-            assert(format.getValue(.int, &value));
-
-            // Bitmap fonts are not currently supported.
-            if (value == macos.text.c.kCTFontFormatBitmap) return false;
-        }
-
-        return true;
     }
 
     fn sortMatchingDescriptors(
