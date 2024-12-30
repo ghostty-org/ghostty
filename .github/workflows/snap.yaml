@@ -1,8 +1,10 @@
 name: Snap
 
 on:
-  push: {}
-  pull_request: {}
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch: {}
 
 jobs:
@@ -11,4 +13,3 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: snapcore/action-build@v1
-      id: snapcraft
