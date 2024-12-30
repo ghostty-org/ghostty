@@ -18,7 +18,31 @@ pub fn open(
     typ: Type,
     url: []const u8,
 ) !void {
-    const cmd = try openCommand(alloc, typ, url);
+    const cmd: OpenCommand = switch (builtin.os.tag) {
+        .linux => .{ .child = std.process.Child.init(
+            &.{ "xdg-open", url },
+            alloc,
+        ) },
+
+        .windows => .{ .child = std.process.Child.init(
+            &.{ "rundll32", "url.dll,FileProtocolHandler", url },
+            alloc,
+        ) },
+
+        .macos => .{
+            .child = std.process.Child.init(
+                switch (typ) {
+                    .text => &.{ "open", "-t", url },
+                    .unknown => &.{ "open", url },
+                },
+                alloc,
+            ),
+            .wait = true,
+        },
+
+        .ios => return error.Unimplemented,
+        else => @compileError("unsupported OS"),
+    };
 
     var exe = cmd.child;
     if (cmd.wait) {
@@ -53,31 +77,3 @@ const OpenCommand = struct {
     child: std.process.Child,
     wait: bool = false,
 };
-
-fn openCommand(alloc: Allocator, typ: Type, url: []const u8) !OpenCommand {
-    return switch (builtin.os.tag) {
-        .linux => .{ .child = std.process.Child.init(
-            &.{ "xdg-open", url },
-            alloc,
-        ) },
-
-        .windows => .{ .child = std.process.Child.init(
-            &.{ "rundll32", "url.dll,FileProtocolHandler", url },
-            alloc,
-        ) },
-
-        .macos => .{
-            .child = std.process.Child.init(
-                switch (typ) {
-                    .text => &.{ "open", "-t", url },
-                    .unknown => &.{ "open", url },
-                },
-                alloc,
-            ),
-            .wait = true,
-        },
-
-        .ios => return error.Unimplemented,
-        else => @compileError("unsupported OS"),
-    };
-}
