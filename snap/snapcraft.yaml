@@ -75,9 +75,6 @@ parts:
     stage-packages:
       - libadwaita-1-0
       - libgtk-4-1
-      - bash
-      - zsh
-      - fish
     override-build: |
       $CRAFT_PART_SRC/../../zig/src/zig build -Doptimize=ReleaseFast
       cp -rp zig-out/* $CRAFT_PART_INSTALL/
