@@ -1,6 +1,5 @@
 name: ghostty
 base: core24
-version: git
 summary: A terminal emulator
 description: |
   Ghostty is a fast, feature-rich, and cross-platform terminal emulator that
@@ -12,6 +11,7 @@ issues: https://github.com/ghostty-org/ghostty/issues
 website: https://ghostty.org
 license: MIT
 icon: images/icons/icon_512.png
+adopt-info: ghostty
 
 platforms:
   amd64:
@@ -76,6 +76,7 @@ parts:
       - libadwaita-1-0
       - libgtk-4-1
     override-build: |
+      craftctl set version=$(grep version build.zig.zon |awk -F '"' '{print $2}')-$(git describe --abbrev=8)
       $CRAFT_PART_SRC/../../zig/src/zig build -Doptimize=ReleaseFast
       cp -rp zig-out/* $CRAFT_PART_INSTALL/
       sed -i 's|Icon=com.mitchellh.ghostty|Icon=/snap/ghostty/current/share/icons/hicolor/512x512/apps/com.mitchellh.ghostty.png|g' $CRAFT_PART_INSTALL/share/applications/com.mitchellh.ghostty.desktop
