@@ -1,0 +1,74 @@
+name: Build and Release Zig Project
+
+on:
+    push:
+        tags:
+            - 'v*'
+jobs:
+    build:
+        runs-on: ubuntu-latest
+
+        steps:
+            # Checkout the repository
+            - name: Checkout Code
+              uses: actions/checkout@v3
+
+            # Install dependencies
+            - name: Install Dependencies
+              run: |
+                  sudo apt update
+                  sudo apt install -y build-essential libbz2-dev libfreetype6-dev zlib1g-dev libpng-dev libgtk-4-dev libadwaita-1-dev git libglib2.0-dev pkg-config snapd
+                  sudo snap install --beta zig --classic
+
+            # Run the build script to create the .deb package
+            - name: Print GitHub Tag
+              run: |
+                  echo "GitHub Ref: $GITHUB_REF"
+                  echo "Tag: ${GITHUB_REF##*/}"
+
+            - name: Build .deb Package
+              env:
+                  ZIG_GLOBAL_CACHE_DIR: /tmp/offline-cache
+                  VERSION: ${{ github.event.inputs.version }}
+
+              run: |
+                  chmod +x ./create_deb.sh
+                  ./create_deb.sh
+
+            # Upload the generated .deb file as an artifact
+            - name: Upload .deb Package
+              uses: actions/upload-artifact@v3
+              with:
+                  name: ghostty-deb-package
+                  path: build/*.deb
+
+    release:
+        needs: build
+        runs-on: ubuntu-latest
+
+        steps:
+            # Checkout the repository
+            - name: Checkout Code
+              uses: actions/checkout@v3
+
+            # Create a Release
+            - name: Create Release
+              uses: actions/create-release@v1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  tag_name: ${{ github.ref_name }}
+                  release_name: Release ${{ github.ref_name }}
+                  draft: false
+                  prerelease: false
+
+            # Upload the .deb file to the Release
+            - name: Upload .deb to Release
+              uses: actions/upload-release-asset@v1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  upload_url: ${{ steps.create_release.outputs.upload_url }}
+                  asset_path: build/*.deb
+                  asset_name: ghostty_${{ github.ref_name }}.deb
+                  asset_content_type: application/vnd.debian.binary-package
