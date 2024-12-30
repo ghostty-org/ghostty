@@ -8,7 +8,7 @@ class QuickTerminalController: BaseTerminalController {
     override var windowNibName: NSNib.Name? { "QuickTerminal" }
 
     /// The position for the quick terminal.
-    let position: QuickTerminalPosition
+    private var position: QuickTerminalPosition
 
     /// The current state of the quick terminal
     private(set) var visible: Bool = false
@@ -72,7 +72,7 @@ class QuickTerminalController: BaseTerminalController {
         syncAppearance(ghostty.config)
 
         // Setup our initial size based on our configured position
-        position.setLoaded(window)
+        derivedConfig.quickTerminalSize.apply(window, position)
 
         // Setup our content
         window.contentView = NSHostingView(rootView: TerminalView(
@@ -306,6 +306,9 @@ class QuickTerminalController: BaseTerminalController {
 
     private func syncAppearance(_ config: Ghostty.Config) {
         guard let window else { return }
+        
+        // Update the quick terminal size right away
+        config.quickTerminalSize.apply(window, config.quickTerminalPosition)
 
         // If our window is not visible, then delay this. This is possible specifically
         // during state restoration but probably in other scenarios as well. To delay,
@@ -390,7 +393,8 @@ class QuickTerminalController: BaseTerminalController {
 
         // Update our derived config
         self.derivedConfig = DerivedConfig(config)
-
+        self.position = self.derivedConfig.quickTerminalPosition
+        
         syncAppearance(config)
     }
 
@@ -398,17 +402,23 @@ class QuickTerminalController: BaseTerminalController {
         let quickTerminalScreen: QuickTerminalScreen
         let quickTerminalAnimationDuration: Double
         let quickTerminalAutoHide: Bool
+        let quickTerminalPosition: QuickTerminalPosition
+        let quickTerminalSize: QuickTerminalSize
 
         init() {
             self.quickTerminalScreen = .main
             self.quickTerminalAnimationDuration = 0.2
             self.quickTerminalAutoHide = true
+            self.quickTerminalPosition = .top
+            self.quickTerminalSize = .init()
         }
 
         init(_ config: Ghostty.Config) {
             self.quickTerminalScreen = config.quickTerminalScreen
             self.quickTerminalAnimationDuration = config.quickTerminalAnimationDuration
             self.quickTerminalAutoHide = config.quickTerminalAutoHide
+            self.quickTerminalPosition = config.quickTerminalPosition
+            self.quickTerminalSize = config.quickTerminalSize
         }
     }
 }

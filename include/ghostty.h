@@ -348,6 +348,22 @@ typedef struct {
   size_t len;
 } ghostty_config_color_list_s;
 
+// config.QuickTerminalSize
+typedef enum {
+  GHOSTTY_QUICK_TERMINAL_PIXEL_UNIT,
+  GHOSTTY_QUICK_TERMINAL_PERCENTAGE_UNIT,
+} ghostty_config_quick_terminal_unit_e;
+
+typedef struct {
+  uint16_t value;
+  ghostty_config_quick_terminal_unit_e unit;
+} ghostty_config_quick_terminal_dimension_s;
+
+typedef struct {
+  ghostty_config_quick_terminal_dimension_s* dimensions;
+  size_t len;
+} ghostty_config_quick_terminal_size_s;
+
 // apprt.Target.Key
 typedef enum {
   GHOSTTY_TARGET_APP,
