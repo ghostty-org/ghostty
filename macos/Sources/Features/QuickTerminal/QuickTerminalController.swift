@@ -69,7 +69,7 @@ class QuickTerminalController: BaseTerminalController {
         window.isRestorable = false
 
         // Setup our configured appearance that we support.
-        syncAppearance(ghostty.config)
+        syncAppearance()
 
         // Setup our initial size based on our configured position
         position.setLoaded(window)
@@ -214,6 +214,10 @@ class QuickTerminalController: BaseTerminalController {
                 // If we canceled our animation in we do nothing
                 guard self.visible else { return }
 
+                // Now that the window is visible, sync our appearance. This function
+                // requires the window is visible.
+                self.syncAppearance()
+
                 // Once our animation is done, we must grab focus since we can't grab
                 // focus of a non-visible window.
                 self.makeWindowKey(window)
@@ -304,24 +308,18 @@ class QuickTerminalController: BaseTerminalController {
         })
     }
 
-    private func syncAppearance(_ config: Ghostty.Config) {
+    private func syncAppearance() {
         guard let window else { return }
 
-        // If our window is not visible, then delay this. This is possible specifically
-        // during state restoration but probably in other scenarios as well. To delay,
-        // we just loop directly on the dispatch queue. We have to delay because some
-        // APIs such as window blur have no effect unless the window is visible.
-        guard window.isVisible else {
-            // Weak window so that if the window changes or is destroyed we aren't holding a ref
-            DispatchQueue.main.async { [weak self] in self?.syncAppearance(config) }
-            return
-        }
+        // If our window is not visible, then no need to sync the appearance yet.
+        // Some APIs such as window blur have no effect unless the window is visible.
+        guard window.isVisible else { return }
 
         // Terminals typically operate in sRGB color space and macOS defaults
         // to "native" which is typically P3. There is a lot more resources
         // covered in this GitHub issue: https://github.com/mitchellh/ghostty/pull/376
         // Ghostty defaults to sRGB but this can be overridden.
-        switch (config.windowColorspace) {
+        switch (self.derivedConfig.windowColorspace) {
         case "display-p3":
             window.colorSpace = .displayP3
         case "srgb":
@@ -331,7 +329,7 @@ class QuickTerminalController: BaseTerminalController {
         }
 
         // If we have window transparency then set it transparent. Otherwise set it opaque.
-        if (config.backgroundOpacity < 1) {
+        if (self.derivedConfig.backgroundOpacity < 1) {
             window.isOpaque = false
 
             // This is weird, but we don't use ".clear" because this creates a look that
@@ -391,24 +389,30 @@ class QuickTerminalController: BaseTerminalController {
         // Update our derived config
         self.derivedConfig = DerivedConfig(config)
 
-        syncAppearance(config)
+        syncAppearance()
     }
 
     private struct DerivedConfig {
         let quickTerminalScreen: QuickTerminalScreen
         let quickTerminalAnimationDuration: Double
         let quickTerminalAutoHide: Bool
+        let windowColorspace: String
+        let backgroundOpacity: Double
 
         init() {
             self.quickTerminalScreen = .main
             self.quickTerminalAnimationDuration = 0.2
             self.quickTerminalAutoHide = true
+            self.windowColorspace = ""
+            self.backgroundOpacity = 1.0
         }
 
         init(_ config: Ghostty.Config) {
             self.quickTerminalScreen = config.quickTerminalScreen
             self.quickTerminalAnimationDuration = config.quickTerminalAnimationDuration
             self.quickTerminalAutoHide = config.quickTerminalAutoHide
+            self.windowColorspace = config.windowColorspace
+            self.backgroundOpacity = config.backgroundOpacity
         }
     }
 }
