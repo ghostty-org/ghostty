@@ -1029,7 +1029,11 @@ test "bitmap glyph" {
     defer atlas.deinit(alloc);
 
     // Any glyph at 12pt @ 96 DPI is a bitmap
-    var ft_font = try Face.init(lib, testFont, .{ .size = .{ .points = 12 } });
+    var ft_font = try Face.init(lib, testFont, .{ .size = .{
+        .points = 12,
+        .xdpi = 96,
+        .ydpi = 96,
+    } });
     defer ft_font.deinit();
 
     // glyph 77 = 'i'
