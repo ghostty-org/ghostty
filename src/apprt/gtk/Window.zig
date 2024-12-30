@@ -209,6 +209,11 @@ pub fn init(self: *Window, app: *App) !void {
     // If we are disabling decorations then disable them right away.
     if (!app.config.@"window-decoration") {
         c.gtk_window_set_decorated(gtk_window, 0);
+
+        // Fix any artifacting that may occur in window corners.
+        if (app.config.@"gtk-titlebar") {
+            c.gtk_widget_add_css_class(window, "without-window-decoration-and-with-titlebar");
+        }
     }
 
     // In debug we show a warning and apply the 'devel' class to the window.
