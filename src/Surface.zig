@@ -4293,11 +4293,16 @@ fn writeScreenFile(
             tmp_dir.deinit();
             return;
         };
+
+        // Use topLeft and bottomRight to ensure correct coordinate ordering
+        const tl = sel.topLeft(&self.io.terminal.screen);
+        const br = sel.bottomRight(&self.io.terminal.screen);
+
         try self.io.terminal.screen.dumpString(
             buf_writer.writer(),
             .{
-                .tl = sel.start(),
-                .br = sel.end(),
+                .tl = tl,
+                .br = br,
                 .unwrap = true,
             },
         );
