@@ -515,8 +515,17 @@ pub const Face = struct {
     fn calcMetrics(ct_font: *macos.text.Font) CalcMetricsError!font.face.Metrics {
         // Read the 'head' table out of the font data.
         const head: opentype.Head = head: {
-            const tag = macos.text.FontTableTag.init("head");
-            const data = ct_font.copyTable(tag) orelse return error.CopyTableError;
+            // macOS bitmap-only fonts use a 'bhed' tag rather than 'head', but
+            // the table format is byte-identical to the 'head' table, so if we
+            // can't find 'head' we try 'bhed' instead before failing.
+            //
+            // ref: https://fontforge.org/docs/techref/bitmaponlysfnt.html
+            const head_tag = macos.text.FontTableTag.init("head");
+            const bhed_tag = macos.text.FontTableTag.init("bhed");
+            const data =
+                ct_font.copyTable(head_tag) orelse
+                ct_font.copyTable(bhed_tag) orelse
+                return error.CopyTableError;
             defer data.release();
             const ptr = data.getPointer();
             const len = data.getLength();
