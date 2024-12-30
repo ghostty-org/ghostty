@@ -68,6 +68,34 @@ if [ -n "$GHOSTTY_BASH_INJECT" ]; then
   builtin unset ghostty_bash_inject rcfile
 fi
 
+# Sudo
+if [[ "$GHOSTTY_SHELL_INTEGRATION_NO_SUDO" != "1" && -n "$TERMINFO" ]]; then
+  # Wrap `sudo` command to ensure Ghostty terminfo is preserved.
+  #
+  # This approach supports wrapping a `sudo` alias, but the alias definition
+  # must come _after_ this function is defined. Otherwise, the alias expansion
+  # will take precedence over this function, and it won't be wrapped.
+  function sudo {
+    builtin local sudo_has_sudoedit_flags="no"
+    for arg in "$@"; do
+      # Check if argument is '-e' or '--edit' (sudoedit flags)
+      if [[ "$arg" == "-e" || $arg == "--edit" ]]; then
+        sudo_has_sudoedit_flags="yes"
+        builtin break
+      fi
+      # Check if argument is neither an option nor a key-value pair
+      if [[ "$arg" != -* && "$arg" != *=* ]]; then
+        builtin break
+      fi
+    done
+    if [[ "$sudo_has_sudoedit_flags" == "yes" ]]; then
+      builtin command sudo "$@";
+    else
+      builtin command sudo TERMINFO="$TERMINFO" "$@";
+    fi
+  }
+fi
+
 # Import bash-preexec, safe to do multiple times
 builtin source "$GHOSTTY_RESOURCES_DIR/shell-integration/bash/bash-preexec.sh"
 
@@ -107,31 +135,6 @@ function __ghostty_precmd() {
       if test "$GHOSTTY_SHELL_INTEGRATION_NO_CURSOR" != "1"; then
         PS1=$PS1'\[\e[5 q\]'
         PS0=$PS0'\[\e[0 q\]'
-      fi
-
-      # Sudo
-      if [[ "$GHOSTTY_SHELL_INTEGRATION_NO_SUDO" != "1" ]] && [[ -n "$TERMINFO" ]]; then
-        # Wrap `sudo` command to ensure Ghostty terminfo is preserved
-        # shellcheck disable=SC2317
-        sudo() {
-          builtin local sudo_has_sudoedit_flags="no"
-          for arg in "$@"; do
-            # Check if argument is '-e' or '--edit' (sudoedit flags)
-            if [[ "$arg" == "-e" || $arg == "--edit" ]]; then
-              sudo_has_sudoedit_flags="yes"
-              builtin break
-            fi
-            # Check if argument is neither an option nor a key-value pair
-            if [[ "$arg" != -* && "$arg" != *=* ]]; then
-              builtin break
-            fi
-          done
-          if [[ "$sudo_has_sudoedit_flags" == "yes" ]]; then
-            builtin command sudo "$@";
-          else
-            builtin command sudo TERMINFO="$TERMINFO" "$@";
-          fi
-        }
       fi
 
       if [[ "$GHOSTTY_SHELL_INTEGRATION_NO_TITLE" != 1 ]]; then
