@@ -1,10 +1,6 @@
 # This is originally based on the recommended bash integration from
 # the semantic prompts proposal as well as some logic from Kitty's
 # bash integration.
-#
-# I'm not a bash expert so this probably has some major issues but for
-# my simple bash usage this is working. If a bash expert wants to
-# improve this please do!
 
 # We need to be in interactive mode and we need to have the Ghostty
 # resources dir set which also tells us we're running in Ghostty.
