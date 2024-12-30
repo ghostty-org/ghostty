@@ -3870,22 +3870,35 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         },
 
         .copy_to_clipboard => {
-            // We can read from the renderer state without holding
-            // the lock because only we will write to this field.
-            if (self.io.terminal.screen.selection) |sel| {
-                const buf = self.io.terminal.screen.selectionString(self.alloc, .{
-                    .sel = sel,
-                    .trim = self.config.clipboard_trim_trailing_spaces,
-                }) catch |err| {
-                    log.err("error reading selection string err={}", .{err});
-                    return true;
-                };
+            if (copyToClipboard(self)) {
+                return true;
+            }
+        },
+
+        .copy_or_interrupt => {
+            if (copyToClipboard(self)) {
+                return true;
+            } else {
+                const buf = try self.alloc.alloc(u8, 1);
                 defer self.alloc.free(buf);
 
-                self.rt_surface.setClipboardString(buf, .standard, false) catch |err| {
-                    log.err("error setting clipboard string err={}", .{err});
-                    return true;
-                };
+                buf[0] = 3;
+
+                self.io.queueMessage(try termio.Message.writeReq(
+                    self.alloc,
+                    buf,
+                ), .unlocked);
+
+                // Text triggers a scroll.
+                {
+                    self.renderer_state.mutex.lock();
+                    defer self.renderer_state.mutex.unlock();
+                    self.scrollToBottom() catch |err| {
+                        log.warn("error scrolling to bottom err={}", .{err});
+                    };
+                }
+
+                return true;
             }
         },
 
@@ -4204,6 +4217,30 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
     }
 
     return true;
+}
+
+fn copyToClipboard(self: *Surface) bool {
+    // We can read from the renderer state without holding
+    // the lock because only we will write to this field.
+    if (self.io.terminal.screen.selection) |sel| {
+        const buf = self.io.terminal.screen.selectionString(self.alloc, .{
+            .sel = sel,
+            .trim = self.config.clipboard_trim_trailing_spaces,
+        }) catch |err| {
+            log.err("error reading selection string err={}", .{err});
+            return false;
+        };
+        defer self.alloc.free(buf);
+
+        self.rt_surface.setClipboardString(buf, .standard, false) catch |err| {
+            log.err("error setting clipboard string err={}", .{err});
+            return false;
+        };
+
+        return true;
+    }
+
+    return false;
 }
 
 /// Returns true if performing the given action result in closing

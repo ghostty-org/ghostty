@@ -229,6 +229,7 @@ pub const Action = union(enum) {
 
     /// Copy and paste.
     copy_to_clipboard: void,
+    copy_or_interrupt: void,
     paste_from_clipboard: void,
     paste_from_selection: void,
 
@@ -638,6 +639,7 @@ pub const Action = union(enum) {
             .cursor_key,
             .reset,
             .copy_to_clipboard,
+            .copy_or_interrupt,
             .paste_from_clipboard,
             .paste_from_selection,
             .increase_font_size,
@@ -889,6 +891,7 @@ pub const Action = union(enum) {
 // with include/ghostty.h.
 pub const Key = enum(c_int) {
     copy_to_clipboard,
+    copy_or_interrupt,
     paste_from_clipboard,
     new_tab,
     new_window,
