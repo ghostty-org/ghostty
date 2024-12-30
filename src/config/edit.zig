@@ -11,16 +11,23 @@ pub fn open(alloc_gpa: Allocator) !void {
         const xdg_config_path = try internal_os.xdg.config(alloc_gpa, .{ .subdir = "ghostty/config" });
 
         if (comptime builtin.os.tag == .macos) macos: {
-            // On macOS, use the application support path if the XDG path doesn't exists.
-            if (std.fs.accessAbsolute(xdg_config_path, .{})) {
-                break :macos;
+            // On macOS, use the XDG path if the app support path doesn't exist.
+            const app_support_path = try internal_os.macos.appSupportDir(alloc_gpa, "config");
+            if (std.fs.accessAbsolute(app_support_path, .{})) {
+                alloc_gpa.free(xdg_config_path);
+                break :config_path app_support_path;
             } else |err| switch (err) {
                 error.BadPathName, error.FileNotFound => {},
                 else => break :macos,
             }
 
-            alloc_gpa.free(xdg_config_path);
-            break :config_path try internal_os.macos.appSupportDir(alloc_gpa, "config");
+            if (std.fs.accessAbsolute(xdg_config_path, .{})) {
+                alloc_gpa.free(app_support_path);
+                break :macos;
+            } else |err| switch (err) {
+                error.BadPathName, error.FileNotFound => {},
+                else => break :macos,
+            }
         }
 
         break :config_path xdg_config_path;
