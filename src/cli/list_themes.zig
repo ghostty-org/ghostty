@@ -33,9 +33,62 @@ const ThemeListElement = struct {
     location: themepkg.Location,
     path: []const u8,
     theme: []const u8,
-    rank: ?f64 = null,
+    config: Config,
+    config_error: ?anyerror,
+    rank: ?f64,
+
+    pub fn init(
+        alloc: std.mem.Allocator,
+        location: themepkg.Location,
+        path: []const u8,
+        theme: []const u8,
+    ) !ThemeListElement {
+        var self: ThemeListElement = undefined;
+
+        self.location = location;
+        self.rank = null;
+
+        self.path = try alloc.dupe(u8, path);
+        errdefer alloc.free(self.path);
+        self.theme = try alloc.dupe(u8, theme);
+        errdefer alloc.free(self.theme);
+
+        self.config = try Config.default(alloc);
+        self.config_error = null;
+
+        // Store the error since we want to display it when the user selects it
+        // in the theme list.
+        self.config.loadFile(self.config._arena.?.allocator(), path) catch |err| {
+            self.config_error = err;
+        };
+
+        return self;
+    }
+
+    /// Compute the CIE 1931 linear luminance of the background color.
+    /// The result is in the range [0, 1).
+    fn luma(self: *const ThemeListElement) f32 {
+        return 0.2126 * @as(f32, @floatFromInt(self.config.background.r)) / 255.0 +
+            0.7152 * @as(f32, @floatFromInt(self.config.background.g)) / 255.0 +
+            0.0722 * @as(f32, @floatFromInt(self.config.background.b)) / 255.0;
+    }
 
     fn lessThan(_: void, lhs: @This(), rhs: @This()) bool {
+        if (lhs.config_error == null and rhs.config_error == null) {
+            const lhs_luma = lhs.luma();
+            const rhs_luma = rhs.luma();
+
+            // Bucket the themes into 16 levels so that it's not a perfect
+            // sorting of dark-to-light. This should preserve alphabetic order
+            // within each bucket.
+            const lhs_bucket: u8 = @intFromFloat(@divFloor(lhs_luma * 16, 1));
+            const rhs_bucket: u8 = @intFromFloat(@divFloor(rhs_luma * 16, 1));
+
+            if (lhs_bucket != rhs_bucket) {
+                return lhs_bucket < rhs_bucket;
+            }
+        }
+
         // TODO: use Unicode-aware comparison
         return std.ascii.orderIgnoreCase(lhs.theme, rhs.theme) == .lt;
     }
@@ -130,11 +183,12 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
                     if (std.mem.eql(u8, entry.name, ".DS_Store"))
                         continue;
                     count += 1;
-                    try themes.append(.{
-                        .location = loc.location,
-                        .path = try std.fs.path.join(alloc, &.{ loc.dir, entry.name }),
-                        .theme = try alloc.dupe(u8, entry.name),
-                    });
+                    try themes.append(try ThemeListElement.init(
+                        alloc,
+                        loc.location,
+                        try std.fs.path.join(alloc, &.{ loc.dir, entry.name }),
+                        entry.name,
+                    ));
                 },
                 else => {},
             }
@@ -722,10 +776,7 @@ const Preview = struct {
         if (self.filtered.items.len > 0) {
             const theme = self.themes[self.filtered.items[self.current]];
 
-            var config = try Config.default(alloc);
-            defer config.deinit();
-
-            config.loadFile(config._arena.?.allocator(), theme.path) catch |err| {
+            if (theme.config_error) |err| {
                 const theme_path_len: u16 = @intCast(theme.path.len);
 
                 const child = win.child(
@@ -782,7 +833,8 @@ const Preview = struct {
                     );
                 }
                 return;
-            };
+            }
+            const config = &theme.config;
 
             var next_start: u16 = 0;
 
@@ -1510,7 +1562,7 @@ const Preview = struct {
     }
 };
 
-fn color(config: Config, palette: usize) vaxis.Color {
+fn color(config: *const Config, palette: usize) vaxis.Color {
     return .{
         .rgb = [_]u8{
             config.palette.value[palette].r,
