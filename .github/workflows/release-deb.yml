@@ -32,8 +32,8 @@ jobs:
                   VERSION: ${{ github.event.inputs.version }}
 
               run: |
-                  chmod +x ./create_deb.sh
-                  ./create_deb.sh
+                  chmod +x ./deb/build.sh
+                  ./deb/build.sh
 
             # Upload the generated .deb file as an artifact
             - name: Upload .deb Package
