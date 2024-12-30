@@ -156,6 +156,9 @@ pub fn init(self: *Window, app: *App) !void {
     if (app.config.@"gtk-titlebar") {
         const header = HeaderBar.init(self);
 
+        // If we are not decorated then we hide the titlebar.
+        header.setVisible(app.config.@"window-decoration");
+
         {
             const btn = c.gtk_menu_button_new();
             c.gtk_widget_set_tooltip_text(btn, "Main Menu");
@@ -298,11 +301,6 @@ pub fn init(self: *Window, app: *App) !void {
         if (self.header) |header| {
             const header_widget = header.asWidget();
             c.adw_toolbar_view_add_top_bar(toolbar_view, header_widget);
-
-            // If we are not decorated then we hide the titlebar.
-            if (!app.config.@"window-decoration") {
-                c.gtk_widget_set_visible(header_widget, 0);
-            }
         }
 
         if (self.app.config.@"gtk-tabs-location" != .hidden) {

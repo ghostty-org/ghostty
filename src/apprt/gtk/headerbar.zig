@@ -30,6 +30,10 @@ pub const HeaderBar = union(enum) {
         return .{ .gtk = @ptrCast(headerbar) };
     }
 
+    pub fn setVisible(self: HeaderBar, visible: bool) void {
+        c.gtk_widget_set_visible(self.asWidget(), if (visible) 1 else 0);
+    }
+
     pub fn asWidget(self: HeaderBar) *c.GtkWidget {
         return switch (self) {
             .adw => |headerbar| @ptrCast(@alignCast(headerbar)),
