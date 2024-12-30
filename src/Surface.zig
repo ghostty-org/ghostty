@@ -853,11 +853,8 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
         },
 
         .color_change => |change| {
-            // On any color change, we have to report for mode 2031
-            // if it is enabled.
-            self.reportColorScheme(false);
-
-            // Notify our apprt
+            // Notify our apprt, but don't send a mode 2031 DSR report
+            // because VT sequences were used to change the color.
             try self.rt_app.performAction(
                 .{ .surface = self },
                 .color_change,
