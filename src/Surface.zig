@@ -3878,27 +3878,27 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         .copy_or_interrupt => {
             if (copyToClipboard(self)) {
                 return true;
-            } else {
-                const buf = try self.alloc.alloc(u8, 1);
-                defer self.alloc.free(buf);
+            }
 
-                buf[0] = 3;
+            const SigInterrupt = 0x3;
 
-                self.io.queueMessage(try termio.Message.writeReq(
-                    self.alloc,
-                    buf,
-                ), .unlocked);
+            var data: termio.Message.WriteReq.Small.Array = undefined;
+            data[0] = SigInterrupt;
 
-                // Text triggers a scroll.
-                {
-                    self.renderer_state.mutex.lock();
-                    defer self.renderer_state.mutex.unlock();
-                    self.scrollToBottom() catch |err| {
-                        log.warn("error scrolling to bottom err={}", .{err});
-                    };
-                }
+            self.io.queueMessage(.{
+                .write_small = .{
+                    .data = data,
+                    .len = 1,
+                },
+            }, .unlocked);
 
-                return true;
+            // Text triggers a scroll.
+            {
+                self.renderer_state.mutex.lock();
+                defer self.renderer_state.mutex.unlock();
+                self.scrollToBottom() catch |err| {
+                    log.warn("error scrolling to bottom err={}", .{err});
+                };
             }
         },
 
