@@ -972,9 +972,6 @@ fn loadRuntimeCss(
     const headerbar_foreground = config.@"window-titlebar-foreground" orelse config.foreground;
 
     try writer.print(
-        \\window.without-window-decoration-and-with-titlebar {{
-        \\  border-radius: 0 0;
-        \\}}
         \\widget.unfocused-split {{
         \\ opacity: {d:.2};
         \\ background-color: rgb({d},{d},{d});

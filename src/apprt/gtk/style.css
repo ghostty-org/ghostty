@@ -33,6 +33,10 @@ label.size-overlay.hidden {
   opacity: 0;
 }
 
+window.without-window-decoration-and-with-titlebar {
+  border-radius: 0 0;
+}
+
 .transparent {
   background-color: transparent;
 }
