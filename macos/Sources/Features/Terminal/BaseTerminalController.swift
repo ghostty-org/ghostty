@@ -309,11 +309,11 @@ class BaseTerminalController: NSWindowController,
             // We consider our mode changed if the types change (obvious) but
             // also if its nil (not obvious) because nil means that the style has
             // likely changed but we don't support it.
-            if newStyle == nil || type(of: newStyle) != type(of: oldStyle) {
+            if newStyle == nil || type(of: newStyle!) != type(of: oldStyle) {
                 // Our mode changed. Exit fullscreen (since we're toggling anyways)
-                // and then unset the style so that we replace it next time.
+                // and then set the new style for future use
                 oldStyle.exit()
-                self.fullscreenStyle = nil
+                self.fullscreenStyle = newStyle
 
                 // We're done
                 return
