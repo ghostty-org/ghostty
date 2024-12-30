@@ -2,25 +2,26 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 
+/// The type of the data at the URL to open. This is used as a hint
+/// to potentially open the URL in a different way.
+pub const Type = enum {
+    text,
+    unknown,
+};
+
 /// Open a URL in the default handling application.
 ///
 /// Any output on stderr is logged as a warning in the application logs.
 /// Output on stdout is ignored.
-pub fn open(alloc: Allocator, url: []const u8) !void {
-    // Some opener commands terminate after opening (macOS open) and some do not
-    // (xdg-open). For those which do not terminate, we do not want to wait for
-    // the process to exit to collect stderr.
-    const argv, const wait = switch (builtin.os.tag) {
-        .linux => .{ &.{ "xdg-open", url }, false },
-        .macos => .{ &.{ "open", url }, true },
-        .windows => .{ &.{ "rundll32", "url.dll,FileProtocolHandler", url }, false },
-        .ios => return error.Unimplemented,
-        else => @compileError("unsupported OS"),
-    };
+pub fn open(
+    alloc: Allocator,
+    typ: Type,
+    url: []const u8,
+) !void {
+    const cmd = try openCommand(alloc, typ, url);
 
-    var exe = std.process.Child.init(argv, alloc);
-
-    if (comptime wait) {
+    var exe = cmd.child;
+    if (cmd.wait) {
         // Pipe stdout/stderr so we can collect output from the command
         exe.stdout_behavior = .Pipe;
         exe.stderr_behavior = .Pipe;
@@ -28,7 +29,7 @@ pub fn open(alloc: Allocator, url: []const u8) !void {
 
     try exe.spawn();
 
-    if (comptime wait) {
+    if (cmd.wait) {
         // 50 KiB is the default value used by std.process.Child.run
         const output_max_size = 50 * 1024;
 
@@ -46,4 +47,37 @@ pub fn open(alloc: Allocator, url: []const u8) !void {
         // users to debug why some open commands may not work as expected.
         if (stderr.items.len > 0) std.log.err("open stderr={s}", .{stderr.items});
     }
+}
+
+const OpenCommand = struct {
+    child: std.process.Child,
+    wait: bool = false,
+};
+
+fn openCommand(alloc: Allocator, typ: Type, url: []const u8) !OpenCommand {
+    return switch (builtin.os.tag) {
+        .linux => .{ .child = std.process.Child.init(
+            &.{ "xdg-open", url },
+            alloc,
+        ) },
+
+        .windows => .{ .child = std.process.Child.init(
+            &.{ "rundll32", "url.dll,FileProtocolHandler", url },
+            alloc,
+        ) },
+
+        .macos => .{
+            .child = std.process.Child.init(
+                switch (typ) {
+                    .text => &.{ "open", "-t", url },
+                    .unknown => &.{ "open", url },
+                },
+                alloc,
+            ),
+            .wait = true,
+        },
+
+        .ios => return error.Unimplemented,
+        else => @compileError("unsupported OS"),
+    };
 }

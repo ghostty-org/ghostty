@@ -24,7 +24,7 @@ pub const AppSupportDirError = Allocator.Error || error{AppleAPIFailed};
 pub fn appSupportDir(
     alloc: Allocator,
     sub_path: []const u8,
-) AppSupportDirError![]u8 {
+) AppSupportDirError![]const u8 {
     comptime assert(builtin.target.isDarwin());
 
     const NSFileManager = objc.getClass("NSFileManager").?;

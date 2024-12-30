@@ -1,31 +1,29 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
 const internal_os = @import("../os/main.zig");
 
 /// Open the configuration in the OS default editor according to the default
 /// paths the main config file could be in.
+///
+/// On Linux, this will open the file at the XDG config path. This is the
+/// only valid path for Linux so we don't need to check for other paths.
+///
+/// On macOS, both XDG and AppSupport paths are valid. Because Ghostty
+/// prioritizes AppSupport over XDG, we will open AppSupport if it exists,
+/// followed by XDG if it exists, and finally AppSupport if neither exist.
+/// For the existence check, we also prefer non-empty files over empty
+/// files.
 pub fn open(alloc_gpa: Allocator) !void {
-    // default location
-    const config_path = config_path: {
-        const xdg_config_path = try internal_os.xdg.config(alloc_gpa, .{ .subdir = "ghostty/config" });
+    // Use an arena to make memory management easier in here.
+    var arena = ArenaAllocator.init(alloc_gpa);
+    defer arena.deinit();
+    const alloc = arena.allocator();
 
-        if (comptime builtin.os.tag == .macos) macos: {
-            // On macOS, use the application support path if the XDG path doesn't exists.
-            if (std.fs.accessAbsolute(xdg_config_path, .{})) {
-                break :macos;
-            } else |err| switch (err) {
-                error.BadPathName, error.FileNotFound => {},
-                else => break :macos,
-            }
-
-            alloc_gpa.free(xdg_config_path);
-            break :config_path try internal_os.macos.appSupportDir(alloc_gpa, "config");
-        }
-
-        break :config_path xdg_config_path;
-    };
-    defer alloc_gpa.free(config_path);
+    // Get the path we should open
+    const config_path = try configPath(alloc);
 
     // Create config directory recursively.
     if (std.fs.path.dirname(config_path)) |config_dir| {
@@ -43,5 +41,73 @@ pub fn open(alloc_gpa: Allocator) !void {
         }
     };
 
-    try internal_os.open(alloc_gpa, config_path);
+    try internal_os.open(alloc, .text, config_path);
+}
+
+/// Returns the config path to use for open for the current OS.
+///
+/// The allocator must be an arena allocator. No memory is freed by this
+/// function and the resulting path is not all the memory that is allocated.
+///
+/// NOTE: WHY IS THIS INLINE? This is inline because when this is not
+/// inline then Zig 0.13 crashes [most of the time] when trying to compile
+/// this file. This is a workaround for that issue. This function is only
+/// called from one place that is not performance critical so it is fine
+/// to be inline.
+inline fn configPath(alloc_arena: Allocator) ![]const u8 {
+    const paths: []const []const u8 = try configPathCandidates(alloc_arena);
+    assert(paths.len > 0);
+
+    // Find the first path that exists and is non-empty. If no paths are
+    // non-empty but at least one exists, we will return the first path that
+    // exists.
+    var exists: ?[]const u8 = null;
+    for (paths) |path| {
+        const f = std.fs.openFileAbsolute(path, .{}) catch |err| {
+            switch (err) {
+                // File doesn't exist, continue.
+                error.BadPathName, error.FileNotFound => continue,
+
+                // Some other error, assume it exists and return it.
+                else => return err,
+            }
+        };
+        defer f.close();
+
+        // We expect stat to succeed because we just opened the file.
+        const stat = try f.stat();
+
+        // If the file is non-empty, return it.
+        if (stat.size > 0) return path;
+
+        // If the file is empty, remember it exists.
+        if (exists == null) exists = path;
+    }
+
+    // No paths are non-empty, return the first path that exists.
+    if (exists) |v| return v;
+
+    // No paths are non-empty or exist, return the first path.
+    return paths[0];
+}
+
+/// Returns a const list of possible paths the main config file could be
+/// in for the current OS.
+fn configPathCandidates(alloc_arena: Allocator) ![]const []const u8 {
+    var paths = try std.ArrayList([]const u8).initCapacity(alloc_arena, 2);
+    errdefer paths.deinit();
+
+    if (comptime builtin.os.tag == .macos) {
+        paths.appendAssumeCapacity(try internal_os.macos.appSupportDir(
+            alloc_arena,
+            "config",
+        ));
+    }
+
+    paths.appendAssumeCapacity(try internal_os.xdg.config(
+        alloc_arena,
+        .{ .subdir = "ghostty/config" },
+    ));
+
+    return paths.items;
 }

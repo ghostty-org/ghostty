@@ -41,5 +41,6 @@ pub const home = homedir.home;
 pub const ensureLocale = locale.ensureLocale;
 pub const clickInterval = mouse.clickInterval;
 pub const open = openpkg.open;
+pub const OpenType = openpkg.Type;
 pub const pipe = pipepkg.pipe;
 pub const resourcesDir = resourcesdir.resourcesDir;
