@@ -20,6 +20,7 @@ const global_state = &@import("../global.zig").state;
 const fontpkg = @import("../font/main.zig");
 const inputpkg = @import("../input.zig");
 const terminal = @import("../terminal/main.zig");
+const BackgroundImageProgram = @import("../renderer/opengl/BackgroundImageProgram.zig");
 const internal_os = @import("../os/main.zig");
 const cli = @import("../cli.zig");
 
@@ -458,6 +459,24 @@ background: Color = .{ .r = 0x28, .g = 0x2C, .b = 0x34 },
 /// Foreground color for the window.
 /// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
 foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
+
+/// Background image for the window.
+@"background-image": RepeatablePath = .{},
+
+/// Background image opactity
+@"background-image-opacity": f32 = 0.0,
+
+/// Background image mode to use.
+///
+/// `aspect` keeps the aspect-ratio of the background image and `scaled` scales
+/// the image to fit the window. `aspect` is the default mode.
+///
+/// Valid values are:
+///
+///   * `aspect`
+///   * `scaled`
+///
+@"background-image-mode": BackgroundImageProgram.BackgroundMode = .aspect,
 
 /// The foreground and background color for selection. If this is not set, then
 /// the selection color is just the inverted window background and foreground
