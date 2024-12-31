@@ -514,13 +514,19 @@ pub fn toggleWindowDecorations(self: *Window) void {
     const new_decorated = !old_decorated;
     c.gtk_window_set_decorated(self.window, @intFromBool(new_decorated));
 
+    // Fix any artifacting that may occur in window corners.
+    if (new_decorated) {
+        c.gtk_widget_add_css_class(@ptrCast(self.window), "without-window-decoration-and-with-titlebar");
+    } else {
+        c.gtk_widget_remove_css_class(@ptrCast(self.window), "without-window-decoration-and-with-titlebar");
+    }
+
     // If we have a titlebar, then we also show/hide it depending on the
     // decorated state. GTK tends to consider the titlebar part of the frame
     // and hides it with decorations, but libadwaita doesn't. This makes it
     // explicit.
-    if (self.header) |v| {
-        const widget = v.asWidget();
-        c.gtk_widget_set_visible(widget, @intFromBool(new_decorated));
+    if (self.header) |headerbar| {
+        headerbar.setVisible(new_decorated);
     }
 }
 

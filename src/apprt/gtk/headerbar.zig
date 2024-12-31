@@ -31,7 +31,7 @@ pub const HeaderBar = union(enum) {
     }
 
     pub fn setVisible(self: HeaderBar, visible: bool) void {
-        c.gtk_widget_set_visible(self.asWidget(), if (visible) 1 else 0);
+        c.gtk_widget_set_visible(self.asWidget(), @intFromBool(visible));
     }
 
     pub fn asWidget(self: HeaderBar) *c.GtkWidget {
