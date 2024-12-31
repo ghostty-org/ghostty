@@ -1400,7 +1400,15 @@ pub fn getColorScheme(self: *App) apprt.ColorScheme {
         null,
         &err,
     ) orelse {
-        if (err) |e| log.err("unable to get current color scheme: {s}", .{e.message});
+        if (err) |e| {
+            // If ReadOne is not yet implemented, fall back to deprecated "Read" method
+            // Error code: GDBus.Error:org.freedesktop.DBus.Error.UnknownMethod: No such method “ReadOne”
+            if (e.code == 19) {
+                return self.getColorSchemeDeprecated();
+            }
+            // Otherwise, log the error and return .light
+            log.err("unable to get current color scheme: {s}", .{e.message});
+        }
         return .light;
     };
     defer c.g_variant_unref(value);
@@ -1414,6 +1422,49 @@ pub fn getColorScheme(self: *App) apprt.ColorScheme {
         }
     }
 
+    return .light;
+}
+
+/// Call the deprecated D-Bus "Read" method to determine the current color scheme. If
+/// there is any error at any point we'll log the error and return "light"
+fn getColorSchemeDeprecated(self: *App) apprt.ColorScheme {
+    const dbus_connection = c.g_application_get_dbus_connection(@ptrCast(self.app));
+    var err: ?*c.GError = null;
+    defer if (err) |e| c.g_error_free(e);
+
+    const value = c.g_dbus_connection_call_sync(
+        dbus_connection,
+        "org.freedesktop.portal.Desktop",
+        "/org/freedesktop/portal/desktop",
+        "org.freedesktop.portal.Settings",
+        "Read",
+        c.g_variant_new("(ss)", "org.freedesktop.appearance", "color-scheme"),
+        c.G_VARIANT_TYPE("(v)"),
+        c.G_DBUS_CALL_FLAGS_NONE,
+        -1,
+        null,
+        &err,
+    ) orelse {
+        if (err) |e| log.err("Read method failed: {s}", .{e.message});
+        return .light;
+    };
+    defer c.g_variant_unref(value);
+
+    if (c.g_variant_is_of_type(value, c.G_VARIANT_TYPE("(v)")) == 1) {
+        var inner: ?*c.GVariant = null;
+        c.g_variant_get(value, "(v)", &inner);
+        defer if (inner) |i| c.g_variant_unref(i);
+
+        if (inner) |i| {
+            const child = c.g_variant_get_child_value(i, 0) orelse {
+                return .light;
+            };
+            defer c.g_variant_unref(child);
+
+            const val = c.g_variant_get_uint32(child);
+            return if (val == 1) .dark else .light;
+        }
+    }
     return .light;
 }
 

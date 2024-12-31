@@ -3413,6 +3413,16 @@ pub const Pin = struct {
         direction: Direction,
         limit: ?Pin,
     ) PageIterator {
+        if (build_config.slow_runtime_safety) {
+            if (limit) |l| {
+                // Check the order according to the iteration direction.
+                switch (direction) {
+                    .right_down => assert(self.eql(l) or self.before(l)),
+                    .left_up => assert(self.eql(l) or l.before(self)),
+                }
+            }
+        }
+
         return .{
             .row = self,
             .limit = if (limit) |p| .{ .row = p } else .{ .none = {} },

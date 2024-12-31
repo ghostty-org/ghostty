@@ -288,7 +288,6 @@ pub const Face = struct {
         self.face.loadGlyph(glyph_id, .{
             .render = true,
             .color = self.face.hasColor(),
-            .no_bitmap = !self.face.hasColor(),
         }) catch return false;
 
         // If the glyph is SVG we assume colorized
@@ -322,14 +321,6 @@ pub const Face = struct {
             // If we have synthetic bold, we have to set some additional
             // glyph properties before render so we don't render here.
             .render = !self.synthetic.bold,
-
-            // Disable bitmap strikes for now since it causes issues with
-            // our cell metrics and rasterization. In the future, this is
-            // all fixable so we can enable it.
-            //
-            // This must be enabled for color faces though because those are
-            // often colored bitmaps, which we support.
-            .no_bitmap = !self.face.hasColor(),
 
             // use options from config
             .no_hinting = !self.load_flags.hinting,
@@ -385,7 +376,7 @@ pub const Face = struct {
                 return error.UnsupportedPixelMode;
             };
 
-            log.warn("converting from pixel_mode={} to atlas_format={}", .{
+            log.debug("converting from pixel_mode={} to atlas_format={}", .{
                 bitmap_ft.pixel_mode,
                 atlas.format,
             });
@@ -1004,4 +995,60 @@ test "svg font table" {
     defer alloc.free(table);
 
     try testing.expectEqual(430, table.len);
+}
+
+const terminus_i =
+    \\........
+    \\........
+    \\...#....
+    \\...#....
+    \\........
+    \\..##....
+    \\...#....
+    \\...#....
+    \\...#....
+    \\...#....
+    \\...#....
+    \\..###...
+    \\........
+    \\........
+    \\........
+    \\........
+;
+// Including the newline
+const terminus_i_pitch = 9;
+
+test "bitmap glyph" {
+    const alloc = testing.allocator;
+    const testFont = font.embedded.terminus_ttf;
+
+    var lib = try Library.init();
+    defer lib.deinit();
+
+    var atlas = try font.Atlas.init(alloc, 512, .grayscale);
+    defer atlas.deinit(alloc);
+
+    // Any glyph at 12pt @ 96 DPI is a bitmap
+    var ft_font = try Face.init(lib, testFont, .{ .size = .{
+        .points = 12,
+        .xdpi = 96,
+        .ydpi = 96,
+    } });
+    defer ft_font.deinit();
+
+    // glyph 77 = 'i'
+    const glyph = try ft_font.renderGlyph(alloc, &atlas, 77, .{});
+
+    // should render crisp
+    try testing.expectEqual(8, glyph.width);
+    try testing.expectEqual(16, glyph.height);
+    for (0..glyph.height) |y| {
+        for (0..glyph.width) |x| {
+            const pixel = terminus_i[y * terminus_i_pitch + x];
+            try testing.expectEqual(
+                @as(u8, if (pixel == '#') 255 else 0),
+                atlas.data[(glyph.atlas_y + y) * atlas.size + (glyph.atlas_x + x)],
+            );
+        }
+    }
 }

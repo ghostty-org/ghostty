@@ -117,9 +117,6 @@ class TerminalController: BaseTerminalController {
             // Update our derived config
             self.derivedConfig = DerivedConfig(config)
 
-            guard let window = window as? TerminalWindow else { return }
-            window.focusFollowsMouse = config.focusFollowsMouse
-
             // If we have no surfaces in our window (is that possible?) then we update
             // our window appearance based on the root config. If we have surfaces, we
             // don't call this because the TODO
@@ -247,7 +244,7 @@ class TerminalController: BaseTerminalController {
         let backgroundColor: OSColor
         if let surfaceTree {
             if let focusedSurface, surfaceTree.doesBorderTop(view: focusedSurface) {
-                backgroundColor = OSColor(focusedSurface.backgroundColor ?? surfaceConfig.backgroundColor)
+                backgroundColor = OSColor(focusedSurface.backgroundColor ?? surfaceConfig.backgroundColor).withAlphaComponent(0.0)
             } else {
                 // We don't have a focused surface or our surface doesn't border the
                 // top. We choose to match the color of the top-left most surface.
@@ -421,8 +418,6 @@ class TerminalController: BaseTerminalController {
                 window.tabGroup?.removeWindow(window)
             }
         }
-
-        window.focusFollowsMouse = config.focusFollowsMouse
 
         // Apply any additional appearance-related properties to the new window. We
         // apply this based on the root config but change it later based on surface

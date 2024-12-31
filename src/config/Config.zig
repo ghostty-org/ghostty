@@ -2668,18 +2668,40 @@ pub fn loadFile(self: *Config, alloc: Allocator, path: []const u8) !void {
     try self.expandPaths(std.fs.path.dirname(path).?);
 }
 
+pub const OptionalFileAction = enum { loaded, not_found, @"error" };
+
 /// Load optional configuration file from `path`. All errors are ignored.
-pub fn loadOptionalFile(self: *Config, alloc: Allocator, path: []const u8) void {
-    self.loadFile(alloc, path) catch |err| switch (err) {
-        error.FileNotFound => std.log.info(
-            "optional config file not found, not loading path={s}",
-            .{path},
-        ),
-        else => std.log.warn(
-            "error reading optional config file, not loading err={} path={s}",
-            .{ err, path },
-        ),
-    };
+///
+/// Returns the action that was taken.
+pub fn loadOptionalFile(
+    self: *Config,
+    alloc: Allocator,
+    path: []const u8,
+) OptionalFileAction {
+    if (self.loadFile(alloc, path)) {
+        return .loaded;
+    } else |err| switch (err) {
+        error.FileNotFound => return .not_found,
+        else => {
+            std.log.warn(
+                "error reading optional config file, not loading err={} path={s}",
+                .{ err, path },
+            );
+
+            return .@"error";
+        },
+    }
+}
+
+fn writeConfigTemplate(path: []const u8) !void {
+    log.info("creating template config file: path={s}", .{path});
+    const file = try std.fs.createFileAbsolute(path, .{});
+    defer file.close();
+    try std.fmt.format(
+        file.writer(),
+        @embedFile("./config-template"),
+        .{ .path = path },
+    );
 }
 
 /// Load configurations from the default configuration files. The default
@@ -2688,14 +2710,30 @@ pub fn loadOptionalFile(self: *Config, alloc: Allocator, path: []const u8) void 
 /// On macOS, `$HOME/Library/Application Support/$CFBundleIdentifier/config`
 /// is also loaded.
 pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
+    // Load XDG first
     const xdg_path = try internal_os.xdg.config(alloc, .{ .subdir = "ghostty/config" });
     defer alloc.free(xdg_path);
-    self.loadOptionalFile(alloc, xdg_path);
+    const xdg_action = self.loadOptionalFile(alloc, xdg_path);
 
+    // On macOS load the app support directory as well
     if (comptime builtin.os.tag == .macos) {
         const app_support_path = try internal_os.macos.appSupportDir(alloc, "config");
         defer alloc.free(app_support_path);
-        self.loadOptionalFile(alloc, app_support_path);
+        const app_support_action = self.loadOptionalFile(alloc, app_support_path);
+
+        // If both files are not found, then we create a template file.
+        // For macOS, we only create the template file in the app support
+        if (app_support_action == .not_found and xdg_action == .not_found) {
+            writeConfigTemplate(app_support_path) catch |err| {
+                log.warn("error creating template config file err={}", .{err});
+            };
+        }
+    } else {
+        if (xdg_action == .not_found) {
+            writeConfigTemplate(xdg_path) catch |err| {
+                log.warn("error creating template config file err={}", .{err});
+            };
+        }
     }
 }
 
@@ -2805,17 +2843,21 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
         // replace the entire list with the new list.
         inline for (fields, 0..) |field, i| {
             const v = &@field(self, field);
-            const len = v.list.items.len - counter[i];
-            if (len > 0) {
-                // Note: we don't have to worry about freeing the memory
-                // that we overwrite or cut off here because its all in
-                // an arena.
-                v.list.replaceRangeAssumeCapacity(
-                    0,
-                    len,
-                    v.list.items[counter[i]..],
-                );
-                v.list.items.len = len;
+
+            // The list can be empty if it was reset, i.e. --font-family=""
+            if (v.list.items.len > 0) {
+                const len = v.list.items.len - counter[i];
+                if (len > 0) {
+                    // Note: we don't have to worry about freeing the memory
+                    // that we overwrite or cut off here because its all in
+                    // an arena.
+                    v.list.replaceRangeAssumeCapacity(
+                        0,
+                        len,
+                        v.list.items[counter[i]..],
+                    );
+                    v.list.items.len = len;
+                }
             }
         }
     }
@@ -3797,17 +3839,22 @@ pub const Color = struct {
     pub fn fromHex(input: []const u8) !Color {
         // Trim the beginning '#' if it exists
         const trimmed = if (input.len != 0 and input[0] == '#') input[1..] else input;
+        if (trimmed.len != 6 and trimmed.len != 3) return error.InvalidValue;
 
-        // We expect exactly 6 for RRGGBB
-        if (trimmed.len != 6) return error.InvalidValue;
+        // Expand short hex values to full hex values
+        const rgb: []const u8 = if (trimmed.len == 3) &.{
+            trimmed[0], trimmed[0],
+            trimmed[1], trimmed[1],
+            trimmed[2], trimmed[2],
+        } else trimmed;
 
         // Parse the colors two at a time.
         var result: Color = undefined;
         comptime var i: usize = 0;
         inline while (i < 6) : (i += 2) {
             const v: u8 =
-                ((try std.fmt.charToDigit(trimmed[i], 16)) * 16) +
-                try std.fmt.charToDigit(trimmed[i + 1], 16);
+                ((try std.fmt.charToDigit(rgb[i], 16)) * 16) +
+                try std.fmt.charToDigit(rgb[i + 1], 16);
 
             @field(result, switch (i) {
                 0 => "r",
@@ -3827,6 +3874,8 @@ pub const Color = struct {
         try testing.expectEqual(Color{ .r = 10, .g = 11, .b = 12 }, try Color.fromHex("#0A0B0C"));
         try testing.expectEqual(Color{ .r = 10, .g = 11, .b = 12 }, try Color.fromHex("0A0B0C"));
         try testing.expectEqual(Color{ .r = 255, .g = 255, .b = 255 }, try Color.fromHex("FFFFFF"));
+        try testing.expectEqual(Color{ .r = 255, .g = 255, .b = 255 }, try Color.fromHex("FFF"));
+        try testing.expectEqual(Color{ .r = 51, .g = 68, .b = 85 }, try Color.fromHex("#345"));
     }
 
     test "parseCLI from name" {
@@ -4701,9 +4750,11 @@ pub const Keybinds = struct {
         try list.parseCLI(alloc, "ctrl+z>2=goto_tab:2");
         try list.formatEntry(formatterpkg.entryFormatter("keybind", buf.writer()));
 
+        // Note they turn into translated keys because they match
+        // their ASCII mapping.
         const want =
-            \\keybind = ctrl+z>1=goto_tab:1
-            \\keybind = ctrl+z>2=goto_tab:2
+            \\keybind = ctrl+z>two=goto_tab:2
+            \\keybind = ctrl+z>one=goto_tab:1
             \\
         ;
         try std.testing.expectEqualStrings(want, buf.items);

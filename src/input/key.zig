@@ -729,7 +729,9 @@ pub const Key = enum(c_int) {
         .{ '\t', .tab },
 
         // Keypad entries. We just assume keypad with the kp_ prefix
-        // so that has some special meaning. These must also always be last.
+        // so that has some special meaning. These must also always be last,
+        // so that our `fromASCII` function doesn't accidentally map them
+        // over normal numerics and other keys.
         .{ '0', .kp_0 },
         .{ '1', .kp_1 },
         .{ '2', .kp_2 },
