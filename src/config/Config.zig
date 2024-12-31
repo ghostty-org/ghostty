@@ -2091,7 +2091,7 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
     // set the expected keybind for the menu.
     try result.keybind.set.put(
         alloc,
-        .{ .key = .{ .translated = .plus }, .mods = inputpkg.ctrlOrSuper(.{}) },
+        .{ .key = .{ .translated = .plus }, .mods = inputpkg.ctrlOrSuper(.{ .shift = true }) },
         .{ .increase_font_size = 1 },
     );
     try result.keybind.set.put(
