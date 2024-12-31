@@ -26,3 +26,11 @@ clean:
 		macos/build \
 		macos/GhosttyKit.xcframework
 .PHONY: clean
+
+macpkgreleaselocal:
+	cp -r macos/build/ReleaseLocal/Ghostty.app munkipkg/Applications/Ghostty.app
+	munkipkg ./munkipkg
+
+macpkgrelease:
+	cp -r macos/build/Release/Ghostty.app munkipkg/Applications/Ghostty.app
+	munkipkg ./munkipkg

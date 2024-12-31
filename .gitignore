@@ -17,3 +17,7 @@ test/cases/**/*.actual.png
 glad.zip
 /Box_test.ppm
 /Box_test_diff.ppm
+
+bin
+lib
+pyvenv.cfg

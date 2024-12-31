@@ -1,0 +1,9 @@
+distribution_style: false
+identifier: com.mitchellh.ghostty
+install_location: /
+name: Ghostty-${version}.pkg
+ownership: recommended
+postinstall_action: none
+preserve_xattr: false
+suppress_bundle_relocation: true
+version: '1.0.1'

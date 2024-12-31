@@ -1,0 +1,2 @@
+#!/bin/bash
+ln -s /Applications/Ghostty.app/Contents/MacOS/ghostty /usr/local/bin/ghostty
