@@ -49,7 +49,7 @@ extension Ghostty {
         // Maintain whether our window has focus (is key) or not
         @State private var windowFocus: Bool = true
 
-        // Maintain whether our window is fullscreen or not
+        // Top padding for macOS notch in non-native fullscreen mode.
         @State private var paddingTop: CGFloat = 0
 
         // True if we're hovering over the left URL view, so we can show it on the right.
