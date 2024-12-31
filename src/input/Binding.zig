@@ -1019,6 +1019,14 @@ pub const Trigger = struct {
                 const cp = it.nextCodepoint() orelse break :unicode;
                 if (it.nextCodepoint() != null) break :unicode;
 
+                // If this is ASCII and we have a translated key, set that.
+                if (std.math.cast(u8, cp)) |ascii| {
+                    if (key.Key.fromASCII(ascii)) |k| {
+                        result.key = .{ .translated = k };
+                        continue :loop;
+                    }
+                }
+
                 result.key = .{ .unicode = cp };
                 continue :loop;
             }
@@ -1553,6 +1561,19 @@ test "parse: triggers" {
         },
         try parseSingle("a=ignore"),
     );
+
+    // unicode keys that map to translated
+    try testing.expectEqual(Binding{
+        .trigger = .{ .key = .{ .translated = .one } },
+        .action = .{ .ignore = {} },
+    }, try parseSingle("1=ignore"));
+    try testing.expectEqual(Binding{
+        .trigger = .{
+            .mods = .{ .super = true },
+            .key = .{ .translated = .period },
+        },
+        .action = .{ .ignore = {} },
+    }, try parseSingle("cmd+.=ignore"));
 
     // single modifier
     try testing.expectEqual(Binding{

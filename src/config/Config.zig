@@ -4746,9 +4746,11 @@ pub const Keybinds = struct {
         try list.parseCLI(alloc, "ctrl+z>2=goto_tab:2");
         try list.formatEntry(formatterpkg.entryFormatter("keybind", buf.writer()));
 
+        // Note they turn into translated keys because they match
+        // their ASCII mapping.
         const want =
-            \\keybind = ctrl+z>1=goto_tab:1
-            \\keybind = ctrl+z>2=goto_tab:2
+            \\keybind = ctrl+z>two=goto_tab:2
+            \\keybind = ctrl+z>one=goto_tab:1
             \\
         ;
         try std.testing.expectEqualStrings(want, buf.items);
