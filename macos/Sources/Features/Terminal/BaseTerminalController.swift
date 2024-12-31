@@ -333,7 +333,15 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
-    func fullscreenDidChange() {
+    func fullscreenDidChange(mode: FullscreenMode, enabled: Bool) {
+        NotificationCenter.default.post(
+            name: Ghostty.Notification.ghosttyDidToggleFullscreen,
+            object: self.window,
+            userInfo: [
+                Ghostty.Notification.FullscreenEnabledKey: enabled,
+                Ghostty.Notification.FullscreenModeKey: mode,
+            ]
+        )
         // For some reason focus can get lost when we change fullscreen. Regardless of
         // mode above we just move it back.
         if let focusedSurface {

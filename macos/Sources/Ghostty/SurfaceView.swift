@@ -49,6 +49,9 @@ extension Ghostty {
         // Maintain whether our window has focus (is key) or not
         @State private var windowFocus: Bool = true
 
+        // Maintain whether our window is fullscreen or not
+        @State private var paddingTop: CGFloat = 0
+
         // True if we're hovering over the left URL view, so we can show it on the right.
         @State private var isHoveringURLLeft: Bool = false
 
@@ -70,9 +73,11 @@ extension Ghostty {
                     #if canImport(AppKit)
                     let pubBecomeKey = center.publisher(for: NSWindow.didBecomeKeyNotification)
                     let pubResign = center.publisher(for: NSWindow.didResignKeyNotification)
+                    let pubFullscreen = center.publisher(for: Ghostty.Notification.ghosttyDidToggleFullscreen)
                     #endif
 
-                    Surface(view: surfaceView, size: geo.size)
+                    let adjustedSize = CGSize(width: geo.size.width, height: geo.size.height - paddingTop)
+                    Surface(view: surfaceView, size: adjustedSize)
                         .focused($surfaceFocus)
                         .focusedValue(\.ghosttySurfaceTitle, surfaceView.title)
                         .focusedValue(\.ghosttySurfacePwd, surfaceView.pwd)
@@ -80,6 +85,19 @@ extension Ghostty {
                         .focusedValue(\.ghosttySurfaceCellSize, surfaceView.cellSize)
                     #if canImport(AppKit)
                         .backport.pointerStyle(surfaceView.pointerStyle)
+                        .onReceive(pubFullscreen) { notification in
+                            guard let enabled = notification.userInfo?[Ghostty.Notification.FullscreenEnabledKey] as? Bool else {
+                                return
+                            }
+                            guard let mode = notification.userInfo?[Ghostty.Notification.FullscreenModeKey] as? FullscreenMode else {
+                                return
+                            }
+                            guard let window = notification.object as? NSWindow else { return }
+                            guard let screen = window.screen else {
+                                return
+                            }
+                            paddingTop = enabled && mode == FullscreenMode.nonNative ? screen.safeAreaInsets.top : 0;
+                        }
                         .onReceive(pubBecomeKey) { notification in
                             guard let window = notification.object as? NSWindow else { return }
                             guard let surfaceWindow = surfaceView.window else { return }
@@ -92,6 +110,7 @@ extension Ghostty {
                                 windowFocus = false
                             }
                         }
+                        .padding(.top, paddingTop)
                         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
                             providers.forEach { provider in
                                 _ = provider.loadObject(ofClass: URL.self) { url, _ in
@@ -125,6 +144,7 @@ extension Ghostty {
                 .ghosttySurfaceView(surfaceView)
 
 #if canImport(AppKit)
+
                 // If we are in the middle of a key sequence, then we show a visual element. We only
                 // support this on macOS currently although in theory we can support mobile with keyboards!
                 if !surfaceView.keySequence.isEmpty {

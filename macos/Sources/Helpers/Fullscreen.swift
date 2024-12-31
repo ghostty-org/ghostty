@@ -38,11 +38,11 @@ protocol FullscreenStyle {
 protocol FullscreenDelegate: AnyObject {
     /// Called whenever the fullscreen state changed. You can call isFullscreen to see
     /// the current state.
-    func fullscreenDidChange()
+    func fullscreenDidChange(mode: FullscreenMode, enabled: Bool)
 }
 
 extension FullscreenDelegate {
-    func fullscreenDidChange() {}
+    func fullscreenDidChange(mode: FullscreenMode, enabled: Bool) {}
 }
 
 /// The base class for fullscreen implementations, cannot be used as a FullscreenStyle on its own.
@@ -74,11 +74,11 @@ class FullscreenBase {
     }
 
     @objc private func didEnterFullScreenNotification(_ notification: Notification) {
-        delegate?.fullscreenDidChange()
+        delegate?.fullscreenDidChange(mode: FullscreenMode.native, enabled: true)
     }
 
     @objc private func didExitFullScreenNotification(_ notification: Notification) {
-        delegate?.fullscreenDidChange()
+        delegate?.fullscreenDidChange(mode: FullscreenMode.native, enabled: false)
     }
 }
 
@@ -202,7 +202,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         // https://github.com/ghostty-org/ghostty/issues/1996
         DispatchQueue.main.async {
             self.window.setFrame(self.fullscreenFrame(screen), display: true)
-            self.delegate?.fullscreenDidChange()
+            self.delegate?.fullscreenDidChange(mode: FullscreenMode.nonNative, enabled: true)
         }
     }
 
@@ -258,7 +258,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         window.makeKeyAndOrderFront(nil)
 
         // Notify the delegate
-        self.delegate?.fullscreenDidChange()
+        self.delegate?.fullscreenDidChange(mode: FullscreenMode.nonNative, enabled: false)
     }
 
     private func fullscreenFrame(_ screen: NSScreen) -> NSRect {
