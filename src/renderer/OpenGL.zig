@@ -828,7 +828,13 @@ pub fn updateFrame(
         {
             if (single_threaded_draw) self.draw_mutex.lock();
             defer if (single_threaded_draw) self.draw_mutex.unlock();
-            try self.prepBackgroundImage();
+            self.prepBackgroundImage() catch |err| switch (err) {
+                error.InvalidData => {
+                    log.warn("invalid image data", .{});
+                    self.current_background_image = null;
+                },
+                else => return err,
+            };
         }
 
         // If we have any terminal dirty flags set then we need to rebuild
@@ -2394,8 +2400,8 @@ pub fn drawFrame(self: *OpenGL, surface: *apprt.Surface) !void {
     }
 
     // Check if we need to update our current background image
-    if (self.current_background_image != null) {
-        switch (self.current_background_image.?) {
+    if (self.current_background_image) |current_background_image| {
+        switch (current_background_image) {
             .ready => {},
 
             .pending_gray,
@@ -2575,15 +2581,14 @@ fn drawBackgroundImage(
     gl_state: *const GLState,
 ) !void {
     // If we don't have a background image, just return
-    if (self.current_background_image == null) {
-        return;
-    }
+    const current_background_image = self.current_background_image orelse return;
+
     // Bind our background image program
     const bind = try gl_state.bgimage_program.bind();
     defer bind.unbind();
 
     // Get the texture
-    const texture = switch (self.current_background_image.?) {
+    const texture = switch (current_background_image) {
         .ready => |t| t,
         else => {
             return;
