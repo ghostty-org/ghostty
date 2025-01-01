@@ -8,6 +8,7 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
+const global_state = &@import("../global.zig").state;
 const posix = std.posix;
 const xev = @import("xev");
 const build_config = @import("../build_config.zig");
@@ -1160,6 +1161,21 @@ const Subprocess = struct {
                         "error initializing child: {}",
                         .{err},
                     );
+                    // if posixfilehandles > 0 restore old file handle limit to child process.
+                    if (global_state.posixfilehandles > 0) {
+                        // restore file handles here.
+                        // Restore SOFT limits.
+                        var lim = posix.getrlimit(.NOFILE) catch {
+                            log.err("failed to query file handle limit in child process", .{});
+                            return;
+                        };
+
+                        lim.cur = global_state.posixfilehandles;
+
+                        if (posix.setrlimit(.NOFILE, lim)) |_| {} else |_| {
+                            log.err("failed to restore file handle limits in child process.", .{});
+                        }
+                    }
                 }
             }).callback,
             .data = self,

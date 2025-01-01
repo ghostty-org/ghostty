@@ -7,18 +7,21 @@ const log = std.log.scoped(.os);
 /// This maximizes the number of file descriptors we can have open. We
 /// need to do this because each window consumes at least a handful of fds.
 /// This is extracted from the Zig compiler source code.
-pub fn fixMaxFiles() void {
-    if (!@hasDecl(posix.system, "rlimit")) return;
+/// Return zero if there's an error, otherwise returns the old softlimit.
+pub fn fixMaxFiles() u64 {
+    if (!@hasDecl(posix.system, "rlimit")) return 0;
 
     var lim = posix.getrlimit(.NOFILE) catch {
         log.warn("failed to query file handle limit, may limit max windows", .{});
-        return; // Oh well; we tried.
+        return 0; // Oh well; we tried.
     };
+
+    const presoft = lim.cur;
 
     // If we're already at the max, we're done.
     if (lim.cur >= lim.max) {
         log.debug("file handle limit already maximized value={}", .{lim.cur});
-        return;
+        return presoft;
     }
 
     // Do a binary search for the limit.
@@ -41,6 +44,7 @@ pub fn fixMaxFiles() void {
     }
 
     log.debug("file handle limit raised value={}", .{lim.cur});
+    return presoft;
 }
 
 /// Return the recommended path for temporary files.
