@@ -188,6 +188,9 @@ in
       mv $out/share/vim/vimfiles "$vim"
       ln -sf "$vim" "$out/share/vim/vimfiles"
       echo "$vim" >> "$out/nix-support/propagated-user-env-packages"
+
+      install -Dt $out/share/applications dist/linux/app.desktop
+      install -Dt $out/share/icons/com.mitchellh.ghostty.png images/icons/icon_512.png
     '';
 
     meta = {
