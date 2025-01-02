@@ -461,22 +461,22 @@ background: Color = .{ .r = 0x28, .g = 0x2C, .b = 0x34 },
 foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 
 /// Background image for the window.
-@"background-image": RepeatablePath = .{},
+@"background-image": SinglePath = .{},
 
 /// Background image opactity
-@"background-image-opacity": f32 = 0.0,
+@"background-image-opacity": f32 = 1.0,
 
 /// Background image mode to use.
 ///
-/// `aspect` keeps the aspect-ratio of the background image and `scaled` scales
-/// the image to fit the window. `aspect` is the default mode.
-///
 /// Valid values are:
 ///
-///   * `aspect`
-///   * `scaled`
+///   * `zoomed` - Image is scaled to fit the window, preserving aspect ratio.
+///   * `scaled` - Image is scaled to fill the window, not preserving aspect ratio.
+///   * `tiled` - Image is repeated horizontally and vertically to fill the window.
+///   * `centered` - Image is centered in the window and displayed 1-to-1 pixel
+///     scale, preserving both the aspect ratio and the image size.
 ///
-@"background-image-mode": BackgroundImageProgram.BackgroundMode = .aspect,
+@"background-image-mode": BackgroundImageMode = .zoomed,
 
 /// The foreground and background color for selection. If this is not set, then
 /// the selection color is just the inverted window background and foreground
@@ -4181,6 +4181,84 @@ pub const Palette = struct {
     }
 };
 
+/// Path is a path to a single file.
+pub const SinglePath = struct {
+    const Self = @This();
+
+    /// The actual value that is updated as we parse.
+    value: []const u8 = "",
+
+    /// Parse a single path.
+    pub fn parseCLI(self: *Self, alloc: Allocator, input: ?[]const u8) !void {
+        const value = input orelse return error.ValueRequired;
+        const copy = try alloc.dupe(u8, value);
+        self.value = copy;
+    }
+
+    /// Deep copy of the struct. Required by Config.
+    pub fn clone(self: Self, alloc: Allocator) Allocator.Error!Self {
+        const copy_path = try alloc.dupe(u8, self.value);
+        return .{
+            .value = copy_path,
+        };
+    }
+
+    /// Used by Formatter
+    pub fn formatEntry(self: Self, formatter: anytype) !void {
+        try formatter.formatEntry([]const u8, self.value);
+    }
+
+    pub fn expand(
+        self: *Self,
+        alloc: Allocator,
+        base: []const u8,
+        diags: *cli.DiagnosticList,
+    ) !void {
+        assert(std.fs.path.isAbsolute(base));
+        var dir = try std.fs.cwd().openDir(base, .{});
+        defer dir.close();
+
+        const path = self.value;
+
+        // If it is already absolute we can ignore it.
+        if (path.len == 0 or std.fs.path.isAbsolute(path)) return;
+
+        // If it isn't absolute, we need to make it absolute relative
+        // to the base.
+        var buf: [std.fs.max_path_bytes]u8 = undefined;
+        const abs = dir.realpath(path, &buf) catch |err| abs: {
+            if (err == error.FileNotFound) {
+                // The file doesn't exist. Try to resolve the relative path
+                // another way.
+                const resolved = try std.fs.path.resolve(alloc, &.{ base, path });
+                defer alloc.free(resolved);
+                @memcpy(buf[0..resolved.len], resolved);
+                break :abs buf[0..resolved.len];
+            }
+
+            try diags.append(alloc, .{
+                .message = try std.fmt.allocPrintZ(
+                    alloc,
+                    "error resolving file path {s}: {}",
+                    .{ path, err },
+                ),
+            });
+
+            // Blank this path so that we don't attempt to resolve it again
+            self.value = "";
+
+            return;
+        };
+
+        log.debug(
+            "expanding file path relative={s} abs={s}",
+            .{ path, abs },
+        );
+
+        self.value = try alloc.dupeZ(u8, abs);
+    }
+};
+
 /// RepeatableString is a string value that can be repeated to accumulate
 /// a list of strings. This isn't called "StringList" because I find that
 /// sometimes leads to confusion that it _accepts_ a list such as
@@ -6175,6 +6253,14 @@ pub const AlphaBlending = enum {
             .linear, .@"linear-corrected" => true,
         };
     }
+};
+
+/// See background-image-mode
+pub const BackgroundImageMode = enum(u8) {
+    zoomed = 0,
+    stretched = 1,
+    tiled = 2,
+    centered = 3,
 };
 
 /// See freetype-load-flag

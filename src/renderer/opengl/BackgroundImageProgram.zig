@@ -3,6 +3,7 @@ const BackgroundImageProgram = @This();
 
 const std = @import("std");
 const gl = @import("opengl");
+const configpkg = @import("../../config.zig");
 
 pub const Input = extern struct {
     /// vec2 terminal_size
@@ -10,13 +11,7 @@ pub const Input = extern struct {
     terminal_height: u32 = 0,
 
     /// uint mode
-    mode: BackgroundMode = .aspect,
-};
-
-pub const BackgroundMode = enum(u8) {
-    aspect = 0,
-    scaled = 1,
-    _,
+    mode: configpkg.BackgroundImageMode = .zoomed,
 };
 
 program: gl.Program,
@@ -63,7 +58,7 @@ pub fn init() !BackgroundImageProgram {
     var offset: usize = 0;
     try vbobind.attributeAdvanced(0, 2, gl.c.GL_UNSIGNED_INT, false, @sizeOf(Input), offset);
     offset += 2 * @sizeOf(u32);
-    try vbobind.attributeAdvanced(1, 2, gl.c.GL_UNSIGNED_BYTE, false, @sizeOf(Input), offset);
+    try vbobind.attributeIAdvanced(1, 1, gl.c.GL_UNSIGNED_BYTE, @sizeOf(Input), offset);
     offset += 1 * @sizeOf(u8);
     try vbobind.enableAttribArray(0);
     try vbobind.enableAttribArray(1);

@@ -4,6 +4,7 @@ pub const OpenGL = @This();
 const std = @import("std");
 const builtin = @import("builtin");
 const glfw = @import("glfw");
+const wuffs = @import("wuffs");
 const assert = std.debug.assert;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
@@ -43,6 +44,9 @@ else
     false;
 const DrawMutex = if (single_threaded_draw) std.Thread.Mutex else void;
 const drawMutexZero: DrawMutex = if (DrawMutex == void) void{} else .{};
+
+/// The maximum size of a background image.
+const max_image_size = 400 * 1024 * 1024; // 400MB
 
 alloc: std.mem.Allocator,
 
@@ -137,13 +141,13 @@ draw_mutex: DrawMutex = drawMutexZero,
 draw_background: terminal.color.RGB,
 
 /// The background image(s) to draw. Currentlly, we always draw the last image.
-background_image: configpkg.RepeatablePath,
+background_image: configpkg.SinglePath,
 
 /// The opacity of the background image. Not to be confused with background-opacity
 background_image_opacity: f32,
 
 /// The background image mode to use.
-background_image_mode: BackgroundImageProgram.BackgroundMode,
+background_image_mode: configpkg.BackgroundImageMode,
 
 /// The current background image to draw. If it is null, then we will not
 /// draw any background image.
@@ -295,9 +299,9 @@ pub const DerivedConfig = struct {
     cursor_opacity: f64,
     background: terminal.color.RGB,
     background_opacity: f64,
-    background_image: configpkg.RepeatablePath,
+    background_image: configpkg.SinglePath,
     background_image_opacity: f32,
-    background_image_mode: BackgroundImageProgram.BackgroundMode,
+    background_image_mode: configpkg.BackgroundImageMode,
     foreground: terminal.color.RGB,
     selection_background: ?terminal.color.RGB,
     selection_foreground: ?terminal.color.RGB,
@@ -824,14 +828,13 @@ pub fn updateFrame(
         }
 
         if (self.current_background_image == null and
-            self.background_image.value.items.len > 0)
+            self.background_image.value.len > 0)
         {
             if (single_threaded_draw) self.draw_mutex.lock();
             defer if (single_threaded_draw) self.draw_mutex.unlock();
             self.prepBackgroundImage() catch |err| switch (err) {
                 error.InvalidData => {
-                    log.warn("invalid image data", .{});
-                    self.current_background_image = null;
+                    log.warn("invalid image data, skipping", .{});
                 },
                 else => return err,
             };
@@ -1205,52 +1208,63 @@ fn prepKittyImage(
 /// Prepares the current background image for upload
 pub fn prepBackgroundImage(self: *OpenGL) !void {
     // If the user doesn't have a background image, do nothing...
-    const last_image = self.background_image.value.getLastOrNull() orelse return;
+    if (self.background_image.value.len == 0) return;
+    const path = self.background_image.value;
 
-    // Get the last background image
-    const path = switch (last_image) {
-        .optional, .required => |path| path,
-    };
-    const command = terminal.kitty.graphics.Command{
-        .control = .{
-            .transmit = .{
-                .format = .png,
-                .medium = .file,
-                .width = 0,
-                .height = 0,
-                .compression = .none,
-                .image_id = 0,
-            },
-        },
-        .data = try self.alloc.dupe(u8, path),
-    };
-    defer command.deinit(self.alloc);
+    // Read the file content
+    const file_content = try self.readImageContent(path);
+    defer self.alloc.free(file_content);
 
-    // Load the iamge
-    var loading = try terminal.kitty.graphics.LoadingImage.init(self.alloc, &command);
-    defer loading.deinit(self.alloc);
+    // Decode the png (currently, we only support png)
+    const decoded_image = try wuffs.png.decode(self.alloc, file_content);
+    defer self.alloc.free(decoded_image.data);
 
-    // Complete the image to get the final data
-    var image = try loading.complete(self.alloc);
-    defer image.deinit(self.alloc);
-
-    // Copy the data into the pending state.
-    const data = try self.alloc.dupe(u8, image.data);
+    // Copy the data into the pending state
+    const data = try self.alloc.dupe(u8, decoded_image.data);
     errdefer self.alloc.free(data);
-
     const pending: Image.Pending = .{
-        .width = image.width,
-        .height = image.height,
+        .width = decoded_image.width,
+        .height = decoded_image.height,
         .data = data.ptr,
     };
 
-    self.current_background_image = switch (image.format) {
-        .gray => .{ .pending_gray = pending },
-        .gray_alpha => .{ .pending_gray_alpha = pending },
-        .rgb => .{ .pending_rgb = pending },
-        .rgba => .{ .pending_rgba = pending },
-        .png => unreachable, // should be decoded by now
+    // Store the image
+    self.current_background_image = .{ .pending_rgba = pending };
+}
+
+/// Reads the content of the given image path and returns it
+pub fn readImageContent(self: *OpenGL, path: []const u8) ![]u8 {
+    // Open the file
+    var file = std.fs.cwd().openFile(path, .{}) catch |err| {
+        log.warn("failed to open file: {}", .{err});
+        return error.InvalidData;
     };
+    defer file.close();
+
+    // File must be a regular file
+    if (file.stat()) |stat| {
+        if (stat.kind != .file) {
+            log.warn("file is not a regular file kind={}", .{stat.kind});
+            return error.InvalidData;
+        }
+    } else |err| {
+        log.warn("failed to stat file: {}", .{err});
+        return error.InvalidData;
+    }
+
+    var buf_reader = std.io.bufferedReader(file.reader());
+    const reader = buf_reader.reader();
+
+    // Read the file
+    var managed = std.ArrayList(u8).init(self.alloc);
+    errdefer managed.deinit();
+    const size: usize = max_image_size;
+    reader.readAllArrayList(&managed, size) catch |err| {
+        log.warn("failed to read file: {}", .{err});
+        return error.InvalidData;
+    };
+
+    return managed.items;
 }
 
 /// rebuildCells rebuilds all the GPU cells from our CPU state. This is a
