@@ -3179,7 +3179,7 @@ fn expandPaths(self: *Config, base: []const u8) !void {
 
     // Expand all of our paths
     inline for (@typeInfo(Config).Struct.fields) |field| {
-        if (field.type == RepeatablePath) {
+        if (field.type == RepeatablePath or field.type == SinglePath) {
             try @field(self, field.name).expand(
                 arena_alloc,
                 base,
@@ -4258,18 +4258,25 @@ pub const SinglePath = struct {
     const Self = @This();
 
     /// The actual value that is updated as we parse.
-    value: []const u8 = "",
+    value: ?[]const u8 = null,
 
     /// Parse a single path.
     pub fn parseCLI(self: *Self, alloc: Allocator, input: ?[]const u8) !void {
         const value = input orelse return error.ValueRequired;
+        // If the value is empty, we set the value to null
+        if (value.len == 0) {
+            self.value = null;
+            return;
+        }
         const copy = try alloc.dupe(u8, value);
         self.value = copy;
     }
 
     /// Deep copy of the struct. Required by Config.
     pub fn clone(self: Self, alloc: Allocator) Allocator.Error!Self {
-        const copy_path = try alloc.dupe(u8, self.value);
+        const value = self.value orelse return .{};
+
+        const copy_path = try alloc.dupe(u8, value);
         return .{
             .value = copy_path,
         };
@@ -4277,7 +4284,8 @@ pub const SinglePath = struct {
 
     /// Used by Formatter
     pub fn formatEntry(self: Self, formatter: anytype) !void {
-        try formatter.formatEntry([]const u8, self.value);
+        const value = self.value orelse return;
+        try formatter.formatEntry([]const u8, value);
     }
 
     pub fn expand(
@@ -4290,10 +4298,9 @@ pub const SinglePath = struct {
         var dir = try std.fs.cwd().openDir(base, .{});
         defer dir.close();
 
-        const path = self.value;
-
         // If it is already absolute we can ignore it.
-        if (path.len == 0 or std.fs.path.isAbsolute(path)) return;
+        const path = self.value orelse return;
+        if (std.fs.path.isAbsolute(path)) return;
 
         // If it isn't absolute, we need to make it absolute relative
         // to the base.
@@ -4317,7 +4324,7 @@ pub const SinglePath = struct {
             });
 
             // Blank this path so that we don't attempt to resolve it again
-            self.value = "";
+            self.value = null;
 
             return;
         };
