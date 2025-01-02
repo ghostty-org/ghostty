@@ -2870,6 +2870,12 @@ pub fn mouseButtonCallback(
         }
     }
 
+    // Stop selection scrolling when releasing the left mouse button
+    // but only when selection scrolling is active.
+    if (button == .left and action == .release and self.io_thread.scroll_active) {
+        self.io.queueMessage(.{ .selection_scroll = false }, .unlocked);
+    }
+
     // Handle link clicking. We want to do this before we do mouse
     // reporting or any other mouse handling because a successfully
     // clicked link will swallow the event.
@@ -3383,6 +3389,12 @@ pub fn cursorPosCallback(
         self.renderer_state.terminal.screen.dirty.hyperlink_hover = true;
     }
 
+    // Stop selection scrolling when inside the viewport within a 1px buffer
+    // for fullscreen windows, but only when selection scrolling is active.
+    if (pos.x >= 1 and pos.y >= 1 and self.io_thread.scroll_active) {
+        self.io.queueMessage(.{ .selection_scroll = false }, .unlocked);
+    }
+
     // Always show the mouse again if it is hidden
     if (self.mouse.hidden) self.showMouse();
 
@@ -3484,13 +3496,12 @@ pub fn cursorPosCallback(
         // Note: one day, we can change this from distance to time based if we want.
         //log.warn("CURSOR POS: {} {}", .{ pos, self.size.screen });
         const max_y: f32 = @floatFromInt(self.size.screen.height);
-        if (pos.y <= 1 or pos.y > max_y - 1) {
-            const delta: isize = if (pos.y < 0) -1 else 1;
-            try self.io.terminal.scrollViewport(.{ .delta = delta });
 
-            // TODO: We want a timer or something to repeat while we're still
-            // at this cursor position. Right now, the user has to jiggle their
-            // mouse in order to scroll.
+        // Only send a message when outside the viewport and
+        // selection scrolling is not currently active.
+        if ((pos.y <= 1 or pos.y > max_y - 1) and !self.io_thread.scroll_active) {
+            // TODO: the selection region ideally should keep up with this
+            self.io.queueMessage(.{ .selection_scroll = true }, .locked);
         }
 
         // Convert to points
