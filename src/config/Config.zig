@@ -563,11 +563,27 @@ palette: Palette = .{},
 @"background-opacity": f64 = 1.0,
 
 /// A positive value enables blurring of the background when background-opacity
-/// is less than 1. The value is the blur radius to apply. A value of 20
+/// is less than 1.
+///
+/// On macOS, the value is the blur radius to apply. A value of 20
 /// is reasonable for a good looking blur. Higher values will cause strange
 /// rendering issues as well as performance issues.
 ///
-/// This is only supported on macOS.
+/// On KDE Plasma under Wayland, the exact value is _ignored_ —  the reason is
+/// that KWin, the window compositor powering Plasma, only has one global blur
+/// setting and does not allow applications to have individual blur settings.
+///
+/// To configure KWin's global blur setting, open System Settings and go to
+/// "Apps & Windows" > "Window Management" > "Desktop Effects" and select the
+/// "Blur" plugin. If disabled, enable it by ticking the checkbox to the left.
+/// Then click on the "Configure" button and there will be two sliders that
+/// allow you to set background blur and noise strengths for all apps,
+/// including Ghostty.
+///
+/// All other Linux desktop environments are as of now unsupported. Users may
+/// need to set environment-specific settings and/or install third-party plugins
+/// in order to support background blur, as there isn't a unified interface for
+/// doing so.
 @"background-blur-radius": u8 = 0,
 
 /// The opacity level (opposite of transparency) of an unfocused split.

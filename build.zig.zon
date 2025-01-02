@@ -68,5 +68,9 @@
             .url = "git+https://github.com/vancluever/z2d?ref=v0.4.0#4638bb02a9dc41cc2fb811f092811f6a951c752a",
             .hash = "12201f0d542e7541cf492a001d4d0d0155c92f58212fbcb0d224e95edeba06b5416a",
         },
+        .plasma_wayland_protocols = .{
+            .url = "git+https://invent.kde.org/libraries/plasma-wayland-protocols.git?ref=master#db525e8f9da548cffa2ac77618dd0fbe7f511b86",
+            .hash = "12207e0851c12acdeee0991e893e0132fc87bb763969a585dc16ecca33e88334c566",
+        }
     },
 }

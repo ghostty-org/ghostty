@@ -1452,6 +1452,14 @@ fn addDeps(
 
                     const wayland = b.createModule(.{ .root_source_file = scanner.result });
 
+                    const plasma_wayland_protocols = b.dependency("plasma_wayland_protocols", .{
+                        .target = target,
+                        .optimize = optimize,
+                    });
+                    scanner.addCustomProtocol(plasma_wayland_protocols.path("src/protocols/blur.xml"));
+
+                    scanner.generate("org_kde_kwin_blur_manager", 1);
+
                     step.root_module.addImport("wayland", wayland);
                     step.linkSystemLibrary2("wayland-client", dynamic_link_opts);
                 }

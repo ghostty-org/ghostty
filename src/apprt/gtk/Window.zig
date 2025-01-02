@@ -544,6 +544,18 @@ pub fn focusCurrentTab(self: *Window) void {
     _ = c.gtk_widget_grab_focus(gl_area);
 }
 
+pub fn configChange(self: *Window, new_config: *const configpkg.Config) !void {
+    if (new_config.@"background-opacity" < 1) {
+        c.gtk_widget_remove_css_class(@ptrCast(self.window), "background");
+    } else {
+        c.gtk_widget_add_css_class(@ptrCast(self.window), "background");
+    }
+
+    if (self.wayland) |*wayland| {
+        try wayland.setBlur(new_config.@"background-blur-radius" > 0);
+    }
+}
+
 pub fn onConfigReloaded(self: *Window) void {
     self.sendToast("Reloaded the configuration");
 }
@@ -639,6 +651,10 @@ fn gtkRealize(v: *c.GtkWindow, ud: ?*anyopaque) callconv(.C) bool {
     const self = userdataSelf(ud.?);
 
     self.wayland = Wayland.init(v) catch return false;
+
+    if (self.wayland) |*wayland| {
+        wayland.setBlur(self.app.config.@"background-blur-radius" > 0) catch return false;
+    }
 
     return true;
 }
