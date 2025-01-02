@@ -36,6 +36,9 @@ const Coalesce = struct {
 /// if the running program hasn't already.
 const sync_reset_ms = 1000;
 
+/// The number of milliseconds between each movement during selection scrolling.
+const selection_scroll_ms = 15;
+
 /// Allocator used for some state
 alloc: std.mem.Allocator,
 
@@ -51,6 +54,11 @@ wakeup_c: xev.Completion = .{},
 /// This can be used to stop the thread on the next loop iteration.
 stop: xev.Async,
 stop_c: xev.Completion = .{},
+
+/// This is used for timer-based selection scrolling.
+scroll: xev.Timer,
+scroll_c: xev.Completion = .{},
+scroll_active: bool = false,
 
 /// This is used to coalesce resize events.
 coalesce: xev.Timer,
@@ -91,6 +99,10 @@ pub fn init(
     var stop_h = try xev.Async.init();
     errdefer stop_h.deinit();
 
+    // This timer is used for selection scrolling.
+    var scroll_h = try xev.Timer.init();
+    errdefer scroll_h.deinit();
+
     // This timer is used to coalesce resize events.
     var coalesce_h = try xev.Timer.init();
     errdefer coalesce_h.deinit();
@@ -103,6 +115,7 @@ pub fn init(
         .alloc = alloc,
         .loop = loop,
         .stop = stop_h,
+        .scroll = scroll_h,
         .coalesce = coalesce_h,
         .sync_reset = sync_reset_h,
     };
@@ -111,6 +124,7 @@ pub fn init(
 /// Clean up the thread. This is only safe to call once the thread
 /// completes executing; the caller must join prior to this.
 pub fn deinit(self: *Thread) void {
+    self.scroll.deinit();
     self.coalesce.deinit();
     self.sync_reset.deinit();
     self.stop.deinit();
@@ -280,6 +294,13 @@ fn drainMailbox(
             .size_report => |v| try io.sizeReport(data, v),
             .clear_screen => |v| try io.clearScreen(data, v.history),
             .scroll_viewport => |v| try io.scrollViewport(v),
+            .selection_scroll => |v| {
+                if (v) {
+                    self.startScrollTimer(cb);
+                } else {
+                    self.stopScrollTimer();
+                }
+            },
             .jump_to_prompt => |v| try io.jumpToPrompt(v),
             .start_synchronized_output => self.startSynchronizedOutput(cb),
             .linefeed_mode => |v| self.flags.linefeed_mode = v,
@@ -417,5 +438,50 @@ fn stopCallback(
 ) xev.CallbackAction {
     _ = r catch unreachable;
     cb_.?.self.loop.stop();
+    return .disarm;
+}
+
+fn startScrollTimer(self: *Thread, cb: *CallbackData) void {
+    self.scroll_active = true;
+
+    // Start the timer which loops
+    self.scroll.run(&self.loop, &self.scroll_c, selection_scroll_ms, CallbackData, cb, selectionScrollCallback);
+}
+
+fn stopScrollTimer(self: *Thread) void {
+    // This will stop the scrolling on the next iteration.
+    self.scroll_active = false;
+}
+
+fn selectionScrollCallback(
+    cb_: ?*CallbackData,
+    _: *xev.Loop,
+    _: *xev.Completion,
+    r: xev.Timer.RunError!void,
+) xev.CallbackAction {
+    _ = r catch |err| switch (err) {
+        error.Canceled => {},
+        else => {
+            log.warn("error during selection scroll callback err={}", .{err});
+            return .disarm;
+        },
+    };
+
+    const cb = cb_ orelse return .disarm;
+    const surface = cb.io.surface_mailbox.surface;
+    const pos = try surface.rt_surface.getCursorPos();
+    const delta: isize = if (pos.y < 0) -1 else 1;
+
+    try cb.io.terminal.scrollViewport(.{ .delta = delta });
+
+    // Notify the renderer that it should repaint immediately after scrolling
+    cb.io.renderer_wakeup.notify() catch {};
+
+    const self = cb.self;
+
+    if (self.scroll_active) {
+        self.scroll.run(&self.loop, &self.scroll_c, selection_scroll_ms, CallbackData, cb, selectionScrollCallback);
+    }
+
     return .disarm;
 }
