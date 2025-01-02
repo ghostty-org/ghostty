@@ -1855,8 +1855,9 @@ keybind: Keybinds = .{},
 /// does not apply to tabs, splits, etc. However, this setting will apply to all
 /// new windows, not just the first one.
 ///
-/// This setting is overwritten by `fullscreen` option.
-@"gtk-maximize": bool = false,
+/// This setting will be ignored if `fullscreen = true`.
+/// Note: This only works on Linux.
+maximize: bool = false,
 
 /// If `true`, the Ghostty GTK application will run in single-instance mode:
 /// each new `ghostty` process launched will result in a new window if there is
@@ -3282,6 +3283,10 @@ pub fn finalize(self: *Config) !void {
                 .{duration},
             );
         }
+    }
+
+    if (self.maximize and self.fullscreen) {
+        log.warn("'fullscreen' and 'maximize' cannot be used at the same time, 'maximize' will be ignored.", .{});
     }
 
     // We can't set this as a struct default because our config is
