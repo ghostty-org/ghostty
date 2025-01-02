@@ -496,16 +496,12 @@ fn selectionScrollCallback(
     };
 
     const cb = cb_ orelse return .disarm;
-    const surface = cb.io.surface_mailbox.surface;
-    const pos = try surface.rt_surface.getCursorPos();
-    const delta: isize = if (pos.y < 0) -1 else 1;
+    const self = cb.self;
 
-    try cb.io.terminal.scrollViewport(.{ .delta = delta });
+    _ = cb.io.surface_mailbox.push(.{ .selection_scroll = self.scroll_active }, .{ .instant = {} });
 
     // Notify the renderer that it should repaint immediately after scrolling
     cb.io.renderer_wakeup.notify() catch {};
-
-    const self = cb.self;
 
     if (self.scroll_active) {
         self.scroll.run(&self.loop, &self.scroll_c, selection_scroll_ms, CallbackData, cb, selectionScrollCallback);

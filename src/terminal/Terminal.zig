@@ -124,6 +124,9 @@ flags: packed struct {
     /// to true based on termios state.
     password_input: bool = false,
 
+    /// True if the terminal should perform selection scrolling.
+    selection_scroll: bool = false,
+
     /// Dirty flags for the renderer.
     dirty: Dirty = .{},
 } = .{},
