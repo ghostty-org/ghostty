@@ -26,6 +26,8 @@ const Notebook = @import("notebook.zig").Notebook;
 const HeaderBar = @import("headerbar.zig").HeaderBar;
 const version = @import("version.zig");
 
+const Wayland = @import("wayland.zig");
+
 const log = std.log.scoped(.gtk);
 
 app: *App,
@@ -55,6 +57,8 @@ toast_overlay: ?*c.GtkWidget,
 /// See adwTabOverviewOpen for why we have this.
 adw_tab_overview_focus_timer: ?c.guint = null,
 
+wayland: ?Wayland,
+
 pub fn create(alloc: Allocator, app: *App) !*Window {
     // Allocate a fixed pointer for our window. We try to minimize
     // allocations but windows and other GUI requirements are so minimal
@@ -79,6 +83,7 @@ pub fn init(self: *Window, app: *App) !void {
         .notebook = undefined,
         .context_menu = undefined,
         .toast_overlay = undefined,
+        .wayland = undefined,
     };
 
     // Create the window
@@ -288,6 +293,7 @@ pub fn init(self: *Window, app: *App) !void {
 
     // All of our events
     _ = c.g_signal_connect_data(self.context_menu, "closed", c.G_CALLBACK(&gtkRefocusTerm), self, null, c.G_CONNECT_DEFAULT);
+    _ = c.g_signal_connect_data(window, "realize", c.G_CALLBACK(&gtkRealize), self, null, c.G_CONNECT_DEFAULT);
     _ = c.g_signal_connect_data(window, "close-request", c.G_CALLBACK(&gtkCloseRequest), self, null, c.G_CONNECT_DEFAULT);
     _ = c.g_signal_connect_data(window, "destroy", c.G_CALLBACK(&gtkDestroy), self, null, c.G_CONNECT_DEFAULT);
     _ = c.g_signal_connect_data(ec_key_press, "key-pressed", c.G_CALLBACK(&gtkKeyPressed), self, null, c.G_CONNECT_DEFAULT);
@@ -537,6 +543,18 @@ pub fn focusCurrentTab(self: *Window) void {
     _ = c.gtk_widget_grab_focus(gl_area);
 }
 
+pub fn configChange(self: *Window, new_config: *const configpkg.Config) !void {
+    if (new_config.@"background-opacity" < 1) {
+        c.gtk_widget_remove_css_class(@ptrCast(self.window), "background");
+    } else {
+        c.gtk_widget_add_css_class(@ptrCast(self.window), "background");
+    }
+
+    if (self.wayland) |*wayland| {
+        try wayland.setBlur(new_config.@"background-blur-radius" > 0);
+    }
+}
+
 pub fn onConfigReloaded(self: *Window) void {
     self.sendToast("Reloaded the configuration");
 }
@@ -624,6 +642,18 @@ fn gtkRefocusTerm(v: *c.GtkWindow, ud: ?*anyopaque) callconv(.C) bool {
     const self = userdataSelf(ud.?);
 
     self.focusCurrentTab();
+
+    return true;
+}
+
+fn gtkRealize(v: *c.GtkWindow, ud: ?*anyopaque) callconv(.C) bool {
+    const self = userdataSelf(ud.?);
+
+    self.wayland = Wayland.init(v) catch return false;
+
+    if (self.wayland) |*wayland| {
+        wayland.setBlur(self.app.config.@"background-blur-radius" > 0) catch return false;
+    }
 
     return true;
 }

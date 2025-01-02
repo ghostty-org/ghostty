@@ -66,6 +66,14 @@ pub fn run(alloc: Allocator) !u8 {
         } else {
             try stdout.print("  - libX11     : disabled\n", .{});
         }
+
+        // We say `libwayland` since it is possible to build Ghostty without
+        // Wayland integration but with Wayland-enabled GTK
+        if (comptime build_options.wayland) {
+            try stdout.print("  - libwayland : enabled\n", .{});
+        } else {
+            try stdout.print("  - libwayland : disabled\n", .{});
+        }
     }
     return 0;
 }
