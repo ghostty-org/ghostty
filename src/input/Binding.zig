@@ -193,188 +193,286 @@ pub fn lessThan(_: void, lhs: Binding, rhs: Binding) bool {
 
 /// The set of actions that a keybinding can take.
 pub const Action = union(enum) {
-    /// Ignore this key combination, don't send it to the child process, just
-    /// black hole it.
+    /// Ignore this key combination, don't send it to the child process.
     ignore: void,
 
-    /// This action is used to flag that the binding should be removed from
-    /// the set. This should never exist in an active set and `set.put` has an
-    /// assertion to verify this.
+    /// Remove this binding from the set. This should never exist in an active set
+    /// and `set.put` has an assertion to verify this.
     unbind: void,
 
-    /// Send a CSI sequence. The value should be the CSI sequence without the
-    /// CSI header (`ESC ]` or `\x1b]`).
+    /// Send a CSI sequence without the CSI header (ESC ] or \x1b]).
+    ///
+    /// Arguments:
+    ///   - The CSI sequence to send (without the CSI header)
+    ///
+    /// Example: Hide cursor
+    ///   keybind = ctrl+h=csi:?25l
     csi: []const u8,
 
-    /// Send an `ESC` sequence.
+    /// Send an ESC sequence.
+    ///
+    /// Arguments:
+    ///   - The ESC sequence to send
+    ///
+    /// Example: Save cursor position
+    ///   keybind = ctrl+e=esc:7
     esc: []const u8,
 
-    // Send the given text. Uses Zig string literal syntax. This is currently
-    // not validated. If the text is invalid (i.e. contains an invalid escape
-    // sequence), the error will currently only show up in logs.
+    /// Send text using string literal syntax. Invalid escape sequences will
+    /// show errors only in logs.
+    ///
+    /// Arguments:
+    ///   - The text to send (using string literal syntax)
+    ///
+    /// Example: Send greeting text
+    ///   keybind = ctrl+t=text:"Hello Ghostty!"
     text: []const u8,
 
-    /// Send data to the pty depending on whether cursor key mode is enabled
-    /// (`application`) or disabled (`normal`).
+    /// Send data to the pty based on cursor key mode setting.
+    ///
+    /// Arguments:
+    ///   - Mode: normal or application
+    ///
+    /// Example: Send normal cursor key
+    ///   keybind = up=cursor_key:normal
     cursor_key: CursorKey,
 
-    /// Reset the terminal. This can fix a lot of issues when a running
-    /// program puts the terminal into a broken state. This is equivalent to
-    /// when you type "reset" and press enter.
-    ///
-    /// If you do this while in a TUI program such as vim, this may break
-    /// the program. If you do this while in a shell, you may have to press
-    /// enter after to get a new prompt.
+    /// Reset the terminal to fix issues from broken program states.
+    /// Equivalent to typing "reset" and pressing enter.
+    /// Warning: May break TUI programs like vim. In shells, you may need
+    /// to press enter for a new prompt.
     reset: void,
 
-    /// Copy and paste.
+    /// Copy the current selection to the system clipboard.
     copy_to_clipboard: void,
+
+    /// Paste the contents of the system clipboard.
     paste_from_clipboard: void,
+
+    /// Paste the contents of the current selection.
     paste_from_selection: void,
 
-    /// Increase/decrease the font size by a certain amount.
+    /// Increase the font size by a specified amount.
+    ///
+    /// Arguments:
+    ///   - The amount to increase (1.0 = 100%)
+    ///
+    /// Example: Increase font size by 100%
+    ///   keybind = cmd+plus=increase_font_size:1.0
     increase_font_size: f32,
+
+    /// Decrease the font size by a specified amount.
+    ///
+    /// Arguments:
+    ///   - The amount to decrease (1.0 = 100%)
+    ///
+    /// Example: Decrease font size by 100%
+    ///   keybind = cmd+minus=decrease_font_size:1.0
     decrease_font_size: f32,
 
     /// Reset the font size to the original configured size.
     reset_font_size: void,
 
-    /// Clear the screen. This also clears all scrollback.
+    /// Clear the screen and all scrollback history.
     clear_screen: void,
 
-    /// Select all text on the screen.
+    /// Select all text in the terminal.
     select_all: void,
 
-    /// Scroll the screen varying amounts.
+    /// Move viewport to the top of the terminal history.
     scroll_to_top: void,
+
+    /// Move viewport to the bottom of the terminal history.
     scroll_to_bottom: void,
+
+    /// Move viewport up by one full page.
     scroll_page_up: void,
+
+    /// Move viewport down by one full page.
     scroll_page_down: void,
+
+    /// Scroll the viewport by a fraction of the page.
+    ///
+    /// Arguments:
+    ///   - The fraction of a page (positive = down, negative = up)
+    ///
+    /// Example: Scroll down half a page
+    ///   keybind = alt+j=scroll_page_fractional:0.5
     scroll_page_fractional: f32,
+
+    /// Scroll the viewport by a specific number of lines.
+    ///
+    /// Arguments:
+    ///   - Number of lines (positive = down, negative = up)
+    ///
+    /// Example: Scroll down 10 lines
+    ///   keybind = alt+k=scroll_page_lines:10
     scroll_page_lines: i16,
 
-    /// Adjust an existing selection in a given direction. This action
-    /// does nothing if there is no active selection.
+    /// Adjust the current selection in a specified direction. Does nothing
+    /// if no selection exists.
+    ///
+    /// Arguments:
+    ///   - Direction: left, right, up, down, page_up, page_down, home,
+    ///     end, beginning_of_line, end_of_line
+    ///
+    /// Example: Extend selection to the right
+    ///   keybind = shift+right=adjust_selection:right
     adjust_selection: AdjustSelection,
 
-    /// Jump the viewport forward or back by prompt. Positive number is the
-    /// number of prompts to jump forward, negative is backwards.
+    /// Navigate between shell prompts in the terminal history.
+    ///
+    /// Arguments:
+    ///   - Number of prompts (positive = forward, negative = backward)
+    ///
+    /// Example: Jump to previous prompt
+    ///   keybind = alt+up=jump_to_prompt:-1
     jump_to_prompt: i16,
 
-    /// Write the entire scrollback into a temporary file. The action
-    /// determines what to do with the filepath. Valid values are:
+    /// Write scrollback to a file and perform an action.
     ///
-    ///   - "paste": Paste the file path into the terminal.
-    ///   - "open": Open the file in the default OS editor for text files.
-    ///     The default OS editor is determined by using `open` on macOS
-    ///     and `xdg-open` on Linux.
+    /// Arguments:
+    ///   - Action: paste (paste filepath), open (open in default text editor using
+    ///     'open' on macOS or 'xdg-open' on Linux)
     ///
+    /// Example: Open scrollback in editor
+    ///   keybind = cmd+s=write_scrollback_file:open
     write_scrollback_file: WriteScreenAction,
 
-    /// Same as write_scrollback_file but writes the full screen contents.
-    /// See write_scrollback_file for available values.
+    /// Write current screen contents to a file and perform an action.
+    ///
+    /// Arguments:
+    ///   - Action: paste (paste filepath), open (open in default text editor using
+    ///     'open' on macOS or 'xdg-open' on Linux)
+    ///
+    /// Example: Paste screen contents filepath
+    ///   keybind = cmd+p=write_screen_file:paste
     write_screen_file: WriteScreenAction,
 
-    /// Same as write_scrollback_file but writes the selected text.
-    /// If there is no selected text this does nothing (it doesn't
-    /// even create an empty file). See write_scrollback_file for
-    /// available values.
+    /// Write selected text to a file and perform an action.
+    ///
+    /// Arguments:
+    ///   - Action: paste (paste filepath), open (open in default text editor using
+    ///     'open' on macOS or 'xdg-open' on Linux)
+    ///
+    /// Example: Open selection in editor
+    ///   keybind = cmd+shift+s=write_selection_file:open
     write_selection_file: WriteScreenAction,
 
-    /// Open a new window. If the application isn't currently focused,
-    /// this will bring it to the front.
+    /// Create a new window and bring application to front.
     new_window: void,
 
-    /// Open a new tab.
+    /// Create a new tab in the current window.
     new_tab: void,
 
-    /// Go to the previous tab.
+    /// Switch to the previous tab.
     previous_tab: void,
 
-    /// Go to the next tab.
+    /// Switch to the next tab.
     next_tab: void,
 
-    /// Go to the last tab (the one with the highest index)
+    /// Switch to the last tab (highest index).
     last_tab: void,
 
-    /// Go to the tab with the specific number, 1-indexed. If the tab number
-    /// is higher than the number of tabs, this will go to the last tab.
+    /// Switch to a specific tab by number.
+    ///
+    /// Arguments:
+    ///   - Tab number (1-based index). If the tab number is higher than the number
+    ///     of tabs, this will go to the last tab.
+    ///
+    /// Example: Switch to first tab
+    ///   keybind = cmd+1=goto_tab:1
     goto_tab: usize,
 
-    /// Moves a tab by a relative offset.
-    /// Adjusts the tab position based on `offset` (e.g., -1 for left, +1 for right).
-    /// If the new position is out of bounds, it wraps around cyclically within the tab range.
+    /// Move the current tab to a new position. Adjusts the tab position based on
+    /// the offset (e.g., -1 for left, +1 for right). If the new position is out
+    /// of bounds, it wraps around cyclically within the tab range.
+    ///
+    /// Arguments:
+    ///   - Position offset (negative = left, positive = right)
+    ///
+    /// Example: Move tab one position right
+    ///   keybind = cmd+shift+right=move_tab:1
     move_tab: isize,
 
-    /// Toggle the tab overview.
-    /// This only works with libadwaita enabled currently.
+    /// Toggle the tab overview (requires libadwaita).
     toggle_tab_overview: void,
 
-    /// Create a new split in the given direction. The new split will appear in
-    /// the direction given. For example `new_split:up`. Valid values are left, right, up, down and auto.
+    /// Create a new split terminal.
+    ///
+    /// Arguments:
+    ///   - Direction: right, down, left, up, or auto
+    ///
+    /// Example: Create split on the right
+    ///   keybind = cmd+shift+d=new_split:right
     new_split: SplitDirection,
 
-    /// Focus on a split in a given direction. For example `goto_split:top`. Valid values are top, bottom, left, right, previous and next.
+    /// Focus a split in a specified direction.
+    ///
+    /// Arguments:
+    ///   - Direction: top/up, bottom/down, left, right, previous, next
+    ///
+    /// Example: Focus split on the right
+    ///   keybind = cmd+right=goto_split:right
     goto_split: SplitFocusDirection,
 
-    /// zoom/unzoom the current split.
+    /// Toggle zoom state of the current split.
     toggle_split_zoom: void,
 
-    /// Resize the current split by moving the split divider in the given
-    /// direction. For example `resize_split:left,10`. The valid directions are up, down, left and right.
+    /// Resize the current split.
+    ///
+    /// Arguments:
+    ///   - Direction and pixels (separated by comma)
+    ///
+    /// Example: Move divider up 10 pixels
+    ///   keybind = cmd+shift+up=resize_split:up,10
     resize_split: SplitResizeParameter,
 
-    /// Equalize all splits in the current window
+    /// Make all splits equal size in the current window.
     equalize_splits: void,
 
-    /// Show, hide, or toggle the terminal inspector for the currently focused
-    /// terminal.
+    /// Control the terminal inspector visibility.
+    ///
+    /// Arguments:
+    ///   - Mode: toggle, show, or hide
+    ///
+    /// Example: Toggle inspector visibility
+    ///   keybind = cmd+i=inspector:toggle
     inspector: InspectorMode,
 
-    /// Open the configuration file in the default OS editor. If your default OS
-    /// editor isn't configured then this will fail. Currently, any failures to
-    /// open the configuration will show up only in the logs.
+    /// Open configuration file in the default OS editor.
+    /// Failures appear only in logs if editor isn't configured.
     open_config: void,
 
-    /// Reload the configuration. The exact meaning depends on the app runtime
-    /// in use but this usually involves re-reading the configuration file
-    /// and applying any changes. Note that not all changes can be applied at
-    /// runtime.
+    /// Reload configuration and apply changes where possible.
+    /// Some changes may require restart.
     reload_config: void,
 
-    /// Close the current "surface", whether that is a window, tab, split, etc.
-    /// This only closes ONE surface. This will trigger close confirmation as
-    /// configured.
+    /// Close the current surface (window, tab, or split).
+    /// Will trigger close confirmation if configured.
     close_surface: void,
 
-    /// Close the window, regardless of how many tabs or splits there may be.
-    /// This will trigger close confirmation as configured.
+    /// Close the entire window regardless of tabs/splits.
+    /// Will trigger close confirmation if configured.
     close_window: void,
 
-    /// Close all windows. This will trigger close confirmation as configured.
-    /// This only works for macOS currently.
+    /// Close all windows (macOS only).
+    /// Will trigger close confirmation if configured.
     close_all_windows: void,
 
-    /// Toggle fullscreen mode of window.
+    /// Toggle window fullscreen mode.
     toggle_fullscreen: void,
 
-    /// Toggle window decorations on and off. This only works on Linux.
+    /// Toggle window decorations (Linux only).
     toggle_window_decorations: void,
 
-    /// Toggle secure input mode on or off. This is used to prevent apps
-    /// that monitor input from seeing what you type. This is useful for
-    /// entering passwords or other sensitive information.
-    ///
-    /// This applies to the entire application, not just the focused
-    /// terminal. You must toggle it off to disable it, or quit Ghostty.
-    ///
-    /// This only works on macOS, since this is a system API on macOS.
+    /// Toggle secure input mode to prevent input monitoring.
+    /// Applies application-wide and requires manual disable.
+    /// Available on macOS only.
     toggle_secure_input: void,
 
-    /// Toggle the "quick" terminal. The quick terminal is a terminal that
-    /// appears on demand from a keybinding, often sliding in from a screen
-    /// edge such as the top. This is useful for quick access to a terminal
-    /// without having to open a new window or tab.
+    /// Toggle the quick terminal that appears on demand, sliding in from a screen
+    /// edge such as the top.
     ///
     /// When the quick terminal loses focus, it disappears. The terminal state
     /// is preserved between appearances, so you can always press the keybinding
@@ -401,17 +499,15 @@ pub const Action = union(enum) {
     /// See the various configurations for the quick terminal in the
     /// configuration file to customize its behavior.
     ///
-    /// This currently only works on macOS.
+    /// Available on macOS only.
     toggle_quick_terminal: void,
 
-    /// Show/hide all windows. If all windows become shown, we also ensure
-    /// Ghostty is focused.
-    ///
-    /// This currently only works on macOS. When hiding all windows, we do
-    /// not yield focus to the previous application.
+    /// Toggle visibility of all windows.
+    /// Shows and focuses Ghostty when showing windows.
+    /// Available on macOS only.
     toggle_visibility: void,
 
-    /// Quit ghostty.
+    /// Exit the application.
     quit: void,
 
     /// Crash ghostty in the desired thread for the focused surface.
@@ -422,12 +518,11 @@ pub const Action = union(enum) {
     /// users, it may be useful to test crash reporting functionality in
     /// order to determine if it all works as expected.
     ///
-    /// The value determines the crash location:
+    /// Arguments:
+    ///   - Thread: main (GUI thread), io (IO thread), or render (render thread)
     ///
-    ///   - "main" - crash on the main (GUI) thread.
-    ///   - "io" - crash on the IO thread for the focused surface.
-    ///   - "render" - crash on the render thread for the focused surface.
-    ///
+    /// Example: Crash main thread for testing
+    ///   keybind = ctrl+shift+c=crash:main
     crash: CrashThread,
 
     pub const Key = @typeInfo(Action).Union.tag_type.?;
