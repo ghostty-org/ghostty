@@ -68,7 +68,7 @@ terminal_stream: terminal.Stream(StreamHandler),
 
 /// Last time the cursor was reset. This is used to prevent message
 /// flooding with cursor resets.
-last_cursor_reset: ?std.time.Instant = null,
+last_cursor_reset: ?internal_os.Instant = null,
 
 /// The configuration for this IO that is derived from the main
 /// configuration. This must be exported so that we don't need to
@@ -569,7 +569,7 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
     // non-blink state so it is rendered if visible. If we're under
     // HEAVY read load, we don't want to send a ton of these so we
     // use a timer under the covers
-    if (std.time.Instant.now()) |now| cursor_reset: {
+    if (internal_os.Instant.now()) |now| cursor_reset: {
         if (self.last_cursor_reset) |last| {
             if (now.since(last) <= (500 * std.time.ns_per_ms)) {
                 break :cursor_reset;

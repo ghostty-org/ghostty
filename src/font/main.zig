@@ -33,6 +33,8 @@ comptime {
     if (builtin.target.isWasm()) {
         _ = Atlas.Wasm;
         _ = DeferredFace.Wasm;
+        _ = SharedGrid.Wasm;
+        _ = @import("Collection.zig").Wasm;
         _ = face.web_canvas.Wasm;
         _ = shape.web_canvas.Wasm;
     }

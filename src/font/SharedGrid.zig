@@ -316,6 +316,54 @@ const GlyphKey = struct {
 
 const TestMode = enum { normal };
 
+/// The wasm-compatible API.
+pub const Wasm = struct {
+    const wasm = @import("../os/wasm.zig");
+    const alloc = wasm.alloc;
+    export fn shared_grid_new(c: *Collection) ?*SharedGrid {
+        const result = alloc.create(SharedGrid) catch |err| {
+            log.warn("error creating SharedGrid err={}", .{err});
+            return null;
+        };
+        result.* = SharedGrid.init(wasm.alloc, .{ .collection = c.* }) catch |err| {
+            log.warn("error initializing SharedGrid err={}", .{err});
+            return null;
+        };
+        return result;
+    }
+    export fn shared_grid_atlas_grayscale(self: *SharedGrid) ?*Atlas {
+        return &self.atlas_grayscale;
+    }
+    export fn shared_grid_atlas_color(self: *SharedGrid) ?*Atlas {
+        return &self.atlas_color;
+    }
+    export fn shared_grid_index_for_codepoint(self: *SharedGrid, code: u32, style: u8, presentation: i8) ?*Collection.Index {
+        const get = self.getIndex(wasm.alloc, code, @enumFromInt(style), if (presentation < 0) null else @enumFromInt(presentation)) catch |err| {
+            log.warn("error getting SharedGrid index for codepoint err={}", .{err});
+            return null;
+        };
+        if (get) |thing| {
+            const index = wasm.alloc.create(Collection.Index) catch unreachable;
+            index.* = thing;
+            return index;
+        }
+        return null;
+    }
+
+    export fn shared_grid_render_glyph(self: *SharedGrid, font_idx: *Collection.Index, code: u32, _: u8) void {
+        const glyph_index = glyph_index: {
+            if (font_idx.special()) |special| break :glyph_index switch (special) {
+                .sprite => code,
+            };
+            self.lock.lockShared();
+            defer self.lock.unlockShared();
+            const face = self.resolver.collection.getFace(font_idx.*) catch unreachable;
+            break :glyph_index face.glyphIndex(code) orelse return;
+        };
+        _ = self.renderGlyph(wasm.alloc, font_idx.*, glyph_index, .{}) catch unreachable;
+    }
+};
+
 fn testGrid(mode: TestMode, alloc: Allocator, lib: Library) !SharedGrid {
     const testFont = font.embedded.regular;
 

@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const ziglyph = @import("ziglyph");
 const font = @import("../main.zig");
 const terminal = @import("../../terminal/main.zig");
+const SharedGrid = font.SharedGrid;
 
 const log = std.log.scoped(.font_shaper);
 
@@ -30,19 +31,19 @@ pub const Shaper = struct {
     alloc: Allocator,
 
     /// The shared memory used for shaping results.
-    cell_buf: []font.shape.Cell,
+    cell_buf: std.ArrayListUnmanaged(font.shape.Cell),
 
     /// The shared memory used for storing information about a run.
     run_buf: RunBuf,
 
     /// The cell_buf argument is the buffer to use for storing shaped results.
     /// This should be at least the number of columns in the terminal.
-    pub fn init(alloc: Allocator, opts: font.shape.Options) !Shaper {
+    pub fn init(alloc: Allocator, _: font.shape.Options) !Shaper {
         // Note: we do not support opts.font_features
 
         return Shaper{
             .alloc = alloc,
-            .cell_buf = opts.cell_buf,
+            .cell_buf = .{},
             .run_buf = .{},
         };
     }
@@ -61,14 +62,16 @@ pub const Shaper = struct {
     /// for a Shaper struct since they share state.
     pub fn runIterator(
         self: *Shaper,
-        group: *font.GroupCache,
-        row: terminal.Screen.Row,
+        grid: *SharedGrid,
+        screen: *const terminal.Screen,
+        row: terminal.Pin,
         selection: ?terminal.Selection,
         cursor_x: ?usize,
     ) font.shape.RunIterator {
         return .{
             .hooks = .{ .shaper = self },
-            .group = group,
+            .grid = grid,
+            .screen = screen,
             .row = row,
             .selection = selection,
             .cursor_x = cursor_x,
@@ -90,21 +93,22 @@ pub const Shaper = struct {
         const clusters = self.run_buf.items(.cluster);
         assert(codepoints.len == clusters.len);
 
+        self.cell_buf.clearRetainingCapacity();
         switch (codepoints.len) {
             // Special cases: if we have no codepoints (is this possible?)
             // then our result is also an empty cell run.
-            0 => return self.cell_buf[0..0],
+            0 => return self.cell_buf.items[0..0],
 
             // If we have only 1 codepoint, then we assume that it is
             // a single grapheme and just let it through. At this point,
             // we can't have any more information to do anything else.
             1 => {
-                self.cell_buf[0] = .{
+                try self.cell_buf.append(self.alloc, .{
                     .x = @intCast(clusters[0]),
                     .glyph_index = codepoints[0],
-                };
+                });
 
-                return self.cell_buf[0..1];
+                return self.cell_buf.items[0..1];
             },
 
             else => {},
@@ -151,10 +155,10 @@ pub const Shaper = struct {
             switch (len) {
                 // If we have only a single codepoint then just render it
                 // as-is.
-                1 => self.cell_buf[cur] = .{
+                1 => try self.cell_buf.append(self.alloc, .{
                     .x = @intCast(clusters[start]),
                     .glyph_index = codepoints[start],
-                },
+                }),
 
                 // We must have multiple codepoints (see assert above). In
                 // this case we UTF-8 encode the codepoints and send them
@@ -190,13 +194,13 @@ pub const Shaper = struct {
                     };
                     defer self.alloc.free(cluster);
 
-                    var face = try run.group.group.faceFromIndex(run.font_index);
+                    var face = try run.grid.resolver.collection.getFace(run.font_index);
                     const index = try face.graphemeGlyphIndex(cluster);
 
-                    self.cell_buf[cur] = .{
+                    try self.cell_buf.append(self.alloc, .{
                         .x = @intCast(clusters[start]),
                         .glyph_index = index,
-                    };
+                    });
                 },
             }
 
@@ -204,7 +208,7 @@ pub const Shaper = struct {
             cur += 1;
         }
 
-        return self.cell_buf[0..cur];
+        return self.cell_buf.items[0..cur];
     }
 
     /// The hooks for RunIterator.
@@ -238,15 +242,12 @@ pub const Wasm = struct {
     const wasm = @import("../../os/wasm.zig");
     const alloc = wasm.alloc;
 
-    export fn shaper_new(cap: usize) ?*Shaper {
-        return shaper_new_(cap) catch null;
+    export fn shaper_new() ?*Shaper {
+        return shaper_new_() catch null;
     }
 
-    fn shaper_new_(cap: usize) !*Shaper {
-        const cell_buf = try alloc.alloc(font.shape.Cell, cap);
-        errdefer alloc.free(cell_buf);
-
-        var shaper = try Shaper.init(alloc, .{ .cell_buf = cell_buf });
+    fn shaper_new_() !*Shaper {
+        var shaper = try Shaper.init(alloc, .{});
         errdefer shaper.deinit();
 
         const result = try alloc.create(Shaper);
@@ -257,7 +258,6 @@ pub const Wasm = struct {
 
     export fn shaper_free(ptr: ?*Shaper) void {
         if (ptr) |v| {
-            alloc.free(v.cell_buf);
             v.deinit();
             alloc.destroy(v);
         }
@@ -266,45 +266,130 @@ pub const Wasm = struct {
     /// Runs a test to verify shaping works properly.
     export fn shaper_test(
         self: *Shaper,
-        group: *font.GroupCache,
+        grid: *SharedGrid,
         str: [*]const u8,
         len: usize,
     ) void {
-        shaper_test_(self, group, str[0..len]) catch |err| {
+        shaper_test_(self, grid, str[0..len]) catch |err| {
             log.warn("error during shaper test err={}", .{err});
         };
     }
+    const js = @import("zig-js");
 
-    fn shaper_test_(self: *Shaper, group: *font.GroupCache, str: []const u8) !void {
-        // Create a terminal and print all our characters into it.
-        var term = try terminal.Terminal.init(alloc, self.cell_buf.len, 80);
+    fn createImageData(self: *font.Atlas) !js.Object {
+        // We need to draw pixels so this is format dependent.
+        const buf: []u8 = switch (self.format) {
+            // RGBA is the native ImageData format
+            .rgba => self.data,
+
+            .grayscale => buf: {
+                // Convert from A8 to RGBA so every 4th byte is set to a value.
+                var buf: []u8 = try alloc.alloc(u8, self.data.len * 4);
+                errdefer alloc.free(buf);
+                @memset(buf, 0);
+                for (self.data, 0..) |value, i| {
+                    buf[(i * 4) + 3] = value;
+                }
+                break :buf buf;
+            },
+
+            else => return error.UnsupportedAtlasFormat,
+        };
+        defer if (buf.ptr != self.data.ptr) alloc.free(buf);
+
+        // Create an ImageData from our buffer and then write it to the canvas
+        const image_data: js.Object = data: {
+            // Get our runtime memory
+            const mem = try js.runtime.get(js.Object, "memory");
+            defer mem.deinit();
+            const mem_buf = try mem.get(js.Object, "buffer");
+            defer mem_buf.deinit();
+
+            // Create an array that points to our buffer
+            const arr = arr: {
+                const Uint8ClampedArray = try js.global.get(js.Object, "Uint8ClampedArray");
+                defer Uint8ClampedArray.deinit();
+                const arr = try Uint8ClampedArray.new(.{ mem_buf, buf.ptr, buf.len });
+                if (!wasm.shared_mem) break :arr arr;
+
+                // If we're sharing memory then we have to copy the data since
+                // we can't set ImageData directly using a SharedArrayBuffer.
+                defer arr.deinit();
+                break :arr try arr.call(js.Object, "slice", .{});
+            };
+            defer arr.deinit();
+
+            // Create the image data from our array
+            const ImageData = try js.global.get(js.Object, "ImageData");
+            defer ImageData.deinit();
+            const data = try ImageData.new(.{ arr, self.size, self.size });
+            errdefer data.deinit();
+
+            break :data data;
+        };
+
+        return image_data;
+    }
+
+    fn shaper_test_(self: *Shaper, grid: *SharedGrid, str: []const u8) !void {
+        // Make a screen with some data
+        var term = try terminal.Terminal.init(alloc, .{ .cols = 20, .rows = 5 });
         defer term.deinit(alloc);
+        try term.printString(str);
 
-        // Iterate over unicode codepoints and add to terminal
-        {
-            const view = try std.unicode.Utf8View.init(str);
-            var iter = view.iterator();
-            while (iter.nextCodepoint()) |c| {
-                try term.print(c);
+        // Get our run iterator
+
+        var row_it = term.screen.pages.rowIterator(.right_down, .{ .viewport = .{} }, null);
+        var y: usize = 0;
+        const Render = struct {
+            render: SharedGrid.Render,
+            y: usize,
+            x: usize,
+        };
+        var cell_list: std.ArrayListUnmanaged(Render) = .{};
+        defer cell_list.deinit(wasm.alloc);
+        while (row_it.next()) |row| {
+            defer y += 1;
+            var it = self.runIterator(grid, &term.screen, row, null, null);
+            while (try it.next(alloc)) |run| {
+                const cells = try self.shape(run);
+                for (cells) |cell| {
+                    const render = try grid.renderGlyph(wasm.alloc, run.font_index, cell.glyph_index, .{});
+                    try cell_list.append(wasm.alloc, .{ .render = render, .x = cell.x, .y = y });
+
+                    log.info("y={} x={} width={} height={} ax={} ay={} base={}", .{
+                        y * grid.metrics.cell_height,
+                        cell.x * grid.metrics.cell_width,
+                        render.glyph.width,
+                        render.glyph.height,
+                        render.glyph.atlas_x,
+                        render.glyph.atlas_y,
+                        grid.metrics.cell_baseline,
+                    });
+                }
             }
         }
+        const colour_data = try createImageData(&grid.atlas_color);
+        const gray_data = try createImageData(&grid.atlas_grayscale);
 
-        // Iterate over the rows and print out all the runs we get.
-        var rowIter = term.screen.rowIterator(.viewport);
-        var y: usize = 0;
-        while (rowIter.next()) |row| {
-            defer y += 1;
-
-            var iter = self.runIterator(group, row, null, null);
-            while (try iter.next(alloc)) |run| {
-                const cells = try self.shape(run);
-                log.info("y={} run={d} shape={any} idx={}", .{
-                    y,
-                    run.cells,
-                    cells,
-                    run.font_index,
-                });
-            }
+        const doc = try js.global.get(js.Object, "document");
+        defer doc.deinit();
+        const canvas = try doc.call(js.Object, "getElementById", .{js.string("shaper-canvas")});
+        errdefer canvas.deinit();
+        const ctx = try canvas.call(js.Object, "getContext", .{js.string("2d")});
+        defer ctx.deinit();
+        for (cell_list.items) |cell| {
+            const x_start = -@as(isize, @intCast(cell.render.glyph.atlas_x));
+            const y_start = -@as(isize, @intCast(cell.render.glyph.atlas_y));
+            try ctx.call(void, "putImageData", .{
+                if (cell.render.presentation == .emoji) colour_data else gray_data,
+                x_start + @as(isize, @intCast(cell.x * grid.metrics.cell_width)) + cell.render.glyph.offset_x,
+                y_start + @as(isize, @intCast((cell.y + 1) * grid.metrics.cell_height)) - cell.render.glyph.offset_y,
+                cell.render.glyph.atlas_x,
+                cell.render.glyph.atlas_y,
+                cell.render.glyph.width,
+                cell.render.glyph.height,
+            });
         }
     }
 };

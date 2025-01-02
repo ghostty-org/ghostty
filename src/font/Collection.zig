@@ -659,6 +659,27 @@ pub const Index = packed struct(Index.Backing) {
     }
 };
 
+/// The wasm-compatible API.
+pub const Wasm = struct {
+    const wasm = @import("../os/wasm.zig");
+    const alloc = wasm.alloc;
+    export fn collection_new(points: f32) ?*Collection {
+        const result = alloc.create(Collection) catch |err| {
+            log.warn("error creating collection err={}", .{err});
+            return null;
+        };
+        result.* = Collection.init();
+        result.load_options = .{ .library = Library.init() catch unreachable, .size = .{ .points = points } };
+        return result;
+    }
+    export fn collection_add_deferred_face(self: *Collection, style: u8, face: *DeferredFace) u16 {
+        return @bitCast(self.add(alloc, @enumFromInt(style), .{ .deferred = face.* }) catch |err| {
+            log.warn("error adding deferred face to collection err={}", .{err});
+            return 0;
+        });
+    }
+};
+
 test init {
     const testing = std.testing;
     const alloc = testing.allocator;

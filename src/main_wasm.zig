@@ -11,16 +11,17 @@ comptime {
     _ = @import("App.zig").Wasm;
 }
 
-pub const std_options = struct {
+pub const std_options: std.Options = .{
     // Set our log level. We try to get as much logging as possible but in
     // ReleaseSmall mode where we're optimizing for space, we elevate the
     // log level.
-    pub const log_level: std.log.Level = switch (builtin.mode) {
-        .Debug => .debug,
-        .ReleaseSmall => .warn,
-        else => .info,
-    };
+    // .log_level = switch (builtin.mode) {
+    //     .Debug => .debug,
+    //     .ReleaseSmall => .warn,
+    //     else => .info,
+    // },
+    .log_level = .info,
 
     // Set our log function
-    pub const logFn = @import("os/wasm/log.zig").log;
+    .logFn = @import("os/wasm/log.zig").log,
 };

@@ -320,7 +320,7 @@ pub const Page = struct {
     /// when runtime safety is enabled. This is a no-op when runtime
     /// safety is disabled. This uses the libc allocator.
     pub fn assertIntegrity(self: *const Page) void {
-        if (comptime build_config.slow_runtime_safety) {
+        if (comptime build_config.slow_runtime_safety and builtin.cpu.arch != .wasm32) {
             self.verifyIntegrity(std.heap.c_allocator) catch |err| {
                 log.err("page integrity violation, crashing. err={}", .{err});
                 @panic("page integrity violation");

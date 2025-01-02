@@ -1279,7 +1279,7 @@ pub fn LineIterator(comptime ReaderType: type) type {
 }
 
 // Constructs a LineIterator (see docs for that).
-fn lineIterator(reader: anytype) LineIterator(@TypeOf(reader)) {
+pub fn lineIterator(reader: anytype) LineIterator(@TypeOf(reader)) {
     return .{ .r = reader };
 }
 

@@ -39,7 +39,7 @@ pub const Location = enum {
                     // error set since some platforms don't support some
                     // error types.
                     const Error = @TypeOf(err) || switch (builtin.os.tag) {
-                        .ios => error{BufferTooSmall},
+                        .ios, .wasi => error{BufferTooSmall},
                         else => error{},
                     };
 

@@ -102,7 +102,7 @@ pub fn threadEnter(
     };
 
     // Track our process start time for abnormal exits
-    const process_start = try std.time.Instant.now();
+    const process_start = try internal_os.Instant.now();
 
     // Create our pipe that we'll use to kill our read thread.
     // pipe[0] is the read end, pipe[1] is the write end.
@@ -345,7 +345,7 @@ fn processExit(
 
     // Determine how long the process was running for.
     const runtime_ms: ?u64 = runtime: {
-        const process_end = std.time.Instant.now() catch break :runtime null;
+        const process_end = internal_os.Instant.now() catch break :runtime null;
         const runtime_ns = process_end.since(execdata.start);
         const runtime_ms = runtime_ns / std.time.ns_per_ms;
         break :runtime runtime_ms;
@@ -603,7 +603,7 @@ pub const ThreadData = struct {
     const WRITE_REQ_PREALLOC = std.math.pow(usize, 2, 5);
 
     /// Process start time and boolean of whether its already exited.
-    start: std.time.Instant,
+    start: internal_os.Instant,
     exited: bool = false,
 
     /// The number of milliseconds below which we consider a process

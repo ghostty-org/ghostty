@@ -346,7 +346,7 @@ pub const LoadingImage = struct {
         }
 
         // Set our time
-        self.image.transmit_time = std.time.Instant.now() catch |err| {
+        self.image.transmit_time = internal_os.Instant.now() catch |err| {
             log.warn("failed to get time: {}", .{err});
             return error.InternalError;
         };
@@ -453,7 +453,7 @@ pub const Image = struct {
     format: command.Transmission.Format = .rgb,
     compression: command.Transmission.Compression = .none,
     data: []const u8 = "",
-    transmit_time: std.time.Instant = undefined,
+    transmit_time: internal_os.Instant = undefined,
 
     /// Set this to true if this image was loaded by a command that
     /// doesn't specify an ID or number, since such commands should
