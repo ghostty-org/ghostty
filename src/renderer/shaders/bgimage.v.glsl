@@ -6,18 +6,14 @@ const uint MODE_TILED = 2u;
 const uint MODE_CENTERED = 3u;
 
 layout (location = 0) in vec2 terminal_size;
-layout (location = 1) in uint mode_in;
+layout (location = 1) in uint mode;
 
 out vec2 tex_coord;
-flat out uint mode;
 
 uniform sampler2D image;
 uniform mat4 projection;
 
 void main() {
-	// Set mode so that we can use it in the fragment shader
-	mode = mode_in;
-
 	// Calculate the position of the image
 	vec2 position;
 	position.x = (gl_VertexID == 0 || gl_VertexID == 1) ? 1. : 0.;
