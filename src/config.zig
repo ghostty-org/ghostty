@@ -28,8 +28,10 @@ pub const RepeatableCodepointMap = Config.RepeatableCodepointMap;
 pub const RepeatableFontVariation = Config.RepeatableFontVariation;
 pub const RepeatableString = Config.RepeatableString;
 pub const RepeatablePath = Config.RepeatablePath;
+pub const SinglePath = Config.SinglePath;
 pub const ShellIntegrationFeatures = Config.ShellIntegrationFeatures;
 pub const WindowPaddingColor = Config.WindowPaddingColor;
+pub const BackgroundImageMode = Config.BackgroundImageMode;
 
 // Alternate APIs
 pub const CAPI = @import("config/CAPI.zig");

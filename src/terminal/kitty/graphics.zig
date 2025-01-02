@@ -24,7 +24,6 @@ const storage = @import("graphics_storage.zig");
 pub const unicode = @import("graphics_unicode.zig");
 pub const Command = command.Command;
 pub const CommandParser = command.Parser;
-pub const LoadingImage = image.LoadingImage;
 pub const Image = image.Image;
 pub const ImageStorage = storage.ImageStorage;
 pub const RenderPlacement = render.Placement;
