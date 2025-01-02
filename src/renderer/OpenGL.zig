@@ -828,7 +828,7 @@ pub fn updateFrame(
         }
 
         if (self.current_background_image == null and
-            self.background_image.value.len > 0)
+            self.background_image.value != null)
         {
             if (single_threaded_draw) self.draw_mutex.lock();
             defer if (single_threaded_draw) self.draw_mutex.unlock();
@@ -1208,8 +1208,7 @@ fn prepKittyImage(
 /// Prepares the current background image for upload
 pub fn prepBackgroundImage(self: *OpenGL) !void {
     // If the user doesn't have a background image, do nothing...
-    if (self.background_image.value.len == 0) return;
-    const path = self.background_image.value;
+    const path = self.background_image.value orelse return;
 
     // Read the file content
     const file_content = try self.readImageContent(path);
@@ -1234,8 +1233,9 @@ pub fn prepBackgroundImage(self: *OpenGL) !void {
 
 /// Reads the content of the given image path and returns it
 pub fn readImageContent(self: *OpenGL, path: []const u8) ![]u8 {
+    assert(std.fs.path.isAbsolute(path));
     // Open the file
-    var file = std.fs.cwd().openFile(path, .{}) catch |err| {
+    var file = std.fs.openFileAbsolute(path, .{}) catch |err| {
         log.warn("failed to open file: {}", .{err});
         return error.InvalidData;
     };
@@ -1258,13 +1258,12 @@ pub fn readImageContent(self: *OpenGL, path: []const u8) ![]u8 {
     // Read the file
     var managed = std.ArrayList(u8).init(self.alloc);
     errdefer managed.deinit();
-    const size: usize = max_image_size;
-    reader.readAllArrayList(&managed, size) catch |err| {
+    reader.readAllArrayList(&managed, max_image_size) catch |err| {
         log.warn("failed to read file: {}", .{err});
         return error.InvalidData;
     };
 
-    return managed.items;
+    return managed.toOwnedSlice();
 }
 
 /// rebuildCells rebuilds all the GPU cells from our CPU state. This is a
