@@ -14,6 +14,9 @@ pub const c = @cImport({
         // Xkb for X11 state handling
         @cInclude("X11/XKBlib.h");
     }
+    if (build_options.wayland) {
+        @cInclude("gdk/wayland/gdkwayland.h");
+    }
 
     // generated header files
     @cInclude("ghostty_resources.h");

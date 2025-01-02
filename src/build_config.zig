@@ -23,6 +23,7 @@ pub const BuildConfig = struct {
     flatpak: bool = false,
     adwaita: bool = false,
     x11: bool = false,
+    wayland: bool = false,
     app_runtime: apprt.Runtime = .none,
     renderer: rendererpkg.Impl = .opengl,
     font_backend: font.Backend = .freetype,
@@ -43,6 +44,7 @@ pub const BuildConfig = struct {
         step.addOption(bool, "flatpak", self.flatpak);
         step.addOption(bool, "adwaita", self.adwaita);
         step.addOption(bool, "x11", self.x11);
+        step.addOption(bool, "wayland", self.wayland);
         step.addOption(apprt.Runtime, "app_runtime", self.app_runtime);
         step.addOption(font.Backend, "font_backend", self.font_backend);
         step.addOption(rendererpkg.Impl, "renderer", self.renderer);

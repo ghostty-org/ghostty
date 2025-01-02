@@ -51,6 +51,9 @@
   pandoc,
   hyperfine,
   typos,
+  wayland,
+  wayland-scanner,
+  wayland-protocols,
 }: let
   # See package.nix. Keep in sync.
   rpathLibs =
@@ -80,6 +83,7 @@
       libadwaita
       gtk4
       glib
+      wayland
     ];
 in
   mkShell {
@@ -153,6 +157,9 @@ in
         libadwaita
         gtk4
         glib
+        wayland
+        wayland-scanner
+        wayland-protocols
       ];
 
     # This should be set onto the rpath of the ghostty binary if you want

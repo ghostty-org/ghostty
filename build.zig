@@ -24,6 +24,8 @@ const XCFrameworkStep = @import("src/build/XCFrameworkStep.zig");
 const Version = @import("src/build/Version.zig");
 const Command = @import("src/Command.zig");
 
+const Scanner = @import("zig_wayland").Scanner;
+
 comptime {
     // This is the required Zig version for building this project. We allow
     // any patch version but the major and minor must match exactly.
@@ -105,13 +107,10 @@ pub fn build(b: *std.Build) !void {
         "Enables the use of Adwaita when using the GTK rendering backend.",
     ) orelse true;
 
-    config.x11 = b.option(
-        bool,
-        "gtk-x11",
-        "Enables linking against X11 libraries when using the GTK rendering backend.",
-    ) orelse x11: {
-        if (target.result.os.tag != .linux) break :x11 false;
+    var x11 = false;
+    var wayland = false;
 
+    if (target.result.os.tag == .linux) {
         var pkgconfig = std.process.Child.init(&.{ "pkg-config", "--variable=targets", "gtk4" }, b.allocator);
 
         pkgconfig.stdout_behavior = .Pipe;
@@ -139,18 +138,31 @@ pub fn build(b: *std.Build) !void {
         switch (term) {
             .Exited => |code| {
                 if (code == 0) {
-                    if (std.mem.indexOf(u8, stdout.items, "x11")) |_| break :x11 true;
-                    break :x11 false;
+                    if (std.mem.indexOf(u8, stdout.items, "x11")) |_| x11 = true;
+                    if (std.mem.indexOf(u8, stdout.items, "wayland")) |_| wayland = true;
+                } else {
+                    std.log.warn("pkg-config: {s} with code {d}", .{ @tagName(term), code });
+                    return error.Unexpected;
                 }
-                std.log.warn("pkg-config: {s} with code {d}", .{ @tagName(term), code });
-                return error.Unexpected;
             },
             inline else => |code| {
                 std.log.warn("pkg-config: {s} with code {d}", .{ @tagName(term), code });
                 return error.Unexpected;
             },
         }
-    };
+    }
+
+    config.x11 = b.option(
+        bool,
+        "gtk-x11",
+        "Enables linking against X11 libraries when using the GTK rendering backend.",
+    ) orelse x11;
+
+    config.wayland = b.option(
+        bool,
+        "gtk-wayland",
+        "Enables linking against Wayland libraries when using the GTK rendering backend.",
+    ) orelse wayland;
 
     const pie = b.option(
         bool,
@@ -1434,6 +1446,15 @@ fn addDeps(
                 step.linkSystemLibrary2("gtk4", dynamic_link_opts);
                 if (config.adwaita) step.linkSystemLibrary2("adwaita-1", dynamic_link_opts);
                 if (config.x11) step.linkSystemLibrary2("X11", dynamic_link_opts);
+
+                if (config.wayland) {
+                    const scanner = Scanner.create(b, .{});
+
+                    const wayland = b.createModule(.{ .root_source_file = scanner.result });
+
+                    step.root_module.addImport("wayland", wayland);
+                    step.linkSystemLibrary2("wayland-client", dynamic_link_opts);
+                }
 
                 {
                     const gresource = @import("src/apprt/gtk/gresource.zig");
