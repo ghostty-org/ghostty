@@ -85,3 +85,30 @@ pub fn desktopEnvironment() DesktopEnvironment {
         else => .other,
     };
 }
+
+pub const DisplayType = enum {
+    macos,
+    other,
+    wayland,
+    windows,
+    x11,
+};
+
+/// Detect what desktop environment we are running under. This is mainly used on
+/// Linux to enable or disable GTK client-side decorations but there may be more
+/// uses in the future.
+pub fn displayType() DisplayType {
+    return switch (comptime builtin.os.tag) {
+        .macos => .macos,
+        .windows => .windows,
+        .linux => dt: {
+            if (@inComptime()) @compileError("Checking for the display type on Linux must be done at runtime.");
+            // use $XDG_SESSION_TYPE to determine what display type we are using on Linux
+            const dt = posix.getenv("XDG_SESSION_TYPE") orelse break :dt .other;
+            if (std.ascii.eqlIgnoreCase("wayland", dt)) break :dt .wayland;
+            if (std.ascii.eqlIgnoreCase("x11", dt)) break :dt .x11;
+            break :dt .other;
+        },
+        else => .other,
+    };
+}
