@@ -56,7 +56,7 @@ pub fn build(b: *std.Build) !void {
     }
 }
 
-pub fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Build.Step.Compile {
+fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Build.Step.Compile {
     const target = options.target;
     const optimize = options.optimize;
 
@@ -186,7 +186,7 @@ pub fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*st
     _ = b.systemIntegrationOption("freetype", .{}); // So it shows up in help
     if (freetype_enabled) {
         if (b.systemIntegrationOption("freetype", .{})) {
-            lib.linkSystemLibrary2("freetype", dynamic_link_opts);
+            lib.linkSystemLibrary2("freetype2", dynamic_link_opts);
         } else {
             const freetype_dep = b.dependency(
                 "freetype",

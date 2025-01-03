@@ -5,7 +5,61 @@ pub fn build(b: *std.Build) !void {
     const optimize = b.standardOptimizeOption(.{});
     const libpng_enabled = b.option(bool, "enable-libpng", "Build libpng") orelse false;
 
-    const module = b.addModule("freetype", .{ .root_source_file = b.path("main.zig") });
+    const module = b.addModule("freetype", .{
+        .root_source_file = b.path("main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // For dynamic linking, we prefer dynamic linking and to search by
+    // mode first. Mode first will search all paths for a dynamic library
+    // before falling back to static.
+    const dynamic_link_opts: std.Build.Module.LinkSystemLibraryOptions = .{
+        .preferred_link_mode = .dynamic,
+        .search_strategy = .mode_first,
+    };
+
+    var test_exe: ?*std.Build.Step.Compile = null;
+    if (target.query.isNative()) {
+        test_exe = b.addTest(.{
+            .name = "test",
+            .root_source_file = b.path("main.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        const tests_run = b.addRunArtifact(test_exe.?);
+        const test_step = b.step("test", "Run tests");
+        test_step.dependOn(&tests_run.step);
+    }
+
+    module.addIncludePath(b.path(""));
+
+    if (b.systemIntegrationOption("freetype", .{})) {
+        module.linkSystemLibrary("freetype2", dynamic_link_opts);
+        if (test_exe) |exe| {
+            exe.linkSystemLibrary2("freetype2", dynamic_link_opts);
+        }
+    } else {
+        const lib = try buildLib(b, module, .{
+            .target = target,
+            .optimize = optimize,
+
+            .libpng_enabled = libpng_enabled,
+
+            .dynamic_link_opts = dynamic_link_opts,
+        });
+
+        if (test_exe) |exe| {
+            exe.linkLibrary(lib);
+        }
+    }
+}
+
+fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Build.Step.Compile {
+    const target = options.target;
+    const optimize = options.optimize;
+
+    const libpng_enabled = options.libpng_enabled;
 
     const upstream = b.dependency("freetype", .{});
     const lib = b.addStaticLibrary(.{
@@ -21,16 +75,6 @@ pub fn build(b: *std.Build) !void {
     }
 
     module.addIncludePath(upstream.path("include"));
-    module.addIncludePath(b.path(""));
-
-    // For dynamic linking, we prefer dynamic linking and to search by
-    // mode first. Mode first will search all paths for a dynamic library
-    // before falling back to static.
-    const dynamic_link_opts: std.Build.Module.LinkSystemLibraryOptions = .{
-        .preferred_link_mode = .dynamic,
-        .search_strategy = .mode_first,
-    };
-
     var flags = std.ArrayList([]const u8).init(b.allocator);
     defer flags.deinit();
     try flags.appendSlice(&.{
@@ -43,6 +87,8 @@ pub fn build(b: *std.Build) !void {
 
         "-fno-sanitize=undefined",
     });
+
+    const dynamic_link_opts = options.dynamic_link_opts;
 
     // Zlib
     if (b.systemIntegrationOption("zlib", .{})) {
@@ -113,18 +159,7 @@ pub fn build(b: *std.Build) !void {
 
     b.installArtifact(lib);
 
-    if (target.query.isNative()) {
-        const test_exe = b.addTest(.{
-            .name = "test",
-            .root_source_file = b.path("main.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        test_exe.linkLibrary(lib);
-        const tests_run = b.addRunArtifact(test_exe);
-        const test_step = b.step("test", "Run tests");
-        test_step.dependOn(&tests_run.step);
-    }
+    return lib;
 }
 
 const srcs: []const []const u8 = &.{

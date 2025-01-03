@@ -53,7 +53,7 @@ pub fn build(b: *std.Build) !void {
     }
 }
 
-pub fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Build.Step.Compile {
+fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Build.Step.Compile {
     const target = options.target;
     const optimize = options.optimize;
 
