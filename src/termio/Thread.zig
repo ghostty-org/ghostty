@@ -470,9 +470,26 @@ fn selectionScrollCallback(
     const cb = cb_ orelse return .disarm;
     const surface = cb.io.surface_mailbox.surface;
     const pos = try surface.rt_surface.getCursorPos();
+    const pos_vp = surface.posToViewport(pos.x, pos.y);
+    const screen = &cb.io.renderer_state.terminal.screen;
     const delta: isize = if (pos.y < 0) -1 else 1;
 
     try cb.io.terminal.scrollViewport(.{ .delta = delta });
+
+    // Always the case, but doesn't hurt to check
+    if (surface.mouse.left_click_count == 1) {
+        const pin = screen.pages.pin(.{
+            .viewport = .{
+                .x = pos_vp.x,
+                .y = pos_vp.y,
+            },
+        }) orelse {
+            if (comptime std.debug.runtime_safety) unreachable;
+            return .rearm;
+        };
+
+        surface.dragLeftClickSingle(pin, pos.x) catch {};
+    }
 
     // Notify the renderer that it should repaint immediately after scrolling
     cb.io.renderer_wakeup.notify() catch {};
