@@ -355,6 +355,11 @@ pub const Action = union(enum) {
     /// configured.
     close_surface: void,
 
+    /// Close the current tab, regardless of how many splits there may be.
+    /// This will trigger close confirmation as configured.
+    /// This only works on macOS currently.
+    close_tab: void,
+
     /// Close the window, regardless of how many tabs or splits there may be.
     /// This will trigger close confirmation as configured.
     close_window: void,
@@ -706,6 +711,7 @@ pub const Action = union(enum) {
             .write_screen_file,
             .write_selection_file,
             .close_surface,
+            .close_tab,
             .close_window,
             .toggle_fullscreen,
             .toggle_window_decorations,

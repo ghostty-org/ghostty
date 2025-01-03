@@ -2585,6 +2585,11 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
         );
         try result.keybind.set.put(
             alloc,
+            .{ .key = .{ .translated = .w }, .mods = .{ .super = true, .alt = true } },
+            .{ .close_tab = {} },
+        );
+        try result.keybind.set.put(
+            alloc,
             .{ .key = .{ .translated = .w }, .mods = .{ .super = true, .shift = true } },
             .{ .close_window = {} },
         );
