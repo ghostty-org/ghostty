@@ -5,55 +5,56 @@ import GhosttyKit
 
 extension Ghostty {
     /// The NSView implementation for a terminal surface.
-    class SurfaceView: OSView, ObservableObject {
+    @Observable
+    class SurfaceView: OSView {
         /// Unique ID per surface
         let uuid: UUID
 
         // The current title of the surface as defined by the pty. This can be
         // changed with escape codes. This is public because the callbacks go
         // to the app level and it is set from there.
-        @Published private(set) var title: String = "👻"
+        private(set) var title: String = "👻"
 
         // The current pwd of the surface as defined by the pty. This can be
         // changed with escape codes.
-        @Published var pwd: String? = nil
+        var pwd: String? = nil
 
         // The cell size of this surface. This is set by the core when the
         // surface is first created and any time the cell size changes (i.e.
         // when the font size changes). This is used to allow windows to be
         // resized in discrete steps of a single cell.
-        @Published var cellSize: NSSize = .zero
+        var cellSize: NSSize = .zero
 
         // The health state of the surface. This currently only reflects the
         // renderer health. In the future we may want to make this an enum.
-        @Published var healthy: Bool = true
+        var healthy: Bool = true
 
         // Any error while initializing the surface.
-        @Published var error: Error? = nil
+        var error: Error? = nil
 
         // The hovered URL string
-        @Published var hoverUrl: String? = nil
+        var hoverUrl: String? = nil
 
         // The currently active key sequence. The sequence is not active if this is empty.
-        @Published var keySequence: [Ghostty.KeyEquivalent] = []
+        var keySequence: [Ghostty.KeyEquivalent] = []
 
         // The time this surface last became focused. This is a ContinuousClock.Instant
         // on supported platforms.
-        @Published var focusInstant: ContinuousClock.Instant? = nil
+        var focusInstant: ContinuousClock.Instant? = nil
 
         // Returns sizing information for the surface. This is the raw C
         // structure because I'm lazy.
-        @Published var surfaceSize: ghostty_surface_size_s? = nil
+        var surfaceSize: ghostty_surface_size_s? = nil
 
         // Whether the pointer should be visible or not
-        @Published private(set) var pointerStyle: BackportPointerStyle = .default
+        private(set) var pointerStyle: BackportPointerStyle = .default
 
         /// The configuration derived from the Ghostty config so we don't need to rely on references.
-        @Published private(set) var derivedConfig: DerivedConfig
+        private(set) var derivedConfig: DerivedConfig
 
         /// The background color within the color palette of the surface. This is only set if it is
         /// dynamically updated. Otherwise, the background color is the default background color.
-        @Published private(set) var backgroundColor: Color? = nil
+        private(set) var backgroundColor: Color? = nil
 
         // An initial size to request for a window. This will only affect
         // then the view is moved to a new window.
@@ -89,7 +90,7 @@ extension Ghostty {
         }
 
         // True if the inspector should be visible
-        @Published var inspectorVisible: Bool = false {
+        var inspectorVisible: Bool = false {
             didSet {
                 if (oldValue && !inspectorVisible) {
                     guard let surface = self.surface else { return }

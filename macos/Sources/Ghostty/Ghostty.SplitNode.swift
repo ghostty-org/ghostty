@@ -195,9 +195,10 @@ extension Ghostty {
             }
         }
 
-        class Leaf: ObservableObject, Equatable, Hashable, Codable {
+        @Observable
+        class Leaf: Equatable, Hashable, Codable {
             let app: ghostty_app_t
-            @Published var surface: SurfaceView
+            var surface: SurfaceView
 
             weak var parent: SplitNode.Container?
 
@@ -250,13 +251,14 @@ extension Ghostty {
             }
         }
 
-        class Container: ObservableObject, Equatable, Hashable, Codable {
+        @Observable
+        class Container: Equatable, Hashable, Codable {
             let app: ghostty_app_t
             let direction: SplitViewDirection
 
-            @Published var topLeft: SplitNode
-            @Published var bottomRight: SplitNode
-            @Published var split: CGFloat = 0.5
+            var topLeft: SplitNode
+            var bottomRight: SplitNode
+            var split: CGFloat = 0.5
 
             var resizeEvent: PassthroughSubject<Double, Never> = .init()
 

@@ -610,21 +610,22 @@ class TerminalController: BaseTerminalController {
         syncAppearance(focusedSurface.derivedConfig)
 
         // We also want to get notified of certain changes to update our appearance.
-        focusedSurface.$derivedConfig
-            .sink { [weak self, weak focusedSurface] _ in self?.syncAppearanceOnPropertyChange(focusedSurface) }
-            .store(in: &surfaceAppearanceCancellables)
-        focusedSurface.$backgroundColor
-            .sink { [weak self, weak focusedSurface] _ in self?.syncAppearanceOnPropertyChange(focusedSurface) }
-            .store(in: &surfaceAppearanceCancellables)
+        observeFocusedSurface(focusedSurface)
     }
-
-    private func syncAppearanceOnPropertyChange(_ surface: Ghostty.SurfaceView?) {
-        guard let surface else { return }
-        DispatchQueue.main.async { [weak self, weak surface] in
-            guard let surface else { return }
+    
+    func observeFocusedSurface(_ focusedSurface: Ghostty.SurfaceView) {
+        /// Use Observable to observe properties that will invalidate the surface
+        /// appearance.
+        withObservationTracking {
+            _ = focusedSurface.derivedConfig
+            _ = focusedSurface.backgroundColor
+        } onChange: { [weak self] in
             guard let self else { return }
-            guard self.focusedSurface == surface else { return }
-            self.syncAppearance(surface.derivedConfig)
+            DispatchQueue.main.async {
+                guard self.focusedSurface == focusedSurface else { return }
+                self.syncAppearance(focusedSurface.derivedConfig)
+                self.observeFocusedSurface(focusedSurface)
+            }
         }
     }
 

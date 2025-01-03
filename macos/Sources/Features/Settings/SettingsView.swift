@@ -2,7 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     // We need access to our app delegate to know if we're quitting or not.
-    @EnvironmentObject private var appDelegate: AppDelegate
+    @Environment(AppDelegate.self) private var appDelegate: AppDelegate
 
     var body: some View {
         HStack {

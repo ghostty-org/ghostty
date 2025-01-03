@@ -3,37 +3,38 @@ import GhosttyKit
 
 extension Ghostty {
     /// The UIView implementation for a terminal surface.
-    class SurfaceView: UIView, ObservableObject {
+    @Observable
+    class SurfaceView: UIView {
         /// Unique ID per surface
         let uuid: UUID
 
         // The current title of the surface as defined by the pty. This can be
         // changed with escape codes. This is public because the callbacks go
         // to the app level and it is set from there.
-        @Published var title: String = "👻"
+        var title: String = "👻"
 
         // The current pwd of the surface.
-        @Published var pwd: String? = nil
+        var pwd: String? = nil
 
         // The cell size of this surface. This is set by the core when the
         // surface is first created and any time the cell size changes (i.e.
         // when the font size changes). This is used to allow windows to be
         // resized in discrete steps of a single cell.
-        @Published var cellSize: OSSize = .zero
+        var cellSize: OSSize = .zero
 
         // The health state of the surface. This currently only reflects the
         // renderer health. In the future we may want to make this an enum.
-        @Published var healthy: Bool = true
+        var healthy: Bool = true
 
         // Any error while initializing the surface.
-        @Published var error: Error? = nil
+        var error: Error? = nil
 
         // The hovered URL
-        @Published var hoverUrl: String? = nil
+        var hoverUrl: String? = nil
 
         // The time this surface last became focused. This is a ContinuousClock.Instant
         // on supported platforms.
-        @Published var focusInstant: ContinuousClock.Instant? = nil
+        var focusInstant: ContinuousClock.Instant? = nil
 
         // Returns sizing information for the surface. This is the raw C
         // structure because I'm lazy.

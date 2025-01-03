@@ -28,18 +28,18 @@ protocol TerminalViewDelegate: AnyObject {
 /// The view model is a required implementation for TerminalView callers. This contains
 /// the main state between the TerminalView caller and SwiftUI. This abstraction is what
 /// allows AppKit to own most of the data in SwiftUI.
-protocol TerminalViewModel: ObservableObject {
+protocol TerminalViewModel: AnyObject, Observable {
     /// The tree of terminal surfaces (splits) within the view. This is mutated by TerminalView
-    /// and children. This should be @Published.
+    /// and children.
     var surfaceTree: Ghostty.SplitNode? { get set }
 }
 
 /// The main terminal view. This terminal view supports splits.
 struct TerminalView<ViewModel: TerminalViewModel>: View {
-    @ObservedObject var ghostty: Ghostty.App
+    var ghostty: Ghostty.App
 
     // The required view model
-    @ObservedObject var viewModel: ViewModel
+    @Bindable var viewModel: ViewModel
 
     // An optional delegate to receive information about terminal changes.
     weak var delegate: (any TerminalViewDelegate)? = nil
@@ -86,9 +86,9 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                 if (Ghostty.info.mode == GHOSTTY_BUILD_MODE_DEBUG || Ghostty.info.mode == GHOSTTY_BUILD_MODE_RELEASE_SAFE) {
                     DebugBuildWarningView()
                 }
-
+                
                 Ghostty.TerminalSplit(node: $viewModel.surfaceTree)
-                    .environmentObject(ghostty)
+                    .environment(ghostty)
                     .focused($focused)
                     .onAppear { self.focused = true }
                     .onChange(of: focusedSurface) { newValue in

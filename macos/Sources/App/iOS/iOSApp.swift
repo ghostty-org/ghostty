@@ -2,18 +2,18 @@ import SwiftUI
 
 @main
 struct Ghostty_iOSApp: App {
-    @StateObject private var ghostty_app = Ghostty.App()
+    @State private var ghostty_app = Ghostty.App()
 
     var body: some Scene {
         WindowGroup {
             iOS_GhosttyTerminal()
-                .environmentObject(ghostty_app)
+                .environment(ghostty_app)
         }
     }
 }
 
 struct iOS_GhosttyTerminal: View {
-    @EnvironmentObject private var ghostty_app: Ghostty.App
+    @Environment(Ghostty.App.self) private var ghostty_app: Ghostty.App
 
     var body: some View {
         ZStack {
@@ -26,7 +26,7 @@ struct iOS_GhosttyTerminal: View {
 }
 
 struct iOS_GhosttyInitView: View {
-    @EnvironmentObject private var ghostty_app: Ghostty.App
+    @Environment(Ghostty.App.self) private var ghostty_app: Ghostty.App
 
     var body: some View {
         VStack {

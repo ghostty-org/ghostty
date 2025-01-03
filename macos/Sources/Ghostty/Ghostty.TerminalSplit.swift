@@ -294,11 +294,11 @@ extension Ghostty {
 
     /// This represents a split view that is in the horizontal or vertical split state.
     private struct TerminalSplitContainer: View {
-        @EnvironmentObject var ghostty: Ghostty.App
+        @Environment(Ghostty.App.self) var ghostty: Ghostty.App
 
         let neighbors: SplitNode.Neighbors
         @Binding var node: SplitNode?
-        @StateObject var container: SplitNode.Container
+        @Bindable var container: SplitNode.Container
 
         var body: some View {
             SplitView(

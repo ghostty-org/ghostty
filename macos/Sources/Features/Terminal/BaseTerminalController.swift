@@ -25,6 +25,7 @@ import GhosttyKit
 ///
 /// The primary idea of all the behaviors we don't implement here are that subclasses may not
 /// want these behaviors.
+@Observable
 class BaseTerminalController: NSWindowController,
                               NSWindowDelegate,
                               TerminalViewDelegate,
@@ -36,12 +37,13 @@ class BaseTerminalController: NSWindowController,
     let ghostty: Ghostty.App
 
     /// The currently focused surface.
+    @ObservationIgnored
     var focusedSurface: Ghostty.SurfaceView? = nil {
         didSet { syncFocusToSurfaceTree() }
     }
 
     /// The surface tree for this window.
-    @Published var surfaceTree: Ghostty.SplitNode? = nil {
+    var surfaceTree: Ghostty.SplitNode? = nil {
         didSet { surfaceTreeDidChange(from: oldValue, to: surfaceTree) }
     }
 

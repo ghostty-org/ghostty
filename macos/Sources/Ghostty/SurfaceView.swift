@@ -5,7 +5,7 @@ import GhosttyKit
 extension Ghostty {
     /// Render a terminal for the active app in the environment.
     struct Terminal: View {
-        @EnvironmentObject private var ghostty: Ghostty.App
+        @Environment(Ghostty.App.self) private var ghostty: Ghostty.App
         @FocusedValue(\.ghosttySurfaceTitle) private var surfaceTitle: String?
 
         var body: some View {
@@ -22,10 +22,10 @@ extension Ghostty {
     struct SurfaceForApp<Content: View>: View {
         let content: ((SurfaceView) -> Content)
 
-        @StateObject private var surfaceView: SurfaceView
+        @State private var surfaceView: SurfaceView
 
         init(_ app: ghostty_app_t, @ViewBuilder content: @escaping ((SurfaceView) -> Content)) {
-            _surfaceView = StateObject(wrappedValue: SurfaceView(app))
+            _surfaceView = State(wrappedValue: SurfaceView(app))
             self.content = content
         }
 
@@ -37,7 +37,7 @@ extension Ghostty {
     struct SurfaceWrapper: View {
         // The surface to create a view for. This must be created upstream. As long as this
         // remains the same, the surface that is being rendered remains the same.
-        @ObservedObject var surfaceView: SurfaceView
+        var surfaceView: SurfaceView
 
         // True if this surface is part of a split view. This is important to know so
         // we know whether to dim the surface out of focus.
@@ -54,10 +54,15 @@ extension Ghostty {
 
         #if canImport(AppKit)
         // Observe SecureInput to detect when its enabled
-        @ObservedObject private var secureInput = SecureInput.shared
+        private var secureInput = SecureInput.shared
         #endif
+        
+        init(surfaceView: SurfaceView, isSplit: Bool = false) {
+            self.surfaceView = surfaceView
+            self.isSplit = isSplit
+        }
 
-        @EnvironmentObject private var ghostty: Ghostty.App
+        @Environment(Ghostty.App.self) private var ghostty: Ghostty.App
 
         var body: some View {
             let center = NotificationCenter.default

@@ -4,8 +4,8 @@ import OSLog
 import Sparkle
 import GhosttyKit
 
+@Observable
 class AppDelegate: NSObject,
-                    ObservableObject,
                     NSApplicationDelegate,
                     UNUserNotificationCenterDelegate,
                     GhosttyAppDelegate
@@ -99,7 +99,7 @@ class AppDelegate: NSObject,
     private var appearanceObserver: NSKeyValueObservation? = nil
 
     /// The custom app icon image that is currently in use.
-    @Published private(set) var appIcon: NSImage? = nil {
+    private(set) var appIcon: NSImage? = nil {
         didSet {
             NSApplication.shared.applicationIconImage = appIcon
         }
