@@ -24,7 +24,9 @@ pub const Options = struct {
 /// actions for Ghostty. These are distinct from the CLI Actions which can
 /// be listed via `+help`
 ///
-/// The `--docs` argument will print out the documentation for each action.
+/// Flags:
+///
+///   * `--docs`: will print out the documentation for each action.
 pub fn run(alloc: Allocator) !u8 {
     var opts: Options = .{};
     defer opts.deinit();

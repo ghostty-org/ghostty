@@ -85,6 +85,7 @@ const ThemeListElement = struct {
 /// Flags:
 ///
 ///   * `--path`: Show the full path to the theme.
+///
 ///   * `--plain`: Force a plain listing of themes.
 pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
     var opts: Options = .{};

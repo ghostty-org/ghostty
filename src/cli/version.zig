@@ -10,7 +10,8 @@ const gtk = if (build_config.app_runtime == .gtk) @import("../apprt/gtk/c.zig").
 
 pub const Options = struct {};
 
-/// The `version` command is used to display information about Ghostty.
+/// The `version` command is used to display information about Ghostty. Recognized as
+/// either `+version` or `--version`.
 pub fn run(alloc: Allocator) !u8 {
     _ = alloc;
 

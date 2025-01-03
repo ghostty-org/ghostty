@@ -45,11 +45,11 @@ pub const Action = enum {
     // Validate passed config file
     @"validate-config",
 
-    // List, (eventually) view, and (eventually) send crash reports.
-    @"crash-report",
-
     // Show which font face Ghostty loads a codepoint from.
     @"show-face",
+
+    // List, (eventually) view, and (eventually) send crash reports.
+    @"crash-report",
 
     pub const Error = error{
         /// Multiple actions were detected. You can specify at most one
