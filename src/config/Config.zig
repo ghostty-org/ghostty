@@ -4261,7 +4261,9 @@ pub const Palette = struct {
     }
 };
 
-/// Path is a path to a single file.
+/// SinglePath is a path to a single file. When loading the configuration
+/// file, always the last one will be kept and be automatically expanded
+/// relative to the path of the config file.
 pub const SinglePath = struct {
     const Self = @This();
 
