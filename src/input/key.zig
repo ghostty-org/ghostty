@@ -295,7 +295,7 @@ pub const Key = enum(c_int) {
     eight,
     nine,
 
-    // puncuation
+    // punctuation
     semicolon,
     space,
     apostrophe,
@@ -411,7 +411,7 @@ pub const Key = enum(c_int) {
     /// may be from the number row or the keypad, but it always maps
     /// to '.zero'.
     ///
-    /// This is what we want, we awnt people to create keybindings that
+    /// This is what we want, we want people to create keybindings that
     /// are independent of the physical key.
     pub fn fromASCII(ch: u8) ?Key {
         return switch (ch) {
