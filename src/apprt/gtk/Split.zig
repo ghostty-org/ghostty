@@ -111,6 +111,15 @@ pub fn init(
     // Keep a long-lived reference, which we unref in destroy.
     _ = c.g_object_ref(paned);
 
+    // Clicks
+    const gesture_click = c.gtk_gesture_click_new();
+    errdefer c.g_object_unref(gesture_click);
+    c.gtk_event_controller_set_propagation_phase(@ptrCast(gesture_click), c.GTK_PHASE_CAPTURE);
+    c.gtk_gesture_single_set_button(@ptrCast(gesture_click), 1);
+    c.gtk_widget_add_controller(paned, @ptrCast(gesture_click));
+    // Signals
+    _ = c.g_signal_connect_data(gesture_click, "pressed", c.G_CALLBACK(&gtkMouseDown), self, null, c.G_CONNECT_DEFAULT);
+
     // Update all of our containers to point to the right place.
     // The split has to point to where the sibling pointed to because
     // we're inheriting its parent. The sibling points to its location
@@ -234,6 +243,39 @@ pub fn equalize(self: *Split) f64 {
     c.gtk_paned_set_position(self.paned, @intFromFloat(self.maxPosition() * ratio));
 
     return weight;
+}
+
+// Find the topmost split before performing equalize
+pub fn equalizeTopSplit(self: *Split) f64 {
+    var found_top: bool = false;
+    var top_split: *Split = self;
+    while (!found_top) {
+        const parent = top_split.container.split() orelse null;
+        top_split = parent orelse top_split;
+        found_top = parent == null;
+    }
+    return equalize(top_split);
+}
+
+fn gtkMouseDown(
+    _: *c.GtkGestureClick,
+    n_press: c.gint,
+    x: c.gdouble,
+    y: c.gdouble,
+    ud: ?*anyopaque,
+) callconv(.C) void {
+    // Double-Clicking on or near the divider should equalize the splits
+    if (n_press == 2) {
+        const self: *Split = @ptrCast(@alignCast(ud));
+        const mousepos: f64 = switch (self.orientation) {
+            .horizontal => x,
+            .vertical => y,
+        };
+        const pos: f64 = @floatFromInt(c.gtk_paned_get_position(self.paned));
+        if (@abs(mousepos - pos) <= 10) {
+            _ = equalizeTopSplit(self);
+        }
+    }
 }
 
 // maxPosition returns the maximum position of the GtkPaned, which is the
