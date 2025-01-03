@@ -27,46 +27,47 @@ pub fn run(alloc: Allocator) !u8 {
     if (tty) try stdout.print("\x1b]8;;\x1b\\", .{});
 
     try stdout.print("Version\n", .{});
-    try stdout.print("  - version: {s}\n", .{build_config.version_string});
-    try stdout.print("  - channel: {s}\n", .{@tagName(build_config.release_channel)});
+    try stdout.print("  - version     : {s}\n", .{build_config.version_string});
+    try stdout.print("  - channel     : {s}\n", .{@tagName(build_config.release_channel)});
 
     try stdout.print("Build Config\n", .{});
-    try stdout.print("  - Zig version: {s}\n", .{builtin.zig_version_string});
-    try stdout.print("  - build mode : {}\n", .{builtin.mode});
-    try stdout.print("  - app runtime: {}\n", .{build_config.app_runtime});
-    try stdout.print("  - font engine: {}\n", .{build_config.font_backend});
-    try stdout.print("  - renderer   : {}\n", .{renderer.Renderer});
-    try stdout.print("  - libxev     : {}\n", .{xev.backend});
+    try stdout.print("  - Zig version : {s}\n", .{builtin.zig_version_string});
+    try stdout.print("  - build mode  : {}\n", .{builtin.mode});
+    try stdout.print("  - app runtime : {}\n", .{build_config.app_runtime});
+    try stdout.print("  - font engine : {}\n", .{build_config.font_backend});
+    try stdout.print("  - renderer    : {}\n", .{renderer.Renderer});
+    try stdout.print("  - libxev      : {}\n", .{xev.backend});
     if (comptime build_config.app_runtime == .gtk) {
-        try stdout.print("  - desktop env: {s}\n", .{@tagName(internal_os.desktopEnvironment())});
-        try stdout.print("  - GTK version:\n", .{});
-        try stdout.print("    build      : {d}.{d}.{d}\n", .{
+        try stdout.print("  - desktop env : {s}\n", .{@tagName(internal_os.desktopEnvironment())});
+        try stdout.print("  - display type: {s}\n", .{@tagName(internal_os.displayType())});
+        try stdout.print("  - GTK version :\n", .{});
+        try stdout.print("    build       : {d}.{d}.{d}\n", .{
             gtk.GTK_MAJOR_VERSION,
             gtk.GTK_MINOR_VERSION,
             gtk.GTK_MICRO_VERSION,
         });
-        try stdout.print("    runtime    : {d}.{d}.{d}\n", .{
+        try stdout.print("    runtime     : {d}.{d}.{d}\n", .{
             gtk.gtk_get_major_version(),
             gtk.gtk_get_minor_version(),
             gtk.gtk_get_micro_version(),
         });
         if (comptime build_options.adwaita) {
-            try stdout.print("  - libadwaita : enabled\n", .{});
-            try stdout.print("    build      : {s}\n", .{
+            try stdout.print("  - libadwaita  : enabled\n", .{});
+            try stdout.print("    build       : {s}\n", .{
                 gtk.ADW_VERSION_S,
             });
-            try stdout.print("    runtime    : {}.{}.{}\n", .{
+            try stdout.print("    runtime     : {}.{}.{}\n", .{
                 gtk.adw_get_major_version(),
                 gtk.adw_get_minor_version(),
                 gtk.adw_get_micro_version(),
             });
         } else {
-            try stdout.print("  - libadwaita : disabled\n", .{});
+            try stdout.print("  - libadwaita  : disabled\n", .{});
         }
         if (comptime build_options.x11) {
-            try stdout.print("  - libX11     : enabled\n", .{});
+            try stdout.print("  - libX11      : enabled\n", .{});
         } else {
-            try stdout.print("  - libX11     : disabled\n", .{});
+            try stdout.print("  - libX11      : disabled\n", .{});
         }
     }
     return 0;
