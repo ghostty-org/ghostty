@@ -764,7 +764,7 @@ pub fn updateFrame(
 
         // We used to share terminal state, but we've since learned through
         // analysis that it is faster to copy the terminal state than to
-        // hold the lock wile rebuilding GPU cells.
+        // hold the lock while rebuilding GPU cells.
         var screen_copy = try state.terminal.screen.clone(
             self.alloc,
             .{ .viewport = .{} },
