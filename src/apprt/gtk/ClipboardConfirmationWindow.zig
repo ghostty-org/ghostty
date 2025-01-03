@@ -88,6 +88,8 @@ fn init(
     const view = try PrimaryView.init(self, data);
     self.view = view;
     c.gtk_window_set_child(@ptrCast(window), view.root);
+    _ = c.gtk_widget_grab_focus(view.buttons.cancel_button);
+
     c.gtk_widget_show(window);
 
     // Block the main window from input.
@@ -103,6 +105,7 @@ fn gtkDestroy(_: *c.GtkWidget, ud: ?*anyopaque) callconv(.C) void {
 const PrimaryView = struct {
     root: *c.GtkWidget,
     text: *c.GtkTextView,
+    buttons: ButtonsView,
 
     pub fn init(root: *ClipboardConfirmation, data: []const u8) !PrimaryView {
         // All our widgets
@@ -134,7 +137,7 @@ const PrimaryView = struct {
         c.gtk_text_view_set_right_margin(@ptrCast(text), 8);
         c.gtk_text_view_set_monospace(@ptrCast(text), 1);
 
-        return .{ .root = view.root, .text = @ptrCast(text) };
+        return .{ .root = view.root, .text = @ptrCast(text), .buttons = buttons };
     }
 
     /// Returns the GtkTextBuffer for the data that was unsafe.
@@ -157,6 +160,8 @@ const PrimaryView = struct {
 
 const ButtonsView = struct {
     root: *c.GtkWidget,
+    confirm_button: *c.GtkWidget,
+    cancel_button: *c.GtkWidget,
 
     pub fn init(root: *ClipboardConfirmation) !ButtonsView {
         const cancel_text, const confirm_text = switch (root.pending_req) {
@@ -169,9 +174,6 @@ const ButtonsView = struct {
 
         const confirm_button = c.gtk_button_new_with_label(confirm_text);
         errdefer c.g_object_unref(confirm_button);
-
-        // TODO: Focus on the paste button
-        // c.gtk_widget_grab_focus(confirm_button);
 
         // Create our view
         const view = try View.init(&.{
@@ -197,7 +199,7 @@ const ButtonsView = struct {
             c.G_CONNECT_DEFAULT,
         );
 
-        return .{ .root = view.root };
+        return .{ .root = view.root, .confirm_button = confirm_button, .cancel_button = cancel_button };
     }
 
     fn gtkCancelClick(_: *c.GtkWidget, ud: ?*anyopaque) callconv(.C) void {
