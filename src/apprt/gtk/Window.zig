@@ -14,6 +14,7 @@ const configpkg = @import("../../config.zig");
 const font = @import("../../font/main.zig");
 const input = @import("../../input.zig");
 const CoreSurface = @import("../../Surface.zig");
+const crash = @import("../../crash/main.zig");
 
 const App = @import("App.zig");
 const Color = configpkg.Config.Color;
@@ -248,8 +249,11 @@ pub fn init(self: *Window, app: *App) !void {
         }
         c.gtk_widget_add_css_class(@ptrCast(gtk_window), "devel");
         c.gtk_widget_add_css_class(@ptrCast(warning_box), "background");
+        c.gtk_widget_add_css_class(@ptrCast(warning_box), "banner-box");
         c.gtk_box_append(@ptrCast(box), warning_box);
     }
+
+    try self.displayCrashReportsNoticeIfNeeded(app, box);
 
     // Setup our toast overlay if we have one
     self.toast_overlay = if (adwaita.enabled(&self.app.config)) toast: {
@@ -548,6 +552,72 @@ fn sendToast(self: *Window, title: [:0]const u8) void {
     const toast = c.adw_toast_new(title);
     c.adw_toast_set_timeout(toast, 3);
     c.adw_toast_overlay_add_toast(@ptrCast(toast_overlay), toast);
+}
+
+fn displayCrashReportsNoticeIfNeeded(self: *Window, app: *App, parent_widget: *c.GtkWidget) !void {
+    if (App.crash_reports_notice_dismissed) {
+        return;
+    }
+
+    const crash_dir = try crash.defaultDir(self.app.core_app.alloc);
+    defer self.app.core_app.alloc.free(crash_dir.path);
+    var it = try crash_dir.iterator();
+    defer it.deinit();
+
+    if (try it.next()) |_| {
+        const warning_text = try std.fmt.allocPrintZ(self.app.core_app.alloc,
+            \\ ⚠️ There are existing crash reports located at <a href="file://{s}">{s}</a>.
+            \\ If possible, <a href="https://github.com/ghostty-org/ghostty?tab=readme-ov-file#crash-reports">report them to the developers</a> to help improve the application.
+        , .{ crash_dir.path, crash_dir.path });
+        defer self.app.core_app.alloc.free(warning_text);
+        const warning_box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 0);
+
+        if ((comptime adwaita.versionAtLeast(1, 3, 0)) and
+            adwaita.enabled(&app.config) and
+            adwaita.versionAtLeast(1, 3, 0))
+        {
+            const banner = c.adw_banner_new(warning_text.ptr);
+            c.adw_banner_set_revealed(@ptrCast(banner), 1);
+            c.adw_banner_set_use_markup(@ptrCast(banner), 1);
+
+            c.adw_banner_set_button_label(@ptrCast(banner), "Dismiss");
+            _ = c.g_signal_connect_data(
+                banner,
+                "button-clicked",
+                c.G_CALLBACK(&adwHideBanner),
+                banner,
+                null,
+                c.G_CONNECT_DEFAULT,
+            );
+
+            c.gtk_box_append(@ptrCast(warning_box), @ptrCast(banner));
+        } else {
+            const center_box = c.gtk_center_box_new();
+
+            const message = c.gtk_label_new(null);
+            c.gtk_label_set_markup(@ptrCast(message), warning_text.ptr);
+            c.gtk_label_set_use_markup(@ptrCast(message), 1);
+            c.gtk_label_set_justify(@ptrCast(message), c.GTK_JUSTIFY_CENTER);
+            c.gtk_label_set_xalign(@ptrCast(message), 0.5);
+            c.gtk_widget_set_margin_top(@ptrCast(message), 10);
+            c.gtk_widget_set_margin_bottom(@ptrCast(message), 10);
+
+            const close_button = c.gtk_button_new_from_icon_name("window-close-symbolic");
+            c.gtk_widget_set_margin_top(@ptrCast(close_button), 10);
+            c.gtk_widget_set_margin_bottom(@ptrCast(close_button), 10);
+            c.gtk_widget_set_margin_end(@ptrCast(close_button), 10);
+            _ = c.g_signal_connect_data(close_button, "clicked", c.G_CALLBACK(&gtkHideWidget), warning_box, null, 0);
+
+            c.gtk_center_box_set_center_widget(@ptrCast(center_box), message);
+            c.gtk_center_box_set_end_widget(@ptrCast(center_box), close_button);
+
+            c.gtk_box_append(@ptrCast(warning_box), @ptrCast(center_box));
+        }
+
+        c.gtk_widget_add_css_class(@ptrCast(warning_box), "background");
+        c.gtk_widget_add_css_class(@ptrCast(warning_box), "banner-box");
+        c.gtk_box_append(@ptrCast(parent_widget), warning_box);
+    }
 }
 
 // Note: we MUST NOT use the GtkButton parameter because gtkActionNewTab
@@ -924,6 +994,18 @@ fn gtkActionReset(
         log.warn("error performing binding action error={}", .{err});
         return;
     };
+}
+
+fn gtkHideWidget(_: ?*c.GtkWidget, data: ?*anyopaque) void {
+    const widget: *c.GtkWidget = @ptrCast(@alignCast(data));
+    c.gtk_widget_set_visible(widget, c.FALSE);
+    App.crash_reports_notice_dismissed = true;
+}
+
+fn adwHideBanner(_: ?*c.GtkWidget, data: ?*anyopaque) void {
+    const banner: *c.AdwBanner = @ptrCast(data);
+    c.adw_banner_set_revealed(banner, c.FALSE);
+    App.crash_reports_notice_dismissed = true;
 }
 
 /// Returns the surface to use for an action.

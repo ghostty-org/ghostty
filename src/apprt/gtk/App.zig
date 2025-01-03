@@ -43,6 +43,9 @@ const log = std.log.scoped(.gtk);
 
 pub const Options = struct {};
 
+/// A global variable indicating if user has dismissed the notice about existing crash reports
+pub var crash_reports_notice_dismissed = false;
+
 core_app: *CoreApp,
 config: Config,
 
