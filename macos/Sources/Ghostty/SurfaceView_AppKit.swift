@@ -14,6 +14,11 @@ extension Ghostty {
         // to the app level and it is set from there.
         @Published private(set) var title: String = "👻"
 
+        // This indicates if the title was set manually by the user. This is
+        // used to prevent the title from being changed automatically based
+        // on the running process.
+        @Published var titleSetManually: Bool = false
+
         // The current pwd of the surface as defined by the pty. This can be
         // changed with escape codes.
         @Published var pwd: String? = nil
@@ -342,7 +347,7 @@ extension Ghostty {
             NSCursor.setHiddenUntilMouseMoves(!visible)
         }
 
-        func setTitle(_ title: String) {
+        func setTitle(_ title: String, ask: Bool = false) {
             // This fixes an issue where very quick changes to the title could
             // cause an unpleasant flickering. We set a timer so that we can
             // coalesce rapid changes. The timer is short enough that it still
@@ -352,7 +357,51 @@ extension Ghostty {
                 withTimeInterval: 0.075,
                 repeats: false
             ) { [weak self] _ in
-                self?.title = title
+                // Create a dialog and ask the uesr if 
+                // the ask parameter is true
+                if ask {
+                    // Create an alert dialog
+                    let alert = NSAlert()
+                    alert.messageText = "Set Tab Title"
+                    alert.informativeText = "New title (leave empty to auto set):"
+                    alert.alertStyle = .informational
+                   
+                    // Add a text field to the alert
+                    let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 250, height: 24))
+                    textField.stringValue = self?.title ?? ""
+                    alert.accessoryView = textField
+                   
+                    // Add buttons
+                    alert.addButton(withTitle: "OK")
+                    alert.addButton(withTitle: "Cancel")
+                   
+                    let response = alert.runModal()
+                   
+                    // Check if the user clicked "OK"
+                    if response == .alertFirstButtonReturn {
+                        // Get the input text
+                        let newTitle = textField.stringValue
+                        
+                        if newTitle.isEmpty {
+                            // Empty means that user wants the title to be set automatically
+                            // We also need to reload the config for the "title" property to be
+                            // used again by this tab.
+                            self?.titleSetManually = false
+                            let action = "reload_config"
+                            if (!ghostty_surface_binding_action(self?.surface, action, UInt(action.count))) {
+                                logger.warning("action failed action=\(action)")
+                            }
+                        } else {
+                            // Set the title and prevent it from being changed automatically
+                            self?.title = newTitle
+                            self?.titleSetManually = true
+                        }
+                    }
+                }
+                if self?.titleSetManually == false {
+                    // Change the title if it wasn't set manually
+                    self?.title = title
+                }
             }
         }
 
@@ -1022,6 +1071,8 @@ extension Ghostty {
             menu.addItem(.separator())
             menu.addItem(withTitle: "Reset Terminal", action: #selector(resetTerminal(_:)), keyEquivalent: "")
             menu.addItem(withTitle: "Toggle Terminal Inspector", action: #selector(toggleTerminalInspector(_:)), keyEquivalent: "")
+            menu.addItem(.separator())
+            menu.addItem(withTitle: "Set Title", action: #selector(setTitle(_:)), keyEquivalent: "")
 
             return menu
         }
@@ -1085,6 +1136,10 @@ extension Ghostty {
             if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
+        }
+        
+        @IBAction func setTitle(_ sender: Any) {
+            setTitle("", ask: true)
         }
 
         /// Show a user notification and associate it with this surface

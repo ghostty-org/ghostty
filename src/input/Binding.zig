@@ -337,6 +337,9 @@ pub const Action = union(enum) {
     /// This only works with libadwaita enabled currently.
     toggle_tab_overview: void,
 
+    /// Set the title for the tab
+    set_title: void,
+
     /// Create a new split in the given direction. The new split will appear in
     /// the direction given. For example `new_split:up`. Valid values are left, right, up, down and auto.
     new_split: SplitDirection,
@@ -693,6 +696,7 @@ pub const Action = union(enum) {
             .quit,
             .toggle_quick_terminal,
             .toggle_visibility,
+            .set_title,
             => .app,
 
             // These are app but can be special-cased in a surface context.

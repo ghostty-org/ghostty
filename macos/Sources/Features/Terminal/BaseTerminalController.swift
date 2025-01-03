@@ -514,6 +514,11 @@ class BaseTerminalController: NSWindowController,
         guard let window = window else { return }
         window.performClose(sender)
     }
+    
+    @IBAction func setTitle(_ sender: Any) {
+        guard let surface = focusedSurface?.surface else { return }
+        ghostty.setTitle(surface: surface)
+    }
 
     @IBAction func splitRight(_ sender: Any) {
         guard let surface = focusedSurface?.surface else { return }

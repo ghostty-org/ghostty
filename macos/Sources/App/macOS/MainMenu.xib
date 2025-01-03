@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="23094" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES" customObjectInstantitationMethod="direct">
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="23504" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES" customObjectInstantitationMethod="direct">
     <dependencies>
         <deployment identifier="macosx"/>
-        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="23094"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="23504"/>
     </dependencies>
     <objects>
         <customObject id="-2" userLabel="File's Owner" customClass="NSApplication">
@@ -43,6 +43,7 @@
                 <outlet property="menuSelectSplitLeft" destination="cTK-oy-KuV" id="Jpr-5q-dqz"/>
                 <outlet property="menuSelectSplitRight" destination="upj-mc-L7X" id="nLY-o1-lky"/>
                 <outlet property="menuServices" destination="aQe-vS-j8Q" id="uWQ-Wo-T1L"/>
+                <outlet property="menuSetTitle" destination="24I-xg-qIq" id="3ZV-Bd-cpM"/>
                 <outlet property="menuSplitDown" destination="UDZ-4y-6xL" id="fgZ-Wb-8OR"/>
                 <outlet property="menuSplitRight" destination="VUR-Ld-nLx" id="RxO-Zw-ovb"/>
                 <outlet property="menuTerminalInspector" destination="QwP-M5-fvh" id="wJi-Dh-S9f"/>
@@ -218,6 +219,13 @@
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="L3L-I8-sqk"/>
+                            <menuItem title="Set Title" id="24I-xg-qIq">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="setTitle:" target="-1" id="fjF-QJ-f2t"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="Vkj-tP-dMZ"/>
                             <menuItem title="Quick Terminal" id="1pv-LF-NBJ">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>

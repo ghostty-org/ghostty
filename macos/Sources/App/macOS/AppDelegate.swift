@@ -50,6 +50,7 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuIncreaseFontSize: NSMenuItem?
     @IBOutlet private var menuDecreaseFontSize: NSMenuItem?
     @IBOutlet private var menuResetFontSize: NSMenuItem?
+    @IBOutlet private var menuSetTitle: NSMenuItem?
     @IBOutlet private var menuQuickTerminal: NSMenuItem?
     @IBOutlet private var menuTerminalInspector: NSMenuItem?
 
@@ -371,6 +372,7 @@ class AppDelegate: NSObject,
         syncMenuShortcut(config, action: "increase_font_size:1", menuItem: self.menuIncreaseFontSize)
         syncMenuShortcut(config, action: "decrease_font_size:1", menuItem: self.menuDecreaseFontSize)
         syncMenuShortcut(config, action: "reset_font_size", menuItem: self.menuResetFontSize)
+        syncMenuShortcut(config, action: "set_title", menuItem: self.menuSetTitle)
         syncMenuShortcut(config, action: "toggle_quick_terminal", menuItem: self.menuQuickTerminal)
         syncMenuShortcut(config, action: "toggle_visibility", menuItem: self.menuToggleVisibility)
         syncMenuShortcut(config, action: "inspector:toggle", menuItem: self.menuTerminalInspector)

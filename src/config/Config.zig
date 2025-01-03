@@ -2290,6 +2290,11 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
         .{ .key = .{ .translated = .tab }, .mods = .{ .ctrl = true } },
         .{ .next_tab = {} },
     );
+    try result.keybind.set.put(
+        alloc,
+        .{ .key = .{ .translated = .i }, .mods = inputpkg.ctrlOrSuper(.{}) },
+        .{ .set_title = {} },
+    );
 
     // Windowing
     if (comptime !builtin.target.isDarwin()) {

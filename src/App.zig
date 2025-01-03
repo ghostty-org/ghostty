@@ -444,6 +444,7 @@ pub fn performAction(
         .close_all_windows => try rt_app.performAction(.app, .close_all_windows, {}),
         .toggle_quick_terminal => try rt_app.performAction(.app, .toggle_quick_terminal, {}),
         .toggle_visibility => try rt_app.performAction(.app, .toggle_visibility, {}),
+        .set_title => try rt_app.performAction(.app, .set_title, .{ .title = "" }),
     }
 }
 

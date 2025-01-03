@@ -196,6 +196,11 @@ extension Ghostty {
                 logger.warning("action failed action=\(action)")
             }
         }
+        
+        func setTitle(surface: ghostty_surface_t) {
+            guard let surfaceView = Ghostty.App.surfaceView(from: surface) else { return }
+            surfaceView.setTitle("", ask: true)
+        }
 
         func newWindow(surface: ghostty_surface_t) {
             let action = "new_window"
