@@ -35,7 +35,7 @@ pub const VTEvent = struct {
     const Kind = enum { print, execute, csi, esc, osc, dcs, apc };
     const Metadata = std.StringHashMap([:0]const u8);
 
-    /// Initiaze the event information for the given parser action.
+    /// Initialize the event information for the given parser action.
     pub fn init(
         alloc: Allocator,
         surface: *Surface,
