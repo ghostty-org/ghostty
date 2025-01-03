@@ -428,6 +428,22 @@ pub fn deinit(self: *Window) void {
     }
 }
 
+/// Set the title of the window.
+pub fn setTitle(self: *Window, title: [:0]const u8) void {
+    if ((comptime adwaita.versionAtLeast(1, 4, 0)) and adwaita.versionAtLeast(1, 4, 0) and adwaita.enabled(&self.app.config) and self.app.config.@"gtk-titlebar") {
+        if (self.header) |header| header.setTitle(title);
+    } else {
+        c.gtk_window_set_title(self.window, title);
+    }
+}
+
+/// Set the subtitle of the window if it has one.
+pub fn setSubtitle(self: *Window, subtitle: [:0]const u8) void {
+    if ((comptime adwaita.versionAtLeast(1, 4, 0)) and adwaita.versionAtLeast(1, 4, 0) and adwaita.enabled(&self.app.config) and self.app.config.@"gtk-titlebar") {
+        if (self.header) |header| header.setSubtitle(subtitle);
+    }
+}
+
 /// Add a new tab to this window.
 pub fn newTab(self: *Window, parent: ?*CoreSurface) !void {
     const alloc = self.app.core_app.alloc;
