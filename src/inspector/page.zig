@@ -3,6 +3,8 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const cimgui = @import("cimgui");
 const terminal = @import("../terminal/main.zig");
+const inspector = @import("main.zig");
+const utils = @import("utils.zig");
 
 pub fn render(page: *const terminal.Page) void {
     cimgui.c.igPushID_Ptr(page);
@@ -25,7 +27,7 @@ pub fn render(page: *const terminal.Page) void {
         }
         {
             _ = cimgui.c.igTableSetColumnIndex(1);
-            cimgui.c.igText("%d bytes", page.memory.len);
+            cimgui.c.igText("%d bytes (%d Kb)", page.memory.len, utils.toKiloBytes(page.memory.len));
             cimgui.c.igText("%d VM pages", page.memory.len / std.mem.page_size);
         }
     }

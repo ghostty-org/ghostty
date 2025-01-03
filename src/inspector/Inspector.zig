@@ -14,6 +14,7 @@ const input = @import("../input.zig");
 const renderer = @import("../renderer.zig");
 const terminal = @import("../terminal/main.zig");
 const inspector = @import("main.zig");
+const utils = @import("utils.zig");
 
 /// The window names. These are used with docking so we need to have access.
 const window_cell = "Cell";
@@ -440,7 +441,7 @@ fn renderScreenWindow(self: *Inspector) void {
                 }
                 {
                     _ = cimgui.c.igTableSetColumnIndex(1);
-                    cimgui.c.igText("%d bytes", kitty_images.total_bytes);
+                    cimgui.c.igText("%d bytes (%d KB)", kitty_images.total_bytes, utils.toKiloBytes(kitty_images.total_bytes));
                 }
             }
 
@@ -452,7 +453,7 @@ fn renderScreenWindow(self: *Inspector) void {
                 }
                 {
                     _ = cimgui.c.igTableSetColumnIndex(1);
-                    cimgui.c.igText("%d bytes", kitty_images.total_limit);
+                    cimgui.c.igText("%d bytes (%d KB)", kitty_images.total_limit, utils.toKiloBytes(kitty_images.total_limit));
                 }
             }
 
@@ -518,7 +519,7 @@ fn renderScreenWindow(self: *Inspector) void {
                 }
                 {
                     _ = cimgui.c.igTableSetColumnIndex(1);
-                    cimgui.c.igText("%d bytes", pages.page_size);
+                    cimgui.c.igText("%d bytes (%d KB)", pages.page_size, utils.toKiloBytes(pages.page_size));
                 }
             }
 
@@ -530,7 +531,7 @@ fn renderScreenWindow(self: *Inspector) void {
                 }
                 {
                     _ = cimgui.c.igTableSetColumnIndex(1);
-                    cimgui.c.igText("%d bytes", pages.maxSize());
+                    cimgui.c.igText("%d bytes (%d KB)", pages.maxSize(), utils.toKiloBytes(pages.maxSize()));
                 }
             }
 
