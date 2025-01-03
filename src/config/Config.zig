@@ -2916,7 +2916,7 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
     self.@"config-default-files" = true;
 
     // Keep track of the replay steps up to this point so we
-    // can replay if we are disgarding the default files.
+    // can replay if we are discarding the default files.
     const replay_len_start = self._replay_steps.items.len;
 
     // Keep track of font families because if they are set from the CLI
