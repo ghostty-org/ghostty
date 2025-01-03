@@ -3459,7 +3459,6 @@ pub fn cursorPosCallback(
         // Only send a message when outside the viewport and
         // selection scrolling is not currently active.
         if ((pos.y <= 1 or pos.y > max_y - 1) and !self.io_thread.scroll_active) {
-            // TODO: the selection region ideally should keep up with this
             self.io.queueMessage(.{ .selection_scroll = true }, .locked);
         }
 
@@ -3556,7 +3555,7 @@ fn dragLeftClickTriple(
     try self.setSelection(sel);
 }
 
-fn dragLeftClickSingle(
+pub fn dragLeftClickSingle(
     self: *Surface,
     drag_pin: terminal.Pin,
     xpos: f64,
