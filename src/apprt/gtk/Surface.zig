@@ -492,6 +492,16 @@ pub fn init(self: *Surface, app: *App, opts: Options) !void {
     c.gtk_widget_set_focusable(gl_area, 1);
     c.gtk_widget_set_focus_on_click(gl_area, 1);
 
+    const drop_target = c.gtk_drop_target_new(c.G_TYPE_INVALID, c.GDK_ACTION_COPY);
+    errdefer c.g_object_unref(drop_target);
+    var drop_target_types = [_]c.GType{
+        c.gdk_file_list_get_type(),
+        c.G_TYPE_STRING,
+    };
+    c.gtk_drop_target_set_gtypes(drop_target, @ptrCast(&drop_target_types), drop_target_types.len);
+
+    c.gtk_widget_add_controller(@ptrCast(overlay), @ptrCast(drop_target));
+
     // Inherit the parent's font size if we have a parent.
     const font_size: ?font.face.DesiredSize = font_size: {
         if (!app.config.@"window-inherit-font-size") break :font_size null;
@@ -574,6 +584,7 @@ pub fn init(self: *Surface, app: *App, opts: Options) !void {
     _ = c.g_signal_connect_data(im_context, "preedit-changed", c.G_CALLBACK(&gtkInputPreeditChanged), self, null, c.G_CONNECT_DEFAULT);
     _ = c.g_signal_connect_data(im_context, "preedit-end", c.G_CALLBACK(&gtkInputPreeditEnd), self, null, c.G_CONNECT_DEFAULT);
     _ = c.g_signal_connect_data(im_context, "commit", c.G_CALLBACK(&gtkInputCommit), self, null, c.G_CONNECT_DEFAULT);
+    _ = c.g_signal_connect_data(drop_target, "drop", c.G_CALLBACK(&gtkDrop), self, null, c.G_CONNECT_DEFAULT);
 }
 
 fn realize(self: *Surface) !void {
@@ -2017,4 +2028,91 @@ pub fn setSplitZoom(self: *Surface, new_split_zoom: bool) void {
 
 pub fn toggleSplitZoom(self: *Surface) void {
     self.setSplitZoom(!self.zoomed_in);
+}
+
+fn gtkDrop(
+    _: *c.GtkDropTarget,
+    value: *c.GValue,
+    x: f64,
+    y: f64,
+    ud: ?*anyopaque,
+) callconv(.C) c.gboolean {
+    const self = userdataSelf(ud.?);
+    log.info("drop at {d}×{d}", .{ x, y });
+
+    if (g_value_holds(value, c.G_TYPE_BOXED)) {
+        var data = std.ArrayList(u8).init(self.app.core_app.alloc);
+        defer data.deinit();
+
+        var shell_escape_writer: internal_os.ShellEscapeWriter(std.ArrayList(u8).Writer) = .{
+            .child_writer = data.writer(),
+        };
+        const writer = shell_escape_writer.writer();
+
+        const fl: *c.GdkFileList = @ptrCast(c.g_value_get_boxed(value));
+        var l = c.gdk_file_list_get_files(fl);
+
+        while (l != null) : (l = l.*.next) {
+            const file: *c.GFile = @ptrCast(l.*.data);
+            const path = c.g_file_get_path(file) orelse continue;
+
+            writer.writeAll(std.mem.span(path)) catch |err| {
+                log.err("unable to write path to buffer: {}", .{err});
+                continue;
+            };
+            writer.writeAll("\n") catch |err| {
+                log.err("unable to write to buffer: {}", .{err});
+                continue;
+            };
+        }
+
+        const string = data.toOwnedSliceSentinel(0) catch |err| {
+            log.err("unable to convert to a slice: {}", .{err});
+            return 1;
+        };
+        defer self.app.core_app.alloc.free(string);
+
+        self.doPaste(string);
+
+        return 1;
+    }
+
+    if (g_value_holds(value, c.G_TYPE_STRING)) {
+        if (c.g_value_get_string(value)) |string| {
+            self.doPaste(std.mem.span(string));
+        }
+        return 1;
+    }
+
+    return 1;
+}
+
+fn doPaste(self: *Surface, data: [:0]const u8) void {
+    if (data.len == 0) return;
+
+    self.core_surface.completeClipboardRequest(.paste, data, false) catch |err| switch (err) {
+        error.UnsafePaste,
+        error.UnauthorizedPaste,
+        => {
+            ClipboardConfirmationWindow.create(
+                self.app,
+                data,
+                &self.core_surface,
+                .paste,
+            ) catch |window_err| {
+                log.err("failed to create clipboard confirmation window err={}", .{window_err});
+            };
+        },
+        error.OutOfMemory,
+        error.NoSpaceLeft,
+        => log.err("failed to complete clipboard request err={}", .{err}),
+    };
+}
+
+fn g_value_holds(value_: ?*c.GValue, g_type: c.GType) bool {
+    if (value_) |value| {
+        if (value.*.g_type == g_type) return true;
+        return c.g_type_check_value_holds(value, g_type) != 0;
+    }
+    return false;
 }
