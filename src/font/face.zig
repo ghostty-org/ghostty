@@ -100,6 +100,15 @@ pub const RenderOptions = struct {
     ///
     /// This only works with CoreText currently.
     thicken: bool = false,
+
+    /// "Strength" of the thickening, between `0` and `255`.
+    /// Only has an effect when `thicken` is enabled.
+    ///
+    /// `0` does not correspond to *no* thickening,
+    /// just the *lightest* thickening available.
+    ///
+    /// CoreText only.
+    thicken_strength: u8 = 255,
 };
 
 test {

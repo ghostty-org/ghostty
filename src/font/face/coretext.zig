@@ -354,7 +354,7 @@ pub const Face = struct {
             .depth = 1,
             .space = try macos.graphics.ColorSpace.createDeviceGray(),
             .context_opts = @intFromEnum(macos.graphics.BitmapInfo.alpha_mask) &
-                @intFromEnum(macos.graphics.ImageAlphaInfo.none),
+                @intFromEnum(macos.graphics.ImageAlphaInfo.only),
         } else .{
             .color = true,
             .depth = 4,
@@ -398,7 +398,7 @@ pub const Face = struct {
         if (color.color)
             context.setRGBFillColor(ctx, 1, 1, 1, 0)
         else
-            context.setGrayFillColor(ctx, 0, 0);
+            context.setGrayFillColor(ctx, 1, 0);
         context.fillRect(ctx, .{
             .origin = .{ .x = 0, .y = 0 },
             .size = .{
@@ -421,8 +421,9 @@ pub const Face = struct {
             context.setRGBFillColor(ctx, 1, 1, 1, 1);
             context.setRGBStrokeColor(ctx, 1, 1, 1, 1);
         } else {
-            context.setGrayFillColor(ctx, 1, 1);
-            context.setGrayStrokeColor(ctx, 1, 1);
+            const strength: f64 = @floatFromInt(opts.thicken_strength);
+            context.setGrayFillColor(ctx, strength / 255.0, 1);
+            context.setGrayStrokeColor(ctx, strength / 255.0, 1);
         }
 
         // If we are drawing with synthetic bold then use a fill stroke

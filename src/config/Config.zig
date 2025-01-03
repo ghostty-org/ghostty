@@ -234,9 +234,19 @@ const c = @cImport({
 /// i.e. new windows, tabs, etc.
 @"font-codepoint-map": RepeatableCodepointMap = .{},
 
-/// Draw fonts with a thicker stroke, if supported. This is only supported
-/// currently on macOS.
+/// Draw fonts with a thicker stroke, if supported.
+/// This is currently only supported on macOS.
 @"font-thicken": bool = false,
+
+/// Strength of thickening when `font-thicken` is enabled.
+///
+/// Valid values are integers between `0` and `255`. `0` does not correspond to
+/// *no* thickening, rather it corresponds to the lightest available thickening.
+///
+/// Has no effect when `font-thicken` is set to `false`.
+///
+/// This is currently only supported on macOS.
+@"font-thicken-strength": u8 = 255,
 
 /// All of the configurations behavior adjust various metrics determined by the
 /// font. The values can be integers (1, -1, etc.) or a percentage (20%, -15%,
