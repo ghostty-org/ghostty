@@ -87,7 +87,7 @@ fn init(
     const view = try PrimaryView.init(self, data);
     self.view = view;
     c.gtk_window_set_child(@ptrCast(window), view.root);
-    _ = c.gtk_widget_grab_focus(view.buttons.confirm_button);
+    _ = c.gtk_widget_grab_focus(view.buttons.cancel_button);
 
     c.gtk_widget_show(window);
 
@@ -160,6 +160,7 @@ const PrimaryView = struct {
 const ButtonsView = struct {
     root: *c.GtkWidget,
     confirm_button: *c.GtkWidget,
+    cancel_button: *c.GtkWidget,
 
     pub fn init(root: *ClipboardConfirmation) !ButtonsView {
         const cancel_text, const confirm_text = switch (root.pending_req) {
@@ -172,9 +173,6 @@ const ButtonsView = struct {
 
         const confirm_button = c.gtk_button_new_with_label(confirm_text);
         errdefer c.g_object_unref(confirm_button);
-
-        // TODO: Focus on the paste button
-        _ = c.gtk_widget_grab_focus(confirm_button);
 
         // Create our view
         const view = try View.init(&.{
@@ -200,7 +198,7 @@ const ButtonsView = struct {
             c.G_CONNECT_DEFAULT,
         );
 
-        return .{ .root = view.root, .confirm_button = confirm_button };
+        return .{ .root = view.root, .confirm_button = confirm_button, .cancel_button = cancel_button };
     }
 
     fn gtkCancelClick(_: *c.GtkWidget, ud: ?*anyopaque) callconv(.C) void {
