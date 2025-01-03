@@ -3003,6 +3003,86 @@ fn expandPaths(self: *Config, base: []const u8) !void {
     }
 }
 
+/// Expand a relative path to an absolute path. This function is used by
+/// the RepeatablePath and SinglePath to expand the paths they store.
+fn expandPath(
+    alloc: Allocator,
+    base: []const u8,
+    path: []const u8,
+    diags: *cli.DiagnosticList,
+) ![]const u8 {
+    assert(std.fs.path.isAbsolute(base));
+    var dir = try std.fs.cwd().openDir(base, .{});
+    defer dir.close();
+
+    // If it is already absolute we can just return it
+    if (path.len == 0 or std.fs.path.isAbsolute(path)) return path;
+
+    // If it isn't absolute, we need to make it absolute relative
+    // to the base.
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+
+    // Check if the path starts with a tilde and expand it to the
+    // home directory on Linux/macOS. We explicitly look for "~/"
+    // because we don't support alternate users such as "~alice/"
+    if (std.mem.startsWith(u8, path, "~/")) expand: {
+        // Windows isn't supported yet
+        if (comptime builtin.os.tag == .windows) break :expand;
+
+        const expanded: []const u8 = internal_os.expandHome(
+            path,
+            &buf,
+        ) catch |err| {
+            try diags.append(alloc, .{
+                .message = try std.fmt.allocPrintZ(
+                    alloc,
+                    "error expanding home directory for path {s}: {}",
+                    .{ path, err },
+                ),
+            });
+
+            // We can't expand this path so return an empty string
+            return "";
+        };
+
+        log.debug(
+            "expanding file path from home directory: path={s}",
+            .{expanded},
+        );
+
+        return expanded;
+    }
+
+    const abs = dir.realpath(path, &buf) catch |err| abs: {
+        if (err == error.FileNotFound) {
+            // The file doesn't exist. Try to resolve the relative path
+            // another way.
+            const resolved = try std.fs.path.resolve(alloc, &.{ base, path });
+            defer alloc.free(resolved);
+            @memcpy(buf[0..resolved.len], resolved);
+            break :abs buf[0..resolved.len];
+        }
+
+        try diags.append(alloc, .{
+            .message = try std.fmt.allocPrintZ(
+                alloc,
+                "error resolving file path {s}: {}",
+                .{ path, err },
+            ),
+        });
+
+        // We can't expand this path so return an empty string
+        return "";
+    };
+
+    log.debug(
+        "expanding file path relative={s} abs={s}",
+        .{ path, abs },
+    );
+
+    return abs;
+}
+
 fn loadTheme(self: *Config, theme: Theme) !void {
     // Load the correct theme depending on the conditional state.
     // Dark/light themes were programmed prior to conditional configuration
@@ -4216,52 +4296,22 @@ pub const SinglePath = struct {
         try formatter.formatEntry([]const u8, value);
     }
 
+    /// Expand all the paths relative to the base directory.
     pub fn expand(
         self: *Self,
         alloc: Allocator,
         base: []const u8,
         diags: *cli.DiagnosticList,
     ) !void {
-        assert(std.fs.path.isAbsolute(base));
-        var dir = try std.fs.cwd().openDir(base, .{});
-        defer dir.close();
-
-        // If it is already absolute we can ignore it.
+        // Try expanding path relative to the base.
         const path = self.value orelse return;
-        if (std.fs.path.isAbsolute(path)) return;
+        const abs = try expandPath(alloc, base, path, diags);
 
-        // If it isn't absolute, we need to make it absolute relative
-        // to the base.
-        var buf: [std.fs.max_path_bytes]u8 = undefined;
-        const abs = dir.realpath(path, &buf) catch |err| abs: {
-            if (err == error.FileNotFound) {
-                // The file doesn't exist. Try to resolve the relative path
-                // another way.
-                const resolved = try std.fs.path.resolve(alloc, &.{ base, path });
-                defer alloc.free(resolved);
-                @memcpy(buf[0..resolved.len], resolved);
-                break :abs buf[0..resolved.len];
-            }
-
-            try diags.append(alloc, .{
-                .message = try std.fmt.allocPrintZ(
-                    alloc,
-                    "error resolving file path {s}: {}",
-                    .{ path, err },
-                ),
-            });
-
+        if (abs.len == 0) {
             // Blank this path so that we don't attempt to resolve it again
             self.value = null;
-
             return;
-        };
-
-        log.debug(
-            "expanding file path relative={s} abs={s}",
-            .{ path, abs },
-        );
-
+        }
         self.value = try alloc.dupeZ(u8, abs);
     }
 };
@@ -6263,6 +6313,11 @@ pub const AlphaBlending = enum {
 };
 
 /// See background-image-mode
+///
+/// This enum is used to set the background image mode. The shader expects
+/// a `uint`, so we use `u8` here. The values for each mode should be kept
+/// in sync with the values in the vertex shader used to render the
+/// background image (`bgimage`).
 pub const BackgroundImageMode = enum(u8) {
     zoomed = 0,
     stretched = 1,

@@ -1215,7 +1215,22 @@ pub fn prepBackgroundImage(self: *OpenGL) !void {
     defer self.alloc.free(file_content);
 
     // Decode the png (currently, we only support png)
-    const decoded_image = try wuffs.png.decode(self.alloc, file_content);
+    const decoded_image: wuffs.ImageData = blk: {
+        // Extract the file extension
+        const ext = std.fs.path.extension(path);
+        const ext_lower = try std.ascii.allocLowerString(self.alloc, ext);
+        defer self.alloc.free(ext_lower);
+
+        // Match based on extension
+        if (std.mem.eql(u8, ext_lower, ".png")) {
+            break :blk try wuffs.png.decode(self.alloc, file_content);
+        } else if (std.mem.eql(u8, ext_lower, ".jpg") or std.mem.eql(u8, ext_lower, ".jpeg")) {
+            break :blk try wuffs.jpeg.decode(self.alloc, file_content);
+        } else {
+            log.warn("unsupported image format: {s}", .{ext});
+            return error.InvalidData;
+        }
+    };
     defer self.alloc.free(decoded_image.data);
 
     // Copy the data into the pending state
