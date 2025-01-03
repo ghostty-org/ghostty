@@ -1653,6 +1653,34 @@ fn buildWebData(
     config: BuildConfig,
 ) !void {
     {
+        const webgen_commands = b.addExecutable(.{
+            .name = "webgen_commands",
+            .root_source_file = b.path("src/main.zig"),
+            .target = b.host,
+        });
+        try addHelp(b, webgen_commands, config);
+
+        {
+            const buildcommands = commands: {
+                var copy = config;
+                copy.exe_entrypoint = .webgen_commands;
+                break :commands copy;
+            };
+
+            const options = b.addOptions();
+            try buildcommands.addOptions(options);
+            webgen_commands.root_module.addOptions("build_options", options);
+        }
+
+        const webgen_commands_step = b.addRunArtifact(webgen_commands);
+        const webgen_commands_out = webgen_commands_step.captureStdOut();
+
+        b.getInstallStep().dependOn(&b.addInstallFile(
+            webgen_commands_out,
+            "share/ghostty/webdata/commands.mdx",
+        ).step);
+    }
+    {
         const webgen_config = b.addExecutable(.{
             .name = "webgen_config",
             .root_source_file = b.path("src/main.zig"),
