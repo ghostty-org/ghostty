@@ -23,10 +23,13 @@ pub const Options = struct {
 
 /// The `validate-config` command is used to validate a Ghostty config file.
 ///
-/// When executed without any arguments, this will load the config from the default location.
+/// When executed without any arguments, this will load the config from the default
+/// location.
 ///
-/// The `--config-file` argument can be passed to validate a specific target config
-/// file in a non-default location.
+/// Flags:
+///
+///   * `--config-file`: can be passed to validate a specific target config file in
+///     a non-default location
 pub fn run(alloc: std.mem.Allocator) !u8 {
     var opts: Options = .{};
     defer opts.deinit();

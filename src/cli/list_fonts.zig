@@ -44,14 +44,21 @@ pub const Options = struct {
 /// the sorting will be disabled and the results instead will be shown in the
 /// same priority order Ghostty would use to pick a font.
 ///
-/// The `--family` argument can be used to filter results to a specific family.
-/// The family handling is identical to the `font-family` set of Ghostty
-/// configuration values, so this can be used to debug why your desired font may
-/// not be loading.
+/// Flags:
 ///
-/// The `--bold` and `--italic` arguments can be used to filter results to
-/// specific styles. It is not guaranteed that only those styles are returned,
-/// it will just prioritize fonts that match those styles.
+///   * `--bold`: Filter results to specific bold styles. It is not guaranteed
+///     that only those styles are returned. They are only prioritized.
+///
+///   * `--italic`: Filter results to specific italic styles. It is not guaranteed
+///     that only those styles are returned. They are only prioritized.
+///
+///   * `--style`: Filter results based on the style string advertised by a font.
+///     It is not guaranteed that only those styles are returned. They are only
+///     prioritized.
+///
+///   * `--family`: Filter results to a specific font family. The family handling
+///     is identical to the `font-family` set of Ghostty configuration values, so
+///     this can be used to debug why your desired font may not be loading.
 pub fn run(alloc: Allocator) !u8 {
     var iter = try args.argsIterator(alloc);
     defer iter.deinit();
