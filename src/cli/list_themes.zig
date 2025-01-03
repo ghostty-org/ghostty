@@ -11,6 +11,12 @@ const global_state = &@import("../global.zig").state;
 const vaxis = @import("vaxis");
 const zf = @import("zf");
 
+// When the number of filtered themes is less than or equal to this threshold,
+// the window position will be reset to 0 to show all results from the top.
+// This ensures better visibility for small result sets while maintaining
+// scroll position for larger lists.
+const SMALL_LIST_THRESHOLD = 10;
+
 pub const Options = struct {
     /// If true, print the full path to the theme.
     path: bool = false,
@@ -323,9 +329,15 @@ const Preview = struct {
         }
 
         self.current, self.window = current: {
+            if (selected.len == 0) break :current .{ 0, 0 };
+
             for (self.filtered.items, 0..) |index, i| {
-                if (std.mem.eql(u8, self.themes[index].theme, selected))
-                    break :current .{ i, i -| relative };
+                if (std.mem.eql(u8, self.themes[index].theme, selected)) {
+                    // Keep the relative position but ensure all search results are visible
+                    const new_window = i -| relative;
+                    // If the new window would hide some results at the top, adjust it
+                    break :current .{ i, if (self.filtered.items.len <= SMALL_LIST_THRESHOLD) 0 else new_window };
+                }
             }
             break :current .{ 0, 0 };
         };
