@@ -265,7 +265,7 @@ pub const VTEvent = struct {
             ),
 
             else => switch (Value) {
-                u8 => try md.put(
+                u8, u16 => try md.put(
                     key,
                     try std.fmt.allocPrintZ(alloc, "{}", .{value}),
                 ),
