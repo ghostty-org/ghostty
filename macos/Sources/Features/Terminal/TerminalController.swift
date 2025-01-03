@@ -95,8 +95,8 @@ class TerminalController: BaseTerminalController {
     }
 
 
-    override func fullscreenDidChange() {
-        super.fullscreenDidChange()
+    override func fullscreenDidChange(mode: FullscreenMode, enabled: Bool) {
+        super.fullscreenDidChange(mode: mode, enabled: enabled)
 
         // When our fullscreen state changes, we resync our appearance because some
         // properties change when fullscreen or not.
