@@ -89,13 +89,13 @@ enum QuickTerminalPosition : String {
             return .init(x: screen.frame.minX, y: -window.frame.height)
 
         case .left:
-            return .init(x: -window.frame.width, y: 0)
+            return .init(x: screen.frame.minX-window.frame.width, y: 0)
 
         case .right:
             return .init(x: screen.frame.maxX, y: 0)
 
         case .center:
-            return .init(x: (screen.visibleFrame.maxX - window.frame.width) / 2, y: screen.visibleFrame.maxY - window.frame.width)
+            return .init(x: screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2, y:  screen.visibleFrame.height - window.frame.width)
         }
     }
 
@@ -115,7 +115,7 @@ enum QuickTerminalPosition : String {
             return .init(x: screen.visibleFrame.maxX - window.frame.width, y: window.frame.origin.y)
 
         case .center:
-            return .init(x: (screen.visibleFrame.maxX - window.frame.width) / 2, y: (screen.visibleFrame.maxY - window.frame.height) / 2)
+            return .init(x: screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2, y: screen.visibleFrame.origin.y + (screen.visibleFrame.height - window.frame.height) / 2)
         }
     }
 }
