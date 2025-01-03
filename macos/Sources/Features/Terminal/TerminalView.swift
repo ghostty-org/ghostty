@@ -91,27 +91,27 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                     .environment(ghostty)
                     .focused($focused)
                     .onAppear { self.focused = true }
-                    .onChange(of: focusedSurface) { newValue in
-                        self.delegate?.focusedSurfaceDidChange(to: newValue)
+                    .onChange(of: focusedSurface) {
+                        self.delegate?.focusedSurfaceDidChange(to: focusedSurface)
                     }
-                    .onChange(of: title) { newValue in
-                        self.delegate?.titleDidChange(to: newValue)
+                    .onChange(of: title) {
+                        self.delegate?.titleDidChange(to: title)
                     }
-                    .onChange(of: pwdURL) { newValue in
-                        self.delegate?.pwdDidChange(to: newValue)
+                    .onChange(of: pwdURL) {
+                        self.delegate?.pwdDidChange(to: pwdURL)
                     }
-                    .onChange(of: cellSize) { newValue in
-                        guard let size = newValue else { return }
+                    .onChange(of: cellSize) {
+                        guard let size = cellSize else { return }
                         self.delegate?.cellSizeDidChange(to: size)
                     }
-                    .onChange(of: viewModel.surfaceTree?.hashValue) { _ in
+                    .onChange(of: viewModel.surfaceTree?.hashValue) {
                         // This is funky, but its the best way I could think of to detect
                         // ANY CHANGE within the deeply nested surface tree -- detecting a change
                         // in the hash value.
                         self.delegate?.surfaceTreeDidChange()
                     }
-                    .onChange(of: zoomedSplit) { newValue in
-                        self.delegate?.zoomStateDidChange(to: newValue ?? false)
+                    .onChange(of: zoomedSplit) {
+                        self.delegate?.zoomStateDidChange(to: zoomedSplit ?? false)
                     }
             }
             // Ignore safe area to extend up in to the titlebar region if we have the "hidden" titlebar style

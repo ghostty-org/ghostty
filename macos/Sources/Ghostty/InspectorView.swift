@@ -37,10 +37,10 @@ extension Ghostty {
                 }
             }
             .onReceive(pubInspector) { onControlInspector($0) }
-            .onChange(of: surfaceView.inspectorVisible) { inspectorVisible in
+            .onChange(of: surfaceView.inspectorVisible) {
                 // When we show the inspector, we want to focus on the inspector.
                 // When we hide the inspector, we want to move focus back to the surface.
-                if (inspectorVisible) {
+                if (surfaceView.inspectorVisible) {
                     // We need to delay this until SwiftUI shows the inspector.
                     DispatchQueue.main.async {
                         _ = surfaceView.resignFirstResponder()
