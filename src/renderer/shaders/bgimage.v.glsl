@@ -1,5 +1,8 @@
 #version 330 core
 
+// These are the possible modes that "mode" can be set to.
+//
+// NOTE: this must be kept in sync with the BackgroundImageMode
 const uint MODE_ZOOMED = 0u;
 const uint MODE_STRETCHED = 1u;
 const uint MODE_TILED = 2u;
