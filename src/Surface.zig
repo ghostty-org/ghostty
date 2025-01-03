@@ -4155,7 +4155,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
 
         .close_surface => self.close(),
 
-        .close_window => self.app.closeSurface(self),
+        .close_tab, .close_window => self.app.closeSurface(self),
 
         .crash => |location| switch (location) {
             .main => @panic("crash binding action, crashing intentionally"),
@@ -4231,6 +4231,7 @@ fn closingAction(action: input.Binding.Action) bool {
     return switch (action) {
         .close_surface,
         .close_window,
+        .close_tab,
         => true,
 
         else => false,
