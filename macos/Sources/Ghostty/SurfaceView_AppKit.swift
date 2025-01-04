@@ -810,49 +810,65 @@ extension Ghostty {
                 return false
             }
 
-            // Only process keys when Control is active. All known issues we're
-            // resolving happen only in this scenario. This probably isn't fully robust
-            // but we can broaden the scope as we find more cases.
-            if (!event.modifierFlags.contains(.control)) {
-                return false
-            }
+            // First check if this is a special key combination we want to handle
+            // NOTE: We used to only process Control key combinations here as a defensive measure.
+            // This has been removed to support more key combinations (like super+period),
+            // but we need to be careful about potential conflicts with system shortcuts.
+            // Each key combination should be explicitly checked in the switch statement below.
+            let (shouldHandle, equivalent): (Bool, String?) = {
+                switch (event.charactersIgnoringModifiers) {
+                case "/":
+                    // Treat C-/ as C-_. We do this because C-/ makes macOS make a beep
+                    // sound and we don't like the beep sound.
+                    if (event.modifierFlags.contains(.control) &&
+                        event.modifierFlags.isDisjoint(with: [.shift, .command, .option])) {
+                        return (true, "_")
+                    }
 
-            let equivalent: String
-            switch (event.charactersIgnoringModifiers) {
-            case "/":
-                // Treat C-/ as C-_. We do this because C-/ makes macOS make a beep
-                // sound and we don't like the beep sound.
-                if (!event.modifierFlags.contains(.control) ||
-                    !event.modifierFlags.isDisjoint(with: [.shift, .command, .option])) {
-                    return false
+                case "\r":
+                    // Pass C-<return> through verbatim
+                    // (prevent the default context menu equivalent)
+                    if (event.modifierFlags.contains(.control)) {
+                        return (true, "\r")
+                    }
+
+                case ".":
+                    // Handle super+period
+                    if (event.modifierFlags.contains(.command)) {
+                        return (true, ".")
+                    }
+
+                default:
+                    break
                 }
+                return (false, nil)
+            }()
 
-                equivalent = "_"
-
-            case "\r":
-                // Pass C-<return> through verbatim
-                // (prevent the default context menu equivalent)
-                equivalent = "\r"
-
-            default:
-                // Ignore other events
+            // If we don't handle this combination, return false
+            if (!shouldHandle) {
                 return false
             }
 
-            let newEvent = NSEvent.keyEvent(
-                with: .keyDown,
-                location: event.locationInWindow,
-                modifierFlags: event.modifierFlags,
-                timestamp: event.timestamp,
-                windowNumber: event.windowNumber,
-                context: nil,
-                characters: equivalent,
-                charactersIgnoringModifiers: equivalent,
-                isARepeat: event.isARepeat,
-                keyCode: event.keyCode
-            )
+            // Create a new event if we need to change the character
+            let finalEvent: NSEvent
+            if let eq = equivalent, eq != event.charactersIgnoringModifiers {
+                finalEvent = NSEvent.keyEvent(
+                    with: .keyDown,
+                    location: event.locationInWindow,
+                    modifierFlags: event.modifierFlags,
+                    timestamp: event.timestamp,
+                    windowNumber: event.windowNumber,
+                    context: nil,
+                    characters: eq,
+                    charactersIgnoringModifiers: eq,
+                    isARepeat: event.isARepeat,
+                    keyCode: event.keyCode
+                ) ?? event
+            } else {
+                finalEvent = event
+            }
 
-            self.keyDown(with: newEvent!)
+            self.keyDown(with: finalEvent)
             return true
         }
 
