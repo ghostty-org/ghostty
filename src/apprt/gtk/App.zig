@@ -467,6 +467,7 @@ pub fn performAction(
         .toggle_fullscreen => self.toggleFullscreen(target, value),
 
         .new_tab => try self.newTab(target),
+        .close_tab => try self.closeTab(target),
         .goto_tab => self.gotoTab(target, value),
         .move_tab => self.moveTab(target, value),
         .new_split => try self.newSplit(target, value),
@@ -518,6 +519,23 @@ fn newTab(_: *App, target: apprt.Target) !void {
             };
 
             try window.newTab(v);
+        },
+    }
+}
+
+fn closeTab(_: *App, target: apprt.Target) !void {
+    switch (target) {
+        .app => {},
+        .surface => |v| {
+            const tab = v.rt_surface.container.tab() orelse {
+                log.info(
+                    "close_tab invalid for container={s}",
+                    .{@tagName(v.rt_surface.container)},
+                );
+                return;
+            };
+
+            tab.window.closeTab(tab);
         },
     }
 }
@@ -1709,6 +1727,7 @@ fn initMenu(self: *App) void {
         c.g_menu_append_section(menu, null, @ptrCast(@alignCast(section)));
         c.g_menu_append(section, "New Window", "win.new_window");
         c.g_menu_append(section, "New Tab", "win.new_tab");
+        c.g_menu_append(section, "Close Tab", "win.close_tab");
         c.g_menu_append(section, "Split Right", "win.split_right");
         c.g_menu_append(section, "Split Down", "win.split_down");
         c.g_menu_append(section, "Close Window", "win.close");

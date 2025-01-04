@@ -382,6 +382,9 @@ pub const Action = union(enum) {
     /// This only works for macOS currently.
     close_all_windows: void,
 
+    /// Closes the tab belonging to the currently focused split.
+    close_tab: void,
+
     /// Toggle fullscreen mode of window.
     toggle_fullscreen: void,
 
@@ -749,6 +752,7 @@ pub const Action = union(enum) {
             .resize_split,
             .equalize_splits,
             .inspector,
+            .close_tab,
             => .surface,
         };
     }

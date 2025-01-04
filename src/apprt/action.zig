@@ -79,6 +79,9 @@ pub const Action = union(Key) {
     /// the tab should be opened in a new window.
     new_tab,
 
+    /// Closes the tab belonging to the currently focused split.
+    close_tab,
+
     /// Create a new split. The value determines the location of the split
     /// relative to the target.
     new_split: SplitDirection,
@@ -221,6 +224,7 @@ pub const Action = union(Key) {
     pub const Key = enum(c_int) {
         new_window,
         new_tab,
+        close_tab,
         new_split,
         close_all_windows,
         toggle_fullscreen,
