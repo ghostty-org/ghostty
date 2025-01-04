@@ -15,6 +15,7 @@ const configpkg = @import("../config.zig");
 const crash = @import("../crash/main.zig");
 const fastmem = @import("../fastmem.zig");
 const internal_os = @import("../os/main.zig");
+const xdg = internal_os.xdg;
 const renderer = @import("../renderer.zig");
 const shell_integration = @import("shell_integration.zig");
 const terminal = @import("../terminal/main.zig");
@@ -801,18 +802,17 @@ const Subprocess = struct {
 
             var buf: [std.fs.max_path_bytes]u8 = undefined;
 
-            const xdg_data_dir_key = "XDG_DATA_DIRS";
             if (std.fmt.bufPrint(&buf, "{s}/..", .{resources_dir})) |data_dir| {
                 try env.put(
-                    xdg_data_dir_key,
+                    xdg.Dir.data.key(),
                     try internal_os.appendEnv(
                         alloc,
-                        env.get(xdg_data_dir_key) orelse "/usr/local/share:/usr/share",
+                        env.get(xdg.Dir.data.key()) orelse xdg.Dir.data.default(),
                         data_dir,
                     ),
                 );
             } else |err| {
-                log.warn("error building {s}; err={}", .{ xdg_data_dir_key, err });
+                log.warn("error building {s}; err={}", .{ xdg.Dir.data.key(), err });
             }
 
             const manpath_key = "MANPATH";

@@ -193,3 +193,77 @@ test parseTerminalExec {
         try testing.expectEqualSlices([*:0]const u8, actual, &.{ "a", "-e", "b", "c" });
     }
 }
+
+/// https://specifications.freedesktop.org/basedir-spec/latest/
+pub const Dir = enum {
+    config,
+    data,
+
+    pub fn key(self: Dir) [:0]const u8 {
+        return switch (self) {
+            .config => "XDG_CONFIG_DIRS",
+            .data => "XDG_DATA_DIRS",
+        };
+    }
+
+    pub fn default(self: Dir) [:0]const u8 {
+        return switch (self) {
+            .config => "/etc/xdg",
+            .data => "/usr/local/share:/usr/share",
+        };
+    }
+};
+
+pub const DirIterator = struct {
+    data: []const u8,
+    iterator: std.mem.SplitIterator(u8, .scalar),
+
+    /// https://specifications.freedesktop.org/basedir-spec/latest/
+    pub fn init(key: Dir) DirIterator {
+        const data = data: {
+            if (posix.getenv(key.key())) |data| {
+                if (std.mem.trim(u8, data, &std.ascii.whitespace).len > 0) break :data data;
+            }
+
+            break :data key.default();
+        };
+
+        return .{
+            .data = data,
+            .iterator = std.mem.splitScalar(u8, data, ':'),
+        };
+    }
+
+    pub fn next(self: *DirIterator) ?[]const u8 {
+        return self.iterator.next();
+    }
+};
+
+test "xdg dirs" {
+    const c = @cImport({
+        @cInclude("stdlib.h");
+    });
+
+    const testing = std.testing;
+    {
+        _ = c.unsetenv(Dir.config.key());
+        var it = DirIterator.init(.config);
+        try testing.expectEqualStrings("/etc/xdg", it.next().?);
+        try testing.expect(it.next() == null);
+    }
+    {
+        _ = c.unsetenv(Dir.data.key());
+        var it = DirIterator.init(.data);
+        try testing.expectEqualStrings("/usr/local/share", it.next().?);
+        try testing.expectEqualStrings("/usr/share", it.next().?);
+        try testing.expect(it.next() == null);
+    }
+    {
+        _ = c.setenv(Dir.config.key(), "a:b:c", 1);
+        var it = DirIterator.init(.config);
+        try testing.expectEqualStrings("a", it.next().?);
+        try testing.expectEqualStrings("b", it.next().?);
+        try testing.expectEqualStrings("c", it.next().?);
+        try testing.expect(it.next() == null);
+    }
+}

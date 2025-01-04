@@ -6,6 +6,7 @@ const EnvMap = std.process.EnvMap;
 const config = @import("../config.zig");
 const homedir = @import("../os/homedir.zig");
 const internal_os = @import("../os/main.zig");
+const xdg = internal_os.xdg;
 
 const log = std.log.scoped(.shell_integration);
 
@@ -410,12 +411,11 @@ fn setupXdgDataDirs(
     // This ensures that the default directories aren't lost by setting
     // our desired integration dir directly. See #2711.
     // <https://specifications.freedesktop.org/basedir-spec/0.6/#variables>
-    const xdg_data_dirs_key = "XDG_DATA_DIRS";
     try env.put(
-        xdg_data_dirs_key,
+        xdg.Dir.data.key(),
         try internal_os.prependEnv(
             stack_alloc,
-            env.get(xdg_data_dirs_key) orelse "/usr/local/share:/usr/share",
+            env.get(xdg.Dir.data.key()) orelse xdg.Dir.data.default(),
             integ_dir,
         ),
     );
