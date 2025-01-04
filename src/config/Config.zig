@@ -3207,6 +3207,11 @@ fn loadTheme(self: *Config, theme: Theme) !void {
     var new_config = try self.cloneEmpty(alloc_gpa);
     errdefer new_config.deinit();
 
+    // Clone our diagnostics if any.
+    if (!self._diagnostics.empty()) {
+        new_config._diagnostics = try self._diagnostics.clone(alloc_gpa);
+    }
+
     // Load our theme
     var buf_reader = std.io.bufferedReader(file.reader());
     const reader = buf_reader.reader();
