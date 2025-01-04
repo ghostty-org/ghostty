@@ -1745,6 +1745,7 @@ fn initContextMenu(self: *App) void {
         c.g_menu_append_section(menu, null, @ptrCast(@alignCast(section)));
         c.g_menu_append(section, "Split Right", "win.split_right");
         c.g_menu_append(section, "Split Down", "win.split_down");
+        c.g_menu_append(section, "Close Window", "win.close");
     }
 
     {
