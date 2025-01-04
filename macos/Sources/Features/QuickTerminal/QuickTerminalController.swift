@@ -3,6 +3,12 @@ import Cocoa
 import SwiftUI
 import GhosttyKit
 
+// This is a Apple's private function that we need to call to get the active space.
+@_silgen_name("CGSGetActiveSpace")
+func CGSGetActiveSpace(_ cid: Int) -> size_t
+@_silgen_name("CGSMainConnectionID")
+func CGSMainConnectionID() -> Int
+
 /// Controller for the "quick" terminal.
 class QuickTerminalController: BaseTerminalController {
     override var windowNibName: NSNib.Name? { "QuickTerminal" }
@@ -17,6 +23,9 @@ class QuickTerminalController: BaseTerminalController {
     /// If this is set then when the quick terminal is animated out then we will restore this
     /// application to the front.
     private var previousApp: NSRunningApplication? = nil
+
+    // The active space when the quick terminal was last shown.
+    private var previousActiveSpace: size_t = 0
 
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private var derivedConfig: DerivedConfig
@@ -81,6 +90,9 @@ class QuickTerminalController: BaseTerminalController {
             delegate: self
         ))
 
+        // Change the collection behavior of the window depending on the configuration.
+        window.collectionBehavior = derivedConfig.quickTerminalSpaceBehavior.collectionBehavior
+
         // Animate the window in
         animateIn()
     }
@@ -107,8 +119,27 @@ class QuickTerminalController: BaseTerminalController {
             self.previousApp = nil
         }
 
-        if (derivedConfig.quickTerminalAutoHide) {
-            animateOut()
+        if derivedConfig.quickTerminalAutoHide {
+            switch derivedConfig.quickTerminalSpaceBehavior {
+            case .remain:
+                if self.window?.isOnActiveSpace == true {
+                    // If we lose focus on the active space, then we can animate out
+                    animateOut()
+                }
+            case .move:
+                // Check if the reason for losing focus is due to an active space change
+                let currentActiveSpace = CGSGetActiveSpace(CGSMainConnectionID())
+                if previousActiveSpace == currentActiveSpace {
+                    // If we lose focus on the active space, then we can animate out
+                    animateOut()
+                } else {
+                    // If we're from different space, then we bring the window back
+                    DispatchQueue.main.async {
+                        self.window?.makeKeyAndOrderFront(nil)
+                    }
+                }
+                self.previousActiveSpace = currentActiveSpace
+            }
         }
     }
 
@@ -133,6 +164,14 @@ class QuickTerminalController: BaseTerminalController {
     // MARK: Methods
 
     func toggle() {
+        if derivedConfig.quickTerminalSpaceBehavior == .remain && self.window?.isOnActiveSpace == false {
+            // If we're in the remain mode and the window is not on the active space, then we bring the window back to the active space.
+            DispatchQueue.main.async {
+                self.window?.makeKeyAndOrderFront(nil)
+            }
+            return
+        }
+
         if (visible) {
             animateOut()
         } else {
@@ -162,6 +201,9 @@ class QuickTerminalController: BaseTerminalController {
                 self.previousApp = previousApp
             }
         }
+
+        // Set previous active space
+        self.previousActiveSpace = CGSGetActiveSpace(CGSMainConnectionID())
 
         // Animate the window in
         animateWindowIn(window: window, from: position)
@@ -199,7 +241,9 @@ class QuickTerminalController: BaseTerminalController {
         position.setInitial(in: window, on: screen)
 
         // Move it to the visible position since animation requires this
-        window.makeKeyAndOrderFront(nil)
+        DispatchQueue.main.async {
+            window.makeKeyAndOrderFront(nil)
+        }
 
         // Run the animation that moves our window into the proper place and makes
         // it visible.
@@ -389,13 +433,18 @@ class QuickTerminalController: BaseTerminalController {
         // Update our derived config
         self.derivedConfig = DerivedConfig(config)
 
+        // Update window.collectionBehavior
+        self.window?.collectionBehavior = derivedConfig.quickTerminalSpaceBehavior.collectionBehavior
+
         syncAppearance()
+
     }
 
     private struct DerivedConfig {
         let quickTerminalScreen: QuickTerminalScreen
         let quickTerminalAnimationDuration: Double
         let quickTerminalAutoHide: Bool
+        let quickTerminalSpaceBehavior: QuickTerminalSpaceBehavior
         let windowColorspace: String
         let backgroundOpacity: Double
 
@@ -403,6 +452,7 @@ class QuickTerminalController: BaseTerminalController {
             self.quickTerminalScreen = .main
             self.quickTerminalAnimationDuration = 0.2
             self.quickTerminalAutoHide = true
+            self.quickTerminalSpaceBehavior = .move
             self.windowColorspace = ""
             self.backgroundOpacity = 1.0
         }
@@ -411,6 +461,7 @@ class QuickTerminalController: BaseTerminalController {
             self.quickTerminalScreen = config.quickTerminalScreen
             self.quickTerminalAnimationDuration = config.quickTerminalAnimationDuration
             self.quickTerminalAutoHide = config.quickTerminalAutoHide
+            self.quickTerminalSpaceBehavior = config.quickTerminalSpaceBehavior
             self.windowColorspace = config.windowColorspace
             self.backgroundOpacity = config.backgroundOpacity
         }

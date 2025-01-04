@@ -1517,6 +1517,13 @@ keybind: Keybinds = .{},
 /// Set it to false for the quick terminal to remain open even when it loses focus.
 @"quick-terminal-autohide": bool = true,
 
+/// This configuration option determines the behavior of the quick terminal
+/// when switching between spaces. If set to `move`, the quick terminal will
+/// be moved to the space where the focused window is. If set to `remain`,
+/// the quick terminal will stay only in the space where it was originally opened and
+/// will not follow when switching to another space.
+@"quick-terminal-space-behavior": QuickTerminalSpaceBehavior = .move,
+
 /// Whether to enable shell integration auto-injection or not. Shell integration
 /// greatly enhances the terminal experience by enabling a number of features:
 ///
@@ -5592,6 +5599,12 @@ pub const QuickTerminalScreen = enum {
     main,
     mouse,
     @"macos-menu-bar",
+};
+
+// See quick-terminal-space-behavior
+pub const QuickTerminalSpaceBehavior = enum {
+    remain,
+    move,
 };
 
 /// See grapheme-width-method

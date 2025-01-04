@@ -420,6 +420,16 @@ extension Ghostty {
             _ = ghostty_config_get(config, &v, key, UInt(key.count))
             return v
         }
+
+        var quickTerminalSpaceBehavior: QuickTerminalSpaceBehavior {
+            guard let config = self.config else { return .move }
+            var v: UnsafePointer<Int8>? = nil
+            let key = "quick-terminal-space-behavior"
+            guard ghostty_config_get(config, &v, key, UInt(key.count)) else { return .move }
+            guard let ptr = v else { return .move }
+            let str = String(cString: ptr)
+            return QuickTerminalSpaceBehavior(fromGhosttyConfig: str) ?? .move
+        }
         #endif
 
         var resizeOverlay: ResizeOverlay {

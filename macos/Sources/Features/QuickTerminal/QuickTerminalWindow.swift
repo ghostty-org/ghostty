@@ -1,6 +1,6 @@
 import Cocoa
 
-class QuickTerminalWindow: NSWindow {
+class QuickTerminalWindow: NSPanel {
     // Both of these must be true for windows without decorations to be able to
     // still become key/main and receive events.
     override var canBecomeKey: Bool { return true }
@@ -26,6 +26,9 @@ class QuickTerminalWindow: NSWindow {
         // window remains resizable.
         self.styleMask.remove(.titled)
 
+        // We don't want to activate the owning app when quick terminal is triggered.
+        self.styleMask.insert(.nonactivatingPanel)
+
         // We need to set our window level to a high value. In testing, only
         // popUpMenu and above do what we want. This gets it above the menu bar
         // and lets us render off screen.
@@ -41,7 +44,7 @@ class QuickTerminalWindow: NSWindow {
             // We don't want to be part of command-tilde
             .ignoresCycle,
 
-            // We never support fullscreen
-            .fullScreenNone]
+            // We want to show the window on another space if it is visible
+            .fullScreenAuxiliary]
     }
 }
