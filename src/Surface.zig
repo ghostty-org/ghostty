@@ -726,7 +726,28 @@ pub fn deinit(self: *Surface) void {
 /// Close this surface. This will trigger the runtime to start the
 /// close process, which should ultimately deinitialize this surface.
 pub fn close(self: *Surface) void {
-    self.rt_surface.close(self.needsConfirmQuit());
+    // Save tab data before closing
+    const cwd = self.io.terminal.getPwd();
+    const cwd_copy = if (cwd) |c| self.alloc.dupe(u8, c) catch null else null;
+    errdefer if (cwd_copy) |c| self.alloc.free(c);
+
+    const title = self.rt_surface.getTitle();
+    const title_copy = if (title) |t| self.alloc.dupe(u8, t) catch null else null;
+    errdefer if (title_copy) |t| self.alloc.free(t);
+
+    // Save terminal contents including scrollback buffer
+    const contents = self.io.terminal.screen.dumpStringAlloc(self.alloc, .{ .screen = .{} }) catch null;
+    errdefer if (contents) |c| self.alloc.free(c);
+
+    // Save to last closed tabs
+    self.app.last_closed_tabs.push(.{
+        .title = title_copy,
+        .cwd = cwd_copy,
+        .contents = contents,
+    });
+
+    // Close the surface
+    self.rt_surface.close(true);
 }
 
 /// Forces the surface to render. This is useful for when the surface
@@ -4029,6 +4050,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         .new_tab => try self.rt_app.performAction(
             .{ .surface = self },
             .new_tab,
+            {},
+        ),
+
+        .reopen_last_tab => try self.rt_app.performAction(
+            .{ .surface = self },
+            .reopen_last_tab,
             {},
         ),
 

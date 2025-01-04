@@ -457,6 +457,9 @@ pub const Action = union(enum) {
     ///
     crash: CrashThread,
 
+    /// Reopen the most recently closed tab
+    reopen_last_tab: void,
+
     pub const Key = @typeInfo(Action).Union.tag_type.?;
 
     pub const CrashThread = enum {
@@ -737,6 +740,7 @@ pub const Action = union(enum) {
             // come from. For example `new_window` needs to be sourced to
             // a surface so inheritance can be done correctly.
             .new_tab,
+            .reopen_last_tab,
             .previous_tab,
             .next_tab,
             .last_tab,
@@ -960,6 +964,7 @@ pub const Key = enum(c_int) {
     paste_from_clipboard,
     new_tab,
     new_window,
+    reopen_last_tab,
 };
 
 /// Trigger is the associated key state that can trigger an action.

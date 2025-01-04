@@ -130,6 +130,7 @@ pub fn init(self: *Window, app: *App) !void {
         const tab_overview = c.adw_tab_overview_new();
         c.adw_tab_overview_set_view(@ptrCast(tab_overview), self.notebook.adw.tab_view);
         c.adw_tab_overview_set_enable_new_tab(@ptrCast(tab_overview), 1);
+        c.adw_tab_overview_set_enable_reopen_last_tab(@ptrCast(tab_overview), 1);
         _ = c.g_signal_connect_data(
             tab_overview,
             "create-tab",
@@ -395,6 +396,7 @@ fn initActions(self: *Window) void {
         .{ "close", &gtkActionClose },
         .{ "new_window", &gtkActionNewWindow },
         .{ "new_tab", &gtkActionNewTab },
+        .{ "reopen_last_tab", &gtkActionReopenLastTab },
         .{ "split_right", &gtkActionSplitRight },
         .{ "split_down", &gtkActionSplitDown },
         .{ "split_left", &gtkActionSplitLeft },
@@ -436,6 +438,12 @@ pub fn newTab(self: *Window, parent: ?*CoreSurface) !void {
     // TODO: When this is triggered through a GTK action, the new surface
     // redraws correctly. When it's triggered through keyboard shortcuts, it
     // does not (cursor doesn't blink) unless reactivated by refocusing.
+}
+
+pub fn reopenLastTab(self: *Window) void {
+    _ = self;
+
+    log.debug("reopen last tab", .{});
 }
 
 /// Close the tab for the given notebook page. This will automatically
@@ -816,6 +824,15 @@ fn gtkActionNewTab(
 ) callconv(.C) void {
     // We can use undefined because the button is not used.
     gtkTabNewClick(undefined, ud);
+}
+
+fn gtkActionReopenLastTab(
+    _: *c.GSimpleAction,
+    _: *c.GVariant,
+    ud: ?*anyopaque,
+) callconv(.C) void {
+    const self: *Window = @ptrCast(@alignCast(ud orelse return));
+    self.reopenLastTab();
 }
 
 fn gtkActionSplitRight(

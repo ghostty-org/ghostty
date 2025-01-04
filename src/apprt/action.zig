@@ -217,6 +217,9 @@ pub const Action = union(Key) {
     /// for changes.
     config_change: ConfigChange,
 
+    /// Reopen the most recently closed tab.
+    reopen_last_tab,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         new_window,
@@ -254,6 +257,7 @@ pub const Action = union(Key) {
         color_change,
         reload_config,
         config_change,
+        reopen_last_tab,
     };
 
     /// Sync with: ghostty_action_u

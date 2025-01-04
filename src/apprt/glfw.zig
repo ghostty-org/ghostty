@@ -22,6 +22,8 @@ const CoreApp = @import("../App.zig");
 const CoreSurface = @import("../Surface.zig");
 const configpkg = @import("../config.zig");
 const Config = @import("../config.zig").Config;
+const LastClosedTab = @import("../terminal/closedtabs.zig").LastClosedTab;
+const sgr = @import("../terminal/sgr.zig");
 
 // Get native API access on certain platforms so we can do more customization.
 const glfwNative = glfw.Native(.{
@@ -155,6 +157,11 @@ pub const App = struct {
             }),
 
             .new_tab => try self.newTab(switch (target) {
+                .app => null,
+                .surface => |v| v,
+            }),
+
+            .reopen_last_tab => try self.reopenLastTab(switch (target) {
                 .app => null,
                 .surface => |v| v,
             }),
@@ -317,20 +324,8 @@ pub const App = struct {
         win.setMonitor(monitor, 0, 0, video_mode.getWidth(), video_mode.getHeight(), 0);
     }
 
-    /// Create a new tab in the parent surface.
-    fn newTab(self: *App, parent_: ?*CoreSurface) !void {
-        if (!Darwin.enabled) {
-            log.warn("tabbing is not supported on this platform", .{});
-            return;
-        }
-
-        const parent = parent_ orelse {
-            _ = try self.newSurface(null);
-            return;
-        };
-
-        // Create the new window
-        const window = try self.newSurface(parent);
+    fn addTab(self: *App, parent: *CoreSurface, window: *Surface) !void {
+        _ = self;
 
         // Add the new window the parent window
         const parent_win = glfwNative.getCocoaWindow(parent.rt_surface.window).?;
@@ -354,6 +349,71 @@ pub const App = struct {
             log.err("error in size callback from new tab err={}", .{err});
             return;
         };
+    }
+
+    /// Log that a reopen last tab action was triggered
+    fn reopenLastTab(self: *App, parent_: ?*CoreSurface) !void {
+        if (!Darwin.enabled) {
+            log.warn("tabbing is not supported on this platform", .{});
+            return;
+        }
+
+        const parent: *CoreSurface = parent_ orelse {
+            log.warn("No parent surface found", .{});
+            return;
+        };
+
+        const last_tab_opt = parent.app.last_closed_tabs.pop() orelse {
+            log.warn("No last closed tab found", .{});
+            return;
+        };
+
+        // Make a mutable copy
+        var last_tab = last_tab_opt;
+        defer last_tab.deinit(parent.app.alloc);
+
+        const window = try self.newSurface(parent);
+
+        if (last_tab.cwd) |cwd| {
+            try window.core_surface.io.terminal.setPwd(cwd);
+        }
+
+        if (last_tab.title) |title| {
+            const title_z = try window.core_surface.alloc.dupeZ(u8, title);
+            defer window.core_surface.alloc.free(title_z);
+            try window.core_surface.rt_surface.setTitle(title_z);
+        }
+
+        if (last_tab.contents) |contents| {
+            try window.core_surface.io.terminal.printString(contents);
+        }
+
+        log.debug("Reopening last tab - pwd: {s}, title: {s}", .{
+            last_tab.cwd orelse "(null)",
+            last_tab.title orelse "(null)",
+        });
+
+        try self.addTab(parent, window);
+    }
+
+    /// Create a new tab in the parent surface.
+    fn newTab(self: *App, parent_: ?*CoreSurface) !void {
+        if (!Darwin.enabled) {
+            log.warn("tabbing is not supported on this platform", .{});
+            return;
+        }
+
+        const parent = parent_ orelse {
+            _ = try self.newSurface(null);
+            return;
+        };
+
+        log.debug("New tab: {?}", .{parent});
+
+        // Create the new window
+        const window = try self.newSurface(parent);
+
+        try self.addTab(parent, window);
     }
 
     fn newSurface(self: *App, parent_: ?*CoreSurface) !*Surface {
@@ -603,6 +663,7 @@ pub const Surface = struct {
     }
 
     pub fn deinit(self: *Surface) void {
+        // Free the title text if it exists
         if (self.title_text) |t| self.core_surface.alloc.free(t);
 
         // Remove ourselves from the list of known surfaces in the app.
