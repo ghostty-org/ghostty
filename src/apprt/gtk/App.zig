@@ -995,6 +995,31 @@ fn loadRuntimeCss(
         unfocused_fill.b,
     });
 
+    if (config.@"window-title-font-family") |font_family| {
+        try writer.print(
+            \\.terminal-window headerbar {{
+            \\  font-family: "{[font_family]s}";
+            \\}}
+            \\
+            \\.inspector-window headerbar {{
+            \\  font-family: "{[font_family]s}";
+            \\}}
+            \\
+            \\.clipboard-confirmation-window headerbar {{
+            \\  font-family: "{[font_family]s}";
+            \\}}
+            \\
+            \\.config-errors-window headerbar {{
+            \\  font-family: "{[font_family]s}";
+            \\}}
+            \\
+        ,
+            .{
+                .font_family = font_family,
+            },
+        );
+    }
+
     if (version.atLeast(4, 16, 0)) {
         switch (window_theme) {
             .ghostty => try writer.print(
@@ -1075,10 +1100,8 @@ fn loadCustomCss(self: *App) !void {
         defer file.close();
 
         log.info("loading gtk-custom-css path={s}", .{path});
-        const contents = try file.reader().readAllAlloc(
-            self.core_app.alloc,
-            5 * 1024 * 1024 // 5MB
-        );
+        const max_size = 5 * 1024 * 1024; // 5MiB
+        const contents = try file.reader().readAllAlloc(self.core_app.alloc, max_size);
         defer self.core_app.alloc.free(contents);
 
         const provider = c.gtk_css_provider_new();

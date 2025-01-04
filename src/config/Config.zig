@@ -1073,7 +1073,12 @@ keybind: Keybinds = .{},
 
 /// The font that will be used for the application's window and tab titles.
 ///
-/// This is currently only supported on macOS.
+/// If this setting is left unset, the default font will be used. On macOS
+/// this is "SF Pro." On Gnome it is usually "Cantarell" but it is possible to
+/// customize the default for all windows on a system level.
+///
+/// Note: any font available on the system may be used, this font is not
+/// required to be a fixed-width font.
 @"window-title-font-family": ?[:0]const u8 = null,
 
 /// The theme to use for the windows. Valid values:
