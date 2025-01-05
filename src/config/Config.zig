@@ -2375,7 +2375,7 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
         );
         try result.keybind.set.put(
             alloc,
-            .{ .key = .{ .translated = .x }, .mods = .{ .ctrl = true, .shift = true } },
+            .{ .key = .{ .translated = .w }, .mods = .{ .ctrl = true, .shift = true } },
             .{ .close_tab = {} },
         );
         try result.keybind.set.put(
@@ -2660,7 +2660,7 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
         );
         try result.keybind.set.put(
             alloc,
-            .{ .key = .{ .translated = .x }, .mods = .{ .super = true } },
+            .{ .key = .{ .translated = .w }, .mods = .{ .super = true } },
             .{ .close_tab = {} },
         );
         try result.keybind.set.put(
