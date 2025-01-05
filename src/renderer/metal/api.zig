@@ -74,6 +74,7 @@ pub const MTLPixelFormat = enum(c_ulong) {
     rgba8unorm = 70,
     rgba8uint = 73,
     bgra8unorm = 80,
+    bgra8unorm_srgb = 81,
 };
 
 /// https://developer.apple.com/documentation/metal/mtlpurgeablestate?language=objc

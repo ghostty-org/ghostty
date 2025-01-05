@@ -427,8 +427,12 @@ fn initCellTextPipeline(device: objc.Object, library: objc.Object) !objc.Object 
             .{@as(c_ulong, 0)},
         );
 
-        // Value is MTLPixelFormatBGRA8Unorm
-        attachment.setProperty("pixelFormat", @as(c_ulong, 80));
+        // Setting this to a sRGB pixel format means a) that Metal will encode
+        // the result of alpha blending (in linear RGB space) back into sRGB
+        // space, and b) that the destination color (aka background color in
+        // case we're rendering text on a background) is decoded to linear
+        // before alpha blending.
+        attachment.setProperty("pixelFormat", @as(c_ulong, @intFromEnum(mtl.MTLPixelFormat.bgra8unorm_srgb)));
 
         // Blending. This is required so that our text we render on top
         // of our drawable properly blends into the bg.

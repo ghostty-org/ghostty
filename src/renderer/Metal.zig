@@ -2113,6 +2113,7 @@ pub fn setScreenSize(
                 const id_init = id_alloc.msgSend(objc.Object, objc.sel("init"), .{});
                 break :init id_init;
             };
+            // NOTE: Maybe these need to be changed as well, so custom shaders correctly decode/encode from/to sRGB?
             desc.setProperty("pixelFormat", @intFromEnum(mtl.MTLPixelFormat.bgra8unorm));
             desc.setProperty("width", @as(c_ulong, @intCast(size.screen.width)));
             desc.setProperty("height", @as(c_ulong, @intCast(size.screen.height)));
@@ -2143,6 +2144,7 @@ pub fn setScreenSize(
                 const id_init = id_alloc.msgSend(objc.Object, objc.sel("init"), .{});
                 break :init id_init;
             };
+            // NOTE: Maybe these need to be changed as well, so custom shaders correctly decode/encode from/to sRGB?
             desc.setProperty("pixelFormat", @intFromEnum(mtl.MTLPixelFormat.bgra8unorm));
             desc.setProperty("width", @as(c_ulong, @intCast(size.screen.width)));
             desc.setProperty("height", @as(c_ulong, @intCast(size.screen.height)));
@@ -2859,6 +2861,7 @@ fn addGlyph(
         .powerline => .fg_powerline,
     };
 
+    // TOOD: Could convert from sRGB color to linear here, possibly using a LUT.
     try self.cells.add(self.alloc, .text, .{
         .mode = mode,
         .grid_pos = .{ @intCast(x), @intCast(y) },
@@ -3043,9 +3046,20 @@ fn syncAtlasTexture(device: objc.Object, atlas: *const font.Atlas, texture: *obj
 /// Initialize a MTLTexture object for the given atlas.
 fn initAtlasTexture(device: objc.Object, atlas: *const font.Atlas) !objc.Object {
     // Determine our pixel format
+    //
+    // This is subtle: color pixel data we write to the Atlas is in sRGB
+    // format, and setting that here as the format makes sure that when we're
+    // sampling the atlas texture in the fragment shader we get a proper
+    // conversion from sRGB to linear space. Which latter we need to get
+    // correct alpha blending/antialiasing.
+    //
+    // Importantly, though, a grayscale texture is not used as color: we sample
+    // it in the fragment shader and treat the value we get as an alpha value
+    // that we apply to the desired font color. We _don't_ want sRGB
+    // encode/decode to mess with that value.
     const pixel_format: mtl.MTLPixelFormat = switch (atlas.format) {
         .grayscale => .r8unorm,
-        .rgba => .bgra8unorm,
+        .rgba => .bgra8unorm_srgb,
         else => @panic("unsupported atlas format for Metal texture"),
     };
 

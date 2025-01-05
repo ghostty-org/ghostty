@@ -35,6 +35,19 @@ float luminance_component(float c) {
   }
 }
 
+// Also known as sRGB decode.
+//
+// NOTE: We might want to use a LUT, either within the shader or before handing
+// in colors on the CPU side. I'd run benchmarks to see how much of a benefit
+// using a LUT is actually.
+float srgb_to_lin(float c) {
+  if (c <= 0.0404482362771082f) {
+      return c / 12.92;
+  } else {
+      return pow(((c + 0.055) / 1.055), 2.4);
+  }
+}
+
 float relative_luminance(float3 color) {
   color.r = luminance_component(color.r);
   color.g = luminance_component(color.g);
@@ -222,6 +235,15 @@ vertex CellTextVertexOut cell_text_vertex(
 
   CellTextVertexOut out;
   out.mode = in.mode;
+  // NOTE: Instead of doing the sRGB in the fragment shader we could do it here.
+  // Meaning we would have to do a lot less work but be careful and do it in all
+  // the places where we pass through a color. For this demonstration I'm doing
+  // it right "at the edge", in the fragment shader.
+  //
+  // Will be interesting to run benchmarks with the different approaches:
+  //   - conversion in fragment shader
+  //   - conversion in vertex shader
+  //   - using a LUT
   out.color = float4(in.color) / 255.0f;
 
   //              === Grid Cell ===
@@ -286,6 +308,8 @@ vertex CellTextVertexOut cell_text_vertex(
   // have different colors as some parts are displayed via background colors).
   if (uniforms.min_contrast > 1.0f && in.mode == MODE_TEXT) {
     float4 bg_color = float4(bg_colors[in.grid_pos.y * uniforms.grid_size.x + in.grid_pos.x]) / 255.0f;
+    // NOTE: We'd also have to decode from sRGB here, if doing the decode in the
+    // vertex shader.
     out.color = contrasted_color(uniforms.min_contrast, out.color, bg_color);
   }
 
@@ -299,6 +323,8 @@ vertex CellTextVertexOut cell_text_vertex(
     ) &&
     in.grid_pos.y == uniforms.cursor_pos.y
   ) {
+    // NOTE: We'd also have to decode from sRGB here, if doing the decode in the
+    // vertex shader.
     out.color = float4(uniforms.cursor_color) / 255.0f;
   }
 
@@ -322,16 +348,34 @@ fragment float4 cell_text_fragment(
     case MODE_TEXT_CONSTRAINED:
     case MODE_TEXT_POWERLINE:
     case MODE_TEXT: {
+      // Setting a pixel format of sRGB only gives us "free" encode/decode to
+      // and from sRGB when we access textures/render targets, either when
+      // reading/sampling or writing. The user-configured color is passed in as
+      // data, so we don't get automatic conversion and have to either do it on
+      // the CPU side, in the vertex shader, or here.
+
+      // N.B. Purposefully using index rather than something like .r, to avoid
+      // ordering problems.
+      float3 in_color_lin = float3(srgb_to_lin(in.color[0]), srgb_to_lin(in.color[1]), srgb_to_lin(in.color[2]));
+
       // We premult the alpha to our whole color since our blend function
       // uses One/OneMinusSourceAlpha to avoid blurry edges.
       // We first premult our given color.
-      float4 premult = float4(in.color.rgb * in.color.a, in.color.a);
+      float4 premult = float4(in_color_lin * in.color.a, in.color.a);
 
       // Then premult the texture color
       float a = textureGrayscale.sample(textureSampler, in.tex_coord).r;
       premult = premult * a;
-
       return premult;
+
+      // For debugging/testing Metal alpha blending behavior.
+      //
+      // Simulate with a known input color/alpha. This will yield blocks of color
+      // instead of text, because we don't multiply in the texture alpha.
+      // float alpha = 0.5;
+      // float text_lin = srgb_to_lin(in.color.r);
+      // float text_blended = text_lin * alpha;
+      // return float4(text_blended, text_blended, text_blended, alpha);
     }
 
     case MODE_TEXT_COLOR: {
