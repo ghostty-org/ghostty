@@ -233,13 +233,14 @@ pub const Action = union(enum) {
     /// CSI header (`ESC [` or `\x1b[`).
     csi: []const u8,
 
-    /// Send an `ESC` sequence.
-    esc: []const u8,
+    /// Unless kitty disambiguate is active, send an `ESC` sequence.
+    esc_unless_kitty_disambiguate: []const u8,
 
-    // Send the given text. Uses Zig string literal syntax. This is currently
-    // not validated. If the text is invalid (i.e. contains an invalid escape
-    // sequence), the error will currently only show up in logs.
-    text: []const u8,
+    // Unless kitty disambiguate is active, send the given text. Uses Zig
+    // string literal syntax. This is currently not validated. If the text
+    // is invalid (i.e. contains an invalid escape sequence), the error will
+    // currently only show up in logs.
+    text_unless_kitty_disambiguate: []const u8,
 
     /// Send data to the pty depending on whether cursor key mode is enabled
     /// (`application`) or disabled (`normal`).
@@ -702,8 +703,8 @@ pub const Action = union(enum) {
 
             // Obviously surface actions.
             .csi,
-            .esc,
-            .text,
+            .esc_unless_kitty_disambiguate,
+            .text_unless_kitty_disambiguate,
             .cursor_key,
             .reset,
             .copy_to_clipboard,
@@ -1897,8 +1898,8 @@ test "parse: action with string" {
     // parameter
     {
         const binding = try parseSingle("a=esc:A");
-        try testing.expect(binding.action == .esc);
-        try testing.expectEqualStrings("A", binding.action.esc);
+        try testing.expect(binding.action == .esc_unless_kitty_disambiguate);
+        try testing.expectEqualStrings("A", binding.action.esc_unless_kitty_disambiguate);
     }
 }
 

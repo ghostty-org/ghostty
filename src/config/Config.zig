@@ -2715,27 +2715,27 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
         try result.keybind.set.put(
             alloc,
             .{ .key = .{ .translated = .right }, .mods = .{ .super = true } },
-            .{ .text = "\\x05" },
+            .{ .text_unless_kitty_disambiguate = "\\x05" },
         );
         try result.keybind.set.put(
             alloc,
             .{ .key = .{ .translated = .left }, .mods = .{ .super = true } },
-            .{ .text = "\\x01" },
+            .{ .text_unless_kitty_disambiguate = "\\x01" },
         );
         try result.keybind.set.put(
             alloc,
             .{ .key = .{ .translated = .backspace }, .mods = .{ .super = true } },
-            .{ .esc = "\x15" },
+            .{ .esc_unless_kitty_disambiguate = "\x15" },
         );
         try result.keybind.set.put(
             alloc,
             .{ .key = .{ .translated = .left }, .mods = .{ .alt = true } },
-            .{ .esc = "b" },
+            .{ .esc_unless_kitty_disambiguate = "b" },
         );
         try result.keybind.set.put(
             alloc,
             .{ .key = .{ .translated = .right }, .mods = .{ .alt = true } },
-            .{ .esc = "f" },
+            .{ .esc_unless_kitty_disambiguate = "f" },
         );
     }
 

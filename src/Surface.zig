@@ -1833,6 +1833,22 @@ pub fn keyCallback(
     return .consumed;
 }
 
+pub fn isBindingMaskedByKittyDisambiguate(
+    self: *Surface,
+    action: input.Binding.Action,
+) bool {
+    switch (action) {
+        .esc_unless_kitty_disambiguate,
+        .text_unless_kitty_disambiguate => {
+            if (self.io.terminal.screen.kitty_keyboard.current().disambiguate) {
+                return true;
+            }
+        },
+        else => {},
+    }
+    return false;
+}
+
 /// Maybe handles a binding for a given event and if so returns the effect.
 /// Returns null if the event is not handled in any way and processing should
 /// continue.
@@ -1915,6 +1931,10 @@ fn maybeHandleBinding(
         .leaf => |leaf| leaf,
     };
     const action = leaf.action;
+
+    if (self.isBindingMaskedByKittyDisambiguate(action)) {
+        return null;
+    }
 
     // consumed determines if the input is consumed or if we continue
     // encoding the key (if we have a key to encode).
@@ -3826,14 +3846,14 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
     }
 
     switch (action.scoped(.surface).?) {
-        .csi, .esc => |data| {
+        .csi, .esc_unless_kitty_disambiguate => |data| {
             // We need to send the CSI/ESC sequence as a single write request.
             // If you split it across two then the shell can interpret it
             // as two literals.
             var buf: [128]u8 = undefined;
             const full_data = switch (action) {
                 .csi => try std.fmt.bufPrint(&buf, "\x1b[{s}", .{data}),
-                .esc => try std.fmt.bufPrint(&buf, "\x1b{s}", .{data}),
+                .esc_unless_kitty_disambiguate => try std.fmt.bufPrint(&buf, "\x1b{s}", .{data}),
                 else => unreachable,
             };
             self.io.queueMessage(try termio.Message.writeReq(
@@ -3851,7 +3871,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             }
         },
 
-        .text => |data| {
+        .text_unless_kitty_disambiguate => |data| {
             // For text we always allocate just because its easier to
             // handle all cases that way.
             const buf = try self.alloc.alloc(u8, data.len);

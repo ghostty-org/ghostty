@@ -1825,6 +1825,10 @@ pub const CAPI = struct {
             return false;
         };
 
+	if (ptr.isBindingMaskedByKittyDisambiguate(action)) {
+	    return false;
+	}
+
         _ = ptr.core_surface.performBindingAction(action) catch |err| {
             log.err("error performing binding action action={} err={}", .{ action, err });
             return false;
