@@ -256,6 +256,8 @@ pub const Action = union(enum) {
 
     /// Copy and paste.
     copy_to_clipboard: void,
+    /// Copy the URL under cursor to the clipboard.
+    copy_url_to_clipboard: void,
     paste_from_clipboard: void,
     paste_from_selection: void,
 
@@ -707,6 +709,7 @@ pub const Action = union(enum) {
             .cursor_key,
             .reset,
             .copy_to_clipboard,
+            .copy_url_to_clipboard,
             .paste_from_clipboard,
             .paste_from_selection,
             .increase_font_size,

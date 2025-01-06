@@ -3932,6 +3932,27 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             return false;
         },
 
+        .copy_url_to_clipboard => {
+            const pos = try self.rt_surface.getCursorPos();
+
+            if (!self.mouse.over_link) {
+                return false;
+            }
+
+            if (try self.linkAtPos(pos)) |link| {
+                const str = try self.io.terminal.screen.selectionString(self.alloc, .{
+                    .sel = link[1],
+                    .trim = false,
+                });
+                defer self.alloc.free(str);
+
+                try self.rt_surface.setClipboardString(str, .standard, false);
+                return true;
+            }
+
+            return false;
+        },
+
         .paste_from_clipboard => try self.startClipboardRequest(
             .standard,
             .{ .paste = {} },
