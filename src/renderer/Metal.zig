@@ -209,20 +209,31 @@ pub const GPUState = struct {
     }
 
     fn chooseDevice() error{NoMetalDevice}!objc.Object {
-        const devices = objc.Object.fromId(mtl.MTLCopyAllDevices());
-        defer devices.release();
         var chosen_device: ?objc.Object = null;
-        var iter = devices.iterate();
-        while (iter.next()) |device| {
-            // We want a GPU that’s connected to a display.
-            if (device.getProperty(bool, "isHeadless")) continue;
-            chosen_device = device;
-            // If the user has an eGPU plugged in, they probably want
-            // to use it. Otherwise, integrated GPUs are better for
-            // battery life and thermals.
-            if (device.getProperty(bool, "isRemovable") or
-                device.getProperty(bool, "isLowPower")) break;
+
+        switch (comptime builtin.os.tag) {
+            .macos => {
+                const devices = objc.Object.fromId(mtl.MTLCopyAllDevices());
+                defer devices.release();
+
+                var iter = devices.iterate();
+                while (iter.next()) |device| {
+                    // We want a GPU that’s connected to a display.
+                    if (device.getProperty(bool, "isHeadless")) continue;
+                    chosen_device = device;
+                    // If the user has an eGPU plugged in, they probably want
+                    // to use it. Otherwise, integrated GPUs are better for
+                    // battery life and thermals.
+                    if (device.getProperty(bool, "isRemovable") or
+                        device.getProperty(bool, "isLowPower")) break;
+                }
+            },
+            .ios => {
+                chosen_device = objc.Object.fromId(mtl.MTLCreateSystemDefaultDevice());
+            },
+            else => @compileError("unsupported target for Metal"),
         }
+
         const device = chosen_device orelse return error.NoMetalDevice;
         return device.retain();
     }

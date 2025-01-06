@@ -145,7 +145,6 @@ pub fn build(b: *std.Build) !void {
                     if (std.mem.indexOf(u8, stdout.items, "wayland")) |_| wayland = true;
                 } else {
                     std.log.warn("pkg-config: {s} with code {d}", .{ @tagName(term), code });
-                    return error.Unexpected;
                 }
             },
             inline else => |code| {

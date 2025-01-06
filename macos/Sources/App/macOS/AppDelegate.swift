@@ -424,35 +424,42 @@ class AppDelegate: NSObject,
         // If we have a main window then we don't process any of the keys
         // because we let it capture and propagate.
         guard NSApp.mainWindow == nil else { return event }
-
+        
         // If this event as-is would result in a key binding then we send it.
         if let app = ghostty.app,
            ghostty_app_key_is_binding(
-              app,
-              event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)) {
-            ghostty_app_key(app, event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS))
-            return nil
+            app,
+            event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)) {
+            // If the key was handled by Ghostty we stop the event chain. If
+            // the key wasn't handled then we let it fall through and continue
+            // processing. This is important because some bindings may have no
+            // affect at this scope.
+            if (ghostty_app_key(
+                app,
+                event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS))) {
+                return nil
+            }
         }
-
+        
         // If this event would be handled by our menu then we do nothing.
         if let mainMenu = NSApp.mainMenu,
            mainMenu.performKeyEquivalent(with: event) {
             return nil
         }
-
+        
         // If we reach this point then we try to process the key event
         // through the Ghostty key mechanism.
-
+        
         // Ghostty must be loaded
         guard let ghostty = self.ghostty.app else { return event }
-
+        
         // Build our event input and call ghostty
         if (ghostty_app_key(ghostty, event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS))) {
             // The key was used so we want to stop it from going to our Mac app
             Ghostty.logger.debug("local key event handled event=\(event)")
             return nil
         }
-
+        
         return event
     }
 

@@ -667,12 +667,16 @@ fileprivate class WindowDragView: NSView {
 
 // A view that matches the color of selected and unselected tabs in the adjacent tab bar.
 fileprivate class WindowButtonsBackdropView: NSView {
-	private let terminalWindow: TerminalWindow
+    // This must be weak because the window has this view. Otherwise
+    // a retain cycle occurs.
+	private weak var terminalWindow: TerminalWindow?
 	private let isLightTheme: Bool
     private let overlayLayer = VibrantLayer()
 
     var isHighlighted: Bool = true {
         didSet {
+            guard let terminalWindow else { return }
+
             if isLightTheme {
                 overlayLayer.isHidden = isHighlighted
                 layer?.backgroundColor = .clear

@@ -175,4 +175,8 @@ pub const MTLSize = extern struct {
     depth: c_ulong,
 };
 
+/// https://developer.apple.com/documentation/metal/1433367-mtlcopyalldevices
 pub extern "c" fn MTLCopyAllDevices() ?*anyopaque;
+
+/// https://developer.apple.com/documentation/metal/1433401-mtlcreatesystemdefaultdevice
+pub extern "c" fn MTLCreateSystemDefaultDevice() ?*anyopaque;
