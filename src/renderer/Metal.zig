@@ -2861,7 +2861,7 @@ fn addGlyph(
         .powerline => .fg_powerline,
     };
 
-    // TOOD: Could convert from sRGB color to linear here, possibly using a LUT.
+    // TODO: Could convert from sRGB color to linear here, possibly using a LUT.
     try self.cells.add(self.alloc, .text, .{
         .mode = mode,
         .grid_pos = .{ @intCast(x), @intCast(y) },
