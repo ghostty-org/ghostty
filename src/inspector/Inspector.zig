@@ -745,6 +745,35 @@ fn renderSizeWindow(self: *Inspector) void {
                 );
             }
         }
+
+        {
+            cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+
+            {
+                _ = cimgui.c.igTableSetColumnIndex(0);
+                cimgui.c.igText("X (Dpi)");
+            }
+            {
+                _ = cimgui.c.igTableSetColumnIndex(1);
+                cimgui.c.igText(
+                    "%d dpi",
+                    self.surface.font_size.xdpi,
+                );
+            }
+
+            cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
+            {
+                _ = cimgui.c.igTableSetColumnIndex(0);
+                cimgui.c.igText("Y (Dpi)");
+            }
+            {
+                _ = cimgui.c.igTableSetColumnIndex(1);
+                cimgui.c.igText(
+                    "%d dpi",
+                    self.surface.font_size.ydpi,
+                );
+            }
+        }
     }
 
     cimgui.c.igSeparatorText("Mouse");
