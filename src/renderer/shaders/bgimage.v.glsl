@@ -7,6 +7,10 @@ const uint MODE_ZOOMED = 0u;
 const uint MODE_STRETCHED = 1u;
 const uint MODE_TILED = 2u;
 const uint MODE_CENTERED = 3u;
+const uint MODE_UPPER_LEFT = 4u;
+const uint MODE_UPPER_RIGHT = 5u;
+const uint MODE_LOWER_LEFT = 6u;
+const uint MODE_LOWER_RIGHT = 7u;
 
 layout (location = 0) in vec2 terminal_size;
 layout (location = 1) in uint mode;
@@ -43,6 +47,10 @@ void main() {
 		}
 		break;
 	case MODE_CENTERED:
+	case MODE_UPPER_LEFT:
+	case MODE_UPPER_RIGHT:
+	case MODE_LOWER_LEFT:
+	case MODE_LOWER_RIGHT:
 		// If centered, the final scale of the image should match the actual
 		// size of the image and should be centered
 		scale.x = image_size.x / terminal_size.x;
@@ -55,7 +63,27 @@ void main() {
 	}
 
 	vec2 final_image_size = terminal_size * position * scale;
-	vec2 offset = (terminal_size * (1.0 - scale)) / 2.0;
+	vec2 offset = vec2(0.0, 0.0);
+	switch (mode) {
+	case MODE_ZOOMED:
+	case MODE_STRETCHED:
+	case MODE_TILED:
+	case MODE_CENTERED:
+		offset = (terminal_size * (1.0 - scale)) / 2.0;
+		break;
+	case MODE_UPPER_LEFT:
+		offset = vec2(0.0, 0.0);
+		break;
+	case MODE_UPPER_RIGHT:
+		offset = vec2(terminal_size.x - image_size.x, 0.0);
+		break;
+	case MODE_LOWER_LEFT:
+		offset = vec2(0.0, terminal_size.y - image_size.y);
+		break;
+	case MODE_LOWER_RIGHT:
+		offset = vec2(terminal_size.x - image_size.x, terminal_size.y - image_size.y);
+		break;
+	}
 	gl_Position = projection * vec4(final_image_size.xy + offset, 0.0, 1.0);
 	tex_coord = position;
 	if (mode == MODE_TILED) {
