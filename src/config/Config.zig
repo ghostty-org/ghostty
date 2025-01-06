@@ -1561,6 +1561,40 @@ keybind: Keybinds = .{},
 /// Set it to false for the quick terminal to remain open even when it loses focus.
 @"quick-terminal-autohide": bool = true,
 
+/// Sets the size of the "quick" terminal window is (re)created upon first use
+/// of `toggle_quick_terminal` action—after Ghostty was restarted or the
+/// previous window was explicitly closed (by `close_window` action or
+/// termination of `command` when `wait-after-command` is `false`; not as
+/// dismissed by loss of focus with `quick-terminal-autohide` set to `true`).
+///
+/// Either or both of `quick-terminal-height`/`quick-terminal-width` may be set
+/// to one of the keyword values or sepcified numerically with supported units:
+///  * `default` will use default size for the `quick-terminal-position` set:
+///      + for `top` & `bottom` - height is as `25%` and width is as `full`
+///      + for `left` & `right` - width is as `25%` and height is as `full`
+///      + for `center` - width is as `50%` and  height is as `33%`
+///  * `full` will cause the window to always cover the full span of the screen
+///    it cannot be manually resized to a smaller portion. If you want full-but-
+///      resizeabile set to `100%` instead. For height of `full` this will
+///  * `1%`..`100%` - what portion of the screen's height/width to cover.
+///  * e.g. `400px` - the number of apparent resolution pixels. May not
+///     correspond to actual hardware pixels when using "Retina"/HiDPI modes.
+///
+/// Numerical values exact meanings are dependent on `quick-terminal-position`:
+///  * height for `top`/`bottom` & width for `left`/`right` specify distance
+///    away from the "pinned" edge named by position towards screen center.
+///  * "cross-axis" with width for `top`/`bottom` & height for `left`/`right`,
+///    space not utilized by a given value will be evenly distributed to center
+///    the window "along" the position-naming edge
+///  * for `center` that distribution-of-excess happens along both axes, so you
+///    might think of the a height or width value as giving the total (up+down
+///    or left+right) distance from the screen center to be occupied.
+///
+/// If a given size exceeds that of display, it will be reduced for window to
+/// fit. If height size is smaller than fits one line of text it will be grown.
+@"quick-terminal-height": QuickTerminalDimension = .{ .default = {} },
+@"quick-terminal-width": QuickTerminalDimension = .{ .default = {} },
+
 /// Whether to enable shell integration auto-injection or not. Shell integration
 /// greatly enhances the terminal experience by enabling a number of features:
 ///
@@ -5675,6 +5709,147 @@ pub const QuickTerminalScreen = enum {
     main,
     mouse,
     @"macos-menu-bar",
+};
+
+/// See quick-terminal-width and quick-terminal-height
+pub const QuickTerminalDimension = union(enum) {
+    const Self = @This();
+
+    default: void,
+    full: void,
+    percent: u8,
+    pixels: u16,
+
+    // pub const C = extern struct {
+    //     tag: ValueTag,
+    //     value: c_uint,
+    // };
+
+    // pub fn cval(self: Self) Self.C {
+    //     return .{ .tag = @as(c_int, self.ValueTag), .value = @as(c_uint, switch (self.Value) {
+    //         .pixels => |value| value,
+    //         .percent => |value| value,
+    //         .full => 0,
+    //     }) };
+    // }
+
+    pub fn clone(self: Self, _: Allocator) error{}!Self {
+        return self;
+    }
+
+    pub fn equal(self: Self, other: Self) bool {
+        return std.meta.eql(self, other);
+    }
+
+    pub fn formatEntry(self: Self, formatter: anytype) !void {
+        var buf: [7]u8 = undefined;
+
+        switch (self) {
+            .default, .full => try formatter.formatEntry(
+                []const u8,
+                @tagName(self),
+            ),
+
+            .percent => |pct| try formatter.formatEntry(
+                []const u8,
+                std.fmt.bufPrint(&buf, "{d}%", .{pct}) catch return error.OutOfMemory,
+            ),
+            .pixels => |px| try formatter.formatEntry([]const u8, std.fmt.bufPrint(&buf, "{d}px", .{px}) catch return error.OutOfMemory),
+        }
+    }
+
+    pub fn parseCLI(self: *Self, input: ?[]const u8) !void {
+        const value = input orelse return error.ValueRequired;
+        if (value.len == 0) {
+            return error.ValueRequired;
+        }
+
+        if (std.mem.eql(u8, value, "default")) {
+            self.* = .{ .default = {} };
+        } else if (std.mem.eql(u8, value, "full")) {
+            self.* = .{ .full = {} };
+        } else if (value[value.len - 1] == '%') {
+            const v = std.fmt.parseInt(
+                u8,
+                value[0 .. value.len - 1],
+                10,
+            ) catch return error.InvalidFormat;
+
+            // Percentage value must be between 0-100.
+            if (v > 100) return error.InvalidFormat;
+
+            self.* = .{ .percent = v };
+        } else if (value[value.len - 2] == 'p' and value[value.len - 1] == 'x') {
+            const v = std.fmt.parseInt(
+                u16,
+                value[0 .. value.len - 2],
+                10,
+            ) catch return error.InvalidFormat;
+
+            self.* = .{ .pixels = v };
+        } else {
+            return error.InvalidFormat;
+        }
+    }
+
+    test "parseCLI" {
+        var p: Self = .{ .full = {} };
+
+        {
+            try p.parseCLI("default");
+            try std.testing.expectEqual(Self{ .default = {} }, p);
+        }
+        {
+            try p.parseCLI("full");
+            try std.testing.expectEqual(Self{ .full = {} }, p);
+        }
+        {
+            try p.parseCLI("42px");
+            try std.testing.expectEqual(Self{ .pixels = 42 }, p);
+        }
+        {
+            try p.parseCLI("25%");
+            try std.testing.expectEqual(Self{ .percent = 25 }, p);
+        }
+
+        try std.testing.expectError(error.InvalidFormat, p.parseCLI(""));
+        try std.testing.expectError(error.InvalidFormat, p.parseCLI("29"));
+        try std.testing.expectError(error.InvalidFormat, p.parseCLI("120%"));
+        try std.testing.expectError(error.InvalidFormat, p.parseCLI("65px,12"));
+    }
+
+    test "formatEntry pixels" {
+        const testing = std.testing;
+
+        var buf = std.ArrayList(u8).init(testing.allocator);
+        defer buf.deinit();
+
+        var p: Self = .{ .pixels = 1024 };
+        try p.formatEntry(formatterpkg.entryFormatter("quick-terminal-width", buf.writer()));
+        try testing.expectEqualSlices(u8, "quick-terminal-width = 1024px\n", buf.items);
+    }
+
+    test "formatEntry percent" {
+        const testing = std.testing;
+
+        var buf = std.ArrayList(u8).init(testing.allocator);
+        defer buf.deinit();
+
+        var p: Self = .{ .percent = 60 };
+        try p.formatEntry(formatterpkg.entryFormatter("quick-terminal-width", buf.writer()));
+        try testing.expectEqualSlices(u8, "quick-terminal-width = 60%\n", buf.items);
+    }
+
+    test "formatEntry full" {
+        const testing = std.testing;
+
+        var buf = std.ArrayList(u8).init(testing.allocator);
+        defer buf.deinit();
+
+        var p: Self = .{ .full = {} };
+        try p.formatEntry(formatterpkg.entryFormatter("quick-terminal-width", buf.writer()));
+        try testing.expectEqualSlices(u8, "quick-terminal-width = full\n", buf.items);
+    }
 };
 
 /// See grapheme-width-method
