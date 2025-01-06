@@ -365,6 +365,12 @@ fragment float4 cell_text_fragment(
 
       // Then premult the texture color
       float a = textureGrayscale.sample(textureSampler, in.tex_coord).r;
+
+      // Demonstrate how we can thicken fonts by applying some "gain" to the
+      // alpha we get from the texture.
+      //
+      // We could make this a configurable knob.
+      a = pow(a, 1 / 3.0f);
       premult = premult * a;
       return premult;
 
