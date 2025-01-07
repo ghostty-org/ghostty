@@ -1968,7 +1968,10 @@ fn maybeHandleBinding(
 
     // If we have the performable flag and the action was not performed,
     // then we act as though a binding didn't exist.
-    if (leaf.flags.performable and !performed) {
+    if (leaf.flags.performable and !performed or switch (action) {
+        .noop => true,
+        else => false,
+    }) {
         // If we're in a sequence, we treat this as if we pressed a key
         // that doesn't exist in the sequence. Reset our sequence and flush
         // any queued events.
@@ -4643,3 +4646,4 @@ fn presentSurface(self: *Surface) !void {
         {},
     );
 }
+

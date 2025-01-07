@@ -437,6 +437,7 @@ pub fn performAction(
     switch (action) {
         .unbind => unreachable,
         .ignore => {},
+        .noop => {},
         .quit => try rt_app.performAction(.app, .quit, {}),
         .new_window => try self.newWindow(rt_app, .{ .parent = null }),
         .open_config => try rt_app.performAction(.app, .open_config, {}),
@@ -581,3 +582,4 @@ pub const Wasm = if (!builtin.target.isWasm()) struct {} else struct {
     //     }
     // }
 };
+

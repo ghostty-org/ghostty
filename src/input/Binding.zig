@@ -229,6 +229,11 @@ pub const Action = union(enum) {
     /// assertion to verify this.
     unbind: void,
 
+    /// This action is similar to `unbind` but it is used to flag that the
+    /// binding should be removed from the set and the key should be unbound
+    /// from the system.
+    noop: void,
+
     /// Send a CSI sequence. The value should be the CSI sequence without the
     /// CSI header (`ESC [` or `\x1b[`).
     csi: []const u8,
@@ -685,6 +690,7 @@ pub const Action = union(enum) {
             // Doesn't really matter, so we'll see app.
             .ignore,
             .unbind,
+            .noop,
             => .app,
 
             // Obviously app actions.
