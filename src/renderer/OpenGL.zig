@@ -140,7 +140,7 @@ draw_mutex: DrawMutex = drawMutexZero,
 /// terminal is in reversed mode.
 draw_background: terminal.color.RGB,
 
-/// The background image(s) to draw. Currentlly, we always draw the last image.
+/// The background image(s) to draw. Currently, we always draw the last image.
 background_image: configpkg.SinglePath,
 
 /// The opacity of the background image. Not to be confused with background-opacity

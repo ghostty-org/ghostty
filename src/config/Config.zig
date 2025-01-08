@@ -463,7 +463,7 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 /// Background image for the window.
 @"background-image": SinglePath = .{},
 
-/// Background image opactity
+/// Background image opacity
 @"background-image-opacity": f32 = 1.0,
 
 /// Background image mode to use.
