@@ -26,7 +26,7 @@ pub const regex =
     "(?:" ++ url_schemes ++
     \\)(?:
 ++ ipv6_url_pattern ++
-    \\|[\w\-.~:/?#@!$&*+,;=%]+(?:[\(\[]\w*[\)\]])?)+(?<![,.])|(?:\.\.\/|\.\/*|\/)[\w\-.~:\/?#@!$&*+,;=%]+(?:\/[\w\-.~:\/?#@!$&*+,;=%]*)*
+    \\|[\w\-.~:/?#@!$&*+,;=%]+(?:[\(\[]\w*[\)\]])?)+(?<![,.%])|(?:\.\.\/|\.\/*|\/)[\w\-.~:\/?#@!$&*+,;=%]+(?:\/[\w\-.~:\/?#@!$&*+,;=%]*)*(?<!%)
 ;
 const url_schemes =
     \\https?://|mailto:|ftp://|file:|ssh:|git://|ssh://|tel:|magnet:|ipfs://|ipns://|gemini://|gopher://|news:
@@ -56,6 +56,10 @@ test "url regex" {
         expect: []const u8,
         num_matches: usize = 1,
     }{
+        .{
+            .input = "https://example.com%",
+            .expect = "https://example.com",
+        },
         .{
             .input = "hello https://example.com world",
             .expect = "https://example.com",
@@ -117,6 +121,10 @@ test "url regex" {
             .input = "weird characters https://example.com/~user/?query=1&other=2#hash and more",
             .expect = "https://example.com/~user/?query=1&other=2#hash",
         },
+        .{
+            .input = "https://example.com/?x=%59&y=X%",
+            .expect = "https://example.com/?x=%59&y=X",
+        },
         // square brackets in URL
         .{
             .input = "square brackets https://example.com/[foo] and more",
@@ -171,6 +179,10 @@ test "url regex" {
         .{
             .input = "match news:comp.infosystems.www.servers.unix news links",
             .expect = "news:comp.infosystems.www.servers.unix",
+        },
+        .{
+            .input = "/Users/ghostty.user/code/example.py%",
+            .expect = "/Users/ghostty.user/code/example.py",
         },
         .{
             .input = "/Users/ghostty.user/code/example.py",
