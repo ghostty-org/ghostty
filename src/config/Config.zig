@@ -2132,6 +2132,16 @@ keybind: Keybinds = .{},
 /// and shown when the titlebar is unmaximized. GTK only.
 @"gtk-titlebar-hide-when-maximized": bool = false,
 
+/// Determines whether or not we allow the tabs in the tab bar to be focussed.
+///
+/// If true (the default), users can focus tabs in the tab bar by clicking them,
+/// and then use arrow keys to navigate, but focus in the main surface will be
+/// lost, requiring the user to change focus back in order to use the terminal.
+///
+/// If false, the tab bar will never take focus, keeping the focus on the main
+/// window surface.
+@"gtk-tabs-can-focus": bool = true,
+
 /// Determines the appearance of the top and bottom bars when using the
 /// Adwaita tab bar. This requires `gtk-adwaita` to be enabled (it is
 /// by default).
