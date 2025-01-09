@@ -247,8 +247,6 @@ class TerminalController: BaseTerminalController {
 
         window.hasShadow = surfaceConfig.macosWindowShadow
 
-        guard window.hasStyledTabs else { return }
-
         updateWindowTitleColors(surfaceConfig)
     }
 
@@ -645,6 +643,7 @@ class TerminalController: BaseTerminalController {
 
     private func updateWindowTitleColors(_ surfaceConfig: Ghostty.SurfaceView.DerivedConfig) {
         guard let window = self.window as? TerminalWindow else { return }
+        guard window.hasStyledTabs else { return }
 
         // Our background color depends on if our focused surface borders the top or not.
         // If it does, we match the focused surface. If it doesn't, we use the app
