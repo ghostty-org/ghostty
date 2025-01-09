@@ -2934,7 +2934,15 @@ pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
     const config_file = "config";
     // Load XDG system config first
     var it = internal_os.xdg.DirIterator.init(.config);
-    while (it.next()) |xdg_dir| {
+    // We must reverse the order of the iterator because the first xdg config
+    // dir must takes importance per the spec https://specifications.freedesktop.org/basedir-spec/latest/#variables
+    var xdg_config_dirs = std.ArrayList([]const u8).init(alloc);
+    defer xdg_config_dirs.deinit();
+    while (it.next()) |d| {
+        try xdg_config_dirs.insert(0, d);
+    }
+    // Apply the system configs from last to first
+    for (xdg_config_dirs.items) |xdg_dir| {
         const config_path = try std.fs.path.join(alloc, &[_][]const u8{
             xdg_dir,
             config_subdir,
