@@ -2,7 +2,11 @@
 
 _\$XDG_CONFIG_HOME/ghostty/config_
 
-: Location of the default configuration file.
+: Location of the default user configuration file.
+
+_\$XDG_CONFIG_DIRS/ghostty/config_
+
+: Location of the default system configuration files.
 
 _\$LOCALAPPDATA/ghostty/config_
 
@@ -14,6 +18,10 @@ for configuration files.
 **XDG_CONFIG_HOME**
 
 : Default location for configuration files.
+
+**XDG_CONFIG_DIRS**
+
+: Colon separated list of paths to load configuration files.
 
 **LOCALAPPDATA**
 
