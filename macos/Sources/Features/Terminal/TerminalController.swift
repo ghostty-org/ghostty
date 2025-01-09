@@ -249,45 +249,7 @@ class TerminalController: BaseTerminalController {
 
         guard window.hasStyledTabs else { return }
 
-        // Our background color depends on if our focused surface borders the top or not.
-        // If it does, we match the focused surface. If it doesn't, we use the app
-        // configuration.
-        let backgroundColor: OSColor
-        let foregroundColor: OSColor
-        if let surfaceTree {
-            if let focusedSurface, surfaceTree.doesBorderTop(view: focusedSurface) {
-                // Similar to above, an alpha component of "0" causes compositor issues, so
-                // we use 0.001. See: https://github.com/ghostty-org/ghostty/pull/4308
-                backgroundColor = OSColor(focusedSurface.backgroundColor ?? surfaceConfig.backgroundColor).withAlphaComponent(0.001)
-                foregroundColor = OSColor(focusedSurface.foregroundColor ?? surfaceConfig.foregroundColor)
-            } else {
-                // We don't have a focused surface or our surface doesn't border the
-                // top. We choose to match the color of the top-left most surface.
-                backgroundColor = OSColor(surfaceTree.topLeft().backgroundColor ?? derivedConfig.backgroundColor)
-                foregroundColor = OSColor(surfaceTree.topLeft().foregroundColor ?? derivedConfig.foregroundColor)
-            }
-        } else {
-            backgroundColor = OSColor(self.derivedConfig.backgroundColor)
-            foregroundColor = OSColor(self.derivedConfig.foregroundColor)
-        }
-        window.titlebarColor = backgroundColor.withAlphaComponent(surfaceConfig.backgroundOpacity)
-        window.titleForegroundColor = foregroundColor
-
-        if (window.isOpaque) {
-            // Bg color is only synced if we have no transparency. This is because
-            // the transparency is handled at the surface level (window.backgroundColor
-            // ignores alpha components)
-            window.backgroundColor = backgroundColor
-
-            // If there is transparency, calling this will make the titlebar opaque
-            // so we only call this if we are opaque.
-            window.updateTabBar()
-        }
-
-        guard let windows = self.window?.tabbedWindows as? [TerminalWindow] else { return }
-        for (w) in windows {
-            w.titleForegroundColor = window.titleForegroundColor
-        }
+        updateWindowTitleColors(surfaceConfig)
     }
 
     private func setInitialWindowPosition(x: Int16?, y: Int16?, windowDecorations: Bool) {
@@ -500,7 +462,7 @@ class TerminalController: BaseTerminalController {
         self.fixTabBar()
 
         if let focusedSurface {
-            self.syncAppearance(focusedSurface.derivedConfig)
+            self.updateWindowTitleColors(focusedSurface.derivedConfig)
         }
     }
 
@@ -678,6 +640,50 @@ class TerminalController: BaseTerminalController {
             guard let self else { return }
             guard self.focusedSurface == surface else { return }
             self.syncAppearance(surface.derivedConfig)
+        }
+    }
+
+    private func updateWindowTitleColors(_ surfaceConfig: Ghostty.SurfaceView.DerivedConfig) {
+        guard let window = self.window as? TerminalWindow else { return }
+
+        // Our background color depends on if our focused surface borders the top or not.
+        // If it does, we match the focused surface. If it doesn't, we use the app
+        // configuration.
+        let backgroundColor: OSColor
+        let foregroundColor: OSColor
+        if let surfaceTree {
+            if let focusedSurface, surfaceTree.doesBorderTop(view: focusedSurface) {
+                // Similar to above, an alpha component of "0" causes compositor issues, so
+                // we use 0.001. See: https://github.com/ghostty-org/ghostty/pull/4308
+                backgroundColor = OSColor(focusedSurface.backgroundColor ?? surfaceConfig.backgroundColor).withAlphaComponent(0.001)
+                foregroundColor = OSColor(focusedSurface.foregroundColor ?? surfaceConfig.foregroundColor)
+            } else {
+                // We don't have a focused surface or our surface doesn't border the
+                // top. We choose to match the color of the top-left most surface.
+                backgroundColor = OSColor(surfaceTree.topLeft().backgroundColor ?? derivedConfig.backgroundColor)
+                foregroundColor = OSColor(surfaceTree.topLeft().foregroundColor ?? derivedConfig.foregroundColor)
+            }
+        } else {
+            backgroundColor = OSColor(self.derivedConfig.backgroundColor)
+            foregroundColor = OSColor(self.derivedConfig.foregroundColor)
+        }
+        window.titlebarColor = backgroundColor.withAlphaComponent(surfaceConfig.backgroundOpacity)
+        window.titleForegroundColor = foregroundColor
+
+        if (window.isOpaque) {
+            // Bg color is only synced if we have no transparency. This is because
+            // the transparency is handled at the surface level (window.backgroundColor
+            // ignores alpha components)
+            window.backgroundColor = backgroundColor
+
+            // If there is transparency, calling this will make the titlebar opaque
+            // so we only call this if we are opaque.
+            window.updateTabBar()
+        }
+
+        guard let windows = self.window?.tabbedWindows as? [TerminalWindow] else { return }
+        for (w) in windows {
+            w.titleForegroundColor = window.titleForegroundColor
         }
     }
 
