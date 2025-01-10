@@ -211,6 +211,7 @@ pub fn init(self: *Window, app: *App) !void {
     }
 
     _ = c.g_signal_connect_data(gtk_window, "notify::decorated", c.G_CALLBACK(&gtkWindowNotifyDecorated), self, null, c.G_CONNECT_DEFAULT);
+    _ = c.g_signal_connect_data(gtk_window, "notify::maximized", c.G_CALLBACK(&gtkWindowNotifyMaximized), self, null, c.G_CONNECT_DEFAULT);
 
     // If we are disabling decorations then disable them right away.
     if (!app.config.@"window-decoration") {
@@ -611,6 +612,46 @@ fn gtkWindowNotifyDecorated(
         c.gtk_widget_add_css_class(@ptrCast(object), "ssd");
         c.gtk_widget_add_css_class(@ptrCast(object), "no-border-radius");
     }
+}
+
+/// Handle setting or removing the _NET_WM_STATE property on the window.
+/// This is used to notify the window manager if the window is maximized.
+/// Though, this depends on the window manager supporting _NET_WM_STATE.
+fn gtkWindowNotifyMaximized(
+    window: *c.GtkWindow,
+    _: *c.GParamSpec,
+    _: ?*anyopaque,
+) callconv(.C) void {
+    const gdk_surface = c.gtk_native_get_surface(@ptrCast(window));
+    if (c.g_type_check_instance_is_a(@ptrCast(@alignCast(gdk_surface)), c.gdk_x11_surface_get_type()) == 0) return; // X11 only, sorry Wayland
+
+    const xdisplay = c.gdk_x11_display_get_xdisplay(c.gdk_surface_get_display(gdk_surface)) orelse return;
+
+    // If the WM doesn't support _NET_WM_STATE, no need to continue.
+    if (c.XInternAtom(xdisplay, "_NET_WM_STATE", 1) == 0) {
+        log.warn("current WM does not support _NET_WM_STATE", .{});
+        return;
+    }
+
+    // https://tronche.com/gui/x/xlib/events/client-communication/client-message.html#XClientMessageEvent
+    var client_message_event: c.XClientMessageEvent = std.mem.zeroes(c.XClientMessageEvent);
+    client_message_event.type = c.ClientMessage;
+    client_message_event.window = c.gdk_x11_surface_get_xid(gdk_surface);
+    client_message_event.message_type = c.XInternAtom(xdisplay, "_NET_WM_STATE", 0);
+    client_message_event.format = 32;
+    client_message_event.data.l[0] = c.gtk_window_is_maximized(window);
+    client_message_event.data.l[1] = @intCast(c.XInternAtom(xdisplay, "_NET_WM_STATE_MAXIMIZED_VERT", 0));
+
+    // https://tronche.com/gui/x/xlib/event-handling/XSendEvent.html
+    _ = c.XSendEvent(
+        xdisplay,
+        c.DefaultRootWindow(xdisplay),
+        0,
+        c.SubstructureRedirectMask | c.SubstructureNotifyMask,
+        @ptrCast(&client_message_event),
+    );
+
+    _ = c.XFlush(xdisplay);
 }
 
 // Note: we MUST NOT use the GtkButton parameter because gtkActionNewTab
