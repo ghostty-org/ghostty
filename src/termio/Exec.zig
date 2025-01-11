@@ -804,15 +804,15 @@ const Subprocess = struct {
 
             if (std.fmt.bufPrint(&buf, "{s}/..", .{resources_dir})) |data_dir| {
                 try env.put(
-                    xdg.Dir.data.key(),
+                    xdg.SystemDir.data.key(),
                     try internal_os.appendEnv(
                         alloc,
-                        env.get(xdg.Dir.data.key()) orelse xdg.Dir.data.default(),
+                        env.get(xdg.SystemDir.data.key()) orelse xdg.SystemDir.data.default(),
                         data_dir,
                     ),
                 );
             } else |err| {
-                log.warn("error building {s}; err={}", .{ xdg.Dir.data.key(), err });
+                log.warn("error building {s}; err={}", .{ xdg.SystemDir.data.key(), err });
             }
 
             const manpath_key = "MANPATH";

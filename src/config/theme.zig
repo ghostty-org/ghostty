@@ -31,7 +31,7 @@ pub const Location = enum {
                     "ghostty", "themes",
                 }) catch return error.OutOfMemory;
 
-                break :user internal_os.xdg.config(
+                break :user internal_os.xdg.UserDir.config.path(
                     arena_alloc,
                     .{ .subdir = subdir },
                 ) catch |err| {

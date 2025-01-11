@@ -2930,33 +2930,21 @@ fn writeConfigTemplate(path: []const u8) !void {
 /// On macOS, `$HOME/Library/Application Support/$CFBundleIdentifier/config`
 /// is also loaded.
 pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
-    const config_subdir = "ghostty";
+    const config_dir = "ghostty";
     const config_file = "config";
-    // Load XDG system config first
-    var it = internal_os.xdg.DirIterator.init(.config);
-    // We must reverse the order of the iterator because the first xdg config
-    // dir must takes importance per the spec https://specifications.freedesktop.org/basedir-spec/latest/#variables
-    var xdg_config_dirs = std.ArrayList([]const u8).init(alloc);
-    defer xdg_config_dirs.deinit();
-    while (it.next()) |d| {
-        try xdg_config_dirs.insert(0, d);
+    const config_subdir = try std.fs.path.join(alloc, &[_][]const u8{
+        config_dir,
+        config_file,
+    });
+    defer alloc.free(config_subdir);
+    var it = internal_os.xdg.Dir.config.iter(alloc, .{ .subdir = config_subdir });
+    var xdg_action: ?OptionalFileAction = null;
+    var xdg_path: ?[]const u8 = null;
+    while (try it.next()) |dir| {
+        defer alloc.free(dir);
+        xdg_path = dir;
+        xdg_action = self.loadOptionalFile(alloc, dir);
     }
-    // Apply the system configs from last to first
-    for (xdg_config_dirs.items) |xdg_dir| {
-        const config_path = try std.fs.path.join(alloc, &[_][]const u8{
-            xdg_dir,
-            config_subdir,
-            config_file,
-        });
-        defer alloc.free(config_path);
-        _ = self.loadOptionalFile(alloc, config_path);
-    }
-    // Load XDG user config next
-    const xdg_config_dir = try internal_os.xdg.config(alloc, .{ .subdir = config_subdir });
-    defer alloc.free(xdg_config_dir);
-    const xdg_path = try std.fs.path.join(alloc, &[_][]const u8{ xdg_config_dir, config_file });
-    defer alloc.free(xdg_path);
-    const xdg_action = self.loadOptionalFile(alloc, xdg_path);
 
     // On macOS load the app support directory as well
     if (comptime builtin.os.tag == .macos) {
@@ -2973,9 +2961,10 @@ pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
         }
     } else {
         if (xdg_action == .not_found) {
-            writeConfigTemplate(xdg_path) catch |err| {
-                log.warn("error creating template config file err={}", .{err});
-            };
+            if (xdg_path) |p|
+                writeConfigTemplate(p) catch |err| {
+                    log.warn("error creating template config file err={}", .{err});
+                };
         }
     }
 }

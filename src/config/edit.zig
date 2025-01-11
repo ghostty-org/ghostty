@@ -98,9 +98,11 @@ fn configPathCandidates(alloc_arena: Allocator) ![]const []const u8 {
         ));
     }
 
-    paths.appendAssumeCapacity(try internal_os.xdg.config(
+    const subdir = try std.fs.path.join(alloc_arena, &[_][]const u8{ "ghostty", "config" });
+    defer alloc_arena.free(subdir);
+    paths.appendAssumeCapacity(try internal_os.xdg.UserDir.config.path(
         alloc_arena,
-        .{ .subdir = "ghostty/config" },
+        .{ .subdir = subdir },
     ));
 
     return paths.items;
