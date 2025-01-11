@@ -26,6 +26,7 @@ const Notebook = @import("notebook.zig").Notebook;
 const HeaderBar = @import("headerbar.zig").HeaderBar;
 const version = @import("version.zig");
 const wayland = @import("wayland.zig");
+const x11 = @import("x11.zig");
 
 const log = std.log.scoped(.gtk);
 
@@ -623,15 +624,12 @@ fn gtkWindowNotifyMaximized(
     _: ?*anyopaque,
 ) callconv(.C) void {
     const gdk_surface = c.gtk_native_get_surface(@ptrCast(window));
-    if (c.g_type_check_instance_is_a(@ptrCast(@alignCast(gdk_surface)), c.gdk_x11_surface_get_type()) == 0) return; // X11 only, sorry Wayland
-
-    const xdisplay = c.gdk_x11_display_get_xdisplay(c.gdk_surface_get_display(gdk_surface)) orelse return;
-
-    // If the WM doesn't support _NET_WM_STATE, no need to continue.
-    if (c.XInternAtom(xdisplay, "_NET_WM_STATE", 1) == 0) {
+    if (!x11.should_use_net_wm_state(gdk_surface)) {
         log.warn("current WM does not support _NET_WM_STATE", .{});
         return;
     }
+
+    const xdisplay = c.gdk_x11_display_get_xdisplay(c.gdk_surface_get_display(gdk_surface)) orelse return;
 
     // https://tronche.com/gui/x/xlib/events/client-communication/client-message.html#XClientMessageEvent
     var client_message_event: c.XClientMessageEvent = std.mem.zeroes(c.XClientMessageEvent);

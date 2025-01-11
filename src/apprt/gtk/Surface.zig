@@ -857,12 +857,9 @@ pub fn setInitialWindowSize(self: *const Surface, width: u32, height: u32) !void
         @intCast(height),
     );
 
-    // TODO: move this check somewhere else so we can reuse it
     // If the current WM doesn't support _NET_WM_STATE, we shouldn't try to set it.
     const gdk_surface = c.gtk_native_get_surface(@ptrCast(window.window));
-    if (c.g_type_check_instance_is_a(@ptrCast(@alignCast(gdk_surface)), c.gdk_x11_surface_get_type()) == 0) return; // X11 only, sorry Wayland
-
-    if (c.XInternAtom(c.gdk_x11_display_get_xdisplay(c.gdk_surface_get_display(gdk_surface)), "_NET_WM_STATE", 1) == 0) {
+    if (!x11.should_use_net_wm_state(gdk_surface)) {
         log.warn("current WM does not support _NET_WM_STATE", .{});
         return;
     }

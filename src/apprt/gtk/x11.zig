@@ -22,6 +22,17 @@ pub fn is_current_display_server() bool {
     return is_display(display);
 }
 
+/// Returns true if we have a valid X11 surface and the current WM supports _NET_WM_STATE.
+pub fn should_use_net_wm_state(surface: ?*c.GdkSurface) bool {
+    if (comptime !build_options.x11) return false;
+    if (c.g_type_check_instance_is_a(
+        @ptrCast(@alignCast(surface)),
+        c.gdk_x11_surface_get_type(),
+    ) == 0) return false;
+
+    return c.XInternAtom(c.gdk_x11_display_get_xdisplay(c.gdk_surface_get_display(surface)), "_NET_WM_STATE", 1) != 0;
+}
+
 pub const Xkb = struct {
     base_event_code: c_int,
 
