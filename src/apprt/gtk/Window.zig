@@ -613,14 +613,16 @@ fn gtkWindowNotifyDecorated(
 fn gtkWindowNotifyMaximized(
     window: *c.GtkWindow,
     _: *c.GParamSpec,
-    _: ?*anyopaque,
+    ud: ?*anyopaque,
 ) callconv(.C) void {
-    const gdk_surface = c.gtk_native_get_surface(@ptrCast(window));
-    if (!winproto.x11.should_use_net_wm_state(gdk_surface)) {
+    // If the current WM doesn't support _NET_WM_STATE, we shouldn't try to set it.
+    const self: *winproto.Window = @ptrCast(@alignCast(ud orelse return));
+    if (!self.shouldSetWMState()) {
         log.warn("current WM does not support _NET_WM_STATE", .{});
         return;
     }
 
+    const gdk_surface = c.gtk_native_get_surface(@ptrCast(window));
     const xdisplay = c.gdk_x11_display_get_xdisplay(c.gdk_surface_get_display(gdk_surface)) orelse return;
 
     // https://tronche.com/gui/x/xlib/events/client-communication/client-message.html#XClientMessageEvent

@@ -53,4 +53,8 @@ pub const Window = struct {
     pub fn resizeEvent(_: *Window) !void {}
 
     pub fn syncAppearance(_: *Window) !void {}
+
+    pub fn shouldSetWMState(_: *Window) bool {
+        return false;
+    }
 };

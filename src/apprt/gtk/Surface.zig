@@ -857,30 +857,27 @@ pub fn setInitialWindowSize(self: *const Surface, width: u32, height: u32) !void
     );
 
     // If the current WM doesn't support _NET_WM_STATE, we shouldn't try to set it.
-    const gdk_surface = c.gtk_native_get_surface(@ptrCast(window.window));
-    if (!x11.should_use_net_wm_state(gdk_surface)) {
+    const winproto = &(window.winproto orelse return);
+    if (!winproto.shouldSetWMState()) {
         log.warn("current WM does not support _NET_WM_STATE", .{});
         return;
     }
 
+    const gdk_surface = c.gtk_native_get_surface(@ptrCast(window.window));
     const workarea = self.getWorkarea(gdk_surface) orelse return;
     if (height >= workarea.height and width >= workarea.width) {
         c.gtk_window_maximize(@ptrCast(window.window));
     }
 }
 
-fn getWorkarea(self: *const Surface, gdk_surface: ?*c.GdkSurface) ?c.GdkRectangle {
+fn getWorkarea(_: *const Surface, gdk_surface: ?*c.GdkSurface) ?c.GdkRectangle {
     const monitor = c.gdk_display_get_monitor_at_surface(
         c.gdk_display_get_default(),
         gdk_surface,
     );
 
     var workarea: c.GdkRectangle = std.mem.zeroes(c.GdkRectangle);
-    if (self.app.wayland != null) {
-        c.gdk_monitor_get_geometry(monitor, &workarea);
-    } else {
-        c.gdk_x11_monitor_get_workarea(monitor, &workarea);
-    }
+    c.gdk_x11_monitor_get_workarea(monitor, &workarea);
 
     return workarea;
 }

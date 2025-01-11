@@ -125,4 +125,10 @@ pub const Window = union(Protocol) {
             inline else => |*v| try v.syncAppearance(),
         }
     }
+
+    pub fn shouldSetWMState(self: *Window) bool {
+        return switch (self.*) {
+            inline else => |*v| v.shouldSetWMState(),
+        };
+    }
 };

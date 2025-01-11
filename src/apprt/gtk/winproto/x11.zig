@@ -283,6 +283,27 @@ pub const Window = struct {
             );
         }
     }
+
+    /// Checks if we should set the _NET_WM_STATE property on the window.
+    ///
+    /// To be truthy, we must have a valid X11 surface and the window manager must
+    /// support _NET_WM_STATE.
+    pub fn shouldSetWMState(self: *Window) bool {
+        const gdk_surface = c.gtk_native_get_surface(@ptrCast(self.gtk_window)) orelse return false;
+
+        // Check we have a valid X11 surface
+        if (c.g_type_check_instance_is_a(
+            @ptrCast(@alignCast(gdk_surface)),
+            c.gdk_x11_surface_get_type(),
+        ) == 0) return false;
+
+        // Check the window manager supports _NET_WM_STATE
+        return c.XInternAtom(
+            c.gdk_x11_display_get_xdisplay(c.gdk_surface_get_display(gdk_surface)),
+            "_NET_WM_STATE",
+            1,
+        ) != 0;
+    }
 };
 
 const Region = extern struct {

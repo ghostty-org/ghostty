@@ -208,4 +208,8 @@ pub const Window = struct {
             }
         }
     }
+
+    pub fn shouldSetWMState(_: *Window) bool {
+        return false; // Wayland doesn't use _NET_WM_STATE
+    }
 };
