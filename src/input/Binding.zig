@@ -441,10 +441,10 @@ pub const Action = union(enum) {
     toggle_quick_terminal: void,
 
     /// Show/hide all windows. If all windows become shown, we also ensure
-    /// Ghostty is focused.
+    /// Ghostty becomes focused. When hiding all windows, focus is yielded
+    /// to the next application as determined by the OS.
     ///
-    /// This currently only works on macOS. When hiding all windows, we do
-    /// not yield focus to the previous application.
+    /// This currently only works on macOS.
     toggle_visibility: void,
 
     /// Quit ghostty.

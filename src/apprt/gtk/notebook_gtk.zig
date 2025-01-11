@@ -157,8 +157,8 @@ pub const NotebookGtk = struct {
         c.gtk_gesture_single_set_button(@ptrCast(gesture_tab_click), 0);
         c.gtk_widget_add_controller(label_box_widget, @ptrCast(gesture_tab_click));
 
-        _ = c.g_signal_connect_data(label_close, "clicked", c.G_CALLBACK(&Tab.gtkTabCloseClick), tab, null, c.G_CONNECT_DEFAULT);
-        _ = c.g_signal_connect_data(gesture_tab_click, "pressed", c.G_CALLBACK(&Tab.gtkTabClick), tab, null, c.G_CONNECT_DEFAULT);
+        _ = c.g_signal_connect_data(label_close, "clicked", c.G_CALLBACK(&gtkTabCloseClick), tab, null, c.G_CONNECT_DEFAULT);
+        _ = c.g_signal_connect_data(gesture_tab_click, "pressed", c.G_CALLBACK(&gtkTabClick), tab, null, c.G_CONNECT_DEFAULT);
 
         // Tab settings
         c.gtk_notebook_set_tab_reorderable(self.notebook, box_widget, 1);
@@ -282,4 +282,23 @@ fn gtkNotebookCreateWindow(
     tab.window = newWindow;
 
     return newWindow.notebook.gtk.notebook;
+}
+
+fn gtkTabCloseClick(_: *c.GtkButton, ud: ?*anyopaque) callconv(.C) void {
+    const tab: *Tab = @ptrCast(@alignCast(ud));
+    tab.closeWithConfirmation();
+}
+
+fn gtkTabClick(
+    gesture: *c.GtkGestureClick,
+    _: c.gint,
+    _: c.gdouble,
+    _: c.gdouble,
+    ud: ?*anyopaque,
+) callconv(.C) void {
+    const self: *Tab = @ptrCast(@alignCast(ud));
+    const gtk_button = c.gtk_gesture_single_get_current_button(@ptrCast(gesture));
+    if (gtk_button == c.GDK_BUTTON_MIDDLE) {
+        self.closeWithConfirmation();
+    }
 }

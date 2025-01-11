@@ -604,7 +604,7 @@ palette: Palette = .{},
 ///
 /// Supported on macOS and on some Linux desktop environments, including:
 ///
-///   * KDE Plasma (Wayland only)
+///   * KDE Plasma (Wayland and X11)
 ///
 /// Warning: the exact blur intensity is _ignored_ under KDE Plasma, and setting
 /// this setting to either `true` or any positive blur intensity value would
@@ -1387,16 +1387,14 @@ keybind: Keybinds = .{},
 @"image-storage-limit": u32 = 320 * 1000 * 1000,
 
 /// Whether to automatically copy selected text to the clipboard. `true`
-/// will prefer to copy to the selection clipboard if supported by the
-/// OS, otherwise it will copy to the system clipboard.
+/// will prefer to copy to the selection clipboard, otherwise it will copy to
+/// the system clipboard.
 ///
 /// The value `clipboard` will always copy text to the selection clipboard
-/// (for supported systems) as well as the system clipboard. This is sometimes
-/// a preferred behavior on Linux.
+/// as well as the system clipboard.
 ///
-/// Middle-click paste will always use the selection clipboard on Linux
-/// and the system clipboard on macOS. Middle-click paste is always enabled
-/// even if this is `false`.
+/// Middle-click paste will always use the selection clipboard. Middle-click
+/// paste is always enabled even if this is `false`.
 ///
 /// The default value is true on Linux and macOS.
 @"copy-on-select": CopyOnSelect = switch (builtin.os.tag) {
@@ -1976,6 +1974,18 @@ keybind: Keybinds = .{},
 /// Note: This currently only affects cgroup initialization. Subprocesses
 /// must always be able to move themselves into an isolated cgroup.
 @"linux-cgroup-hard-fail": bool = false,
+
+/// Enable or disable GTK's OpenGL debugging logs. The default is `true` for
+/// debug builds, `false` for all others.
+@"gtk-opengl-debug": bool = builtin.mode == .Debug,
+
+/// After GTK 4.14.0, we need to force the GSK renderer to OpenGL as the default
+/// GSK renderer is broken on some systems. If you would like to override
+/// that bekavior, set `gtk-gsk-renderer=default` and either use your system's
+/// default GSK renderer, or set the GSK_RENDERER environment variable to your
+/// renderer of choice before launching Ghostty. This setting has no effect when
+/// using versions of GTK earlier than 4.14.0.
+@"gtk-gsk-renderer": GtkGskRenderer = .opengl,
 
 /// If `true`, the Ghostty GTK application will run in single-instance mode:
 /// each new `ghostty` process launched will result in a new window if there is
@@ -5782,6 +5792,14 @@ pub const BackgroundBlur = union(enum) {
             ) catch return error.InvalidValue };
     }
 
+    pub fn enabled(self: BackgroundBlur) bool {
+        return switch (self) {
+            .false => false,
+            .true => true,
+            .radius => |v| v > 0,
+        };
+    }
+
     pub fn cval(self: BackgroundBlur) u8 {
         return switch (self) {
             .false => 0,
@@ -6150,6 +6168,12 @@ pub const WindowPadding = struct {
         try testing.expectError(error.InvalidValue, WindowPadding.parseCLI(""));
         try testing.expectError(error.InvalidValue, WindowPadding.parseCLI("a"));
     }
+};
+
+/// See the `gtk-gsk-renderer` config.
+pub const GtkGskRenderer = enum {
+    default,
+    opengl,
 };
 
 test "parse duration" {

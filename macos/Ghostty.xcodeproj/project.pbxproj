@@ -72,6 +72,7 @@
 		A5A6F72A2CC41B8900B232A5 /* Xcode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A6F7292CC41B8700B232A5 /* Xcode.swift */; };
 		A5B30539299BEAAB0047F10C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5B30538299BEAAB0047F10C /* Assets.xcassets */; };
 		A5CA378C2D2A4DEB00931030 /* KeyboardLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5CA378B2D2A4DE800931030 /* KeyboardLayout.swift */; };
+		A5CA378E2D31D6C300931030 /* Weak.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5CA378D2D31D6C100931030 /* Weak.swift */; };
 		A5CBD0562C9E65B80017A1AE /* DraggableWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5CBD0552C9E65A50017A1AE /* DraggableWindowView.swift */; };
 		A5CBD0582C9F30960017A1AE /* Cursor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5CBD0572C9F30860017A1AE /* Cursor.swift */; };
 		A5CBD0592C9F37B10017A1AE /* Backport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5CEAFFE29C2410700646FDA /* Backport.swift */; };
@@ -167,6 +168,7 @@
 		A5B30538299BEAAB0047F10C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A5B3053D299BEAAB0047F10C /* Ghostty.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Ghostty.entitlements; sourceTree = "<group>"; };
 		A5CA378B2D2A4DE800931030 /* KeyboardLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardLayout.swift; sourceTree = "<group>"; };
+		A5CA378D2D31D6C100931030 /* Weak.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Weak.swift; sourceTree = "<group>"; };
 		A5CBD0552C9E65A50017A1AE /* DraggableWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DraggableWindowView.swift; sourceTree = "<group>"; };
 		A5CBD0572C9F30860017A1AE /* Cursor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Cursor.swift; sourceTree = "<group>"; };
 		A5CBD05B2CA0C5C70017A1AE /* QuickTerminal.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = QuickTerminal.xib; sourceTree = "<group>"; };
@@ -282,6 +284,7 @@
 				AEE8B3442B9AA39600260C5E /* NSPasteboard+Extension.swift */,
 				A5985CD62C320C4500C57AD3 /* String+Extension.swift */,
 				A5CC36142C9CDA03004D6760 /* View+Extension.swift */,
+				A5CA378D2D31D6C100931030 /* Weak.swift */,
 				C1F26EE72B76CBFC00404083 /* VibrantLayer.h */,
 				C1F26EE82B76CBFC00404083 /* VibrantLayer.m */,
 				A5CEAFDA29B8005900646FDA /* SplitView */,
@@ -647,6 +650,7 @@
 				A5A6F72A2CC41B8900B232A5 /* Xcode.swift in Sources */,
 				A52FFF5B2CAA54B1000C6A5B /* FullscreenMode+Extension.swift in Sources */,
 				A5333E222B5A2128008AEFF7 /* SurfaceView_AppKit.swift in Sources */,
+				A5CA378E2D31D6C300931030 /* Weak.swift in Sources */,
 				A5CDF1952AAFA19600513312 /* ConfigurationErrorsView.swift in Sources */,
 				A55B7BBC29B6FC330055DE60 /* SurfaceView.swift in Sources */,
 				A5333E1C2B5A1CE3008AEFF7 /* CrossKit.swift in Sources */,

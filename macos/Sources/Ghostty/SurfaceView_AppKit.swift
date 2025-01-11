@@ -12,7 +12,14 @@ extension Ghostty {
         // The current title of the surface as defined by the pty. This can be
         // changed with escape codes. This is public because the callbacks go
         // to the app level and it is set from there.
-        @Published private(set) var title: String = "👻"
+        @Published private(set) var title: String = "" {
+            didSet {
+                if !title.isEmpty {
+                    titleFallbackTimer?.invalidate()
+                    titleFallbackTimer = nil
+                }
+            }
+        }
 
         // The current pwd of the surface as defined by the pty. This can be
         // changed with escape codes.
@@ -113,6 +120,9 @@ extension Ghostty {
         // A small delay that is introduced before a title change to avoid flickers
         private var titleChangeTimer: Timer?
 
+        // A timer to fallback to ghost emoji if no title is set within the grace period
+        private var titleFallbackTimer: Timer?
+
         /// Event monitor (see individual events for why)
         private var eventMonitor: Any? = nil
 
@@ -138,6 +148,13 @@ extension Ghostty {
             // is non-zero so that our layer bounds are non-zero so that our renderer
             // can do SOMETHING.
             super.init(frame: NSMakeRect(0, 0, 800, 600))
+
+            // Set a timer to show the ghost emoji after 500ms if no title is set
+            titleFallbackTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
+                if let self = self, self.title.isEmpty {
+                    self.title = "👻"
+                }
+            }
 
             // Before we initialize the surface we want to register our notifications
             // so there is no window where we can't receive them.

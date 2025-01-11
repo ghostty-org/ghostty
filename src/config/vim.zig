@@ -3,7 +3,16 @@ const Config = @import("Config.zig");
 
 /// This is the associated Vim file as named by the variable.
 pub const syntax = comptimeGenSyntax();
-pub const ftdetect = "au BufRead,BufNewFile */ghostty/config set ft=ghostty\n";
+pub const ftdetect =
+    \\" Vim filetype detect file
+    \\" Language: Ghostty config file
+    \\" Maintainer: Ghostty <https://github.com/ghostty-org/ghostty>
+    \\"
+    \\" THIS FILE IS AUTO-GENERATED
+    \\
+    \\au BufRead,BufNewFile */ghostty/config,*/ghostty/themes/* set ft=ghostty
+    \\
+;
 pub const ftplugin =
     \\" Vim filetype plugin file
     \\" Language: Ghostty config file
@@ -31,13 +40,19 @@ pub const ftplugin =
     \\
 ;
 pub const compiler =
+    \\" Vim compiler file
+    \\" Language: Ghostty config file
+    \\" Maintainer: Ghostty <https://github.com/ghostty-org/ghostty>
+    \\"
+    \\" THIS FILE IS AUTO-GENERATED
+    \\
     \\if exists("current_compiler")
     \\  finish
     \\endif
     \\let current_compiler = "ghostty"
     \\
-    \\CompilerSet makeprg=ghostty\ +validate-config
-    \\CompilerSet errorformat=%f:%l:%m
+    \\CompilerSet makeprg=ghostty\ +validate-config\ --config-file=%:S
+    \\CompilerSet errorformat=%f:%l:%m,%m
     \\
 ;
 

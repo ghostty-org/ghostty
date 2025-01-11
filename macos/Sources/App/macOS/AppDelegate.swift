@@ -92,10 +92,8 @@ class AppDelegate: NSObject,
         return ProcessInfo.processInfo.systemUptime - applicationLaunchTime
     }
 
-    /// Tracks whether the application is currently visible. This can be gamed, i.e. if a user manually
-    /// brings each window one by one to the front. But at worst its off by one set of toggles and this
-    /// makes our logic very easy.
-    private var isVisible: Bool = true
+    /// Tracks the windows that we hid for toggleVisibility.
+    private var hiddenWindows: [Weak<NSWindow>] = []
 
     /// The observer for the app appearance.
     private var appearanceObserver: NSKeyValueObservation? = nil
@@ -219,15 +217,20 @@ class AppDelegate: NSObject,
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
-        guard !applicationHasBecomeActive else { return }
-        applicationHasBecomeActive = true
+        // If we're back then clear the hidden windows
+        self.hiddenWindows = []
 
-        // Let's launch our first window. We only do this if we have no other windows. It
-        // is possible to have other windows in a few scenarios:
-        //   - if we're opening a URL since `application(_:openFile:)` is called before this.
-        //   - if we're restoring from persisted state
-        if terminalManager.windows.count == 0 && derivedConfig.initialWindow {
-            terminalManager.newWindow()
+        // First launch stuff
+        if (!applicationHasBecomeActive) {
+            applicationHasBecomeActive = true
+
+            // Let's launch our first window. We only do this if we have no other windows. It
+            // is possible to have other windows in a few scenarios:
+            //   - if we're opening a URL since `application(_:openFile:)` is called before this.
+            //   - if we're restoring from persisted state
+            if terminalManager.windows.count == 0 && derivedConfig.initialWindow {
+                terminalManager.newWindow()
+            }
         }
     }
 
@@ -706,21 +709,23 @@ class AppDelegate: NSObject,
 
     /// Toggles visibility of all Ghosty Terminal windows. When hidden, activates Ghostty as the frontmost application
     @IBAction func toggleVisibility(_ sender: Any) {
-        // We only care about terminal windows.
-        for window in NSApp.windows.filter({ $0.windowController is BaseTerminalController }) {
-            if isVisible {
-                window.orderOut(nil)
-            } else {
-                window.makeKeyAndOrderFront(nil)
-            }
+        // If we have focus, then we hide all windows.
+        if NSApp.isActive {
+            // We need to keep track of the windows that were visible because we only
+            // want to bring back these windows if we remove the toggle.
+            self.hiddenWindows = NSApp.windows.filter { $0.isVisible }.map { Weak($0) }
+            NSApp.hide(nil)
+            return
         }
 
-        // After bringing them all to front we make sure our app is active too.
-        if !isVisible {
-            NSApp.activate(ignoringOtherApps: true)
-        }
+        // If we're not active, we want to become active
+        NSApp.activate(ignoringOtherApps: true)
 
-        isVisible.toggle()
+        // Bring all windows to the front. Note: we don't use NSApp.unhide because
+        // that will unhide ALL hidden windows. We want to only bring forward the
+        // ones that we hid.
+        self.hiddenWindows.forEach { $0.value?.orderFrontRegardless() }
+        self.hiddenWindows = []
     }
 
     private struct DerivedConfig {

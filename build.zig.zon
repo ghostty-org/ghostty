@@ -34,8 +34,8 @@
             .hash = "12207831bce7d4abce57b5a98e8f3635811cfefd160bca022eb91fe905d36a02cf25",
         },
         .zig_wayland = .{
-            .url = "https://codeberg.org/ifreund/zig-wayland/archive/0823d9116b80d65ecfad48a2efbca166c7b03497.tar.gz",
-            .hash = "12205e05d4db71ef30aeb3517727382c12d294968e541090a762689acbb9038826a1",
+            .url = "https://codeberg.org/ifreund/zig-wayland/archive/fbfe3b4ac0b472a27b1f1a67405436c58cbee12d.tar.gz",
+            .hash = "12209ca054cb1919fa276e328967f10b253f7537c4136eb48f3332b0f7cf661cad38",
         },
         .zf = .{
             .url = "git+https://github.com/natecraddock/zf/?ref=main#ed99ca18b02dda052e20ba467e90b623c04690dd",

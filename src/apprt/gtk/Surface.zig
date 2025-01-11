@@ -25,7 +25,6 @@ const ResizeOverlay = @import("ResizeOverlay.zig");
 const inspector = @import("inspector.zig");
 const gtk_key = @import("key.zig");
 const c = @import("c.zig").c;
-const x11 = @import("x11.zig");
 
 const log = std.log.scoped(.gtk_surface);
 
@@ -1412,6 +1411,14 @@ fn gtkResize(area: *c.GtkGLArea, width: c.gint, height: c.gint, ud: ?*anyopaque)
             return;
         };
 
+        if (self.container.window()) |window| {
+            if (window.winproto) |*winproto| {
+                winproto.resizeEvent() catch |err| {
+                    log.warn("failed to notify window protocol of resize={}", .{err});
+                };
+            }
+        }
+
         self.resize_overlay.maybeShow();
     }
 }
@@ -1727,11 +1734,10 @@ pub fn keyEvent(
 
     // Get our modifier for the event
     const mods: input.Mods = gtk_key.eventMods(
-        @ptrCast(self.gl_area),
         event,
         physical_key,
         gtk_mods,
-        if (self.app.x11_xkb) |*xkb| xkb else null,
+        &self.app.winproto,
     );
 
     // Get our consumed modifiers

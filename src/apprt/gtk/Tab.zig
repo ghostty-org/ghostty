@@ -121,10 +121,63 @@ pub fn remove(self: *Tab) void {
     self.window.closeTab(self);
 }
 
-pub fn gtkTabCloseClick(_: *c.GtkButton, ud: ?*anyopaque) callconv(.C) void {
+/// Helper function to check if any surface in the split hierarchy needs close confirmation
+fn needsConfirm(elem: Surface.Container.Elem) bool {
+    return switch (elem) {
+        .surface => |s| s.core_surface.needsConfirmQuit(),
+        .split => |s| needsConfirm(s.top_left) or needsConfirm(s.bottom_right),
+    };
+}
+
+/// Close the tab, asking for confirmation if any surface requests it.
+pub fn closeWithConfirmation(tab: *Tab) void {
+    switch (tab.elem) {
+        .surface => |s| s.close(s.core_surface.needsConfirmQuit()),
+        .split => |s| {
+            if (needsConfirm(s.top_left) or needsConfirm(s.bottom_right)) {
+                const alert = c.gtk_message_dialog_new(
+                    tab.window.window,
+                    c.GTK_DIALOG_MODAL,
+                    c.GTK_MESSAGE_QUESTION,
+                    c.GTK_BUTTONS_YES_NO,
+                    "Close this tab?",
+                );
+                c.gtk_message_dialog_format_secondary_text(
+                    @ptrCast(alert),
+                    "All terminal sessions in this tab will be terminated.",
+                );
+
+                // We want the "yes" to appear destructive.
+                const yes_widget = c.gtk_dialog_get_widget_for_response(
+                    @ptrCast(alert),
+                    c.GTK_RESPONSE_YES,
+                );
+                c.gtk_widget_add_css_class(yes_widget, "destructive-action");
+
+                // We want the "no" to be the default action
+                c.gtk_dialog_set_default_response(
+                    @ptrCast(alert),
+                    c.GTK_RESPONSE_NO,
+                );
+
+                _ = c.g_signal_connect_data(alert, "response", c.G_CALLBACK(&gtkTabCloseConfirmation), tab, null, c.G_CONNECT_DEFAULT);
+                c.gtk_widget_show(alert);
+                return;
+            }
+            tab.remove();
+        },
+    }
+}
+
+fn gtkTabCloseConfirmation(
+    alert: *c.GtkMessageDialog,
+    response: c.gint,
+    ud: ?*anyopaque,
+) callconv(.C) void {
     const tab: *Tab = @ptrCast(@alignCast(ud));
-    const window = tab.window;
-    window.closeTab(tab);
+    c.gtk_window_destroy(@ptrCast(alert));
+    if (response != c.GTK_RESPONSE_YES) return;
+    tab.remove();
 }
 
 fn gtkDestroy(v: *c.GtkWidget, ud: ?*anyopaque) callconv(.C) void {
@@ -134,18 +187,4 @@ fn gtkDestroy(v: *c.GtkWidget, ud: ?*anyopaque) callconv(.C) void {
     // When our box is destroyed, we want to destroy our tab, too.
     const tab: *Tab = @ptrCast(@alignCast(ud));
     tab.destroy(tab.window.app.core_app.alloc);
-}
-
-pub fn gtkTabClick(
-    gesture: *c.GtkGestureClick,
-    _: c.gint,
-    _: c.gdouble,
-    _: c.gdouble,
-    ud: ?*anyopaque,
-) callconv(.C) void {
-    const self: *Tab = @ptrCast(@alignCast(ud));
-    const gtk_button = c.gtk_gesture_single_get_current_button(@ptrCast(gesture));
-    if (gtk_button == c.GDK_BUTTON_MIDDLE) {
-        self.remove();
-    }
 }

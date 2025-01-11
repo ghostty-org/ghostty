@@ -11,6 +11,8 @@ pub const c = @cImport({
         // Add in X11-specific GDK backend which we use for specific things
         // (e.g. X11 window class).
         @cInclude("gdk/x11/gdkx.h");
+        @cInclude("X11/Xlib.h");
+        @cInclude("X11/Xatom.h");
         // Xkb for X11 state handling
         @cInclude("X11/XKBlib.h");
     }

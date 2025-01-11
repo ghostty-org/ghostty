@@ -17,6 +17,14 @@ pub const NotebookAdw = struct {
     /// the tab view
     tab_view: *AdwTabView,
 
+    /// Set to true so that the adw close-page handler knows we're forcing
+    /// and to allow a close to happen with no confirm. This is a bit of a hack
+    /// because we currently use GTK alerts to confirm tab close and they
+    /// don't carry with them the ADW state that we are confirming or not.
+    /// Long term we should move to ADW alerts so we can know if we are
+    /// confirming or not.
+    forcing_close: bool = false,
+
     pub fn init(notebook: *Notebook) void {
         const window: *Window = @fieldParentPtr("notebook", notebook);
         const app = window.app;
@@ -38,6 +46,7 @@ pub const NotebookAdw = struct {
         };
 
         _ = c.g_signal_connect_data(tab_view, "page-attached", c.G_CALLBACK(&adwPageAttached), window, null, c.G_CONNECT_DEFAULT);
+        _ = c.g_signal_connect_data(tab_view, "close-page", c.G_CALLBACK(&adwClosePage), window, null, c.G_CONNECT_DEFAULT);
         _ = c.g_signal_connect_data(tab_view, "create-window", c.G_CALLBACK(&adwTabViewCreateWindow), window, null, c.G_CONNECT_DEFAULT);
         _ = c.g_signal_connect_data(tab_view, "notify::selected-page", c.G_CALLBACK(&adwSelectPage), window, null, c.G_CONNECT_DEFAULT);
     }
@@ -112,6 +121,12 @@ pub const NotebookAdw = struct {
     pub fn closeTab(self: *NotebookAdw, tab: *Tab) void {
         if (comptime !adwaita.versionAtLeast(0, 0, 0)) unreachable;
 
+        // closeTab always expects to close unconditionally so we mark this
+        // as true so that the close_page call below doesn't request
+        // confirmation.
+        self.forcing_close = true;
+        defer self.forcing_close = false;
+
         const page = c.adw_tab_view_get_page(self.tab_view, @ptrCast(tab.box)) orelse return;
         c.adw_tab_view_close_page(self.tab_view, page);
 
@@ -141,6 +156,28 @@ fn adwPageAttached(_: *AdwTabView, page: *c.AdwTabPage, _: c_int, ud: ?*anyopaqu
     tab.window = window;
 
     window.focusCurrentTab();
+}
+
+fn adwClosePage(
+    _: *AdwTabView,
+    page: *c.AdwTabPage,
+    ud: ?*anyopaque,
+) callconv(.C) c.gboolean {
+    const child = c.adw_tab_page_get_child(page);
+    const tab: *Tab = @ptrCast(@alignCast(c.g_object_get_data(
+        @ptrCast(child),
+        Tab.GHOSTTY_TAB,
+    ) orelse return 0));
+
+    const window: *Window = @ptrCast(@alignCast(ud.?));
+    const notebook = window.notebook.adw;
+    c.adw_tab_view_close_page_finish(
+        notebook.tab_view,
+        page,
+        @intFromBool(notebook.forcing_close),
+    );
+    if (!notebook.forcing_close) tab.closeWithConfirmation();
+    return 1;
 }
 
 fn adwTabViewCreateWindow(

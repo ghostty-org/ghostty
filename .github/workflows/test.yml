@@ -6,6 +6,45 @@ on:
 name: Test
 
 jobs:
+  required:
+    name: "Required Checks: Test"
+    runs-on: namespace-profile-ghostty-sm
+    needs:
+      - build
+      - build-bench
+      - build-linux-libghostty
+      - build-nix
+      - build-macos
+      - build-macos-matrix
+      - build-windows
+      - test
+      - test-gtk
+      - test-sentry-linux
+      - test-macos
+      - prettier
+      - alejandra
+      - typos
+      - test-pkg-linux
+    steps:
+      - id: status
+        name: Determine status
+        run: |
+          results=$(tr -d '\n' <<< '${{ toJSON(needs.*.result) }}')
+          if ! grep -q -v -E '(failure|cancelled)' <<< "$results"; then
+            result="failed"
+          else
+            result="success"
+          fi
+          {
+            echo "result=${result}"
+            echo "results=${results}"
+          } | tee -a "$GITHUB_OUTPUT"
+      - if: always() && steps.status.outputs.result != 'success'
+        name: Check for failed status
+        run: |
+          echo "One or more required build workflows failed: ${{ steps.status.outputs.results }}"
+          exit 1
+
   build:
     strategy:
       fail-fast: false
@@ -342,7 +381,8 @@ jobs:
       matrix:
         adwaita: ["true", "false"]
         x11: ["true", "false"]
-    name: GTK adwaita=${{ matrix.adwaita }} x11=${{ matrix.x11 }}
+        wayland: ["true", "false"]
+    name: GTK adwaita=${{ matrix.adwaita }} x11=${{ matrix.x11 }} wayland=${{ matrix.wayland }}
     runs-on: namespace-profile-ghostty-sm
     needs: test
     env:
@@ -374,7 +414,8 @@ jobs:
             zig build \
             -Dapp-runtime=gtk \
             -Dgtk-adwaita=${{ matrix.adwaita }} \
-            -Dgtk-x11=${{ matrix.x11 }}
+            -Dgtk-x11=${{ matrix.x11 }} \
+            -Dgtk-wayland=${{ matrix.wayland }}
 
   test-sentry-linux:
     strategy:
