@@ -633,6 +633,7 @@ fn gtkWindowNotifyMaximized(
     client_message_event.format = 32;
     client_message_event.data.l[0] = c.gtk_window_is_maximized(window);
     client_message_event.data.l[1] = @intCast(c.XInternAtom(xdisplay, "_NET_WM_STATE_MAXIMIZED_VERT", 0));
+    client_message_event.data.l[2] = @intCast(c.XInternAtom(xdisplay, "_NET_WM_STATE_MAXIMIZED_HORZ", 0));
 
     // https://tronche.com/gui/x/xlib/event-handling/XSendEvent.html
     _ = c.XSendEvent(
