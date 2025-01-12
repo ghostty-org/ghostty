@@ -19,27 +19,12 @@ pub fn open(
     url: []const u8,
 ) !void {
     const cmd: OpenCommand = switch (builtin.os.tag) {
-        .linux => .{ .child = std.process.Child.init(
-            &.{ "xdg-open", url },
-            alloc,
-        ) },
-
+        .linux => try determineOpenCommandLinux(alloc, url),
         .windows => .{ .child = std.process.Child.init(
             &.{ "rundll32", "url.dll,FileProtocolHandler", url },
             alloc,
         ) },
-
-        .macos => .{
-            .child = std.process.Child.init(
-                switch (typ) {
-                    .text => &.{ "open", "-t", url },
-                    .unknown => &.{ "open", url },
-                },
-                alloc,
-            ),
-            .wait = true,
-        },
-
+        .macos => try determineOpenCommandMacOS(alloc, typ, url),
         .ios => return error.Unimplemented,
         else => @compileError("unsupported OS"),
     };
@@ -71,6 +56,33 @@ pub fn open(
         // users to debug why some open commands may not work as expected.
         if (stderr.items.len > 0) std.log.err("open stderr={s}", .{stderr.items});
     }
+}
+
+fn determineOpenCommandLinux(alloc: Allocator, url: []const u8) !OpenCommand {
+    const editor = std.process.getEnvVarOptional("EDITOR") orelse return .{ .child = std.process.Child.init(
+        &.{ "xdg-open", url },
+        alloc,
+    ) };
+
+    return .{ .child = std.process.Child.init(
+        &.{ editor, url },
+        alloc,
+    ) };
+}
+
+fn determineOpenCommandMacOS(alloc: Allocator, typ: Type, url: []const u8) !OpenCommand {
+    const editor = std.process.getEnvVarOptional("EDITOR") orelse return .{ .child = std.process.Child.init(
+        switch (typ) {
+            .text => &.{ "open", "-t", url },
+            .unknown => &.{ "open", url },
+        },
+        alloc,
+    ) };
+
+    return .{ .child = std.process.Child.init(
+        &.{ editor, url },
+        alloc,
+    ) };
 }
 
 const OpenCommand = struct {
