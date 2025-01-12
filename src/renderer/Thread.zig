@@ -18,7 +18,7 @@ const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.renderer_thread);
 
 const DRAW_INTERVAL = 8; // 120 FPS
-const CURSOR_BLINK_INTERVAL = 600;
+const BLINK_INTERVAL = 600;
 
 /// The type used for sending messages to the IO thread. For now this is
 /// hardcoded with a capacity. We can make this a comptime parameter in
@@ -58,10 +58,15 @@ draw_active: bool = false,
 draw_now: xev.Async,
 draw_now_c: xev.Completion = .{},
 
-/// The timer used for cursor blinking
-cursor_h: xev.Timer,
-cursor_c: xev.Completion = .{},
-cursor_c_cancel: xev.Completion = .{},
+/// Timer that cursor and text blinking is built on
+blink_h: xev.Timer,
+blink_c: xev.Completion = .{},
+blink_c_cancel: xev.Completion = .{},
+blink: bool = true,
+
+cursor_blink_active: bool = true,
+cursor_blink_buffer: bool = true,
+text_blink_active: bool = true,
 
 /// The surface we're rendering to.
 surface: *apprt.Surface,
@@ -87,6 +92,11 @@ flags: packed struct {
     /// when it should not be visible. This is toggled on a timer by the
     /// thread automatically.
     cursor_blink_visible: bool = false,
+
+    /// This is true when blinking text should be visible and false
+    /// when it should not be visible. This is toggled on a timer by the
+    /// thread automatically.
+    text_blink_visible: bool = true,
 
     /// This is true when the inspector is active.
     has_inspector: bool = false,
@@ -145,9 +155,9 @@ pub fn init(
     var draw_now = try xev.Async.init();
     errdefer draw_now.deinit();
 
-    // Setup a timer for blinking the cursor
-    var cursor_timer = try xev.Timer.init();
-    errdefer cursor_timer.deinit();
+    // Setup a timer for blinking the cursor and text
+    var blink_timer = try xev.Timer.init();
+    errdefer blink_timer.deinit();
 
     // The mailbox for messaging this thread
     var mailbox = try Mailbox.create(alloc);
@@ -162,7 +172,7 @@ pub fn init(
         .render_h = render_h,
         .draw_h = draw_h,
         .draw_now = draw_now,
-        .cursor_h = cursor_timer,
+        .blink_h = blink_timer,
         .surface = surface,
         .renderer = renderer_impl,
         .state = state,
@@ -179,7 +189,7 @@ pub fn deinit(self: *Thread) void {
     self.render_h.deinit();
     self.draw_h.deinit();
     self.draw_now.deinit();
-    self.cursor_h.deinit();
+    self.blink_h.deinit();
     self.loop.deinit();
 
     // Nothing can possibly access the mailbox anymore, destroy it.
@@ -227,14 +237,14 @@ fn threadMain_(self: *Thread) !void {
     // Send an initial wakeup message so that we render right away.
     try self.wakeup.notify();
 
-    // Start blinking the cursor.
-    self.cursor_h.run(
+    // Start the blinking timer.
+    self.blink_h.run(
         &self.loop,
-        &self.cursor_c,
-        CURSOR_BLINK_INTERVAL,
+        &self.blink_c,
+        BLINK_INTERVAL,
         Thread,
         self,
-        cursorTimerCallback,
+        blinkTimerCallback,
     );
 
     // Start the draw timer
@@ -357,52 +367,39 @@ fn drainMailbox(self: *Thread) !void {
                         self.stopDrawTimer();
                     }
 
-                    // If we're not focused, then we stop the cursor blink
-                    if (self.cursor_c.state() == .active and
-                        self.cursor_c_cancel.state() == .dead)
+                    // If we're not focused, then we stop the blink
+                    if (self.blink_c.state() == .active and
+                        self.blink_c_cancel.state() == .dead)
                     {
-                        self.cursor_h.cancel(
+                        self.blink_h.cancel(
                             &self.loop,
-                            &self.cursor_c,
-                            &self.cursor_c_cancel,
+                            &self.blink_c,
+                            &self.blink_c_cancel,
                             void,
                             null,
-                            cursorCancelCallback,
+                            blinkCancelCallback,
                         );
                     }
                 } else {
                     // Start the draw timer
                     self.startDrawTimer();
 
-                    // If we're focused, we immediately show the cursor again
-                    // and then restart the timer.
-                    if (self.cursor_c.state() != .active) {
-                        self.flags.cursor_blink_visible = true;
-                        self.cursor_h.run(
-                            &self.loop,
-                            &self.cursor_c,
-                            CURSOR_BLINK_INTERVAL,
-                            Thread,
-                            self,
-                            cursorTimerCallback,
-                        );
-                    }
+                    // If we're focused, we immediately start blinking again
+                    self.blink_h.run(
+                        &self.loop,
+                        &self.blink_c,
+                        BLINK_INTERVAL,
+                        Thread,
+                        self,
+                        blinkTimerCallback,
+                    );
                 }
             },
 
             .reset_cursor_blink => {
                 self.flags.cursor_blink_visible = true;
-                if (self.cursor_c.state() == .active) {
-                    self.cursor_h.reset(
-                        &self.loop,
-                        &self.cursor_c,
-                        &self.cursor_c_cancel,
-                        CURSOR_BLINK_INTERVAL,
-                        Thread,
-                        self,
-                        cursorTimerCallback,
-                    );
-                }
+                self.cursor_blink_active = true;
+                self.cursor_blink_buffer = false;
             },
 
             .font_grid => |grid| {
@@ -585,6 +582,7 @@ fn renderCallback(
         t.surface,
         t.state,
         t.flags.cursor_blink_visible,
+        t.flags.text_blink_visible,
     ) catch |err|
         log.warn("error rendering err={}", .{err});
 
@@ -594,7 +592,7 @@ fn renderCallback(
     return .disarm;
 }
 
-fn cursorTimerCallback(
+fn blinkTimerCallback(
     self_: ?*Thread,
     _: *xev.Loop,
     _: *xev.Completion,
@@ -616,14 +614,29 @@ fn cursorTimerCallback(
         return .disarm;
     };
 
-    t.flags.cursor_blink_visible = !t.flags.cursor_blink_visible;
+    // Keep blinking sychronized
+    t.blink = !t.blink;
+
+    // After cursor blink is reset, don't change state for one interval
+    if (t.cursor_blink_buffer) {
+        if (t.cursor_blink_active) {
+            t.flags.cursor_blink_visible = t.blink;
+        }
+    } else {
+        t.cursor_blink_buffer = true;
+    }
+
+    if (t.text_blink_active) {
+        t.flags.text_blink_visible = t.blink;
+    }
+
     t.wakeup.notify() catch {};
 
-    t.cursor_h.run(&t.loop, &t.cursor_c, CURSOR_BLINK_INTERVAL, Thread, t, cursorTimerCallback);
+    t.blink_h.run(&t.loop, &t.blink_c, BLINK_INTERVAL, Thread, t, blinkTimerCallback);
     return .disarm;
 }
 
-fn cursorCancelCallback(
+fn blinkCancelCallback(
     _: ?*void,
     _: *xev.Loop,
     _: *xev.Completion,

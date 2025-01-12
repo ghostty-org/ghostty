@@ -92,6 +92,7 @@ pub const Shaper = struct {
         grid: *SharedGrid,
         screen: *const terminal.Screen,
         row: terminal.Pin,
+        text_blink_visible: bool,
         selection: ?terminal.Selection,
         cursor_x: ?usize,
     ) font.shape.RunIterator {
@@ -100,6 +101,7 @@ pub const Shaper = struct {
             .grid = grid,
             .screen = screen,
             .row = row,
+            .text_blink_visible = text_blink_visible,
             .selection = selection,
             .cursor_x = cursor_x,
         };
@@ -229,6 +231,7 @@ test "run iterator" {
             testdata.grid,
             &screen,
             screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            true,
             null,
             null,
         );
@@ -248,6 +251,7 @@ test "run iterator" {
             testdata.grid,
             &screen,
             screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            true,
             null,
             null,
         );
@@ -268,6 +272,7 @@ test "run iterator" {
             testdata.grid,
             &screen,
             screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            true,
             null,
             null,
         );
@@ -320,6 +325,7 @@ test "run iterator: empty cells with background set" {
             testdata.grid,
             &screen,
             screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            true,
             null,
             null,
         );
@@ -357,6 +363,7 @@ test "shape" {
         testdata.grid,
         &screen,
         screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+        true,
         null,
         null,
     );
@@ -386,6 +393,7 @@ test "shape inconsolata ligs" {
             testdata.grid,
             &screen,
             screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            true,
             null,
             null,
         );
@@ -411,6 +419,7 @@ test "shape inconsolata ligs" {
             testdata.grid,
             &screen,
             screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            true,
             null,
             null,
         );
@@ -444,6 +453,7 @@ test "shape monaspace ligs" {
             testdata.grid,
             &screen,
             screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            true,
             null,
             null,
         );
@@ -480,6 +490,7 @@ test "shape arabic forced LTR" {
         testdata.grid,
         &screen,
         screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+        true,
         null,
         null,
     );
@@ -517,6 +528,7 @@ test "shape emoji width" {
             testdata.grid,
             &screen,
             screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            true,
             null,
             null,
         );
@@ -559,6 +571,7 @@ test "shape emoji width long" {
         testdata.grid,
         &screen,
         screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+        true,
         null,
         null,
     );
@@ -597,6 +610,7 @@ test "shape variation selector VS15" {
         testdata.grid,
         &screen,
         screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+        true,
         null,
         null,
     );
@@ -634,6 +648,7 @@ test "shape variation selector VS16" {
         testdata.grid,
         &screen,
         screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+        true,
         null,
         null,
     );
@@ -668,6 +683,7 @@ test "shape with empty cells in between" {
         testdata.grid,
         &screen,
         screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+        true,
         null,
         null,
     );
@@ -706,6 +722,7 @@ test "shape Chinese characters" {
         testdata.grid,
         &screen,
         screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+        true,
         null,
         null,
     );
@@ -746,6 +763,7 @@ test "shape box glyphs" {
         testdata.grid,
         &screen,
         screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+        true,
         null,
         null,
     );
@@ -783,6 +801,7 @@ test "shape selection boundary" {
             testdata.grid,
             &screen,
             screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            true,
             terminal.Selection.init(
                 screen.pages.pin(.{ .active = .{ .x = 0, .y = 0 } }).?,
                 screen.pages.pin(.{ .active = .{ .x = screen.pages.cols - 1, .y = 0 } }).?,
@@ -806,6 +825,7 @@ test "shape selection boundary" {
             testdata.grid,
             &screen,
             screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            true,
             terminal.Selection.init(
                 screen.pages.pin(.{ .active = .{ .x = 2, .y = 0 } }).?,
                 screen.pages.pin(.{ .active = .{ .x = screen.pages.cols - 1, .y = 0 } }).?,
@@ -829,6 +849,7 @@ test "shape selection boundary" {
             testdata.grid,
             &screen,
             screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            true,
             terminal.Selection.init(
                 screen.pages.pin(.{ .active = .{ .x = 0, .y = 0 } }).?,
                 screen.pages.pin(.{ .active = .{ .x = 3, .y = 0 } }).?,
@@ -852,6 +873,7 @@ test "shape selection boundary" {
             testdata.grid,
             &screen,
             screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            true,
             terminal.Selection.init(
                 screen.pages.pin(.{ .active = .{ .x = 1, .y = 0 } }).?,
                 screen.pages.pin(.{ .active = .{ .x = 3, .y = 0 } }).?,
@@ -875,6 +897,7 @@ test "shape selection boundary" {
             testdata.grid,
             &screen,
             screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            true,
             terminal.Selection.init(
                 screen.pages.pin(.{ .active = .{ .x = 1, .y = 0 } }).?,
                 screen.pages.pin(.{ .active = .{ .x = 1, .y = 0 } }).?,
@@ -911,6 +934,7 @@ test "shape cursor boundary" {
             testdata.grid,
             &screen,
             screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            true,
             null,
             null,
         );
@@ -930,6 +954,7 @@ test "shape cursor boundary" {
             testdata.grid,
             &screen,
             screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            true,
             null,
             0,
         );
@@ -949,6 +974,7 @@ test "shape cursor boundary" {
             testdata.grid,
             &screen,
             screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            true,
             null,
             1,
         );
@@ -968,6 +994,7 @@ test "shape cursor boundary" {
             testdata.grid,
             &screen,
             screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            true,
             null,
             9,
         );
@@ -1000,6 +1027,7 @@ test "shape cursor boundary and colored emoji" {
             testdata.grid,
             &screen,
             screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            true,
             null,
             null,
         );
@@ -1019,6 +1047,7 @@ test "shape cursor boundary and colored emoji" {
             testdata.grid,
             &screen,
             screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            true,
             null,
             0,
         );
@@ -1036,6 +1065,7 @@ test "shape cursor boundary and colored emoji" {
             testdata.grid,
             &screen,
             screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            true,
             null,
             1,
         );
@@ -1066,6 +1096,7 @@ test "shape cell attribute change" {
             testdata.grid,
             &screen,
             screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            true,
             null,
             null,
         );
@@ -1090,6 +1121,7 @@ test "shape cell attribute change" {
             testdata.grid,
             &screen,
             screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            true,
             null,
             null,
         );
@@ -1115,6 +1147,7 @@ test "shape cell attribute change" {
             testdata.grid,
             &screen,
             screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            true,
             null,
             null,
         );
@@ -1140,6 +1173,7 @@ test "shape cell attribute change" {
             testdata.grid,
             &screen,
             screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            true,
             null,
             null,
         );
@@ -1164,6 +1198,7 @@ test "shape cell attribute change" {
             testdata.grid,
             &screen,
             screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+            true,
             null,
             null,
         );

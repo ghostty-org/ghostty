@@ -689,6 +689,7 @@ pub fn updateFrame(
     surface: *apprt.Surface,
     state: *renderer.State,
     cursor_blink_visible: bool,
+    text_blink_visible: bool,
 ) !void {
     _ = surface;
 
@@ -702,6 +703,7 @@ pub fn updateFrame(
         preedit: ?renderer.State.Preedit,
         cursor_style: ?renderer.CursorStyle,
         color_palette: terminal.color.Palette,
+        text_blink_visible: bool,
     };
 
     // Update all our data as tightly as possible within the mutex.
@@ -863,6 +865,7 @@ pub fn updateFrame(
             .preedit = preedit,
             .cursor_style = cursor_style,
             .color_palette = state.terminal.color_palette.colors,
+            .text_blink_visible = text_blink_visible,
         };
     };
     defer {
@@ -887,6 +890,7 @@ pub fn updateFrame(
             critical.preedit,
             critical.cursor_style,
             &critical.color_palette,
+            critical.text_blink_visible,
         );
 
         // Notify our shaper we're done for the frame. For some shapers like
@@ -1217,6 +1221,7 @@ pub fn rebuildCells(
     preedit: ?renderer.State.Preedit,
     cursor_style_: ?renderer.CursorStyle,
     color_palette: *const terminal.color.Palette,
+    text_blink_visible: bool,
 ) !void {
     _ = screen_type;
 
@@ -1349,6 +1354,7 @@ pub fn rebuildCells(
             self.font_grid,
             screen,
             row,
+            text_blink_visible,
             row_selection,
             if (shape_cursor) screen.cursor.x else null,
         );
@@ -1576,7 +1582,7 @@ pub fn rebuildCells(
             // emulators, e.g. Alacritty, still render text decorations
             // and only make the text itself invisible. The decision
             // has been made here to match xterm's behavior for this.
-            if (style.flags.invisible) {
+            if (style.flags.invisible or (style.flags.blink and !text_blink_visible)) {
                 continue;
             }
 

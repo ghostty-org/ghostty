@@ -38,6 +38,7 @@ pub const RunIterator = struct {
     grid: *font.SharedGrid,
     screen: *const terminal.Screen,
     row: terminal.Pin,
+    text_blink_visible: bool,
     selection: ?terminal.Selection = null,
     cursor_x: ?usize = null,
     i: usize = 0,
@@ -58,7 +59,8 @@ pub const RunIterator = struct {
         // Invisible cells don't have any glyphs rendered,
         // so we explicitly skip them in the shaping process.
         while (self.i < max and
-            self.row.style(&cells[self.i]).flags.invisible)
+            (self.row.style(&cells[self.i]).flags.invisible or
+            (self.row.style(&cells[self.i]).flags.blink and !self.text_blink_visible)))
         {
             self.i += 1;
         }

@@ -73,6 +73,7 @@ pub const Shaper = struct {
         grid: *SharedGrid,
         screen: *const terminal.Screen,
         row: terminal.Pin,
+        text_blink_visible: bool,
         selection: ?terminal.Selection,
         cursor_x: ?usize,
     ) font.shape.RunIterator {
@@ -81,6 +82,7 @@ pub const Shaper = struct {
             .grid = grid,
             .screen = screen,
             .row = row,
+            .text_blink_visible = text_blink_visible,
             .selection = selection,
             .cursor_x = cursor_x,
         };

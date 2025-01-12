@@ -63,6 +63,7 @@ pub const Shaper = struct {
         self: *Shaper,
         group: *font.GroupCache,
         row: terminal.Screen.Row,
+        text_blink_visible: bool,
         selection: ?terminal.Selection,
         cursor_x: ?usize,
     ) font.shape.RunIterator {
@@ -70,6 +71,7 @@ pub const Shaper = struct {
             .hooks = .{ .shaper = self },
             .group = group,
             .row = row,
+            .text_blink_visible = text_blink_visible,
             .selection = selection,
             .cursor_x = cursor_x,
         };
@@ -295,7 +297,7 @@ pub const Wasm = struct {
         while (rowIter.next()) |row| {
             defer y += 1;
 
-            var iter = self.runIterator(group, row, null, null);
+            var iter = self.runIterator(group, row, true, null, null);
             while (try iter.next(alloc)) |run| {
                 const cells = try self.shape(run);
                 log.info("y={} run={d} shape={any} idx={}", .{
