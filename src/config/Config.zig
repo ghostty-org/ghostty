@@ -2427,6 +2427,16 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
         );
         try result.keybind.set.put(
             alloc,
+            .{ .key = .{ .translated = .left_bracket }, .mods = .{ .ctrl = true, .shift = true } },
+            .{ .move_tab = -1 },
+        );
+        try result.keybind.set.put(
+            alloc,
+            .{ .key = .{ .translated = .right_bracket }, .mods = .{ .ctrl = true, .shift = true } },
+            .{ .move_tab = 1 },
+        );
+        try result.keybind.set.put(
+            alloc,
             .{ .key = .{ .translated = .o }, .mods = .{ .ctrl = true, .shift = true } },
             .{ .new_split = .right },
         );
@@ -2699,6 +2709,16 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
             alloc,
             .{ .key = .{ .translated = .right_bracket }, .mods = .{ .super = true, .shift = true } },
             .{ .next_tab = {} },
+        );
+        try result.keybind.set.put(
+            alloc,
+            .{ .key = .{ .translated = .left_bracket }, .mods = .{ .ctrl = true, .shift = true } },
+            .{ .move_tab = -1 },
+        );
+        try result.keybind.set.put(
+            alloc,
+            .{ .key = .{ .translated = .right_bracket }, .mods = .{ .ctrl = true, .shift = true } },
+            .{ .move_tab = 1 },
         );
         try result.keybind.set.put(
             alloc,
