@@ -34,6 +34,7 @@ pub fn genConfig(writer: anytype, cli: bool) !void {
         if (cli) try writer.writeAll("--");
         try writer.writeAll(field.name);
         try writer.writeAll("`**\n\n");
+
         if (@hasDecl(help_strings.Config, field.name)) {
             var iter = std.mem.splitScalar(u8, @field(help_strings.Config, field.name), '\n');
             var first = true;

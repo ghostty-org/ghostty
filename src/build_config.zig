@@ -11,15 +11,14 @@ const font = @import("font/main.zig");
 const rendererpkg = @import("renderer.zig");
 const WasmTarget = @import("os/wasm/target.zig").Target;
 const BuildConfig = @import("build/Config.zig");
-
-pub const ReleaseChannel = BuildConfig.ReleaseChannel;
+const Config = @import("config/Config.zig");
 
 /// The semantic version of this build.
 pub const version = options.app_version;
 pub const version_string = options.app_version_string;
 
 /// The release channel for this build.
-pub const release_channel = std.meta.stringToEnum(ReleaseChannel, @tagName(options.release_channel)).?;
+pub const release_channel = std.meta.stringToEnum(Config.ReleaseChannel, @tagName(options.release_channel)).?;
 
 /// The optimization mode as a string.
 pub const mode_string = mode: {

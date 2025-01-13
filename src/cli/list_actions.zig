@@ -41,10 +41,10 @@ pub fn run(alloc: Allocator) !u8 {
         try stdout.print("{s}", .{field.name});
         if (opts.docs) {
             try stdout.print(":\n", .{});
-            var iter = std.mem.splitScalar(u8, std.mem.trimRight(u8, @field(help_strings.KeybindAction, field.name), &std.ascii.whitespace), '\n');
-            while (iter.next()) |line| {
-                try stdout.print("  {s}\n", .{line});
-            }
+            // var iter = std.mem.splitScalar(u8, std.mem.trimRight(u8, @field(help_strings.KeybindAction, field.name), &std.ascii.whitespace), '\n');
+            // while (iter.next()) |line| {
+            //     try stdout.print("  {s}\n", .{line});
+            // }
         } else {
             try stdout.print("\n", .{});
         }

@@ -121,12 +121,12 @@ pub const Action = enum {
                     // for all commands by just changing this one place.
 
                     if (std.mem.eql(u8, field.name, @tagName(self))) {
-                        const stdout = std.io.getStdOut().writer();
-                        const text = @field(help_strings.Action, field.name) ++ "\n";
-                        stdout.writeAll(text) catch |write_err| {
-                            std.log.warn("failed to write help text: {}\n", .{write_err});
-                            break :err 1;
-                        };
+                        // const stdout = std.io.getStdOut().writer();
+                        // const text = @field(help_strings.Action, field.name) ++ "\n";
+                        // stdout.writeAll(text) catch |write_err| {
+                        //     std.log.warn("failed to write help text: {}\n", .{write_err});
+                        //     break :err 1;
+                        // };
 
                         break :err 0;
                     }

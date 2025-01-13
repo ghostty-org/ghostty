@@ -1,6 +1,7 @@
 const Metrics = @This();
 
 const std = @import("std");
+const Config = @import("../config/Config.zig");
 
 /// Recommended cell width and height for a monospace grid using this font.
 cell_width: u32,
@@ -257,130 +258,7 @@ fn clamp(self: *Metrics) void {
 /// little space as possible.
 pub const ModifierSet = std.AutoHashMapUnmanaged(Key, Modifier);
 
-/// A modifier to apply to a metrics value. The modifier value represents
-/// a delta, so percent is a percentage to change, not a percentage of.
-/// For example, "20%" is 20% larger, not 20% of the value. Likewise,
-/// an absolute value of "20" is 20 larger, not literally 20.
-pub const Modifier = union(enum) {
-    percent: f64,
-    absolute: i32,
-
-    /// Parses the modifier value. If the value ends in "%" it is assumed
-    /// to be a percent, otherwise the value is parsed as an integer.
-    pub fn parse(input: []const u8) !Modifier {
-        if (input.len == 0) return error.InvalidFormat;
-
-        if (input[input.len - 1] == '%') {
-            var percent = std.fmt.parseFloat(
-                f64,
-                input[0 .. input.len - 1],
-            ) catch return error.InvalidFormat;
-            percent /= 100;
-
-            if (percent <= -1) return .{ .percent = 0 };
-            if (percent < 0) return .{ .percent = 1 + percent };
-            return .{ .percent = 1 + percent };
-        }
-
-        return .{
-            .absolute = std.fmt.parseInt(i32, input, 10) catch
-                return error.InvalidFormat,
-        };
-    }
-
-    /// So it works with the config framework.
-    pub fn parseCLI(input: ?[]const u8) !Modifier {
-        return try parse(input orelse return error.ValueRequired);
-    }
-
-    /// Used by config formatter
-    pub fn formatEntry(self: Modifier, formatter: anytype) !void {
-        var buf: [1024]u8 = undefined;
-        switch (self) {
-            .percent => |v| {
-                try formatter.formatEntry(
-                    []const u8,
-                    std.fmt.bufPrint(
-                        &buf,
-                        "{d}%",
-                        .{(v - 1) * 100},
-                    ) catch return error.OutOfMemory,
-                );
-            },
-
-            .absolute => |v| {
-                try formatter.formatEntry(
-                    []const u8,
-                    std.fmt.bufPrint(
-                        &buf,
-                        "{d}",
-                        .{v},
-                    ) catch return error.OutOfMemory,
-                );
-            },
-        }
-    }
-
-    /// Apply a modifier to a numeric value.
-    pub fn apply(self: Modifier, v: anytype) @TypeOf(v) {
-        const T = @TypeOf(v);
-        const signed = @typeInfo(T).Int.signedness == .signed;
-        return switch (self) {
-            .percent => |p| percent: {
-                const p_clamped: f64 = @max(0, p);
-                const v_f64: f64 = @floatFromInt(v);
-                const applied_f64: f64 = @round(v_f64 * p_clamped);
-                const applied_T: T = @intFromFloat(applied_f64);
-                break :percent applied_T;
-            },
-
-            .absolute => |abs| absolute: {
-                const v_i64: i64 = @intCast(v);
-                const abs_i64: i64 = @intCast(abs);
-                const applied_i64: i64 = v_i64 +| abs_i64;
-                const clamped_i64: i64 = if (signed) applied_i64 else @max(0, applied_i64);
-                const applied_T: T = std.math.cast(T, clamped_i64) orelse
-                    std.math.maxInt(T) * @as(T, @intCast(std.math.sign(clamped_i64)));
-                break :absolute applied_T;
-            },
-        };
-    }
-
-    /// Hash using the hasher.
-    pub fn hash(self: Modifier, hasher: anytype) void {
-        const autoHash = std.hash.autoHash;
-        autoHash(hasher, std.meta.activeTag(self));
-        switch (self) {
-            // floats can't be hashed directly so we bitcast to i64.
-            // for the purpose of what we're trying to do this seems
-            // good enough but I would prefer value hashing.
-            .percent => |v| autoHash(hasher, @as(i64, @bitCast(v))),
-            .absolute => |v| autoHash(hasher, v),
-        }
-    }
-
-    test "formatConfig percent" {
-        const configpkg = @import("../config.zig");
-        const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
-        defer buf.deinit();
-
-        const p = try parseCLI("24%");
-        try p.formatEntry(configpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = 24%\n", buf.items);
-    }
-
-    test "formatConfig absolute" {
-        const configpkg = @import("../config.zig");
-        const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
-        defer buf.deinit();
-
-        const p = try parseCLI("-30");
-        try p.formatEntry(configpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = -30\n", buf.items);
-    }
-};
+pub const Modifier = Config.MetricModifier;
 
 /// Key is an enum of all the available metrics keys.
 pub const Key = key: {

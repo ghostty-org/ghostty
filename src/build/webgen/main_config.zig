@@ -1,6 +1,7 @@
 const std = @import("std");
 const Config = @import("../../config/Config.zig");
 const help_strings = @import("help_strings");
+const formatter = @import("../../config/formatter.zig");
 
 pub fn main() !void {
     const output = std.io.getStdOut().writer();
@@ -77,10 +78,16 @@ pub fn genConfig(writer: anytype) !void {
             callout_note,
             callout_warning,
         } = null;
+        var block_indent: usize = 0;
 
-        while (iter.next()) |s| {
+        while (iter.next()) |line| {
+            var indent: usize = 0;
+            while (indent < line.len and line[indent] == ' ') : (indent += 1) {}
+            const s = line[indent..];
+
             // Empty line resets our block
             if (std.mem.eql(u8, s, "")) {
+                try writer.writeByteNTimes(' ', block_indent);
                 try endBlock(writer, block);
                 block = null;
 
@@ -90,30 +97,35 @@ pub fn genConfig(writer: anytype) !void {
 
             // If we don't have a block figure out our type.
             const first: bool = block == null;
-            if (block == null) {
-                if (std.mem.startsWith(u8, s, "    ")) {
+            if (block == null) block: {
+                if (indent == 4) {
                     block = .code;
                     try writer.writeAll("```\n");
-                } else if (std.ascii.startsWithIgnoreCase(s, "note:")) {
+                    break :block;
+                }
+
+                try writer.writeByteNTimes(' ', indent);
+                block_indent = indent;
+
+                if (std.ascii.startsWithIgnoreCase(s, "note:")) {
                     block = .callout_note;
                     try writer.writeAll("<Note>\n");
+                    try writer.writeByteNTimes(' ', indent);
                 } else if (std.ascii.startsWithIgnoreCase(s, "warning:")) {
                     block = .callout_warning;
                     try writer.writeAll("<Warning>\n");
+                    try writer.writeByteNTimes(' ', indent);
                 } else {
                     block = .text;
                 }
+            } else if (block != .code) {
+                try writer.writeByteNTimes(' ', indent);
             }
 
             try writer.writeAll(switch (block.?) {
-                .text => s,
-                .callout_note => if (first) s["note:".len..] else s,
-                .callout_warning => if (first) s["warning:".len..] else s,
-
-                .code => if (std.mem.startsWith(u8, s, "    "))
-                    s[4..]
-                else
-                    s,
+                .text, .code => s,
+                .callout_note => std.mem.trim(u8, if (first) s["note:".len..] else s, " "),
+                .callout_warning => std.mem.trim(u8, if (first) s["warning:".len..] else s, " "),
             });
             try writer.writeAll("\n");
         }

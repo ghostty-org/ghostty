@@ -8,6 +8,7 @@ const builtin = @import("builtin");
 const apprt = @import("../apprt.zig");
 const font = @import("../font/main.zig");
 const renderer = @import("../renderer.zig");
+const configpkg = @import("../config.zig");
 const Command = @import("../Command.zig");
 const WasmTarget = @import("../os/wasm/target.zig").Target;
 
@@ -396,7 +397,7 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
         .{self.version},
     ));
     step.addOption(
-        ReleaseChannel,
+        configpkg.Config.ReleaseChannel,
         "release_channel",
         channel: {
             const pre = self.version.pre orelse break :channel .stable;
@@ -491,13 +492,4 @@ pub const ExeEntrypoint = enum {
     bench_codepoint_width,
     bench_grapheme_break,
     bench_page_init,
-};
-
-/// The release channel for the build.
-pub const ReleaseChannel = enum {
-    /// Unstable builds on every commit.
-    tip,
-
-    /// Stable tagged releases.
-    stable,
 };

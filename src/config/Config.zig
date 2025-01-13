@@ -32,7 +32,6 @@ const url = @import("url.zig");
 const Key = @import("key.zig").Key;
 const KeyValue = @import("key.zig").Value;
 const ErrorList = @import("ErrorList.zig");
-const MetricModifier = fontpkg.Metrics.Modifier;
 const help_strings = @import("help_strings");
 
 const log = std.log.scoped(.config);
@@ -126,13 +125,6 @@ const c = @cImport({
 /// Synthetic styles are not perfect and will generally not look as good
 /// as a font that has the style natively. However, they are useful to
 /// provide styled text when the font does not have the style.
-///
-/// Set this to "false" or "true" to disable or enable synthetic styles
-/// completely. You can disable specific styles using "no-bold", "no-italic",
-/// and "no-bold-italic". You can disable multiple styles by separating them
-/// with a comma. For example, "no-bold,no-italic".
-///
-/// Available style keys are: `bold`, `italic`, `bold-italic`.
 ///
 /// If synthetic styles are disabled, then the regular style will be used
 /// instead if the requested style is not available. If the font has the
@@ -248,22 +240,11 @@ const c = @cImport({
 /// This is currently only supported on macOS.
 @"font-thicken-strength": u8 = 255,
 
-/// All of the configurations behavior adjust various metrics determined by the
-/// font. The values can be integers (1, -1, etc.) or a percentage (20%, -15%,
-/// etc.). In each case, the values represent the amount to change the original
-/// value.
+/// Width adjustment in pixels or a percentage change.
+@"adjust-cell-width": ?MetricModifier = null,
+/// Height adjustment in pixels or a percentage change.
 ///
-/// For example, a value of `1` increases the value by 1; it does not set it to
-/// literally 1. A value of `20%` increases the value by 20%. And so on.
-///
-/// There is little to no validation on these values so the wrong values (i.e.
-/// `-100%`) can cause the terminal to be unusable. Use with caution and reason.
-///
-/// Some values are clamped to minimum or maximum values. This can make it
-/// appear that certain values are ignored. For example, many `*-thickness`
-/// adjustments cannot go below 1px.
-///
-/// `adjust-cell-height` has some additional behaviors to describe:
+/// Some additional behaviors specific to `adjust-cell-height`:
 ///
 ///   * The font will be centered vertically in the cell.
 ///
@@ -272,42 +253,31 @@ const c = @cImport({
 ///
 ///   * Powerline glyphs will be adjusted along with the cell height so
 ///     that things like status lines continue to look aligned.
-@"adjust-cell-width": ?MetricModifier = null,
 @"adjust-cell-height": ?MetricModifier = null,
 /// Distance in pixels or percentage adjustment from the bottom of the cell to the text baseline.
 /// Increase to move baseline UP, decrease to move baseline DOWN.
-/// See the notes about adjustments in `adjust-cell-width`.
 @"adjust-font-baseline": ?MetricModifier = null,
 /// Distance in pixels or percentage adjustment from the top of the cell to the top of the underline.
 /// Increase to move underline DOWN, decrease to move underline UP.
-/// See the notes about adjustments in `adjust-cell-width`.
 @"adjust-underline-position": ?MetricModifier = null,
 /// Thickness in pixels of the underline.
-/// See the notes about adjustments in `adjust-cell-width`.
 @"adjust-underline-thickness": ?MetricModifier = null,
 /// Distance in pixels or percentage adjustment from the top of the cell to the top of the strikethrough.
 /// Increase to move strikethrough DOWN, decrease to move underline UP.
-/// See the notes about adjustments in `adjust-cell-width`.
 @"adjust-strikethrough-position": ?MetricModifier = null,
 /// Thickness in pixels or percentage adjustment of the strikethrough.
-/// See the notes about adjustments in `adjust-cell-width`.
 @"adjust-strikethrough-thickness": ?MetricModifier = null,
 /// Distance in pixels or percentage adjustment from the top of the cell to the top of the overline.
 /// Increase to move overline DOWN, decrease to move underline UP.
-/// See the notes about adjustments in `adjust-cell-width`.
 @"adjust-overline-position": ?MetricModifier = null,
 /// Thickness in pixels or percentage adjustment of the overline.
-/// See the notes about adjustments in `adjust-cell-width`.
 @"adjust-overline-thickness": ?MetricModifier = null,
 /// Thickness in pixels or percentage adjustment of the bar cursor and outlined rect cursor.
-/// See the notes about adjustments in `adjust-cell-width`.
 @"adjust-cursor-thickness": ?MetricModifier = null,
 /// Height in pixels or percentage adjustment of the cursor. Currently applies to all cursor types:
 /// bar, rect, and outlined rect.
-/// See the notes about adjustments in `adjust-cell-width`.
 @"adjust-cursor-height": ?MetricModifier = null,
 /// Thickness in pixels or percentage adjustment of box drawing characters.
-/// See the notes about adjustments in `adjust-cell-width`.
 @"adjust-box-thickness": ?MetricModifier = null,
 
 /// The method to use for calculating the cell width of a grapheme cluster.
@@ -315,19 +285,6 @@ const c = @cImport({
 /// grapheme width. This results in correct grapheme width but may result in
 /// cursor-desync issues with some programs (such as shells) that may use a
 /// legacy method such as `wcswidth`.
-///
-/// Valid values are:
-///
-/// * `legacy` - Use a legacy method to determine grapheme width, such as
-///   wcswidth This maximizes compatibility with legacy programs but may result
-///   in incorrect grapheme width for certain graphemes such as skin-tone
-///   emoji, non-English characters, etc.
-///
-///   This is called "legacy" and not something more specific because the
-///   behavior is undefined and we want to retain the ability to modify it.
-///   For example, we may or may not use libc `wcswidth` now or in the future.
-///
-/// * `unicode` - Use the Unicode standard to determine grapheme width.
 ///
 /// If a running program explicitly enables terminal mode 2027, then `unicode`
 /// width will be forced regardless of this configuration. When mode 2027 is
@@ -337,27 +294,11 @@ const c = @cImport({
 /// terminals. Only new terminals will use the new configuration.
 @"grapheme-width-method": GraphemeWidthMethod = .unicode,
 
-/// FreeType load flags to enable. The format of this is a list of flags to
-/// enable separated by commas. If you prefix a flag with `no-` then it is
-/// disabled. If you omit a flag, its default value is used, so you must
-/// explicitly disable flags you don't want. You can also use `true` or `false`
-/// to turn all flags on or off.
+/// FreeType load flags to enable.
 ///
 /// This configuration only applies to Ghostty builds that use FreeType.
 /// This is usually the case only for Linux builds. macOS uses CoreText
 /// and does not have an equivalent configuration.
-///
-/// Available flags:
-///
-///   * `hinting` - Enable or disable hinting, enabled by default.
-///   * `force-autohint` - Use the freetype auto-hinter rather than the
-///     font's native hinter. Enabled by default.
-///   * `monochrome` - Instructs renderer to use 1-bit monochrome
-///     rendering. This option doesn't impact the hinter.
-///     Enabled by default.
-///   * `autohint` - Use the freetype auto-hinter. Enabled by default.
-///
-/// Example: `hinting`, `no-hinting`, `force-autohint`, `no-force-autohint`
 @"freetype-load-flags": FreetypeLoadFlags = .{},
 
 /// A theme to use. This can be a built-in theme name, a custom theme
@@ -417,17 +358,14 @@ const c = @cImport({
 theme: ?Theme = null,
 
 /// Background color for the window.
-/// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
 background: Color = .{ .r = 0x28, .g = 0x2C, .b = 0x34 },
 
 /// Foreground color for the window.
-/// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
 foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 
 /// The foreground and background color for selection. If this is not set, then
 /// the selection color is just the inverted window background and foreground
 /// (note: not to be confused with the cell bg/fg).
-/// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
 @"selection-foreground": ?Color = null,
 @"selection-background": ?Color = null,
 
@@ -466,7 +404,6 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 palette: Palette = .{},
 
 /// The color of the cursor. If this is not set, a default will be chosen.
-/// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
 @"cursor-color": ?Color = null,
 
 /// Swap the foreground and background colors of the cell under the cursor. This
@@ -488,39 +425,23 @@ palette: Palette = .{},
 /// a prompt, regardless of this configuration. You can disable that behavior
 /// by specifying `shell-integration-features = no-cursor` or disabling shell
 /// integration entirely.
-///
-/// Valid values are:
-///
-///   * `block`
-///   * `bar`
-///   * `underline`
-///   * `block_hollow`
-///
 @"cursor-style": terminal.CursorStyle = .block,
 
 /// Sets the default blinking state of the cursor. This is just the default
-/// state; running programs may override the cursor style using `DECSCUSR` (`CSI
-/// q`).
+/// state; running programs may override the cursor style using `DECSCUSR`
+/// (`CSI q`).
 ///
-/// If this is not set, the cursor blinks by default. Note that this is not the
-/// same as a "true" value, as noted below.
+/// If this is not set, the cursor blinks by default. Ghostty will also respect
+/// DEC Mode 12 (AT&T cursor blink) as an alternate approach to turning blinking
+/// on/off.
 ///
-/// If this is not set at all (`null`), then Ghostty will respect DEC Mode 12
-/// (AT&T cursor blink) as an alternate approach to turning blinking on/off. If
-/// this is set to any value other than null, DEC mode 12 will be ignored but
-/// `DECSCUSR` will still be respected.
-///
-/// Valid values are:
-///
-///   * ` ` (blank)
-///   * `true`
-///   * `false`
-///
+/// If this is set to true or false, then the cursor will always or never blink
+/// respectively, disregarding DEC mode 12. However, `DECSCUSR` will still be
+/// respected.
 @"cursor-style-blink": ?bool = null,
 
 /// The color of the text under the cursor. If this is not set, a default will
 /// be chosen.
-/// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
 @"cursor-text": ?Color = null,
 
 /// Enables the ability to move the cursor at prompts by using `alt+click` on
@@ -546,38 +467,14 @@ palette: Palette = .{},
 
 /// Determines whether running programs can detect the shift key pressed with a
 /// mouse click. Typically, the shift key is used to extend mouse selection.
-///
-/// The default value of `false` means that the shift key is not sent with
-/// the mouse protocol and will extend the selection. This value can be
-/// conditionally overridden by the running program with the `XTSHIFTESCAPE`
-/// sequence.
-///
-/// The value `true` means that the shift key is sent with the mouse protocol
-/// but the running program can override this behavior with `XTSHIFTESCAPE`.
-///
-/// The value `never` is the same as `false` but the running program cannot
-/// override this behavior with `XTSHIFTESCAPE`. The value `always` is the
-/// same as `true` but the running program cannot override this behavior with
-/// `XTSHIFTESCAPE`.
-///
-/// If you always want shift to extend mouse selection even if the program
-/// requests otherwise, set this to `never`.
-///
-/// Valid values are:
-///
-///   * `true`
-///   * `false`
-///   * `always`
-///   * `never`
-///
 @"mouse-shift-capture": MouseShiftCapture = .false,
 
 /// Multiplier for scrolling distance with the mouse wheel. Any value less
 /// than 0.01 or greater than 10,000 will be clamped to the nearest valid
 /// value.
 ///
-/// A value of "1" (default) scrolls the default amount. A value of "2" scrolls
-/// double the default amount. A value of "0.5" scrolls half the default amount.
+/// A value of "1" scrolls the default amount. A value of "2" scrolls double
+/// the default amount. A value of "0.5" scrolls half the default amount.
 /// Et cetera.
 @"mouse-scroll-multiplier": f64 = 1.0,
 
@@ -594,30 +491,9 @@ palette: Palette = .{},
 
 /// Whether to blur the background when `background-opacity` is less than 1.
 ///
-/// Valid values are:
-///
-///   * a nonnegative integer specifying the *blur intensity*
-///   * `false`, equivalent to a blur intensity of 0
-///   * `true`, equivalent to the default blur intensity of 20, which is
-///     reasonable for a good looking blur. Higher blur intensities may
-///     cause strange rendering and performance issues.
-///
 /// Supported on macOS and on some Linux desktop environments, including:
 ///
 ///   * KDE Plasma (Wayland and X11)
-///
-/// Warning: the exact blur intensity is _ignored_ under KDE Plasma, and setting
-/// this setting to either `true` or any positive blur intensity value would
-/// achieve the same effect. The reason is that KWin, the window compositor
-/// powering Plasma, only has one global blur setting and does not allow
-/// applications to specify individual blur settings.
-///
-/// To configure KWin's global blur setting, open System Settings and go to
-/// "Apps & Windows" > "Window Management" > "Desktop Effects" and select the
-/// "Blur" plugin. If disabled, enable it by ticking the checkbox to the left.
-/// Then click on the "Configure" button and there will be two sliders that
-/// allow you to set background blur and noise intensities for all apps,
-/// including Ghostty.
 ///
 /// All other Linux desktop environments are as of now unsupported. Users may
 /// need to set environment-specific settings and/or install third-party plugins
@@ -640,13 +516,10 @@ palette: Palette = .{},
 /// rendering a semi-transparent rectangle over the split. This sets the color of
 /// that rectangle and can be used to carefully control the dimming effect.
 ///
-/// This will default to the background color.
-///
-/// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
+/// Falls back to the background color when unset.
 @"unfocused-split-fill": ?Color = null,
 
 /// The color of the split divider. If this is not set, a default will be chosen.
-/// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
 @"split-divider-color": ?Color = null,
 
 /// The command to run, usually a shell. If this is not an absolute path, it'll
@@ -801,7 +674,7 @@ title: ?[:0]const u8 = null,
 /// The class name must follow the requirements defined [in the GTK
 /// documentation](https://docs.gtk.org/gio/type_func.Application.id_is_valid.html).
 ///
-/// The default is `com.mitchellh.ghostty`.
+/// Falls back to `com.mitchellh.ghostty` when unset.
 ///
 /// This only affects GTK builds.
 class: ?[:0]const u8 = null,
@@ -809,7 +682,7 @@ class: ?[:0]const u8 = null,
 /// This controls the instance name field of the `WM_CLASS` X11 property when
 /// running under X11. It has no effect otherwise.
 ///
-/// The default is `ghostty`.
+/// Falls back to `ghostty` when unset.
 ///
 /// This only affects GTK builds.
 @"x11-instance-name": ?[:0]const u8 = null,
@@ -1048,26 +921,7 @@ keybind: Keybinds = .{},
 /// given a certain viewport size and grid cell size.
 @"window-padding-balance": bool = false,
 
-/// The color of the padding area of the window. Valid values are:
-///
-/// * `background` - The background color specified in `background`.
-/// * `extend` - Extend the background color of the nearest grid cell.
-/// * `extend-always` - Same as "extend" but always extends without applying
-///   any of the heuristics that disable extending noted below.
-///
-/// The "extend" value will be disabled in certain scenarios. On primary
-/// screen applications (i.e. not something like Neovim), the color will not
-/// be extended vertically if any of the following are true:
-///
-/// * The nearest row has any cells that have the default background color.
-///   The thinking is that in this case, the default background color looks
-///   fine as a padding color.
-/// * The nearest row is a prompt row (requires shell integration). The
-///   thinking here is that prompts often contain powerline glyphs that
-///   do not look good extended.
-/// * The nearest row contains a perfect fit powerline character. These
-///   don't look good extended.
-///
+/// The color of the padding area of the window.
 @"window-padding-color": WindowPaddingColor = .background,
 
 /// Synchronize rendering with the screen refresh rate. If true, this will
@@ -1096,11 +950,8 @@ keybind: Keybinds = .{},
 /// configuration `font-size` will be used.
 @"window-inherit-font-size": bool = true,
 
-/// Valid values:
-///
-///   * `true`
-///   * `false` - windows won't have native decorations, i.e. titlebar and
-///      borders. On macOS this also disables tabs and tab overview.
+/// Whether to draw window decorations, including title bars,
+/// window borders, shadows, etc.
 ///
 /// The "toggle_window_decorations" keybind action can be used to create
 /// a keybinding to toggle this setting at runtime.
@@ -1120,27 +971,12 @@ keybind: Keybinds = .{},
 /// required to be a fixed-width font.
 @"window-title-font-family": ?[:0]const u8 = null,
 
-/// The text that will be displayed in the subtitle of the window. Valid values:
-///
-///   * `false` - Disable the subtitle.
-///   * `working-directory` - Set the subtitle to the working directory of the
-///      surface.
+/// The text that will be displayed in the subtitle of the window.
 ///
 /// This feature is only supported on GTK with Adwaita enabled.
 @"window-subtitle": WindowSubtitle = .false,
 
-/// The theme to use for the windows. Valid values:
-///
-///   * `auto` - Determine the theme based on the configured terminal
-///      background color. This has no effect if the "theme" configuration
-///      has separate light and dark themes. In that case, the behavior
-///      of "auto" is equivalent to "system".
-///   * `system` - Use the system theme.
-///   * `light` - Use the light theme regardless of system theme.
-///   * `dark` - Use the dark theme regardless of system theme.
-///   * `ghostty` - Use the background and foreground colors specified in the
-///     Ghostty configuration. This is only supported on Linux builds with
-///     Adwaita and `gtk-adwaita` enabled.
+/// The theme to use for the windows.
 ///
 /// On macOS, if `macos-titlebar-style` is "tabs", the window theme will be
 /// automatically set based on the luminosity of the terminal background color.
@@ -1150,8 +986,7 @@ keybind: Keybinds = .{},
 /// This is currently only supported on macOS and Linux.
 @"window-theme": WindowTheme = .auto,
 
-/// The colorspace to use for the terminal window. The default is `srgb` but
-/// this can also be set to `display-p3` to use the Display P3 colorspace.
+/// The colorspace to use for the terminal window.
 ///
 /// Changing this value at runtime will only affect new windows.
 ///
@@ -1208,40 +1043,22 @@ keybind: Keybinds = .{},
 /// the visible screen area. This means that if the menu bar is visible, the
 /// window will be placed below the menu bar.
 ///
-/// Note: this is only supported on macOS and Linux GLFW builds. The GTK
-/// runtime does not support setting the window position (this is a limitation
-/// of GTK 4.0).
+/// Note: This is only supported on macOS and Linux GLFW builds. The GTK
+/// runtime does not support setting the window position since it needs to
+/// support the Wayland windowing protocol, which does not allow windows to
+/// position themselves in any way. GLFW builds always use X11 and are unaffected.
 @"window-position-x": ?i16 = null,
 @"window-position-y": ?i16 = null,
 
-/// Whether to enable saving and restoring window state. Window state includes
-/// their position, size, tabs, splits, etc. Some window state requires shell
-/// integration, such as preserving working directories. See `shell-integration`
-/// for more information.
+/// Whether to enable saving and restoring window state.
 ///
-/// There are three valid values for this configuration:
-///
-///   * `default` will use the default system behavior. On macOS, this
-///     will only save state if the application is forcibly terminated
-///     or if it is configured systemwide via Settings.app.
-///
-///   * `never` will never save window state.
-///
-///   * `always` will always save window state whenever Ghostty is exited.
-///
-/// If you change this value to `never` while Ghostty is not running, the next
-/// Ghostty launch will NOT restore the window state.
-///
-/// If you change this value to `default` while Ghostty is not running and the
-/// previous exit saved state, the next Ghostty launch will still restore the
-/// window state. This is because Ghostty cannot know if the previous exit was
-/// due to a forced save or not (macOS doesn't provide this information).
+/// Window state includes their position, size, tabs, splits, etc.
+/// Some window state requires shell integration, such as preserving working directories.
+/// See `shell-integration` for more information.
 ///
 /// If you change this value so that window state is saved while Ghostty is not
 /// running, the previous window state will not be restored because Ghostty only
 /// saves state on exit if this is enabled.
-///
-/// The default value is `default`.
 ///
 /// This is currently only supported on macOS. This has no effect on Linux.
 @"window-save-state": WindowSaveState = .default,
@@ -1251,105 +1068,42 @@ keybind: Keybinds = .{},
 /// only supported on macOS.
 @"window-step-resize": bool = false,
 
-/// The position where new tabs are created. Valid values:
-///
-///   * `current` - Insert the new tab after the currently focused tab,
-///     or at the end if there are no focused tabs.
-///
-///   * `end` - Insert the new tab at the end of the tab list.
+/// The position where new tabs are created.
 @"window-new-tab-position": WindowNewTabPosition = .current,
 
 /// Background color for the window titlebar. This only takes effect if
-/// window-theme is set to ghostty. Currently only supported in the GTK app
+/// `window-theme` is set to ghostty. Currently only supported in the GTK app
 /// runtime.
-///
-/// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
 @"window-titlebar-background": ?Color = null,
 
 /// Foreground color for the window titlebar. This only takes effect if
 /// window-theme is set to ghostty. Currently only supported in the GTK app
 /// runtime.
-///
-/// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
 @"window-titlebar-foreground": ?Color = null,
 
-/// This controls when resize overlays are shown. Resize overlays are a
-/// transient popup that shows the size of the terminal while the surfaces are
-/// being resized. The possible options are:
+/// This controls when resize overlays are shown.
 ///
-///   * `always` - Always show resize overlays.
-///   * `never` - Never show resize overlays.
-///   * `after-first` - The resize overlay will not appear when the surface
-///                     is first created, but will show up if the surface is
-///                     subsequently resized.
-///
-/// The default is `after-first`.
+/// Resize overlays are a transient popup that shows the size of
+/// the terminal while the surfaces are being resized.
 @"resize-overlay": ResizeOverlay = .@"after-first",
 
 /// If resize overlays are enabled, this controls the position of the overlay.
-/// The possible options are:
-///
-///   * `center`
-///   * `top-left`
-///   * `top-center`
-///   * `top-right`
-///   * `bottom-left`
-///   * `bottom-center`
-///   * `bottom-right`
-///
-/// The default is `center`.
 @"resize-overlay-position": ResizeOverlayPosition = .center,
 
 /// If resize overlays are enabled, this controls how long the overlay is
 /// visible on the screen before it is hidden. The default is ¾ of a second or
 /// 750 ms.
-///
-/// The duration is specified as a series of numbers followed by time units.
-/// Whitespace is allowed between numbers and units. Each number and unit will
-/// be added together to form the total duration.
-///
-/// The allowed time units are as follows:
-///
-///   * `y` - 365 SI days, or 8760 hours, or 31536000 seconds. No adjustments
-///     are made for leap years or leap seconds.
-///   * `d` - one SI day, or 86400 seconds.
-///   * `h` - one hour, or 3600 seconds.
-///   * `m` - one minute, or 60 seconds.
-///   * `s` - one second.
-///   * `ms` - one millisecond, or 0.001 second.
-///   * `us` or `µs` - one microsecond, or 0.000001 second.
-///   * `ns` - one nanosecond, or 0.000000001 second.
-///
-/// Examples:
-///   * `1h30m`
-///   * `45s`
-///
-/// Units can be repeated and will be added together. This means that
-/// `1h1h` is equivalent to `2h`. This is confusing and should be avoided.
-/// A future update may disallow this.
-///
-/// The maximum value is `584y 49w 23h 34m 33s 709ms 551µs 615ns`. Any
-/// value larger than this will be clamped to the maximum value.
 @"resize-overlay-duration": Duration = .{ .duration = 750 * std.time.ns_per_ms },
 
 /// If true, when there are multiple split panes, the mouse selects the pane
 /// that is focused. This only applies to the currently focused window; i.e.
 /// mousing over a split in an unfocused window will not focus that split
 /// and bring the window to front.
-///
-/// Default is false.
 @"focus-follows-mouse": bool = false,
 
 /// Whether to allow programs running in the terminal to read/write to the
 /// system clipboard (OSC 52, for googling). The default is to allow clipboard
 /// reading after prompting the user and allow writing unconditionally.
-///
-/// Valid values are:
-///
-///   * `ask`
-///   * `allow`
-///   * `deny`
-///
 @"clipboard-read": ClipboardAccess = .ask,
 @"clipboard-write": ClipboardAccess = .allow,
 
@@ -1415,10 +1169,6 @@ keybind: Keybinds = .{},
 /// `config-file` directive. For command-line arguments, paths are relative to
 /// the current working directory.
 ///
-/// Prepend a ? character to the file path to suppress errors if the file does
-/// not exist. If you want to include a file that begins with a literal ?
-/// character, surround the file path in double quotes (").
-///
 /// Cycles are not allowed. If a cycle is detected, an error will be logged and
 /// the configuration file will be ignored.
 ///
@@ -1452,11 +1202,6 @@ keybind: Keybinds = .{},
 @"config-default-files": bool = true,
 
 /// Confirms that a surface should be closed before closing it.
-///
-/// This defaults to `true`. If set to `false`, surfaces will close without
-/// any confirmation. This can also be set to `always`, which will always
-/// confirm closing a surface, even if shell integration says a process isn't
-/// running.
 @"confirm-close-surface": ConfirmCloseSurface = .true,
 
 /// Whether or not to quit after the last surface is closed.
@@ -1477,33 +1222,6 @@ keybind: Keybinds = .{},
 /// The minimum value for this configuration is `1s`. Any values lower than
 /// this will be clamped to `1s`.
 ///
-/// The duration is specified as a series of numbers followed by time units.
-/// Whitespace is allowed between numbers and units. Each number and unit will
-/// be added together to form the total duration.
-///
-/// The allowed time units are as follows:
-///
-///   * `y` - 365 SI days, or 8760 hours, or 31536000 seconds. No adjustments
-///     are made for leap years or leap seconds.
-///   * `d` - one SI day, or 86400 seconds.
-///   * `h` - one hour, or 3600 seconds.
-///   * `m` - one minute, or 60 seconds.
-///   * `s` - one second.
-///   * `ms` - one millisecond, or 0.001 second.
-///   * `us` or `µs` - one microsecond, or 0.000001 second.
-///   * `ns` - one nanosecond, or 0.000000001 second.
-///
-/// Examples:
-///   * `1h30m`
-///   * `45s`
-///
-/// Units can be repeated and will be added together. This means that
-/// `1h1h` is equivalent to `2h`. This is confusing and should be avoided.
-/// A future update may disallow this.
-///
-/// The maximum value is `584y 49w 23h 34m 33s 709ms 551µs 615ns`. Any
-/// value larger than this will be clamped to the maximum value.
-///
 /// By default `quit-after-last-window-closed-delay` is unset and
 /// Ghostty will quit immediately after the last window is closed if
 /// `quit-after-last-window-closed` is `true`.
@@ -1522,14 +1240,6 @@ keybind: Keybinds = .{},
 /// quick terminal, see the documentation for the `toggle_quick_terminal`
 /// binding action.
 ///
-/// Valid values are:
-///
-///   * `top` - Terminal appears at the top of the screen.
-///   * `bottom` - Terminal appears at the bottom of the screen.
-///   * `left` - Terminal appears at the left of the screen.
-///   * `right` - Terminal appears at the right of the screen.
-///   * `center` - Terminal appears at the center of the screen.
-///
 /// Changing this configuration requires restarting Ghostty completely.
 ///
 /// Note: There is no default keybind for toggling the quick terminal.
@@ -1537,23 +1247,6 @@ keybind: Keybinds = .{},
 @"quick-terminal-position": QuickTerminalPosition = .top,
 
 /// The screen where the quick terminal should show up.
-///
-/// Valid values are:
-///
-///  * `main` - The screen that the operating system recommends as the main
-///    screen. On macOS, this is the screen that is currently receiving
-///    keyboard input. This screen is defined by the operating system and
-///    not chosen by Ghostty.
-///
-///  * `mouse` - The screen that the mouse is currently hovered over.
-///
-///  * `macos-menu-bar` - The screen that contains the macOS menu bar as
-///    set in the display settings on macOS. This is a bit confusing because
-///    every screen on macOS has a menu bar, but this is the screen that
-///    contains the primary menu bar.
-///
-/// The default value is `main` because this is the recommended screen
-/// by the operating system.
 @"quick-terminal-screen": QuickTerminalScreen = .main,
 
 /// Duration (in seconds) of the quick terminal enter and exit animation.
@@ -1569,17 +1262,6 @@ keybind: Keybinds = .{},
 /// when switching between macOS spaces. macOS spaces are virtual desktops
 /// that can be manually created or are automatically created when an
 /// application is in full-screen mode.
-///
-/// Valid values are:
-///
-///  * `move` - When switching to another space, the quick terminal will
-///    also moved to the current space.
-///
-///  * `remain` - The quick terminal will stay only in the space where it
-///    was originally opened and will not follow when switching to another
-///    space.
-///
-/// The default value is `move`.
 @"quick-terminal-space-behavior": QuickTerminalSpaceBehavior = .move,
 
 /// Whether to enable shell integration auto-injection or not. Shell integration
@@ -1595,53 +1277,19 @@ keybind: Keybinds = .{},
 ///
 ///   * Resizing the window with a complex prompt usually paints much
 ///     better.
-///
-/// Allowable values are:
-///
-///   * `none` - Do not do any automatic injection. You can still manually
-///     configure your shell to enable the integration.
-///
-///   * `detect` - Detect the shell based on the filename.
-///
-///   * `bash`, `elvish`, `fish`, `zsh` - Use this specific shell injection scheme.
-///
-/// The default value is `detect`.
 @"shell-integration": ShellIntegration = .detect,
 
 /// Shell integration features to enable if shell integration itself is enabled.
-/// The format of this is a list of features to enable separated by commas. If
-/// you prefix a feature with `no-` then it is disabled. If you omit a feature,
-/// its default value is used, so you must explicitly disable features you don't
-/// want. You can also use `true` or `false` to turn all features on or off.
-///
-/// Available features:
-///
-///   * `cursor` - Set the cursor to a blinking bar at the prompt.
-///
-///   * `sudo` - Set sudo wrapper to preserve terminfo.
-///
-///   * `title` - Set the window title via shell integration.
-///
-/// Example: `cursor`, `no-cursor`, `sudo`, `no-sudo`, `title`, `no-title`
 @"shell-integration-features": ShellIntegrationFeatures = .{},
 
 /// Sets the reporting format for OSC sequences that request color information.
+///
 /// Ghostty currently supports OSC 10 (foreground), OSC 11 (background), and
 /// OSC 4 (256 color palette) queries, and by default the reported values
 /// are scaled-up RGB values, where each component are 16 bits. This is how
 /// most terminals report these values. However, some legacy applications may
 /// require 8-bit, unscaled, components. We also support turning off reporting
 /// altogether. The components are lowercase hex values.
-///
-/// Allowable values are:
-///
-///   * `none` - OSC 4/10/11 queries receive no reply
-///
-///   * `8-bit` - Color components are return unscaled, i.e. `rr/gg/bb`
-///
-///   * `16-bit` - Color components are returned scaled, e.g. `rrrr/gggg/bbbb`
-///
-/// The default value is `16-bit`.
 @"osc-color-report-format": OSCColorReportFormat = .@"16-bit",
 
 /// If true, allows the "KAM" mode (ANSI mode 2) to be used within
@@ -1679,20 +1327,7 @@ keybind: Keybinds = .{},
 /// affect new windows, tabs, and splits.
 @"custom-shader": RepeatablePath = .{},
 
-/// If `true` (default), the focused terminal surface will run an animation
-/// loop when custom shaders are used. This uses slightly more CPU (generally
-/// less than 10%) but allows the shader to animate. This only runs if there
-/// are custom shaders and the terminal is focused.
-///
-/// If this is set to `false`, the terminal and custom shader will only render
-/// when the terminal is updated. This is more efficient but the shader will
-/// not animate.
-///
-/// This can also be set to `always`, which will always run the animation
-/// loop regardless of whether the terminal is focused or not. The animation
-/// loop will still only run when custom shaders are used. Note that this
-/// will use more CPU per terminal surface and can become quite expensive
-/// depending on the shader and your terminal usage.
+/// Whether to enable animated shaders.
 ///
 /// This value can be changed at runtime and will affect all currently
 /// open terminals.
@@ -1713,52 +1348,12 @@ keybind: Keybinds = .{},
 /// keybindings such as command+tilde. When you exit fullscreen, the window
 /// will return to the tabbed state it was in before.
 ///
-/// Allowable values are:
-///
-///   * `visible-menu` - Use non-native macOS fullscreen, keep the menu bar visible
-///   * `true` - Use non-native macOS fullscreen, hide the menu bar
-///   * `false` - Use native macOS fullscreen
-///
 /// Changing this option at runtime works, but will only apply to the next
 /// time the window is made fullscreen. If a window is already fullscreen,
 /// it will retain the previous setting until fullscreen is exited.
 @"macos-non-native-fullscreen": NonNativeFullscreen = .false,
 
-/// The style of the macOS titlebar. Available values are: "native",
-/// "transparent", "tabs", and "hidden".
-///
-/// The "native" style uses the native macOS titlebar with zero customization.
-/// The titlebar will match your window theme (see `window-theme`).
-///
-/// The "transparent" style is the same as "native" but the titlebar will
-/// be transparent and allow your window background color to come through.
-/// This makes a more seamless window appearance but looks a little less
-/// typical for a macOS application and may not work well with all themes.
-///
-/// The "transparent" style will also update in real-time to dynamic
-/// changes to the window background color, i.e. via OSC 11. To make this
-/// more aesthetically pleasing, this only happens if the terminal is
-/// a window, tab, or split that borders the top of the window. This
-/// avoids a disjointed appearance where the titlebar color changes
-/// but all the topmost terminals don't match.
-///
-/// The "tabs" style is a completely custom titlebar that integrates the
-/// tab bar into the titlebar. This titlebar always matches the background
-/// color of the terminal. There are some limitations to this style:
-/// On macOS 13 and below, saved window state will not restore tabs correctly.
-/// macOS 14 does not have this issue and any other macOS version has not
-/// been tested.
-///
-/// The "hidden" style hides the titlebar. Unlike `window-decoration = false`,
-/// however, it does not remove the frame from the window or cause it to have
-/// squared corners. Changing to or from this option at run-time may affect
-/// existing windows in buggy ways. The top titlebar area of the window will
-/// continue to drag the window around and you will not be able to use
-/// the mouse for terminal events in this space.
-///
-/// The default value is "transparent". This is an opinionated choice
-/// but its one I think is the most aesthetically pleasing and works in
-/// most cases.
+/// The style of the macOS titlebar.
 ///
 /// Changing this option at runtime only applies to new windows.
 @"macos-titlebar-style": MacTitlebarStyle = .transparent,
@@ -1769,13 +1364,6 @@ keybind: Keybinds = .{},
 /// titlebar.
 ///
 /// The proxy icon is only visible with the native macOS titlebar style.
-///
-/// Valid values are:
-///
-///   * `visible` - Show the proxy icon.
-///   * `hidden` - Hide the proxy icon.
-///
-/// The default value is `visible`.
 ///
 /// This setting can be changed at runtime and will affect all currently
 /// open windows but only after their working directory changes again.
@@ -1804,18 +1392,6 @@ keybind: Keybinds = .{},
 ///
 /// Note that if an *Option*-sequence doesn't produce a printable character, it
 /// will be treated as *Alt* regardless of this setting. (i.e. `alt+ctrl+a`).
-///
-/// Explicit values that can be set:
-///
-/// If `true`, the *Option* key will be treated as *Alt*. This makes terminal
-/// sequences expecting *Alt* to work properly, but will break Unicode input
-/// sequences on macOS if you use them via the *Alt* key.
-///
-/// You may set this to `false` to restore the macOS *Alt* key unicode
-/// sequences but this will break terminal sequences expecting *Alt* to work.
-///
-/// The values `left` or `right` enable this for the left or right *Option*
-/// key, respectively.
 ///
 /// This does not work with GLFW builds.
 @"macos-option-as-alt": ?OptionAsAlt = null,
@@ -1862,36 +1438,12 @@ keybind: Keybinds = .{},
 /// exactly is affected, see the `NSApplication.icon` Apple documentation;
 /// that is the API that is being used to set the icon.
 ///
-/// Valid values:
-///
-///  * `official` - Use the official Ghostty icon.
-///  * `custom-style` - Use the official Ghostty icon but with custom
-///    styles applied to various layers. The custom styles must be
-///    specified using the additional `macos-icon`-prefixed configurations.
-///    The `macos-icon-ghost-color` and `macos-icon-screen-color`
-///    configurations are required for this style.
-///
-/// WARNING: The `custom-style` option is _experimental_. We may change
-/// the format of the custom styles in the future. We're still finalizing
-/// the exact layers and customization options that will be available.
-///
-/// Other caveats:
-///
-///   * The icon in the update dialog will always be the official icon.
-///     This is because the update dialog is managed through a
-///     separate framework and cannot be customized without significant
-///     effort.
-///
+/// NOTE: The icon in the update dialog will always be the official icon.
+/// This is because the update dialog is managed through a separate framework
+/// and cannot be customized without significant effort.
 @"macos-icon": MacAppIcon = .official,
 
 /// The material to use for the frame of the macOS app icon.
-///
-/// Valid values:
-///
-///  * `aluminum` - A brushed aluminum frame. This is the default.
-///  * `beige` - A classic 90's computer beige frame.
-///  * `plastic` - A glossy, dark plastic frame.
-///  * `chrome` - A shiny chrome frame.
 ///
 /// This only has an effect when `macos-icon` is set to `custom-style`.
 @"macos-icon-frame": MacAppIconFrame = .aluminum,
@@ -1902,8 +1454,6 @@ keybind: Keybinds = .{},
 /// `custom-style`.
 ///
 /// This only has an effect when `macos-icon` is set to `custom-style`.
-///
-/// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
 @"macos-icon-ghost-color": ?Color = null,
 
 /// The color of the screen in the macOS app icon.
@@ -1936,14 +1486,6 @@ keybind: Keybinds = .{},
 /// This feature requires systemd. If systemd is unavailable, cgroup
 /// initialization will fail. By default, this will not prevent Ghostty
 /// from working (see linux-cgroup-hard-fail).
-///
-/// Valid values are:
-///
-///   * `never` - Never use cgroups.
-///   * `always` - Always use cgroups.
-///   * `single-instance` - Enable cgroups only for Ghostty instances launched
-///     as single-instance applications (see gtk-single-instance).
-///
 @"linux-cgroup": LinuxCgroup = .@"single-instance",
 
 /// Memory limit for any individual terminal process (tab, split, window,
@@ -1987,16 +1529,7 @@ keybind: Keybinds = .{},
 /// using versions of GTK earlier than 4.14.0.
 @"gtk-gsk-renderer": GtkGskRenderer = .opengl,
 
-/// If `true`, the Ghostty GTK application will run in single-instance mode:
-/// each new `ghostty` process launched will result in a new window if there is
-/// already a running process.
-///
-/// If `false`, each new ghostty process will launch a separate application.
-///
-/// The default value is `desktop` which will default to `true` if Ghostty
-/// detects that it was launched from the `.desktop` file such as an app
-/// launcher (like Gnome Shell)  or by D-Bus activation. If Ghostty is launched
-/// from the command line, it will default to `false`.
+/// Whether to run Ghostty in single-instance mode.
 ///
 /// Note that debug builds of Ghostty have a separate single-instance ID
 /// so you can test single instance without conflicting with release builds.
@@ -2014,7 +1547,7 @@ keybind: Keybinds = .{},
 @"gtk-titlebar": bool = true,
 
 /// Determines the side of the screen that the GTK tab bar will stick to.
-/// Top, bottom, left, right, and hidden are supported. The default is top.
+/// Top, bottom, left, right, and hidden are supported.
 ///
 /// If this option has value `left` or `right` when using Adwaita, it falls
 /// back to `top`. `hidden`, meaning that tabs don't exist, is not supported
@@ -2031,35 +1564,12 @@ keybind: Keybinds = .{},
 /// Adwaita tab bar. This requires `gtk-adwaita` to be enabled (it is
 /// by default).
 ///
-/// Valid values are:
-///
-///  * `flat` - Top and bottom bars are flat with the terminal window.
-///  * `raised` - Top and bottom bars cast a shadow on the terminal area.
-///  * `raised-border` - Similar to `raised` but the shadow is replaced with a
-///    more subtle border.
-///
 /// Changing this value at runtime will only affect new windows.
 @"adw-toolbar-style": AdwToolbarStyle = .raised,
 
 /// Control the toasts that Ghostty shows. Toasts are small notifications
 /// that appear overlaid on top of the terminal window. They are used to
 /// show information that is not critical but may be important.
-///
-/// Possible toasts are:
-///
-///   - `clipboard-copy` (default: true) - Show a toast when text is copied
-///     to the clipboard.
-///
-/// To specify a toast to enable, specify the name of the toast. To specify
-/// a toast to disable, prefix the name with `no-`. For example, to disable
-/// the clipboard-copy toast, set this configuration to `no-clipboard-copy`.
-/// To enable the clipboard-copy toast, set this configuration to
-/// `clipboard-copy`.
-///
-/// Multiple toasts can be enabled or disabled by separating them with a comma.
-///
-/// A value of "false" will disable all toasts. A value of "true" will
-/// enable all toasts.
 ///
 /// This configuration only applies to GTK with Adwaita enabled.
 @"adw-toast": AdwToast = .{},
@@ -2086,10 +1596,6 @@ keybind: Keybinds = .{},
 
 /// Custom CSS files to be loaded.
 ///
-/// This configuration can be repeated multiple times to load multiple files.
-/// Prepend a ? character to the file path to suppress errors if the file does
-/// not exist. If you want to include a file that begins with a literal ?
-/// character, surround the file path in double quotes (").
 /// The file size limit for a single stylesheet is 5MiB.
 @"gtk-custom-css": RepeatablePath = .{},
 
@@ -2123,14 +1629,6 @@ term: []const u8 = "xterm-ghostty",
 /// downloading information about the latest version and comparing it
 /// client-side to the current version.
 ///
-/// Valid values are:
-///
-///  * `off` - Disable auto-updates.
-///  * `check` - Check for updates and notify the user if an update is
-///    available, but do not automatically download or install the update.
-///  * `download` - Check for updates, automatically download the update,
-///    notify the user, but do not automatically install the update.
-///
 /// If unset, we defer to Sparkle's default behavior, which respects the
 /// preference stored in the standard user defaults (`defaults(1)`).
 ///
@@ -2145,19 +1643,10 @@ term: []const u8 = "xterm-ghostty",
 /// If you download a stable version of Ghostty then this will be set to
 /// `stable` and you will receive stable updates.
 ///
-/// Valid values are:
-///
-///  * `stable` - Stable, tagged releases such as "1.0.0".
-///  * `tip` - Pre-release versions generated from each commit to the
-///    main branch. This is the version that was in use during private
-///    beta testing by thousands of people. It is generally stable but
-///    will likely have more bugs than the stable channel.
-///
-/// Changing this configuration requires a full restart of
-/// Ghostty to take effect.
+/// Changing this configuration requires a full restart of Ghostty to take effect.
 ///
 /// This only works on macOS since only macOS has an auto-update feature.
-@"auto-update-channel": ?build_config.ReleaseChannel = null,
+@"auto-update-channel": ?ReleaseChannel = null,
 
 /// This is set by the CLI parser for deinit.
 _arena: ?ArenaAllocator = null,
@@ -3979,56 +3468,112 @@ const Replay = struct {
     }
 };
 
-/// Valid values for confirm-close-surface
-/// c_int because it needs to be extern compatible
-/// If this is changed, you must also update ghostty.h
+// Valid values for confirm-close-surface
+// c_int because it needs to be extern compatible
+// If this is changed, you must also update ghostty.h
 pub const ConfirmCloseSurface = enum(c_int) {
+    /// Close surfaces without any confirmation.
     false,
+
+    /// Ask for confirmation before closing surfaces with running processes.
     true,
+
+    // Always ask for confirmation before closing surfaces, even without running processes.
     always,
 };
 
-/// Valid values for custom-shader-animation
-/// c_int because it needs to be extern compatible
-/// If this is changed, you must also update ghostty.h
+// Valid values for custom-shader-animation
+// c_int because it needs to be extern compatible
+// If this is changed, you must also update ghostty.h
 pub const CustomShaderAnimation = enum(c_int) {
+    /// The terminal and custom shader will only render when the terminal is updated.
+    /// This is more efficient but the shader will not animate.
     false,
+
+    /// The focused terminal surface will run an animation loop when
+    /// custom shaders are used. This uses slightly more CPU (generally
+    /// less than 10%) but allows the shader to animate. This only runs if there
+    /// are custom shaders and the terminal is focused.
+    ///
     true,
+    /// Always run the animation loop regardless of whether the terminal
+    /// is focused or not. The animation loop will still only run when custom
+    /// shaders are used. Note that this will use more CPU per terminal surface
+    /// and can become quite expensive depending on the shader and your terminal usage.
     always,
 };
 
-/// Valid values for macos-non-native-fullscreen
-/// c_int because it needs to be extern compatible
-/// If this is changed, you must also update ghostty.h
+// Valid values for macos-non-native-fullscreen
+// c_int because it needs to be extern compatible
+// If this is changed, you must also update ghostty.h
 pub const NonNativeFullscreen = enum(c_int) {
+    /// Use native macOS fullscreen.
     false,
+
+    /// Use non-native macOS fullscreen and hide the menu bar.
     true,
+
+    /// Use non-native macOS fullscreen and keep the menu bar visible.
     @"visible-menu",
 };
 
-/// Valid values for macos-option-as-alt.
+// Valid values for macos-option-as-alt.
 pub const OptionAsAlt = enum {
+    /// Don't treat *Option* keys as *Alt*. This restores macOS's *Alt* key
+    /// Unicode sequences but breaks terminal sequences expecting *Alt* to work.
     false,
+
+    /// Treat the both *Option* keys as *Alt*. This makes terminal
+    /// sequences expecting *Alt* to work properly, but will break Unicode input
+    /// sequences on macOS if you use them via the *Alt* key.
     true,
+
+    /// Treat only the left *Option* key as *Alt*.
     left,
+
+    /// Treat only the right *Option* key as *Alt*.
     right,
 };
 
 pub const WindowPaddingColor = enum {
+    /// Use the background color specified in `background`.
     background,
+
+    /// Extend the background color of the nearest grid cell.
+    ///
+    /// The "extend" value will be disabled in certain scenarios. On primary
+    /// screen applications (i.e. not something like Neovim), the color will not
+    /// be extended vertically if any of the following are true:
+    ///
+    /// * The nearest row has any cells that have the default background color.
+    ///   The thinking is that in this case, the default background color looks
+    ///   fine as a padding color.
+    /// * The nearest row is a prompt row (requires shell integration). The
+    ///   thinking here is that prompts often contain powerline glyphs that
+    ///   do not look good extended.
+    /// * The nearest row contains a perfect fit powerline character. These
+    ///   don't look good extended.
     extend,
+
+    /// Unconditionally extend the background color of the nearest grid cell,
+    /// ignoring any aforementioned heuristics.
     @"extend-always",
 };
 
 pub const WindowSubtitle = enum {
+    /// Disable the window subtitle.
     false,
+
+    /// Set the window subtitle to the working directory of the surface.
     @"working-directory",
 };
 
-/// Color represents a color using RGB.
-///
-/// This is a packed struct so that the C API to read color values just
-/// works by setting it to a C integer.
+// Color represents a color using RGB.
+//
+// This is a packed struct so that the C API to read color values just
+// works by setting it to a C integer.
+
+/// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
 pub const Color = struct {
     r: u8,
     g: u8,
@@ -4276,8 +3821,8 @@ pub const ColorList = struct {
     }
 };
 
-/// Palette is the 256 color palette for 256-color mode. This is still
-/// used by many terminal applications.
+// Palette is the 256 color palette for 256-color mode. This is still
+// used by many terminal applications.
 pub const Palette = struct {
     const Self = @This();
 
@@ -4372,10 +3917,10 @@ pub const Palette = struct {
     }
 };
 
-/// RepeatableString is a string value that can be repeated to accumulate
-/// a list of strings. This isn't called "StringList" because I find that
-/// sometimes leads to confusion that it _accepts_ a list such as
-/// comma-separated values.
+// RepeatableString is a string value that can be repeated to accumulate
+// a list of strings. This isn't called "StringList" because I find that
+// sometimes leads to confusion that it _accepts_ a list such as
+// comma-separated values.
 pub const RepeatableString = struct {
     const Self = @This();
 
@@ -4499,10 +4044,15 @@ pub const RepeatableString = struct {
     }
 };
 
-/// RepeatablePath is like repeatable string but represents a path value.
-/// The difference is that when loading the configuration any values for
-/// this will be automatically expanded relative to the path of the config
-/// file.
+// RepeatablePath is like repeatable string but represents a path value.
+// The difference is that when loading the configuration any values for
+// this will be automatically expanded relative to the path of the config
+// file.
+
+/// Can be repeated multiple times to load multiple files.
+/// Prepend a ? character to the file path to suppress errors if the file does
+/// not exist. If you want to include a file that begins with a literal ?
+/// character, surround the file path in double quotes (").
 pub const RepeatablePath = struct {
     const Self = @This();
 
@@ -4765,18 +4315,18 @@ pub const RepeatablePath = struct {
     }
 };
 
-/// FontVariation is a repeatable configuration value that sets a single
-/// font variation value. Font variations are configurations for what
-/// are often called "variable fonts." The font files usually end in
-/// "-VF.ttf."
-///
-/// The value for this is in the format of `id=value` where `id` is the
-/// 4-character font variation axis identifier and `value` is the
-/// floating point value for that axis. For more details on font variations
-/// see the MDN font-variation-settings documentation since this copies that
-/// behavior almost exactly:
-///
-/// https://developer.mozilla.org/en-US/docs/Web/CSS/font-variation-settings
+// FontVariation is a repeatable configuration value that sets a single
+// font variation value. Font variations are configurations for what
+// are often called "variable fonts." The font files usually end in
+// "-VF.ttf."
+//
+// The value for this is in the format of `id=value` where `id` is the
+// 4-character font variation axis identifier and `value` is the
+// floating point value for that axis. For more details on font variations
+// see the MDN font-variation-settings documentation since this copies that
+// behavior almost exactly:
+//
+// https://developer.mozilla.org/en-US/docs/Web/CSS/font-variation-settings
 pub const RepeatableFontVariation = struct {
     const Self = @This();
 
@@ -4891,7 +4441,7 @@ pub const RepeatableFontVariation = struct {
     }
 };
 
-/// Stores a set of keybinds.
+// Stores a set of keybinds.
 pub const Keybinds = struct {
     set: inputpkg.Binding.Set = .{},
 
@@ -4999,20 +4549,20 @@ pub const Keybinds = struct {
             const v = next.value_ptr.*;
             if (docs) {
                 try formatter.writer.writeAll("\n");
-                const name = @tagName(v);
-                inline for (@typeInfo(help_strings.KeybindAction).Struct.decls) |decl| {
-                    if (std.mem.eql(u8, decl.name, name)) {
-                        const help = @field(help_strings.KeybindAction, decl.name);
-                        try formatter.writer.writeAll("# " ++ decl.name ++ "\n");
-                        var lines = std.mem.splitScalar(u8, help, '\n');
-                        while (lines.next()) |line| {
-                            try formatter.writer.writeAll("#   ");
-                            try formatter.writer.writeAll(line);
-                            try formatter.writer.writeAll("\n");
-                        }
-                        break;
-                    }
-                }
+                // const name = @tagName(v);
+                // inline for (@typeInfo(help_strings.KeybindAction).Struct.decls) |decl| {
+                //     if (std.mem.eql(u8, decl.name, name)) {
+                //         const help = @field(help_strings.KeybindAction, decl.name);
+                //         try formatter.writer.writeAll("# " ++ decl.name ++ "\n");
+                //         var lines = std.mem.splitScalar(u8, help, '\n');
+                //         while (lines.next()) |line| {
+                //             try formatter.writer.writeAll("#   ");
+                //             try formatter.writer.writeAll(line);
+                //             try formatter.writer.writeAll("\n");
+                //         }
+                //         break;
+                //     }
+                // }
             }
 
             var buffer_stream = std.io.fixedBufferStream(&buf);
@@ -5105,7 +4655,7 @@ pub const Keybinds = struct {
     }
 };
 
-/// See "font-codepoint-map" for documentation.
+// See "font-codepoint-map" for documentation.
 pub const RepeatableCodepointMap = struct {
     const Self = @This();
 
@@ -5499,14 +5049,14 @@ pub const FontStyle = union(enum) {
     }
 };
 
-/// See `font-synthetic-style` for documentation.
+// See font-synthetic-style
 pub const FontSyntheticStyle = packed struct {
     bold: bool = true,
     italic: bool = true,
     @"bold-italic": bool = true,
 };
 
-/// See "link" for documentation.
+// See "link" for documentation.
 pub const RepeatableLink = struct {
     const Self = @This();
 
@@ -5557,7 +5107,7 @@ pub const RepeatableLink = struct {
     }
 };
 
-/// Options for copy on select behavior.
+// Options for copy on select behavior.
 pub const CopyOnSelect = enum {
     /// Disables copy on select entirely.
     false,
@@ -5571,85 +5121,184 @@ pub const CopyOnSelect = enum {
     clipboard,
 };
 
-/// Shell integration values
+// See shell-integration
 pub const ShellIntegration = enum {
+    /// Do not do any automatic injection.
+    /// You can still manually configure your shell to enable the integration.
     none,
+    /// Detect the shell based on the filename.
     detect,
+    /// Use Bash shell integration.
     bash,
+    /// Use Elvish shell integration.
     elvish,
+    /// Use Fish shell integration.
     fish,
+    /// Use Zsh shell integration.
     zsh,
 };
 
-/// Shell integration features
+// See shell-integration-features
 pub const ShellIntegrationFeatures = packed struct {
+    /// Set the cursor to a blinking bar at the prompt.
     cursor: bool = true,
+
+    /// Set sudo wrapper to preserve terminfo.
     sudo: bool = false,
+
+    /// Set the window title via shell integration.
     title: bool = true,
 };
 
-/// OSC 4, 10, 11, and 12 default color reporting format.
+// OSC 4, 10, 11, and 12 default color reporting format.
 pub const OSCColorReportFormat = enum {
+    /// OSC 4/10/11 queries receive no reply
     none,
+    /// Color components are return unscaled, i.e. `rr/gg/bb`
     @"8-bit",
+    /// Color components are returned scaled, e.g. `rrrr/gggg/bbbb`
     @"16-bit",
 };
 
-/// The default window theme.
+// See window-theme
 pub const WindowTheme = enum {
+    /// Determine the theme based on the configured terminal
+    /// background color. This has no effect if the "theme" configuration
+    /// has separate light and dark themes. In that case, the behavior
+    /// of "auto" is equivalent to "system".
     auto,
+
+    /// Use the system theme.
     system,
+
+    /// Use the light theme regardless of system theme.
     light,
+
+    /// Use the dark theme regardless of system theme.
     dark,
+
+    /// Use the background and foreground colors specified in the
+    /// Ghostty configuration. This is only supported on Linux builds with
+    /// Adwaita and `gtk-adwaita` enabled.
     ghostty,
 };
 
-/// See window-colorspace
+// See window-colorspace
 pub const WindowColorspace = enum {
+    /// Windows will use the sRGB color space, the native color space of the
+    /// vast majority of non-Apple displays.
     srgb,
+    /// Windows will use the Display P3 color space, the native color space of
+    /// Apple displays.
     @"display-p3",
 };
 
-/// See macos-titlebar-style
+// See macos-titlebar-style
 pub const MacTitlebarStyle = enum {
+    /// The "native" style uses the native macOS titlebar with zero customization.
+    /// The titlebar will match your window theme (see `window-theme`).
     native,
+
+    /// The "transparent" style is the same as "native" but the titlebar will
+    /// be transparent and allow your window background color to come through.
+    /// This makes a more seamless window appearance but looks a little less
+    /// typical for a macOS application and may not work well with all themes.
+    ///
+    /// The "transparent" style will also update in real-time to dynamic
+    /// changes to the window background color, i.e. via OSC 11. To make this
+    /// more aesthetically pleasing, this only happens if the terminal is
+    /// a window, tab, or split that borders the top of the window. This
+    /// avoids a disjointed appearance where the titlebar color changes
+    /// but all the topmost terminals don't match.
+    ///
+    /// It's admittedly an opinionated choice to make this the default style,
+    /// but it's one I think is the most aesthetically pleasing and works in
+    /// most cases.
     transparent,
+
+    /// The "tabs" style is a completely custom titlebar that integrates the
+    /// tab bar into the titlebar. This titlebar always matches the background
+    /// color of the terminal. There are some limitations to this style:
+    /// On macOS 13 and below, saved window state will not restore tabs correctly.
+    /// macOS 14 does not have this issue and any other macOS version has not
+    /// been tested.
     tabs,
+
+    /// The "hidden" style hides the titlebar. Unlike `window-decoration = false`,
+    /// however, it does not remove the frame from the window or cause it to have
+    /// squared corners. Changing to or from this option at run-time may affect
+    /// existing windows in buggy ways. The top titlebar area of the window will
+    /// continue to drag the window around and you will not be able to use
+    /// the mouse for terminal events in this space.
     hidden,
 };
 
-/// See macos-titlebar-proxy-icon
+// See macos-titlebar-proxy-icon
 pub const MacTitlebarProxyIcon = enum {
+    /// Show the proxy icon.
     visible,
+
+    /// Hide the proxy icon.
     hidden,
 };
 
-/// See macos-icon
-///
-/// Note: future versions of Ghostty can support a custom icon with
-/// path by changing this to a tagged union, which doesn't change our
-/// format at all.
+// See macos-icon
+//
+// Note: future versions of Ghostty can support a custom icon with
+// path by changing this to a tagged union, which doesn't change our
+// format at all.
 pub const MacAppIcon = enum {
+    /// Use the official Ghostty icon.
     official,
+
+    /// Use the official Ghostty icon but with custom styles applied to
+    /// various layers. The custom styles must be specified using the additional
+    /// `macos-icon`-prefixed configurations. The `macos-icon-ghost-color` and
+    /// `macos-icon-screen-color` configurations are required for this style.
+    ///
+    /// WARNING: The `custom-style` option is _experimental_. We may change
+    /// the format of the custom styles in the future. We're still finalizing
+    /// the exact layers and customization options that will be available.
     @"custom-style",
 };
 
-/// See macos-icon-frame
+// See macos-icon-frame
 pub const MacAppIconFrame = enum {
+    /// A brushed aluminum frame.
     aluminum,
+
+    /// A classic 90's computer beige frame.
     beige,
+
+    /// A glossy, dark plastic frame.
     plastic,
+
+    /// A shiny chrome frame.
     chrome,
 };
 
-/// See gtk-single-instance
+// See gtk-single-instance
 pub const GtkSingleInstance = enum {
+    /// Run Ghostty in single-instance mode if it detects that it was launched
+    /// from a `.desktop` file, such as via an app launcher (e.g. GNOME Shell)
+    /// or by D-Bus activation.
+    ///
+    /// Launching Ghostty from the command line will launch a separate application.
     desktop,
+
+    /// Never run Ghostty in single-instance mode.
+    ///
+    /// Each new `ghostty` process will always launch a separate application.
     false,
+
+    /// Always run Ghostty in single-instance mode.
+    ///
+    /// Each new `ghostty` process launched will result in a new window
+    /// if there is already a running process.
     true,
 };
 
-/// See gtk-tabs-location
+// See gtk-tabs-location
 pub const GtkTabsLocation = enum {
     top,
     bottom,
@@ -5658,54 +5307,102 @@ pub const GtkTabsLocation = enum {
     hidden,
 };
 
-/// See adw-toolbar-style
+// See adw-toolbar-style
 pub const AdwToolbarStyle = enum {
+    /// Top and bottom bars are flat with the terminal window.
     flat,
+    /// Top and bottom bars cast a shadow on the terminal area.
     raised,
+    /// Similar to `raised`, but the shadow is replaced with a more subtle border.
     @"raised-border",
 };
 
-/// See adw-toast
+// See adw-toast
 pub const AdwToast = packed struct {
+    /// Show a toast when text is copied to the clipboard.
     @"clipboard-copy": bool = true,
 };
 
-/// See mouse-shift-capture
+// See mouse-shift-capture
 pub const MouseShiftCapture = enum {
+    /// Do not send the shift key with the mouse protocol and extend the selection.
+    /// This value can be conditionally overridden by the running program
+    /// with the `XTSHIFTESCAPE` sequence.
     false,
+
+    /// Send the shift key with the mouse protocol.
+    /// The running program can override this behavior with `XTSHIFTESCAPE`.
     true,
+
+    /// Same as `true`, but the running program cannot override
+    /// this behavior with `XTSHIFTESCAPE`.
     always,
+
+    /// Same as `false`, but the running program cannot override
+    /// this behavior with `XTSHIFTESCAPE`.
     never,
 };
 
-/// How to treat requests to write to or read from the clipboard
+// See clipboard-read, clipboard-write
 pub const ClipboardAccess = enum {
+    /// Always grant terminal programs system clipboard access.
     allow,
+
+    /// Never grant terminal programs system clipboard access.
     deny,
+
+    /// Prompt the user for permission whenever a terminal program
+    /// requests clipboard access.
     ask,
 };
 
-/// See window-save-state
+// See window-save-state
 pub const WindowSaveState = enum {
+    /// Use the default system behavior.
+    ///
+    /// On macOS, this will only save state if the application is
+    /// forcibly terminated, or if it is configured systemwide via Settings.app.
+    ///
+    /// If you change this value to `default` while Ghostty is not running and the
+    /// previous exit saved state, the next Ghostty launch will still restore the
+    /// window state. This is because Ghostty cannot know if the previous exit was
+    /// due to a forced save or not (macOS doesn't provide this information).
     default,
+
+    /// Never save window state.
+    ///
+    /// If you change this value to `never` while Ghostty is not running, the next
+    /// Ghostty launch will NOT restore the window state.
     never,
+
+    /// Always save window state whenever Ghostty is exited.
     always,
 };
 
-/// See window-new-tab-position
+// See window-new-tab-position
 pub const WindowNewTabPosition = enum {
+    /// Insert the new tab after the currently focused tab,
+    /// or at the end if there are no focused tabs.
     current,
+
+    /// Insert the new tab at the end of the tab list.
     end,
 };
 
-/// See resize-overlay
+// See resize-overlay
 pub const ResizeOverlay = enum {
+    /// Always show resize overlays.
     always,
+
+    /// Never show resize overlays.
     never,
+
+    /// The resize overlay will not appear when the surface is first created,
+    /// but will show up if the surface is subsequently resized.
     @"after-first",
 };
 
-/// See resize-overlay-position
+// See resize-overlay-position
 pub const ResizeOverlayPosition = enum {
     center,
     @"top-left",
@@ -5716,63 +5413,141 @@ pub const ResizeOverlayPosition = enum {
     @"bottom-right",
 };
 
-/// See quick-terminal-position
+// See quick-terminal-position
 pub const QuickTerminalPosition = enum {
+    /// Terminal appears at the top of the screen.
     top,
+
+    /// Terminal appears at the bottom of the screen.
     bottom,
+
+    /// Terminal appears at the left of the screen.
     left,
+
+    /// Terminal appears at the right of the screen.
     right,
+
+    /// Terminal appears at the center of the screen.
     center,
 };
 
-/// See quick-terminal-screen
+// See quick-terminal-screen
 pub const QuickTerminalScreen = enum {
+    /// The screen that the operating system recommends as the main screen.
+    ///
+    /// On macOS, this is the screen that is currently receiving
+    /// keyboard input. This screen is defined by the operating system and
+    /// not chosen by Ghostty.
     main,
+
+    /// The screen that the mouse is currently hovering over.
     mouse,
+
+    /// The screen that contains the macOS menu bar as set in the
+    /// display settings on macOS. This is a bit confusing because
+    /// every screen on macOS has a menu bar, but this is the screen that
+    /// contains the primary menu bar.
     @"macos-menu-bar",
 };
 
 // See quick-terminal-space-behavior
 pub const QuickTerminalSpaceBehavior = enum {
+    /// The quick terminal will stay only in the space where it was
+    /// originally opened, and will not follow when switching to another space.
     remain,
+
+    /// When switching to another space, the quick terminal will follow
+    /// and also move to the current space.
     move,
 };
 
-/// See grapheme-width-method
+// See grapheme-width-method
 pub const GraphemeWidthMethod = enum {
+    /// Use a legacy method to determine grapheme width, such as `wcswidth`.
+    /// This maximizes compatibility with legacy programs, but may result
+    /// in incorrect grapheme width for certain graphemes such as skin-tone
+    /// emoji, non-English characters, etc.
+    ///
+    /// This is called "legacy" and not something more specific because the
+    /// behavior is undefined and we want to retain the ability to modify it.
+    /// For example, we may or may not use libc `wcswidth` now or in the future.
     legacy,
+
+    /// Use the Unicode standard to determine grapheme width.
     unicode,
 };
 
-/// See freetype-load-flag
+// See freetype-load-flag
 pub const FreetypeLoadFlags = packed struct {
-    // The defaults here at the time of writing this match the defaults
-    // for Freetype itself. Ghostty hasn't made any opinionated changes
-    // to these defaults.
+    /// Enable or disable hinting.
     hinting: bool = true,
+
+    /// Use the FreeType auto-hinter rather than the font's native hinter.
     @"force-autohint": bool = true,
+
+    /// Instructs renderer to use 1-bit monochrome rendering.
+    /// This option doesn't impact the hinter.
     monochrome: bool = true,
+
+    /// Use the FreeType auto-hinter.
     autohint: bool = true,
 };
 
-/// See linux-cgroup
+// See linux-cgroup
 pub const LinuxCgroup = enum {
+    /// Never use cgroups.
     never,
+
+    /// Always use cgroups.
     always,
+
+    /// Enable cgroups only for Ghostty instances launched as
+    /// single-instance applications (see `gtk-single-instance`).
     @"single-instance",
 };
 
-/// See auto-updates
+// See auto-updates
 pub const AutoUpdate = enum {
+    /// Disable auto-updates.
     off,
+
+    /// Check for updates and notify the user if an update is available,
+    /// but do not automatically download or install the update.
     check,
+
+    /// Check for updates, automatically download the update, notify the user,
+    /// but do not automatically install the update.
     download,
 };
 
-/// See background-blur-radius
+// See background-blur-radius
 pub const BackgroundBlur = union(enum) {
+    /// Disable background blur.
     false,
+
+    /// Enable background blur with a default blur intensity of 20,
+    /// which is reasonable for a good looking blur.
     true,
+
+    /// A custom blur intensity specified as a non-negative integer.
+    ///
+    /// Setting the blur intensity to 0 is equivalent to disabling blur entirely.
+    ///
+    /// WARNING:
+    /// High blur intensities may cause strange rendering and performance issues.
+    ///
+    /// The exact blur intensity is _ignored_ under KDE Plasma, and setting
+    /// this setting to either `true` or any positive blur intensity value would
+    /// achieve the same effect. The reason is that KWin, the window compositor
+    /// powering Plasma, only has one global blur setting and does not allow
+    /// applications to specify individual blur settings.
+    ///
+    /// To configure KWin's global blur setting, open System Settings and go to
+    /// "Apps & Windows" > "Window Management" > "Desktop Effects" and select the
+    /// "Blur" plugin. If disabled, enable it by ticking the checkbox to the left.
+    /// Then click on the "Configure" button and there will be two sliders that
+    /// allow you to set background blur and noise intensities for all apps,
+    /// including Ghostty.
     radius: u8,
 
     pub fn parseCLI(self: *BackgroundBlur, input: ?[]const u8) !void {
@@ -5841,7 +5616,19 @@ pub const BackgroundBlur = union(enum) {
     }
 };
 
-/// See theme
+// The release channel for the build.
+pub const ReleaseChannel = enum {
+    /// Pre-release versions generated from each commit to the
+    /// main branch. This is the version that was in use during private
+    /// beta testing by thousands of people. It is generally stable but
+    /// will likely have more bugs than the stable channel.
+    tip,
+
+    /// Stable, tagged releases such as "1.0.0".
+    stable,
+};
+
+// See theme
 pub const Theme = struct {
     light: []const u8,
     dark: []const u8,
@@ -5940,6 +5727,32 @@ pub const Theme = struct {
     }
 };
 
+/// The duration is specified as a series of numbers followed by time units.
+/// Whitespace is allowed between numbers and units. Each number and unit will
+/// be added together to form the total duration.
+///
+/// The allowed time units are as follows:
+///
+///   * `y` - 365 SI days, or 8760 hours, or 31536000 seconds. No adjustments
+///     are made for leap years or leap seconds.
+///   * `d` - one SI day, or 86400 seconds.
+///   * `h` - one hour, or 3600 seconds.
+///   * `m` - one minute, or 60 seconds.
+///   * `s` - one second.
+///   * `ms` - one millisecond, or 0.001 second.
+///   * `us` or `µs` - one microsecond, or 0.000001 second.
+///   * `ns` - one nanosecond, or 0.000000001 second.
+///
+/// Examples:
+///   * `1h30m`
+///   * `45s`
+///
+/// Units can be repeated and will be added together. This means that
+/// `1h1h` is equivalent to `2h`. This is confusing and should be avoided.
+/// A future update may disallow this.
+///
+/// The maximum value is `584y 49w 23h 34m 33s 709ms 551µs 615ns`. Any
+/// value larger than this will be clamped to the maximum value.
 pub const Duration = struct {
     /// Duration in nanoseconds
     duration: u64 = 0,
@@ -6723,3 +6536,139 @@ test "theme specifying light/dark sets theme usage in conditional state" {
         try testing.expect(cfg._conditional_set.contains(.theme));
     }
 }
+
+// A modifier to apply to a metrics value. The modifier value represents
+// a delta, so percent is a percentage to change, not a percentage of.
+// For example, "20%" is 20% larger, not 20% of the value. Likewise,
+// an absolute value of "20" is 20 larger, not literally 20.
+//
+/// There is little to no validation on these values so the wrong values (i.e.
+/// `-100%`) can cause the terminal to be unusable. Use with caution and reason.
+///
+/// Some values are clamped to minimum or maximum values. This can make it
+/// appear that certain values are ignored. For example, many `*-thickness`
+/// adjustments cannot go below 1px.
+pub const MetricModifier = union(enum) {
+    /// A relative percentage change like `-20%`,
+    /// which decreases the value by 20%.
+    percent: f64,
+
+    /// A relative absolute change like `1`,
+    /// which increases the value by 1.
+    /// (It does *not* set the value to 1!)
+    absolute: i32,
+
+    /// Parses the modifier value. If the value ends in "%" it is assumed
+    /// to be a percent, otherwise the value is parsed as an integer.
+    pub fn parse(input: []const u8) !MetricModifier {
+        if (input.len == 0) return error.InvalidFormat;
+
+        if (input[input.len - 1] == '%') {
+            var percent = std.fmt.parseFloat(
+                f64,
+                input[0 .. input.len - 1],
+            ) catch return error.InvalidFormat;
+            percent /= 100;
+
+            if (percent <= -1) return .{ .percent = 0 };
+            if (percent < 0) return .{ .percent = 1 + percent };
+            return .{ .percent = 1 + percent };
+        }
+
+        return .{
+            .absolute = std.fmt.parseInt(i32, input, 10) catch
+                return error.InvalidFormat,
+        };
+    }
+
+    /// So it works with the config framework.
+    pub fn parseCLI(input: ?[]const u8) !MetricModifier {
+        return try parse(input orelse return error.ValueRequired);
+    }
+
+    /// Used by config formatter
+    pub fn formatEntry(self: MetricModifier, formatter: anytype) !void {
+        var buf: [1024]u8 = undefined;
+        switch (self) {
+            .percent => |v| {
+                try formatter.formatEntry(
+                    []const u8,
+                    std.fmt.bufPrint(
+                        &buf,
+                        "{d}%",
+                        .{(v - 1) * 100},
+                    ) catch return error.OutOfMemory,
+                );
+            },
+
+            .absolute => |v| {
+                try formatter.formatEntry(
+                    []const u8,
+                    std.fmt.bufPrint(
+                        &buf,
+                        "{d}",
+                        .{v},
+                    ) catch return error.OutOfMemory,
+                );
+            },
+        }
+    }
+
+    /// Apply a modifier to a numeric value.
+    pub fn apply(self: MetricModifier, v: anytype) @TypeOf(v) {
+        const T = @TypeOf(v);
+        const signed = @typeInfo(T).Int.signedness == .signed;
+        return switch (self) {
+            .percent => |p| percent: {
+                const p_clamped: f64 = @max(0, p);
+                const v_f64: f64 = @floatFromInt(v);
+                const applied_f64: f64 = @round(v_f64 * p_clamped);
+                const applied_T: T = @intFromFloat(applied_f64);
+                break :percent applied_T;
+            },
+
+            .absolute => |abs| absolute: {
+                const v_i64: i64 = @intCast(v);
+                const abs_i64: i64 = @intCast(abs);
+                const applied_i64: i64 = v_i64 +| abs_i64;
+                const clamped_i64: i64 = if (signed) applied_i64 else @max(0, applied_i64);
+                const applied_T: T = std.math.cast(T, clamped_i64) orelse
+                    std.math.maxInt(T) * @as(T, @intCast(std.math.sign(clamped_i64)));
+                break :absolute applied_T;
+            },
+        };
+    }
+
+    /// Hash using the hasher.
+    pub fn hash(self: MetricModifier, hasher: anytype) void {
+        const autoHash = std.hash.autoHash;
+        autoHash(hasher, std.meta.activeTag(self));
+        switch (self) {
+            // floats can't be hashed directly so we bitcast to i64.
+            // for the purpose of what we're trying to do this seems
+            // good enough but I would prefer value hashing.
+            .percent => |v| autoHash(hasher, @as(i64, @bitCast(v))),
+            .absolute => |v| autoHash(hasher, v),
+        }
+    }
+
+    test "formatConfig percent" {
+        const testing = std.testing;
+        var buf = std.ArrayList(u8).init(testing.allocator);
+        defer buf.deinit();
+
+        const p = try parseCLI("24%");
+        try p.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
+        try std.testing.expectEqualSlices(u8, "a = 24%\n", buf.items);
+    }
+
+    test "formatConfig absolute" {
+        const testing = std.testing;
+        var buf = std.ArrayList(u8).init(testing.allocator);
+        defer buf.deinit();
+
+        const p = try parseCLI("-30");
+        try p.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
+        try std.testing.expectEqualSlices(u8, "a = -30\n", buf.items);
+    }
+};
