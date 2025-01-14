@@ -538,8 +538,8 @@ pub fn toggleMaximize(self: *Window) void {
 
 /// Toggle fullscreen for this window.
 pub fn toggleFullscreen(self: *Window) void {
-    const is_fullscreen = c.gtk_window_is_fullscreen(self.window);
-    if (is_fullscreen == 0) {
+    const is_fullscreen = c.gtk_window_is_fullscreen(self.window) == 1;
+    if (!is_fullscreen) {
         c.gtk_window_fullscreen(self.window);
     } else {
         c.gtk_window_unfullscreen(self.window);
@@ -642,7 +642,18 @@ fn gtkWindowNotifyFullscreened(
     ud: ?*anyopaque,
 ) callconv(.C) void {
     const self = userdataSelf(ud orelse return);
-    self.headerbar.setVisible(c.gtk_window_is_fullscreen(@ptrCast(object)) == 0);
+    const is_fullscreen = c.gtk_window_is_fullscreen(@ptrCast(object)) == 1;
+
+    const visible = if (is_fullscreen)
+        false
+    else switch (self.headerbar) {
+        // gtk will follow the window decorations
+        .gtk => true,
+        // adw need the explicit setting
+        .adw => c.gtk_window_get_decorated(self.window) == 1,
+    };
+
+    self.headerbar.setVisible(visible);
 }
 
 // Note: we MUST NOT use the GtkButton parameter because gtkActionNewTab
