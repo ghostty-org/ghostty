@@ -499,6 +499,7 @@ pub fn performAction(
         .toggle_tab_overview => self.toggleTabOverview(target),
         .toggle_split_zoom => self.toggleSplitZoom(target),
         .toggle_window_decorations => self.toggleWindowDecorations(target),
+        .toggle_background_opacity => self.toggleBackgroundOpacity(target),
         .quit_timer => self.quitTimer(value),
         .prompt_title => try self.promptTitle(target),
         .toggle_quick_terminal => return try self.toggleQuickTerminal(),
@@ -794,6 +795,25 @@ fn toggleQuickTerminal(self: *App) !bool {
     try qt.newTab(null);
     qt.present();
     return true;
+}
+
+fn toggleBackgroundOpacity(
+    _: *App,
+    target: apprt.Target,
+) void {
+    switch (target) {
+        .app => {},
+        .surface => |v| {
+            const window = v.rt_surface.container.window() orelse {
+                log.info(
+                    "toggleBackgroundOpacity invalid for container={s}",
+                    .{@tagName(v.rt_surface.container)},
+                );
+                return;
+            };
+            window.toggleBackgroundOpacity();
+        },
+    }
 }
 
 fn quitTimer(self: *App, mode: apprt.action.QuitTimer) void {

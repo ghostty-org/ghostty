@@ -431,6 +431,9 @@ pub const Action = union(enum) {
     /// Toggle window decorations on and off. This only works on Linux.
     toggle_window_decorations: void,
 
+    /// Toggle background opacity of window.
+    toggle_background_opacity: void,
+
     /// Toggle secure input mode on or off. This is used to prevent apps
     /// that monitor input from seeing what you type. This is useful for
     /// entering passwords or other sensitive information.
@@ -776,6 +779,7 @@ pub const Action = union(enum) {
             .toggle_maximize,
             .toggle_fullscreen,
             .toggle_window_decorations,
+            .toggle_background_opacity,
             .toggle_secure_input,
             .reset_window_size,
             .crash,
