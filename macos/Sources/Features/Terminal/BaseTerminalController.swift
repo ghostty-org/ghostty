@@ -452,6 +452,12 @@ class BaseTerminalController: NSWindowController,
             self.alert = nil
             switch (response) {
             case .alertFirstButtonReturn:
+                if let windows = window.tabGroup?.windows, windows.count > 1 {
+                    let secondLastWindow = windows[windows.count - 2]
+                    secondLastWindow.makeKeyAndOrderFront(nil)
+                    secondLastWindow.makeFirstResponder(nil)
+                    window.close()
+                }
                 window.close()
 
             default:
