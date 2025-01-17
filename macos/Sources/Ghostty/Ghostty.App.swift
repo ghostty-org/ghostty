@@ -107,7 +107,7 @@ extension Ghostty {
         deinit {
             // This will force the didSet callbacks to run which free.
             self.app = nil
-            
+
 #if os(macOS)
             NotificationCenter.default.removeObserver(self)
 #endif
@@ -528,6 +528,9 @@ extension Ghostty {
 
             case GHOSTTY_ACTION_COLOR_CHANGE:
                 colorChange(app, target: target, change: action.action.color_change)
+
+            case GHOSTTY_ACTION_TOGGLE_BACKGROUND_OPACITY:
+                toggleBackgroundOpacity(app, target: target)
 
             case GHOSTTY_ACTION_CLOSE_ALL_WINDOWS:
                 fallthrough
@@ -1320,6 +1323,24 @@ extension Ghostty {
                 }
         }
 
+        private static func toggleBackgroundOpacity(_ app: ghostty_app_t, target: ghostty_target_s) {
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("toggle_background_opacity does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface,
+                      let surfaceView = self.surfaceView(from: surface) else { return }
+                NotificationCenter.default.post(
+                    name: .ghosttyBackgroundOpacityDidToggle,
+                    object: surfaceView
+                )
+
+            default:
+                assertionFailure()
+            }
+        }
 
         // MARK: User Notifications
 
