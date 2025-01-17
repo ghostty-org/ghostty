@@ -263,6 +263,9 @@ extension Notification.Name {
     static let ghosttyColorDidChange = Notification.Name("com.mitchellh.ghostty.ghosttyColorDidChange")
     static let GhosttyColorChangeKey = ghosttyColorDidChange.rawValue
 
+    /// Background opacity toggle event
+    static let ghosttyBackgroundOpacityDidToggle = Notification.Name("com.mitchellh.ghostty.backgroundOpacityDidToggle")
+
     /// Goto tab. Has tab index in the userinfo.
     static let ghosttyMoveTab = Notification.Name("com.mitchellh.ghostty.moveTab")
     static let GhosttyMoveTabKey = ghosttyMoveTab.rawValue
