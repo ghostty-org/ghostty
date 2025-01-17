@@ -597,26 +597,25 @@ extension Ghostty {
         }
 
         @objc private func ghosttyBackgroundOpacityDidToggle() {
-            guard self.derivedConfig.backgroundOpacity < 1 else { return }
+            guard let window = self.window as? TerminalWindow else { return }
 
-            // Toggle the window's background opacity
-            if let window = self.window as? TerminalWindow {
-                let newOpaque = !window.isOpaque
-                window.isOpaque = newOpaque
+            // Don't toggle transparency if opacity is 1+ or in fullscreen mode
+            if self.derivedConfig.backgroundOpacity >= 1 || window.styleMask.contains(.fullScreen) {
+                return
+            }
 
-                // Update the window background color based on opacity state
-                if newOpaque {
-                    window.backgroundColor = NSColor(self.derivedConfig.backgroundColor)
-                } else {
-                    // Use a very small alpha component to match Terminal.app's look
-                    window.backgroundColor = .white.withAlphaComponent(0.001)
-                    // Apply background blur
-                    if let app = (NSApplication.shared.delegate as? AppDelegate)?.ghostty.app {
-                        ghostty_set_window_background_blur(app, Unmanaged.passUnretained(window).toOpaque())
-                    }
-                }
+            // Toggle opacity state
+            window.isOpaque = !window.isOpaque
+
+            if window.isOpaque {
+                window.backgroundColor = NSColor(self.derivedConfig.backgroundColor)
             } else {
-                Ghostty.logger.warning("toggle background opacity: no terminal window found")
+                // This is weird, but we don't use ".clear" because this creates a look that
+                // matches Terminal.app much more closer. This lets users transition from
+                // Terminal.app more easily.
+                window.backgroundColor = .white.withAlphaComponent(0.001)
+                guard let appDelegate = NSApplication.shared.delegate as? AppDelegate else { return }
+                ghostty_set_window_background_blur(appDelegate.ghostty.app, Unmanaged.passUnretained(window).toOpaque())
             }
         }
 
