@@ -47,7 +47,7 @@ if [ -n "$GHOSTTY_BASH_INJECT" ]; then
     if builtin shopt -q login_shell; then
       if [[ $__ghostty_bash_flags != *"--noprofile"* ]]; then
         [ -r /etc/profile ] && builtin source "/etc/profile"
-        for rcfile in ~/.bash_profile ~/.bash_login ~/.profile; do
+        for rcfile in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
           [ -r "$rcfile" ] && { builtin source "$rcfile"; break; }
         done
       fi
@@ -62,7 +62,7 @@ if [ -n "$GHOSTTY_BASH_INJECT" ]; then
         for rcfile in /etc/bash.bashrc /etc/bash/bashrc /etc/bashrc; do
           [ -r "$rcfile" ] && { builtin source "$rcfile"; break; }
         done
-        if [[ -z "$GHOSTTY_BASH_RCFILE" ]]; then GHOSTTY_BASH_RCFILE=~/.bashrc; fi
+        if [[ -z "$GHOSTTY_BASH_RCFILE" ]]; then GHOSTTY_BASH_RCFILE="$HOME/.bashrc"; fi
         [ -r "$GHOSTTY_BASH_RCFILE" ] && builtin source "$GHOSTTY_BASH_RCFILE"
       fi
     fi
