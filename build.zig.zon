@@ -41,6 +41,10 @@
             .url = "git+https://github.com/natecraddock/zf/?ref=main#ed99ca18b02dda052e20ba467e90b623c04690dd",
             .hash = "1220edc3b8d8bedbb50555947987e5e8e2f93871ca3c8e8d4cc8f1377c15b5dd35e8",
         },
+        .zig_gettext = .{
+            .url = "git+https://github.com/pluiedev/zig-gettext/?ref=main#c1ff3a954ba0d9ad369ccf96810437c7e46cfc2a",
+            .hash = "122046140255a2dadfc3b3f55a68e750776f0ae2330865665f892d381d8d8f438c69",
+        },
 
         // C libs
         .cimgui = .{ .path = "./pkg/cimgui" },
@@ -48,6 +52,7 @@
         .freetype = .{ .path = "./pkg/freetype" },
         .harfbuzz = .{ .path = "./pkg/harfbuzz" },
         .highway = .{ .path = "./pkg/highway" },
+        .libintl = .{ .path = "./pkg/libintl" },
         .libpng = .{ .path = "./pkg/libpng" },
         .macos = .{ .path = "./pkg/macos" },
         .oniguruma = .{ .path = "./pkg/oniguruma" },

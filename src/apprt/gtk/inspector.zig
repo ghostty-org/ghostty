@@ -9,6 +9,7 @@ const TerminalWindow = @import("Window.zig");
 const ImguiWidget = @import("ImguiWidget.zig");
 const c = @import("c.zig").c;
 const CoreInspector = @import("../../inspector/main.zig").Inspector;
+const intl = @import("intl");
 
 const log = std.log.scoped(.inspector);
 
@@ -140,7 +141,7 @@ const Window = struct {
         const gtk_window: *c.GtkWindow = @ptrCast(window);
         errdefer c.gtk_window_destroy(gtk_window);
         self.window = gtk_window;
-        c.gtk_window_set_title(gtk_window, "Ghostty: Terminal Inspector");
+        c.gtk_window_set_title(gtk_window, intl._("Ghostty: Terminal Inspector"));
         c.gtk_window_set_default_size(gtk_window, 1000, 600);
         c.gtk_window_set_icon_name(gtk_window, build_config.bundle_id);
         c.gtk_widget_add_css_class(@ptrCast(@alignCast(gtk_window)), "window");

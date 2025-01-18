@@ -26,6 +26,7 @@ const Notebook = @import("notebook.zig").Notebook;
 const HeaderBar = @import("headerbar.zig").HeaderBar;
 const version = @import("version.zig");
 const winproto = @import("winproto.zig");
+const intl = @import("intl");
 
 const log = std.log.scoped(.gtk);
 
@@ -171,7 +172,7 @@ pub fn init(self: *Window, app: *App) !void {
         const btn = switch (app.config.@"gtk-tabs-location") {
             .top, .bottom, .left, .right => btn: {
                 const btn = c.gtk_toggle_button_new();
-                c.gtk_widget_set_tooltip_text(btn, "View Open Tabs");
+                c.gtk_widget_set_tooltip_text(btn, intl._("View Open Tabs"));
                 c.gtk_button_set_icon_name(@ptrCast(btn), "view-grid-symbolic");
                 _ = c.g_object_bind_property(
                     btn,
@@ -198,7 +199,7 @@ pub fn init(self: *Window, app: *App) !void {
 
     {
         const btn = c.gtk_button_new_from_icon_name("tab-new-symbolic");
-        c.gtk_widget_set_tooltip_text(btn, "New Tab");
+        c.gtk_widget_set_tooltip_text(btn, intl._("New Tab"));
         _ = c.g_signal_connect_data(btn, "clicked", c.G_CALLBACK(&gtkTabNewClick), self, null, c.G_CONNECT_DEFAULT);
         self.headerbar.packStart(btn);
     }
@@ -217,7 +218,7 @@ pub fn init(self: *Window, app: *App) !void {
     // This is a really common issue where people build from source in debug and performance is really bad.
     if (comptime std.debug.runtime_safety) {
         const warning_box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 0);
-        const warning_text = "⚠️ You're running a debug build of Ghostty! Performance will be degraded.";
+        const warning_text = intl._("⚠️ You're running a debug build of Ghostty! Performance will be degraded.");
         if ((comptime adwaita.versionAtLeast(1, 3, 0)) and
             adwaita.enabled(&app.config) and
             adwaita.versionAtLeast(1, 3, 0))
@@ -793,11 +794,11 @@ fn gtkCloseRequest(v: *c.GtkWindow, ud: ?*anyopaque) callconv(.C) bool {
         c.GTK_DIALOG_MODAL,
         c.GTK_MESSAGE_QUESTION,
         c.GTK_BUTTONS_YES_NO,
-        "Close this window?",
+        intl._("Close this window?"),
     );
     c.gtk_message_dialog_format_secondary_text(
         @ptrCast(alert),
-        "All terminal sessions in this window will be terminated.",
+        intl._("All terminal sessions in this window will be terminated."),
     );
 
     // We want the "yes" to appear destructive.
@@ -896,7 +897,7 @@ fn gtkActionAbout(
             "application-name",
             name,
             "developer-name",
-            "Ghostty Developers",
+            intl._("Ghostty Developers").ptr,
             "application-icon",
             icon,
             "version",
@@ -915,7 +916,7 @@ fn gtkActionAbout(
             "logo-icon-name",
             icon,
             "title",
-            "About Ghostty",
+            intl._("About Ghostty").ptr,
             "version",
             build_config.version_string.ptr,
             "website",

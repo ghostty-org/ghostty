@@ -10,6 +10,7 @@ const oni = @import("oniguruma");
 const crash = @import("crash/main.zig");
 const renderer = @import("renderer.zig");
 const xev = @import("xev");
+const intl = @import("intl");
 
 /// Global process state. This is initialized in main() for exe artifacts
 /// and by ghostty_init() for lib artifacts. This should ONLY be used by
@@ -162,6 +163,8 @@ pub const GlobalState = struct {
         // hereafter can use this cached value.
         self.resources_dir = try internal_os.resourcesDir(self.alloc);
         errdefer if (self.resources_dir) |dir| self.alloc.free(dir);
+
+        try self.initI18n();
     }
 
     /// Cleans up the global state. This doesn't _need_ to be called but
@@ -199,6 +202,20 @@ pub const GlobalState = struct {
         p.sigaction(p.SIG.PIPE, &sa, null) catch |err| {
             std.log.warn("failed to ignore SIGPIPE err={}", .{err});
         };
+    }
+    fn initI18n(self: *GlobalState) std.mem.Allocator.Error!void {
+        const resources = self.resources_dir orelse {
+            std.log.warn("resources dir not found: not localizing", .{});
+            return;
+        };
+        const share = std.fs.path.dirname(resources) orelse return;
+        const locale = try std.fs.path.joinZ(self.alloc, &.{ share, "locale" });
+        defer self.alloc.free(locale);
+
+        std.log.warn("locale={s}", .{locale});
+
+        try intl.bindTextDomain("messages", locale);
+        try intl.setTextDomain("messages");
     }
 };
 

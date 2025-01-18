@@ -14,6 +14,64 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
     var steps = std.ArrayList(*std.Build.Step).init(b.allocator);
     errdefer steps.deinit();
 
+    // Localization files (.pot, .po, .mo)
+    {
+        const update = b.step("update-translations", "Update translation files");
+
+        const gettext = b.dependency("zig_gettext", .{
+            // We're running this on the host, so we need to compile it for the host
+            .target = b.graph.host,
+            .optimize = cfg.optimize,
+        });
+
+        const xgettext = b.addRunArtifact(gettext.artifact("xgettext"));
+        const pot = pot: {
+            var src_files = try b.build_root.handle.openDir("src", .{ .iterate = true });
+            defer src_files.close();
+
+            var walk = try src_files.walk(b.allocator);
+            defer walk.deinit();
+
+            while (try walk.next()) |src| {
+                switch (src.kind) {
+                    .file => if (!std.mem.endsWith(u8, src.basename, ".zig")) continue,
+                    else => continue,
+                }
+                xgettext.addFileArg(b.path(b.pathJoin(&.{ "src", src.path })));
+            }
+            break :pot xgettext.captureStdOut();
+        };
+
+        // TODO: Use UpdateSourceFiles when Zig 0.14 releases
+        var wf_update = b.addWriteFiles();
+        wf_update.addCopyFileToSource(pot, "po/messages.pot");
+        update.dependOn(&wf_update.step);
+
+        var wf_mo = b.addWriteFiles();
+        var linguas = try b.build_root.handle.openFile("po/LINGUAS", .{});
+        defer linguas.close();
+        var reader = linguas.reader();
+        var buf: [64]u8 = undefined;
+
+        while (try reader.readUntilDelimiterOrEof(&buf, '\n')) |locale| {
+            const po = b.fmt("po/{s}.po", .{locale});
+
+            const mo = b.addRunArtifact(gettext.artifact("msgfmt"));
+            mo.addFileArg(b.path(po));
+            _ = wf_mo.addCopyFile(
+                mo.captureStdOut(),
+                b.pathJoin(&.{ "share", "locale", locale, "LC_MESSAGES", "messages.mo" }),
+            );
+
+            const msgmerge = b.addSystemCommand(&.{ "msgmerge", "--update", "--quiet" });
+            msgmerge.addFileArg(b.path(po));
+            msgmerge.addFileArg(pot);
+            update.dependOn(&msgmerge.step);
+        }
+
+        try steps.append(&wf_mo.step);
+    }
+
     // Terminfo
     terminfo: {
         // Encode our terminfo

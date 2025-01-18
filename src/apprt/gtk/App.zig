@@ -38,6 +38,7 @@ const inspector = @import("inspector.zig");
 const key = @import("key.zig");
 const winproto = @import("winproto.zig");
 const testing = std.testing;
+const intl = @import("intl");
 
 const log = std.log.scoped(.gtk);
 
@@ -1809,22 +1810,22 @@ fn initMenuContent(menu: *c.GMenu) void {
         const section = c.g_menu_new();
         defer c.g_object_unref(section);
         c.g_menu_append_section(menu, null, @ptrCast(@alignCast(section)));
-        c.g_menu_append(section, "New Window", "win.new_window");
-        c.g_menu_append(section, "New Tab", "win.new_tab");
-        c.g_menu_append(section, "Close Tab", "win.close_tab");
-        c.g_menu_append(section, "Split Right", "win.split_right");
-        c.g_menu_append(section, "Split Down", "win.split_down");
-        c.g_menu_append(section, "Close Window", "win.close");
+        c.g_menu_append(section, intl._("New Window"), "win.new_window");
+        c.g_menu_append(section, intl._("New Tab"), "win.new_tab");
+        c.g_menu_append(section, intl._("Close Tab"), "win.close_tab");
+        c.g_menu_append(section, intl._("Split Right"), "win.split_right");
+        c.g_menu_append(section, intl._("Split Down"), "win.split_down");
+        c.g_menu_append(section, intl._("Close Window"), "win.close");
     }
 
     {
         const section = c.g_menu_new();
         defer c.g_object_unref(section);
         c.g_menu_append_section(menu, null, @ptrCast(@alignCast(section)));
-        c.g_menu_append(section, "Terminal Inspector", "win.toggle_inspector");
-        c.g_menu_append(section, "Open Configuration", "app.open-config");
-        c.g_menu_append(section, "Reload Configuration", "app.reload-config");
-        c.g_menu_append(section, "About Ghostty", "win.about");
+        c.g_menu_append(section, intl._("Terminal Inspector"), "win.toggle_inspector");
+        c.g_menu_append(section, intl._("Open Configuration"), "app.open-config");
+        c.g_menu_append(section, intl._("Reload Configuration"), "app.reload-config");
+        c.g_menu_append(section, intl._("About Ghostty"), "win.about");
     }
 }
 
@@ -1845,24 +1846,24 @@ fn initContextMenu(self: *App) void {
         const section = c.g_menu_new();
         defer c.g_object_unref(section);
         c.g_menu_append_section(menu, null, @ptrCast(@alignCast(section)));
-        c.g_menu_append(section, "Copy", "win.copy");
-        c.g_menu_append(section, "Paste", "win.paste");
+        c.g_menu_append(section, intl._("Copy"), "win.copy");
+        c.g_menu_append(section, intl._("Paste"), "win.paste");
     }
 
     {
         const section = c.g_menu_new();
         defer c.g_object_unref(section);
         c.g_menu_append_section(menu, null, @ptrCast(@alignCast(section)));
-        c.g_menu_append(section, "Split Right", "win.split_right");
-        c.g_menu_append(section, "Split Down", "win.split_down");
+        c.g_menu_append(section, intl._("Split Right"), "win.split_right");
+        c.g_menu_append(section, intl._("Split Down"), "win.split_down");
     }
 
     {
         const section = c.g_menu_new();
         defer c.g_object_unref(section);
         c.g_menu_append_section(menu, null, @ptrCast(@alignCast(section)));
-        c.g_menu_append(section, "Reset", "win.reset");
-        c.g_menu_append(section, "Terminal Inspector", "win.toggle_inspector");
+        c.g_menu_append(section, intl._("Reset"), "win.reset");
+        c.g_menu_append(section, intl._("Terminal Inspector"), "win.toggle_inspector");
     }
 
     const section = c.g_menu_new();
@@ -1871,7 +1872,7 @@ fn initContextMenu(self: *App) void {
     defer c.g_object_unref(submenu);
 
     initMenuContent(@ptrCast(submenu));
-    c.g_menu_append_submenu(section, "Menu", @ptrCast(@alignCast(submenu)));
+    c.g_menu_append_submenu(section, intl._("Menu"), @ptrCast(@alignCast(submenu)));
     c.g_menu_append_section(menu, null, @ptrCast(@alignCast(section)));
 
     self.context_menu = menu;

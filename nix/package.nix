@@ -20,6 +20,7 @@
   pkg-config,
   zig_0_13,
   pandoc,
+  gettext,
   revision ? "dirty",
   optimize ? "Debug",
   enableX11 ? true,
@@ -56,6 +57,7 @@
         ../images
         ../include
         ../pkg
+        ../po
         ../src
         ../vendor
         ../build.zig
@@ -125,6 +127,7 @@ in
         pkg-config
         zig_hook
         wrapGAppsHook4
+        gettext
       ]
       ++ lib.optionals enableWayland [
         wayland-scanner

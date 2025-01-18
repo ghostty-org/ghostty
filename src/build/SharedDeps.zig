@@ -358,6 +358,10 @@ pub fn add(
         .optimize = optimize,
         .with_tui = false,
     }).module("zf"));
+    step.root_module.addImport("intl", b.dependency("libintl", .{
+        .target = target,
+        .optimize = optimize,
+    }).module("intl"));
 
     // Mac Stuff
     if (step.rootModuleTarget().isDarwin()) {

@@ -4,6 +4,7 @@ const std = @import("std");
 const c = @import("c.zig").c;
 const configpkg = @import("../../config.zig");
 const Surface = @import("Surface.zig");
+const intl = @import("intl");
 
 const log = std.log.scoped(.gtk);
 
@@ -95,13 +96,20 @@ fn gtkUpdate(ud: ?*anyopaque) callconv(.C) c.gboolean {
     };
 
     const grid_size = surface.core_surface.size.grid();
-    var buf: [32]u8 = undefined;
+
+    var buf: [64]u8 = undefined;
     const text = std.fmt.bufPrintZ(
         &buf,
-        "{d}c ⨯ {d}r",
+        "{d}{s} ⨯ {d}{s}",
         .{
             grid_size.columns,
+            // Translators: the abbreviation for "column" (of a grid) in your language.
+            // If the abbreviation cannot be intuitively understood, use the full word.
+            intl.ngettext("c", "c", grid_size.columns),
             grid_size.rows,
+            // Translators: the abbreviation for "row" (of a grid) in your language.
+            // If the abbreviation cannot be intuitively understood, use the full word.
+            intl.ngettext("r", "r", grid_size.rows),
         },
     ) catch |err| {
         log.err("unable to format text: {}", .{err});
