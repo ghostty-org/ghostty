@@ -20,7 +20,6 @@ const global_state = &@import("../global.zig").state;
 const fontpkg = @import("../font/main.zig");
 const inputpkg = @import("../input.zig");
 const terminal = @import("../terminal/main.zig");
-const BackgroundImageProgram = @import("../renderer/opengl/BackgroundImageProgram.zig");
 const internal_os = @import("../os/main.zig");
 const cli = @import("../cli.zig");
 
