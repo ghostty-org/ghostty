@@ -1,0 +1,170 @@
+msgid ""
+msgstr ""
+"Language: zh_CN\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: src/apprt/gtk/App.zig:1827 src/apprt/gtk/Window.zig:918
+msgid "About Ghostty"
+msgstr "关于Ghostty"
+
+#: src/apprt/gtk/Tab.zig:147
+msgid "All terminal sessions in this tab will be terminated."
+msgstr "标签页内的所有进程都将被终止。"
+
+#: src/apprt/gtk/Window.zig:800
+msgid "All terminal sessions in this window will be terminated."
+msgstr "窗口内的所有进程都将被终止。"
+
+#: src/apprt/gtk/ClipboardConfirmationWindow.zig:170
+msgid "Allow"
+msgstr "允许"
+
+#: src/apprt/gtk/ClipboardConfirmationWindow.zig:248
+msgid ""
+"An application is attempting to read from the clipboard.\n"
+"The current clipboard contents are shown below.\n"
+msgstr ""
+"一个程序正在尝试从剪贴板读取内容。\n"
+"以下是即将读取的内容：\n"
+
+#: src/apprt/gtk/ClipboardConfirmationWindow.zig:252
+msgid ""
+"An application is attempting to write to the clipboard.\n"
+"The content to write is shown below.\n"
+msgstr ""
+"一个程序正在尝试向剪贴板写入内容。\n"
+"以下是即将写入的内容：\n"
+
+#: src/apprt/gtk/ClipboardConfirmationWindow.zig:237
+msgid "Authorize Clipboard Access"
+msgstr "允许访问剪贴板"
+
+#: src/apprt/gtk/ClipboardConfirmationWindow.zig:169
+msgid "Cancel"
+msgstr "取消"
+
+#: src/apprt/gtk/App.zig:1814
+msgid "Close Tab"
+msgstr "关闭标签页"
+
+#: src/apprt/gtk/App.zig:1817
+msgid "Close Window"
+msgstr "关闭窗口"
+
+#: src/apprt/gtk/Tab.zig:143
+msgid "Close this tab?"
+msgstr "关闭此标签页？"
+
+#: src/apprt/gtk/Surface.zig:728
+msgid "Close this terminal?"
+msgstr "关闭此终端？"
+
+#: src/apprt/gtk/Window.zig:796
+msgid "Close this window?"
+msgstr "关闭此窗口？"
+
+#: src/apprt/gtk/Surface.zig:1141
+msgid "Copied to clipboard"
+msgstr "已复制至剪贴板"
+
+#: src/apprt/gtk/App.zig:1848
+msgid "Copy"
+msgstr "复制"
+
+#: src/apprt/gtk/ClipboardConfirmationWindow.zig:170
+msgid "Deny"
+msgstr "禁止"
+
+#: src/apprt/gtk/Window.zig:899
+msgid "Ghostty Developers"
+msgstr "Ghostty开发团队"
+
+#: src/apprt/gtk/inspector.zig:143
+msgid "Ghostty: Terminal Inspector"
+msgstr "Ghostty终端检视器"
+
+#: src/apprt/gtk/App.zig:1874
+msgid "Menu"
+msgstr "菜单"
+
+#: src/apprt/gtk/App.zig:1813 src/apprt/gtk/Window.zig:201
+msgid "New Tab"
+msgstr "新建标签页"
+
+#: src/apprt/gtk/App.zig:1812
+msgid "New Window"
+msgstr "新建窗口"
+
+#: src/apprt/gtk/App.zig:1825
+msgid "Open Configuration"
+msgstr "编辑配置文件"
+
+#: src/apprt/gtk/App.zig:1849 src/apprt/gtk/ClipboardConfirmationWindow.zig:169
+msgid "Paste"
+msgstr "粘贴"
+
+#: src/apprt/gtk/ClipboardConfirmationWindow.zig:245
+msgid ""
+"Pasting this text into the terminal may be dangerous as it looks like some "
+"commands may be executed.\n"
+msgstr "将此文本复制到终端中可能有执行指令的风险。\n"
+
+#: src/apprt/gtk/App.zig:1826
+msgid "Reload Configuration"
+msgstr "重新加载配置"
+
+#: src/apprt/gtk/App.zig:1864
+msgid "Reset"
+msgstr "重置"
+
+#: src/apprt/gtk/App.zig:1816 src/apprt/gtk/App.zig:1857
+msgid "Split Down"
+msgstr "向下分屏"
+
+#: src/apprt/gtk/App.zig:1815 src/apprt/gtk/App.zig:1856
+msgid "Split Right"
+msgstr "向右分屏"
+
+#: src/apprt/gtk/App.zig:1824 src/apprt/gtk/App.zig:1865
+msgid "Terminal Inspector"
+msgstr "检视终端"
+
+#: src/apprt/gtk/Surface.zig:732
+msgid ""
+"There is still a running process in the terminal. Closing the terminal will "
+"kill this process.\n"
+"Are you sure you want to close the terminal?\n"
+"\n"
+"Click 'No' to cancel and return to your terminal.\n"
+msgstr ""
+"终端内有仍在运行中的进程。此时关闭会终止其中的进程。\n"
+"你确定要关闭此终端吗？\n"
+"\n"
+"按“否”取消并返回终端。\n"
+
+#: src/apprt/gtk/Window.zig:174
+msgid "View Open Tabs"
+msgstr "浏览所有标签页"
+
+#: src/apprt/gtk/ClipboardConfirmationWindow.zig:236
+msgid "Warning: Potentially Unsafe Paste"
+msgstr "警告：粘贴内容可能不安全"
+
+#: src/apprt/gtk/ResizeOverlay.zig:107
+msgid "c"
+msgid_plural "c"
+msgstr[0] "列"
+msgstr[1] "列"
+
+#: src/apprt/gtk/ResizeOverlay.zig:111
+msgid "r"
+msgid_plural "r"
+msgstr[0] "行"
+msgstr[1] "行"
+
+#: src/apprt/gtk/Window.zig:220
+msgid ""
+"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
+msgstr "⚠️ 你正在以测试模式运行Ghostty！性能将会大打折扣。"
