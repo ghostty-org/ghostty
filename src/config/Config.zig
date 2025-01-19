@@ -4215,9 +4215,11 @@ pub const Color = struct {
     }
 };
 
-/// Represents the color values that `selection-foreground` and `selection-background` can take.
+/// Represents the color values that selection-foreground
+/// and selection-background can take.
 ///
-/// Can either be a Color or one of the special values "cell-foreground" or "cell-background".
+/// Can either be a Color or one of the special values
+/// "cell-foreground" or "cell-background".
 pub const SelectionColor = union(enum) {
     color: Color,
     @"cell-foreground",

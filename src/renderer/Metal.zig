@@ -383,7 +383,6 @@ pub const DerivedConfig = struct {
     foreground: terminal.color.RGB,
     selection_background: ?configpkg.Config.SelectionColor,
     selection_foreground: ?configpkg.Config.SelectionColor,
-    invert_selection_fg_bg: bool,
     bold_is_bright: bool,
     min_contrast: f32,
     padding_color: configpkg.WindowPaddingColor,
@@ -444,7 +443,6 @@ pub const DerivedConfig = struct {
 
             .background = config.background.toTerminalRGB(),
             .foreground = config.foreground.toTerminalRGB(),
-            .invert_selection_fg_bg = config.@"selection-invert-fg-bg",
             .bold_is_bright = config.@"bold-is-bright",
             .min_contrast = @floatCast(config.@"minimum-contrast"),
             .padding_color = config.@"window-padding-color",
@@ -2591,21 +2589,9 @@ fn rebuildCells(
             // The final background color for the cell.
             const bg = bg: {
                 if (selected) {
-                    break :bg if (self.config.invert_selection_fg_bg)
-                        if (style.flags.inverse)
-                            // Cell is selected with invert selection fg/bg
-                            // enabled, and the cell has the inverse style
-                            // flag, so they cancel out and we get the normal
-                            // bg color.
-                            bg_style
-                        else
-                            // If it doesn't have the inverse style
-                            // flag then we use the fg color instead.
-                            fg_style
-                    else if (self.config.selection_background) |selection_color|
-                        // If we don't have invert selection fg/bg set then we
-                        // just use the selection background if set, otherwise
-                        // the default fg color.
+                    break :bg if (self.config.selection_background) |selection_color|
+                        // Use the selection background if set, otherwise the
+                        // default fg color.
                         switch (selection_color) {
                             .color => selection_color.color.toTerminalRGB(),
                             .@"cell-foreground" => fg_style,
@@ -2630,10 +2616,9 @@ fn rebuildCells(
             };
 
             const fg = fg: {
-                if (selected and !self.config.invert_selection_fg_bg) {
-                    // If we don't have invert selection fg/bg set
-                    // then we just use the selection foreground if
-                    // set, otherwise the default bg color.
+                if (selected) {
+                    // Use the selection foreground if set, otherwise the
+                    // default bg color.
                     break :fg if (self.config.selection_foreground) |selection_color|
                         switch (selection_color) {
                             .color => selection_color.color.toTerminalRGB(),
