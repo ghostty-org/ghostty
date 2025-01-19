@@ -4241,6 +4241,27 @@ pub const SelectionColor = union(enum) {
             .@"cell-foreground", .@"cell-background" => try formatter.formatEntry([:0]const u8, @tagName(self)),
         }
     }
+
+    test "parseCLI" {
+        const testing = std.testing;
+
+        try testing.expectEqual(SelectionColor{ .color = Color{ .r = 78, .g = 42, .b = 132 } }, try SelectionColor.parseCLI("#4e2a84"));
+        try testing.expectEqual(SelectionColor{ .color = Color{ .r = 0, .g = 0, .b = 0 } }, try SelectionColor.parseCLI("black"));
+        try testing.expectEqual(SelectionColor{.@"cell-foreground"}, try SelectionColor.parseCLI("cell-foreground"));
+        try testing.expectEqual(SelectionColor{.@"cell-background"}, try SelectionColor.parseCLI("cell-background"));
+
+        try testing.expectError(error.InvalidValue, SelectionColor.parseCLI("a"));
+    }
+
+    test "formatConfig" {
+        const testing = std.testing;
+        var buf = std.ArrayList(u8).init(testing.allocator);
+        defer buf.deinit();
+
+        var sc: SelectionColor = .{.@"cell-foreground"};
+        try sc.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
+        try testing.expectEqualSlices(u8, "a = cell-foreground\n", buf.items);
+    }
 };
 
 pub const ColorList = struct {
