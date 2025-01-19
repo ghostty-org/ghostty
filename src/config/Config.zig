@@ -4215,6 +4215,9 @@ pub const Color = struct {
     }
 };
 
+/// Represents the color values that `selection-foreground` and `selection-background` can take.
+///
+/// Can either be a Color or one of the special values "cell-foreground" or "cell-background".
 pub const SelectionColor = union(enum) {
     color: Color,
     @"cell-foreground",
@@ -4229,6 +4232,7 @@ pub const SelectionColor = union(enum) {
         return SelectionColor{ .color = try Color.parseCLI(input) };
     }
 
+    /// Used by Formatter
     pub fn formatEntry(self: SelectionColor, formatter: anytype) !void {
         switch (self) {
             .color => try self.color.formatEntry(formatter),
