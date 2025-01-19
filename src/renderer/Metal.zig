@@ -7,6 +7,7 @@ pub const Metal = @This();
 const std = @import("std");
 const builtin = @import("builtin");
 const glfw = @import("glfw");
+const wuffs = @import("wuffs");
 const objc = @import("objc");
 const macos = @import("macos");
 const imgui = @import("imgui");
@@ -58,6 +59,9 @@ const glfwNative = glfw.Native(.{
 });
 
 const log = std.log.scoped(.metal);
+
+/// The maximum size of a background image.
+const max_image_size = 400 * 1024 * 1024; // 400MB
 
 /// Allocator that can be used
 alloc: std.mem.Allocator,
@@ -129,6 +133,16 @@ uniforms: mtl_shaders.Uniforms,
 font_grid: *font.SharedGrid,
 font_shaper: font.Shaper,
 font_shaper_cache: font.ShaperCache,
+
+/// The background image(s) to draw. Currently, we always draw the last image.
+background_image: configpkg.SinglePath,
+
+/// The background image mode to use.
+background_image_mode: configpkg.BackgroundImageMode,
+
+/// The current background image to draw. If it is null, then we will not
+/// draw any background image.
+current_background_image: ?Image = null,
 
 /// The images that we may render.
 images: ImageMap = .{},
@@ -429,6 +443,9 @@ pub const DerivedConfig = struct {
     cursor_text: ?terminal.color.RGB,
     background: terminal.color.RGB,
     background_opacity: f64,
+    background_image: configpkg.SinglePath,
+    background_image_opacity: f32,
+    background_image_mode: configpkg.BackgroundImageMode,
     foreground: terminal.color.RGB,
     selection_background: ?terminal.color.RGB,
     selection_foreground: ?terminal.color.RGB,
@@ -452,6 +469,9 @@ pub const DerivedConfig = struct {
 
         // Copy our shaders
         const custom_shaders = try config.@"custom-shader".clone(alloc);
+
+        // Copy our background image
+        const background_image = try config.@"background-image".clone(alloc);
 
         // Copy our font features
         const font_features = try config.@"font-feature".clone(alloc);
@@ -493,6 +513,11 @@ pub const DerivedConfig = struct {
 
             .background = config.background.toTerminalRGB(),
             .foreground = config.foreground.toTerminalRGB(),
+
+            .background_image = background_image,
+            .background_image_opacity = config.@"background-image-opacity",
+            .background_image_mode = config.@"background-image-mode",
+
             .invert_selection_fg_bg = config.@"selection-invert-fg-bg",
             .bold_is_bright = config.@"bold-is-bright",
             .min_contrast = @floatCast(config.@"minimum-contrast"),
@@ -692,6 +717,8 @@ pub fn init(alloc: Allocator, options: renderer.Options) !Metal {
         .default_foreground_color = options.config.foreground,
         .background_color = null,
         .default_background_color = options.config.background,
+        .background_image = options.config.background_image,
+        .background_image_mode = options.config.background_image_mode,
         .cursor_color = null,
         .default_cursor_color = options.config.cursor_color,
         .cursor_invert = options.config.cursor_invert,
@@ -717,6 +744,9 @@ pub fn init(alloc: Allocator, options: renderer.Options) !Metal {
             .use_display_p3 = options.config.colorspace == .@"display-p3",
             .use_linear_blending = options.config.blending.isLinear(),
             .use_linear_correction = options.config.blending == .@"linear-corrected",
+            .use_experimental_linear_correction = options.config.blending == .@"linear-corrected",
+            .has_bg_image = (options.config.background_image.value != null),
+            .bg_image_opacity = options.config.background_image_opacity,
         },
 
         // Fonts
@@ -1143,6 +1173,17 @@ pub fn updateFrame(
             try self.prepKittyGraphics(state.terminal);
         }
 
+        if (self.current_background_image == null and
+            self.background_image.value != null)
+        {
+            self.prepBackgroundImage() catch |err| switch (err) {
+                error.InvalidData => {
+                    log.warn("invalid image data, skipping", .{});
+                },
+                else => return err,
+            };
+        }
+
         // If we have any terminal dirty flags set then we need to rebuild
         // the entire screen. This can be optimized in the future.
         const full_rebuild: bool = rebuild: {
@@ -1232,6 +1273,7 @@ pub fn updateFrame(
     // TODO: Is this expensive? Should we be checking if our
     //       bg color has changed first before doing this work?
     {
+        std.log.info("Updating background color to {}", .{critical.bg});
         const color = graphics.c.CGColorCreate(
             @ptrCast(self.terminal_colorspace),
             &[4]f64{
@@ -1282,6 +1324,31 @@ pub fn updateFrame(
                     self.images.removeByPtr(kv.key_ptr);
                 },
             }
+        }
+    }
+
+    // Check if we need to update our current background image
+    if (self.current_background_image) |current_background_image| {
+        switch (current_background_image) {
+            .ready => {},
+
+            .pending_gray,
+            .pending_gray_alpha,
+            .pending_rgb,
+            .pending_rgba,
+            .replace_gray,
+            .replace_gray_alpha,
+            .replace_rgb,
+            .replace_rgba,
+            => try self.current_background_image.?.upload(self.alloc, self.gpu_state.device),
+
+            .unload_pending,
+            .unload_replace,
+            .unload_ready,
+            => {
+                self.current_background_image.?.deinit(self.alloc);
+                self.current_background_image = null;
+            },
         }
     }
 }
@@ -1405,7 +1472,10 @@ pub fn drawFrame(self: *Metal, surface: *apprt.Surface) !void {
         );
         defer encoder.msgSend(void, objc.sel("endEncoding"), .{});
 
-        // Draw background images first
+        // Draw background image set by the user first
+        try self.drawBackgroundImage(encoder, frame);
+
+        // Then draw background images
         try self.drawImagePlacements(encoder, frame, self.image_placements.items[0..self.image_bg_end]);
 
         // Then draw background cells
@@ -1604,6 +1674,92 @@ fn drawPostShader(
             @intFromEnum(mtl.MTLPrimitiveType.triangle),
             @as(c_ulong, 0),
             @as(c_ulong, 3),
+        },
+    );
+}
+
+fn drawBackgroundImage(
+    self: *Metal,
+    encoder: objc.Object,
+    frame: *const FrameState,
+) !void {
+    // If we don't have a background image, just return
+    const current_background_image = self.current_background_image orelse return;
+
+    // Use our background image shader pipeline
+    encoder.msgSend(
+        void,
+        objc.sel("setRenderPipelineState:"),
+        .{self.shaders.bg_image_pipeline.value},
+    );
+
+    // Set our uniforms
+    encoder.msgSend(
+        void,
+        objc.sel("setVertexBuffer:offset:atIndex:"),
+        .{ frame.uniforms.buffer.value, @as(c_ulong, 0), @as(c_ulong, 1) },
+    );
+    encoder.msgSend(
+        void,
+        objc.sel("setFragmentBuffer:offset:atIndex:"),
+        .{ frame.uniforms.buffer.value, @as(c_ulong, 0), @as(c_ulong, 1) },
+    );
+
+    // Get the texture
+    const texture = switch (current_background_image) {
+        .ready => |t| t,
+        else => {
+            return;
+        },
+    };
+
+    // Create our vertex buffer, which is always exactly one item.
+    const Buffer = mtl_buffer.Buffer(mtl_shaders.BgImage);
+    var buf = try Buffer.initFill(self.gpu_state.device, &.{.{
+        .terminal_size = .{
+            @as(f32, @floatFromInt(self.size.terminal().width)),
+            @as(f32, @floatFromInt(self.size.terminal().height)),
+        },
+        .mode = self.background_image_mode,
+    }});
+    defer buf.deinit();
+
+    // Set our buffer
+    encoder.msgSend(
+        void,
+        objc.sel("setVertexBuffer:offset:atIndex:"),
+        .{ buf.buffer.value, @as(c_ulong, 0), @as(c_ulong, 0) },
+    );
+
+    // Set our texture
+    encoder.msgSend(
+        void,
+        objc.sel("setVertexTexture:atIndex:"),
+        .{
+            texture.value,
+            @as(c_ulong, 0),
+        },
+    );
+    encoder.msgSend(
+        void,
+        objc.sel("setFragmentTexture:atIndex:"),
+        .{
+            texture.value,
+            @as(c_ulong, 0),
+        },
+    );
+
+    // Draw!
+    encoder.msgSend(
+        void,
+        objc.sel("drawIndexedPrimitives:indexCount:indexType:indexBuffer:indexBufferOffset:instanceCount:"),
+        .{
+            @intFromEnum(mtl.MTLPrimitiveType.triangle),
+            @as(c_ulong, 6),
+            @intFromEnum(mtl.MTLIndexType.uint16),
+            self.gpu_state.instance.buffer.value,
+            @as(c_ulong, 0),
+            @as(c_ulong, 1),
         },
     );
 }
@@ -2118,6 +2274,82 @@ fn prepKittyImage(
     gop.value_ptr.transmit_time = image.transmit_time;
 }
 
+/// Prepares the current background image for upload
+pub fn prepBackgroundImage(self: *Metal) !void {
+    // If the user doesn't have a background image, do nothing...
+    const path = self.background_image.value orelse return;
+
+    // Read the file content
+    const file_content = try self.readImageContent(path);
+    defer self.alloc.free(file_content);
+
+    // Decode the image
+    const decoded_image: wuffs.ImageData = blk: {
+        // Extract the file extension
+        const ext = std.fs.path.extension(path);
+        const ext_lower = try std.ascii.allocLowerString(self.alloc, ext);
+        defer self.alloc.free(ext_lower);
+
+        // Match based on extension
+        if (std.mem.eql(u8, ext_lower, ".png")) {
+            break :blk try wuffs.png.decode(self.alloc, file_content);
+        } else if (std.mem.eql(u8, ext_lower, ".jpg") or std.mem.eql(u8, ext_lower, ".jpeg")) {
+            break :blk try wuffs.jpeg.decode(self.alloc, file_content);
+        } else {
+            log.warn("unsupported image format: {s}", .{ext});
+            return error.InvalidData;
+        }
+    };
+    defer self.alloc.free(decoded_image.data);
+
+    // Copy the data into the pending state
+    const data = try self.alloc.dupe(u8, decoded_image.data);
+    errdefer self.alloc.free(data);
+    const pending: Image.Pending = .{
+        .width = decoded_image.width,
+        .height = decoded_image.height,
+        .data = data.ptr,
+    };
+
+    // Store the image
+    self.current_background_image = .{ .pending_rgba = pending };
+}
+
+/// Reads the content of the given image path and returns it
+pub fn readImageContent(self: *Metal, path: []const u8) ![]u8 {
+    assert(std.fs.path.isAbsolute(path));
+    // Open the file
+    var file = std.fs.openFileAbsolute(path, .{}) catch |err| {
+        log.warn("failed to open file: {}", .{err});
+        return error.InvalidData;
+    };
+    defer file.close();
+
+    // File must be a regular file
+    if (file.stat()) |stat| {
+        if (stat.kind != .file) {
+            log.warn("file is not a regular file kind={}", .{stat.kind});
+            return error.InvalidData;
+        }
+    } else |err| {
+        log.warn("failed to stat file: {}", .{err});
+        return error.InvalidData;
+    }
+
+    var buf_reader = std.io.bufferedReader(file.reader());
+    const reader = buf_reader.reader();
+
+    // Read the file
+    var managed = std.ArrayList(u8).init(self.alloc);
+    errdefer managed.deinit();
+    reader.readAllArrayList(&managed, max_image_size) catch |err| {
+        log.warn("failed to read file: {}", .{err});
+        return error.InvalidData;
+    };
+
+    return managed.toOwnedSlice();
+}
+
 /// Update the configuration.
 pub fn changeConfig(self: *Metal, config: *DerivedConfig) !void {
     // We always redo the font shaper in case font features changed. We
@@ -2151,6 +2383,15 @@ pub fn changeConfig(self: *Metal, config: *DerivedConfig) !void {
     self.default_foreground_color = config.foreground;
     self.default_cursor_color = if (!config.cursor_invert) config.cursor_color else null;
     self.cursor_invert = config.cursor_invert;
+
+    // Reset current background image
+    self.background_image = config.background_image;
+    self.uniforms.has_bg_image = (config.background_image.value != null);
+    self.uniforms.bg_image_opacity = config.background_image_opacity;
+    self.background_image_mode = config.background_image_mode;
+    if (self.current_background_image) |*img| {
+        img.markForUnload();
+    }
 
     // Update our layer's opaqueness and display sync in case they changed.
     {
@@ -2288,6 +2529,9 @@ pub fn setScreenSize(
         .use_display_p3 = old.use_display_p3,
         .use_linear_blending = old.use_linear_blending,
         .use_linear_correction = old.use_linear_correction,
+        .use_experimental_linear_correction = old.use_experimental_linear_correction,
+        .has_bg_image = old.has_bg_image,
+        .bg_image_opacity = old.bg_image_opacity,
     };
 
     // Reset our cell contents if our grid size has changed.
@@ -2709,7 +2953,7 @@ fn rebuildCells(
                 const bg_alpha: u8 = bg_alpha: {
                     const default: u8 = 255;
 
-                    if (self.config.background_opacity >= 1) break :bg_alpha default;
+                    if (self.current_background_image == null and self.config.background_opacity >= 1) break :bg_alpha default;
 
                     // Cells that are selected should be fully opaque.
                     if (selected) break :bg_alpha default;
@@ -2720,6 +2964,11 @@ fn rebuildCells(
                     // Cells that have an explicit bg color should be fully opaque.
                     if (bg_style != null) {
                         break :bg_alpha default;
+                    }
+
+                    // If we have a background image, use the configured background image opacity.
+                    if (self.current_background_image != null) {
+                        break :bg_alpha @intFromFloat(@round((1 - self.config.background_image_opacity) * 255.0));
                     }
 
                     // Otherwise, we use the configured background opacity.

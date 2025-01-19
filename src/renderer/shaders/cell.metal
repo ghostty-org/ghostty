@@ -23,6 +23,9 @@ struct Uniforms {
   bool use_display_p3;
   bool use_linear_blending;
   bool use_linear_correction;
+  bool use_experimental_linear_correction;
+  bool has_bg_image;
+  float bg_image_opacity;
 };
 
 //-------------------------------------------------------------------
@@ -237,9 +240,14 @@ vertex CellBgVertexOut cell_bg_vertex(
   position.zw = 1.0;
   out.position = position;
 
+  uchar4 bg_color = uniforms.bg_color;
+  if (uniforms.has_bg_image) {
+    bg_color.a = uchar((1.0f - uniforms.bg_image_opacity) * 255);
+  }
+
   // Convert the background color to Display P3
   out.bg_color = load_color(
-    uniforms.bg_color,
+    bg_color,
     uniforms.use_display_p3,
     uniforms.use_linear_blending
   );
@@ -677,3 +685,122 @@ fragment float4 image_fragment(
   return rgba;
 }
 
+//-------------------------------------------------------------------
+// Background Image Shader
+//-------------------------------------------------------------------
+#pragma mark - BG Image Shader
+
+enum BgImageMode : uint8_t {
+  MODE_ZOOMED =  0u,
+  MODE_STRETCHED = 1u,
+  MODE_TILED = 2u,
+  MODE_CENTERED = 3u,
+  MODE_UPPER_LEFT = 4u,
+  MODE_UPPER_RIGHT = 5u,
+  MODE_LOWER_LEFT = 6u,
+  MODE_LOWER_RIGHT = 7u,
+};
+
+struct BgImageVertexIn {
+  float2 terminal_size [[attribute(0)]];
+  uint8_t mode [[attribute(1)]];
+};
+
+struct BgImageVertexOut {
+  float4 position [[position]];
+  float2 tex_coord;
+};
+
+vertex BgImageVertexOut bg_image_vertex(
+  uint vid [[vertex_id]],
+  BgImageVertexIn in [[stage_in]],
+  texture2d<uint> image [[texture(0)]],
+  constant Uniforms& uniforms [[buffer(1)]]
+) {
+  BgImageVertexOut out;
+
+  // Calculate the position of the image
+  float2 position;
+  position.x = (vid == 0 || vid == 1) ? 1.0 : 0.0;
+  position.y = (vid == 0 || vid == 3) ? 0.0 : 1.0;
+
+  // Get the size of the image
+  float2 image_size = float2(image.get_width(), image.get_height());
+
+  // Handles the scale of the image relative to the terminal size
+  float2 scale = float2(1.0, 1.0);
+
+  switch (in.mode) {
+    case MODE_ZOOMED: {
+        // Scale to fit the terminal size
+        float2 aspect_ratio = float2(
+            in.terminal_size.x / in.terminal_size.y,
+            image_size.x / image_size.y
+        );
+        if (aspect_ratio.x > aspect_ratio.y) {
+            scale.x = aspect_ratio.y / aspect_ratio.x;
+        } else {
+            scale.y = aspect_ratio.x / aspect_ratio.y;
+        }
+        break;
+    }
+    case MODE_CENTERED:
+    case MODE_UPPER_LEFT:
+    case MODE_UPPER_RIGHT:
+    case MODE_LOWER_LEFT:
+    case MODE_LOWER_RIGHT: {
+        // Scale to match the actual size of the image
+        scale.x = image_size.x / in.terminal_size.x;
+        scale.y = image_size.y / in.terminal_size.y;
+        break;
+    }
+    case MODE_STRETCHED:
+    case MODE_TILED:
+        // No adjustments needed
+        break;
+  }
+
+  float2 final_image_size = in.terminal_size * position * scale;
+
+  float2 offset = float2(0.0, 0.0);
+  switch (in.mode) {
+    case MODE_ZOOMED:
+    case MODE_STRETCHED:
+    case MODE_TILED:
+    case MODE_CENTERED:
+        offset = (in.terminal_size * (1.0 - scale)) / 2.0;
+        break;
+    case MODE_UPPER_LEFT:
+        offset = float2(0.0, 0.0);
+        break;
+    case MODE_UPPER_RIGHT:
+        offset = float2(in.terminal_size.x - image_size.x, 0.0);
+        break;
+    case MODE_LOWER_LEFT:
+        offset = float2(0.0, in.terminal_size.y - image_size.y);
+        break;
+    case MODE_LOWER_RIGHT:
+        offset = float2(in.terminal_size.x - image_size.x, in.terminal_size.y - image_size.y);
+        break;
+  }
+
+  out.position = uniforms.projection_matrix * float4(final_image_size + offset, 0.0, 1.0);
+  out.tex_coord = position;
+  if (in.mode == MODE_TILED) {
+      out.tex_coord = position * in.terminal_size / image_size;
+  }
+
+  return out;
+}
+
+fragment float4 bg_image_fragment(
+  BgImageVertexOut in [[stage_in]],
+  texture2d<uint> image [[texture(0)]],
+  constant Uniforms& uniforms [[buffer(1)]]
+) {
+  constexpr sampler textureSampler(address::repeat, filter::linear);
+  float2 norm_coord = fract(in.tex_coord);
+  float4 color = float4(image.sample(textureSampler, norm_coord)) / 255.0f;
+
+  return float4(color.rgb * color.a * uniforms.bg_image_opacity, color.a * uniforms.bg_image_opacity);
+}
