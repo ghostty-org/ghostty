@@ -450,12 +450,18 @@ pub const DerivedConfig = struct {
             .padding_color = config.@"window-padding-color",
 
             .selection_background = if (config.@"selection-background") |bg|
-                bg.toTerminalRGB()
+                switch (bg) {
+                    configpkg.Config.SelectionColor.color => bg.color.toTerminalRGB(),
+                    else => null,
+                }
             else
                 null,
 
-            .selection_foreground = if (config.@"selection-foreground") |bg|
-                bg.toTerminalRGB()
+            .selection_foreground = if (config.@"selection-foreground") |fg|
+                switch (fg) {
+                    configpkg.Config.SelectionColor.color => fg.color.toTerminalRGB(),
+                    else => null,
+                }
             else
                 null,
 

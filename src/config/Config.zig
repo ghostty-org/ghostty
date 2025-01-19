@@ -454,8 +454,8 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 /// the selection color is just the inverted window background and foreground
 /// (note: not to be confused with the cell bg/fg).
 /// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
-@"selection-foreground": ?Color = null,
-@"selection-background": ?Color = null,
+@"selection-foreground": ?SelectionColor = null,
+@"selection-background": ?SelectionColor = null,
 
 /// Swap the foreground and background colors of cells for selection. This
 /// option overrides the `selection-foreground` and `selection-background`
@@ -4212,6 +4212,28 @@ pub const Color = struct {
         var color: Color = .{ .r = 10, .g = 11, .b = 12 };
         try color.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
         try std.testing.expectEqualSlices(u8, "a = #0a0b0c\n", buf.items);
+    }
+};
+
+pub const SelectionColor = union(enum) {
+    color: Color,
+    @"cell-foreground",
+    @"cell-background",
+
+    pub fn parseCLI(input_: ?[]const u8) !SelectionColor {
+        const input = input_ orelse return error.ValueRequired;
+
+        if (std.mem.eql(u8, input, "cell-foreground")) return .@"cell-foreground";
+        if (std.mem.eql(u8, input, "cell-background")) return .@"cell-background";
+
+        return SelectionColor{ .color = try Color.parseCLI(input) };
+    }
+
+    pub fn formatEntry(self: SelectionColor, formatter: anytype) !void {
+        switch (self) {
+            .color => try self.color.formatEntry(formatter),
+            .@"cell-foreground", .@"cell-background" => try formatter.formatEntry([:0]const u8, @tagName(self)),
+        }
     }
 };
 
