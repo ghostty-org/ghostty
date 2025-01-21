@@ -377,12 +377,12 @@ pub const DerivedConfig = struct {
     cursor_color: ?terminal.color.RGB,
     cursor_invert: bool,
     cursor_opacity: f64,
-    cursor_text: ?terminal.color.RGB,
+    cursor_text: ?configpkg.Config.DynamicColor,
     background: terminal.color.RGB,
     background_opacity: f64,
     foreground: terminal.color.RGB,
-    selection_background: ?configpkg.Config.SelectionColor,
-    selection_foreground: ?configpkg.Config.SelectionColor,
+    selection_background: ?configpkg.Config.DynamicColor,
+    selection_foreground: ?configpkg.Config.DynamicColor,
     bold_is_bright: bool,
     min_contrast: f32,
     padding_color: configpkg.WindowPaddingColor,
@@ -433,12 +433,7 @@ pub const DerivedConfig = struct {
                 null,
 
             .cursor_invert = cursor_invert,
-
-            .cursor_text = if (config.@"cursor-text") |txt|
-                txt.toTerminalRGB()
-            else
-                null,
-
+            .cursor_text = config.@"cursor-text",
             .cursor_opacity = @max(0, @min(1, config.@"cursor-opacity")),
 
             .background = config.background.toTerminalRGB(),
@@ -2108,7 +2103,7 @@ pub fn changeConfig(self: *Metal, config: *DerivedConfig) !void {
     // Set our new colors
     self.default_background_color = config.background;
     self.default_foreground_color = config.foreground;
-    self.default_cursor_color = if (!config.cursor_invert) config.cursor_color else null;
+    self.default_cursor_color = config.cursor_color;
     self.cursor_invert = config.cursor_invert;
 
     // Update our layer's opaqueness and display sync in case they changed.
@@ -2859,18 +2854,21 @@ fn rebuildCells(
                 .wide, .spacer_tail => true,
             };
 
-            const uniform_color = if (self.cursor_invert) blk: {
-                // Use the background color from the cell under the cursor, if any.
+            const uniform_color = if (self.config.cursor_text) |txt| blk: {
                 const sty = screen.cursor.page_pin.style(screen.cursor.page_cell);
-                break :blk if (sty.flags.inverse)
-                    // If the cell is reversed, use foreground color instead.
-                    (sty.fg(color_palette, self.config.bold_is_bright) orelse self.foreground_color orelse self.default_foreground_color)
-                else
-                    (sty.bg(screen.cursor.page_cell, color_palette) orelse self.background_color orelse self.default_background_color);
-            } else if (self.config.cursor_text) |txt|
-                txt
-            else
-                self.background_color orelse self.default_background_color;
+                const fg_style = sty.fg(color_palette, self.config.bold_is_bright) orelse self.foreground_color orelse self.default_foreground_color;
+                const bg_style = sty.bg(screen.cursor.page_cell, color_palette) orelse self.background_color orelse self.default_background_color;
+
+                break :blk switch (txt) {
+                    // Use the color set by cursor-text, if any. If the cell
+                    // is reversed, use the opposite cell color instead.
+                    .color => txt.color.toTerminalRGB(),
+                    .@"cell-foreground" => if (sty.flags.inverse) bg_style else fg_style,
+                    .@"cell-background" => if (sty.flags.inverse) fg_style else bg_style,
+                };
+            } else
+            // Otherwise, use the background color from the cell under the cursor.
+            self.background_color orelse self.default_background_color;
 
             self.uniforms.cursor_color = .{
                 uniform_color.r,

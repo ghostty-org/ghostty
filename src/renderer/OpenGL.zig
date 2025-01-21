@@ -277,13 +277,13 @@ pub const DerivedConfig = struct {
     font_styles: font.CodepointResolver.StyleStatus,
     cursor_color: ?terminal.color.RGB,
     cursor_invert: bool,
-    cursor_text: ?terminal.color.RGB,
+    cursor_text: ?configpkg.Config.DynamicColor,
     cursor_opacity: f64,
     background: terminal.color.RGB,
     background_opacity: f64,
     foreground: terminal.color.RGB,
-    selection_background: ?configpkg.Config.SelectionColor,
-    selection_foreground: ?configpkg.Config.SelectionColor,
+    selection_background: ?configpkg.Config.DynamicColor,
+    selection_foreground: ?configpkg.Config.DynamicColor,
     bold_is_bright: bool,
     min_contrast: f32,
     padding_color: configpkg.WindowPaddingColor,
@@ -331,12 +331,7 @@ pub const DerivedConfig = struct {
                 null,
 
             .cursor_invert = cursor_invert,
-
-            .cursor_text = if (config.@"cursor-text") |txt|
-                txt.toTerminalRGB()
-            else
-                null,
-
+            .cursor_text = config.@"cursor-text",
             .cursor_opacity = @max(0, @min(1, config.@"cursor-opacity")),
 
             .background = config.background.toTerminalRGB(),
@@ -1444,10 +1439,10 @@ pub fn rebuildCells(
             // The final background color for the cell.
             const bg = bg: {
                 if (selected) {
-                    break :bg if (self.config.selection_background) |selection_color|
+                    break :bg if (self.config.selection_background) |sel|
                         // Use the selection background if set, otherwise the default fg color.
-                        switch (selection_color) {
-                            .color => selection_color.color.toTerminalRGB(),
+                        switch (sel) {
+                            .color => sel.color.toTerminalRGB(),
                             .@"cell-foreground" => if (style.flags.inverse) bg_style else fg_style,
                             .@"cell-background" => if (style.flags.inverse) fg_style else bg_style,
                         }
@@ -1478,9 +1473,9 @@ pub fn rebuildCells(
                 // - Cell is inverted and not selected
                 if (selected) {
                     // Use the selection foreground if set, otherwise the default bg color.
-                    break :fg if (self.config.selection_foreground) |selection_color|
-                        switch (selection_color) {
-                            .color => selection_color.color.toTerminalRGB(),
+                    break :fg if (self.config.selection_foreground) |sel|
+                        switch (sel) {
+                            .color => sel.color.toTerminalRGB(),
                             .@"cell-foreground" => if (style.flags.inverse) final_bg else fg_style,
                             .@"cell-background" => if (style.flags.inverse) fg_style else final_bg,
                         }
@@ -1742,18 +1737,21 @@ pub fn rebuildCells(
         _ = try self.addCursor(screen, cursor_style, cursor_color);
         for (cursor_cells.items) |*cell| {
             if (cell.mode.isFg() and cell.mode != .fg_color) {
-                const cell_color = if (self.cursor_invert) blk: {
-                    // Use the background color from the cell under the cursor, if any.
+                const cell_color = if (self.config.cursor_text) |txt| blk: {
                     const sty = screen.cursor.page_pin.style(screen.cursor.page_cell);
-                    break :blk if (sty.flags.inverse)
-                        // If the cell is reversed, use foreground color instead.
-                        (sty.fg(color_palette, self.config.bold_is_bright) orelse self.foreground_color orelse self.default_foreground_color)
-                    else
-                        (sty.bg(screen.cursor.page_cell, color_palette) orelse self.background_color orelse self.default_background_color);
-                } else if (self.config.cursor_text) |txt|
-                    txt
-                else
-                    self.background_color orelse self.default_background_color;
+                    const fg_style = sty.fg(color_palette, self.config.bold_is_bright) orelse self.foreground_color orelse self.default_foreground_color;
+                    const bg_style = sty.bg(screen.cursor.page_cell, color_palette) orelse self.background_color orelse self.default_background_color;
+
+                    break :blk switch (txt) {
+                        // Use the color set by cursor-text, if any. If the cell
+                        // is reversed, use the opposite cell color instead.
+                        .color => txt.color.toTerminalRGB(),
+                        .@"cell-foreground" => if (sty.flags.inverse) bg_style else fg_style,
+                        .@"cell-background" => if (sty.flags.inverse) fg_style else bg_style,
+                    };
+                } else
+                // Otherwise, use the background color from the cell under the cursor.
+                self.background_color orelse self.default_background_color;
 
                 cell.r = cell_color.r;
                 cell.g = cell_color.g;
