@@ -2590,12 +2590,11 @@ fn rebuildCells(
             const bg = bg: {
                 if (selected) {
                     break :bg if (self.config.selection_background) |selection_color|
-                        // Use the selection background if set, otherwise the
-                        // default fg color.
+                        // Use the selection background if set, otherwise the default fg color.
                         switch (selection_color) {
                             .color => selection_color.color.toTerminalRGB(),
-                            .@"cell-foreground" => fg_style,
-                            .@"cell-background" => bg_style,
+                            .@"cell-foreground" => if (style.flags.inverse) bg_style else fg_style,
+                            .@"cell-background" => if (style.flags.inverse) fg_style else bg_style,
                         }
                     else
                         self.foreground_color orelse self.default_foreground_color;
@@ -2616,26 +2615,26 @@ fn rebuildCells(
             };
 
             const fg = fg: {
+                const final_bg = bg_style orelse self.background_color orelse self.default_background_color;
+
+                // Whether we need to use the bg color as our fg color:
+                // - Cell is selected, inverted, and set to cell-foreground
+                // - Cell is selected, not inverted, and set to cell-background
+                // - Cell is inverted and not selected
                 if (selected) {
-                    // Use the selection foreground if set, otherwise the
-                    // default bg color.
+                    // Use the selection foreground if set, otherwise the default bg color.
                     break :fg if (self.config.selection_foreground) |selection_color|
                         switch (selection_color) {
                             .color => selection_color.color.toTerminalRGB(),
-                            .@"cell-foreground" => fg_style,
-                            .@"cell-background" => bg_style orelse self.background_color orelse self.default_background_color,
+                            .@"cell-foreground" => if (style.flags.inverse) final_bg else fg_style,
+                            .@"cell-background" => if (style.flags.inverse) fg_style else final_bg,
                         }
                     else
                         self.background_color orelse self.default_background_color;
                 }
 
-                // Whether we need to use the bg color as our fg color:
-                // - Cell is inverted and not selected
-                // - Cell is selected and not inverted
-                //    Note: if selected then invert sel fg / bg must be
-                //    false since we separately handle it if true above.
-                break :fg if (style.flags.inverse != selected)
-                    bg_style orelse self.background_color orelse self.default_background_color
+                break :fg if (style.flags.inverse)
+                    final_bg
                 else
                     fg_style;
             };
