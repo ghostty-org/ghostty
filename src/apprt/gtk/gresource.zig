@@ -73,9 +73,6 @@ fn writeGResourceXML(writer: anytype) !void {
     try writer.writeAll(
         \\<?xml version="1.0" encoding="UTF-8"?>
         \\<gresources>
-        \\
-    );
-    try writer.writeAll(
         \\  <gresource prefix="/com/mitchellh/ghostty">
         \\
     );
@@ -87,9 +84,6 @@ fn writeGResourceXML(writer: anytype) !void {
     }
     try writer.writeAll(
         \\  </gresource>
-        \\
-    );
-    try writer.writeAll(
         \\  <gresource prefix="/com/mitchellh/ghostty/icons">
         \\
     );
@@ -107,12 +101,16 @@ fn writeGResourceXML(writer: anytype) !void {
 }
 
 pub const dependencies = deps: {
-    var deps: [css_files.len + icons.len][]const u8 = undefined;
-    for (css_files, 0..) |css_file, i| {
-        deps[i] = std.fmt.comptimePrint("src/apprt/gtk/{s}", .{css_file});
+    const total = css_files.len + icons.len;
+    var deps: [total][]const u8 = undefined;
+    var index: usize = 0;
+    for (css_files) |css_file| {
+        deps[index] = std.fmt.comptimePrint("src/apprt/gtk/{s}", .{css_file});
+        index += 1;
     }
-    for (icons, css_files.len..) |icon, i| {
-        deps[i] = std.fmt.comptimePrint("images/icons/icon_{s}.png", .{icon.source});
+    for (icons) |icon| {
+        deps[index] = std.fmt.comptimePrint("images/icons/icon_{s}.png", .{icon.source});
+        index += 1;
     }
     break :deps deps;
 };

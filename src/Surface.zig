@@ -4213,6 +4213,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             .toggle,
         ),
 
+        .toggle_top_menu => try self.rt_app.performAction(
+            .{ .surface = self },
+            .toggle_top_menu,
+            {},
+        ),
+
         .select_all => {
             const sel = self.io.terminal.screen.selectAll();
             if (sel) |s| {

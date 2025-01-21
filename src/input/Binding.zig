@@ -473,6 +473,10 @@ pub const Action = union(enum) {
     /// This currently only works on macOS.
     toggle_visibility: void,
 
+    /// Show/hide the application menu that appears below the titlebar and above
+    /// the tab bar.
+    toggle_top_menu: void,
+
     /// Quit ghostty.
     quit: void,
 
@@ -780,6 +784,7 @@ pub const Action = union(enum) {
             .goto_tab,
             .move_tab,
             .toggle_tab_overview,
+            .toggle_top_menu,
             .new_split,
             .goto_split,
             .toggle_split_zoom,
