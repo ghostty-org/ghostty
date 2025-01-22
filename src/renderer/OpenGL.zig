@@ -2363,26 +2363,18 @@ fn drawCustomPrograms(self: *OpenGL, custom_state: *custom.State) !void {
     // Setup the new frame
     try custom_state.newFrame();
 
-    // To allow programs to retrieve each other via a texture
-    // then we must render the next shaders to the screen fbo.
-    // However, the first shader must be run while the default fbo
-    // is attached
-    {
-        const bind = try custom_state.programs[0].bind();
-        defer bind.unbind();
-        try bind.draw();
-        if (custom_state.programs.len == 1) return;
-    }
-
-    const fbobind = try custom_state.fbo.bind(.framebuffer);
-    defer fbobind.unbind();
+    // const fbobind = try custom_state.fbo.bind(.framebuffer);
+    // defer fbobind.unbind();
 
     // Go through each custom shader and draw it.
-    for (custom_state.programs[1..]) |program| {
+    for (custom_state.programs) |program| {
         // Bind our cell program state, buffers
         const bind = try program.bind();
         defer bind.unbind();
         try bind.draw();
+
+        // copy main and custom fbo
+        try custom_state.copy();
     }
 }
 
