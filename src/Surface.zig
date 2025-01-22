@@ -16,6 +16,7 @@ pub const Mailbox = apprt.surface.Mailbox;
 pub const Message = apprt.surface.Message;
 
 const std = @import("std");
+const process = std.process;
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
@@ -4317,6 +4318,32 @@ fn closingAction(action: input.Binding.Action) bool {
     };
 }
 
+fn openScreenFile(
+    self: *Surface,
+    file_path: []const u8,
+) !void {
+    const editor = std.posix.getenv("EDITOR") orelse {
+        std.log.err("EDITOR environment variable not set", .{});
+        return error.EnvironmentVariableNotFound;
+    };
+    const allocator = std.heap.page_allocator;
+    const command_buf = try allocator.alloc(u8, editor.len + file_path.len + 2);
+    errdefer allocator.free(command_buf);
+    defer allocator.free(command_buf);
+    // This is quite ugly sending the message to the mailbox and executing it on behalf of the user
+    // Spawing a process doesn't render the command in the main surface.
+    const command = try std.fmt.bufPrint(
+        command_buf,
+        "{s} {s}\n",
+        .{ editor, file_path },
+    );
+
+    self.io.queueMessage(try termio.Message.writeReq(
+        allocator,
+        command,
+    ), .unlocked);
+}
+
 /// The portion of the screen to write for writeScreenFile.
 const WriteScreenLoc = enum {
     screen, // Full screen
@@ -4413,6 +4440,7 @@ fn writeScreenFile(
 
     switch (write_action) {
         .open => try internal_os.open(self.alloc, .text, path),
+        .editor => try self.openScreenFile(path),
         .paste => self.io.queueMessage(try termio.Message.writeReq(
             self.alloc,
             path,
