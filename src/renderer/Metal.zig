@@ -2804,20 +2804,24 @@ fn rebuildCells(
         // Prepare the cursor cell contents.
         const style = cursor_style_ orelse break :cursor;
         const cursor_color = self.cursor_color orelse if (self.default_cursor_color) |color| color: {
+            // If cursor-color is set, then compute the correct color.
+            // Otherwise, use the foreground color
+            if (color == .color) {
+                // Use the color set by cursor-color, if any.
+                break :color color.color.toTerminalRGB();
+            }
+
             const sty = screen.cursor.page_pin.style(screen.cursor.page_cell);
             const fg_style = sty.fg(color_palette, self.config.bold_is_bright) orelse self.foreground_color orelse self.default_foreground_color;
             const bg_style = sty.bg(screen.cursor.page_cell, color_palette) orelse self.background_color orelse self.default_background_color;
 
             break :color switch (color) {
-                // Use the color set by cursor-color, if any. If the cell
-                // is reversed, use the opposite cell color instead.
-                .color => color.color.toTerminalRGB(),
+                // If the cell is reversed, use the opposite cell color instead.
                 .@"cell-foreground" => if (sty.flags.inverse) bg_style else fg_style,
                 .@"cell-background" => if (sty.flags.inverse) fg_style else bg_style,
+                else => unreachable,
             };
-        } else
-        // Otherwise, use the foreground color.
-        self.foreground_color orelse self.default_foreground_color;
+        } else self.foreground_color orelse self.default_foreground_color;
 
         self.addCursor(screen, style, cursor_color);
 
@@ -2842,20 +2846,24 @@ fn rebuildCells(
             };
 
             const uniform_color = if (self.config.cursor_text) |txt| blk: {
+                // If cursor-text is set, then compute the correct color.
+                // Otherwise, use the background color.
+                if (txt == .color) {
+                    // Use the color set by cursor-text, if any.
+                    break :blk txt.color.toTerminalRGB();
+                }
+
                 const sty = screen.cursor.page_pin.style(screen.cursor.page_cell);
                 const fg_style = sty.fg(color_palette, self.config.bold_is_bright) orelse self.foreground_color orelse self.default_foreground_color;
                 const bg_style = sty.bg(screen.cursor.page_cell, color_palette) orelse self.background_color orelse self.default_background_color;
 
                 break :blk switch (txt) {
-                    // Use the color set by cursor-text, if any. If the cell
-                    // is reversed, use the opposite cell color instead.
-                    .color => txt.color.toTerminalRGB(),
+                    // If the cell is reversed, use the opposite cell color instead.
                     .@"cell-foreground" => if (sty.flags.inverse) bg_style else fg_style,
                     .@"cell-background" => if (sty.flags.inverse) fg_style else bg_style,
+                    else => unreachable,
                 };
-            } else
-            // Otherwise, use the background color.
-            self.background_color orelse self.default_background_color;
+            } else self.background_color orelse self.default_background_color;
 
             self.uniforms.cursor_color = .{
                 uniform_color.r,
