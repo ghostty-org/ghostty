@@ -2363,9 +2363,6 @@ fn drawCustomPrograms(self: *OpenGL, custom_state: *custom.State) !void {
     // Setup the new frame
     try custom_state.newFrame();
 
-    // const fbobind = try custom_state.fbo.bind(.framebuffer);
-    // defer fbobind.unbind();
-
     // Go through each custom shader and draw it.
     for (custom_state.programs) |program| {
         // Bind our cell program state, buffers
@@ -2373,7 +2370,7 @@ fn drawCustomPrograms(self: *OpenGL, custom_state: *custom.State) !void {
         defer bind.unbind();
         try bind.draw();
 
-        // copy main and custom fbo
+        // copy backbuffers
         try custom_state.copy();
     }
 }
@@ -2386,14 +2383,6 @@ fn drawCellProgram(
     // Try to flush our atlas, this will only do something if there
     // are changes to the atlas.
     try self.flushAtlas();
-
-    // If we have custom shaders, then we draw to the custom
-    // shader framebuffer.
-    const fbobind: ?gl.Framebuffer.Binding = fbobind: {
-        const state = gl_state.custom orelse break :fbobind null;
-        break :fbobind try state.fbo.bind(.framebuffer);
-    };
-    defer if (fbobind) |v| v.unbind();
 
     // Clear the surface
     gl.clearColor(
