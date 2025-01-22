@@ -493,7 +493,7 @@ palette: Palette = .{},
 
 /// The color of the cursor. If this is not set, a default will be chosen.
 /// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
-@"cursor-color": ?Color = null,
+@"cursor-color": ?DynamicColor = null,
 
 /// Swap the foreground and background colors of the cell under the cursor. This
 /// option overrides the `cursor-color` and `cursor-text` options.
@@ -4215,8 +4215,7 @@ pub const Color = struct {
     }
 };
 
-/// Represents the color values that selection-foreground
-/// and selection-background can take.
+/// Represents the color values that can be set to a non-static value.
 ///
 /// Can either be a Color or one of the special values
 /// "cell-foreground" or "cell-background".
