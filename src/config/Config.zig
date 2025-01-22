@@ -453,7 +453,9 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 /// The foreground and background color for selection. If this is not set, then
 /// the selection color is just the inverted window background and foreground
 /// (note: not to be confused with the cell bg/fg).
-/// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
+/// Specified as either hex (`#RRGGBB` or `RRGGBB`), a named X11 color,
+/// `cell-foreground` to match the cell foreground color, or `cell-background`
+/// to match the cell background color.
 @"selection-foreground": ?DynamicColor = null,
 @"selection-background": ?DynamicColor = null,
 
@@ -492,7 +494,9 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 palette: Palette = .{},
 
 /// The color of the cursor. If this is not set, a default will be chosen.
-/// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
+/// Specified as either hex (`#RRGGBB` or `RRGGBB`), a named X11 color,
+/// `cell-foreground` to match the cell foreground color, or `cell-background`
+/// to match the cell background color.
 @"cursor-color": ?DynamicColor = null,
 
 /// Swap the foreground and background colors of the cell under the cursor. This
@@ -546,7 +550,9 @@ palette: Palette = .{},
 
 /// The color of the text under the cursor. If this is not set, a default will
 /// be chosen.
-/// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
+/// Specified as either hex (`#RRGGBB` or `RRGGBB`), a named X11 color,
+/// `cell-foreground` to match the cell foreground color, or `cell-background`
+/// to match the cell background color.
 @"cursor-text": ?DynamicColor = null,
 
 /// Enables the ability to move the cursor at prompts by using `alt+click` on
