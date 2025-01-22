@@ -124,6 +124,12 @@ extension Ghostty {
         // A timer to fallback to ghost emoji if no title is set within the grace period
         private var titleFallbackTimer: Timer?
 
+        // The height of the titlebar in points
+        private var titlebarHeight: CGFloat {
+            guard let window = self.window else { return 0 }
+            return window.frame.height - window.contentLayoutRect.height
+        }
+
         /// Event monitor (see individual events for why)
         private var eventMonitor: Any? = nil
 
@@ -579,10 +585,28 @@ extension Ghostty {
             return true
         }
 
-        override func mouseDown(with event: NSEvent) {
-            guard let surface = self.surface else { return }
+        private func handleSurfaceMouseDown(_ surface: ghostty_surface_t, _ event: NSEvent) {
             let mods = Ghostty.ghosttyMods(event.modifierFlags)
             ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            guard let surface = self.surface else { return }
+            guard let window = self.window else {
+                handleSurfaceMouseDown(surface, event)
+                return
+            }
+
+            // Convert point to view coordinates
+            let point = self.convert(event.locationInWindow, from: nil)
+            let isInTitlebarRegion = point.y >= (self.frame.height - titlebarHeight)
+
+            if isInTitlebarRegion {
+                window.performDrag(with: event)
+                return
+            }
+
+            handleSurfaceMouseDown(surface, event)
         }
 
         override func mouseUp(with event: NSEvent) {
