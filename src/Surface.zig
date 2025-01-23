@@ -1393,67 +1393,7 @@ fn clipboardWrite(self: *const Surface, data: []const u8, loc: apprt.Clipboard) 
 ///
 /// This must be called with the renderer mutex held.
 fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
-    const prev_ = self.io.terminal.screen.selection;
     try self.io.terminal.screen.select(sel_);
-
-    // If copy on select is false then exit early.
-    if (self.config.copy_on_select == .false) return;
-
-    // Set our selection clipboard. If the selection is cleared we do not
-    // clear the clipboard. If the selection is set, we only set the clipboard
-    // again if it changed, since setting the clipboard can be an expensive
-    // operation.
-    const sel = sel_ orelse return;
-    if (prev_) |prev| if (sel.eql(prev)) return;
-
-    const buf = self.io.terminal.screen.selectionString(self.alloc, .{
-        .sel = sel,
-        .trim = self.config.clipboard_trim_trailing_spaces,
-    }) catch |err| {
-        log.err("error reading selection string err={}", .{err});
-        return;
-    };
-    defer self.alloc.free(buf);
-
-    // Set the clipboard. This is not super DRY but it is clear what
-    // we're doing for each setting without being clever.
-    switch (self.config.copy_on_select) {
-        .false => unreachable, // handled above with an early exit
-
-        // Both standard and selection clipboards are set.
-        .clipboard => {
-            const clipboards: []const apprt.Clipboard = &.{ .standard, .selection };
-            for (clipboards) |clipboard| self.rt_surface.setClipboardString(
-                buf,
-                clipboard,
-                false,
-            ) catch |err| {
-                log.err(
-                    "error setting clipboard string clipboard={} err={}",
-                    .{ clipboard, err },
-                );
-            };
-        },
-
-        // The selection clipboard is set if supported, otherwise the standard.
-        .true => {
-            const clipboard: apprt.Clipboard = if (self.rt_surface.supportsClipboard(.selection))
-                .selection
-            else
-                .standard;
-
-            self.rt_surface.setClipboardString(
-                buf,
-                clipboard,
-                false,
-            ) catch |err| {
-                log.err(
-                    "error setting clipboard string clipboard={} err={}",
-                    .{ clipboard, err },
-                );
-            };
-        },
-    }
 }
 
 /// Change the cell size for the terminal grid. This can happen as
@@ -2876,6 +2816,64 @@ pub fn mouseButtonCallback(
             if (processed) return true;
         } else |err| {
             log.warn("error processing links err={}", .{err});
+        }
+    }
+
+    // Set the clipboard if configured with copy_on_select
+    if (button == .left and
+        action == .release and
+        self.config.copy_on_select != .false)
+    set_clipboard: {
+        self.renderer_state.mutex.lock();
+        defer self.renderer_state.mutex.unlock();
+
+        // Only update clipboard if something is actually selected.
+        const selection = self.io.terminal.screen.selection orelse break :set_clipboard;
+
+        const buf = self.io.terminal.screen.selectionString(self.alloc, .{
+            .sel = selection,
+            .trim = self.config.clipboard_trim_trailing_spaces,
+        }) catch |err| {
+            log.err("error reading selection string err={}", .{err});
+            break :set_clipboard;
+        };
+        defer self.alloc.free(buf);
+
+        switch (self.config.copy_on_select) {
+            .false => unreachable, // should not be in this block at all
+            // Both standard and selection clipboards are set.
+            .clipboard => {
+                const clipboards: []const apprt.Clipboard = &.{ .standard, .selection };
+                for (clipboards) |clipboard| self.rt_surface.setClipboardString(
+                    buf,
+                    clipboard,
+                    false,
+                ) catch |err| {
+                    log.err(
+                        "error setting clipboard string clipboard={} err={}",
+                        .{ clipboard, err },
+                    );
+                    break :set_clipboard;
+                };
+            },
+            .true => {
+                const clipboard: apprt.Clipboard = if (self.rt_surface.supportsClipboard(.selection))
+                    .selection
+                else
+                    .standard;
+
+                self.rt_surface.setClipboardString(
+                    buf,
+                    clipboard,
+                    false,
+                ) catch |err| {
+                    log.err(
+                        "error setting clipboard string clipboard={} err={}",
+                        .{ clipboard, err },
+                    );
+                    break :set_clipboard;
+                };
+            },
         }
     }
 
