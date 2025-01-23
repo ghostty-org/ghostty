@@ -579,10 +579,34 @@ extension Ghostty {
             return true
         }
 
-        override func mouseDown(with event: NSEvent) {
-            guard let surface = self.surface else { return }
+        private func handleSurfaceMouseDown(_ surface: ghostty_surface_t, _ event: NSEvent) {
             let mods = Ghostty.ghosttyMods(event.modifierFlags)
             ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            guard let surface = self.surface else { return }
+            guard let window = self.window else {
+                handleSurfaceMouseDown(surface, event)
+                return
+            }
+
+            let point = self.convert(event.locationInWindow, from: nil)
+            let titlebarHeight = window.frame.height - window.contentLayoutRect.height
+            let isInTitlebarRegion = point.y >= self.frame.height - titlebarHeight
+            let isTitlebarVisible =
+                self.derivedConfig.windowDecoration
+                && self.derivedConfig.macosTitlebarStyle != "hidden"
+
+            let frame = self.convert(self.frame, to: nil)
+            let isTop = abs(window.contentLayoutRect.maxY - frame.maxY) < 1
+
+            if isInTitlebarRegion && !(isTop && isTitlebarVisible) {
+                window.performDrag(with: event)
+                return
+            }
+
+            handleSurfaceMouseDown(surface, event)
         }
 
         override func mouseUp(with event: NSEvent) {
@@ -1253,6 +1277,8 @@ extension Ghostty {
             let macosWindowShadow: Bool
             let windowTitleFontFamily: String?
             let windowAppearance: NSAppearance?
+            let windowDecoration: Bool
+            let macosTitlebarStyle: String
 
             init() {
                 self.backgroundColor = Color(NSColor.windowBackgroundColor)
@@ -1260,6 +1286,8 @@ extension Ghostty {
                 self.macosWindowShadow = true
                 self.windowTitleFontFamily = nil
                 self.windowAppearance = nil
+                self.windowDecoration = true
+                self.macosTitlebarStyle = "transparent"
             }
 
             init(_ config: Ghostty.Config) {
@@ -1268,6 +1296,8 @@ extension Ghostty {
                 self.macosWindowShadow = config.macosWindowShadow
                 self.windowTitleFontFamily = config.windowTitleFontFamily
                 self.windowAppearance = .init(ghosttyConfig: config)
+                self.windowDecoration = config.windowDecorations
+                self.macosTitlebarStyle = config.macosTitlebarStyle
             }
         }
     }
