@@ -25,6 +25,16 @@ class TerminalToolbar: NSToolbar, NSToolbarDelegate {
         }
     }
 
+    var titleColor: NSColor? {
+        get {
+            titleTextField.textColor
+        }
+
+        set {
+            titleTextField.textColor = newValue
+        }
+    }
+
     override init(identifier: NSToolbar.Identifier) {
         super.init(identifier: identifier)
 

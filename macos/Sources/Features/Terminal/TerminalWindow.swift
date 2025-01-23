@@ -8,6 +8,17 @@ class TerminalWindow: NSWindow {
             guard let titlebarContainer else { return }
             titlebarContainer.wantsLayer = true
             titlebarContainer.layer?.backgroundColor = titlebarColor.cgColor
+            tab.attributedTitle = attributedTitle
+        }
+    }
+
+    lazy var titleForegroundColor: NSColor = NSColor.labelColor {
+        didSet {
+            tab.attributedTitle = attributedTitle
+            if let toolbar = toolbar as? TerminalToolbar {
+                toolbar.titleColor = titleForegroundColor
+            }
+            self.updateKeyEquivalentLabel()
         }
     }
 
@@ -28,13 +39,7 @@ class TerminalWindow: NSWindow {
         },
 
         observe(\.keyEquivalent, options: [.initial, .new]) { [weak self] window, _ in
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
-                .foregroundColor: window.isKeyWindow ? NSColor.labelColor : NSColor.secondaryLabelColor,
-            ]
-            let attributedString = NSAttributedString(string: " \(window.keyEquivalent) ", attributes: attributes)
-
-            self?.keyEquivalentLabel.attributedStringValue = attributedString
+            self?.updateKeyEquivalentLabel()
         },
     ]
 
@@ -317,6 +322,17 @@ class TerminalWindow: NSWindow {
 		}
 	}
 
+    private func updateKeyEquivalentLabel() {
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11),
+            .foregroundColor: self.titleForegroundColor.withAlphaComponent(isKeyWindow ? 1 : 0.4),
+        ]
+        let attributedString = NSAttributedString(string: " \(keyEquivalent) ", attributes: attributes)
+
+        keyEquivalentLabel.attributedStringValue = attributedString
+    }
+
+
     // MARK: - Split Zoom Button
 
     @objc dynamic var surfaceIsZoomed: Bool = false
@@ -403,13 +419,13 @@ class TerminalWindow: NSWindow {
     // Used to set the titlebar font.
     var titlebarFont: NSFont? {
         didSet {
-            let font = titlebarFont ?? NSFont.titleBarFont(ofSize: NSFont.systemFontSize)
+            let font = titlebarFont ?? NSFont.titleBarFont(ofSize: 11)
 
             titlebarTextField?.font = font
             tab.attributedTitle = attributedTitle
 
             if let toolbar = toolbar as? TerminalToolbar {
-                toolbar.titleFont = font
+                toolbar.titleFont = font.withSize(NSFont.systemFontSize)
             }
         }
     }
@@ -423,12 +439,11 @@ class TerminalWindow: NSWindow {
 
     // Return a styled representation of our title property.
     private var attributedTitle: NSAttributedString? {
-        guard let titlebarFont else { return nil }
-
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: titlebarFont,
-            .foregroundColor: isKeyWindow ? NSColor.labelColor : NSColor.secondaryLabelColor,
+            .foregroundColor: titleForegroundColor,
+            .font: titlebarFont?.withSize(11) ?? NSFont.systemFont(ofSize: 11),
         ]
+
         return NSAttributedString(string: title, attributes: attributes)
     }
 
