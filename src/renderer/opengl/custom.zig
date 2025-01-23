@@ -27,19 +27,20 @@ pub const Uniforms = extern struct {
 /// The state associated with custom shaders. This should only be initialized
 /// if there is at least one custom shader.
 ///
-/// To use this, each shader should be rendererd to the screen and then
-/// copied to the "backbuffer" texture. This texture, which acts as a
-/// mirror of the screen, can then be sampled from iChannel0 in consecutive
-/// shaders.
+/// To use this, the main terminal shader should render to the framebuffer
+/// specified by "fbo". The resulting "fb_texture" will contain the color
+/// attachment. This is then used as the iChannel0 input to the custom
+/// shader.
 pub const State = struct {
     /// The uniform data
     uniforms: Uniforms,
 
     /// The OpenGL buffers
+    fbo: gl.Framebuffer,
     ubo: gl.Buffer,
     vao: gl.VertexArray,
     ebo: gl.Buffer,
-    backbuffer: gl.Texture,
+    fb_texture: gl.Texture,
 
     /// The set of programs for the custom shaders.
     programs: []const Program,
@@ -66,11 +67,11 @@ pub const State = struct {
             try programs.append(try Program.init(src));
         }
 
-        // Create the texture for the backbuffer mirror
-        const bb_tex = try gl.Texture.create();
-        errdefer bb_tex.destroy();
+        // Create the texture for the framebuffer
+        const fb_tex = try gl.Texture.create();
+        errdefer fb_tex.destroy();
         {
-            const texbind = try bb_tex.bind(.@"2D");
+            const texbind = try fb_tex.bind(.@"2D");
             try texbind.parameter(.WrapS, gl.c.GL_CLAMP_TO_EDGE);
             try texbind.parameter(.WrapT, gl.c.GL_CLAMP_TO_EDGE);
             try texbind.parameter(.MinFilter, gl.c.GL_LINEAR);
@@ -85,6 +86,23 @@ pub const State = struct {
                 .UnsignedByte,
                 null,
             );
+        }
+
+        // Create our framebuffer for rendering off screen.
+        // The shader prior to custom shaders should use this
+        // framebuffer.
+        const fbo = try gl.Framebuffer.create();
+        errdefer fbo.destroy();
+        const fbbind = try fbo.bind(.framebuffer);
+        defer fbbind.unbind();
+        try fbbind.texture2D(.color0, .@"2D", fb_tex, 0);
+        const fbstatus = fbbind.checkStatus();
+        if (fbstatus != .complete) {
+            log.warn(
+                "framebuffer is not complete state={}",
+                .{fbstatus},
+            );
+            return error.InvalidFramebuffer;
         }
 
         // Create our uniform buffer that is shared across all
@@ -116,10 +134,11 @@ pub const State = struct {
         return .{
             .programs = try programs.toOwnedSlice(),
             .uniforms = .{},
+            .fbo = fbo,
             .ubo = ubo,
             .vao = vao,
             .ebo = ebo,
-            .backbuffer = bb_tex,
+            .fb_texture = fb_tex,
             .first_frame_time = try std.time.Instant.now(),
             .last_frame_time = try std.time.Instant.now(),
         };
@@ -131,7 +150,8 @@ pub const State = struct {
         self.ubo.destroy();
         self.ebo.destroy();
         self.vao.destroy();
-        self.backbuffer.destroy();
+        self.fb_texture.destroy();
+        self.fbo.destroy();
     }
 
     pub fn setScreenSize(self: *State, size: Size) !void {
@@ -144,7 +164,7 @@ pub const State = struct {
         try self.syncUniforms();
 
         // Update our texture
-        const texbind = try self.backbuffer.bind(.@"2D");
+        const texbind = try self.fb_texture.bind(.@"2D");
         try texbind.image2D(
             0,
             .rgb,
@@ -194,7 +214,7 @@ pub const State = struct {
 
         // Bind our texture that is shared amongst all
         try gl.Texture.active(gl.c.GL_TEXTURE0);
-        var texbind = try self.backbuffer.bind(.@"2D");
+        var texbind = try self.fb_texture.bind(.@"2D");
         errdefer texbind.unbind();
 
         const vao = try self.vao.bind();
@@ -206,13 +226,13 @@ pub const State = struct {
         return .{
             .vao = vao,
             .ebo = ebo,
-            .backbuffer = texbind,
+            .fb_texture = texbind,
         };
     }
 
-    /// copy the main backbuffer to our backbuffer copy texture
+    /// copy the fbo's attached texture to the backbuffer
     pub fn copy(self: *State) !void {
-        const texbind = try self.backbuffer.bind(.@"2D");
+        const texbind = try self.fb_texture.bind(.@"2D");
         errdefer texbind.unbind();
 
         try texbind.copySubImage2D(0, 0, 0, 0, 0, @intFromFloat(self.uniforms.resolution[0]), @intFromFloat(self.uniforms.resolution[1]));
@@ -221,12 +241,12 @@ pub const State = struct {
     pub const Binding = struct {
         vao: gl.VertexArray.Binding,
         ebo: gl.Buffer.Binding,
-        backbuffer: gl.Texture.Binding,
+        fb_texture: gl.Texture.Binding,
 
         pub fn unbind(self: Binding) void {
             self.ebo.unbind();
             self.vao.unbind();
-            self.backbuffer.unbind();
+            self.fb_texture.unbind();
         }
     };
 };
