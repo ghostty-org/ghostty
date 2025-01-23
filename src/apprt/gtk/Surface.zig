@@ -2453,6 +2453,47 @@ pub fn ringBell(self: *Surface) !void {
         surface.beep();
     }
 
+    if (features.audio) audio: {
+        // Play a user-specified audio file.
+
+        const pathname, const optional = switch (self.app.config.@"bell-audio-path" orelse break :audio) {
+            .optional => |path| .{ path, true },
+            .required => |path| .{ path, false },
+        };
+
+        const volume: f64 = @min(
+            @max(
+                0.0,
+                self.app.config.@"bell-audio-volume",
+            ),
+            1.0,
+        );
+
+        std.debug.assert(std.fs.path.isAbsolute(pathname));
+        const media_file = gtk.MediaFile.newForFilename(pathname);
+
+        if (!optional) {
+            _ = gobject.Object.signals.notify.connect(
+                media_file,
+                ?*anyopaque,
+                gtkStreamError,
+                null,
+                .{ .detail = "error" },
+            );
+        }
+        _ = gobject.Object.signals.notify.connect(
+            media_file,
+            ?*anyopaque,
+            gtkStreamEnded,
+            null,
+            .{ .detail = "ended" },
+        );
+
+        const media_stream = media_file.as(gtk.MediaStream);
+        media_stream.setVolume(volume);
+        media_stream.play();
+    }
+
     // Mark tab as needing attention
     if (self.container.tab()) |tab| tab: {
         const page = window.notebook.getTabPage(tab) orelse break :tab;
@@ -2460,4 +2501,28 @@ pub fn ringBell(self: *Surface) !void {
         // Need attention if we're not the currently selected tab
         if (page.getSelected() == 0) page.setNeedsAttention(@intFromBool(true));
     }
+}
+
+/// Handle a stream that is in an error state.
+fn gtkStreamError(media_file: *gtk.MediaFile, _: *gobject.ParamSpec, _: ?*anyopaque) callconv(.c) void {
+    const path = path: {
+        const file = media_file.getFile() orelse break :path null;
+        break :path file.getPath();
+    };
+    defer if (path) |p| glib.free(p);
+
+    const media_stream = media_file.as(gtk.MediaStream);
+    const err = media_stream.getError() orelse return;
+
+    log.warn("error playing bell from {s}: {s} {d} {s}", .{
+        path orelse "<<unknown>>",
+        glib.quarkToString(err.f_domain),
+        err.f_code,
+        err.f_message orelse "",
+    });
+}
+
+/// Stream is finished, release the memory.
+fn gtkStreamEnded(media_file: *gtk.MediaFile, _: *gobject.ParamSpec, _: ?*anyopaque) callconv(.c) void {
+    media_file.unref();
 }
