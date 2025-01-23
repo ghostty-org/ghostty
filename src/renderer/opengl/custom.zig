@@ -230,12 +230,19 @@ pub const State = struct {
         };
     }
 
-    /// copy the fbo's attached texture to the backbuffer
-    pub fn copy(self: *State) !void {
+    /// Copy the fbo's attached texture to the backbuffer.
+    pub fn copyFramebuffer(self: *State) !void {
         const texbind = try self.fb_texture.bind(.@"2D");
         errdefer texbind.unbind();
-
-        try texbind.copySubImage2D(0, 0, 0, 0, 0, @intFromFloat(self.uniforms.resolution[0]), @intFromFloat(self.uniforms.resolution[1]));
+        try texbind.copySubImage2D(
+            0,
+            0,
+            0,
+            0,
+            0,
+            @intFromFloat(self.uniforms.resolution[0]),
+            @intFromFloat(self.uniforms.resolution[1]),
+        );
     }
 
     pub const Binding = struct {

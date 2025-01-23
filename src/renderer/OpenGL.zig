@@ -2365,13 +2365,10 @@ fn drawCustomPrograms(self: *OpenGL, custom_state: *custom.State) !void {
 
     // Go through each custom shader and draw it.
     for (custom_state.programs) |program| {
-        // Bind our cell program state, buffers
         const bind = try program.bind();
         defer bind.unbind();
         try bind.draw();
-
-        // copy main and custom fbo
-        try custom_state.copy();
+        try custom_state.copyFramebuffer();
     }
 }
 
