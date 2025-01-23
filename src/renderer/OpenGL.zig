@@ -2363,9 +2363,6 @@ fn drawCustomPrograms(self: *OpenGL, custom_state: *custom.State) !void {
     // Setup the new frame
     try custom_state.newFrame();
 
-    // const fbobind = try custom_state.fbo.bind(.framebuffer);
-    // defer fbobind.unbind();
-
     // Go through each custom shader and draw it.
     for (custom_state.programs) |program| {
         // Bind our cell program state, buffers
