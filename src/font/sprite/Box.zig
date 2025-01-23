@@ -2495,7 +2495,7 @@ fn yThirds(self: Box) [2]u32 {
     return switch (@mod(self.metrics.cell_height, 3)) {
         0 => .{ self.metrics.cell_height / 3, 2 * self.metrics.cell_height / 3 },
         1 => .{ self.metrics.cell_height / 3, 2 * self.metrics.cell_height / 3 + 1 },
-        2 => .{ self.metrics.cell_height / 3 + 1, 2 * self.metrics.cell_height / 3 },
+        2 => .{ self.metrics.cell_height / 3 + 1, 2 * self.metrics.cell_height / 3 + 1 },
         else => unreachable,
     };
 }
