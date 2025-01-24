@@ -23,6 +23,7 @@ pub fn resourcesDir(alloc: std.mem.Allocator) !?[]const u8 {
     // we've found the resources directory.
     const sentinel = switch (comptime builtin.target.os.tag) {
         .windows => "terminfo/ghostty.terminfo",
+        .macos => "terminfo/78/xterm-ghostty",
         else => "terminfo/x/xterm-ghostty",
     };
 
