@@ -49,6 +49,22 @@ pub fn translateMods(state: c.GdkModifierType) input.Mods {
     return mods;
 }
 
+pub fn deviceMods(device: ?*c.GdkDevice, gtk_mods: c.GdkModifierType) ?input.Mods {
+    if (device) |dev| {
+        const device_mods = c.gdk_device_get_modifier_state(dev);
+        if (device_mods != gtk_mods) {
+            return input.Mods{
+                .shift = (device_mods & c.GDK_SHIFT_MASK) != 0,
+                .ctrl = (device_mods & c.GDK_CONTROL_MASK) != 0,
+                .alt = (device_mods & c.GDK_ALT_MASK) != 0,
+                .super = (device_mods & c.GDK_SUPER_MASK) != 0,
+                .caps_lock = (device_mods & c.GDK_LOCK_MASK) != 0,
+            };
+        }
+    }
+    return null;
+}
+
 // Get the unshifted unicode value of the keyval. This is used
 // by the Kitty keyboard protocol.
 pub fn keyvalUnicodeUnshifted(

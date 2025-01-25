@@ -7,6 +7,7 @@ const c = @import("../c.zig").c;
 const input = @import("../../../input.zig");
 const Config = @import("../../../config.zig").Config;
 const adwaita = @import("../adwaita.zig");
+const key = @import("../key.zig");
 
 const log = std.log.scoped(.gtk_x11);
 
@@ -122,17 +123,8 @@ pub const App = struct {
         device: ?*c.GdkDevice,
         gtk_mods: c.GdkModifierType,
     ) ?input.Mods {
-        if (device) |dev| {
-            const device_mods = c.gdk_device_get_modifier_state(dev);
-            if (device_mods != gtk_mods) {
-                return input.Mods{
-                    .shift = (device_mods & c.GDK_SHIFT_MASK) != 0,
-                    .ctrl = (device_mods & c.GDK_CONTROL_MASK) != 0,
-                    .alt = (device_mods & c.GDK_ALT_MASK) != 0,
-                    .super = (device_mods & c.GDK_SUPER_MASK) != 0,
-                    .caps_lock = (device_mods & c.GDK_LOCK_MASK) != 0,
-                };
-            }
+        if (key.deviceMods(device, gtk_mods)) |mods| {
+            return mods;
         }
 
         // Shoutout to Mozilla for figuring out a clean way to do this, this is
