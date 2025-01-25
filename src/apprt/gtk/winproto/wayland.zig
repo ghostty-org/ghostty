@@ -76,10 +76,21 @@ pub const App = struct {
     }
 
     pub fn eventMods(
-        _: *App,
-        _: ?*c.GdkDevice,
+        _: App,
+        device: ?*c.GdkDevice,
         _: c.GdkModifierType,
     ) ?input.Mods {
+        if (device) |dev| {
+            const device_mods = c.gdk_device_get_modifier_state(dev);
+            return input.Mods{
+                .shift = (device_mods & c.GDK_SHIFT_MASK) != 0,
+                .ctrl = (device_mods & c.GDK_CONTROL_MASK) != 0,
+                .alt = (device_mods & c.GDK_ALT_MASK) != 0,
+                .super = (device_mods & c.GDK_SUPER_MASK) != 0,
+                .caps_lock = (device_mods & c.GDK_LOCK_MASK) != 0,
+            };
+        }
+
         return null;
     }
 
