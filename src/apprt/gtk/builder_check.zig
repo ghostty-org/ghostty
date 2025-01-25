@@ -17,8 +17,6 @@ pub fn main() !void {
     };
     defer alloc.free(filename);
 
-    c.gtk_init();
-
     const builder = c.gtk_builder_new_from_file(filename.ptr);
     defer c.g_object_unref(builder);
 }
