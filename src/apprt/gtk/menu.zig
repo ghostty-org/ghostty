@@ -137,8 +137,6 @@ pub fn Menu(
         fn gtkRefocusTerm(_: *MenuWidget, _: *c.GVariant, ud: ?*anyopaque) callconv(.C) bool {
             const self: *Self = @ptrCast(@alignCast(ud orelse return false));
 
-            log.info("closed!!!", .{});
-
             const window: *Window = switch (T) {
                 Window => self.parent,
                 Surface => self.parent.container.window() orelse return false,
