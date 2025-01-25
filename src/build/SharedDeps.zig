@@ -469,6 +469,24 @@ pub fn add(
                     const wf = b.addWriteFiles();
                     const gresource_xml = wf.add("gresource.xml", gresource.gresource_xml);
 
+                    {
+                        const builder_check = b.addExecutable(.{
+                            .name = "builder_check",
+                            .root_source_file = b.path("src/apprt/gtk/builder_check.zig"),
+                            .target = b.host,
+                        });
+                        builder_check.linkSystemLibrary2("gtk4", dynamic_link_opts);
+                        builder_check.linkLibC();
+
+                        for (gresource.dependencies) |pathname| {
+                            const extension = std.fs.path.extension(pathname);
+                            if (!std.mem.eql(u8, extension, ".ui")) continue;
+                            const check = b.addRunArtifact(builder_check);
+                            check.addFileArg(b.path(pathname));
+                            step.step.dependOn(&check.step);
+                        }
+                    }
+
                     const generate_resources_c = b.addSystemCommand(&.{
                         "glib-compile-resources",
                         "--c-name",

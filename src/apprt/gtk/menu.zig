@@ -10,7 +10,7 @@ const log = std.log.scoped(.gtk_menu);
 
 pub fn Menu(
     comptime T: type,
-    comptime variant: enum { top, titlebar, context },
+    comptime variant: []const u8,
     comptime style: enum { popover_menu, popover_menu_bar },
 ) type {
     return struct {
@@ -29,12 +29,27 @@ pub fn Menu(
                 Surface => "surface",
                 else => unreachable,
             };
-            const parent: *T = @alignCast(@fieldParentPtr(@tagName(variant) ++ "_menu", self));
+            const parent: *T = @alignCast(@fieldParentPtr(variant, self));
 
-            // embed the menu data using Zig @embedFile rather than as a GTK resource so that we get
-            // compile-time errors if we try and embed a file that doesn't exist
-            const data = @embedFile("ui/menu-" ++ name ++ "-" ++ @tagName(variant) ++ ".ui");
-            const builder = c.gtk_builder_new_from_string(data.ptr, @intCast(data.len));
+            const path = "ui/menu-" ++ name ++ "-" ++ variant ++ ".ui";
+
+            comptime {
+                // Use @embedFile to make sure that the file exists at compile
+                // time. Zig _should_ discard the data so that it doesn't end up
+                // in the final executable. At runtime we will load the data from
+                // a GResource.
+                _ = @embedFile(path);
+
+                // Check to make sure that our file is listed as a `ui_file` in
+                // `gresource.zig`. If it isn't Ghostty could crash at runtime
+                // when we try and load a nonexistent GResource.
+                const gresource = @import("gresource.zig");
+                for (gresource.ui_files) |ui_file| {
+                    if (std.mem.eql(u8, ui_file, "menu-" ++ name ++ "-" ++ variant)) break;
+                } else @compileError("missing 'menu-" ++ name ++ "-" ++ variant ++ "' in gresource.zig");
+            }
+
+            const builder = c.gtk_builder_new_from_resource("/com/mitchellh/ghostty/" ++ path);
             defer c.g_object_unref(@ptrCast(builder));
 
             const menu_model: *c.GMenuModel = @ptrCast(@alignCast(c.gtk_builder_get_object(builder, "menu")));

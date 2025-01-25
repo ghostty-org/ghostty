@@ -223,7 +223,7 @@ pub const App = struct {
             .toggle_window_decorations,
             .toggle_quick_terminal,
             .toggle_visibility,
-            .toggle_top_menu,
+            .toggle_menubar,
             .goto_tab,
             .move_tab,
             .inspector,

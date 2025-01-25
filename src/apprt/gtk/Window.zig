@@ -48,14 +48,14 @@ tab_overview: ?*c.GtkWidget,
 /// can be either c.GtkNotebook or c.AdwTabView.
 notebook: Notebook,
 
-/// The "top" menu that appears at the top of a window.
-top_menu: Menu(Window, .top, .popover_menu_bar),
+/// Menu that appears at the top of a window inbetween the titlebar and tabbar.
+menubar: Menu(Window, "menubar", .popover_menu_bar),
 
 /// Revealer for showing/hiding top menu.
-top_menu_revealer: *c.GtkRevealer,
+menubar_revealer: *c.GtkRevealer,
 
 /// The "main" menu that is attached to a button in the headerbar.
-titlebar_menu: Menu(Window, .titlebar, .popover_menu),
+titlebar_menu: Menu(Window, "titlebar_menu", .popover_menu),
 
 /// The libadwaita widget for receiving toast send requests. If libadwaita is
 /// not used, this is null and unused.
@@ -104,8 +104,8 @@ pub fn init(self: *Window, app: *App) !void {
         .tab_overview = null,
         .toast_overlay = null,
         .notebook = undefined,
-        .top_menu = undefined,
-        .top_menu_revealer = undefined,
+        .menubar = undefined,
+        .menubar_revealer = undefined,
         .titlebar_menu = undefined,
         .winproto = .none,
     };
@@ -149,12 +149,12 @@ pub fn init(self: *Window, app: *App) !void {
     const box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 0);
 
     // Set up the menus
-    self.top_menu.init();
+    self.menubar.init();
     self.titlebar_menu.init();
 
-    self.top_menu_revealer = @ptrCast(@alignCast(c.gtk_revealer_new()));
-    c.gtk_revealer_set_child(self.top_menu_revealer, self.top_menu.asWidget());
-    c.gtk_revealer_set_transition_type(self.top_menu_revealer, c.GTK_REVEALER_TRANSITION_TYPE_SLIDE_DOWN);
+    self.menubar_revealer = @ptrCast(@alignCast(c.gtk_revealer_new()));
+    c.gtk_revealer_set_child(self.menubar_revealer, self.menubar.asWidget());
+    c.gtk_revealer_set_transition_type(self.menubar_revealer, c.GTK_REVEALER_TRANSITION_TYPE_SLIDE_DOWN);
 
     // Setup our notebook
     self.notebook.init();
@@ -200,7 +200,7 @@ pub fn init(self: *Window, app: *App) !void {
         _ = c.g_signal_connect_data(
             btn,
             "notify::active",
-            c.G_CALLBACK(&gtkMenuActivate),
+            c.G_CALLBACK(&gtkTitlebarMenuActivate),
             self,
             null,
             c.G_CONNECT_DEFAULT,
@@ -258,11 +258,11 @@ pub fn init(self: *Window, app: *App) !void {
         .adw140 => {},
         .adw, .adw130 => {
             c.gtk_box_append(@ptrCast(box), self.headerbar.asWidget());
-            c.gtk_box_append(@ptrCast(box), @ptrCast(@alignCast(self.top_menu_revealer)));
+            c.gtk_box_append(@ptrCast(box), @ptrCast(@alignCast(self.menubar_revealer)));
         },
         .gtk => {
             c.gtk_window_set_titlebar(gtk_window, self.headerbar.asWidget());
-            c.gtk_box_append(@ptrCast(box), @ptrCast(@alignCast(self.top_menu_revealer)));
+            c.gtk_box_append(@ptrCast(box), @ptrCast(@alignCast(self.menubar_revealer)));
         },
     }
 
@@ -344,7 +344,7 @@ pub fn init(self: *Window, app: *App) !void {
 
             const top_box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 0);
             c.gtk_box_append(@ptrCast(top_box), self.headerbar.asWidget());
-            c.gtk_box_append(@ptrCast(top_box), @ptrCast(@alignCast(self.top_menu_revealer)));
+            c.gtk_box_append(@ptrCast(top_box), @ptrCast(@alignCast(self.menubar_revealer)));
 
             c.adw_toolbar_view_add_top_bar(toolbar_view, top_box);
 
@@ -644,9 +644,9 @@ pub fn toggleWindowDecorations(self: *Window) void {
 }
 
 /// Toggle top menu.
-pub fn toggleTopMenu(self: *Window) void {
-    const is_revealed = c.gtk_revealer_get_reveal_child(self.top_menu_revealer) != 0;
-    c.gtk_revealer_set_reveal_child(self.top_menu_revealer, @intFromBool(!is_revealed));
+pub fn toggleMenubar(self: *Window) void {
+    const is_revealed = c.gtk_revealer_get_reveal_child(self.menubar_revealer) != 0;
+    c.gtk_revealer_set_reveal_child(self.menubar_revealer, @intFromBool(!is_revealed));
 }
 
 /// Grabs focus on the currently selected tab.
@@ -1149,7 +1149,7 @@ fn userdataSelf(ud: *anyopaque) *Window {
     return @ptrCast(@alignCast(ud));
 }
 
-fn gtkMenuActivate(
+fn gtkTitlebarMenuActivate(
     btn: *c.GtkMenuButton,
     _: *c.GParamSpec,
     ud: ?*anyopaque,

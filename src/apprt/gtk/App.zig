@@ -506,7 +506,7 @@ pub fn performAction(
         }),
         .toggle_maximize => self.toggleMaximize(target),
         .toggle_fullscreen => self.toggleFullscreen(target, value),
-        .toggle_top_menu => self.toggleTopMenu(target),
+        .toggle_menubar => self.toggleMenubar(target),
 
         .new_tab => try self.newTab(target),
         .close_tab => try self.closeTab(target),
@@ -789,18 +789,18 @@ fn toggleWindowDecorations(
     }
 }
 
-fn toggleTopMenu(_: *App, target: apprt.Target) void {
+fn toggleMenubar(_: *App, target: apprt.Target) void {
     switch (target) {
         .app => {},
         .surface => |v| {
             const window = v.rt_surface.container.window() orelse {
                 log.info(
-                    "toggleTopMenu invalid for container={s}",
+                    "toggleMenubar invalid for container={s}",
                     .{@tagName(v.rt_surface.container)},
                 );
                 return;
             };
-            window.toggleTopMenu();
+            window.toggleMenubar();
         },
     }
 }

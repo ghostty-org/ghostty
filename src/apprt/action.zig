@@ -110,8 +110,8 @@ pub const Action = union(Key) {
     /// Toggle the visibility of all Ghostty terminal windows.
     toggle_visibility,
 
-    /// Toggle whether the top menu is shown.
-    toggle_top_menu,
+    /// Toggle whether the window menubar is shown.
+    toggle_menubar,
 
     /// Moves a tab by a relative offset.
     ///
@@ -243,7 +243,7 @@ pub const Action = union(Key) {
         toggle_window_decorations,
         toggle_quick_terminal,
         toggle_visibility,
-        toggle_top_menu,
+        toggle_menubar,
         move_tab,
         goto_tab,
         goto_split,
