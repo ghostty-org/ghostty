@@ -1,0 +1,13 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<interface domain="com.mitchellh.ghostty">
+  <requires lib="gtk" version="4.0"/>
+  <menu id="menu">
+    <section>
+      <item>
+        <attribute name="label" translatable="yes">Rename</attribute>
+        <attribute name="action">win.rename-tab</attribute>
+      </item>
+    </section>
+  </menu>
+</interface>
+

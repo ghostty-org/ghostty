@@ -37,6 +37,12 @@ elem: Surface.Container.Elem,
 // can easily re-focus that terminal.
 focus_child: ?*Surface,
 
+/// Manually set title, will override titles set by ESC sequences.
+manual_title: ?[:0]const u8 = null,
+
+/// The last title set by ESC sequences.
+auto_title: ?[:0]const u8 = null,
+
 pub fn create(alloc: Allocator, window: *Window, parent_: ?*CoreSurface) !*Tab {
     var tab = try alloc.create(Tab);
     errdefer alloc.destroy(tab);
@@ -88,6 +94,8 @@ pub fn init(self: *Tab, window: *Window, parent_: ?*CoreSurface) !void {
 
 /// Deinits tab by deiniting child elem.
 pub fn deinit(self: *Tab, alloc: Allocator) void {
+    if (self.manual_title) |manual_title| alloc.free(manual_title);
+    if (self.auto_title) |auto_title| alloc.free(auto_title);
     self.elem.deinit(alloc);
 }
 
@@ -108,8 +116,49 @@ pub fn replaceElem(self: *Tab, elem: Surface.Container.Elem) void {
     self.elem = elem;
 }
 
-pub fn setLabelText(self: *Tab, title: [:0]const u8) void {
-    self.window.notebook.setTabLabel(self, title);
+pub fn setManualTitle(self: *Tab, title: []const u8) void {
+    const alloc = self.window.app.core_app.alloc;
+
+    self.unsetManualTitle();
+
+    const stripped = std.mem.trim(u8, title, &std.ascii.whitespace);
+    if (stripped.len == 0) {
+        if (self.auto_title) |auto_title| {
+            self.window.notebook.setTabTitle(self, auto_title);
+        }
+        return;
+    }
+
+    const manual_title = alloc.dupeZ(u8, title) catch |err| {
+        log.warn("unable to copy manual title: {}", .{err});
+        return;
+    };
+    self.manual_title = manual_title;
+
+    self.window.notebook.setTabTitle(self, manual_title);
+}
+
+pub fn unsetManualTitle(self: *Tab) void {
+    const alloc = self.window.app.core_app.alloc;
+
+    if (self.manual_title) |manual_title| {
+        alloc.free(manual_title);
+        self.manual_title = null;
+    }
+}
+
+pub fn setTitleText(self: *Tab, title: [:0]const u8) void {
+    const alloc = self.window.app.core_app.alloc;
+    if (self.manual_title) |manual_title| {
+        self.window.notebook.setTabTitle(self, manual_title);
+        return;
+    }
+    if (self.auto_title) |auto_title| {
+        alloc.free(auto_title);
+        self.auto_title = null;
+    }
+    self.auto_title = alloc.dupeZ(u8, title) catch null;
+    self.window.notebook.setTabTitle(self, title);
 }
 
 pub fn setTooltipText(self: *Tab, tooltip: [:0]const u8) void {

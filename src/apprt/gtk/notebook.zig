@@ -14,8 +14,6 @@ const AdwTabView = if (adwaita.versionAtLeast(0, 0, 0)) c.AdwTabView else anyopa
 
 /// An abstraction over the GTK notebook and Adwaita tab view to manage
 /// all the terminal tabs in a window.
-/// An abstraction over the GTK notebook and Adwaita tab view to manage
-/// all the terminal tabs in a window.
 pub const Notebook = union(enum) {
     adw: NotebookAdw,
     gtk: NotebookGtk,
@@ -26,6 +24,12 @@ pub const Notebook = union(enum) {
         if (adwaita.enabled(&app.config)) return NotebookAdw.init(self);
 
         return NotebookGtk.init(self);
+    }
+
+    pub fn deinit(self: *Notebook) void {
+        switch (self.*) {
+            inline else => |*n| n.deinit(),
+        }
     }
 
     pub fn asWidget(self: *Notebook) *c.GtkWidget {
@@ -121,10 +125,10 @@ pub const Notebook = union(enum) {
         }
     }
 
-    pub fn setTabLabel(self: *Notebook, tab: *Tab, title: [:0]const u8) void {
+    pub fn setTabTitle(self: *Notebook, tab: *Tab, title: [:0]const u8) void {
         switch (self.*) {
-            .adw => |*adw| adw.setTabLabel(tab, title),
-            .gtk => |*gtk| gtk.setTabLabel(tab, title),
+            .adw => |*adw| adw.setTabTitle(tab, title),
+            .gtk => |*gtk| gtk.setTabTitle(tab, title),
         }
     }
 
@@ -156,6 +160,13 @@ pub const Notebook = union(enum) {
         switch (self.*) {
             .adw => |*adw| adw.closeTab(tab),
             .gtk => |*gtk| gtk.closeTab(tab),
+        }
+    }
+
+    pub fn showRenameTab(self: *Notebook) void {
+        switch (self.*) {
+            .adw => |*adw| adw.showRenameTab(),
+            .gtk => {},
         }
     }
 };

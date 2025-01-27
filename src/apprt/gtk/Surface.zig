@@ -908,7 +908,7 @@ fn updateTitleLabels(self: *Surface) void {
 
     // If we have a tab and are the focused child, then we have to update the tab
     if (self.container.tab()) |tab| {
-        if (tab.focus_child == self) tab.setLabelText(title);
+        if (tab.focus_child == self) tab.setTitleText(title);
     }
 
     // If we have a window and are focused, then we have to update the window title.

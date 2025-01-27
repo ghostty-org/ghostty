@@ -1,0 +1,33 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<interface domain="com.mitchellh.ghostty">
+  <requires lib="gtk" version="4.0"/>
+  <requires lib="Adw" version="1.0"/>
+  <object class="AdwDialog" id="rename-tab">
+    <property name="content-width">350</property>
+    <property name="title">Set Tab Title</property>
+    <child>
+      <object class="AdwToolbarView">
+        <child type="top">
+          <object class="AdwHeaderBar"/>
+        </child>
+        <property name="content">
+          <object class="AdwPreferencesGroup">
+            <property name="margin-bottom">18</property>
+            <property name="margin-end">18</property>
+            <property name="margin-start">18</property>
+            <property name="margin-top">18</property>
+            <child>
+              <object class="AdwEntryRow" id="title">
+                <property name="title" translatable="yes">Title</property>
+                <property name="show-apply-button">true</property>
+                <property name="enable-emoji-completion">true</property>
+              </object>
+            </child>
+          </object>
+        </property>
+      </object>
+    </child>
+  </object>
+</interface>
+
+

@@ -510,6 +510,7 @@ fn initActions(self: *Window) void {
         .{ "paste", &gtkActionPaste },
         .{ "reset", &gtkActionReset },
         .{ "clear", &gtkActionClear },
+        .{ "rename-tab", &gtkActionRenameTab },
     };
 
     inline for (actions) |entry| {
@@ -528,6 +529,7 @@ fn initActions(self: *Window) void {
 }
 
 pub fn deinit(self: *Window) void {
+    self.notebook.deinit();
     self.winproto.deinit(self.app.core_app.alloc);
 
     if (self.adw_tab_overview_focus_timer) |timer| {
@@ -1136,6 +1138,15 @@ fn gtkActionClear(
         log.warn("error performing binding action error={}", .{err});
         return;
     };
+}
+
+fn gtkActionRenameTab(
+    _: *c.GSimpleAction,
+    _: *c.GVariant,
+    ud: ?*anyopaque,
+) callconv(.C) void {
+    const self: *Window = @ptrCast(@alignCast(ud orelse return));
+    self.notebook.showRenameTab();
 }
 
 /// Returns the surface to use for an action.

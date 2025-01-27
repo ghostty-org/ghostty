@@ -54,9 +54,11 @@ const icons = [_]struct {
 };
 
 pub const ui_files = [_][]const u8{
+    "menu-adw-notebook-tab",
     "menu-surface-context_menu",
     "menu-window-menubar",
     "menu-window-titlebar_menu",
+    "window-adw-rename-tab",
 };
 
 pub const gresource_xml = comptimeGenerateGResourceXML();

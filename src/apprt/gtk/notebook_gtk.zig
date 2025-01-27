@@ -59,6 +59,10 @@ pub const NotebookGtk = struct {
         _ = c.g_signal_connect_data(gtk_notebook, "create-window", c.G_CALLBACK(&gtkNotebookCreateWindow), window, null, c.G_CONNECT_DEFAULT);
     }
 
+    pub fn deinit(self: NotebookGtk) void {
+        _ = self;
+    }
+
     /// return the underlying widget as a generic GtkWidget
     pub fn asWidget(self: *NotebookGtk) *c.GtkWidget {
         return @ptrCast(@alignCast(self.notebook));
@@ -101,7 +105,7 @@ pub const NotebookGtk = struct {
         c.gtk_notebook_reorder_child(self.notebook, @ptrCast(tab.box), position);
     }
 
-    pub fn setTabLabel(_: *NotebookGtk, tab: *Tab, title: [:0]const u8) void {
+    pub fn setTabTitle(_: *NotebookGtk, tab: *Tab, title: [:0]const u8) void {
         c.gtk_label_set_text(tab.label_text, title.ptr);
     }
 

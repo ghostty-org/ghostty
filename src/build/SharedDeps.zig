@@ -475,7 +475,9 @@ pub fn add(
                             .root_source_file = b.path("src/apprt/gtk/builder_check.zig"),
                             .target = b.host,
                         });
+                        builder_check.root_module.addOptions("build_options", self.options);
                         builder_check.linkSystemLibrary2("gtk4", dynamic_link_opts);
+                        if (self.config.adwaita) builder_check.linkSystemLibrary2("libadwaita-1", dynamic_link_opts);
                         builder_check.linkLibC();
 
                         for (gresource.dependencies) |pathname| {
