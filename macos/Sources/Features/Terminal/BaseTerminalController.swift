@@ -775,13 +775,79 @@ class BaseTerminalController: NSWindowController,
             // We have no previous style
             self.fullscreenStyle = newStyle
         }
-        guard let fullscreenStyle else { return }
 
-        if fullscreenStyle.isFullscreen {
-            fullscreenStyle.exit()
-        } else {
-            fullscreenStyle.enter()
+        if let fullscreenStyle {
+            if fullscreenStyle.isFullscreen {
+                fullscreenStyle.exit()
+            } else {
+                fullscreenStyle.enter()
+            }
         }
+
+        if let tabbedWindows = window.tabbedWindows {
+            for otherTabWindow in tabbedWindows {
+                if otherTabWindow != window,
+                    let otherTabController = otherTabWindow.windowController as? BaseTerminalController
+                {
+                    otherTabController.syncNonNativeTabbedFullscreenState(with: self)
+                }
+            }
+        }
+    }
+
+    // Update window fullscreen state to match the given controller.
+    func syncNonNativeTabbedFullscreenState(with controller: BaseTerminalController) {
+        // We need a window to sync its fullscreen-ness
+        guard let window = self.window else { return }
+
+        // If the target fullscreen style is not a non-native titled
+        // fullscreen style, we are not interested in syncing.
+        guard let targetFullscreenStyle = controller.fullscreenStyle as? NonNativeFullscreen else { return }
+        if !targetFullscreenStyle.properties.titled {
+            return
+        }
+
+        if !targetFullscreenStyle.isFullscreen {
+            if let oldStyle = self.fullscreenStyle as? NonNativeFullscreen, oldStyle.isFullscreen {
+                oldStyle.exit(shouldFocus: false)
+            }
+
+            guard let controllerWindow = controller.window else { return }
+            window.setFrame(controllerWindow.frame, display: true)
+
+            return
+        }
+
+        if let oldStyle = self.fullscreenStyle, oldStyle.isFullscreen {
+            if type(of: oldStyle) == type(of: targetFullscreenStyle) {
+                // If the styles are the same and the old style is already in fullscreen mode
+                // we don't need to do anything.
+                return
+            } else {
+                // If it's a different type of fullscreen style, exit fullscreen first
+                oldStyle.exit()
+            }
+        }
+
+        // At this point `targetFullscreenStyle` is `NonNativeFullscreen`, so we know
+        // `newStyle` will be too, so the next line is solely for the sake of keeping
+        // the type-checker happy
+        guard let newStyle = targetFullscreenStyle.fullscreenMode.style(for: window) as? NonNativeFullscreen else {
+            return
+        }
+        newStyle.delegate = self
+        self.fullscreenStyle = newStyle
+
+        newStyle.enter(shouldFocus: false)
+    }
+
+    // These are mostly hacks and patches, required to keep the behavior of the tab-supporting
+    // non-native fullscreen style consistent
+    func reapplyNonNativeTabbedFullscreen() {
+        // If the target fullscreen style is not a non-native fullscreen style,
+        // we are not interested in reapplying fullscreen style.
+        guard let fullscreenStyle = fullscreenStyle as? NonNativeFullscreen else { return }
+        fullscreenStyle.reapply()
     }
 
     func fullscreenDidChange() {}
@@ -921,6 +987,9 @@ class BaseTerminalController: NSWindowController,
         // Becoming/losing key means we have to notify our surface(s) that we have focus
         // so things like cursors blink, pty events are sent, etc.
         self.syncFocusToSurfaceTree()
+        // Some non-native fullscreen modes are displaced/repositioned when losing/taking
+        // focus. So we try to fix their position/size whenever the window takes focus.
+        self.reapplyNonNativeTabbedFullscreen()
     }
 
     func windowDidResignKey(_ notification: Notification) {

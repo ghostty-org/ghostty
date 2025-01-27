@@ -204,7 +204,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                     // fullscreen for the logic later in this method.
                     c.toggleFullscreen(mode: .native)
 
-                case .nonNative, .nonNativeVisibleMenu, .nonNativePaddedNotch:
+                case .nonNative, .nonNativeVisibleMenu, .nonNativePaddedNotch, .nonNativeTitledVisibleMenu:
                     // If we're non-native then we have to do it on a later loop
                     // so that the content view is setup.
                     DispatchQueue.main.async {
@@ -268,7 +268,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return newWindow(ghostty, withBaseConfig: baseConfig, withParent: parent)
         }
 
-        // If our parent is in non-native fullscreen, then new tabs do not work.
+        // If our parent is in non-native fullscreen, not supporting tabs,
+        // then new tabs do not work.
         // See: https://github.com/mitchellh/ghostty/issues/392
         if let fullscreenStyle = parentController.fullscreenStyle,
            fullscreenStyle.isFullscreen && !fullscreenStyle.supportsTabs {
@@ -284,6 +285,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // Create a new window and add it to the parent
         let controller = TerminalController.init(ghostty, withBaseConfig: baseConfig)
         guard let window = controller.window else { return controller }
+
+        // Non-native tab-supporting fullscreen styles should be manually synced.
+        // It will be a no-op if no sync is needed.
+        controller.syncNonNativeTabbedFullscreenState(with: parentController)
 
         // If the parent is miniaturized, then macOS exhibits really strange behaviors
         // so we have to bring it back out.
