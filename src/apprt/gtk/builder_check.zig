@@ -21,6 +21,11 @@ pub fn main() !void {
     };
     defer alloc.free(filename);
 
+    if (c.gtk_init_check() == 0) {
+        std.debug.print("skipping builder check because we can't connect to display!\n", .{});
+        return;
+    }
+
     if (comptime build_options.adwaita) {
         c.adw_init();
     } else {
