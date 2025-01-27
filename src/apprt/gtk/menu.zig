@@ -5,6 +5,7 @@ const apprt = @import("../../apprt.zig");
 const App = @import("App.zig");
 const Window = @import("Window.zig");
 const Surface = @import("Surface.zig");
+const Builder = @import("Builder.zig");
 
 const log = std.log.scoped(.gtk_menu);
 
@@ -31,28 +32,10 @@ pub fn Menu(
             };
             const parent: *T = @alignCast(@fieldParentPtr(variant, self));
 
-            const path = "ui/menu-" ++ name ++ "-" ++ variant ++ ".ui";
+            const builder = Builder.init("menu-" ++ name ++ "-" ++ variant);
+            defer builder.deinit();
 
-            comptime {
-                // Use @embedFile to make sure that the file exists at compile
-                // time. Zig _should_ discard the data so that it doesn't end up
-                // in the final executable. At runtime we will load the data from
-                // a GResource.
-                _ = @embedFile(path);
-
-                // Check to make sure that our file is listed as a `ui_file` in
-                // `gresource.zig`. If it isn't Ghostty could crash at runtime
-                // when we try and load a nonexistent GResource.
-                const gresource = @import("gresource.zig");
-                for (gresource.ui_files) |ui_file| {
-                    if (std.mem.eql(u8, ui_file, "menu-" ++ name ++ "-" ++ variant)) break;
-                } else @compileError("missing 'menu-" ++ name ++ "-" ++ variant ++ "' in gresource.zig");
-            }
-
-            const builder = c.gtk_builder_new_from_resource("/com/mitchellh/ghostty/" ++ path);
-            defer c.g_object_unref(@ptrCast(builder));
-
-            const menu_model: *c.GMenuModel = @ptrCast(@alignCast(c.gtk_builder_get_object(builder, "menu")));
+            const menu_model = builder.getObject(c.GMenuModel, "menu");
 
             const menu_widget: *MenuWidget = switch (style) {
                 .popover_menu => brk: {
