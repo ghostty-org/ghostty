@@ -4202,6 +4202,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 .true => .macos_non_native,
                 .@"visible-menu" => .macos_non_native_visible_menu,
                 .@"padded-notch" => .macos_non_native_padded_notch,
+                .@"titled-visible-menu" => .macos_non_native_titled_visible_menu,
             },
         ),
 
@@ -4704,3 +4705,4 @@ fn presentSurface(self: *Surface) !void {
         {},
     );
 }
+

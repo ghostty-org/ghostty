@@ -16,6 +16,9 @@ extension FullscreenMode {
         case GHOSTTY_FULLSCREEN_NON_NATIVE_PADDED_NOTCH:
                 .nonNativePaddedNotch
 
+        case GHOSTTY_FULLSCREEN_NON_NATIVE_TITLED_VISIBLE_MENU:
+                .nonNativeTitledVisibleMenu
+
         default:
             nil
         }
