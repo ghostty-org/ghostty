@@ -294,9 +294,7 @@ pub fn init(self: *Window, app: *App) !void {
             const tab_bar = c.adw_tab_bar_new();
             c.adw_tab_bar_set_view(tab_bar, self.notebook.adw.tab_view);
 
-            if (!app.config.@"gtk-tabs-can-focus") {
-                c.gtk_widget_set_can_focus(@ptrCast(@alignCast(tab_bar)), 0);
-            }
+            c.gtk_widget_set_can_focus(@ptrCast(@alignCast(tab_bar)), 0);
 
             if (!app.config.@"gtk-wide-tabs") c.adw_tab_bar_set_expand_tabs(tab_bar, 0);
 
@@ -352,9 +350,7 @@ pub fn init(self: *Window, app: *App) !void {
                 }
                 c.adw_tab_bar_set_view(tab_bar, adw.tab_view);
 
-                if (!app.config.@"gtk-tabs-can-focus") {
-                    c.gtk_widget_set_can_focus(@ptrCast(@alignCast(tab_bar)), 0);
-                }
+                c.gtk_widget_set_can_focus(@ptrCast(@alignCast(tab_bar)), 0);
 
                 if (!app.config.@"gtk-wide-tabs") c.adw_tab_bar_set_expand_tabs(tab_bar, 0);
             },
