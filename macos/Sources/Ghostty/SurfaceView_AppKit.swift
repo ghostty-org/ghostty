@@ -234,6 +234,11 @@ extension Ghostty {
 
             // The UTTypes that can be dragged onto this view.
             registerForDraggedTypes(Array(Self.dropTypes))
+
+            // Disable Automatic Termination while we have a surface open,
+            // since an open surface means there’s state the user cares about
+            // that can’t be restored.
+            ProcessInfo.processInfo.disableAutomaticTermination("surface created")
         }
 
         required init?(coder: NSCoder) {
@@ -261,6 +266,11 @@ extension Ghostty {
 
             guard let surface = self.surface else { return }
             ghostty_surface_free(surface)
+
+            // Re-enable Automatic Termination once we know this surface is
+            // gone, since that means we have nothing to lose if macOS decides
+            // to kill us.
+            ProcessInfo.processInfo.enableAutomaticTermination("surface freed")
         }
 
         /// Close the surface early. This will free the associated Ghostty surface and the view will
@@ -275,6 +285,9 @@ extension Ghostty {
             guard let surface = self.surface else { return }
             ghostty_surface_free(surface)
             self.surface = nil
+
+            // Same as the other call to this function in deinit
+            ProcessInfo.processInfo.enableAutomaticTermination("surface freed")
         }
 
         func focusDidChange(_ focused: Bool) {
