@@ -12,12 +12,13 @@ const log = std.log.scoped(.gtk_menu);
 pub fn Menu(
     comptime T: type,
     comptime variant: []const u8,
-    comptime style: enum { popover_menu, popover_menu_bar },
+    comptime style: enum { popover_menu, popover_menu_no_arrow, popover_menu_bar },
 ) type {
     return struct {
         const Self = @This();
         const MenuWidget = switch (style) {
             .popover_menu => c.GtkPopoverMenu,
+            .popover_menu_no_arrow => c.GtkPopoverMenu,
             .popover_menu_bar => c.GtkPopoverMenuBar,
         };
 
@@ -38,9 +39,12 @@ pub fn Menu(
             const menu_model = builder.getObject(c.GMenuModel, "menu");
 
             const menu_widget: *MenuWidget = switch (style) {
-                .popover_menu => brk: {
+                .popover_menu, .popover_menu_no_arrow => brk: {
                     const menu_widget: *MenuWidget = @ptrCast(@alignCast(c.gtk_popover_menu_new_from_model(menu_model)));
                     c.gtk_popover_menu_set_flags(menu_widget, c.GTK_POPOVER_MENU_NESTED);
+                    if (style == .popover_menu_no_arrow) {
+                        c.gtk_popover_set_has_arrow(@ptrCast(@alignCast(menu_widget)), 0);
+                    }
                     _ = c.g_signal_connect_data(
                         @ptrCast(@alignCast(menu_widget)),
                         "closed",

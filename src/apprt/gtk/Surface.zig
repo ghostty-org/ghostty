@@ -380,7 +380,7 @@ im_len: u7 = 0,
 cgroup_path: ?[]const u8 = null,
 
 /// Our context menu.
-context_menu: Menu(Surface, "context_menu", .popover_menu),
+context_menu: Menu(Surface, "context_menu", .popover_menu_no_arrow),
 
 /// Configuration used for initializing the surface. We have to copy some
 /// data since initialization is delayed with GTK (on realize).
