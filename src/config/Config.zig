@@ -454,7 +454,7 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 /// the selection color is just the inverted window background and foreground
 /// (note: not to be confused with the cell bg/fg).
 /// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
-/// Since version 1.0.2, this can also be set to `cell-foreground` to match
+/// Since version 1.1.1, this can also be set to `cell-foreground` to match
 /// the cell foreground color, or `cell-background` to match the cell
 /// background color.
 @"selection-foreground": ?DynamicColor = null,
@@ -467,7 +467,7 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 /// If you select across cells with differing foregrounds and backgrounds, the
 /// selection color will vary across the selection.
 ///
-/// Warning: This option has been deprecated as of version 1.0.2. Instead,
+/// Warning: This option has been deprecated as of version 1.1.1. Instead,
 /// users should set `selection-foreground` and `selection-background` to
 /// `cell-background` and `cell-foreground`, respectively.
 @"selection-invert-fg-bg": bool = false,
@@ -500,7 +500,7 @@ palette: Palette = .{},
 
 /// The color of the cursor. If this is not set, a default will be chosen.
 /// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
-/// Since version 1.0.2, this can also be set to `cell-foreground` to match
+/// Since version 1.1.1, this can also be set to `cell-foreground` to match
 /// the cell foreground color, or `cell-background` to match the cell
 /// background color.
 @"cursor-color": ?DynamicColor = null,
@@ -508,7 +508,7 @@ palette: Palette = .{},
 /// Swap the foreground and background colors of the cell under the cursor. This
 /// option overrides the `cursor-color` and `cursor-text` options.
 ///
-/// Warning: This option has been deprecated as of version 1.0.2. Instead,
+/// Warning: This option has been deprecated as of version 1.1.1. Instead,
 /// users should set `cursor-color` and `cursor-text` to `cell-foreground` and
 /// `cell-background`, respectively.
 @"cursor-invert-fg-bg": bool = false,
@@ -561,7 +561,7 @@ palette: Palette = .{},
 /// The color of the text under the cursor. If this is not set, a default will
 /// be chosen.
 /// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
-/// Since version 1.0.2, this can also be set to `cell-foreground` to match
+/// Since version 1.1.1, this can also be set to `cell-foreground` to match
 /// the cell foreground color, or `cell-background` to match the cell
 /// background color.
 @"cursor-text": ?DynamicColor = null,
