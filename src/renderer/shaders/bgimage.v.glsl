@@ -5,12 +5,13 @@
 // NOTE: this must be kept in sync with the BackgroundImageMode
 const uint MODE_ZOOMED = 0u;
 const uint MODE_STRETCHED = 1u;
-const uint MODE_TILED = 2u;
-const uint MODE_CENTERED = 3u;
-const uint MODE_UPPER_LEFT = 4u;
-const uint MODE_UPPER_RIGHT = 5u;
-const uint MODE_LOWER_LEFT = 6u;
-const uint MODE_LOWER_RIGHT = 7u;
+const uint MODE_CROPPED = 2u;
+const uint MODE_TILED = 3u;
+const uint MODE_CENTERED = 4u;
+const uint MODE_UPPER_LEFT = 5u;
+const uint MODE_UPPER_RIGHT = 6u;
+const uint MODE_LOWER_LEFT = 7u;
+const uint MODE_LOWER_RIGHT = 8u;
 
 layout (location = 0) in vec2 terminal_size;
 layout (location = 1) in uint mode;
@@ -32,14 +33,25 @@ void main() {
 	// Handles the scale of the image relative to the terminal size
 	vec2 scale = vec2(1.0, 1.0);
 
+	// Calculate the aspect ratio of the terminal and the image
+	vec2 aspect_ratio = vec2(
+		terminal_size.x / terminal_size.y,
+		image_size.x / image_size.y
+	);
+
 	switch (mode) {
 	case MODE_ZOOMED:
 		// If zoomed, we want to scale the image to fit the terminal
-		vec2 aspect_ratio = vec2(
-			terminal_size.x / terminal_size.y,
-			image_size.x / image_size.y
-		);
 		if (aspect_ratio.x > aspect_ratio.y) {
+			scale.x = aspect_ratio.y / aspect_ratio.x;
+		}
+		else {
+			scale.y = aspect_ratio.x / aspect_ratio.y;
+		}
+		break;
+	case MODE_CROPPED:
+		// If cropped, we want to scale the image to fit the terminal
+		if (aspect_ratio.x < aspect_ratio.y) {
 			scale.x = aspect_ratio.y / aspect_ratio.x;
 		}
 		else {
@@ -67,6 +79,7 @@ void main() {
 	switch (mode) {
 	case MODE_ZOOMED:
 	case MODE_STRETCHED:
+	case MODE_CROPPED:
 	case MODE_TILED:
 	case MODE_CENTERED:
 		offset = (terminal_size * (1.0 - scale)) / 2.0;

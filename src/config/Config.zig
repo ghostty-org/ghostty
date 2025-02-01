@@ -470,7 +470,9 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 /// Valid values are:
 ///
 ///   * `zoomed` - Image is scaled to fit the window, preserving aspect ratio.
-///   * `scaled` - Image is scaled to fill the window, not preserving aspect ratio.
+///   * `stretched` - Image is stretched to fill the window, not preserving aspect ratio.
+///   * `cropped` - Image is centered in the window, preserving the aspect ratio
+///     but cropping the image to fill the window, as needed.
 ///   * `tiled` - Image is repeated horizontally and vertically to fill the window.
 ///   * `centered` - Image is centered in the window and displayed 1-to-1 pixel
 ///     scale, preserving both the aspect ratio and the image size.
@@ -6330,12 +6332,13 @@ pub const AlphaBlending = enum {
 pub const BackgroundImageMode = enum(u8) {
     zoomed = 0,
     stretched = 1,
-    tiled = 2,
-    centered = 3,
-    upper_left = 4,
-    upper_right = 5,
-    lower_left = 6,
-    lower_right = 7,
+    cropped = 2,
+    tiled = 3,
+    centered = 4,
+    upper_left = 5,
+    upper_right = 6,
+    lower_left = 7,
+    lower_right = 8,
 };
 
 /// See freetype-load-flag
