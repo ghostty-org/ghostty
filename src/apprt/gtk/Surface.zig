@@ -266,8 +266,8 @@ pub const URLWidget = struct {
         );
 
         // Show it
-        c.gtk_overlay_add_overlay(@ptrCast(surface.overlay), left);
-        c.gtk_overlay_add_overlay(@ptrCast(surface.overlay), right);
+        c.gtk_overlay_add_overlay(surface.overlay, left);
+        c.gtk_overlay_add_overlay(surface.overlay, right);
 
         return .{
             .left = left,
@@ -276,8 +276,8 @@ pub const URLWidget = struct {
     }
 
     pub fn deinit(self: *URLWidget, overlay: *c.GtkOverlay) void {
-        c.gtk_overlay_remove_overlay(@ptrCast(overlay), @ptrCast(self.left));
-        c.gtk_overlay_remove_overlay(@ptrCast(overlay), @ptrCast(self.right));
+        c.gtk_overlay_remove_overlay(overlay, @ptrCast(self.left));
+        c.gtk_overlay_remove_overlay(overlay, @ptrCast(self.right));
     }
 
     pub fn setText(self: *const URLWidget, str: [:0]const u8) void {
@@ -329,7 +329,7 @@ gl_area: *c.GtkGLArea,
 url_widget: ?URLWidget = null,
 
 /// The overlay that shows resizing information.
-resize_overlay: ResizeOverlay = .{},
+resize_overlay: ResizeOverlay = undefined,
 
 /// Whether or not the current surface is zoomed in (see `toggle_split_zoom`).
 zoomed_in: bool = false,
@@ -553,7 +553,7 @@ pub fn init(self: *Surface, app: *App, opts: Options) !void {
         .container = .{ .none = {} },
         .overlay = @ptrCast(overlay),
         .gl_area = @ptrCast(gl_area),
-        .resize_overlay = ResizeOverlay.init(self),
+        .resize_overlay = undefined,
         .title_text = null,
         .core_surface = undefined,
         .font_size = font_size,
@@ -564,6 +564,9 @@ pub fn init(self: *Surface, app: *App, opts: Options) !void {
         .cgroup_path = cgroup_path,
     };
     errdefer self.* = undefined;
+
+    // initialize the resize overlay
+    self.resize_overlay.init();
 
     // Set our default mouse shape
     try self.setMouseShape(.text);
