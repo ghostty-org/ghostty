@@ -16,7 +16,6 @@ pub const Mailbox = apprt.surface.Mailbox;
 pub const Message = apprt.surface.Message;
 
 const std = @import("std");
-const process = std.process;
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
