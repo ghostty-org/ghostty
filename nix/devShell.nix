@@ -54,6 +54,7 @@
   wayland,
   wayland-scanner,
   wayland-protocols,
+  gettext,
 }: let
   # See package.nix. Keep in sync.
   rpathLibs =
@@ -84,6 +85,7 @@
       gtk4
       glib
       wayland
+      gettext
     ];
 in
   mkShell {

@@ -25,6 +25,7 @@ const ResizeOverlay = @import("ResizeOverlay.zig");
 const inspector = @import("inspector.zig");
 const gtk_key = @import("key.zig");
 const c = @import("c.zig").c;
+const intl = @import("intl");
 
 const log = std.log.scoped(.gtk_surface);
 
@@ -725,14 +726,16 @@ pub fn close(self: *Surface, processActive: bool) void {
         c.GTK_DIALOG_MODAL,
         c.GTK_MESSAGE_QUESTION,
         c.GTK_BUTTONS_YES_NO,
-        "Close this terminal?",
+        intl._("Close this terminal?"),
     );
     c.gtk_message_dialog_format_secondary_text(
         @ptrCast(alert),
-        "There is still a running process in the terminal. " ++
-            "Closing the terminal will kill this process. " ++
-            "Are you sure you want to close the terminal?\n\n" ++
-            "Click 'No' to cancel and return to your terminal.",
+        intl._(
+            \\There is still a running process in the terminal. Closing the terminal will kill this process.
+            \\Are you sure you want to close the terminal?
+            \\
+            \\Click 'No' to cancel and return to your terminal.
+        ),
     );
 
     // We want the "yes" to appear destructive.
@@ -1136,7 +1139,7 @@ pub fn setClipboardString(
             self.app.config.@"app-notifications".@"clipboard-copy")
         {
             if (self.container.window()) |window|
-                window.sendToast("Copied to clipboard");
+                window.sendToast(intl._("Copied to clipboard"));
         }
         return;
     }

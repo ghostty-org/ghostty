@@ -13,6 +13,7 @@ const CoreSurface = @import("../../Surface.zig");
 const Surface = @import("Surface.zig");
 const Window = @import("Window.zig");
 const c = @import("c.zig").c;
+const intl = @import("intl");
 
 const log = std.log.scoped(.gtk);
 
@@ -140,11 +141,11 @@ pub fn closeWithConfirmation(tab: *Tab) void {
                     c.GTK_DIALOG_MODAL,
                     c.GTK_MESSAGE_QUESTION,
                     c.GTK_BUTTONS_YES_NO,
-                    "Close this tab?",
+                    intl._("Close this tab?"),
                 );
                 c.gtk_message_dialog_format_secondary_text(
                     @ptrCast(alert),
-                    "All terminal sessions in this tab will be terminated.",
+                    intl._("All terminal sessions in this tab will be terminated."),
                 );
 
                 // We want the "yes" to appear destructive.

@@ -9,6 +9,7 @@ const CoreSurface = @import("../../Surface.zig");
 const App = @import("App.zig");
 const View = @import("View.zig");
 const c = @import("c.zig").c;
+const intl = @import("intl");
 
 const log = std.log.scoped(.gtk);
 
@@ -166,8 +167,8 @@ const ButtonsView = struct {
 
     pub fn init(root: *ClipboardConfirmation) !ButtonsView {
         const cancel_text, const confirm_text = switch (root.pending_req) {
-            .paste => .{ "Cancel", "Paste" },
-            .osc_52_read, .osc_52_write => .{ "Deny", "Allow" },
+            .paste => .{ intl._("Cancel"), intl._("Paste") },
+            .osc_52_read, .osc_52_write => .{ intl._("Deny"), intl._("Allow") },
         };
 
         const cancel_button = c.gtk_button_new_with_label(cancel_text);
@@ -233,8 +234,8 @@ const ButtonsView = struct {
 /// The title of the window, based on the reason the prompt is being shown.
 fn titleText(req: apprt.ClipboardRequest) [:0]const u8 {
     return switch (req) {
-        .paste => "Warning: Potentially Unsafe Paste",
-        .osc_52_read, .osc_52_write => "Authorize Clipboard Access",
+        .paste => intl._("Warning: Potentially Unsafe Paste"),
+        .osc_52_read, .osc_52_write => intl._("Authorize Clipboard Access"),
     };
 }
 
@@ -242,16 +243,16 @@ fn titleText(req: apprt.ClipboardRequest) [:0]const u8 {
 /// is being shown.
 fn promptText(req: apprt.ClipboardRequest) [:0]const u8 {
     return switch (req) {
-        .paste =>
-        \\Pasting this text into the terminal may be dangerous as it looks like some commands may be executed.
-        ,
-        .osc_52_read =>
-        \\An application is attempting to read from the clipboard.
-        \\The current clipboard contents are shown below.
-        ,
-        .osc_52_write =>
-        \\An application is attempting to write to the clipboard.
-        \\The content to write is shown below.
-        ,
+        .paste => intl._(
+            \\Pasting this text into the terminal may be dangerous as it looks like some commands may be executed.
+        ),
+        .osc_52_read => intl._(
+            \\An application is attempting to read from the clipboard.
+            \\The current clipboard contents are shown below.
+        ),
+        .osc_52_write => intl._(
+            \\An application is attempting to write to the clipboard.
+            \\The content to write is shown below.
+        ),
     };
 }

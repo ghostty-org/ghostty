@@ -1,0 +1,159 @@
+msgid ""
+msgstr ""
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: src/apprt/gtk/App.zig:1827 src/apprt/gtk/Window.zig:918
+msgid "About Ghostty"
+msgstr ""
+
+#: src/apprt/gtk/Tab.zig:147
+msgid "All terminal sessions in this tab will be terminated."
+msgstr ""
+
+#: src/apprt/gtk/Window.zig:800
+msgid "All terminal sessions in this window will be terminated."
+msgstr ""
+
+#: src/apprt/gtk/ClipboardConfirmationWindow.zig:170
+msgid "Allow"
+msgstr ""
+
+#: src/apprt/gtk/ClipboardConfirmationWindow.zig:248
+msgid ""
+"An application is attempting to read from the clipboard.\n"
+"The current clipboard contents are shown below.\n"
+msgstr ""
+
+#: src/apprt/gtk/ClipboardConfirmationWindow.zig:252
+msgid ""
+"An application is attempting to write to the clipboard.\n"
+"The content to write is shown below.\n"
+msgstr ""
+
+#: src/apprt/gtk/ClipboardConfirmationWindow.zig:237
+msgid "Authorize Clipboard Access"
+msgstr ""
+
+#: src/apprt/gtk/ClipboardConfirmationWindow.zig:169
+msgid "Cancel"
+msgstr ""
+
+#: src/apprt/gtk/App.zig:1814
+msgid "Close Tab"
+msgstr ""
+
+#: src/apprt/gtk/App.zig:1817
+msgid "Close Window"
+msgstr ""
+
+#: src/apprt/gtk/Tab.zig:143
+msgid "Close this tab?"
+msgstr ""
+
+#: src/apprt/gtk/Surface.zig:728
+msgid "Close this terminal?"
+msgstr ""
+
+#: src/apprt/gtk/Window.zig:796
+msgid "Close this window?"
+msgstr ""
+
+#: src/apprt/gtk/Surface.zig:1141
+msgid "Copied to clipboard"
+msgstr ""
+
+#: src/apprt/gtk/App.zig:1848
+msgid "Copy"
+msgstr ""
+
+#: src/apprt/gtk/ClipboardConfirmationWindow.zig:170
+msgid "Deny"
+msgstr ""
+
+#: src/apprt/gtk/Window.zig:899
+msgid "Ghostty Developers"
+msgstr ""
+
+#: src/apprt/gtk/inspector.zig:143
+msgid "Ghostty: Terminal Inspector"
+msgstr ""
+
+#: src/apprt/gtk/App.zig:1874
+msgid "Menu"
+msgstr ""
+
+#: src/apprt/gtk/App.zig:1813 src/apprt/gtk/Window.zig:201
+msgid "New Tab"
+msgstr ""
+
+#: src/apprt/gtk/App.zig:1812
+msgid "New Window"
+msgstr ""
+
+#: src/apprt/gtk/App.zig:1825
+msgid "Open Configuration"
+msgstr ""
+
+#: src/apprt/gtk/App.zig:1849 src/apprt/gtk/ClipboardConfirmationWindow.zig:169
+msgid "Paste"
+msgstr ""
+
+#: src/apprt/gtk/ClipboardConfirmationWindow.zig:245
+msgid ""
+"Pasting this text into the terminal may be dangerous as it looks like some commands may be executed.\n"
+msgstr ""
+
+#: src/apprt/gtk/App.zig:1826
+msgid "Reload Configuration"
+msgstr ""
+
+#: src/apprt/gtk/App.zig:1864
+msgid "Reset"
+msgstr ""
+
+#: src/apprt/gtk/App.zig:1816 src/apprt/gtk/App.zig:1857
+msgid "Split Down"
+msgstr ""
+
+#: src/apprt/gtk/App.zig:1815 src/apprt/gtk/App.zig:1856
+msgid "Split Right"
+msgstr ""
+
+#: src/apprt/gtk/App.zig:1824 src/apprt/gtk/App.zig:1865
+msgid "Terminal Inspector"
+msgstr ""
+
+#: src/apprt/gtk/Surface.zig:732
+msgid ""
+"There is still a running process in the terminal. Closing the terminal will kill this process.\n"
+"Are you sure you want to close the terminal?\n"
+"\n"
+"Click 'No' to cancel and return to your terminal.\n"
+msgstr ""
+
+#: src/apprt/gtk/Window.zig:174
+msgid "View Open Tabs"
+msgstr ""
+
+#: src/apprt/gtk/ClipboardConfirmationWindow.zig:236
+msgid "Warning: Potentially Unsafe Paste"
+msgstr ""
+
+#: src/apprt/gtk/ResizeOverlay.zig:107
+msgid "c"
+msgid_plural "c"
+msgstr[0] ""
+msgstr[1] ""
+
+#: src/apprt/gtk/ResizeOverlay.zig:111
+msgid "r"
+msgid_plural "r"
+msgstr[0] ""
+msgstr[1] ""
+
+#: src/apprt/gtk/Window.zig:220
+msgid "⚠️ You're running a debug build of Ghostty! Performance will be degraded."
+msgstr ""

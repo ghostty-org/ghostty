@@ -9,14 +9,13 @@ const Allocator = std.mem.Allocator;
 /// This is highly Ghostty-specific and can likely be generalized at
 /// some point but we can cross that bridge if we ever need to.
 pub fn resourcesDir(alloc: std.mem.Allocator) !?[]const u8 {
-    // If we have an environment variable set, we always use that.
-    // Note: we ALWAYS want to allocate here because the result is always
-    // freed, do not try to use internal_os.getenv or posix getenv.
-    if (std.process.getEnvVarOwned(alloc, "GHOSTTY_RESOURCES_DIR")) |dir| {
-        if (dir.len > 0) return dir;
-    } else |err| switch (err) {
-        error.EnvironmentVariableNotFound => {},
-        else => return err,
+    // If we have an environment variable set, we prefer that *only* in release mode.
+    //
+    // The reason is that debug builds built by developers may have updated
+    // resources, and debug Ghostty launched from release Ghostty should not
+    // inherit old/stale resources of release Ghostty.
+    if (comptime builtin.mode != .Debug) {
+        if (try getDirFromEnv(alloc)) |dir| return dir;
     }
 
     // This is the sentinel value we look for in the path to know
@@ -50,6 +49,25 @@ pub fn resourcesDir(alloc: std.mem.Allocator) !?[]const u8 {
         if (try maybeDir(&dir_buf, dir, "share", sentinel)) |v| {
             return try std.fs.path.join(alloc, &.{ v, "ghostty" });
         }
+    }
+
+    // If we are in debug mode and we couldn't find freshly-built
+    // resources for some reason, we fall back to using the env var
+    if (comptime builtin.mode == .Debug) {
+        if (try getDirFromEnv(alloc)) |dir| return dir;
+    }
+
+    return null;
+}
+
+fn getDirFromEnv(alloc: Allocator) !?[]u8 {
+    // Note: we ALWAYS want to allocate here because the result is always
+    // freed, do not try to use internal_os.getenv or posix getenv.
+    if (std.process.getEnvVarOwned(alloc, "GHOSTTY_RESOURCES_DIR")) |dir| {
+        if (dir.len > 0) return dir;
+    } else |err| switch (err) {
+        error.EnvironmentVariableNotFound => {},
+        else => return err,
     }
 
     return null;
