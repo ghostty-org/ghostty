@@ -4325,10 +4325,8 @@ fn openScreenFile(
         std.log.debug("EDITOR environment variable not set", .{});
         return error.EnvironmentVariableNotFound;
     };
-    const allocator = std.heap.page_allocator;
-    const command_buf = try allocator.alloc(u8, editor.len + file_path.len + 2);
-    errdefer allocator.free(command_buf);
-    defer allocator.free(command_buf);
+
+    const command_buf = try self.alloc.alloc(u8, editor.len + file_path.len + 2);
     // This is quite ugly sending the message to the mailbox and executing it on behalf of the user
     // Spawing a process doesn't render the command in the main surface.
     const command = try std.fmt.bufPrint(
@@ -4338,7 +4336,7 @@ fn openScreenFile(
     );
 
     self.io.queueMessage(try termio.Message.writeReq(
-        allocator,
+        self.alloc,
         command,
     ), .unlocked);
 }
