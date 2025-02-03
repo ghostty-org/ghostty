@@ -4322,7 +4322,7 @@ fn openScreenFile(
     file_path: []const u8,
 ) !void {
     const editor = std.posix.getenv("EDITOR") orelse {
-        std.log.err("EDITOR environment variable not set", .{});
+        std.log.debug("EDITOR environment variable not set", .{});
         return error.EnvironmentVariableNotFound;
     };
     const allocator = std.heap.page_allocator;
@@ -4720,4 +4720,18 @@ fn presentSurface(self: *Surface) !void {
         .present_terminal,
         {},
     );
+}
+
+test "openScreenFile - no EDITOR" {
+    const testing = std.testing;
+    const unsetenv = @import("os/env.zig").unsetenv;
+    const allocator = testing.allocator;
+
+    var surface = Surface{ .alloc = allocator, .size = undefined, .app = undefined, .rt_app = undefined, .rt_surface = undefined, .font_grid_key = undefined, .font_size = undefined, .font_metrics = undefined, .renderer = undefined, .renderer_state = undefined, .renderer_thr = undefined, .renderer_thread = undefined, .mouse = undefined, .keyboard = undefined, .io = undefined, .io_thr = undefined, .io_thread = undefined, .config = undefined, .config_conditional_state = undefined };
+    const file_path = "test.txt";
+
+    _ = unsetenv("EDITOR");
+
+    const err = surface.openScreenFile(file_path);
+    try testing.expectError(error.EnvironmentVariableNotFound, err);
 }
