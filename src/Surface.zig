@@ -4326,15 +4326,7 @@ fn openScreenFile(
         return error.EnvironmentVariableNotFound;
     };
 
-    const command_buf = try self.alloc.alloc(u8, editor.len + file_path.len + 2);
-    // This is quite ugly sending the message to the mailbox and executing it on behalf of the user
-    // Spawing a process doesn't render the command in the main surface.
-    const command = try std.fmt.bufPrint(
-        command_buf,
-        "{s} {s}\n",
-        .{ editor, file_path },
-    );
-
+    const command = try std.fmt.allocPrint(self.alloc, "{s} {s}\n", .{ editor, file_path });
     self.io.queueMessage(try termio.Message.writeReq(
         self.alloc,
         command,
