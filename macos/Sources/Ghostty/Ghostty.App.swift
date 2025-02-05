@@ -107,7 +107,7 @@ extension Ghostty {
         deinit {
             // This will force the didSet callbacks to run which free.
             self.app = nil
-            
+
 #if os(macOS)
             NotificationCenter.default.removeObserver(self)
 #endif
@@ -773,8 +773,20 @@ extension Ghostty {
                     return
 
                 case GHOSTTY_TARGET_SURFACE:
-                    guard let surface = target.target.surface else { return }
-                    guard let surfaceView = self.surfaceView(from: surface) else { return }
+                    guard let surface = target.target.surface,
+                          let surfaceView = self.surfaceView(from: surface),
+                          let window = surfaceView.window,
+                          let controller = window.windowController as? TerminalController,
+                          let surfaceTree = controller.surfaceTree else { return }
+
+                    if !surfaceTree.isViewInSplit(surfaceView) &&
+                    (direction == GHOSTTY_GOTO_SPLIT_NEXT || direction == GHOSTTY_GOTO_SPLIT_PREVIOUS) {
+                        let tabDirection: ghostty_action_goto_tab_e = direction == GHOSTTY_GOTO_SPLIT_NEXT ?
+                            GHOSTTY_GOTO_TAB_NEXT : GHOSTTY_GOTO_TAB_PREVIOUS
+                        gotoTab(app, target: target, tab: tabDirection)
+                        return
+                    }
+
                     NotificationCenter.default.post(
                         name: Notification.ghosttyFocusSplit,
                         object: surfaceView,

@@ -130,6 +130,15 @@ extension Ghostty {
             }
         }
 
+        /// Returns true if the view is in a split (not a single leaf)
+        func isViewInSplit(_ view: SurfaceView) -> Bool {
+            if case .split = self {
+                return contains(view: view)
+            }
+            return false
+        }
+
+
         /// Find a surface view by UUID.
         func findUUID(uuid: UUID) -> SurfaceView? {
             switch (self) {
