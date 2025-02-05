@@ -31,7 +31,6 @@ pub const NotebookGtk = struct {
         };
         c.gtk_notebook_set_tab_pos(gtk_notebook, notebook_tab_pos);
         c.gtk_notebook_set_scrollable(gtk_notebook, 1);
-        c.gtk_notebook_set_show_tabs(gtk_notebook, 0);
         c.gtk_notebook_set_show_border(gtk_notebook, 0);
 
         // This enables all Ghostty terminal tabs to be exchanged across windows.
@@ -81,6 +80,7 @@ pub const NotebookGtk = struct {
         log.warn("currentTab", .{});
         const page = self.currentPage() orelse return null;
         const child = c.gtk_notebook_get_nth_page(self.notebook, page);
+
         return @ptrCast(@alignCast(
             c.g_object_get_data(@ptrCast(child), Tab.GHOSTTY_TAB) orelse return null,
         ));
@@ -164,9 +164,7 @@ pub const NotebookGtk = struct {
         c.gtk_notebook_set_tab_reorderable(self.notebook, box_widget, 1);
         c.gtk_notebook_set_tab_detachable(self.notebook, box_widget, 1);
 
-        if (self.nPages() > 1) {
-            c.gtk_notebook_set_show_tabs(self.notebook, 1);
-        }
+        self.updateShowTabs(window);
 
         // Switch to the new tab
         c.gtk_notebook_set_current_page(self.notebook, page_idx);
@@ -183,19 +181,20 @@ pub const NotebookGtk = struct {
         c.gtk_notebook_remove_page(self.notebook, page_idx);
 
         const remaining = self.nPages();
-        switch (remaining) {
-            // If we have no more tabs we close the window
-            0 => c.gtk_window_destroy(tab.window.window),
-
-            // If we have one more tab we hide the tab bar
-            1 => c.gtk_notebook_set_show_tabs(self.notebook, 0),
-
-            else => {},
-        }
 
         // If we have remaining tabs, we need to make sure we grab focus.
         if (remaining > 0)
             (self.currentTab() orelse return).window.focusCurrentTab();
+    }
+
+    fn updateShowTabs(self: *NotebookGtk, window: *Window) void {
+        const show_tabs = switch (window.app.config.@"window-show-tab-bar") {
+            .always => true,
+            .auto => self.nPages() > 1,
+            .never => false,
+        };
+
+        c.gtk_notebook_set_show_tabs(self.notebook, @intFromBool(show_tabs));
     }
 };
 
@@ -245,12 +244,7 @@ fn gtkPageRemoved(
     log.warn("gtkPageRemoved", .{});
     const window: *Window = @ptrCast(@alignCast(ud.?));
 
-    // Hide the tab bar if we only have one tab after removal
-    const remaining = c.gtk_notebook_get_n_pages(window.notebook.gtk.notebook);
-
-    if (remaining == 1) {
-        c.gtk_notebook_set_show_tabs(window.notebook.gtk.notebook, 0);
-    }
+    window.notebook.gtk.updateShowTabs(window);
 }
 
 fn gtkSwitchPage(_: *c.GtkNotebook, page: *c.GtkWidget, _: usize, ud: ?*anyopaque) callconv(.C) void {
