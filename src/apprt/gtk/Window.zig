@@ -10,6 +10,7 @@ const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
+const adw = @import("adw");
 const gio = @import("gio");
 const glib = @import("glib");
 const gobject = @import("gobject");
@@ -52,6 +53,9 @@ window: *c.GtkWindow,
 /// The header bar for the window.
 headerbar: HeaderBar,
 
+/// The tab bar for the window.
+tab_bar: *adw.TabBar,
+
 /// The tab overview for the window. This is possibly null since there is no
 /// taboverview without a AdwApplicationWindow (libadwaita >= 1.4.0).
 tab_overview: ?*c.GtkWidget,
@@ -80,6 +84,7 @@ pub const DerivedConfig = struct {
     gtk_tabs_location: configpkg.Config.GtkTabsLocation,
     gtk_wide_tabs: bool,
     gtk_toolbar_style: configpkg.Config.GtkToolbarStyle,
+    window_show_tab_bar: configpkg.Config.WindowShowTabBar,
 
     quick_terminal_position: configpkg.Config.QuickTerminalPosition,
     quick_terminal_size: configpkg.Config.QuickTerminalSize,
@@ -99,6 +104,7 @@ pub const DerivedConfig = struct {
             .gtk_tabs_location = config.@"gtk-tabs-location",
             .gtk_wide_tabs = config.@"gtk-wide-tabs",
             .gtk_toolbar_style = config.@"gtk-toolbar-style",
+            .window_show_tab_bar = config.@"window-show-tab-bar",
 
             .quick_terminal_position = config.@"quick-terminal-position",
             .quick_terminal_size = config.@"quick-terminal-size",
@@ -133,6 +139,7 @@ pub fn init(self: *Window, app: *App) !void {
         .config = DerivedConfig.init(&app.config),
         .window = undefined,
         .headerbar = undefined,
+        .tab_bar = undefined,
         .tab_overview = null,
         .notebook = undefined,
         .titlebar_menu = undefined,
@@ -215,8 +222,10 @@ pub fn init(self: *Window, app: *App) !void {
     // If we're using an AdwWindow then we can support the tab overview.
     if (self.tab_overview) |tab_overview| {
         if (!adwaita.versionAtLeast(1, 4, 0)) unreachable;
-        const btn = switch (self.config.gtk_tabs_location) {
-            .top, .bottom => btn: {
+
+        // TODO: Move this to syncAppearance and make it reactive
+        const btn = switch (self.config.window_show_tab_bar) {
+            .always, .auto => btn: {
                 const btn = c.gtk_toggle_button_new();
                 c.gtk_widget_set_tooltip_text(btn, i18n._("View Open Tabs"));
                 c.gtk_button_set_icon_name(@ptrCast(btn), "view-grid-symbolic");
@@ -230,8 +239,7 @@ pub fn init(self: *Window, app: *App) !void {
 
                 break :btn btn;
             },
-
-            .hidden => btn: {
+            .never => btn: {
                 const btn = c.adw_tab_button_new();
                 c.adw_tab_button_set_view(@ptrCast(btn), @ptrCast(@alignCast(self.notebook.tab_view)));
                 c.gtk_actionable_set_action_name(@ptrCast(btn), "overview.open");
@@ -310,23 +318,17 @@ pub fn init(self: *Window, app: *App) !void {
     // Our actions for the menu
     initActions(self);
 
+    self.tab_bar = adw.TabBar.new();
+    self.tab_bar.setView(self.notebook.tab_view);
+
     if (adwaita.versionAtLeast(1, 4, 0)) {
         const toolbar_view: *c.AdwToolbarView = @ptrCast(c.adw_toolbar_view_new());
 
         c.adw_toolbar_view_add_top_bar(toolbar_view, self.headerbar.asWidget());
 
-        if (self.config.gtk_tabs_location != .hidden) {
-            const tab_bar = c.adw_tab_bar_new();
-            c.adw_tab_bar_set_view(tab_bar, @ptrCast(@alignCast(self.notebook.tab_view)));
-
-            if (!self.config.gtk_wide_tabs) c.adw_tab_bar_set_expand_tabs(tab_bar, 0);
-
-            const tab_bar_widget: *c.GtkWidget = @ptrCast(@alignCast(tab_bar));
-            switch (self.config.gtk_tabs_location) {
-                .top => c.adw_toolbar_view_add_top_bar(toolbar_view, tab_bar_widget),
-                .bottom => c.adw_toolbar_view_add_bottom_bar(toolbar_view, tab_bar_widget),
-                .hidden => unreachable,
-            }
+        switch (self.config.gtk_tabs_location) {
+            .top => c.adw_toolbar_view_add_top_bar(toolbar_view, @ptrCast(@alignCast(self.tab_bar))),
+            .bottom => c.adw_toolbar_view_add_bottom_bar(toolbar_view, @ptrCast(@alignCast(self.tab_bar))),
         }
         c.adw_toolbar_view_set_content(toolbar_view, box);
 
@@ -347,27 +349,22 @@ pub fn init(self: *Window, app: *App) !void {
             @ptrCast(gtk_widget),
             @ptrCast(@alignCast(self.tab_overview)),
         );
-    } else tab_bar: {
-        if (self.config.gtk_tabs_location == .hidden) break :tab_bar;
+    } else {
         // In earlier adwaita versions, we need to add the tabbar manually since we do not use
         // an AdwToolbarView.
-        const tab_bar: *c.AdwTabBar = c.adw_tab_bar_new().?;
-        c.gtk_widget_add_css_class(@ptrCast(@alignCast(tab_bar)), "inline");
+        self.tab_bar.as(gtk.Widget).addCssClass("inline");
+
         switch (self.config.gtk_tabs_location) {
             .top => c.gtk_box_insert_child_after(
                 @ptrCast(box),
-                @ptrCast(@alignCast(tab_bar)),
+                @ptrCast(@alignCast(self.tab_bar)),
                 @ptrCast(@alignCast(self.headerbar.asWidget())),
             ),
             .bottom => c.gtk_box_append(
                 @ptrCast(box),
-                @ptrCast(@alignCast(tab_bar)),
+                @ptrCast(@alignCast(self.tab_bar)),
             ),
-            .hidden => unreachable,
         }
-        c.adw_tab_bar_set_view(tab_bar, @ptrCast(@alignCast(self.notebook.tab_view)));
-
-        if (!self.config.gtk_wide_tabs) c.adw_tab_bar_set_expand_tabs(tab_bar, 0);
     }
 
     // If we want the window to be maximized, we do that here.
@@ -479,6 +476,16 @@ pub fn syncAppearance(self: *Window) !void {
         c.adw_toolbar_view_set_top_bar_style(toolbar_view, toolbar_style);
         c.adw_toolbar_view_set_bottom_bar_style(toolbar_view, toolbar_style);
     }
+
+    self.tab_bar.setExpandTabs(@intFromBool(self.config.gtk_wide_tabs));
+    self.tab_bar.setAutohide(switch (self.config.window_show_tab_bar) {
+        .auto, .never => @intFromBool(true),
+        .always => @intFromBool(false),
+    });
+    self.tab_bar.as(gtk.Widget).setVisible(switch (self.config.window_show_tab_bar) {
+        .always, .auto => @intFromBool(true),
+        .never => @intFromBool(false),
+    });
 
     self.winproto.syncAppearance() catch |err| {
         log.warn("failed to sync winproto appearance error={}", .{err});
