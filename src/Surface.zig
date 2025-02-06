@@ -18,6 +18,7 @@ pub const Message = apprt.surface.Message;
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
+const getenv = @import("os/env.zig").getenv;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const global_state = &@import("global.zig").state;
@@ -4321,16 +4322,16 @@ fn openScreenFile(
     self: *Surface,
     file_path: []const u8,
 ) !void {
-    const editor = std.posix.getenv("EDITOR") orelse {
-        std.log.debug("EDITOR environment variable not set", .{});
-        return error.EnvironmentVariableNotFound;
+    const editor = getenv(self.alloc, "EDITOR") catch |err| {
+        return err;
     };
-
-    const command = try std.fmt.allocPrint(self.alloc, "{s} {s}\n", .{ editor, file_path });
-    self.io.queueMessage(try termio.Message.writeReq(
-        self.alloc,
-        command,
-    ), .unlocked);
+    if (editor) |res| {
+        const command = try std.fmt.allocPrint(self.alloc, "{s} {s}\n", .{ res.value, file_path });
+        self.io.queueMessage(try termio.Message.writeReq(
+            self.alloc,
+            command,
+        ), .unlocked);
+    }
 }
 
 /// The portion of the screen to write for writeScreenFile.
