@@ -2134,6 +2134,16 @@ keybind: Keybinds = .{},
 /// title bar, or you can switch tabs with keybinds.
 @"gtk-tabs-location": GtkTabsLocation = .top,
 
+/// Determines the icon for each GTK tab header.
+///
+/// * `none` - Do not show any icons.
+/// * `numeric` - Show a numeric icon for the first 10 tabs. Tabs are numbered
+///   1-9 and then 0 (matching the number keys on a US QWERTY keyboard).
+///
+/// The default is `none`. This currently requires libadwaita to be enabled.
+/// GTK only.
+@"gtk-tabs-icon": ?GtkTabsIcon = null,
+
 /// If this is `true`, the titlebar will be hidden when the window is maximized,
 /// and shown when the titlebar is unmaximized. GTK only.
 @"gtk-titlebar-hide-when-maximized": bool = false,
@@ -5744,6 +5754,11 @@ pub const GtkTabsLocation = enum {
     left,
     right,
     hidden,
+};
+
+/// See gtk-tabs-icon
+pub const GtkTabsIcon = enum {
+    numeric,
 };
 
 /// See adw-toolbar-style
