@@ -587,6 +587,17 @@ pub fn toggleWindowDecorations(self: *Window) void {
     self.updateConfig(&self.app.config) catch {};
 }
 
+/// Toggle the background opacity for this window.
+pub fn toggleBackgroundOpacity(self: *Window) void {
+    if (self.app.config.@"background-opacity" >= 1) return;
+
+    if (c.gtk_widget_has_css_class(@ptrCast(self.window), "background") == 1) {
+        c.gtk_widget_remove_css_class(@ptrCast(self.window), "background");
+    } else {
+        c.gtk_widget_add_css_class(@ptrCast(self.window), "background");
+    }
+}
+
 /// Grabs focus on the currently selected tab.
 pub fn focusCurrentTab(self: *Window) void {
     const tab = self.notebook.currentTab() orelse return;

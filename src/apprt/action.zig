@@ -104,6 +104,9 @@ pub const Action = union(Key) {
     /// Toggle whether window directions are shown.
     toggle_window_decorations,
 
+    /// Toggle the background opacity of the target terminal.
+    toggle_background_opacity,
+
     /// Toggle the quick terminal in or out.
     toggle_quick_terminal,
 
@@ -238,6 +241,7 @@ pub const Action = union(Key) {
         toggle_fullscreen,
         toggle_tab_overview,
         toggle_window_decorations,
+        toggle_background_opacity,
         toggle_quick_terminal,
         toggle_visibility,
         move_tab,

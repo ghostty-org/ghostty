@@ -4201,6 +4201,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             {},
         ),
 
+        .toggle_background_opacity => try self.rt_app.performAction(
+            .{ .surface = self },
+            .toggle_background_opacity,
+            {},
+        ),
+
         .toggle_tab_overview => try self.rt_app.performAction(
             .{ .surface = self },
             .toggle_tab_overview,

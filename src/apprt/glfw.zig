@@ -221,6 +221,7 @@ pub const App = struct {
             .close_tab,
             .toggle_tab_overview,
             .toggle_window_decorations,
+            .toggle_background_opacity,
             .toggle_quick_terminal,
             .toggle_visibility,
             .goto_tab,
