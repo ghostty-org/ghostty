@@ -23,6 +23,7 @@
   pkg-config,
   zig_0_13,
   pandoc,
+  version,
   revision ? "dirty",
   optimize ? "Debug",
   enableX11 ? true,
@@ -48,7 +49,7 @@
 in
   stdenv.mkDerivation (finalAttrs: {
     pname = "ghostty";
-    version = "1.1.1";
+    inherit version;
 
     # We limit source like this to try and reduce the amount of rebuilds as possible
     # thus we only provide the source that is needed for the build

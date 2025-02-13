@@ -45,6 +45,8 @@
     builtins.foldl' nixpkgs-stable.lib.recursiveUpdate {} (
       builtins.map (
         system: let
+          version = "1.1.1";
+          revision = self.shortRev or self.dirtyShortRev or "dirty";
           pkgs-stable = nixpkgs-stable.legacyPackages.${system};
           pkgs-unstable = nixpkgs-unstable.legacyPackages.${system};
         in {
@@ -56,12 +58,12 @@
 
           packages.${system} = let
             mkArgs = optimize: {
-              inherit optimize;
-
-              revision = self.shortRev or self.dirtyShortRev or "dirty";
+              inherit optimize version revision;
             };
           in rec {
-            deps = pkgs-stable.callPackage ./build.zig.zon.nix {};
+            deps = pkgs-stable.callPackage ./build.zig.zon.nix {
+              name = "ghostty-cache-${version}-${revision}";
+            };
             ghostty-debug = pkgs-stable.callPackage ./nix/package.nix (mkArgs "Debug");
             ghostty-releasesafe = pkgs-stable.callPackage ./nix/package.nix (mkArgs "ReleaseSafe");
             ghostty-releasefast = pkgs-stable.callPackage ./nix/package.nix (mkArgs "ReleaseFast");
@@ -99,6 +101,31 @@
             x11-gnome = runVM ./nix/vm/x11-gnome.nix;
             x11-plasma6 = runVM ./nix/vm/x11-plasma6.nix;
             x11-xfce = runVM ./nix/vm/x11-xfce.nix;
+            make-cache = let
+              program = pkgs-stable.writeShellScript "make-cache" ''
+                set -e
+                mkdir -p blob
+                WORK_DIR=$(mktemp -d)
+                if [[ ! "$WORK_DIR" || ! -d "$WORK_DIR" ]]; then
+                  echo "Could not create temp dir"
+                  exit 1
+                fi
+                function cleanup {
+                  rm -rf "$WORK_DIR"
+                }
+                trap cleanup EXIT
+                ln -s "${self.packages.${system}.deps}" "$WORK_DIR/cache"
+                pushd "$WORK_DIR/cache" > /dev/null
+                tar --create --file "$WORK_DIR/temp.tar.gz" */*
+                popd > /dev/null
+                HASH=$(sha256sum "$WORK_DIR/temp.tar.gz" | awk "NR == 1 { print \$1 }; NR>1 { exit }")
+                mv "$WORK_DIR/temp.tar.gz" "blob/$HASH.tar.gz"
+                ln -sf "$HASH.tar.gz" "blob/ghostty-cache-${version}-${revision}.tar.gz"
+              '';
+            in {
+              type = "app";
+              program = "${program}";
+            };
           };
         }
         # Our supported systems are the same supported systems as the Zig binaries.
