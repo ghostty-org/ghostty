@@ -702,7 +702,7 @@ const Subprocess = struct {
         @cInclude("unistd.h");
     });
 
-    arena: std.heap.ArenaAllocator,
+    arena: *std.heap.ArenaAllocator,
     cwd: ?[]const u8,
     env: ?EnvMap,
     args: [][]const u8,
@@ -718,8 +718,15 @@ const Subprocess = struct {
     pub fn init(gpa: Allocator, cfg: Config) !Subprocess {
         // We have a lot of maybe-allocations that all share the same lifetime
         // so use an arena so we don't end up in an accounting nightmare.
-        var arena = std.heap.ArenaAllocator.init(gpa);
-        errdefer arena.deinit();
+        //
+        // The arena is heap-allocated because if we have our own
+        // env map it retains a pointer to it via the allocator.
+        const arena = try gpa.create(std.heap.ArenaAllocator);
+        arena.* = std.heap.ArenaAllocator.init(gpa);
+        errdefer {
+            arena.deinit();
+            gpa.destroy(arena);
+        }
         const alloc = arena.allocator();
 
         // Get our env. If a default env isn't provided by the caller
@@ -1055,7 +1062,9 @@ const Subprocess = struct {
         self.stop();
         if (self.pty) |*pty| pty.deinit();
         if (self.env) |*env| env.deinit();
+        const arena_alloc = self.arena.child_allocator;
         self.arena.deinit();
+        arena_alloc.destroy(self.arena);
         self.* = undefined;
     }
 
