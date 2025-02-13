@@ -31,6 +31,7 @@ const Surface = @import("Surface.zig");
 const Window = @import("Window.zig");
 const ConfigErrorsWindow = @import("ConfigErrorsWindow.zig");
 const ClipboardConfirmationWindow = @import("ClipboardConfirmationWindow.zig");
+const CloseDialog = @import("close_dialog.zig").CloseDialog;
 const Split = @import("Split.zig");
 const c = @import("c.zig").c;
 const version = @import("version.zig");
@@ -1457,16 +1458,24 @@ fn quit(self: *App) void {
     }
 
     // If we have windows, then we want to confirm that we want to exit.
+    const target: CloseDialog.Target = .{ .app = self };
+
+    if (adwaita.supportsDialogs() and adwaita.enabled(&self.config)) {
+        const dialog = CloseDialog.new();
+        dialog.show(target);
+        return;
+    }
+
     const alert = c.gtk_message_dialog_new(
-        null,
+        @ptrCast(target.dialogWindow()),
         c.GTK_DIALOG_MODAL,
         c.GTK_MESSAGE_QUESTION,
         c.GTK_BUTTONS_YES_NO,
-        "Quit Ghostty?",
+        target.title(),
     );
     c.gtk_message_dialog_format_secondary_text(
         @ptrCast(alert),
-        "All active terminal sessions will be terminated.",
+        target.body(),
     );
 
     // We want the "yes" to appear destructive.
@@ -1495,7 +1504,7 @@ fn quit(self: *App) void {
 }
 
 /// This immediately destroys all windows, forcing the application to quit.
-fn quitNow(self: *App) void {
+pub fn quitNow(self: *App) void {
     _ = self;
     const list = c.gtk_window_list_toplevels();
     defer c.g_list_free(list);
@@ -1508,7 +1517,6 @@ fn quitNow(self: *App) void {
         }
     }.callback, null);
 }
-
 fn gtkQuitConfirmation(
     alert: *c.GtkMessageDialog,
     response: c.gint,

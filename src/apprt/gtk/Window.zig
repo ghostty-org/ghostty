@@ -24,6 +24,7 @@ const adwaita = @import("adwaita.zig");
 const gtk_key = @import("key.zig");
 const Notebook = @import("notebook.zig").Notebook;
 const HeaderBar = @import("headerbar.zig").HeaderBar;
+const CloseDialog = @import("close_dialog.zig").CloseDialog;
 const version = @import("version.zig");
 const winproto = @import("winproto.zig");
 
@@ -791,17 +792,25 @@ fn gtkCloseRequest(v: *c.GtkWindow, ud: ?*anyopaque) callconv(.C) bool {
         return true;
     }
 
+    const target: CloseDialog.Target = .{ .window = self };
+
+    if (adwaita.supportsDialogs() and adwaita.enabled(&self.app.config)) {
+        const dialog = CloseDialog.new();
+        dialog.show(target);
+        return true;
+    }
+
     // Setup our basic message
     const alert = c.gtk_message_dialog_new(
-        self.window,
+        @ptrCast(target.dialogWindow()),
         c.GTK_DIALOG_MODAL,
         c.GTK_MESSAGE_QUESTION,
         c.GTK_BUTTONS_YES_NO,
-        "Close this window?",
+        target.title(),
     );
     c.gtk_message_dialog_format_secondary_text(
         @ptrCast(alert),
-        "All terminal sessions in this window will be terminated.",
+        target.body(),
     );
 
     // We want the "yes" to appear destructive.

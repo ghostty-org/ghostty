@@ -437,6 +437,7 @@ pub fn add(
                 const gobject_imports = .{
                     .{ "gobject", "gobject2" },
                     .{ "glib", "glib2" },
+                    .{ "gio", "gio2" },
                     .{ "gtk", "gtk4" },
                     .{ "gdk", "gdk4" },
                 };
