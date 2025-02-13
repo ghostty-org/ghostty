@@ -775,12 +775,15 @@ fn gtkRefocusTerm(v: *c.GtkWindow, ud: ?*anyopaque) callconv(.C) bool {
 
     return true;
 }
-
 fn gtkCloseRequest(v: *c.GtkWindow, ud: ?*anyopaque) callconv(.C) bool {
     _ = v;
     log.debug("window close request", .{});
     const self = userdataSelf(ud.?);
+    self.closeWithConfirmation();
+    return true;
+}
 
+pub fn closeWithConfirmation(self: *Window) void {
     // If none of our surfaces need confirmation, we can just exit.
     for (self.app.core_app.surfaces.items) |surface| {
         if (surface.container.window()) |window| {
@@ -789,7 +792,7 @@ fn gtkCloseRequest(v: *c.GtkWindow, ud: ?*anyopaque) callconv(.C) bool {
         }
     } else {
         c.gtk_window_destroy(self.window);
-        return true;
+        return;
     }
 
     const target: CloseDialog.Target = .{ .window = self };
@@ -797,7 +800,7 @@ fn gtkCloseRequest(v: *c.GtkWindow, ud: ?*anyopaque) callconv(.C) bool {
     if (adwaita.supportsDialogs() and adwaita.enabled(&self.app.config)) {
         const dialog = CloseDialog.new();
         dialog.show(target);
-        return true;
+        return;
     }
 
     // Setup our basic message
@@ -829,7 +832,6 @@ fn gtkCloseRequest(v: *c.GtkWindow, ud: ?*anyopaque) callconv(.C) bool {
     _ = c.g_signal_connect_data(alert, "response", c.G_CALLBACK(&gtkCloseConfirmation), self, null, c.G_CONNECT_DEFAULT);
 
     c.gtk_widget_show(alert);
-    return true;
 }
 
 fn gtkCloseConfirmation(
@@ -944,11 +946,7 @@ fn gtkActionClose(
     ud: ?*anyopaque,
 ) callconv(.C) void {
     const self: *Window = @ptrCast(@alignCast(ud orelse return));
-    const surface = self.actionSurface() orelse return;
-    _ = surface.performBindingAction(.{ .close_surface = {} }) catch |err| {
-        log.warn("error performing binding action error={}", .{err});
-        return;
-    };
+    self.closeWithConfirmation();
 }
 
 fn gtkActionNewWindow(

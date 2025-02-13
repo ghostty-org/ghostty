@@ -522,11 +522,12 @@ pub fn performAction(
             .app => null,
             .surface => |v| v,
         }),
+        .close_window => return try self.closeWindow(target),
         .toggle_maximize => self.toggleMaximize(target),
         .toggle_fullscreen => self.toggleFullscreen(target, value),
 
         .new_tab => try self.newTab(target),
-        .close_tab => try self.closeTab(target),
+        .close_tab => return try self.closeTab(target),
         .goto_tab => return self.gotoTab(target, value),
         .move_tab => self.moveTab(target, value),
         .new_split => try self.newSplit(target, value),
@@ -589,19 +590,20 @@ fn newTab(_: *App, target: apprt.Target) !void {
     }
 }
 
-fn closeTab(_: *App, target: apprt.Target) !void {
+fn closeTab(_: *App, target: apprt.Target) !bool {
     switch (target) {
-        .app => {},
+        .app => return false,
         .surface => |v| {
             const tab = v.rt_surface.container.tab() orelse {
                 log.info(
                     "close_tab invalid for container={s}",
                     .{@tagName(v.rt_surface.container)},
                 );
-                return;
+                return false;
             };
 
             tab.closeWithConfirmation();
+            return true;
         },
     }
 }
@@ -1060,7 +1062,7 @@ fn syncActionAccelerators(self: *App) !void {
     try self.syncActionAccelerator("app.open-config", .{ .open_config = {} });
     try self.syncActionAccelerator("app.reload-config", .{ .reload_config = {} });
     try self.syncActionAccelerator("win.toggle_inspector", .{ .inspector = .toggle });
-    try self.syncActionAccelerator("win.close", .{ .close_surface = {} });
+    try self.syncActionAccelerator("win.close", .{ .close_window = {} });
     try self.syncActionAccelerator("win.new_window", .{ .new_window = {} });
     try self.syncActionAccelerator("win.new_tab", .{ .new_tab = {} });
     try self.syncActionAccelerator("win.split_right", .{ .new_split = .right });
@@ -1439,6 +1441,17 @@ fn newWindow(self: *App, parent_: ?*CoreSurface) !void {
     try window.newTab(parent_);
 }
 
+fn closeWindow(_: *App, target: apprt.action.Target) !bool {
+    switch (target) {
+        .app => return false,
+        .surface => |v| {
+            const window = v.rt_surface.container.window() orelse return false;
+            window.closeWithConfirmation();
+            return true;
+        },
+    }
+}
+
 fn quit(self: *App) void {
     // If we're already not running, do nothing.
     if (!self.running) return;
@@ -1517,6 +1530,7 @@ pub fn quitNow(self: *App) void {
         }
     }.callback, null);
 }
+
 fn gtkQuitConfirmation(
     alert: *c.GtkMessageDialog,
     response: c.gint,
