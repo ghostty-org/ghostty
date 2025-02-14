@@ -26,18 +26,12 @@ pub const GlobalState = struct {
     gpa: ?GPA,
     alloc: std.mem.Allocator,
     action: ?cli.Action,
-    logging: Logging,
+    log_level: std.log.Level,
     rlimits: ResourceLimits = .{},
 
     /// The app resources directory, equivalent to zig-out/share when we build
     /// from source. This is null if we can't detect it.
     resources_dir: ?[]const u8,
-
-    /// Where logging should go
-    pub const Logging = union(enum) {
-        disabled: void,
-        stderr: void,
-    };
 
     /// Initialize the global state.
     pub fn init(self: *GlobalState) !void {
@@ -56,7 +50,7 @@ pub const GlobalState = struct {
             .gpa = null,
             .alloc = undefined,
             .action = null,
-            .logging = .{ .stderr = {} },
+            .log_level = .warn,
             .rlimits = .{},
             .resources_dir = null,
         };
@@ -92,11 +86,11 @@ pub const GlobalState = struct {
         // If we have an action executing, we disable logging by default
         // since we write to stderr we don't want logs messing up our
         // output.
-        if (self.action != null) self.logging = .{ .disabled = {} };
+        if (self.action != null) self.log_level = .err;
 
         // For lib mode we always disable stderr logging by default.
         if (comptime build_config.app_runtime == .none) {
-            self.logging = .{ .disabled = {} };
+            self.log_level = .err;
         }
 
         // I don't love the env var name but I don't have it in my heart
@@ -107,8 +101,16 @@ pub const GlobalState = struct {
         if ((try internal_os.getenv(self.alloc, "GHOSTTY_LOG"))) |v| {
             defer v.deinit(self.alloc);
             if (v.value.len > 0) {
-                self.logging = .{ .stderr = {} };
+                self.log_level = .info;
             }
+        }
+
+        if (internal_os.launchedFromDesktop()) {
+            self.log_level = .info;
+        }
+
+        if (builtin.mode == .Debug) {
+            self.log_level = .debug;
         }
 
         // Setup our signal handlers before logging

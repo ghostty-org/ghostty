@@ -119,6 +119,12 @@ fn logFn(
     comptime format: []const u8,
     args: anytype,
 ) void {
+
+    // If we're not logging messages at this level, we can just stop now.
+    if (@intFromEnum(level) > @intFromEnum(state.log_level)) {
+        return;
+    }
+
     // Stuff we can do before the lock
     const level_txt = comptime level.asText();
     const prefix = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
@@ -147,15 +153,9 @@ fn logFn(
         logger.log(std.heap.c_allocator, mac_level, format, args);
     }
 
-    switch (state.logging) {
-        .disabled => {},
-
-        .stderr => {
-            // Always try default to send to stderr
-            const stderr = std.io.getStdErr().writer();
-            nosuspend stderr.print(level_txt ++ prefix ++ format ++ "\n", args) catch return;
-        },
-    }
+    // Always try default to send to stderr
+    const stderr = std.io.getStdErr().writer();
+    nosuspend stderr.print(level_txt ++ prefix ++ format ++ "\n", args) catch return;
 }
 
 pub const std_options: std.Options = .{
