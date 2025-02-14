@@ -92,7 +92,7 @@
   "12202cdac858abc52413a6c6711d5026d2d3c8e13f95ca2c327eade0736298bb021f": {
     "name": "wayland",
     "url": "https://deps.files.ghostty.org/wayland-9cb3d7aa9dc995ffafdbdef7ab86a949d0fb0e7d.tar.gz",
-    "hash": "sha256-m9G72jdG30KH2yQhNBcBJ46OnekzuX0i2uIOyczkpLk="
+    "hash": "sha256-6kGR1o5DdnflHzqs3ieCmBAUTpMdOXoyfcYDXiw5xQ0="
   },
   "12201a57c6ce0001aa034fa80fba3e1cd2253c560a45748f4f4dd21ff23b491cddef": {
     "name": "wayland_protocols",
@@ -176,8 +176,8 @@
   },
   "12207ff340169c7d40c570b4b6a97db614fe47e0d83b5801a932dcd44917424c8806": {
     "name": "pixels",
-    "url": "https://github.com/make-github-pseudonymous-again/pixels/d843c2714d32e15b48b8d7eeb480295af537f877.tar.gz",
-    "hash": "sha256-ABnfxLMtY8E5KqJkrtIlPB4ML7CSFvjizCabv7i7SbU="
+    "url": "https://github.com/make-github-pseudonymous-again/pixels/archive/d843c2714d32e15b48b8d7eeb480295af537f877.tar.gz",
+    "hash": "sha256-Veg7FtCRCCUCvxSb9FfzH0IJLFmCZQ4/+657SIcb8Ro="
   },
   "12201278a1a05c0ce0b6eb6026c65cd3e9247aa041b1c260324bf29cee559dd23ba1": {
     "name": "glslang",

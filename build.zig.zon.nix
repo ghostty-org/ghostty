@@ -232,7 +232,7 @@ in
       path = fetchZigArtifact {
         name = "wayland";
         url = "https://deps.files.ghostty.org/wayland-9cb3d7aa9dc995ffafdbdef7ab86a949d0fb0e7d.tar.gz";
-        hash = "sha256-m9G72jdG30KH2yQhNBcBJ46OnekzuX0i2uIOyczkpLk=";
+        hash = "sha256-6kGR1o5DdnflHzqs3ieCmBAUTpMdOXoyfcYDXiw5xQ0=";
       };
     }
     {
@@ -367,8 +367,8 @@ in
       name = "12207ff340169c7d40c570b4b6a97db614fe47e0d83b5801a932dcd44917424c8806";
       path = fetchZigArtifact {
         name = "pixels";
-        url = "https://github.com/make-github-pseudonymous-again/pixels/d843c2714d32e15b48b8d7eeb480295af537f877.tar.gz";
-        hash = "sha256-ABnfxLMtY8E5KqJkrtIlPB4ML7CSFvjizCabv7i7SbU=";
+        url = "https://github.com/make-github-pseudonymous-again/pixels/archive/d843c2714d32e15b48b8d7eeb480295af537f877.tar.gz";
+        hash = "sha256-Veg7FtCRCCUCvxSb9FfzH0IJLFmCZQ4/+657SIcb8Ro=";
       };
     }
     {
