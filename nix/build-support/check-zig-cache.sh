@@ -42,7 +42,6 @@ fi
 rm -f "$BUILD_ZIG_ZON_LOCK"
 zon2nix "$BUILD_ZIG_ZON" > "$WORK_DIR/build.zig.zon.nix"
 alejandra --quiet "$WORK_DIR/build.zig.zon.nix"
-rm -f "$BUILD_ZIG_ZON_LOCK"
 
 NEW_HASH=$(sha512sum "$WORK_DIR/build.zig.zon.nix" | awk '{print $1}')
 

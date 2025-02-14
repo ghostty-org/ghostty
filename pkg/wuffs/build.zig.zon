@@ -8,7 +8,7 @@
         },
 
         .pixels = .{
-            .url = "git+https://github.com/make-github-pseudonymous-again/pixels?ref=main#d843c2714d32e15b48b8d7eeb480295af537f877",
+            .url = "https://github.com/make-github-pseudonymous-again/pixels/d843c2714d32e15b48b8d7eeb480295af537f877.tar.gz",
             .hash = "12207ff340169c7d40c570b4b6a97db614fe47e0d83b5801a932dcd44917424c8806",
         },
 

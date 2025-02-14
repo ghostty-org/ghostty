@@ -14,11 +14,11 @@
             .lazy = true,
         },
         .vaxis = .{
-            .url = "git+https://github.com/rockorager/libvaxis/?ref=main#6d729a2dc3b934818dffe06d2ba3ce02841ed74b",
+            .url = "https://github.com/rockorager/libvaxis/archive/6d729a2dc3b934818dffe06d2ba3ce02841ed74b.tar.gz",
             .hash = "12200df4ebeaed45de26cb2c9f3b6f3746d8013b604e035dae658f86f586c8c91d2f",
         },
         .z2d = .{
-            .url = "git+https://github.com/vancluever/z2d?ref=v0.4.0#4638bb02a9dc41cc2fb811f092811f6a951c752a",
+            .url = "https://github.com/vancluever/z2d/archive/4638bb02a9dc41cc2fb811f092811f6a951c752a.tar.gz",
             .hash = "12201f0d542e7541cf492a001d4d0d0155c92f58212fbcb0d224e95edeba06b5416a",
         },
         .zig_objc = .{
@@ -38,7 +38,7 @@
             .hash = "12209ca054cb1919fa276e328967f10b253f7537c4136eb48f3332b0f7cf661cad38",
         },
         .zf = .{
-            .url = "git+https://github.com/natecraddock/zf/?ref=main#ed99ca18b02dda052e20ba467e90b623c04690dd",
+            .url = "https://github.com/natecraddock/zf/archive/ed99ca18b02dda052e20ba467e90b623c04690dd.tar.gz",
             .hash = "1220edc3b8d8bedbb50555947987e5e8e2f93871ca3c8e8d4cc8f1377c15b5dd35e8",
         },
         .gobject = .{
@@ -76,7 +76,7 @@
             .hash = "12201a57c6ce0001aa034fa80fba3e1cd2253c560a45748f4f4dd21ff23b491cddef",
         },
         .plasma_wayland_protocols = .{
-            .url = "git+https://github.com/KDE/plasma-wayland-protocols?ref=main#db525e8f9da548cffa2ac77618dd0fbe7f511b86",
+            .url = "https://github.com/KDE/plasma-wayland-protocols/archive/db525e8f9da548cffa2ac77618dd0fbe7f511b86.tar.gz",
             .hash = "12207e0851c12acdeee0991e893e0132fc87bb763969a585dc16ecca33e88334c566",
         },
 
