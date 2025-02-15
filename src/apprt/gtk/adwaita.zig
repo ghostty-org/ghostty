@@ -73,3 +73,8 @@ test "versionAtLeast" {
     try testing.expect(versionAtLeast(c.ADW_MAJOR_VERSION - 1, c.ADW_MINOR_VERSION, c.ADW_MICRO_VERSION + 1));
     try testing.expect(versionAtLeast(c.ADW_MAJOR_VERSION, c.ADW_MINOR_VERSION - 1, c.ADW_MICRO_VERSION + 1));
 }
+
+// Whether AdwDialog, AdwAlertDialog, etc. are supported (1.5+)
+pub fn supportsDialogs() bool {
+    return versionAtLeast(1, 5, 0);
+}

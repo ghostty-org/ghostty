@@ -13,6 +13,8 @@ const CoreSurface = @import("../../Surface.zig");
 const Surface = @import("Surface.zig");
 const Window = @import("Window.zig");
 const c = @import("c.zig").c;
+const adwaita = @import("adwaita.zig");
+const CloseDialog = @import("close_dialog.zig").CloseDialog;
 
 const log = std.log.scoped(.gtk);
 
@@ -131,20 +133,28 @@ fn needsConfirm(elem: Surface.Container.Elem) bool {
 
 /// Close the tab, asking for confirmation if any surface requests it.
 pub fn closeWithConfirmation(tab: *Tab) void {
+    const target: CloseDialog.Target = .{ .tab = tab };
+
     switch (tab.elem) {
-        .surface => |s| s.close(s.core_surface.needsConfirmQuit()),
+        .surface => |s| s.closeWithConfirmation(s.core_surface.needsConfirmQuit(), target),
         .split => |s| {
             if (needsConfirm(s.top_left) or needsConfirm(s.bottom_right)) {
+                if (adwaita.supportsDialogs() and adwaita.enabled(&tab.window.app.config)) {
+                    const dialog = CloseDialog.new();
+                    dialog.show(target);
+                    return;
+                }
+
                 const alert = c.gtk_message_dialog_new(
-                    tab.window.window,
+                    @ptrCast(target.dialogWindow()),
                     c.GTK_DIALOG_MODAL,
                     c.GTK_MESSAGE_QUESTION,
                     c.GTK_BUTTONS_YES_NO,
-                    "Close this tab?",
+                    target.title(),
                 );
                 c.gtk_message_dialog_format_secondary_text(
                     @ptrCast(alert),
-                    "All terminal sessions in this tab will be terminated.",
+                    target.body(),
                 );
 
                 // We want the "yes" to appear destructive.

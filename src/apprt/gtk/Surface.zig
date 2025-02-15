@@ -22,9 +22,11 @@ const Tab = @import("Tab.zig");
 const Window = @import("Window.zig");
 const ClipboardConfirmationWindow = @import("ClipboardConfirmationWindow.zig");
 const ResizeOverlay = @import("ResizeOverlay.zig");
+const CloseDialog = @import("close_dialog.zig").CloseDialog;
 const inspector = @import("inspector.zig");
 const gtk_key = @import("key.zig");
 const c = @import("c.zig").c;
+const adwaita = @import("adwaita.zig");
 
 const log = std.log.scoped(.gtk_surface);
 
@@ -717,7 +719,12 @@ pub fn redraw(self: *Surface) void {
 }
 
 /// Close this surface.
-pub fn close(self: *Surface, processActive: bool) void {
+pub fn close(self: *Surface, process_active: bool) void {
+    self.closeWithConfirmation(process_active, .{ .surface = self });
+}
+
+/// Close this surface.
+pub fn closeWithConfirmation(self: *Surface, process_active: bool, target: CloseDialog.Target) void {
     self.setSplitZoom(false);
 
     // If we're not part of a window hierarchy, we never confirm
@@ -728,25 +735,28 @@ pub fn close(self: *Surface, processActive: bool) void {
     };
 
     // If we have no process active we can just exit immediately.
-    if (!processActive) {
+    if (!process_active) {
         self.container.remove();
+        return;
+    }
+
+    if (adwaita.supportsDialogs() and adwaita.enabled(&window.app.config)) {
+        const dialog = CloseDialog.new();
+        dialog.show(target);
         return;
     }
 
     // Setup our basic message
     const alert = c.gtk_message_dialog_new(
-        window.window,
+        @ptrCast(target.dialogWindow()),
         c.GTK_DIALOG_MODAL,
         c.GTK_MESSAGE_QUESTION,
         c.GTK_BUTTONS_YES_NO,
-        "Close this terminal?",
+        target.title(),
     );
     c.gtk_message_dialog_format_secondary_text(
         @ptrCast(alert),
-        "There is still a running process in the terminal. " ++
-            "Closing the terminal will kill this process. " ++
-            "Are you sure you want to close the terminal?\n\n" ++
-            "Click 'No' to cancel and return to your terminal.",
+        target.body(),
     );
 
     // We want the "yes" to appear destructive.

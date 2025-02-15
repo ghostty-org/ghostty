@@ -4251,7 +4251,11 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
 
         .close_surface => self.close(),
 
-        .close_window => self.app.closeSurface(self),
+        .close_window => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .close_window,
+            {},
+        ),
 
         .crash => |location| switch (location) {
             .main => @panic("crash binding action, crashing intentionally"),

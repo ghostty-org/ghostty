@@ -441,6 +441,7 @@ pub fn add(
                     .{ "gobject", "gobject2" },
                     .{ "gio", "gio2" },
                     .{ "glib", "glib2" },
+                    .{ "gio", "gio2" },
                     .{ "gtk", "gtk4" },
                     .{ "gdk", "gdk4" },
                 };

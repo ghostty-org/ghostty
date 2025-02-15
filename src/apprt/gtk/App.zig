@@ -31,6 +31,7 @@ const Surface = @import("Surface.zig");
 const Window = @import("Window.zig");
 const ConfigErrorsWindow = @import("ConfigErrorsWindow.zig");
 const ClipboardConfirmationWindow = @import("ClipboardConfirmationWindow.zig");
+const CloseDialog = @import("close_dialog.zig").CloseDialog;
 const Split = @import("Split.zig");
 const c = @import("c.zig").c;
 const version = @import("version.zig");
@@ -521,11 +522,12 @@ pub fn performAction(
             .app => null,
             .surface => |v| v,
         }),
+        .close_window => return try self.closeWindow(target),
         .toggle_maximize => self.toggleMaximize(target),
         .toggle_fullscreen => self.toggleFullscreen(target, value),
 
         .new_tab => try self.newTab(target),
-        .close_tab => try self.closeTab(target),
+        .close_tab => return try self.closeTab(target),
         .goto_tab => return self.gotoTab(target, value),
         .move_tab => self.moveTab(target, value),
         .new_split => try self.newSplit(target, value),
@@ -589,19 +591,20 @@ fn newTab(_: *App, target: apprt.Target) !void {
     }
 }
 
-fn closeTab(_: *App, target: apprt.Target) !void {
+fn closeTab(_: *App, target: apprt.Target) !bool {
     switch (target) {
-        .app => {},
+        .app => return false,
         .surface => |v| {
             const tab = v.rt_surface.container.tab() orelse {
                 log.info(
                     "close_tab invalid for container={s}",
                     .{@tagName(v.rt_surface.container)},
                 );
-                return;
+                return false;
             };
 
             tab.closeWithConfirmation();
+            return true;
         },
     }
 }
@@ -1060,7 +1063,7 @@ fn syncActionAccelerators(self: *App) !void {
     try self.syncActionAccelerator("app.open-config", .{ .open_config = {} });
     try self.syncActionAccelerator("app.reload-config", .{ .reload_config = {} });
     try self.syncActionAccelerator("win.toggle_inspector", .{ .inspector = .toggle });
-    try self.syncActionAccelerator("win.close", .{ .close_surface = {} });
+    try self.syncActionAccelerator("win.close", .{ .close_window = {} });
     try self.syncActionAccelerator("win.new_window", .{ .new_window = {} });
     try self.syncActionAccelerator("win.new_tab", .{ .new_tab = {} });
     try self.syncActionAccelerator("win.split_right", .{ .new_split = .right });
@@ -1439,6 +1442,17 @@ fn newWindow(self: *App, parent_: ?*CoreSurface) !void {
     try window.newTab(parent_);
 }
 
+fn closeWindow(_: *App, target: apprt.action.Target) !bool {
+    switch (target) {
+        .app => return false,
+        .surface => |v| {
+            const window = v.rt_surface.container.window() orelse return false;
+            window.closeWithConfirmation();
+            return true;
+        },
+    }
+}
+
 fn quit(self: *App) void {
     // If we're already not running, do nothing.
     if (!self.running) return;
@@ -1458,16 +1472,24 @@ fn quit(self: *App) void {
     }
 
     // If we have windows, then we want to confirm that we want to exit.
+    const target: CloseDialog.Target = .{ .app = self };
+
+    if (adwaita.supportsDialogs() and adwaita.enabled(&self.config)) {
+        const dialog = CloseDialog.new();
+        dialog.show(target);
+        return;
+    }
+
     const alert = c.gtk_message_dialog_new(
-        null,
+        @ptrCast(target.dialogWindow()),
         c.GTK_DIALOG_MODAL,
         c.GTK_MESSAGE_QUESTION,
         c.GTK_BUTTONS_YES_NO,
-        "Quit Ghostty?",
+        target.title(),
     );
     c.gtk_message_dialog_format_secondary_text(
         @ptrCast(alert),
-        "All active terminal sessions will be terminated.",
+        target.body(),
     );
 
     // We want the "yes" to appear destructive.
@@ -1496,7 +1518,7 @@ fn quit(self: *App) void {
 }
 
 /// This immediately destroys all windows, forcing the application to quit.
-fn quitNow(self: *App) void {
+pub fn quitNow(self: *App) void {
     _ = self;
     const list = c.gtk_window_list_toplevels();
     defer c.g_list_free(list);
