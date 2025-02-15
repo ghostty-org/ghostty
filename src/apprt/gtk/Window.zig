@@ -285,81 +285,94 @@ pub fn init(self: *Window, app: *App) !void {
     // Our actions for the menu
     initActions(self);
 
-    if ((comptime adwaita.versionAtLeast(1, 4, 0)) and adwaita.versionAtLeast(1, 4, 0) and adwaita.enabled(&self.app.config)) {
-        const toolbar_view: *c.AdwToolbarView = @ptrCast(c.adw_toolbar_view_new());
+    tab_bar: {
+        if ((comptime !adwaita.versionAtLeast(0, 0, 0)) or !adwaita.enabled(&self.app.config)) {
+            // Directly place the headerbar in the window when Adwaita is disabled,
+            // since the tab bar is a part of the headerbar/GtkNotebook
+            c.gtk_window_set_titlebar(gtk_window, self.headerbar.asWidget());
+            c.gtk_window_set_child(gtk_window, box);
+            break :tab_bar;
+        }
 
-        c.adw_toolbar_view_add_top_bar(toolbar_view, self.headerbar.asWidget());
+        const tab_bar = c.adw_tab_bar_new();
+        c.adw_tab_bar_set_view(tab_bar, self.notebook.adw.tab_view);
 
-        if (self.app.config.@"gtk-tabs-location" != .hidden) {
-            const tab_bar = c.adw_tab_bar_new();
-            c.adw_tab_bar_set_view(tab_bar, self.notebook.adw.tab_view);
+        if (!app.config.@"gtk-wide-tabs") c.adw_tab_bar_set_expand_tabs(tab_bar, 0);
 
-            if (!app.config.@"gtk-wide-tabs") c.adw_tab_bar_set_expand_tabs(tab_bar, 0);
+        c.adw_tab_bar_set_autohide(
+            tab_bar,
+            @intFromBool(switch (app.config.@"window-show-tab-bar") {
+                .always => false,
+                .auto, .never => true,
+            }),
+        );
 
-            const tab_bar_widget: *c.GtkWidget = @ptrCast(@alignCast(tab_bar));
+        const tab_bar_widget: *c.GtkWidget = @ptrCast(@alignCast(tab_bar));
+
+        c.gtk_widget_set_visible(
+            tab_bar_widget,
+            @intFromBool(switch (app.config.@"window-show-tab-bar") {
+                .always, .auto => true,
+                .never => false,
+            }),
+        );
+
+        // Can we use ToolbarView (libadw 1.4+)? If so, put both the headerbar
+        // and the tab bar as sub-bars of the toolbar view
+        if ((comptime adwaita.versionAtLeast(1, 4, 0)) and adwaita.versionAtLeast(1, 4, 0)) {
+            const toolbar_view: *c.AdwToolbarView = @ptrCast(c.adw_toolbar_view_new());
+
+            c.adw_toolbar_view_add_top_bar(toolbar_view, self.headerbar.asWidget());
+
             switch (self.app.config.@"gtk-tabs-location") {
                 // left and right are not supported in libadwaita.
                 .top, .left, .right => c.adw_toolbar_view_add_top_bar(toolbar_view, tab_bar_widget),
                 .bottom => c.adw_toolbar_view_add_bottom_bar(toolbar_view, tab_bar_widget),
-                .hidden => unreachable,
+                .hidden => {},
             }
-        }
-        c.adw_toolbar_view_set_content(toolbar_view, box);
+            c.adw_toolbar_view_set_content(toolbar_view, box);
 
-        const toolbar_style: c.AdwToolbarStyle = switch (self.app.config.@"adw-toolbar-style") {
-            .flat => c.ADW_TOOLBAR_FLAT,
-            .raised => c.ADW_TOOLBAR_RAISED,
-            .@"raised-border" => c.ADW_TOOLBAR_RAISED_BORDER,
-        };
-        c.adw_toolbar_view_set_top_bar_style(toolbar_view, toolbar_style);
-        c.adw_toolbar_view_set_bottom_bar_style(toolbar_view, toolbar_style);
+            const toolbar_style: c.AdwToolbarStyle = switch (self.app.config.@"adw-toolbar-style") {
+                .flat => c.ADW_TOOLBAR_FLAT,
+                .raised => c.ADW_TOOLBAR_RAISED,
+                .@"raised-border" => c.ADW_TOOLBAR_RAISED_BORDER,
+            };
+            c.adw_toolbar_view_set_top_bar_style(toolbar_view, toolbar_style);
+            c.adw_toolbar_view_set_bottom_bar_style(toolbar_view, toolbar_style);
 
-        // Set our application window content.
-        c.adw_tab_overview_set_child(
-            @ptrCast(self.tab_overview),
-            @ptrCast(@alignCast(toolbar_view)),
-        );
-        c.adw_application_window_set_content(
-            @ptrCast(gtk_window),
-            @ptrCast(@alignCast(self.tab_overview)),
-        );
-    } else tab_bar: {
-        switch (self.notebook) {
-            .adw => |*adw| if (comptime adwaita.versionAtLeast(0, 0, 0)) {
-                if (app.config.@"gtk-tabs-location" == .hidden) break :tab_bar;
-                // In earlier adwaita versions, we need to add the tabbar manually since we do not use
-                // an AdwToolbarView.
-                const tab_bar: *c.AdwTabBar = c.adw_tab_bar_new().?;
-                c.gtk_widget_add_css_class(@ptrCast(@alignCast(tab_bar)), "inline");
-                switch (app.config.@"gtk-tabs-location") {
-                    .top,
-                    .left,
-                    .right,
-                    => c.gtk_box_insert_child_after(@ptrCast(box), @ptrCast(@alignCast(tab_bar)), @ptrCast(@alignCast(self.headerbar.asWidget()))),
+            // Set our application window content.
+            c.adw_tab_overview_set_child(
+                @ptrCast(self.tab_overview),
+                @ptrCast(@alignCast(toolbar_view)),
+            );
+            c.adw_application_window_set_content(
+                @ptrCast(gtk_window),
+                @ptrCast(@alignCast(self.tab_overview)),
+            );
+        } else {
+            // Older libadwaita versions don't support toolbar views.
+            // We have to add the tab bar directly to the main box, either
+            // as the last child of the box (bottom) or right after the
+            // header bar (every other option except hidden)
+            switch (app.config.@"gtk-tabs-location") {
+                .top,
+                .left,
+                .right,
+                => c.gtk_box_insert_child_after(@ptrCast(box), @ptrCast(@alignCast(tab_bar)), @ptrCast(@alignCast(self.headerbar.asWidget()))),
 
-                    .bottom => c.gtk_box_append(
-                        @ptrCast(box),
-                        @ptrCast(@alignCast(tab_bar)),
-                    ),
-                    .hidden => unreachable,
-                }
-                c.adw_tab_bar_set_view(tab_bar, adw.tab_view);
+                .bottom => c.gtk_box_append(
+                    @ptrCast(box),
+                    @ptrCast(@alignCast(tab_bar)),
+                ),
+                .hidden => {},
+            }
 
-                if (!app.config.@"gtk-wide-tabs") c.adw_tab_bar_set_expand_tabs(tab_bar, 0);
-            },
+            c.gtk_widget_add_css_class(@ptrCast(@alignCast(tab_bar)), "inline");
 
-            .gtk => {},
-        }
-
-        // The box is our main child
-        if (!adwaita.versionAtLeast(1, 4, 0) and adwaita.enabled(&self.app.config)) {
             c.adw_application_window_set_content(
                 @ptrCast(gtk_window),
                 box,
             );
-        } else {
-            c.gtk_window_set_titlebar(gtk_window, self.headerbar.asWidget());
-            c.gtk_window_set_child(gtk_window, box);
         }
     }
 
