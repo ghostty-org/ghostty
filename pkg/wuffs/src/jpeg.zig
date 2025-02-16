@@ -55,7 +55,7 @@ pub fn decode(alloc: Allocator, data: []const u8) Error!ImageData {
 
     c.wuffs_base__pixel_config__set(
         &image_config.pixcfg,
-        c.WUFFS_BASE__PIXEL_FORMAT__RGBA_PREMUL,
+        c.WUFFS_BASE__PIXEL_FORMAT__RGBA_NONPREMUL,
         c.WUFFS_BASE__PIXEL_SUBSAMPLING__NONE,
         width,
         height,
@@ -91,16 +91,6 @@ pub fn decode(alloc: Allocator, data: []const u8) Error!ImageData {
             &pixel_buffer,
             &image_config.pixcfg,
             c.wuffs_base__make_slice_u8(destination.ptr, destination.len),
-        );
-        try check(log, &status);
-    }
-
-    var frame_config: c.wuffs_base__frame_config = undefined;
-    {
-        const status = c.wuffs_jpeg__decoder__decode_frame_config(
-            decoder,
-            &frame_config,
-            &source_buffer,
         );
         try check(log, &status);
     }

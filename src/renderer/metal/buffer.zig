@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const objc = @import("objc");
+const macos = @import("macos");
 
 const mtl = @import("api.zig");
 
@@ -14,35 +15,46 @@ pub fn Buffer(comptime T: type) type {
     return struct {
         const Self = @This();
 
+        /// The resource options for this buffer.
+        options: mtl.MTLResourceOptions,
+
         buffer: objc.Object, // MTLBuffer
 
         /// Initialize a buffer with the given length pre-allocated.
-        pub fn init(device: objc.Object, len: usize) !Self {
+        pub fn init(
+            device: objc.Object,
+            len: usize,
+            options: mtl.MTLResourceOptions,
+        ) !Self {
             const buffer = device.msgSend(
                 objc.Object,
                 objc.sel("newBufferWithLength:options:"),
                 .{
                     @as(c_ulong, @intCast(len * @sizeOf(T))),
-                    mtl.MTLResourceStorageModeShared,
+                    options,
                 },
             );
 
-            return .{ .buffer = buffer };
+            return .{ .buffer = buffer, .options = options };
         }
 
         /// Init the buffer filled with the given data.
-        pub fn initFill(device: objc.Object, data: []const T) !Self {
+        pub fn initFill(
+            device: objc.Object,
+            data: []const T,
+            options: mtl.MTLResourceOptions,
+        ) !Self {
             const buffer = device.msgSend(
                 objc.Object,
                 objc.sel("newBufferWithBytes:length:options:"),
                 .{
                     @as(*const anyopaque, @ptrCast(data.ptr)),
                     @as(c_ulong, @intCast(data.len * @sizeOf(T))),
-                    mtl.MTLResourceStorageModeShared,
+                    options,
                 },
             );
 
-            return .{ .buffer = buffer };
+            return .{ .buffer = buffer, .options = options };
         }
 
         pub fn deinit(self: *Self) void {
@@ -85,7 +97,7 @@ pub fn Buffer(comptime T: type) type {
                     objc.sel("newBufferWithLength:options:"),
                     .{
                         @as(c_ulong, @intCast(size * @sizeOf(T))),
-                        mtl.MTLResourceStorageModeShared,
+                        self.options,
                     },
                 );
             }
@@ -106,6 +118,18 @@ pub fn Buffer(comptime T: type) type {
             };
 
             @memcpy(dst, src);
+
+            // If we're using the managed resource storage mode, then
+            // we need to signal Metal to synchronize the buffer data.
+            //
+            // Ref: https://developer.apple.com/documentation/metal/synchronizing-a-managed-resource-in-macos?language=objc
+            if (self.options.storage_mode == .managed) {
+                self.buffer.msgSend(
+                    void,
+                    "didModifyRange:",
+                    .{macos.foundation.Range.init(0, req_bytes)},
+                );
+            }
         }
 
         /// Like Buffer.sync but takes data from an array of ArrayLists,
@@ -130,7 +154,7 @@ pub fn Buffer(comptime T: type) type {
                     objc.sel("newBufferWithLength:options:"),
                     .{
                         @as(c_ulong, @intCast(size * @sizeOf(T))),
-                        mtl.MTLResourceStorageModeShared,
+                        self.options,
                     },
                 );
             }
@@ -151,6 +175,18 @@ pub fn Buffer(comptime T: type) type {
                 const ptr = @as([*]const u8, @ptrCast(list.items.ptr));
                 @memcpy(dst[i..][0 .. list.items.len * @sizeOf(T)], ptr);
                 i += list.items.len * @sizeOf(T);
+            }
+
+            // If we're using the managed resource storage mode, then
+            // we need to signal Metal to synchronize the buffer data.
+            //
+            // Ref: https://developer.apple.com/documentation/metal/synchronizing-a-managed-resource-in-macos?language=objc
+            if (self.options.storage_mode == .managed) {
+                self.buffer.msgSend(
+                    void,
+                    "didModifyRange:",
+                    .{macos.foundation.Range.init(0, req_bytes)},
+                );
             }
 
             return total_len;

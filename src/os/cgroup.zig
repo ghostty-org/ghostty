@@ -77,7 +77,22 @@ pub fn cloneInto(cgroup: []const u8) !posix.pid_t {
     // Get a file descriptor that refers to the cgroup directory in the cgroup
     // sysfs to pass to the kernel in clone3.
     const fd: linux.fd_t = fd: {
-        const rc = linux.open(path, linux.O{ .PATH = true, .DIRECTORY = true }, 0);
+        const rc = linux.open(
+            path,
+            .{
+                // Self-explanatory: we expect to open a directory, and
+                // we only need the path-level permissions.
+                .PATH = true,
+                .DIRECTORY = true,
+
+                // We don't want to leak this fd to the child process
+                // when we clone below since we're using this fd for
+                // a cgroup clone.
+                .CLOEXEC = true,
+            },
+            0,
+        );
+
         switch (posix.errno(rc)) {
             .SUCCESS => break :fd @as(linux.fd_t, @intCast(rc)),
             else => |errno| {
@@ -87,6 +102,7 @@ pub fn cloneInto(cgroup: []const u8) !posix.pid_t {
         }
     };
     assert(fd >= 0);
+    defer _ = linux.close(fd);
 
     const args: extern struct {
         flags: u64,
@@ -115,7 +131,8 @@ pub fn cloneInto(cgroup: []const u8) !posix.pid_t {
     };
 
     const rc = linux.syscall2(linux.SYS.clone3, @intFromPtr(&args), @sizeOf(@TypeOf(args)));
-    return switch (posix.errno(rc)) {
+    // do not use posix.errno, when linking libc it will use the libc errno which will not be set when making the syscall directly
+    return switch (std.os.linux.E.init(rc)) {
         .SUCCESS => @as(posix.pid_t, @intCast(rc)),
         else => |errno| err: {
             log.err("unable to clone: {}", .{errno});

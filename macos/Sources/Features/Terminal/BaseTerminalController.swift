@@ -389,9 +389,9 @@ class BaseTerminalController: NSWindowController,
         }
 
         switch (request) {
-        case .osc_52_write:
+        case let .osc_52_write(pasteboard):
             guard case .confirm = action else { break }
-            let pb = NSPasteboard.general
+            let pb = pasteboard ?? NSPasteboard.general
             pb.declareTypes([.string], owner: nil)
             pb.setString(cc.contents, forType: .string)
         case .osc_52_read, .paste:
@@ -452,6 +452,7 @@ class BaseTerminalController: NSWindowController,
             self.alert = nil
             switch (response) {
             case .alertFirstButtonReturn:
+                alert.window.orderOut(nil)
                 window.close()
 
             default:

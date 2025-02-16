@@ -159,7 +159,7 @@ extension Ghostty {
         case osc_52_read
 
         /// An application is attempting to write to the clipboard using OSC 52
-        case osc_52_write
+        case osc_52_write(OSPasteboard?)
 
         /// The text to show in the clipboard confirmation prompt for a given request type
         func text() -> String {
@@ -188,7 +188,7 @@ extension Ghostty {
             case GHOSTTY_CLIPBOARD_REQUEST_OSC_52_READ:
                 return .osc_52_read
             case GHOSTTY_CLIPBOARD_REQUEST_OSC_52_WRITE:
-                return .osc_52_write
+                return .osc_52_write(nil)
             default:
                 return nil
             }
@@ -198,6 +198,14 @@ extension Ghostty {
     /// macos-icon
     enum MacOSIcon: String {
         case official
+        case blueprint
+        case chalkboard
+        case glass
+        case holographic
+        case microchip
+        case paper
+        case retro
+        case xray
         case customStyle = "custom-style"
     }
 
@@ -236,6 +244,9 @@ extension Notification.Name {
     /// Goto tab. Has tab index in the userinfo.
     static let ghosttyMoveTab = Notification.Name("com.mitchellh.ghostty.moveTab")
     static let GhosttyMoveTabKey = ghosttyMoveTab.rawValue
+
+    /// Close tab
+    static let ghosttyCloseTab = Notification.Name("com.mitchellh.ghostty.closeTab")
 }
 
 // NOTE: I am moving all of these to Notification.Name extensions over time. This

@@ -520,6 +520,7 @@ pub fn clone(
         assert(node.data.capacity.rows >= chunk.end - chunk.start);
         defer node.data.assertIntegrity();
         node.data.size.rows = chunk.end - chunk.start;
+        node.data.size.cols = chunk.node.data.size.cols;
         try node.data.cloneFrom(
             &chunk.node.data,
             chunk.start,

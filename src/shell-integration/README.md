@@ -6,7 +6,7 @@ supports.
 
 This README is meant as developer documentation and not as
 user documentation. For user documentation, see the main
-README.
+README or [ghostty.org](https://ghostty.org/docs)
 
 ## Implementation Details
 

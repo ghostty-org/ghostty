@@ -3,8 +3,9 @@
     .version = "6.9.9",
     .paths = .{""},
     .dependencies = .{
+        // kkos/oniguruma
         .oniguruma = .{
-            .url = "https://github.com/kkos/oniguruma/archive/refs/tags/v6.9.9.tar.gz",
+            .url = "https://deps.files.ghostty.org/oniguruma-1220c15e72eadd0d9085a8af134904d9a0f5dfcbed5f606ad60edc60ebeccd9706bb.tar.gz",
             .hash = "1220c15e72eadd0d9085a8af134904d9a0f5dfcbed5f606ad60edc60ebeccd9706bb",
         },
 

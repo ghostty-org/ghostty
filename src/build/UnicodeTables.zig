@@ -15,7 +15,6 @@ pub fn init(b: *std.Build) !UnicodeTables {
         .root_source_file = b.path("src/unicode/props.zig"),
         .target = b.host,
     });
-    exe.linkLibC();
 
     const ziglyph_dep = b.dependency("ziglyph", .{
         .target = b.host,

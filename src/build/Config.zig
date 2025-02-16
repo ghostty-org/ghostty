@@ -19,7 +19,7 @@ const GitVersion = @import("GitVersion.zig");
 /// TODO: When Zig 0.14 is released, derive this from build.zig.zon directly.
 /// Until then this MUST match build.zig.zon and should always be the
 /// _next_ version to release.
-const app_version: std.SemanticVersion = .{ .major = 1, .minor = 0, .patch = 2 };
+const app_version: std.SemanticVersion = .{ .major = 1, .minor = 1, .patch = 3 };
 
 /// Standard build configuration options.
 optimize: std.builtin.OptimizeMode,
@@ -32,7 +32,6 @@ renderer: renderer.Impl = .opengl,
 font_backend: font.Backend = .freetype,
 
 /// Feature flags
-adwaita: bool = false,
 x11: bool = false,
 wayland: bool = false,
 sentry: bool = true,
@@ -55,6 +54,8 @@ emit_helpgen: bool = false,
 emit_docs: bool = false,
 emit_webdata: bool = false,
 emit_xcframework: bool = false,
+emit_terminfo: bool = false,
+emit_termcap: bool = false,
 
 /// Environmental properties
 env: std.process.EnvMap,
@@ -129,12 +130,6 @@ pub fn init(b: *std.Build) !Config {
 
     //---------------------------------------------------------------
     // Feature Flags
-
-    config.adwaita = b.option(
-        bool,
-        "gtk-adwaita",
-        "Enables the use of Adwaita when using the GTK rendering backend.",
-    ) orelse true;
 
     config.flatpak = b.option(
         bool,
@@ -306,6 +301,27 @@ pub fn init(b: *std.Build) !Config {
         break :emit_docs path != null;
     };
 
+    config.emit_terminfo = b.option(
+        bool,
+        "emit-terminfo",
+        "Install Ghostty terminfo source file",
+    ) orelse switch (target.result.os.tag) {
+        .windows => true,
+        else => switch (optimize) {
+            .Debug => true,
+            .ReleaseSafe, .ReleaseFast, .ReleaseSmall => false,
+        },
+    };
+
+    config.emit_termcap = b.option(
+        bool,
+        "emit-termcap",
+        "Install Ghostty termcap file",
+    ) orelse switch (optimize) {
+        .Debug => true,
+        .ReleaseSafe, .ReleaseFast, .ReleaseSmall => false,
+    };
+
     config.emit_webdata = b.option(
         bool,
         "emit-webdata",
@@ -374,7 +390,6 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
     // We need to break these down individual because addOption doesn't
     // support all types.
     step.addOption(bool, "flatpak", self.flatpak);
-    step.addOption(bool, "adwaita", self.adwaita);
     step.addOption(bool, "x11", self.x11);
     step.addOption(bool, "wayland", self.wayland);
     step.addOption(bool, "sentry", self.sentry);
@@ -419,7 +434,6 @@ pub fn fromOptions() Config {
 
         .version = options.app_version,
         .flatpak = options.flatpak,
-        .adwaita = options.adwaita,
         .app_runtime = std.meta.stringToEnum(apprt.Runtime, @tagName(options.app_runtime)).?,
         .font_backend = std.meta.stringToEnum(font.Backend, @tagName(options.font_backend)).?,
         .renderer = std.meta.stringToEnum(renderer.Impl, @tagName(options.renderer)).?,
@@ -486,6 +500,7 @@ pub const ExeEntrypoint = enum {
     mdgen_ghostty_5,
     webgen_config,
     webgen_actions,
+    webgen_commands,
     bench_parser,
     bench_stream,
     bench_codepoint_width,

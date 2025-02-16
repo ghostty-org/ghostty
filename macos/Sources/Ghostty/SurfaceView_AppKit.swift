@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import CoreText
 import UserNotifications
@@ -12,7 +13,14 @@ extension Ghostty {
         // The current title of the surface as defined by the pty. This can be
         // changed with escape codes. This is public because the callbacks go
         // to the app level and it is set from there.
-        @Published private(set) var title: String = "👻"
+        @Published private(set) var title: String = "" {
+            didSet {
+                if !title.isEmpty {
+                    titleFallbackTimer?.invalidate()
+                    titleFallbackTimer = nil
+                }
+            }
+        }
 
         // The current pwd of the surface as defined by the pty. This can be
         // changed with escape codes.
@@ -113,6 +121,14 @@ extension Ghostty {
         // A small delay that is introduced before a title change to avoid flickers
         private var titleChangeTimer: Timer?
 
+        // A timer to fallback to ghost emoji if no title is set within the grace period
+        private var titleFallbackTimer: Timer?
+
+        // This is the title from the terminal. This is nil if we're currently using
+        // the terminal title as the main title property. If the title is set manually
+        // by the user, this is set to the prior value (which may be empty, but non-nil).
+        private var titleFromTerminal: String?
+
         /// Event monitor (see individual events for why)
         private var eventMonitor: Any? = nil
 
@@ -138,6 +154,13 @@ extension Ghostty {
             // is non-zero so that our layer bounds are non-zero so that our renderer
             // can do SOMETHING.
             super.init(frame: NSMakeRect(0, 0, 800, 600))
+
+            // Set a timer to show the ghost emoji after 500ms if no title is set
+            titleFallbackTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
+                if let self = self, self.title.isEmpty {
+                    self.title = "👻"
+                }
+            }
 
             // Before we initialize the surface we want to register our notifications
             // so there is no window where we can't receive them.
@@ -213,6 +236,9 @@ extension Ghostty {
 
                 ghostty_surface_set_color_scheme(surface, scheme)
             }
+
+            // The UTTypes that can be dragged onto this view.
+            registerForDraggedTypes(Array(Self.dropTypes))
         }
 
         required init?(coder: NSCoder) {
@@ -359,6 +385,45 @@ extension Ghostty {
             NSCursor.setHiddenUntilMouseMoves(!visible)
         }
 
+        /// Set the title by prompting the user.
+        func promptTitle() {
+            // Create an alert dialog
+            let alert = NSAlert()
+            alert.messageText = "Change Terminal Title"
+            alert.informativeText = "Leave blank to restore the default."
+            alert.alertStyle = .informational
+
+            // Add a text field to the alert
+            let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 250, height: 24))
+            textField.stringValue = title
+            alert.accessoryView = textField
+
+            // Add buttons
+            alert.addButton(withTitle: "OK")
+            alert.addButton(withTitle: "Cancel")
+
+            let response = alert.runModal()
+
+            // Check if the user clicked "OK"
+            if response == .alertFirstButtonReturn {
+                // Get the input text
+                let newTitle = textField.stringValue
+
+                if newTitle.isEmpty {
+                    // Empty means that user wants the title to be set automatically
+                    // We also need to reload the config for the "title" property to be
+                    // used again by this tab.
+                    let prevTitle = titleFromTerminal ?? "👻"
+                    titleFromTerminal = nil
+                    setTitle(prevTitle)
+                } else {
+                    // Set the title and prevent it from being changed automatically
+                    titleFromTerminal = title
+                    title = newTitle
+                }
+            }
+        }
+
         func setTitle(_ title: String) {
             // This fixes an issue where very quick changes to the title could
             // cause an unpleasant flickering. We set a timer so that we can
@@ -369,6 +434,11 @@ extension Ghostty {
                 withTimeInterval: 0.075,
                 repeats: false
             ) { [weak self] _ in
+                // Set the title if it wasn't manually set.
+                guard self?.titleFromTerminal == nil else {
+                    self?.titleFromTerminal = title
+                    return
+                }
                 self?.title = title
             }
         }
@@ -1096,6 +1166,8 @@ extension Ghostty {
             menu.addItem(.separator())
             menu.addItem(withTitle: "Reset Terminal", action: #selector(resetTerminal(_:)), keyEquivalent: "")
             menu.addItem(withTitle: "Toggle Terminal Inspector", action: #selector(toggleTerminalInspector(_:)), keyEquivalent: "")
+            menu.addItem(.separator())
+            menu.addItem(withTitle: "Change Title...", action: #selector(changeTitle(_:)), keyEquivalent: "")
 
             return menu
         }
@@ -1122,6 +1194,14 @@ extension Ghostty {
         @IBAction func pasteAsPlainText(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "paste_from_clipboard"
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+                AppDelegate.logger.warning("action failed action=\(action)")
+            }
+        }
+
+        @IBAction func pasteSelection(_ sender: Any?) {
+            guard let surface = self.surface else { return }
+            let action = "paste_from_selection"
             if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
@@ -1159,6 +1239,10 @@ extension Ghostty {
             if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
+        }
+        
+        @IBAction func changeTitle(_ sender: Any) {
+            promptTitle()
         }
 
         /// Show a user notification and associate it with this surface
@@ -1446,5 +1530,80 @@ extension Ghostty.SurfaceView: NSServicesMenuRequestor {
         }
 
         return true
+    }
+}
+
+// MARK: NSMenuItemValidation
+
+extension Ghostty.SurfaceView: NSMenuItemValidation {
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        switch item.action {
+        case #selector(pasteSelection):
+            let pb = NSPasteboard.ghosttySelection
+            guard let str = pb.getOpinionatedStringContents() else { return false }
+            return !str.isEmpty
+
+        default:
+            return true
+        }
+    }
+}
+
+// MARK: NSDraggingDestination
+
+extension Ghostty.SurfaceView {
+    static let dropTypes: Set<NSPasteboard.PasteboardType> = [
+        .string,
+        .fileURL,
+        .URL
+    ]
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        guard let types = sender.draggingPasteboard.types else { return [] }
+
+        // If the dragging object contains none of our types then we return none.
+        // This shouldn't happen because AppKit should guarantee that we only
+        // receive types we registered for but its good to check.
+        if Set(types).isDisjoint(with: Self.dropTypes) {
+            return []
+        }
+
+        // We use copy to get the proper icon
+        return .copy
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        let pb = sender.draggingPasteboard
+
+        let content: String?
+        if let url = pb.string(forType: .URL) {
+            // URLs first, they get escaped as-is.
+            content = Ghostty.Shell.escape(url)
+        } else if let urls = pb.readObjects(forClasses: [NSURL.self]) as? [URL],
+           urls.count > 0 {
+            // File URLs next. They get escaped individually and then joined by a
+            // space if there are multiple.
+            content = urls
+                .map { Ghostty.Shell.escape($0.path) }
+                .joined(separator: " ")
+        } else if let str = pb.string(forType: .string) {
+            // Strings are not escaped because they may be copy/pasting a
+            // command they want to execute.
+            content = str
+        } else {
+            content = nil
+        }
+
+        if let content {
+            DispatchQueue.main.async {
+                self.insertText(
+                    content,
+                    replacementRange: NSMakeRange(0, 0)
+                )
+            }
+            return true
+        }
+
+        return false
     }
 }

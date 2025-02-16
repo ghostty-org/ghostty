@@ -6,8 +6,9 @@ const Mods = @import("key.zig").Mods;
 
 pub const State = struct {};
 pub const Translation = struct {
-    text: []const u8,
-    composing: bool,
+    text: []const u8 = "",
+    composing: bool = false,
+    mods: Mods = .{},
 };
 
 pub fn init() !KeymapNoop {

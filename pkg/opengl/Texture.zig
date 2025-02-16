@@ -162,4 +162,26 @@ pub const Binding = struct {
             data,
         );
     }
+
+    pub fn copySubImage2D(
+        b: Binding,
+        level: c.GLint,
+        xoffset: c.GLint,
+        yoffset: c.GLint,
+        x: c.GLint,
+        y: c.GLint,
+        width: c.GLsizei,
+        height: c.GLsizei,
+    ) !void {
+        glad.context.CopyTexSubImage2D.?(
+            @intFromEnum(b.target),
+            level,
+            xoffset,
+            yoffset,
+            x,
+            y,
+            width,
+            height
+        );
+    }
 };

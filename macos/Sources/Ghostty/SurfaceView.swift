@@ -92,22 +92,6 @@ extension Ghostty {
                                 windowFocus = false
                             }
                         }
-                        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
-                            providers.forEach { provider in
-                                _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                                    guard let url = url else { return }
-                                    let path = Shell.escape(url.path)
-                                    DispatchQueue.main.async {
-                                        surfaceView.insertText(
-                                            path,
-                                            replacementRange: NSMakeRange(0, 0)
-                                        )
-                                    }
-                                }
-                            }
-
-                            return true
-                        }
                     #endif
 
                     // If our geo size changed then we show the resize overlay as configured.

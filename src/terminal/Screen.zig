@@ -278,12 +278,9 @@ pub fn reset(self: *Screen) void {
         .page_cell = cursor_rac.cell,
     };
 
-    // Clear kitty graphics
-    self.kitty_images.delete(
-        self.alloc,
-        undefined, // All image deletion doesn't need the terminal
-        .{ .all = true },
-    );
+    // Reset kitty graphics storage
+    self.kitty_images.deinit(self.alloc, self);
+    self.kitty_images = .{ .dirty = true };
 
     // Reset our basic state
     self.saved_cursor = null;
@@ -474,26 +471,42 @@ pub fn adjustCapacity(
     const new_node = try self.pages.adjustCapacity(node, adjustment);
     const new_page: *Page = &new_node.data;
 
-    // All additions below have unreachable catches because when
-    // we adjust cap we should have enough memory to fit the
-    // existing data.
-
-    // Re-add the style
+    // Re-add the style, if the page somehow doesn't have enough
+    // memory to add it, we emit a warning and gracefully degrade
+    // to the default style for the cursor.
     if (self.cursor.style_id != 0) {
         self.cursor.style_id = new_page.styles.add(
             new_page.memory,
             self.cursor.style,
-        ) catch unreachable;
+        ) catch |err| id: {
+            // TODO: Should we increase the capacity further in this case?
+            log.warn(
+                "(Screen.adjustCapacity) Failed to add cursor style back to page, err={}",
+                .{err},
+            );
+
+            // Reset the cursor style.
+            self.cursor.style = .{};
+            break :id style.default_id;
+        };
     }
 
-    // Re-add the hyperlink
+    // Re-add the hyperlink, if the page somehow doesn't have enough
+    // memory to add it, we emit a warning and gracefully degrade to
+    // no hyperlink.
     if (self.cursor.hyperlink) |link| {
         // So we don't attempt to free any memory in the replaced page.
         self.cursor.hyperlink_id = 0;
         self.cursor.hyperlink = null;
 
         // Re-add
-        self.startHyperlinkOnce(link.*) catch unreachable;
+        self.startHyperlinkOnce(link.*) catch |err| {
+            // TODO: Should we increase the capacity further in this case?
+            log.warn(
+                "(Screen.adjustCapacity) Failed to add cursor hyperlink back to page, err={}",
+                .{err},
+            );
+        };
 
         // Remove our old link
         link.deinit(self.alloc);
@@ -1003,8 +1016,9 @@ pub fn cursorCopy(self: *Screen, other: Cursor, opts: struct {
 /// Always use this to write to cursor.page_pin.*.
 ///
 /// This specifically handles the case when the new pin is on a different
-/// page than the old AND we have a style set. In that case, we must release
-/// our old style and upsert our new style since styles are stored per-page.
+/// page than the old AND we have a style or hyperlink set. In that case,
+/// we must release our old one and insert the new one, since styles are
+/// stored per-page.
 fn cursorChangePin(self: *Screen, new: Pin) void {
     // Moving the cursor affects text run splitting (ligatures) so
     // we must mark the old and new page dirty. We do this as long
@@ -1576,6 +1590,18 @@ fn resizeInternal(
         self.cursor.hyperlink = null;
     }
 
+    // We need to insert a tracked pin for our saved cursor so we can
+    // modify its X/Y for reflow.
+    const saved_cursor_pin: ?*Pin = saved_cursor: {
+        const sc = self.saved_cursor orelse break :saved_cursor null;
+        const pin = self.pages.pin(.{ .active = .{
+            .x = sc.x,
+            .y = sc.y,
+        } }) orelse break :saved_cursor null;
+        break :saved_cursor try self.pages.trackPin(pin);
+    };
+    defer if (saved_cursor_pin) |p| self.pages.untrackPin(p);
+
     // Perform the resize operation.
     try self.pages.resize(.{
         .rows = rows,
@@ -1594,6 +1620,36 @@ fn resizeInternal(
     // If our cursor was updated, we do a full reload so all our cursor
     // state is correct.
     self.cursorReload();
+
+    // If we reflowed a saved cursor, update it.
+    if (saved_cursor_pin) |p| {
+        // This should never fail because a non-null saved_cursor_pin
+        // implies a non-null saved_cursor.
+        const sc = &self.saved_cursor.?;
+        if (self.pages.pointFromPin(.active, p.*)) |pt| {
+            sc.x = @intCast(pt.active.x);
+            sc.y = @intCast(pt.active.y);
+
+            // If we had pending wrap set and we're no longer at the end of
+            // the line, we unset the pending wrap and move the cursor to
+            // reflect the correct next position.
+            if (sc.pending_wrap and sc.x != cols - 1) {
+                sc.pending_wrap = false;
+                sc.x += 1;
+            }
+        } else {
+            // I think this can happen if the screen is resized to be
+            // less rows or less cols and our saved cursor moves outside
+            // the active area. In this case, there isn't anything really
+            // reasonable we can do so we just move the cursor to the
+            // top-left. It may be reasonable to also move the cursor to
+            // match the primary cursor. Any behavior is fine since this is
+            // totally unspecified.
+            sc.x = 0;
+            sc.y = 0;
+            sc.pending_wrap = false;
+        }
+    }
 
     // Fix up our hyperlink if we had one.
     if (hyperlink_) |link| {
@@ -1986,9 +2042,40 @@ pub fn cursorSetHyperlink(self: *Screen) !void {
     } else |err| switch (err) {
         // hyperlink_map is out of space, realloc the page to be larger
         error.HyperlinkMapOutOfMemory => {
+            const uri_size = if (self.cursor.hyperlink) |link| link.uri.len else 0;
+
+            var string_bytes = page.capacity.string_bytes;
+
+            // Attempt to allocate the space that would be required to
+            // insert a new copy of the cursor hyperlink uri in to the
+            // string alloc, since right now adjustCapacity always just
+            // adds an extra copy even if one already exists in the page.
+            // If this alloc fails then we know we also need to grow our
+            // string bytes.
+            //
+            // FIXME: This SUCKS
+            if (page.string_alloc.alloc(
+                u8,
+                page.memory,
+                uri_size,
+            )) |slice| {
+                // We don't bother freeing because we're
+                // about to free the entire page anyway.
+                _ = &slice;
+            } else |_| {
+                // We didn't have enough room, let's just double our
+                // string bytes until there's definitely enough room
+                // for our uri.
+                const before = string_bytes;
+                while (string_bytes - before < uri_size) string_bytes *= 2;
+            }
+
             _ = try self.adjustCapacity(
                 self.cursor.page_pin.node,
-                .{ .hyperlink_bytes = page.capacity.hyperlink_bytes * 2 },
+                .{
+                    .hyperlink_bytes = page.capacity.hyperlink_bytes * 2,
+                    .string_bytes = string_bytes,
+                },
             );
 
             // Retry
@@ -2591,13 +2678,36 @@ pub fn selectOutput(self: *Screen, pin: Pin) ?Selection {
     const start: Pin = boundary: {
         var it = pin.rowIterator(.left_up, null);
         var it_prev = pin;
+
+        // First, iterate until we find the first line of command output
+        while (it.next()) |p| {
+            it_prev = p;
+            const row = p.rowAndCell().row;
+            switch (row.semantic_prompt) {
+                .command => break,
+
+                .unknown,
+                .prompt,
+                .prompt_continuation,
+                .input,
+                => {},
+            }
+        }
+
+        // Because the first line of command output may span multiple visual rows we must now
+        // iterate until we find the first row of anything other than command output and then
+        // yield the previous row.
         while (it.next()) |p| {
             const row = p.rowAndCell().row;
             switch (row.semantic_prompt) {
-                .command => break :boundary p,
-                else => {},
-            }
+                .command => {},
 
+                .unknown,
+                .prompt,
+                .prompt_continuation,
+                .input,
+                => break :boundary it_prev,
+            }
             it_prev = p;
         }
 
@@ -2859,6 +2969,9 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
                     .protected = self.cursor.protected,
                 };
 
+                // If we have a hyperlink, add it to the cell.
+                if (self.cursor.hyperlink_id > 0) try self.cursorSetHyperlink();
+
                 // If we have a ref-counted style, increase.
                 if (self.cursor.style_id != style.default_id) {
                     const page = self.cursor.page_pin.node.data;
@@ -2877,6 +2990,9 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
                         .protected = self.cursor.protected,
                     };
 
+                    // If we have a hyperlink, add it to the cell.
+                    if (self.cursor.hyperlink_id > 0) try self.cursorSetHyperlink();
+
                     self.cursor.page_row.wrap = true;
                     try self.cursorDownOrScroll();
                     self.cursorHorizontalAbsolute(0);
@@ -2892,6 +3008,9 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
                     .protected = self.cursor.protected,
                 };
 
+                // If we have a hyperlink, add it to the cell.
+                if (self.cursor.hyperlink_id > 0) try self.cursorSetHyperlink();
+
                 // Write our tail
                 self.cursorRight(1);
                 self.cursor.page_cell.* = .{
@@ -2900,6 +3019,9 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
                     .wide = .spacer_tail,
                     .protected = self.cursor.protected,
                 };
+
+                // If we have a hyperlink, add it to the cell.
+                if (self.cursor.hyperlink_id > 0) try self.cursorSetHyperlink();
 
                 // If we have a ref-counted style, increase twice.
                 if (self.cursor.style_id != style.default_id) {
@@ -7641,17 +7763,17 @@ test "Screen: selectOutput" {
 
     // zig fmt: off
     {
-                                                    // line number:
-        try s.testWriteString("output1\n");         // 0
-        try s.testWriteString("output1\n");         // 1
-        try s.testWriteString("prompt2\n");         // 2
-        try s.testWriteString("input2\n");          // 3
-        try s.testWriteString("output2\n");         // 4
-        try s.testWriteString("output2\n");         // 5
-        try s.testWriteString("prompt3$ input3\n"); // 6
-        try s.testWriteString("output3\n");         // 7
-        try s.testWriteString("output3\n");         // 8
-        try s.testWriteString("output3");           // 9
+                                                                  // line number:
+        try s.testWriteString("output1\n");                       // 0
+        try s.testWriteString("output1\n");                       // 1
+        try s.testWriteString("prompt2\n");                       // 2
+        try s.testWriteString("input2\n");                        // 3
+        try s.testWriteString("output2output2output2output2\n");  // 4, 5, 6 due to overflow
+        try s.testWriteString("output2\n");                       // 7
+        try s.testWriteString("prompt3$ input3\n");               // 8
+        try s.testWriteString("output3\n");                       // 9
+        try s.testWriteString("output3\n");                       // 10
+        try s.testWriteString("output3");                         // 11
     }
     // zig fmt: on
 
@@ -7671,12 +7793,22 @@ test "Screen: selectOutput" {
         row.semantic_prompt = .command;
     }
     {
+        const pin = s.pages.pin(.{ .screen = .{ .y = 5 } }).?;
+        const row = pin.rowAndCell().row;
+        row.semantic_prompt = .command;
+    }
+    {
         const pin = s.pages.pin(.{ .screen = .{ .y = 6 } }).?;
+        const row = pin.rowAndCell().row;
+        row.semantic_prompt = .command;
+    }
+    {
+        const pin = s.pages.pin(.{ .screen = .{ .y = 8 } }).?;
         const row = pin.rowAndCell().row;
         row.semantic_prompt = .input;
     }
     {
-        const pin = s.pages.pin(.{ .screen = .{ .y = 7 } }).?;
+        const pin = s.pages.pin(.{ .screen = .{ .y = 9 } }).?;
         const row = pin.rowAndCell().row;
         row.semantic_prompt = .command;
     }
@@ -7701,7 +7833,7 @@ test "Screen: selectOutput" {
     {
         var sel = s.selectOutput(s.pages.pin(.{ .active = .{
             .x = 3,
-            .y = 5,
+            .y = 7,
         } }).?).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .active = .{
@@ -7710,23 +7842,23 @@ test "Screen: selectOutput" {
         } }, s.pages.pointFromPin(.active, sel.start()).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 9,
-            .y = 5,
+            .y = 7,
         } }, s.pages.pointFromPin(.active, sel.end()).?);
     }
     // No end marker, should select till the end
     {
         var sel = s.selectOutput(s.pages.pin(.{ .active = .{
             .x = 2,
-            .y = 7,
+            .y = 10,
         } }).?).?;
         defer sel.deinit(&s);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
-            .y = 7,
+            .y = 9,
         } }, s.pages.pointFromPin(.active, sel.start()).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 9,
-            .y = 10,
+            .y = 12,
         } }, s.pages.pointFromPin(.active, sel.end()).?);
     }
     // input / prompt at y = 0, pt.y = 0
@@ -8692,6 +8824,40 @@ test "Screen: hyperlink cursor state on resize" {
     }
 }
 
+test "Screen: cursorSetHyperlink OOM + URI too large for string alloc" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, 0);
+    defer s.deinit();
+
+    // Start a hyperlink with a URI that just barely fits in the string alloc.
+    // This will ensure that additional string alloc space is needed for the
+    // redundant copy of the URI when the page is re-alloced.
+    const uri = "a" ** (pagepkg.std_capacity.string_bytes - 8);
+    try s.startHyperlink(uri, null);
+
+    // Figure out how many cells should can have hyperlinks in this page,
+    // and write twice that number, to guarantee the capacity needs to be
+    // increased at some point.
+    const base_capacity = s.cursor.page_pin.node.data.hyperlinkCapacity();
+    const base_string_bytes = s.cursor.page_pin.node.data.capacity.string_bytes;
+    for (0..base_capacity * 2) |_| {
+        try s.cursorSetHyperlink();
+        if (s.cursor.x >= s.pages.cols - 1) {
+            try s.cursorDownOrScroll();
+            s.cursorHorizontalAbsolute(0);
+        } else {
+            s.cursorRight(1);
+        }
+    }
+
+    // Make sure the capacity really did increase.
+    try testing.expect(base_capacity < s.cursor.page_pin.node.data.hyperlinkCapacity());
+    // And that our string_bytes increased as well.
+    try testing.expect(base_string_bytes < s.cursor.page_pin.node.data.capacity.string_bytes);
+}
+
 test "Screen: adjustCapacity cursor style ref count" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -8724,6 +8890,102 @@ test "Screen: adjustCapacity cursor style ref count" {
             page.styles.refCount(page.memory, s.cursor.style_id),
         );
     }
+}
+
+test "Screen: adjustCapacity cursor hyperlink exceeds string alloc size" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, 0);
+    defer s.deinit();
+
+    // Start a hyperlink with a URI that just barely fits in the string alloc.
+    // This will ensure that the redundant copy added in `adjustCapacity` won't
+    // fit in the available string alloc space.
+    const uri = "a" ** (pagepkg.std_capacity.string_bytes - 8);
+    try s.startHyperlink(uri, null);
+
+    // Write some characters with this so that the URI
+    // is copied to the new page when adjusting capacity.
+    try s.testWriteString("Hello");
+
+    // Adjust the capacity, right now this will cause a redundant copy of
+    // the URI to be added to the string alloc, but since there isn't room
+    // for this this will clear the cursor hyperlink.
+    _ = try s.adjustCapacity(s.cursor.page_pin.node, .{});
+
+    // The cursor hyperlink should have been cleared by the `adjustCapacity`
+    // call, because there isn't enough room to add the redundant URI string.
+    //
+    // This behavior will change, causing this test to fail, if any of these
+    // changes are made:
+    //
+    // - The string alloc is changed to intern strings.
+    //
+    // - The adjustCapacity function is changed to ensure the new
+    //   capacity will fit the redundant copy of the hyperlink uri.
+    //
+    // - The cursor managed memory handling is reworked so that it
+    //   doesn't reside in the pages anymore and doesn't need this
+    //   accounting.
+    //
+    // In such a case, adjust this test accordingly.
+    try testing.expectEqual(null, s.cursor.hyperlink);
+    try testing.expectEqual(0, s.cursor.hyperlink_id);
+}
+
+test "Screen: adjustCapacity cursor style exceeds style set capacity" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, 1000);
+    defer s.deinit();
+
+    const page = &s.cursor.page_pin.node.data;
+
+    // We add unique styles to the page until no more will fit.
+    fill: for (0..255) |bg| {
+        for (0..255) |fg| {
+            const st: style.Style = .{
+                .bg_color = .{ .palette = @intCast(bg) },
+                .fg_color = .{ .palette = @intCast(fg) },
+            };
+
+            s.cursor.style = st;
+
+            // Try to insert the new style, if it doesn't fit then
+            // we succeeded in filling the style set, so we break.
+            s.cursor.style_id = page.styles.add(
+                page.memory,
+                s.cursor.style,
+            ) catch break :fill;
+
+            try s.testWriteString("a");
+        }
+    }
+
+    // Adjust the capacity, this should cause the style set to reach the
+    // same state it was in to begin with, since it will clone the page
+    // in the same order as the styles were added to begin with, meaning
+    // the cursor style will not be able to be added to the set, which
+    // should, right now, result in the cursor style being cleared.
+    _ = try s.adjustCapacity(s.cursor.page_pin.node, .{});
+
+    // The cursor style should have been cleared by the `adjustCapacity`.
+    //
+    // This behavior will change, causing this test to fail, if either
+    // of these changes are made:
+    //
+    // - The adjustCapacity function is changed to ensure the
+    //   new capacity will definitely fit the cursor style.
+    //
+    // - The cursor managed memory handling is reworked so that it
+    //   doesn't reside in the pages anymore and doesn't need this
+    //   accounting.
+    //
+    // In such a case, adjust this test accordingly.
+    try testing.expect(s.cursor.style.default());
+    try testing.expectEqual(style.default_id, s.cursor.style_id);
 }
 
 test "Screen UTF8 cell map with newlines" {

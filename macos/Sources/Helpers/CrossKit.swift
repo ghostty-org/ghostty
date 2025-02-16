@@ -10,6 +10,7 @@ import AppKit
 typealias OSView = NSView
 typealias OSColor = NSColor
 typealias OSSize = NSSize
+typealias OSPasteboard = NSPasteboard
 
 protocol OSViewRepresentable: NSViewRepresentable where NSViewType == OSViewType {
     associatedtype OSViewType: NSView
@@ -34,6 +35,7 @@ import UIKit
 typealias OSView = UIView
 typealias OSColor = UIColor
 typealias OSSize = CGSize
+typealias OSPasteboard = UIPasteboard
 
 protocol OSViewRepresentable: UIViewRepresentable {
     associatedtype OSViewType: UIView

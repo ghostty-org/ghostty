@@ -10,7 +10,8 @@ const gtk = if (build_config.app_runtime == .gtk) @import("../apprt/gtk/c.zig").
 
 pub const Options = struct {};
 
-/// The `version` command is used to display information about Ghostty.
+/// The `version` command is used to display information about Ghostty. Recognized as
+/// either `+version` or `--version`.
 pub fn run(alloc: Allocator) !u8 {
     _ = alloc;
 
@@ -50,19 +51,15 @@ pub fn run(alloc: Allocator) !u8 {
             gtk.gtk_get_minor_version(),
             gtk.gtk_get_micro_version(),
         });
-        if (comptime build_options.adwaita) {
-            try stdout.print("  - libadwaita : enabled\n", .{});
-            try stdout.print("    build      : {s}\n", .{
-                gtk.ADW_VERSION_S,
-            });
-            try stdout.print("    runtime    : {}.{}.{}\n", .{
-                gtk.adw_get_major_version(),
-                gtk.adw_get_minor_version(),
-                gtk.adw_get_micro_version(),
-            });
-        } else {
-            try stdout.print("  - libadwaita : disabled\n", .{});
-        }
+        try stdout.print("  - libadwaita : enabled\n", .{});
+        try stdout.print("    build      : {s}\n", .{
+            gtk.ADW_VERSION_S,
+        });
+        try stdout.print("    runtime    : {}.{}.{}\n", .{
+            gtk.adw_get_major_version(),
+            gtk.adw_get_minor_version(),
+            gtk.adw_get_micro_version(),
+        });
         if (comptime build_options.x11) {
             try stdout.print("  - libX11     : enabled\n", .{});
         } else {

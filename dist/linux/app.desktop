@@ -7,6 +7,7 @@ Icon=com.mitchellh.ghostty
 Categories=System;TerminalEmulator;
 Keywords=terminal;tty;pty;
 StartupNotify=true
+StartupWMClass=com.mitchellh.ghostty
 Terminal=false
 Actions=new-window;
 X-GNOME-UsesNotifications=true

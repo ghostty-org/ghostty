@@ -230,6 +230,21 @@ pub const State = struct {
         };
     }
 
+    /// Copy the fbo's attached texture to the backbuffer.
+    pub fn copyFramebuffer(self: *State) !void {
+        const texbind = try self.fb_texture.bind(.@"2D");
+        errdefer texbind.unbind();
+        try texbind.copySubImage2D(
+            0,
+            0,
+            0,
+            0,
+            0,
+            @intFromFloat(self.uniforms.resolution[0]),
+            @intFromFloat(self.uniforms.resolution[1]),
+        );
+    }
+
     pub const Binding = struct {
         vao: gl.VertexArray.Binding,
         ebo: gl.Buffer.Binding,
@@ -251,7 +266,6 @@ pub const Program = struct {
         const program = try gl.Program.createVF(
             @embedFile("../shaders/custom.v.glsl"),
             src,
-            //@embedFile("../shaders/temp.f.glsl"),
         );
         errdefer program.destroy();
 

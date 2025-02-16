@@ -250,10 +250,8 @@ __bp_preexec_invoke_exec() {
     fi
 
     local this_command
-    this_command=$(
-        export LC_ALL=C
-        HISTTIMEFORMAT='' builtin history 1 | sed '1 s/^ *[0-9][0-9]*[* ] //'
-    )
+    this_command=$(LC_ALL=C HISTTIMEFORMAT='' builtin history 1)
+    this_command="${this_command#*[[:digit:]][* ] }"
 
     # Sanity check to make sure we have something to invoke our function with.
     if [[ -z "$this_command" ]]; then
@@ -297,10 +295,8 @@ __bp_install() {
     trap '__bp_preexec_invoke_exec "$_"' DEBUG
 
     # Preserve any prior DEBUG trap as a preexec function
-    local prior_trap
-    # we can't easily do this with variable expansion. Leaving as sed command.
-    # shellcheck disable=SC2001
-    prior_trap=$(sed "s/[^']*'\(.*\)'[^']*/\1/" <<<"${__bp_trap_string:-}")
+    eval "local trap_argv=(${__bp_trap_string:-})"
+    local prior_trap=${trap_argv[2]:-}
     unset __bp_trap_string
     if [[ -n "$prior_trap" ]]; then
         eval '__bp_original_debug_trap() {

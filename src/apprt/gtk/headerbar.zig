@@ -1,73 +1,59 @@
+const HeaderBar = @This();
+
 const std = @import("std");
 const c = @import("c.zig").c;
 
 const Window = @import("Window.zig");
-const adwaita = @import("adwaita.zig");
 
-const AdwHeaderBar = if (adwaita.versionAtLeast(0, 0, 0)) c.AdwHeaderBar else void;
+/// the Adwaita headerbar widget
+headerbar: *c.AdwHeaderBar,
 
-pub const HeaderBar = union(enum) {
-    adw: *AdwHeaderBar,
-    gtk: *c.GtkHeaderBar,
+/// the Adwaita window title widget
+title: *c.AdwWindowTitle,
 
-    pub fn init(window: *Window) HeaderBar {
-        if ((comptime adwaita.versionAtLeast(1, 4, 0)) and
-            adwaita.enabled(&window.app.config))
-        {
-            return initAdw();
-        }
+pub fn init(self: *HeaderBar) void {
+    const window: *Window = @fieldParentPtr("headerbar", self);
+    self.* = .{
+        .headerbar = @ptrCast(@alignCast(c.adw_header_bar_new())),
+        .title = @ptrCast(@alignCast(c.adw_window_title_new(
+            c.gtk_window_get_title(window.window) orelse "Ghostty",
+            null,
+        ))),
+    };
+    c.adw_header_bar_set_title_widget(
+        self.headerbar,
+        @ptrCast(@alignCast(self.title)),
+    );
+}
 
-        return initGtk();
-    }
+pub fn setVisible(self: *const HeaderBar, visible: bool) void {
+    c.gtk_widget_set_visible(self.asWidget(), @intFromBool(visible));
+}
 
-    fn initAdw() HeaderBar {
-        const headerbar = c.adw_header_bar_new();
-        return .{ .adw = @ptrCast(headerbar) };
-    }
+pub fn asWidget(self: *const HeaderBar) *c.GtkWidget {
+    return @ptrCast(@alignCast(self.headerbar));
+}
 
-    fn initGtk() HeaderBar {
-        const headerbar = c.gtk_header_bar_new();
-        return .{ .gtk = @ptrCast(headerbar) };
-    }
+pub fn packEnd(self: *const HeaderBar, widget: *c.GtkWidget) void {
+    c.adw_header_bar_pack_end(
+        @ptrCast(@alignCast(self.headerbar)),
+        widget,
+    );
+}
 
-    pub fn setVisible(self: HeaderBar, visible: bool) void {
-        c.gtk_widget_set_visible(self.asWidget(), @intFromBool(visible));
-    }
+pub fn packStart(self: *const HeaderBar, widget: *c.GtkWidget) void {
+    c.adw_header_bar_pack_start(
+        @ptrCast(@alignCast(self.headerbar)),
+        widget,
+    );
+}
 
-    pub fn asWidget(self: HeaderBar) *c.GtkWidget {
-        return switch (self) {
-            .adw => |headerbar| @ptrCast(@alignCast(headerbar)),
-            .gtk => |headerbar| @ptrCast(@alignCast(headerbar)),
-        };
-    }
+pub fn setTitle(self: *const HeaderBar, title: [:0]const u8) void {
+    const window: *const Window = @fieldParentPtr("headerbar", self);
+    c.gtk_window_set_title(window.window, title);
+    c.adw_window_title_set_title(self.title, title);
+}
 
-    pub fn packEnd(self: HeaderBar, widget: *c.GtkWidget) void {
-        switch (self) {
-            .adw => |headerbar| if (comptime adwaita.versionAtLeast(0, 0, 0)) {
-                c.adw_header_bar_pack_end(
-                    @ptrCast(@alignCast(headerbar)),
-                    widget,
-                );
-            },
-            .gtk => |headerbar| c.gtk_header_bar_pack_end(
-                @ptrCast(@alignCast(headerbar)),
-                widget,
-            ),
-        }
-    }
-
-    pub fn packStart(self: HeaderBar, widget: *c.GtkWidget) void {
-        switch (self) {
-            .adw => |headerbar| if (comptime adwaita.versionAtLeast(0, 0, 0)) {
-                c.adw_header_bar_pack_start(
-                    @ptrCast(@alignCast(headerbar)),
-                    widget,
-                );
-            },
-            .gtk => |headerbar| c.gtk_header_bar_pack_start(
-                @ptrCast(@alignCast(headerbar)),
-                widget,
-            ),
-        }
-    }
-};
+pub fn setSubtitle(self: *const HeaderBar, subtitle: [:0]const u8) void {
+    c.adw_window_title_set_subtitle(self.title, subtitle);
+}

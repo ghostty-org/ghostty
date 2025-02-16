@@ -358,6 +358,8 @@ pub const Image = union(enum) {
         self: *Image,
         alloc: Allocator,
         device: objc.Object,
+        /// Storage mode for the MTLTexture object
+        storage_mode: mtl.MTLResourceOptions.StorageMode,
     ) !void {
         // Convert our data if we have to
         try self.convert(alloc);
@@ -366,7 +368,7 @@ pub const Image = union(enum) {
         const p = self.pending().?;
 
         // Create our texture
-        const texture = try initTexture(p, device);
+        const texture = try initTexture(p, device, storage_mode);
         errdefer texture.msgSend(void, objc.sel("release"), .{});
 
         // Upload our data
@@ -424,7 +426,12 @@ pub const Image = union(enum) {
         };
     }
 
-    fn initTexture(p: Pending, device: objc.Object) !objc.Object {
+    fn initTexture(
+        p: Pending,
+        device: objc.Object,
+        /// Storage mode for the MTLTexture object
+        storage_mode: mtl.MTLResourceOptions.StorageMode,
+    ) !objc.Object {
         // Create our descriptor
         const desc = init: {
             const Class = objc.getClass("MTLTextureDescriptor").?;
@@ -437,6 +444,15 @@ pub const Image = union(enum) {
         desc.setProperty("pixelFormat", @intFromEnum(mtl.MTLPixelFormat.rgba8uint));
         desc.setProperty("width", @as(c_ulong, @intCast(p.width)));
         desc.setProperty("height", @as(c_ulong, @intCast(p.height)));
+
+        desc.setProperty(
+            "resourceOptions",
+            mtl.MTLResourceOptions{
+                // Indicate that the CPU writes to this resource but never reads it.
+                .cpu_cache_mode = .write_combined,
+                .storage_mode = storage_mode,
+            },
+        );
 
         // Initialize
         const id = device.msgSend(

@@ -24,12 +24,36 @@ pub const MTLStoreAction = enum(c_ulong) {
     store = 1,
 };
 
-/// https://developer.apple.com/documentation/metal/mtlstoragemode?language=objc
-pub const MTLStorageMode = enum(c_ulong) {
-    shared = 0,
-    managed = 1,
-    private = 2,
-    memoryless = 3,
+/// https://developer.apple.com/documentation/metal/mtlresourceoptions?language=objc
+pub const MTLResourceOptions = packed struct(c_ulong) {
+    /// https://developer.apple.com/documentation/metal/mtlcpucachemode?language=objc
+    cpu_cache_mode: CPUCacheMode = .default,
+    /// https://developer.apple.com/documentation/metal/mtlstoragemode?language=objc
+    storage_mode: StorageMode,
+    /// https://developer.apple.com/documentation/metal/mtlhazardtrackingmode?language=objc
+    hazard_tracking_mode: HazardTrackingMode = .default,
+
+    _pad: @Type(.{
+        .Int = .{ .signedness = .unsigned, .bits = @bitSizeOf(c_ulong) - 10 },
+    }) = 0,
+
+    pub const CPUCacheMode = enum(u4) {
+        default = 0,
+        write_combined = 1,
+    };
+
+    pub const StorageMode = enum(u4) {
+        shared = 0,
+        managed = 1,
+        private = 2,
+        memoryless = 3,
+    };
+
+    pub const HazardTrackingMode = enum(u2) {
+        default = 0,
+        untracked = 1,
+        tracked = 2,
+    };
 };
 
 /// https://developer.apple.com/documentation/metal/mtlprimitivetype?language=objc
@@ -74,6 +98,7 @@ pub const MTLPixelFormat = enum(c_ulong) {
     rgba8unorm = 70,
     rgba8uint = 73,
     bgra8unorm = 80,
+    bgra8unorm_srgb = 81,
 };
 
 /// https://developer.apple.com/documentation/metal/mtlpurgeablestate?language=objc
@@ -137,10 +162,6 @@ pub const MTLTextureUsage = enum(c_ulong) {
     render_target = 4,
     pixel_format_view = 8,
 };
-
-/// https://developer.apple.com/documentation/metal/mtlresourceoptions?language=objc
-/// (incomplete, we only use this mode so we just hardcode it)
-pub const MTLResourceStorageModeShared: c_ulong = @intFromEnum(MTLStorageMode.shared) << 4;
 
 pub const MTLClearColor = extern struct {
     red: f64,

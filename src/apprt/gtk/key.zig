@@ -2,7 +2,7 @@ const std = @import("std");
 const build_options = @import("build_options");
 const input = @import("../../input.zig");
 const c = @import("c.zig").c;
-const x11 = @import("x11.zig");
+const winproto = @import("winproto.zig");
 
 /// Returns a GTK accelerator string from a trigger.
 pub fn accelFromTrigger(buf: []u8, trigger: input.Binding.Trigger) !?[:0]const u8 {
@@ -105,45 +105,66 @@ pub fn keyvalUnicodeUnshifted(
 /// This requires a lot of context because the GdkEvent
 /// doesn't contain enough on its own.
 pub fn eventMods(
-    widget: *c.GtkWidget,
     event: *c.GdkEvent,
     physical_key: input.Key,
     gtk_mods: c.GdkModifierType,
-    x11_xkb: ?*x11.Xkb,
+    action: input.Action,
+    app_winproto: *winproto.App,
 ) input.Mods {
     const device = c.gdk_event_get_device(event);
 
-    var mods = mods: {
-        // Add any modifier state events from Xkb if we have them (X11
-        // only). Null back from the Xkb call means there was no modifier
-        // event to read. This likely means that the key event did not
-        // result in a modifier change and we can safely rely on the GDK
-        // state.
-        if (comptime build_options.x11) {
-            const display = c.gtk_widget_get_display(widget);
-            if (x11_xkb) |xkb| {
-                if (xkb.modifier_state_from_notify(display)) |x11_mods| break :mods x11_mods;
-                break :mods translateMods(gtk_mods);
-            }
-        }
-
-        // On Wayland, we have to use the GDK device because the mods sent
-        // to this event do not have the modifier key applied if it was
-        // pressed (i.e. left control).
-        break :mods translateMods(c.gdk_device_get_modifier_state(device));
-    };
-
+    var mods = app_winproto.eventMods(device, gtk_mods);
     mods.num_lock = c.gdk_device_get_num_lock_state(device) == 1;
 
+    // We use the physical key to determine sided modifiers. As
+    // far as I can tell there's no other way to reliably determine
+    // this.
+    //
+    // We also set the main modifier to true if either side is true,
+    // since on both X11/Wayland, GTK doesn't set the main modifier
+    // if only the modifier key is pressed, but our core logic
+    // relies on it.
     switch (physical_key) {
-        .left_shift => mods.sides.shift = .left,
-        .right_shift => mods.sides.shift = .right,
-        .left_control => mods.sides.ctrl = .left,
-        .right_control => mods.sides.ctrl = .right,
-        .left_alt => mods.sides.alt = .left,
-        .right_alt => mods.sides.alt = .right,
-        .left_super => mods.sides.super = .left,
-        .right_super => mods.sides.super = .right,
+        .left_shift => {
+            mods.shift = action != .release;
+            mods.sides.shift = .left;
+        },
+
+        .right_shift => {
+            mods.shift = action != .release;
+            mods.sides.shift = .right;
+        },
+
+        .left_control => {
+            mods.ctrl = action != .release;
+            mods.sides.ctrl = .left;
+        },
+
+        .right_control => {
+            mods.ctrl = action != .release;
+            mods.sides.ctrl = .right;
+        },
+
+        .left_alt => {
+            mods.alt = action != .release;
+            mods.sides.alt = .left;
+        },
+
+        .right_alt => {
+            mods.alt = action != .release;
+            mods.sides.alt = .right;
+        },
+
+        .left_super => {
+            mods.super = action != .release;
+            mods.sides.super = .left;
+        },
+
+        .right_super => {
+            mods.super = action != .release;
+            mods.sides.super = .right;
+        },
+
         else => {},
     }
 

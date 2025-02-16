@@ -1,0 +1,149 @@
+# This file documents the subsystem maintainers of the Ghostty project
+# along with the responsibilities of a maintainer and how one can become
+# a maintainer.
+#
+# Ghostty follows a subsystem maintainer model where distinguished
+# contributors (with mutual agreement) are designated as maintainers of a
+# specific subset of the project. A subsystem maintainer has more privileges
+# and authority over a specific part of the project than a regular
+# contributor and deference is given to them when making decisions about
+# their subsystem.
+#
+# Ultimately Ghostty has a BDFL (Benevolent Dictator For Life) model
+# currently with @mitchellh as the BDFL. The BDFL has the final say in all
+# decisions and may override a maintainer's decision if necessary. I like to
+# say its a BDFLFN (Benevolent Dictator For Life "For Now") model because
+# long term I'd like to see the project be more community driven. But for
+# now, early in its life, we're going with this model.
+#
+# ## Privileges
+#
+#   - Authority to approve or reject pull requests in their subsystem.
+#   - Authority to moderate issues and discussions in their subsystem.
+#   - Authority to make roadmap and design decisions about their subsystem
+#     with input only from other subsystem maintainers.
+#
+# In all scenarios, the BDFL doesn't need to be consulted for decisions
+# but may revert or override decisions if necessary. The expectation is
+# that maintainers will be trusted to make the right decisions for their
+# subsystem and this will be rare.
+#
+# ## Responsibilities
+#
+# Subsystem maintainership is a voluntary role and maintainers are not
+# expected to dedicate any amount of time to the project. However, if a
+# maintainer is inactive for a long period of time, they may be removed from
+# the maintainers list to avoid bitrot or outdated information.
+#
+# Maintainers are expected to be exemplary members of the community and
+# should be respectful, helpful, and professional in all interactions.
+# This is both in regards to the community at large as well as other
+# subsystem maintainers as well as @mitchellh.
+#
+# As technical leaders, maintainers are expected to be mindful about
+# breaking changes, performance, user impact, and other technical
+# considerations in their subsystem. They should be considerate of large
+# changes and should be able to justify their decisions.
+#
+# Notably, maintainers have NO OBLIGATION to review pull requests or issues
+# in their subsystem. They have full discretion to review or not review
+# anything they want. This isn't a job! It is a role of trust and authority
+# and the expectation is that maintainers will use their best judgement.
+#
+# ## Becoming a Maintainer
+#
+# Maintainer candidates are noticed and proposed by the community. Anyone
+# may propose themselves or someone else as a maintainer. The BDFL along
+# with existing maintainers will discuss and decide.
+#
+# Generally, we want to see consistent high quality contributions to a
+# specific subsystem before considering someone as a maintainer. There isn't
+# an exact number of contributions or time period required but generally
+# we're looking for an order of a dozen or more contributions over a period of
+# months, at least.
+#
+# # Subsystem List
+#
+# The subsystems don't fully cover the entirety of the Ghostty project but
+# are created organically as experts in certain areas emerge. If you feel
+# you are an expert in a certain area and would like to be a maintainer,
+# please reach out to @mitchellh on Discord.
+#
+# (Alphabetical order)
+#
+# - @ghostty-org/font - All things font related including discovery,
+#   rasterization, shaping, coloring, etc.
+#
+# - @ghostty-org/gtk - Anything GTK-related in the project, primarily
+#   the GTK apprt. Also includes X11/Wayland integrations and general
+#   Linux support.
+#
+# - @ghostty-org/macos - The Ghostty macOS app and any macOS-specific
+#   features, configurations, etc.
+#
+# - @ghostty-org/renderer - Ghostty rendering subsystem, including the
+#   rendering abstractions as well as specific renderers like OpenGL
+#   and Metal.
+#
+# - @ghostty-org/shell - Ghostty shell integration, including shell
+#   completions, shell detection, and any other shell interactions.
+#
+# - @ghostty-org/terminal - The terminal emulator subsystem, including
+#   subprocess management and pty handling, escape sequence parsing,
+#   key encoding, etc.
+#
+# ## Outside of Ghostty
+#
+# Other "subsystems" exist outside of Ghostty and will not be represented
+# in this CODEOWNERS file:
+#
+# - @ghostty-org/discord-bot - Maintainers of the Ghostty Discord bot.
+#
+# - @ghostty-org/website - Maintainers of the Ghostty website.
+
+# Font
+/src/font/ @ghostty-org/font
+/pkg/fontconfig/ @ghostty-org/font
+/pkg/freetype/ @ghostty-org/font
+/pkg/harfbuzz/ @ghostty-org/font
+
+# GTK
+/src/apprt/gtk/ @ghostty-org/gtk
+/src/os/cgroup.zig @ghostty-org/gtk
+/src/os/flatpak.zig @ghostty-org/gtk
+/dist/linux/ @ghostty-org/gtk
+
+# macOS
+#
+# This includes libghostty because the macOS apprt is built on top of
+# libghostty and often requires or is impacted by changes to libghostty.
+# macOS subsystem maintainers are expected to only work on libghostty
+# insofar as it impacts the macOS apprt.
+/include/ghostty.h @ghostty-org/macos
+/src/apprt/embedded.zig @ghostty-org/macos
+/src/os/cf_release_thread.zig @ghostty-org/macos
+/src/os/macos.zig @ghostty-org/macos
+/macos/ @ghostty-org/macos
+/dist/macos/ @ghostty-org/macos
+/pkg/apple-sdk/ @ghostty-org/macos
+/pkg/macos/ @ghostty-org/macos
+
+# Renderer
+/src/renderer.zig @ghostty-org/renderer
+/src/renderer/ @ghostty-org/renderer
+/pkg/glslang/ @ghostty-org/renderer
+/pkg/opengl/ @ghostty-org/renderer
+/pkg/spirv-cross/ @ghostty-org/renderer
+/pkg/wuffs/ @ghostty-org/renderer
+
+# Shell
+/src/shell-integration/ @ghostty-org/shell
+/src/termio/shell-integration.zig @ghostty-org/shell
+
+# Terminal
+/src/simd/ @ghostty-org/terminal
+/src/terminal/ @ghostty-org/terminal
+/src/terminfo/ @ghostty-org/terminal
+/src/unicode/ @ghostty-org/terminal
+/src/Surface.zig @ghostty-org/terminal
+/src/surface_mouse.zig @ghostty-org/terminal

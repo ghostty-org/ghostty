@@ -73,6 +73,35 @@ pub fn init(
         ).step);
     }
 
+    {
+        const webgen_commands = b.addExecutable(.{
+            .name = "webgen_commands",
+            .root_source_file = b.path("src/main.zig"),
+            .target = b.host,
+        });
+        deps.help_strings.addImport(webgen_commands);
+
+        {
+            const buildconfig = config: {
+                var copy = deps.config.*;
+                copy.exe_entrypoint = .webgen_commands;
+                break :config copy;
+            };
+
+            const options = b.addOptions();
+            try buildconfig.addOptions(options);
+            webgen_commands.root_module.addOptions("build_options", options);
+        }
+
+        const webgen_commands_step = b.addRunArtifact(webgen_commands);
+        const webgen_commands_out = webgen_commands_step.captureStdOut();
+
+        try steps.append(&b.addInstallFile(
+            webgen_commands_out,
+            "share/ghostty/webdata/commands.mdx",
+        ).step);
+    }
+
     return .{ .steps = steps.items };
 }
 

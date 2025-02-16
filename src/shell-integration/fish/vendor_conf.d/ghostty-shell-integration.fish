@@ -71,11 +71,11 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
     and test -n "$TERMINFO"; and test "file" = (type -t sudo 2> /dev/null; or echo "x")
         # Wrap `sudo` command to ensure Ghostty terminfo is preserved
         function sudo -d "Wrap sudo to preserve terminfo"
-            set --local sudo_has_sudoedit_flags "no"
+            set --function sudo_has_sudoedit_flags "no"
             for arg in $argv
                 # Check if argument is '-e' or '--edit' (sudoedit flags)
                 if string match -q -- "-e" "$arg"; or string match -q -- "--edit" "$arg"
-                    set --local sudo_has_sudoedit_flags "yes"
+                    set --function sudo_has_sudoedit_flags "yes"
                     break
                 end
                 # Check if argument is neither an option nor a key-value pair

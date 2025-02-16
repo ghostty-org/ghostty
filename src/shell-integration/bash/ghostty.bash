@@ -20,14 +20,13 @@
 if [[ "$-" != *i* ]] ; then builtin return; fi
 if [ -z "$GHOSTTY_RESOURCES_DIR" ]; then builtin return; fi
 
-# When automatic shell integration is active, we need to manually
-# load the normal bash startup files based on the injected state.
+# When automatic shell integration is active, we were started in POSIX
+# mode and need to manually recreate the bash startup sequence.
 if [ -n "$GHOSTTY_BASH_INJECT" ]; then
-  builtin declare ghostty_bash_inject="$GHOSTTY_BASH_INJECT"
-  builtin unset GHOSTTY_BASH_INJECT ENV
-
-  # At this point, we're in POSIX mode and rely on the injected
-  # flags to guide is through the rest of the startup sequence.
+  # Store a temporary copy of our startup flags and unset these global
+  # environment variables so we can safely handle reentrancy.
+  builtin declare __ghostty_bash_flags="$GHOSTTY_BASH_INJECT"
+  builtin unset ENV GHOSTTY_BASH_INJECT
 
   # Restore bash's default 'posix' behavior. Also reset 'inherit_errexit',
   # which doesn't happen as part of the 'posix' reset.
@@ -40,35 +39,34 @@ if [ -n "$GHOSTTY_BASH_INJECT" ]; then
     builtin unset GHOSTTY_BASH_UNEXPORT_HISTFILE
   fi
 
-  # Manually source the startup files, respecting the injected flags like
-  # --norc and --noprofile that we parsed with the shell integration code.
-  #
-  # See also: run_startup_files() in shell.c in the Bash source code
+  # Manually source the startup files. See INVOCATION in bash(1) and
+  # run_startup_files() in shell.c in the Bash source code.
   if builtin shopt -q login_shell; then
-    if [[ $ghostty_bash_inject != *"--noprofile"* ]]; then
+    if [[ $__ghostty_bash_flags != *"--noprofile"* ]]; then
       [ -r /etc/profile ] && builtin source "/etc/profile"
-      for rcfile in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
-        [ -r "$rcfile" ] && { builtin source "$rcfile"; break; }
+      for __ghostty_rcfile in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
+        [ -r "$__ghostty_rcfile" ] && { builtin source "$__ghostty_rcfile"; break; }
       done
     fi
   else
-    if [[ $ghostty_bash_inject != *"--norc"* ]]; then
+    if [[ $__ghostty_bash_flags != *"--norc"* ]]; then
       # The location of the system bashrc is determined at bash build
       # time via -DSYS_BASHRC and can therefore vary across distros:
       #  Arch, Debian, Ubuntu use /etc/bash.bashrc
       #  Fedora uses /etc/bashrc sourced from ~/.bashrc instead of SYS_BASHRC
       #  Void Linux uses /etc/bash/bashrc
       #  Nixos uses /etc/bashrc
-      for rcfile in /etc/bash.bashrc /etc/bash/bashrc /etc/bashrc; do
-        [ -r "$rcfile" ] && { builtin source "$rcfile"; break; }
+      for __ghostty_rcfile in /etc/bash.bashrc /etc/bash/bashrc /etc/bashrc; do
+        [ -r "$__ghostty_rcfile" ] && { builtin source "$__ghostty_rcfile"; break; }
       done
       if [[ -z "$GHOSTTY_BASH_RCFILE" ]]; then GHOSTTY_BASH_RCFILE="$HOME/.bashrc"; fi
       [ -r "$GHOSTTY_BASH_RCFILE" ] && builtin source "$GHOSTTY_BASH_RCFILE"
     fi
   fi
 
+  builtin unset __ghostty_rcfile
+  builtin unset __ghostty_bash_flags
   builtin unset GHOSTTY_BASH_RCFILE
-  builtin unset ghostty_bash_inject rcfile
 fi
 
 # Sudo

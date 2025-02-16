@@ -706,8 +706,6 @@ pub fn updateFrame(
 
     // Update all our data as tightly as possible within the mutex.
     var critical: Critical = critical: {
-        const grid_size = self.size.grid();
-
         state.mutex.lock();
         defer state.mutex.unlock();
 
@@ -746,19 +744,6 @@ pub fn updateFrame(
             } else {
                 self.default_foreground_color = bg;
             }
-        }
-
-        // If our terminal screen size doesn't match our expected renderer
-        // size then we skip a frame. This can happen if the terminal state
-        // is resized between when the renderer mailbox is drained and when
-        // the state mutex is acquired inside this function.
-        //
-        // For some reason this doesn't seem to cause any significant issues
-        // with flickering while resizing. '\_('-')_/'
-        if (grid_size.rows != state.terminal.rows or
-            grid_size.columns != state.terminal.cols)
-        {
-            return;
         }
 
         // Get the viewport pin so that we can compare it to the current.
@@ -1276,10 +1261,23 @@ pub fn rebuildCells(
         }
     }
 
-    // Build each cell
+    const grid_size = self.size.grid();
+
+    // We rebuild the cells row-by-row because we do font shaping by row.
     var row_it = screen.pages.rowIterator(.left_up, .{ .viewport = .{} }, null);
-    var y: terminal.size.CellCountInt = screen.pages.rows;
+    // If our cell contents buffer is shorter than the screen viewport,
+    // we render the rows that fit, starting from the bottom. If instead
+    // the viewport is shorter than the cell contents buffer, we align
+    // the top of the viewport with the top of the contents buffer.
+    var y: terminal.size.CellCountInt = @min(
+        screen.pages.rows,
+        grid_size.rows,
+    );
     while (row_it.next()) |row| {
+        // The viewport may have more rows than our cell contents,
+        // so we need to break from the loop early if we hit y = 0.
+        if (y == 0) break;
+
         y -= 1;
 
         // True if we want to do font shaping around the cursor. We want to
@@ -1356,7 +1354,11 @@ pub fn rebuildCells(
         var shaper_cells: ?[]const font.shape.Cell = null;
         var shaper_cells_i: usize = 0;
 
-        const row_cells = row.cells(.all);
+        const row_cells_all = row.cells(.all);
+
+        // If our viewport is wider than our cell contents buffer,
+        // we still only process cells up to the width of the buffer.
+        const row_cells = row_cells_all[0..@min(row_cells_all.len, grid_size.columns)];
 
         for (row_cells, 0..) |*cell, x| {
             // If this cell falls within our preedit range then we
@@ -2350,11 +2352,9 @@ pub fn drawFrame(self: *OpenGL, surface: *apprt.Surface) !void {
 }
 
 /// Draw the custom shaders.
-fn drawCustomPrograms(
-    self: *OpenGL,
-    custom_state: *custom.State,
-) !void {
+fn drawCustomPrograms(self: *OpenGL, custom_state: *custom.State) !void {
     _ = self;
+    assert(custom_state.programs.len > 0);
 
     // Bind our state that is global to all custom shaders
     const custom_bind = try custom_state.bind();
@@ -2365,10 +2365,10 @@ fn drawCustomPrograms(
 
     // Go through each custom shader and draw it.
     for (custom_state.programs) |program| {
-        // Bind our cell program state, buffers
         const bind = try program.bind();
         defer bind.unbind();
         try bind.draw();
+        try custom_state.copyFramebuffer();
     }
 }
 

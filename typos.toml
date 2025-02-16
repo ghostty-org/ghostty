@@ -43,6 +43,7 @@ Strat = "Strat"
 grey = "gray"
 greyscale = "grayscale"
 DECID = "DECID"
+flate = "flate"
 
 [type.swift.extend-words]
 inout = "inout"

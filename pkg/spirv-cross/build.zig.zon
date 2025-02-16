@@ -3,8 +3,9 @@
     .version = "13.1.1",
     .paths = .{""},
     .dependencies = .{
+        // KhronosGroup/SPIRV-Cross
         .spirv_cross = .{
-            .url = "https://github.com/KhronosGroup/SPIRV-Cross/archive/476f384eb7d9e48613c45179e502a15ab95b6b49.tar.gz",
+            .url = "https://deps.files.ghostty.org/spirv_cross-1220fb3b5586e8be67bc3feb34cbe749cf42a60d628d2953632c2f8141302748c8da.tar.gz",
             .hash = "1220fb3b5586e8be67bc3feb34cbe749cf42a60d628d2953632c2f8141302748c8da",
         },
 

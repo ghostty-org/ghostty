@@ -13,9 +13,7 @@ const log = std.log.scoped(.metal);
 pub const Shaders = struct {
     library: objc.Object,
 
-    /// The cell shader is the shader used to render the terminal cells.
-    /// It is a single shader that is used for both the background and
-    /// foreground.
+    /// Renders cell foreground elements (text, decorations).
     cell_text_pipeline: objc.Object,
 
     /// The cell background shader is the shader used to render the
@@ -40,17 +38,18 @@ pub const Shaders = struct {
         alloc: Allocator,
         device: objc.Object,
         post_shaders: []const [:0]const u8,
+        pixel_format: mtl.MTLPixelFormat,
     ) !Shaders {
         const library = try initLibrary(device);
         errdefer library.msgSend(void, objc.sel("release"), .{});
 
-        const cell_text_pipeline = try initCellTextPipeline(device, library);
+        const cell_text_pipeline = try initCellTextPipeline(device, library, pixel_format);
         errdefer cell_text_pipeline.msgSend(void, objc.sel("release"), .{});
 
-        const cell_bg_pipeline = try initCellBgPipeline(device, library);
+        const cell_bg_pipeline = try initCellBgPipeline(device, library, pixel_format);
         errdefer cell_bg_pipeline.msgSend(void, objc.sel("release"), .{});
 
-        const image_pipeline = try initImagePipeline(device, library);
+        const image_pipeline = try initImagePipeline(device, library, pixel_format);
         errdefer image_pipeline.msgSend(void, objc.sel("release"), .{});
 
         const post_pipelines: []const objc.Object = initPostPipelines(
@@ -58,6 +57,7 @@ pub const Shaders = struct {
             device,
             library,
             post_shaders,
+            pixel_format,
         ) catch |err| err: {
             // If an error happens while building postprocess shaders we
             // want to just not use any postprocess shaders since we don't
@@ -137,8 +137,28 @@ pub const Uniforms = extern struct {
     cursor_pos: [2]u16 align(4),
     cursor_color: [4]u8 align(4),
 
-    // Whether the cursor is 2 cells wide.
+    /// The background color for the whole surface.
+    bg_color: [4]u8 align(4),
+
+    /// Whether the cursor is 2 cells wide.
     cursor_wide: bool align(1),
+
+    /// Indicates that colors provided to the shader are already in
+    /// the P3 color space, so they don't need to be converted from
+    /// sRGB.
+    use_display_p3: bool align(1),
+
+    /// Indicates that the color attachments for the shaders have
+    /// an `*_srgb` pixel format, which means the shaders need to
+    /// output linear RGB colors rather than gamma encoded colors,
+    /// since blending will be performed in linear space and then
+    /// Metal itself will re-encode the colors for storage.
+    use_linear_blending: bool align(1),
+
+    /// Enables a weight correction step that makes text rendered
+    /// with linear alpha blending have a similar apparent weight
+    /// (thickness) to gamma-incorrect blending.
+    use_linear_correction: bool align(1) = false,
 
     const PaddingExtend = packed struct(u8) {
         left: bool = false,
@@ -201,6 +221,7 @@ fn initPostPipelines(
     device: objc.Object,
     library: objc.Object,
     shaders: []const [:0]const u8,
+    pixel_format: mtl.MTLPixelFormat,
 ) ![]const objc.Object {
     // If we have no shaders, do nothing.
     if (shaders.len == 0) return &.{};
@@ -220,7 +241,12 @@ fn initPostPipelines(
     // Build each shader. Note we don't use "0.." to build our index
     // because we need to keep track of our length to clean up above.
     for (shaders) |source| {
-        pipelines[i] = try initPostPipeline(device, library, source);
+        pipelines[i] = try initPostPipeline(
+            device,
+            library,
+            source,
+            pixel_format,
+        );
         i += 1;
     }
 
@@ -232,6 +258,7 @@ fn initPostPipeline(
     device: objc.Object,
     library: objc.Object,
     data: [:0]const u8,
+    pixel_format: mtl.MTLPixelFormat,
 ) !objc.Object {
     // Create our library which has the shader source
     const post_library = library: {
@@ -301,8 +328,7 @@ fn initPostPipeline(
             .{@as(c_ulong, 0)},
         );
 
-        // Value is MTLPixelFormatBGRA8Unorm
-        attachment.setProperty("pixelFormat", @as(c_ulong, 80));
+        attachment.setProperty("pixelFormat", @intFromEnum(pixel_format));
     }
 
     // Make our state
@@ -343,7 +369,11 @@ pub const CellText = extern struct {
 };
 
 /// Initialize the cell render pipeline for our shader library.
-fn initCellTextPipeline(device: objc.Object, library: objc.Object) !objc.Object {
+fn initCellTextPipeline(
+    device: objc.Object,
+    library: objc.Object,
+    pixel_format: mtl.MTLPixelFormat,
+) !objc.Object {
     // Get our vertex and fragment functions
     const func_vert = func_vert: {
         const str = try macos.foundation.String.createWithBytes(
@@ -427,8 +457,7 @@ fn initCellTextPipeline(device: objc.Object, library: objc.Object) !objc.Object 
             .{@as(c_ulong, 0)},
         );
 
-        // Value is MTLPixelFormatBGRA8Unorm
-        attachment.setProperty("pixelFormat", @as(c_ulong, 80));
+        attachment.setProperty("pixelFormat", @intFromEnum(pixel_format));
 
         // Blending. This is required so that our text we render on top
         // of our drawable properly blends into the bg.
@@ -458,11 +487,15 @@ fn initCellTextPipeline(device: objc.Object, library: objc.Object) !objc.Object 
 pub const CellBg = [4]u8;
 
 /// Initialize the cell background render pipeline for our shader library.
-fn initCellBgPipeline(device: objc.Object, library: objc.Object) !objc.Object {
+fn initCellBgPipeline(
+    device: objc.Object,
+    library: objc.Object,
+    pixel_format: mtl.MTLPixelFormat,
+) !objc.Object {
     // Get our vertex and fragment functions
     const func_vert = func_vert: {
         const str = try macos.foundation.String.createWithBytes(
-            "full_screen_vertex",
+            "cell_bg_vertex",
             .utf8,
             false,
         );
@@ -507,8 +540,7 @@ fn initCellBgPipeline(device: objc.Object, library: objc.Object) !objc.Object {
             .{@as(c_ulong, 0)},
         );
 
-        // Value is MTLPixelFormatBGRA8Unorm
-        attachment.setProperty("pixelFormat", @as(c_ulong, 80));
+        attachment.setProperty("pixelFormat", @intFromEnum(pixel_format));
 
         // Blending. This is required so that our text we render on top
         // of our drawable properly blends into the bg.
@@ -535,7 +567,11 @@ fn initCellBgPipeline(device: objc.Object, library: objc.Object) !objc.Object {
 }
 
 /// Initialize the image render pipeline for our shader library.
-fn initImagePipeline(device: objc.Object, library: objc.Object) !objc.Object {
+fn initImagePipeline(
+    device: objc.Object,
+    library: objc.Object,
+    pixel_format: mtl.MTLPixelFormat,
+) !objc.Object {
     // Get our vertex and fragment functions
     const func_vert = func_vert: {
         const str = try macos.foundation.String.createWithBytes(
@@ -619,8 +655,7 @@ fn initImagePipeline(device: objc.Object, library: objc.Object) !objc.Object {
             .{@as(c_ulong, 0)},
         );
 
-        // Value is MTLPixelFormatBGRA8Unorm
-        attachment.setProperty("pixelFormat", @as(c_ulong, 80));
+        attachment.setProperty("pixelFormat", @intFromEnum(pixel_format));
 
         // Blending. This is required so that our text we render on top
         // of our drawable properly blends into the bg.

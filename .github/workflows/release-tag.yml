@@ -7,6 +7,7 @@ on:
       upload:
         description: "Upload final artifacts to R2"
         default: false
+
   push:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
@@ -135,7 +136,7 @@ jobs:
 
       - name: Setup Sparkle
         env:
-          SPARKLE_VERSION: 2.6.3
+          SPARKLE_VERSION: 2.6.4
         run: |
           mkdir -p .action/sparkle
           cd .action/sparkle
@@ -297,7 +298,7 @@ jobs:
 
       - name: Setup Sparkle
         env:
-          SPARKLE_VERSION: 2.6.3
+          SPARKLE_VERSION: 2.6.4
         run: |
           mkdir -p .action/sparkle
           cd .action/sparkle
@@ -367,22 +368,8 @@ jobs:
           mv ghostty-macos-universal.zip blob/${GHOSTTY_VERSION}/ghostty-macos-universal.zip
           mv ghostty-macos-universal-dsym.zip blob/${GHOSTTY_VERSION}/ghostty-macos-universal-dsym.zip
           mv Ghostty.dmg blob/${GHOSTTY_VERSION}/Ghostty.dmg
+          mv appcast.xml blob/${GHOSTTY_VERSION}/appcast-staged.xml
       - name: Upload to R2
-        uses: ryand56/r2-upload-action@latest
-        with:
-          r2-account-id: ${{ secrets.CF_R2_RELEASE_ACCOUNT_ID }}
-          r2-access-key-id: ${{ secrets.CF_R2_RELEASE_AWS_KEY }}
-          r2-secret-access-key: ${{ secrets.CF_R2_RELEASE_SECRET_KEY }}
-          r2-bucket: ghostty-release
-          source-dir: blob
-          destination-dir: ./
-
-      - name: Prep Appcast
-        run: |
-          rm -rf blob
-          mkdir blob
-          mv appcast.xml blob/appcast.xml
-      - name: Upload Appcast to R2
         uses: ryand56/r2-upload-action@latest
         with:
           r2-account-id: ${{ secrets.CF_R2_RELEASE_ACCOUNT_ID }}

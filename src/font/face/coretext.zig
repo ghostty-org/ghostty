@@ -343,13 +343,12 @@ pub const Face = struct {
         } = if (!self.isColorGlyph(glyph_index)) .{
             .color = false,
             .depth = 1,
-            .space = try macos.graphics.ColorSpace.createDeviceGray(),
-            .context_opts = @intFromEnum(macos.graphics.BitmapInfo.alpha_mask) &
-                @intFromEnum(macos.graphics.ImageAlphaInfo.only),
+            .space = try macos.graphics.ColorSpace.createNamed(.linearGray),
+            .context_opts = @intFromEnum(macos.graphics.ImageAlphaInfo.only),
         } else .{
             .color = true,
             .depth = 4,
-            .space = try macos.graphics.ColorSpace.createDeviceRGB(),
+            .space = try macos.graphics.ColorSpace.createNamed(.displayP3),
             .context_opts = @intFromEnum(macos.graphics.BitmapInfo.byte_order_32_little) |
                 @intFromEnum(macos.graphics.ImageAlphaInfo.premultiplied_first),
         };

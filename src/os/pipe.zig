@@ -3,10 +3,11 @@ const builtin = @import("builtin");
 const windows = @import("windows.zig");
 const posix = std.posix;
 
-/// pipe() that works on Windows and POSIX.
+/// pipe() that works on Windows and POSIX. For POSIX systems, this sets
+/// CLOEXEC on the file descriptors.
 pub fn pipe() ![2]posix.fd_t {
     switch (builtin.os.tag) {
-        else => return try posix.pipe(),
+        else => return try posix.pipe2(.{ .CLOEXEC = true }),
         .windows => {
             var read: windows.HANDLE = undefined;
             var write: windows.HANDLE = undefined;

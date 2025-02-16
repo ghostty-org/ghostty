@@ -6,6 +6,7 @@ const Parser = @This();
 
 const std = @import("std");
 const builtin = @import("builtin");
+const assert = std.debug.assert;
 const testing = std.testing;
 const table = @import("parse_table.zig").table;
 const osc = @import("osc.zig");
@@ -81,11 +82,15 @@ pub const Action = union(enum) {
     pub const CSI = struct {
         intermediates: []u8,
         params: []u16,
+        params_sep: SepList,
         final: u8,
-        sep: Sep,
+
+        /// The list of separators used for CSI params. The value of the
+        /// bit can be mapped to Sep.
+        pub const SepList = std.StaticBitSet(MAX_PARAMS);
 
         /// The separator used for CSI params.
-        pub const Sep = enum { semicolon, colon };
+        pub const Sep = enum(u1) { semicolon = 0, colon = 1 };
 
         // Implement formatter for logging
         pub fn format(
@@ -183,15 +188,6 @@ pub const Action = union(enum) {
     }
 };
 
-/// Keeps track of the parameter sep used for CSI params. We allow colons
-/// to be used ONLY by the 'm' CSI action.
-pub const ParamSepState = enum(u8) {
-    none = 0,
-    semicolon = ';',
-    colon = ':',
-    mixed = 1,
-};
-
 /// Maximum number of intermediate characters during parsing. This is
 /// 4 because we also use the intermediates array for UTF8 decoding which
 /// can be at most 4 bytes.
@@ -207,8 +203,8 @@ intermediates_idx: u8 = 0,
 
 /// Param tracking, building
 params: [MAX_PARAMS]u16 = undefined,
+params_sep: Action.CSI.SepList = Action.CSI.SepList.initEmpty(),
 params_idx: u8 = 0,
-params_sep: ParamSepState = .none,
 param_acc: u16 = 0,
 param_acc_idx: u8 = 0,
 
@@ -312,13 +308,9 @@ fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
                 // Ignore too many parameters
                 if (self.params_idx >= MAX_PARAMS) break :param null;
 
-                // If this is our first time seeing a parameter, we track
-                // the separator used so that we can't mix separators later.
-                if (self.params_idx == 0) self.params_sep = @enumFromInt(c);
-                if (@as(ParamSepState, @enumFromInt(c)) != self.params_sep) self.params_sep = .mixed;
-
                 // Set param final value
                 self.params[self.params_idx] = self.param_acc;
+                if (c == ':') self.params_sep.set(self.params_idx);
                 self.params_idx += 1;
 
                 // Reset current param value to 0
@@ -359,29 +351,18 @@ fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
                 .csi_dispatch = .{
                     .intermediates = self.intermediates[0..self.intermediates_idx],
                     .params = self.params[0..self.params_idx],
+                    .params_sep = self.params_sep,
                     .final = c,
-                    .sep = switch (self.params_sep) {
-                        .none, .semicolon => .semicolon,
-                        .colon => .colon,
-
-                        // There is nothing that treats mixed separators specially
-                        // afaik so we just treat it as a semicolon.
-                        .mixed => .semicolon,
-                    },
                 },
             };
 
             // We only allow colon or mixed separators for the 'm' command.
-            switch (self.params_sep) {
-                .none => {},
-                .semicolon => {},
-                .colon, .mixed => if (c != 'm') {
-                    log.warn(
-                        "CSI colon or mixed separators only allowed for 'm' command, got: {}",
-                        .{result},
-                    );
-                    break :csi_dispatch null;
-                },
+            if (c != 'm' and self.params_sep.count() > 0) {
+                log.warn(
+                    "CSI colon or mixed separators only allowed for 'm' command, got: {}",
+                    .{result},
+                );
+                break :csi_dispatch null;
             }
 
             break :csi_dispatch result;
@@ -400,7 +381,7 @@ fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
 pub fn clear(self: *Parser) void {
     self.intermediates_idx = 0;
     self.params_idx = 0;
-    self.params_sep = .none;
+    self.params_sep = Action.CSI.SepList.initEmpty();
     self.param_acc = 0;
     self.param_acc_idx = 0;
 }
@@ -507,10 +488,11 @@ test "csi: SGR ESC [ 38 : 2 m" {
 
         const d = a[1].?.csi_dispatch;
         try testing.expect(d.final == 'm');
-        try testing.expect(d.sep == .colon);
         try testing.expect(d.params.len == 2);
         try testing.expectEqual(@as(u16, 38), d.params[0]);
+        try testing.expect(d.params_sep.isSet(0));
         try testing.expectEqual(@as(u16, 2), d.params[1]);
+        try testing.expect(!d.params_sep.isSet(1));
     }
 }
 
@@ -581,13 +563,17 @@ test "csi: SGR ESC [ 48 : 2 m" {
 
         const d = a[1].?.csi_dispatch;
         try testing.expect(d.final == 'm');
-        try testing.expect(d.sep == .colon);
         try testing.expect(d.params.len == 5);
         try testing.expectEqual(@as(u16, 48), d.params[0]);
+        try testing.expect(d.params_sep.isSet(0));
         try testing.expectEqual(@as(u16, 2), d.params[1]);
+        try testing.expect(d.params_sep.isSet(1));
         try testing.expectEqual(@as(u16, 240), d.params[2]);
+        try testing.expect(d.params_sep.isSet(2));
         try testing.expectEqual(@as(u16, 143), d.params[3]);
+        try testing.expect(d.params_sep.isSet(3));
         try testing.expectEqual(@as(u16, 104), d.params[4]);
+        try testing.expect(!d.params_sep.isSet(4));
     }
 }
 
@@ -608,10 +594,11 @@ test "csi: SGR ESC [4:3m colon" {
 
         const d = a[1].?.csi_dispatch;
         try testing.expect(d.final == 'm');
-        try testing.expect(d.sep == .colon);
         try testing.expect(d.params.len == 2);
         try testing.expectEqual(@as(u16, 4), d.params[0]);
+        try testing.expect(d.params_sep.isSet(0));
         try testing.expectEqual(@as(u16, 3), d.params[1]);
+        try testing.expect(!d.params_sep.isSet(1));
     }
 }
 
@@ -634,14 +621,71 @@ test "csi: SGR with many blank and colon" {
 
         const d = a[1].?.csi_dispatch;
         try testing.expect(d.final == 'm');
-        try testing.expect(d.sep == .colon);
         try testing.expect(d.params.len == 6);
         try testing.expectEqual(@as(u16, 58), d.params[0]);
+        try testing.expect(d.params_sep.isSet(0));
         try testing.expectEqual(@as(u16, 2), d.params[1]);
+        try testing.expect(d.params_sep.isSet(1));
         try testing.expectEqual(@as(u16, 0), d.params[2]);
+        try testing.expect(d.params_sep.isSet(2));
         try testing.expectEqual(@as(u16, 240), d.params[3]);
+        try testing.expect(d.params_sep.isSet(3));
         try testing.expectEqual(@as(u16, 143), d.params[4]);
+        try testing.expect(d.params_sep.isSet(4));
         try testing.expectEqual(@as(u16, 104), d.params[5]);
+        try testing.expect(!d.params_sep.isSet(5));
+    }
+}
+
+// This is from a Kakoune actual SGR sequence.
+test "csi: SGR mixed colon and semicolon with blank" {
+    var p = init();
+    _ = p.next(0x1B);
+    for ("[;4:3;38;2;175;175;215;58:2::190:80:70") |c| {
+        const a = p.next(c);
+        try testing.expect(a[0] == null);
+        try testing.expect(a[1] == null);
+        try testing.expect(a[2] == null);
+    }
+
+    {
+        const a = p.next('m');
+        try testing.expect(p.state == .ground);
+        try testing.expect(a[0] == null);
+        try testing.expect(a[1].? == .csi_dispatch);
+        try testing.expect(a[2] == null);
+
+        const d = a[1].?.csi_dispatch;
+        try testing.expect(d.final == 'm');
+        try testing.expectEqual(14, d.params.len);
+        try testing.expectEqual(@as(u16, 0), d.params[0]);
+        try testing.expect(!d.params_sep.isSet(0));
+        try testing.expectEqual(@as(u16, 4), d.params[1]);
+        try testing.expect(d.params_sep.isSet(1));
+        try testing.expectEqual(@as(u16, 3), d.params[2]);
+        try testing.expect(!d.params_sep.isSet(2));
+        try testing.expectEqual(@as(u16, 38), d.params[3]);
+        try testing.expect(!d.params_sep.isSet(3));
+        try testing.expectEqual(@as(u16, 2), d.params[4]);
+        try testing.expect(!d.params_sep.isSet(4));
+        try testing.expectEqual(@as(u16, 175), d.params[5]);
+        try testing.expect(!d.params_sep.isSet(5));
+        try testing.expectEqual(@as(u16, 175), d.params[6]);
+        try testing.expect(!d.params_sep.isSet(6));
+        try testing.expectEqual(@as(u16, 215), d.params[7]);
+        try testing.expect(!d.params_sep.isSet(7));
+        try testing.expectEqual(@as(u16, 58), d.params[8]);
+        try testing.expect(d.params_sep.isSet(8));
+        try testing.expectEqual(@as(u16, 2), d.params[9]);
+        try testing.expect(d.params_sep.isSet(9));
+        try testing.expectEqual(@as(u16, 0), d.params[10]);
+        try testing.expect(d.params_sep.isSet(10));
+        try testing.expectEqual(@as(u16, 190), d.params[11]);
+        try testing.expect(d.params_sep.isSet(11));
+        try testing.expectEqual(@as(u16, 80), d.params[12]);
+        try testing.expect(d.params_sep.isSet(12));
+        try testing.expectEqual(@as(u16, 70), d.params[13]);
+        try testing.expect(!d.params_sep.isSet(13));
     }
 }
 

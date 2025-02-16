@@ -147,13 +147,14 @@ pub const App = struct {
         glfw.postEmptyEvent();
     }
 
-    /// Perform a given action.
+    /// Perform a given action. Returns `true` if the action was able to be
+    /// performed, `false` otherwise.
     pub fn performAction(
         self: *App,
         target: apprt.Target,
         comptime action: apprt.Action.Key,
         value: apprt.Action.Value(action),
-    ) !void {
+    ) !bool {
         switch (action) {
             .quit => self.quit = true,
 
@@ -218,6 +219,7 @@ pub const App = struct {
             .toggle_split_zoom,
             .present_terminal,
             .close_all_windows,
+            .close_tab,
             .toggle_tab_overview,
             .toggle_window_decorations,
             .toggle_quick_terminal,
@@ -236,8 +238,15 @@ pub const App = struct {
             .color_change,
             .pwd,
             .config_change,
-            => log.info("unimplemented action={}", .{action}),
+            .toggle_maximize,
+            .prompt_title,
+            => {
+                log.info("unimplemented action={}", .{action});
+                return false;
+            },
         }
+
+        return true;
     }
 
     /// Reload the configuration. This should return the new configuration.
@@ -870,6 +879,10 @@ pub const Surface = struct {
             .xpos = pos.xpos * x_scale,
             .ypos = pos.ypos * y_scale,
         };
+    }
+
+    pub fn defaultTermioEnv(self: *Surface) !std.process.EnvMap {
+        return try internal_os.getEnvMap(self.app.app.alloc);
     }
 
     fn sizeCallback(window: glfw.Window, width: i32, height: i32) void {

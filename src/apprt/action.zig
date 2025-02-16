@@ -82,12 +82,18 @@ pub const Action = union(Key) {
     /// the tab should be opened in a new window.
     new_tab,
 
+    /// Closes the tab belonging to the currently focused split.
+    close_tab,
+
     /// Create a new split. The value determines the location of the split
     /// relative to the target.
     new_split: SplitDirection,
 
     /// Close all open windows.
     close_all_windows,
+
+    /// Toggle maximized window state.
+    toggle_maximize,
 
     /// Toggle fullscreen mode.
     toggle_fullscreen: Fullscreen,
@@ -152,8 +158,12 @@ pub const Action = union(Key) {
     /// Show a desktop notification.
     desktop_notification: DesktopNotification,
 
-    /// Set the title of the target.
+    /// Set the title of the target to the requested value.
     set_title: SetTitle,
+
+    /// Set the title of the target to a prompted value. It is up to
+    /// the apprt to prompt.
+    prompt_title,
 
     /// The current working directory has changed for the target terminal.
     pwd: Pwd,
@@ -225,8 +235,10 @@ pub const Action = union(Key) {
         quit,
         new_window,
         new_tab,
+        close_tab,
         new_split,
         close_all_windows,
+        toggle_maximize,
         toggle_fullscreen,
         toggle_tab_overview,
         toggle_window_decorations,
@@ -246,6 +258,7 @@ pub const Action = union(Key) {
         render_inspector,
         desktop_notification,
         set_title,
+        prompt_title,
         pwd,
         mouse_shape,
         mouse_visibility,
@@ -377,6 +390,7 @@ pub const Fullscreen = enum(c_int) {
     /// window. This is much faster to enter and exit than the native mode.
     macos_non_native,
     macos_non_native_visible_menu,
+    macos_non_native_padded_notch,
 };
 
 pub const SecureInput = enum(c_int) {

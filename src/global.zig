@@ -111,6 +111,9 @@ pub const GlobalState = struct {
             }
         }
 
+        // Setup our signal handlers before logging
+        initSignals();
+
         // Output some debug information right away
         std.log.info("ghostty version={s}", .{build_config.version_string});
         std.log.info("ghostty build optimize={s}", .{build_config.mode_string});
@@ -174,6 +177,28 @@ pub const GlobalState = struct {
             // the point at which it will output if there were safety violations.
             _ = value.deinit();
         }
+    }
+
+    fn initSignals() void {
+        // Only posix systems.
+        if (comptime builtin.os.tag == .windows) return;
+
+        const p = std.posix;
+
+        var sa: p.Sigaction = .{
+            .handler = .{ .handler = p.SIG.IGN },
+            .mask = p.empty_sigset,
+            .flags = 0,
+        };
+
+        // We ignore SIGPIPE because it is a common signal we may get
+        // due to how we implement termio. When a terminal is closed we
+        // often write to a broken pipe to exit the read thread. This should
+        // be fixed one day but for now this helps make this a bit more
+        // robust.
+        p.sigaction(p.SIG.PIPE, &sa, null) catch |err| {
+            std.log.warn("failed to ignore SIGPIPE err={}", .{err});
+        };
     }
 };
 

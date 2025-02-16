@@ -192,21 +192,21 @@ test "c_get: background-blur" {
     defer c.deinit();
 
     {
-        c.@"background-blur-radius" = .false;
+        c.@"background-blur" = .false;
         var cval: u8 = undefined;
-        try testing.expect(get(&c, .@"background-blur-radius", @ptrCast(&cval)));
+        try testing.expect(get(&c, .@"background-blur", @ptrCast(&cval)));
         try testing.expectEqual(0, cval);
     }
     {
-        c.@"background-blur-radius" = .true;
+        c.@"background-blur" = .true;
         var cval: u8 = undefined;
-        try testing.expect(get(&c, .@"background-blur-radius", @ptrCast(&cval)));
+        try testing.expect(get(&c, .@"background-blur", @ptrCast(&cval)));
         try testing.expectEqual(20, cval);
     }
     {
-        c.@"background-blur-radius" = .{ .radius = 42 };
+        c.@"background-blur" = .{ .radius = 42 };
         var cval: u8 = undefined;
-        try testing.expect(get(&c, .@"background-blur-radius", @ptrCast(&cval)));
+        try testing.expect(get(&c, .@"background-blur", @ptrCast(&cval)));
         try testing.expectEqual(42, cval);
     }
 }

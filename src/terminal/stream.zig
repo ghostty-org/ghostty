@@ -253,15 +253,11 @@ pub fn Stream(comptime Handler: type) type {
                     // A parameter separator:
                     ':', ';' => if (self.parser.params_idx < 16) {
                         self.parser.params[self.parser.params_idx] = self.parser.param_acc;
+                        if (c == ':') self.parser.params_sep.set(self.parser.params_idx);
                         self.parser.params_idx += 1;
 
                         self.parser.param_acc = 0;
                         self.parser.param_acc_idx = 0;
-
-                        // Keep track of separator state.
-                        const sep: Parser.ParamSepState = @enumFromInt(c);
-                        if (self.parser.params_idx == 1) self.parser.params_sep = sep;
-                        if (self.parser.params_sep != sep) self.parser.params_sep = .mixed;
                     },
                     // Explicitly ignored:
                     0x7F => {},
@@ -937,7 +933,10 @@ pub fn Stream(comptime Handler: type) type {
                 'm' => switch (input.intermediates.len) {
                     0 => if (@hasDecl(T, "setAttribute")) {
                         // log.info("parse SGR params={any}", .{action.params});
-                        var p: sgr.Parser = .{ .params = input.params, .colon = input.sep == .colon };
+                        var p: sgr.Parser = .{
+                            .params = input.params,
+                            .params_sep = input.params_sep,
+                        };
                         while (p.next()) |attr| {
                             // log.info("SGR attribute: {}", .{attr});
                             try self.handler.setAttribute(attr);
@@ -1605,7 +1604,7 @@ pub fn Stream(comptime Handler: type) type {
                     } else log.warn("unimplemented OSC callback: {}", .{cmd});
                 },
 
-                .progress, .sleep, .show_message_box, .change_conemu_tab_title => {
+                .progress, .sleep, .show_message_box, .change_conemu_tab_title, .wait_input => {
                     log.warn("unimplemented OSC callback: {}", .{cmd});
                 },
             }

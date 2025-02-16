@@ -115,6 +115,21 @@ class TerminalWindow: NSWindow {
         }
     }
 
+    // We override this so that with the hidden titlebar style the titlebar
+    // area is not draggable.
+    override var contentLayoutRect: CGRect {
+        var rect = super.contentLayoutRect
+
+        // If we are using a hidden titlebar style, the content layout is the
+        // full frame making it so that it is not draggable.
+        if let controller = windowController as? TerminalController,
+              controller.derivedConfig.macosTitlebarStyle == "hidden" {
+            rect.origin.y = 0
+            rect.size.height = self.frame.height
+        }
+        return rect
+    }
+
     // The window theme configuration from Ghostty. This is used to control some
     // behaviors that don't look quite right in certain situations.
     var windowTheme: TerminalWindowTheme?

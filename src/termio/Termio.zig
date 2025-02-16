@@ -220,7 +220,7 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
         .renderer_mailbox = opts.renderer_mailbox,
         .surface_mailbox = opts.surface_mailbox,
         .size = opts.size,
-        .backend = opts.backend,
+        .backend = backend,
         .mailbox = opts.mailbox,
         .terminal_stream = .{
             .handler = handler,

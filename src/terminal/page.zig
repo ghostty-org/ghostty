@@ -821,11 +821,7 @@ pub const Page = struct {
                         if (self.hyperlink_set.lookupContext(
                             self.memory,
                             other_link.*,
-
-                            // `lookupContext` uses the context for hashing, and
-                            // that doesn't write to the page, so this constCast
-                            // is completely safe.
-                            .{ .page = @constCast(other) },
+                            .{ .page = self, .src_page = @constCast(other) },
                         )) |i| {
                             self.hyperlink_set.use(self.memory, i);
                             break :dst_id i;

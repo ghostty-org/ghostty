@@ -178,6 +178,9 @@ pub const Command = union(enum) {
         progress: ?u8 = null,
     },
 
+    /// Wait input (OSC 9;5)
+    wait_input: void,
+
     pub const ColorKind = union(enum) {
         palette: u8,
         foreground,
@@ -269,6 +272,9 @@ pub const Parser = struct {
     // Maximum length of a single OSC command. This is the full OSC command
     // sequence length (excluding ESC ]). This is arbitrary, I couldn't find
     // any definitive resource on how long this should be.
+    //
+    // NOTE: This does mean certain OSC sequences such as OSC 8 (hyperlinks)
+    //       won't work if their parameters are larger than fit in the buffer.
     const MAX_BUF = 2048;
 
     pub const State = enum {
@@ -422,9 +428,23 @@ pub const Parser = struct {
 
     /// Consume the next character c and advance the parser state.
     pub fn next(self: *Parser, c: u8) void {
-        // If our buffer is full then we're invalid.
+        // If our buffer is full then we're invalid, so we set our state
+        // accordingly and indicate the sequence is incomplete so that we
+        // don't accidentally issue a command when ending.
         if (self.buf_idx >= self.buf.len) {
+            if (self.state != .invalid) {
+                log.warn(
+                    "OSC sequence too long (> {d}), ignoring. state={}",
+                    .{ self.buf.len, self.state },
+                );
+            }
+
             self.state = .invalid;
+
+            // We have to do this here because it will never reach the
+            // switch statement below, since our buf_idx will always be
+            // too high after this.
+            self.complete = false;
             return;
         }
 
@@ -810,6 +830,11 @@ pub const Parser = struct {
                 },
                 '4' => {
                     self.state = .conemu_progress_prestate;
+                },
+                '5' => {
+                    self.state = .swallow;
+                    self.command = .{ .wait_input = {} };
+                    self.complete = true;
                 },
 
                 // Todo: parse out other ConEmu operating system commands.
@@ -1635,10 +1660,11 @@ test "OSC: longer than buffer" {
 
     var p: Parser = .{};
 
-    const input = "a" ** (Parser.MAX_BUF + 2);
+    const input = "0;" ++ "a" ** (Parser.MAX_BUF + 2);
     for (input) |ch| p.next(ch);
 
     try testing.expect(p.end(null) == null);
+    try testing.expect(p.complete == false);
 }
 
 test "OSC: report default foreground color" {
@@ -2094,6 +2120,30 @@ test "OSC: OSC9 progress pause with progress" {
     try testing.expect(cmd == .progress);
     try testing.expect(cmd.progress.state == .pause);
     try testing.expect(cmd.progress.progress == 100);
+}
+
+test "OSC: OSC9 conemu wait input" {
+    const testing = std.testing;
+
+    var p: Parser = .{};
+
+    const input = "9;5";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?;
+    try testing.expect(cmd == .wait_input);
+}
+
+test "OSC: OSC9 conemu wait ignores trailing characters" {
+    const testing = std.testing;
+
+    var p: Parser = .{};
+
+    const input = "9;5;foo";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?;
+    try testing.expect(cmd == .wait_input);
 }
 
 test "OSC: empty param" {

@@ -41,12 +41,16 @@ pub const Mode = packed struct {
 // a termio that doesn't use a pty. This isn't used in any user-facing
 // artifacts, this is just a stopgap to get compilation to work on iOS.
 const NullPty = struct {
+    pub const Error = OpenError || GetModeError || SetSizeError || ChildPreExecError;
+
     pub const Fd = posix.fd_t;
 
     master: Fd,
     slave: Fd,
 
-    pub fn open(size: winsize) !Pty {
+    pub const OpenError = error{};
+
+    pub fn open(size: winsize) OpenError!Pty {
         _ = size;
         return .{ .master = 0, .slave = 0 };
     }
@@ -55,17 +59,23 @@ const NullPty = struct {
         _ = self;
     }
 
-    pub fn getMode(self: Pty) error{GetModeFailed}!Mode {
+    pub const GetModeError = error{GetModeFailed};
+
+    pub fn getMode(self: Pty) GetModeError!Mode {
         _ = self;
         return .{};
     }
 
-    pub fn setSize(self: *Pty, size: winsize) !void {
+    pub const SetSizeError = error{};
+
+    pub fn setSize(self: *Pty, size: winsize) SetSizeError!void {
         _ = self;
         _ = size;
     }
 
-    pub fn childPreExec(self: Pty) !void {
+    pub const ChildPreExecError = error{};
+
+    pub fn childPreExec(self: Pty) ChildPreExecError!void {
         _ = self;
     }
 };
@@ -74,6 +84,8 @@ const NullPty = struct {
 /// of Linux syscalls. The caller is responsible for detail-oriented handling
 /// of the returned file handles.
 const PosixPty = struct {
+    pub const Error = OpenError || GetModeError || GetSizeError || SetSizeError || ChildPreExecError;
+
     pub const Fd = posix.fd_t;
 
     // https://github.com/ziglang/zig/issues/13277
@@ -94,11 +106,16 @@ const PosixPty = struct {
     };
 
     /// The file descriptors for the master and slave side of the pty.
+    /// The slave side is never closed automatically by this struct
+    /// so the caller is responsible for closing it if things
+    /// go wrong.
     master: Fd,
     slave: Fd,
 
+    pub const OpenError = error{OpenptyFailed};
+
     /// Open a new PTY with the given initial size.
-    pub fn open(size: winsize) !Pty {
+    pub fn open(size: winsize) OpenError!Pty {
         // Need to copy so that it becomes non-const.
         var sizeCopy = size;
 
@@ -117,6 +134,24 @@ const PosixPty = struct {
             _ = posix.system.close(slave_fd);
         }
 
+        // Set CLOEXEC on the master fd, only the slave fd should be inherited
+        // by the child process (shell/command).
+        cloexec: {
+            const flags = std.posix.fcntl(master_fd, std.posix.F.GETFD, 0) catch |err| {
+                log.warn("error getting flags for master fd err={}", .{err});
+                break :cloexec;
+            };
+
+            _ = std.posix.fcntl(
+                master_fd,
+                std.posix.F.SETFD,
+                flags | std.posix.FD_CLOEXEC,
+            ) catch |err| {
+                log.warn("error setting CLOEXEC on master fd err={}", .{err});
+                break :cloexec;
+            };
+        }
+
         // Enable UTF-8 mode. I think this is on by default on Linux but it
         // is NOT on by default on macOS so we ensure that it is always set.
         var attrs: c.termios = undefined;
@@ -126,7 +161,7 @@ const PosixPty = struct {
         if (c.tcsetattr(master_fd, c.TCSANOW, &attrs) != 0)
             return error.OpenptyFailed;
 
-        return Pty{
+        return .{
             .master = master_fd,
             .slave = slave_fd,
         };
@@ -134,11 +169,12 @@ const PosixPty = struct {
 
     pub fn deinit(self: *Pty) void {
         _ = posix.system.close(self.master);
-        _ = posix.system.close(self.slave);
         self.* = undefined;
     }
 
-    pub fn getMode(self: Pty) error{GetModeFailed}!Mode {
+    pub const GetModeError = error{GetModeFailed};
+
+    pub fn getMode(self: Pty) GetModeError!Mode {
         var attrs: c.termios = undefined;
         if (c.tcgetattr(self.master, &attrs) != 0)
             return error.GetModeFailed;
@@ -149,8 +185,10 @@ const PosixPty = struct {
         };
     }
 
+    pub const GetSizeError = error{IoctlFailed};
+
     /// Return the size of the pty.
-    pub fn getSize(self: Pty) !winsize {
+    pub fn getSize(self: Pty) GetSizeError!winsize {
         var ws: winsize = undefined;
         if (c.ioctl(self.master, TIOCGWINSZ, @intFromPtr(&ws)) < 0)
             return error.IoctlFailed;
@@ -158,15 +196,19 @@ const PosixPty = struct {
         return ws;
     }
 
+    pub const SetSizeError = error{IoctlFailed};
+
     /// Set the size of the pty.
-    pub fn setSize(self: *Pty, size: winsize) !void {
+    pub fn setSize(self: *Pty, size: winsize) SetSizeError!void {
         if (c.ioctl(self.master, TIOCSWINSZ, @intFromPtr(&size)) < 0)
             return error.IoctlFailed;
     }
 
+    pub const ChildPreExecError = error{ OperationNotSupported, ProcessGroupFailed, SetControllingTerminalFailed };
+
     /// This should be called prior to exec in the forked child process
     /// in order to setup the tty properly.
-    pub fn childPreExec(self: Pty) !void {
+    pub fn childPreExec(self: Pty) ChildPreExecError!void {
         // Reset our signals
         var sa: posix.Sigaction = .{
             .handler = .{ .handler = posix.SIG.DFL },
@@ -181,6 +223,7 @@ const PosixPty = struct {
         try posix.sigaction(posix.SIG.HUP, &sa, null);
         try posix.sigaction(posix.SIG.ILL, &sa, null);
         try posix.sigaction(posix.SIG.INT, &sa, null);
+        try posix.sigaction(posix.SIG.PIPE, &sa, null);
         try posix.sigaction(posix.SIG.SEGV, &sa, null);
         try posix.sigaction(posix.SIG.TRAP, &sa, null);
         try posix.sigaction(posix.SIG.TERM, &sa, null);
@@ -201,13 +244,13 @@ const PosixPty = struct {
         // Can close master/slave pair now
         posix.close(self.slave);
         posix.close(self.master);
-
-        // TODO: reset signals
     }
 };
 
 /// Windows PTY creation and management.
 const WindowsPty = struct {
+    pub const Error = OpenError || GetSizeError || SetSizeError;
+
     pub const Fd = windows.HANDLE;
 
     // Process-wide counter for pipe names
@@ -220,8 +263,10 @@ const WindowsPty = struct {
     pseudo_console: windows.exp.HPCON,
     size: winsize,
 
+    pub const OpenError = error{Unexpected};
+
     /// Open a new PTY with the given initial size.
-    pub fn open(size: winsize) !Pty {
+    pub fn open(size: winsize) OpenError!Pty {
         var pty: Pty = undefined;
 
         var pipe_path_buf: [128]u8 = undefined;
@@ -330,13 +375,17 @@ const WindowsPty = struct {
         self.* = undefined;
     }
 
+    pub const GetSizeError = error{};
+
     /// Return the size of the pty.
-    pub fn getSize(self: Pty) !winsize {
+    pub fn getSize(self: Pty) GetSizeError!winsize {
         return self.size;
     }
 
+    pub const SetSizeError = error{ResizeFailed};
+
     /// Set the size of the pty.
-    pub fn setSize(self: *Pty, size: winsize) !void {
+    pub fn setSize(self: *Pty, size: winsize) SetSizeError!void {
         const result = windows.exp.kernel32.ResizePseudoConsole(
             self.pseudo_console,
             .{ .X = @intCast(size.ws_col), .Y = @intCast(size.ws_row) },
