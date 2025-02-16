@@ -29,6 +29,29 @@ pub const Link = struct {
 pub const Set = struct {
     links: []Link,
 
+    // Converts paths starting with `~` to absolute paths using the HOME environment variable
+    fn interpretHomeDirectory(alloc: std.mem.Allocator, path: []const u8) ![]const u8 {
+        // If the path starts with the project directory and contains a tilde,
+        // we should only process the part after the tilde
+        if (std.mem.indexOf(u8, path, "/~")) |tilde_pos| {
+            const home = std.posix.getenv("HOME") orelse "";
+            const after_tilde = path[tilde_pos + 2 ..];
+            // Construct the path using just the home directory and the part after ~/
+            const result = try std.fmt.allocPrint(alloc, "{s}/{s}", .{ home, after_tilde });
+            return result;
+        } else if (path.len > 0 and path[0] == '~') {
+            const home = std.posix.getenv("HOME") orelse "";
+            if (path.len > 1 and path[1] == '/') {
+                const result = try std.fmt.allocPrint(alloc, "{s}{s}", .{ home, path[1..] });
+                return result;
+            } else if (path.len == 1) {
+                const result = try std.fmt.allocPrint(alloc, "{s}", .{home});
+                return result;
+            }
+        }
+        return path;
+    }
+
     /// Returns the slice of links from the configuration.
     pub fn fromConfig(
         alloc: Allocator,
@@ -112,7 +135,6 @@ pub const Set = struct {
         mouse_pin: terminal.Pin,
         mouse_mods: inputpkg.Mods,
     ) !void {
-        _ = alloc;
 
         // If the right mods aren't pressed, then we can't match.
         if (!mouse_mods.equal(inputpkg.ctrlOrSuper(.{}))) return;
@@ -129,15 +151,18 @@ pub const Set = struct {
         };
         const link = page.hyperlink_set.get(page.memory, link_id);
 
+        // Convert paths starting with `~` to absolute paths
+        const absoluteUri = try interpretHomeDirectory(alloc, link.uri.offset.ptr(page.memory)[0..link.uri.len]);
+
         // If our link has an implicit ID (no ID set explicitly via OSC8)
         // then we use an alternate matching technique that iterates forward
         // and backward until it finds boundaries.
         if (link.id == .implicit) {
-            const uri = link.uri.offset.ptr(page.memory)[0..link.uri.len];
             return try self.matchSetFromOSC8Implicit(
+                alloc,
                 matches,
                 mouse_pin,
-                uri,
+                absoluteUri,
             );
         }
 
@@ -203,6 +228,7 @@ pub const Set = struct {
     /// around the mouse pin.
     fn matchSetFromOSC8Implicit(
         self: *const Set,
+        alloc: std.mem.Allocator,
         matches: *std.ArrayList(terminal.Selection),
         mouse_pin: terminal.Pin,
         uri: []const u8,
@@ -231,9 +257,12 @@ pub const Set = struct {
             // If this link has an explicit ID then we found a boundary
             if (link.id != .implicit) break;
 
-            // If this link has a different URI then we found a boundary
+            // Convert paths starting with `~` to absolute paths
             const cell_uri = link.uri.offset.ptr(page.memory)[0..link.uri.len];
-            if (!std.mem.eql(u8, uri, cell_uri)) break;
+            const absoluteCellUri = try interpretHomeDirectory(alloc, cell_uri);
+
+            // If this link has a different URI then we found a boundary
+            if (!std.mem.eql(u8, uri, absoluteCellUri)) break;
 
             sel.startPtr().* = cell_pin;
         }
@@ -257,9 +286,12 @@ pub const Set = struct {
             // If this link has an explicit ID then we found a boundary
             if (link.id != .implicit) break;
 
-            // If this link has a different URI then we found a boundary
+            // Convert paths starting with `~` to absolute paths
             const cell_uri = link.uri.offset.ptr(page.memory)[0..link.uri.len];
-            if (!std.mem.eql(u8, uri, cell_uri)) break;
+            const absoluteCellUri = try interpretHomeDirectory(alloc, cell_uri);
+
+            // If this link has a different URI then we found a boundary
+            if (!std.mem.eql(u8, uri, absoluteCellUri)) break;
 
             sel.endPtr().* = cell_pin;
         }

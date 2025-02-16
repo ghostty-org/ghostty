@@ -26,7 +26,7 @@ pub const regex =
     "(?:" ++ url_schemes ++
     \\)(?:
 ++ ipv6_url_pattern ++
-    \\|[\w\-.~:/?#@!$&*+,;=%]+(?:[\(\[]\w*[\)\]])?)+(?<![,.])|(?:\.\.\/|\.\/*|\/)[\w\-.~:\/?#@!$&*+,;=%]+(?:\/[\w\-.~:\/?#@!$&*+,;=%]*)*
+    \\|[\w\-.~:/?#@!$&*+,;=%]+(?:[\(\[]\w*[\)\]])?)+(?<![,.])|(?:~|~/|\.\.\/|\.\/*|\/)[\w\-.~:\/?#@!$&*+,;=%]*(?:\/[\w\-.~:\/?#@!$&*+,;=%]*)*
 ;
 const url_schemes =
     \\https?://|mailto:|ftp://|file:|ssh:|git://|ssh://|tel:|magnet:|ipfs://|ipns://|gemini://|gopher://|news:
@@ -199,6 +199,21 @@ test "url regex" {
         .{
             .input = "[link](/home/user/ghostty.user/example)",
             .expect = "/home/user/ghostty.user/example",
+        },
+        // Test standalone tilde
+        .{
+            .input = "~",
+            .expect = "~",
+        },
+        // Test tilde with path
+        .{
+            .input = "~/Documents/example.txt",
+            .expect = "~/Documents/example.txt",
+        },
+        // Test tilde in text context
+        .{
+            .input = "cd ~ to go home",
+            .expect = "~",
         },
         // IPv6 URL tests - Basic tests
         .{
