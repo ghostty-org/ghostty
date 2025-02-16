@@ -5762,6 +5762,7 @@ pub const MacTitlebarProxyIcon = enum {
 pub const MacHidden = enum {
     never,
     always,
+    @"quick-terminal",
 };
 
 /// See macos-icon

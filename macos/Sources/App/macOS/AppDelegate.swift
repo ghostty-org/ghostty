@@ -403,6 +403,12 @@ class AppDelegate: NSObject,
         reloadDockMenu()
     }
 
+    func applicationDidUpdate(_ notification: Notification) {
+        guard derivedConfig.shouldSwitchBetweenActivationPolicies else { return }
+        // Are we presenting any regular windows ?
+        NSApp.setActivationPolicy(NSApp.visibleRegularWindows.isEmpty ? .accessory : .regular)
+    }
+
     /// Syncs a single menu shortcut for the given action. The action string is the same
     /// action string used for the Ghostty configuration.
     private func syncMenuShortcut(_ config: Ghostty.Config, action: String, menuItem: NSMenuItem?) {
@@ -540,6 +546,9 @@ class AppDelegate: NSObject,
 
         case .always:
             NSApp.setActivationPolicy(.accessory)
+
+        case .quick_terminal:
+            NSApp.setActivationPolicy(NSApp.visibleRegularWindows.isEmpty ? .accessory : .regular)
         }
 
         // If we have configuration errors, we need to show them.
@@ -786,17 +795,20 @@ class AppDelegate: NSObject,
         let initialWindow: Bool
         let shouldQuitAfterLastWindowClosed: Bool
         let quickTerminalPosition: QuickTerminalPosition
+        let shouldSwitchBetweenActivationPolicies: Bool
 
         init() {
             self.initialWindow = true
             self.shouldQuitAfterLastWindowClosed = false
             self.quickTerminalPosition = .top
+            self.shouldSwitchBetweenActivationPolicies = false
         }
 
         init(_ config: Ghostty.Config) {
             self.initialWindow = config.initialWindow
             self.shouldQuitAfterLastWindowClosed = config.shouldQuitAfterLastWindowClosed
             self.quickTerminalPosition = config.quickTerminalPosition
+            self.shouldSwitchBetweenActivationPolicies = config.macosHidden == .quick_terminal
         }
     }
 

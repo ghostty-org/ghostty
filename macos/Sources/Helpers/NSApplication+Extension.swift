@@ -24,6 +24,21 @@ extension NSApplication {
     }
 }
 
+extension NSApplication {
+    private static let nonRegularWindowsClassNames: [String] = [
+        "NSStatusBarWindow",
+        "_NSPopoverWindow",
+        "TUINSWindow"
+    ]
+
+    /// Windows that are visible and regular (such as terminal & update windows)
+    var visibleRegularWindows: [NSWindow] {
+        NSApp.windows
+            .filter { !Self.nonRegularWindowsClassNames.contains($0.className) }
+            .filter { $0.isVisible }
+    }
+}
+
 extension NSApplication.PresentationOptions.Element: @retroactive Hashable {
     public func hash(into hasher: inout Hasher) {
         hasher.combine(rawValue)

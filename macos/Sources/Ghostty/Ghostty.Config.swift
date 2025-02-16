@@ -529,6 +529,7 @@ extension Ghostty.Config {
     enum MacHidden : String {
         case never
         case always
+        case quick_terminal = "quick-terminal"
     }
 
     enum ResizeOverlay : String {
