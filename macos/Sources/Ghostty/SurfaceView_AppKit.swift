@@ -1171,8 +1171,15 @@ extension Ghostty {
             menu.addItem(.separator())
             menu.addItem(withTitle: "Reset Terminal", action: #selector(resetTerminal(_:)), keyEquivalent: "")
             menu.addItem(withTitle: "Toggle Terminal Inspector", action: #selector(toggleTerminalInspector(_:)), keyEquivalent: "")
-            menu.addItem(.separator())
-            menu.addItem(withTitle: "Change Title...", action: #selector(changeTitle(_:)), keyEquivalent: "")
+
+            // Only show Change Title menu item if we have a title bar
+            if let window = self.window,
+               !window.styleMask.contains(.fullScreen),
+               let appDelegate = NSApplication.shared.delegate as? AppDelegate,
+               appDelegate.ghostty.config.windowDecorations {
+                menu.addItem(.separator())
+                menu.addItem(withTitle: "Change Title...", action: #selector(changeTitle(_:)), keyEquivalent: "")
+            }
 
             return menu
         }
@@ -1547,6 +1554,11 @@ extension Ghostty.SurfaceView: NSMenuItemValidation {
             let pb = NSPasteboard.ghosttySelection
             guard let str = pb.getOpinionatedStringContents() else { return false }
             return !str.isEmpty
+
+        case #selector(changeTitle):
+            guard let window = self.window,
+                  let appDelegate = NSApplication.shared.delegate as? AppDelegate else { return false }
+            return !window.styleMask.contains(.fullScreen) && appDelegate.ghostty.config.windowDecorations
 
         default:
             return true
