@@ -247,10 +247,6 @@ extension Notification.Name {
 
     /// Close tab
     static let ghosttyCloseTab = Notification.Name("com.mitchellh.ghostty.closeTab")
-
-    /// Managed windows did change.
-    static let ghosttyWindowsChanged = Notification.Name("com.mitchellh.ghostty.windowsChanged")
-    static let GhosttyWindowsChangedKey = ghosttyWindowsChanged.rawValue
 }
 
 // NOTE: I am moving all of these to Notification.Name extensions over time. This

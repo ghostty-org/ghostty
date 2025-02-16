@@ -17,13 +17,7 @@ class TerminalManager {
     var focusedSurface: Ghostty.SurfaceView? { mainWindow?.controller.focusedSurface }
 
     /// The set of windows we currently have.
-    private(set) var windows: [Window] = [] {
-        didSet {
-            let userInfo = [Notification.Name.GhosttyWindowsChangedKey: windows.count]
-            NotificationCenter.default
-                .post(name: .ghosttyWindowsChanged, object: nil, userInfo: userInfo)
-        }
-    }
+    private(set) var windows: [Window] = []
 
     // Keep track of the last point that our window was launched at so that new
     // windows "cascade" over each other and don't just launch directly on top

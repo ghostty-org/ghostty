@@ -31,9 +31,11 @@ extension NSApplication {
         "TUINSWindow"
     ]
 
-    /// Windows that are visible and regular (such as terminal & update windows)
+    /// Windows that are visible and regular (such as terminal & update windows).
+    /// `QuickTerminalWindow` instances are omitted from this collection.
     var visibleRegularWindows: [NSWindow] {
         NSApp.windows
+            .filter { !($0 is QuickTerminalWindow) }
             .filter { !Self.nonRegularWindowsClassNames.contains($0.className) }
             .filter { $0.isVisible }
     }
