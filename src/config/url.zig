@@ -26,7 +26,7 @@ pub const regex =
     "(?:" ++ url_schemes ++
     \\)(?:
 ++ ipv6_url_pattern ++
-    \\|[\w\-.~:/?#@!$&*+,;=%]+(?:[\(\[]\w*[\)\]])?)+(?<![,.])|(?:\.\.\/|\.\/*|\/)[\w\-.~:\/?#@!$&*+,;=%]+(?:\/[\w\-.~:\/?#@!$&*+,;=%]*)*
+    \\|[\w\-.~:/?#@!$&*+,;=%]+(?:[\(\[]\w*[\)\]])?)+(?<![,.])|(?:^\/)[\w\-.~:\/?#@!$&*+,;=%]+(?:\/[\w\-.~:\/?#@!$&*+,;=%]*)*
 ;
 const url_schemes =
     \\https?://|mailto:|ftp://|file:|ssh:|git://|ssh://|tel:|magnet:|ipfs://|ipns://|gemini://|gopher://|news:
@@ -183,18 +183,6 @@ test "url regex" {
         .{
             .input = "/Users/ghostty.user/code/../example.py hello world",
             .expect = "/Users/ghostty.user/code/../example.py",
-        },
-        .{
-            .input = "../example.py",
-            .expect = "../example.py",
-        },
-        .{
-            .input = "../example.py ",
-            .expect = "../example.py",
-        },
-        .{
-            .input = "first time ../example.py contributor ",
-            .expect = "../example.py",
         },
         .{
             .input = "[link](/home/user/ghostty.user/example)",
