@@ -107,6 +107,10 @@
 		C1F26EA72B738B9900404083 /* NSView+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F26EA62B738B9900404083 /* NSView+Extension.swift */; };
 		C1F26EE92B76CBFC00404083 /* VibrantLayer.m in Sources */ = {isa = PBXBuildFile; fileRef = C1F26EE82B76CBFC00404083 /* VibrantLayer.m */; };
 		CFBB5FEA2D231E5000FD62EE /* QuickTerminalSpaceBehavior.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFBB5FE92D231E5000FD62EE /* QuickTerminalSpaceBehavior.swift */; };
+		CF41FAD12D26AADB004A0BF7 /* QuickTerminalTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF41FAD02D26AADB004A0BF7 /* QuickTerminalTab.swift */; };
+		CF41FAD32D26AB35004A0BF7 /* QuickTerminalTabManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF41FAD22D26AB35004A0BF7 /* QuickTerminalTabManager.swift */; };
+		CF41FAD62D26ABC9004A0BF7 /* QuickTerminalTabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF41FAD52D26ABC9004A0BF7 /* QuickTerminalTabBarView.swift */; };
+		CF41FAD82D26ABF6004A0BF7 /* QuickTerminalTabItemView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF41FAD72D26ABF6004A0BF7 /* QuickTerminalTabItemView.swift */; };
 		FC5218FA2D10FFCE004C93E0 /* zsh in Resources */ = {isa = PBXBuildFile; fileRef = FC5218F92D10FFC7004C93E0 /* zsh */; };
 		FC9ABA9C2D0F53F80020D4C8 /* bash-completion in Resources */ = {isa = PBXBuildFile; fileRef = FC9ABA9B2D0F538D0020D4C8 /* bash-completion */; };
 /* End PBXBuildFile section */
@@ -208,6 +212,10 @@
 		C1F26EE82B76CBFC00404083 /* VibrantLayer.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = VibrantLayer.m; sourceTree = "<group>"; };
 		C1F26EEA2B76CC2400404083 /* ghostty-bridging-header.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "ghostty-bridging-header.h"; sourceTree = "<group>"; };
 		CFBB5FE92D231E5000FD62EE /* QuickTerminalSpaceBehavior.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickTerminalSpaceBehavior.swift; sourceTree = "<group>"; };
+		CF41FAD02D26AADB004A0BF7 /* QuickTerminalTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickTerminalTab.swift; sourceTree = "<group>"; };
+		CF41FAD22D26AB35004A0BF7 /* QuickTerminalTabManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickTerminalTabManager.swift; sourceTree = "<group>"; };
+		CF41FAD52D26ABC9004A0BF7 /* QuickTerminalTabBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickTerminalTabBarView.swift; sourceTree = "<group>"; };
+		CF41FAD72D26ABF6004A0BF7 /* QuickTerminalTabItemView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickTerminalTabItemView.swift; sourceTree = "<group>"; };
 		FC5218F92D10FFC7004C93E0 /* zsh */ = {isa = PBXFileReference; lastKnownFileType = folder; name = zsh; path = "../zig-out/share/zsh"; sourceTree = "<group>"; };
 		FC9ABA9B2D0F538D0020D4C8 /* bash-completion */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "bash-completion"; path = "../zig-out/share/bash-completion"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -460,6 +468,7 @@
 		A5CBD05A2CA0C5910017A1AE /* QuickTerminal */ = {
 			isa = PBXGroup;
 			children = (
+				CF41FAD42D26AB7F004A0BF7 /* Tab */,
 				A5CBD05B2CA0C5C70017A1AE /* QuickTerminal.xib */,
 				A5CBD05D2CA0C5E70017A1AE /* QuickTerminalController.swift */,
 				CFBB5FE92D231E5000FD62EE /* QuickTerminalSpaceBehavior.swift */,
@@ -504,6 +513,17 @@
 				A5E112962AF7401B00C6E0C2 /* ClipboardConfirmationView.swift */,
 			);
 			path = ClipboardConfirmation;
+			sourceTree = "<group>";
+		};
+		CF41FAD42D26AB7F004A0BF7 /* Tab */ = {
+			isa = PBXGroup;
+			children = (
+				CF41FAD02D26AADB004A0BF7 /* QuickTerminalTab.swift */,
+				CF41FAD52D26ABC9004A0BF7 /* QuickTerminalTabBarView.swift */,
+				CF41FAD72D26ABF6004A0BF7 /* QuickTerminalTabItemView.swift */,
+				CF41FAD22D26AB35004A0BF7 /* QuickTerminalTabManager.swift */,
+			);
+			path = Tab;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -630,6 +650,7 @@
 				A59630A42AF059BB00D64628 /* Ghostty.SplitNode.swift in Sources */,
 				A514C8D62B54A16400493A16 /* Ghostty.Config.swift in Sources */,
 				A54B0CEB2D0CFB4C00CBEFF8 /* NSImage+Extension.swift in Sources */,
+				CF41FAD32D26AB35004A0BF7 /* QuickTerminalTabManager.swift in Sources */,
 				A54D786C2CA7978E001B19B1 /* BaseTerminalController.swift in Sources */,
 				A59FB5CF2AE0DB50009128F3 /* InspectorView.swift in Sources */,
 				CFBB5FEA2D231E5000FD62EE /* QuickTerminalSpaceBehavior.swift in Sources */,
@@ -650,13 +671,16 @@
 				A5278A9B2AA05B2600CD3039 /* Ghostty.Input.swift in Sources */,
 				A5CBD0562C9E65B80017A1AE /* DraggableWindowView.swift in Sources */,
 				C1F26EE92B76CBFC00404083 /* VibrantLayer.m in Sources */,
+				CF41FAD12D26AADB004A0BF7 /* QuickTerminalTab.swift in Sources */,
 				A59630972AEE163600D64628 /* HostingWindow.swift in Sources */,
 				A59630A02AEF6AEB00D64628 /* TerminalManager.swift in Sources */,
 				A51BFC2B2B30F6BE00E92F16 /* UpdateDelegate.swift in Sources */,
 				A5CBD06B2CA322430017A1AE /* GlobalEventTap.swift in Sources */,
 				AEE8B3452B9AA39600260C5E /* NSPasteboard+Extension.swift in Sources */,
+				CF41FAD62D26ABC9004A0BF7 /* QuickTerminalTabBarView.swift in Sources */,
 				A52FFF5D2CAB4D08000C6A5B /* NSScreen+Extension.swift in Sources */,
 				A53426352A7DA53D00EBB7A2 /* AppDelegate.swift in Sources */,
+				CF41FAD82D26ABF6004A0BF7 /* QuickTerminalTabItemView.swift in Sources */,
 				A5CBD0582C9F30960017A1AE /* Cursor.swift in Sources */,
 				A5A6F72A2CC41B8900B232A5 /* Xcode.swift in Sources */,
 				A52FFF5B2CAA54B1000C6A5B /* FullscreenMode+Extension.swift in Sources */,

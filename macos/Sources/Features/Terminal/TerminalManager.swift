@@ -329,6 +329,9 @@ class TerminalManager {
         guard let surfaceView = notification.object as? Ghostty.SurfaceView else { return }
         guard let window = surfaceView.window else { return }
 
+        // return if window is not in our managed windows
+        guard windows.contains(where: { $0.controller.window == window }) else { return }
+
         let configAny = notification.userInfo?[Ghostty.Notification.NewSurfaceConfigKey]
         let config = configAny as? Ghostty.SurfaceConfiguration
 
