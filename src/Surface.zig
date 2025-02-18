@@ -3275,7 +3275,21 @@ fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
                 .trim = false,
             });
             defer self.alloc.free(str);
-            try internal_os.open(self.alloc, .unknown, str);
+
+            // Handle paths starting with ~
+            if (str.len > 0 and str[0] == '~') {
+                const home = std.posix.getenv("HOME") orelse "";
+                const path = if (str.len == 1)
+                    try std.fmt.allocPrint(self.alloc, "{s}", .{home})
+                else if (str[1] == '/')
+                    try std.fmt.allocPrint(self.alloc, "{s}{s}", .{ home, str[1..] })
+                else
+                    try std.fmt.allocPrint(self.alloc, "{s}", .{str});
+                defer self.alloc.free(path);
+                try internal_os.open(self.alloc, .unknown, path);
+            } else {
+                try internal_os.open(self.alloc, .unknown, str);
+            }
         },
 
         ._open_osc8 => {
