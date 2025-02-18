@@ -7,9 +7,6 @@ const Surface = @import("Surface.zig");
 
 const log = std.log.scoped(.gtk);
 
-/// Back reference to the surface we belong to
-surface: ?*Surface = null,
-
 /// If non-null this is the widget on the overlay that shows the size of the
 /// surface when it is resized.
 widget: ?*c.GtkWidget = null,
@@ -26,10 +23,8 @@ first: bool = true,
 /// Initialize the ResizeOverlay. This doesn't do anything more than save a
 /// pointer to the surface that we are a part of as all of the widget creation
 /// is done later.
-pub fn init(surface: *Surface) ResizeOverlay {
-    return .{
-        .surface = surface,
-    };
+pub fn init(self: *ResizeOverlay) void {
+    self.* = .{};
 }
 
 /// De-initialize the ResizeOverlay. This removes any pending idlers/timers that
@@ -56,10 +51,7 @@ pub fn deinit(self: *ResizeOverlay) void {
 ///
 /// If we're not configured to show the overlay, do nothing.
 pub fn maybeShow(self: *ResizeOverlay) void {
-    const surface = self.surface orelse {
-        log.err("resize overlay configured without a surface", .{});
-        return;
-    };
+    const surface: *Surface = @alignCast(@fieldParentPtr("resize_overlay", self));
 
     switch (surface.app.config.@"resize-overlay") {
         .never => return,
@@ -84,15 +76,12 @@ pub fn maybeShow(self: *ResizeOverlay) void {
 /// Actually update the overlay widget. This should only be called from a GTK
 /// idle handler.
 fn gtkUpdate(ud: ?*anyopaque) callconv(.C) c.gboolean {
-    const self: *ResizeOverlay = @ptrCast(@alignCast(ud));
+    const self: *ResizeOverlay = @ptrCast(@alignCast(ud orelse return c.FALSE));
 
     // No matter what our idler is complete with this callback
     self.idler = null;
 
-    const surface = self.surface orelse {
-        log.err("resize overlay configured without a surface", .{});
-        return c.FALSE;
-    };
+    const surface: *Surface = @alignCast(@fieldParentPtr("resize_overlay", self));
 
     const grid_size = surface.core_surface.size.grid();
     var buf: [32]u8 = undefined;
