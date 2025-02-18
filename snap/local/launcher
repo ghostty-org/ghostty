@@ -1,0 +1,51 @@
+#!/bin/sh
+set -e
+
+# Set these to reasonable defaults if not already set
+if [ -z "$XDG_CONFIG_HOME" ]; then
+  export XDG_CONFIG_HOME="$SNAP_REAL_HOME/.config"
+fi
+
+if [ -z "$XDG_CACHE_HOME" ]; then
+  export XDG_CACHE_HOME="$SNAP_REAL_HOME/.cache"
+fi
+
+if [ -z "$XDG_DATA_HOME" ]; then
+  export XDG_DATA_HOME="$SNAP_REAL_HOME/.local/share"
+fi
+
+export HOME="$SNAP_REAL_HOME"
+
+if [ "$SNAP_ARCH" = "amd64" ]; then
+  ARCH="x86_64-linux-gnu"
+elif [ "$SNAP_ARCH" = "arm64" ]; then
+  ARCH="aarch64-linux-gnu"
+else
+  ARCH="$SNAP_ARCH-linux-gnu"
+fi
+
+export LD_LIBRARY_PATH=${SNAP}/usr/lib/${ARCH}:${SNAP}/usr/lib/${ARCH}/vdpau:${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}
+export LIBGL_DRIVERS_PATH=${LIBGL_DRIVERS_PATH:+$LIBGL_DRIVERS_PATH:}${SNAP}/usr/lib/${ARCH}/dri/
+export LIBVA_DRIVERS_PATH=${LIBVA_DRIVERS_PATH:+$LIBVA_DRIVERS_PATH:}${SNAP}/usr/lib/${ARCH}/dri/
+export __EGL_VENDOR_LIBRARY_DIRS=${__EGL_VENDOR_LIBRARY_DIRS:+$__EGL_VENDOR_LIBRARY_DIRS:}${SNAP}/usr/share/glvnd/egl_vendor.d
+export __EGL_EXTERNAL_PLATFORM_CONFIG_DIRS=${__EGL_EXTERNAL_PLATFORM_CONFIG_DIRS:+$__EGL_EXTERNAL_PLATFORM_CONFIG_DIRS:}${SNAP}/usr/share/egl/egl_external_platform.d
+export DRIRC_CONFIGDIR=${SNAP}/usr/share/drirc.d
+export VK_LAYER_PATH=${VK_LAYER_PATH:+$VK_LAYER_PATH:}${SNAP}/usr/share/vulkan/implicit_layer.d/:${SNAP}/usr/share/vulkan/explicit_layer.d/
+export XDG_DATA_DIRS=${XDG_DATA_DIRS:+$XDG_DATA_DIRS:}${SNAP}/usr/share
+export XLOCALEDIR="${SNAP}/usr/share/X11/locale"
+export GDK_PIXBUF_MODULEDIR="$SNAP/usr/lib/$ARCH/gdk-pixbuf-2.0/2.10.0/loaders"
+export GTK_PATH="$SNAP/usr/lib/$ARCH/gtk-4.0"
+
+if [ "${__NV_PRIME_RENDER_OFFLOAD:-}" != 1 ]; then
+  # Prevent picking VA-API (Intel/AMD) over NVIDIA VDPAU
+  # https://download.nvidia.com/XFree86/Linux-x86_64/510.54/README/primerenderoffload.html#configureapplications
+  export LIBVA_DRIVERS_PATH
+fi
+
+# Unset all SNAP specific environment variables to keep them from leaking
+# into other snaps that might get executed from within the shell
+for var in $(printenv | grep SNAP_ | cut -d= -f1); do
+  unset $var
+done
+
+exec "$@"

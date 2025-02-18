@@ -61,4 +61,6 @@ pub const Window = struct {
         _ = self;
         return true;
     }
+
+    pub fn addSubprocessEnv(_: *Window, _: *std.process.EnvMap) !void {}
 };

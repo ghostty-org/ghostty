@@ -86,7 +86,7 @@ class TerminalManager {
                 // fullscreen for the logic later in this method.
                 c.toggleFullscreen(mode: .native)
 
-            case .nonNative, .nonNativeVisibleMenu:
+            case .nonNative, .nonNativeVisibleMenu, .nonNativePaddedNotch:
                 // If we're non-native then we have to do it on a later loop
                 // so that the content view is setup.
                 DispatchQueue.main.async {

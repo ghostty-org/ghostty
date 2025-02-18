@@ -1,3 +1,6 @@
+build.zig.zon.nix linguist-generated=true
+build.zig.zon.txt linguist-generated=true
+build.zig.zon2json-lock linguist-generated=true
 vendor/** linguist-vendored
 website/** linguist-documentation
 pkg/breakpad/vendor/** linguist-vendored

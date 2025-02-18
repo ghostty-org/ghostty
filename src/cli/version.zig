@@ -51,19 +51,15 @@ pub fn run(alloc: Allocator) !u8 {
             gtk.gtk_get_minor_version(),
             gtk.gtk_get_micro_version(),
         });
-        if (comptime build_options.adwaita) {
-            try stdout.print("  - libadwaita : enabled\n", .{});
-            try stdout.print("    build      : {s}\n", .{
-                gtk.ADW_VERSION_S,
-            });
-            try stdout.print("    runtime    : {}.{}.{}\n", .{
-                gtk.adw_get_major_version(),
-                gtk.adw_get_minor_version(),
-                gtk.adw_get_micro_version(),
-            });
-        } else {
-            try stdout.print("  - libadwaita : disabled\n", .{});
-        }
+        try stdout.print("  - libadwaita : enabled\n", .{});
+        try stdout.print("    build      : {s}\n", .{
+            gtk.ADW_VERSION_S,
+        });
+        try stdout.print("    runtime    : {}.{}.{}\n", .{
+            gtk.adw_get_major_version(),
+            gtk.adw_get_minor_version(),
+            gtk.adw_get_micro_version(),
+        });
         if (comptime build_options.x11) {
             try stdout.print("  - libX11     : enabled\n", .{});
         } else {

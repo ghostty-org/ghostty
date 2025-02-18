@@ -519,9 +519,19 @@ pub fn init(
     // This separate block ({}) is important because our errdefers must
     // be scoped here to be valid.
     {
+        var env = rt_surface.defaultTermioEnv() catch |err| env: {
+            // If an error occurs, we don't want to block surface startup.
+            log.warn("error getting env map for surface err={}", .{err});
+            break :env internal_os.getEnvMap(alloc) catch
+                std.process.EnvMap.init(alloc);
+        };
+        errdefer env.deinit();
+
         // Initialize our IO backend
         var io_exec = try termio.Exec.init(alloc, .{
             .command = command,
+            .env = env,
+            .env_override = config.env,
             .shell_integration = config.@"shell-integration",
             .shell_integration_features = config.@"shell-integration-features",
             .working_directory = config.@"working-directory",
@@ -561,7 +571,7 @@ pub fn init(
     errdefer self.io.deinit();
 
     // Report initial cell size on surface creation
-    try rt_app.performAction(
+    _ = try rt_app.performAction(
         .{ .surface = self },
         .cell_size,
         .{ .width = size.cell.width, .height = size.cell.height },
@@ -573,7 +583,7 @@ pub fn init(
     const min_window_width_cells: u32 = 10;
     const min_window_height_cells: u32 = 4;
 
-    try rt_app.performAction(
+    _ = try rt_app.performAction(
         .{ .surface = self },
         .size_limit,
         .{
@@ -637,7 +647,7 @@ pub fn init(
             size.padding.top +
             size.padding.bottom;
 
-        rt_app.performAction(
+        _ = rt_app.performAction(
             .{ .surface = self },
             .initial_size,
             .{ .width = final_width, .height = final_height },
@@ -649,7 +659,7 @@ pub fn init(
     }
 
     if (config.title) |title| {
-        try rt_app.performAction(
+        _ = try rt_app.performAction(
             .{ .surface = self },
             .set_title,
             .{ .title = title },
@@ -670,7 +680,7 @@ pub fn init(
                 break :xdg;
             };
             defer alloc.free(title);
-            try rt_app.performAction(
+            _ = try rt_app.performAction(
                 .{ .surface = self },
                 .set_title,
                 .{ .title = title },
@@ -823,7 +833,7 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             // We know that our title should end in 0.
             const slice = std.mem.sliceTo(@as([*:0]const u8, @ptrCast(v)), 0);
             log.debug("changing title \"{s}\"", .{slice});
-            try self.rt_app.performAction(
+            _ = try self.rt_app.performAction(
                 .{ .surface = self },
                 .set_title,
                 .{ .title = slice },
@@ -859,7 +869,7 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
         .color_change => |change| {
             // Notify our apprt, but don't send a mode 2031 DSR report
             // because VT sequences were used to change the color.
-            try self.rt_app.performAction(
+            _ = try self.rt_app.performAction(
                 .{ .surface = self },
                 .color_change,
                 .{
@@ -878,7 +888,7 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
 
         .set_mouse_shape => |shape| {
             log.debug("changing mouse shape: {}", .{shape});
-            try self.rt_app.performAction(
+            _ = try self.rt_app.performAction(
                 .{ .surface = self },
                 .mouse_shape,
                 shape,
@@ -910,7 +920,7 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             const str = try self.alloc.dupeZ(u8, w.slice());
             defer self.alloc.free(str);
 
-            try self.rt_app.performAction(
+            _ = try self.rt_app.performAction(
                 .{ .surface = self },
                 .pwd,
                 .{ .pwd = str },
@@ -961,7 +971,7 @@ fn passwordInput(self: *Surface, v: bool) !void {
     }
 
     // Notify our apprt so it can do whatever it wants.
-    self.rt_app.performAction(
+    _ = self.rt_app.performAction(
         .{ .surface = self },
         .secure_input,
         if (v) .on else .off,
@@ -1050,7 +1060,7 @@ fn mouseRefreshLinks(
         self.renderer_state.mouse.point = pos_vp;
         self.mouse.over_link = true;
         self.renderer_state.terminal.screen.dirty.hyperlink_hover = true;
-        try self.rt_app.performAction(
+        _ = try self.rt_app.performAction(
             .{ .surface = self },
             .mouse_shape,
             .pointer,
@@ -1063,7 +1073,7 @@ fn mouseRefreshLinks(
                     .trim = false,
                 });
                 defer self.alloc.free(str);
-                try self.rt_app.performAction(
+                _ = try self.rt_app.performAction(
                     .{ .surface = self },
                     .mouse_over_link,
                     .{ .url = str },
@@ -1077,7 +1087,7 @@ fn mouseRefreshLinks(
                     log.warn("failed to get URI for OSC8 hyperlink", .{});
                     break :link;
                 };
-                try self.rt_app.performAction(
+                _ = try self.rt_app.performAction(
                     .{ .surface = self },
                     .mouse_over_link,
                     .{ .url = uri },
@@ -1087,12 +1097,12 @@ fn mouseRefreshLinks(
 
         try self.queueRender();
     } else if (over_link) {
-        try self.rt_app.performAction(
+        _ = try self.rt_app.performAction(
             .{ .surface = self },
             .mouse_shape,
             self.io.terminal.mouse_shape,
         );
-        try self.rt_app.performAction(
+        _ = try self.rt_app.performAction(
             .{ .surface = self },
             .mouse_over_link,
             .{ .url = "" },
@@ -1104,7 +1114,7 @@ fn mouseRefreshLinks(
 /// Called when our renderer health state changes.
 fn updateRendererHealth(self: *Surface, health: renderer.Health) void {
     log.warn("renderer health status change status={}", .{health});
-    self.rt_app.performAction(
+    _ = self.rt_app.performAction(
         .{ .surface = self },
         .renderer_health,
         health,
@@ -1116,7 +1126,7 @@ fn updateRendererHealth(self: *Surface, health: renderer.Health) void {
 /// This should be called anytime `config_conditional_state` changes
 /// so that the apprt can reload the configuration.
 fn notifyConfigConditionalState(self: *Surface) void {
-    self.rt_app.performAction(
+    _ = self.rt_app.performAction(
         .{ .surface = self },
         .reload_config,
         .{ .soft = true },
@@ -1196,14 +1206,14 @@ pub fn updateConfig(
 
     // If we have a title set then we update our window to have the
     // newly configured title.
-    if (config.title) |title| try self.rt_app.performAction(
+    if (config.title) |title| _ = try self.rt_app.performAction(
         .{ .surface = self },
         .set_title,
         .{ .title = title },
     );
 
     // Notify the window
-    try self.rt_app.performAction(
+    _ = try self.rt_app.performAction(
         .{ .surface = self },
         .config_change,
         .{ .config = config },
@@ -1470,7 +1480,7 @@ fn setCellSize(self: *Surface, size: renderer.CellSize) !void {
     self.io.queueMessage(.{ .resize = self.size }, .unlocked);
 
     // Notify the window
-    try self.rt_app.performAction(
+    _ = try self.rt_app.performAction(
         .{ .surface = self },
         .cell_size,
         .{ .width = size.width, .height = size.height },
@@ -1766,12 +1776,12 @@ pub fn keyCallback(
             };
         } else if (self.io.terminal.flags.mouse_event != .none and !self.mouse.mods.shift) {
             // If we have mouse reports on and we don't have shift pressed, we reset state
-            try self.rt_app.performAction(
+            _ = try self.rt_app.performAction(
                 .{ .surface = self },
                 .mouse_shape,
                 self.io.terminal.mouse_shape,
             );
-            try self.rt_app.performAction(
+            _ = try self.rt_app.performAction(
                 .{ .surface = self },
                 .mouse_over_link,
                 .{ .url = "" },
@@ -1789,7 +1799,7 @@ pub fn keyCallback(
         .mods = self.mouse.mods,
         .over_link = self.mouse.over_link,
         .hidden = self.mouse.hidden,
-    }).keyToMouseShape()) |shape| try self.rt_app.performAction(
+    }).keyToMouseShape()) |shape| _ = try self.rt_app.performAction(
         .{ .surface = self },
         .mouse_shape,
         shape,
@@ -1914,7 +1924,7 @@ fn maybeHandleBinding(
             }
 
             // Start or continue our key sequence
-            self.rt_app.performAction(
+            _ = self.rt_app.performAction(
                 .{ .surface = self },
                 .key_sequence,
                 .{ .trigger = entry.key_ptr.* },
@@ -2023,7 +2033,7 @@ fn endKeySequence(
     mem: KeySequenceMemory,
 ) void {
     // Notify apprt key sequence ended
-    self.rt_app.performAction(
+    _ = self.rt_app.performAction(
         .{ .surface = self },
         .key_sequence,
         .end,
@@ -3359,12 +3369,12 @@ pub fn cursorPosCallback(
         self.mouse.link_point = null;
         if (self.mouse.over_link) {
             self.mouse.over_link = false;
-            try self.rt_app.performAction(
+            _ = try self.rt_app.performAction(
                 .{ .surface = self },
                 .mouse_shape,
                 self.io.terminal.mouse_shape,
             );
-            try self.rt_app.performAction(
+            _ = try self.rt_app.performAction(
                 .{ .surface = self },
                 .mouse_over_link,
                 .{ .url = "" },
@@ -3790,7 +3800,7 @@ fn scrollToBottom(self: *Surface) !void {
 fn hideMouse(self: *Surface) void {
     if (self.mouse.hidden) return;
     self.mouse.hidden = true;
-    self.rt_app.performAction(
+    _ = self.rt_app.performAction(
         .{ .surface = self },
         .mouse_visibility,
         .hidden,
@@ -3802,7 +3812,7 @@ fn hideMouse(self: *Surface) void {
 fn showMouse(self: *Surface) void {
     if (!self.mouse.hidden) return;
     self.mouse.hidden = false;
-    self.rt_app.performAction(
+    _ = self.rt_app.performAction(
         .{ .surface = self },
         .mouse_visibility,
         .visible,
@@ -4015,6 +4025,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             try self.setFontSize(size);
         },
 
+        .prompt_surface_title => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .prompt_title,
+            {},
+        ),
+
         .clear_screen => {
             // This is a duplicate of some of the logic in termio.clearScreen
             // but we need to do this here so we can know the answer before
@@ -4093,13 +4109,13 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             v,
         ),
 
-        .new_tab => try self.rt_app.performAction(
+        .new_tab => return try self.rt_app.performAction(
             .{ .surface = self },
             .new_tab,
             {},
         ),
 
-        .close_tab => try self.rt_app.performAction(
+        .close_tab => return try self.rt_app.performAction(
             .{ .surface = self },
             .close_tab,
             {},
@@ -4109,7 +4125,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         .next_tab,
         .last_tab,
         .goto_tab,
-        => |v, tag| try self.rt_app.performAction(
+        => |v, tag| return try self.rt_app.performAction(
             .{ .surface = self },
             .goto_tab,
             switch (tag) {
@@ -4121,13 +4137,13 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             },
         ),
 
-        .move_tab => |position| try self.rt_app.performAction(
+        .move_tab => |position| return try self.rt_app.performAction(
             .{ .surface = self },
             .move_tab,
             .{ .amount = position },
         ),
 
-        .new_split => |direction| try self.rt_app.performAction(
+        .new_split => |direction| return try self.rt_app.performAction(
             .{ .surface = self },
             .new_split,
             switch (direction) {
@@ -4142,7 +4158,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             },
         ),
 
-        .goto_split => |direction| try self.rt_app.performAction(
+        .goto_split => |direction| return try self.rt_app.performAction(
             .{ .surface = self },
             .goto_split,
             switch (direction) {
@@ -4153,7 +4169,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             },
         ),
 
-        .resize_split => |value| try self.rt_app.performAction(
+        .resize_split => |value| return try self.rt_app.performAction(
             .{ .surface = self },
             .resize_split,
             .{
@@ -4167,47 +4183,48 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             },
         ),
 
-        .equalize_splits => try self.rt_app.performAction(
+        .equalize_splits => return try self.rt_app.performAction(
             .{ .surface = self },
             .equalize_splits,
             {},
         ),
 
-        .toggle_split_zoom => try self.rt_app.performAction(
+        .toggle_split_zoom => return try self.rt_app.performAction(
             .{ .surface = self },
             .toggle_split_zoom,
             {},
         ),
 
-        .toggle_maximize => try self.rt_app.performAction(
+        .toggle_maximize => return try self.rt_app.performAction(
             .{ .surface = self },
             .toggle_maximize,
             {},
         ),
 
-        .toggle_fullscreen => try self.rt_app.performAction(
+        .toggle_fullscreen => return try self.rt_app.performAction(
             .{ .surface = self },
             .toggle_fullscreen,
             switch (self.config.macos_non_native_fullscreen) {
                 .false => .native,
                 .true => .macos_non_native,
                 .@"visible-menu" => .macos_non_native_visible_menu,
+                .@"padded-notch" => .macos_non_native_padded_notch,
             },
         ),
 
-        .toggle_window_decorations => try self.rt_app.performAction(
+        .toggle_window_decorations => return try self.rt_app.performAction(
             .{ .surface = self },
             .toggle_window_decorations,
             {},
         ),
 
-        .toggle_tab_overview => try self.rt_app.performAction(
+        .toggle_tab_overview => return try self.rt_app.performAction(
             .{ .surface = self },
             .toggle_tab_overview,
             {},
         ),
 
-        .toggle_secure_input => try self.rt_app.performAction(
+        .toggle_secure_input => return try self.rt_app.performAction(
             .{ .surface = self },
             .secure_input,
             .toggle,
@@ -4221,7 +4238,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             }
         },
 
-        .inspector => |mode| try self.rt_app.performAction(
+        .inspector => |mode| return try self.rt_app.performAction(
             .{ .surface = self },
             .inspector,
             switch (mode) {
@@ -4668,7 +4685,7 @@ fn showDesktopNotification(self: *Surface, title: [:0]const u8, body: [:0]const 
 
     self.app.last_notification_time = now;
     self.app.last_notification_digest = new_digest;
-    try self.rt_app.performAction(
+    _ = try self.rt_app.performAction(
         .{ .surface = self },
         .desktop_notification,
         .{
@@ -4688,7 +4705,7 @@ fn crashThreadState(self: *Surface) crash.sentry.ThreadState {
 /// Tell the surface to present itself to the user. This may involve raising the
 /// window and switching tabs.
 fn presentSurface(self: *Surface) !void {
-    try self.rt_app.performAction(
+    _ = try self.rt_app.performAction(
         .{ .surface = self },
         .present_terminal,
         {},

@@ -22,8 +22,8 @@ const Tab = @import("Tab.zig");
 const c = @import("c.zig").c;
 const adwaita = @import("adwaita.zig");
 const gtk_key = @import("key.zig");
-const Notebook = @import("notebook.zig").Notebook;
-const HeaderBar = @import("headerbar.zig").HeaderBar;
+const TabView = @import("TabView.zig");
+const HeaderBar = @import("headerbar.zig");
 const version = @import("version.zig");
 const winproto = @import("winproto.zig");
 
@@ -34,9 +34,7 @@ app: *App,
 /// Our window
 window: *c.GtkWindow,
 
-/// The header bar for the window. This is possibly null since it can be
-/// disabled using gtk-titlebar. This is either an AdwHeaderBar or
-/// GtkHeaderBar depending on if adw is enabled and linked.
+/// The header bar for the window.
 headerbar: HeaderBar,
 
 /// The tab overview for the window. This is possibly null since there is no
@@ -44,14 +42,12 @@ headerbar: HeaderBar,
 tab_overview: ?*c.GtkWidget,
 
 /// The notebook (tab grouping) for this window.
-/// can be either c.GtkNotebook or c.AdwTabView.
-notebook: Notebook,
+notebook: TabView,
 
 context_menu: *c.GtkWidget,
 
-/// The libadwaita widget for receiving toast send requests. If libadwaita is
-/// not used, this is null and unused.
-toast_overlay: ?*c.GtkWidget,
+/// The libadwaita widget for receiving toast send requests.
+toast_overlay: *c.GtkWidget,
 
 /// See adwTabOverviewOpen for why we have this.
 adw_tab_overview_focus_timer: ?c.guint = null,
@@ -87,49 +83,39 @@ pub fn init(self: *Window, app: *App) !void {
     };
 
     // Create the window
-    const window: *c.GtkWidget = window: {
-        if ((comptime adwaita.versionAtLeast(0, 0, 0)) and adwaita.enabled(&self.app.config)) {
-            const window = c.adw_application_window_new(app.app);
-            c.gtk_widget_add_css_class(@ptrCast(window), "adw");
-            break :window window;
-        } else {
-            const window = c.gtk_application_window_new(app.app);
-            c.gtk_widget_add_css_class(@ptrCast(window), "gtk");
-            break :window window;
-        }
-    };
-    errdefer c.gtk_window_destroy(@ptrCast(window));
+    const gtk_widget = c.adw_application_window_new(app.app);
+    errdefer c.gtk_window_destroy(@ptrCast(gtk_widget));
 
-    const gtk_window: *c.GtkWindow = @ptrCast(window);
-    self.window = gtk_window;
-    c.gtk_window_set_title(gtk_window, "Ghostty");
-    c.gtk_window_set_default_size(gtk_window, 1000, 600);
-    c.gtk_widget_add_css_class(@ptrCast(gtk_window), "window");
-    c.gtk_widget_add_css_class(@ptrCast(gtk_window), "terminal-window");
+    self.window = @ptrCast(@alignCast(gtk_widget));
+
+    c.gtk_window_set_title(self.window, "Ghostty");
+    c.gtk_window_set_default_size(self.window, 1000, 600);
+    c.gtk_widget_add_css_class(gtk_widget, "window");
+    c.gtk_widget_add_css_class(gtk_widget, "terminal-window");
 
     // GTK4 grabs F10 input by default to focus the menubar icon. We want
     // to disable this so that terminal programs can capture F10 (such as htop)
-    c.gtk_window_set_handle_menubar_accel(gtk_window, 0);
+    c.gtk_window_set_handle_menubar_accel(self.window, 0);
 
-    c.gtk_window_set_icon_name(gtk_window, build_config.bundle_id);
+    c.gtk_window_set_icon_name(self.window, build_config.bundle_id);
 
     // Apply class to color headerbar if window-theme is set to `ghostty` and
     // GTK version is before 4.16. The conditional is because above 4.16
     // we use GTK CSS color variables.
     if (!version.atLeast(4, 16, 0) and app.config.@"window-theme" == .ghostty) {
-        c.gtk_widget_add_css_class(@ptrCast(gtk_window), "window-theme-ghostty");
+        c.gtk_widget_add_css_class(gtk_widget, "window-theme-ghostty");
     }
 
     // Create our box which will hold our widgets in the main content area.
     const box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 0);
 
     // Setup our notebook
-    self.notebook.init();
+    self.notebook.init(self);
 
     // If we are using Adwaita, then we can support the tab overview.
-    self.tab_overview = if ((comptime adwaita.versionAtLeast(1, 4, 0)) and adwaita.enabled(&self.app.config) and adwaita.versionAtLeast(1, 4, 0)) overview: {
+    self.tab_overview = if (adwaita.versionAtLeast(1, 4, 0)) overview: {
         const tab_overview = c.adw_tab_overview_new();
-        c.adw_tab_overview_set_view(@ptrCast(tab_overview), self.notebook.adw.tab_view);
+        c.adw_tab_overview_set_view(@ptrCast(tab_overview), @ptrCast(@alignCast(self.notebook.tab_view)));
         c.adw_tab_overview_set_enable_new_tab(@ptrCast(tab_overview), 1);
         _ = c.g_signal_connect_data(
             tab_overview,
@@ -166,10 +152,9 @@ pub fn init(self: *Window, app: *App) !void {
 
     // If we're using an AdwWindow then we can support the tab overview.
     if (self.tab_overview) |tab_overview| {
-        if (comptime !adwaita.versionAtLeast(1, 4, 0)) unreachable;
-        assert(self.app.config.@"gtk-adwaita" and adwaita.versionAtLeast(1, 4, 0));
+        if (!adwaita.versionAtLeast(1, 4, 0)) unreachable;
         const btn = switch (app.config.@"gtk-tabs-location") {
-            .top, .bottom, .left, .right => btn: {
+            .top, .bottom => btn: {
                 const btn = c.gtk_toggle_button_new();
                 c.gtk_widget_set_tooltip_text(btn, "View Open Tabs");
                 c.gtk_button_set_icon_name(@ptrCast(btn), "view-grid-symbolic");
@@ -186,7 +171,7 @@ pub fn init(self: *Window, app: *App) !void {
 
             .hidden => btn: {
                 const btn = c.adw_tab_button_new();
-                c.adw_tab_button_set_view(@ptrCast(btn), self.notebook.adw.tab_view);
+                c.adw_tab_button_set_view(@ptrCast(btn), @ptrCast(@alignCast(self.notebook.tab_view)));
                 c.gtk_actionable_set_action_name(@ptrCast(btn), "overview.open");
                 break :btn btn;
             },
@@ -203,13 +188,13 @@ pub fn init(self: *Window, app: *App) !void {
         self.headerbar.packStart(btn);
     }
 
-    _ = c.g_signal_connect_data(gtk_window, "notify::decorated", c.G_CALLBACK(&gtkWindowNotifyDecorated), self, null, c.G_CONNECT_DEFAULT);
-    _ = c.g_signal_connect_data(gtk_window, "notify::maximized", c.G_CALLBACK(&gtkWindowNotifyMaximized), self, null, c.G_CONNECT_DEFAULT);
-    _ = c.g_signal_connect_data(gtk_window, "notify::fullscreened", c.G_CALLBACK(&gtkWindowNotifyFullscreened), self, null, c.G_CONNECT_DEFAULT);
+    _ = c.g_signal_connect_data(self.window, "notify::decorated", c.G_CALLBACK(&gtkWindowNotifyDecorated), self, null, c.G_CONNECT_DEFAULT);
+    _ = c.g_signal_connect_data(self.window, "notify::maximized", c.G_CALLBACK(&gtkWindowNotifyMaximized), self, null, c.G_CONNECT_DEFAULT);
+    _ = c.g_signal_connect_data(self.window, "notify::fullscreened", c.G_CALLBACK(&gtkWindowNotifyFullscreened), self, null, c.G_CONNECT_DEFAULT);
 
     // If Adwaita is enabled and is older than 1.4.0 we don't have the tab overview and so we
     // need to stick the headerbar into the content box.
-    if (!adwaita.versionAtLeast(1, 4, 0) and adwaita.enabled(&self.app.config)) {
+    if (!adwaita.versionAtLeast(1, 4, 0)) {
         c.gtk_box_append(@ptrCast(box), self.headerbar.asWidget());
     }
 
@@ -218,10 +203,7 @@ pub fn init(self: *Window, app: *App) !void {
     if (comptime std.debug.runtime_safety) {
         const warning_box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 0);
         const warning_text = "⚠️ You're running a debug build of Ghostty! Performance will be degraded.";
-        if ((comptime adwaita.versionAtLeast(1, 3, 0)) and
-            adwaita.enabled(&app.config) and
-            adwaita.versionAtLeast(1, 3, 0))
-        {
+        if (adwaita.versionAtLeast(1, 3, 0)) {
             const banner = c.adw_banner_new(warning_text);
             c.adw_banner_set_revealed(@ptrCast(banner), 1);
             c.gtk_box_append(@ptrCast(warning_box), @ptrCast(banner));
@@ -231,30 +213,23 @@ pub fn init(self: *Window, app: *App) !void {
             c.gtk_widget_set_margin_bottom(warning, 10);
             c.gtk_box_append(@ptrCast(warning_box), warning);
         }
-        c.gtk_widget_add_css_class(@ptrCast(gtk_window), "devel");
+        c.gtk_widget_add_css_class(gtk_widget, "devel");
         c.gtk_widget_add_css_class(@ptrCast(warning_box), "background");
         c.gtk_box_append(@ptrCast(box), warning_box);
     }
 
     // Setup our toast overlay if we have one
-    self.toast_overlay = if (adwaita.enabled(&self.app.config)) toast: {
-        const toast_overlay = c.adw_toast_overlay_new();
-        c.adw_toast_overlay_set_child(
-            @ptrCast(toast_overlay),
-            @ptrCast(@alignCast(self.notebook.asWidget())),
-        );
-        c.gtk_box_append(@ptrCast(box), toast_overlay);
-        break :toast toast_overlay;
-    } else toast: {
-        c.gtk_box_append(@ptrCast(box), self.notebook.asWidget());
-        break :toast null;
-    };
+    self.toast_overlay = c.adw_toast_overlay_new();
+    c.adw_toast_overlay_set_child(
+        @ptrCast(self.toast_overlay),
+        @ptrCast(@alignCast(self.notebook.asWidget())),
+    );
+    c.gtk_box_append(@ptrCast(box), self.toast_overlay);
 
     // If we have a tab overview then we can set it on our notebook.
     if (self.tab_overview) |tab_overview| {
-        if (comptime !adwaita.versionAtLeast(1, 3, 0)) unreachable;
-        assert(self.notebook == .adw);
-        c.adw_tab_overview_set_view(@ptrCast(tab_overview), self.notebook.adw.tab_view);
+        if (!adwaita.versionAtLeast(1, 4, 0)) unreachable;
+        c.adw_tab_overview_set_view(@ptrCast(tab_overview), @ptrCast(@alignCast(self.notebook.tab_view)));
     }
 
     self.context_menu = c.gtk_popover_menu_new_from_model(@ptrCast(@alignCast(self.app.context_menu)));
@@ -273,40 +248,39 @@ pub fn init(self: *Window, app: *App) !void {
     // focused (i.e. when the libadw tab overview is shown).
     const ec_key_press = c.gtk_event_controller_key_new();
     errdefer c.g_object_unref(ec_key_press);
-    c.gtk_widget_add_controller(window, ec_key_press);
+    c.gtk_widget_add_controller(gtk_widget, ec_key_press);
 
     // All of our events
     _ = c.g_signal_connect_data(self.context_menu, "closed", c.G_CALLBACK(&gtkRefocusTerm), self, null, c.G_CONNECT_DEFAULT);
-    _ = c.g_signal_connect_data(window, "realize", c.G_CALLBACK(&gtkRealize), self, null, c.G_CONNECT_DEFAULT);
-    _ = c.g_signal_connect_data(window, "close-request", c.G_CALLBACK(&gtkCloseRequest), self, null, c.G_CONNECT_DEFAULT);
-    _ = c.g_signal_connect_data(window, "destroy", c.G_CALLBACK(&gtkDestroy), self, null, c.G_CONNECT_DEFAULT);
+    _ = c.g_signal_connect_data(self.window, "realize", c.G_CALLBACK(&gtkRealize), self, null, c.G_CONNECT_DEFAULT);
+    _ = c.g_signal_connect_data(self.window, "close-request", c.G_CALLBACK(&gtkCloseRequest), self, null, c.G_CONNECT_DEFAULT);
+    _ = c.g_signal_connect_data(self.window, "destroy", c.G_CALLBACK(&gtkDestroy), self, null, c.G_CONNECT_DEFAULT);
     _ = c.g_signal_connect_data(ec_key_press, "key-pressed", c.G_CALLBACK(&gtkKeyPressed), self, null, c.G_CONNECT_DEFAULT);
 
     // Our actions for the menu
     initActions(self);
 
-    if ((comptime adwaita.versionAtLeast(1, 4, 0)) and adwaita.versionAtLeast(1, 4, 0) and adwaita.enabled(&self.app.config)) {
+    if (adwaita.versionAtLeast(1, 4, 0)) {
         const toolbar_view: *c.AdwToolbarView = @ptrCast(c.adw_toolbar_view_new());
 
         c.adw_toolbar_view_add_top_bar(toolbar_view, self.headerbar.asWidget());
 
         if (self.app.config.@"gtk-tabs-location" != .hidden) {
             const tab_bar = c.adw_tab_bar_new();
-            c.adw_tab_bar_set_view(tab_bar, self.notebook.adw.tab_view);
+            c.adw_tab_bar_set_view(tab_bar, @ptrCast(@alignCast(self.notebook.tab_view)));
 
             if (!app.config.@"gtk-wide-tabs") c.adw_tab_bar_set_expand_tabs(tab_bar, 0);
 
             const tab_bar_widget: *c.GtkWidget = @ptrCast(@alignCast(tab_bar));
             switch (self.app.config.@"gtk-tabs-location") {
-                // left and right are not supported in libadwaita.
-                .top, .left, .right => c.adw_toolbar_view_add_top_bar(toolbar_view, tab_bar_widget),
+                .top => c.adw_toolbar_view_add_top_bar(toolbar_view, tab_bar_widget),
                 .bottom => c.adw_toolbar_view_add_bottom_bar(toolbar_view, tab_bar_widget),
                 .hidden => unreachable,
             }
         }
         c.adw_toolbar_view_set_content(toolbar_view, box);
 
-        const toolbar_style: c.AdwToolbarStyle = switch (self.app.config.@"adw-toolbar-style") {
+        const toolbar_style: c.AdwToolbarStyle = switch (self.app.config.@"gtk-toolbar-style") {
             .flat => c.ADW_TOOLBAR_FLAT,
             .raised => c.ADW_TOOLBAR_RAISED,
             .@"raised-border" => c.ADW_TOOLBAR_RAISED_BORDER,
@@ -320,51 +294,34 @@ pub fn init(self: *Window, app: *App) !void {
             @ptrCast(@alignCast(toolbar_view)),
         );
         c.adw_application_window_set_content(
-            @ptrCast(gtk_window),
+            @ptrCast(gtk_widget),
             @ptrCast(@alignCast(self.tab_overview)),
         );
     } else tab_bar: {
-        switch (self.notebook) {
-            .adw => |*adw| if (comptime adwaita.versionAtLeast(0, 0, 0)) {
-                if (app.config.@"gtk-tabs-location" == .hidden) break :tab_bar;
-                // In earlier adwaita versions, we need to add the tabbar manually since we do not use
-                // an AdwToolbarView.
-                const tab_bar: *c.AdwTabBar = c.adw_tab_bar_new().?;
-                c.gtk_widget_add_css_class(@ptrCast(@alignCast(tab_bar)), "inline");
-                switch (app.config.@"gtk-tabs-location") {
-                    .top,
-                    .left,
-                    .right,
-                    => c.gtk_box_insert_child_after(@ptrCast(box), @ptrCast(@alignCast(tab_bar)), @ptrCast(@alignCast(self.headerbar.asWidget()))),
-
-                    .bottom => c.gtk_box_append(
-                        @ptrCast(box),
-                        @ptrCast(@alignCast(tab_bar)),
-                    ),
-                    .hidden => unreachable,
-                }
-                c.adw_tab_bar_set_view(tab_bar, adw.tab_view);
-
-                if (!app.config.@"gtk-wide-tabs") c.adw_tab_bar_set_expand_tabs(tab_bar, 0);
-            },
-
-            .gtk => {},
+        if (app.config.@"gtk-tabs-location" == .hidden) break :tab_bar;
+        // In earlier adwaita versions, we need to add the tabbar manually since we do not use
+        // an AdwToolbarView.
+        const tab_bar: *c.AdwTabBar = c.adw_tab_bar_new().?;
+        c.gtk_widget_add_css_class(@ptrCast(@alignCast(tab_bar)), "inline");
+        switch (app.config.@"gtk-tabs-location") {
+            .top => c.gtk_box_insert_child_after(
+                @ptrCast(box),
+                @ptrCast(@alignCast(tab_bar)),
+                @ptrCast(@alignCast(self.headerbar.asWidget())),
+            ),
+            .bottom => c.gtk_box_append(
+                @ptrCast(box),
+                @ptrCast(@alignCast(tab_bar)),
+            ),
+            .hidden => unreachable,
         }
+        c.adw_tab_bar_set_view(tab_bar, @ptrCast(@alignCast(self.notebook.tab_view)));
 
-        // The box is our main child
-        if (!adwaita.versionAtLeast(1, 4, 0) and adwaita.enabled(&self.app.config)) {
-            c.adw_application_window_set_content(
-                @ptrCast(gtk_window),
-                box,
-            );
-        } else {
-            c.gtk_window_set_titlebar(gtk_window, self.headerbar.asWidget());
-            c.gtk_window_set_child(gtk_window, box);
-        }
+        if (!app.config.@"gtk-wide-tabs") c.adw_tab_bar_set_expand_tabs(tab_bar, 0);
     }
 
     // Show the window
-    c.gtk_widget_show(window);
+    c.gtk_widget_show(gtk_widget);
 }
 
 pub fn updateConfig(
@@ -407,19 +364,16 @@ pub fn syncAppearance(self: *Window, config: *const configpkg.Config) !void {
     // Disable the title buttons (close, maximize, minimize, ...)
     // *inside* the tab overview if CSDs are disabled.
     // We do spare the search button, though.
-    if ((comptime adwaita.versionAtLeast(1, 4, 0)) and
-        adwaita.enabled(&self.app.config))
-    {
-        if (self.tab_overview) |tab_overview| {
-            c.adw_tab_overview_set_show_start_title_buttons(
-                @ptrCast(tab_overview),
-                @intFromBool(csd_enabled),
-            );
-            c.adw_tab_overview_set_show_end_title_buttons(
-                @ptrCast(tab_overview),
-                @intFromBool(csd_enabled),
-            );
-        }
+    if (self.tab_overview) |tab_overview| {
+        if (!adwaita.versionAtLeast(1, 4, 0)) unreachable;
+        c.adw_tab_overview_set_show_start_title_buttons(
+            @ptrCast(tab_overview),
+            @intFromBool(csd_enabled),
+        );
+        c.adw_tab_overview_set_show_end_title_buttons(
+            @ptrCast(tab_overview),
+            @intFromBool(csd_enabled),
+        );
     }
 }
 
@@ -506,23 +460,25 @@ pub fn closeTab(self: *Window, tab: *Tab) void {
 }
 
 /// Go to the previous tab for a surface.
-pub fn gotoPreviousTab(self: *Window, surface: *Surface) void {
+pub fn gotoPreviousTab(self: *Window, surface: *Surface) bool {
     const tab = surface.container.tab() orelse {
         log.info("surface is not attached to a tab bar, cannot navigate", .{});
-        return;
+        return false;
     };
-    self.notebook.gotoPreviousTab(tab);
+    if (!self.notebook.gotoPreviousTab(tab)) return false;
     self.focusCurrentTab();
+    return true;
 }
 
 /// Go to the next tab for a surface.
-pub fn gotoNextTab(self: *Window, surface: *Surface) void {
+pub fn gotoNextTab(self: *Window, surface: *Surface) bool {
     const tab = surface.container.tab() orelse {
         log.info("surface is not attached to a tab bar, cannot navigate", .{});
-        return;
+        return false;
     };
-    self.notebook.gotoNextTab(tab);
+    if (!self.notebook.gotoNextTab(tab)) return false;
     self.focusCurrentTab();
+    return true;
 }
 
 /// Move the current tab for a surface.
@@ -535,25 +491,26 @@ pub fn moveTab(self: *Window, surface: *Surface, position: c_int) void {
 }
 
 /// Go to the last tab for a surface.
-pub fn gotoLastTab(self: *Window) void {
+pub fn gotoLastTab(self: *Window) bool {
     const max = self.notebook.nPages();
-    self.gotoTab(@intCast(max));
+    return self.gotoTab(@intCast(max));
 }
 
 /// Go to the specific tab index.
-pub fn gotoTab(self: *Window, n: usize) void {
-    if (n == 0) return;
+pub fn gotoTab(self: *Window, n: usize) bool {
+    if (n == 0) return false;
     const max = self.notebook.nPages();
-    if (max == 0) return;
-    const page_idx = std.math.cast(c_int, n - 1) orelse return;
-    self.notebook.gotoNthTab(@min(page_idx, max - 1));
+    if (max == 0) return false;
+    const page_idx = std.math.cast(c_int, n - 1) orelse return false;
+    if (!self.notebook.gotoNthTab(@min(page_idx, max - 1))) return false;
     self.focusCurrentTab();
+    return true;
 }
 
 /// Toggle tab overview (if present)
 pub fn toggleTabOverview(self: *Window) void {
     if (self.tab_overview) |tab_overview_widget| {
-        if (comptime !adwaita.versionAtLeast(1, 4, 0)) unreachable;
+        if (!adwaita.versionAtLeast(1, 4, 0)) unreachable;
         const tab_overview: *c.AdwTabOverview = @ptrCast(@alignCast(tab_overview_widget));
         c.adw_tab_overview_set_open(tab_overview, 1 - c.adw_tab_overview_get_open(tab_overview));
     }
@@ -600,11 +557,9 @@ pub fn onConfigReloaded(self: *Window) void {
 }
 
 pub fn sendToast(self: *Window, title: [:0]const u8) void {
-    if (comptime !adwaita.versionAtLeast(0, 0, 0)) return;
-    const toast_overlay = self.toast_overlay orelse return;
     const toast = c.adw_toast_new(title);
     c.adw_toast_set_timeout(toast, 3);
-    c.adw_toast_overlay_add_toast(@ptrCast(toast_overlay), toast);
+    c.adw_toast_overlay_add_toast(@ptrCast(self.toast_overlay), toast);
 }
 
 fn gtkRealize(v: *c.GtkWindow, ud: ?*anyopaque) callconv(.C) bool {
@@ -707,13 +662,13 @@ fn gtkTabNewClick(_: *c.GtkButton, ud: ?*anyopaque) callconv(.C) void {
 /// Create a new tab from the AdwTabOverview. We can't copy gtkTabNewClick
 /// because we need to return an AdwTabPage from this function.
 fn gtkNewTabFromOverview(_: *c.GtkWidget, ud: ?*anyopaque) callconv(.C) ?*c.AdwTabPage {
+    if (!adwaita.versionAtLeast(1, 4, 0)) unreachable;
     const self: *Window = userdataSelf(ud.?);
-    assert((comptime adwaita.versionAtLeast(1, 4, 0)) and adwaita.versionAtLeast(1, 4, 0) and adwaita.enabled(&self.app.config));
 
     const alloc = self.app.core_app.alloc;
     const surface = self.actionSurface();
     const tab = Tab.create(alloc, self, surface) catch return null;
-    return c.adw_tab_view_get_page(self.notebook.adw.tab_view, @ptrCast(@alignCast(tab.box)));
+    return c.adw_tab_view_get_page(@ptrCast(@alignCast(self.notebook.tab_view)), @ptrCast(@alignCast(tab.box)));
 }
 
 fn adwTabOverviewOpen(
@@ -860,7 +815,7 @@ fn gtkKeyPressed(
     //
     // If someone can confidently show or explain that this is not
     // necessary, please remove this check.
-    if (comptime adwaita.versionAtLeast(1, 4, 0)) {
+    if (adwaita.versionAtLeast(1, 4, 0)) {
         if (self.tab_overview) |tab_overview_widget| {
             const tab_overview: *c.AdwTabOverview = @ptrCast(@alignCast(tab_overview_widget));
             if (c.adw_tab_overview_get_open(tab_overview) == 0) return 0;
@@ -888,10 +843,7 @@ fn gtkActionAbout(
     const icon = "com.mitchellh.ghostty";
     const website = "https://ghostty.org";
 
-    if ((comptime adwaita.versionAtLeast(1, 5, 0)) and
-        adwaita.versionAtLeast(1, 5, 0) and
-        adwaita.enabled(&self.app.config))
-    {
+    if (adwaita.versionAtLeast(1, 5, 0)) {
         c.adw_show_about_dialog(
             @ptrCast(self.window),
             "application-name",

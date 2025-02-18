@@ -314,6 +314,13 @@ pub const Window = struct {
         );
     }
 
+    pub fn addSubprocessEnv(self: *Window, env: *std.process.EnvMap) !void {
+        var buf: [64]u8 = undefined;
+        const window_id = try std.fmt.bufPrint(&buf, "{}", .{self.window});
+
+        try env.put("WINDOWID", window_id);
+    }
+
     fn getWindowProperty(
         self: *Window,
         comptime T: type,

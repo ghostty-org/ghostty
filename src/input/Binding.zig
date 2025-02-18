@@ -236,9 +236,9 @@ pub const Action = union(enum) {
     /// Send an `ESC` sequence.
     esc: []const u8,
 
-    // Send the given text. Uses Zig string literal syntax. This is currently
-    // not validated. If the text is invalid (i.e. contains an invalid escape
-    // sequence), the error will currently only show up in logs.
+    /// Send the given text. Uses Zig string literal syntax. This is currently
+    /// not validated. If the text is invalid (i.e. contains an invalid escape
+    /// sequence), the error will currently only show up in logs.
     text: []const u8,
 
     /// Send data to the pty depending on whether cursor key mode is enabled
@@ -347,6 +347,10 @@ pub const Action = union(enum) {
     /// Toggle the tab overview.
     /// This only works with libadwaita enabled currently.
     toggle_tab_overview: void,
+
+    /// Change the title of the current focused surface via a prompt.
+    /// This only works on macOS currently.
+    prompt_surface_title: void,
 
     /// Create a new split in the given direction.
     ///
@@ -748,6 +752,7 @@ pub const Action = union(enum) {
             .increase_font_size,
             .decrease_font_size,
             .reset_font_size,
+            .prompt_surface_title,
             .clear_screen,
             .select_all,
             .scroll_to_top,

@@ -262,6 +262,11 @@ pub const Window = struct {
         };
     }
 
+    pub fn addSubprocessEnv(self: *Window, env: *std.process.EnvMap) !void {
+        _ = self;
+        _ = env;
+    }
+
     /// Update the blur state of the window.
     fn syncBlur(self: *Window) !void {
         const manager = self.app_context.kde_blur_manager orelse return;

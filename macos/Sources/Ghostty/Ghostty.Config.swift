@@ -216,6 +216,8 @@ extension Ghostty {
                     .nonNative
             case "visible-menu":
                     .nonNativeVisibleMenu
+            case "padded-notch":
+                    .nonNativePaddedNotch
             default:
                 defaultValue
             }
@@ -298,6 +300,16 @@ extension Ghostty {
             guard v.len > 0 else { return nil }
             let buffer = UnsafeBufferPointer(start: v.colors, count: v.len)
             return buffer.map { .init(ghostty: $0) }
+        }
+
+        var macosHidden: MacHidden {
+            guard let config = self.config else { return .never }
+            var v: UnsafePointer<Int8>? = nil
+            let key = "macos-hidden"
+            guard ghostty_config_get(config, &v, key, UInt(key.count)) else { return .never }
+            guard let ptr = v else { return .never }
+            let str = String(cString: ptr)
+            return MacHidden(rawValue: str) ?? .never
         }
 
         var focusFollowsMouse : Bool {
@@ -512,6 +524,11 @@ extension Ghostty.Config {
         case off
         case check
         case download
+    }
+
+    enum MacHidden : String {
+        case never
+        case always
     }
 
     enum ResizeOverlay : String {

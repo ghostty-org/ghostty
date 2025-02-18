@@ -19,7 +19,7 @@ const GitVersion = @import("GitVersion.zig");
 /// TODO: When Zig 0.14 is released, derive this from build.zig.zon directly.
 /// Until then this MUST match build.zig.zon and should always be the
 /// _next_ version to release.
-const app_version: std.SemanticVersion = .{ .major = 1, .minor = 1, .patch = 1 };
+const app_version: std.SemanticVersion = .{ .major = 1, .minor = 1, .patch = 3 };
 
 /// Standard build configuration options.
 optimize: std.builtin.OptimizeMode,
@@ -32,7 +32,6 @@ renderer: renderer.Impl = .opengl,
 font_backend: font.Backend = .freetype,
 
 /// Feature flags
-adwaita: bool = false,
 x11: bool = false,
 wayland: bool = false,
 sentry: bool = true,
@@ -131,12 +130,6 @@ pub fn init(b: *std.Build) !Config {
 
     //---------------------------------------------------------------
     // Feature Flags
-
-    config.adwaita = b.option(
-        bool,
-        "gtk-adwaita",
-        "Enables the use of Adwaita when using the GTK rendering backend.",
-    ) orelse true;
 
     config.flatpak = b.option(
         bool,
@@ -397,7 +390,6 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
     // We need to break these down individual because addOption doesn't
     // support all types.
     step.addOption(bool, "flatpak", self.flatpak);
-    step.addOption(bool, "adwaita", self.adwaita);
     step.addOption(bool, "x11", self.x11);
     step.addOption(bool, "wayland", self.wayland);
     step.addOption(bool, "sentry", self.sentry);
@@ -442,7 +434,6 @@ pub fn fromOptions() Config {
 
         .version = options.app_version,
         .flatpak = options.flatpak,
-        .adwaita = options.adwaita,
         .app_runtime = std.meta.stringToEnum(apprt.Runtime, @tagName(options.app_runtime)).?,
         .font_backend = std.meta.stringToEnum(font.Backend, @tagName(options.font_backend)).?,
         .renderer = std.meta.stringToEnum(renderer.Impl, @tagName(options.renderer)).?,

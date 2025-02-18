@@ -3,8 +3,9 @@
     .version = "1.3.1",
     .paths = .{""},
     .dependencies = .{
+        // madler/zlib
         .zlib = .{
-            .url = "https://github.com/madler/zlib/archive/refs/tags/v1.3.1.tar.gz",
+            .url = "https://deps.files.ghostty.org/zlib-1220fed0c74e1019b3ee29edae2051788b080cd96e90d56836eea857b0b966742efb.tar.gz",
             .hash = "1220fed0c74e1019b3ee29edae2051788b080cd96e90d56836eea857b0b966742efb",
         },
 

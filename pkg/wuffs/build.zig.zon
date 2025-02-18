@@ -2,13 +2,15 @@
     .name = "wuffs",
     .version = "0.0.0",
     .dependencies = .{
+        // google/wuffs
         .wuffs = .{
-            .url = "https://github.com/google/wuffs/archive/refs/tags/v0.4.0-alpha.9.tar.gz",
+            .url = "https://deps.files.ghostty.org/wuffs-122037b39d577ec2db3fd7b2130e7b69ef6cc1807d68607a7c232c958315d381b5cd.tar.gz",
             .hash = "122037b39d577ec2db3fd7b2130e7b69ef6cc1807d68607a7c232c958315d381b5cd",
         },
 
+        // make-github-pseudonymous-again/pixels
         .pixels = .{
-            .url = "git+https://github.com/make-github-pseudonymous-again/pixels?ref=main#d843c2714d32e15b48b8d7eeb480295af537f877",
+            .url = "https://deps.files.ghostty.org/pixels-12207ff340169c7d40c570b4b6a97db614fe47e0d83b5801a932dcd44917424c8806.tar.gz",
             .hash = "12207ff340169c7d40c570b4b6a97db614fe47e0d83b5801a932dcd44917424c8806",
         },
 

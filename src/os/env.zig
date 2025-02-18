@@ -2,8 +2,17 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const posix = std.posix;
+const isFlatpak = @import("flatpak.zig").isFlatpak;
 
 pub const Error = Allocator.Error;
+
+/// Get the environment map.
+pub fn getEnvMap(alloc: Allocator) !std.process.EnvMap {
+    return if (isFlatpak())
+        std.process.EnvMap.init(alloc)
+    else
+        try std.process.getEnvMap(alloc);
+}
 
 /// Append a value to an environment variable such as PATH.
 /// The returned value is always allocated so it must be freed.

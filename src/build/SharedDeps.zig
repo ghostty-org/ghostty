@@ -6,6 +6,7 @@ const Config = @import("Config.zig");
 const HelpStrings = @import("HelpStrings.zig");
 const MetallibStep = @import("MetallibStep.zig");
 const UnicodeTables = @import("UnicodeTables.zig");
+const GhosttyFrameData = @import("GhosttyFrameData.zig");
 
 config: *const Config,
 
@@ -13,6 +14,7 @@ options: *std.Build.Step.Options,
 help_strings: HelpStrings,
 metallib: ?*MetallibStep,
 unicode_tables: UnicodeTables,
+framedata: GhosttyFrameData,
 
 /// Used to keep track of a list of file sources.
 pub const LazyPathList = std.ArrayList(std.Build.LazyPath);
@@ -22,6 +24,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !SharedDeps {
         .config = cfg,
         .help_strings = try HelpStrings.init(b, cfg),
         .unicode_tables = try UnicodeTables.init(b),
+        .framedata = try GhosttyFrameData.init(b),
 
         // Setup by retarget
         .options = undefined,
@@ -430,9 +433,30 @@ pub fn add(
             },
 
             .gtk => {
+                const gobject = b.dependency("gobject", .{
+                    .target = target,
+                    .optimize = optimize,
+                });
+                const gobject_imports = .{
+                    .{ "gobject", "gobject2" },
+                    .{ "gio", "gio2" },
+                    .{ "glib", "glib2" },
+                    .{ "gtk", "gtk4" },
+                    .{ "gdk", "gdk4" },
+                };
+                inline for (gobject_imports) |import| {
+                    const name, const module = import;
+                    step.root_module.addImport(name, gobject.module(module));
+                }
+
                 step.linkSystemLibrary2("gtk4", dynamic_link_opts);
-                if (self.config.adwaita) step.linkSystemLibrary2("libadwaita-1", dynamic_link_opts);
-                if (self.config.x11) step.linkSystemLibrary2("X11", dynamic_link_opts);
+                step.linkSystemLibrary2("libadwaita-1", dynamic_link_opts);
+                step.root_module.addImport("adw", gobject.module("adw1"));
+
+                if (self.config.x11) {
+                    step.linkSystemLibrary2("X11", dynamic_link_opts);
+                    step.root_module.addImport("gdk_x11", gobject.module("gdkx114"));
+                }
 
                 if (self.config.wayland) {
                     const scanner = Scanner.create(b.dependency("zig_wayland", .{}), .{
@@ -460,14 +484,54 @@ pub fn add(
                     scanner.generate("org_kde_kwin_server_decoration_manager", 1);
 
                     step.root_module.addImport("wayland", wayland);
+                    step.root_module.addImport("gdk_wayland", gobject.module("gdkwayland4"));
                     step.linkSystemLibrary2("wayland-client", dynamic_link_opts);
                 }
 
                 {
                     const gresource = @import("../apprt/gtk/gresource.zig");
 
-                    const wf = b.addWriteFiles();
-                    const gresource_xml = wf.add("gresource.xml", gresource.gresource_xml);
+                    const gresource_xml = gresource_xml: {
+                        const generate_gresource_xml = b.addExecutable(.{
+                            .name = "generate_gresource_xml",
+                            .root_source_file = b.path("src/apprt/gtk/gresource.zig"),
+                            .target = b.host,
+                        });
+
+                        const generate = b.addRunArtifact(generate_gresource_xml);
+
+                        for (gresource.blueprint_files) |blueprint_file| {
+                            const blueprint_compiler = b.addSystemCommand(&.{
+                                "blueprint-compiler",
+                                "compile",
+                                "--output",
+                            });
+                            const ui_file = blueprint_compiler.addOutputFileArg(b.fmt("{s}.ui", .{blueprint_file}));
+                            blueprint_compiler.addFileArg(b.path(b.fmt("src/apprt/gtk/ui/{s}.blp", .{blueprint_file})));
+                            generate.addFileArg(ui_file);
+                        }
+
+                        break :gresource_xml generate.captureStdOut();
+                    };
+
+                    {
+                        const gtk_builder_check = b.addExecutable(.{
+                            .name = "gtk_builder_check",
+                            .root_source_file = b.path("src/apprt/gtk/builder_check.zig"),
+                            .target = b.host,
+                        });
+                        gtk_builder_check.root_module.addOptions("build_options", self.options);
+                        gtk_builder_check.root_module.addImport("gtk", gobject.module("gtk4"));
+                        gtk_builder_check.root_module.addImport("adw", gobject.module("adw1"));
+
+                        for (gresource.dependencies) |pathname| {
+                            const extension = std.fs.path.extension(pathname);
+                            if (!std.mem.eql(u8, extension, ".ui")) continue;
+                            const check = b.addRunArtifact(gtk_builder_check);
+                            check.addFileArg(b.path(pathname));
+                            step.step.dependOn(&check.step);
+                        }
+                    }
 
                     const generate_resources_c = b.addSystemCommand(&.{
                         "glib-compile-resources",
@@ -499,6 +563,7 @@ pub fn add(
 
     self.help_strings.addImport(step);
     self.unicode_tables.addImport(step);
+    self.framedata.addImport(step);
 
     return static_libs;
 }

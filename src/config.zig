@@ -27,6 +27,7 @@ pub const OptionAsAlt = Config.OptionAsAlt;
 pub const RepeatableCodepointMap = Config.RepeatableCodepointMap;
 pub const RepeatableFontVariation = Config.RepeatableFontVariation;
 pub const RepeatableString = Config.RepeatableString;
+pub const RepeatableStringMap = @import("config/RepeatableStringMap.zig");
 pub const RepeatablePath = Config.RepeatablePath;
 pub const ShellIntegrationFeatures = Config.ShellIntegrationFeatures;
 pub const WindowPaddingColor = Config.WindowPaddingColor;

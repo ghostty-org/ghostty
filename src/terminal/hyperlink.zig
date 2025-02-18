@@ -194,14 +194,24 @@ pub const Set = RefCountedSet(
     Id,
     size.CellCountInt,
     struct {
+        /// The page which holds the strings for items in this set.
         page: ?*Page = null,
 
+        /// The page which holds the strings for items
+        /// looked up with, e.g., `add` or `lookup`,
+        /// if different from the destination page.
+        src_page: ?*const Page = null,
+
         pub fn hash(self: *const @This(), link: PageEntry) u64 {
-            return link.hash(self.page.?.memory);
+            return link.hash((self.src_page orelse self.page.?).memory);
         }
 
         pub fn eql(self: *const @This(), a: PageEntry, b: PageEntry) bool {
-            return a.eql(self.page.?.memory, &b, self.page.?.memory);
+            return a.eql(
+                (self.src_page orelse self.page.?).memory,
+                &b,
+                self.page.?.memory,
+            );
         }
 
         pub fn deleted(self: *const @This(), link: PageEntry) void {

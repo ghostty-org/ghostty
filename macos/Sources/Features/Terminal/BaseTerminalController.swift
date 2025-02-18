@@ -521,9 +521,19 @@ class BaseTerminalController: NSWindowController,
         ghostty.split(surface: surface, direction: GHOSTTY_SPLIT_DIRECTION_RIGHT)
     }
 
+    @IBAction func splitLeft(_ sender: Any) {
+        guard let surface = focusedSurface?.surface else { return }
+        ghostty.split(surface: surface, direction: GHOSTTY_SPLIT_DIRECTION_LEFT)
+    }
+
     @IBAction func splitDown(_ sender: Any) {
         guard let surface = focusedSurface?.surface else { return }
         ghostty.split(surface: surface, direction: GHOSTTY_SPLIT_DIRECTION_DOWN)
+    }
+
+    @IBAction func splitUp(_ sender: Any) {
+        guard let surface = focusedSurface?.surface else { return }
+        ghostty.split(surface: surface, direction: GHOSTTY_SPLIT_DIRECTION_UP)
     }
 
     @IBAction func splitZoom(_ sender: Any) {

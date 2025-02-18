@@ -8,6 +8,7 @@
     # glibc versions used by our dependencies from Nix are compatible with the
     # system glibc that the user is building for.
     nixpkgs-stable.url = "github:nixos/nixpkgs/release-24.11";
+    flake-utils.url = "github:numtide/flake-utils";
 
     # Used for shell.nix
     flake-compat = {
@@ -19,7 +20,16 @@
       url = "github:mitchellh/zig-overlay";
       inputs = {
         nixpkgs.follows = "nixpkgs-stable";
+        flake-utils.follows = "flake-utils";
         flake-compat.follows = "";
+      };
+    };
+
+    zig2nix = {
+      url = "github:jcollie/zig2nix?ref=c311d8e77a6ee0d995f40a6e10a89a3a4ab04f9a";
+      inputs = {
+        nixpkgs.follows = "nixpkgs-stable";
+        flake-utils.follows = "flake-utils";
       };
     };
   };
@@ -29,6 +39,7 @@
     nixpkgs-unstable,
     nixpkgs-stable,
     zig,
+    zig2nix,
     ...
   }:
     builtins.foldl' nixpkgs-stable.lib.recursiveUpdate {} (
@@ -40,6 +51,7 @@
           devShell.${system} = pkgs-stable.callPackage ./nix/devShell.nix {
             zig = zig.packages.${system}."0.13.0";
             wraptest = pkgs-stable.callPackage ./nix/wraptest.nix {};
+            zig2nix = zig2nix;
           };
 
           packages.${system} = let
@@ -49,6 +61,7 @@
               revision = self.shortRev or self.dirtyShortRev or "dirty";
             };
           in rec {
+            deps = pkgs-stable.callPackage ./build.zig.zon.nix {};
             ghostty-debug = pkgs-stable.callPackage ./nix/package.nix (mkArgs "Debug");
             ghostty-releasesafe = pkgs-stable.callPackage ./nix/package.nix (mkArgs "ReleaseSafe");
             ghostty-releasefast = pkgs-stable.callPackage ./nix/package.nix (mkArgs "ReleaseFast");

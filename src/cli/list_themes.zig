@@ -192,6 +192,7 @@ const Preview = struct {
         normal,
         help,
         search,
+        save,
     },
     color_scheme: vaxis.Color.Scheme,
     text_input: vaxis.widgets.TextInput,
@@ -377,6 +378,8 @@ const Preview = struct {
                             self.mode = .help;
                         if (key.matches('/', .{}))
                             self.mode = .search;
+                        if (key.matchesAny(&.{ vaxis.Key.enter, vaxis.Key.kp_enter }, .{}))
+                            self.mode = .save;
                         if (key.matchesAny(&.{ 'x', '/' }, .{ .ctrl = true })) {
                             self.text_input.buf.clearRetainingCapacity();
                             try self.updateFiltered();
@@ -430,6 +433,12 @@ const Preview = struct {
                         }
                         try self.text_input.update(.{ .key_press = key });
                         try self.updateFiltered();
+                    },
+                    .save => {
+                        if (key.matches('q', .{}))
+                            self.should_quit = true;
+                        if (key.matchesAny(&.{ vaxis.Key.escape, vaxis.Key.enter, vaxis.Key.kp_enter }, .{}))
+                            self.mode = .normal;
                     },
                 }
             },
@@ -674,7 +683,7 @@ const Preview = struct {
                     .{ .keys = "End", .help = "Go to the end of the list." },
                     .{ .keys = "/", .help = "Start search." },
                     .{ .keys = "^X, ^/", .help = "Clear search." },
-                    .{ .keys = "⏎", .help = "Close search window." },
+                    .{ .keys = "⏎", .help = "Save theme or close search window." },
                 };
 
                 for (key_help, 0..) |help, captured_i| {
@@ -724,6 +733,51 @@ const Preview = struct {
                 });
                 child.fill(.{ .style = self.ui_standard() });
                 self.text_input.drawWithStyle(child, self.ui_standard());
+            },
+            .save => {
+                const theme = self.themes[self.filtered.items[self.current]];
+
+                const width = 90;
+                const height = 12;
+                const child = win.child(
+                    .{
+                        .x_off = win.width / 2 -| width / 2,
+                        .y_off = win.height / 2 -| height / 2,
+                        .width = width,
+                        .height = height,
+                        .border = .{
+                            .where = .all,
+                            .style = self.ui_standard(),
+                        },
+                    },
+                );
+
+                child.fill(.{ .style = self.ui_standard() });
+
+                const save_instructions = [_][]const u8{
+                    "To apply this theme, add the following line to your Ghostty configuration:",
+                    "",
+                    try std.fmt.allocPrint(alloc, "theme = {s}", .{theme.theme}),
+                    "",
+                    "Save the configuration file and then reload it to apply the new theme.",
+                    "For more details on configuration and themes, visit the Ghostty documentation:",
+                    "",
+                    "https://ghostty.org/docs/config/reference",
+                };
+
+                for (save_instructions, 0..) |instruction, captured_i| {
+                    const i: u16 = @intCast(captured_i);
+                    _ = child.printSegment(
+                        .{
+                            .text = instruction,
+                            .style = self.ui_standard(),
+                        },
+                        .{
+                            .row_offset = i + 1,
+                            .col_offset = 2,
+                        },
+                    );
+                }
             },
         }
     }

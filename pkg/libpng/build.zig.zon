@@ -3,8 +3,9 @@
     .version = "1.6.43",
     .paths = .{""},
     .dependencies = .{
+        // glennrp/libpng
         .libpng = .{
-            .url = "https://github.com/glennrp/libpng/archive/refs/tags/v1.6.43.tar.gz",
+            .url = "https://deps.files.ghostty.org/libpng-1220aa013f0c83da3fb64ea6d327f9173fa008d10e28bc9349eac3463457723b1c66.tar.gz",
             .hash = "1220aa013f0c83da3fb64ea6d327f9173fa008d10e28bc9349eac3463457723b1c66",
         },
 

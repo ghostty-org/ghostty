@@ -1270,10 +1270,12 @@ fn showContextMenu(self: *Surface, x: f32, y: f32) void {
         return;
     };
 
+    // Convert surface coordinate into coordinate space of the
+    // context menu's parent
     var point: c.graphene_point_t = .{ .x = x, .y = y };
     if (c.gtk_widget_compute_point(
         self.primaryWidget(),
-        @ptrCast(window.window),
+        c.gtk_widget_get_parent(@ptrCast(window.context_menu)),
         &c.GRAPHENE_POINT_INIT(point.x, point.y),
         @ptrCast(&point),
     ) == 0) {
@@ -2124,7 +2126,7 @@ pub fn present(self: *Surface) void {
     if (self.container.window()) |window| {
         if (self.container.tab()) |tab| {
             if (window.notebook.getTabPosition(tab)) |position|
-                window.notebook.gotoNthTab(position);
+                _ = window.notebook.gotoNthTab(position);
         }
         c.gtk_window_present(window.window);
     }
@@ -2250,6 +2252,41 @@ fn doPaste(self: *Surface, data: [:0]const u8) void {
         error.NoSpaceLeft,
         => log.err("failed to complete clipboard request err={}", .{err}),
     };
+}
+
+pub fn defaultTermioEnv(self: *Surface) !std.process.EnvMap {
+    const alloc = self.app.core_app.alloc;
+    var env = try internal_os.getEnvMap(alloc);
+    errdefer env.deinit();
+
+    // Don't leak these GTK environment variables to child processes.
+    env.remove("GDK_DEBUG");
+    env.remove("GDK_DISABLE");
+    env.remove("GSK_RENDERER");
+
+    // Unset environment varies set by snaps if we're running in a snap.
+    // This allows Ghostty to further launch additional snaps.
+    if (env.get("SNAP")) |_| {
+        env.remove("SNAP");
+        env.remove("DRIRC_CONFIGDIR");
+        env.remove("__EGL_EXTERNAL_PLATFORM_CONFIG_DIRS");
+        env.remove("__EGL_VENDOR_LIBRARY_DIRS");
+        env.remove("LD_LIBRARY_PATH");
+        env.remove("LIBGL_DRIVERS_PATH");
+        env.remove("LIBVA_DRIVERS_PATH");
+        env.remove("VK_LAYER_PATH");
+        env.remove("XLOCALEDIR");
+        env.remove("GDK_PIXBUF_MODULEDIR");
+        env.remove("GTK_PATH");
+    }
+
+    if (self.container.window()) |window| {
+        // On some window protocols we might want to add specific
+        // environment variables to subprocesses, such as WINDOWID on X11.
+        try window.winproto.addSubprocessEnv(&env);
+    }
+
+    return env;
 }
 
 /// Check a GValue to see what's type its wrapping. This is equivalent to GTK's

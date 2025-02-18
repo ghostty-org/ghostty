@@ -95,6 +95,23 @@ fileprivate class CenteredDynamicLabel: NSTextField {
         setContentHuggingPriority(.defaultLow, for: .horizontal)
         setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
     }
+
+    // Vertically center the text
+    override func draw(_ dirtyRect: NSRect) {
+        guard let attributedString = self.attributedStringValue.mutableCopy() as? NSMutableAttributedString else {
+            super.draw(dirtyRect)
+            return
+        }
+        
+        let textSize = attributedString.size()
+        
+        let yOffset = (self.bounds.height - textSize.height) / 2 - 1 // -1 to center it better
+        
+        let centeredRect = NSRect(x: self.bounds.origin.x, y: self.bounds.origin.y + yOffset,
+                                  width: self.bounds.width, height: textSize.height)
+        
+        attributedString.draw(in: centeredRect)
+    }
 }
 
 extension NSToolbarItem.Identifier {

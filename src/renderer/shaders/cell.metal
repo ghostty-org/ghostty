@@ -487,13 +487,6 @@ vertex CellTextVertexOut cell_text_vertex(
     );
   }
 
-  // Don't bother rendering if the bg and fg colors are identical, just return
-  // the same point which will be culled because it makes the quad zero sized.
-  // However, we should still render if this is the cursor position
-  if (all(out.color == out.bg_color) && !is_cursor_pos) {
-    out.position = float4(0.0);
-  }
-
   return out;
 }
 

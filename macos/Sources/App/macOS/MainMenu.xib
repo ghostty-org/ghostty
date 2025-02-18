@@ -14,6 +14,8 @@
         <customObject id="-3" userLabel="Application" customClass="NSObject"/>
         <customObject id="bbz-4X-AYv" userLabel="AppDelegate" customClass="AppDelegate" customModule="Ghostty" customModuleProvider="target">
             <connections>
+                <outlet property="menuBringAllToFront" destination="LE2-aR-0XJ" id="AP9-oK-60V"/>
+                <outlet property="menuChangeTitle" destination="24I-xg-qIq" id="kg6-kT-jNL"/>
                 <outlet property="menuCheckForUpdates" destination="GEA-5y-yzH" id="0nV-Tf-nJQ"/>
                 <outlet property="menuClose" destination="DVo-aG-piG" id="R3t-0C-aSU"/>
                 <outlet property="menuCloseAllWindows" destination="yKr-Vi-Yqw" id="Zet-Ir-zbm"/>
@@ -45,8 +47,10 @@
                 <outlet property="menuSelectSplitLeft" destination="cTK-oy-KuV" id="Jpr-5q-dqz"/>
                 <outlet property="menuSelectSplitRight" destination="upj-mc-L7X" id="nLY-o1-lky"/>
                 <outlet property="menuServices" destination="aQe-vS-j8Q" id="uWQ-Wo-T1L"/>
-                <outlet property="menuSplitDown" destination="UDZ-4y-6xL" id="fgZ-Wb-8OR"/>
+                <outlet property="menuSplitDown" destination="UDZ-4y-6xL" id="ptr-mj-Azh"/>
+                <outlet property="menuSplitLeft" destination="Ppv-GP-lQU" id="Xd5-Cd-Jut"/>
                 <outlet property="menuSplitRight" destination="VUR-Ld-nLx" id="RxO-Zw-ovb"/>
+                <outlet property="menuSplitUp" destination="Ggp-7N-GbX" id="YJF-uq-S4Y"/>
                 <outlet property="menuTerminalInspector" destination="QwP-M5-fvh" id="wJi-Dh-S9f"/>
                 <outlet property="menuToggleFullScreen" destination="8kY-Pi-KaY" id="yQg-6V-OO6"/>
                 <outlet property="menuToggleVisibility" destination="DOX-wA-ilh" id="iBj-Bc-2bq"/>
@@ -143,10 +147,22 @@
                                     <action selector="splitRight:" target="-1" id="cv2-Xg-FR4"/>
                                 </connections>
                             </menuItem>
+                            <menuItem title="Split Left" id="Ppv-GP-lQU">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="splitLeft:" target="-1" id="Cey-Mf-bD2"/>
+                                </connections>
+                            </menuItem>
                             <menuItem title="Split Down" id="UDZ-4y-6xL">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
-                                    <action selector="splitDown:" target="-1" id="c6x-CF-u52"/>
+                                    <action selector="splitDown:" target="-1" id="Zej-CF-6nO"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Split Up" id="Ggp-7N-GbX">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="splitUp:" target="-1" id="bbi-dK-pOS"/>
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="sjq-M1-UGS"/>
@@ -232,6 +248,13 @@
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="L3L-I8-sqk"/>
+                            <menuItem title="Change Title..." id="24I-xg-qIq">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="changeTitle:" target="-1" id="XuL-QB-Q9l"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="Vkj-tP-dMZ"/>
                             <menuItem title="Quick Terminal" id="1pv-LF-NBJ">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
@@ -268,12 +291,6 @@
                                 <modifierMask key="keyEquivalentModifierMask" control="YES" command="YES"/>
                                 <connections>
                                     <action selector="toggleGhosttyFullScreen:" target="-1" id="QB9-7R-xyc"/>
-                                </connections>
-                            </menuItem>
-                            <menuItem title="Bring All to Front" id="LE2-aR-0XJ">
-                                <modifierMask key="keyEquivalentModifierMask"/>
-                                <connections>
-                                    <action selector="arrangeInFront:" target="-1" id="DRN-fu-gQh"/>
                                 </connections>
                             </menuItem>
                             <menuItem title="Show/Hide All Terminals" id="DOX-wA-ilh">
@@ -369,6 +386,13 @@
                                         </menuItem>
                                     </items>
                                 </menu>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="dgt-Tx-d4e"/>
+                            <menuItem title="Bring All to Front" id="LE2-aR-0XJ">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="arrangeInFront:" target="-1" id="DRN-fu-gQh"/>
+                                </connections>
                             </menuItem>
                         </items>
                     </menu>

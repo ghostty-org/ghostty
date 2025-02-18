@@ -14,6 +14,7 @@ jobs:
       - build-bench
       - build-linux-libghostty
       - build-nix
+      - build-snap
       - build-macos
       - build-macos-matrix
       - build-windows
@@ -25,6 +26,7 @@ jobs:
       - alejandra
       - typos
       - test-pkg-linux
+      - test-debian-12
     steps:
       - id: status
         name: Determine status
@@ -202,10 +204,14 @@ jobs:
       - name: XCode Select
         run: sudo xcode-select -s /Applications/Xcode_16.0.app
 
+      - name: get the Zig deps
+        id: deps
+        run: nix build -L .#deps && echo "deps=$(readlink ./result)" >> $GITHUB_OUTPUT
+
       # GhosttyKit is the framework that is built from Zig for our native
       # Mac app to access.
       - name: Build GhosttyKit
-        run: nix develop -c zig build
+        run: nix develop -c zig build --system ${{ steps.deps.outputs.deps }}
 
       # The native app is built with native XCode tooling. This also does
       # codesigning. IMPORTANT: this must NOT run in a Nix environment.
@@ -238,35 +244,65 @@ jobs:
       - name: XCode Select
         run: sudo xcode-select -s /Applications/Xcode_16.0.app
 
+      - name: get the Zig deps
+        id: deps
+        run: nix build -L .#deps && echo "deps=$(readlink ./result)" >> $GITHUB_OUTPUT
+
       - name: Test All
         run: |
           # OpenGL
-          nix develop -c zig build test -Dapp-runtime=glfw -Drenderer=opengl -Dfont-backend=freetype
-          nix develop -c zig build test -Dapp-runtime=glfw -Drenderer=opengl -Dfont-backend=coretext
-          nix develop -c zig build test -Dapp-runtime=glfw -Drenderer=opengl -Dfont-backend=coretext_freetype
-          nix develop -c zig build test -Dapp-runtime=glfw -Drenderer=opengl -Dfont-backend=coretext_harfbuzz
-          nix develop -c zig build test -Dapp-runtime=glfw -Drenderer=opengl -Dfont-backend=coretext_noshape
+          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Dapp-runtime=glfw -Drenderer=opengl -Dfont-backend=freetype
+          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Dapp-runtime=glfw -Drenderer=opengl -Dfont-backend=coretext
+          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Dapp-runtime=glfw -Drenderer=opengl -Dfont-backend=coretext_freetype
+          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Dapp-runtime=glfw -Drenderer=opengl -Dfont-backend=coretext_harfbuzz
+          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Dapp-runtime=glfw -Drenderer=opengl -Dfont-backend=coretext_noshape
 
           # Metal
-          nix develop -c zig build test -Dapp-runtime=glfw -Drenderer=metal -Dfont-backend=freetype
-          nix develop -c zig build test -Dapp-runtime=glfw -Drenderer=metal -Dfont-backend=coretext
-          nix develop -c zig build test -Dapp-runtime=glfw -Drenderer=metal -Dfont-backend=coretext_freetype
-          nix develop -c zig build test -Dapp-runtime=glfw -Drenderer=metal -Dfont-backend=coretext_harfbuzz
-          nix develop -c zig build test -Dapp-runtime=glfw -Drenderer=metal -Dfont-backend=coretext_noshape
+          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Dapp-runtime=glfw -Drenderer=metal -Dfont-backend=freetype
+          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Dapp-runtime=glfw -Drenderer=metal -Dfont-backend=coretext
+          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Dapp-runtime=glfw -Drenderer=metal -Dfont-backend=coretext_freetype
+          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Dapp-runtime=glfw -Drenderer=metal -Dfont-backend=coretext_harfbuzz
+          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Dapp-runtime=glfw -Drenderer=metal -Dfont-backend=coretext_noshape
 
       - name: Build All
         run: |
-          nix develop -c zig build -Dapp-runtime=glfw -Drenderer=opengl -Dfont-backend=freetype
-          nix develop -c zig build -Dapp-runtime=glfw -Drenderer=opengl -Dfont-backend=coretext
-          nix develop -c zig build -Dapp-runtime=glfw -Drenderer=opengl -Dfont-backend=coretext_freetype
-          nix develop -c zig build -Dapp-runtime=glfw -Drenderer=opengl -Dfont-backend=coretext_harfbuzz
-          nix develop -c zig build -Dapp-runtime=glfw -Drenderer=opengl -Dfont-backend=coretext_noshape
+          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Dapp-runtime=glfw -Drenderer=opengl -Dfont-backend=freetype
+          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Dapp-runtime=glfw -Drenderer=opengl -Dfont-backend=coretext
+          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Dapp-runtime=glfw -Drenderer=opengl -Dfont-backend=coretext_freetype
+          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Dapp-runtime=glfw -Drenderer=opengl -Dfont-backend=coretext_harfbuzz
+          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Dapp-runtime=glfw -Drenderer=opengl -Dfont-backend=coretext_noshape
 
-          nix develop -c zig build -Dapp-runtime=glfw -Drenderer=metal -Dfont-backend=freetype
-          nix develop -c zig build -Dapp-runtime=glfw -Drenderer=metal -Dfont-backend=coretext
-          nix develop -c zig build -Dapp-runtime=glfw -Drenderer=metal -Dfont-backend=coretext_freetype
-          nix develop -c zig build -Dapp-runtime=glfw -Drenderer=metal -Dfont-backend=coretext_harfbuzz
-          nix develop -c zig build -Dapp-runtime=glfw -Drenderer=metal -Dfont-backend=coretext_noshape
+          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Dapp-runtime=glfw -Drenderer=metal -Dfont-backend=freetype
+          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Dapp-runtime=glfw -Drenderer=metal -Dfont-backend=coretext
+          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Dapp-runtime=glfw -Drenderer=metal -Dfont-backend=coretext_freetype
+          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Dapp-runtime=glfw -Drenderer=metal -Dfont-backend=coretext_harfbuzz
+          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Dapp-runtime=glfw -Drenderer=metal -Dfont-backend=coretext_noshape
+
+  build-snap:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          [namespace-profile-ghostty-snap, namespace-profile-ghostty-snap-arm64]
+    runs-on: ${{ matrix.os }}
+    needs: test
+    env:
+      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@v1.2.0
+        with:
+          path: |
+            /nix
+            /zig
+      - run: sudo apt install -y udev
+      - run: sudo systemctl start systemd-udevd
+      - uses: snapcore/action-build@v1
 
   build-windows:
     runs-on: windows-2022
@@ -366,7 +402,7 @@ jobs:
         run: nix develop -c zig build -Dapp-runtime=none test
 
       - name: Test GTK Build
-        run: nix develop -c zig build -Dapp-runtime=gtk -Dgtk-adwaita=true -Demit-docs
+        run: nix develop -c zig build -Dapp-runtime=gtk -Demit-docs
 
       - name: Test GLFW Build
         run: nix develop -c zig build -Dapp-runtime=glfw
@@ -379,10 +415,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        adwaita: ["true", "false"]
         x11: ["true", "false"]
         wayland: ["true", "false"]
-    name: GTK adwaita=${{ matrix.adwaita }} x11=${{ matrix.x11 }} wayland=${{ matrix.wayland }}
+    name: GTK x11=${{ matrix.x11 }} wayland=${{ matrix.wayland }}
     runs-on: namespace-profile-ghostty-sm
     needs: test
     env:
@@ -413,7 +448,6 @@ jobs:
           nix develop -c \
             zig build \
             -Dapp-runtime=gtk \
-            -Dgtk-adwaita=${{ matrix.adwaita }} \
             -Dgtk-x11=${{ matrix.x11 }} \
             -Dgtk-wayland=${{ matrix.wayland }}
 
@@ -471,8 +505,12 @@ jobs:
       - name: XCode Select
         run: sudo xcode-select -s /Applications/Xcode_16.0.app
 
+      - name: get the Zig deps
+        id: deps
+        run: nix build -L .#deps && echo "deps=$(readlink ./result)" >> $GITHUB_OUTPUT
+
       - name: test
-        run: nix develop -c zig build test
+        run: nix develop -c zig build test --system ${{ steps.deps.outputs.deps }}
 
   prettier:
     if: github.repository == 'ghostty-org/ghostty'
@@ -589,3 +627,26 @@ jobs:
       - name: Test ${{ matrix.pkg }} Build
         run: |
           nix develop -c sh -c "cd pkg/${{ matrix.pkg }} ; zig build test"
+
+  test-debian-12:
+    name: Test build on Debian 12
+    runs-on: namespace-profile-ghostty-sm
+    needs: test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install and configure Namespace CLI
+        uses: namespacelabs/nscloud-setup@v0
+
+      - name: Configure Namespace powered Buildx
+        uses: namespacelabs/nscloud-setup-buildx-action@v0
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: src/build/docker/debian/Dockerfile
+          build-args: |
+            DISTRO_VERSION=12
+            ZIG_VERSION=0.13.0

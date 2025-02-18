@@ -184,6 +184,10 @@ const SmoothMosaic = packed struct(u10) {
     }
 };
 
+// Octant range, inclusive
+const octant_min = 0x1cd00;
+const octant_max = 0x1cde5;
+
 // Utility names for common fractions
 const one_eighth: f64 = 0.125;
 const one_quarter: f64 = 0.25;
@@ -580,6 +584,8 @@ fn draw(self: Box, alloc: Allocator, canvas: *font.sprite.Canvas, cp: u32) !void
         0x2800...0x28ff => self.draw_braille(canvas, cp),
 
         0x1fb00...0x1fb3b => self.draw_sextant(canvas, cp),
+
+        octant_min...octant_max => self.draw_octant(canvas, cp),
 
         // '🬼'
         0x1fb3c => try self.draw_smooth_mosaic(canvas, SmoothMosaic.from(
@@ -2484,6 +2490,65 @@ fn draw_sextant(self: Box, canvas: *font.sprite.Canvas, cp: u32) void {
     if (sex.br) self.rect(canvas, x_halfs[1], y_thirds[1], self.metrics.cell_width, self.metrics.cell_height);
 }
 
+fn draw_octant(self: Box, canvas: *font.sprite.Canvas, cp: u32) void {
+    assert(cp >= octant_min and cp <= octant_max);
+
+    // Octant representation. We use the funny numeric string keys
+    // so its easier to parse the actual name used in the Symbols for
+    // Legacy Computing spec.
+    const Octant = packed struct(u8) {
+        @"1": bool = false,
+        @"2": bool = false,
+        @"3": bool = false,
+        @"4": bool = false,
+        @"5": bool = false,
+        @"6": bool = false,
+        @"7": bool = false,
+        @"8": bool = false,
+    };
+
+    // Parse the octant data. This is all done at comptime so this is
+    // static data that is embedded in the binary.
+    const octants_len = octant_max - octant_min + 1;
+    const octants: [octants_len]Octant = comptime octants: {
+        @setEvalBranchQuota(10_000);
+
+        var result: [octants_len]Octant = .{.{}} ** octants_len;
+        var i: usize = 0;
+
+        const data = @embedFile("octants.txt");
+        var it = std.mem.splitScalar(u8, data, '\n');
+        while (it.next()) |line| {
+            // Skip comments
+            if (line.len == 0 or line[0] == '#') continue;
+
+            const current = &result[i];
+            i += 1;
+
+            // Octants are in the format "BLOCK OCTANT-1235". The numbers
+            // at the end are keys into our packed struct. Since we're
+            // at comptime we can metaprogram it all.
+            const idx = std.mem.indexOfScalar(u8, line, '-').?;
+            for (line[idx + 1 ..]) |c| @field(current, &.{c}) = true;
+        }
+
+        assert(i == octants_len);
+        break :octants result;
+    };
+
+    const x_halfs = self.xHalfs();
+    const y_quads = self.yQuads();
+    const oct = octants[cp - octant_min];
+    if (oct.@"1") self.rect(canvas, 0, 0, x_halfs[0], y_quads[0]);
+    if (oct.@"2") self.rect(canvas, x_halfs[1], 0, self.metrics.cell_width, y_quads[0]);
+    if (oct.@"3") self.rect(canvas, 0, y_quads[0], x_halfs[0], y_quads[1]);
+    if (oct.@"4") self.rect(canvas, x_halfs[1], y_quads[0], self.metrics.cell_width, y_quads[1]);
+    if (oct.@"5") self.rect(canvas, 0, y_quads[1], x_halfs[0], y_quads[2]);
+    if (oct.@"6") self.rect(canvas, x_halfs[1], y_quads[1], self.metrics.cell_width, y_quads[2]);
+    if (oct.@"7") self.rect(canvas, 0, y_quads[2], x_halfs[0], self.metrics.cell_height);
+    if (oct.@"8") self.rect(canvas, x_halfs[1], y_quads[2], self.metrics.cell_width, self.metrics.cell_height);
+}
+
 fn xHalfs(self: Box) [2]u32 {
     return .{
         @as(u32, @intFromFloat(@round(@as(f64, @floatFromInt(self.metrics.cell_width)) / 2))),
@@ -2496,6 +2561,21 @@ fn yThirds(self: Box) [2]u32 {
         0 => .{ self.metrics.cell_height / 3, 2 * self.metrics.cell_height / 3 },
         1 => .{ self.metrics.cell_height / 3, 2 * self.metrics.cell_height / 3 + 1 },
         2 => .{ self.metrics.cell_height / 3 + 1, 2 * self.metrics.cell_height / 3 },
+        else => unreachable,
+    };
+}
+
+// assume octants might be striped across multiple rows of cells. to maximize
+// distance between excess pixellines, we want (1) an arbitrary region (there
+// will be a pattern of 1'-3-1'-3-1'-3 no matter what), (2) discontiguous
+// regions (0 and 2 or 1 and 3), and (3) an arbitrary three regions (there will
+// be a pattern of 3-1-3-1-3-1 no matter what).
+fn yQuads(self: Box) [3]u32 {
+    return switch (@mod(self.metrics.cell_height, 4)) {
+        0 => .{ self.metrics.cell_height / 4, 2 * self.metrics.cell_height / 4, 3 * self.metrics.cell_height / 4 },
+        1 => .{ self.metrics.cell_height / 4, 2 * self.metrics.cell_height / 4 + 1, 3 * self.metrics.cell_height / 4 },
+        2 => .{ self.metrics.cell_height / 4 + 1, 2 * self.metrics.cell_height / 4, 3 * self.metrics.cell_height / 4 + 1 },
+        3 => .{ self.metrics.cell_height / 4 + 1, 2 * self.metrics.cell_height / 4 + 1, 3 * self.metrics.cell_height / 4 },
         else => unreachable,
     };
 }
@@ -3064,12 +3144,25 @@ fn testRenderAll(self: Box, alloc: Allocator, atlas: *font.Atlas) !void {
         );
     }
 
-    // Symbols for Legacy Computing Supplement.
+    // Symbols for Legacy Computing Supplement: Quadrants
     // 𜰡 𜰢 𜰣 𜰤 𜰥 𜰦 𜰧 𜰨 𜰩 𜰪 𜰫 𜰬 𜰭 𜰮 𜰯
     cp = 0x1cc21;
     while (cp <= 0x1cc2f) : (cp += 1) {
         switch (cp) {
             0x1cc21...0x1cc2f => _ = try self.renderGlyph(
+                alloc,
+                atlas,
+                cp,
+            ),
+            else => {},
+        }
+    }
+
+    // Symbols for Legacy Computing Supplement: Octants
+    cp = 0x1CD00;
+    while (cp <= 0x1CDE5) : (cp += 1) {
+        switch (cp) {
+            0x1CD00...0x1CDE5 => _ = try self.renderGlyph(
                 alloc,
                 atlas,
                 cp,

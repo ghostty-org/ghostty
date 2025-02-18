@@ -131,4 +131,10 @@ pub const Window = union(Protocol) {
             inline else => |v| v.clientSideDecorationEnabled(),
         };
     }
+
+    pub fn addSubprocessEnv(self: *Window, env: *std.process.EnvMap) !void {
+        switch (self.*) {
+            inline else => |*v| try v.addSubprocessEnv(env),
+        }
+    }
 };

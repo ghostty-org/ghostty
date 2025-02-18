@@ -34,6 +34,7 @@ const KeyValue = @import("key.zig").Value;
 const ErrorList = @import("ErrorList.zig");
 const MetricModifier = fontpkg.Metrics.Modifier;
 const help_strings = @import("help_strings");
+const RepeatableStringMap = @import("RepeatableStringMap.zig");
 
 const log = std.log.scoped(.config);
 
@@ -49,6 +50,7 @@ pub const renamed = std.StaticStringMap([]const u8).initComptime(&.{
     // one field be used for both platforms (macOS retained the ability
     // to set a radius).
     .{ "background-blur-radius", "background-blur" },
+    .{ "adw-toolbar-style", "gtk-toolbar-style" },
 });
 
 /// The font families to use.
@@ -735,6 +737,42 @@ command: ?[]const u8 = null,
 ///
 @"initial-command": ?[]const u8 = null,
 
+/// Extra environment variables to pass to commands launched in a terminal
+/// surface. The format is `env=KEY=VALUE`.
+///
+/// `env = foo=bar`
+/// `env = bar=baz`
+///
+/// Setting `env` to an empty string will reset the entire map to default
+/// (empty).
+///
+/// `env =`
+///
+/// Setting a key to an empty string will remove that particular key and
+/// corresponding value from the map.
+///
+/// `env = foo=bar`
+/// `env = foo=`
+///
+/// will result in `foo` not being passed to the launched commands.
+///
+/// Setting a key multiple times will overwrite previous entries.
+///
+/// `env = foo=bar`
+/// `env = foo=baz`
+///
+/// will result in `foo=baz` being passed to the launched commands.
+///
+/// These environment variables will override any existing environment
+/// variables set by Ghostty. For example, if you set `GHOSTTY_RESOURCES_DIR`
+/// then the value you set here will override the value Ghostty typically
+/// automatically injects.
+///
+/// These environment variables _will not_ be passed to commands run by Ghostty
+/// for other purposes, like `open` or `xdg-open` used to open URLs in your
+/// browser.
+env: RepeatableStringMap = .{},
+
 /// If true, keep the terminal open after the command exits. Normally, the
 /// terminal window closes when the running command (such as a shell) exits.
 /// With this true, the terminal window will stay open until any keypress is
@@ -1199,7 +1237,7 @@ keybind: Keybinds = .{},
 ///   * `working-directory` - Set the subtitle to the working directory of the
 ///      surface.
 ///
-/// This feature is only supported on GTK with Adwaita enabled.
+/// This feature is only supported on GTK.
 @"window-subtitle": WindowSubtitle = .false,
 
 /// The theme to use for the windows. Valid values:
@@ -1212,8 +1250,7 @@ keybind: Keybinds = .{},
 ///   * `light` - Use the light theme regardless of system theme.
 ///   * `dark` - Use the dark theme regardless of system theme.
 ///   * `ghostty` - Use the background and foreground colors specified in the
-///     Ghostty configuration. This is only supported on Linux builds with
-///     Adwaita and `gtk-adwaita` enabled.
+///     Ghostty configuration. This is only supported on Linux builds.
 ///
 /// On macOS, if `macos-titlebar-style` is "tabs", the window theme will be
 /// automatically set based on the luminosity of the terminal background color.
@@ -1779,9 +1816,9 @@ keybind: Keybinds = .{},
 
 /// Control the in-app notifications that Ghostty shows.
 ///
-/// On Linux (GTK) with Adwaita, in-app notifications show up as toasts. Toasts
-/// appear overlaid on top of the terminal window. They are used to show
-/// information that is not critical but may be important.
+/// On Linux (GTK), in-app notifications show up as toasts. Toasts appear
+/// overlaid on top of the terminal window. They are used to show information
+/// that is not critical but may be important.
 ///
 /// Possible notifications are:
 ///
@@ -1799,7 +1836,7 @@ keybind: Keybinds = .{},
 /// A value of "false" will disable all notifications. A value of "true" will
 /// enable all notifications.
 ///
-/// This configuration only applies to GTK with Adwaita enabled.
+/// This configuration only applies to GTK.
 @"app-notifications": AppNotifications = .{},
 
 /// If anything other than false, fullscreen mode on macOS will not use the
@@ -1819,9 +1856,14 @@ keybind: Keybinds = .{},
 ///
 /// Allowable values are:
 ///
-///   * `visible-menu` - Use non-native macOS fullscreen, keep the menu bar visible
 ///   * `true` - Use non-native macOS fullscreen, hide the menu bar
 ///   * `false` - Use native macOS fullscreen
+///   * `visible-menu` - Use non-native macOS fullscreen, keep the menu bar
+///     visible
+///   * `padded-notch` - Use non-native macOS fullscreen, hide the menu bar,
+///     but ensure the window is not obscured by the notch on applicable
+///     devices. The area around the notch will remain transparent currently,
+///     but in the future we may fill it with the window background color.
 ///
 /// Changing this option at runtime works, but will only apply to the next
 /// time the window is made fullscreen. If a window is already fullscreen,
@@ -1932,6 +1974,26 @@ keybind: Keybinds = .{},
 /// find false more visually appealing.
 @"macos-window-shadow": bool = true,
 
+/// If true, the macOS icon in the dock and app switcher will be hidden. This is
+/// mainly intended for those primarily using the quick-terminal mode.
+///
+/// Note that setting this to true means that keyboard layout changes
+/// will no longer be automatic.
+///
+/// Control whether macOS app is excluded from the dock and app switcher,
+/// a "hidden" state. This is mainly intended for those primarily using
+/// quick-terminal mode, but is a general configuration for any use
+/// case.
+///
+/// Available values:
+///
+///   * `never` - The macOS app is never hidden.
+///   * `always` - The macOS app is always hidden.
+///
+/// Note: When the macOS application is hidden, keyboard layout changes
+/// will no longer be automatic. This is a limitation of macOS.
+@"macos-hidden": MacHidden = .never,
+
 /// If true, Ghostty on macOS will automatically enable the "Secure Input"
 /// feature when it detects that a password prompt is being displayed.
 ///
@@ -1972,6 +2034,9 @@ keybind: Keybinds = .{},
 /// Valid values:
 ///
 ///  * `official` - Use the official Ghostty icon.
+///  * `blueprint`, `chalkboard`, `microchip`, `glass`, `holographic`,
+///    `paper`, `retro`, `xray` - Official variants of the Ghostty icon
+///    hand-created by artists (no AI).
 ///  * `custom-style` - Use the official Ghostty icon but with custom
 ///    styles applied to various layers. The custom styles must be
 ///    specified using the additional `macos-icon`-prefixed configurations.
@@ -2121,26 +2186,20 @@ keybind: Keybinds = .{},
 @"gtk-titlebar": bool = true,
 
 /// Determines the side of the screen that the GTK tab bar will stick to.
-/// Top, bottom, left, right, and hidden are supported. The default is top.
+/// Top, bottom, and hidden are supported. The default is top.
 ///
-/// If this option has value `left` or `right` when using Adwaita, it falls
-/// back to `top`. `hidden`, meaning that tabs don't exist, is not supported
-/// without using Adwaita, falling back to `top`.
-///
-/// When `hidden` is set and Adwaita is enabled, a tab button displaying the
-/// number of tabs will appear in the title bar. It has the ability to open a
-/// tab overview for displaying tabs. Alternatively, you can use the
-/// `toggle_tab_overview` action in a keybind if your window doesn't have a
-/// title bar, or you can switch tabs with keybinds.
+/// When `hidden` is set, a tab button displaying the number of tabs will appear
+/// in the title bar. It has the ability to open a tab overview for displaying
+/// tabs. Alternatively, you can use the `toggle_tab_overview` action in a
+/// keybind if your window doesn't have a title bar, or you can switch tabs
+/// with keybinds.
 @"gtk-tabs-location": GtkTabsLocation = .top,
 
 /// If this is `true`, the titlebar will be hidden when the window is maximized,
 /// and shown when the titlebar is unmaximized. GTK only.
 @"gtk-titlebar-hide-when-maximized": bool = false,
 
-/// Determines the appearance of the top and bottom bars when using the
-/// Adwaita tab bar. This requires `gtk-adwaita` to be enabled (it is
-/// by default).
+/// Determines the appearance of the top and bottom bars tab bar.
 ///
 /// Valid values are:
 ///
@@ -2150,27 +2209,13 @@ keybind: Keybinds = .{},
 ///    more subtle border.
 ///
 /// Changing this value at runtime will only affect new windows.
-@"adw-toolbar-style": AdwToolbarStyle = .raised,
+@"gtk-toolbar-style": GtkToolbarStyle = .raised,
 
 /// If `true` (default), then the Ghostty GTK tabs will be "wide." Wide tabs
 /// are the new typical Gnome style where tabs fill their available space.
 /// If you set this to `false` then tabs will only take up space they need,
 /// which is the old style.
 @"gtk-wide-tabs": bool = true,
-
-/// If `true` (default), Ghostty will enable Adwaita theme support. This
-/// will make `window-theme` work properly and will also allow Ghostty to
-/// properly respond to system theme changes, light/dark mode changing, etc.
-/// This requires a GTK4 desktop with a GTK4 theme.
-///
-/// If you are running GTK3 or have a GTK3 theme, you may have to set this
-/// to false to get your theme picked up properly. Having this set to true
-/// with GTK3 should not cause any problems, but it may not work exactly as
-/// expected.
-///
-/// This configuration only has an effect if Ghostty was built with
-/// Adwaita support.
-@"gtk-adwaita": bool = true,
 
 /// Custom CSS files to be loaded.
 ///
@@ -2577,7 +2622,7 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
         );
         try result.keybind.set.put(
             alloc,
-            .{ .key = .{ .translated = .equal }, .mods = .{ .super = true, .ctrl = true, .shift = true } },
+            .{ .key = .{ .translated = .plus }, .mods = .{ .super = true, .ctrl = true, .shift = true } },
             .{ .equalize_splits = {} },
         );
 
@@ -4092,6 +4137,7 @@ pub const NonNativeFullscreen = enum(c_int) {
     false,
     true,
     @"visible-menu",
+    @"padded-notch",
 };
 
 /// Valid values for macos-option-as-alt.
@@ -5712,6 +5758,12 @@ pub const MacTitlebarProxyIcon = enum {
     hidden,
 };
 
+/// See macos-hidden
+pub const MacHidden = enum {
+    never,
+    always,
+};
+
 /// See macos-icon
 ///
 /// Note: future versions of Ghostty can support a custom icon with
@@ -5719,6 +5771,14 @@ pub const MacTitlebarProxyIcon = enum {
 /// format at all.
 pub const MacAppIcon = enum {
     official,
+    blueprint,
+    chalkboard,
+    microchip,
+    glass,
+    holographic,
+    paper,
+    retro,
+    xray,
     @"custom-style",
 };
 
@@ -5741,13 +5801,11 @@ pub const GtkSingleInstance = enum {
 pub const GtkTabsLocation = enum {
     top,
     bottom,
-    left,
-    right,
     hidden,
 };
 
-/// See adw-toolbar-style
-pub const AdwToolbarStyle = enum {
+/// See gtk-toolbar-style
+pub const GtkToolbarStyle = enum {
     flat,
     raised,
     @"raised-border",

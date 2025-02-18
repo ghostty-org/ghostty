@@ -10708,6 +10708,87 @@ test "Terminal: resize with high unique style per cell with wrapping" {
     try t.resize(alloc, 60, 30);
 }
 
+test "Terminal: resize with reflow and saved cursor" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .cols = 2, .rows = 3 });
+    defer t.deinit(alloc);
+    try t.printString("1A2B");
+    t.setCursorPos(2, 2);
+    {
+        const list_cell = t.screen.pages.getCell(.{ .active = .{
+            .x = t.screen.cursor.x,
+            .y = t.screen.cursor.y,
+        } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u32, 'B'), cell.content.codepoint);
+    }
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("1A\n2B", str);
+    }
+
+    t.saveCursor();
+    try t.resize(alloc, 5, 3);
+    try t.restoreCursor();
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("1A2B", str);
+    }
+
+    // Verify our cursor is still in the same place
+    {
+        const list_cell = t.screen.pages.getCell(.{ .active = .{
+            .x = t.screen.cursor.x,
+            .y = t.screen.cursor.y,
+        } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u32, 'B'), cell.content.codepoint);
+    }
+}
+
+test "Terminal: resize with reflow and saved cursor pending wrap" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .cols = 2, .rows = 3 });
+    defer t.deinit(alloc);
+    try t.printString("1A2B");
+    {
+        const list_cell = t.screen.pages.getCell(.{ .active = .{
+            .x = t.screen.cursor.x,
+            .y = t.screen.cursor.y,
+        } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u32, 'B'), cell.content.codepoint);
+    }
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("1A\n2B", str);
+    }
+
+    t.saveCursor();
+    try t.resize(alloc, 5, 3);
+    try t.restoreCursor();
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("1A2B", str);
+    }
+
+    // Pending wrap should be reset
+    try t.print('X');
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("1A2BX", str);
+    }
+}
+
 test "Terminal: DECCOLM without DEC mode 40" {
     const alloc = testing.allocator;
     var t = try init(alloc, .{ .rows = 5, .cols = 5 });

@@ -8,6 +8,8 @@ const internal_os = @import("../os/main.zig");
 const Diagnostic = diags.Diagnostic;
 const DiagnosticList = diags.DiagnosticList;
 
+const log = std.log.scoped(.cli);
+
 // TODO:
 //   - Only `--long=value` format is accepted. Do we want to allow
 //     `--long value`? Not currently allowed.
@@ -1258,9 +1260,11 @@ pub fn LineIterator(comptime ReaderType: type) type {
             const buf = buf: {
                 while (true) {
                     // Read the full line
-                    var entry = self.r.readUntilDelimiterOrEof(self.entry[2..], '\n') catch {
-                        // TODO: handle errors
-                        unreachable;
+                    var entry = self.r.readUntilDelimiterOrEof(self.entry[2..], '\n') catch |err| switch (err) {
+                        inline else => |e| {
+                            log.warn("cannot read from \"{s}\": {}", .{ self.filepath, e });
+                            return null;
+                        },
                     } orelse return null;
 
                     // Increment our line counter
