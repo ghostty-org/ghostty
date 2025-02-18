@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface domain="com.mitchellh.ghostty">
+  <requires lib="gtk" version="4.0"/>
+  <menu id="menu">
+    <section>
+      <item>
+        <attribute name="label" translatable="yes">Copy</attribute>
+        <attribute name="action">win.copy</attribute>
+      </item>
+      <item>
+        <attribute name="label" translatable="yes">Paste</attribute>
+        <attribute name="action">win.paste</attribute>
+      </item>
+    </section>
+    <section>
+      <item>
+        <attribute name="label" translatable="yes">Clear</attribute>
+        <attribute name="action">win.clear</attribute>
+      </item>
+      <item>
+        <attribute name="label" translatable="yes">Reset</attribute>
+        <attribute name="action">win.reset</attribute>
+      </item>
+    </section>
+    <section>
+      <submenu>
+        <attribute name="label">Split</attribute>
+        <section>
+          <item>
+            <attribute name="label" translatable="yes">Split Up</attribute>
+            <attribute name="action">win.split-up</attribute>
+          </item>
+          <item>
+            <attribute name="label" translatable="yes">Split Down</attribute>
+            <attribute name="action">win.split-down</attribute>
+          </item>
+          <item>
+            <attribute name="label" translatable="yes">Split Left</attribute>
+            <attribute name="action">win.split-left</attribute>
+          </item>
+          <item>
+            <attribute name="label" translatable="yes">Split Right</attribute>
+            <attribute name="action">win.split-right</attribute>
+          </item>
+        </section>
+      </submenu>
+      <submenu>
+        <attribute name="label">Tab</attribute>
+        <section>
+          <item>
+            <attribute name="label" translatable="yes">New Tab</attribute>
+            <attribute name="action">win.new-tab</attribute>
+          </item>
+          <item>
+            <attribute name="label" translatable="yes">Close Tab</attribute>
+            <attribute name="action">win.close-tab</attribute>
+          </item>
+        </section>
+      </submenu>
+      <submenu>
+        <attribute name="label">Window</attribute>
+        <section>
+          <item>
+            <attribute name="label" translatable="yes">New Window</attribute>
+            <attribute name="action">win.new-window</attribute>
+          </item>
+          <item>
+            <attribute name="label" translatable="yes">Close Window</attribute>
+            <attribute name="action">win.close</attribute>
+          </item>
+        </section>
+      </submenu>
+    </section>
+    <section>
+      <submenu>
+        <attribute name="label">Config</attribute>
+        <section>
+          <item>
+            <attribute name="label" translatable="yes">Open Configuration</attribute>
+            <attribute name="action">app.open-config</attribute>
+          </item>
+          <item>
+            <attribute name="label" translatable="yes">Reload Configuration</attribute>
+            <attribute name="action">app.reload-config</attribute>
+          </item>
+        </section>
+      </submenu>
+    </section>
+  </menu>
+</interface>

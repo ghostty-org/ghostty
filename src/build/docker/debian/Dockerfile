@@ -10,6 +10,7 @@ RUN DEBIAN_FRONTEND="noninteractive" apt-get -qq update && \
     libonig-dev \
     lintian \
     lsb-release \
+    libxml2-utils \
     pandoc \
     wget \
     # Ghostty Dependencies

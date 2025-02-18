@@ -20,6 +20,7 @@ const App = @import("App.zig");
 const Split = @import("Split.zig");
 const Tab = @import("Tab.zig");
 const Window = @import("Window.zig");
+const Menu = @import("menu.zig").Menu;
 const ClipboardConfirmationWindow = @import("ClipboardConfirmationWindow.zig");
 const ResizeOverlay = @import("ResizeOverlay.zig");
 const inspector = @import("inspector.zig");
@@ -378,6 +379,9 @@ im_len: u7 = 0,
 /// details on what this is.
 cgroup_path: ?[]const u8 = null,
 
+/// Our context menu.
+context_menu: Menu(Surface, "context_menu", false),
+
 /// The state of the key event while we're doing IM composition.
 /// See gtkKeyPressed for detailed descriptions.
 pub const IMKeyEvent = enum {
@@ -576,8 +580,13 @@ pub fn init(self: *Surface, app: *App, opts: Options) !void {
         .cursor_pos = .{ .x = -1, .y = -1 },
         .im_context = im_context,
         .cgroup_path = cgroup_path,
+        .context_menu = undefined,
     };
     errdefer self.* = undefined;
+
+    // initialize the context menu
+    self.context_menu.init(self);
+    self.context_menu.setParent(@ptrCast(@alignCast(overlay)));
 
     // Set our default mouse shape
     try self.setMouseShape(.text);
@@ -913,7 +922,7 @@ fn updateTitleLabels(self: *Surface) void {
 
     // If we have a tab and are the focused child, then we have to update the tab
     if (self.container.tab()) |tab| {
-        if (tab.focus_child == self) tab.setLabelText(title);
+        if (tab.focus_child == self) tab.setTitleText(title);
     }
 
     // If we have a window and are focused, then we have to update the window title.
@@ -1224,6 +1233,7 @@ fn getClipboard(widget: *c.GtkWidget, clipboard: apprt.Clipboard) ?*c.GdkClipboa
         .selection, .primary => c.gtk_widget_get_primary_clipboard(widget),
     };
 }
+
 pub fn getCursorPos(self: *const Surface) !apprt.CursorPos {
     return self.cursor_pos;
 }
@@ -1259,40 +1269,6 @@ pub fn showDesktopNotification(
     // We set the notification ID to the body content. If the content is the
     // same, this notification may replace a previous notification
     c.g_application_send_notification(g_app, body.ptr, notification);
-}
-
-fn showContextMenu(self: *Surface, x: f32, y: f32) void {
-    const window: *Window = self.container.window() orelse {
-        log.info(
-            "showContextMenu invalid for container={s}",
-            .{@tagName(self.container)},
-        );
-        return;
-    };
-
-    // Convert surface coordinate into coordinate space of the
-    // context menu's parent
-    var point: c.graphene_point_t = .{ .x = x, .y = y };
-    if (c.gtk_widget_compute_point(
-        self.primaryWidget(),
-        c.gtk_widget_get_parent(@ptrCast(window.context_menu)),
-        &c.GRAPHENE_POINT_INIT(point.x, point.y),
-        @ptrCast(&point),
-    ) == 0) {
-        log.warn("failed computing point for context menu", .{});
-        return;
-    }
-
-    const rect: c.GdkRectangle = .{
-        .x = @intFromFloat(point.x),
-        .y = @intFromFloat(point.y),
-        .width = 1,
-        .height = 1,
-    };
-
-    c.gtk_popover_set_pointing_to(@ptrCast(@alignCast(window.context_menu)), &rect);
-    self.app.refreshContextMenu(window.window, self.core_surface.hasSelection());
-    c.gtk_popover_popup(@ptrCast(@alignCast(window.context_menu)));
 }
 
 fn gtkRealize(area: *c.GtkGLArea, ud: ?*anyopaque) callconv(.C) void {
@@ -1465,7 +1441,7 @@ fn gtkMouseDown(
     // word and returns false. We can use this to handle the context menu
     // opening under normal scenarios.
     if (!consumed and button == .right) {
-        self.showContextMenu(@floatCast(x), @floatCast(y));
+        self.context_menu.popupAt(@intFromFloat(x), @intFromFloat(y));
     }
 }
 
@@ -2073,15 +2049,14 @@ fn gtkFocusLeave(_: *c.GtkEventControllerFocus, ud: ?*anyopaque) callconv(.C) vo
 /// Adds the unfocused_widget to the overlay. If the unfocused_widget has already been added, this
 /// is a no-op
 pub fn dimSurface(self: *Surface) void {
-    const window = self.container.window() orelse {
+    _ = self.container.window() orelse {
         log.warn("dimSurface invalid for container={}", .{self.container});
         return;
     };
 
     // Don't dim surface if context menu is open.
     // This means we got unfocused due to it opening.
-    const context_menu_open = c.gtk_widget_get_visible(window.context_menu);
-    if (context_menu_open == 1) return;
+    if (self.context_menu.isVisible()) return;
 
     if (self.unfocused_widget != null) return;
     self.unfocused_widget = c.gtk_drawing_area_new();
