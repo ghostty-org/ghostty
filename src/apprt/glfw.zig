@@ -44,7 +44,7 @@ pub const App = struct {
 
     pub const Options = struct {};
 
-    pub fn init(core_app: *CoreApp, _: Options) !App {
+    pub fn init(self: *App, core_app: *CoreApp, _: Options) !void {
         if (comptime builtin.target.isDarwin()) {
             log.warn("WARNING WARNING WARNING: GLFW ON MAC HAS BUGS.", .{});
             log.warn("You should use the AppKit-based app instead. The official download", .{});
@@ -101,7 +101,7 @@ pub const App = struct {
         // We want the event loop to wake up instantly so we can process our tick.
         glfw.postEmptyEvent();
 
-        return .{
+        self.* = .{
             .app = core_app,
             .config = config,
             .darwin = darwin,
