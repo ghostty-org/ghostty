@@ -1,0 +1,143 @@
+using Gtk 4.0;
+using Adw 1;
+
+template $CommandPalette: Adw.Dialog {
+    content-width: 700;
+
+    Adw.ToolbarView {
+        top-bar-style: flat;
+
+        [top]
+        Adw.HeaderBar {
+            [title]
+            SearchEntry search {
+                hexpand: true;
+                placeholder-text: _("Search for Action");
+                search-changed => $searchChanged() swapped;
+                stop-search => $searchStopped() swapped;
+                activate => $searchActivated() swapped;
+                
+            }
+        }
+
+        Adw.ViewStack stack {
+            visible-child-name: "prompt";
+
+            Adw.ViewStackPage {
+                name: "prompt";
+
+                child: Adw.StatusPage {
+                    styles [
+                        "compact"
+                    ]
+
+                    title: _("Type to Search");
+                    description: _("Find any command by searching for its name");
+
+                    child: ListBox {
+                        styles [
+                            "boxed-list"
+                        ]
+
+                        margin-start: 50;
+                        margin-end: 50;
+
+                        Adw.ActionRow example {
+                            title: "new window";
+                            selectable: false;
+                            activatable: true;
+                            activated => $exampleActivated() swapped;
+
+                            [prefix]
+                            Image {
+                                icon-name: "system-search-symbolic";
+                            }
+                            [suffix]
+                            Image {
+                                icon-name: "keyboard-enter-symbolic";
+                            }
+                        }
+                    };
+                };
+            }
+
+            Adw.ViewStackPage {
+                name: "not-found";
+
+                child: Adw.StatusPage {
+                    styles [
+                        "compact"
+                    ]
+
+                    icon-name: "system-search-symbolic";
+                    title: _("No Results Found");
+                    description: _("Try a different search");
+                };
+            }
+
+            Adw.ViewStackPage {
+                name: "items";
+
+                child: ScrolledWindow {
+                    // min-content-height: 200;
+
+                    ListView actions {
+                        show-separators: true;
+                        single-click-activate: true;
+                        activate => $activateAction() swapped;
+
+                        styles [
+                            "rich-list"
+                        ]
+
+                        factory: BuilderListItemFactory {
+                            template ListItem {
+                                child: Box {
+                                    orientation: horizontal;
+                                    spacing: 10;
+
+                                    Box {
+                                        orientation: vertical;
+                                        hexpand: true;
+
+                                        Label {
+                                            ellipsize: end;
+                                            halign: start;
+                                            wrap: false;
+                                            single-line-mode: true;
+
+                                            styles [
+                                                "title"
+                                            ]
+
+                                            label: bind template.item as <$CommandObject>.title;
+                                        }
+
+                                        Label {
+                                            ellipsize: end;
+                                            halign: start;
+                                            wrap: false;
+                                            single-line-mode: true;
+
+                                            styles [
+                                                "subtitle"
+                                            ]
+
+                                            label: bind template.item as <$CommandObject>.description;
+                                        }
+                                    }
+
+                                    ShortcutLabel {
+                                        accelerator: bind template.item as <$CommandObject>.accelerator;
+                                    }
+                                };
+                            }
+                        };
+                    }
+                };
+            }
+        }
+    }
+}
+
+

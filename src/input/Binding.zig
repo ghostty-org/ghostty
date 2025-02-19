@@ -479,6 +479,11 @@ pub const Action = union(enum) {
     /// This currently only works on macOS.
     toggle_visibility: void,
 
+    /// Toggles the command palette.
+    ///
+    /// Currently only supported on Linux.
+    toggle_command_palette,
+
     /// Quit ghostty.
     quit: void,
 
@@ -772,6 +777,7 @@ pub const Action = union(enum) {
             .toggle_maximize,
             .toggle_fullscreen,
             .toggle_window_decorations,
+            .toggle_command_palette,
             .toggle_secure_input,
             .crash,
             => .surface,
@@ -853,6 +859,258 @@ pub const Action = union(enum) {
                 );
             },
         }
+    }
+
+    /// Returns zero or more commands associated to this action.
+    /// Actions that don't make sense in a GUI context would have
+    /// zero commands, while some parameterized actions (e.g. splitting)
+    /// would have multiple associated commands corresponding to
+    /// each value of the parameter (e.g. split direction).
+    pub fn commands(self: Action) []const Command {
+        // GENERAL RULES OF THUMB TO ASSIGNING COMMANDS TO AN ACTION:
+        //
+        // 1. Does this action require arbitrary user input,
+        //    or parameters that don't have obvious default values?
+        //    If so, then it shouldn't have any commands.
+        //
+        // 2. Is it easier for the user to activate the toggle command
+        //    palette binding, type in the name of the action and select it,
+        //    compared to just using its keybinding?
+        //    If not, then it shouldn't have any commands.
+        //    (For example, why go through all of that just to navigate to the next tab?)
+        //
+        // 3. Do you think that most people will access this action via
+        //    the action palette, instead of using a keybind?
+        //    (Potential reasons being that the keybind is too awkward or too infrequent)
+        //    If so, then definitely add a command. If not, maybe think twice.
+
+        // For the vast majority of cases we only have one command,
+        // so we avoid a lot of syntactic noise by using an optional here
+        // to stand in for a zero-or-one item list.
+        const command: ?Command = switch (self) {
+            .new_tab => .{
+                .action = .new_tab,
+                .title = "New Tab",
+                .description = "Open a new tab in the current window.",
+            },
+            .close_tab => .{
+                .action = .close_tab,
+                .title = "Close Tab",
+                .description = "Close the current tab.",
+            },
+            .new_window => .{
+                .action = .new_window,
+                .title = "New Window",
+                .description = "Open a new window.",
+            },
+            .close_window => .{
+                .action = .close_window,
+                .title = "Close Window",
+                .description = "Close the current window.",
+            },
+            .close_all_windows => .{
+                .action = .close_all_windows,
+                .title = "Close All Windows",
+                .description = "Close all currently open windows.",
+            },
+            .close_surface => .{
+                .action = .close_surface,
+                .title = "Close Surface",
+                .description = "Closes the current terminal surface.",
+            },
+
+            .new_split => return &.{
+                .{
+                    .action = .{ .new_split = .up },
+                    .title = "Split Upwards",
+                    .description = "Split and create a new surface upwards.",
+                },
+                .{
+                    .action = .{ .new_split = .down },
+                    .title = "Split Downwards",
+                    .description = "Split and create a new surface downwards.",
+                },
+                .{
+                    .action = .{ .new_split = .left },
+                    .title = "Split Leftwards",
+                    .description = "Split and create a new surface leftwards.",
+                },
+                .{
+                    .action = .{ .new_split = .right },
+                    .title = "Split Rightwards",
+                    .description = "Split and create a new surface rightwards.",
+                },
+            },
+            .equalize_splits => .{
+                .action = .equalize_splits,
+                .title = "Equalize Splits",
+                .description = "Equalize the sizes of the current and adjacent surfaces.",
+            },
+
+            .prompt_surface_title => .{
+                .action = .prompt_surface_title,
+                .title = "Rename Surface Title",
+                .description = "Rename the title of the current surface.",
+            },
+
+            .open_config => .{
+                .action = .open_config,
+                .title = "Open Configuration",
+                .description = "Open Ghostty's configuration.",
+            },
+            .reload_config => .{
+                .action = .reload_config,
+                .title = "Reload Configuration",
+                .description = "Reload Ghostty's configuration.",
+            },
+
+            .copy_to_clipboard => .{
+                .action = .copy_to_clipboard,
+                .title = "Copy to Clipboard",
+                .description = "Copy the current selection to the clipboard.",
+            },
+            .copy_url_to_clipboard => .{
+                .action = .copy_url_to_clipboard,
+                .title = "Copy URL to Clipboard",
+                .description = "Copy the URL under the cursor to the clipboard.",
+            },
+            .paste_from_clipboard => .{
+                .action = .paste_from_clipboard,
+                .title = "Paste from Clipboard",
+                .description = "Paste from the clipboard.",
+            },
+            .paste_from_selection => .{
+                .action = .paste_from_selection,
+                .title = "Paste from Selection Clipboard",
+                .description = "Paste from the selection clipboard.",
+            },
+            .select_all => .{
+                .action = .select_all,
+                .title = "Select All",
+                .description = "Select everything in the current terminal.",
+            },
+
+            .scroll_to_top => .{
+                .action = .scroll_to_top,
+                .title = "Scroll to Top",
+                .description = "Scroll to the top of the terminal.",
+            },
+            .scroll_to_bottom => .{
+                .action = .scroll_to_bottom,
+                .title = "Scroll to Bottom",
+                .description = "Scroll to the bottom of the terminal.",
+            },
+
+            .reset => .{
+                .action = .reset,
+                .title = "Reset Terminal",
+                .description = "Reset the terminal.",
+            },
+            .clear_screen => .{
+                .action = .clear_screen,
+                .title = "Clear Screen",
+                .description = "Clear the terminal screen.",
+            },
+
+            .increase_font_size => .{
+                .action = .{ .increase_font_size = 1 },
+                .title = "Increase Font Size",
+                .description = "Increase the font size by 1pt.",
+            },
+            .decrease_font_size => .{
+                .action = .{ .decrease_font_size = 1 },
+                .title = "Decrease Font Size",
+                .description = "Decrease the font size by 1pt.",
+            },
+            .reset_font_size => .{
+                .action = .reset_font_size,
+                .title = "Reset Font Size",
+                .description = "Reset the font size to its original value.",
+            },
+
+            .inspector => .{
+                .action = .{ .inspector = .toggle },
+                .title = "Toggle Inspector",
+                .description = "Toggle the terminal inspector.",
+            },
+            .toggle_quick_terminal => .{
+                .action = .toggle_quick_terminal,
+                .title = "Toggle Quick Terminal",
+                .description = "Toggle the quick terminal.",
+            },
+            .toggle_maximize => .{
+                .action = .toggle_maximize,
+                .title = "Toggle Maximize",
+                .description = "Toggle the maximized state of the current window.",
+            },
+            .toggle_fullscreen => .{
+                .action = .toggle_fullscreen,
+                .title = "Toggle Fullscreen",
+                .description = "Toggle the fullscreened state of the current window.",
+            },
+            .toggle_tab_overview => .{
+                .action = .toggle_tab_overview,
+                .title = "Toggle Tab Overview",
+                .description = "Toggle the tab overview.",
+            },
+            .toggle_split_zoom => .{
+                .action = .toggle_split_zoom,
+                .title = "Toggle Split Zoom",
+                .description = "Zoom in or out of the current split.",
+            },
+            .toggle_window_decorations => .{
+                .action = .toggle_window_decorations,
+                .title = "Toggle Window Decorations",
+                .description = "Toggle the window decorations.",
+            },
+            .toggle_secure_input => .{
+                .action = .toggle_secure_input,
+                .title = "Toggle Secure Input",
+                .description = "Toggle the secure input state.",
+            },
+
+            .quit => .{
+                .action = .quit,
+                .title = "Quit",
+                .description = "Quit Ghostty.",
+            },
+
+            // Requires a parameter that requires arbitrary
+            // input or has no good default - see (1)
+            .ignore,
+            .unbind,
+            .csi,
+            .esc,
+            .text,
+            .cursor_key,
+            .goto_tab,
+            .resize_split,
+            .scroll_page_up,
+            .scroll_page_down,
+            .scroll_page_fractional,
+            .scroll_page_lines,
+            .adjust_selection,
+            .jump_to_prompt,
+            .write_scrollback_file,
+            .write_screen_file,
+            .write_selection_file,
+
+            // A lot easier to perform via existing GUI controls
+            // than using the command palette - see (2)
+            .previous_tab,
+            .next_tab,
+            .last_tab,
+            .goto_split,
+            .move_tab,
+
+            // Special reasons
+            .toggle_command_palette, // Just hit Esc or press the close button
+            .toggle_visibility, // You have to already be visible to trigger the palette
+            .crash, // Why would you want to do this?
+            => null,
+        };
+
+        return if (command) |cmd| &.{cmd} else &.{};
     }
 
     /// Implements the formatter for the fmt package. This encodes the
@@ -1006,6 +1264,38 @@ pub const Key = enum(c_int) {
     new_window,
 };
 
+/// A command that can be executed in the command palette.
+///
+/// This is essentially a subset of binding actions that actually make *sense*
+/// to be run by a user in a GUI interface (e.g. no control sequences or
+/// arbitrary text), and has a translatable title attached to it.
+pub const Command = struct {
+    action: Action,
+    title: [:0]const u8,
+    description: [:0]const u8,
+};
+
+pub const commands = commands: {
+    var size: usize = 0;
+
+    for (@typeInfo(Action).Union.fields) |field| {
+        // The value is ignored anyway, so this is safe.
+        const action = @unionInit(Binding.Action, field.name, undefined);
+        size += action.commands().len;
+    }
+
+    var list: [size]Command = undefined;
+    var i: usize = 0;
+
+    for (@typeInfo(Action).Union.fields) |field| {
+        const action = @unionInit(Binding.Action, field.name, undefined);
+        const cmds = action.commands();
+        @memcpy(list[i..][0..cmds.len], cmds);
+        i += cmds.len;
+    }
+
+    break :commands list;
+};
 /// Trigger is the associated key state that can trigger an action.
 /// This is an extern struct because this is also used in the C API.
 ///

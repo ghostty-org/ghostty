@@ -24,6 +24,7 @@ const adwaita = @import("adwaita.zig");
 const gtk_key = @import("key.zig");
 const TabView = @import("TabView.zig");
 const HeaderBar = @import("headerbar.zig");
+const CommandPalette = @import("command_palette.zig").CommandPalette;
 const version = @import("version.zig");
 const winproto = @import("winproto.zig");
 
@@ -50,6 +51,8 @@ context_menu: *c.GtkWidget,
 
 /// The libadwaita widget for receiving toast send requests.
 toast_overlay: *c.GtkWidget,
+
+command_palette: ?*CommandPalette = null,
 
 /// See adwTabOverviewOpen for why we have this.
 adw_tab_overview_focus_timer: ?c.guint = null,
@@ -252,6 +255,15 @@ pub fn init(self: *Window, app: *App) !void {
         @ptrCast(@alignCast(self.notebook.asWidget())),
     );
     c.gtk_box_append(@ptrCast(box), self.toast_overlay);
+
+    if (adwaita.versionAtLeast(1, 5, 0)) {
+        const command_palette = try CommandPalette.new(self);
+        // We manually reference the command palette here
+        // to prevent it from being destroyed when the dialog closes
+        command_palette.ref();
+        self.command_palette = command_palette;
+    }
+    errdefer if (self.command_palette) |palette| palette.unref();
 
     // If we have a tab overview then we can set it on our notebook.
     if (self.tab_overview) |tab_overview| {
@@ -490,6 +502,7 @@ pub fn deinit(self: *Window) void {
     c.gtk_widget_unparent(@ptrCast(self.context_menu));
 
     self.winproto.deinit(self.app.core_app.alloc);
+    if (self.command_palette) |palette| palette.unref();
 
     if (self.adw_tab_overview_focus_timer) |timer| {
         _ = c.g_source_remove(timer);
@@ -617,6 +630,11 @@ pub fn toggleWindowDecorations(self: *Window) void {
     self.syncAppearance() catch |err| {
         log.err("failed to sync appearance={}", .{err});
     };
+}
+
+/// Toggle the command palette for this window.
+pub fn toggleCommandPalette(self: *Window) void {
+    if (self.command_palette) |palette| palette.present();
 }
 
 /// Grabs focus on the currently selected tab.
@@ -1053,7 +1071,7 @@ fn gtkActionReset(
 }
 
 /// Returns the surface to use for an action.
-fn actionSurface(self: *Window) ?*CoreSurface {
+pub fn actionSurface(self: *Window) ?*CoreSurface {
     const tab = self.notebook.currentTab() orelse return null;
     const surface = tab.focus_child orelse return null;
     return &surface.core_surface;

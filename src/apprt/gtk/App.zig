@@ -481,6 +481,7 @@ pub fn performAction(
         .toggle_tab_overview => self.toggleTabOverview(target),
         .toggle_split_zoom => self.toggleSplitZoom(target),
         .toggle_window_decorations => self.toggleWindowDecorations(target),
+        .toggle_command_palette => return try self.toggleCommandPalette(target),
         .quit_timer => self.quitTimer(value),
 
         // Unimplemented
@@ -739,13 +740,34 @@ fn toggleWindowDecorations(
         .surface => |v| {
             const window = v.rt_surface.container.window() orelse {
                 log.info(
-                    "toggleFullscreen invalid for container={s}",
+                    "toggleWindowDecorations invalid for container={s}",
                     .{@tagName(v.rt_surface.container)},
                 );
                 return;
             };
 
             window.toggleWindowDecorations();
+        },
+    }
+}
+
+fn toggleCommandPalette(
+    _: *App,
+    target: apprt.Target,
+) !bool {
+    switch (target) {
+        .app => return false,
+        .surface => |v| {
+            const window = v.rt_surface.container.window() orelse {
+                log.info(
+                    "toggleCommandPalette invalid for container={s}",
+                    .{@tagName(v.rt_surface.container)},
+                );
+                return false;
+            };
+
+            window.toggleCommandPalette();
+            return true;
         },
     }
 }
