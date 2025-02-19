@@ -117,8 +117,11 @@ pub const StreamHandler = struct {
         self.default_background_color = config.background.toTerminalRGB();
         self.default_cursor_style = config.cursor_style;
         self.default_cursor_blink = config.cursor_blink;
-        self.default_cursor_color = if (!config.cursor_invert and config.cursor_color != null)
-            config.cursor_color.?.toTerminalRGB()
+        self.default_cursor_color = if (config.cursor_color) |color|
+            switch (color) {
+                .color => color.color.toTerminalRGB(),
+                else => null,
+            }
         else
             null;
 
