@@ -1548,8 +1548,10 @@ keybind: Keybinds = .{},
 @"config-file": RepeatablePath = .{},
 
 /// When this is true, the default configuration file paths will be loaded.
-/// The default configuration file paths are currently only the XDG
-/// config path ($XDG_CONFIG_HOME/ghostty/config).
+/// The default configuration files are at ./ghostty/config,
+/// in each of the colon seperated directories in $XDG_CONFIG_DIRS, and,
+/// the xdg user config directory $XDG_CONFIG_HOME
+/// (/etc/xdg and ~/.config if these environment variables are not set).
 ///
 /// If this is false, the default configuration paths will not be loaded.
 /// This is targeted directly at using Ghostty from the CLI in a way
@@ -3044,20 +3046,32 @@ fn writeConfigTemplate(path: []const u8) !void {
     );
 }
 
-/// Load configurations from the default configuration files. The default
-/// configuration file is at `$XDG_CONFIG_HOME/ghostty/config`.
+/// Load configurations from the default configuration files.
+/// The default system configuration files are at `$XDG_CONFIG_DIRS/ghostty/config`.
+/// The default user configuration file is at `$XDG_CONFIG_HOME/ghostty/config`.
 ///
 /// On macOS, `$HOME/Library/Application Support/$CFBundleIdentifier/config`
 /// is also loaded.
 pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
-    // Load XDG first
-    const xdg_path = try internal_os.xdg.config(alloc, .{ .subdir = "ghostty/config" });
-    defer alloc.free(xdg_path);
-    const xdg_action = self.loadOptionalFile(alloc, xdg_path);
+    const config_dir = "ghostty";
+    const config_file = "config";
+    const config_subdir = try std.fs.path.join(alloc, &[_][]const u8{
+        config_dir,
+        config_file,
+    });
+    defer alloc.free(config_subdir);
+    var it = internal_os.xdg.Dir.config.iter(alloc, .{ .subdir = config_subdir });
+    var xdg_action: ?OptionalFileAction = null;
+    var xdg_path: ?[]const u8 = null;
+    while (try it.next()) |dir| {
+        defer alloc.free(dir);
+        xdg_path = dir;
+        xdg_action = self.loadOptionalFile(alloc, dir);
+    }
 
     // On macOS load the app support directory as well
     if (comptime builtin.os.tag == .macos) {
-        const app_support_path = try internal_os.macos.appSupportDir(alloc, "config");
+        const app_support_path = try internal_os.macos.appSupportDir(alloc, config_file);
         defer alloc.free(app_support_path);
         const app_support_action = self.loadOptionalFile(alloc, app_support_path);
 
@@ -3070,9 +3084,10 @@ pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
         }
     } else {
         if (xdg_action == .not_found) {
-            writeConfigTemplate(xdg_path) catch |err| {
-                log.warn("error creating template config file err={}", .{err});
-            };
+            if (xdg_path) |p|
+                writeConfigTemplate(p) catch |err| {
+                    log.warn("error creating template config file err={}", .{err});
+                };
         }
     }
 }
