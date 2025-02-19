@@ -140,14 +140,14 @@ extension Ghostty {
             guard let ptr = v else { return "" }
             return String(cString: ptr)
         }
-        
+
         var windowPositionX: Int16? {
             guard let config = self.config else { return nil }
             var v: Int16 = 0
             let key = "window-position-x"
             return ghostty_config_get(config, &v, key, UInt(key.count)) ? v : nil
         }
-        
+
         var windowPositionY: Int16? {
             guard let config = self.config else { return nil }
             var v: Int16 = 0
@@ -218,6 +218,8 @@ extension Ghostty {
                     .nonNativeVisibleMenu
             case "padded-notch":
                     .nonNativePaddedNotch
+            case "titled-visible-menu":
+                    .nonNativeTitledVisibleMenu
             default:
                 defaultValue
             }
