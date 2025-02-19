@@ -131,6 +131,9 @@ child_exited: bool = false,
 /// to let us know.
 focused: bool = true,
 
+ssh: bool = false,
+elevated: bool = false,
+
 /// The effect of an input event. This can be used by callers to take
 /// the appropriate action after an input event. For example, key
 /// input can be forwarded to the OS for further processing if it
@@ -4710,4 +4713,10 @@ fn presentSurface(self: *Surface) !void {
         .present_terminal,
         {},
     );
+}
+
+/// Return the PID of the "root" process being served by this surface.
+pub fn getPid(self: *Surface) ?std.posix.pid_t {
+    const command = self.io.backend.exec.subprocess.command orelse return null;
+    return command.pid;
 }

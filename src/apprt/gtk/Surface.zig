@@ -2298,3 +2298,8 @@ fn g_value_holds(value_: ?*c.GValue, g_type: c.GType) bool {
     }
     return false;
 }
+
+/// Return the PID of the "root" process being served by this surface.
+pub fn getPid(self: *Surface) ?std.posix.pid_t {
+    return self.core_surface.getPid();
+}

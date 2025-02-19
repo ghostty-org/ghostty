@@ -31,11 +31,14 @@ const Window = @import("Window.zig");
 const ConfigErrorsWindow = @import("ConfigErrorsWindow.zig");
 const ClipboardConfirmationWindow = @import("ClipboardConfirmationWindow.zig");
 const Split = @import("Split.zig");
+const ProcessScanner = @import("ProcessScanner.zig");
 const c = @import("c.zig").c;
 const version = @import("version.zig");
 const inspector = @import("inspector.zig");
 const key = @import("key.zig");
 const winproto = @import("winproto.zig");
+const linuxproc = @import("../../os/linuxproc.zig");
+
 const testing = std.testing;
 
 const log = std.log.scoped(.gtk);
@@ -94,6 +97,8 @@ quit_timer: union(enum) {
     active: c.guint,
     expired: void,
 } = .{ .off = {} },
+
+process_scanner: ProcessScanner,
 
 pub fn init(core_app: *CoreApp, opts: Options) !App {
     _ = opts;
@@ -414,12 +419,14 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
         // our "activate" call above will open a window.
         .running = c.g_application_get_is_remote(gapp) == 0,
         .css_provider = css_provider,
+        .process_scanner = undefined,
     };
 }
 
 // Terminate the application. The application will not be restarted after
 // this so all global state can be cleaned up.
 pub fn terminate(self: *App) void {
+    self.process_scanner.stop();
     c.g_settings_sync();
     while (c.g_main_context_iteration(self.ctx, 0) != 0) {}
     c.g_main_context_release(self.ctx);
@@ -1197,6 +1204,8 @@ pub fn run(self: *App) !void {
     // exit (GTK single instance mode). If we're not running, we're done
     // right away.
     if (!self.running) return;
+
+    self.process_scanner.init(self);
 
     // If we are running, then we proceed to setup our app.
 
