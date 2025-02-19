@@ -197,6 +197,18 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
     if (cfg.target.result.os.tag == .linux) {
         // https://developer.gnome.org/documentation/guidelines/maintainer/integrating.html
 
+        // AppStream specification: https://www.freedesktop.org/wiki/Distributions/AppStream
+        try steps.append(&b.addInstallFile(
+            b.path("dist/linux/ghostty.metainfo.xml"),
+            "share/metainfo/com.mitchellh.ghostty.metainfo.xml",
+        ).step);
+
+        // for legacy systems
+        try steps.append(&b.addInstallFile(
+            b.path("dist/linux/ghostty.metainfo.xml"),
+            "share/metainfo/com.mitchellh.ghostty.appdata.xml",
+        ).step);
+
         // Desktop file so that we have an icon and other metadata
         try steps.append(&b.addInstallFile(
             b.path("dist/linux/app.desktop"),

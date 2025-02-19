@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+	<content_rating type="oars-1.0" />
+	<id>com.mitchellh.ghostty</id>
+	<metadata_license>MIT</metadata_license>
+	<project_license>MIT</project_license>
+	<name>Ghostty</name>
+	<icon type="remote">https://raw.githubusercontent.com/ghostty-org/ghostty/refs/heads/main/images/icons/icon_256.png</icon>
+	<summary>Fast, native, feature-rich terminal emulator pushing modern features</summary>
+	<description>
+		<p>
+      Ghostty is a terminal emulator that differentiates itself by being fast,
+      feature-rich, and native. While there are many excellent terminal
+      emulators available, they all force you to choose between speed,
+      features, or native UIs. Ghostty provides all three.
+    </p>
+		<p>
+      Ghostty also intends to push the boundaries of what is possible with a
+      terminal emulator by exposing modern, opt-in features that enable CLI
+      tool developers to build more feature rich, interactive applications.
+    </p>
+	</description>
+	<launchable type="desktop-id">com.mitchellh.ghostty.desktop</launchable>
+	<url type="homepage">https://ghostty.org/</url>
+	<url type="help">https://ghostty.org/docs/about</url>
+	<url type="bugtracker">https://github.com/ghostty-org/ghostty/issues</url>
+	<developer id="com.mitchellh">
+		<name>Mitchell Hashimoto</name>
+	</developer>
+	<supports>
+		<control>keyboard</control>
+		<control>pointing</control>
+	</supports>
+	<provides>
+		<binary>ghostty</binary>
+	</provides>
+	<categories>
+		<catagory>System</catagory>
+		<catagory>TerminalEmulator</catagory>
+	</categories>
+	<keywords>
+		<keyword>terminal</keyword>
+		<keyword>tty</keyword>
+		<keyword>pty</keyword>
+  </keywords>
+  <!--TODO: Add Release version and timestamp-->
+  <!-- EX: <release version="" date=""> -->
+	<releases>
+		<release>
+			<description>
+				<p>
+          Release Notes: https://ghostty.org/docs/install/release-notes
+        </p>
+			</description>
+		</release>
+	</releases>
+</component>
+
