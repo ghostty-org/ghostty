@@ -1,11 +1,11 @@
-import { ZigJS } from "zig-js";
+import { ZigJS } from "zig-js/src/index.ts";
 
 const zjs = new ZigJS();
 const importObject = {
   module: {},
   env: {
     memory: new WebAssembly.Memory({
-      initial: 25,
+      initial: 512,
       maximum: 65536,
       shared: true,
     }),
@@ -27,38 +27,36 @@ fetch(url.href)
   .then((results) => {
     const memory = importObject.env.memory;
     const {
-      malloc,
-      free,
-      config_new,
+      atlas_clear,
+      atlas_debug_canvas,
+      atlas_free,
+      atlas_grow,
+      atlas_new,
+      atlas_reserve,
+      atlas_set,
+      config_finalize,
       config_free,
       config_load_string,
-      config_finalize,
-      face_new,
-      face_free,
-      face_render_glyph,
-      face_debug_canvas,
-      deferred_face_new,
+      config_new,
       deferred_face_free,
       deferred_face_load,
-      deferred_face_face,
-      group_new,
-      group_free,
-      group_add_face,
-      group_init_sprite_face,
-      group_index_for_codepoint,
-      group_render_glyph,
-      group_cache_new,
-      group_cache_free,
-      group_cache_index_for_codepoint,
-      group_cache_render_glyph,
-      group_cache_atlas_grayscale,
-      group_cache_atlas_color,
-      atlas_new,
-      atlas_free,
-      atlas_debug_canvas,
-      shaper_new,
+      deferred_face_new,
+      face_debug_canvas,
+      face_free,
+      face_new,
+      face_render_glyph,
+      free,
+      malloc,
       shaper_free,
+      shaper_new,
       shaper_test,
+      collection_new,
+      collection_add_deferred_face,
+      shared_grid_new,
+      shared_grid_atlas_grayscale,
+      shared_grid_atlas_color,
+      shared_grid_index_for_codepoint,
+      shared_grid_render_glyph,
     } = results.instance.exports;
     // Give us access to the zjs value for debugging.
     globalThis.zjs = zjs;
@@ -98,57 +96,63 @@ fetch(url.href)
     //free(font_ptr);
 
     // Create our group
-    const group = group_new(32 /* size */);
-    group_add_face(
-      group,
+    const collection = collection_new(24);
+    collection_add_deferred_face(
+      collection,
       0 /* regular */,
       deferred_face_new(font_name.ptr, font_name.len, 0 /* text */),
     );
-    group_add_face(
-      group,
+    collection_add_deferred_face(
+      collection,
       0 /* regular */,
       deferred_face_new(font_name.ptr, font_name.len, 1 /* emoji */),
     );
+    const grid = shared_grid_new(collection);
 
     // Initialize our sprite font, without this we just use the browser.
-    group_init_sprite_face(group);
+    // group_init_sprite_face(group);
 
-    // Create our group cache
-    const group_cache = group_cache_new(group);
+    // // Create our group cache
+    // const group_cache = group_cache_new(group);
 
     // Render a glyph
-    // for (let i = 33; i <= 126; i++) {
-    //   const font_idx = group_cache_index_for_codepoint(group_cache, i, 0, -1);
-    //   group_cache_render_glyph(group_cache, font_idx, i, 0);
-    //   //face_render_glyph(face, atlas, i);
-    // }
+    for (let i = 33; i <= 126; i++) {
+      const font_idx = shared_grid_index_for_codepoint(grid, i, 0, -1);
+      shared_grid_render_glyph(grid, font_idx, i, 0);
+      //face_render_glyph(face, atlas, i);
+    }
     //
-    // const emoji = ["🐏","🌞","🌚","🍱","💿","🐈","📃","📀","🕡","🙃"];
-    // for (let i = 0; i < emoji.length; i++) {
-    //   const cp = emoji[i].codePointAt(0);
-    //   const font_idx = group_cache_index_for_codepoint(group_cache, cp, 0, -1 /* best choice */);
-    //   group_cache_render_glyph(group_cache, font_idx, cp, 0);
-    // }
+    const emoji = ["🐏", "🌞", "🌚", "🍱", "💿", "🐈", "📃", "📀", "🕡", "🙃"];
+    for (let i = 0; i < emoji.length; i++) {
+      const cp = emoji[i].codePointAt(0);
+      const font_idx = shared_grid_index_for_codepoint(
+        grid,
+        cp,
+        0,
+        -1 /* best choice */,
+      );
+      shared_grid_render_glyph(grid, font_idx, cp, 0);
+    }
 
     for (let i = 0x2500; i <= 0x257f; i++) {
-      const font_idx = group_cache_index_for_codepoint(group_cache, i, 0, -1);
-      group_cache_render_glyph(group_cache, font_idx, i, 0);
+      const font_idx = shared_grid_index_for_codepoint(grid, i, 0, -1);
+      shared_grid_render_glyph(grid, font_idx, i, 0);
     }
     for (let i = 0x2580; i <= 0x259f; i++) {
-      const font_idx = group_cache_index_for_codepoint(group_cache, i, 0, -1);
-      group_cache_render_glyph(group_cache, font_idx, i, 0);
+      const font_idx = shared_grid_index_for_codepoint(grid, i, 0, -1);
+      shared_grid_render_glyph(grid, font_idx, i, 0);
     }
     for (let i = 0x2800; i <= 0x28ff; i++) {
-      const font_idx = group_cache_index_for_codepoint(group_cache, i, 0, -1);
-      group_cache_render_glyph(group_cache, font_idx, i, 0);
+      const font_idx = shared_grid_index_for_codepoint(grid, i, 0, -1);
+      shared_grid_render_glyph(grid, font_idx, i, 0);
     }
     for (let i = 0x1fb00; i <= 0x1fb3b; i++) {
-      const font_idx = group_cache_index_for_codepoint(group_cache, i, 0, -1);
-      group_cache_render_glyph(group_cache, font_idx, i, 0);
+      const font_idx = shared_grid_index_for_codepoint(grid, i, 0, -1);
+      shared_grid_render_glyph(grid, font_idx, i, 0);
     }
     for (let i = 0x1fb3c; i <= 0x1fb6b; i++) {
-      const font_idx = group_cache_index_for_codepoint(group_cache, i, 0, -1);
-      group_cache_render_glyph(group_cache, font_idx, i, 0);
+      const font_idx = shared_grid_index_for_codepoint(grid, i, 0, -1);
+      shared_grid_render_glyph(grid, font_idx, i, 0);
     }
 
     //face_render_glyph(face, atlas, "橋".codePointAt(0));
@@ -161,26 +165,26 @@ fetch(url.href)
     const shaper = shaper_new(120);
     //const input = makeStr("hello🐏");
     const input = makeStr("hello🐏👍🏽");
-    shaper_test(shaper, group_cache, input.ptr, input.len);
+    shaper_test(shaper, grid, input.ptr, input.len);
 
     const cp = 1114112;
-    const font_idx = group_cache_index_for_codepoint(
-      group_cache,
+    const font_idx = shared_grid_index_for_codepoint(
+      grid,
       cp,
       0,
       -1 /* best choice */,
     );
-    group_cache_render_glyph(group_cache, font_idx, cp, -1);
+    shared_grid_render_glyph(grid, font_idx, cp, -1);
 
     // Debug our atlas canvas
     {
-      const atlas = group_cache_atlas_grayscale(group_cache);
+      const atlas = shared_grid_atlas_grayscale(grid);
       const id = atlas_debug_canvas(atlas);
       document.getElementById("atlas-canvas").append(zjs.deleteValue(id));
     }
 
     {
-      const atlas = group_cache_atlas_color(group_cache);
+      const atlas = shared_grid_atlas_color(grid);
       const id = atlas_debug_canvas(atlas);
       document.getElementById("atlas-color-canvas").append(zjs.deleteValue(id));
     }

@@ -26,9 +26,6 @@ pub const Face = struct {
     /// The presentation for this font.
     presentation: font.Presentation,
 
-    /// Metrics for this font face. These are useful for renderers.
-    metrics: font.Metrics,
-
     /// The canvas element that we will reuse to render glyphs
     canvas: js.Object,
 
@@ -58,24 +55,20 @@ pub const Face = struct {
         const font_str = try alloc.dupe(u8, raw);
         errdefer alloc.free(font_str);
 
-        // Create our canvas that we're going to continue to reuse.
-        const doc = try js.global.get(js.Object, "document");
-        defer doc.deinit();
-        const canvas = try doc.call(js.Object, "createElement", .{js.string("canvas")});
+        // Create our canvasxx that we're going to continue to reuse.
+        const OffscreenCanvas = try js.global.get(js.Object, "OffscreenCanvas");
+        defer OffscreenCanvas.deinit();
+        const canvas = try OffscreenCanvas.new(.{ 0, 0 });
         errdefer canvas.deinit();
 
-        var result = Face{
+        const result = Face{
             .alloc = alloc,
             .font_str = font_str,
             .size = size,
             .presentation = presentation,
 
             .canvas = canvas,
-
-            // We're going to calculate these right after initialization.
-            .metrics = undefined,
         };
-        try result.calcMetrics();
 
         log.debug("face initialized: {s}", .{raw});
         return result;
@@ -192,8 +185,6 @@ pub const Face = struct {
         glyph_index: u32,
         opts: font.face.RenderOptions,
     ) !font.Glyph {
-        _ = opts;
-
         var render = try self.renderGlyphInternal(alloc, glyph_index);
         defer render.deinit();
 
@@ -227,34 +218,41 @@ pub const Face = struct {
             atlas.set(region, bitmap_formatted);
         }
 
-        return font.Glyph{
+        const glyph = font.Glyph{
             .width = render.width,
             .height = render.height,
-            // TODO: this can't be right
-            .offset_x = 0,
-            .offset_y = 0,
+            .offset_x = render.x_offset,
+            .offset_y = render.y_offset + @as(i32, @intCast(opts.grid_metrics.cell_height)),
             .atlas_x = region.x,
             .atlas_y = region.y,
             .advance_x = 0,
         };
+        std.log.err("glyph: {}", .{glyph});
+        return glyph;
     }
 
+    pub const GetMetricsError = error{
+        OutOfMemory,
+        InvalidType,
+    };
+
     /// Calculate the metrics associated with a given face.
-    fn calcMetrics(self: *Face) !void {
+    pub fn getMetrics(self: *Face) GetMetricsError!font.Metrics.FaceMetrics {
         const ctx = try self.context();
         defer ctx.deinit();
+        const x_metric = try ctx.call(js.Object, "measureText", .{js.string("x")});
+        defer x_metric.deinit();
+        const M_metric = try ctx.call(js.Object, "measureText", .{js.string("M")});
+        defer M_metric.deinit();
 
         // Cell width is the width of our M text
         const cell_width: f32 = cell_width: {
-            const metrics = try ctx.call(js.Object, "measureText", .{js.string("M")});
-            defer metrics.deinit();
-
             // We prefer the bounding box since it is tighter but certain
             // text such as emoji do not have a bounding box set so we use
             // the full run width instead.
-            const bounding_right = try metrics.get(f32, "actualBoundingBoxRight");
+            const bounding_right = try M_metric.get(f32, "actualBoundingBoxRight");
             if (bounding_right > 0) break :cell_width bounding_right;
-            break :cell_width try metrics.get(f32, "width");
+            break :cell_width try M_metric.get(f32, "width");
         };
 
         // To get the cell height we render a high and low character and get
@@ -262,29 +260,15 @@ pub const Face = struct {
         // pixel height but this is a more surefire way to get it.
         const height_metrics = try ctx.call(js.Object, "measureText", .{js.string("M_")});
         defer height_metrics.deinit();
-        const asc = try height_metrics.get(f32, "actualBoundingBoxAscent");
-        const desc = try height_metrics.get(f32, "actualBoundingBoxDescent");
-        const cell_height = asc + desc;
-        const cell_baseline = desc;
+        const asc = try height_metrics.get(f32, "fontBoundingBoxAscent");
+        const desc = try height_metrics.get(f32, "fontBoundingBoxDescent");
 
-        // There isn't a declared underline position for canvas measurements
-        // so we just go 1 under the cell height to match freetype logic
-        // at this time (our freetype logic).
-        const underline_position = cell_height - 1;
-        const underline_thickness: f32 = 1;
-
-        const result = font.Metrics{
-            .cell_width = @intFromFloat(cell_width),
-            .cell_height = @intFromFloat(cell_height),
-            .cell_baseline = @intFromFloat(cell_baseline),
-            .underline_position = @intFromFloat(underline_position),
-            .underline_thickness = @intFromFloat(underline_thickness),
-            .strikethrough_position = @intFromFloat(underline_position),
-            .strikethrough_thickness = @intFromFloat(underline_thickness),
+        return .{
+            .ascent = asc,
+            .descent = -desc,
+            .cell_width = cell_width,
+            .line_gap = 0,
         };
-
-        self.metrics = result;
-        log.debug("metrics font={s} value={}", .{ self.font_str, self.metrics });
     }
 
     /// Returns the 2d context configured for drawing
@@ -325,6 +309,27 @@ pub const Face = struct {
         return ctx;
     }
 
+    pub fn hasColor(_: *const Face) bool {
+        return true;
+    }
+
+    pub fn isColorGlyph(self: *const Face, cp: u32) bool {
+        // Render the glyph
+        var render = self.renderGlyphInternal(self.alloc, cp) catch unreachable;
+        defer render.deinit();
+
+        // Inspect the image data for any non-zeros in the RGB value.
+        // NOTE(perf): this is an easy candidate for SIMD.
+        var i: usize = 0;
+        while (i < render.bitmap.len) : (i += 4) {
+            if (render.bitmap[i] > 0 or
+                render.bitmap[i + 1] > 0 or
+                render.bitmap[i + 2] > 0) return true;
+        }
+
+        return false;
+    }
+
     /// An internal (web-canvas-only) format for rendered glyphs
     /// since we do render passes in multiple different situations.
     const RenderedGlyph = struct {
@@ -332,6 +337,8 @@ pub const Face = struct {
         metrics: js.Object,
         width: u32,
         height: u32,
+        y_offset: i32,
+        x_offset: i32,
         bitmap: []u8,
 
         pub fn deinit(self: *RenderedGlyph) void {
@@ -392,6 +399,15 @@ pub const Face = struct {
         // Height is our ascender + descender for this char
         const height = if (!broken_bbox) @as(u32, @intFromFloat(@ceil(asc + desc))) + 1 else width;
 
+        const ctx_temp = try self.context();
+        try ctx_temp.set("textBaseline", js.string("top"));
+        // Get the width and height of the render
+        const metrics_2 = try measure_ctx.call(js.Object, "measureText", .{glyph_str});
+        const top_desc = try metrics_2.get(f32, "actualBoundingBoxDescent") + 1;
+        const y_offset = @as(i32, @intCast(height)) - @as(i32, @intFromFloat(top_desc));
+        const x_offset: i32 = @intFromFloat(-left);
+        ctx_temp.deinit();
+
         // Note: width and height both get "+ 1" added to them above. This
         // is important so that there is a 1px border around the glyph to avoid
         // any clipping in the atlas.
@@ -401,15 +417,15 @@ pub const Face = struct {
             try self.canvas.set("width", width);
             try self.canvas.set("height", height);
 
-            const width_str = try std.fmt.allocPrint(alloc, "{d}px", .{width});
-            defer alloc.free(width_str);
-            const height_str = try std.fmt.allocPrint(alloc, "{d}px", .{height});
-            defer alloc.free(height_str);
+            // const width_str = try std.fmt.allocPrint(alloc, "{d}px", .{width});
+            // defer alloc.free(width_str);
+            // const height_str = try std.fmt.allocPrint(alloc, "{d}px", .{height});
+            // defer alloc.free(height_str);
 
-            const style = try self.canvas.get(js.Object, "style");
-            defer style.deinit();
-            try style.set("width", js.string(width_str));
-            try style.set("height", js.string(height_str));
+            // const style = try self.canvas.get(js.Object, "style");
+            // defer style.deinit();
+            // try style.set("width", js.string(width_str));
+            // try style.set("height", js.string(height_str));
         }
 
         // Reload our context since we resized the canvas
@@ -484,6 +500,8 @@ pub const Face = struct {
             .width = width,
             .height = height,
             .bitmap = bitmap,
+            .y_offset = y_offset,
+            .x_offset = x_offset,
         };
     }
 };
@@ -494,7 +512,7 @@ pub const Wasm = struct {
     const alloc = wasm.alloc;
 
     export fn face_new(ptr: [*]const u8, len: usize, pts: u16, p: u16) ?*Face {
-        return face_new_(ptr, len, pts, p) catch null;
+        return face_new_(ptr, len, @floatFromInt(pts), p) catch null;
     }
 
     fn face_new_(ptr: [*]const u8, len: usize, pts: f32, presentation: u16) !*Face {
@@ -552,7 +570,7 @@ pub const Wasm = struct {
     }
 
     fn face_render_glyph_(face: *Face, atlas: *font.Atlas, codepoint: u32) !*font.Glyph {
-        const glyph = try face.renderGlyph(alloc, atlas, codepoint, .{});
+        const glyph = try face.renderGlyph(alloc, atlas, codepoint, .{ .grid_metrics = font.Metrics.calc(try face.getMetrics()) });
 
         const result = try alloc.create(font.Glyph);
         errdefer alloc.destroy(result);
