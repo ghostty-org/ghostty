@@ -599,6 +599,7 @@ typedef enum {
   GHOSTTY_ACTION_COLOR_CHANGE,
   GHOSTTY_ACTION_RELOAD_CONFIG,
   GHOSTTY_ACTION_CONFIG_CHANGE,
+  GHOSTTY_ACTION_BELL,
 } ghostty_action_tag_e;
 
 typedef union {

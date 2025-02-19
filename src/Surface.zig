@@ -953,6 +953,8 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
         .present_surface => try self.presentSurface(),
 
         .password_input => |v| try self.passwordInput(v),
+
+        .bell => self.bell(),
     }
 }
 
@@ -4710,4 +4712,16 @@ fn presentSurface(self: *Surface) !void {
         .present_terminal,
         {},
     );
+}
+
+fn bell(self: *Surface) void {
+    _ = self.rt_app.performAction(
+        .{ .surface = self },
+        .bell,
+        {},
+    ) catch |err| {
+        // We ignore this error because we don't want to fail this entire
+        // operation just because the apprt failed to activate the bell.
+        log.warn("apprt failed to activate the bell err={}", .{err});
+    };
 }

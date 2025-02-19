@@ -32,6 +32,7 @@
   glslang,
   gtk4,
   gobject-introspection,
+  gst_all_1,
   libadwaita,
   blueprint-compiler,
   adwaita-icon-theme,
@@ -172,6 +173,9 @@ in
         wayland
         wayland-scanner
         wayland-protocols
+        gst_all_1.gstreamer
+        gst_all_1.gst-plugins-base
+        gst_all_1.gst-plugins-good
       ];
 
     # This should be set onto the rpath of the ghostty binary if you want

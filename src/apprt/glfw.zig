@@ -240,6 +240,7 @@ pub const App = struct {
             .config_change,
             .toggle_maximize,
             .prompt_title,
+            .bell,
             => {
                 log.info("unimplemented action={}", .{action});
                 return false;
