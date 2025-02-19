@@ -682,6 +682,12 @@ pub fn deinit(self: *Surface) void {
     self.resize_overlay.deinit();
 }
 
+/// Update our local copy of any configuration that we use.
+pub fn updateConfig(self: *Surface, config: *const configpkg.Config) !void {
+    _ = self;
+    _ = config;
+}
+
 // unref removes the long-held reference to the gl_area and kicks off the
 // deinit/destroy process for this surface.
 pub fn unref(self: *Surface) void {

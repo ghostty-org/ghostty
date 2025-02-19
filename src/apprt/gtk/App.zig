@@ -892,6 +892,9 @@ fn configChange(
 ) void {
     switch (target) {
         .surface => |surface| surface: {
+            surface.rt_surface.updateConfig(new_config) catch |err| {
+                log.err("unable to update surface config: {}", .{err});
+            };
             const window = surface.rt_surface.container.window() orelse break :surface;
             window.updateConfig(new_config) catch |err| {
                 log.warn("error updating config for window err={}", .{err});
