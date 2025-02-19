@@ -161,6 +161,7 @@ const code_to_key = code_to_key: {
         .{ "ShiftRight", .right_shift },
         .{ "AltRight", .right_alt },
         .{ "MetaRight", .right_super },
+        .{ "ContextMenu", .context_menu },
     });
 };
 
