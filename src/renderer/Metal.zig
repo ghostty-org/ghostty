@@ -2431,6 +2431,7 @@ fn rebuildCells(
     preedit: ?renderer.State.Preedit,
     cursor_style_: ?renderer.CursorStyle,
     color_palette: *const terminal.color.Palette,
+    text_blink_visible: bool,
 ) !void {
     // const start = try std.time.Instant.now();
     // const start_micro = std.time.microTimestamp();
@@ -2559,6 +2560,7 @@ fn rebuildCells(
             screen,
             row,
             row_selection,
+            text_blink_visible,
             if (shape_cursor) screen.cursor.x else null,
         );
         var shaper_run: ?font.shape.TextRun = try run_iter.next(self.alloc);
@@ -2761,7 +2763,7 @@ fn rebuildCells(
             // emulators, e.g. Alacritty, still render text decorations
             // and only make the text itself invisible. The decision
             // has been made here to match xterm's behavior for this.
-            if (style.flags.invisible) {
+            if (style.flags.invisible or style.flags.blink) {
                 continue;
             }
 
