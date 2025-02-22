@@ -61,6 +61,8 @@ enum BackportVisibility {
 
 enum BackportPointerStyle {
     case `default`
+    case contextMenu
+    case crosshair
     case grabIdle
     case grabActive
     case horizontalText
@@ -78,6 +80,8 @@ enum BackportPointerStyle {
     var official: PointerStyle {
         switch self {
         case .default: return .default
+        case .contextMenu: return .image(Image(nsImage: NSCursor.contextualMenu.image), hotSpot: UnitPoint(x: 0, y: 0))  
+        case .crosshair: return .rectSelection
         case .grabIdle: return .grabIdle
         case .grabActive: return .grabActive
         case .horizontalText: return .horizontalText

@@ -360,14 +360,14 @@ extension Ghostty {
                 pointerStyle = .resizeLeftRight
 
             case GHOSTTY_MOUSE_SHAPE_VERTICAL_TEXT:
-                pointerStyle = .default
+                pointerStyle = .verticalText
 
-            // These are not yet supported. We should support them by constructing a
-            // PointerStyle from an NSCursor.
-            case GHOSTTY_MOUSE_SHAPE_CONTEXT_MENU:
-                fallthrough
             case GHOSTTY_MOUSE_SHAPE_CROSSHAIR:
-                fallthrough
+                pointerStyle = .crosshair
+                
+            case GHOSTTY_MOUSE_SHAPE_CONTEXT_MENU:
+                pointerStyle = .contextMenu
+                
             case GHOSTTY_MOUSE_SHAPE_NOT_ALLOWED:
                 pointerStyle = .default
 
