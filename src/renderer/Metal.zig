@@ -744,7 +744,6 @@ pub fn init(alloc: Allocator, options: renderer.Options) !Metal {
             .use_display_p3 = options.config.colorspace == .@"display-p3",
             .use_linear_blending = options.config.blending.isLinear(),
             .use_linear_correction = options.config.blending == .@"linear-corrected",
-            .use_experimental_linear_correction = options.config.blending == .@"linear-corrected",
             .has_bg_image = (options.config.background_image.value != null),
             .bg_image_opacity = options.config.background_image_opacity,
         },
@@ -2529,7 +2528,6 @@ pub fn setScreenSize(
         .use_display_p3 = old.use_display_p3,
         .use_linear_blending = old.use_linear_blending,
         .use_linear_correction = old.use_linear_correction,
-        .use_experimental_linear_correction = old.use_experimental_linear_correction,
         .has_bg_image = old.has_bg_image,
         .bg_image_opacity = old.bg_image_opacity,
     };

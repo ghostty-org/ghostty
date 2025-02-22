@@ -23,7 +23,6 @@ struct Uniforms {
   bool use_display_p3;
   bool use_linear_blending;
   bool use_linear_correction;
-  bool use_experimental_linear_correction;
   bool has_bg_image;
   float bg_image_opacity;
 };
