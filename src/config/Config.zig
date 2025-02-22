@@ -1513,8 +1513,8 @@ keybind: Keybinds = .{},
 },
 
 @"copy-on-right-click": CopyOnMouseAction = switch (builtin.os.tag) {
-    .linux => .true,
-    .macos => .true,
+    .linux => .false,
+    .macos => .false,
     else => .false,
 },
 
