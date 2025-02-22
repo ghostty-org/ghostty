@@ -1464,7 +1464,7 @@ fn gtkMouseDown(
     // If a right click isn't consumed, mouseButtonCallback selects the hovered
     // word and returns false. We can use this to handle the context menu
     // opening under normal scenarios.
-    if (!consumed and button == .right) {
+    if (!consumed and button == .right and self.app.config.@"copy-on-right-click" == .false) {
         self.showContextMenu(@floatCast(x), @floatCast(y));
     }
 }

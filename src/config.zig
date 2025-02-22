@@ -15,7 +15,7 @@ pub const formatEntry = formatter.formatEntry;
 // Field types
 pub const ClipboardAccess = Config.ClipboardAccess;
 pub const ConfirmCloseSurface = Config.ConfirmCloseSurface;
-pub const CopyOnSelect = Config.CopyOnSelect;
+pub const CopyOnMouseAction = Config.CopyOnMouseAction;
 pub const CustomShaderAnimation = Config.CustomShaderAnimation;
 pub const FontSyntheticStyle = Config.FontSyntheticStyle;
 pub const FontStyle = Config.FontStyle;

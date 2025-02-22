@@ -235,7 +235,8 @@ const DerivedConfig = struct {
     clipboard_trim_trailing_spaces: bool,
     clipboard_paste_protection: bool,
     clipboard_paste_bracketed_safe: bool,
-    copy_on_select: configpkg.CopyOnSelect,
+    copy_on_select: configpkg.CopyOnMouseAction,
+    copy_on_right_click: configpkg.CopyOnMouseAction,
     confirm_close_surface: configpkg.ConfirmCloseSurface,
     cursor_click_to_move: bool,
     desktop_notifications: bool,
@@ -297,6 +298,7 @@ const DerivedConfig = struct {
             .clipboard_paste_protection = config.@"clipboard-paste-protection",
             .clipboard_paste_bracketed_safe = config.@"clipboard-paste-bracketed-safe",
             .copy_on_select = config.@"copy-on-select",
+            .copy_on_right_click = config.@"copy-on-right-click",
             .confirm_close_surface = config.@"confirm-close-surface",
             .cursor_click_to_move = config.@"cursor-click-to-move",
             .desktop_notifications = config.@"desktop-notifications",
@@ -1405,20 +1407,7 @@ fn clipboardWrite(self: *const Surface, data: []const u8, loc: apprt.Clipboard) 
 /// Set the selection contents.
 ///
 /// This must be called with the renderer mutex held.
-fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
-    const prev_ = self.io.terminal.screen.selection;
-    try self.io.terminal.screen.select(sel_);
-
-    // If copy on select is false then exit early.
-    if (self.config.copy_on_select == .false) return;
-
-    // Set our selection clipboard. If the selection is cleared we do not
-    // clear the clipboard. If the selection is set, we only set the clipboard
-    // again if it changed, since setting the clipboard can be an expensive
-    // operation.
-    const sel = sel_ orelse return;
-    if (prev_) |prev| if (sel.eql(prev)) return;
-
+fn copyOnMouseAction(self: *Surface, sel: terminal.Selection, action: configpkg.CopyOnMouseAction) !void {
     const buf = self.io.terminal.screen.selectionString(self.alloc, .{
         .sel = sel,
         .trim = self.config.clipboard_trim_trailing_spaces,
@@ -1430,7 +1419,7 @@ fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
 
     // Set the clipboard. This is not super DRY but it is clear what
     // we're doing for each setting without being clever.
-    switch (self.config.copy_on_select) {
+    switch (action) {
         .false => unreachable, // handled above with an early exit
 
         // Both standard and selection clipboards are set.
@@ -1467,6 +1456,22 @@ fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
             };
         },
     }
+}
+
+fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
+    const prev_ = self.io.terminal.screen.selection;
+    try self.io.terminal.screen.select(sel_);
+
+    // If copy on select is false then exit early.
+    if (self.config.copy_on_select == .false) return;
+
+    // clear the clipboard. If the selection is set, we only set the clipboard
+    // again if it changed, since setting the clipboard can be an expensive
+    // operation.
+    const sel = sel_ orelse return;
+    if (prev_) |prev| if (sel.eql(prev)) return;
+
+    try self.copyOnMouseAction(sel, self.config.copy_on_select);
 }
 
 /// Change the cell size for the terminal grid. This can happen as
@@ -3074,6 +3079,7 @@ pub fn mouseButtonCallback(
     // are supported by our two main apprts so we always do this. If we
     // want to be careful in the future we can add a function to apprts
     // that let's us know.
+
     if (button == .right and action == .press) sel: {
         self.renderer_state.mutex.lock();
         defer self.renderer_state.mutex.unlock();
@@ -3103,14 +3109,15 @@ pub fn mouseButtonCallback(
         // If we already have a selection and the selection contains
         // where we clicked then we don't want to modify the selection.
         if (self.io.terminal.screen.selection) |prev_sel| {
+            try self.copyOnMouseAction(prev_sel, self.config.copy_on_right_click);
             if (prev_sel.contains(screen, pin)) break :sel;
-
             // The selection doesn't contain our pin, so we create a new
             // word selection where we clicked.
         }
 
         const sel = screen.selectWord(pin) orelse break :sel;
         try self.setSelection(sel);
+        try self.copyOnMouseAction(sel, self.config.copy_on_right_click);
         try self.queueRender();
     }
 

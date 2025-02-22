@@ -1506,7 +1506,13 @@ keybind: Keybinds = .{},
 /// paste is always enabled even if this is `false`.
 ///
 /// The default value is true on Linux and macOS.
-@"copy-on-select": CopyOnSelect = switch (builtin.os.tag) {
+@"copy-on-select": CopyOnMouseAction = switch (builtin.os.tag) {
+    .linux => .true,
+    .macos => .true,
+    else => .false,
+},
+
+@"copy-on-right-click": CopyOnMouseAction = switch (builtin.os.tag) {
     .linux => .true,
     .macos => .true,
     else => .false,
@@ -5754,7 +5760,7 @@ pub const RepeatableLink = struct {
 };
 
 /// Options for copy on select behavior.
-pub const CopyOnSelect = enum {
+pub const CopyOnMouseAction = enum {
     /// Disables copy on select entirely.
     false,
 
