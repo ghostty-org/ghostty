@@ -54,7 +54,9 @@ const icons = [_]struct {
 };
 
 pub const ui_files = [_][]const u8{};
-pub const blueprint_files = [_][]const u8{};
+pub const blueprint_files = [_][]const u8{
+    "command_palette",
+};
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};

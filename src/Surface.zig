@@ -4224,6 +4224,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             {},
         ),
 
+        .toggle_command_palette => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .toggle_command_palette,
+            {},
+        ),
+
         .toggle_secure_input => return try self.rt_app.performAction(
             .{ .surface = self },
             .secure_input,
