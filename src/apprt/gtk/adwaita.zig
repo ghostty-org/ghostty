@@ -1,20 +1,5 @@
 const std = @import("std");
 const c = @import("c.zig").c;
-const build_options = @import("build_options");
-const Config = @import("../../config.zig").Config;
-
-/// Returns true if Ghostty is configured to build with libadwaita and
-/// the configuration has enabled adwaita.
-///
-/// For a comptime version of this function, use `versionAtLeast` in
-/// a comptime context with all the version numbers set to 0.
-///
-/// This must be `inline` so that the comptime check noops conditional
-/// paths that are not enabled.
-pub inline fn enabled(config: *const Config) bool {
-    return build_options.adwaita and
-        config.@"gtk-adwaita";
-}
 
 /// Verifies that the running libadwaita version is at least the given
 /// version. This will return false if Ghostty is configured to
@@ -33,8 +18,6 @@ pub inline fn versionAtLeast(
     comptime minor: u16,
     comptime micro: u16,
 ) bool {
-    if (comptime !build_options.adwaita) return false;
-
     // If our header has lower versions than the given version,
     // we can return false immediately. This prevents us from
     // compiling against unknown symbols and makes runtime checks

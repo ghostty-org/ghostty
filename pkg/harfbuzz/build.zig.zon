@@ -3,8 +3,9 @@
     .version = "8.4.0",
     .paths = .{""},
     .dependencies = .{
+        // harfbuzz/harfbuzz
         .harfbuzz = .{
-            .url = "https://github.com/harfbuzz/harfbuzz/archive/refs/tags/8.4.0.tar.gz",
+            .url = "https://deps.files.ghostty.org/harfbuzz-1220b8588f106c996af10249bfa092c6fb2f35fbacb1505ef477a0b04a7dd1063122.tar.gz",
             .hash = "1220b8588f106c996af10249bfa092c6fb2f35fbacb1505ef477a0b04a7dd1063122",
         },
 

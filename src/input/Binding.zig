@@ -236,9 +236,9 @@ pub const Action = union(enum) {
     /// Send an `ESC` sequence.
     esc: []const u8,
 
-    // Send the given text. Uses Zig string literal syntax. This is currently
-    // not validated. If the text is invalid (i.e. contains an invalid escape
-    // sequence), the error will currently only show up in logs.
+    /// Send the given text. Uses Zig string literal syntax. This is currently
+    /// not validated. If the text is invalid (i.e. contains an invalid escape
+    /// sequence), the error will currently only show up in logs.
     text: []const u8,
 
     /// Send data to the pty depending on whether cursor key mode is enabled
@@ -284,8 +284,15 @@ pub const Action = union(enum) {
     scroll_page_fractional: f32,
     scroll_page_lines: i16,
 
-    /// Adjust an existing selection in a given direction. This action
-    /// does nothing if there is no active selection.
+    /// Adjust the current selection in a given direction. Does nothing if no
+    /// selection exists.
+    ///
+    /// Arguments:
+    ///   - left, right, up, down, page_up, page_down, home, end,
+    ///     beginning_of_line, end_of_line
+    ///
+    /// Example: Extend selection to the right
+    ///   keybind = shift+right=adjust_selection:right
     adjust_selection: AdjustSelection,
 
     /// Jump the viewport forward or back by prompt. Positive number is the
@@ -341,8 +348,17 @@ pub const Action = union(enum) {
     /// This only works with libadwaita enabled currently.
     toggle_tab_overview: void,
 
-    /// Create a new split in the given direction. The new split will appear in
-    /// the direction given. For example `new_split:up`. Valid values are left, right, up, down and auto.
+    /// Change the title of the current focused surface via a prompt.
+    /// This only works on macOS currently.
+    prompt_surface_title: void,
+
+    /// Create a new split in the given direction.
+    ///
+    /// Arguments:
+    ///   - right, down, left, up, auto (splits along the larger direction)
+    ///
+    /// Example: Create split on the right
+    ///   keybind = cmd+shift+d=new_split:right
     new_split: SplitDirection,
 
     /// Focus on a split in a given direction. For example `goto_split:up`.
@@ -352,15 +368,26 @@ pub const Action = union(enum) {
     /// zoom/unzoom the current split.
     toggle_split_zoom: void,
 
-    /// Resize the current split by moving the split divider in the given
-    /// direction. For example `resize_split:left,10`. The valid directions are up, down, left and right.
+    /// Resize the current split in a given direction.
+    ///
+    /// Arguments:
+    ///   - up, down, left, right
+    ///   - the number of pixels to resize the split by
+    ///
+    /// Example: Move divider up 10 pixels
+    ///   keybind = cmd+shift+up=resize_split:up,10
     resize_split: SplitResizeParameter,
 
     /// Equalize all splits in the current window
     equalize_splits: void,
 
-    /// Show, hide, or toggle the terminal inspector for the currently focused
-    /// terminal.
+    /// Control the terminal inspector visibility.
+    ///
+    /// Arguments:
+    ///   - toggle, show, hide
+    ///
+    /// Example: Toggle inspector visibility
+    ///   keybind = cmd+i=inspector:toggle
     inspector: InspectorMode,
 
     /// Open the configuration file in the default OS editor. If your default OS
@@ -419,7 +446,7 @@ pub const Action = union(enum) {
     /// is preserved between appearances, so you can always press the keybinding
     /// to bring it back up.
     ///
-    /// To enable the quick terminally globally so that Ghostty doesn't
+    /// To enable the quick terminal globally so that Ghostty doesn't
     /// have to be focused, prefix your keybind with `global`. Example:
     ///
     /// ```ini
@@ -446,6 +473,8 @@ pub const Action = union(enum) {
     /// Show/hide all windows. If all windows become shown, we also ensure
     /// Ghostty becomes focused. When hiding all windows, focus is yielded
     /// to the next application as determined by the OS.
+    ///
+    /// Note: When the focused surface is fullscreen, this method does nothing.
     ///
     /// This currently only works on macOS.
     toggle_visibility: void,
@@ -516,7 +545,6 @@ pub const Action = union(enum) {
     pub const SplitFocusDirection = enum {
         previous,
         next,
-
         up,
         left,
         down,
@@ -724,6 +752,7 @@ pub const Action = union(enum) {
             .increase_font_size,
             .decrease_font_size,
             .reset_font_size,
+            .prompt_surface_title,
             .clear_screen,
             .select_all,
             .scroll_to_top,
@@ -1208,6 +1237,13 @@ pub const Set = struct {
     /// This is a conscious decision since the primary use case of the reverse
     /// map is to support GUI toolkit keyboard accelerators and no mainstream
     /// GUI toolkit supports sequences.
+    ///
+    /// Performable triggers are also not present in the reverse map. This
+    /// is so that GUI toolkits don't register performable triggers as
+    /// menu shortcuts (the primary use case of the reverse map). GUI toolkits
+    /// such as GTK handle menu shortcuts too early in the event lifecycle
+    /// for performable to work so this is a conscious decision to ease the
+    /// integration with GUI toolkits.
     reverse: ReverseMap = .{},
 
     /// The entry type for the forward mapping of trigger to action.
@@ -1472,6 +1508,11 @@ pub const Set = struct {
         // unbind should never go into the set, it should be handled prior
         assert(action != .unbind);
 
+        // This is true if we're going to track this entry as
+        // a reverse mapping. There are certain scenarios we don't.
+        // See the reverse map docs for more information.
+        const track_reverse: bool = !flags.performable;
+
         const gop = try self.bindings.getOrPut(alloc, t);
 
         if (gop.found_existing) switch (gop.value_ptr.*) {
@@ -1483,7 +1524,7 @@ pub const Set = struct {
 
             // If we have an existing binding for this trigger, we have to
             // update the reverse mapping to remove the old action.
-            .leaf => {
+            .leaf => if (track_reverse) {
                 const t_hash = t.hash();
                 var it = self.reverse.iterator();
                 while (it.next()) |reverse_entry| it: {
@@ -1500,8 +1541,9 @@ pub const Set = struct {
             .flags = flags,
         } };
         errdefer _ = self.bindings.remove(t);
-        try self.reverse.put(alloc, action, t);
-        errdefer _ = self.reverse.remove(action);
+
+        if (track_reverse) try self.reverse.put(alloc, action, t);
+        errdefer if (track_reverse) self.reverse.remove(action);
     }
 
     /// Get a binding for a given trigger.
@@ -2344,6 +2386,39 @@ test "set: maintains reverse mapping" {
     }
 
     // removal should replace
+    s.remove(alloc, .{ .key = .{ .translated = .b } });
+    {
+        const trigger = s.getTrigger(.{ .new_window = {} }).?;
+        try testing.expect(trigger.key.translated == .a);
+    }
+}
+
+test "set: performable is not part of reverse mappings" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.put(alloc, .{ .key = .{ .translated = .a } }, .{ .new_window = {} });
+    {
+        const trigger = s.getTrigger(.{ .new_window = {} }).?;
+        try testing.expect(trigger.key.translated == .a);
+    }
+
+    // trigger should be non-performable
+    try s.putFlags(
+        alloc,
+        .{ .key = .{ .translated = .b } },
+        .{ .new_window = {} },
+        .{ .performable = true },
+    );
+    {
+        const trigger = s.getTrigger(.{ .new_window = {} }).?;
+        try testing.expect(trigger.key.translated == .a);
+    }
+
+    // removal of performable should do nothing
     s.remove(alloc, .{ .key = .{ .translated = .b } });
     {
         const trigger = s.getTrigger(.{ .new_window = {} }).?;

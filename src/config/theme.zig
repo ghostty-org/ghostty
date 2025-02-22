@@ -104,6 +104,10 @@ pub const LocationIterator = struct {
 /// Due to the way allocations are handled, an Arena allocator (or another
 /// similar allocator implementation) should be used. It may not be safe to
 /// free the returned allocations.
+///
+/// This will never return anything other than a handle to a regular file. If
+/// the theme resolves to something other than a regular file a diagnostic entry
+/// will be added to the list and null will be returned.
 pub fn open(
     arena_alloc: Allocator,
     theme: []const u8,
@@ -119,6 +123,29 @@ pub fn open(
             theme,
             diags,
         ) orelse return null;
+        const stat = file.stat() catch |err| {
+            try diags.append(arena_alloc, .{
+                .message = try std.fmt.allocPrintZ(
+                    arena_alloc,
+                    "not reading theme from \"{s}\": {}",
+                    .{ theme, err },
+                ),
+            });
+            return null;
+        };
+        switch (stat.kind) {
+            .file => {},
+            else => {
+                try diags.append(arena_alloc, .{
+                    .message = try std.fmt.allocPrintZ(
+                        arena_alloc,
+                        "not reading theme from \"{s}\": it is a {s}",
+                        .{ theme, @tagName(stat.kind) },
+                    ),
+                });
+                return null;
+            },
+        }
         return .{ .path = theme, .file = file };
     }
 
@@ -140,9 +167,34 @@ pub fn open(
     const cwd = std.fs.cwd();
     while (try it.next()) |loc| {
         const path = try std.fs.path.join(arena_alloc, &.{ loc.dir, theme });
-        if (cwd.openFile(path, .{})) |file| return .{
-            .path = path,
-            .file = file,
+        if (cwd.openFile(path, .{})) |file| {
+            const stat = file.stat() catch |err| {
+                try diags.append(arena_alloc, .{
+                    .message = try std.fmt.allocPrintZ(
+                        arena_alloc,
+                        "not reading theme from \"{s}\": {}",
+                        .{ theme, err },
+                    ),
+                });
+                return null;
+            };
+            switch (stat.kind) {
+                .file => {},
+                else => {
+                    try diags.append(arena_alloc, .{
+                        .message = try std.fmt.allocPrintZ(
+                            arena_alloc,
+                            "not reading theme from \"{s}\": it is a {s}",
+                            .{ theme, @tagName(stat.kind) },
+                        ),
+                    });
+                    return null;
+                },
+            }
+            return .{
+                .path = path,
+                .file = file,
+            };
         } else |err| switch (err) {
             // Not an error, just continue to the next location.
             error.FileNotFound => {},

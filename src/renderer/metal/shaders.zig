@@ -173,7 +173,7 @@ pub const Uniforms = extern struct {
     /// Enables a weight correction step that makes text rendered
     /// with linear alpha blending have a similar apparent weight
     /// (thickness) to gamma-incorrect blending.
-    use_experimental_linear_correction: bool align(1) = false,
+    use_linear_correction: bool align(1) = false,
 
     /// Indicates if the user has set a background image.
     has_bg_image: bool align(1),

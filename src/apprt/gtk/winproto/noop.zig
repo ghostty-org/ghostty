@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 const c = @import("../c.zig").c;
 const Config = @import("../../../config.zig").Config;
 const input = @import("../../../input.zig");
+const ApprtWindow = @import("../Window.zig");
 
 const log = std.log.scoped(.winproto_noop);
 
@@ -34,8 +35,7 @@ pub const Window = struct {
     pub fn init(
         _: Allocator,
         _: *App,
-        _: *c.GtkWindow,
-        _: *const Config,
+        _: *ApprtWindow,
     ) !Window {
         return .{};
     }
@@ -47,7 +47,7 @@ pub const Window = struct {
 
     pub fn updateConfigEvent(
         _: *Window,
-        _: *const Config,
+        _: *const ApprtWindow.DerivedConfig,
     ) !void {}
 
     pub fn resizeEvent(_: *Window) !void {}
@@ -61,4 +61,6 @@ pub const Window = struct {
         _ = self;
         return true;
     }
+
+    pub fn addSubprocessEnv(_: *Window, _: *std.process.EnvMap) !void {}
 };

@@ -14,7 +14,7 @@ pub const Thread = @This();
 const std = @import("std");
 const ArenaAllocator = std.heap.ArenaAllocator;
 const builtin = @import("builtin");
-const xev = @import("xev");
+const xev = @import("../global.zig").xev;
 const crash = @import("../crash/main.zig");
 const termio = @import("../termio.zig");
 const renderer = @import("../renderer.zig");
@@ -189,7 +189,7 @@ pub fn threadMain(self: *Thread, io: *termio.Termio) void {
     // If our loop is not stopped, then we need to keep running so that
     // messages are drained and we can wait for the surface to send a stop
     // message.
-    if (!self.loop.flags.stopped) {
+    if (!self.loop.stopped()) {
         log.warn("abrupt io thread exit detected, starting xev to drain mailbox", .{});
         defer log.debug("io thread fully exiting after abnormal failure", .{});
         self.flags.drain = true;

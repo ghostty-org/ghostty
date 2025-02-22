@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const xev = @import("xev");
+const xev = @import("../global.zig").xev;
 const apprt = @import("../apprt.zig");
 const build_config = @import("../build_config.zig");
 const configpkg = @import("../config.zig");
@@ -1418,11 +1418,13 @@ pub const StreamHandler = struct {
         var buf = std.ArrayList(u8).init(self.alloc);
         defer buf.deinit();
         const writer = buf.writer();
-        try writer.writeAll("\x1b]21");
 
         for (request.list.items) |item| {
             switch (item) {
                 .query => |key| {
+                    // If the writer buffer is empty, we need to write our prefix
+                    if (buf.items.len == 0) try writer.writeAll("\x1b]21");
+
                     const color: terminal.color.RGB = switch (key) {
                         .palette => |palette| self.terminal.color_palette.colors[palette],
                         .special => |special| switch (special) {
@@ -1517,14 +1519,16 @@ pub const StreamHandler = struct {
             }
         }
 
-        try writer.writeAll(request.terminator.string());
-
-        self.messageWriter(.{
-            .write_alloc = .{
-                .alloc = self.alloc,
-                .data = try buf.toOwnedSlice(),
-            },
-        });
+        // If we had any writes to our buffer, we queue them now
+        if (buf.items.len > 0) {
+            try writer.writeAll(request.terminator.string());
+            self.messageWriter(.{
+                .write_alloc = .{
+                    .alloc = self.alloc,
+                    .data = try buf.toOwnedSlice(),
+                },
+            });
+        }
 
         // Note: we don't have to do a queueRender here because every
         // processed stream will queue a render once it is done processing

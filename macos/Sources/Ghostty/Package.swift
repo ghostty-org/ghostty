@@ -198,6 +198,14 @@ extension Ghostty {
     /// macos-icon
     enum MacOSIcon: String {
         case official
+        case blueprint
+        case chalkboard
+        case glass
+        case holographic
+        case microchip
+        case paper
+        case retro
+        case xray
         case customStyle = "custom-style"
     }
 

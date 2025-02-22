@@ -3,8 +3,9 @@
     .version = "4.0.5",
     .paths = .{""},
     .dependencies = .{
+        // nemtrif/utfcpp
         .utfcpp = .{
-            .url = "https://github.com/nemtrif/utfcpp/archive/refs/tags/v4.0.5.tar.gz",
+            .url = "https://deps.files.ghostty.org/utfcpp-1220d4d18426ca72fc2b7e56ce47273149815501d0d2395c2a98c726b31ba931e641.tar.gz",
             .hash = "1220d4d18426ca72fc2b7e56ce47273149815501d0d2395c2a98c726b31ba931e641",
         },
 

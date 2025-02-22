@@ -53,6 +53,22 @@ key_events: inspector.key.EventRing,
 vt_events: inspector.termio.VTEventRing,
 vt_stream: inspector.termio.Stream,
 
+/// The currently selected event sequence number for keyboard navigation
+selected_event_seq: ?u32 = null,
+
+/// Flag indicating whether we need to scroll to the selected item
+need_scroll_to_selected: bool = false,
+
+/// Flag indicating whether the selection was made by keyboard
+is_keyboard_selection: bool = false,
+
+/// Enum representing keyboard navigation actions
+const KeyAction = enum {
+    down,
+    none,
+    up,
+};
+
 const CellInspect = union(enum) {
     /// Idle, no cell inspection is requested
     idle: void,
@@ -1014,6 +1030,24 @@ fn renderKeyboardWindow(self: *Inspector) void {
     } // table
 }
 
+/// Helper function to check keyboard state and determine navigation action.
+fn getKeyAction(self: *Inspector) KeyAction {
+    _ = self;
+    const keys = .{
+        .{ .key = cimgui.c.ImGuiKey_J, .action = KeyAction.down },
+        .{ .key = cimgui.c.ImGuiKey_DownArrow, .action = KeyAction.down },
+        .{ .key = cimgui.c.ImGuiKey_K, .action = KeyAction.up },
+        .{ .key = cimgui.c.ImGuiKey_UpArrow, .action = KeyAction.up },
+    };
+
+    inline for (keys) |k| {
+        if (cimgui.c.igIsKeyPressed_Bool(k.key, false)) {
+            return k.action;
+        }
+    }
+    return .none;
+}
+
 fn renderTermioWindow(self: *Inspector) void {
     // Start our window. If we're collapsed we do nothing.
     defer cimgui.c.igEnd();
@@ -1090,6 +1124,60 @@ fn renderTermioWindow(self: *Inspector) void {
             0,
         );
 
+        // Handle keyboard navigation when window is focused
+        if (cimgui.c.igIsWindowFocused(cimgui.c.ImGuiFocusedFlags_RootAndChildWindows)) {
+            const key_pressed = self.getKeyAction();
+
+            switch (key_pressed) {
+                .none => {},
+                .up, .down => {
+                    // If no event is selected, select the first/last event based on direction
+                    if (self.selected_event_seq == null) {
+                        if (!self.vt_events.empty()) {
+                            var it = self.vt_events.iterator(if (key_pressed == .up) .forward else .reverse);
+                            if (it.next()) |ev| {
+                                self.selected_event_seq = @as(u32, @intCast(ev.seq));
+                            }
+                        }
+                    } else {
+                        // Find next/previous event based on current selection
+                        var it = self.vt_events.iterator(.reverse);
+                        switch (key_pressed) {
+                            .down => {
+                                var found = false;
+                                while (it.next()) |ev| {
+                                    if (found) {
+                                        self.selected_event_seq = @as(u32, @intCast(ev.seq));
+                                        break;
+                                    }
+                                    if (ev.seq == self.selected_event_seq.?) {
+                                        found = true;
+                                    }
+                                }
+                            },
+                            .up => {
+                                var prev_ev: ?*const inspector.termio.VTEvent = null;
+                                while (it.next()) |ev| {
+                                    if (ev.seq == self.selected_event_seq.?) {
+                                        if (prev_ev) |prev| {
+                                            self.selected_event_seq = @as(u32, @intCast(prev.seq));
+                                            break;
+                                        }
+                                    }
+                                    prev_ev = ev;
+                                }
+                            },
+                            .none => unreachable,
+                        }
+                    }
+
+                    // Mark that we need to scroll to the newly selected item
+                    self.need_scroll_to_selected = true;
+                    self.is_keyboard_selection = true;
+                },
+            }
+        }
+
         var it = self.vt_events.iterator(.reverse);
         while (it.next()) |ev| {
             // Need to push an ID so that our selectable is unique.
@@ -1098,12 +1186,32 @@ fn renderTermioWindow(self: *Inspector) void {
 
             cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
             _ = cimgui.c.igTableNextColumn();
-            _ = cimgui.c.igSelectable_BoolPtr(
+
+            // Store the previous selection state to detect changes
+            const was_selected = ev.imgui_selected;
+
+            // Update selection state based on keyboard navigation
+            if (self.selected_event_seq) |seq| {
+                ev.imgui_selected = (@as(u32, @intCast(ev.seq)) == seq);
+            }
+
+            // Handle selectable widget
+            if (cimgui.c.igSelectable_BoolPtr(
                 "##select",
                 &ev.imgui_selected,
                 cimgui.c.ImGuiSelectableFlags_SpanAllColumns,
                 .{ .x = 0, .y = 0 },
-            );
+            )) {
+                // If selection state changed, update keyboard navigation state
+                if (ev.imgui_selected != was_selected) {
+                    self.selected_event_seq = if (ev.imgui_selected)
+                        @as(u32, @intCast(ev.seq))
+                    else
+                        null;
+                    self.is_keyboard_selection = false;
+                }
+            }
+
             cimgui.c.igSameLine(0, 0);
             cimgui.c.igText("%d", ev.seq);
             _ = cimgui.c.igTableNextColumn();
@@ -1158,6 +1266,12 @@ fn renderTermioWindow(self: *Inspector) void {
                         _ = cimgui.c.igTableNextColumn();
                         cimgui.c.igText("%s", entry.value_ptr.ptr);
                     }
+                }
+
+                // If this is the selected event and scrolling is needed, scroll to it
+                if (self.need_scroll_to_selected and self.is_keyboard_selection) {
+                    cimgui.c.igSetScrollHereY(0.5);
+                    self.need_scroll_to_selected = false;
                 }
             }
         }

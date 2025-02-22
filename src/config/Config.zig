@@ -34,12 +34,23 @@ const KeyValue = @import("key.zig").Value;
 const ErrorList = @import("ErrorList.zig");
 const MetricModifier = fontpkg.Metrics.Modifier;
 const help_strings = @import("help_strings");
+const RepeatableStringMap = @import("RepeatableStringMap.zig");
 
 const log = std.log.scoped(.config);
 
 /// Used on Unixes for some defaults.
 const c = @cImport({
     @cInclude("unistd.h");
+});
+
+/// Renamed fields, used by cli.parse
+pub const renamed = std.StaticStringMap([]const u8).initComptime(&.{
+    // Ghostty 1.1 introduced background-blur support for Linux which
+    // doesn't support a specific radius value. The renaming is to let
+    // one field be used for both platforms (macOS retained the ability
+    // to set a radius).
+    .{ "background-blur-radius", "background-blur" },
+    .{ "adw-toolbar-style", "gtk-toolbar-style" },
 });
 
 /// The font families to use.
@@ -250,7 +261,8 @@ const c = @cImport({
 
 /// What color space to use when performing alpha blending.
 ///
-/// This affects how text looks for different background/foreground color pairs.
+/// This affects the appearance of text and of any images with transparency.
+/// Additionally, custom shaders will receive colors in the configured space.
 ///
 /// Valid values:
 ///
@@ -264,15 +276,10 @@ const c = @cImport({
 ///   This is also sometimes known as "gamma correction".
 ///   (Currently only supported on macOS. Has no effect on Linux.)
 ///
-/// * `linear-corrected` - Corrects the thinning/thickening effect of linear
-///   by applying a correction curve to the text alpha depending on its
-///   brightness. This compensates for the thinning and makes the weight of
-///   most text appear very similar to when it's blended non-linearly.
-///
-/// Note: This setting affects more than just text, images will also be blended
-/// in the selected color space, and custom shaders will receive colors in that
-/// color space as well.
-@"text-blending": TextBlending = .native,
+/// * `linear-corrected` - Same as `linear`, but with a correction step applied
+///   for text that makes it look nearly or completely identical to `native`,
+///   but without any of the darkening artifacts.
+@"alpha-blending": AlphaBlending = .native,
 
 /// All of the configurations behavior adjust various metrics determined by the
 /// font. The values can be integers (1, -1, etc.) or a percentage (20%, -15%,
@@ -312,14 +319,14 @@ const c = @cImport({
 /// See the notes about adjustments in `adjust-cell-width`.
 @"adjust-underline-thickness": ?MetricModifier = null,
 /// Distance in pixels or percentage adjustment from the top of the cell to the top of the strikethrough.
-/// Increase to move strikethrough DOWN, decrease to move underline UP.
+/// Increase to move strikethrough DOWN, decrease to move strikethrough UP.
 /// See the notes about adjustments in `adjust-cell-width`.
 @"adjust-strikethrough-position": ?MetricModifier = null,
 /// Thickness in pixels or percentage adjustment of the strikethrough.
 /// See the notes about adjustments in `adjust-cell-width`.
 @"adjust-strikethrough-thickness": ?MetricModifier = null,
 /// Distance in pixels or percentage adjustment from the top of the cell to the top of the overline.
-/// Increase to move overline DOWN, decrease to move underline UP.
+/// Increase to move overline DOWN, decrease to move overline UP.
 /// See the notes about adjustments in `adjust-cell-width`.
 @"adjust-overline-position": ?MetricModifier = null,
 /// Thickness in pixels or percentage adjustment of the overline.
@@ -675,7 +682,7 @@ palette: Palette = .{},
 /// need to set environment-specific settings and/or install third-party plugins
 /// in order to support background blur, as there isn't a unified interface for
 /// doing so.
-@"background-blur-radius": BackgroundBlur = .false,
+@"background-blur": BackgroundBlur = .false,
 
 /// The opacity level (opposite of transparency) of an unfocused split.
 /// Unfocused splits by default are slightly faded out to make it easier to see
@@ -755,6 +762,42 @@ command: ?[]const u8 = null,
 ///     manually.
 ///
 @"initial-command": ?[]const u8 = null,
+
+/// Extra environment variables to pass to commands launched in a terminal
+/// surface. The format is `env=KEY=VALUE`.
+///
+/// `env = foo=bar`
+/// `env = bar=baz`
+///
+/// Setting `env` to an empty string will reset the entire map to default
+/// (empty).
+///
+/// `env =`
+///
+/// Setting a key to an empty string will remove that particular key and
+/// corresponding value from the map.
+///
+/// `env = foo=bar`
+/// `env = foo=`
+///
+/// will result in `foo` not being passed to the launched commands.
+///
+/// Setting a key multiple times will overwrite previous entries.
+///
+/// `env = foo=bar`
+/// `env = foo=baz`
+///
+/// will result in `foo=baz` being passed to the launched commands.
+///
+/// These environment variables will override any existing environment
+/// variables set by Ghostty. For example, if you set `GHOSTTY_RESOURCES_DIR`
+/// then the value you set here will override the value Ghostty typically
+/// automatically injects.
+///
+/// These environment variables _will not_ be passed to commands run by Ghostty
+/// for other purposes, like `open` or `xdg-open` used to open URLs in your
+/// browser.
+env: RepeatableStringMap = .{},
 
 /// If true, keep the terminal open after the command exits. Normally, the
 /// terminal window closes when the running command (such as a shell) exits.
@@ -1036,6 +1079,12 @@ class: ?[:0]const u8 = null,
 ///     performable (acting identically to not having a keybind set at
 ///     all).
 ///
+///     Performable keybinds will not appear as menu shortcuts in the
+///     application menu. This is because the menu shortcuts force the
+///     action to be performed regardless of the state of the terminal.
+///     Performable keybinds will still work, they just won't appear as
+///     a shortcut label in the menu.
+///
 /// Keybind triggers are not unique per prefix combination. For example,
 /// `ctrl+a` and `global:ctrl+a` are not two separate keybinds. The keybind
 /// set later will overwrite the keybind set earlier. In this case, the
@@ -1172,9 +1221,9 @@ keybind: Keybinds = .{},
 ///   * `client` - Prefer client-side decorations.
 ///
 ///   * `server` - Prefer server-side decorations. This is only relevant
-///     on Linux with GTK. This currently only works on Linux with Wayland
-///     and the `org_kde_kwin_server_decoration` protocol available (e.g.
-///     KDE Plasma, but almost any non-GNOME desktop supports this protocol).
+///     on Linux with GTK, either on X11, or Wayland on a compositor that
+///     supports the `org_kde_kwin_server_decoration` protocol (e.g. KDE Plasma,
+///     but almost any non-GNOME desktop supports this protocol).
 ///
 ///     If `server` is set but the environment doesn't support server-side
 ///     decorations, client-side decorations will be used instead.
@@ -1189,12 +1238,7 @@ keybind: Keybinds = .{},
 /// Windows).
 ///
 /// The "toggle_window_decorations" keybind action can be used to create
-/// a keybinding to toggle this setting at runtime. This will always toggle
-/// back to "auto" if the current value is "none" (this is an issue
-/// that will be fixed in the future).
-///
-/// Changing this configuration in your configuration and reloading will
-/// only affect new windows. Existing windows will not be affected.
+/// a keybinding to toggle this setting at runtime.
 ///
 /// macOS: To hide the titlebar without removing the native window borders
 ///        or rounded corners, use `macos-titlebar-style = hidden` instead.
@@ -1214,7 +1258,7 @@ keybind: Keybinds = .{},
 ///   * `working-directory` - Set the subtitle to the working directory of the
 ///      surface.
 ///
-/// This feature is only supported on GTK with Adwaita enabled.
+/// This feature is only supported on GTK.
 @"window-subtitle": WindowSubtitle = .false,
 
 /// The theme to use for the windows. Valid values:
@@ -1227,8 +1271,7 @@ keybind: Keybinds = .{},
 ///   * `light` - Use the light theme regardless of system theme.
 ///   * `dark` - Use the dark theme regardless of system theme.
 ///   * `ghostty` - Use the background and foreground colors specified in the
-///     Ghostty configuration. This is only supported on Linux builds with
-///     Adwaita and `gtk-adwaita` enabled.
+///     Ghostty configuration. This is only supported on Linux builds.
 ///
 /// On macOS, if `macos-titlebar-style` is "tabs", the window theme will be
 /// automatically set based on the luminosity of the terminal background color.
@@ -1238,12 +1281,16 @@ keybind: Keybinds = .{},
 /// This is currently only supported on macOS and Linux.
 @"window-theme": WindowTheme = .auto,
 
-/// The colorspace to use for the terminal window. The default is `srgb` but
-/// this can also be set to `display-p3` to use the Display P3 colorspace.
+/// The color space to use when interpreting terminal colors. "Terminal colors"
+/// refers to colors specified in your configuration and colors produced by
+/// direct-color SGR sequences.
 ///
-/// Changing this value at runtime will only affect new windows.
+/// Valid values:
 ///
-/// This setting is only supported on macOS.
+///   * `srgb` - Interpret colors in the sRGB color space. This is the default.
+///   * `display-p3` - Interpret colors in the Display P3 color space.
+///
+/// This setting is currently only supported on macOS.
 @"window-colorspace": WindowColorspace = .srgb,
 
 /// The initial window size. This size is in terminal grid cells by default.
@@ -1297,8 +1344,8 @@ keybind: Keybinds = .{},
 /// window will be placed below the menu bar.
 ///
 /// Note: this is only supported on macOS and Linux GLFW builds. The GTK
-/// runtime does not support setting the window position (this is a limitation
-/// of GTK 4.0).
+/// runtime does not support setting the window position, as windows are
+/// only allowed position themselves in X11 and not Wayland.
 @"window-position-x": ?i16 = null,
 @"window-position-y": ?i16 = null,
 
@@ -1696,7 +1743,9 @@ keybind: Keybinds = .{},
 /// The default value is `detect`.
 @"shell-integration": ShellIntegration = .detect,
 
-/// Shell integration features to enable if shell integration itself is enabled.
+/// Shell integration features to enable. These require our shell integration
+/// to be loaded, either automatically via shell-integration or manually.
+///
 /// The format of this is a list of features to enable separated by commas. If
 /// you prefix a feature with `no-` then it is disabled. If you omit a feature,
 /// its default value is used, so you must explicitly disable features you don't
@@ -1786,6 +1835,31 @@ keybind: Keybinds = .{},
 /// open terminals.
 @"custom-shader-animation": CustomShaderAnimation = .true,
 
+/// Control the in-app notifications that Ghostty shows.
+///
+/// On Linux (GTK), in-app notifications show up as toasts. Toasts appear
+/// overlaid on top of the terminal window. They are used to show information
+/// that is not critical but may be important.
+///
+/// Possible notifications are:
+///
+///   - `clipboard-copy` (default: true) - Show a notification when text is copied
+///     to the clipboard.
+///
+/// To specify a notification to enable, specify the name of the notification.
+/// To specify a notification to disable, prefix the name with `no-`. For
+/// example, to disable `clipboard-copy`, set this configuration to
+/// `no-clipboard-copy`. To enable it, set this configuration to `clipboard-copy`.
+///
+/// Multiple notifications can be enabled or disabled by separating them
+/// with a comma.
+///
+/// A value of "false" will disable all notifications. A value of "true" will
+/// enable all notifications.
+///
+/// This configuration only applies to GTK.
+@"app-notifications": AppNotifications = .{},
+
 /// If anything other than false, fullscreen mode on macOS will not use the
 /// native fullscreen, but make the window fullscreen without animations and
 /// using a new space. It's faster than the native fullscreen mode since it
@@ -1803,9 +1877,14 @@ keybind: Keybinds = .{},
 ///
 /// Allowable values are:
 ///
-///   * `visible-menu` - Use non-native macOS fullscreen, keep the menu bar visible
 ///   * `true` - Use non-native macOS fullscreen, hide the menu bar
 ///   * `false` - Use native macOS fullscreen
+///   * `visible-menu` - Use non-native macOS fullscreen, keep the menu bar
+///     visible
+///   * `padded-notch` - Use non-native macOS fullscreen, hide the menu bar,
+///     but ensure the window is not obscured by the notch on applicable
+///     devices. The area around the notch will remain transparent currently,
+///     but in the future we may fill it with the window background color.
 ///
 /// Changing this option at runtime works, but will only apply to the next
 /// time the window is made fullscreen. If a window is already fullscreen,
@@ -1840,9 +1919,12 @@ keybind: Keybinds = .{},
 /// The "hidden" style hides the titlebar. Unlike `window-decoration = false`,
 /// however, it does not remove the frame from the window or cause it to have
 /// squared corners. Changing to or from this option at run-time may affect
-/// existing windows in buggy ways. The top titlebar area of the window will
-/// continue to drag the window around and you will not be able to use
-/// the mouse for terminal events in this space.
+/// existing windows in buggy ways.
+///
+/// When "hidden", the top titlebar area can no longer be used for dragging
+/// the window. To drag the window, you can use option+click on the resizable
+/// areas of the frame to drag the window. This is a standard macOS behavior
+/// and not something Ghostty enables.
 ///
 /// The default value is "transparent". This is an opinionated choice
 /// but its one I think is the most aesthetically pleasing and works in
@@ -1913,6 +1995,26 @@ keybind: Keybinds = .{},
 /// find false more visually appealing.
 @"macos-window-shadow": bool = true,
 
+/// If true, the macOS icon in the dock and app switcher will be hidden. This is
+/// mainly intended for those primarily using the quick-terminal mode.
+///
+/// Note that setting this to true means that keyboard layout changes
+/// will no longer be automatic.
+///
+/// Control whether macOS app is excluded from the dock and app switcher,
+/// a "hidden" state. This is mainly intended for those primarily using
+/// quick-terminal mode, but is a general configuration for any use
+/// case.
+///
+/// Available values:
+///
+///   * `never` - The macOS app is never hidden.
+///   * `always` - The macOS app is always hidden.
+///
+/// Note: When the macOS application is hidden, keyboard layout changes
+/// will no longer be automatic. This is a limitation of macOS.
+@"macos-hidden": MacHidden = .never,
+
 /// If true, Ghostty on macOS will automatically enable the "Secure Input"
 /// feature when it detects that a password prompt is being displayed.
 ///
@@ -1953,6 +2055,9 @@ keybind: Keybinds = .{},
 /// Valid values:
 ///
 ///  * `official` - Use the official Ghostty icon.
+///  * `blueprint`, `chalkboard`, `microchip`, `glass`, `holographic`,
+///    `paper`, `retro`, `xray` - Official variants of the Ghostty icon
+///    hand-created by artists (no AI).
 ///  * `custom-style` - Use the official Ghostty icon but with custom
 ///    styles applied to various layers. The custom styles must be
 ///    specified using the additional `macos-icon`-prefixed configurations.
@@ -2096,32 +2201,23 @@ keybind: Keybinds = .{},
 ///
 /// This option does nothing when `window-decoration` is false or when running
 /// under macOS.
-///
-/// Changing this value at runtime and reloading the configuration will only
-/// affect new windows.
 @"gtk-titlebar": bool = true,
 
 /// Determines the side of the screen that the GTK tab bar will stick to.
-/// Top, bottom, left, right, and hidden are supported. The default is top.
+/// Top, bottom, and hidden are supported. The default is top.
 ///
-/// If this option has value `left` or `right` when using Adwaita, it falls
-/// back to `top`. `hidden`, meaning that tabs don't exist, is not supported
-/// without using Adwaita, falling back to `top`.
-///
-/// When `hidden` is set and Adwaita is enabled, a tab button displaying the
-/// number of tabs will appear in the title bar. It has the ability to open a
-/// tab overview for displaying tabs. Alternatively, you can use the
-/// `toggle_tab_overview` action in a keybind if your window doesn't have a
-/// title bar, or you can switch tabs with keybinds.
+/// When `hidden` is set, a tab button displaying the number of tabs will appear
+/// in the title bar. It has the ability to open a tab overview for displaying
+/// tabs. Alternatively, you can use the `toggle_tab_overview` action in a
+/// keybind if your window doesn't have a title bar, or you can switch tabs
+/// with keybinds.
 @"gtk-tabs-location": GtkTabsLocation = .top,
 
 /// If this is `true`, the titlebar will be hidden when the window is maximized,
 /// and shown when the titlebar is unmaximized. GTK only.
 @"gtk-titlebar-hide-when-maximized": bool = false,
 
-/// Determines the appearance of the top and bottom bars when using the
-/// Adwaita tab bar. This requires `gtk-adwaita` to be enabled (it is
-/// by default).
+/// Determines the appearance of the top and bottom bars tab bar.
 ///
 /// Valid values are:
 ///
@@ -2129,52 +2225,13 @@ keybind: Keybinds = .{},
 ///  * `raised` - Top and bottom bars cast a shadow on the terminal area.
 ///  * `raised-border` - Similar to `raised` but the shadow is replaced with a
 ///    more subtle border.
-///
-/// Changing this value at runtime will only affect new windows.
-@"adw-toolbar-style": AdwToolbarStyle = .raised,
-
-/// Control the toasts that Ghostty shows. Toasts are small notifications
-/// that appear overlaid on top of the terminal window. They are used to
-/// show information that is not critical but may be important.
-///
-/// Possible toasts are:
-///
-///   - `clipboard-copy` (default: true) - Show a toast when text is copied
-///     to the clipboard.
-///
-/// To specify a toast to enable, specify the name of the toast. To specify
-/// a toast to disable, prefix the name with `no-`. For example, to disable
-/// the clipboard-copy toast, set this configuration to `no-clipboard-copy`.
-/// To enable the clipboard-copy toast, set this configuration to
-/// `clipboard-copy`.
-///
-/// Multiple toasts can be enabled or disabled by separating them with a comma.
-///
-/// A value of "false" will disable all toasts. A value of "true" will
-/// enable all toasts.
-///
-/// This configuration only applies to GTK with Adwaita enabled.
-@"adw-toast": AdwToast = .{},
+@"gtk-toolbar-style": GtkToolbarStyle = .raised,
 
 /// If `true` (default), then the Ghostty GTK tabs will be "wide." Wide tabs
 /// are the new typical Gnome style where tabs fill their available space.
 /// If you set this to `false` then tabs will only take up space they need,
 /// which is the old style.
 @"gtk-wide-tabs": bool = true,
-
-/// If `true` (default), Ghostty will enable Adwaita theme support. This
-/// will make `window-theme` work properly and will also allow Ghostty to
-/// properly respond to system theme changes, light/dark mode changing, etc.
-/// This requires a GTK4 desktop with a GTK4 theme.
-///
-/// If you are running GTK3 or have a GTK3 theme, you may have to set this
-/// to false to get your theme picked up properly. Having this set to true
-/// with GTK3 should not cause any problems, but it may not work exactly as
-/// expected.
-///
-/// This configuration only has an effect if Ghostty was built with
-/// Adwaita support.
-@"gtk-adwaita": bool = true,
 
 /// Custom CSS files to be loaded.
 ///
@@ -2203,6 +2260,34 @@ term: []const u8 = "xterm-ghostty",
 /// String to send when we receive `ENQ` (`0x05`) from the command that we are
 /// running. Defaults to an empty string if not set.
 @"enquiry-response": []const u8 = "",
+
+/// Configures the low-level API to use for async IO, eventing, etc.
+///
+/// Most users should leave this set to `auto`. This will automatically detect
+/// scenarios where APIs may not be available (for example `io_uring` on
+/// certain hardened kernels) and fall back to a different API. However, if
+/// you want to force a specific backend for any reason, you can set this
+/// here.
+///
+/// Based on various benchmarks, we haven't found a statistically significant
+/// difference between the backends with regards to memory, CPU, or latency.
+/// The choice of backend is more about compatibility and features.
+///
+/// Available options:
+///
+///   * `auto` - Automatically choose the best backend for the platform
+///     based on available options.
+///   * `epoll` - Use the `epoll` API
+///   * `io_uring` - Use the `io_uring` API
+///
+/// If the selected backend is not available on the platform, Ghostty will
+/// fall back to an automatically chosen backend that is available.
+///
+/// Changing this value requires a full application restart to take effect.
+///
+/// This is only supported on Linux, since this is the only platform
+/// where we have multiple options. On macOS, we always use `kqueue`.
+@"async-backend": AsyncBackend = .auto,
 
 /// Control the auto-update functionality of Ghostty. This is only supported
 /// on macOS currently, since Linux builds are distributed via package
@@ -2394,13 +2479,13 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
     try result.keybind.set.put(
         alloc,
         .{ .key = .{ .translated = .j }, .mods = inputpkg.ctrlOrSuper(.{ .shift = true }) },
-        .{ .write_scrollback_file = .paste },
+        .{ .write_screen_file = .paste },
     );
 
     try result.keybind.set.put(
         alloc,
         .{ .key = .{ .translated = .j }, .mods = inputpkg.ctrlOrSuper(.{ .shift = true, .alt = true }) },
-        .{ .write_scrollback_file = .open },
+        .{ .write_screen_file = .open },
     );
 
     // Expand Selection
@@ -2581,7 +2666,7 @@ pub fn default(alloc_gpa: Allocator) Allocator.Error!Config {
         );
         try result.keybind.set.put(
             alloc,
-            .{ .key = .{ .translated = .equal }, .mods = .{ .super = true, .ctrl = true, .shift = true } },
+            .{ .key = .{ .translated = .plus }, .mods = .{ .super = true, .ctrl = true, .shift = true } },
             .{ .equalize_splits = {} },
         );
 
@@ -4176,6 +4261,7 @@ pub const NonNativeFullscreen = enum(c_int) {
     false,
     true,
     @"visible-menu",
+    @"padded-notch",
 };
 
 /// Valid values for macos-option-as-alt.
@@ -5785,6 +5871,12 @@ pub const MacTitlebarProxyIcon = enum {
     hidden,
 };
 
+/// See macos-hidden
+pub const MacHidden = enum {
+    never,
+    always,
+};
+
 /// See macos-icon
 ///
 /// Note: future versions of Ghostty can support a custom icon with
@@ -5792,6 +5884,14 @@ pub const MacTitlebarProxyIcon = enum {
 /// format at all.
 pub const MacAppIcon = enum {
     official,
+    blueprint,
+    chalkboard,
+    microchip,
+    glass,
+    holographic,
+    paper,
+    retro,
+    xray,
     @"custom-style",
 };
 
@@ -5814,20 +5914,18 @@ pub const GtkSingleInstance = enum {
 pub const GtkTabsLocation = enum {
     top,
     bottom,
-    left,
-    right,
     hidden,
 };
 
-/// See adw-toolbar-style
-pub const AdwToolbarStyle = enum {
+/// See gtk-toolbar-style
+pub const GtkToolbarStyle = enum {
     flat,
     raised,
     @"raised-border",
 };
 
-/// See adw-toast
-pub const AdwToast = packed struct {
+/// See app-notifications
+pub const AppNotifications = packed struct {
     @"clipboard-copy": bool = true,
 };
 
@@ -5905,13 +6003,13 @@ pub const GraphemeWidthMethod = enum {
     unicode,
 };
 
-/// See text-blending
-pub const TextBlending = enum {
+/// See alpha-blending
+pub const AlphaBlending = enum {
     native,
     linear,
     @"linear-corrected",
 
-    pub fn isLinear(self: TextBlending) bool {
+    pub fn isLinear(self: AlphaBlending) bool {
         return switch (self) {
             .native => false,
             .linear, .@"linear-corrected" => true,
@@ -5954,6 +6052,13 @@ pub const LinuxCgroup = enum {
     @"single-instance",
 };
 
+/// See async-backend
+pub const AsyncBackend = enum {
+    auto,
+    epoll,
+    io_uring,
+};
+
 /// See auto-updates
 pub const AutoUpdate = enum {
     off,
@@ -5961,7 +6066,7 @@ pub const AutoUpdate = enum {
     download,
 };
 
-/// See background-blur-radius
+/// See background-blur
 pub const BackgroundBlur = union(enum) {
     false,
     true,

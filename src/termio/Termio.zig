@@ -18,7 +18,7 @@ const Pty = @import("../pty.zig").Pty;
 const StreamHandler = @import("stream_handler.zig").StreamHandler;
 const terminal = @import("../terminal/main.zig");
 const terminfo = @import("../terminfo/main.zig");
-const xev = @import("xev");
+const xev = @import("../global.zig").xev;
 const renderer = @import("../renderer.zig");
 const apprt = @import("../apprt.zig");
 const fastmem = @import("../fastmem.zig");
@@ -220,7 +220,7 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
         .renderer_mailbox = opts.renderer_mailbox,
         .surface_mailbox = opts.surface_mailbox,
         .size = opts.size,
-        .backend = opts.backend,
+        .backend = backend,
         .mailbox = opts.mailbox,
         .terminal_stream = .{
             .handler = handler,

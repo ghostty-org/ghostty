@@ -69,7 +69,10 @@
 		A59FB5CF2AE0DB50009128F3 /* InspectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59FB5CE2AE0DB50009128F3 /* InspectorView.swift */; };
 		A59FB5D12AE0DEA7009128F3 /* MetalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59FB5D02AE0DEA7009128F3 /* MetalView.swift */; };
 		A5A1F8852A489D6800D1E8BC /* terminfo in Resources */ = {isa = PBXBuildFile; fileRef = A5A1F8842A489D6800D1E8BC /* terminfo */; };
+		A5A2A3CA2D4445E30033CF96 /* Dock.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A2A3C92D4445E20033CF96 /* Dock.swift */; };
+		A5A2A3CC2D444ABB0033CF96 /* NSApplication+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A2A3CB2D444AB80033CF96 /* NSApplication+Extension.swift */; };
 		A5A6F72A2CC41B8900B232A5 /* Xcode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A6F7292CC41B8700B232A5 /* Xcode.swift */; };
+		A5AEB1652D5BE7D000513529 /* LastWindowPosition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5AEB1642D5BE7BF00513529 /* LastWindowPosition.swift */; };
 		A5B30539299BEAAB0047F10C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5B30538299BEAAB0047F10C /* Assets.xcassets */; };
 		A5CA378C2D2A4DEB00931030 /* KeyboardLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5CA378B2D2A4DE800931030 /* KeyboardLayout.swift */; };
 		A5CA378E2D31D6C300931030 /* Weak.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5CA378D2D31D6C100931030 /* Weak.swift */; };
@@ -163,7 +166,10 @@
 		A59FB5CE2AE0DB50009128F3 /* InspectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorView.swift; sourceTree = "<group>"; };
 		A59FB5D02AE0DEA7009128F3 /* MetalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalView.swift; sourceTree = "<group>"; };
 		A5A1F8842A489D6800D1E8BC /* terminfo */ = {isa = PBXFileReference; lastKnownFileType = folder; name = terminfo; path = "../zig-out/share/terminfo"; sourceTree = "<group>"; };
+		A5A2A3C92D4445E20033CF96 /* Dock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dock.swift; sourceTree = "<group>"; };
+		A5A2A3CB2D444AB80033CF96 /* NSApplication+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSApplication+Extension.swift"; sourceTree = "<group>"; };
 		A5A6F7292CC41B8700B232A5 /* Xcode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Xcode.swift; sourceTree = "<group>"; };
+		A5AEB1642D5BE7BF00513529 /* LastWindowPosition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastWindowPosition.swift; sourceTree = "<group>"; };
 		A5B30531299BEAAA0047F10C /* Ghostty.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Ghostty.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A5B30538299BEAAB0047F10C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A5B3053D299BEAAB0047F10C /* Ghostty.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Ghostty.entitlements; sourceTree = "<group>"; };
@@ -266,11 +272,13 @@
 		A534263D2A7DCBB000EBB7A2 /* Helpers */ = {
 			isa = PBXGroup;
 			children = (
+				A5AEB1642D5BE7BF00513529 /* LastWindowPosition.swift */,
 				A5A6F7292CC41B8700B232A5 /* Xcode.swift */,
 				A5CEAFFE29C2410700646FDA /* Backport.swift */,
 				A5333E1B2B5A1CE3008AEFF7 /* CrossKit.swift */,
 				A5CBD0572C9F30860017A1AE /* Cursor.swift */,
 				A5D0AF3C2B37804400D21823 /* CodableBridge.swift */,
+				A5A2A3C92D4445E20033CF96 /* Dock.swift */,
 				A52FFF582CAA4FF1000C6A5B /* Fullscreen.swift */,
 				A59630962AEE163600D64628 /* HostingWindow.swift */,
 				A5CA378B2D2A4DE800931030 /* KeyboardLayout.swift */,
@@ -278,6 +286,7 @@
 				A5CBD0552C9E65A50017A1AE /* DraggableWindowView.swift */,
 				C159E81C2B66A06B00FDFE9C /* OSColor+Extension.swift */,
 				A599CDAF2CF103F20049FA26 /* NSAppearance+Extension.swift */,
+				A5A2A3CB2D444AB80033CF96 /* NSApplication+Extension.swift */,
 				A54B0CEA2D0CFB4A00CBEFF8 /* NSImage+Extension.swift */,
 				A52FFF5C2CAB4D05000C6A5B /* NSScreen+Extension.swift */,
 				C1F26EA62B738B9900404083 /* NSView+Extension.swift */,
@@ -617,6 +626,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A5AEB1652D5BE7D000513529 /* LastWindowPosition.swift in Sources */,
 				A59630A42AF059BB00D64628 /* Ghostty.SplitNode.swift in Sources */,
 				A514C8D62B54A16400493A16 /* Ghostty.Config.swift in Sources */,
 				A54B0CEB2D0CFB4C00CBEFF8 /* NSImage+Extension.swift in Sources */,
@@ -635,6 +645,7 @@
 				A5CBD0602CA0C90A0017A1AE /* QuickTerminalWindow.swift in Sources */,
 				A5CBD05E2CA0C5EC0017A1AE /* QuickTerminalController.swift in Sources */,
 				A5CF66D72D29DDB500139794 /* Ghostty.Event.swift in Sources */,
+				A5A2A3CA2D4445E30033CF96 /* Dock.swift in Sources */,
 				A51BFC222B2FB6B400E92F16 /* AboutView.swift in Sources */,
 				A5278A9B2AA05B2600CD3039 /* Ghostty.Input.swift in Sources */,
 				A5CBD0562C9E65B80017A1AE /* DraggableWindowView.swift in Sources */,
@@ -657,6 +668,7 @@
 				A59444F729A2ED5200725BBA /* SettingsView.swift in Sources */,
 				A56D58862ACDDB4100508D2C /* Ghostty.Shell.swift in Sources */,
 				A5985CD72C320C4500C57AD3 /* String+Extension.swift in Sources */,
+				A5A2A3CC2D444ABB0033CF96 /* NSApplication+Extension.swift in Sources */,
 				A59630A22AF0415000D64628 /* Ghostty.TerminalSplit.swift in Sources */,
 				A5FEB3002ABB69450068369E /* main.swift in Sources */,
 				A55B7BB829B6F53A0055DE60 /* Package.swift in Sources */,

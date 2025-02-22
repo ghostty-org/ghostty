@@ -10,6 +10,7 @@ pub const GitVersion = @import("GitVersion.zig");
 pub const GhosttyBench = @import("GhosttyBench.zig");
 pub const GhosttyDocs = @import("GhosttyDocs.zig");
 pub const GhosttyExe = @import("GhosttyExe.zig");
+pub const GhosttyFrameData = @import("GhosttyFrameData.zig");
 pub const GhosttyLib = @import("GhosttyLib.zig");
 pub const GhosttyResources = @import("GhosttyResources.zig");
 pub const GhosttyXCFramework = @import("GhosttyXCFramework.zig");

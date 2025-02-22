@@ -3,8 +3,9 @@
     .version = "14.2.0",
     .paths = .{""},
     .dependencies = .{
+        // KhronosGroup/glslang
         .glslang = .{
-            .url = "https://github.com/KhronosGroup/glslang/archive/refs/tags/14.2.0.tar.gz",
+            .url = "https://deps.files.ghostty.org/glslang-12201278a1a05c0ce0b6eb6026c65cd3e9247aa041b1c260324bf29cee559dd23ba1.tar.gz",
             .hash = "12201278a1a05c0ce0b6eb6026c65cd3e9247aa041b1c260324bf29cee559dd23ba1",
         },
 

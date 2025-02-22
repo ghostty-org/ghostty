@@ -13,7 +13,6 @@ const macos = @import("macos");
 const oni = @import("oniguruma");
 const cli = @import("cli.zig");
 const internal_os = @import("os/main.zig");
-const xev = @import("xev");
 const fontconfig = @import("fontconfig");
 const harfbuzz = @import("harfbuzz");
 const renderer = @import("renderer.zig");

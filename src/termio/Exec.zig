@@ -9,7 +9,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const posix = std.posix;
-const xev = @import("xev");
+const xev = @import("../global.zig").xev;
 const build_config = @import("../build_config.zig");
 const configpkg = @import("../config.zig");
 const crash = @import("../crash/main.zig");
@@ -179,8 +179,17 @@ pub fn threadExit(self: *Exec, td: *termio.Termio.ThreadData) void {
     // Quit our read thread after exiting the subprocess so that
     // we don't get stuck waiting for data to stop flowing if it is
     // a particularly noisy process.
-    _ = posix.write(exec.read_thread_pipe, "x") catch |err|
-        log.warn("error writing to read thread quit pipe err={}", .{err});
+    _ = posix.write(exec.read_thread_pipe, "x") catch |err| switch (err) {
+        // BrokenPipe means that our read thread is closed already,
+        // which is completely fine since that is what we were trying
+        // to achieve.
+        error.BrokenPipe => {},
+
+        else => log.warn(
+            "error writing to read thread quit pipe err={}",
+            .{err},
+        ),
+    };
 
     if (comptime builtin.os.tag == .windows) {
         // Interrupt the blocking read so the thread can see the quit message
@@ -580,7 +589,7 @@ fn ttyWrite(
     _: *xev.Completion,
     _: xev.Stream,
     _: xev.WriteBuffer,
-    r: xev.Stream.WriteError!usize,
+    r: xev.WriteError!usize,
 ) xev.CallbackAction {
     const td = td_.?;
     td.write_req_pool.put();
@@ -625,13 +634,13 @@ pub const ThreadData = struct {
 
     /// This is the pool of available (unused) write requests. If you grab
     /// one from the pool, you must put it back when you're done!
-    write_req_pool: SegmentedPool(xev.Stream.WriteRequest, WRITE_REQ_PREALLOC) = .{},
+    write_req_pool: SegmentedPool(xev.WriteRequest, WRITE_REQ_PREALLOC) = .{},
 
     /// The pool of available buffers for writing to the pty.
     write_buf_pool: SegmentedPool([64]u8, WRITE_REQ_PREALLOC) = .{},
 
     /// The write queue for the data stream.
-    write_queue: xev.Stream.WriteQueue = .{},
+    write_queue: xev.WriteQueue = .{},
 
     /// This is used for both waiting for the process to exit and then
     /// subsequently to wait for the data_stream to close.
@@ -673,6 +682,8 @@ pub const ThreadData = struct {
 
 pub const Config = struct {
     command: ?[]const u8 = null,
+    env: EnvMap,
+    env_override: configpkg.RepeatableStringMap = .{},
     shell_integration: configpkg.Config.ShellIntegration = .detect,
     shell_integration_features: configpkg.Config.ShellIntegrationFeatures = .{},
     working_directory: ?[]const u8 = null,
@@ -694,7 +705,7 @@ const Subprocess = struct {
 
     arena: std.heap.ArenaAllocator,
     cwd: ?[]const u8,
-    env: EnvMap,
+    env: ?EnvMap,
     args: [][]const u8,
     grid_size: renderer.GridSize,
     screen_size: renderer.ScreenSize,
@@ -712,19 +723,9 @@ const Subprocess = struct {
         errdefer arena.deinit();
         const alloc = arena.allocator();
 
-        // Set our env vars. For Flatpak builds running in Flatpak we don't
-        // inherit our environment because the login shell on the host side
-        // will get it.
-        var env = env: {
-            if (comptime build_config.flatpak) {
-                if (internal_os.isFlatpak()) {
-                    break :env std.process.EnvMap.init(alloc);
-                }
-            }
-
-            break :env try std.process.getEnvMap(alloc);
-        };
-        errdefer env.deinit();
+        // Get our env. If a default env isn't provided by the caller
+        // then we get it ourselves.
+        var env = cfg.env;
 
         // If we have a resources dir then set our env var
         if (cfg.resources_dir) |dir| {
@@ -838,34 +839,10 @@ const Subprocess = struct {
         try env.put("TERM_PROGRAM", "ghostty");
         try env.put("TERM_PROGRAM_VERSION", build_config.version_string);
 
-        // When embedding in macOS and running via XCode, XCode injects
-        // a bunch of things that break our shell process. We remove those.
-        if (comptime builtin.target.isDarwin() and build_config.artifact == .lib) {
-            if (env.get("__XCODE_BUILT_PRODUCTS_DIR_PATHS") != null) {
-                env.remove("__XCODE_BUILT_PRODUCTS_DIR_PATHS");
-                env.remove("__XPC_DYLD_LIBRARY_PATH");
-                env.remove("DYLD_FRAMEWORK_PATH");
-                env.remove("DYLD_INSERT_LIBRARIES");
-                env.remove("DYLD_LIBRARY_PATH");
-                env.remove("LD_LIBRARY_PATH");
-                env.remove("SECURITYSESSIONID");
-                env.remove("XPC_SERVICE_NAME");
-            }
-
-            // Remove this so that running `ghostty` within Ghostty works.
-            env.remove("GHOSTTY_MAC_APP");
-        }
-
         // VTE_VERSION is set by gnome-terminal and other VTE-based terminals.
         // We don't want our child processes to think we're running under VTE.
+        // This is not apprt-specific, so we do it here.
         env.remove("VTE_VERSION");
-
-        // Don't leak these GTK environment variables to child processes.
-        if (comptime build_config.app_runtime == .gtk) {
-            env.remove("GDK_DEBUG");
-            env.remove("GDK_DISABLE");
-            env.remove("GSK_RENDERER");
-        }
 
         // Setup our shell integration, if we can.
         const integrated_shell: ?shell_integration.Shell, const shell_command: []const u8 = shell: {
@@ -875,7 +852,11 @@ const Subprocess = struct {
             };
 
             const force: ?shell_integration.Shell = switch (cfg.shell_integration) {
-                .none => break :shell .{ null, default_shell_command },
+                .none => {
+                    // Even if shell integration is none, we still want to set up the feature env vars
+                    try shell_integration.setupFeatures(&env, cfg.shell_integration_features);
+                    break :shell .{ null, default_shell_command };
+                },
                 .detect => null,
                 .bash => .bash,
                 .elvish => .elvish,
@@ -907,6 +888,15 @@ const Subprocess = struct {
             );
         } else if (cfg.shell_integration != .none) {
             log.warn("shell could not be detected, no automatic shell integration will be injected", .{});
+        }
+
+        // Add the environment variables that override any others.
+        {
+            var it = cfg.env_override.iterator();
+            while (it.next()) |entry| try env.put(
+                entry.key_ptr.*,
+                entry.value_ptr.*,
+            );
         }
 
         // Build our args list
@@ -971,12 +961,12 @@ const Subprocess = struct {
                 // which we may not want. If we specify "-l" then we can avoid
                 // this behavior but now the shell isn't a login shell.
                 //
-                // There is another issue: `login(1)` only checks for ".hushlogin"
-                // in the working directory. This means that if we specify "-l"
-                // then we won't get hushlogin honored if its in the home
-                // directory (which is standard). To get around this, we
-                // check for hushlogin ourselves and if present specify the
-                // "-q" flag to login(1).
+                // There is another issue: `login(1)` on macOS 14.3 and earlier
+                // checked for ".hushlogin" in the working directory. This means
+                // that if we specify "-l" then we won't get hushlogin honored
+                // if its in the home directory (which is standard). To get
+                // around this, we check for hushlogin ourselves and if present
+                // specify the "-q" flag to login(1).
                 //
                 // So to get all the behaviors we want, we specify "-l" but
                 // execute "bash" (which is built-in to macOS). We then use
@@ -1073,6 +1063,7 @@ const Subprocess = struct {
     pub fn deinit(self: *Subprocess) void {
         self.stop();
         if (self.pty) |*pty| pty.deinit();
+        if (self.env) |*env| env.deinit();
         self.arena.deinit();
         self.* = undefined;
     }
@@ -1094,6 +1085,10 @@ const Subprocess = struct {
         });
         self.pty = pty;
         errdefer {
+            if (comptime builtin.os.tag != .windows) {
+                _ = posix.close(pty.slave);
+            }
+
             pty.deinit();
             self.pty = null;
         }
@@ -1151,7 +1146,7 @@ const Subprocess = struct {
         var cmd: Command = .{
             .path = self.args[0],
             .args = self.args,
-            .env = &self.env,
+            .env = if (self.env) |*env| env else null,
             .cwd = cwd,
             .stdin = if (builtin.os.tag == .windows) null else .{ .handle = pty.slave },
             .stdout = if (builtin.os.tag == .windows) null else .{ .handle = pty.slave },
@@ -1176,6 +1171,19 @@ const Subprocess = struct {
         log.info("started subcommand path={s} pid={?}", .{ self.args[0], cmd.pid });
         if (comptime builtin.os.tag == .linux) {
             log.info("subcommand cgroup={s}", .{self.linux_cgroup orelse "-"});
+        }
+
+        if (comptime builtin.os.tag != .windows) {
+            // Once our subcommand is started we can close the slave
+            // side. This prevents the slave fd from being leaked to
+            // future children.
+            _ = posix.close(pty.slave);
+        }
+
+        // Successful start we can clear out some memory.
+        if (self.env) |*env| {
+            env.deinit();
+            self.env = null;
         }
 
         self.command = cmd;
@@ -1450,6 +1458,13 @@ pub const ReadThread = struct {
             // If our quit fd is set, we're done.
             if (pollfds[1].revents & posix.POLL.IN != 0) {
                 log.info("read thread got quit signal", .{});
+                return;
+            }
+
+            // If our pty fd is closed, then we're also done with our
+            // read thread.
+            if (pollfds[0].revents & posix.POLL.HUP != 0) {
+                log.info("pty fd closed, read thread exiting", .{});
                 return;
             }
         }

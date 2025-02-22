@@ -131,7 +131,9 @@ pub fn get(cp: u21) Properties {
 
 /// Runnable binary to generate the lookup tables and output to stdout.
 pub fn main() !void {
-    const alloc = std.heap.c_allocator;
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const alloc = arena_state.allocator();
 
     const gen: lut.Generator(
         Properties,

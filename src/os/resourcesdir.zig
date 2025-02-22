@@ -21,7 +21,11 @@ pub fn resourcesDir(alloc: std.mem.Allocator) !?[]const u8 {
 
     // This is the sentinel value we look for in the path to know
     // we've found the resources directory.
-    const sentinel = "terminfo/ghostty.termcap";
+    const sentinel = switch (comptime builtin.target.os.tag) {
+        .windows => "terminfo/ghostty.terminfo",
+        .macos => "terminfo/78/xterm-ghostty",
+        else => "terminfo/x/xterm-ghostty",
+    };
 
     // Get the path to our running binary
     var exe_buf: [std.fs.max_path_bytes]u8 = undefined;

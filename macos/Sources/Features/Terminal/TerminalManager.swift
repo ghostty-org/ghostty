@@ -86,7 +86,7 @@ class TerminalManager {
                 // fullscreen for the logic later in this method.
                 c.toggleFullscreen(mode: .native)
 
-            case .nonNative, .nonNativeVisibleMenu:
+            case .nonNative, .nonNativeVisibleMenu, .nonNativePaddedNotch:
                 // If we're non-native then we have to do it on a later loop
                 // so that the content view is setup.
                 DispatchQueue.main.async {
@@ -95,11 +95,8 @@ class TerminalManager {
             }
         }
 
-        // If our app isn't active, we make it active. All new_window actions
-        // force our app to be active.
-        if !NSApp.isActive {
-            NSApp.activate(ignoringOtherApps: true)
-        }
+        // All new_window actions force our app to be active.
+        NSApp.activate(ignoringOtherApps: true)
 
         // We're dispatching this async because otherwise the lastCascadePoint doesn't
         // take effect. Our best theory is there is some next-event-loop-tick logic

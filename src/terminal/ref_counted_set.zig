@@ -38,8 +38,14 @@ const fastmem = @import("../fastmem.zig");
 ///
 /// `Context`
 ///   A type containing methods to define behaviors.
+///
 ///   - `fn hash(*Context, T) u64`    - Return a hash for an item.
+///
 ///   - `fn eql(*Context, T, T) bool` - Check two items for equality.
+///     The first of the two items passed in is guaranteed to be from
+///     a value passed in to an `add` or `lookup` function, the second
+///     is guaranteed to be a value already resident in the set.
+///
 ///   - `fn deleted(*Context, T) void` - [OPTIONAL] Deletion callback.
 ///     If present, called whenever an item is finally deleted.
 ///     Useful if the item has memory that needs to be freed.

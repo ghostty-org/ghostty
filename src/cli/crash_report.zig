@@ -53,7 +53,7 @@ pub fn run(alloc_gpa: Allocator) !u8 {
     // print a message, otherwise we do nothing.
     if (reports.items.len == 0) {
         if (std.posix.isatty(stdout.handle)) {
-            try stdout.writeAll("No crash reports! 👻");
+            try stdout.writeAll("No crash reports! 👻\n");
         }
         return 0;
     }

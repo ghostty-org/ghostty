@@ -158,8 +158,12 @@ pub const Action = union(Key) {
     /// Show a desktop notification.
     desktop_notification: DesktopNotification,
 
-    /// Set the title of the target.
+    /// Set the title of the target to the requested value.
     set_title: SetTitle,
+
+    /// Set the title of the target to a prompted value. It is up to
+    /// the apprt to prompt.
+    prompt_title,
 
     /// The current working directory has changed for the target terminal.
     pwd: Pwd,
@@ -254,6 +258,7 @@ pub const Action = union(Key) {
         render_inspector,
         desktop_notification,
         set_title,
+        prompt_title,
         pwd,
         mouse_shape,
         mouse_visibility,
@@ -385,6 +390,7 @@ pub const Fullscreen = enum(c_int) {
     /// window. This is much faster to enter and exit than the native mode.
     macos_non_native,
     macos_non_native_visible_menu,
+    macos_non_native_padded_notch,
 };
 
 pub const SecureInput = enum(c_int) {

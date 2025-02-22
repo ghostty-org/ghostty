@@ -22,7 +22,7 @@ class TerminalController: BaseTerminalController {
     private var restorable: Bool = true
 
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
-    private var derivedConfig: DerivedConfig
+    private(set) var derivedConfig: DerivedConfig
 
     /// The notification cancellable for focused surface property changes.
     private var surfaceAppearanceCancellables: Set<AnyCancellable> = []
@@ -212,6 +212,9 @@ class TerminalController: BaseTerminalController {
         // Set our explicit appearance if we need to based on the configuration.
         window.appearance = surfaceConfig.windowAppearance
 
+        // Update our window light/darkness based on our updated background color
+        window.isLightTheme = OSColor(surfaceConfig.backgroundColor).isLightColor
+
         // If our window is not visible, then we do nothing. Some things such as blurring
         // have no effect if the window is not visible. Ultimately, we'll have this called
         // at some point when a surface becomes focused.
@@ -283,9 +286,12 @@ class TerminalController: BaseTerminalController {
     private func setInitialWindowPosition(x: Int16?, y: Int16?, windowDecorations: Bool) {
         guard let window else { return }
 
-        // If we don't have both an X and Y we center.
+        // If we don't have an X/Y then we try to use the previously saved window pos.
         guard let x, let y else {
-            window.center()
+            if (!LastWindowPosition.shared.restore(window)) {
+                window.center()
+            }
+
             return
         }
 
@@ -315,28 +321,28 @@ class TerminalController: BaseTerminalController {
         window.styleMask = [
             // We need `titled` in the mask to get the normal window frame
             .titled,
-            
+
             // Full size content view so we can extend
             // content in to the hidden titlebar's area
-                .fullSizeContentView,
-            
-                .resizable,
+            .fullSizeContentView,
+
+            .resizable,
             .closable,
             .miniaturizable,
         ]
-        
+
         // Hide the title
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
-        
+
         // Hide the traffic lights (window control buttons)
         window.standardWindowButton(.closeButton)?.isHidden = true
         window.standardWindowButton(.miniaturizeButton)?.isHidden = true
         window.standardWindowButton(.zoomButton)?.isHidden = true
-        
+
         // Disallow tabbing if the titlebar is hidden, since that will (should) also hide the tab bar.
         window.tabbingMode = .disallowed
-        
+
         // Nuke it from orbit -- hide the titlebar container entirely, just in case. There are
         // some operations that appear to bring back the titlebar visibility so this ensures
         // it is gone forever.
@@ -345,7 +351,7 @@ class TerminalController: BaseTerminalController {
             titleBarContainer.isHidden = true
         }
     }
-    
+
     override func windowDidLoad() {
         super.windowDidLoad()
         guard let window = window as? TerminalWindow else { return }
@@ -490,6 +496,20 @@ class TerminalController: BaseTerminalController {
     override func windowDidMove(_ notification: Notification) {
         super.windowDidMove(notification)
         self.fixTabBar()
+
+        // Whenever we move save our last position for the next start.
+        if let window {
+            LastWindowPosition.shared.save(window)
+        }
+    }
+
+    func windowDidBecomeMain(_ notification: Notification) {
+        // Whenever we get focused, use that as our last window position for
+        // restart. This differs from Terminal.app but matches iTerm2 behavior
+        // and I think its sensible.
+        if let window {
+            LastWindowPosition.shared.save(window)
+        }
     }
 
     // Called when the window will be encoded. We handle the data encoding here in the
@@ -692,13 +712,21 @@ class TerminalController: BaseTerminalController {
         // If our index is the same we do nothing
         guard finalIndex != selectedIndex else { return }
 
-        // Get our parent
-        let parent = tabbedWindows[finalIndex]
+        // Get our target window
+        let targetWindow = tabbedWindows[finalIndex]
 
-        // Move our current selected window to the proper index
+        // Begin a group of window operations to minimize visual updates
+        NSAnimationContext.beginGrouping()
+        NSAnimationContext.current.duration = 0
+
+        // Remove and re-add the window in the correct position
         tabGroup.removeWindow(selectedWindow)
-        parent.addTabbedWindow(selectedWindow, ordered: action.amount < 0 ? .below : .above)
-        selectedWindow.makeKeyAndOrderFront(nil)
+        targetWindow.addTabbedWindow(selectedWindow, ordered: action.amount < 0 ? .below : .above)
+
+        // Ensure our window remains selected
+        selectedWindow.makeKey()
+
+        NSAnimationContext.endGrouping()
     }
 
     @objc private func onGotoTab(notification: SwiftUI.Notification) {
@@ -776,7 +804,7 @@ class TerminalController: BaseTerminalController {
         toggleFullscreen(mode: fullscreenMode)
     }
 
-    private struct DerivedConfig {
+    struct DerivedConfig {
         let backgroundColor: Color
         let macosTitlebarStyle: String
 

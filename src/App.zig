@@ -161,7 +161,7 @@ pub fn updateConfig(self: *App, rt_app: *apprt.App, config: *const Config) !void
     const applied: *const configpkg.Config = if (applied_) |*c| c else config;
 
     // Notify the apprt that the app has changed configuration.
-    try rt_app.performAction(
+    _ = try rt_app.performAction(
         .app,
         .config_change,
         .{ .config = applied },
@@ -180,7 +180,7 @@ pub fn addSurface(
     // Since we have non-zero surfaces, we can cancel the quit timer.
     // It is up to the apprt if there is a quit timer at all and if it
     // should be canceled.
-    rt_surface.app.performAction(
+    _ = rt_surface.app.performAction(
         .app,
         .quit_timer,
         .stop,
@@ -214,7 +214,7 @@ pub fn deleteSurface(self: *App, rt_surface: *apprt.Surface) void {
 
     // If we have no surfaces, we can start the quit timer. It is up to the
     // apprt to determine if this is necessary.
-    if (self.surfaces.items.len == 0) rt_surface.app.performAction(
+    if (self.surfaces.items.len == 0) _ = rt_surface.app.performAction(
         .app,
         .quit_timer,
         .start,
@@ -294,7 +294,7 @@ pub fn newWindow(self: *App, rt_app: *apprt.App, msg: Message.NewWindow) !void {
         break :target .app;
     };
 
-    try rt_app.performAction(
+    _ = try rt_app.performAction(
         target,
         .new_window,
         {},
@@ -419,7 +419,7 @@ pub fn colorSchemeEvent(
 
     // Request our configuration be reloaded because the new scheme may
     // impact the colors of the app.
-    try rt_app.performAction(
+    _ = try rt_app.performAction(
         .app,
         .reload_config,
         .{ .soft = true },
@@ -437,13 +437,13 @@ pub fn performAction(
     switch (action) {
         .unbind => unreachable,
         .ignore => {},
-        .quit => try rt_app.performAction(.app, .quit, {}),
-        .new_window => try self.newWindow(rt_app, .{ .parent = null }),
-        .open_config => try rt_app.performAction(.app, .open_config, {}),
-        .reload_config => try rt_app.performAction(.app, .reload_config, .{}),
-        .close_all_windows => try rt_app.performAction(.app, .close_all_windows, {}),
-        .toggle_quick_terminal => try rt_app.performAction(.app, .toggle_quick_terminal, {}),
-        .toggle_visibility => try rt_app.performAction(.app, .toggle_visibility, {}),
+        .quit => _ = try rt_app.performAction(.app, .quit, {}),
+        .new_window => _ = try self.newWindow(rt_app, .{ .parent = null }),
+        .open_config => _ = try rt_app.performAction(.app, .open_config, {}),
+        .reload_config => _ = try rt_app.performAction(.app, .reload_config, .{}),
+        .close_all_windows => _ = try rt_app.performAction(.app, .close_all_windows, {}),
+        .toggle_quick_terminal => _ = try rt_app.performAction(.app, .toggle_quick_terminal, {}),
+        .toggle_visibility => _ = try rt_app.performAction(.app, .toggle_visibility, {}),
     }
 }
 

@@ -2,6 +2,17 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const posix = std.posix;
+const isFlatpak = @import("flatpak.zig").isFlatpak;
+
+pub const Error = Allocator.Error;
+
+/// Get the environment map.
+pub fn getEnvMap(alloc: Allocator) !std.process.EnvMap {
+    return if (isFlatpak())
+        std.process.EnvMap.init(alloc)
+    else
+        try std.process.getEnvMap(alloc);
+}
 
 /// Append a value to an environment variable such as PATH.
 /// The returned value is always allocated so it must be freed.
@@ -9,7 +20,7 @@ pub fn appendEnv(
     alloc: Allocator,
     current: []const u8,
     value: []const u8,
-) ![]u8 {
+) Error![]u8 {
     // If there is no prior value, we return it as-is
     if (current.len == 0) return try alloc.dupe(u8, value);
 
@@ -26,7 +37,7 @@ pub fn appendEnvAlways(
     alloc: Allocator,
     current: []const u8,
     value: []const u8,
-) ![]u8 {
+) Error![]u8 {
     return try std.fmt.allocPrint(alloc, "{s}{c}{s}", .{
         current,
         std.fs.path.delimiter,
@@ -40,7 +51,7 @@ pub fn prependEnv(
     alloc: Allocator,
     current: []const u8,
     value: []const u8,
-) ![]u8 {
+) Error![]u8 {
     // If there is no prior value, we return it as-is
     if (current.len == 0) return try alloc.dupe(u8, value);
 
@@ -68,7 +79,7 @@ pub const GetEnvResult = struct {
 /// This will allocate on Windows but not on other platforms. The returned
 /// value should have deinit called to do the proper cleanup no matter what
 /// platform you are on.
-pub fn getenv(alloc: Allocator, key: []const u8) !?GetEnvResult {
+pub fn getenv(alloc: Allocator, key: []const u8) Error!?GetEnvResult {
     return switch (builtin.os.tag) {
         // Non-Windows doesn't need to allocate
         else => if (posix.getenv(key)) |v| .{ .value = v } else null,
@@ -78,7 +89,8 @@ pub fn getenv(alloc: Allocator, key: []const u8) !?GetEnvResult {
             .value = v,
         } else |err| switch (err) {
             error.EnvironmentVariableNotFound => null,
-            else => err,
+            error.InvalidWtf8 => null,
+            else => |e| e,
         },
     };
 }

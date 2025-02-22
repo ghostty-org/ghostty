@@ -6,6 +6,7 @@ enum FullscreenMode {
     case native
     case nonNative
     case nonNativeVisibleMenu
+    case nonNativePaddedNotch
 
     /// Initializes the fullscreen style implementation for the mode. This will not toggle any
     /// fullscreen properties. This may fail if the window isn't configured properly for a given
@@ -20,6 +21,9 @@ enum FullscreenMode {
 
         case  .nonNativeVisibleMenu:
             return NonNativeFullscreenVisibleMenu(window)
+
+        case .nonNativePaddedNotch:
+            return NonNativeFullscreenPaddedNotch(window)
         }
     }
 }
@@ -141,6 +145,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
 
     struct Properties {
         var hideMenu: Bool = true
+        var paddedNotch: Bool = false
     }
 
     private var savedState: SavedState?
@@ -278,6 +283,9 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
             // put an #available check, but it was in a bug fix release so I think
             // if a bug is reported to Ghostty we can just advise the user to
             // update.
+        } else if (properties.paddedNotch) {
+            // We are hiding the menu, we may need to avoid the notch.
+            frame.size.height -= screen.safeAreaInsets.top
         }
 
         return frame
@@ -307,21 +315,21 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
     // MARK: Dock
 
     private func hideDock() {
-        NSApp.presentationOptions.insert(.autoHideDock)
+        NSApp.acquirePresentationOption(.autoHideDock)
     }
 
     private func unhideDock() {
-        NSApp.presentationOptions.remove(.autoHideDock)
+        NSApp.releasePresentationOption(.autoHideDock)
     }
 
     // MARK: Menu
 
     func hideMenu() {
-        NSApp.presentationOptions.insert(.autoHideMenuBar)
+        NSApp.acquirePresentationOption(.autoHideMenuBar)
     }
 
     func unhideMenu() {
-        NSApp.presentationOptions.remove(.autoHideMenuBar)
+        NSApp.releasePresentationOption(.autoHideMenuBar)
     }
 
     /// The state that must be saved for non-native fullscreen to exit fullscreen.
@@ -348,4 +356,8 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
 
 class NonNativeFullscreenVisibleMenu: NonNativeFullscreen {
     override var properties: Properties { Properties(hideMenu: false) }
+}
+
+class NonNativeFullscreenPaddedNotch: NonNativeFullscreen {
+    override var properties: Properties { Properties(paddedNotch: true) }
 }

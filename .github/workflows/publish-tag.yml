@@ -1,0 +1,74 @@
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to deploy (format: vX.Y.Z)"
+        required: true
+
+name: Publish Tagged Release
+
+# We must only run one release workflow at a time to prevent corrupting
+# our release artifacts.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  setup:
+    runs-on: namespace-profile-ghostty-sm
+    outputs:
+      version: ${{ steps.extract_version.outputs.version }}
+    steps:
+      - name: Validate Version Input
+        run: |
+          if [[ ! "${{ github.event.inputs.version }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: Version must follow the format vX.Y.Z (e.g., v1.0.0)."
+            exit 1
+          fi
+
+          echo "Version is valid: ${{ github.event.inputs.version }}"
+
+      - name: Exract the Version
+        id: extract_version
+        run: |
+          VERSION=${{ github.event.inputs.version }}
+          VERSION=${VERSION#v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+  upload:
+    needs: [setup]
+    runs-on: namespace-profile-ghostty-sm
+    env:
+      GHOSTTY_VERSION: ${{ needs.setup.outputs.version }}
+    steps:
+      - name: Validate Release Files
+        run: |
+          BASE="https://release.files.ghostty.org/${GHOSTTY_VERSION}"
+          curl -I -s -o /dev/null -w "%{http_code}" "${BASE}/ghostty-${GHOSTTY_VERSION}.tar.gz" | grep -q "^200$" || exit 1
+          curl -I -s -o /dev/null -w "%{http_code}" "${BASE}/ghostty-${GHOSTTY_VERSION}.tar.gz.minisig" | grep -q "^200$" || exit 1
+          curl -I -s -o /dev/null -w "%{http_code}" "${BASE}/ghostty-source.tar.gz" | grep -q "^200$" || exit 1
+          curl -I -s -o /dev/null -w "%{http_code}" "${BASE}/ghostty-source.tar.gz.minisig" | grep -q "^200$" || exit 1
+          curl -I -s -o /dev/null -w "%{http_code}" "${BASE}/ghostty-macos-universal.zip" | grep -q "^200$" || exit 1
+          curl -I -s -o /dev/null -w "%{http_code}" "${BASE}/ghostty-macos-universal-dsym.zip" | grep -q "^200$" || exit 1
+          curl -I -s -o /dev/null -w "%{http_code}" "${BASE}/Ghostty.dmg" | grep -q "^200$" || exit 1
+          curl -I -s -o /dev/null -w "%{http_code}" "${BASE}/appcast-staged.xml" | grep -q "^200$" || exit 1
+
+      - name: Download Staged Appcast
+        run: |
+          curl -L https://release.files.ghostty.org/${GHOSTTY_VERSION}/appcast-staged.xml > appcast-staged.xml
+          mv appcast-staged.xml appcast.xml
+
+      - name: Upload Appcast
+        run: |
+          rm -rf blob
+          mkdir blob
+          mv appcast.xml blob/appcast.xml
+      - name: Upload Appcast to R2
+        uses: ryand56/r2-upload-action@latest
+        with:
+          r2-account-id: ${{ secrets.CF_R2_RELEASE_ACCOUNT_ID }}
+          r2-access-key-id: ${{ secrets.CF_R2_RELEASE_AWS_KEY }}
+          r2-secret-access-key: ${{ secrets.CF_R2_RELEASE_SECRET_KEY }}
+          r2-bucket: ghostty-release
+          source-dir: blob
+          destination-dir: ./

@@ -313,11 +313,7 @@ pub fn directionMap(self: *const Split, from: Side) DirectionMap {
     if (self.directionPrevious(from)) |prev| {
         result.put(.previous, prev.surface);
         if (!prev.wrapped) {
-            // This behavior matches the behavior of macOS at the time of writing
-            // this. There is an open issue (#524) to make this depend on the
-            // actual physical location of the current split.
             result.put(.up, prev.surface);
-            result.put(.left, prev.surface);
         }
     }
 
@@ -325,12 +321,56 @@ pub fn directionMap(self: *const Split, from: Side) DirectionMap {
         result.put(.next, next.surface);
         if (!next.wrapped) {
             result.put(.down, next.surface);
-            result.put(.right, next.surface);
         }
+    }
+
+    if (self.directionLeft(from)) |left| {
+        result.put(.left, left);
+    }
+
+    if (self.directionRight(from)) |right| {
+        result.put(.right, right);
     }
 
     return result;
 }
+
+fn directionLeft(self: *const Split, from: Side) ?*Surface {
+    switch (from) {
+        .bottom_right => {
+            switch (self.orientation) {
+                .horizontal => return self.top_left.deepestSurface(.bottom_right),
+                .vertical => return directionLeft(
+                    self.container.split() orelse return null,
+                    .bottom_right,
+                ),
+            }
+        },
+        .top_left => return directionLeft(
+            self.container.split() orelse return null,
+            .bottom_right,
+        ),
+    }
+}
+
+fn directionRight(self: *const Split, from: Side) ?*Surface {
+    switch (from) {
+        .top_left => {
+            switch (self.orientation) {
+                .horizontal => return self.bottom_right.deepestSurface(.top_left),
+                .vertical => return directionRight(
+                    self.container.split() orelse return null,
+                    .top_left,
+                ),
+            }
+        },
+        .bottom_right => return directionRight(
+            self.container.split() orelse return null,
+            .top_left,
+        ),
+    }
+}
+
 
 fn directionPrevious(self: *const Split, from: Side) ?struct {
     surface: *Surface,

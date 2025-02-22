@@ -272,6 +272,9 @@ pub const Parser = struct {
     // Maximum length of a single OSC command. This is the full OSC command
     // sequence length (excluding ESC ]). This is arbitrary, I couldn't find
     // any definitive resource on how long this should be.
+    //
+    // NOTE: This does mean certain OSC sequences such as OSC 8 (hyperlinks)
+    //       won't work if their parameters are larger than fit in the buffer.
     const MAX_BUF = 2048;
 
     pub const State = enum {
@@ -425,9 +428,23 @@ pub const Parser = struct {
 
     /// Consume the next character c and advance the parser state.
     pub fn next(self: *Parser, c: u8) void {
-        // If our buffer is full then we're invalid.
+        // If our buffer is full then we're invalid, so we set our state
+        // accordingly and indicate the sequence is incomplete so that we
+        // don't accidentally issue a command when ending.
         if (self.buf_idx >= self.buf.len) {
+            if (self.state != .invalid) {
+                log.warn(
+                    "OSC sequence too long (> {d}), ignoring. state={}",
+                    .{ self.buf.len, self.state },
+                );
+            }
+
             self.state = .invalid;
+
+            // We have to do this here because it will never reach the
+            // switch statement below, since our buf_idx will always be
+            // too high after this.
+            self.complete = false;
             return;
         }
 
@@ -1643,10 +1660,11 @@ test "OSC: longer than buffer" {
 
     var p: Parser = .{};
 
-    const input = "a" ** (Parser.MAX_BUF + 2);
+    const input = "0;" ++ "a" ** (Parser.MAX_BUF + 2);
     for (input) |ch| p.next(ch);
 
     try testing.expect(p.end(null) == null);
+    try testing.expect(p.complete == false);
 }
 
 test "OSC: report default foreground color" {

@@ -12,7 +12,7 @@ const objc = @import("objc");
 const macos = @import("macos");
 const imgui = @import("imgui");
 const glslang = @import("glslang");
-const xev = @import("xev");
+const xev = @import("../global.zig").xev;
 const apprt = @import("../apprt.zig");
 const configpkg = @import("../config.zig");
 const font = @import("../font/main.zig");
@@ -196,15 +196,34 @@ pub const GPUState = struct {
     /// This buffer is written exactly once so we can use it globally.
     instance: InstanceBuffer, // MTLBuffer
 
+    /// The default storage mode to use for resources created with our device.
+    ///
+    /// This is based on whether the device is a discrete GPU or not, since
+    /// discrete GPUs do not have unified memory and therefore do not support
+    /// the "shared" storage mode, instead we have to use the "managed" mode.
+    default_storage_mode: mtl.MTLResourceOptions.StorageMode,
+
     pub fn init() !GPUState {
         const device = try chooseDevice();
         const queue = device.msgSend(objc.Object, objc.sel("newCommandQueue"), .{});
         errdefer queue.release();
 
+        // We determine whether our device is a discrete GPU based on these:
+        // - We're on macOS (iOS, iPadOS, etc. are guaranteed to be integrated).
+        // - We're not on aarch64 (Apple Silicon, therefore integrated).
+        // - The device reports that it does not have unified memory.
+        const is_discrete =
+            builtin.target.os.tag == .macos and
+            builtin.target.cpu.arch != .aarch64 and
+            !device.getProperty(bool, "hasUnifiedMemory");
+
+        const default_storage_mode: mtl.MTLResourceOptions.StorageMode =
+            if (is_discrete) .managed else .shared;
+
         var instance = try InstanceBuffer.initFill(device, &.{
             0, 1, 3, // Top-left triangle
             1, 2, 3, // Bottom-right triangle
-        });
+        }, .{ .storage_mode = default_storage_mode });
         errdefer instance.deinit();
 
         var result: GPUState = .{
@@ -212,11 +231,12 @@ pub const GPUState = struct {
             .queue = queue,
             .instance = instance,
             .frames = undefined,
+            .default_storage_mode = default_storage_mode,
         };
 
         // Initialize all of our frame state.
         for (&result.frames) |*frame| {
-            frame.* = try FrameState.init(result.device);
+            frame.* = try FrameState.init(result.device, default_storage_mode);
         }
 
         return result;
@@ -302,18 +322,47 @@ pub const FrameState = struct {
     const CellBgBuffer = mtl_buffer.Buffer(mtl_shaders.CellBg);
     const CellTextBuffer = mtl_buffer.Buffer(mtl_shaders.CellText);
 
-    pub fn init(device: objc.Object) !FrameState {
+    pub fn init(
+        device: objc.Object,
+        /// Storage mode for buffers and textures.
+        storage_mode: mtl.MTLResourceOptions.StorageMode,
+    ) !FrameState {
         // Uniform buffer contains exactly 1 uniform struct. The
         // uniform data will be undefined so this must be set before
         // a frame is drawn.
-        var uniforms = try UniformBuffer.init(device, 1);
+        var uniforms = try UniformBuffer.init(
+            device,
+            1,
+            .{
+                // Indicate that the CPU writes to this resource but never reads it.
+                .cpu_cache_mode = .write_combined,
+                .storage_mode = storage_mode,
+            },
+        );
         errdefer uniforms.deinit();
 
         // Create the buffers for our vertex data. The preallocation size
         // is likely too small but our first frame update will resize it.
-        var cells = try CellTextBuffer.init(device, 10 * 10);
+        var cells = try CellTextBuffer.init(
+            device,
+            10 * 10,
+            .{
+                // Indicate that the CPU writes to this resource but never reads it.
+                .cpu_cache_mode = .write_combined,
+                .storage_mode = storage_mode,
+            },
+        );
         errdefer cells.deinit();
-        var cells_bg = try CellBgBuffer.init(device, 10 * 10);
+        var cells_bg = try CellBgBuffer.init(
+            device,
+            10 * 10,
+            .{
+                // Indicate that the CPU writes to this resource but never reads it.
+                .cpu_cache_mode = .write_combined,
+                .storage_mode = storage_mode,
+            },
+        );
+
         errdefer cells_bg.deinit();
 
         // Initialize our textures for our font atlas.
@@ -321,13 +370,13 @@ pub const FrameState = struct {
             .data = undefined,
             .size = 8,
             .format = .grayscale,
-        });
+        }, storage_mode);
         errdefer grayscale.release();
         const color = try initAtlasTexture(device, &.{
             .data = undefined,
             .size = 8,
             .format = .rgba,
-        });
+        }, storage_mode);
         errdefer color.release();
 
         return .{
@@ -408,7 +457,7 @@ pub const DerivedConfig = struct {
     links: link.Set,
     vsync: bool,
     colorspace: configpkg.Config.WindowColorspace,
-    blending: configpkg.Config.TextBlending,
+    blending: configpkg.Config.AlphaBlending,
 
     pub fn init(
         alloc_gpa: Allocator,
@@ -488,7 +537,7 @@ pub const DerivedConfig = struct {
             .links = links,
             .vsync = config.@"window-vsync",
             .colorspace = config.@"window-colorspace",
-            .blending = config.@"text-blending",
+            .blending = config.@"alpha-blending",
             .arena = arena,
         };
     }
@@ -694,7 +743,7 @@ pub fn init(alloc: Allocator, options: renderer.Options) !Metal {
             .cursor_wide = false,
             .use_display_p3 = options.config.colorspace == .@"display-p3",
             .use_linear_blending = options.config.blending.isLinear(),
-            .use_experimental_linear_correction = options.config.blending == .@"linear-corrected",
+            .use_linear_correction = options.config.blending == .@"linear-corrected",
             .has_bg_image = (options.config.background_image.value != null),
             .bg_image_opacity = options.config.background_image_opacity,
         },
@@ -1075,19 +1124,6 @@ pub fn updateFrame(
             }
         }
 
-        // If our terminal screen size doesn't match our expected renderer
-        // size then we skip a frame. This can happen if the terminal state
-        // is resized between when the renderer mailbox is drained and when
-        // the state mutex is acquired inside this function.
-        //
-        // For some reason this doesn't seem to cause any significant issues
-        // with flickering while resizing. '\_('-')_/'
-        if (self.cells.size.rows != state.terminal.rows or
-            self.cells.size.columns != state.terminal.cols)
-        {
-            return;
-        }
-
         // Get the viewport pin so that we can compare it to the current.
         const viewport_pin = state.terminal.screen.pages.pin(.{ .viewport = .{} }).?;
 
@@ -1269,7 +1305,11 @@ pub fn updateFrame(
                 .replace_gray_alpha,
                 .replace_rgb,
                 .replace_rgba,
-                => try kv.value_ptr.image.upload(self.alloc, self.gpu_state.device),
+                => try kv.value_ptr.image.upload(
+                    self.alloc,
+                    self.gpu_state.device,
+                    self.gpu_state.default_storage_mode,
+                ),
 
                 .unload_pending,
                 .unload_replace,
@@ -1362,7 +1402,12 @@ pub fn drawFrame(self: *Metal, surface: *apprt.Surface) !void {
         self.font_grid.lock.lockShared();
         defer self.font_grid.lock.unlockShared();
         frame.grayscale_modified = self.font_grid.atlas_grayscale.modified.load(.monotonic);
-        try syncAtlasTexture(self.gpu_state.device, &self.font_grid.atlas_grayscale, &frame.grayscale);
+        try syncAtlasTexture(
+            self.gpu_state.device,
+            &self.font_grid.atlas_grayscale,
+            &frame.grayscale,
+            self.gpu_state.default_storage_mode,
+        );
     }
     texture: {
         const modified = self.font_grid.atlas_color.modified.load(.monotonic);
@@ -1370,7 +1415,12 @@ pub fn drawFrame(self: *Metal, surface: *apprt.Surface) !void {
         self.font_grid.lock.lockShared();
         defer self.font_grid.lock.unlockShared();
         frame.color_modified = self.font_grid.atlas_color.modified.load(.monotonic);
-        try syncAtlasTexture(self.gpu_state.device, &self.font_grid.atlas_color, &frame.color);
+        try syncAtlasTexture(
+            self.gpu_state.device,
+            &self.font_grid.atlas_color,
+            &frame.color,
+            self.gpu_state.default_storage_mode,
+        );
     }
 
     // Command buffer (MTLCommandBuffer)
@@ -1786,7 +1836,11 @@ fn drawImagePlacement(
             @as(f32, @floatFromInt(p.width)),
             @as(f32, @floatFromInt(p.height)),
         },
-    }});
+    }}, .{
+        // Indicate that the CPU writes to this resource but never reads it.
+        .cpu_cache_mode = .write_combined,
+        .storage_mode = self.gpu_state.default_storage_mode,
+    });
     defer buf.deinit();
 
     // Set our buffer
@@ -2343,7 +2397,7 @@ pub fn changeConfig(self: *Metal, config: *DerivedConfig) !void {
     // Set our new color space and blending
     self.uniforms.use_display_p3 = config.colorspace == .@"display-p3";
     self.uniforms.use_linear_blending = config.blending.isLinear();
-    self.uniforms.use_experimental_linear_correction = config.blending == .@"linear-corrected";
+    self.uniforms.use_linear_correction = config.blending == .@"linear-corrected";
 
     // Set our new colors
     self.default_background_color = config.background;
@@ -2495,7 +2549,7 @@ pub fn setScreenSize(
         .cursor_wide = old.cursor_wide,
         .use_display_p3 = old.use_display_p3,
         .use_linear_blending = old.use_linear_blending,
-        .use_experimental_linear_correction = old.use_experimental_linear_correction,
+        .use_linear_correction = old.use_linear_correction,
         .has_bg_image = old.has_bg_image,
         .bg_image_opacity = old.bg_image_opacity,
     };
@@ -2679,12 +2733,22 @@ fn rebuildCells(
         }
     }
 
-    // Go row-by-row to build the cells. We go row by row because we do
-    // font shaping by row. In the future, we will also do dirty tracking
-    // by row.
+    // We rebuild the cells row-by-row because we
+    // do font shaping and dirty tracking by row.
     var row_it = screen.pages.rowIterator(.left_up, .{ .viewport = .{} }, null);
-    var y: terminal.size.CellCountInt = screen.pages.rows;
+    // If our cell contents buffer is shorter than the screen viewport,
+    // we render the rows that fit, starting from the bottom. If instead
+    // the viewport is shorter than the cell contents buffer, we align
+    // the top of the viewport with the top of the contents buffer.
+    var y: terminal.size.CellCountInt = @min(
+        screen.pages.rows,
+        self.cells.size.rows,
+    );
     while (row_it.next()) |row| {
+        // The viewport may have more rows than our cell contents,
+        // so we need to break from the loop early if we hit y = 0.
+        if (y == 0) break;
+
         y -= 1;
 
         if (!rebuild) {
@@ -2743,7 +2807,11 @@ fn rebuildCells(
         var shaper_cells: ?[]const font.shape.Cell = null;
         var shaper_cells_i: usize = 0;
 
-        const row_cells = row.cells(.all);
+        const row_cells_all = row.cells(.all);
+
+        // If our viewport is wider than our cell contents buffer,
+        // we still only process cells up to the width of the buffer.
+        const row_cells = row_cells_all[0..@min(row_cells_all.len, self.cells.size.columns)];
 
         for (row_cells, 0..) |*cell, x| {
             // If this cell falls within our preedit range then we
@@ -2913,9 +2981,8 @@ fn rebuildCells(
                     // Cells that are reversed should be fully opaque.
                     if (style.flags.inverse) break :bg_alpha default;
 
-                    // Cells that have an explicit bg color, which does not
-                    // match the current surface bg, should be fully opaque.
-                    if (bg != null and !rgb.eql(self.background_color orelse self.default_background_color)) {
+                    // Cells that have an explicit bg color should be fully opaque.
+                    if (bg_style != null) {
                         break :bg_alpha default;
                     }
 
@@ -3464,14 +3531,20 @@ fn addPreeditCell(
 /// Sync the atlas data to the given texture. This copies the bytes
 /// associated with the atlas to the given texture. If the atlas no longer
 /// fits into the texture, the texture will be resized.
-fn syncAtlasTexture(device: objc.Object, atlas: *const font.Atlas, texture: *objc.Object) !void {
+fn syncAtlasTexture(
+    device: objc.Object,
+    atlas: *const font.Atlas,
+    texture: *objc.Object,
+    /// Storage mode for the MTLTexture object
+    storage_mode: mtl.MTLResourceOptions.StorageMode,
+) !void {
     const width = texture.getProperty(c_ulong, "width");
     if (atlas.size > width) {
         // Free our old texture
         texture.*.release();
 
         // Reallocate
-        texture.* = try initAtlasTexture(device, atlas);
+        texture.* = try initAtlasTexture(device, atlas, storage_mode);
     }
 
     texture.msgSend(
@@ -3494,7 +3567,12 @@ fn syncAtlasTexture(device: objc.Object, atlas: *const font.Atlas, texture: *obj
 }
 
 /// Initialize a MTLTexture object for the given atlas.
-fn initAtlasTexture(device: objc.Object, atlas: *const font.Atlas) !objc.Object {
+fn initAtlasTexture(
+    device: objc.Object,
+    atlas: *const font.Atlas,
+    /// Storage mode for the MTLTexture object
+    storage_mode: mtl.MTLResourceOptions.StorageMode,
+) !objc.Object {
     // Determine our pixel format
     const pixel_format: mtl.MTLPixelFormat = switch (atlas.format) {
         .grayscale => .r8unorm,
@@ -3515,15 +3593,14 @@ fn initAtlasTexture(device: objc.Object, atlas: *const font.Atlas) !objc.Object 
     desc.setProperty("width", @as(c_ulong, @intCast(atlas.size)));
     desc.setProperty("height", @as(c_ulong, @intCast(atlas.size)));
 
-    // Xcode tells us that this texture should be shared mode on
-    // aarch64. This configuration is not supported on x86_64 so
-    // we only set it on aarch64.
-    if (comptime builtin.target.cpu.arch == .aarch64) {
-        desc.setProperty(
-            "storageMode",
-            @as(c_ulong, mtl.MTLResourceStorageModeShared),
-        );
-    }
+    desc.setProperty(
+        "resourceOptions",
+        mtl.MTLResourceOptions{
+            // Indicate that the CPU writes to this resource but never reads it.
+            .cpu_cache_mode = .write_combined,
+            .storage_mode = storage_mode,
+        },
+    );
 
     // Initialize
     const id = device.msgSend(

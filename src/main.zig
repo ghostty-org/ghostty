@@ -9,6 +9,7 @@ const entrypoint = switch (build_config.exe_entrypoint) {
     .mdgen_ghostty_5 => @import("build/mdgen/main_ghostty_5.zig"),
     .webgen_config => @import("build/webgen/main_config.zig"),
     .webgen_actions => @import("build/webgen/main_actions.zig"),
+    .webgen_commands => @import("build/webgen/main_commands.zig"),
     .bench_parser => @import("bench/parser.zig"),
     .bench_stream => @import("bench/stream.zig"),
     .bench_codepoint_width => @import("bench/codepoint-width.zig"),

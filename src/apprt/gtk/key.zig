@@ -108,6 +108,7 @@ pub fn eventMods(
     event: *c.GdkEvent,
     physical_key: input.Key,
     gtk_mods: c.GdkModifierType,
+    action: input.Action,
     app_winproto: *winproto.App,
 ) input.Mods {
     const device = c.gdk_event_get_device(event);
@@ -115,15 +116,55 @@ pub fn eventMods(
     var mods = app_winproto.eventMods(device, gtk_mods);
     mods.num_lock = c.gdk_device_get_num_lock_state(device) == 1;
 
+    // We use the physical key to determine sided modifiers. As
+    // far as I can tell there's no other way to reliably determine
+    // this.
+    //
+    // We also set the main modifier to true if either side is true,
+    // since on both X11/Wayland, GTK doesn't set the main modifier
+    // if only the modifier key is pressed, but our core logic
+    // relies on it.
     switch (physical_key) {
-        .left_shift => mods.sides.shift = .left,
-        .right_shift => mods.sides.shift = .right,
-        .left_control => mods.sides.ctrl = .left,
-        .right_control => mods.sides.ctrl = .right,
-        .left_alt => mods.sides.alt = .left,
-        .right_alt => mods.sides.alt = .right,
-        .left_super => mods.sides.super = .left,
-        .right_super => mods.sides.super = .right,
+        .left_shift => {
+            mods.shift = action != .release;
+            mods.sides.shift = .left;
+        },
+
+        .right_shift => {
+            mods.shift = action != .release;
+            mods.sides.shift = .right;
+        },
+
+        .left_control => {
+            mods.ctrl = action != .release;
+            mods.sides.ctrl = .left;
+        },
+
+        .right_control => {
+            mods.ctrl = action != .release;
+            mods.sides.ctrl = .right;
+        },
+
+        .left_alt => {
+            mods.alt = action != .release;
+            mods.sides.alt = .left;
+        },
+
+        .right_alt => {
+            mods.alt = action != .release;
+            mods.sides.alt = .right;
+        },
+
+        .left_super => {
+            mods.super = action != .release;
+            mods.sides.super = .left;
+        },
+
+        .right_super => {
+            mods.super = action != .release;
+            mods.sides.super = .right;
+        },
+
         else => {},
     }
 

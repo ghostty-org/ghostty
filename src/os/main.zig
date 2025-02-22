@@ -26,6 +26,7 @@ pub const shell = @import("shell.zig");
 // Functions and types
 pub const CFReleaseThread = @import("cf_release_thread.zig");
 pub const TempDir = @import("TempDir.zig");
+pub const getEnvMap = env.getEnvMap;
 pub const appendEnv = env.appendEnv;
 pub const appendEnvAlways = env.appendEnvAlways;
 pub const prependEnv = env.prependEnv;

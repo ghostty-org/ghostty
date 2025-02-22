@@ -4,13 +4,14 @@ const Allocator = std.mem.Allocator;
 const builtin = @import("builtin");
 const build_config = @import("../build_config.zig");
 const internal_os = @import("../os/main.zig");
-const xev = @import("xev");
+const xev = @import("../global.zig").xev;
 const renderer = @import("../renderer.zig");
 const gtk = if (build_config.app_runtime == .gtk) @import("../apprt/gtk/c.zig").c else void;
 
 pub const Options = struct {};
 
-/// The `version` command is used to display information about Ghostty.
+/// The `version` command is used to display information about Ghostty. Recognized as
+/// either `+version` or `--version`.
 pub fn run(alloc: Allocator) !u8 {
     _ = alloc;
 
@@ -36,7 +37,7 @@ pub fn run(alloc: Allocator) !u8 {
     try stdout.print("  - app runtime: {}\n", .{build_config.app_runtime});
     try stdout.print("  - font engine: {}\n", .{build_config.font_backend});
     try stdout.print("  - renderer   : {}\n", .{renderer.Renderer});
-    try stdout.print("  - libxev     : {}\n", .{xev.backend});
+    try stdout.print("  - libxev     : {s}\n", .{@tagName(xev.backend)});
     if (comptime build_config.app_runtime == .gtk) {
         try stdout.print("  - desktop env: {s}\n", .{@tagName(internal_os.desktopEnvironment())});
         try stdout.print("  - GTK version:\n", .{});
@@ -50,19 +51,15 @@ pub fn run(alloc: Allocator) !u8 {
             gtk.gtk_get_minor_version(),
             gtk.gtk_get_micro_version(),
         });
-        if (comptime build_options.adwaita) {
-            try stdout.print("  - libadwaita : enabled\n", .{});
-            try stdout.print("    build      : {s}\n", .{
-                gtk.ADW_VERSION_S,
-            });
-            try stdout.print("    runtime    : {}.{}.{}\n", .{
-                gtk.adw_get_major_version(),
-                gtk.adw_get_minor_version(),
-                gtk.adw_get_micro_version(),
-            });
-        } else {
-            try stdout.print("  - libadwaita : disabled\n", .{});
-        }
+        try stdout.print("  - libadwaita : enabled\n", .{});
+        try stdout.print("    build      : {s}\n", .{
+            gtk.ADW_VERSION_S,
+        });
+        try stdout.print("    runtime    : {}.{}.{}\n", .{
+            gtk.adw_get_major_version(),
+            gtk.adw_get_minor_version(),
+            gtk.adw_get_micro_version(),
+        });
         if (comptime build_options.x11) {
             try stdout.print("  - libX11     : enabled\n", .{});
         } else {

@@ -48,14 +48,14 @@ jobs:
         run: |
           # Only proceed if build.zig.zon has changed
           if ! git diff --exit-code build.zig.zon; then
-            nix develop -c ./nix/build-support/check-zig-cache-hash.sh --update
-            nix develop -c ./nix/build-support/check-zig-cache-hash.sh
+            nix develop -c ./nix/build-support/check-zig-cache.sh --update
+            nix develop -c ./nix/build-support/check-zig-cache.sh
           fi
 
       # Verify the build still works. We choose an arbitrary build type
       # as a canary instead of testing all build types.
       - name: Test Build
-        run: nix develop -c zig build -Dapp-runtime=gtk -Dgtk-adwaita=true
+        run: nix build .#ghostty
 
       - name: Create pull request
         uses: peter-evans/create-pull-request@v7
@@ -66,7 +66,9 @@ jobs:
           commit-message: "deps: Update iTerm2 color schemes"
           add-paths: |
             build.zig.zon
-            nix/zigCacheHash.nix
+            build.zig.zon2json-lock
+            build.zig.zon.nix
+            build.zig.zon.txt
           body: |
             Upstream revision: https://github.com/mbadolato/iTerm2-Color-Schemes/tree/${{ steps.zig_fetch.outputs.upstream_rev }}
           labels: dependencies

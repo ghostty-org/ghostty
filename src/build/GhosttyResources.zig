@@ -23,9 +23,12 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
 
         // Write it
         var wf = b.addWriteFiles();
-        const src_source = wf.add("share/terminfo/ghostty.terminfo", str.items);
-        const src_install = b.addInstallFile(src_source, "share/terminfo/ghostty.terminfo");
-        try steps.append(&src_install.step);
+        const source = wf.add("ghostty.terminfo", str.items);
+
+        if (cfg.emit_terminfo) {
+            const source_install = b.addInstallFile(source, "share/terminfo/ghostty.terminfo");
+            try steps.append(&source_install.step);
+        }
 
         // Windows doesn't have the binaries below.
         if (cfg.target.result.os.tag == .windows) break :terminfo;
@@ -33,10 +36,10 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
         // Convert to termcap source format if thats helpful to people and
         // install it. The resulting value here is the termcap source in case
         // that is used for other commands.
-        {
+        if (cfg.emit_termcap) {
             const run_step = RunStep.create(b, "infotocap");
             run_step.addArg("infotocap");
-            run_step.addFileArg(src_source);
+            run_step.addFileArg(source);
             const out_source = run_step.captureStdOut();
             _ = run_step.captureStdErr(); // so we don't see stderr
 
@@ -49,23 +52,29 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
             const run_step = RunStep.create(b, "tic");
             run_step.addArgs(&.{ "tic", "-x", "-o" });
             const path = run_step.addOutputFileArg("terminfo");
-            run_step.addFileArg(src_source);
+            run_step.addFileArg(source);
             _ = run_step.captureStdErr(); // so we don't see stderr
 
-            // Depend on the terminfo source install step so that Zig build
-            // creates the "share" directory for us.
-            run_step.step.dependOn(&src_install.step);
-
-            {
-                // Use cp -R instead of Step.InstallDir because we need to preserve
-                // symlinks in the terminfo database. Zig's InstallDir step doesn't
-                // handle symlinks correctly yet.
-                const copy_step = RunStep.create(b, "copy terminfo db");
-                copy_step.addArgs(&.{ "cp", "-R" });
-                copy_step.addFileArg(path);
-                copy_step.addArg(b.fmt("{s}/share", .{b.install_path}));
-                try steps.append(&copy_step.step);
+            // Ensure that `share/terminfo` is a directory, otherwise the `cp
+            // -R` will create a file named `share/terminfo`
+            const mkdir_step = RunStep.create(b, "make share/terminfo directory");
+            switch (cfg.target.result.os.tag) {
+                // windows mkdir shouldn't need "-p"
+                .windows => mkdir_step.addArgs(&.{"mkdir"}),
+                else => mkdir_step.addArgs(&.{ "mkdir", "-p" }),
             }
+            mkdir_step.addArg(b.fmt("{s}/share/terminfo", .{b.install_path}));
+            try steps.append(&mkdir_step.step);
+
+            // Use cp -R instead of Step.InstallDir because we need to preserve
+            // symlinks in the terminfo database. Zig's InstallDir step doesn't
+            // handle symlinks correctly yet.
+            const copy_step = RunStep.create(b, "copy terminfo db");
+            copy_step.addArgs(&.{ "cp", "-R" });
+            copy_step.addFileArg(path);
+            copy_step.addArg(b.fmt("{s}/share", .{b.install_path}));
+            copy_step.step.dependOn(&mkdir_step.step);
+            try steps.append(&copy_step.step);
         }
     }
 
@@ -200,10 +209,11 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
             "share/kio/servicemenus/com.mitchellh.ghostty.desktop",
         ).step);
 
-        // Right click menu action for Nautilus
+        // Right click menu action for Nautilus. Note that this _must_ be named
+        // `ghostty.py`. Using the full app id causes problems (see #5468).
         try steps.append(&b.addInstallFile(
             b.path("dist/linux/ghostty_nautilus.py"),
-            "share/nautilus-python/extensions/com.mitchellh.ghostty.py",
+            "share/nautilus-python/extensions/ghostty.py",
         ).step);
 
         // Various icons that our application can use, including the icon

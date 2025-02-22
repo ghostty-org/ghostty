@@ -205,6 +205,7 @@ extension Ghostty {
             alert.beginSheetModal(for: window, completionHandler: { response in
                 switch (response) {
                 case .alertFirstButtonReturn:
+                    alert.window.orderOut(nil)
                     node = nil
 
                 default:

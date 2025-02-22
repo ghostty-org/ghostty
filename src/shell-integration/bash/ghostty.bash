@@ -41,37 +41,31 @@ if [ -n "$GHOSTTY_BASH_INJECT" ]; then
 
   # Manually source the startup files. See INVOCATION in bash(1) and
   # run_startup_files() in shell.c in the Bash source code.
-  function __ghostty_bash_startup() {
-    builtin local rcfile
-
-    if builtin shopt -q login_shell; then
-      if [[ $__ghostty_bash_flags != *"--noprofile"* ]]; then
-        [ -r /etc/profile ] && builtin source "/etc/profile"
-        for rcfile in ~/.bash_profile ~/.bash_login ~/.profile; do
-          [ -r "$rcfile" ] && { builtin source "$rcfile"; break; }
-        done
-      fi
-    else
-      if [[ $__ghostty_bash_flags != *"--norc"* ]]; then
-        # The location of the system bashrc is determined at bash build
-        # time via -DSYS_BASHRC and can therefore vary across distros:
-        #  Arch, Debian, Ubuntu use /etc/bash.bashrc
-        #  Fedora uses /etc/bashrc sourced from ~/.bashrc instead of SYS_BASHRC
-        #  Void Linux uses /etc/bash/bashrc
-        #  Nixos uses /etc/bashrc
-        for rcfile in /etc/bash.bashrc /etc/bash/bashrc /etc/bashrc; do
-          [ -r "$rcfile" ] && { builtin source "$rcfile"; break; }
-        done
-        if [[ -z "$GHOSTTY_BASH_RCFILE" ]]; then GHOSTTY_BASH_RCFILE=~/.bashrc; fi
-        [ -r "$GHOSTTY_BASH_RCFILE" ] && builtin source "$GHOSTTY_BASH_RCFILE"
-      fi
+  if builtin shopt -q login_shell; then
+    if [[ $__ghostty_bash_flags != *"--noprofile"* ]]; then
+      [ -r /etc/profile ] && builtin source "/etc/profile"
+      for __ghostty_rcfile in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
+        [ -r "$__ghostty_rcfile" ] && { builtin source "$__ghostty_rcfile"; break; }
+      done
     fi
-  }
+  else
+    if [[ $__ghostty_bash_flags != *"--norc"* ]]; then
+      # The location of the system bashrc is determined at bash build
+      # time via -DSYS_BASHRC and can therefore vary across distros:
+      #  Arch, Debian, Ubuntu use /etc/bash.bashrc
+      #  Fedora uses /etc/bashrc sourced from ~/.bashrc instead of SYS_BASHRC
+      #  Void Linux uses /etc/bash/bashrc
+      #  Nixos uses /etc/bashrc
+      for __ghostty_rcfile in /etc/bash.bashrc /etc/bash/bashrc /etc/bashrc; do
+        [ -r "$__ghostty_rcfile" ] && { builtin source "$__ghostty_rcfile"; break; }
+      done
+      if [[ -z "$GHOSTTY_BASH_RCFILE" ]]; then GHOSTTY_BASH_RCFILE="$HOME/.bashrc"; fi
+      [ -r "$GHOSTTY_BASH_RCFILE" ] && builtin source "$GHOSTTY_BASH_RCFILE"
+    fi
+  fi
 
-  __ghostty_bash_startup
-
-  builtin unset -f __ghostty_bash_startup
-  builtin unset -v __ghostty_bash_flags
+  builtin unset __ghostty_rcfile
+  builtin unset __ghostty_bash_flags
   builtin unset GHOSTTY_BASH_RCFILE
 fi
 

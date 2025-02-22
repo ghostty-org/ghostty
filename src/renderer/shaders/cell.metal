@@ -22,7 +22,7 @@ struct Uniforms {
   bool cursor_wide;
   bool use_display_p3;
   bool use_linear_blending;
-  bool use_experimental_linear_correction;
+  bool use_linear_correction;
   bool has_bg_image;
   float bg_image_opacity;
 };
@@ -61,22 +61,28 @@ float3 srgb_to_display_p3(float3 srgb) {
 
 // Converts a color from sRGB gamma encoding to linear.
 float4 linearize(float4 srgb) {
-    bool3 cutoff = srgb.rgb <= 0.04045;
-    float3 lower = srgb.rgb / 12.92;
-    float3 higher = pow((srgb.rgb + 0.055) / 1.055, 2.4);
-    srgb.rgb = mix(higher, lower, float3(cutoff));
+  bool3 cutoff = srgb.rgb <= 0.04045;
+  float3 lower = srgb.rgb / 12.92;
+  float3 higher = pow((srgb.rgb + 0.055) / 1.055, 2.4);
+  srgb.rgb = mix(higher, lower, float3(cutoff));
 
-    return srgb;
+  return srgb;
+}
+float linearize(float v) {
+  return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4);
 }
 
 // Converts a color from linear to sRGB gamma encoding.
 float4 unlinearize(float4 linear) {
-    bool3 cutoff = linear.rgb <= 0.0031308;
-    float3 lower = linear.rgb * 12.92;
-    float3 higher = pow(linear.rgb, 1.0 / 2.4) * 1.055 - 0.055;
-    linear.rgb = mix(higher, lower, float3(cutoff));
+  bool3 cutoff = linear.rgb <= 0.0031308;
+  float3 lower = linear.rgb * 12.92;
+  float3 higher = pow(linear.rgb, 1.0 / 2.4) * 1.055 - 0.055;
+  linear.rgb = mix(higher, lower, float3(cutoff));
 
-    return linear;
+  return linear;
+}
+float unlinearize(float v) {
+  return v <= 0.0031308 ? v * 12.92 : pow(v, 1.0 / 2.4) * 1.055 - 0.055;
 }
 
 // Compute the luminance of the provided color.
@@ -360,8 +366,9 @@ struct CellTextVertexIn {
 
 struct CellTextVertexOut {
   float4 position [[position]];
-  uint8_t mode;
-  float4 color;
+  uint8_t mode [[flat]];
+  float4 color [[flat]];
+  float4 bg_color [[flat]];
   float2 tex_coord;
 };
 
@@ -452,6 +459,13 @@ vertex CellTextVertexOut cell_text_vertex(
     true
   );
 
+  // Get the BG color
+  out.bg_color = load_color(
+    bg_colors[in.grid_pos.y * uniforms.grid_size.x + in.grid_pos.x],
+    uniforms.use_display_p3,
+    true
+  );
+
   // If we have a minimum contrast, we need to check if we need to
   // change the color of the text to ensure it has enough contrast
   // with the background.
@@ -460,27 +474,24 @@ vertex CellTextVertexOut cell_text_vertex(
   // and Powerline glyphs to be unaffected (else parts of the line would
   // have different colors as some parts are displayed via background colors).
   if (uniforms.min_contrast > 1.0f && in.mode == MODE_TEXT) {
-    // Get the BG color
-    float4 bg_color = load_color(
-      bg_colors[in.grid_pos.y * uniforms.grid_size.x + in.grid_pos.x],
-      uniforms.use_display_p3,
-      true
-    );
     // Ensure our minimum contrast
-    out.color = contrasted_color(uniforms.min_contrast, out.color, bg_color);
+    out.color = contrasted_color(uniforms.min_contrast, out.color, out.bg_color);
   }
 
-  // If this cell is the cursor cell, then we need to change the color.
-  if (
-    in.mode != MODE_TEXT_CURSOR &&
-    (
+  // Check if current position is under cursor (including wide cursor)
+  bool is_cursor_pos = (
       in.grid_pos.x == uniforms.cursor_pos.x ||
       uniforms.cursor_wide &&
         in.grid_pos.x == uniforms.cursor_pos.x + 1
-    ) &&
-    in.grid_pos.y == uniforms.cursor_pos.y
-  ) {
-    out.color = float4(uniforms.cursor_color) / 255.0f;
+    ) && in.grid_pos.y == uniforms.cursor_pos.y;
+
+  // If this cell is the cursor cell, then we need to change the color.
+  if (in.mode != MODE_TEXT_CURSOR && is_cursor_pos) {
+    out.color = load_color(
+      uniforms.cursor_color,
+      uniforms.use_display_p3,
+      false
+    );
   }
 
   return out;
@@ -521,19 +532,28 @@ fragment float4 cell_text_fragment(
       // Fetch our alpha mask for this pixel.
       float a = textureGrayscale.sample(textureSampler, in.tex_coord).r;
 
-      // Experimental linear blending weight correction.
-      if (uniforms.use_experimental_linear_correction) {
-        float l = luminance(color.rgb);
-
-        // TODO: This is a dynamic dilation term that biases
-        //       the alpha adjustment for small font sizes;
-        //       it should be computed by dividing the font
-        //       size in `pt`s by `13.0` and using that if
-        //       it's less than `1.0`, but for now it's
-        //       hard coded at 1.0, which has no effect.
-        float d = 13.0 / 13.0;
-
-        a += pow(a, d + d * l) - pow(a, d + 1.0 - d * l);
+      // Linear blending weight correction corrects the alpha value to
+      // produce blending results which match gamma-incorrect blending.
+      if (uniforms.use_linear_correction) {
+        // Short explanation of how this works:
+        //
+        // We get the luminances of the foreground and background colors,
+        // and then unlinearize them and perform blending on them. This
+        // gives us our desired luminance, which we derive our new alpha
+        // value from by mapping the range [bg_l, fg_l] to [0, 1], since
+        // our final blend will be a linear interpolation from bg to fg.
+        //
+        // This yields virtually identical results for grayscale blending,
+        // and very similar but non-identical results for color blending.
+        float4 bg = in.bg_color;
+        float fg_l = luminance(color.rgb);
+        float bg_l = luminance(bg.rgb);
+        // To avoid numbers going haywire, we don't apply correction
+        // when the bg and fg luminances are within 0.001 of each other.
+        if (abs(fg_l - bg_l) > 0.001) {
+          float blend_l = linearize(unlinearize(fg_l) * a + unlinearize(bg_l) * (1.0 - a));
+          a = clamp((blend_l - bg_l) / (fg_l - bg_l), 0.0, 1.0);
+        }
       }
 
       // Multiply our whole color by the alpha mask.

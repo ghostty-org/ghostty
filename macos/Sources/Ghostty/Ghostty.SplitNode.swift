@@ -38,6 +38,15 @@ extension Ghostty {
             }
         }
 
+        /// Returns true if the tree is split.
+        var isSplit: Bool {
+            return if case .leaf = self {
+                false
+            } else {
+                true
+            }
+        }
+
         func topLeft() -> SurfaceView {
             switch (self) {
             case .leaf(let leaf):
@@ -120,14 +129,7 @@ extension Ghostty {
 
         /// Returns true if the split tree contains the given view.
         func contains(view: SurfaceView) -> Bool {
-            switch (self) {
-            case .leaf(let leaf):
-                return leaf.surface == view
-
-            case .split(let container):
-                return container.topLeft.contains(view: view) ||
-                    container.bottomRight.contains(view: view)
-            }
+            return leaf(for: view) != nil
         }
 
         /// Find a surface view by UUID.
@@ -161,6 +163,22 @@ extension Ghostty {
                     return container.topLeft.doesBorderTop(view: view) ||
                         container.bottomRight.doesBorderTop(view: view)
                 }
+            }
+        }
+
+        /// Return the node for the given view if its in the tree.
+        func leaf(for view: SurfaceView) -> Leaf? {
+            switch (self) {
+            case .leaf(let leaf):
+                if leaf.surface == view {
+                    return leaf
+                } else {
+                    return nil
+                }
+
+            case .split(let container):
+                return container.topLeft.leaf(for: view) ??
+                    container.bottomRight.leaf(for: view)
             }
         }
 

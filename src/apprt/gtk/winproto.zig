@@ -5,6 +5,7 @@ const c = @import("c.zig").c;
 const Config = @import("../../config.zig").Config;
 const input = @import("../../input.zig");
 const key = @import("key.zig");
+const ApprtWindow = @import("Window.zig");
 
 pub const noop = @import("winproto/noop.zig");
 pub const x11 = @import("winproto/x11.zig");
@@ -74,8 +75,7 @@ pub const Window = union(Protocol) {
     pub fn init(
         alloc: Allocator,
         app: *App,
-        window: *c.GtkWindow,
-        config: *const Config,
+        apprt_window: *ApprtWindow,
     ) !Window {
         return switch (app.*) {
             inline else => |*v, tag| {
@@ -90,8 +90,7 @@ pub const Window = union(Protocol) {
                         try field.type.init(
                             alloc,
                             v,
-                            window,
-                            config,
+                            apprt_window,
                         ),
                     );
                 }
@@ -111,15 +110,6 @@ pub const Window = union(Protocol) {
         }
     }
 
-    pub fn updateConfigEvent(
-        self: *Window,
-        config: *const Config,
-    ) !void {
-        switch (self.*) {
-            inline else => |*v| try v.updateConfigEvent(config),
-        }
-    }
-
     pub fn syncAppearance(self: *Window) !void {
         switch (self.*) {
             inline else => |*v| try v.syncAppearance(),
@@ -130,5 +120,11 @@ pub const Window = union(Protocol) {
         return switch (self) {
             inline else => |v| v.clientSideDecorationEnabled(),
         };
+    }
+
+    pub fn addSubprocessEnv(self: *Window, env: *std.process.EnvMap) !void {
+        switch (self.*) {
+            inline else => |*v| try v.addSubprocessEnv(env),
+        }
     }
 };

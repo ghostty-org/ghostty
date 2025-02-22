@@ -4962,7 +4962,7 @@ static int stbi__expand_png_palette(stbi__png *a, stbi_uc *palette, int len, int
    p = (stbi_uc *) stbi__malloc_mad2(pixel_count, pal_img_n, 0);
    if (p == NULL) return stbi__err("outofmem", "Out of memory");
 
-   // between here and free(out) below, exitting would leak
+   // between here and free(out) below, exiting would leak
    temp_out = p;
 
    if (pal_img_n == 3) {
