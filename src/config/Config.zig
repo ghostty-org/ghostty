@@ -1525,7 +1525,7 @@ keybind: Keybinds = .{},
 /// The default value is false for all systems.
 ///
 /// At present this will only disable the context menu on Linux in the future
-/// this shoul also disable the context menu on macOS
+/// this should also disable the context menu on macOS
 @"copy-on-right-click": CopyOnMouseAction = .false,
 
 /// The time in milliseconds between clicks to consider a click a repeat
