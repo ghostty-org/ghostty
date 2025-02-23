@@ -239,14 +239,9 @@ vertex CellBgVertexOut cell_bg_vertex(
   position.zw = 1.0;
   out.position = position;
 
-  uchar4 bg_color = uniforms.bg_color;
-  if (uniforms.has_bg_image) {
-    bg_color.a = uchar((1.0f - uniforms.bg_image_opacity) * 255);
-  }
-
   // Convert the background color to Display P3
   out.bg_color = load_color(
-    bg_color,
+    uniforms.bg_color,
     uniforms.use_display_p3,
     uniforms.use_linear_blending
   );

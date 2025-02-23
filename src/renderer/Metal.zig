@@ -2958,7 +2958,7 @@ fn rebuildCells(
                 const bg_alpha: u8 = bg_alpha: {
                     const default: u8 = 255;
 
-                    if (self.current_background_image == null and self.config.background_opacity >= 1) break :bg_alpha default;
+                    if (self.config.background_opacity >= 1) break :bg_alpha default;
 
                     // Cells that are selected should be fully opaque.
                     if (selected) break :bg_alpha default;
@@ -2969,11 +2969,6 @@ fn rebuildCells(
                     // Cells that have an explicit bg color should be fully opaque.
                     if (bg_style != null) {
                         break :bg_alpha default;
-                    }
-
-                    // If we have a background image, use the configured background image opacity.
-                    if (self.current_background_image != null) {
-                        break :bg_alpha @intFromFloat(@round((1 - self.config.background_image_opacity) * 255.0));
                     }
 
                     // Otherwise, we use the configured background opacity.
