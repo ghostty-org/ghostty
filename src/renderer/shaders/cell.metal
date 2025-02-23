@@ -262,12 +262,12 @@ fragment float4 cell_bg_fragment(
   int2 grid_pos = int2(floor((in.position.xy - uniforms.grid_padding.wx) / uniforms.cell_size));
 
   float4 bg = float4(0.0);
-  // If we have any background transparency then we render bg-colored cells as
-  // fully transparent, since the background is handled by the layer bg color
-  // and we don't want to double up our bg color, but if our bg color is fully
-  // opaque then our layer is opaque and can't handle transparency, so we need
-  // to return the bg color directly instead.
-  if (uniforms.bg_color.a == 255) {
+  // If we have any background transparency or a background image, then we
+  // render bg-colored cells as fully transparent, since the background is
+  // handled by the layer bg color and we don't want to double up our bg color.
+  // But if our bg color is fully opaque, then our layer is opaque and can't
+  // handle transparency, so we need to return the bg color directly instead.
+  if (uniforms.bg_color.a == 255 && !uniforms.has_bg_image) {
     bg = in.bg_color;
   }
 
