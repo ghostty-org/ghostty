@@ -623,7 +623,7 @@ pub fn init(alloc: Allocator, options: renderer.Options) !Metal {
         else => @compileError("unsupported target for Metal"),
     };
     layer.setProperty("device", gpu_state.device.value);
-    layer.setProperty("opaque", options.config.background_opacity >= 1);
+    layer.setProperty("opaque", options.config.background_opacity >= 1 and options.config.background_image.value == null);
     layer.setProperty("displaySyncEnabled", options.config.vsync);
 
     // Set our layer's pixel format appropriately.
@@ -1272,7 +1272,6 @@ pub fn updateFrame(
     // TODO: Is this expensive? Should we be checking if our
     //       bg color has changed first before doing this work?
     {
-        std.log.info("Updating background color to {}", .{critical.bg});
         const color = graphics.c.CGColorCreate(
             @ptrCast(self.terminal_colorspace),
             &[4]f64{
@@ -1339,7 +1338,11 @@ pub fn updateFrame(
             .replace_gray_alpha,
             .replace_rgb,
             .replace_rgba,
-            => try self.current_background_image.?.upload(self.alloc, self.gpu_state.device),
+            => try self.current_background_image.?.upload(
+                self.alloc,
+                self.gpu_state.device,
+                self.gpu_state.default_storage_mode,
+            ),
 
             .unload_pending,
             .unload_replace,
@@ -1720,7 +1723,11 @@ fn drawBackgroundImage(
             @as(f32, @floatFromInt(self.size.terminal().height)),
         },
         .mode = self.background_image_mode,
-    }});
+    }}, .{
+        // Indicate that the CPU writes to this resource but never reads it.
+        .cpu_cache_mode = .write_combined,
+        .storage_mode = self.gpu_state.default_storage_mode,
+    });
     defer buf.deinit();
 
     // Set our buffer
@@ -2401,7 +2408,7 @@ pub fn changeConfig(self: *Metal, config: *DerivedConfig) !void {
         CATransaction.msgSend(void, "begin", .{});
         defer CATransaction.msgSend(void, "commit", .{});
 
-        self.layer.setProperty("opaque", config.background_opacity >= 1);
+        self.layer.setProperty("opaque", config.background_opacity >= 1 and config.background_image.value == null);
         self.layer.setProperty("displaySyncEnabled", config.vsync);
     }
 
