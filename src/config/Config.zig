@@ -1512,11 +1512,7 @@ keybind: Keybinds = .{},
     else => .false,
 },
 
-@"copy-on-right-click": CopyOnMouseAction = switch (builtin.os.tag) {
-    .linux => .false,
-    .macos => .false,
-    else => .false,
-},
+@"copy-on-right-click": CopyOnMouseAction = .false,
 
 /// The time in milliseconds between clicks to consider a click a repeat
 /// (double, triple, etc.) or an entirely new single click. A value of zero will

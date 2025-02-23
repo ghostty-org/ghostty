@@ -1465,7 +1465,7 @@ fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
     // If copy on select is false then exit early.
     if (self.config.copy_on_select == .false) return;
 
-    // clear the clipboard. If the selection is set, we only set the clipboard
+    // Clear the clipboard. If the selection is set, we only set the clipboard
     // again if it changed, since setting the clipboard can be an expensive
     // operation.
     const sel = sel_ orelse return;
@@ -3109,8 +3109,10 @@ pub fn mouseButtonCallback(
         // If we already have a selection and the selection contains
         // where we clicked then we don't want to modify the selection.
         if (self.io.terminal.screen.selection) |prev_sel| {
-            try self.copyOnMouseAction(prev_sel, self.config.copy_on_right_click);
-            if (prev_sel.contains(screen, pin)) break :sel;
+            if (prev_sel.contains(screen, pin)) {
+                try self.copyOnMouseAction(prev_sel, self.config.copy_on_right_click);
+                break :sel;
+            }
             // The selection doesn't contain our pin, so we create a new
             // word selection where we clicked.
         }
