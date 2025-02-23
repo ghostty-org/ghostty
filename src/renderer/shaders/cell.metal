@@ -692,12 +692,13 @@ fragment float4 image_fragment(
 enum BgImageMode : uint8_t {
   MODE_ZOOMED =  0u,
   MODE_STRETCHED = 1u,
-  MODE_TILED = 2u,
-  MODE_CENTERED = 3u,
-  MODE_UPPER_LEFT = 4u,
-  MODE_UPPER_RIGHT = 5u,
-  MODE_LOWER_LEFT = 6u,
-  MODE_LOWER_RIGHT = 7u,
+  MODE_CROPPED = 2u,
+  MODE_TILED = 3u,
+  MODE_CENTERED = 4u,
+  MODE_UPPER_LEFT = 5u,
+  MODE_UPPER_RIGHT = 6u,
+  MODE_LOWER_LEFT = 7u,
+  MODE_LOWER_RIGHT = 8u,
 };
 
 struct BgImageVertexIn {
@@ -729,17 +730,28 @@ vertex BgImageVertexOut bg_image_vertex(
   // Handles the scale of the image relative to the terminal size
   float2 scale = float2(1.0, 1.0);
 
+  // Calculate the aspect ratio of the terminal and the image
+  float2 aspect_ratio = float2(
+      in.terminal_size.x / in.terminal_size.y,
+      image_size.x / image_size.y
+  );
+
   switch (in.mode) {
     case MODE_ZOOMED: {
         // Scale to fit the terminal size
-        float2 aspect_ratio = float2(
-            in.terminal_size.x / in.terminal_size.y,
-            image_size.x / image_size.y
-        );
         if (aspect_ratio.x > aspect_ratio.y) {
             scale.x = aspect_ratio.y / aspect_ratio.x;
         } else {
             scale.y = aspect_ratio.x / aspect_ratio.y;
+        }
+        break;
+    }
+    case MODE_CROPPED: {
+        // Scale to fit the terminal size
+        if (aspect_ratio.x < aspect_ratio.y) {
+          scale.x = aspect_ratio.y / aspect_ratio.x;
+        } else {
+          scale.y = aspect_ratio.x / aspect_ratio.y;
         }
         break;
     }
@@ -764,6 +776,7 @@ vertex BgImageVertexOut bg_image_vertex(
   float2 offset = float2(0.0, 0.0);
   switch (in.mode) {
     case MODE_ZOOMED:
+    case MODE_CROPPED:
     case MODE_STRETCHED:
     case MODE_TILED:
     case MODE_CENTERED:
