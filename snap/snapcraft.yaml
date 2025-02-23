@@ -70,8 +70,10 @@ parts:
     plugin: nil
     build-attributes: [enable-patchelf]
     build-packages:
+      - blueprint-compiler
       - libgtk-4-dev
       - libadwaita-1-dev
+      - libxml2-utils
       - git
       - patchelf
     override-build: |

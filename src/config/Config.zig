@@ -4354,7 +4354,9 @@ pub const ColorList = struct {
             count += 1;
             if (count > 64) return error.InvalidValue;
 
-            const color = try Color.parseCLI(raw);
+            // Trim whitespace from each color value
+            const trimmed = std.mem.trim(u8, raw, " \t");
+            const color = try Color.parseCLI(trimmed);
             try self.colors.append(alloc, color);
             try self.colors_c.append(alloc, color.cval());
         }
@@ -4421,6 +4423,14 @@ pub const ColorList = struct {
 
         var p: Self = .{};
         try p.parseCLI(alloc, "black,white");
+        try testing.expectEqual(2, p.colors.items.len);
+
+        // Test whitespace handling
+        try p.parseCLI(alloc, "black, white"); // space after comma
+        try testing.expectEqual(2, p.colors.items.len);
+        try p.parseCLI(alloc, "black , white"); // spaces around comma
+        try testing.expectEqual(2, p.colors.items.len);
+        try p.parseCLI(alloc, " black , white "); // extra spaces at ends
         try testing.expectEqual(2, p.colors.items.len);
 
         // Error cases

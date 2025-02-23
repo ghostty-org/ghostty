@@ -443,6 +443,7 @@ pub fn add(
                     .{ "glib", "glib2" },
                     .{ "gtk", "gtk4" },
                     .{ "gdk", "gdk4" },
+                    .{ "adw", "adw1" },
                 };
                 inline for (gobject_imports) |import| {
                     const name, const module = import;
@@ -451,7 +452,6 @@ pub fn add(
 
                 step.linkSystemLibrary2("gtk4", dynamic_link_opts);
                 step.linkSystemLibrary2("libadwaita-1", dynamic_link_opts);
-                step.root_module.addImport("adw", gobject.module("adw1"));
 
                 if (self.config.x11) {
                     step.linkSystemLibrary2("X11", dynamic_link_opts);
@@ -500,14 +500,24 @@ pub fn add(
 
                         const generate = b.addRunArtifact(generate_gresource_xml);
 
+                        const gtk_blueprint_compiler = b.addExecutable(.{
+                            .name = "gtk_blueprint_compiler",
+                            .root_source_file = b.path("src/apprt/gtk/blueprint_compiler.zig"),
+                            .target = b.host,
+                        });
+                        gtk_blueprint_compiler.linkSystemLibrary2("gtk4", dynamic_link_opts);
+                        gtk_blueprint_compiler.linkSystemLibrary2("libadwaita-1", dynamic_link_opts);
+                        gtk_blueprint_compiler.linkLibC();
+
                         for (gresource.blueprint_files) |blueprint_file| {
-                            const blueprint_compiler = b.addSystemCommand(&.{
-                                "blueprint-compiler",
-                                "compile",
-                                "--output",
+                            const blueprint_compiler = b.addRunArtifact(gtk_blueprint_compiler);
+                            blueprint_compiler.addArgs(&.{
+                                b.fmt("{d}", .{blueprint_file.major}),
+                                b.fmt("{d}", .{blueprint_file.minor}),
+                                b.fmt("{d}", .{blueprint_file.micro}),
                             });
-                            const ui_file = blueprint_compiler.addOutputFileArg(b.fmt("{s}.ui", .{blueprint_file}));
-                            blueprint_compiler.addFileArg(b.path(b.fmt("src/apprt/gtk/ui/{s}.blp", .{blueprint_file})));
+                            const ui_file = blueprint_compiler.addOutputFileArg(b.fmt("{s}.ui", .{blueprint_file.name}));
+                            blueprint_compiler.addFileArg(b.path(b.fmt("src/apprt/gtk/ui/{s}.blp", .{blueprint_file.name})));
                             generate.addFileArg(ui_file);
                         }
 

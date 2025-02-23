@@ -86,7 +86,9 @@ pub const Action = union(enum) {
         final: u8,
 
         /// The list of separators used for CSI params. The value of the
-        /// bit can be mapped to Sep.
+        /// bit can be mapped to Sep. The index of this bit set specifies
+        /// the separator AFTER that param. For example: 0;4:3 would have
+        /// index 1 set.
         pub const SepList = std.StaticBitSet(MAX_PARAMS);
 
         /// The separator used for CSI params.
@@ -192,7 +194,19 @@ pub const Action = union(enum) {
 /// 4 because we also use the intermediates array for UTF8 decoding which
 /// can be at most 4 bytes.
 const MAX_INTERMEDIATE = 4;
-const MAX_PARAMS = 16;
+
+/// Maximum number of CSI parameters. This is arbitrary. Practically, the
+/// only CSI command that uses more than 3 parameters is the SGR command
+/// which can be infinitely long. 24 is a reasonable limit based on empirical
+/// data. This used to be 16 but Kakoune has a SGR command that uses 17
+/// parameters.
+///
+/// We could in the future make this the static limit and then allocate after
+/// but that's a lot more work and practically its so rare to exceed this
+/// number. I implore TUI authors to not use more than this number of CSI
+/// params, but I suspect we'll introduce a slow path with heap allocation
+/// one day.
+const MAX_PARAMS = 24;
 
 /// Current state of the state machine
 state: State = .ground,
@@ -686,6 +700,64 @@ test "csi: SGR mixed colon and semicolon with blank" {
         try testing.expect(d.params_sep.isSet(12));
         try testing.expectEqual(@as(u16, 70), d.params[13]);
         try testing.expect(!d.params_sep.isSet(13));
+    }
+}
+
+// This is from a Kakoune actual SGR sequence also.
+test "csi: SGR mixed colon and semicolon setting underline, bg, fg" {
+    var p = init();
+    _ = p.next(0x1B);
+    for ("[4:3;38;2;51;51;51;48;2;170;170;170;58;2;255;97;136") |c| {
+        const a = p.next(c);
+        try testing.expect(a[0] == null);
+        try testing.expect(a[1] == null);
+        try testing.expect(a[2] == null);
+    }
+
+    {
+        const a = p.next('m');
+        try testing.expect(p.state == .ground);
+        try testing.expect(a[0] == null);
+        try testing.expect(a[1].? == .csi_dispatch);
+        try testing.expect(a[2] == null);
+
+        const d = a[1].?.csi_dispatch;
+        try testing.expect(d.final == 'm');
+        try testing.expectEqual(17, d.params.len);
+        try testing.expectEqual(@as(u16, 4), d.params[0]);
+        try testing.expect(d.params_sep.isSet(0));
+        try testing.expectEqual(@as(u16, 3), d.params[1]);
+        try testing.expect(!d.params_sep.isSet(1));
+        try testing.expectEqual(@as(u16, 38), d.params[2]);
+        try testing.expect(!d.params_sep.isSet(2));
+        try testing.expectEqual(@as(u16, 2), d.params[3]);
+        try testing.expect(!d.params_sep.isSet(3));
+        try testing.expectEqual(@as(u16, 51), d.params[4]);
+        try testing.expect(!d.params_sep.isSet(4));
+        try testing.expectEqual(@as(u16, 51), d.params[5]);
+        try testing.expect(!d.params_sep.isSet(5));
+        try testing.expectEqual(@as(u16, 51), d.params[6]);
+        try testing.expect(!d.params_sep.isSet(6));
+        try testing.expectEqual(@as(u16, 48), d.params[7]);
+        try testing.expect(!d.params_sep.isSet(7));
+        try testing.expectEqual(@as(u16, 2), d.params[8]);
+        try testing.expect(!d.params_sep.isSet(8));
+        try testing.expectEqual(@as(u16, 170), d.params[9]);
+        try testing.expect(!d.params_sep.isSet(9));
+        try testing.expectEqual(@as(u16, 170), d.params[10]);
+        try testing.expect(!d.params_sep.isSet(10));
+        try testing.expectEqual(@as(u16, 170), d.params[11]);
+        try testing.expect(!d.params_sep.isSet(11));
+        try testing.expectEqual(@as(u16, 58), d.params[12]);
+        try testing.expect(!d.params_sep.isSet(12));
+        try testing.expectEqual(@as(u16, 2), d.params[13]);
+        try testing.expect(!d.params_sep.isSet(13));
+        try testing.expectEqual(@as(u16, 255), d.params[14]);
+        try testing.expect(!d.params_sep.isSet(14));
+        try testing.expectEqual(@as(u16, 97), d.params[15]);
+        try testing.expect(!d.params_sep.isSet(15));
+        try testing.expectEqual(@as(u16, 136), d.params[16]);
+        try testing.expect(!d.params_sep.isSet(16));
     }
 }
 

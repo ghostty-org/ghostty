@@ -25,7 +25,7 @@ pub fn init(comptime name: []const u8, comptime kind: enum { blp, ui }) Builder 
                 // GResource.
                 const gresource = @import("gresource.zig");
                 for (gresource.blueprint_files) |blueprint_file| {
-                    if (std.mem.eql(u8, blueprint_file, name)) break;
+                    if (std.mem.eql(u8, blueprint_file.name, name)) break;
                 } else @compileError("missing blueprint file '" ++ name ++ "' in gresource.zig");
             },
             .ui => {
@@ -56,7 +56,7 @@ pub fn setWidgetClassTemplate(self: *const Builder, class: *gtk.WidgetClass) voi
     class.setTemplateFromResource(self.resource_name);
 }
 
-pub fn getObject(self: *Builder, name: [:0]const u8) ?*gobject.Object {
+pub fn getObject(self: *Builder, comptime T: type, name: [:0]const u8) ?*T {
     const builder = builder: {
         if (self.builder) |builder| break :builder builder;
         const builder = gtk.Builder.newFromResource(self.resource_name);
@@ -64,7 +64,7 @@ pub fn getObject(self: *Builder, name: [:0]const u8) ?*gobject.Object {
         break :builder builder;
     };
 
-    return builder.getObject(name);
+    return gobject.ext.cast(T, builder.getObject(name) orelse return null);
 }
 
 pub fn deinit(self: *const Builder) void {

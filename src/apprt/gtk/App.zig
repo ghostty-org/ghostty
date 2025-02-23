@@ -58,12 +58,6 @@ single_instance: bool,
 /// The "none" cursor. We use one that is shared across the entire app.
 cursor_none: ?*c.GdkCursor,
 
-/// The shared application menu.
-menu: ?*c.GMenu = null,
-
-/// The shared context menu.
-context_menu: ?*c.GMenu = null,
-
 /// The configuration errors window, if it is currently open.
 config_errors_window: ?*ConfigErrorsWindow = null,
 
@@ -448,8 +442,6 @@ pub fn terminate(self: *App) void {
     c.g_object_unref(self.app);
 
     if (self.cursor_none) |cursor| c.g_object_unref(cursor);
-    if (self.menu) |menu| c.g_object_unref(menu);
-    if (self.context_menu) |context_menu| c.g_object_unref(context_menu);
     if (self.transient_cgroup_base) |path| self.core_app.alloc.free(path);
 
     for (self.custom_css_providers.items) |provider| {
@@ -478,7 +470,6 @@ pub fn performAction(
         }),
         .toggle_maximize => self.toggleMaximize(target),
         .toggle_fullscreen => self.toggleFullscreen(target, value),
-
         .new_tab => try self.newTab(target),
         .close_tab => try self.closeTab(target),
         .goto_tab => return self.gotoTab(target, value),
@@ -504,6 +495,7 @@ pub fn performAction(
         .toggle_split_zoom => self.toggleSplitZoom(target),
         .toggle_window_decorations => self.toggleWindowDecorations(target),
         .quit_timer => self.quitTimer(value),
+        .prompt_title => try self.promptTitle(target),
 
         // Unimplemented
         .close_all_windows,
@@ -515,7 +507,6 @@ pub fn performAction(
         .render_inspector,
         .renderer_health,
         .color_change,
-        .prompt_title,
         => {
             log.warn("unimplemented action={}", .{action});
             return false;
@@ -779,6 +770,15 @@ fn quitTimer(self: *App, mode: apprt.action.QuitTimer) void {
     }
 }
 
+fn promptTitle(_: *App, target: apprt.Target) !void {
+    switch (target) {
+        .app => {},
+        .surface => |v| {
+            try v.rt_surface.promptTitle();
+        },
+    }
+}
+
 fn setTitle(
     _: *App,
     target: apprt.Target,
@@ -786,7 +786,7 @@ fn setTitle(
 ) !void {
     switch (target) {
         .app => {},
-        .surface => |v| try v.rt_surface.setTitle(title.title),
+        .surface => |v| try v.rt_surface.setTitle(title.title, .terminal),
     }
 }
 
@@ -914,6 +914,9 @@ fn configChange(
 ) void {
     switch (target) {
         .surface => |surface| surface: {
+            surface.rt_surface.updateConfig(new_config) catch |err| {
+                log.err("unable to update surface config: {}", .{err});
+            };
             const window = surface.rt_surface.container.window() orelse break :surface;
             window.updateConfig(new_config) catch |err| {
                 log.warn("error updating config for window err={}", .{err});
@@ -1012,17 +1015,20 @@ fn syncActionAccelerators(self: *App) !void {
     try self.syncActionAccelerator("app.quit", .{ .quit = {} });
     try self.syncActionAccelerator("app.open-config", .{ .open_config = {} });
     try self.syncActionAccelerator("app.reload-config", .{ .reload_config = {} });
-    try self.syncActionAccelerator("win.toggle_inspector", .{ .inspector = .toggle });
-    try self.syncActionAccelerator("win.close", .{ .close_surface = {} });
-    try self.syncActionAccelerator("win.new_window", .{ .new_window = {} });
-    try self.syncActionAccelerator("win.new_tab", .{ .new_tab = {} });
-    try self.syncActionAccelerator("win.split_right", .{ .new_split = .right });
-    try self.syncActionAccelerator("win.split_down", .{ .new_split = .down });
-    try self.syncActionAccelerator("win.split_left", .{ .new_split = .left });
-    try self.syncActionAccelerator("win.split_up", .{ .new_split = .up });
+    try self.syncActionAccelerator("win.toggle-inspector", .{ .inspector = .toggle });
+    try self.syncActionAccelerator("win.close", .{ .close_window = {} });
+    try self.syncActionAccelerator("win.new-window", .{ .new_window = {} });
+    try self.syncActionAccelerator("win.new-tab", .{ .new_tab = {} });
+    try self.syncActionAccelerator("win.close-tab", .{ .close_tab = {} });
+    try self.syncActionAccelerator("win.split-right", .{ .new_split = .right });
+    try self.syncActionAccelerator("win.split-down", .{ .new_split = .down });
+    try self.syncActionAccelerator("win.split-left", .{ .new_split = .left });
+    try self.syncActionAccelerator("win.split-up", .{ .new_split = .up });
     try self.syncActionAccelerator("win.copy", .{ .copy_to_clipboard = {} });
     try self.syncActionAccelerator("win.paste", .{ .paste_from_clipboard = {} });
     try self.syncActionAccelerator("win.reset", .{ .reset = {} });
+    try self.syncActionAccelerator("win.clear", .{ .clear_screen = {} });
+    try self.syncActionAccelerator("win.prompt-title", .{ .prompt_surface_title = {} });
 }
 
 fn syncActionAccelerator(
@@ -1254,10 +1260,8 @@ pub fn run(self: *App) !void {
     // and asynchronously request the initial color scheme
     self.initDbus();
 
-    // Setup our menu items
+    // Setup our actions
     self.initActions();
-    self.initMenu();
-    self.initContextMenu();
 
     // On startup, we want to check for configuration errors right away
     // so we can show our error window. We also need to setup other initial
@@ -1773,87 +1777,6 @@ fn initActions(self: *App) void {
         );
         c.g_action_map_add_action(@ptrCast(self.app), @ptrCast(action));
     }
-}
-
-/// Initializes and populates the provided GMenu with sections and actions.
-/// This function is used to set up the application's menu structure, either for
-/// the main menu button or as a context menu when window decorations are disabled.
-fn initMenuContent(menu: *c.GMenu) void {
-    {
-        const section = c.g_menu_new();
-        defer c.g_object_unref(section);
-        c.g_menu_append_section(menu, null, @ptrCast(@alignCast(section)));
-        c.g_menu_append(section, "New Window", "win.new_window");
-        c.g_menu_append(section, "New Tab", "win.new_tab");
-        c.g_menu_append(section, "Close Tab", "win.close_tab");
-        c.g_menu_append(section, "Split Right", "win.split_right");
-        c.g_menu_append(section, "Split Down", "win.split_down");
-        c.g_menu_append(section, "Close Window", "win.close");
-    }
-
-    {
-        const section = c.g_menu_new();
-        defer c.g_object_unref(section);
-        c.g_menu_append_section(menu, null, @ptrCast(@alignCast(section)));
-        c.g_menu_append(section, "Terminal Inspector", "win.toggle_inspector");
-        c.g_menu_append(section, "Open Configuration", "app.open-config");
-        c.g_menu_append(section, "Reload Configuration", "app.reload-config");
-        c.g_menu_append(section, "About Ghostty", "win.about");
-    }
-}
-
-/// This sets the self.menu property to the application menu that can be
-/// shared by all application windows.
-fn initMenu(self: *App) void {
-    const menu = c.g_menu_new();
-    errdefer c.g_object_unref(menu);
-    initMenuContent(@ptrCast(menu));
-    self.menu = menu;
-}
-
-fn initContextMenu(self: *App) void {
-    const menu = c.g_menu_new();
-    errdefer c.g_object_unref(menu);
-
-    {
-        const section = c.g_menu_new();
-        defer c.g_object_unref(section);
-        c.g_menu_append_section(menu, null, @ptrCast(@alignCast(section)));
-        c.g_menu_append(section, "Copy", "win.copy");
-        c.g_menu_append(section, "Paste", "win.paste");
-    }
-
-    {
-        const section = c.g_menu_new();
-        defer c.g_object_unref(section);
-        c.g_menu_append_section(menu, null, @ptrCast(@alignCast(section)));
-        c.g_menu_append(section, "Split Right", "win.split_right");
-        c.g_menu_append(section, "Split Down", "win.split_down");
-    }
-
-    {
-        const section = c.g_menu_new();
-        defer c.g_object_unref(section);
-        c.g_menu_append_section(menu, null, @ptrCast(@alignCast(section)));
-        c.g_menu_append(section, "Reset", "win.reset");
-        c.g_menu_append(section, "Terminal Inspector", "win.toggle_inspector");
-    }
-
-    const section = c.g_menu_new();
-    defer c.g_object_unref(section);
-    const submenu = c.g_menu_new();
-    defer c.g_object_unref(submenu);
-
-    initMenuContent(@ptrCast(submenu));
-    c.g_menu_append_submenu(section, "Menu", @ptrCast(@alignCast(submenu)));
-    c.g_menu_append_section(menu, null, @ptrCast(@alignCast(section)));
-
-    self.context_menu = menu;
-}
-
-pub fn refreshContextMenu(_: *App, window: ?*c.GtkWindow, has_selection: bool) void {
-    const action: ?*c.GSimpleAction = @ptrCast(c.g_action_map_lookup_action(@ptrCast(window), "copy"));
-    c.g_simple_action_set_enabled(action, if (has_selection) 1 else 0);
 }
 
 fn isValidAppId(app_id: [:0]const u8) bool {

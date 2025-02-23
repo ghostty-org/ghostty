@@ -165,7 +165,7 @@ pub fn reorderPage(self: *TabView, tab: *Tab, position: c_int) void {
     _ = self.tab_view.reorderPage(page, position);
 }
 
-pub fn setTabLabel(self: *TabView, tab: *Tab, title: [:0]const u8) void {
+pub fn setTabTitle(self: *TabView, tab: *Tab, title: [:0]const u8) void {
     const page = self.tab_view.getPage(@ptrCast(tab.box));
     page.setTitle(title.ptr);
 }
@@ -188,7 +188,7 @@ pub fn addTab(self: *TabView, tab: *Tab, title: [:0]const u8) void {
     const position = self.newTabInsertPosition(tab);
     const box_widget: *gtk.Widget = @ptrCast(tab.box);
     const page = self.tab_view.insert(box_widget, position);
-    self.setTabLabel(tab, title);
+    self.setTabTitle(tab, title);
     self.tab_view.setSelectedPage(page);
 }
 

@@ -103,12 +103,16 @@ pub const Parser = struct {
 
     /// Next returns the next attribute or null if there are no more attributes.
     pub fn next(self: *Parser) ?Attribute {
-        if (self.idx > self.params.len) return null;
+        if (self.idx >= self.params.len) {
+            // If we're at index zero it means we must have an empty
+            // list and an empty list implicitly means unset.
+            if (self.idx == 0) {
+                // Add one to ensure we don't loop on unset
+                self.idx += 1;
+                return .unset;
+            }
 
-        // Implicitly means unset
-        if (self.params.len == 0) {
-            self.idx += 1;
-            return .unset;
+            return null;
         }
 
         const slice = self.params[self.idx..self.params.len];
@@ -788,7 +792,6 @@ test "sgr: direct fg colon with colorspace and extra param" {
 
     {
         const v = p.next().?;
-        std.log.warn("WHAT={}", .{v});
         try testing.expect(v == .direct_color_fg);
         try testing.expectEqual(@as(u8, 1), v.direct_color_fg.r);
         try testing.expectEqual(@as(u8, 2), v.direct_color_fg.g);
@@ -863,4 +866,51 @@ test "sgr: kakoune input" {
     }
 
     //try testing.expect(p.next() == null);
+}
+
+// Discussion #5930, another input sent by kakoune
+test "sgr: kakoune input issue underline, fg, and bg" {
+    // echo -e "\033[4:3;38;2;51;51;51;48;2;170;170;170;58;2;255;97;136mset everything in one sequence, broken\033[m"
+
+    // This used to crash
+    var p: Parser = .{
+        .params = &[_]u16{ 4, 3, 38, 2, 51, 51, 51, 48, 2, 170, 170, 170, 58, 2, 255, 97, 136 },
+        .params_sep = sep: {
+            var list = SepList.initEmpty();
+            list.set(0);
+            break :sep list;
+        },
+    };
+
+    {
+        const v = p.next().?;
+        try testing.expect(v == .underline);
+        try testing.expectEqual(Attribute.Underline.curly, v.underline);
+    }
+
+    {
+        const v = p.next().?;
+        try testing.expect(v == .direct_color_fg);
+        try testing.expectEqual(@as(u8, 51), v.direct_color_fg.r);
+        try testing.expectEqual(@as(u8, 51), v.direct_color_fg.g);
+        try testing.expectEqual(@as(u8, 51), v.direct_color_fg.b);
+    }
+
+    {
+        const v = p.next().?;
+        try testing.expect(v == .direct_color_bg);
+        try testing.expectEqual(@as(u8, 170), v.direct_color_bg.r);
+        try testing.expectEqual(@as(u8, 170), v.direct_color_bg.g);
+        try testing.expectEqual(@as(u8, 170), v.direct_color_bg.b);
+    }
+
+    {
+        const v = p.next().?;
+        try testing.expect(v == .underline_color);
+        try testing.expectEqual(@as(u8, 255), v.underline_color.r);
+        try testing.expectEqual(@as(u8, 97), v.underline_color.g);
+        try testing.expectEqual(@as(u8, 136), v.underline_color.b);
+    }
+
+    try testing.expect(p.next() == null);
 }

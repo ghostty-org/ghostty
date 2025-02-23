@@ -18,6 +18,7 @@ const CoreSurface = @import("../../Surface.zig");
 const App = @import("App.zig");
 const Color = configpkg.Config.Color;
 const Surface = @import("Surface.zig");
+const Menu = @import("menu.zig").Menu;
 const Tab = @import("Tab.zig");
 const c = @import("c.zig").c;
 const adwaita = @import("adwaita.zig");
@@ -31,6 +32,10 @@ const log = std.log.scoped(.gtk);
 
 app: *App,
 
+/// Used to deduplicate updateConfig invocations
+last_config: usize,
+
+/// Local copy of any configuration
 config: DerivedConfig,
 
 /// Our window
@@ -46,7 +51,8 @@ tab_overview: ?*c.GtkWidget,
 /// The notebook (tab grouping) for this window.
 notebook: TabView,
 
-context_menu: *c.GtkWidget,
+/// The "main" menu that is attached to a button in the headerbar.
+titlebar_menu: Menu(Window, "titlebar_menu", true),
 
 /// The libadwaita widget for receiving toast send requests.
 toast_overlay: *c.GtkWidget,
@@ -107,12 +113,13 @@ pub fn init(self: *Window, app: *App) !void {
     // Set up our own state
     self.* = .{
         .app = app,
+        .last_config = @intFromPtr(&app.config),
         .config = DerivedConfig.init(&app.config),
         .window = undefined,
         .headerbar = undefined,
         .tab_overview = null,
         .notebook = undefined,
-        .context_menu = undefined,
+        .titlebar_menu = undefined,
         .toast_overlay = undefined,
         .winproto = .none,
     };
@@ -136,6 +143,9 @@ pub fn init(self: *Window, app: *App) !void {
 
     // Create our box which will hold our widgets in the main content area.
     const box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 0);
+
+    // Set up the menus
+    self.titlebar_menu.init(self);
 
     // Setup our notebook
     self.notebook.init(self);
@@ -174,7 +184,15 @@ pub fn init(self: *Window, app: *App) !void {
         const btn = c.gtk_menu_button_new();
         c.gtk_widget_set_tooltip_text(btn, "Main Menu");
         c.gtk_menu_button_set_icon_name(@ptrCast(btn), "open-menu-symbolic");
-        c.gtk_menu_button_set_menu_model(@ptrCast(btn), @ptrCast(@alignCast(app.menu)));
+        c.gtk_menu_button_set_popover(@ptrCast(btn), @ptrCast(@alignCast(self.titlebar_menu.asWidget())));
+        _ = c.g_signal_connect_data(
+            btn,
+            "notify::active",
+            c.G_CALLBACK(&gtkTitlebarMenuActivate),
+            self,
+            null,
+            c.G_CONNECT_DEFAULT,
+        );
         self.headerbar.packEnd(btn);
     }
 
@@ -259,11 +277,6 @@ pub fn init(self: *Window, app: *App) !void {
         c.adw_tab_overview_set_view(@ptrCast(tab_overview), @ptrCast(@alignCast(self.notebook.tab_view)));
     }
 
-    self.context_menu = c.gtk_popover_menu_new_from_model(@ptrCast(@alignCast(self.app.context_menu)));
-    c.gtk_widget_set_parent(self.context_menu, box);
-    c.gtk_popover_set_has_arrow(@ptrCast(@alignCast(self.context_menu)), 0);
-    c.gtk_widget_set_halign(self.context_menu, c.GTK_ALIGN_START);
-
     // We register a key event controller with the window so
     // we can catch key events when our surface may not be
     // focused (i.e. when the libadw tab overview is shown).
@@ -272,7 +285,6 @@ pub fn init(self: *Window, app: *App) !void {
     c.gtk_widget_add_controller(gtk_widget, ec_key_press);
 
     // All of our events
-    _ = c.g_signal_connect_data(self.context_menu, "closed", c.G_CALLBACK(&gtkRefocusTerm), self, null, c.G_CONNECT_DEFAULT);
     _ = c.g_signal_connect_data(self.window, "realize", c.G_CALLBACK(&gtkRealize), self, null, c.G_CONNECT_DEFAULT);
     _ = c.g_signal_connect_data(self.window, "close-request", c.G_CALLBACK(&gtkCloseRequest), self, null, c.G_CONNECT_DEFAULT);
     _ = c.g_signal_connect_data(self.window, "destroy", c.G_CALLBACK(&gtkDestroy), self, null, c.G_CONNECT_DEFAULT);
@@ -355,6 +367,13 @@ pub fn updateConfig(
     self: *Window,
     config: *const configpkg.Config,
 ) !void {
+    // avoid multiple reconfigs when we have many surfaces contained in this
+    // window using the integer value of config as a simple marker to know if
+    // we've "seen" this particular config before
+    const this_config = @intFromPtr(config);
+    if (self.last_config == this_config) return;
+    self.last_config = this_config;
+
     self.config = DerivedConfig.init(config);
 
     // We always resync our appearance whenever the config changes.
@@ -459,16 +478,19 @@ fn initActions(self: *Window) void {
     const actions = .{
         .{ "about", &gtkActionAbout },
         .{ "close", &gtkActionClose },
-        .{ "new_window", &gtkActionNewWindow },
-        .{ "new_tab", &gtkActionNewTab },
-        .{ "split_right", &gtkActionSplitRight },
-        .{ "split_down", &gtkActionSplitDown },
-        .{ "split_left", &gtkActionSplitLeft },
-        .{ "split_up", &gtkActionSplitUp },
-        .{ "toggle_inspector", &gtkActionToggleInspector },
+        .{ "new-window", &gtkActionNewWindow },
+        .{ "new-tab", &gtkActionNewTab },
+        .{ "close-tab", &gtkActionCloseTab },
+        .{ "split-right", &gtkActionSplitRight },
+        .{ "split-down", &gtkActionSplitDown },
+        .{ "split-left", &gtkActionSplitLeft },
+        .{ "split-up", &gtkActionSplitUp },
+        .{ "toggle-inspector", &gtkActionToggleInspector },
         .{ "copy", &gtkActionCopy },
         .{ "paste", &gtkActionPaste },
         .{ "reset", &gtkActionReset },
+        .{ "clear", &gtkActionClear },
+        .{ "prompt-title", &gtkActionPromptTitle },
     };
 
     inline for (actions) |entry| {
@@ -487,8 +509,6 @@ fn initActions(self: *Window) void {
 }
 
 pub fn deinit(self: *Window) void {
-    c.gtk_widget_unparent(@ptrCast(self.context_menu));
-
     self.winproto.deinit(self.app.core_app.alloc);
 
     if (self.adw_tab_overview_focus_timer) |timer| {
@@ -752,16 +772,6 @@ fn adwTabOverviewFocusTimer(
     return 0;
 }
 
-fn gtkRefocusTerm(v: *c.GtkWindow, ud: ?*anyopaque) callconv(.C) bool {
-    _ = v;
-    log.debug("refocus term request", .{});
-    const self = userdataSelf(ud.?);
-
-    self.focusCurrentTab();
-
-    return true;
-}
-
 fn gtkCloseRequest(v: *c.GtkWindow, ud: ?*anyopaque) callconv(.C) bool {
     _ = v;
     log.debug("window close request", .{});
@@ -919,11 +929,7 @@ fn gtkActionClose(
     ud: ?*anyopaque,
 ) callconv(.C) void {
     const self: *Window = @ptrCast(@alignCast(ud orelse return));
-    const surface = self.actionSurface() orelse return;
-    _ = surface.performBindingAction(.{ .close_surface = {} }) catch |err| {
-        log.warn("error performing binding action error={}", .{err});
-        return;
-    };
+    c.gtk_window_destroy(self.window);
 }
 
 fn gtkActionNewWindow(
@@ -946,6 +952,19 @@ fn gtkActionNewTab(
 ) callconv(.C) void {
     // We can use undefined because the button is not used.
     gtkTabNewClick(undefined, ud);
+}
+
+fn gtkActionCloseTab(
+    _: *c.GSimpleAction,
+    _: *c.GVariant,
+    ud: ?*anyopaque,
+) callconv(.C) void {
+    const self: *Window = @ptrCast(@alignCast(ud orelse return));
+    const surface = self.actionSurface() orelse return;
+    _ = surface.performBindingAction(.{ .close_tab = {} }) catch |err| {
+        log.warn("error performing binding action error={}", .{err});
+        return;
+    };
 }
 
 fn gtkActionSplitRight(
@@ -1052,11 +1071,53 @@ fn gtkActionReset(
     };
 }
 
+fn gtkActionClear(
+    _: *c.GSimpleAction,
+    _: *c.GVariant,
+    ud: ?*anyopaque,
+) callconv(.C) void {
+    const self: *Window = @ptrCast(@alignCast(ud orelse return));
+    const surface = self.actionSurface() orelse return;
+    _ = surface.performBindingAction(.{ .clear_screen = {} }) catch |err| {
+        log.warn("error performing binding action error={}", .{err});
+        return;
+    };
+}
+
+fn gtkActionPromptTitle(
+    _: *c.GSimpleAction,
+    _: *c.GVariant,
+    ud: ?*anyopaque,
+) callconv(.C) void {
+    const self: *Window = @ptrCast(@alignCast(ud orelse return));
+    const surface = self.actionSurface() orelse return;
+    _ = surface.performBindingAction(.{ .prompt_surface_title = {} }) catch |err| {
+        log.warn("error performing binding action error={}", .{err});
+        return;
+    };
+}
+
 /// Returns the surface to use for an action.
-fn actionSurface(self: *Window) ?*CoreSurface {
+pub fn actionSurface(self: *Window) ?*CoreSurface {
     const tab = self.notebook.currentTab() orelse return null;
     const surface = tab.focus_child orelse return null;
     return &surface.core_surface;
+}
+
+fn gtkTitlebarMenuActivate(
+    btn: *c.GtkMenuButton,
+    _: *c.GParamSpec,
+    ud: ?*anyopaque,
+) callconv(.C) void {
+    // debian 12 is stuck on GTK 4.8
+    if (!version.atLeast(4, 10, 0)) return;
+    const active = c.gtk_menu_button_get_active(btn) != 0;
+    const self = userdataSelf(ud orelse return);
+    if (active) {
+        self.titlebar_menu.refresh();
+    } else {
+        self.focusCurrentTab();
+    }
 }
 
 fn userdataSelf(ud: *anyopaque) *Window {

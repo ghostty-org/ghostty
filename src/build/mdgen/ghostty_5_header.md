@@ -11,6 +11,11 @@ is on the roadmap but not yet supported. The configuration file must be placed
 at `$XDG_CONFIG_HOME/ghostty/config`, which defaults to `~/.config/ghostty/config`
 if the [XDG environment is not set](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html).
 
+**If you are using macOS, the configuration file can also be placed at
+`$HOME/Library/Application Support/com.mitchellh.ghostty/config`.** This is the
+default configuration location for macOS. It will be searched before any of the
+XDG environment locations listed above.
+
 The file format is documented below as an example:
 
     # The syntax is "key = value". The whitespace around the equals doesn't matter.

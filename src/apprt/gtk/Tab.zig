@@ -108,8 +108,8 @@ pub fn replaceElem(self: *Tab, elem: Surface.Container.Elem) void {
     self.elem = elem;
 }
 
-pub fn setLabelText(self: *Tab, title: [:0]const u8) void {
-    self.window.notebook.setTabLabel(self, title);
+pub fn setTitleText(self: *Tab, title: [:0]const u8) void {
+    self.window.notebook.setTabTitle(self, title);
 }
 
 pub fn setTooltipText(self: *Tab, tooltip: [:0]const u8) void {

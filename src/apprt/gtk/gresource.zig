@@ -54,7 +54,19 @@ const icons = [_]struct {
 };
 
 pub const ui_files = [_][]const u8{};
-pub const blueprint_files = [_][]const u8{};
+
+pub const VersionedBlueprint = struct {
+    major: u16,
+    minor: u16,
+    micro: u16,
+    name: []const u8,
+};
+
+pub const blueprint_files = [_]VersionedBlueprint{
+    .{ .major = 1, .minor = 5, .micro = 0, .name = "prompt-title-dialog" },
+    .{ .major = 1, .minor = 0, .micro = 0, .name = "menu-surface-context_menu" },
+    .{ .major = 1, .minor = 0, .micro = 0, .name = "menu-window-titlebar_menu" },
+};
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -69,9 +81,9 @@ pub fn main() !void {
     var it = try std.process.argsWithAllocator(alloc);
     defer it.deinit();
 
-    while (it.next()) |filename| {
-        if (std.mem.eql(u8, std.fs.path.extension(filename), ".ui")) {
-            try extra_ui_files.append(try alloc.dupe(u8, filename));
+    while (it.next()) |argument| {
+        if (std.mem.eql(u8, std.fs.path.extension(argument), ".ui")) {
+            try extra_ui_files.append(try alloc.dupe(u8, argument));
         }
     }
 
@@ -141,7 +153,7 @@ pub const dependencies = deps: {
         index += 1;
     }
     for (blueprint_files) |blueprint_file| {
-        deps[index] = std.fmt.comptimePrint("src/apprt/gtk/ui/{s}.blp", .{blueprint_file});
+        deps[index] = std.fmt.comptimePrint("src/apprt/gtk/ui/{s}.blp", .{blueprint_file.name});
         index += 1;
     }
     break :deps deps;

@@ -349,7 +349,6 @@ pub const Action = union(enum) {
     toggle_tab_overview: void,
 
     /// Change the title of the current focused surface via a prompt.
-    /// This only works on macOS currently.
     prompt_surface_title: void,
 
     /// Create a new split in the given direction.

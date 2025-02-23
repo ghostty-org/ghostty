@@ -1,0 +1,102 @@
+using Gtk 4.0;
+
+menu menu {
+  section {
+    item {
+      label: _("Copy");
+      action: "win.copy";
+    }
+
+    item {
+      label: _("Paste");
+      action: "win.paste";
+    }
+  }
+
+  section {
+    item {
+      label: _("Clear");
+      action: "win.clear";
+    }
+
+    item {
+      label: _("Reset");
+      action: "win.reset";
+    }
+  }
+
+  section {
+    submenu {
+      label: _("Split");
+
+      item {
+        label: _("Change Title…");
+        action: "win.prompt-title";
+      }
+
+      item {
+        label: _("Split Up");
+        action: "win.split-up";
+      }
+
+      item {
+        label: _("Split Down");
+        action: "win.split-down";
+      }
+
+      item {
+        label: _("Split Left");
+        action: "win.split-left";
+      }
+
+      item {
+        label: _("Split Right");
+        action: "win.split-right";
+      }
+    }
+
+    submenu {
+      label: _("Tab");
+
+      item {
+        label: _("New Tab");
+        action: "win.new-tab";
+      }
+
+      item {
+        label: _("Close Tab");
+        action: "win.close-tab";
+      }
+    }
+
+    submenu {
+      label: _("Window");
+
+      item {
+        label: _("New Window");
+        action: "win.new-window";
+      }
+
+      item {
+        label: _("Close Window");
+        action: "win.close";
+      }
+    }
+  }
+
+  section {
+    submenu {
+      label: _("Config");
+
+      item {
+        label: _("Open Configuration");
+        action: "app.open-config";
+      }
+
+      item {
+        label: _("Reload Configuration");
+        action: "app.reload-config";
+      }
+    }
+  }
+}

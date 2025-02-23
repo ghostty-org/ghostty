@@ -4,6 +4,10 @@
 const Surface = @This();
 
 const std = @import("std");
+const adw = @import("adw");
+const gtk = @import("gtk");
+const gio = @import("gio");
+const gobject = @import("gobject");
 const Allocator = std.mem.Allocator;
 const build_config = @import("../../build_config.zig");
 const build_options = @import("build_options");
@@ -20,11 +24,14 @@ const App = @import("App.zig");
 const Split = @import("Split.zig");
 const Tab = @import("Tab.zig");
 const Window = @import("Window.zig");
+const Menu = @import("menu.zig").Menu;
 const ClipboardConfirmationWindow = @import("ClipboardConfirmationWindow.zig");
 const ResizeOverlay = @import("ResizeOverlay.zig");
 const inspector = @import("inspector.zig");
 const gtk_key = @import("key.zig");
 const c = @import("c.zig").c;
+const Builder = @import("Builder.zig");
+const adwaita = @import("adwaita.zig");
 
 const log = std.log.scoped(.gtk_surface);
 
@@ -266,8 +273,8 @@ pub const URLWidget = struct {
         );
 
         // Show it
-        c.gtk_overlay_add_overlay(@ptrCast(surface.overlay), left);
-        c.gtk_overlay_add_overlay(@ptrCast(surface.overlay), right);
+        c.gtk_overlay_add_overlay(surface.overlay, left);
+        c.gtk_overlay_add_overlay(surface.overlay, right);
 
         return .{
             .left = left,
@@ -276,8 +283,8 @@ pub const URLWidget = struct {
     }
 
     pub fn deinit(self: *URLWidget, overlay: *c.GtkOverlay) void {
-        c.gtk_overlay_remove_overlay(@ptrCast(overlay), @ptrCast(self.left));
-        c.gtk_overlay_remove_overlay(@ptrCast(overlay), @ptrCast(self.right));
+        c.gtk_overlay_remove_overlay(overlay, @ptrCast(self.left));
+        c.gtk_overlay_remove_overlay(overlay, @ptrCast(self.right));
     }
 
     pub fn setText(self: *const URLWidget, str: [:0]const u8) void {
@@ -329,7 +336,7 @@ gl_area: *c.GtkGLArea,
 url_widget: ?URLWidget = null,
 
 /// The overlay that shows resizing information.
-resize_overlay: ResizeOverlay = .{},
+resize_overlay: ResizeOverlay = undefined,
 
 /// Whether or not the current surface is zoomed in (see `toggle_split_zoom`).
 zoomed_in: bool = false,
@@ -345,6 +352,12 @@ cursor: ?*c.GdkCursor = null,
 /// When set the text in this buf will be null-terminated, because we need to
 /// pass it to GTK.
 title_text: ?[:0]const u8 = null,
+
+/// The title of the surface as reported by the terminal. If it is null, the
+/// title reported by the terminal is currently being used. If the title was
+/// manually overridden by the user, this will be set to a non-null value
+/// representing the default terminal title.
+title_from_terminal: ?[:0]const u8 = null,
 
 /// Our current working directory. We use this value for setting tooltips in
 /// the headerbar subtitle if we have focus. When set, the text in this buf
@@ -377,6 +390,9 @@ im_len: u7 = 0,
 /// The surface-specific cgroup path. See App.transient_cgroup_path for
 /// details on what this is.
 cgroup_path: ?[]const u8 = null,
+
+/// Our context menu.
+context_menu: Menu(Surface, "context_menu", false),
 
 /// The state of the key event while we're doing IM composition.
 /// See gtkKeyPressed for detailed descriptions.
@@ -567,7 +583,7 @@ pub fn init(self: *Surface, app: *App, opts: Options) !void {
         .container = .{ .none = {} },
         .overlay = @ptrCast(overlay),
         .gl_area = @ptrCast(gl_area),
-        .resize_overlay = ResizeOverlay.init(self),
+        .resize_overlay = undefined,
         .title_text = null,
         .core_surface = undefined,
         .font_size = font_size,
@@ -576,8 +592,16 @@ pub fn init(self: *Surface, app: *App, opts: Options) !void {
         .cursor_pos = .{ .x = -1, .y = -1 },
         .im_context = im_context,
         .cgroup_path = cgroup_path,
+        .context_menu = undefined,
     };
     errdefer self.* = undefined;
+
+    // initialize the context menu
+    self.context_menu.init(self);
+    self.context_menu.setParent(@ptrCast(@alignCast(overlay)));
+
+    // initialize the resize overlay
+    self.resize_overlay.init(self, &app.config);
 
     // Set our default mouse shape
     try self.setMouseShape(.text);
@@ -654,6 +678,7 @@ fn realize(self: *Surface) !void {
 pub fn deinit(self: *Surface) void {
     self.init_config.deinit(self.app.core_app.alloc);
     if (self.title_text) |title| self.app.core_app.alloc.free(title);
+    if (self.title_from_terminal) |title| self.app.core_app.alloc.free(title);
     if (self.pwd) |pwd| self.app.core_app.alloc.free(pwd);
 
     // We don't allocate anything if we aren't realized.
@@ -680,6 +705,11 @@ pub fn deinit(self: *Surface) void {
     if (self.cursor) |cursor| c.g_object_unref(cursor);
     if (self.update_title_timer) |timer| _ = c.g_source_remove(timer);
     self.resize_overlay.deinit();
+}
+
+/// Update our local copy of any configuration that we use.
+pub fn updateConfig(self: *Surface, config: *const configpkg.Config) !void {
+    self.resize_overlay.updateConfig(config);
 }
 
 // unref removes the long-held reference to the gl_area and kicks off the
@@ -817,28 +847,44 @@ pub fn shouldClose(self: *const Surface) bool {
 }
 
 pub fn getContentScale(self: *const Surface) !apprt.ContentScale {
-    // Future: detect GTK version 4.12+ and use gdk_surface_get_scale so we
-    // can support fractional scaling.
-    const gtk_scale: f32 = @floatFromInt(c.gtk_widget_get_scale_factor(@ptrCast(self.gl_area)));
+    const gtk_scale: f32 = scale: {
+        const widget: *gtk.Widget = @ptrCast(@alignCast(self.gl_area));
+        // Future: detect GTK version 4.12+ and use gdk_surface_get_scale so we
+        // can support fractional scaling.
+        const scale = widget.getScaleFactor();
+        if (scale <= 0) {
+            log.warn("gtk_widget_get_scale_factor returned a non-positive number: {}", .{scale});
+            break :scale 1.0;
+        }
+        break :scale @floatFromInt(scale);
+    };
 
     // Also scale using font-specific DPI, which is often exposed to the user
     // via DE accessibility settings (see https://docs.gtk.org/gtk4/class.Settings.html).
     const xft_dpi_scale = xft_scale: {
         // gtk-xft-dpi is font DPI multiplied by 1024. See
         // https://docs.gtk.org/gtk4/property.Settings.gtk-xft-dpi.html
-        const settings = c.gtk_settings_get_default();
+        const settings = gtk.Settings.getDefault() orelse break :xft_scale 1.0;
+        var value = std.mem.zeroes(gobject.Value);
+        defer value.unset();
+        _ = value.init(gobject.ext.typeFor(c_int));
+        settings.as(gobject.Object).getProperty("gtk-xft-dpi", &value);
+        const gtk_xft_dpi = value.getInt();
 
-        var value: c.GValue = std.mem.zeroes(c.GValue);
-        defer c.g_value_unset(&value);
-        _ = c.g_value_init(&value, c.G_TYPE_INT);
-        c.g_object_get_property(@ptrCast(@alignCast(settings)), "gtk-xft-dpi", &value);
-        const gtk_xft_dpi = c.g_value_get_int(&value);
+        // Use a value of 1.0 for the XFT DPI scale if the setting is <= 0
+        // See:
+        // https://gitlab.gnome.org/GNOME/libadwaita/-/commit/a7738a4d269bfdf4d8d5429ca73ccdd9b2450421
+        // https://gitlab.gnome.org/GNOME/libadwaita/-/commit/9759d3fd81129608dd78116001928f2aed974ead
+        if (gtk_xft_dpi <= 0) {
+            log.warn("gtk-xft-dpi was not set, using default value", .{});
+            break :xft_scale 1.0;
+        }
 
         // As noted above gtk-xft-dpi is multiplied by 1024, so we divide by
         // 1024, then divide by the default value (96) to derive a scale. Note
         // gtk-xft-dpi can be fractional, so we use floating point math here.
-        const xft_dpi: f32 = @as(f32, @floatFromInt(gtk_xft_dpi)) / 1024;
-        break :xft_scale xft_dpi / 96;
+        const xft_dpi: f32 = @as(f32, @floatFromInt(gtk_xft_dpi)) / 1024.0;
+        break :xft_scale xft_dpi / 96.0;
     };
 
     const scale = gtk_scale * xft_dpi_scale;
@@ -913,7 +959,7 @@ fn updateTitleLabels(self: *Surface) void {
 
     // If we have a tab and are the focused child, then we have to update the tab
     if (self.container.tab()) |tab| {
-        if (tab.focus_child == self) tab.setLabelText(title);
+        if (tab.focus_child == self) tab.setTitleText(title);
     }
 
     // If we have a window and are focused, then we have to update the window title.
@@ -931,8 +977,9 @@ fn updateTitleLabels(self: *Surface) void {
 }
 
 const zoom_title_prefix = "🔍 ";
+pub const SetTitleSource = enum { user, terminal };
 
-pub fn setTitle(self: *Surface, slice: [:0]const u8) !void {
+pub fn setTitle(self: *Surface, slice: [:0]const u8, source: SetTitleSource) !void {
     const alloc = self.app.core_app.alloc;
 
     // Always allocate with the "🔍 " at the beginning and slice accordingly
@@ -944,6 +991,14 @@ pub fn setTitle(self: *Surface, slice: [:0]const u8) !void {
         break :copy new_title;
     };
     errdefer alloc.free(copy);
+
+    // The user has overridden the title
+    // We only want to update the terminal provided title so that it can be restored to the most recent state.
+    if (self.title_from_terminal != null and source == .terminal) {
+        alloc.free(self.title_from_terminal.?);
+        self.title_from_terminal = copy;
+        return;
+    }
 
     if (self.title_text) |old| alloc.free(old);
     self.title_text = copy;
@@ -969,13 +1024,39 @@ fn updateTitleTimerExpired(ctx: ?*anyopaque) callconv(.C) c.gboolean {
 
 pub fn getTitle(self: *Surface) ?[:0]const u8 {
     if (self.title_text) |title_text| {
-        return if (self.zoomed_in)
-            title_text
-        else
-            title_text[zoom_title_prefix.len..];
+        return self.resolveTitle(title_text);
     }
 
     return null;
+}
+
+pub fn getTerminalTitle(self: *Surface) ?[:0]const u8 {
+    if (self.title_from_terminal) |title_text| {
+        return self.resolveTitle(title_text);
+    }
+
+    return null;
+}
+
+fn resolveTitle(self: *Surface, title: [:0]const u8) [:0]const u8 {
+    return if (self.zoomed_in)
+        title
+    else
+        title[zoom_title_prefix.len..];
+}
+
+pub fn promptTitle(self: *Surface) !void {
+    if (!adwaita.versionAtLeast(1, 5, 0)) return;
+    const window = self.container.window() orelse return;
+
+    var builder = Builder.init("prompt-title-dialog", .blp);
+    defer builder.deinit();
+
+    const entry = builder.getObject(gtk.Entry, "title_entry").?;
+    entry.getBuffer().setText(self.getTitle() orelse "", -1);
+
+    const dialog = builder.getObject(adw.AlertDialog, "prompt_title_dialog").?;
+    dialog.choose(@ptrCast(window.window), null, gtkPromptTitleResponse, self);
 }
 
 /// Set the current working directory of the surface.
@@ -1224,6 +1305,7 @@ fn getClipboard(widget: *c.GtkWidget, clipboard: apprt.Clipboard) ?*c.GdkClipboa
         .selection, .primary => c.gtk_widget_get_primary_clipboard(widget),
     };
 }
+
 pub fn getCursorPos(self: *const Surface) !apprt.CursorPos {
     return self.cursor_pos;
 }
@@ -1259,40 +1341,6 @@ pub fn showDesktopNotification(
     // We set the notification ID to the body content. If the content is the
     // same, this notification may replace a previous notification
     c.g_application_send_notification(g_app, body.ptr, notification);
-}
-
-fn showContextMenu(self: *Surface, x: f32, y: f32) void {
-    const window: *Window = self.container.window() orelse {
-        log.info(
-            "showContextMenu invalid for container={s}",
-            .{@tagName(self.container)},
-        );
-        return;
-    };
-
-    // Convert surface coordinate into coordinate space of the
-    // context menu's parent
-    var point: c.graphene_point_t = .{ .x = x, .y = y };
-    if (c.gtk_widget_compute_point(
-        self.primaryWidget(),
-        c.gtk_widget_get_parent(@ptrCast(window.context_menu)),
-        &c.GRAPHENE_POINT_INIT(point.x, point.y),
-        @ptrCast(&point),
-    ) == 0) {
-        log.warn("failed computing point for context menu", .{});
-        return;
-    }
-
-    const rect: c.GdkRectangle = .{
-        .x = @intFromFloat(point.x),
-        .y = @intFromFloat(point.y),
-        .width = 1,
-        .height = 1,
-    };
-
-    c.gtk_popover_set_pointing_to(@ptrCast(@alignCast(window.context_menu)), &rect);
-    self.app.refreshContextMenu(window.window, self.core_surface.hasSelection());
-    c.gtk_popover_popup(@ptrCast(@alignCast(window.context_menu)));
 }
 
 fn gtkRealize(area: *c.GtkGLArea, ud: ?*anyopaque) callconv(.C) void {
@@ -1465,7 +1513,7 @@ fn gtkMouseDown(
     // word and returns false. We can use this to handle the context menu
     // opening under normal scenarios.
     if (!consumed and button == .right) {
-        self.showContextMenu(@floatCast(x), @floatCast(y));
+        self.context_menu.popupAt(@intFromFloat(x), @intFromFloat(y));
     }
 }
 
@@ -2073,15 +2121,14 @@ fn gtkFocusLeave(_: *c.GtkEventControllerFocus, ud: ?*anyopaque) callconv(.C) vo
 /// Adds the unfocused_widget to the overlay. If the unfocused_widget has already been added, this
 /// is a no-op
 pub fn dimSurface(self: *Surface) void {
-    const window = self.container.window() orelse {
+    _ = self.container.window() orelse {
         log.warn("dimSurface invalid for container={}", .{self.container});
         return;
     };
 
     // Don't dim surface if context menu is open.
     // This means we got unfocused due to it opening.
-    const context_menu_open = c.gtk_widget_get_visible(window.context_menu);
-    if (context_menu_open == 1) return;
+    if (self.context_menu.isVisible()) return;
 
     if (self.unfocused_widget != null) return;
     self.unfocused_widget = c.gtk_drawing_area_new();
@@ -2297,4 +2344,41 @@ fn g_value_holds(value_: ?*c.GValue, g_type: c.GType) bool {
         return c.g_type_check_value_holds(value, g_type) != 0;
     }
     return false;
+}
+
+fn gtkPromptTitleResponse(source_object: ?*gobject.Object, result: *gio.AsyncResult, ud: ?*anyopaque) callconv(.C) void {
+    if (!adwaita.versionAtLeast(1, 5, 0)) return;
+    const dialog = gobject.ext.cast(adw.AlertDialog, source_object.?).?;
+    const self = userdataSelf(ud orelse return);
+
+    const response = dialog.chooseFinish(result);
+    if (std.mem.orderZ(u8, "ok", response) == .eq) {
+        const title_entry = gobject.ext.cast(gtk.Entry, dialog.getExtraChild().?).?;
+        const title = std.mem.span(title_entry.getBuffer().getText());
+
+        // if the new title is empty and the user has set the title previously, restore the terminal provided title
+        if (title.len == 0) {
+            if (self.getTerminalTitle()) |terminal_title| {
+                self.setTitle(terminal_title, .user) catch |err| {
+                    log.err("failed to set title={}", .{err});
+                };
+                self.app.core_app.alloc.free(self.title_from_terminal.?);
+                self.title_from_terminal = null;
+            }
+        } else if (title.len > 0) {
+            // if this is the first time the user is setting the title, save the current terminal provided title
+            if (self.title_from_terminal == null and self.title_text != null) {
+                self.title_from_terminal = self.app.core_app.alloc.dupeZ(u8, self.title_text.?) catch |err| switch (err) {
+                    error.OutOfMemory => {
+                        log.err("failed to allocate memory for title={}", .{err});
+                        return;
+                    },
+                };
+            }
+
+            self.setTitle(title, .user) catch |err| {
+                log.err("failed to set title={}", .{err});
+            };
+        }
+    }
 }
