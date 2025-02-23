@@ -1512,6 +1512,20 @@ keybind: Keybinds = .{},
     else => .false,
 },
 
+/// Whether to copy selected text to the clipboard on right mouse click. `true`
+/// will prefer to copy to the selection clipboard, otherwise it will copy to
+/// the system clipboard.
+///
+/// The value `clipboard` will always copy text to the selection clipboard
+/// as well as the system clipboard.
+///
+/// Middle-click paste will always use the selection clipboard. Middle-click
+/// paste is always enabled even if this is `false`.
+///
+/// The default value is false for all systems.
+///
+/// At present this will only disable the context menu on Linux in the future
+/// this shoul also disable the context menu on macOS
 @"copy-on-right-click": CopyOnMouseAction = .false,
 
 /// The time in milliseconds between clicks to consider a click a repeat
