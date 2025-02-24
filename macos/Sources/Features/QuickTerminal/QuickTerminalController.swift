@@ -33,10 +33,17 @@ class QuickTerminalController: BaseTerminalController {
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private var derivedConfig: DerivedConfig
 
-    init(_ ghostty: Ghostty.App,
-         position: QuickTerminalPosition = .top,
-         baseConfig base: Ghostty.SurfaceConfiguration? = nil,
-         surfaceTree tree: Ghostty.SplitNode? = nil
+    // The tab manager for the quick terminal
+    private lazy var tabManager: QuickTerminalTabManager = {
+        let manager = QuickTerminalTabManager(controller: self)
+        return manager
+    }()
+
+    init(
+        _ ghostty: Ghostty.App,
+        position: QuickTerminalPosition = .top,
+        baseConfig base: Ghostty.SurfaceConfiguration? = nil,
+        surfaceTree tree: Ghostty.SplitNode? = nil
     ) {
         self.position = position
         self.derivedConfig = DerivedConfig(ghostty.config)
@@ -58,6 +65,21 @@ class QuickTerminalController: BaseTerminalController {
             self,
             selector: #selector(ghosttyConfigDidChange(_:)),
             name: .ghosttyConfigDidChange,
+            object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(onNewTab),
+            name: Ghostty.Notification.ghosttyNewTab,
+            object: nil)
+        center.addObserver(
+            tabManager,
+            selector: #selector(tabManager.onMoveTab(_:)),
+            name: .ghosttyMoveTab,
+            object: nil)
+        center.addObserver(
+            tabManager,
+            selector: #selector(tabManager.onGoToTab(_:)),
+            name: Ghostty.Notification.ghosttyGotoTab,
             object: nil)
     }
 
@@ -94,15 +116,34 @@ class QuickTerminalController: BaseTerminalController {
         // Setup our initial size based on our configured position
         position.setLoaded(window)
 
-        // Setup our content
-        window.contentView = NSHostingView(rootView: TerminalView(
-            ghostty: self.ghostty,
-            viewModel: self,
-            delegate: self
-        ))
+        DispatchQueue.main.async {
+            self.setupMainView()
+            self.animateIn()
+        }
+    }
 
-        // Animate the window in
-        animateIn()
+    private func setupMainView() {
+        guard let window = self.window else { return }
+
+        let leaf: Ghostty.SplitNode.Leaf = .init(ghostty.app!, baseConfig: nil)
+        let surface: Ghostty.SplitNode = .leaf(leaf)
+        let initialTab = QuickTerminalTab(surface: surface)
+        initialTab.isActive = true
+        tabManager.tabs.append(initialTab)
+        tabManager.currentTab = initialTab
+        surfaceTree = surface
+        focusedSurface = leaf.surface
+
+        let mainContent = VStack(spacing: 0) {
+            QuickTerminalTabBarView(tabManager: tabManager)
+            TerminalView(
+                ghostty: ghostty,
+                viewModel: self,
+                delegate: self
+            )
+        }
+
+        window.contentView = NSHostingView(rootView: mainContent)
     }
 
     // MARK: NSWindowDelegate
@@ -179,16 +220,22 @@ class QuickTerminalController: BaseTerminalController {
     override func surfaceTreeDidChange(from: Ghostty.SplitNode?, to: Ghostty.SplitNode?) {
         super.surfaceTreeDidChange(from: from, to: to)
 
-        // If our surface tree is nil then we animate the window out.
-        if (to == nil) {
-            animateOut()
+        // If we have a tab with surfaces removed from surfaceTree, we need to remove them from the tab manager by calling closeTab
+        if to == nil {
+            tabManager.tabs
+                .filter { tab in
+                    tab.surface.contains { $0.surface.surface == nil }
+                }
+                .forEach { tab in
+                    tabManager.closeTab(tab)
+                }
         }
     }
 
     // MARK: Methods
 
     func toggle() {
-        if (visible) {
+        if visible {
             animateOut()
         } else {
             animateIn()
@@ -212,7 +259,7 @@ class QuickTerminalController: BaseTerminalController {
         // we want to store it so we can restore state later.
         if !NSApp.isActive {
             if let previousApp = NSWorkspace.shared.frontmostApplication,
-               previousApp.bundleIdentifier != Bundle.main.bundleIdentifier
+                previousApp.bundleIdentifier != Bundle.main.bundleIdentifier
             {
                 self.previousApp = previousApp
             }
@@ -227,7 +274,7 @@ class QuickTerminalController: BaseTerminalController {
         // If our surface tree is nil then we initialize a new terminal. The surface
         // tree can be nil if for example we run "eixt" in the terminal and force
         // animate out.
-        if (surfaceTree == nil) {
+        if surfaceTree == nil {
             let leaf: Ghostty.SplitNode.Leaf = .init(ghostty.app!, baseConfig: nil)
             surfaceTree = .leaf(leaf)
             focusedSurface = leaf.surface
@@ -301,35 +348,35 @@ class QuickTerminalController: BaseTerminalController {
                 // things like IME dropdowns to appear properly.
                 window.level = .floating
 
-                // Now that the window is visible, sync our appearance. This function
-                // requires the window is visible.
-                self.syncAppearance()
+                    // Now that the window is visible, sync our appearance. This function
+                    // requires the window is visible.
+                    self.syncAppearance()
 
-                // Once our animation is done, we must grab focus since we can't grab
-                // focus of a non-visible window.
-                self.makeWindowKey(window)
+                    // Once our animation is done, we must grab focus since we can't grab
+                    // focus of a non-visible window.
+                    self.makeWindowKey(window)
 
-                // If our application is not active, then we grab focus. Its important
-                // we do this AFTER our window is animated in and focused because
-                // otherwise macOS will bring forward another window.
-                if !NSApp.isActive {
-                    NSApp.activate(ignoringOtherApps: true)
+                    // If our application is not active, then we grab focus. Its important
+                    // we do this AFTER our window is animated in and focused because
+                    // otherwise macOS will bring forward another window.
+                    if !NSApp.isActive {
+                        NSApp.activate(ignoringOtherApps: true)
 
-                    // This works around a really funky bug where if the terminal is
-                    // shown on a screen that has no other Ghostty windows, it takes
-                    // a few (variable) event loop ticks until we can actually focus it.
-                    // https://github.com/ghostty-org/ghostty/issues/2409
-                    //
-                    // We wait one event loop tick to try it because under the happy
-                    // path (we have windows on this screen) it takes one event loop
-                    // tick for window.isKeyWindow to return true.
-                    DispatchQueue.main.async {
-                        guard !window.isKeyWindow else { return }
-                        self.makeWindowKey(window, retries: 10)
+                        // This works around a really funky bug where if the terminal is
+                        // shown on a screen that has no other Ghostty windows, it takes
+                        // a few (variable) event loop ticks until we can actually focus it.
+                        // https://github.com/ghostty-org/ghostty/issues/2409
+                        //
+                        // We wait one event loop tick to try it because under the happy
+                        // path (we have windows on this screen) it takes one event loop
+                        // tick for window.isKeyWindow to return true.
+                        DispatchQueue.main.async {
+                            guard !window.isKeyWindow else { return }
+                            self.makeWindowKey(window, retries: 10)
+                        }
                     }
                 }
-            }
-        })
+            })
     }
 
     /// Attempt to make a window key, supporting retries if necessary. The retries will be attempted
@@ -422,7 +469,7 @@ class QuickTerminalController: BaseTerminalController {
         guard window.isVisible else { return }
 
         // If we have window transparency then set it transparent. Otherwise set it opaque.
-        if (self.derivedConfig.backgroundOpacity < 1) {
+        if self.derivedConfig.backgroundOpacity < 1 {
             window.isOpaque = false
 
             // This is weird, but we don't use ".clear" because this creates a look that
@@ -437,23 +484,21 @@ class QuickTerminalController: BaseTerminalController {
         }
     }
 
+    func updateSurfaceTree(to newTree: Ghostty.SplitNode) {
+        self.surfaceTree = newTree
+        if case let .leaf(leaf) = newTree {
+            self.focusedSurface = leaf.surface
+            guard let window = self.window, self.focusedSurface?.window == window else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(25)) {
+                    self.updateSurfaceTree(to: newTree)
+                }
+                return
+            }
+            makeWindowKey(window, retries: 10)
+        }
+    }
+
     // MARK: First Responder
-
-    @IBAction override func closeWindow(_ sender: Any) {
-        // Instead of closing the window, we animate it out.
-        animateOut()
-    }
-
-    @IBAction func newTab(_ sender: Any?) {
-        guard let window else { return }
-        let alert = NSAlert()
-        alert.messageText = "Cannot Create New Tab"
-        alert.informativeText = "Tabs aren't supported in the Quick Terminal."
-        alert.addButton(withTitle: "OK")
-        alert.alertStyle = .warning
-        alert.beginSheetModal(for: window)
-    }
-
     @IBAction func toggleGhosttyFullScreen(_ sender: Any) {
         guard let surface = focusedSurface?.surface else { return }
         ghostty.toggleFullscreen(surface: surface)
@@ -482,14 +527,26 @@ class QuickTerminalController: BaseTerminalController {
         guard notification.object == nil else { return }
 
         // Get our managed configuration object out
-        guard let config = notification.userInfo?[
-            Notification.Name.GhosttyConfigChangeKey
-        ] as? Ghostty.Config else { return }
+        guard
+            let config = notification.userInfo?[
+                Notification.Name.GhosttyConfigChangeKey
+            ] as? Ghostty.Config
+        else { return }
 
         // Update our derived config
         self.derivedConfig = DerivedConfig(config)
 
         syncAppearance()
+    }
+
+    @objc func onNewTab(notification: SwiftUI.Notification) {
+        guard let surfaceView = notification.object as? Ghostty.SurfaceView else { return }
+        guard let window = surfaceView.window else { return }
+
+        // return if window is not in our managed windows
+        guard window == self.window else { return }
+
+        tabManager.newTab()
     }
 
     private struct DerivedConfig {
