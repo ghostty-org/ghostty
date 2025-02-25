@@ -956,6 +956,30 @@ extension Ghostty {
 
             let equivalent: String
             switch (event.charactersIgnoringModifiers) {
+            case "h":
+                // Special handling for Cmd+H (hide application)
+                // Only handle if it's exactly Cmd+H with no other modifiers
+                if (event.modifierFlags.contains(.command) &&
+                    event.modifierFlags.isDisjoint(with: [.shift, .control, .option])) {
+
+                    let visibleWindowCount = NSApp.windows.filter { $0.isVisible }.count
+                    let isLastVisibleApp = NSWorkspace.shared.runningApplications
+                        .filter { $0.activationPolicy == .regular && $0.isHidden == false }
+                        .count <= 1
+
+                    // If we're likely the last visible app, consume the event and don't pass it to the terminal
+                    if isLastVisibleApp {
+                        return true
+                    }
+
+                    // Otherwise, let macOS handle it normally
+                    return false
+                }
+
+                // For other combinations with 'h', continue with normal processing
+                // This allows combinations like Shift+Cmd+H to be processed normally
+                equivalent = "h"
+
             case "/":
                 // Treat C-/ as C-_. We do this because C-/ makes macOS make a beep
                 // sound and we don't like the beep sound.
@@ -1252,7 +1276,7 @@ extension Ghostty {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
-        
+
         @IBAction func changeTitle(_ sender: Any) {
             promptTitle()
         }
