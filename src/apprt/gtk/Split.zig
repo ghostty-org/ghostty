@@ -111,6 +111,12 @@ pub fn init(
     // Keep a long-lived reference, which we unref in destroy.
     _ = c.g_object_ref(paned);
 
+    // Ensure that the drag handle for split panes never overlaps
+    // pane content. (#3020)
+    // See recommendation in upstream Gtk issue:
+    // https://gitlab.gnome.org/GNOME/gtk/-/issues/4484#note_2362002
+    c.gtk_paned_set_wide_handle(@ptrCast(paned), @intFromBool(true));
+
     // Update all of our containers to point to the right place.
     // The split has to point to where the sibling pointed to because
     // we're inheriting its parent. The sibling points to its location
@@ -370,7 +376,6 @@ fn directionRight(self: *const Split, from: Side) ?*Surface {
         ),
     }
 }
-
 
 fn directionPrevious(self: *const Split, from: Side) ?struct {
     surface: *Surface,
