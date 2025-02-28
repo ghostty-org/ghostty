@@ -79,11 +79,12 @@ pub const DerivedConfig = struct {
     gtk_wide_tabs: bool,
     gtk_toolbar_style: configpkg.Config.GtkToolbarStyle,
 
+    title: ?[:0]const u8,
     maximize: bool,
     fullscreen: bool,
     window_decoration: configpkg.Config.WindowDecoration,
 
-    pub fn init(config: *const configpkg.Config) DerivedConfig {
+    pub fn init(config: *const configpkg.Config, alloc: Allocator) !DerivedConfig {
         return .{
             .background_opacity = config.@"background-opacity",
             .background_blur = config.@"background-blur",
@@ -94,10 +95,15 @@ pub const DerivedConfig = struct {
             .gtk_wide_tabs = config.@"gtk-wide-tabs",
             .gtk_toolbar_style = config.@"gtk-toolbar-style",
 
+            .title = if (config.title) |t| try alloc.dupe(u8, t) else null,
             .maximize = config.maximize,
             .fullscreen = config.fullscreen,
             .window_decoration = config.@"window-decoration",
         };
+    }
+
+    pub fn deinit(self: *DerivedConfig, alloc: Allocator) void {
+        if (self.title) |t| alloc.free(t);
     }
 };
 
@@ -120,7 +126,7 @@ pub fn init(self: *Window, app: *App) !void {
     self.* = .{
         .app = app,
         .last_config = @intFromPtr(&app.config),
-        .config = DerivedConfig.init(&app.config),
+        .config = try DerivedConfig.init(&app.config, app.core_app.alloc),
         .window = undefined,
         .headerbar = undefined,
         .tab_overview = null,
@@ -136,16 +142,9 @@ pub fn init(self: *Window, app: *App) !void {
 
     self.window = @ptrCast(@alignCast(gtk_widget));
 
-    c.gtk_window_set_title(self.window, "Ghostty");
-    c.gtk_window_set_default_size(self.window, 1000, 600);
-    c.gtk_widget_add_css_class(gtk_widget, "window");
-    c.gtk_widget_add_css_class(gtk_widget, "terminal-window");
-
     // GTK4 grabs F10 input by default to focus the menubar icon. We want
     // to disable this so that terminal programs can capture F10 (such as htop)
     c.gtk_window_set_handle_menubar_accel(self.window, 0);
-
-    c.gtk_window_set_icon_name(self.window, build_config.bundle_id);
 
     // Create our box which will hold our widgets in the main content area.
     const box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 0);
@@ -359,11 +358,7 @@ pub fn init(self: *Window, app: *App) !void {
         if (!self.config.gtk_wide_tabs) c.adw_tab_bar_set_expand_tabs(tab_bar, 0);
     }
 
-    // If we want the window to be maximized, we do that here.
-    if (self.config.maximize) c.gtk_window_maximize(self.window);
-
-    // If we are in fullscreen mode, new windows start fullscreen.
-    if (self.config.fullscreen) c.gtk_window_fullscreen(self.window);
+    try self.initAppearance();
 
     // Show the window
     c.gtk_widget_show(gtk_widget);
@@ -373,16 +368,41 @@ pub fn updateConfig(
     self: *Window,
     config: *const configpkg.Config,
 ) !void {
-    // avoid multiple reconfigs when we have many surfaces contained in this
-    // window using the integer value of config as a simple marker to know if
-    // we've "seen" this particular config before
+    // HACK:
+    // Avoid multiple reconfigs when we have many surfaces contained in this
+    // window using the integer value of the config pointer as a simple marker
+    // to know if we've "seen" this particular config before.
+    //
+    // For the long run we should try to make the flow of config updates saner
+    // and avoid manual deduplication. See #5947 for more information.
     const this_config = @intFromPtr(config);
     if (self.last_config == this_config) return;
     self.last_config = this_config;
 
-    self.config = DerivedConfig.init(config);
+    self.config = try DerivedConfig.init(config, self.app.core_app.alloc);
 
     // We always resync our appearance whenever the config changes.
+    try self.syncAppearance();
+}
+
+/// Initializes the appearance of the window.
+///
+/// Not all appearance changes *should* be applied when a config option is
+/// reloaded (for instance, the maximize and fullscreen settings should only
+/// apply to new windows), so we apply them here.
+pub fn initAppearance(self: *Window) !void {
+    // FIXME: Remove once self.window has been migrated to use zig-gobject
+    const window: *gtk.Window = @ptrCast(self.window);
+
+    window.setTitle(self.config.title orelse "Ghostty");
+    window.setDefaultSize(1000, 600);
+    window.as(gtk.Widget).addCssClass("window");
+    window.as(gtk.Widget).addCssClass("terminal-window");
+    window.setIconName(build_config.bundle_id);
+
+    if (self.config.maximize) window.maximize();
+    if (self.config.fullscreen) window.fullscreen();
+
     try self.syncAppearance();
 }
 
@@ -393,16 +413,19 @@ pub fn updateConfig(
 /// TODO: Many of the initial style settings in `create` could possibly be made
 /// reactive by moving them here.
 pub fn syncAppearance(self: *Window) !void {
+    // FIXME: Remove once self.window has been migrated to use zig-gobject
+    const window: *gtk.Window = @ptrCast(self.window);
+
     const csd_enabled = self.winproto.clientSideDecorationEnabled();
-    c.gtk_window_set_decorated(self.window, @intFromBool(csd_enabled));
+    window.setDecorated(@intFromBool(csd_enabled));
 
     // Fix any artifacting that may occur in window corners. The .ssd CSS
     // class is defined in the GtkWindow documentation:
     // https://docs.gtk.org/gtk4/class.Window.html#css-nodes. A definition
     // for .ssd is provided by GTK and Adwaita.
-    toggleCssClass(@ptrCast(self.window), "csd", csd_enabled);
-    toggleCssClass(@ptrCast(self.window), "ssd", !csd_enabled);
-    toggleCssClass(@ptrCast(self.window), "no-border-radius", !csd_enabled);
+    toggleCssClass(window, "csd", csd_enabled);
+    toggleCssClass(window, "ssd", !csd_enabled);
+    toggleCssClass(window, "no-border-radius", !csd_enabled);
 
     self.headerbar.setVisible(visible: {
         // Never display the header bar when CSDs are disabled.
@@ -420,7 +443,7 @@ pub fn syncAppearance(self: *Window) !void {
     });
 
     toggleCssClass(
-        @ptrCast(self.window),
+        window,
         "background",
         self.config.background_opacity >= 1,
     );
@@ -429,7 +452,7 @@ pub fn syncAppearance(self: *Window) !void {
     // GTK version is before 4.16. The conditional is because above 4.16
     // we use GTK CSS color variables.
     toggleCssClass(
-        @ptrCast(self.window),
+        window,
         "window-theme-ghostty",
         !version.atLeast(4, 16, 0) and self.config.window_theme == .ghostty,
     );
@@ -457,23 +480,17 @@ pub fn syncAppearance(self: *Window) !void {
     self.winproto.syncAppearance() catch |err| {
         log.warn("failed to sync winproto appearance error={}", .{err});
     };
-
-    toggleCssClass(
-        @ptrCast(self.window),
-        "background",
-        self.config.background_opacity >= 1,
-    );
 }
 
 fn toggleCssClass(
-    widget: *c.GtkWidget,
+    widget: anytype,
     class: [:0]const u8,
     v: bool,
 ) void {
     if (v) {
-        c.gtk_widget_add_css_class(widget, class);
+        widget.as(gtk.Widget).addCssClass(class);
     } else {
-        c.gtk_widget_remove_css_class(widget, class);
+        widget.as(gtk.Widget).removeCssClass(class);
     }
 }
 
@@ -518,6 +535,7 @@ fn initActions(self: *Window) void {
 
 pub fn deinit(self: *Window) void {
     self.winproto.deinit(self.app.core_app.alloc);
+    self.config.deinit(self.app.core_app.alloc);
 
     if (self.adw_tab_overview_focus_timer) |timer| {
         _ = c.g_source_remove(timer);
