@@ -497,6 +497,7 @@ pub fn performAction(
         .toggle_window_decorations => self.toggleWindowDecorations(target),
         .quit_timer => self.quitTimer(value),
         .prompt_title => try self.promptTitle(target),
+        .open_url => self.openUrl(value),
 
         // Unimplemented
         .close_all_windows,
@@ -1698,4 +1699,11 @@ test "isValidAppId" {
     try testing.expect(!isValidAppId(".foo"));
     try testing.expect(!isValidAppId(""));
     try testing.expect(!isValidAppId("foo" ** 86));
+}
+
+pub fn openUrl(
+    app: *App,
+    value: apprt.action.OpenUrl,
+) void {
+    internal_os.openUrlLinux(app.core_app.alloc, value.url);
 }

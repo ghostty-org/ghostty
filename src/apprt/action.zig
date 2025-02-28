@@ -237,6 +237,11 @@ pub const Action = union(Key) {
     /// for changes.
     config_change: ConfigChange,
 
+    /// Open a URL using the native OS mechanisms. On macOS this might be `open`
+    /// or on Linux this might be `xdg-open`. The exact mechanism is up to the
+    /// apprt.
+    open_url: OpenUrl,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -278,6 +283,7 @@ pub const Action = union(Key) {
         color_change,
         reload_config,
         config_change,
+        open_url,
     };
 
     /// Sync with: ghostty_action_u
@@ -559,6 +565,40 @@ pub const ConfigChange = struct {
     pub fn cval(self: ConfigChange) C {
         return .{
             .config = self.config,
+        };
+    }
+};
+
+/// The type of the data at the URL to open. This is used as a hint to
+/// potentially open the URL in a different way.
+/// Sync with: ghostty_action_open_url_kind_s
+pub const OpenUrlKind = enum(c_int) {
+    text,
+    unknown,
+};
+
+/// Open a URL
+pub const OpenUrl = struct {
+    /// The type of data that the URL refers to.
+    kind: OpenUrlKind,
+    /// The URL.
+    url: []const u8,
+
+    // Sync with: ghostty_action_open_url_s
+    pub const C = extern struct {
+        /// The type of data that the URL refers to.
+        kind: OpenUrlKind,
+        /// The URL (not zero terminated).
+        url: [*]const u8,
+        /// The number of bytes in the URL.
+        len: usize,
+    };
+
+    pub fn cval(self: OpenUrl) C {
+        return .{
+            .kind = self.kind,
+            .url = self.url.ptr,
+            .len = self.url.len,
         };
     }
 };
