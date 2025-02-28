@@ -48,6 +48,9 @@ pub const Message = union(enum) {
     /// Change the background color as set by an OSC 11 command, if any.
     background_color: ?terminal.color.RGB,
 
+    /// Change the background opacity.
+    background_opacity: f64,
+
     /// Change the cursor color. This can be done separately from changing the
     /// config file in response to an OSC 12 command.
     cursor_color: ?terminal.color.RGB,

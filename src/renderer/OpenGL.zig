@@ -653,6 +653,17 @@ pub fn setVisible(self: *OpenGL, visible: bool) void {
     _ = visible;
 }
 
+/// Set the backgrond opacity in the config.
+///
+/// Must be called on the render thread.
+pub fn setBackgroundOpacity(self: *OpenGL, opacity: f64) void {
+    if (single_threaded_draw) self.draw_mutex.lock();
+    defer if (single_threaded_draw) self.draw_mutex.unlock();
+
+    // We don't want to go below 0 or above 1
+    self.config.background_opacity = @max(0, @min(1, opacity));
+}
+
 /// Set the new font grid.
 ///
 /// Must be called on the render thread.

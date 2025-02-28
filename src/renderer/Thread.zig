@@ -420,6 +420,11 @@ fn drainMailbox(self: *Thread) !void {
                 self.renderer.markDirty();
             },
 
+            .background_opacity => |opacity| {
+                self.renderer.setBackgroundOpacity(opacity);
+                self.renderer.markDirty();
+            },
+
             .cursor_color => |color| {
                 self.renderer.cursor_color = color;
                 self.renderer.markDirty();

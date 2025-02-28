@@ -499,7 +499,7 @@ pub fn performAction(
         .toggle_tab_overview => self.toggleTabOverview(target),
         .toggle_split_zoom => self.toggleSplitZoom(target),
         .toggle_window_decorations => self.toggleWindowDecorations(target),
-        .toggle_background_opacity => self.toggleBackgroundOpacity(target),
+        .toggle_background_opacity => try self.toggleBackgroundOpacity(target),
         .quit_timer => self.quitTimer(value),
         .prompt_title => try self.promptTitle(target),
         .toggle_quick_terminal => return try self.toggleQuickTerminal(),
@@ -798,9 +798,9 @@ fn toggleQuickTerminal(self: *App) !bool {
 }
 
 fn toggleBackgroundOpacity(
-    _: *App,
+    self: *App,
     target: apprt.Target,
-) void {
+) !void {
     switch (target) {
         .app => {},
         .surface => |v| {
@@ -811,7 +811,13 @@ fn toggleBackgroundOpacity(
                 );
                 return;
             };
-            window.toggleBackgroundOpacity();
+
+            const opacity = try window.toggleBackgroundOpacity();
+
+            // Cycle through all surfaces and set the background opacity so they stay in sync
+            for (self.core_app.surfaces.items) |surface| {
+                surface.core_surface.setBackgroundOpacity(opacity);
+            }
         },
     }
 }

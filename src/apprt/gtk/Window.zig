@@ -662,14 +662,13 @@ pub fn toggleWindowDecorations(self: *Window) void {
 }
 
 /// Toggle the background opacity for this window.
-pub fn toggleBackgroundOpacity(self: *Window) void {
-    if (self.app.config.@"background-opacity" >= 1) return;
+pub fn toggleBackgroundOpacity(self: *Window) !f64 {
+    if (self.app.config.@"background-opacity" >= 1) return self.app.config.@"background-opacity";
 
-    if (c.gtk_widget_has_css_class(@ptrCast(self.window), "background") == 1) {
-        c.gtk_widget_remove_css_class(@ptrCast(self.window), "background");
-    } else {
-        c.gtk_widget_add_css_class(@ptrCast(self.window), "background");
-    }
+    self.config.background_opacity = if (self.config.background_opacity == 1.0) self.app.config.@"background-opacity" else 1.0;
+    try self.syncAppearance();
+
+    return self.config.background_opacity;
 }
 
 /// Grabs focus on the currently selected tab.

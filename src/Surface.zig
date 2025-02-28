@@ -1561,6 +1561,22 @@ pub fn setFontSize(self: *Surface, size: font.face.DesiredSize) !void {
     self.queueRender() catch unreachable;
 }
 
+/// Change the surface background opacity. This function may be reused anywhere that
+/// might want to change the opacity of the surface.
+///
+/// This can only be called from the main thread.
+pub fn setBackgroundOpacity(self: *Surface, opacity: f64) void {
+    log.debug("set background opacity={}", .{opacity});
+
+    // Notify our render thread of the new opacity.
+    _ = self.renderer_thread.mailbox.push(.{
+        .background_opacity = opacity,
+    }, .{ .forever = {} });
+
+    // Schedule render which also drains our mailbox
+    self.queueRender() catch unreachable;
+}
+
 /// This queues a render operation with the renderer thread. The render
 /// isn't guaranteed to happen immediately but it will happen as soon as
 /// practical.
