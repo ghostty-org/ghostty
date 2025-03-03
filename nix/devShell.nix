@@ -2,6 +2,7 @@
   mkShell,
   lib,
   stdenv,
+  callPackage,
   bashInteractive,
   gdb,
   #, glxinfo # unused
@@ -34,7 +35,7 @@
   gtk4-layer-shell,
   gobject-introspection,
   libadwaita,
-  blueprint-compiler,
+  # blueprint-compiler,
   adwaita-icon-theme,
   hicolor-icon-theme,
   harfbuzz,
@@ -62,6 +63,7 @@
   zig2nix,
   system,
 }: let
+  blueprint-compiler = callPackage ./blueprint-compiler.nix {};
   # See package.nix. Keep in sync.
   rpathLibs =
     [

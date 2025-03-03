@@ -16,7 +16,7 @@
   gtk4-layer-shell,
   gobject-introspection,
   libadwaita,
-  blueprint-compiler,
+  # blueprint-compiler,
   libxml2,
   wrapGAppsHook4,
   gsettings-desktop-schemas,
@@ -47,6 +47,7 @@
   zig_hook = zig_0_13.hook.overrideAttrs {
     zig_default_flags = "-Dcpu=baseline -Doptimize=${optimize} --color off";
   };
+  blueprint-compiler = callPackage ./blueprint-compiler.nix {};
 in
   stdenv.mkDerivation (finalAttrs: {
     pname = "ghostty";
