@@ -10,6 +10,7 @@ const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
+const gdk = @import("gdk");
 const gio = @import("gio");
 const glib = @import("glib");
 const gobject = @import("gobject");
@@ -297,15 +298,21 @@ pub fn init(self: *Window, app: *App) !void {
     // We register a key event controller with the window so
     // we can catch key events when our surface may not be
     // focused (i.e. when the libadw tab overview is shown).
-    const ec_key_press = c.gtk_event_controller_key_new();
-    errdefer c.g_object_unref(ec_key_press);
-    c.gtk_widget_add_controller(gtk_widget, ec_key_press);
+    const ec_key_press = gtk.EventControllerKey.new();
+    errdefer ec_key_press.unref();
+    c.gtk_widget_add_controller(gtk_widget, @ptrCast(@alignCast(ec_key_press)));
 
     // All of our events
     _ = c.g_signal_connect_data(self.window, "realize", c.G_CALLBACK(&gtkRealize), self, null, c.G_CONNECT_DEFAULT);
     _ = c.g_signal_connect_data(self.window, "close-request", c.G_CALLBACK(&gtkCloseRequest), self, null, c.G_CONNECT_DEFAULT);
     _ = c.g_signal_connect_data(self.window, "destroy", c.G_CALLBACK(&gtkDestroy), self, null, c.G_CONNECT_DEFAULT);
-    _ = c.g_signal_connect_data(ec_key_press, "key-pressed", c.G_CALLBACK(&gtkKeyPressed), self, null, c.G_CONNECT_DEFAULT);
+    _ = gtk.EventControllerKey.signals.key_pressed.connect(
+        ec_key_press,
+        *Window,
+        gtkKeyPressed,
+        self,
+        .{},
+    );
 
     // Our actions for the menu
     initActions(self);
@@ -865,14 +872,12 @@ fn gtkDestroy(v: *c.GtkWidget, ud: ?*anyopaque) callconv(.C) void {
 }
 
 fn gtkKeyPressed(
-    ec_key: *c.GtkEventControllerKey,
-    keyval: c.guint,
-    keycode: c.guint,
-    gtk_mods: c.GdkModifierType,
-    ud: ?*anyopaque,
+    ec_key: *gtk.EventControllerKey,
+    keyval: c_uint,
+    keycode: c_uint,
+    gtk_mods: gdk.ModifierType,
+    self: *Window,
 ) callconv(.C) c.gboolean {
-    const self = userdataSelf(ud.?);
-
     // We only process window-level events currently for the tab
     // overview. This is primarily defensive programming because
     // I'm not 100% certain how our logic below will interact with

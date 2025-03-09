@@ -34,6 +34,7 @@
   gtk4-layer-shell,
   gobject-introspection,
   libadwaita,
+  pango,
   blueprint-compiler,
   gettext,
   adwaita-icon-theme,
@@ -94,6 +95,7 @@
       glib
       gobject-introspection
       wayland
+      pango
     ];
 in
   mkShell {
@@ -179,6 +181,7 @@ in
         wayland
         wayland-scanner
         wayland-protocols
+        pango
       ];
 
     # This should be set onto the rpath of the ghostty binary if you want

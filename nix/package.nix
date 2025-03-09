@@ -16,6 +16,7 @@
   gtk4-layer-shell,
   gobject-introspection,
   libadwaita,
+  pango,
   blueprint-compiler,
   libxml2,
   gettext,
@@ -114,6 +115,7 @@ in
         gtk4
         glib
         gsettings-desktop-schemas
+        pango
       ]
       ++ lib.optionals enableX11 [
         libX11

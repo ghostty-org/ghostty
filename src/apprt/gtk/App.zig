@@ -10,11 +10,12 @@
 /// (event loop) along with any global app state.
 const App = @This();
 
-const gtk = @import("gtk");
+const adw = @import("adw");
+const gdk = @import("gdk");
 const gio = @import("gio");
 const glib = @import("glib");
 const gobject = @import("gobject");
-const adw = @import("adw");
+const gtk = @import("gtk");
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -64,7 +65,7 @@ winproto: winproto.App,
 single_instance: bool,
 
 /// The "none" cursor. We use one that is shared across the entire app.
-cursor_none: ?*c.GdkCursor,
+cursor_none: ?*gdk.Cursor,
 
 /// The configuration errors window, if it is currently open.
 config_errors_window: ?*ConfigErrorsWindow = null,
@@ -280,8 +281,8 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
     };
 
     // The "none" cursor is used for hiding the cursor
-    const cursor_none = c.gdk_cursor_new_from_name("none", null);
-    errdefer if (cursor_none) |cursor| c.g_object_unref(cursor);
+    const cursor_none = gdk.Cursor.newFromName("none", null);
+    errdefer if (cursor_none) |cursor| cursor.unref();
 
     const single_instance = switch (config.@"gtk-single-instance") {
         .true => true,
