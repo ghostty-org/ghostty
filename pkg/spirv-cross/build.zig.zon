@@ -1,5 +1,5 @@
 .{
-    .name = "spirv-cross",
+    .name = .spirv_cross,
     .version = "13.1.1",
     .paths = .{""},
     .dependencies = .{

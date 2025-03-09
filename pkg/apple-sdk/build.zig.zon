@@ -1,5 +1,5 @@
 .{
-    .name = "apple-sdk",
+    .name = .apple_sdk,
     .version = "0.1.0",
     .dependencies = .{},
 }

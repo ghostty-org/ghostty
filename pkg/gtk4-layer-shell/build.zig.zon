@@ -1,5 +1,5 @@
 .{
-    .name = "gtk4-layer-shell",
+    .name = .gtk4_layer_shell,
     .version = "1.1.0",
     .paths = .{""},
     .dependencies = .{
