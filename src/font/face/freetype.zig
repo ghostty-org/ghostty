@@ -390,13 +390,28 @@ pub const Face = struct {
         // and copy the atlas.
         const bitmap_original = bitmap_converted orelse bitmap_ft;
         const bitmap_resized: ?freetype.c.struct_FT_Bitmap_ = resized: {
-            const max = metrics.cell_height;
-            const bm = bitmap_original;
-            if (bm.rows <= max) break :resized null;
+            const original_width = bitmap_original.width;
+            const original_height = bitmap_original.rows;
+            var result = bitmap_original;
+            // TODO: We are limiting this to only emoji. We can rework this after a future
+            // improvement (promised by Qwerasd) which implements more flexible resizing rules. For
+            // now, this will suffice
+            if (self.isColorGlyph(glyph_index) and opts.cell_width != null) {
+                const cell_width = opts.cell_width orelse unreachable;
+                // If we have a cell_width, we constrain the glyph to fit within the cell
+                result.width = metrics.cell_width * @as(u32, cell_width);
+                result.rows = (result.width * original_height) / original_width;
+            } else {
+                // If we don't have a cell_width, we scale to fill vertically
+                result.rows = metrics.cell_height;
+                result.width = (metrics.cell_height * original_width) / original_height;
+            }
 
-            var result = bm;
-            result.rows = max;
-            result.width = (result.rows * bm.width) / bm.rows;
+            // If we already fit, we don't need to resize
+            if (original_height <= result.rows and original_width <= result.width) {
+                break :resized null;
+            }
+
             result.pitch = @as(c_int, @intCast(result.width)) * atlas.format.depth();
 
             const buf = try alloc.alloc(
@@ -407,10 +422,10 @@ pub const Face = struct {
             errdefer alloc.free(buf);
 
             if (stb.stbir_resize_uint8(
-                bm.buffer,
-                @intCast(bm.width),
-                @intCast(bm.rows),
-                bm.pitch,
+                bitmap_original.buffer,
+                @intCast(original_width),
+                @intCast(original_height),
+                bitmap_original.pitch,
                 result.buffer,
                 @intCast(result.width),
                 @intCast(result.rows),
@@ -520,7 +535,7 @@ pub const Face = struct {
             // NOTE(mitchellh): I don't know if this is right, this doesn't
             // _feel_ right, but it makes all my limited test cases work.
             if (self.face.hasColor() and !self.face.isScalable()) {
-                break :offset_y @intCast(tgt_h);
+                break :offset_y @intCast(tgt_h + (metrics.cell_height -| tgt_h) / 2);
             }
 
             // The Y offset is the offset of the top of our bitmap PLUS our
