@@ -3,12 +3,14 @@ const std = @import("std");
 // TODO: Import this from build.zig.zon when possible
 const version: std.SemanticVersion = .{ .major = 1, .minor = 1, .patch = 0 };
 
+const dynamic_link_opts: std.Build.Module.LinkSystemLibraryOptions = .{
+    .preferred_link_mode = .dynamic,
+    .search_strategy = .mode_first,
+};
+
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-
-    const upstream = b.dependency("gtk4_layer_shell", .{});
-    const wayland_protocols = b.dependency("wayland_protocols", .{});
 
     // Zig API
     const module = b.addModule("gtk4-layer-shell", .{
@@ -16,10 +18,25 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
-    module.addIncludePath(upstream.path("include"));
     // Needs the gtk.h header
     module.linkSystemLibrary("gtk4", dynamic_link_opts);
 
+    if (b.systemIntegrationOption("gtk4-layer-shell", .{})) {
+        module.linkSystemLibrary("gtk4-layer-shell-0", dynamic_link_opts);
+    } else {
+        _ = try buildLib(b, module, .{
+            .target = target,
+            .optimize = optimize,
+        });
+    }
+}
+
+fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Build.Step.Compile {
+    const target = options.target;
+    const optimize = options.optimize;
+
+    const upstream = b.dependency("gtk4_layer_shell", .{});
+    const wayland_protocols = b.dependency("wayland_protocols", .{});
     // Shared library
     const lib = b.addSharedLibrary(.{
         .name = "gtk4-layer-shell",
@@ -29,6 +46,7 @@ pub fn build(b: *std.Build) !void {
     lib.linkLibC();
     lib.addIncludePath(upstream.path("include"));
     lib.addIncludePath(upstream.path("src"));
+    module.addIncludePath(upstream.path("include"));
 
     // GTK
     lib.linkSystemLibrary2("gtk4", dynamic_link_opts);
@@ -76,6 +94,16 @@ pub fn build(b: *std.Build) !void {
         .{ .include_extensions = &.{".h"} },
     );
 
+    // Certain files relating to session lock were removed as we don't use them
+    const srcs: []const []const u8 = &.{
+        "gtk4-layer-shell.c",
+        "layer-surface.c",
+        "libwayland-shim.c",
+        "registry.c",
+        "stolen-from-libwayland.c",
+        "stubbed-surface.c",
+        "xdg-surface-server.c",
+    };
     lib.addCSourceFiles(.{
         .root = upstream.path("src"),
         .files = srcs,
@@ -87,20 +115,5 @@ pub fn build(b: *std.Build) !void {
     });
 
     b.installArtifact(lib);
+    return lib;
 }
-
-// Certain files relating to session lock were removed as we don't use them
-const srcs: []const []const u8 = &.{
-    "gtk4-layer-shell.c",
-    "layer-surface.c",
-    "libwayland-shim.c",
-    "registry.c",
-    "stolen-from-libwayland.c",
-    "stubbed-surface.c",
-    "xdg-surface-server.c",
-};
-
-const dynamic_link_opts: std.Build.Module.LinkSystemLibraryOptions = .{
-    .preferred_link_mode = .dynamic,
-    .search_strategy = .mode_first,
-};
