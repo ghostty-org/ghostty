@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const buildpkg = @import("src/build/main.zig");
 
 comptime {
-    buildpkg.requireZig("0.13.0");
+    buildpkg.requireZig("0.14.0");
 }
 
 pub fn build(b: *std.Build) !void {
