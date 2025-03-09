@@ -95,11 +95,13 @@ pub fn main() !MainReturn {
     }
 
     // Create our app state
-    var app = try App.create(alloc);
-    defer app.destroy();
+    var app: App = undefined;
+    try app.init(alloc);
+    defer app.deinit();
 
     // Create our runtime app
-    var app_runtime = try apprt.App.init(app, .{});
+    var app_runtime: apprt.App = undefined;
+    try app_runtime.init(&app, .{});
     defer app_runtime.terminate();
 
     // Since - by definition - there are no surfaces when first started, the
