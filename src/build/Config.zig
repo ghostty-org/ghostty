@@ -7,7 +7,7 @@ const builtin = @import("builtin");
 
 const apprt = @import("../apprt.zig");
 const font = @import("../font/main.zig");
-const renderer = @import("../renderer.zig");
+const renderer_mod = @import("../renderer.zig");
 const Command = @import("../Command.zig");
 const WasmTarget = @import("../os/wasm/target.zig").Target;
 
@@ -28,7 +28,7 @@ wasm_target: WasmTarget,
 
 /// Comptime interfaces
 app_runtime: apprt.Runtime = .none,
-renderer: renderer.Impl = .opengl,
+renderer: renderer_mod.Impl = .opengl,
 font_backend: font.Backend = .freetype,
 
 /// Feature flags
@@ -122,10 +122,10 @@ pub fn init(b: *std.Build) !Config {
     ) orelse apprt.Runtime.default(target.result);
 
     config.renderer = b.option(
-        renderer.Impl,
+        renderer_mod.Impl,
         "renderer",
         "The app runtime to use. Not all values supported on all platforms.",
-    ) orelse renderer.Impl.default(target.result, wasm_target);
+    ) orelse renderer_mod.Impl.default(target.result, wasm_target);
 
     //---------------------------------------------------------------
     // Feature Flags
@@ -335,8 +335,8 @@ pub fn init(b: *std.Build) !Config {
         target.result.os.tag == .macos and
         config.app_runtime == .none and
         (!config.emit_bench and
-        !config.emit_test_exe and
-        !config.emit_helpgen);
+            !config.emit_test_exe and
+            !config.emit_helpgen);
 
     //---------------------------------------------------------------
     // System Packages
@@ -395,7 +395,7 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
     step.addOption(bool, "sentry", self.sentry);
     step.addOption(apprt.Runtime, "app_runtime", self.app_runtime);
     step.addOption(font.Backend, "font_backend", self.font_backend);
-    step.addOption(renderer.Impl, "renderer", self.renderer);
+    step.addOption(renderer_mod.Impl, "renderer", self.renderer);
     step.addOption(ExeEntrypoint, "exe_entrypoint", self.exe_entrypoint);
     step.addOption(WasmTarget, "wasm_target", self.wasm_target);
     step.addOption(bool, "wasm_shared", self.wasm_shared);
@@ -436,7 +436,7 @@ pub fn fromOptions() Config {
         .flatpak = options.flatpak,
         .app_runtime = std.meta.stringToEnum(apprt.Runtime, @tagName(options.app_runtime)).?,
         .font_backend = std.meta.stringToEnum(font.Backend, @tagName(options.font_backend)).?,
-        .renderer = std.meta.stringToEnum(renderer.Impl, @tagName(options.renderer)).?,
+        .renderer = std.meta.stringToEnum(renderer_mod.Impl, @tagName(options.renderer)).?,
         .exe_entrypoint = std.meta.stringToEnum(ExeEntrypoint, @tagName(options.exe_entrypoint)).?,
         .wasm_target = std.meta.stringToEnum(WasmTarget, @tagName(options.wasm_target)).?,
         .wasm_shared = options.wasm_shared,

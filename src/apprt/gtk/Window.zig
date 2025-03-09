@@ -34,7 +34,7 @@ const TabView = @import("TabView.zig");
 const HeaderBar = @import("headerbar.zig");
 const CloseDialog = @import("CloseDialog.zig");
 const version = @import("version.zig");
-const winproto = @import("winproto.zig");
+const winproto_mod = @import("winproto.zig");
 
 const log = std.log.scoped(.gtk);
 
@@ -69,7 +69,7 @@ toast_overlay: *c.GtkWidget,
 adw_tab_overview_focus_timer: ?c.guint = null,
 
 /// State and logic for windowing protocol for a window.
-winproto: winproto.Window,
+winproto: winproto_mod.Window,
 
 pub const DerivedConfig = struct {
     background_opacity: f64,
@@ -693,7 +693,7 @@ fn gtkRealize(_: *c.GtkWindow, ud: ?*anyopaque) callconv(.C) bool {
     const self = userdataSelf(ud.?);
 
     // Initialize our window protocol logic
-    if (winproto.Window.init(
+    if (winproto_mod.Window.init(
         self.app.core_app.alloc,
         &self.app.winproto,
         self,

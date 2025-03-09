@@ -32,7 +32,7 @@ const ClipboardConfirmationWindow = @import("ClipboardConfirmationWindow.zig");
 const ResizeOverlay = @import("ResizeOverlay.zig");
 const URLWidget = @import("URLWidget.zig");
 const CloseDialog = @import("CloseDialog.zig");
-const inspector = @import("inspector.zig");
+const inspector_mod = @import("inspector.zig");
 const gtk_key = @import("key.zig");
 const c = @import("c.zig").c;
 const Builder = @import("Builder.zig");
@@ -290,7 +290,7 @@ size: apprt.SurfaceSize,
 cursor_pos: apprt.CursorPos,
 
 /// Inspector state.
-inspector: ?*inspector.Inspector = null,
+inspector: ?*inspector_mod.Inspector = null,
 
 /// Key input states. See gtkKeyPressed for detailed descriptions.
 in_keyevent: IMKeyEvent = .false,
@@ -703,7 +703,7 @@ pub fn controlInspector(
 
     // If we already have an inspector, we don't need to show anything.
     if (self.inspector != null) return;
-    self.inspector = inspector.Inspector.create(
+    self.inspector = inspector_mod.Inspector.create(
         self,
         .{ .window = {} },
     ) catch |err| {

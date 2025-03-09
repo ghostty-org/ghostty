@@ -10,7 +10,7 @@ const fastmem = @import("../fastmem.zig");
 /// A reference counted set.
 ///
 /// This set is created with some capacity in mind. You can determine
-/// the exact memory requirement of a given capacity by calling `layout`
+/// the exact memory requirement of a given capacity by calling `layout_sim`
 /// and checking the total size.
 ///
 /// When the set exceeds capacity, an `OutOfMemory` or `NeedsRehash` error
@@ -147,7 +147,7 @@ pub fn RefCountedSet(
         ///
         /// The returned layout `cap` property will be 1 more than the number
         /// of items that the set can actually store, since ID 0 is reserved.
-        pub fn layout(cap: usize) Layout {
+        pub fn layout_sim(cap: usize) Layout {
             // Experimentally, this load factor works quite well.
             const load_factor = 0.8125;
 
@@ -621,7 +621,7 @@ pub fn RefCountedSet(
                 // to minimize the time it takes to find it.
                 if (item.meta.psl < held_item.meta.psl or
                     item.meta.psl == held_item.meta.psl and
-                    item.meta.ref < held_item.meta.ref)
+                        item.meta.ref < held_item.meta.ref)
                 {
                     // Put our held item in the bucket.
                     table[p] = held_id;

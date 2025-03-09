@@ -16,7 +16,7 @@ const termio = @import("../termio.zig");
 const Command = @import("../Command.zig");
 const Pty = @import("../pty.zig").Pty;
 const StreamHandler = @import("stream_handler.zig").StreamHandler;
-const terminal = @import("../terminal/main.zig");
+const terminal_mod = @import("../terminal/main.zig");
 const terminfo = @import("../terminfo/main.zig");
 const xev = @import("../global.zig").xev;
 const renderer = @import("../renderer.zig");
@@ -41,7 +41,7 @@ config: DerivedConfig,
 /// The terminal emulator internal state. This is the abstract "terminal"
 /// that manages input, grid updating, etc. and is renderer-agnostic. It
 /// just stores internal state about a grid.
-terminal: terminal.Terminal,
+terminal: terminal_mod.Terminal,
 
 /// The shared render state
 renderer_state: *renderer.State,
@@ -64,7 +64,7 @@ mailbox: termio.Mailbox,
 
 /// The stream parser. This parses the stream of escape codes and so on
 /// from the child process and calls callbacks in the stream handler.
-terminal_stream: terminal.Stream(StreamHandler),
+terminal_stream: terminal_mod.Stream(StreamHandler),
 
 /// Last time the cursor was reset. This is used to prevent message
 /// flooding with cursor resets.
@@ -76,9 +76,9 @@ last_cursor_reset: ?std.time.Instant = null,
 pub const DerivedConfig = struct {
     arena: ArenaAllocator,
 
-    palette: terminal.color.Palette,
+    palette: terminal_mod.color.Palette,
     image_storage_limit: usize,
-    cursor_style: terminal.CursorStyle,
+    cursor_style: terminal_mod.CursorStyle,
     cursor_blink: ?bool,
     cursor_color: ?configpkg.Config.Color,
     cursor_invert: bool,
@@ -128,8 +128,8 @@ pub const DerivedConfig = struct {
 /// to run a child process.
 pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
     // The default terminal modes based on our config.
-    const default_modes: terminal.ModePacked = modes: {
-        var modes: terminal.ModePacked = .{};
+    const default_modes: terminal_mod.ModePacked = modes: {
+        var modes: terminal_mod.ModePacked = .{};
 
         // Setup our initial grapheme cluster support if enabled. We use a
         // switch to ensure we get a compiler error if more cases are added.
@@ -145,7 +145,7 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
     };
 
     // Create our terminal
-    var term = try terminal.Terminal.init(alloc, opts: {
+    var term = try terminal_mod.Terminal.init(alloc, opts: {
         const grid_size = opts.size.grid();
         break :opts .{
             .cols = grid_size.columns,
@@ -510,7 +510,7 @@ pub fn clearScreen(self: *Termio, td: *ThreadData, history: bool) !void {
 }
 
 /// Scroll the viewport
-pub fn scrollViewport(self: *Termio, scroll: terminal.Terminal.ScrollViewport) !void {
+pub fn scrollViewport(self: *Termio, scroll: terminal_mod.Terminal.ScrollViewport) !void {
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
     try self.terminal.scrollViewport(scroll);

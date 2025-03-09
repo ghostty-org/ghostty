@@ -11,7 +11,7 @@ const Allocator = std.mem.Allocator;
 const unicode = @import("../unicode/main.zig");
 
 const ansi = @import("ansi.zig");
-const modes = @import("modes.zig");
+const modes_mod = @import("modes.zig");
 const charsets = @import("charsets.zig");
 const csi = @import("csi.zig");
 const hyperlink = @import("hyperlink.zig");
@@ -20,7 +20,7 @@ const point = @import("point.zig");
 const sgr = @import("sgr.zig");
 const Tabstops = @import("Tabstops.zig");
 const color = @import("color.zig");
-const mouse_shape = @import("mouse_shape.zig");
+const mouse_shape_mod = @import("mouse_shape.zig");
 
 const size = @import("size.zig");
 const pagepkg = @import("page.zig");
@@ -87,10 +87,10 @@ color_palette: struct {
 previous_char: ?u21 = null,
 
 /// The modes that this terminal currently has active.
-modes: modes.ModeState = .{},
+modes: modes_mod.ModeState = .{},
 
 /// The most recently set mouse shape for the terminal.
-mouse_shape: mouse_shape.MouseShape = .text,
+mouse_shape: mouse_shape_mod.MouseShape = .text,
 
 /// These are just a packed set of flags we may set on the terminal.
 flags: packed struct {
@@ -196,7 +196,7 @@ pub const Options = struct {
 
     /// The default mode state. When the terminal gets a reset, it
     /// will revert back to this state.
-    default_modes: modes.ModePacked = .{},
+    default_modes: modes_mod.ModePacked = .{},
 };
 
 /// Initialize a new terminal.

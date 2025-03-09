@@ -8,7 +8,7 @@ const assert = std.debug.assert;
 const xev = @import("../global.zig").xev;
 const crash = @import("../crash/main.zig");
 const internal_os = @import("../os/main.zig");
-const renderer = @import("../renderer.zig");
+const renderer_mod = @import("../renderer.zig");
 const apprt = @import("../apprt.zig");
 const configpkg = @import("../config.zig");
 const BlockingQueue = @import("../datastruct/main.zig").BlockingQueue;
@@ -23,7 +23,7 @@ const CURSOR_BLINK_INTERVAL = 600;
 /// The type used for sending messages to the IO thread. For now this is
 /// hardcoded with a capacity. We can make this a comptime parameter in
 /// the future if we want it configurable.
-pub const Mailbox = BlockingQueue(renderer.Message, 64);
+pub const Mailbox = BlockingQueue(renderer_mod.Message, 64);
 
 /// Allocator used for some state
 alloc: std.mem.Allocator,
@@ -67,10 +67,10 @@ cursor_c_cancel: xev.Completion = .{},
 surface: *apprt.Surface,
 
 /// The underlying renderer implementation.
-renderer: *renderer.Renderer,
+renderer: *renderer_mod.Renderer,
 
 /// Pointer to the shared state that is used to generate the final render.
-state: *renderer.State,
+state: *renderer_mod.State,
 
 /// The mailbox that can be used to send this thread messages. Note
 /// this is a blocking queue so if it is full you will get errors (or block).
@@ -117,8 +117,8 @@ pub fn init(
     alloc: Allocator,
     config: *const configpkg.Config,
     surface: *apprt.Surface,
-    renderer_impl: *renderer.Renderer,
-    state: *renderer.State,
+    renderer_impl: *renderer_mod.Renderer,
+    state: *renderer_mod.State,
     app_mailbox: App.Mailbox,
 ) !Thread {
     // Create our event loop.
@@ -209,7 +209,7 @@ fn threadMain_(self: *Thread) !void {
     self.setQosClass();
 
     // Run our loop start/end callbacks if the renderer cares.
-    const has_loop = @hasDecl(renderer.Renderer, "loopEnter");
+    const has_loop = @hasDecl(renderer_mod.Renderer, "loopEnter");
     if (has_loop) try self.renderer.loopEnter(self);
     defer if (has_loop) self.renderer.loopExit();
 
@@ -278,7 +278,7 @@ fn setQosClass(self: *const Thread) void {
 
 fn startDrawTimer(self: *Thread) void {
     // If our renderer doesn't support animations then we never run this.
-    if (!@hasDecl(renderer.Renderer, "hasAnimations")) return;
+    if (!@hasDecl(renderer_mod.Renderer, "hasAnimations")) return;
     if (!self.renderer.hasAnimations()) return;
     if (self.config.custom_shader_animation == .false) return;
 
@@ -442,7 +442,7 @@ fn drainMailbox(self: *Thread) !void {
             .inspector => |v| self.flags.has_inspector = v,
 
             .macos_display_id => |v| {
-                if (@hasDecl(renderer.Renderer, "setMacOSDisplayID")) {
+                if (@hasDecl(renderer_mod.Renderer, "setMacOSDisplayID")) {
                     try self.renderer.setMacOSDisplayID(v);
                 }
             },
@@ -466,8 +466,8 @@ fn drawFrame(self: *Thread, now: bool) void {
 
     // If we're doing single-threaded GPU calls then we just wake up the
     // app thread to redraw at this point.
-    if (renderer.Renderer == renderer.OpenGL and
-        renderer.OpenGL.single_threaded_draw)
+    if (renderer_mod.Renderer == renderer_mod.OpenGL and
+        renderer_mod.OpenGL.single_threaded_draw)
     {
         _ = self.app_mailbox.push(
             .{ .redraw_surface = self.surface },
