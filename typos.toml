@@ -45,5 +45,9 @@ greyscale = "grayscale"
 DECID = "DECID"
 flate = "flate"
 
+[type.po]
+extend-glob = ["*.po"]
+check-file = false
+
 [type.swift.extend-words]
 inout = "inout"
