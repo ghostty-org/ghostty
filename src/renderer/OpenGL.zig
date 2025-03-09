@@ -275,6 +275,7 @@ pub const DerivedConfig = struct {
     font_thicken_strength: u8,
     font_features: std.ArrayListUnmanaged([:0]const u8),
     font_styles: font.CodepointResolver.StyleStatus,
+    font_shaping_break: configpkg.FontShapingBreak,
     cursor_color: ?terminal.color.RGB,
     cursor_invert: bool,
     cursor_text: ?terminal.color.RGB,
@@ -325,6 +326,7 @@ pub const DerivedConfig = struct {
             .font_thicken_strength = config.@"font-thicken-strength",
             .font_features = font_features.list,
             .font_styles = font_styles,
+            .font_shaping_break = config.@"font-shaping-break",
 
             .cursor_color = if (!cursor_invert and config.@"cursor-color" != null)
                 config.@"cursor-color".?.toTerminalRGB()
@@ -1349,6 +1351,7 @@ pub fn rebuildCells(
             row,
             row_selection,
             if (shape_cursor) screen.cursor.x else null,
+            self.config.font_shaping_break,
         );
         var shaper_run: ?font.shape.TextRun = try run_iter.next(self.alloc);
         var shaper_cells: ?[]const font.shape.Cell = null;
