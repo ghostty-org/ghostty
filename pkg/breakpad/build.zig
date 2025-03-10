@@ -14,7 +14,7 @@ pub fn build(b: *std.Build) !void {
     lib.linkLibCpp();
     lib.addIncludePath(upstream.path("src"));
     lib.addIncludePath(b.path("vendor"));
-    if (target.result.isDarwin()) {
+    if (target.result.os.tag.isDarwin()) {
         const apple_sdk = @import("apple_sdk");
         try apple_sdk.addPaths(b, &lib.root_module);
     }
@@ -29,7 +29,7 @@ pub fn build(b: *std.Build) !void {
         .flags = flags.items,
     });
 
-    if (target.result.isDarwin()) {
+    if (target.result.os.tag.isDarwin()) {
         lib.addCSourceFiles(.{
             .root = upstream.path(""),
             .files = common_apple,

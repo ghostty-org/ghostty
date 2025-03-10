@@ -16,7 +16,7 @@ pub fn build(b: *std.Build) !void {
 
     module.addIncludePath(upstream.path(""));
     module.addIncludePath(b.path("override"));
-    if (target.result.isDarwin()) {
+    if (target.result.os.tag.isDarwin()) {
         const apple_sdk = @import("apple_sdk");
         try apple_sdk.addPaths(b, module);
     }
@@ -53,7 +53,7 @@ fn buildGlslang(
     lib.linkLibCpp();
     lib.addIncludePath(upstream.path(""));
     lib.addIncludePath(b.path("override"));
-    if (target.result.isDarwin()) {
+    if (target.result.os.tag.isDarwin()) {
         const apple_sdk = @import("apple_sdk");
         try apple_sdk.addPaths(b, &lib.root_module);
     }

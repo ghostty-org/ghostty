@@ -38,7 +38,7 @@ pub fn build(b: *std.Build) !void {
         module.linkFramework("Carbon", .{});
     }
 
-    if (target.result.isDarwin()) {
+    if (target.result.os.tag.isDarwin()) {
         module.linkFramework("CoreFoundation", .{});
         module.linkFramework("CoreGraphics", .{});
         module.linkFramework("CoreText", .{});

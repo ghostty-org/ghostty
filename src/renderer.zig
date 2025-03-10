@@ -48,7 +48,7 @@ pub const Impl = enum {
             };
         }
 
-        if (target.isDarwin()) return .metal;
+        if (target.os.tag.isDarwin()) return .metal;
         return .opengl;
     }
 };

@@ -13,7 +13,7 @@ pub fn build(b: *std.Build) !void {
         .link_libc = true,
     });
 
-    if (target.result.isDarwin()) {
+    if (target.result.os.tag.isDarwin()) {
         const apple_sdk = @import("apple_sdk");
         try apple_sdk.addPaths(b, module);
     }

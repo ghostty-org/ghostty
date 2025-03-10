@@ -320,7 +320,7 @@ pub fn add(
 
     // We always require the system SDK so that our system headers are available.
     // This makes things like `os/log.h` available for cross-compiling.
-    if (step.rootModuleTarget().isDarwin()) {
+    if (step.rootModuleTarget().os.tag.isDarwin()) {
         try @import("apple_sdk").addPaths(b, &step.root_module);
 
         const metallib = self.metallib.?;
@@ -363,7 +363,7 @@ pub fn add(
     }).module("zf"));
 
     // Mac Stuff
-    if (step.rootModuleTarget().isDarwin()) {
+    if (step.rootModuleTarget().os.tag.isDarwin()) {
         const objc_dep = b.dependency("zig_objc", .{
             .target = target,
             .optimize = optimize,

@@ -69,7 +69,7 @@ pub fn init(b: *std.Build) !Config {
 
         // If we're building for macOS and we're on macOS, we need to
         // use a generic target to workaround compilation issues.
-        if (result.result.os.tag == .macos and builtin.target.isDarwin()) {
+        if (result.result.os.tag == .macos and builtin.target.os.tag.isDarwin()) {
             result = genericMacOSTarget(b, null);
         }
 
@@ -331,7 +331,7 @@ pub fn init(b: *std.Build) !Config {
         bool,
         "emit-xcframework",
         "Build and install the xcframework for the macOS library.",
-    ) orelse builtin.target.isDarwin() and
+    ) orelse builtin.target.os.tag.isDarwin() and
         target.result.os.tag == .macos and
         config.app_runtime == .none and
         (!config.emit_bench and
@@ -366,7 +366,7 @@ pub fn init(b: *std.Build) !Config {
                 .{
                     // If we're not on darwin we want to use whatever the
                     // default is via the system package mode
-                    .default = if (target.result.isDarwin()) false else null,
+                    .default = if (target.result.os.tag.isDarwin()) false else null,
                 },
             );
         }

@@ -15,7 +15,7 @@ pub fn build(b: *std.Build) !void {
     if (target.result.os.tag == .linux) {
         lib.linkSystemLibrary("m");
     }
-    if (target.result.isDarwin()) {
+    if (target.result.os.tag.isDarwin()) {
         const apple_sdk = @import("apple_sdk");
         try apple_sdk.addPaths(b, &lib.root_module);
     }
