@@ -8,7 +8,7 @@ const std = @import("std");
 pub const FlagStack = struct {
     const len = 8;
 
-    flags: [len]Flags = .{.{}} ** len,
+    flags: [len]Flags = .{Flags{}} ** len,
     idx: u3 = 0,
 
     /// Return the current stack value
