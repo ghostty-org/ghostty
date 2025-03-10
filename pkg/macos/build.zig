@@ -46,7 +46,7 @@ pub fn build(b: *std.Build) !void {
         module.linkFramework("QuartzCore", .{});
 
         if (!target.query.isNative()) {
-            try apple_sdk.addPaths(b, &lib.root_module);
+            try apple_sdk.addPaths(b, lib.root_module);
             try apple_sdk.addPaths(b, module);
         }
     }

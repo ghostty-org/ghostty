@@ -96,7 +96,7 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
     module.addIncludePath(upstream.path("src"));
 
     if (target.result.os.tag.isDarwin()) {
-        try apple_sdk.addPaths(b, &lib.root_module);
+        try apple_sdk.addPaths(b, lib.root_module);
         try apple_sdk.addPaths(b, module);
     }
 

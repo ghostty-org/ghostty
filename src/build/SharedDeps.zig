@@ -321,7 +321,7 @@ pub fn add(
     // We always require the system SDK so that our system headers are available.
     // This makes things like `os/log.h` available for cross-compiling.
     if (step.rootModuleTarget().os.tag.isDarwin()) {
-        try @import("apple_sdk").addPaths(b, &step.root_module);
+        try @import("apple_sdk").addPaths(b, step.root_module);
 
         const metallib = self.metallib.?;
         metallib.output.addStepDependencies(&step.step);
