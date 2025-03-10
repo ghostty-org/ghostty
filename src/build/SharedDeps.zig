@@ -449,12 +449,12 @@ pub fn add(
                     .optimize = optimize,
                 });
                 const gobject_imports = .{
-                    .{ "gobject", "gobject2" },
+                    .{ "adw", "adw1" },
+                    .{ "gdk", "gdk4" },
                     .{ "gio", "gio2" },
                     .{ "glib", "glib2" },
+                    .{ "gobject", "gobject2" },
                     .{ "gtk", "gtk4" },
-                    .{ "gdk", "gdk4" },
-                    .{ "adw", "adw1" },
                 };
                 inline for (gobject_imports) |import| {
                     const name, const module = import;

@@ -1,6 +1,9 @@
 const std = @import("std");
 const build_options = @import("build_options");
 const Allocator = std.mem.Allocator;
+
+const gdk = @import("gdk");
+
 const c = @import("c.zig").c;
 const Config = @import("../../config.zig").Config;
 const input = @import("../../input.zig");
@@ -52,8 +55,8 @@ pub const App = union(Protocol) {
 
     pub fn eventMods(
         self: *App,
-        device: ?*c.GdkDevice,
-        gtk_mods: c.GdkModifierType,
+        device: ?*gdk.Device,
+        gtk_mods: gdk.ModifierType,
     ) input.Mods {
         return switch (self.*) {
             inline else => |*v| v.eventMods(device, gtk_mods),

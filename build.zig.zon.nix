@@ -220,11 +220,11 @@ in
       };
     }
     {
-      name = "12208d70ee791d7ef7e16e1c3c9c1127b57f1ed066a24f87d57fc9f730c5dc394b9d";
+      name = "1220a96e89f3e4c72fe149ee311fbdbd67ea46b6ebdbcee8efa5b3fde973fed34968";
       path = fetchZigArtifact {
         name = "gobject";
-        url = "https://deps.files.ghostty.org/gobject-12208d70ee791d7ef7e16e1c3c9c1127b57f1ed066a24f87d57fc9f730c5dc394b9d.tar.zst";
-        hash = "sha256-UU97kNv/bZzQPKz1djhEDLapLguvfBpFfWVb6FthtcI=";
+        url = "https://github.com/jcollie/ghostty-gobject/releases/download/2025-03-10-6-1/ghostty-gobject-2025-03-10-6-1.tar.gz";
+        hash = "sha256-IACXhRiELTfsRNyQ6beHN3nOzSDQJMzoTZ6mUcGwN3g=";
       };
     }
     {

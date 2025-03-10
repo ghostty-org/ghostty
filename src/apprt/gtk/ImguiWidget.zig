@@ -370,8 +370,9 @@ fn keyEvent(
     cimgui.c.igSetCurrentContext(self.ig_ctx);
     const io: *cimgui.c.ImGuiIO = cimgui.c.igGetIO();
 
+    // FIXME: when this file get converted to zig-gobject
     // Translate the GTK mods and update the modifiers on every keypress
-    const mods = key.translateMods(gtk_mods);
+    const mods = key.translateMods(@bitCast(gtk_mods));
     cimgui.c.ImGuiIO_AddKeyEvent(io, cimgui.c.ImGuiKey_LeftShift, mods.shift);
     cimgui.c.ImGuiIO_AddKeyEvent(io, cimgui.c.ImGuiKey_LeftCtrl, mods.ctrl);
     cimgui.c.ImGuiIO_AddKeyEvent(io, cimgui.c.ImGuiKey_LeftAlt, mods.alt);

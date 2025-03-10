@@ -1,5 +1,10 @@
 const std = @import("std");
 const build_options = @import("build_options");
+
+const gdk = @import("gdk");
+const glib = @import("glib");
+const gtk = @import("gtk");
+
 const input = @import("../../input.zig");
 const c = @import("c.zig").c;
 const winproto = @import("winproto.zig");
@@ -37,63 +42,56 @@ pub fn accelFromTrigger(buf: []u8, trigger: input.Binding.Trigger) !?[:0]const u
     return slice[0 .. slice.len - 1 :0];
 }
 
-pub fn translateMods(state: c.GdkModifierType) input.Mods {
-    var mods: input.Mods = .{};
-    if (state & c.GDK_SHIFT_MASK != 0) mods.shift = true;
-    if (state & c.GDK_CONTROL_MASK != 0) mods.ctrl = true;
-    if (state & c.GDK_ALT_MASK != 0) mods.alt = true;
-    if (state & c.GDK_SUPER_MASK != 0) mods.super = true;
-
-    // Lock is dependent on the X settings but we just assume caps lock.
-    if (state & c.GDK_LOCK_MASK != 0) mods.caps_lock = true;
-    return mods;
+pub fn translateMods(state: gdk.ModifierType) input.Mods {
+    return .{
+        .shift = state.shift_mask,
+        .ctrl = state.control_mask,
+        .alt = state.alt_mask,
+        .super = state.super_mask,
+        // Lock is dependent on the X settings but we just assume caps lock.
+        .caps_lock = state.lock_mask,
+    };
 }
 
 // Get the unshifted unicode value of the keyval. This is used
 // by the Kitty keyboard protocol.
 pub fn keyvalUnicodeUnshifted(
-    widget: *c.GtkWidget,
-    event: *c.GdkEvent,
-    keycode: c.guint,
+    widget: *gtk.Widget,
+    event: *gdk.KeyEvent,
+    keycode: u32,
 ) u21 {
-    const display = c.gtk_widget_get_display(widget);
+    const display = widget.getDisplay();
 
     // We need to get the currently active keyboard layout so we know
     // what group to look at.
-    const layout = c.gdk_key_event_get_layout(@ptrCast(event));
+    const layout = event.getLayout();
 
-    // Get all the possible keyboard mappings for this keycode. A keycode
-    // is the physical key pressed.
-    var keys: [*]c.GdkKeymapKey = undefined;
-    var keyvals: [*]c.guint = undefined;
-    var n_keys: c_int = 0;
-    if (c.gdk_display_map_keycode(
-        display,
-        keycode,
-        @ptrCast(&keys),
-        @ptrCast(&keyvals),
-        &n_keys,
-    ) == 0) return 0;
+    // Get all the possible keyboard mappings for this keycode. A keycode is the
+    // physical key pressed.
+    var keys: [*]gdk.KeymapKey = undefined;
+    var keyvals: [*]c_uint = undefined;
+    var n_entries: c_int = 0;
+    if (display.mapKeycode(keycode, &keys, &keyvals, &n_entries) == 0) return 0;
 
-    defer c.g_free(keys);
-    defer c.g_free(keyvals);
+    defer glib.free(keys);
+    defer glib.free(keyvals);
 
     // debugging:
-    // log.debug("layout={}", .{layout});
-    // for (0..@intCast(n_keys)) |i| {
-    //     log.debug("keymap key={} codepoint={x}", .{
+    // std.log.debug("layout={}", .{layout});
+    // for (0..@intCast(n_entries)) |i| {
+    //     std.log.debug("keymap key={} codepoint={x}", .{
     //         keys[i],
-    //         c.gdk_keyval_to_unicode(keyvals[i]),
+    //         gdk.keyvalToUnicode(keyvals[i]),
     //     });
     // }
 
-    for (0..@intCast(n_keys)) |i| {
-        if (keys[i].group == layout and
-            keys[i].level == 0)
+    for (0..@intCast(n_entries)) |i| {
+        if (keys[i].f_group == layout and
+            keys[i].f_level == 0)
         {
             return std.math.cast(
                 u21,
-                c.gdk_keyval_to_unicode(keyvals[i]),
+                gdk.keyvalToUnicode(keyvals[i]),
             ) orelse 0;
         }
     }
@@ -105,16 +103,16 @@ pub fn keyvalUnicodeUnshifted(
 /// This requires a lot of context because the GdkEvent
 /// doesn't contain enough on its own.
 pub fn eventMods(
-    event: *c.GdkEvent,
+    event: *gdk.Event,
     physical_key: input.Key,
-    gtk_mods: c.GdkModifierType,
+    gtk_mods: gdk.ModifierType,
     action: input.Action,
     app_winproto: *winproto.App,
 ) input.Mods {
-    const device = c.gdk_event_get_device(event);
+    const device = event.getDevice();
 
     var mods = app_winproto.eventMods(device, gtk_mods);
-    mods.num_lock = c.gdk_device_get_num_lock_state(device) == 1;
+    mods.num_lock = if (device) |d| d.getNumLockState() != 0 else false;
 
     // We use the physical key to determine sided modifiers. As
     // far as I can tell there's no other way to reliably determine

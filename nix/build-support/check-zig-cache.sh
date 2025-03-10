@@ -70,7 +70,7 @@ elif [ "$1" != "--update" ]; then
   help
   exit 1
 else
-  jq -r '.[] .url' "$BUILD_ZIG_ZON_LOCK" | sort > "$BUILD_ZIG_ZON_TXT"
+  jq -r '.[] .url' "$BUILD_ZIG_ZON_LOCK" | LANG=C sort > "$BUILD_ZIG_ZON_TXT"
   mv "$WORK_DIR/build.zig.zon.nix" "$BUILD_ZIG_ZON_NIX"
   echo -e "\nOK: build.zig.zon.nix updated."
   exit 0

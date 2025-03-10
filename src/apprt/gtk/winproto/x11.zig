@@ -3,6 +3,9 @@ const std = @import("std");
 const builtin = @import("builtin");
 const build_options = @import("build_options");
 const Allocator = std.mem.Allocator;
+
+const gdk = @import("gdk");
+
 const c = @import("../c.zig").c;
 const input = @import("../../../input.zig");
 const Config = @import("../../../config.zig").Config;
@@ -117,8 +120,8 @@ pub const App = struct {
     /// event did not result in a modifier change).
     pub fn eventMods(
         self: App,
-        device: ?*c.GdkDevice,
-        gtk_mods: c.GdkModifierType,
+        device: ?*gdk.Device,
+        gtk_mods: gdk.ModifierType,
     ) ?input.Mods {
         _ = device;
         _ = gtk_mods;

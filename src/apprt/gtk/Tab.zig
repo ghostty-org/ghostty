@@ -73,8 +73,9 @@ pub fn init(self: *Tab, window: *Window, parent_: ?*CoreSurface) !void {
     surface.container = .{ .tab_ = self };
     self.elem = .{ .surface = surface };
 
+    // FIXME: when Tab.zig is converted to zig-gobject
     // Add Surface to the Tab
-    c.gtk_box_append(self.box, surface.primaryWidget());
+    c.gtk_box_append(self.box, @ptrCast(@alignCast(surface.primaryWidget())));
 
     // Set the userdata of the box to point to this tab.
     c.g_object_set_data(@ptrCast(box_widget), GHOSTTY_TAB, self);
@@ -103,10 +104,11 @@ pub fn destroy(self: *Tab, alloc: Allocator) void {
 /// Replace the surface element that this tab is showing.
 pub fn replaceElem(self: *Tab, elem: Surface.Container.Elem) void {
     // Remove our previous widget
-    c.gtk_box_remove(self.box, self.elem.widget());
+    // FIXME: when Tab.zig is converted to zig-gobject
+    c.gtk_box_remove(self.box, @ptrCast(@alignCast(self.elem.widget())));
 
     // Add our new one
-    c.gtk_box_append(self.box, elem.widget());
+    c.gtk_box_append(self.box, @ptrCast(@alignCast(elem.widget())));
     self.elem = elem;
 }
 

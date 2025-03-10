@@ -1,8 +1,8 @@
 //! Wayland protocol implementation for the Ghostty GTK apprt.
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-
 const build_options = @import("build_options");
+
 const wayland = @import("wayland");
 const gtk = @import("gtk");
 const gtk4_layer_shell = @import("gtk4-layer-shell");
@@ -86,8 +86,8 @@ pub const App = struct {
 
     pub fn eventMods(
         _: *App,
-        _: ?*c.GdkDevice,
-        _: c.GdkModifierType,
+        _: ?*gdk.Device,
+        _: gdk.ModifierType,
     ) ?input.Mods {
         return null;
     }

@@ -1,5 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+
+const gdk = @import("gdk");
+
 const c = @import("../c.zig").c;
 const Config = @import("../../../config.zig").Config;
 const input = @import("../../../input.zig");
@@ -24,8 +27,8 @@ pub const App = struct {
 
     pub fn eventMods(
         _: *App,
-        _: ?*c.GdkDevice,
-        _: c.GdkModifierType,
+        _: ?*gdk.Device,
+        _: gdk.ModifierType,
     ) ?input.Mods {
         return null;
     }
