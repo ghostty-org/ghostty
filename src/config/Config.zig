@@ -2023,6 +2023,7 @@ keybind: Keybinds = .{},
 ///
 ///   * `never` - The macOS app is never hidden.
 ///   * `always` - The macOS app is always hidden.
+///   * `quick-terminal` - The macOS app is hidden only if no windows are shown.
 ///
 /// Note: When the macOS application is hidden, keyboard layout changes
 /// will no longer be automatic. This is a limitation of macOS.
@@ -5623,6 +5624,7 @@ pub const MacTitlebarProxyIcon = enum {
 pub const MacHidden = enum {
     never,
     always,
+    @"quick-terminal",
 };
 
 /// See macos-icon
