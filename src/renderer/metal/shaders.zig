@@ -4,6 +4,7 @@ const assert = std.debug.assert;
 const macos = @import("macos");
 const objc = @import("objc");
 const math = @import("../../math.zig");
+const configpkg = @import("../../config.zig");
 
 const mtl = @import("api.zig");
 
@@ -23,6 +24,9 @@ pub const Shaders = struct {
     /// The image shader is the shader used to render images for things
     /// like the Kitty image protocol.
     image_pipeline: objc.Object,
+
+    /// Background image shader for images set by the user
+    bg_image_pipeline: objc.Object,
 
     /// Custom shaders to run against the final drawable texture. This
     /// can be used to apply a lot of effects. Each shader is run in sequence
@@ -52,6 +56,9 @@ pub const Shaders = struct {
         const image_pipeline = try initImagePipeline(device, library, pixel_format);
         errdefer image_pipeline.msgSend(void, objc.sel("release"), .{});
 
+        const bg_image_pipeline = try initBgImagePipeline(device, library, pixel_format);
+        errdefer bg_image_pipeline.msgSend(void, objc.sel("release"), .{});
+
         const post_pipelines: []const objc.Object = initPostPipelines(
             alloc,
             device,
@@ -75,6 +82,7 @@ pub const Shaders = struct {
             .cell_text_pipeline = cell_text_pipeline,
             .cell_bg_pipeline = cell_bg_pipeline,
             .image_pipeline = image_pipeline,
+            .bg_image_pipeline = bg_image_pipeline,
             .post_pipelines = post_pipelines,
         };
     }
@@ -84,6 +92,7 @@ pub const Shaders = struct {
         self.cell_text_pipeline.msgSend(void, objc.sel("release"), .{});
         self.cell_bg_pipeline.msgSend(void, objc.sel("release"), .{});
         self.image_pipeline.msgSend(void, objc.sel("release"), .{});
+        self.bg_image_pipeline.msgSend(void, objc.sel("release"), .{});
         self.library.msgSend(void, objc.sel("release"), .{});
 
         // Release our postprocess shaders
@@ -102,6 +111,12 @@ pub const Image = extern struct {
     cell_offset: [2]f32,
     source_rect: [4]f32,
     dest_size: [2]f32,
+};
+
+/// Single parameter for the background image shader. See shader for field details.
+pub const BgImage = extern struct {
+    terminal_size: [2]f32,
+    mode: configpkg.BackgroundImageMode,
 };
 
 /// The uniforms that are passed to the terminal cell shader.
@@ -159,6 +174,12 @@ pub const Uniforms = extern struct {
     /// with linear alpha blending have a similar apparent weight
     /// (thickness) to gamma-incorrect blending.
     use_linear_correction: bool align(1) = false,
+
+    /// Indicates if the user has set a background image.
+    has_bg_image: bool align(1),
+
+    /// The opacity of the background image.
+    bg_image_opacity: f32 align(4),
 
     const PaddingExtend = packed struct(u8) {
         left: bool = false,
@@ -626,6 +647,119 @@ fn initImagePipeline(
             // Access each Image per instance, not per vertex.
             layout.setProperty("stepFunction", @intFromEnum(mtl.MTLVertexStepFunction.per_instance));
             layout.setProperty("stride", @as(c_ulong, @sizeOf(Image)));
+        }
+
+        break :vertex_desc desc;
+    };
+    defer vertex_desc.msgSend(void, objc.sel("release"), .{});
+
+    // Create our descriptor
+    const desc = init: {
+        const Class = objc.getClass("MTLRenderPipelineDescriptor").?;
+        const id_alloc = Class.msgSend(objc.Object, objc.sel("alloc"), .{});
+        const id_init = id_alloc.msgSend(objc.Object, objc.sel("init"), .{});
+        break :init id_init;
+    };
+    defer desc.msgSend(void, objc.sel("release"), .{});
+
+    // Set our properties
+    desc.setProperty("vertexFunction", func_vert);
+    desc.setProperty("fragmentFunction", func_frag);
+    desc.setProperty("vertexDescriptor", vertex_desc);
+
+    // Set our color attachment
+    const attachments = objc.Object.fromId(desc.getProperty(?*anyopaque, "colorAttachments"));
+    {
+        const attachment = attachments.msgSend(
+            objc.Object,
+            objc.sel("objectAtIndexedSubscript:"),
+            .{@as(c_ulong, 0)},
+        );
+
+        attachment.setProperty("pixelFormat", @intFromEnum(pixel_format));
+
+        // Blending. This is required so that our text we render on top
+        // of our drawable properly blends into the bg.
+        attachment.setProperty("blendingEnabled", true);
+        attachment.setProperty("rgbBlendOperation", @intFromEnum(mtl.MTLBlendOperation.add));
+        attachment.setProperty("alphaBlendOperation", @intFromEnum(mtl.MTLBlendOperation.add));
+        attachment.setProperty("sourceRGBBlendFactor", @intFromEnum(mtl.MTLBlendFactor.one));
+        attachment.setProperty("sourceAlphaBlendFactor", @intFromEnum(mtl.MTLBlendFactor.one));
+        attachment.setProperty("destinationRGBBlendFactor", @intFromEnum(mtl.MTLBlendFactor.one_minus_source_alpha));
+        attachment.setProperty("destinationAlphaBlendFactor", @intFromEnum(mtl.MTLBlendFactor.one_minus_source_alpha));
+    }
+
+    // Make our state
+    var err: ?*anyopaque = null;
+    const pipeline_state = device.msgSend(
+        objc.Object,
+        objc.sel("newRenderPipelineStateWithDescriptor:error:"),
+        .{ desc, &err },
+    );
+    try checkError(err);
+
+    return pipeline_state;
+}
+
+fn initBgImagePipeline(
+    device: objc.Object,
+    library: objc.Object,
+    pixel_format: mtl.MTLPixelFormat,
+) !objc.Object {
+    // Get our vertex and fragment functions
+    const func_vert = func_vert: {
+        const str = try macos.foundation.String.createWithBytes(
+            "bg_image_vertex",
+            .utf8,
+            false,
+        );
+        defer str.release();
+
+        const ptr = library.msgSend(?*anyopaque, objc.sel("newFunctionWithName:"), .{str});
+        break :func_vert objc.Object.fromId(ptr.?);
+    };
+    const func_frag = func_frag: {
+        const str = try macos.foundation.String.createWithBytes(
+            "bg_image_fragment",
+            .utf8,
+            false,
+        );
+        defer str.release();
+
+        const ptr = library.msgSend(?*anyopaque, objc.sel("newFunctionWithName:"), .{str});
+        break :func_frag objc.Object.fromId(ptr.?);
+    };
+    defer func_vert.msgSend(void, objc.sel("release"), .{});
+    defer func_frag.msgSend(void, objc.sel("release"), .{});
+
+    // Create the vertex descriptor. The vertex descriptor describes the
+    // data layout of the vertex inputs. We use indexed (or "instanced")
+    // rendering, so this makes it so that each instance gets a single
+    // Image as input.
+    const vertex_desc = vertex_desc: {
+        const desc = init: {
+            const Class = objc.getClass("MTLVertexDescriptor").?;
+            const id_alloc = Class.msgSend(objc.Object, objc.sel("alloc"), .{});
+            const id_init = id_alloc.msgSend(objc.Object, objc.sel("init"), .{});
+            break :init id_init;
+        };
+
+        // Our attributes are the fields of the input
+        const attrs = objc.Object.fromId(desc.getProperty(?*anyopaque, "attributes"));
+        autoAttribute(BgImage, attrs);
+
+        // The layout describes how and when we fetch the next vertex input.
+        const layouts = objc.Object.fromId(desc.getProperty(?*anyopaque, "layouts"));
+        {
+            const layout = layouts.msgSend(
+                objc.Object,
+                objc.sel("objectAtIndexedSubscript:"),
+                .{@as(c_ulong, 0)},
+            );
+
+            // Access each Image per instance, not per vertex.
+            layout.setProperty("stepFunction", @intFromEnum(mtl.MTLVertexStepFunction.per_instance));
+            layout.setProperty("stride", @as(c_ulong, @sizeOf(BgImage)));
         }
 
         break :vertex_desc desc;
