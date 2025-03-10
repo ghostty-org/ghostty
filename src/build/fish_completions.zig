@@ -25,7 +25,7 @@ fn writeFishCompletions(writer: anytype) !void {
     {
         try writer.writeAll("set -l commands \"");
         var count: usize = 0;
-        for (@typeInfo(Action).Enum.fields) |field| {
+        for (@typeInfo(Action).@"enum".fields) |field| {
             if (std.mem.eql(u8, "help", field.name)) continue;
             if (std.mem.eql(u8, "version", field.name)) continue;
             if (count > 0) try writer.writeAll(" ");
@@ -41,7 +41,7 @@ fn writeFishCompletions(writer: anytype) !void {
     try writer.writeAll("complete -c ghostty -s e -l help -f\n");
     try writer.writeAll("complete -c ghostty -n \"not __fish_seen_subcommand_from $commands\" -l version -f\n");
 
-    for (@typeInfo(Config).Struct.fields) |field| {
+    for (@typeInfo(Config).@"struct".fields) |field| {
         if (field.name[0] == '_') continue;
 
         try writer.writeAll("complete -c ghostty -n \"not __fish_seen_subcommand_from $commands\" -l ");
@@ -56,8 +56,8 @@ fn writeFishCompletions(writer: anytype) !void {
         else {
             try writer.writeAll(if (field.type != Config.RepeatablePath) " -f" else " -F");
             switch (@typeInfo(field.type)) {
-                .Bool => {},
-                .Enum => |info| {
+                .bool => {},
+                .@"enum" => |info| {
                     try writer.writeAll(" -a \"");
                     for (info.fields, 0..) |f, i| {
                         if (i > 0) try writer.writeAll(" ");
@@ -65,7 +65,7 @@ fn writeFishCompletions(writer: anytype) !void {
                     }
                     try writer.writeAll("\"");
                 },
-                .Struct => |info| {
+                .@"struct" => |info| {
                     if (!@hasDecl(field.type, "parseCLI") and info.layout == .@"packed") {
                         try writer.writeAll(" -a \"");
                         for (info.fields, 0..) |f, i| {
@@ -86,7 +86,7 @@ fn writeFishCompletions(writer: anytype) !void {
     {
         try writer.writeAll("complete -c ghostty -n \"string match -q -- '+*' (commandline -pt)\" -f -a \"");
         var count: usize = 0;
-        for (@typeInfo(Action).Enum.fields) |field| {
+        for (@typeInfo(Action).@"enum".fields) |field| {
             if (std.mem.eql(u8, "help", field.name)) continue;
             if (std.mem.eql(u8, "version", field.name)) continue;
             if (count > 0) try writer.writeAll(" ");
@@ -97,12 +97,12 @@ fn writeFishCompletions(writer: anytype) !void {
         try writer.writeAll("\"\n");
     }
 
-    for (@typeInfo(Action).Enum.fields) |field| {
+    for (@typeInfo(Action).@"enum".fields) |field| {
         if (std.mem.eql(u8, "help", field.name)) continue;
         if (std.mem.eql(u8, "version", field.name)) continue;
 
         const options = @field(Action, field.name).options();
-        for (@typeInfo(options).Struct.fields) |opt| {
+        for (@typeInfo(options).@"struct".fields) |opt| {
             if (opt.name[0] == '_') continue;
             try writer.writeAll("complete -c ghostty -n \"__fish_seen_subcommand_from +" ++ field.name ++ "\" -l ");
             try writer.writeAll(opt.name);
@@ -114,8 +114,8 @@ fn writeFishCompletions(writer: anytype) !void {
             } else try writer.writeAll(" -f");
 
             switch (@typeInfo(opt.type)) {
-                .Bool => {},
-                .Enum => |info| {
+                .bool => {},
+                .@"enum" => |info| {
                     try writer.writeAll(" -a \"");
                     for (info.fields, 0..) |f, i| {
                         if (i > 0) try writer.writeAll(" ");
@@ -123,9 +123,9 @@ fn writeFishCompletions(writer: anytype) !void {
                     }
                     try writer.writeAll("\"");
                 },
-                .Optional => |optional| {
+                .optional => |optional| {
                     switch (@typeInfo(optional.child)) {
-                        .Enum => |info| {
+                        .@"enum" => |info| {
                             try writer.writeAll(" -a \"");
                             for (info.fields, 0..) |f, i| {
                                 if (i > 0) try writer.writeAll(" ");

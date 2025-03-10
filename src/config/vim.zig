@@ -91,7 +91,7 @@ fn writeSyntax(writer: anytype) !void {
         \\syn keyword ghosttyConfigKeyword
     );
 
-    const config_fields = @typeInfo(Config).Struct.fields;
+    const config_fields = @typeInfo(Config).@"struct".fields;
     inline for (config_fields) |field| {
         if (field.name[0] == '_') continue;
         try writer.print("\n\t\\ {s}", .{field.name});

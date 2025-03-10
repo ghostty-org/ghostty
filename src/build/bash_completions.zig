@@ -88,7 +88,7 @@ fn writeBashCompletions(writer: anytype) !void {
         \\
     );
 
-    for (@typeInfo(Config).Struct.fields) |field| {
+    for (@typeInfo(Config).@"struct".fields) |field| {
         if (field.name[0] == '_') continue;
         switch (field.type) {
             bool, ?bool => try writer.writeAll(pad2 ++ "config+=\" '--" ++ field.name ++ " '\"\n"),
@@ -102,7 +102,7 @@ fn writeBashCompletions(writer: anytype) !void {
         \\
     );
 
-    for (@typeInfo(Config).Struct.fields) |field| {
+    for (@typeInfo(Config).@"struct".fields) |field| {
         if (field.name[0] == '_') continue;
         try writer.writeAll(pad3 ++ "--" ++ field.name ++ ") ");
 
@@ -118,8 +118,8 @@ fn writeBashCompletions(writer: anytype) !void {
             const compgenPrefix = "mapfile -t COMPREPLY < <( compgen -W \"";
             const compgenSuffix = "\" -- \"$cur\" ); _add_spaces ;;";
             switch (@typeInfo(field.type)) {
-                .Bool => try writer.writeAll("return ;;"),
-                .Enum => |info| {
+                .bool => try writer.writeAll("return ;;"),
+                .@"enum" => |info| {
                     try writer.writeAll(compgenPrefix);
                     for (info.fields, 0..) |f, i| {
                         if (i > 0) try writer.writeAll(" ");
@@ -127,7 +127,7 @@ fn writeBashCompletions(writer: anytype) !void {
                     }
                     try writer.writeAll(compgenSuffix);
                 },
-                .Struct => |info| {
+                .@"struct" => |info| {
                     if (!@hasDecl(field.type, "parseCLI") and info.layout == .@"packed") {
                         try writer.writeAll(compgenPrefix);
                         for (info.fields, 0..) |f, i| {
@@ -157,13 +157,13 @@ fn writeBashCompletions(writer: anytype) !void {
         \\
     );
 
-    for (@typeInfo(Action).Enum.fields) |field| {
+    for (@typeInfo(Action).@"enum".fields) |field| {
         if (std.mem.eql(u8, "help", field.name)) continue;
         if (std.mem.eql(u8, "version", field.name)) continue;
 
         const options = @field(Action, field.name).options();
         // assumes options will never be created with only <_name> members
-        if (@typeInfo(options).Struct.fields.len == 0) continue;
+        if (@typeInfo(options).@"struct".fields.len == 0) continue;
 
         var buffer: [field.name.len]u8 = undefined;
         const bashName: []u8 = buffer[0..field.name.len];
@@ -174,7 +174,7 @@ fn writeBashCompletions(writer: anytype) !void {
 
         {
             var count = 0;
-            for (@typeInfo(options).Struct.fields) |opt| {
+            for (@typeInfo(options).@"struct".fields) |opt| {
                 if (opt.name[0] == '_') continue;
                 if (count > 0) try writer.writeAll(" ");
                 switch (opt.type) {
@@ -193,12 +193,12 @@ fn writeBashCompletions(writer: anytype) !void {
         \\
     );
 
-    for (@typeInfo(Action).Enum.fields) |field| {
+    for (@typeInfo(Action).@"enum".fields) |field| {
         if (std.mem.eql(u8, "help", field.name)) continue;
         if (std.mem.eql(u8, "version", field.name)) continue;
 
         const options = @field(Action, field.name).options();
-        if (@typeInfo(options).Struct.fields.len == 0) continue;
+        if (@typeInfo(options).@"struct".fields.len == 0) continue;
 
         // bash doesn't allow variable names containing '-' so replace them
         var buffer: [field.name.len]u8 = undefined;
@@ -207,7 +207,7 @@ fn writeBashCompletions(writer: anytype) !void {
 
         try writer.writeAll(pad3 ++ "+" ++ field.name ++ ")\n");
         try writer.writeAll(pad4 ++ "case $prev in\n");
-        for (@typeInfo(options).Struct.fields) |opt| {
+        for (@typeInfo(options).@"struct".fields) |opt| {
             if (opt.name[0] == '_') continue;
 
             try writer.writeAll(pad5 ++ "--" ++ opt.name ++ ") ");
@@ -215,8 +215,8 @@ fn writeBashCompletions(writer: anytype) !void {
             const compgenPrefix = "mapfile -t COMPREPLY < <( compgen -W \"";
             const compgenSuffix = "\" -- \"$cur\" ); _add_spaces ;;";
             switch (@typeInfo(opt.type)) {
-                .Bool => try writer.writeAll("return ;;"),
-                .Enum => |info| {
+                .bool => try writer.writeAll("return ;;"),
+                .@"enum" => |info| {
                     try writer.writeAll(compgenPrefix);
                     for (info.fields, 0..) |f, i| {
                         if (i > 0) try writer.writeAll(" ");
@@ -224,9 +224,9 @@ fn writeBashCompletions(writer: anytype) !void {
                     }
                     try writer.writeAll(compgenSuffix);
                 },
-                .Optional => |optional| {
+                .optional => |optional| {
                     switch (@typeInfo(optional.child)) {
-                        .Enum => |info| {
+                        .@"enum" => |info| {
                             try writer.writeAll(compgenPrefix);
                             for (info.fields, 0..) |f, i| {
                                 if (i > 0) try writer.writeAll(" ");
@@ -271,7 +271,7 @@ fn writeBashCompletions(writer: anytype) !void {
         \\
     );
 
-    for (@typeInfo(Action).Enum.fields) |field| {
+    for (@typeInfo(Action).@"enum".fields) |field| {
         if (std.mem.eql(u8, "help", field.name)) continue;
         if (std.mem.eql(u8, "version", field.name)) continue;
 
