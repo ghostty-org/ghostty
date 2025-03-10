@@ -66,7 +66,7 @@ pub fn build(b: *std.Build) !void {
     // it to the `LIBXML_{field}_ENABLED` C define where field is uppercased.
     inline for (std.meta.fields(Options)) |field| {
         const opt = b.option(bool, field.name, "Configure flag") orelse
-            @as(*const bool, @ptrCast(field.default_value.?)).*;
+            @as(*const bool, @ptrCast(field.default_value_ptr.?)).*;
         if (opt) {
             var nameBuf: [32]u8 = undefined;
             const name = std.ascii.upperString(&nameBuf, field.name);
