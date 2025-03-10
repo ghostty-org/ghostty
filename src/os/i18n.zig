@@ -24,6 +24,7 @@ const log = std.log.scoped(.i18n);
 ///   3. Most preferred locale for a language without a country code.
 ///
 pub const locales = [_][:0]const u8{
+    "de_DE.UTF-8",
     "zh_CN.UTF-8",
 };
 
