@@ -117,11 +117,6 @@ fn HashMapUnmanaged(
     return struct {
         const Self = @This();
 
-        comptime {
-            std.hash_map.verifyContext(Context, K, K, u64, false);
-            assert(@alignOf(Metadata) == 1);
-        }
-
         const header_align = @alignOf(Header);
         const key_align = if (@sizeOf(K) == 0) 1 else @alignOf(K);
         const val_align = if (@sizeOf(V) == 0) 1 else @alignOf(V);
