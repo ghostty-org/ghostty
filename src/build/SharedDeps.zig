@@ -470,7 +470,7 @@ pub fn add(
                 }
 
                 if (self.config.wayland) {
-                    const scanner = Scanner.create(b.dependency("zig_wayland", .{}), .{
+                    const scanner = Scanner.create(b.dependency("zig_wayland", .{}).builder, .{
                         .wayland_xml = b.dependency("wayland", .{}).path("protocol/wayland.xml"),
                         .wayland_protocols = b.dependency("wayland_protocols", .{}).path(""),
                     });
