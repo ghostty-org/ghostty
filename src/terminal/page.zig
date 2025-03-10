@@ -83,7 +83,7 @@ pub const Page = struct {
     comptime {
         // The alignment of our members. We want to ensure that the page
         // alignment is always divisible by this.
-        assert(std.mem.page_size % @max(
+        assert(std.heap.page_size_min % @max(
             @alignOf(Row),
             @alignOf(Cell),
             style.Set.base_align,
@@ -93,7 +93,7 @@ pub const Page = struct {
     /// The backing memory for the page. A page is always made up of a
     /// a single contiguous block of memory that is aligned on a page
     /// boundary and is a multiple of the system page size.
-    memory: []align(std.mem.page_size) u8,
+    memory: []align(std.heap.page_size_min) u8,
 
     /// The array of rows in the page. The rows are always in row order
     /// (i.e. index 0 is the top row, index 1 is the row below that, etc.)
@@ -1755,7 +1755,7 @@ pub const Page = struct {
         const hyperlink_map_start = alignForward(usize, hyperlink_set_end, hyperlink.Map.base_align);
         const hyperlink_map_end = hyperlink_map_start + hyperlink_map_layout.total_size;
 
-        const total_size = alignForward(usize, hyperlink_map_end, std.mem.page_size);
+        const total_size = alignForward(usize, hyperlink_map_end, std.heap.page_size_min);
 
         return .{
             .total_size = total_size,
