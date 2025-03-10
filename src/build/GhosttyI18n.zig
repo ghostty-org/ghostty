@@ -97,8 +97,8 @@ fn createUpdateStep(b: *std.Build) !*std.Build.Step {
         }
     }
 
-    const wf = b.addWriteFiles();
-    wf.addCopyFileToSource(
+    const usf = b.addUpdateSourceFiles();
+    usf.addCopyFileToSource(
         xgettext.captureStdOut(),
         "po/" ++ domain ++ ".pot",
     );
@@ -107,8 +107,8 @@ fn createUpdateStep(b: *std.Build) !*std.Build.Step {
         const msgmerge = b.addSystemCommand(&.{ "msgmerge", "-q" });
         msgmerge.addFileArg(b.path("po/" ++ locale ++ ".po"));
         msgmerge.addFileArg(xgettext.captureStdOut());
-        wf.addCopyFileToSource(msgmerge.captureStdOut(), "po/" ++ locale ++ ".po");
+        usf.addCopyFileToSource(msgmerge.captureStdOut(), "po/" ++ locale ++ ".po");
     }
 
-    return &wf.step;
+    return &usf.step;
 }
