@@ -13,7 +13,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !HelpStrings {
     const exe = b.addExecutable(.{
         .name = "helpgen",
         .root_source_file = b.path("src/helpgen.zig"),
-        .target = b.host,
+        .target = b.graph.host,
     });
 
     const help_config = config: {

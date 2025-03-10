@@ -523,7 +523,7 @@ pub fn add(
                         const generate_gresource_xml = b.addExecutable(.{
                             .name = "generate_gresource_xml",
                             .root_source_file = b.path("src/apprt/gtk/gresource.zig"),
-                            .target = b.host,
+                            .target = b.graph.host,
                         });
 
                         const generate = b.addRunArtifact(generate_gresource_xml);
@@ -531,7 +531,7 @@ pub fn add(
                         const gtk_blueprint_compiler = b.addExecutable(.{
                             .name = "gtk_blueprint_compiler",
                             .root_source_file = b.path("src/apprt/gtk/blueprint_compiler.zig"),
-                            .target = b.host,
+                            .target = b.graph.host,
                         });
                         gtk_blueprint_compiler.linkSystemLibrary2("gtk4", dynamic_link_opts);
                         gtk_blueprint_compiler.linkSystemLibrary2("libadwaita-1", dynamic_link_opts);
@@ -569,7 +569,7 @@ pub fn add(
                         const gtk_builder_check = b.addExecutable(.{
                             .name = "gtk_builder_check",
                             .root_source_file = b.path("src/apprt/gtk/builder_check.zig"),
-                            .target = b.host,
+                            .target = b.graph.host,
                         });
                         gtk_builder_check.root_module.addOptions("build_options", self.options);
                         gtk_builder_check.root_module.addImport("gtk", gobject.module("gtk4"));

@@ -16,7 +16,7 @@ pub fn init(b: *std.Build) !GhosttyFrameData {
     const exe = b.addExecutable(.{
         .name = "framegen",
         .root_source_file = b.path("src/build/framegen/main.zig"),
-        .target = b.host,
+        .target = b.graph.host,
     });
 
     const run = b.addRunArtifact(exe);
