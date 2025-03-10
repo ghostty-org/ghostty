@@ -2350,6 +2350,34 @@ term: []const u8 = "xterm-ghostty",
 /// This only works on macOS since only macOS has an auto-update feature.
 @"auto-update-channel": ?build_config.ReleaseChannel = null,
 
+/// Bell features to enable if bell support is available in your runtime. The
+/// format of this is a list of features to enable separated by commas. If you
+/// prefix a feature with `no-` then it is disabled. If you omit a feature, its
+/// default value is used, so you must explicitly disable features you don't
+/// want.
+///
+/// Available features:
+///
+///   * `system` - Use a system function to play an audible sound. This differs
+///     from the `audio` feature in that the sound played is not customizable
+///     from within Ghostty. Your system may allow for the sound to be
+///     customized externally to Ghostty (GTK only).
+///   * `audio` - Play a custom sound. (GTK only).
+///
+/// Example: `audio`, `no-audio`, `system`, `no-system`:
+///
+/// By default, no bell features are enabled.
+@"bell-features": BellFeatures = .{},
+
+/// If `audio` is an enabled bell feature, this is a path to an audio file. If
+/// the path is not absolute, it is considered relative to the directory of the
+/// configuration file that it is referenced from, or from the current working
+/// directory if this is used as a CLI flag. The path may be prefixed with `~/`
+/// to reference the user's home directory.
+///
+/// GTK only.
+@"bell-audio": ?Path = null,
+
 /// This is set by the CLI parser for deinit.
 _arena: ?ArenaAllocator = null,
 
@@ -7052,3 +7080,11 @@ test "theme specifying light/dark sets theme usage in conditional state" {
         try testing.expect(cfg._conditional_set.contains(.theme));
     }
 }
+
+/// Bell features
+pub const BellFeatures = packed struct {
+    system: bool = false,
+    audio: bool = false,
+
+    pub const Features = std.meta.FieldEnum(@This());
+};

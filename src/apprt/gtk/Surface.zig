@@ -9,6 +9,7 @@ const adw = @import("adw");
 const gtk = @import("gtk");
 const gio = @import("gio");
 const gobject = @import("gobject");
+const glib = @import("glib");
 
 const Allocator = std.mem.Allocator;
 const build_config = @import("../../build_config.zig");
@@ -1237,6 +1238,74 @@ pub fn showDesktopNotification(
     // We set the notification ID to the body content. If the content is the
     // same, this notification may replace a previous notification
     c.g_application_send_notification(g_app, body.ptr, notification);
+}
+
+/// Handle bell features.
+pub fn bell(self: *Surface) void {
+    if (self.app.config.@"bell-features".system) system: {
+        // Handle "system" beep by calling the GTK "beep" API.
+
+        // FIXME: when surface is converted to zig-gobject
+        const native = gtk.Widget.getNative(@ptrCast(@alignCast(self.overlay))) orelse break :system;
+        const surface = native.getSurface() orelse break :system;
+        surface.beep();
+    }
+    if (self.app.config.@"bell-features".audio) audio: {
+        // Play a user-specified audio file.
+
+        const pathname, const optional = switch (self.app.config.@"bell-audio" orelse break :audio) {
+            .optional => |path| .{ path, true },
+            .required => |path| .{ path, false },
+        };
+
+        std.debug.assert(std.fs.path.isAbsolute(pathname));
+        const media_file = gtk.MediaFile.newForFilename(pathname);
+
+        if (!optional) {
+            _ = gobject.Object.signals.notify.connect(
+                media_file,
+                ?*anyopaque,
+                gtkStreamError,
+                null,
+                .{ .detail = "error" },
+            );
+        }
+        _ = gobject.Object.signals.notify.connect(
+            media_file,
+            ?*anyopaque,
+            gtkStreamEnded,
+            null,
+            .{ .detail = "ended" },
+        );
+
+        const media_stream = media_file.as(gtk.MediaStream);
+        media_stream.setVolume(1.0);
+        media_stream.play();
+    }
+}
+
+/// Handle a stream that is in an error state.
+fn gtkStreamError(media_file: *gtk.MediaFile, _: *gobject.ParamSpec, _: ?*anyopaque) callconv(.C) void {
+    const path = path: {
+        const file = media_file.getFile() orelse break :path null;
+        break :path file.getPath();
+    };
+    defer if (path) |p| glib.free(p);
+
+    const media_stream = media_file.as(gtk.MediaStream);
+    const err = media_stream.getError() orelse return;
+
+    log.warn("error playing bell from {s}: {s} {d} {s}", .{
+        path orelse "<<unknown>>",
+        glib.quarkToString(err.f_domain),
+        err.f_code,
+        err.f_message orelse "",
+    });
+}
+
+/// Stream is finished, release the memory.
+fn gtkStreamEnded(media_file: *gtk.MediaFile, _: *gobject.ParamSpec, _: ?*anyopaque) callconv(.C) void {
+    media_file.unref();
 }
 
 fn gtkRealize(area: *c.GtkGLArea, ud: ?*anyopaque) callconv(.C) void {
