@@ -3,6 +3,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const builtin = @import("builtin");
 const posix = std.posix;
+const xev = @import("../global.zig").xev;
 
 const log = std.log.scoped(.flatpak);
 
@@ -71,16 +72,26 @@ pub const FlatpakHostCommand = struct {
 
         /// Process started with the given pid on the host.
         started: struct {
-            pid: c_int,
+            pid: u32,
+            loop_xev: ?*xev.Loop,
+            completion: ?*Completion,
             subscription: c.guint,
             loop: *c.GMainLoop,
         },
 
         /// Process exited
         exited: struct {
-            pid: c_int,
+            pid: u32,
             status: u8,
         },
+    };
+
+    pub const Completion = struct {
+        callback: *const fn (ud: ?*anyopaque, l: *xev.Loop, c: *Completion, r: WaitError!u8) void = noopCallback,
+        c_xev: xev.Completion = .{},
+        userdata: ?*anyopaque = null,
+        timer: ?xev.Timer = null,
+        result: ?WaitError!u8 = null,
     };
 
     /// Errors that are possible from us.
@@ -91,12 +102,14 @@ pub const FlatpakHostCommand = struct {
         FlatpakRPCFail,
     };
 
+    pub const WaitError = xev.Timer.RunError || Error;
+
     /// Spawn the command. This will start the host command. On return,
     /// the pid will be available. This must only be called with the
     /// state in "init".
     ///
     /// Precondition: The self pointer MUST be stable.
-    pub fn spawn(self: *FlatpakHostCommand, alloc: Allocator) !c_int {
+    pub fn spawn(self: *FlatpakHostCommand, alloc: Allocator) !u32 {
         const thread = try std.Thread.spawn(.{}, threadMain, .{ self, alloc });
         thread.setName("flatpak-host-command") catch {};
 
@@ -133,6 +146,77 @@ pub const FlatpakHostCommand = struct {
 
             self.state_cv.wait(&self.state_mutex);
         }
+    }
+
+    /// Wait for the process to end asynchronously via libxev. This
+    /// can only be called ONCE.
+    pub fn waitXev(
+        self: *FlatpakHostCommand,
+        loop: *xev.Loop,
+        completion: *Completion,
+        comptime Userdata: type,
+        userdata: ?*Userdata,
+        comptime cb: *const fn (
+            ud: ?*Userdata,
+            l: *xev.Loop,
+            c: *Completion,
+            r: WaitError!u8,
+        ) void,
+    ) void {
+        self.state_mutex.lock();
+        defer self.state_mutex.unlock();
+
+        completion.* = .{
+            .callback = (struct {
+                fn callback(
+                    ud_: ?*anyopaque,
+                    l_inner: *xev.Loop,
+                    c_inner: *Completion,
+                    r: WaitError!u8,
+                ) void {
+                    const ud = @as(?*Userdata, if (Userdata == void) null else @ptrCast(@alignCast(ud_)));
+                    @call(.always_inline, cb, .{ ud, l_inner, c_inner, r });
+                }
+            }).callback,
+            .userdata = userdata,
+            .timer = xev.Timer.init() catch unreachable, // not great, but xev timer can't fail atm
+        };
+
+        switch (self.state) {
+            .init => completion.result = Error.FlatpakMustBeStarted,
+            .err => completion.result = Error.FlatpakSpawnFail,
+            .started => |*v| {
+                v.loop_xev = loop;
+                v.completion = completion;
+                return;
+            },
+            .exited => |v| {
+                completion.result = v.status;
+            },
+        }
+
+        completion.timer.?.run(
+            loop,
+            &completion.c_xev,
+            0,
+            anyopaque,
+            completion.userdata,
+            (struct {
+                fn callback(
+                    ud: ?*anyopaque,
+                    l_inner: *xev.Loop,
+                    c_inner: *xev.Completion,
+                    r: xev.Timer.RunError!void,
+                ) xev.CallbackAction {
+                    const c_outer: *Completion = @fieldParentPtr("c_xev", c_inner);
+                    defer if (c_outer.timer) |*t| t.deinit();
+
+                    const result = if (r) |_| c_outer.result.? else |err| err;
+                    c_outer.callback(ud, l_inner, c_outer, result);
+                    return .disarm;
+                }
+            }).callback,
+        );
     }
 
     /// Send a signal to the started command. This does nothing if the
@@ -326,7 +410,7 @@ pub const FlatpakHostCommand = struct {
         };
         defer c.g_variant_unref(reply);
 
-        var pid: c_int = 0;
+        var pid: u32 = 0;
         c.g_variant_get(reply, "(u)", &pid);
         log.debug("HostCommand started pid={} subscription={}", .{
             pid,
@@ -338,6 +422,8 @@ pub const FlatpakHostCommand = struct {
                 .pid = pid,
                 .subscription = subscription_id,
                 .loop = loop,
+                .completion = null,
+                .loop_xev = null,
             },
         });
     }
@@ -366,18 +452,44 @@ pub const FlatpakHostCommand = struct {
             break :state self.state.started;
         };
 
-        var pid: c_int = 0;
-        var exit_status: c_int = 0;
-        c.g_variant_get(params.?, "(uu)", &pid, &exit_status);
+        var pid: u32 = 0;
+        var exit_status_raw: u32 = 0;
+        c.g_variant_get(params.?, "(uu)", &pid, &exit_status_raw);
         if (state.pid != pid) return;
 
+        const exit_status = posix.W.EXITSTATUS(exit_status_raw);
         // Update our state
         self.updateState(.{
             .exited = .{
                 .pid = pid,
-                .status = std.math.cast(u8, exit_status) orelse 255,
+                .status = exit_status,
             },
         });
+        if (state.completion) |completion| {
+            completion.result = exit_status;
+            completion.timer.?.run(
+                state.loop_xev.?,
+                &completion.c_xev,
+                0,
+                anyopaque,
+                completion.userdata,
+                (struct {
+                    fn callback(
+                        ud_inner: ?*anyopaque,
+                        l_inner: *xev.Loop,
+                        c_inner: *xev.Completion,
+                        r: xev.Timer.RunError!void,
+                    ) xev.CallbackAction {
+                        const c_outer: *Completion = @fieldParentPtr("c_xev", c_inner);
+                        defer if (c_outer.timer) |*t| t.deinit();
+
+                        const result = if (r) |_| c_outer.result.? else |err| err;
+                        c_outer.callback(ud_inner, l_inner, c_outer, result);
+                        return .disarm;
+                    }
+                }).callback,
+            );
+        }
         log.debug("HostCommand exited pid={} status={}", .{ pid, exit_status });
 
         // We're done now, so we can unsubscribe
@@ -386,4 +498,6 @@ pub const FlatpakHostCommand = struct {
         // We are also done with our loop so we can exit.
         c.g_main_loop_quit(state.loop);
     }
+
+    fn noopCallback(_: ?*anyopaque, _: *xev.Loop, _: *Completion, _: WaitError!u8) void {}
 };

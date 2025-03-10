@@ -1,6 +1,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
+const build_config = @import("../build_config.zig");
+const internal_os = @import("main.zig");
+const glib = @import("glib");
 
 /// Gets the directory to the bundled resources directory, if it
 /// exists (not all platforms or packages have it). The output is
@@ -24,6 +27,20 @@ pub fn resourcesDir(alloc: std.mem.Allocator) !?[]const u8 {
         } else |err| switch (err) {
             error.EnvironmentVariableNotFound => {},
             else => return err,
+        }
+    }
+
+    if (comptime build_config.flatpak) {
+        if (internal_os.isFlatpak()) {
+            const keyfile = glib.KeyFile.new();
+            defer keyfile.unref();
+            if (keyfile.loadFromFile("/.flatpak-info", .{}, null) == 0) return null;
+
+            // Get application path as seen from the host
+            const app_path = std.mem.span(keyfile.getString("Instance", "app-path", null)) orelse return null;
+            defer glib.free(app_path.ptr);
+
+            return try std.fs.path.join(alloc, &.{ app_path, "share", "ghostty" });
         }
     }
 
