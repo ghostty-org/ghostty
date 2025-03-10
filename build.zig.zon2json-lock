@@ -84,10 +84,10 @@
     "url": "git+https://github.com/rockorager/libvaxis/?ref=main#dc0a228a5544988d4a920cfb40be9cd28db41423",
     "hash": "sha256-QWN4jOrA91KlbqmeEHHJ4HTnCC9nmfxt8DHUXJpAzLI="
   },
-  "12208d70ee791d7ef7e16e1c3c9c1127b57f1ed066a24f87d57fc9f730c5dc394b9d": {
+  "1220a96e89f3e4c72fe149ee311fbdbd67ea46b6ebdbcee8efa5b3fde973fed34968": {
     "name": "gobject",
-    "url": "https://deps.files.ghostty.org/gobject-12208d70ee791d7ef7e16e1c3c9c1127b57f1ed066a24f87d57fc9f730c5dc394b9d.tar.zst",
-    "hash": "sha256-UU97kNv/bZzQPKz1djhEDLapLguvfBpFfWVb6FthtcI="
+    "url": "https://github.com/jcollie/ghostty-gobject/releases/download/2025-03-10-6-1/ghostty-gobject-2025-03-10-6-1.tar.gz",
+    "hash": "sha256-IACXhRiELTfsRNyQ6beHN3nOzSDQJMzoTZ6mUcGwN3g="
   },
   "12202cdac858abc52413a6c6711d5026d2d3c8e13f95ca2c327eade0736298bb021f": {
     "name": "wayland",

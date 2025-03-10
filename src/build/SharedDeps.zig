@@ -455,7 +455,6 @@ pub fn add(
                     .{ "glib", "glib2" },
                     .{ "gobject", "gobject2" },
                     .{ "gtk", "gtk4" },
-                    .{ "pango", "pango1" },
                 };
                 inline for (gobject_imports) |import| {
                     const name, const module = import;
@@ -464,7 +463,6 @@ pub fn add(
 
                 step.linkSystemLibrary2("gtk4", dynamic_link_opts);
                 step.linkSystemLibrary2("libadwaita-1", dynamic_link_opts);
-                step.linkSystemLibrary2("pango", dynamic_link_opts);
 
                 if (self.config.x11) {
                     step.linkSystemLibrary2("X11", dynamic_link_opts);

@@ -11,7 +11,6 @@ const gdk = @import("gdk");
 const glib = @import("glib");
 const gio = @import("gio");
 const gobject = @import("gobject");
-const pango = @import("pango");
 
 const Allocator = std.mem.Allocator;
 const build_config = @import("../../build_config.zig");
@@ -1970,13 +1969,9 @@ fn gtkInputPreeditChanged(
 ) callconv(.C) void {
     // Get our pre-edit string that we'll use to show the user.
     var buf: [*:0]u8 = undefined;
-    var attrs: *pango.AttrList = undefined;
-    var cursor_pos: c_int = undefined;
-    ctx.as(gtk.IMContext).getPreeditString(&buf, &attrs, &cursor_pos);
-    defer {
-        attrs.unref();
-        glib.free(buf);
-    }
+    ctx.as(gtk.IMContext).getPreeditString(&buf, null, null);
+    defer glib.free(buf);
+
     const str = std.mem.sliceTo(buf, 0);
 
     // Update our preedit state in Ghostty core

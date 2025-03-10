@@ -66,36 +66,28 @@ pub fn keyvalUnicodeUnshifted(
     // what group to look at.
     const layout = event.getLayout();
 
-    // FIXME: when we can update zig-gobject past 8435fe118b7ddc46119e7852fa8912831f5ae262
-    // https://github.com/ianprime0509/zig-gobject/issues/96
-    // Get all the possible keyboard mappings for this keycode. A keycode
-    // is the physical key pressed.
-    var keys: [*]c.GdkKeymapKey = undefined;
-    var keyvals: [*]c.guint = undefined;
-    var n_keys: c_int = 0;
-    if (c.gdk_display_map_keycode(
-        @ptrCast(@alignCast(display)),
-        keycode,
-        @ptrCast(&keys),
-        @ptrCast(&keyvals),
-        &n_keys,
-    ) == 0) return 0;
+    // Get all the possible keyboard mappings for this keycode. A keycode is the
+    // physical key pressed.
+    var keys: [*]gdk.KeymapKey = undefined;
+    var keyvals: [*]c_uint = undefined;
+    var n_entries: c_int = 0;
+    if (display.mapKeycode(keycode, &keys, &keyvals, &n_entries) == 0) return 0;
 
     defer glib.free(keys);
     defer glib.free(keyvals);
 
     // debugging:
-    // log.debug("layout={}", .{layout});
-    // for (0..@intCast(n_keys)) |i| {
-    //     log.debug("keymap key={} codepoint={x}", .{
+    // std.log.debug("layout={}", .{layout});
+    // for (0..@intCast(n_entries)) |i| {
+    //     std.log.debug("keymap key={} codepoint={x}", .{
     //         keys[i],
-    //         c.gdk_keyval_to_unicode(keyvals[i]),
+    //         gdk.keyvalToUnicode(keyvals[i]),
     //     });
     // }
 
-    for (0..@intCast(n_keys)) |i| {
-        if (keys[i].group == layout and
-            keys[i].level == 0)
+    for (0..@intCast(n_entries)) |i| {
+        if (keys[i].f_group == layout and
+            keys[i].f_level == 0)
         {
             return std.math.cast(
                 u21,
