@@ -41,6 +41,7 @@
   harfbuzz,
   libpng,
   libGL,
+  libhwy,
   libxkbcommon,
   libX11,
   libXcursor,
@@ -75,6 +76,7 @@
       fontconfig
       freetype
       harfbuzz
+      libhwy
       libpng
       libxml2
       oniguruma
@@ -155,6 +157,7 @@ in
         fontconfig
         freetype
         harfbuzz
+        libhwy
         libpng
         libxml2
         oniguruma
