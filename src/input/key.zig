@@ -357,6 +357,7 @@ pub const Key = enum(c_int) {
     f23,
     f24,
     f25,
+    context_menu,
 
     // keypad
     kp_0,
@@ -567,6 +568,7 @@ pub const Key = enum(c_int) {
             .backspace => cimgui.c.ImGuiKey_Backspace,
             .print_screen => cimgui.c.ImGuiKey_PrintScreen,
             .pause => cimgui.c.ImGuiKey_Pause,
+            .context_menu => cimgui.c.ImGuiKey_Menu,
 
             .f1 => cimgui.c.ImGuiKey_F1,
             .f2 => cimgui.c.ImGuiKey_F2,
