@@ -82,28 +82,23 @@ pub const CreateError = Allocator.Error || font.SharedGridSet.InitError;
 ///
 /// After calling this function, well behaved apprts should then call
 /// `focusEvent` to set the initial focus state of the app.
-pub fn create(
+pub fn init(
+    self: *App,
     alloc: Allocator,
-) CreateError!*App {
-    var app = try alloc.create(App);
-    errdefer alloc.destroy(app);
-
+) CreateError!void {
     var font_grid_set = try font.SharedGridSet.init(alloc);
     errdefer font_grid_set.deinit();
 
-    app.* = .{
+    self.* = .{
         .alloc = alloc,
         .surfaces = .{},
         .mailbox = .{},
         .font_grid_set = font_grid_set,
         .config_conditional_state = .{},
     };
-    errdefer app.surfaces.deinit(alloc);
-
-    return app;
 }
 
-pub fn destroy(self: *App) void {
+pub fn deinit(self: *App) void {
     // Clean up all our surfaces
     for (self.surfaces.items) |surface| surface.deinit();
     self.surfaces.deinit(self.alloc);
@@ -114,8 +109,6 @@ pub fn destroy(self: *App) void {
     // should gracefully close all surfaces.
     assert(self.font_grid_set.count() == 0);
     self.font_grid_set.deinit();
-
-    self.alloc.destroy(self);
 }
 
 /// Tick ticks the app loop. This will drain our mailbox and process those
