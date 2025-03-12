@@ -1,0 +1,113 @@
+app-id: com.mitchellh.ghostty
+runtime: org.gnome.Platform
+runtime-version: "47"
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.ziglang
+default-branch: tip
+command: ghostty
+finish-args:
+  # 3D rendering
+  - --device=dri
+  # Windowing
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  # Allow user to specify additional config files in home by default
+  - --filesystem=home:ro
+  # So we can escape the sandbox
+  - --talk-name=org.freedesktop.Flatpak
+cleanup:
+  - /include
+  - /lib/girepository-1.0
+  - /lib/pkgconfig
+  - /share/gir-1.0
+  - /share/pkgconfig
+  - /share/vala
+  - '*.la'
+  - '*.a'
+  - '*.so'
+
+modules:
+  - name: bzip2-redirect
+    buildsystem: simple
+    build-commands:
+      - install -dm755 /app/lib
+      - echo "INPUT(libbz2.so)" > /app/lib/libbzip2.so
+
+  - name: blueprint-compiler
+    buildsystem: meson
+    cleanup:
+      - '*'
+    sources:
+      - type: git
+        url: https://gitlab.gnome.org/jwestman/blueprint-compiler.git
+        tag: v0.16.0
+        commit: 04ef0944db56ab01307a29aaa7303df6067cb3c0
+        x-checker-data:
+          type: git
+          tag-pattern: ^v([\d.]+)$
+
+  - name: gtk4-layer-shell
+    buildsystem: meson
+    sources:
+      - type: git
+        url: https://github.com/wmww/gtk4-layer-shell.git
+        tag: v1.1.0
+        commit: 93550245220cdc514be4701b517acd374a86acc2
+        x-checker-data:
+          type: git
+          tag-pattern: ^v([\d.]+)$
+
+  - name: pandoc
+    buildsystem: simple
+    cleanup:
+      - '*'
+    build-commands:
+      - install -Dm755 bin/pandoc /app/bin/pandoc
+    sources:
+      - type: archive
+        sha256: d04c95c138202f87d6b00ac19aa3dd874c681f60a9feb3b55c74f764d6d1a17d
+        url: https://github.com/jgm/pandoc/releases/download/3.6.3/pandoc-3.6.3-linux-amd64.tar.gz
+        only-arches: [x86_64]
+        x-checker-data:
+          type: json
+          url: https://api.github.com/repos/jgm/pandoc/releases/latest
+          url-query: .assets[] | select(.name=="pandoc-" + $version + "-linux-amd64.tar.gz")
+            | .browser_download_url
+          version-query: .tag_name
+      - type: archive
+        sha256: 4e774cb1bdb6e56bc55b8eb79200bd9aa6a39905a04ecda7267f5149116f0881
+        url: https://github.com/jgm/pandoc/releases/download/3.6.3/pandoc-3.6.3-linux-arm64.tar.gz
+        only-arches: [aarch64]
+        x-checker-data:
+          type: json
+          url: https://api.github.com/repos/jgm/pandoc/releases/latest
+          url-query: .assets[] | select(.name=="pandoc-" + $version + "-linux-arm64.tar.gz")
+            | .browser_download_url
+          version-query: .tag_name
+
+  - name: ghostty
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/ziglang
+    build-commands:
+      - zig build
+        -Doptimize=ReleaseFast
+        -Dcpu=baseline
+        -Dflatpak=true
+        -fno-sys=oniguruma
+        --prefix /app
+        --search-prefix /app
+        --system $PWD/vendor/p
+    sources:
+      - type: dir
+        path: ..
+        skip:
+          - flatpak/.flatpak-builder
+          - flatpak/builddir
+          - flatpak/repo
+          - zig-cache
+          - zig-out
+
+      - zig-packages.json
