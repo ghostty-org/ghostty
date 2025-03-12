@@ -1,4 +1,4 @@
-app-id: com.mitchellh.ghostty
+app-id: com.mitchellh.ghostty.Devel
 runtime: org.gnome.Platform
 runtime-version: "47"
 sdk: org.gnome.Sdk
@@ -6,6 +6,11 @@ sdk-extensions:
   - org.freedesktop.Sdk.Extension.ziglang
 default-branch: tip
 command: ghostty
+# Integrate the rename into zig build, maybe?
+rename-desktop-file: com.mitchellh.ghostty.desktop
+rename-appdata-file: com.mitchellh.ghostty.metainfo.xml
+rename-icon: com.mitchellh.ghostty
+desktop-file-name-suffix: " (Devel)"
 finish-args:
   # 3D rendering
   - --device=dri
@@ -37,7 +42,7 @@ modules:
       append-path: /usr/lib/sdk/ziglang
     build-commands:
       - zig build
-        -Doptimize=ReleaseFast
+        -Doptimize=Debug
         -Dcpu=baseline
         -Dflatpak=true
         -Dstrip=false
