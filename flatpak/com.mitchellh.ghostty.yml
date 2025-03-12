@@ -96,6 +96,7 @@ modules:
         -Doptimize=ReleaseFast
         -Dcpu=baseline
         -Dflatpak=true
+        -Dstrip=false
         -fno-sys=oniguruma
         --prefix /app
         --search-prefix /app
