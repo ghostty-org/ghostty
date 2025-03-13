@@ -661,7 +661,7 @@ pub fn setBackgroundOpacity(self: *OpenGL, opacity: f64) void {
     defer if (single_threaded_draw) self.draw_mutex.unlock();
 
     // We don't want to go below 0 or above 1
-    self.config.background_opacity = @max(0, @min(1, opacity));
+    self.config.background_opacity = std.math.clamp(opacity, 0, 1);
 }
 
 /// Set the new font grid.

@@ -661,16 +661,6 @@ pub fn toggleWindowDecorations(self: *Window) void {
     };
 }
 
-/// Toggle the background opacity for this window.
-pub fn toggleBackgroundOpacity(self: *Window) !f64 {
-    if (self.app.config.@"background-opacity" >= 1) return self.app.config.@"background-opacity";
-
-    self.config.background_opacity = if (self.config.background_opacity == 1.0) self.app.config.@"background-opacity" else 1.0;
-    try self.syncAppearance();
-
-    return self.config.background_opacity;
-}
-
 /// Grabs focus on the currently selected tab.
 pub fn focusCurrentTab(self: *Window) void {
     const tab = self.notebook.currentTab() orelse return;
