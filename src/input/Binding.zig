@@ -360,8 +360,8 @@ pub const Action = union(enum) {
     ///   keybind = cmd+shift+d=new_split:right
     new_split: SplitDirection,
 
-    /// Focus on a split in a given direction. For example `goto_split:up`.
-    /// Valid values are left, right, up, down, previous and next.
+    /// Focus on a split in a given direction. For example `goto_split:top`.
+    /// Valid values are left, right, top, bottom, previous and next.
     goto_split: SplitFocusDirection,
 
     /// zoom/unzoom the current split.
