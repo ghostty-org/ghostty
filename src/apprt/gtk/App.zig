@@ -52,6 +52,9 @@ pub const Options = struct {};
 core_app: *CoreApp,
 config: Config,
 
+/// Derived configuration values that are computed from the main. Temporarily prefixed with `_` per https://discord.com/channels/1005603569187160125/1349556080090288232/1349569138846203955
+_config: DerivedConfig,
+
 app: *c.GtkApplication,
 ctx: *c.GMainContext,
 
@@ -94,6 +97,16 @@ quit_timer: union(enum) {
     active: c.guint,
     expired: void,
 } = .{ .off = {} },
+
+pub const DerivedConfig = struct {
+    background_opacity: f64,
+
+    pub fn init(config: *const configpkg.Config) DerivedConfig {
+        return .{
+            .background_opacity = config.@"background-opacity",
+        };
+    }
+};
 
 pub fn init(core_app: *CoreApp, opts: Options) !App {
     _ = opts;
@@ -426,6 +439,7 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
         .core_app = core_app,
         .app = app,
         .config = config,
+        ._config = DerivedConfig.init(&config),
         .ctx = ctx,
         .cursor_none = cursor_none,
         .winproto = winproto_app,
