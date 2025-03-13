@@ -13,7 +13,8 @@
   </description>
 
   <categories>
-    <category></category>
+    <category>System</category>
+    <category>TerminalEmulator</category>
   </categories>
 
   <metadata_license>MIT</metadata_license>
