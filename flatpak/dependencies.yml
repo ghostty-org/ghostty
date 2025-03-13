@@ -28,13 +28,12 @@ modules:
   - name: gtk4-layer-shell
     buildsystem: meson
     sources:
-      - type: git
-        url: https://github.com/wmww/gtk4-layer-shell.git
-        tag: v1.1.0
-        commit: 93550245220cdc514be4701b517acd374a86acc2
-        x-checker-data:
-          type: git
-          tag-pattern: ^v([\d.]+)$
+      # no x-checker-data since this should be synchronized with Nix
+      #
+      # TODO: Automate this with check-zig-cache.sh
+      - type: archive
+        url: https://github.com/wmww/gtk4-layer-shell/archive/refs/tags/v1.1.0.tar.gz
+        sha256: 98284281260a5eef5b4f63a55f16c4bf6a788a1020a6db037ecb0f71fa336988
 
   - name: pandoc
     buildsystem: simple
