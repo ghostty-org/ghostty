@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.mitchellh.ghostty</id>
+  <name>Ghostty</name>
+  <summary>Ghostty is a fast, feature-rich, and cross-platform terminal emulator</summary>
+  <description>
+    <p>
+      Ghostty is a terminal emulator that differentiates itself by being fast,
+      feature-rich, and native. While there are many excellent terminal
+      emulators available, they all force you to choose between speed,
+      features, or native UIs. Ghostty provides all three.
+    </p>
+  </description>
+
+  <categories>
+    <category></category>
+  </categories>
+
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+
+  <url type="homepage">https://ghostty.org/</url>
+  <url type="bugtracker">https://github.com/ghostty-org/ghostty/issues</url>
+  <url type="vcs-browser">http://github.com/ghostty-org/ghostty/</url>
+
+  <developer id="id.mitchellh">
+    <name>Mitchell Hashimoto</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+  <screenshots>
+    <screenshot type="default">
+      <!-- FIXME: add screenshots -->
+      <image></image>
+      <caption></caption>
+    </screenshot>
+  </screenshots>
+
+  <releases>
+    <release version="1.1.2" date="2025-02-13">
+      <url type="details">https://ghostty.org/docs/install/release-notes/1-1-2</url>
+    </release>
+    <release version="1.1.1" date="2025-02-13">
+      <url type="details">https://ghostty.org/docs/install/release-notes/1-1-1</url>
+    </release>
+    <release version="1.1.0" date="2025-01-30">
+      <url type="details">https://ghostty.org/docs/install/release-notes/1-1-0</url>
+    </release>
+    <release version="1.0.1" date="2024-12-31">
+      <url type="details">https://ghostty.org/docs/install/release-notes/1-0-1</url>
+    </release>
+    <release version="1.0.0" date="2024-12-26"/>
+  </releases>
+
+  <launchable type="desktop-id">com.mitchellh.ghostty.desktop</launchable>
+</component>
