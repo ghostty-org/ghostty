@@ -653,7 +653,7 @@ fn addGTK(
                 const artifact: *std.Build.Step.InstallArtifact = b.addInstallArtifact(sharedLib, .{});
                 b.getInstallStep().dependOn(&artifact.step);
                 // Lookup dynamic libs from installed location
-                step.root_module.addRPathSpecial("$ORIGIN/../lib/");
+                step.root_module.addRPathSpecial(b.getInstallPath(artifact.dest_dir.?, ""));
                 step.linkLibrary(sharedLib);
             }
         }
