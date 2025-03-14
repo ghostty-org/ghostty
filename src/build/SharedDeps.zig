@@ -14,6 +14,7 @@ help_strings: HelpStrings,
 metallib: ?*MetallibStep,
 unicode_tables: UnicodeTables,
 framedata: GhosttyFrameData,
+steps: []*std.Build.Step,
 
 /// Used to keep track of a list of file sources.
 pub const LazyPathList = std.ArrayList(std.Build.LazyPath);
@@ -644,14 +645,16 @@ fn addGTK(
             // IMPORTANT: gtk4-layer-shell must be linked BEFORE
             // wayland-client, as it relies on shimming libwayland's APIs.
             if (b.systemIntegrationOption("gtk4-layer-shell", .{})) {
-                step.linkSystemLibrary2(
-                    "gtk4-layer-shell-0",
-                    dynamic_link_opts,
-                );
+                step.linkSystemLibrary2("gtk4-layer-shell-0", dynamic_link_opts);
             } else {
                 // gtk4-layer-shell *must* be dynamically linked,
                 // so we don't add it as a static library
-                step.linkLibrary(gtk4_layer_shell.artifact("gtk4-layer-shell"));
+                const sharedLib = gtk4_layer_shell.artifact("gtk4-layer-shell");
+                const artifact: *std.Build.Step.InstallArtifact = b.addInstallArtifact(sharedLib, .{});
+                b.getInstallStep().dependOn(&artifact.step);
+                // Lookup dynamic libs from installed location
+                step.root_module.addRPathSpecial("$ORIGIN/../lib/");
+                step.linkLibrary(sharedLib);
             }
         }
 
