@@ -516,7 +516,12 @@ pub fn add(
                     } else {
                         // gtk4-layer-shell *must* be dynamically linked,
                         // so we don't add it as a static library
-                        step.linkLibrary(gtk4_layer_shell.artifact("gtk4-layer-shell"));
+                        const sharedLib = gtk4_layer_shell.artifact("gtk4-layer-shell");
+                        const artifact: *std.Build.Step.InstallArtifact = b.addInstallArtifact(sharedLib, .{});
+                        b.getInstallStep().dependOn(&artifact.step);
+                        // Lookup dynamic libs from installed location
+                        step.root_module.addRPathSpecial("$ORIGIN/../lib/");
+                        step.linkLibrary(sharedLib);
                     }
 
                     step.linkSystemLibrary2("wayland-client", dynamic_link_opts);
