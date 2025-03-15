@@ -34,7 +34,10 @@ modules:
   - name: ghostty
     buildsystem: simple
     build-options:
-      append-path: /usr/lib/sdk/ziglang
+      # XXX: Use manually installed zig until flathub update theirs
+      #
+      # append-path: /usr/lib/sdk/ziglang
+      append-path: /app/lib/sdk/ziglang
     build-commands:
       - zig build
         -Doptimize=ReleaseFast

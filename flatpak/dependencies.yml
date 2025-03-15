@@ -3,6 +3,27 @@ buildsystem: simple
 build-commands:
   - true
 modules:
+  # XXX: Temporary until https://github.com/flathub/org.freedesktop.Sdk.Extension.ziglang/issues/31 is resolved
+  - name: zig
+    buildsystem: simple
+    cleanup:
+      - '*'
+    build-commands:
+      - mkdir -p /app/lib/sdk
+      - cp -r . /app/lib/sdk/ziglang
+    sources:
+      - type: archive
+        url: https://ziglang.org/download/0.14.0/zig-linux-x86_64-0.14.0.tar.xz
+        sha256: 473ec26806133cf4d1918caf1a410f8403a13d979726a9045b421b685031a982
+        only-arches:
+          - x86_64
+
+      - type: archive
+        url: https://ziglang.org/download/0.14.0/zig-linux-aarch64-0.14.0.tar.xz
+        sha256: ab64e3ea277f6fc5f3d723dcd95d9ce1ab282c8ed0f431b4de880d30df891e4f
+        only-arches:
+          - aarch64
+
   - name: bzip2-redirect
     buildsystem: simple
     build-commands:

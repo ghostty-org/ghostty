@@ -39,7 +39,11 @@ modules:
   - name: ghostty
     buildsystem: simple
     build-options:
-      append-path: /usr/lib/sdk/ziglang
+      # XXX: Use manually installed zig until flathub update theirs
+      #
+      # append-path: /usr/lib/sdk/ziglang
+      append-path: /app/lib/sdk/ziglang
+
     build-commands:
       - zig build
         -Doptimize=Debug
@@ -50,6 +54,9 @@ modules:
         --prefix /app
         --search-prefix /app
         --system $PWD/vendor/p
+
+      # XXX: Workaround for https://github.com/jcollie/ghostty-gobject/issues/3
+      - chmod -R u+w vendor/p/gobject-*
     sources:
       - type: dir
         path: ..
