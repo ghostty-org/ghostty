@@ -2927,6 +2927,24 @@ pub fn mouseButtonCallback(
         }
     }
 
+    // The selection clipboard is only updated when the left button is released
+    // when copy on select is enabled.
+    if (button == .left and
+        action == .release and
+        self.config.copy_on_select != .false)
+    {
+        self.renderer_state.mutex.lock();
+        defer self.renderer_state.mutex.unlock();
+        const prev_ = self.io.terminal.screen.selection;
+        if (prev_) |prev| {
+            try self.setSelection(terminal.Selection.init(
+                prev.start(),
+                prev.end(),
+                false,
+            ));
+        }
+    }
+
     // Report mouse events if enabled
     {
         self.renderer_state.mutex.lock();
@@ -3064,7 +3082,7 @@ pub fn mouseButtonCallback(
             1 => {
                 // If we have a selection, clear it. This always happens.
                 if (self.io.terminal.screen.selection != null) {
-                    try self.setSelection(null);
+                    try self.io.terminal.screen.select(null);
                     try self.queueRender();
                 }
             },
@@ -3073,7 +3091,7 @@ pub fn mouseButtonCallback(
             2 => {
                 const sel_ = self.io.terminal.screen.selectWord(pin.*);
                 if (sel_) |sel| {
-                    try self.setSelection(sel);
+                    try self.io.terminal.screen.select(sel);
                     try self.queueRender();
                 }
             },
@@ -3085,7 +3103,7 @@ pub fn mouseButtonCallback(
                 else
                     self.io.terminal.screen.selectLine(.{ .pin = pin.* });
                 if (sel_) |sel| {
-                    try self.setSelection(sel);
+                    try self.io.terminal.screen.select(sel);
                     try self.queueRender();
                 }
             },
@@ -3370,7 +3388,7 @@ pub fn mousePressureCallback(
         // to handle state inconsistency here.
         const pin = self.mouse.left_click_pin orelse break :select;
         const sel = self.io.terminal.screen.selectWord(pin.*) orelse break :select;
-        try self.setSelection(sel);
+        try self.io.terminal.screen.select(sel);
         try self.queueRender();
     }
 }
@@ -3573,7 +3591,7 @@ fn dragLeftClickDouble(
 
     // Get the word closest to our starting click.
     const word_start = screen.selectWordBetween(click_pin, drag_pin) orelse {
-        try self.setSelection(null);
+        try self.io.terminal.screen.select(null);
         return;
     };
 
@@ -3582,20 +3600,20 @@ fn dragLeftClickDouble(
         drag_pin,
         click_pin,
     ) orelse {
-        try self.setSelection(null);
+        try self.io.terminal.screen.select(null);
         return;
     };
 
     // If our current mouse position is before the starting position,
     // then the selection start is the word nearest our current position.
     if (drag_pin.before(click_pin)) {
-        try self.setSelection(terminal.Selection.init(
+        try self.io.terminal.screen.select(terminal.Selection.init(
             word_current.start(),
             word_start.end(),
             false,
         ));
     } else {
-        try self.setSelection(terminal.Selection.init(
+        try self.io.terminal.screen.select(terminal.Selection.init(
             word_start.start(),
             word_current.end(),
             false,
@@ -3627,7 +3645,7 @@ fn dragLeftClickTriple(
     } else {
         sel.endPtr().* = line.end();
     }
-    try self.setSelection(sel);
+    try self.io.terminal.screen.select(sel);
 }
 
 fn dragLeftClickSingle(
@@ -3681,7 +3699,7 @@ fn dragLeftClickSingle(
         else
             cell_xpos < cell_xboundary;
 
-        try self.setSelection(if (selected) terminal.Selection.init(
+        try self.io.terminal.screen.select(if (selected) terminal.Selection.init(
             drag_pin,
             drag_pin,
             SurfaceMouse.isRectangleSelectState(self.mouse.mods),
@@ -3716,7 +3734,7 @@ fn dragLeftClickSingle(
             break :start start;
         };
 
-        try self.setSelection(terminal.Selection.init(
+        try self.io.terminal.screen.select(terminal.Selection.init(
             start,
             drag_pin,
             SurfaceMouse.isRectangleSelectState(self.mouse.mods),
@@ -3731,7 +3749,7 @@ fn dragLeftClickSingle(
     // set earlier.
     assert(self.io.terminal.screen.selection != null);
     const sel = self.io.terminal.screen.selection.?;
-    try self.setSelection(terminal.Selection.init(
+    try self.io.terminal.screen.select(terminal.Selection.init(
         sel.start(),
         drag_pin,
         sel.rectangle,
@@ -3775,7 +3793,7 @@ fn checkResetSelSwitch(
     }
 
     // Nullifying a selection can't fail.
-    if (reset) self.setSelection(null) catch unreachable;
+    if (reset) self.io.terminal.screen.select(null) catch unreachable;
 }
 
 // Handles how whether or not the drag screen point is before the click point.
