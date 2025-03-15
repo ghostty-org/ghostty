@@ -189,11 +189,13 @@ extension Ghostty {
             // so SwiftUI does not update any of the bindings to note that window is no longer
             // being shown, and provides no callback to detect this.
             let alert = NSAlert()
-            alert.messageText = "Close Terminal?"
-            alert.informativeText = "The terminal still has a running process. If you close the " +
-                "terminal the process will be killed."
-            alert.addButton(withTitle: "Close the Terminal")
-            alert.addButton(withTitle: "Cancel")
+            alert.messageText = String(localized: "Close Terminal?")
+            alert.informativeText = String(localized: """
+                The terminal still has a running process. If you close the \
+                terminal the process will be killed.
+                """)
+            alert.addButton(withTitle: String(localized: "Close the Terminal"))
+            alert.addButton(withTitle: String(localized: "Cancel"))
             alert.alertStyle = .warning
             alert.beginSheetModal(for: window, completionHandler: { response in
                 switch (response) {
