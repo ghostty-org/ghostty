@@ -355,13 +355,14 @@ pub fn init(b: *std.Build) !Config {
         // generally want a fat binary. This can be overridden with the
         // `-fsys` flag.
         for (&[_][]const u8{
-            "freetype",
-            "harfbuzz",
             "fontconfig",
-            "libpng",
-            "zlib",
-            "oniguruma",
+            "freetype",
             "gtk4-layer-shell",
+            "harfbuzz",
+            "highway",
+            "libpng",
+            "oniguruma",
+            "zlib",
         }) |dep| {
             _ = b.systemIntegrationOption(
                 dep,

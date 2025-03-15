@@ -7,6 +7,7 @@
   fontconfig,
   freetype,
   harfbuzz,
+  libhwy,
   libpng,
   oniguruma,
   zlib,
@@ -106,6 +107,7 @@ in
         fontconfig
         freetype
         harfbuzz
+        libhwy
         libpng
         oniguruma
         zlib
