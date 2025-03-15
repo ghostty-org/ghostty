@@ -1,18 +1,21 @@
-/// The state associated with a single tab in the window.
-///
-/// A tab can contain one or more terminals due to splits.
+//! The state associated with a single tab in the window.
+//!
+//! A tab can contain one or more terminals due to splits.
 const Tab = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+
+const gobject = @import("gobject");
+const gtk = @import("gtk");
+
 const font = @import("../../font/main.zig");
 const input = @import("../../input.zig");
 const CoreSurface = @import("../../Surface.zig");
 
 const Surface = @import("Surface.zig");
 const Window = @import("Window.zig");
-const c = @import("c.zig").c;
 const adwaita = @import("adwaita.zig");
 const CloseDialog = @import("CloseDialog.zig");
 
@@ -24,12 +27,12 @@ pub const GHOSTTY_TAB = "ghostty_tab";
 window: *Window,
 
 /// The tab label. The tab label is the text that appears on the tab.
-label_text: *c.GtkLabel,
+label_text: *gtk.Label,
 
 /// We'll put our children into this box instead of packing them
 /// directly, so that we can send the box into `c.g_signal_connect_data`
 /// for the close button
-box: *c.GtkBox,
+box: *gtk.Box,
 
 /// The element of this tab so that we can handle splits and so on.
 elem: Surface.Container.Elem,
@@ -46,8 +49,8 @@ pub fn create(alloc: Allocator, window: *Window, parent_: ?*CoreSurface) !*Tab {
     return tab;
 }
 
-/// Initialize the tab, create a surface, and add it to the window. "self"
-/// needs to be a stable pointer, since it is used for GTK events.
+/// Initialize the tab, create a surface, and add it to the window. "self" needs
+/// to be a stable pointer, since it is used for GTK events.
 pub fn init(self: *Tab, window: *Window, parent_: ?*CoreSurface) !void {
     self.* = .{
         .window = window,
@@ -57,13 +60,14 @@ pub fn init(self: *Tab, window: *Window, parent_: ?*CoreSurface) !void {
         .focus_child = null,
     };
 
-    // Create a Box in which we'll later keep either Surface or Split.
-    // Using a box makes it easier to maintain the tab contents because
-    // we never need to change the root widget of the notebook page (tab).
-    const box_widget = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 0);
-    c.gtk_widget_set_hexpand(box_widget, 1);
-    c.gtk_widget_set_vexpand(box_widget, 1);
-    self.box = @ptrCast(box_widget);
+    // Create a Box in which we'll later keep either Surface or Split. Using a
+    // box makes it easier to maintain the tab contents because we never need to
+    // change the root widget of the notebook page (tab).
+    const box = gtk.Box.new(.vertical, 0);
+    const box_widget = box.as(gtk.Widget);
+    box_widget.setHexpand(1);
+    box_widget.setVexpand(1);
+    self.box = box;
 
     // Create the initial surface since all tabs start as a single non-split
     var surface = try Surface.create(window.app.core_app.alloc, window.app, .{
@@ -73,16 +77,21 @@ pub fn init(self: *Tab, window: *Window, parent_: ?*CoreSurface) !void {
     surface.container = .{ .tab_ = self };
     self.elem = .{ .surface = surface };
 
-    // FIXME: when Tab.zig is converted to zig-gobject
     // Add Surface to the Tab
-    c.gtk_box_append(self.box, @ptrCast(@alignCast(surface.primaryWidget())));
+    self.box.append(surface.primaryWidget());
 
     // Set the userdata of the box to point to this tab.
-    c.g_object_set_data(@ptrCast(box_widget), GHOSTTY_TAB, self);
+    self.box.as(gobject.Object).setData(GHOSTTY_TAB, self);
     window.notebook.addTab(self, "Ghostty");
 
     // Attach all events
-    _ = c.g_signal_connect_data(box_widget, "destroy", c.G_CALLBACK(&gtkDestroy), self, null, c.G_CONNECT_DEFAULT);
+    _ = gtk.Widget.signals.destroy.connect(
+        self.box,
+        *Tab,
+        gtkDestroy,
+        self,
+        .{},
+    );
 
     // We need to grab focus after Surface and Tab is added to the window. When
     // creating a Tab we want to always focus on the widget.
@@ -104,11 +113,10 @@ pub fn destroy(self: *Tab, alloc: Allocator) void {
 /// Replace the surface element that this tab is showing.
 pub fn replaceElem(self: *Tab, elem: Surface.Container.Elem) void {
     // Remove our previous widget
-    // FIXME: when Tab.zig is converted to zig-gobject
-    c.gtk_box_remove(self.box, @ptrCast(@alignCast(self.elem.widget())));
+    self.box.remove(self.elem.widget());
 
     // Add our new one
-    c.gtk_box_append(self.box, @ptrCast(@alignCast(elem.widget())));
+    self.box.append(elem.widget());
     self.elem = elem;
 }
 
@@ -153,11 +161,11 @@ pub fn closeWithConfirmation(tab: *Tab) void {
     }
 }
 
-fn gtkDestroy(v: *c.GtkWidget, ud: ?*anyopaque) callconv(.C) void {
-    _ = v;
+fn gtkDestroy(_: *gtk.Box, self: *Tab) callconv(.C) void {
     log.debug("tab box destroy", .{});
 
+    const alloc = self.window.app.core_app.alloc;
+
     // When our box is destroyed, we want to destroy our tab, too.
-    const tab: *Tab = @ptrCast(@alignCast(ud));
-    tab.destroy(tab.window.app.core_app.alloc);
+    self.destroy(alloc);
 }
