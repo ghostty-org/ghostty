@@ -1045,10 +1045,10 @@ fn mouseRefreshLinks(
             .pointer,
         );
 
-        switch (link[0]) {
+        switch (link.action) {
             .open => {
                 const str = try self.io.terminal.screen.selectionString(self.alloc, .{
-                    .sel = link[1],
+                    .sel = link.selection,
                     .trim = false,
                 });
                 defer self.alloc.free(str);
@@ -1061,7 +1061,7 @@ fn mouseRefreshLinks(
 
             ._open_osc8 => link: {
                 // Show the URL in the status bar
-                const pin = link[1].start();
+                const pin = link.selection.start();
                 const uri = self.osc8URI(pin) orelse {
                     log.warn("failed to get URI for OSC8 hyperlink", .{});
                     break :link;
@@ -3206,16 +3206,18 @@ fn clickMoveCursor(self: *Surface, to: terminal.Pin) !void {
     }
 }
 
+const ActionSelection = struct {
+    action: input.Link.Action,
+    selection: terminal.Selection,
+};
+
 /// Returns the link at the given cursor position, if any.
 ///
 /// Requires the renderer mutex is held.
 fn linkAtPos(
     self: *Surface,
     pos: apprt.CursorPos,
-) !?struct {
-    input.Link.Action,
-    terminal.Selection,
-} {
+) !?ActionSelection {
     // Convert our cursor position to a screen point.
     const screen = &self.renderer_state.terminal.screen;
     const mouse_pin: terminal.Pin = mouse_pin: {
@@ -3236,7 +3238,7 @@ fn linkAtPos(
         const cell = rac.cell;
         if (!cell.hyperlink) break :hyperlink;
         const sel = terminal.Selection.init(mouse_pin, mouse_pin, false);
-        return .{ ._open_osc8, sel };
+        return .{ .action = ._open_osc8, .selection = sel };
     }
 
     // If we have no OSC8 links then we fallback to regex-based URL detection.
@@ -3258,6 +3260,47 @@ fn linkAtPos(
     }));
     defer strmap.deinit(self.alloc);
 
+    // Check if any substr as clickable or not.
+    // If any given str is path resolvable or not. Below lines of code
+    // will work only for file paths. This covers both relative and absolute paths.
+    // some of the paths may not work it is based on the `std.fs.realpath`
+    const cwd = self.io.terminal.getPwd();
+    var split_str = std.mem.splitSequence(u8, strmap.string, " ");
+    while (split_str.next()) |potential_path| {
+        const path_slice: []const []const u8 = &[_][]const u8{
+            cwd.?,
+            potential_path,
+        };
+        const cwd_path = try std.fs.path.join(self.alloc, path_slice);
+        defer self.alloc.free(cwd_path);
+
+        // we can skip opening the current path as we're already at the right path
+        if (std.mem.eql(u8, cwd.?, cwd_path)) {
+            continue;
+        }
+
+        var buf: [std.fs.max_path_bytes]u8 = undefined;
+        const real_path = std.fs.realpath(cwd_path, &buf) catch null;
+
+        if (real_path != null) {
+            const region = findSubstringIndices(strmap.string, potential_path);
+            if (region) |r| {
+                const start_idx = r[0];
+                const end_idx = r[1];
+                const start_pt = strmap.map[start_idx];
+                const end_pt = strmap.map[end_idx + 1];
+                const sel = screen.selectWordBetween(start_pt, end_pt);
+                if (sel) |s| {
+                    const result = .{
+                        .action = input.Link.Action{ .open = {} },
+                        .selection = s,
+                    };
+                    return result;
+                }
+            }
+        }
+    }
+
     // Go through each link and see if we clicked it
     for (self.config.links) |link| {
         switch (link.highlight) {
@@ -3271,11 +3314,17 @@ fn linkAtPos(
             defer match.deinit();
             const sel = match.selection();
             if (!sel.contains(screen, mouse_pin)) continue;
-            return .{ link.action, sel };
+            return .{ .action = link.action, .selection = sel };
         }
     }
 
     return null;
+}
+
+fn findSubstringIndices(haystack: []const u8, needle: []const u8) ?[2]usize {
+    const start_index = std.mem.indexOf(u8, haystack, needle) orelse return null;
+    const end_index = start_index + needle.len;
+    return .{ start_index, end_index };
 }
 
 /// This returns the mouse mods to consider for link highlighting or
@@ -3302,7 +3351,9 @@ fn mouseModsWithCapture(self: *Surface, mods: input.Mods) input.Mods {
 ///
 /// Requires the renderer state mutex is held.
 fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
-    const action, const sel = try self.linkAtPos(pos) orelse return false;
+    const link = try self.linkAtPos(pos) orelse return false;
+    const action = link.action;
+    const sel = link.selection;
     switch (action) {
         .open => {
             const str = try self.io.terminal.screen.selectionString(self.alloc, .{
@@ -4000,7 +4051,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             if (try self.linkAtPos(pos)) |link_info| {
                 // Get the URL text from selection
                 const url_text = (self.io.terminal.screen.selectionString(self.alloc, .{
-                    .sel = link_info[1],
+                    .sel = link_info.selection,
                     .trim = self.config.clipboard_trim_trailing_spaces,
                 })) catch |err| {
                     log.err("error reading url string err={}", .{err});
