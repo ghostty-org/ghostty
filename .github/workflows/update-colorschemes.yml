@@ -66,9 +66,9 @@ jobs:
           commit-message: "deps: Update iTerm2 color schemes"
           add-paths: |
             build.zig.zon
-            build.zig.zon2json-lock
             build.zig.zon.nix
             build.zig.zon.txt
+            build.zig.zon.json
           body: |
             Upstream revision: https://github.com/mbadolato/iTerm2-Color-Schemes/tree/${{ steps.zig_fetch.outputs.upstream_rev }}
           labels: dependencies

@@ -1,7 +1,7 @@
 git+https://codeberg.org/atman/zg#4a002763419a34d61dcbb1f415821b83b9bf8ddc
+git+https://github.com/TUSF/zigimg#5102e09be233d372e9e05f4cb2ffbefba30bc1c0
 git+https://github.com/rockorager/libvaxis#1e24e0dfb509e974e1c8713bcd119d0ae032a8c7
 git+https://github.com/rockorager/libvaxis/?ref=main#6a37605dde55898dcca4769dd3eb1e333959c209
-git+https://github.com/TUSF/zigimg#5102e09be233d372e9e05f4cb2ffbefba30bc1c0
 https://codeberg.org/ifreund/zig-wayland/archive/f3c5d503e540ada8cbcb056420de240af0c094f7.tar.gz
 https://deps.files.ghostty.org/breakpad-b99f444ba5f6b98cac261cbb391d8766b34a5918.tar.gz
 https://deps.files.ghostty.org/fontconfig-2.14.2.tar.gz

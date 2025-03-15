@@ -25,8 +25,8 @@
       };
     };
 
-    zig2nix = {
-      url = "github:jcollie/zig2nix?ref=c2a24405298373123e12ca81805e436da648aaf5";
+    zon2nix = {
+      url = "github:jcollie/zon2nix?ref=829629760469337a50e7c37432c3e52d15c28852";
       inputs = {
         nixpkgs.follows = "nixpkgs-unstable";
         flake-utils.follows = "flake-utils";
@@ -39,7 +39,7 @@
     nixpkgs-unstable,
     nixpkgs-stable,
     zig,
-    zig2nix,
+    zon2nix,
     ...
   }:
     builtins.foldl' nixpkgs-stable.lib.recursiveUpdate {} (
@@ -51,7 +51,7 @@
           devShell.${system} = pkgs-stable.callPackage ./nix/devShell.nix {
             zig = zig.packages.${system}."0.14.0";
             wraptest = pkgs-stable.callPackage ./nix/wraptest.nix {};
-            zig2nix = zig2nix;
+            zon2nix = zon2nix;
           };
 
           packages.${system} = let
