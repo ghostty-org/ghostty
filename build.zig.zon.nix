@@ -204,11 +204,11 @@ in
       };
     }
     {
-      name = "N-V-__8AAABBKARxrVb9mEr7T5TUQbbqPiHxdBoOAmsChg2a";
+      name = "N-V-__8AAOCKKgR3_ixUa8LPz0Zz8okA9C6A3kXVLbmdLsGP";
       path = fetchZigArtifact {
         name = "iterm2_themes";
-        url = "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/e21d5ffd19605741d0e3e19d7c5a8c6c25648673.tar.gz";
-        hash = "sha256-pyoGlKOWdZVbjGoxPP+CZ6zwil8O12gMOlzX0BJEfAc=";
+        url = "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/e348884a00ef6c98dc837a873c4a867c9164d8a0.tar.gz";
+        hash = "sha256-lt4fE77C41C/CpQweF+w/oy96xZJEzPEFTy4TSFEYbw=";
       };
     }
     {

@@ -1,7 +1,7 @@
 git+https://codeberg.org/atman/zg#4a002763419a34d61dcbb1f415821b83b9bf8ddc
+git+https://github.com/TUSF/zigimg#5102e09be233d372e9e05f4cb2ffbefba30bc1c0
 git+https://github.com/rockorager/libvaxis#1e24e0dfb509e974e1c8713bcd119d0ae032a8c7
 git+https://github.com/rockorager/libvaxis/?ref=main#6a37605dde55898dcca4769dd3eb1e333959c209
-git+https://github.com/TUSF/zigimg#5102e09be233d372e9e05f4cb2ffbefba30bc1c0
 https://codeberg.org/ifreund/zig-wayland/archive/f3c5d503e540ada8cbcb056420de240af0c094f7.tar.gz
 https://deps.files.ghostty.org/breakpad-b99f444ba5f6b98cac261cbb391d8766b34a5918.tar.gz
 https://deps.files.ghostty.org/fontconfig-2.14.2.tar.gz
@@ -28,7 +28,7 @@ https://deps.files.ghostty.org/ziglyph-b89d43d1e3fb01b6074bc1f7fc980324b04d26a5.
 https://deps.files.ghostty.org/zlib-1220fed0c74e1019b3ee29edae2051788b080cd96e90d56836eea857b0b966742efb.tar.gz
 https://github.com/glfw/glfw/archive/73948e6c0f15b1053cf74b7c4e6b04fd36e97e29.zip
 https://github.com/jcollie/ghostty-gobject/releases/download/0.14.0-2025-03-11-16-1/ghostty-gobject-0.14.0-2025-03-11-16-1.tar.gz
-https://github.com/mbadolato/iTerm2-Color-Schemes/archive/e21d5ffd19605741d0e3e19d7c5a8c6c25648673.tar.gz
+https://github.com/mbadolato/iTerm2-Color-Schemes/archive/e348884a00ef6c98dc837a873c4a867c9164d8a0.tar.gz
 https://github.com/mitchellh/libxev/archive/3df9337a9e84450a58a2c4af434ec1a036f7b494.tar.gz
 https://github.com/mitchellh/zig-objc/archive/3ab0d37c7d6b933d6ded1b3a35b6b60f05590a98.tar.gz
 https://github.com/natecraddock/zf/archive/03176fcf23fda543cc02a8675e92c1fe3b1ee2eb.tar.gz

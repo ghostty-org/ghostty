@@ -74,10 +74,10 @@
     "url": "https://deps.files.ghostty.org/plasma_wayland_protocols-12207e0851c12acdeee0991e893e0132fc87bb763969a585dc16ecca33e88334c566.tar.gz",
     "hash": "sha256-XFi6IUrNjmvKNCbcCLAixGqN2Zeymhs+KLrfccIN9EE="
   },
-  "N-V-__8AAABBKARxrVb9mEr7T5TUQbbqPiHxdBoOAmsChg2a": {
+  "N-V-__8AAOCKKgR3_ixUa8LPz0Zz8okA9C6A3kXVLbmdLsGP": {
     "name": "iterm2_themes",
-    "url": "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/e21d5ffd19605741d0e3e19d7c5a8c6c25648673.tar.gz",
-    "hash": "sha256-pyoGlKOWdZVbjGoxPP+CZ6zwil8O12gMOlzX0BJEfAc="
+    "url": "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/e348884a00ef6c98dc837a873c4a867c9164d8a0.tar.gz",
+    "hash": "sha256-lt4fE77C41C/CpQweF+w/oy96xZJEzPEFTy4TSFEYbw="
   },
   "N-V-__8AAH0GaQC8a52s6vfIxg88OZgFgEW6DFxfSK4lX_l3": {
     "name": "imgui",
