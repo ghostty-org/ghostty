@@ -319,12 +319,21 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+      - uses: cachix/install-nix-action@v30
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@v15
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
       - name: Setup Cache
         uses: namespacelabs/nscloud-cache-action@v1.2.0
         with:
           path: |
             /nix
             /zig
+      - name: use nix to compile blueprints
+        run: nix run .#compile-blueprints
       - run: sudo apt install -y udev
       - run: sudo systemctl start systemd-udevd
       - uses: snapcore/action-build@v1
