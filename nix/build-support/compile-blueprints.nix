@@ -14,6 +14,7 @@
   ]);
   program = pkgs.writeShellScript "compile-blueprints" ''
     set -e
+    export GI_TYPELIB_PATH=${gi_typelib_path}
     ${pkgs.findutils}/bin/find . -name \*.blp -print0 | ${pkgs.findutils}/bin/xargs --null --replace=BLP -- ${pkgs.lib.getExe pkgs.blueprint-compiler} format --fix BLP
     ${pkgs.findutils}/bin/find . -name \*.blp -print0 | ${pkgs.findutils}/bin/xargs --null --replace=BLP -- sh -c "export B=BLP; ${pkgs.lib.getExe pkgs.blueprint-compiler} compile --typelib-path=${gi_typelib_path} --output \''${B%.*}.ui \$B"
   '';
