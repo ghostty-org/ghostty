@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-03-06 20:10+0100\n"
+"POT-Creation-Date: 2025-03-17 22:41+0100\n"
 "PO-Revision-Date: 2025-02-27 09:16+0100\n"
 "Last-Translator: Leah <hi@pluie.me>\n"
 "Language-Team: Chinese (simplified) <i18n-zh@googlegroups.com>\n"
@@ -91,7 +91,7 @@ msgstr "标签页"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:62
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:30
-#: src/apprt/gtk/Window.zig:246
+#: src/apprt/gtk/Window.zig:249
 msgid "New Tab"
 msgstr "新建标签页"
 
@@ -133,7 +133,7 @@ msgid "Terminal Inspector"
 msgstr "终端检视器"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:102
-#: src/apprt/gtk/Window.zig:933
+#: src/apprt/gtk/Window.zig:940
 msgid "About Ghostty"
 msgstr "关于 Ghostty"
 
@@ -162,6 +162,16 @@ msgstr "拒绝"
 msgid "Allow"
 msgstr "允许"
 
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:81
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:81
+msgid "Remember this choice"
+msgstr ""
+
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:82
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:82
+msgid "Reload the configuration to show this prompt again"
+msgstr ""
+
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:7
 msgid ""
 "An application is attempting to write to the clipboard. The current "
@@ -178,24 +188,24 @@ msgid ""
 "commands may be executed."
 msgstr "将以下内容粘贴至终端内将可能执行有害命令。"
 
-#: src/apprt/gtk/Window.zig:199
+#: src/apprt/gtk/Window.zig:202
 msgid "Main Menu"
 msgstr "主菜单"
 
-#: src/apprt/gtk/Window.zig:219
+#: src/apprt/gtk/Window.zig:222
 msgid "View Open Tabs"
 msgstr "浏览标签页"
 
-#: src/apprt/gtk/Window.zig:265
+#: src/apprt/gtk/Window.zig:268
 msgid ""
 "⚠️ You're running a debug build of Ghostty! Performance will be degraded."
 msgstr "⚠️ Ghostty 正在以调试模式运行！性能将大打折扣。"
 
-#: src/apprt/gtk/Window.zig:681
+#: src/apprt/gtk/Window.zig:690
 msgid "Reloaded the configuration"
 msgstr "已重新加载设置"
 
-#: src/apprt/gtk/Window.zig:914
+#: src/apprt/gtk/Window.zig:921
 msgid "Ghostty Developers"
 msgstr "Ghostty 开发团队"
 
@@ -235,6 +245,6 @@ msgstr "标签页内所有运行中的进程将被终止。"
 msgid "The currently running process in this split will be terminated."
 msgstr "分屏内正在运行中的进程将被终止。"
 
-#: src/apprt/gtk/Surface.zig:1128
+#: src/apprt/gtk/Surface.zig:1245
 msgid "Copied to clipboard"
 msgstr "已复制至剪切板"

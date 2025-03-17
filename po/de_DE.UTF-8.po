@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-03-06 20:10+0100\n"
+"POT-Creation-Date: 2025-03-17 22:41+0100\n"
 "PO-Revision-Date: 2025-03-06 14:57+0100\n"
 "Last-Translator: Robin <r@rpfaeffle.com>\n"
 "Language-Team: German <translation-team-de@lists.sourceforge.net>\n"
@@ -92,7 +92,7 @@ msgstr "Tab"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:62
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:30
-#: src/apprt/gtk/Window.zig:246
+#: src/apprt/gtk/Window.zig:249
 msgid "New Tab"
 msgstr "Neuer Tab"
 
@@ -134,7 +134,7 @@ msgid "Terminal Inspector"
 msgstr "Terminalinspektor"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:102
-#: src/apprt/gtk/Window.zig:933
+#: src/apprt/gtk/Window.zig:940
 msgid "About Ghostty"
 msgstr "Über Ghostty"
 
@@ -165,6 +165,16 @@ msgstr "Nicht erlauben"
 msgid "Allow"
 msgstr "Erlauben"
 
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:81
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:81
+msgid "Remember this choice"
+msgstr ""
+
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:82
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:82
+msgid "Reload the configuration to show this prompt again"
+msgstr ""
+
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:7
 msgid ""
 "An application is attempting to write to the clipboard. The current "
@@ -185,26 +195,26 @@ msgstr ""
 "Diesen Text in das Terminal einzufügen könnte möglicherweise gefährlich "
 "sein. Es scheint, dass Anweisungen ausgeführt werden könnten."
 
-#: src/apprt/gtk/Window.zig:199
+#: src/apprt/gtk/Window.zig:202
 msgid "Main Menu"
 msgstr "Hauptmenü"
 
-#: src/apprt/gtk/Window.zig:219
+#: src/apprt/gtk/Window.zig:222
 msgid "View Open Tabs"
 msgstr "Offene Tabs einblenden"
 
-#: src/apprt/gtk/Window.zig:265
+#: src/apprt/gtk/Window.zig:268
 msgid ""
 "⚠️ You're running a debug build of Ghostty! Performance will be degraded."
 msgstr ""
 "⚠️ Du verwendest einen Debug Build von Ghostty! Die Leistung wird reduziert "
 "sein."
 
-#: src/apprt/gtk/Window.zig:681
+#: src/apprt/gtk/Window.zig:690
 msgid "Reloaded the configuration"
 msgstr "Konfiguration wurde neu geladen"
 
-#: src/apprt/gtk/Window.zig:914
+#: src/apprt/gtk/Window.zig:921
 msgid "Ghostty Developers"
 msgstr "Ghostty-Entwickler"
 
@@ -244,6 +254,6 @@ msgstr "Alle Terminalsitzungen in diesem Tab werden beendet."
 msgid "The currently running process in this split will be terminated."
 msgstr "Der aktuell laufende Prozess in diesem geteilten Fenster wird beendet."
 
-#: src/apprt/gtk/Surface.zig:1128
+#: src/apprt/gtk/Surface.zig:1245
 msgid "Copied to clipboard"
 msgstr "In die Zwischenablage kopiert"
