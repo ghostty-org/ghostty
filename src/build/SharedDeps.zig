@@ -668,70 +668,45 @@ fn addGTK(
             });
 
             const generate = b.addRunArtifact(generate_gresource_xml);
-
-            const gtk_blueprint_compiler = b.addExecutable(.{
+            const blueprint_compiler = b.addExecutable(.{
                 .name = "gtk_blueprint_compiler",
                 .root_source_file = b.path("src/apprt/gtk/blueprint_compiler.zig"),
                 .target = b.graph.host,
             });
-            gtk_blueprint_compiler.linkSystemLibrary2("gtk4", dynamic_link_opts);
-            gtk_blueprint_compiler.linkSystemLibrary2("libadwaita-1", dynamic_link_opts);
-            gtk_blueprint_compiler.linkLibC();
+            blueprint_compiler.linkSystemLibrary2("gtk4", dynamic_link_opts);
+            blueprint_compiler.linkSystemLibrary2("libadwaita-1", dynamic_link_opts);
+            blueprint_compiler.linkLibC();
 
             for (gresource.blueprint_files) |blueprint_file| {
-                const blueprint_compiler = b.addRunArtifact(gtk_blueprint_compiler);
-                blueprint_compiler.addArgs(&.{
-                    b.fmt("{d}", .{blueprint_file.major}),
-                    b.fmt("{d}", .{blueprint_file.minor}),
-                });
-                const ui_file = blueprint_compiler.addOutputFileArg(b.fmt(
-                    "{d}.{d}/{s}.ui",
-                    .{
-                        blueprint_file.major,
-                        blueprint_file.minor,
-                        blueprint_file.name,
-                    },
-                ));
-                blueprint_compiler.addFileArg(b.path(b.fmt(
-                    "src/apprt/gtk/ui/{d}.{d}/{s}.blp",
-                    .{
-                        blueprint_file.major,
-                        blueprint_file.minor,
-                        blueprint_file.name,
-                    },
-                )));
-                generate.addFileArg(ui_file);
+                if (b.systemIntegrationOption("blueprint-compiler", .{ .default = true })) {
+                    const blueprint_compile = b.addRunArtifact(blueprint_compiler);
+                    blueprint_compile.addArgs(&.{
+                        b.fmt("{d}", .{blueprint_file.major}),
+                        b.fmt("{d}", .{blueprint_file.minor}),
+                    });
+                    const blueprint_output = blueprint_compile.addOutputFileArg(b.fmt(
+                        "{[major]d}.{[minor]d}/{[name]s}.ui",
+                        blueprint_file,
+                    ));
+                    blueprint_compile.addFileArg(b.path(b.fmt(
+                        "src/apprt/gtk/ui/{[major]d}.{[minor]d}/{[name]s}.blp",
+                        blueprint_file,
+                    )));
+                    generate.addFileArg(blueprint_output);
+                } else {
+                    generate.addFileInput(b.path(b.fmt(
+                        "src/apprt/gtk/ui/{[major]d}.{[minor]d}/{[name]s}.ui",
+                        blueprint_file,
+                    )));
+                }
+            }
+            for (gresource.dependencies) |pathname| {
+                if (std.mem.eql(u8, std.fs.path.extension(pathname), ".blp")) continue;
+                generate.addFileInput(b.path(pathname));
             }
 
             break :gresource_xml generate.captureStdOut();
         };
-
-        {
-            const gtk_builder_check = b.addExecutable(.{
-                .name = "gtk_builder_check",
-                .root_source_file = b.path("src/apprt/gtk/builder_check.zig"),
-                .target = b.graph.host,
-            });
-            gtk_builder_check.root_module.addOptions("build_options", self.options);
-            if (gobject_) |gobject| {
-                gtk_builder_check.root_module.addImport(
-                    "gtk",
-                    gobject.module("gtk4"),
-                );
-                gtk_builder_check.root_module.addImport(
-                    "adw",
-                    gobject.module("adw1"),
-                );
-            }
-
-            for (gresource.dependencies) |pathname| {
-                const extension = std.fs.path.extension(pathname);
-                if (!std.mem.eql(u8, extension, ".ui")) continue;
-                const check = b.addRunArtifact(gtk_builder_check);
-                check.addFileArg(b.path(pathname));
-                step.step.dependOn(&check.step);
-            }
-        }
 
         const generate_resources_c = b.addSystemCommand(&.{
             "glib-compile-resources",

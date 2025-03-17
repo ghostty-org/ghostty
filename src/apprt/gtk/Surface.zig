@@ -1062,7 +1062,7 @@ pub fn promptTitle(self: *Surface) !void {
     if (!adwaita.versionAtLeast(1, 5, 0)) return;
     const window = self.container.window() orelse return;
 
-    var builder = Builder.init("prompt-title-dialog", 1, 5, .blp);
+    var builder = Builder.init("prompt-title-dialog", 1, 5);
     defer builder.deinit();
 
     const entry = builder.getObject(gtk.Entry, "title_entry").?;

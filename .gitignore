@@ -14,6 +14,7 @@ zig-out/
 example/*.wasm
 test/ghostty
 test/cases/**/*.actual.png
+src/apprt/gtk/ui/**/*.ui
 
 glad.zip
 /Box_test.ppm

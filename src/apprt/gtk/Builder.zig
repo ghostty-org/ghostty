@@ -18,88 +18,37 @@ pub fn init(
     /// The minor version of the minimum Adwaita version that is required to use
     /// this resource.
     comptime minor: u16,
-    /// `blp` signifies that the resource is a Blueprint that has been compiled
-    /// to GTK Builder XML at compile time. `ui` signifies that the resource is
-    /// a GTK Builder XML file that is included in the Ghostty source (perhaps
-    /// because the Blueprint compiler on some target platforms cannot compile a
-    /// Blueprint that generates the necessary resources).
-    comptime kind: enum { blp, ui },
 ) Builder {
     const resource_path = comptime resource_path: {
         const gresource = @import("gresource.zig");
-        switch (kind) {
-            .blp => {
-                // Check to make sure that our file is listed as a
-                // `blueprint_file` in `gresource.zig`. If it isn't Ghostty
-                // could crash at runtime when we try and load a nonexistent
-                // GResource.
-                for (gresource.blueprint_files) |file| {
-                    if (major != file.major or minor != file.minor or !std.mem.eql(u8, file.name, name)) continue;
-                    // Use @embedFile to make sure that the `.blp` file exists
-                    // at compile time. Zig _should_ discard the data so that
-                    // it doesn't end up in the final executable. At runtime we
-                    // will load the data from a GResource.
-                    const blp_filename = std.fmt.comptimePrint(
-                        "ui/{d}.{d}/{s}.blp",
-                        .{
-                            file.major,
-                            file.minor,
-                            file.name,
-                        },
-                    );
-                    _ = @embedFile(blp_filename);
-                    break :resource_path std.fmt.comptimePrint(
-                        "/com/mitchellh/ghostty/ui/{d}.{d}/{s}.ui",
-                        .{
-                            file.major,
-                            file.minor,
-                            file.name,
-                        },
-                    );
-                } else @compileError("missing blueprint file '" ++ name ++ "' in gresource.zig");
-            },
-            .ui => {
-                // Check to make sure that our file is listed as a `ui_file` in
-                // `gresource.zig`. If it isn't Ghostty could crash at runtime
-                // when we try and load a nonexistent GResource.
-                for (gresource.ui_files) |file| {
-                    if (major != file.major or minor != file.minor or !std.mem.eql(u8, file.name, name)) continue;
-                    // Use @embedFile to make sure that the `.ui` file exists
-                    // at compile time. Zig _should_ discard the data so that
-                    // it doesn't end up in the final executable. At runtime we
-                    // will load the data from a GResource.
-                    const ui_filename = std.fmt.comptimePrint(
-                        "ui/{d}.{d}/{s}.ui",
-                        .{
-                            file.major,
-                            file.minor,
-                            file.name,
-                        },
-                    );
-                    _ = @embedFile(ui_filename);
-                    // Also use @embedFile to make sure that a matching `.blp`
-                    // file exists at compile time. Zig _should_ discard the
-                    // data so that it doesn't end up in the final executable.
-                    const blp_filename = std.fmt.comptimePrint(
-                        "ui/{d}.{d}/{s}.blp",
-                        .{
-                            file.major,
-                            file.minor,
-                            file.name,
-                        },
-                    );
-                    _ = @embedFile(blp_filename);
-                    break :resource_path std.fmt.comptimePrint(
-                        "/com/mitchellh/ghostty/ui/{d}.{d}/{s}.ui",
-                        .{
-                            file.major,
-                            file.minor,
-                            file.name,
-                        },
-                    );
-                } else @compileError("missing ui file '" ++ name ++ "' in gresource.zig");
-            },
-        }
+        // Check to make sure that our file is listed as a
+        // `blueprint_file` in `gresource.zig`. If it isn't Ghostty
+        // could crash at runtime when we try and load a nonexistent
+        // GResource.
+        for (gresource.blueprint_files) |file| {
+            if (major != file.major or minor != file.minor or !std.mem.eql(u8, file.name, name)) continue;
+            // Use @embedFile to make sure that the `.blp` file exists
+            // at compile time. Zig _should_ discard the data so that
+            // it doesn't end up in the final executable. At runtime we
+            // will load the data from a GResource.
+            const blp_filename = std.fmt.comptimePrint(
+                "ui/{d}.{d}/{s}.blp",
+                .{
+                    file.major,
+                    file.minor,
+                    file.name,
+                },
+            );
+            _ = @embedFile(blp_filename);
+            break :resource_path std.fmt.comptimePrint(
+                "/com/mitchellh/ghostty/ui/{d}.{d}/{s}.ui",
+                .{
+                    file.major,
+                    file.minor,
+                    file.name,
+                },
+            );
+        } else @compileError("missing blueprint file '" ++ name ++ "' in gresource.zig");
     };
 
     return .{

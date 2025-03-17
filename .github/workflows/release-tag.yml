@@ -89,10 +89,13 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: compile blueprints
+        run: nix run .#compile-blueprints
+
       - name: Create Tarball
         run: |
-          git archive --format=tgz --prefix="ghostty-${GHOSTTY_VERSION}/" -o "ghostty-${GHOSTTY_VERSION}.tar.gz" HEAD
-          git archive --format=tgz --prefix=ghostty-source/ -o ghostty-source.tar.gz HEAD
+          git archive --format=tgz $(find src -name \*.ui -print0 | xargs --null --replace=UI echo --add-virtual-file=ghostty-${GHOSTTY_VERSION}/UI:UI) --prefix="ghostty-${GHOSTTY_VERSION}/" -o "ghostty-${GHOSTTY_VERSION}.tar.gz" HEAD
+          git archive --format=tgz $(find src -name \*.ui -print0 | xargs --null --replace=UI echo --add-virtual-file=ghostty-source/UI:UI --prefix=ghostty-source/) -o ghostty-source.tar.gz HEAD
 
       - name: Sign Tarball
         run: |

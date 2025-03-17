@@ -63,7 +63,23 @@
   wayland-protocols,
   zon2nix,
   system,
+  cairo,
+  gdk-pixbuf,
+  graphene,
+  pango,
 }: let
+  gi_typelib_path = [
+    cairo
+    gdk-pixbuf
+    glib
+    gobject-introspection
+    graphene
+    gtk4
+    gtk4-layer-shell
+    harfbuzz
+    libadwaita
+    pango
+  ];
   # See package.nix. Keep in sync.
   rpathLibs =
     [
@@ -187,6 +203,7 @@ in
     # This should be set onto the rpath of the ghostty binary if you want
     # it to be "portable" across the system.
     LD_LIBRARY_PATH = lib.makeLibraryPath rpathLibs;
+    GI_TYPELIB_PATH = lib.makeSearchPath "lib/girepository-1.0" (map (pkg: lib.getOutput "lib" pkg) gi_typelib_path);
 
     shellHook =
       (lib.optionalString stdenv.hostPlatform.isLinux ''

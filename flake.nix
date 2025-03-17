@@ -52,6 +52,8 @@
             zig = zig.packages.${system}."0.14.0";
             wraptest = pkgs-stable.callPackage ./nix/wraptest.nix {};
             zon2nix = zon2nix;
+            # revert once blueprint-compiler 0.16.0 is in nixpkgs-stable
+            blueprint-compiler = pkgs-unstable.blueprint-compiler;
           };
 
           packages.${system} = let
@@ -99,6 +101,10 @@
             x11-gnome = runVM ./nix/vm/x11-gnome.nix;
             x11-plasma6 = runVM ./nix/vm/x11-plasma6.nix;
             x11-xfce = runVM ./nix/vm/x11-xfce.nix;
+            compile-blueprints = import ./nix/build-support/compile-blueprints.nix {
+              # change once Zig 0.14 and blueprints-compiler 0.16 are in a stable release of nixpkgs
+              pkgs = pkgs-unstable;
+            };
           };
         }
         # Our supported systems are the same supported systems as the Zig binaries.

@@ -5,7 +5,6 @@ FROM docker.io/library/debian:${DISTRO_VERSION}
 RUN DEBIAN_FRONTEND="noninteractive" apt-get -qq update && \
     apt-get -qq -y --no-install-recommends install \
     # Build Tools
-    blueprint-compiler \
     build-essential \
     libbz2-dev \
     libonig-dev \
@@ -52,5 +51,5 @@ RUN ZIG_GLOBAL_CACHE_DIR=/zig/global-cache ./nix/build-support/fetch-zig-cache.s
 COPY ./src /src/src
 
 # Debian 12 doesn't have gtk4-layer-shell, so we have to manually compile it ourselves
-RUN zig build -Doptimize=Debug -Dcpu=baseline -Dapp-runtime=gtk -fno-sys=gtk4-layer-shell --system /zig/global-cache/p
+RUN zig build -Doptimize=Debug -Dcpu=baseline -Dapp-runtime=gtk -fno-sys=gtk4-layer-shell -fno-sys=blueprint-compiler --system /zig/global-cache/p
 
