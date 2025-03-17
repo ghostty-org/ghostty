@@ -150,7 +150,9 @@ msgstr "剪切板访问授权"
 msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
-msgstr "一个应用正在试图从剪切板读取内容。剪切板目前的内容如下："
+msgstr ""
+"一个应用正在试图从剪切板读取内容。\n"
+"剪切板目前的内容如下："
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:10
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:10
@@ -165,18 +167,20 @@ msgstr "允许"
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:81
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:81
 msgid "Remember this choice"
-msgstr ""
+msgstr "记住当前选择"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:82
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:82
 msgid "Reload the configuration to show this prompt again"
-msgstr ""
+msgstr "本提醒在重新加载设置后可再次出现"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:7
 msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
-msgstr "一个应用正在试图向剪切板写入内容。剪切板目前的内容如下："
+msgstr ""
+"一个应用正在试图向剪切板写入内容。\n"
+"剪切板目前的内容如下："
 
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:6
 msgid "Warning: Potentially Unsafe Paste"
