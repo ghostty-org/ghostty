@@ -68,7 +68,7 @@
   graphene,
   pango,
 }: let
-  gi_typelib_path = [
+  gi_typelib_path = lib.optionals stdenv.hostPlatform.isLinux [
     cairo
     gdk-pixbuf
     glib
