@@ -104,7 +104,11 @@ fn createUpdateStep(b: *std.Build) !*std.Build.Step {
     );
 
     inline for (internal_os.i18n.locales) |locale| {
-        const msgmerge = b.addSystemCommand(&.{ "msgmerge", "-q" });
+        const msgmerge = b.addSystemCommand(&.{
+            "msgmerge",
+            "--quiet",
+            "--no-fuzzy-matching",
+        });
         msgmerge.addFileArg(b.path("po/" ++ locale ++ ".po"));
         msgmerge.addFileArg(xgettext.captureStdOut());
         usf.addCopyFileToSource(msgmerge.captureStdOut(), "po/" ++ locale ++ ".po");

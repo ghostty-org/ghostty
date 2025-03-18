@@ -697,7 +697,10 @@ jobs:
           msgcmp "$old_pot" po/com.mitchellh.ghostty.pot --use-untranslated
 
           # Compare all other POs to current POT
-          for f in po/*.po; do msgcmp "$f" po/com.mitchellh.ghostty.pot; done
+          for f in po/*.po; do
+            # Ignore untranslated entries
+            msgcmp --use-untranslated "$f" po/com.mitchellh.ghostty.pot;
+          done
 
   test-pkg-linux:
     strategy:
