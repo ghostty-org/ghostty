@@ -200,7 +200,7 @@ msgstr "⚠️ Ви використовуєте відладочну збірк
 
 #: src/apprt/gtk/Window.zig:681
 msgid "Reloaded the configuration"
-msgstr "Перезавантажено конфігурацію"
+msgstr "Конфігурацію перезавантажено"
 
 #: src/apprt/gtk/Window.zig:914
 msgid "Ghostty Developers"
