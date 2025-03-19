@@ -25,9 +25,9 @@ const oni = @import("oniguruma");
 pub const regex =
     "(?:" ++ url_schemes ++
     \\)(?:
-++ ipv6_url_pattern ++
+    ++ ipv6_url_pattern ++
     \\|[\w\-.~:/?#@!$&*+,;=%]+(?:[\(\[]\w*[\)\]])?)+(?<![,.])|(?:\.\.\/|\.\/*|\/)[\w\-.~:\/?#@!$&*+,;=%]+(?:\/[\w\-.~:\/?#@!$&*+,;=%]*)*
-;
+    ;
 const url_schemes =
     \\https?://|mailto:|ftp://|file:|ssh:|git://|ssh://|tel:|magnet:|ipfs://|ipns://|gemini://|gopher://|news:
 ;

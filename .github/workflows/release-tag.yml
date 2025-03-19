@@ -77,8 +77,17 @@ jobs:
     needs: [setup]
     env:
       GHOSTTY_VERSION: ${{ needs.setup.outputs.version }}
+      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@v1.2.0
+        with:
+          path: |
+            /nix
+            /zig
 
       - uses: cachix/install-nix-action@v30
         with:
@@ -91,8 +100,8 @@ jobs:
 
       - name: Create Tarball
         run: |
-          git archive --format=tgz --prefix="ghostty-${GHOSTTY_VERSION}/" -o "ghostty-${GHOSTTY_VERSION}.tar.gz" HEAD
-          git archive --format=tgz --prefix=ghostty-source/ -o ghostty-source.tar.gz HEAD
+          nix develop -c zig build distcheck
+          cp zig-out/dist/ghostty-${GHOSTTY_VERSION}.tar.gz .
 
       - name: Sign Tarball
         run: |
@@ -108,8 +117,6 @@ jobs:
           path: |-
             ghostty-${{ env.GHOSTTY_VERSION }}.tar.gz
             ghostty-${{ env.GHOSTTY_VERSION }}.tar.gz.minisig
-            ghostty-source.tar.gz
-            ghostty-source.tar.gz.minisig
 
   build-macos:
     needs: [setup]

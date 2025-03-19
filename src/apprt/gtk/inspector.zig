@@ -2,12 +2,14 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
+const gtk = @import("gtk");
+
 const build_config = @import("../../build_config.zig");
+const i18n = @import("../../os/main.zig").i18n;
 const App = @import("App.zig");
 const Surface = @import("Surface.zig");
 const TerminalWindow = @import("Window.zig");
 const ImguiWidget = @import("ImguiWidget.zig");
-const c = @import("c.zig").c;
 const CoreInspector = @import("../../inspector/main.zig").Inspector;
 
 const log = std.log.scoped(.inspector);
@@ -124,7 +126,7 @@ pub const Inspector = struct {
 /// A dedicated window to hold an inspector instance.
 const Window = struct {
     inspector: *Inspector,
-    window: *c.GtkWindow,
+    window: *gtk.ApplicationWindow,
     imgui_widget: ImguiWidget,
 
     pub fn init(self: *Window, inspector: *Inspector) !void {
@@ -136,15 +138,14 @@ const Window = struct {
         };
 
         // Create the window
-        const window = c.gtk_application_window_new(inspector.surface.app.app);
-        const gtk_window: *c.GtkWindow = @ptrCast(window);
-        errdefer c.gtk_window_destroy(gtk_window);
-        self.window = gtk_window;
-        c.gtk_window_set_title(gtk_window, "Ghostty: Terminal Inspector");
-        c.gtk_window_set_default_size(gtk_window, 1000, 600);
-        c.gtk_window_set_icon_name(gtk_window, build_config.bundle_id);
-        c.gtk_widget_add_css_class(@ptrCast(@alignCast(gtk_window)), "window");
-        c.gtk_widget_add_css_class(@ptrCast(@alignCast(gtk_window)), "inspector-window");
+        self.window = gtk.ApplicationWindow.new(inspector.surface.app.app.as(gtk.Application));
+        errdefer self.window.as(gtk.Window).destroy();
+
+        self.window.as(gtk.Window).setTitle(i18n._("Ghostty: Terminal Inspector"));
+        self.window.as(gtk.Window).setDefaultSize(1000, 600);
+        self.window.as(gtk.Window).setIconName(build_config.bundle_id);
+        self.window.as(gtk.Widget).addCssClass("window");
+        self.window.as(gtk.Widget).addCssClass("inspector-window");
 
         // Initialize our imgui widget
         try self.imgui_widget.init();
@@ -154,11 +155,10 @@ const Window = struct {
         CoreInspector.setup();
 
         // Signals
-        _ = c.g_signal_connect_data(window, "destroy", c.G_CALLBACK(&gtkDestroy), self, null, c.G_CONNECT_DEFAULT);
-
+        _ = gtk.Widget.signals.destroy.connect(self.window, *Window, gtkDestroy, self, .{});
         // Show the window
-        c.gtk_window_set_child(gtk_window, @ptrCast(self.imgui_widget.gl_area));
-        c.gtk_widget_show(window);
+        self.window.as(gtk.Window).setChild(self.imgui_widget.gl_area.as(gtk.Widget));
+        self.window.as(gtk.Window).present();
     }
 
     pub fn deinit(self: *Window) void {
@@ -166,7 +166,7 @@ const Window = struct {
     }
 
     pub fn close(self: *const Window) void {
-        c.gtk_window_destroy(self.window);
+        self.window.as(gtk.Window).destroy();
     }
 
     fn imguiRender(ud: ?*anyopaque) void {
@@ -177,11 +177,8 @@ const Window = struct {
     }
 
     /// "destroy" signal for the window
-    fn gtkDestroy(v: *c.GtkWidget, ud: ?*anyopaque) callconv(.C) void {
-        _ = v;
+    fn gtkDestroy(_: *gtk.ApplicationWindow, self: *Window) callconv(.C) void {
         log.debug("window destroy", .{});
-
-        const self: *Window = @ptrCast(@alignCast(ud.?));
         self.deinit();
     }
 };

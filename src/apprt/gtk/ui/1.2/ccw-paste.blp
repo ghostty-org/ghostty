@@ -8,7 +8,7 @@ Adw.MessageDialog clipboard_confirmation_window {
 
   responses [
     cancel: _("Cancel") suggested,
-    ok: _("Paste") destructive
+    ok: _("Paste") destructive,
   ]
 
   default-response: "cancel";
@@ -16,7 +16,7 @@ Adw.MessageDialog clipboard_confirmation_window {
 
   extra-child: Overlay {
     styles [
-      "osd"
+      "osd",
     ]
 
     ScrolledWindow text_view_scroll {
@@ -33,7 +33,7 @@ Adw.MessageDialog clipboard_confirmation_window {
         right-margin: 8;
 
         styles [
-          "clipboard-content-view"
+          "clipboard-content-view",
         ]
       }
     }
@@ -60,7 +60,7 @@ Adw.MessageDialog clipboard_confirmation_window {
       margin-top: 12;
 
       styles [
-        "opaque"
+        "opaque",
       ]
 
       Image {

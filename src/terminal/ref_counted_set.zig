@@ -621,7 +621,7 @@ pub fn RefCountedSet(
                 // to minimize the time it takes to find it.
                 if (item.meta.psl < held_item.meta.psl or
                     item.meta.psl == held_item.meta.psl and
-                    item.meta.ref < held_item.meta.ref)
+                        item.meta.ref < held_item.meta.ref)
                 {
                     // Put our held item in the bucket.
                     table[p] = held_id;

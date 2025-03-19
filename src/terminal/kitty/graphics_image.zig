@@ -212,7 +212,7 @@ pub const LoadingImage = struct {
         if (std.mem.startsWith(u8, path, "/proc/") or
             std.mem.startsWith(u8, path, "/sys/") or
             (std.mem.startsWith(u8, path, "/dev/") and
-            !std.mem.startsWith(u8, path, "/dev/shm/")))
+                !std.mem.startsWith(u8, path, "/dev/shm/")))
         {
             return error.InvalidData;
         }

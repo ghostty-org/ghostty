@@ -31,6 +31,12 @@ const log = std.log.scoped(.io_exec);
 /// The termios poll rate in milliseconds.
 const TERMIOS_POLL_MS = 200;
 
+/// If we build with flatpak support then we have to keep track of
+/// a potential execution on the host.
+const FlatpakHostCommand = if (!build_config.flatpak) struct {
+    pub const Completion = struct {};
+} else internal_os.FlatpakHostCommand;
+
 /// The subprocess state for our exec backend.
 subprocess: Subprocess,
 
@@ -95,11 +101,26 @@ pub fn threadEnter(
     };
     errdefer self.subprocess.stop();
 
-    // Get the pid from the subprocess
-    const pid = pid: {
-        const command = self.subprocess.command orelse return error.ProcessNotStarted;
-        break :pid command.pid orelse return error.ProcessNoPid;
+    // Watcher to detect subprocess exit
+    var process: ?xev.Process = process: {
+        // If we're executing via Flatpak then we can't do
+        // traditional process watching (its implemented
+        // as a special case in os/flatpak.zig) since the
+        // command is on the host.
+        if (comptime build_config.flatpak) {
+            if (self.subprocess.flatpak_command != null) {
+                break :process null;
+            }
+        }
+
+        // Get the pid from the subprocess
+        const command = self.subprocess.command orelse
+            return error.ProcessNotStarted;
+        const pid = command.pid orelse
+            return error.ProcessNoPid;
+        break :process try xev.Process.init(pid);
     };
+    errdefer if (process) |*p| p.deinit();
 
     // Track our process start time for abnormal exits
     const process_start = try std.time.Instant.now();
@@ -113,10 +134,6 @@ pub fn threadEnter(
     // Setup our stream so that we can write.
     var stream = xev.Stream.initFd(pty_fds.write);
     errdefer stream.deinit();
-
-    // Watcher to detect subprocess exit
-    var process = try xev.Process.init(pid);
-    errdefer process.deinit();
 
     // Start our timer to read termios state changes. This is used
     // to detect things such as when password input is being done
@@ -145,14 +162,26 @@ pub fn threadEnter(
         .termios_timer = termios_timer,
     } };
 
-    // Start our process watcher
-    process.wait(
+    // Start our process watcher. If we have an xev.Process use it.
+    if (process) |*p| p.wait(
         td.loop,
         &td.backend.exec.process_wait_c,
         termio.Termio.ThreadData,
         td,
         processExit,
-    );
+    ) else if (comptime build_config.flatpak) {
+        // If we're in flatpak and we have a flatpak command
+        // then we can run the special flatpak logic for watching.
+        if (self.subprocess.flatpak_command) |*c| {
+            c.waitXev(
+                td.loop,
+                &td.backend.exec.flatpak_wait_c,
+                termio.Termio.ThreadData,
+                td,
+                flatpakExit,
+            );
+        }
+    }
 
     // Start our termios timer. We don't support this on Windows.
     // Fundamentally, we could support this on Windows so we're just
@@ -339,15 +368,7 @@ fn execFailedInChild() !void {
     _ = try reader.read(&buf);
 }
 
-fn processExit(
-    td_: ?*termio.Termio.ThreadData,
-    _: *xev.Loop,
-    _: *xev.Completion,
-    r: xev.Process.WaitError!u32,
-) xev.CallbackAction {
-    const exit_code = r catch unreachable;
-
-    const td = td_.?;
+fn processExitCommon(td: *termio.Termio.ThreadData, exit_code: u32) void {
     assert(td.backend == .exec);
     const execdata = &td.backend.exec;
     execdata.exited = true;
@@ -393,7 +414,7 @@ fn processExit(
         }, null);
         td.mailbox.notify();
 
-        return .disarm;
+        return;
     }
 
     // If we're purposely waiting then we just return since the process
@@ -413,15 +434,34 @@ fn processExit(
             t.modes.set(.cursor_visible, false);
         }
 
-        return .disarm;
+        return;
     }
 
     // Notify our surface we want to close
     _ = td.surface_mailbox.push(.{
         .child_exited = {},
     }, .{ .forever = {} });
+}
 
+fn processExit(
+    td_: ?*termio.Termio.ThreadData,
+    _: *xev.Loop,
+    _: *xev.Completion,
+    r: xev.Process.WaitError!u32,
+) xev.CallbackAction {
+    const exit_code = r catch unreachable;
+    processExitCommon(td_.?, exit_code);
     return .disarm;
+}
+
+fn flatpakExit(
+    td_: ?*termio.Termio.ThreadData,
+    _: *xev.Loop,
+    _: *FlatpakHostCommand.Completion,
+    r: FlatpakHostCommand.WaitError!u8,
+) void {
+    const exit_code = r catch unreachable;
+    processExitCommon(td_.?, exit_code);
 }
 
 fn termiosTimer(
@@ -630,7 +670,7 @@ pub const ThreadData = struct {
     write_stream: xev.Stream,
 
     /// The process watcher
-    process: xev.Process,
+    process: ?xev.Process,
 
     /// This is the pool of available (unused) write requests. If you grab
     /// one from the pool, you must put it back when you're done!
@@ -645,6 +685,10 @@ pub const ThreadData = struct {
     /// This is used for both waiting for the process to exit and then
     /// subsequently to wait for the data_stream to close.
     process_wait_c: xev.Completion = .{},
+
+    // The completion specific to Flatpak process waiting. If
+    // we aren't compiling with Flatpak support this is zero-sized.
+    flatpak_wait_c: FlatpakHostCommand.Completion = .{},
 
     /// Reader thread state
     read_thread: std.Thread,
@@ -670,7 +714,7 @@ pub const ThreadData = struct {
         self.write_buf_pool.deinit(alloc);
 
         // Stop our process watcher
-        self.process.deinit();
+        if (self.process) |*p| p.deinit();
 
         // Stop our write stream
         self.write_stream.deinit();
@@ -693,10 +737,6 @@ pub const Config = struct {
 };
 
 const Subprocess = struct {
-    /// If we build with flatpak support then we have to keep track of
-    /// a potential execution on the host.
-    const FlatpakHostCommand = if (build_config.flatpak) internal_os.FlatpakHostCommand else void;
-
     const c = @cImport({
         @cInclude("errno.h");
         @cInclude("signal.h");
@@ -763,6 +803,13 @@ const Subprocess = struct {
 
         // Add our binary to the path if we can find it.
         ghostty_path: {
+            // Skip this for flatpak since host cannot reach them
+            if ((comptime build_config.flatpak) and
+                internal_os.isFlatpak())
+            {
+                break :ghostty_path;
+            }
+
             var exe_buf: [std.fs.max_path_bytes]u8 = undefined;
             const exe_bin_path = std.fs.selfExePath(&exe_buf) catch |err| {
                 log.warn("failed to get ghostty exe path err={}", .{err});
@@ -1229,7 +1276,7 @@ const Subprocess = struct {
         }
 
         // Kill our Flatpak command
-        if (FlatpakHostCommand != void) {
+        if (comptime build_config.flatpak) {
             if (self.flatpak_command) |*cmd| {
                 killCommandFlatpak(cmd) catch |err|
                     log.err("error sending SIGHUP to command, may hang: {}", .{err});

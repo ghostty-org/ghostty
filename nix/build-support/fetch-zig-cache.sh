@@ -16,7 +16,7 @@ then
 fi
 
 # Go through each line of our build.zig.zon.txt and fetch it.
-SCRIPT_PATH="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+SCRIPT_PATH="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 ZON_TXT_FILE="$SCRIPT_PATH/../../build.zig.zon.txt"
 while IFS= read -r url; do
   echo "Fetching: $url"

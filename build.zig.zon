@@ -14,8 +14,8 @@
         },
         .vaxis = .{
             // rockorager/libvaxis
-            .url = "git+https://github.com/rockorager/libvaxis#1e24e0dfb509e974e1c8713bcd119d0ae032a8c7",
-            .hash = "vaxis-0.1.0-BWNV_MHyCAARemSCSwwc3sA1etNgv7ge0BCIXspX6CZv",
+            .url = "git+https://github.com/rockorager/libvaxis#4182b7fa42f27cf14a71dbdb54cfd82c5c6e3447",
+            .hash = "vaxis-0.1.0-BWNV_MHyCAA0rNbPTr50Z44PyEdNP9zQSnHcXBXoo3Ti",
             .lazy = true,
         },
         .z2d = .{
@@ -48,15 +48,15 @@
         },
         .zf = .{
             // natecraddock/zf
-            .url = "https://github.com/natecraddock/zf/archive/03176fcf23fda543cc02a8675e92c1fe3b1ee2eb.tar.gz",
-            .hash = "zf-0.10.3-OIRy8bKIAACV6JaNNncXA68Nw2BUAD9JVfQdzjyoZQ-J",
+            .url = "https://github.com/natecraddock/zf/archive/1039cf75447a8d5b8d481fedb914fe848d246276.tar.gz",
+            .hash = "zf-0.10.3-OIRy8bKIAADhjqtdjVaDfONRuI7RVl5gMbhCoOwiBWV5",
             .lazy = true,
         },
         .gobject = .{
             // https://github.com/jcollie/ghostty-gobject based on zig_gobject
             // Temporary until we generate them at build time automatically.
-            .url = "https://github.com/jcollie/ghostty-gobject/releases/download/0.14.0-2025-03-11-16-1/ghostty-gobject-0.14.0-2025-03-11-16-1.tar.gz",
-            .hash = "gobject-0.2.0-Skun7H6DlQDWCiNQtdE5TXYcCvx7MyjW01OQe5M_n_jV",
+            .url = "https://github.com/jcollie/ghostty-gobject/releases/download/0.14.0-2025-03-18-21-1/ghostty-gobject-0.14.0-2025-03-18-21-1.tar.zst",
+            .hash = "gobject-0.2.0-Skun7IWDlQAOKu4BV7LapIxL9Imbq1JRmzvcIkazvAxR",
             .lazy = true,
         },
 
@@ -103,8 +103,8 @@
         // Other
         .apple_sdk = .{ .path = "./pkg/apple-sdk" },
         .iterm2_themes = .{
-            .url = "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/e21d5ffd19605741d0e3e19d7c5a8c6c25648673.tar.gz",
-            .hash = "N-V-__8AAABBKARxrVb9mEr7T5TUQbbqPiHxdBoOAmsChg2a",
+            .url = "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/e348884a00ef6c98dc837a873c4a867c9164d8a0.tar.gz",
+            .hash = "N-V-__8AAOCKKgR3_ixUa8LPz0Zz8okA9C6A3kXVLbmdLsGP",
             .lazy = true,
         },
     },

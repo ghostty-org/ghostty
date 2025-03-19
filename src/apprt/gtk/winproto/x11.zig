@@ -4,39 +4,49 @@ const builtin = @import("builtin");
 const build_options = @import("build_options");
 const Allocator = std.mem.Allocator;
 
+const adw = @import("adw");
 const gdk = @import("gdk");
+const gdk_x11 = @import("gdk_x11");
+const glib = @import("glib");
+const gobject = @import("gobject");
+const gtk = @import("gtk");
+const xlib = @import("xlib");
 
-const c = @import("../c.zig").c;
+pub const c = @cImport({
+    @cInclude("X11/Xlib.h");
+    @cInclude("X11/Xatom.h");
+    @cInclude("X11/XKBlib.h");
+});
+
 const input = @import("../../../input.zig");
 const Config = @import("../../../config.zig").Config;
-const adwaita = @import("../adwaita.zig");
 const ApprtWindow = @import("../Window.zig");
 
 const log = std.log.scoped(.gtk_x11);
 
 pub const App = struct {
-    display: *c.Display,
+    display: *xlib.Display,
     base_event_code: c_int,
     atoms: Atoms,
 
     pub fn init(
-        alloc: Allocator,
-        gdk_display: *c.GdkDisplay,
+        _: Allocator,
+        gdk_display: *gdk.Display,
         app_id: [:0]const u8,
         config: *const Config,
     ) !?App {
-        _ = alloc;
-
         // If the display isn't X11, then we don't need to do anything.
-        if (c.g_type_check_instance_is_a(
-            @ptrCast(@alignCast(gdk_display)),
-            c.gdk_x11_display_get_type(),
+        if (gobject.typeCheckInstanceIsA(
+            gdk_display.as(gobject.TypeInstance),
+            gdk_x11.X11Display.getGObjectType(),
         ) == 0) return null;
 
         // Get our X11 display
-        const display: *c.Display = c.gdk_x11_display_get_xdisplay(
+        const gdk_x11_display = gobject.ext.cast(
+            gdk_x11.X11Display,
             gdk_display,
-        ) orelse return error.NoX11Display;
+        ) orelse return null;
+        const xlib_display = gdk_x11_display.getXdisplay();
 
         const x11_program_name: [:0]const u8 = if (config.@"x11-instance-name") |pn|
             pn
@@ -61,8 +71,8 @@ pub const App = struct {
         //     WM_CLASS(STRING) = "ghostty", "com.mitchellh.ghostty"
         //
         // Append "-debug" on both when using the debug build.
-        c.g_set_prgname(x11_program_name);
-        c.gdk_x11_display_set_program_class(gdk_display, app_id);
+        glib.setPrgname(x11_program_name);
+        gdk_x11.X11Display.setProgramClass(gdk_display, app_id);
 
         // XKB
         log.debug("Xkb.init: initializing Xkb", .{});
@@ -73,7 +83,7 @@ pub const App = struct {
         var major = c.XkbMajorVersion;
         var minor = c.XkbMinorVersion;
         if (c.XkbQueryExtension(
-            display,
+            @ptrCast(@alignCast(xlib_display)),
             &opcode,
             &base_event_code,
             &base_error_code,
@@ -86,7 +96,7 @@ pub const App = struct {
 
         log.debug("Xkb.init: running XkbSelectEventDetails", .{});
         if (c.XkbSelectEventDetails(
-            display,
+            @ptrCast(@alignCast(xlib_display)),
             c.XkbUseCoreKbd,
             c.XkbStateNotify,
             c.XkbModifierStateMask,
@@ -97,9 +107,9 @@ pub const App = struct {
         }
 
         return .{
-            .display = display,
+            .display = xlib_display,
             .base_event_code = base_event_code,
-            .atoms = Atoms.init(gdk_display),
+            .atoms = Atoms.init(gdk_x11_display),
         };
     }
 
@@ -128,10 +138,13 @@ pub const App = struct {
 
         // Shoutout to Mozilla for figuring out a clean way to do this, this is
         // paraphrased from Firefox/Gecko in widget/gtk/nsGtkKeyUtils.cpp.
-        if (c.XEventsQueued(self.display, c.QueuedAfterReading) == 0) return null;
+        if (c.XEventsQueued(
+            @ptrCast(@alignCast(self.display)),
+            c.QueuedAfterReading,
+        ) == 0) return null;
 
         var nextEvent: c.XEvent = undefined;
-        _ = c.XPeekEvent(self.display, &nextEvent);
+        _ = c.XPeekEvent(@ptrCast(@alignCast(self.display)), &nextEvent);
         if (nextEvent.type != self.base_event_code) return null;
 
         const xkb_event: *c.XkbEvent = @ptrCast(&nextEvent);
@@ -163,8 +176,8 @@ pub const App = struct {
 pub const Window = struct {
     app: *App,
     config: *const ApprtWindow.DerivedConfig,
-    window: c.Window,
-    gtk_window: *c.GtkWindow,
+    window: xlib.Window,
+    gtk_window: *adw.ApplicationWindow,
 
     blur_region: Region = .{},
 
@@ -175,20 +188,26 @@ pub const Window = struct {
     ) !Window {
         _ = alloc;
 
-        const surface = c.gtk_native_get_surface(
-            @ptrCast(apprt_window.window),
-        ) orelse return error.NotX11Surface;
+        const surface = apprt_window.window.as(
+            gtk.Native,
+        ).getSurface() orelse return error.NotX11Surface;
 
         // Check if we're actually on X11
-        if (c.g_type_check_instance_is_a(
-            @ptrCast(@alignCast(surface)),
-            c.gdk_x11_surface_get_type(),
-        ) == 0) return error.NotX11Surface;
+        if (gobject.typeCheckInstanceIsA(
+            surface.as(gobject.TypeInstance),
+            gdk_x11.X11Surface.getGObjectType(),
+        ) == 0)
+            return error.NotX11Surface;
+
+        const x11_surface = gobject.ext.cast(
+            gdk_x11.X11Surface,
+            surface,
+        ) orelse return error.NotX11Surface;
 
         return .{
             .app = app,
             .config = &apprt_window.config,
-            .window = c.gdk_x11_surface_get_xid(surface),
+            .window = x11_surface.getXid(),
             .gtk_window = apprt_window.window,
         };
     }
@@ -200,8 +219,9 @@ pub const Window = struct {
 
     pub fn resizeEvent(self: *Window) !void {
         // The blur region must update with window resizes
-        self.blur_region.width = c.gtk_widget_get_width(@ptrCast(self.gtk_window));
-        self.blur_region.height = c.gtk_widget_get_height(@ptrCast(self.gtk_window));
+        const gtk_widget = self.gtk_window.as(gtk.Widget);
+        self.blur_region.width = gtk_widget.getWidth();
+        self.blur_region.height = gtk_widget.getHeight();
         try self.syncBlur();
     }
 
@@ -213,11 +233,8 @@ pub const Window = struct {
             // rounded corners and all that fluff. Please. I beg of you.
             var x: f64 = 0;
             var y: f64 = 0;
-            c.gtk_native_get_surface_transform(
-                @ptrCast(self.gtk_window),
-                &x,
-                &y,
-            );
+
+            self.gtk_window.as(gtk.Native).getSurfaceTransform(&x, &y);
 
             break :blur .{
                 .x = @intFromFloat(x),
@@ -334,7 +351,7 @@ pub const Window = struct {
         var prop_return: ?format.bufferType() = null;
 
         const code = c.XGetWindowProperty(
-            self.app.display,
+            @ptrCast(@alignCast(self.app.display)),
             self.window,
             name,
             options.offset,
@@ -372,7 +389,7 @@ pub const Window = struct {
         const data: format.bufferType() = @ptrCast(value);
 
         const status = c.XChangeProperty(
-            self.app.display,
+            @ptrCast(@alignCast(self.app.display)),
             self.window,
             name,
             typ,
@@ -389,7 +406,11 @@ pub const Window = struct {
     }
 
     fn deleteProperty(self: *Window, name: c.Atom) X11Error!void {
-        const status = c.XDeleteProperty(self.app.display, self.window, name);
+        const status = c.XDeleteProperty(
+            @ptrCast(@alignCast(self.app.display)),
+            self.window,
+            name,
+        );
         if (status == 0) return error.RequestFailed;
     }
 };
@@ -408,13 +429,13 @@ const Atoms = struct {
     kde_blur: c.Atom,
     motif_wm_hints: c.Atom,
 
-    fn init(display: *c.GdkDisplay) Atoms {
+    fn init(display: *gdk_x11.X11Display) Atoms {
         return .{
-            .kde_blur = c.gdk_x11_get_xatom_by_name_for_display(
+            .kde_blur = gdk_x11.x11GetXatomByNameForDisplay(
                 display,
                 "_KDE_NET_WM_BLUR_BEHIND_REGION",
             ),
-            .motif_wm_hints = c.gdk_x11_get_xatom_by_name_for_display(
+            .motif_wm_hints = gdk_x11.x11GetXatomByNameForDisplay(
                 display,
                 "_MOTIF_WM_HINTS",
             ),

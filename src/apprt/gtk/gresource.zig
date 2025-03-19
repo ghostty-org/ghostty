@@ -60,6 +60,7 @@ pub const VersionedBuilderXML = struct {
 };
 
 pub const ui_files = [_]VersionedBuilderXML{
+    .{ .major = 1, .minor = 2, .name = "config-errors-dialog" },
     .{ .major = 1, .minor = 2, .name = "ccw-osc-52-read" },
     .{ .major = 1, .minor = 2, .name = "ccw-osc-52-write" },
     .{ .major = 1, .minor = 2, .name = "ccw-paste" },
@@ -73,6 +74,7 @@ pub const VersionedBlueprint = struct {
 
 pub const blueprint_files = [_]VersionedBlueprint{
     .{ .major = 1, .minor = 5, .name = "prompt-title-dialog" },
+    .{ .major = 1, .minor = 5, .name = "config-errors-dialog" },
     .{ .major = 1, .minor = 0, .name = "menu-surface-context_menu" },
     .{ .major = 1, .minor = 0, .name = "menu-window-titlebar_menu" },
     .{ .major = 1, .minor = 5, .name = "ccw-osc-52-read" },

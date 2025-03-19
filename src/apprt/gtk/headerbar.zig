@@ -1,59 +1,54 @@
 const HeaderBar = @This();
 
 const std = @import("std");
-const c = @import("c.zig").c;
+
+const adw = @import("adw");
+const gtk = @import("gtk");
 
 const Window = @import("Window.zig");
 
 /// the Adwaita headerbar widget
-headerbar: *c.AdwHeaderBar,
+headerbar: *adw.HeaderBar,
+
+/// the Window that we belong to
+window: *Window,
 
 /// the Adwaita window title widget
-title: *c.AdwWindowTitle,
+title: *adw.WindowTitle,
 
-pub fn init(self: *HeaderBar) void {
-    const window: *Window = @fieldParentPtr("headerbar", self);
+pub fn init(self: *HeaderBar, window: *Window) void {
     self.* = .{
-        .headerbar = @ptrCast(@alignCast(c.adw_header_bar_new())),
-        .title = @ptrCast(@alignCast(c.adw_window_title_new(
-            c.gtk_window_get_title(window.window) orelse "Ghostty",
-            null,
-        ))),
+        .headerbar = adw.HeaderBar.new(),
+        .window = window,
+        .title = adw.WindowTitle.new(
+            window.window.as(gtk.Window).getTitle() orelse "Ghostty",
+            "",
+        ),
     };
-    c.adw_header_bar_set_title_widget(
-        self.headerbar,
-        @ptrCast(@alignCast(self.title)),
-    );
+    self.headerbar.setTitleWidget(self.title.as(gtk.Widget));
 }
 
 pub fn setVisible(self: *const HeaderBar, visible: bool) void {
-    c.gtk_widget_set_visible(self.asWidget(), @intFromBool(visible));
+    self.headerbar.as(gtk.Widget).setVisible(@intFromBool(visible));
 }
 
-pub fn asWidget(self: *const HeaderBar) *c.GtkWidget {
-    return @ptrCast(@alignCast(self.headerbar));
+pub fn asWidget(self: *const HeaderBar) *gtk.Widget {
+    return self.headerbar.as(gtk.Widget);
 }
 
-pub fn packEnd(self: *const HeaderBar, widget: *c.GtkWidget) void {
-    c.adw_header_bar_pack_end(
-        @ptrCast(@alignCast(self.headerbar)),
-        widget,
-    );
+pub fn packEnd(self: *const HeaderBar, widget: *gtk.Widget) void {
+    self.headerbar.packEnd(widget);
 }
 
-pub fn packStart(self: *const HeaderBar, widget: *c.GtkWidget) void {
-    c.adw_header_bar_pack_start(
-        @ptrCast(@alignCast(self.headerbar)),
-        widget,
-    );
+pub fn packStart(self: *const HeaderBar, widget: *gtk.Widget) void {
+    self.headerbar.packStart(widget);
 }
 
 pub fn setTitle(self: *const HeaderBar, title: [:0]const u8) void {
-    const window: *const Window = @fieldParentPtr("headerbar", self);
-    c.gtk_window_set_title(window.window, title);
-    c.adw_window_title_set_title(self.title, title);
+    self.window.window.as(gtk.Window).setTitle(title);
+    self.title.setTitle(title);
 }
 
 pub fn setSubtitle(self: *const HeaderBar, subtitle: [:0]const u8) void {
-    c.adw_window_title_set_subtitle(self.title, subtitle);
+    self.title.setSubtitle(subtitle);
 }

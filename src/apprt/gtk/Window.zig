@@ -10,6 +10,7 @@ const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
+const adw = @import("adw");
 const gdk = @import("gdk");
 const gio = @import("gio");
 const glib = @import("glib");
@@ -28,14 +29,13 @@ const Color = configpkg.Config.Color;
 const Surface = @import("Surface.zig");
 const Menu = @import("menu.zig").Menu;
 const Tab = @import("Tab.zig");
-const c = @import("c.zig").c;
-const adwaita = @import("adwaita.zig");
 const gtk_key = @import("key.zig");
 const TabView = @import("TabView.zig");
 const HeaderBar = @import("headerbar.zig");
 const CloseDialog = @import("CloseDialog.zig");
-const version = @import("version.zig");
 const winprotopkg = @import("winproto.zig");
+const gtk_version = @import("gtk_version.zig");
+const adw_version = @import("adw_version.zig");
 
 const log = std.log.scoped(.gtk);
 
@@ -48,14 +48,14 @@ last_config: usize,
 config: DerivedConfig,
 
 /// Our window
-window: *c.GtkWindow,
+window: *adw.ApplicationWindow,
 
 /// The header bar for the window.
 headerbar: HeaderBar,
 
 /// The tab overview for the window. This is possibly null since there is no
 /// taboverview without a AdwApplicationWindow (libadwaita >= 1.4.0).
-tab_overview: ?*c.GtkWidget,
+tab_overview: ?*adw.TabOverview,
 
 /// The notebook (tab grouping) for this window.
 notebook: TabView,
@@ -64,10 +64,10 @@ notebook: TabView,
 titlebar_menu: Menu(Window, "titlebar_menu", true),
 
 /// The libadwaita widget for receiving toast send requests.
-toast_overlay: *c.GtkWidget,
+toast_overlay: *adw.ToastOverlay,
 
 /// See adwTabOverviewOpen for why we have this.
-adw_tab_overview_focus_timer: ?c.guint = null,
+adw_tab_overview_focus_timer: ?c_uint = null,
 
 /// State and logic for windowing protocol for a window.
 winproto: winprotopkg.Window,
@@ -142,24 +142,23 @@ pub fn init(self: *Window, app: *App) !void {
     };
 
     // Create the window
-    const gtk_widget = c.adw_application_window_new(app.app);
-    errdefer c.gtk_window_destroy(@ptrCast(gtk_widget));
+    self.window = adw.ApplicationWindow.new(app.app.as(gtk.Application));
+    const gtk_window = self.window.as(gtk.Window);
+    const gtk_widget = self.window.as(gtk.Widget);
+    errdefer gtk_window.destroy();
 
-    self.window = @ptrCast(@alignCast(gtk_widget));
-
-    c.gtk_window_set_title(self.window, "Ghostty");
-    c.gtk_window_set_default_size(self.window, 1000, 600);
-    c.gtk_widget_add_css_class(gtk_widget, "window");
-    c.gtk_widget_add_css_class(gtk_widget, "terminal-window");
+    gtk_window.setTitle("Ghostty");
+    gtk_window.setDefaultSize(1000, 600);
+    gtk_widget.addCssClass("window");
+    gtk_widget.addCssClass("terminal-window");
 
     // GTK4 grabs F10 input by default to focus the menubar icon. We want
     // to disable this so that terminal programs can capture F10 (such as htop)
-    c.gtk_window_set_handle_menubar_accel(self.window, 0);
-
-    c.gtk_window_set_icon_name(self.window, build_config.bundle_id);
+    gtk_window.setHandleMenubarAccel(0);
+    gtk_window.setIconName(build_config.bundle_id);
 
     // Create our box which will hold our widgets in the main content area.
-    const box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 0);
+    const box = gtk.Box.new(.vertical, 0);
 
     // Set up the menus
     self.titlebar_menu.init(self);
@@ -168,131 +167,156 @@ pub fn init(self: *Window, app: *App) !void {
     self.notebook.init(self);
 
     // If we are using Adwaita, then we can support the tab overview.
-    self.tab_overview = if (adwaita.versionAtLeast(1, 4, 0)) overview: {
-        const tab_overview = c.adw_tab_overview_new();
-        c.adw_tab_overview_set_view(@ptrCast(tab_overview), @ptrCast(@alignCast(self.notebook.tab_view)));
-        c.adw_tab_overview_set_enable_new_tab(@ptrCast(tab_overview), 1);
-        _ = c.g_signal_connect_data(
+    self.tab_overview = if (adw_version.supportsTabOverview()) overview: {
+        const tab_overview = adw.TabOverview.new();
+        tab_overview.setView(self.notebook.tab_view);
+        tab_overview.setEnableNewTab(1);
+        _ = adw.TabOverview.signals.create_tab.connect(
             tab_overview,
-            "create-tab",
-            c.G_CALLBACK(&gtkNewTabFromOverview),
+            *Window,
+            gtkNewTabFromOverview,
             self,
-            null,
-            c.G_CONNECT_DEFAULT,
+            .{},
         );
-        _ = c.g_signal_connect_data(
+        _ = gobject.Object.signals.notify.connect(
             tab_overview,
-            "notify::open",
-            c.G_CALLBACK(&adwTabOverviewOpen),
+            *Window,
+            adwTabOverviewOpen,
             self,
-            null,
-            c.G_CONNECT_DEFAULT,
+            .{
+                .detail = "open",
+            },
         );
-
         break :overview tab_overview;
     } else null;
 
     // gtk-titlebar can be used to disable the header bar (but keep the window
     // manager's decorations). We create this no matter if we are decorated or
     // not because we can have a keybind to toggle the decorations.
-    self.headerbar.init();
+    self.headerbar.init(self);
 
     {
-        const btn = c.gtk_menu_button_new();
-        c.gtk_widget_set_tooltip_text(btn, i18n._("Main Menu"));
-        c.gtk_menu_button_set_icon_name(@ptrCast(btn), "open-menu-symbolic");
-        c.gtk_menu_button_set_popover(@ptrCast(btn), @ptrCast(@alignCast(self.titlebar_menu.asWidget())));
-        _ = c.g_signal_connect_data(
+        const btn = gtk.MenuButton.new();
+        btn.as(gtk.Widget).setTooltipText(i18n._("Main Menu"));
+        btn.setIconName("open-menu-symbolic");
+        btn.setPopover(self.titlebar_menu.asWidget());
+        _ = gobject.Object.signals.notify.connect(
             btn,
-            "notify::active",
-            c.G_CALLBACK(&gtkTitlebarMenuActivate),
+            *Window,
+            gtkTitlebarMenuActivate,
             self,
-            null,
-            c.G_CONNECT_DEFAULT,
+            .{
+                .detail = "active",
+            },
         );
-        self.headerbar.packEnd(btn);
+        self.headerbar.packEnd(btn.as(gtk.Widget));
     }
 
     // If we're using an AdwWindow then we can support the tab overview.
     if (self.tab_overview) |tab_overview| {
-        if (!adwaita.versionAtLeast(1, 4, 0)) unreachable;
+        if (!adw_version.supportsTabOverview()) unreachable;
         const btn = switch (self.config.gtk_tabs_location) {
             .top, .bottom => btn: {
-                const btn = c.gtk_toggle_button_new();
-                c.gtk_widget_set_tooltip_text(btn, i18n._("View Open Tabs"));
-                c.gtk_button_set_icon_name(@ptrCast(btn), "view-grid-symbolic");
-                _ = c.g_object_bind_property(
-                    btn,
+                const btn = gtk.ToggleButton.new();
+                btn.as(gtk.Widget).setTooltipText(i18n._("View Open Tabs"));
+                btn.as(gtk.Button).setIconName("view-grid-symbolic");
+                _ = btn.as(gobject.Object).bindProperty(
                     "active",
-                    tab_overview,
+                    tab_overview.as(gobject.Object),
                     "open",
-                    c.G_BINDING_BIDIRECTIONAL | c.G_BINDING_SYNC_CREATE,
+                    .{ .bidirectional = true, .sync_create = true },
                 );
-
-                break :btn btn;
+                break :btn btn.as(gtk.Widget);
             },
 
             .hidden => btn: {
-                const btn = c.adw_tab_button_new();
-                c.adw_tab_button_set_view(@ptrCast(btn), @ptrCast(@alignCast(self.notebook.tab_view)));
-                c.gtk_actionable_set_action_name(@ptrCast(btn), "overview.open");
-                break :btn btn;
+                const btn = adw.TabButton.new();
+                btn.setView(self.notebook.tab_view);
+                btn.as(gtk.Actionable).setActionName("overview.open");
+                break :btn btn.as(gtk.Widget);
             },
         };
 
-        c.gtk_widget_set_focus_on_click(btn, c.FALSE);
+        btn.setFocusOnClick(0);
         self.headerbar.packEnd(btn);
     }
 
     {
-        const btn = c.gtk_button_new_from_icon_name("tab-new-symbolic");
-        c.gtk_widget_set_tooltip_text(btn, i18n._("New Tab"));
-        _ = c.g_signal_connect_data(btn, "clicked", c.G_CALLBACK(&gtkTabNewClick), self, null, c.G_CONNECT_DEFAULT);
-        self.headerbar.packStart(btn);
+        const btn = gtk.Button.newFromIconName("tab-new-symbolic");
+        btn.as(gtk.Widget).setTooltipText(i18n._("New Tab"));
+        _ = gtk.Button.signals.clicked.connect(
+            btn,
+            *Window,
+            gtkTabNewClick,
+            self,
+            .{},
+        );
+        self.headerbar.packStart(btn.as(gtk.Widget));
     }
 
-    _ = c.g_signal_connect_data(self.window, "notify::maximized", c.G_CALLBACK(&gtkWindowNotifyMaximized), self, null, c.G_CONNECT_DEFAULT);
-    _ = c.g_signal_connect_data(self.window, "notify::fullscreened", c.G_CALLBACK(&gtkWindowNotifyFullscreened), self, null, c.G_CONNECT_DEFAULT);
-    _ = c.g_signal_connect_data(self.window, "notify::is-active", c.G_CALLBACK(&gtkWindowNotifyIsActive), self, null, c.G_CONNECT_DEFAULT);
+    _ = gobject.Object.signals.notify.connect(
+        self.window,
+        *Window,
+        gtkWindowNotifyMaximized,
+        self,
+        .{
+            .detail = "maximized",
+        },
+    );
+    _ = gobject.Object.signals.notify.connect(
+        self.window,
+        *Window,
+        gtkWindowNotifyFullscreened,
+        self,
+        .{
+            .detail = "fullscreened",
+        },
+    );
+    _ = gobject.Object.signals.notify.connect(
+        self.window,
+        *Window,
+        gtkWindowNotifyIsActive,
+        self,
+        .{
+            .detail = "is-active",
+        },
+    );
 
     // If Adwaita is enabled and is older than 1.4.0 we don't have the tab overview and so we
     // need to stick the headerbar into the content box.
-    if (!adwaita.versionAtLeast(1, 4, 0)) {
-        c.gtk_box_append(@ptrCast(box), self.headerbar.asWidget());
+    if (!adw_version.supportsTabOverview()) {
+        box.append(self.headerbar.asWidget());
     }
 
     // In debug we show a warning and apply the 'devel' class to the window.
     // This is a really common issue where people build from source in debug and performance is really bad.
     if (comptime std.debug.runtime_safety) {
-        const warning_box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 0);
+        const warning_box = gtk.Box.new(.vertical, 0);
         const warning_text = i18n._("⚠️ You're running a debug build of Ghostty! Performance will be degraded.");
-        if (adwaita.versionAtLeast(1, 3, 0)) {
-            const banner = c.adw_banner_new(warning_text);
-            c.adw_banner_set_revealed(@ptrCast(banner), 1);
-            c.gtk_box_append(@ptrCast(warning_box), @ptrCast(banner));
+        if (adw_version.supportsBanner()) {
+            const banner = adw.Banner.new(warning_text);
+            banner.setRevealed(1);
+            warning_box.append(banner.as(gtk.Widget));
         } else {
-            const warning = c.gtk_label_new(warning_text);
-            c.gtk_widget_set_margin_top(warning, 10);
-            c.gtk_widget_set_margin_bottom(warning, 10);
-            c.gtk_box_append(@ptrCast(warning_box), warning);
+            const warning = gtk.Label.new(warning_text);
+            warning.as(gtk.Widget).setMarginTop(10);
+            warning.as(gtk.Widget).setMarginBottom(10);
+            warning_box.append(warning.as(gtk.Widget));
         }
-        c.gtk_widget_add_css_class(gtk_widget, "devel");
-        c.gtk_widget_add_css_class(@ptrCast(warning_box), "background");
-        c.gtk_box_append(@ptrCast(box), warning_box);
+        gtk_widget.addCssClass("devel");
+        warning_box.as(gtk.Widget).addCssClass("background");
+        box.append(warning_box.as(gtk.Widget));
     }
 
     // Setup our toast overlay if we have one
-    self.toast_overlay = c.adw_toast_overlay_new();
-    c.adw_toast_overlay_set_child(
-        @ptrCast(self.toast_overlay),
-        @ptrCast(@alignCast(self.notebook.asWidget())),
-    );
-    c.gtk_box_append(@ptrCast(box), self.toast_overlay);
+    self.toast_overlay = adw.ToastOverlay.new();
+    self.toast_overlay.setChild(self.notebook.asWidget());
+    box.append(self.toast_overlay.as(gtk.Widget));
 
     // If we have a tab overview then we can set it on our notebook.
     if (self.tab_overview) |tab_overview| {
-        if (!adwaita.versionAtLeast(1, 4, 0)) unreachable;
-        c.adw_tab_overview_set_view(@ptrCast(tab_overview), @ptrCast(@alignCast(self.notebook.tab_view)));
+        if (!adw_version.supportsTabOverview()) unreachable;
+        tab_overview.setView(self.notebook.tab_view);
     }
 
     // We register a key event controller with the window so
@@ -300,12 +324,30 @@ pub fn init(self: *Window, app: *App) !void {
     // focused (i.e. when the libadw tab overview is shown).
     const ec_key_press = gtk.EventControllerKey.new();
     errdefer ec_key_press.unref();
-    c.gtk_widget_add_controller(gtk_widget, @ptrCast(@alignCast(ec_key_press)));
+    gtk_widget.addController(ec_key_press.as(gtk.EventController));
 
     // All of our events
-    _ = c.g_signal_connect_data(self.window, "realize", c.G_CALLBACK(&gtkRealize), self, null, c.G_CONNECT_DEFAULT);
-    _ = c.g_signal_connect_data(self.window, "close-request", c.G_CALLBACK(&gtkCloseRequest), self, null, c.G_CONNECT_DEFAULT);
-    _ = c.g_signal_connect_data(self.window, "destroy", c.G_CALLBACK(&gtkDestroy), self, null, c.G_CONNECT_DEFAULT);
+    _ = gtk.Widget.signals.realize.connect(
+        self.window,
+        *Window,
+        gtkRealize,
+        self,
+        .{},
+    );
+    _ = gtk.Window.signals.close_request.connect(
+        self.window,
+        *Window,
+        gtkCloseRequest,
+        self,
+        .{},
+    );
+    _ = gtk.Widget.signals.destroy.connect(
+        self.window,
+        *Window,
+        gtkDestroy,
+        self,
+        .{},
+    );
     _ = gtk.EventControllerKey.signals.key_pressed.connect(
         ec_key_press,
         *Window,
@@ -317,82 +359,69 @@ pub fn init(self: *Window, app: *App) !void {
     // Our actions for the menu
     initActions(self);
 
-    if (adwaita.versionAtLeast(1, 4, 0)) {
-        const toolbar_view: *c.AdwToolbarView = @ptrCast(c.adw_toolbar_view_new());
-
-        c.adw_toolbar_view_add_top_bar(toolbar_view, self.headerbar.asWidget());
+    if (adw_version.supportsToolbarView()) {
+        const toolbar_view = adw.ToolbarView.new();
+        toolbar_view.addTopBar(self.headerbar.asWidget());
 
         if (self.config.gtk_tabs_location != .hidden) {
-            const tab_bar = c.adw_tab_bar_new();
-            c.adw_tab_bar_set_view(tab_bar, @ptrCast(@alignCast(self.notebook.tab_view)));
+            const tab_bar = adw.TabBar.new();
+            tab_bar.setView(self.notebook.tab_view);
 
-            if (!self.config.gtk_wide_tabs) c.adw_tab_bar_set_expand_tabs(tab_bar, 0);
+            if (!self.config.gtk_wide_tabs) tab_bar.setExpandTabs(0);
 
-            const tab_bar_widget: *c.GtkWidget = @ptrCast(@alignCast(tab_bar));
             switch (self.config.gtk_tabs_location) {
-                .top => c.adw_toolbar_view_add_top_bar(toolbar_view, tab_bar_widget),
-                .bottom => c.adw_toolbar_view_add_bottom_bar(toolbar_view, tab_bar_widget),
+                .top => toolbar_view.addTopBar(tab_bar.as(gtk.Widget)),
+                .bottom => toolbar_view.addBottomBar(tab_bar.as(gtk.Widget)),
                 .hidden => unreachable,
             }
         }
-        c.adw_toolbar_view_set_content(toolbar_view, box);
+        toolbar_view.setContent(box.as(gtk.Widget));
 
-        const toolbar_style: c.AdwToolbarStyle = switch (self.config.gtk_toolbar_style) {
-            .flat => c.ADW_TOOLBAR_FLAT,
-            .raised => c.ADW_TOOLBAR_RAISED,
-            .@"raised-border" => c.ADW_TOOLBAR_RAISED_BORDER,
+        const toolbar_style: adw.ToolbarStyle = switch (self.config.gtk_toolbar_style) {
+            .flat => .flat,
+            .raised => .raised,
+            .@"raised-border" => .raised_border,
         };
-        c.adw_toolbar_view_set_top_bar_style(toolbar_view, toolbar_style);
-        c.adw_toolbar_view_set_bottom_bar_style(toolbar_view, toolbar_style);
+        toolbar_view.setTopBarStyle(toolbar_style);
+        toolbar_view.setTopBarStyle(toolbar_style);
 
         // Set our application window content.
-        c.adw_tab_overview_set_child(
-            @ptrCast(self.tab_overview),
-            @ptrCast(@alignCast(toolbar_view)),
-        );
-        c.adw_application_window_set_content(
-            @ptrCast(gtk_widget),
-            @ptrCast(@alignCast(self.tab_overview)),
-        );
+        self.tab_overview.?.setChild(toolbar_view.as(gtk.Widget));
+        self.window.setContent(self.tab_overview.?.as(gtk.Widget));
     } else tab_bar: {
         if (self.config.gtk_tabs_location == .hidden) break :tab_bar;
         // In earlier adwaita versions, we need to add the tabbar manually since we do not use
         // an AdwToolbarView.
-        const tab_bar: *c.AdwTabBar = c.adw_tab_bar_new().?;
-        c.gtk_widget_add_css_class(@ptrCast(@alignCast(tab_bar)), "inline");
+        const tab_bar = adw.TabBar.new();
+        tab_bar.as(gtk.Widget).addCssClass("inline");
         switch (self.config.gtk_tabs_location) {
-            .top => c.gtk_box_insert_child_after(
-                @ptrCast(box),
-                @ptrCast(@alignCast(tab_bar)),
-                @ptrCast(@alignCast(self.headerbar.asWidget())),
+            .top => box.insertChildAfter(
+                tab_bar.as(gtk.Widget),
+                self.headerbar.asWidget(),
             ),
-            .bottom => c.gtk_box_append(
-                @ptrCast(box),
-                @ptrCast(@alignCast(tab_bar)),
-            ),
+            .bottom => box.append(tab_bar.as(gtk.Widget)),
             .hidden => unreachable,
         }
-        c.adw_tab_bar_set_view(tab_bar, @ptrCast(@alignCast(self.notebook.tab_view)));
+        tab_bar.setView(self.notebook.tab_view);
 
-        if (!self.config.gtk_wide_tabs) c.adw_tab_bar_set_expand_tabs(tab_bar, 0);
+        if (!self.config.gtk_wide_tabs) tab_bar.setExpandTabs(0);
     }
 
     // If we want the window to be maximized, we do that here.
-    if (self.config.maximize) c.gtk_window_maximize(self.window);
+    if (self.config.maximize) self.window.as(gtk.Window).maximize();
 
     // If we are in fullscreen mode, new windows start fullscreen.
-    if (self.config.fullscreen) c.gtk_window_fullscreen(self.window);
+    if (self.config.fullscreen) self.window.as(gtk.Window).fullscreen();
 }
 
 pub fn present(self: *Window) void {
-    const window: *gtk.Window = @ptrCast(self.window);
-    window.present();
+    self.window.as(gtk.Window).present();
 }
 
 pub fn toggleVisibility(self: *Window) void {
-    const window: *gtk.Widget = @ptrCast(self.window);
+    const widget = self.window.as(gtk.Widget);
 
-    window.setVisible(@intFromBool(window.isVisible() == 0));
+    widget.setVisible(@intFromBool(widget.isVisible() == 0));
 }
 
 pub fn isQuickTerminal(self: *Window) bool {
@@ -424,15 +453,17 @@ pub fn updateConfig(
 /// reactive by moving them here.
 pub fn syncAppearance(self: *Window) !void {
     const csd_enabled = self.winproto.clientSideDecorationEnabled();
-    c.gtk_window_set_decorated(self.window, @intFromBool(csd_enabled));
+    const gtk_window = self.window.as(gtk.Window);
+    const gtk_widget = self.window.as(gtk.Widget);
+    gtk_window.setDecorated(@intFromBool(csd_enabled));
 
     // Fix any artifacting that may occur in window corners. The .ssd CSS
     // class is defined in the GtkWindow documentation:
     // https://docs.gtk.org/gtk4/class.Window.html#css-nodes. A definition
     // for .ssd is provided by GTK and Adwaita.
-    toggleCssClass(@ptrCast(self.window), "csd", csd_enabled);
-    toggleCssClass(@ptrCast(self.window), "ssd", !csd_enabled);
-    toggleCssClass(@ptrCast(self.window), "no-border-radius", !csd_enabled);
+    toggleCssClass(gtk_widget, "csd", csd_enabled);
+    toggleCssClass(gtk_widget, "ssd", !csd_enabled);
+    toggleCssClass(gtk_widget, "no-border-radius", !csd_enabled);
 
     self.headerbar.setVisible(visible: {
         // Never display the header bar when CSDs are disabled.
@@ -453,7 +484,7 @@ pub fn syncAppearance(self: *Window) !void {
     });
 
     toggleCssClass(
-        @ptrCast(self.window),
+        gtk_widget,
         "background",
         self.config.background_opacity >= 1,
     );
@@ -462,29 +493,35 @@ pub fn syncAppearance(self: *Window) !void {
     // GTK version is before 4.16. The conditional is because above 4.16
     // we use GTK CSS color variables.
     toggleCssClass(
-        @ptrCast(self.window),
+        gtk_widget,
         "window-theme-ghostty",
-        !version.atLeast(4, 16, 0) and self.config.window_theme == .ghostty,
+        !gtk_version.atLeast(4, 16, 0) and self.config.window_theme == .ghostty,
     );
 
     if (self.tab_overview) |tab_overview| {
-        if (!adwaita.versionAtLeast(1, 4, 0)) unreachable;
+        if (!adw_version.supportsTabOverview()) unreachable;
 
         // Disable the title buttons (close, maximize, minimize, ...)
         // *inside* the tab overview if CSDs are disabled.
         // We do spare the search button, though.
-        c.adw_tab_overview_set_show_start_title_buttons(@ptrCast(tab_overview), @intFromBool(csd_enabled));
-        c.adw_tab_overview_set_show_end_title_buttons(@ptrCast(tab_overview), @intFromBool(csd_enabled));
+        tab_overview.setShowStartTitleButtons(@intFromBool(csd_enabled));
+        tab_overview.setShowEndTitleButtons(@intFromBool(csd_enabled));
 
         // Update toolbar view style
-        const toolbar_view: *c.AdwToolbarView = @ptrCast(c.adw_tab_overview_get_child(@ptrCast(tab_overview)));
-        const toolbar_style: c.AdwToolbarStyle = switch (self.config.gtk_toolbar_style) {
-            .flat => c.ADW_TOOLBAR_FLAT,
-            .raised => c.ADW_TOOLBAR_RAISED,
-            .@"raised-border" => c.ADW_TOOLBAR_RAISED_BORDER,
-        };
-        c.adw_toolbar_view_set_top_bar_style(toolbar_view, toolbar_style);
-        c.adw_toolbar_view_set_bottom_bar_style(toolbar_view, toolbar_style);
+        toolbar_view: {
+            const tab_overview_child = tab_overview.getChild() orelse break :toolbar_view;
+            const toolbar_view = gobject.ext.cast(
+                adw.ToolbarView,
+                tab_overview_child,
+            ) orelse break :toolbar_view;
+            const toolbar_style: adw.ToolbarStyle = switch (self.config.gtk_toolbar_style) {
+                .flat => .flat,
+                .raised => .raised,
+                .@"raised-border" => .raised_border,
+            };
+            toolbar_view.setTopBarStyle(toolbar_style);
+            toolbar_view.setBottomBarStyle(toolbar_style);
+        }
     }
 
     self.winproto.syncAppearance() catch |err| {
@@ -493,14 +530,14 @@ pub fn syncAppearance(self: *Window) !void {
 }
 
 fn toggleCssClass(
-    widget: *c.GtkWidget,
+    widget: *gtk.Widget,
     class: [:0]const u8,
     v: bool,
 ) void {
     if (v) {
-        c.gtk_widget_add_css_class(widget, class);
+        widget.addCssClass(class);
     } else {
-        c.gtk_widget_remove_css_class(widget, class);
+        widget.removeCssClass(class);
     }
 }
 
@@ -508,8 +545,7 @@ fn toggleCssClass(
 /// menus and such. The menu is defined in App.zig but the action is defined
 /// here. The string name binds them.
 fn initActions(self: *Window) void {
-    // FIXME: when rest of file is converted to gobject
-    const window: *gtk.ApplicationWindow = @ptrCast(@alignCast(self.window));
+    const window = self.window.as(gtk.ApplicationWindow);
     const action_map = window.as(gio.ActionMap);
     const actions = .{
         .{ "about", gtkActionAbout },
@@ -547,7 +583,7 @@ pub fn deinit(self: *Window) void {
     self.winproto.deinit(self.app.core_app.alloc);
 
     if (self.adw_tab_overview_focus_timer) |timer| {
-        _ = c.g_source_remove(timer);
+        _ = glib.Source.remove(timer);
     }
 }
 
@@ -627,19 +663,19 @@ pub fn gotoTab(self: *Window, n: usize) bool {
 
 /// Toggle tab overview (if present)
 pub fn toggleTabOverview(self: *Window) void {
-    if (self.tab_overview) |tab_overview_widget| {
-        if (!adwaita.versionAtLeast(1, 4, 0)) unreachable;
-        const tab_overview: *c.AdwTabOverview = @ptrCast(@alignCast(tab_overview_widget));
-        c.adw_tab_overview_set_open(tab_overview, 1 - c.adw_tab_overview_get_open(tab_overview));
+    if (self.tab_overview) |tab_overview| {
+        if (!adw_version.supportsTabOverview()) unreachable;
+        const is_open = tab_overview.getOpen() != 0;
+        tab_overview.setOpen(@intFromBool(!is_open));
     }
 }
 
 /// Toggle the maximized state for this window.
 pub fn toggleMaximize(self: *Window) void {
     if (self.config.maximize) {
-        c.gtk_window_unmaximize(self.window);
+        self.window.as(gtk.Window).unmaximize();
     } else {
-        c.gtk_window_maximize(self.window);
+        self.window.as(gtk.Window).maximize();
     }
     // We update the config and call syncAppearance
     // in the gtkWindowNotifyMaximized callback
@@ -648,9 +684,9 @@ pub fn toggleMaximize(self: *Window) void {
 /// Toggle fullscreen for this window.
 pub fn toggleFullscreen(self: *Window) void {
     if (self.config.fullscreen) {
-        c.gtk_window_unfullscreen(self.window);
+        self.window.as(gtk.Window).unfullscreen();
     } else {
-        c.gtk_window_fullscreen(self.window);
+        self.window.as(gtk.Window).fullscreen();
     }
     // We update the config and call syncAppearance
     // in the gtkWindowNotifyFullscreened callback
@@ -678,8 +714,7 @@ pub fn toggleWindowDecorations(self: *Window) void {
 pub fn focusCurrentTab(self: *Window) void {
     const tab = self.notebook.currentTab() orelse return;
     const surface = tab.focus_child orelse return;
-    const gl_area = @as(*c.GtkWidget, @ptrCast(surface.gl_area));
-    _ = c.gtk_widget_grab_focus(gl_area);
+    _ = surface.gl_area.as(gtk.Widget).grabFocus();
 
     if (surface.getTitle()) |title| {
         self.setTitle(title);
@@ -691,14 +726,12 @@ pub fn onConfigReloaded(self: *Window) void {
 }
 
 pub fn sendToast(self: *Window, title: [*:0]const u8) void {
-    const toast = c.adw_toast_new(title);
-    c.adw_toast_set_timeout(toast, 3);
-    c.adw_toast_overlay_add_toast(@ptrCast(self.toast_overlay), toast);
+    const toast = adw.Toast.new(title);
+    toast.setTimeout(3);
+    self.toast_overlay.addToast(toast);
 }
 
-fn gtkRealize(_: *c.GtkWindow, ud: ?*anyopaque) callconv(.C) bool {
-    const self = userdataSelf(ud.?);
-
+fn gtkRealize(_: *adw.ApplicationWindow, self: *Window) callconv(.c) void {
     // Initialize our window protocol logic
     if (winprotopkg.Window.init(
         self.app.core_app.alloc,
@@ -714,52 +747,46 @@ fn gtkRealize(_: *c.GtkWindow, ud: ?*anyopaque) callconv(.C) bool {
     self.syncAppearance() catch |err| {
         log.err("failed to initialize appearance={}", .{err});
     };
-
-    return true;
 }
 
 fn gtkWindowNotifyMaximized(
-    _: *c.GObject,
-    _: *c.GParamSpec,
-    ud: ?*anyopaque,
-) callconv(.C) void {
-    const self = userdataSelf(ud orelse return);
-    self.config.maximize = c.gtk_window_is_maximized(self.window) != 0;
+    _: *adw.ApplicationWindow,
+    _: *gobject.ParamSpec,
+    self: *Window,
+) callconv(.c) void {
+    self.config.maximize = self.window.as(gtk.Window).isMaximized() != 0;
     self.syncAppearance() catch |err| {
         log.err("failed to sync appearance={}", .{err});
     };
 }
 
 fn gtkWindowNotifyFullscreened(
-    _: *c.GObject,
-    _: *c.GParamSpec,
-    ud: ?*anyopaque,
-) callconv(.C) void {
-    const self = userdataSelf(ud orelse return);
-    self.config.fullscreen = c.gtk_window_is_fullscreen(self.window) != 0;
+    _: *adw.ApplicationWindow,
+    _: *gobject.ParamSpec,
+    self: *Window,
+) callconv(.c) void {
+    self.config.fullscreen = self.window.as(gtk.Window).isFullscreen() != 0;
     self.syncAppearance() catch |err| {
         log.err("failed to sync appearance={}", .{err});
     };
 }
 
 fn gtkWindowNotifyIsActive(
-    _: *c.GObject,
-    _: *c.GParamSpec,
-    ud: ?*anyopaque,
+    _: *adw.ApplicationWindow,
+    _: *gobject.ParamSpec,
+    self: *Window,
 ) callconv(.C) void {
-    const self = userdataSelf(ud orelse return);
     if (!self.isQuickTerminal()) return;
 
     // Hide when we're unfocused
-    if (self.config.quick_terminal_autohide and c.gtk_window_is_active(self.window) == 0) {
+    if (self.config.quick_terminal_autohide and self.window.as(gtk.Window).isActive() == 0) {
         self.toggleVisibility();
     }
 }
 
 // Note: we MUST NOT use the GtkButton parameter because gtkActionNewTab
 // sends an undefined value.
-fn gtkTabNewClick(_: *c.GtkButton, ud: ?*anyopaque) callconv(.C) void {
-    const self: *Window = @ptrCast(@alignCast(ud orelse return));
+fn gtkTabNewClick(_: *gtk.Button, self: *Window) callconv(.c) void {
     const surface = self.actionSurface() orelse return;
     _ = surface.performBindingAction(.{ .new_tab = {} }) catch |err| {
         log.warn("error performing binding action error={}", .{err});
@@ -769,27 +796,24 @@ fn gtkTabNewClick(_: *c.GtkButton, ud: ?*anyopaque) callconv(.C) void {
 
 /// Create a new tab from the AdwTabOverview. We can't copy gtkTabNewClick
 /// because we need to return an AdwTabPage from this function.
-fn gtkNewTabFromOverview(_: *c.GtkWidget, ud: ?*anyopaque) callconv(.C) ?*c.AdwTabPage {
-    if (!adwaita.versionAtLeast(1, 4, 0)) unreachable;
-    const self: *Window = userdataSelf(ud.?);
+fn gtkNewTabFromOverview(_: *adw.TabOverview, self: *Window) callconv(.c) *adw.TabPage {
+    if (!adw_version.supportsTabOverview()) unreachable;
 
     const alloc = self.app.core_app.alloc;
     const surface = self.actionSurface();
-    const tab = Tab.create(alloc, self, surface) catch return null;
-    return c.adw_tab_view_get_page(@ptrCast(@alignCast(self.notebook.tab_view)), @ptrCast(@alignCast(tab.box)));
+    const tab = Tab.create(alloc, self, surface) catch unreachable;
+    return self.notebook.tab_view.getPage(tab.box.as(gtk.Widget));
 }
 
 fn adwTabOverviewOpen(
-    object: *c.GObject,
-    _: *c.GParamSpec,
-    ud: ?*anyopaque,
-) void {
-    const tab_overview: *c.AdwTabOverview = @ptrCast(@alignCast(object));
+    tab_overview: *adw.TabOverview,
+    _: *gobject.ParamSpec,
+    self: *Window,
+) callconv(.c) void {
+    if (!adw_version.supportsTabOverview()) unreachable;
 
     // We only care about when the tab overview is closed.
-    if (c.adw_tab_overview_get_open(tab_overview) == 1) {
-        return;
-    }
+    if (tab_overview.getOpen() != 0) return;
 
     // On tab overview close, focus is sometimes lost. This is an
     // upstream issue in libadwaita[1]. When this is resolved we
@@ -800,24 +824,25 @@ fn adwTabOverviewOpen(
     // animation is 400ms.
     //
     // [1]: https://gitlab.gnome.org/GNOME/libadwaita/-/issues/670
-    const window: *Window = @ptrCast(@alignCast(ud.?));
 
     // If we have an old timer remove it
-    if (window.adw_tab_overview_focus_timer) |timer| {
-        _ = c.g_source_remove(timer);
+    if (self.adw_tab_overview_focus_timer) |timer| {
+        _ = glib.Source.remove(timer);
     }
 
     // Restart our timer
-    window.adw_tab_overview_focus_timer = c.g_timeout_add(
+    self.adw_tab_overview_focus_timer = glib.timeoutAdd(
         500,
-        @ptrCast(&adwTabOverviewFocusTimer),
-        window,
+        adwTabOverviewFocusTimer,
+        self,
     );
 }
 
 fn adwTabOverviewFocusTimer(
-    self: *Window,
-) callconv(.C) c.gboolean {
+    ud: ?*anyopaque,
+) callconv(.C) c_int {
+    if (!adw_version.supportsTabOverview()) unreachable;
+    const self: *Window = @ptrCast(@alignCast(ud orelse return 0));
     self.adw_tab_overview_focus_timer = null;
     self.focusCurrentTab();
 
@@ -826,7 +851,7 @@ fn adwTabOverviewFocusTimer(
 }
 
 pub fn close(self: *Window) void {
-    const window: *gtk.Window = @ptrCast(self.window);
+    const window = self.window.as(gtk.Window);
 
     // Unset the quick terminal on the app level
     if (self.isQuickTerminal()) self.app.quick_terminal = null;
@@ -851,21 +876,17 @@ pub fn closeWithConfirmation(self: *Window) void {
     };
 }
 
-fn gtkCloseRequest(v: *c.GtkWindow, ud: ?*anyopaque) callconv(.C) bool {
-    _ = v;
+fn gtkCloseRequest(_: *adw.ApplicationWindow, self: *Window) callconv(.c) c_int {
     log.debug("window close request", .{});
-    const self = userdataSelf(ud.?);
 
     self.closeWithConfirmation();
-    return true;
+    return 1;
 }
 
 /// "destroy" signal for the window
-fn gtkDestroy(v: *c.GtkWidget, ud: ?*anyopaque) callconv(.C) void {
-    _ = v;
+fn gtkDestroy(_: *adw.ApplicationWindow, self: *Window) callconv(.c) void {
     log.debug("window destroy", .{});
 
-    const self = userdataSelf(ud.?);
     const alloc = self.app.core_app.alloc;
     self.deinit();
     alloc.destroy(self);
@@ -877,7 +898,7 @@ fn gtkKeyPressed(
     keycode: c_uint,
     gtk_mods: gdk.ModifierType,
     self: *Window,
-) callconv(.C) c.gboolean {
+) callconv(.c) c_int {
     // We only process window-level events currently for the tab
     // overview. This is primarily defensive programming because
     // I'm not 100% certain how our logic below will interact with
@@ -886,10 +907,9 @@ fn gtkKeyPressed(
     //
     // If someone can confidently show or explain that this is not
     // necessary, please remove this check.
-    if (adwaita.versionAtLeast(1, 4, 0)) {
-        if (self.tab_overview) |tab_overview_widget| {
-            const tab_overview: *c.AdwTabOverview = @ptrCast(@alignCast(tab_overview_widget));
-            if (c.adw_tab_overview_get_open(tab_overview) == 0) return 0;
+    if (adw_version.supportsTabOverview()) {
+        if (self.tab_overview) |tab_overview| {
+            if (tab_overview.getOpen() == 0) return 0;
         }
     }
 
@@ -912,9 +932,9 @@ fn gtkActionAbout(
     const icon = "com.mitchellh.ghostty";
     const website = "https://ghostty.org";
 
-    if (adwaita.versionAtLeast(1, 5, 0)) {
-        c.adw_show_about_dialog(
-            @ptrCast(self.window),
+    if (adw_version.supportsDialogs()) {
+        adw.showAboutDialog(
+            self.window.as(gtk.Widget),
             "application-name",
             name,
             "developer-name",
@@ -930,8 +950,8 @@ fn gtkActionAbout(
             @as(?*anyopaque, null),
         );
     } else {
-        c.gtk_show_about_dialog(
-            self.window,
+        gtk.showAboutDialog(
+            self.window.as(gtk.Window),
             "program-name",
             name,
             "logo-icon-name",
@@ -1116,21 +1136,16 @@ pub fn actionSurface(self: *Window) ?*CoreSurface {
 }
 
 fn gtkTitlebarMenuActivate(
-    btn: *c.GtkMenuButton,
-    _: *c.GParamSpec,
-    ud: ?*anyopaque,
+    btn: *gtk.MenuButton,
+    _: *gobject.ParamSpec,
+    self: *Window,
 ) callconv(.C) void {
     // debian 12 is stuck on GTK 4.8
-    if (!version.atLeast(4, 10, 0)) return;
-    const active = c.gtk_menu_button_get_active(btn) != 0;
-    const self = userdataSelf(ud orelse return);
+    if (!gtk_version.atLeast(4, 10, 0)) return;
+    const active = btn.getActive() != 0;
     if (active) {
         self.titlebar_menu.refresh();
     } else {
         self.focusCurrentTab();
     }
-}
-
-fn userdataSelf(ud: *anyopaque) *Window {
-    return @ptrCast(@alignCast(ud));
 }

@@ -2325,13 +2325,6 @@ const ScrollAmount = struct {
     pub fn magnitude(self: ScrollAmount) usize {
         return @abs(self.delta);
     }
-
-    pub fn multiplied(self: ScrollAmount, multiplier: f64) ScrollAmount {
-        const delta_f64: f64 = @floatFromInt(self.delta);
-        const delta_adjusted: f64 = delta_f64 * multiplier;
-        const delta_isize: isize = @intFromFloat(@round(delta_adjusted));
-        return .{ .delta = delta_isize };
-    }
 };
 
 /// Mouse scroll event. Negative is down, left. Positive is up, right.
@@ -2355,20 +2348,18 @@ pub fn scrollCallback(
     if (self.mouse.hidden) self.showMouse();
 
     const y: ScrollAmount = if (yoff == 0) .{} else y: {
-        // Non-precision scrolls don't accumulate. We cast that raw yoff to an isize and interpret
-        // it as the number of lines to scroll.
-        if (!scroll_mods.precision) {
-            // Calculate our magnitude of scroll. This is a direct multiple of yoff
-            const y_delta_isize: isize = @intFromFloat(@round(yoff));
-            break :y .{ .delta = y_delta_isize };
-        }
+        // We use cell_size to determine if we have accumulated enough to trigger a scroll
+        const cell_size: f64 = @floatFromInt(self.size.cell.height);
 
-        // Precision scrolling is more complicated. We need to maintain state
-        // to build up a pending scroll amount if we're only scrolling by a
-        // tiny amount so that we can scroll by a full row when we have enough.
-
-        // Adjust our offset by the multiplier
-        const yoff_adjusted: f64 = yoff;
+        // If we have precision scroll, yoff is the number of pixels to scroll. In non-precision
+        // scroll, yoff is the number of wheel ticks. Some mice are capable of reporting fractional
+        // wheel ticks, which don't necessarily get reported as precision scrolls. We normalize all
+        // scroll events to pixels by multiplying the wheel tick value and the cell size. This means
+        // that a wheel tick of 1 results in single scroll event.
+        const yoff_adjusted: f64 = if (scroll_mods.precision)
+            yoff
+        else
+            yoff * cell_size * self.config.mouse_scroll_multiplier;
 
         // Add our previously saved pending amount to the offset to get the
         // new offset value. The signs of the pending and yoff should match
@@ -2379,7 +2370,6 @@ pub fn scrollCallback(
 
         // If the new offset is less than a single unit of scroll, we save
         // the new pending value and do not scroll yet.
-        const cell_size: f64 = @floatFromInt(self.size.cell.height);
         if (@abs(poff) < cell_size) {
             self.mouse.pending_scroll_y = poff;
             break :y .{};
@@ -2432,12 +2422,6 @@ pub fn scrollCallback(
             try self.setSelection(null);
         }
 
-        // We never use a multiplier for precision scrolls.
-        const multiplier: f64 = if (scroll_mods.precision)
-            1.0
-        else
-            self.config.mouse_scroll_multiplier;
-
         // If we're in alternate screen with alternate scroll enabled, then
         // we convert to cursor keys. This only happens if we're:
         // (1) alt screen (2) no explicit mouse reporting and (3) alt
@@ -2464,9 +2448,7 @@ pub fn scrollCallback(
                         .down_left => "\x1b[B",
                     };
                 };
-                // We multiple by the scroll multiplier when reporting arrows
-                const multiplied = y.multiplied(multiplier);
-                for (0..multiplied.magnitude()) |_| {
+                for (0..y.magnitude()) |_| {
                     self.io.queueMessage(.{ .write_stable = seq }, .locked);
                 }
             }
@@ -2502,12 +2484,10 @@ pub fn scrollCallback(
         }
 
         if (y.delta != 0) {
-            // We multiply by the multiplier when scrolling the viewport
-            const multiplied = y.multiplied(multiplier);
             // Modify our viewport, this requires a lock since it affects
             // rendering. We have to switch signs here because our delta
             // is negative down but our viewport is positive down.
-            try self.io.terminal.scrollViewport(.{ .delta = multiplied.delta * -1 });
+            try self.io.terminal.scrollViewport(.{ .delta = y.delta * -1 });
         }
     }
 
@@ -2570,8 +2550,8 @@ fn mouseReport(
         .x10 => if (action != .press or
             button == null or
             !(button.? == .left or
-            button.? == .right or
-            button.? == .middle)) return,
+                button.? == .right or
+                button.? == .middle)) return,
 
         // Doesn't report motion
         .normal => if (action == .motion) return,
@@ -3479,7 +3459,7 @@ pub fn cursorPosCallback(
         self.mouse.link_point == null or
         (self.mouse.link_point != null and !self.mouse.link_point.?.eql(pos_vp))) and
         (self.io.terminal.flags.mouse_event == .none or
-        (self.mouse.mods.shift and !self.mouseShiftCapture(false))))
+            (self.mouse.mods.shift and !self.mouseShiftCapture(false))))
     {
         // If we were previously over a link, we always update. We do this so that if the text
         // changed underneath us, even if the mouse didn't move, we update the URL hints and state

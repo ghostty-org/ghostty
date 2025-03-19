@@ -62,8 +62,9 @@
   wayland,
   wayland-scanner,
   wayland-protocols,
-  zig2nix,
+  zon2nix,
   system,
+  pkgs,
 }: let
   # See package.nix. Keep in sync.
   rpathLibs =
@@ -99,10 +100,15 @@
       gobject-introspection
       wayland
     ];
+  ld_library_path = import ./build-support/ld-library-path.nix {
+    inherit pkgs lib stdenv;
+  };
+  gi_typelib_path = import ./build-support/gi-typelib-path.nix {
+    inherit pkgs lib stdenv;
+  };
 in
   mkShell {
     name = "ghostty";
-
     packages =
       [
         # For builds
@@ -115,7 +121,7 @@ in
         scdoc
         zig
         zip
-        zig2nix.packages.${system}.zon2nix
+        zon2nix.packages.${system}.zon2nix
 
         # For web and wasm stuff
         nodejs
@@ -189,7 +195,8 @@ in
 
     # This should be set onto the rpath of the ghostty binary if you want
     # it to be "portable" across the system.
-    LD_LIBRARY_PATH = lib.makeLibraryPath rpathLibs;
+    LD_LIBRARY_PATH = ld_library_path;
+    GI_TYPELIB_PATH = gi_typelib_path;
 
     shellHook =
       (lib.optionalString stdenv.hostPlatform.isLinux ''

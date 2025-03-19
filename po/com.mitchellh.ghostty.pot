@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-03-06 20:10+0100\n"
+"POT-Creation-Date: 2025-03-18 11:48+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -32,6 +32,26 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:10
 msgid "OK"
+msgstr ""
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:5
+msgid "Configuration Errors"
+msgstr ""
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:6
+msgid ""
+"One or more configuration errors were found. Please review the errors below, "
+"and either reload your configuration or ignore these errors."
+msgstr ""
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
+msgid "Ignore"
+msgstr ""
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:10
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:97
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:95
+msgid "Reload Configuration"
 msgstr ""
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
@@ -123,17 +143,12 @@ msgstr ""
 msgid "Open Configuration"
 msgstr ""
 
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:97
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:95
-msgid "Reload Configuration"
-msgstr ""
-
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:85
 msgid "Terminal Inspector"
 msgstr ""
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:102
-#: src/apprt/gtk/Window.zig:933
+#: src/apprt/gtk/Window.zig:958
 msgid "About Ghostty"
 msgstr ""
 
@@ -178,25 +193,29 @@ msgid ""
 "commands may be executed."
 msgstr ""
 
-#: src/apprt/gtk/Window.zig:199
+#: src/apprt/gtk/Window.zig:200
 msgid "Main Menu"
 msgstr ""
 
-#: src/apprt/gtk/Window.zig:219
+#: src/apprt/gtk/Window.zig:221
 msgid "View Open Tabs"
 msgstr ""
 
-#: src/apprt/gtk/Window.zig:265
+#: src/apprt/gtk/Window.zig:295
 msgid ""
 "⚠️ You're running a debug build of Ghostty! Performance will be degraded."
 msgstr ""
 
-#: src/apprt/gtk/Window.zig:681
+#: src/apprt/gtk/Window.zig:725
 msgid "Reloaded the configuration"
 msgstr ""
 
-#: src/apprt/gtk/Window.zig:914
+#: src/apprt/gtk/Window.zig:939
 msgid "Ghostty Developers"
+msgstr ""
+
+#: src/apprt/gtk/inspector.zig:144
+msgid "Ghostty: Terminal Inspector"
 msgstr ""
 
 #: src/apprt/gtk/CloseDialog.zig:47
@@ -235,6 +254,6 @@ msgstr ""
 msgid "The currently running process in this split will be terminated."
 msgstr ""
 
-#: src/apprt/gtk/Surface.zig:1128
+#: src/apprt/gtk/Surface.zig:1242
 msgid "Copied to clipboard"
 msgstr ""

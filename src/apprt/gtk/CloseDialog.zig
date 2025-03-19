@@ -11,7 +11,7 @@ const App = @import("App.zig");
 const Window = @import("Window.zig");
 const Tab = @import("Tab.zig");
 const Surface = @import("Surface.zig");
-const adwaita = @import("adwaita.zig");
+const adwaita = @import("adw_version.zig");
 
 const log = std.log.scoped(.close_dialog);
 
