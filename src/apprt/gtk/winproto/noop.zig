@@ -3,7 +3,6 @@ const Allocator = std.mem.Allocator;
 
 const gdk = @import("gdk");
 
-const c = @import("../c.zig").c;
 const Config = @import("../../../config.zig").Config;
 const input = @import("../../../input.zig");
 const ApprtWindow = @import("../Window.zig");
@@ -13,7 +12,7 @@ const log = std.log.scoped(.winproto_noop);
 pub const App = struct {
     pub fn init(
         _: Allocator,
-        _: *c.GdkDisplay,
+        _: *gdk.Display,
         _: [:0]const u8,
         _: *const Config,
     ) !?App {

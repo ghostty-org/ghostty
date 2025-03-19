@@ -7,6 +7,7 @@ RUN DEBIAN_FRONTEND="noninteractive" apt-get -qq update && \
     # Build Tools
     blueprint-compiler \
     build-essential \
+    curl \
     libbz2-dev \
     libonig-dev \
     libxml2-utils \
@@ -28,10 +29,12 @@ RUN . /etc/os-release; if [ $VERSION_ID -le 12 ]; then ln -s libbz2.so /usr/lib/
 
 # Install zig
 # https://ziglang.org/download/
-ARG ZIG_VERSION="0.14.0"
-RUN wget -q "https://ziglang.org/download/$ZIG_VERSION/zig-linux-$(uname -m)-$ZIG_VERSION.tar.xz" && \
-    tar -xf "zig-linux-$(uname -m)-$ZIG_VERSION.tar.xz" -C /opt && \
-    rm zig-linux-* && \
+
+COPY ./build.zig /src/build.zig
+
+RUN export ZIG_VERSION=$(sed -n -e 's/^.*requireZig("\(.*\)").*$/\1/p' /src/build.zig) && curl -L -o /tmp/zig.tar.xz "https://ziglang.org/download/$ZIG_VERSION/zig-linux-$(uname -m)-$ZIG_VERSION.tar.xz" && \
+    tar -xf /tmp/zig.tar.xz -C /opt && \
+    rm /tmp/zig.tar.xz && \
     ln -s "/opt/zig-linux-$(uname -m)-$ZIG_VERSION/zig" /usr/local/bin/zig
 
 WORKDIR /src
@@ -53,4 +56,6 @@ COPY ./src /src/src
 
 # Debian 12 doesn't have gtk4-layer-shell, so we have to manually compile it ourselves
 RUN zig build -Doptimize=Debug -Dcpu=baseline -Dapp-runtime=gtk -fno-sys=gtk4-layer-shell --system /zig/global-cache/p
+
+RUN ./zig-out/bin/ghostty +version
 

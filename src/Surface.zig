@@ -2550,8 +2550,8 @@ fn mouseReport(
         .x10 => if (action != .press or
             button == null or
             !(button.? == .left or
-            button.? == .right or
-            button.? == .middle)) return,
+                button.? == .right or
+                button.? == .middle)) return,
 
         // Doesn't report motion
         .normal => if (action == .motion) return,
@@ -3459,7 +3459,7 @@ pub fn cursorPosCallback(
         self.mouse.link_point == null or
         (self.mouse.link_point != null and !self.mouse.link_point.?.eql(pos_vp))) and
         (self.io.terminal.flags.mouse_event == .none or
-        (self.mouse.mods.shift and !self.mouseShiftCapture(false))))
+            (self.mouse.mods.shift and !self.mouseShiftCapture(false))))
     {
         // If we were previously over a link, we always update. We do this so that if the text
         // changed underneath us, even if the mouse didn't move, we update the URL hints and state

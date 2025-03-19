@@ -139,7 +139,7 @@ pub fn reserve(
             const node = self.nodes.items[i];
             if ((y + height) < best_height or
                 ((y + height) == best_height and
-                (node.width > 0 and node.width < best_width)))
+                    (node.width > 0 and node.width < best_width)))
             {
                 chosen = i;
                 best_width = node.width;

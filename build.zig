@@ -15,25 +15,31 @@ pub fn build(b: *std.Build) !void {
 
     // Ghostty dependencies used by many artifacts.
     const deps = try buildpkg.SharedDeps.init(b, &config);
-    const exe = try buildpkg.GhosttyExe.init(b, &config, &deps);
     if (config.emit_helpgen) deps.help_strings.install();
 
+    // Ghostty executable, the actual runnable Ghostty program.
+    const exe = try buildpkg.GhosttyExe.init(b, &config, &deps);
+
     // Ghostty docs
-    if (config.emit_docs) {
-        const docs = try buildpkg.GhosttyDocs.init(b, &deps);
-        docs.install();
-    }
+    const docs = try buildpkg.GhosttyDocs.init(b, &deps);
+    if (config.emit_docs) docs.install();
 
     // Ghostty webdata
-    if (config.emit_webdata) {
-        const webdata = try buildpkg.GhosttyWebdata.init(b, &deps);
-        webdata.install();
-    }
+    const webdata = try buildpkg.GhosttyWebdata.init(b, &deps);
+    if (config.emit_webdata) webdata.install();
 
     // Ghostty bench tools
-    if (config.emit_bench) {
-        const bench = try buildpkg.GhosttyBench.init(b, &deps);
-        bench.install();
+    const bench = try buildpkg.GhosttyBench.init(b, &deps);
+    if (config.emit_bench) bench.install();
+
+    // Ghostty dist tarball
+    const dist = try buildpkg.GhosttyDist.init(b, &config);
+    {
+        const step = b.step("dist", "Build the dist tarball");
+        step.dependOn(dist.install_step);
+        const check_step = b.step("distcheck", "Install and validate the dist tarball");
+        check_step.dependOn(dist.check_step);
+        check_step.dependOn(dist.install_step);
     }
 
     // If we're not building libghostty, then install the exe and resources.

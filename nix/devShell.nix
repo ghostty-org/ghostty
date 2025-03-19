@@ -40,7 +40,6 @@
   hicolor-icon-theme,
   harfbuzz,
   libpng,
-  libGL,
   libxkbcommon,
   libX11,
   libXcursor,
@@ -63,44 +62,18 @@
   wayland-protocols,
   zon2nix,
   system,
+  pkgs,
 }: let
   # See package.nix. Keep in sync.
-  rpathLibs =
-    [
-      libGL
-    ]
-    ++ lib.optionals stdenv.hostPlatform.isLinux [
-      bzip2
-      expat
-      fontconfig
-      freetype
-      harfbuzz
-      libpng
-      libxml2
-      oniguruma
-      simdutf
-      zlib
-
-      glslang
-      spirv-cross
-
-      libxkbcommon
-      libX11
-      libXcursor
-      libXi
-      libXrandr
-
-      libadwaita
-      gtk4
-      gtk4-layer-shell
-      glib
-      gobject-introspection
-      wayland
-    ];
+  ld_library_path = import ./build-support/ld-library-path.nix {
+    inherit pkgs lib stdenv;
+  };
+  gi_typelib_path = import ./build-support/gi-typelib-path.nix {
+    inherit pkgs lib stdenv;
+  };
 in
   mkShell {
     name = "ghostty";
-
     packages =
       [
         # For builds
@@ -186,7 +159,8 @@ in
 
     # This should be set onto the rpath of the ghostty binary if you want
     # it to be "portable" across the system.
-    LD_LIBRARY_PATH = lib.makeLibraryPath rpathLibs;
+    LD_LIBRARY_PATH = ld_library_path;
+    GI_TYPELIB_PATH = gi_typelib_path;
 
     shellHook =
       (lib.optionalString stdenv.hostPlatform.isLinux ''

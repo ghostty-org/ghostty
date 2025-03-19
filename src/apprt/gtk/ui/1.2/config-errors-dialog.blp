@@ -1,0 +1,28 @@
+using Gtk 4.0;
+using Adw 1;
+
+Adw.MessageDialog config_errors_dialog {
+  heading: _("Configuration Errors");
+  body: _("One or more configuration errors were found. Please review the errors below, and either reload your configuration or ignore these errors.");
+
+  responses [
+    ignore: _("Ignore"),
+    reload: _("Reload Configuration") suggested,
+  ]
+
+  extra-child: ScrolledWindow {
+    min-content-width: 500;
+    min-content-height: 100;
+
+    TextView {
+      editable: false;
+      cursor-visible: false;
+      top-margin: 8;
+      bottom-margin: 8;
+      left-margin: 8;
+      right-margin: 8;
+
+      buffer: TextBuffer error_message {};
+    }
+  };
+}

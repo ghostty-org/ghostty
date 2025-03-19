@@ -3,12 +3,13 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const build_options = @import("build_options");
 
-const wayland = @import("wayland");
-const gtk = @import("gtk");
-const gtk4_layer_shell = @import("gtk4-layer-shell");
 const gdk = @import("gdk");
+const gdk_wayland = @import("gdk_wayland");
+const gobject = @import("gobject");
+const gtk4_layer_shell = @import("gtk4-layer-shell");
+const gtk = @import("gtk");
+const wayland = @import("wayland");
 
-const c = @import("../c.zig").c;
 const Config = @import("../../../config.zig").Config;
 const input = @import("../../../input.zig");
 const ApprtWindow = @import("../Window.zig");
@@ -37,7 +38,7 @@ pub const App = struct {
 
     pub fn init(
         alloc: Allocator,
-        gdk_display: *c.GdkDisplay,
+        gdk_display: *gdk.Display,
         app_id: [:0]const u8,
         config: *const Config,
     ) !?App {
@@ -45,14 +46,18 @@ pub const App = struct {
         _ = app_id;
 
         // Check if we're actually on Wayland
-        if (c.g_type_check_instance_is_a(
-            @ptrCast(@alignCast(gdk_display)),
-            c.gdk_wayland_display_get_type(),
+        if (gobject.typeCheckInstanceIsA(
+            gdk_display.as(gobject.TypeInstance),
+            gdk_wayland.WaylandDisplay.getGObjectType(),
         ) == 0) return null;
 
-        const display: *wl.Display = @ptrCast(c.gdk_wayland_display_get_wl_display(
+        const gdk_wayland_display = gobject.ext.cast(
+            gdk_wayland.WaylandDisplay,
             gdk_display,
-        ) orelse return error.NoWaylandDisplay);
+        ) orelse return error.NoWaylandDisplay;
+        const display: *wl.Display = @ptrCast(@alignCast(
+            gdk_wayland_display.getWlDisplay() orelse return error.NoWaylandDisplay,
+        ));
 
         // Create our context for our callbacks so we have a stable pointer.
         // Note: at the time of writing this comment, we don't really need
@@ -219,20 +224,24 @@ pub const Window = struct {
     ) !Window {
         _ = alloc;
 
-        const gdk_surface = c.gtk_native_get_surface(
-            @ptrCast(apprt_window.window),
-        ) orelse return error.NotWaylandSurface;
+        const gtk_native = apprt_window.window.as(gtk.Native);
+        const gdk_surface = gtk_native.getSurface() orelse return error.NotWaylandSurface;
 
         // This should never fail, because if we're being called at this point
         // then we've already asserted that our app state is Wayland.
-        if (c.g_type_check_instance_is_a(
-            @ptrCast(@alignCast(gdk_surface)),
-            c.gdk_wayland_surface_get_type(),
-        ) == 0) return error.NotWaylandSurface;
+        if (gobject.typeCheckInstanceIsA(
+            gdk_surface.as(gobject.TypeInstance),
+            gdk_wayland.WaylandSurface.getGObjectType(),
+        ) == 0)
+            return error.NoWaylandSurface;
 
-        const wl_surface: *wl.Surface = @ptrCast(c.gdk_wayland_surface_get_wl_surface(
+        const gdk_wl_surface = gobject.ext.cast(
+            gdk_wayland.WaylandSurface,
             gdk_surface,
-        ) orelse return error.NoWaylandSurface);
+        ) orelse return error.NoWaylandSurface;
+        const wl_surface: *wl.Surface = @ptrCast(@alignCast(
+            gdk_wl_surface.getWlSurface() orelse return error.NoWaylandSurface,
+        ));
 
         // Get our decoration object so we can control the
         // CSD vs SSD status of this surface.
@@ -252,7 +261,13 @@ pub const Window = struct {
 
         if (apprt_window.isQuickTerminal()) {
             const surface: *gdk.Surface = @ptrCast(gdk_surface);
-            _ = gdk.Surface.signals.enter_monitor.connect(surface, *ApprtWindow, enteredMonitor, apprt_window, .{});
+            _ = gdk.Surface.signals.enter_monitor.connect(
+                surface,
+                *ApprtWindow,
+                enteredMonitor,
+                apprt_window,
+                .{},
+            );
         }
 
         return .{

@@ -101,8 +101,17 @@ jobs:
         )
       }}
     runs-on: namespace-profile-ghostty-md
+    env:
+      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
     steps:
       - uses: actions/checkout@v4
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@v1.2.0
+        with:
+          path: |
+            /nix
+            /zig
       - uses: cachix/install-nix-action@v30
         with:
           nix_path: nixpkgs=channel:nixos-unstable
@@ -111,12 +120,17 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
       - name: Create Tarball
-        run: git archive --format=tgz --prefix=ghostty-source/ -o ghostty-source.tar.gz HEAD
+        run: |
+          rm -rf zig-out/dist
+          nix develop -c zig build distcheck
+          cp zig-out/dist/*.tar.gz ghostty-source.tar.gz
+
       - name: Sign Tarball
         run: |
           echo -n "${{ secrets.MINISIGN_KEY }}" > minisign.key
           echo -n "${{ secrets.MINISIGN_PASSWORD }}" > minisign.password
           nix develop -c minisign -S -m ghostty-source.tar.gz -s minisign.key < minisign.password
+
       - name: Update Release
         uses: softprops/action-gh-release@v2
         with:

@@ -555,6 +555,7 @@ fn addGTK(
             .{ "glib", "glib2" },
             .{ "gobject", "gobject2" },
             .{ "gtk", "gtk4" },
+            .{ "xlib", "xlib2" },
         };
         inline for (gobject_imports) |import| {
             const name, const module = import;

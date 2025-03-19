@@ -6,7 +6,9 @@ const build_config = @import("../build_config.zig");
 const internal_os = @import("../os/main.zig");
 const xev = @import("../global.zig").xev;
 const renderer = @import("../renderer.zig");
-const gtk = if (build_config.app_runtime == .gtk) @import("../apprt/gtk/c.zig").c else void;
+
+const gtk_version = @import("../apprt/gtk/gtk_version.zig");
+const adw_version = @import("../apprt/gtk/adw_version.zig");
 
 pub const Options = struct {};
 
@@ -41,25 +43,11 @@ pub fn run(alloc: Allocator) !u8 {
     if (comptime build_config.app_runtime == .gtk) {
         try stdout.print("  - desktop env: {s}\n", .{@tagName(internal_os.desktopEnvironment())});
         try stdout.print("  - GTK version:\n", .{});
-        try stdout.print("    build      : {d}.{d}.{d}\n", .{
-            gtk.GTK_MAJOR_VERSION,
-            gtk.GTK_MINOR_VERSION,
-            gtk.GTK_MICRO_VERSION,
-        });
-        try stdout.print("    runtime    : {d}.{d}.{d}\n", .{
-            gtk.gtk_get_major_version(),
-            gtk.gtk_get_minor_version(),
-            gtk.gtk_get_micro_version(),
-        });
+        try stdout.print("    build      : {}\n", .{gtk_version.comptime_version});
+        try stdout.print("    runtime    : {}\n", .{gtk_version.getRuntimeVersion()});
         try stdout.print("  - libadwaita : enabled\n", .{});
-        try stdout.print("    build      : {s}\n", .{
-            gtk.ADW_VERSION_S,
-        });
-        try stdout.print("    runtime    : {}.{}.{}\n", .{
-            gtk.adw_get_major_version(),
-            gtk.adw_get_minor_version(),
-            gtk.adw_get_micro_version(),
-        });
+        try stdout.print("    build      : {}\n", .{adw_version.comptime_version});
+        try stdout.print("    runtime    : {}\n", .{adw_version.getRuntimeVersion()});
         if (comptime build_options.x11) {
             try stdout.print("  - libX11     : enabled\n", .{});
         } else {

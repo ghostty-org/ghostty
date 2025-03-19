@@ -1322,7 +1322,7 @@ pub fn Stream(comptime Handler: type) type {
                                     input.params.len == 3) and
                                     // we only support window title
                                     (input.params[1] == 0 or
-                                    input.params[1] == 2))
+                                        input.params[1] == 2))
                                 {
                                     // push/pop title
                                     if (@hasDecl(T, "pushPopTitle")) {

@@ -173,15 +173,6 @@ pub const Binding = struct {
         width: c.GLsizei,
         height: c.GLsizei,
     ) !void {
-        glad.context.CopyTexSubImage2D.?(
-            @intFromEnum(b.target),
-            level,
-            xoffset,
-            yoffset,
-            x,
-            y,
-            width,
-            height
-        );
+        glad.context.CopyTexSubImage2D.?(@intFromEnum(b.target), level, xoffset, yoffset, x, y, width, height);
     }
 };

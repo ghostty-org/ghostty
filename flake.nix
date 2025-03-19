@@ -51,6 +51,8 @@
           devShell.${system} = pkgs-stable.callPackage ./nix/devShell.nix {
             zig = zig.packages.${system}."0.14.0";
             wraptest = pkgs-stable.callPackage ./nix/wraptest.nix {};
+            # remove once blueprint-compiler 0.16.0 is in the stable nixpkgs
+            blueprint-compiler = pkgs-unstable.blueprint-compiler;
             zon2nix = zon2nix;
           };
 

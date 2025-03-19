@@ -4,7 +4,6 @@ const Allocator = std.mem.Allocator;
 
 const gdk = @import("gdk");
 
-const c = @import("c.zig").c;
 const Config = @import("../../config.zig").Config;
 const input = @import("../../input.zig");
 const key = @import("key.zig");
@@ -29,7 +28,7 @@ pub const App = union(Protocol) {
 
     pub fn init(
         alloc: Allocator,
-        gdk_display: *c.GdkDisplay,
+        gdk_display: *gdk.Display,
         app_id: [:0]const u8,
         config: *const Config,
     ) !App {

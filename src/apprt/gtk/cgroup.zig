@@ -113,9 +113,8 @@ fn enableControllers(alloc: Allocator, cgroup: []const u8) !void {
 /// On success this will return the name of the transient scope
 /// cgroup prefix, allocated with the given allocator.
 fn createScope(app: *App, pid_: std.os.linux.pid_t) !void {
-    // FIXME: when app.app gets converted to gobject
-    const g_app: *gio.Application = @ptrCast(@alignCast(app.app));
-    const connection = g_app.getDbusConnection() orelse
+    const gio_app = app.app.as(gio.Application);
+    const connection = gio_app.getDbusConnection() orelse
         return error.DbusConnectionRequired;
 
     const pid: u32 = @intCast(pid_);

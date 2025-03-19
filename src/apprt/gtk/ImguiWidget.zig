@@ -3,10 +3,12 @@ const ImguiWidget = @This();
 const std = @import("std");
 const assert = std.debug.assert;
 
+const gdk = @import("gdk");
+const gtk = @import("gtk");
 const cimgui = @import("cimgui");
-const c = @import("c.zig").c;
-const key = @import("key.zig");
 const gl = @import("opengl");
+
+const key = @import("key.zig");
 const input = @import("../../input.zig");
 
 const log = std.log.scoped(.gtk_imgui_widget);
@@ -16,8 +18,8 @@ render_callback: ?*const fn (?*anyopaque) void = null,
 render_userdata: ?*anyopaque = null,
 
 /// Our OpenGL widget
-gl_area: *c.GtkGLArea,
-im_context: *c.GtkIMContext,
+gl_area: *gtk.GLArea,
+im_context: *gtk.IMContext,
 
 /// ImGui Context
 ig_ctx: *cimgui.c.ImGuiContext,
@@ -36,65 +38,145 @@ pub fn init(self: *ImguiWidget) !void {
     io.BackendPlatformName = "ghostty_gtk";
 
     // Our OpenGL area for drawing
-    const gl_area = c.gtk_gl_area_new();
-    c.gtk_gl_area_set_auto_render(@ptrCast(gl_area), 1);
+    const gl_area = gtk.GLArea.new();
+    gl_area.setAutoRender(@intFromBool(true));
 
     // The GL area has to be focusable so that it can receive events
-    c.gtk_widget_set_focusable(@ptrCast(gl_area), 1);
-    c.gtk_widget_set_focus_on_click(@ptrCast(gl_area), 1);
+    gl_area.as(gtk.Widget).setFocusable(@intFromBool(true));
+    gl_area.as(gtk.Widget).setFocusOnClick(@intFromBool(true));
 
     // Clicks
-    const gesture_click = c.gtk_gesture_click_new();
-    errdefer c.g_object_unref(gesture_click);
-    c.gtk_gesture_single_set_button(@ptrCast(gesture_click), 0);
-    c.gtk_widget_add_controller(@ptrCast(gl_area), @ptrCast(gesture_click));
+    const gesture_click = gtk.GestureClick.new();
+    errdefer gesture_click.unref();
+    gesture_click.as(gtk.GestureSingle).setButton(0);
+    gl_area.as(gtk.Widget).addController(gesture_click.as(gtk.EventController));
 
     // Mouse movement
-    const ec_motion = c.gtk_event_controller_motion_new();
-    errdefer c.g_object_unref(ec_motion);
-    c.gtk_widget_add_controller(@ptrCast(gl_area), ec_motion);
+    const ec_motion = gtk.EventControllerMotion.new();
+    errdefer ec_motion.unref();
+    gl_area.as(gtk.Widget).addController(ec_motion.as(gtk.EventController));
 
     // Scroll events
-    const ec_scroll = c.gtk_event_controller_scroll_new(
-        c.GTK_EVENT_CONTROLLER_SCROLL_BOTH_AXES |
-            c.GTK_EVENT_CONTROLLER_SCROLL_DISCRETE,
-    );
-    errdefer c.g_object_unref(ec_scroll);
-    c.gtk_widget_add_controller(@ptrCast(gl_area), ec_scroll);
+    const ec_scroll = gtk.EventControllerScroll.new(.flags_both_axes);
+    errdefer ec_scroll.unref();
+    gl_area.as(gtk.Widget).addController(ec_scroll.as(gtk.EventController));
 
     // Focus controller will tell us about focus enter/exit events
-    const ec_focus = c.gtk_event_controller_focus_new();
-    errdefer c.g_object_unref(ec_focus);
-    c.gtk_widget_add_controller(@ptrCast(gl_area), ec_focus);
+    const ec_focus = gtk.EventControllerFocus.new();
+    errdefer ec_focus.unref();
+    gl_area.as(gtk.Widget).addController(ec_focus.as(gtk.EventController));
 
     // Key event controller will tell us about raw keypress events.
-    const ec_key = c.gtk_event_controller_key_new();
-    errdefer c.g_object_unref(ec_key);
-    c.gtk_widget_add_controller(@ptrCast(gl_area), ec_key);
-    errdefer c.gtk_widget_remove_controller(@ptrCast(gl_area), ec_key);
+    const ec_key = gtk.EventControllerKey.new();
+    errdefer ec_key.unref();
+    gl_area.as(gtk.Widget).addController(ec_key.as(gtk.EventController));
+    errdefer gl_area.as(gtk.Widget).removeController(ec_key.as(gtk.EventController));
 
     // The input method context that we use to translate key events into
     // characters. This doesn't have an event key controller attached because
     // we call it manually from our own key controller.
-    const im_context = c.gtk_im_multicontext_new();
-    errdefer c.g_object_unref(im_context);
+    const im_context = gtk.IMMulticontext.new();
+    errdefer im_context.unref();
 
     // Signals
-    _ = c.g_signal_connect_data(gl_area, "destroy", c.G_CALLBACK(&gtkDestroy), self, null, c.G_CONNECT_DEFAULT);
-    _ = c.g_signal_connect_data(gl_area, "realize", c.G_CALLBACK(&gtkRealize), self, null, c.G_CONNECT_DEFAULT);
-    _ = c.g_signal_connect_data(gl_area, "unrealize", c.G_CALLBACK(&gtkUnrealize), self, null, c.G_CONNECT_DEFAULT);
-    _ = c.g_signal_connect_data(gl_area, "render", c.G_CALLBACK(&gtkRender), self, null, c.G_CONNECT_DEFAULT);
-    _ = c.g_signal_connect_data(gl_area, "resize", c.G_CALLBACK(&gtkResize), self, null, c.G_CONNECT_DEFAULT);
-
-    _ = c.g_signal_connect_data(ec_focus, "enter", c.G_CALLBACK(&gtkFocusEnter), self, null, c.G_CONNECT_DEFAULT);
-    _ = c.g_signal_connect_data(ec_focus, "leave", c.G_CALLBACK(&gtkFocusLeave), self, null, c.G_CONNECT_DEFAULT);
-    _ = c.g_signal_connect_data(ec_key, "key-pressed", c.G_CALLBACK(&gtkKeyPressed), self, null, c.G_CONNECT_DEFAULT);
-    _ = c.g_signal_connect_data(ec_key, "key-released", c.G_CALLBACK(&gtkKeyReleased), self, null, c.G_CONNECT_DEFAULT);
-    _ = c.g_signal_connect_data(ec_motion, "motion", c.G_CALLBACK(&gtkMouseMotion), self, null, c.G_CONNECT_DEFAULT);
-    _ = c.g_signal_connect_data(ec_scroll, "scroll", c.G_CALLBACK(&gtkMouseScroll), self, null, c.G_CONNECT_DEFAULT);
-    _ = c.g_signal_connect_data(gesture_click, "pressed", c.G_CALLBACK(&gtkMouseDown), self, null, c.G_CONNECT_DEFAULT);
-    _ = c.g_signal_connect_data(gesture_click, "released", c.G_CALLBACK(&gtkMouseUp), self, null, c.G_CONNECT_DEFAULT);
-    _ = c.g_signal_connect_data(im_context, "commit", c.G_CALLBACK(&gtkInputCommit), self, null, c.G_CONNECT_DEFAULT);
+    _ = gtk.Widget.signals.realize.connect(
+        gl_area,
+        *ImguiWidget,
+        gtkRealize,
+        self,
+        .{},
+    );
+    _ = gtk.Widget.signals.unrealize.connect(
+        gl_area,
+        *ImguiWidget,
+        gtkUnrealize,
+        self,
+        .{},
+    );
+    _ = gtk.Widget.signals.destroy.connect(
+        gl_area,
+        *ImguiWidget,
+        gtkDestroy,
+        self,
+        .{},
+    );
+    _ = gtk.GLArea.signals.render.connect(
+        gl_area,
+        *ImguiWidget,
+        gtkRender,
+        self,
+        .{},
+    );
+    _ = gtk.GLArea.signals.resize.connect(
+        gl_area,
+        *ImguiWidget,
+        gtkResize,
+        self,
+        .{},
+    );
+    _ = gtk.EventControllerKey.signals.key_pressed.connect(
+        ec_key,
+        *ImguiWidget,
+        gtkKeyPressed,
+        self,
+        .{},
+    );
+    _ = gtk.EventControllerKey.signals.key_released.connect(
+        ec_key,
+        *ImguiWidget,
+        gtkKeyReleased,
+        self,
+        .{},
+    );
+    _ = gtk.EventControllerFocus.signals.enter.connect(
+        ec_focus,
+        *ImguiWidget,
+        gtkFocusEnter,
+        self,
+        .{},
+    );
+    _ = gtk.EventControllerFocus.signals.leave.connect(
+        ec_focus,
+        *ImguiWidget,
+        gtkFocusLeave,
+        self,
+        .{},
+    );
+    _ = gtk.GestureClick.signals.pressed.connect(
+        gesture_click,
+        *ImguiWidget,
+        gtkMouseDown,
+        self,
+        .{},
+    );
+    _ = gtk.GestureClick.signals.released.connect(
+        gesture_click,
+        *ImguiWidget,
+        gtkMouseUp,
+        self,
+        .{},
+    );
+    _ = gtk.EventControllerMotion.signals.motion.connect(
+        ec_motion,
+        *ImguiWidget,
+        gtkMouseMotion,
+        self,
+        .{},
+    );
+    _ = gtk.EventControllerScroll.signals.scroll.connect(
+        ec_scroll,
+        *ImguiWidget,
+        gtkMouseScroll,
+        self,
+        .{},
+    );
+    _ = gtk.IMContext.signals.commit.connect(
+        im_context,
+        *ImguiWidget,
+        gtkInputCommit,
+        self,
+        .{},
+    );
 
     self.* = .{
         .gl_area = @ptrCast(gl_area),
@@ -113,7 +195,7 @@ pub fn deinit(self: *ImguiWidget) void {
 /// This should be called anytime the underlying data for the UI changes
 /// so that the UI can be refreshed.
 pub fn queueRender(self: *const ImguiWidget) void {
-    c.gtk_gl_area_queue_render(self.gl_area);
+    self.gl_area.queueRender();
 }
 
 /// Initialize the frame. Expects that the context is already current.
@@ -130,7 +212,7 @@ fn newFrame(self: *ImguiWidget) !void {
     self.instant = now;
 }
 
-fn translateMouseButton(button: c.guint) ?c_int {
+fn translateMouseButton(button: c_uint) ?c_int {
     return switch (button) {
         1 => cimgui.c.ImGuiMouseButton_Left,
         2 => cimgui.c.ImGuiMouseButton_Middle,
@@ -139,45 +221,39 @@ fn translateMouseButton(button: c.guint) ?c_int {
     };
 }
 
-fn gtkDestroy(v: *c.GtkWidget, ud: ?*anyopaque) callconv(.C) void {
-    _ = v;
+fn gtkDestroy(_: *gtk.GLArea, self: *ImguiWidget) callconv(.C) void {
     log.debug("imgui widget destroy", .{});
-
-    const self: *ImguiWidget = @ptrCast(@alignCast(ud.?));
     self.deinit();
 }
 
-fn gtkRealize(area: *c.GtkGLArea, ud: ?*anyopaque) callconv(.C) void {
+fn gtkRealize(area: *gtk.GLArea, self: *ImguiWidget) callconv(.C) void {
     log.debug("gl surface realized", .{});
 
     // We need to make the context current so we can call GL functions.
-    c.gtk_gl_area_make_current(area);
-    if (c.gtk_gl_area_get_error(area)) |err| {
-        log.err("surface failed to realize: {s}", .{err.*.message});
+    area.makeCurrent();
+    if (area.getError()) |err| {
+        log.err("surface failed to realize: {s}", .{err.f_message orelse "(unknown)"});
         return;
     }
 
     // realize means that our OpenGL context is ready, so we can now
     // initialize the ImgUI OpenGL backend for our context.
-    const self: *ImguiWidget = @ptrCast(@alignCast(ud.?));
     cimgui.c.igSetCurrentContext(self.ig_ctx);
     _ = cimgui.ImGui_ImplOpenGL3_Init(null);
 }
 
-fn gtkUnrealize(area: *c.GtkGLArea, ud: ?*anyopaque) callconv(.C) void {
+fn gtkUnrealize(area: *gtk.GLArea, self: *ImguiWidget) callconv(.C) void {
     _ = area;
     log.debug("gl surface unrealized", .{});
 
-    const self: *ImguiWidget = @ptrCast(@alignCast(ud.?));
     cimgui.c.igSetCurrentContext(self.ig_ctx);
     cimgui.ImGui_ImplOpenGL3_Shutdown();
 }
 
-fn gtkResize(area: *c.GtkGLArea, width: c.gint, height: c.gint, ud: ?*anyopaque) callconv(.C) void {
-    const self: *ImguiWidget = @ptrCast(@alignCast(ud.?));
+fn gtkResize(area: *gtk.GLArea, width: c_int, height: c_int, self: *ImguiWidget) callconv(.C) void {
     cimgui.c.igSetCurrentContext(self.ig_ctx);
     const io: *cimgui.c.ImGuiIO = cimgui.c.igGetIO();
-    const scale_factor = c.gtk_widget_get_scale_factor(@ptrCast(area));
+    const scale_factor = area.as(gtk.Widget).getScaleFactor();
     log.debug("gl resize width={} height={} scale={}", .{
         width,
         height,
@@ -197,10 +273,7 @@ fn gtkResize(area: *c.GtkGLArea, width: c.gint, height: c.gint, ud: ?*anyopaque)
     active_style.* = style.*;
 }
 
-fn gtkRender(area: *c.GtkGLArea, ctx: *c.GdkGLContext, ud: ?*anyopaque) callconv(.C) c.gboolean {
-    _ = area;
-    _ = ctx;
-    const self: *ImguiWidget = @ptrCast(@alignCast(ud.?));
+fn gtkRender(_: *gtk.GLArea, _: *gdk.GLContext, self: *ImguiWidget) callconv(.C) c_int {
     cimgui.c.igSetCurrentContext(self.ig_ctx);
 
     // Setup our frame. We render twice because some ImGui behaviors
@@ -230,17 +303,14 @@ fn gtkRender(area: *c.GtkGLArea, ctx: *c.GdkGLContext, ud: ?*anyopaque) callconv
 }
 
 fn gtkMouseMotion(
-    _: *c.GtkEventControllerMotion,
-    x: c.gdouble,
-    y: c.gdouble,
-    ud: ?*anyopaque,
+    _: *gtk.EventControllerMotion,
+    x: f64,
+    y: f64,
+    self: *ImguiWidget,
 ) callconv(.C) void {
-    const self: *ImguiWidget = @ptrCast(@alignCast(ud.?));
     cimgui.c.igSetCurrentContext(self.ig_ctx);
     const io: *cimgui.c.ImGuiIO = cimgui.c.igGetIO();
-    const scale_factor: f64 = @floatFromInt(c.gtk_widget_get_scale_factor(
-        @ptrCast(self.gl_area),
-    ));
+    const scale_factor: f64 = @floatFromInt(self.gl_area.as(gtk.Widget).getScaleFactor());
     cimgui.c.ImGuiIO_AddMousePosEvent(
         io,
         @floatCast(x * scale_factor),
@@ -250,48 +320,46 @@ fn gtkMouseMotion(
 }
 
 fn gtkMouseDown(
-    gesture: *c.GtkGestureClick,
-    _: c.gint,
-    _: c.gdouble,
-    _: c.gdouble,
-    ud: ?*anyopaque,
+    gesture: *gtk.GestureClick,
+    _: c_int,
+    _: f64,
+    _: f64,
+    self: *ImguiWidget,
 ) callconv(.C) void {
-    const self: *ImguiWidget = @ptrCast(@alignCast(ud.?));
     self.queueRender();
 
     cimgui.c.igSetCurrentContext(self.ig_ctx);
     const io: *cimgui.c.ImGuiIO = cimgui.c.igGetIO();
-    const gdk_button = c.gtk_gesture_single_get_current_button(@ptrCast(gesture));
+
+    const gdk_button = gesture.as(gtk.GestureSingle).getCurrentButton();
     if (translateMouseButton(gdk_button)) |button| {
         cimgui.c.ImGuiIO_AddMouseButtonEvent(io, button, true);
     }
 }
 
 fn gtkMouseUp(
-    gesture: *c.GtkGestureClick,
-    _: c.gint,
-    _: c.gdouble,
-    _: c.gdouble,
-    ud: ?*anyopaque,
+    gesture: *gtk.GestureClick,
+    _: c_int,
+    _: f64,
+    _: f64,
+    self: *ImguiWidget,
 ) callconv(.C) void {
-    const self: *ImguiWidget = @ptrCast(@alignCast(ud.?));
     self.queueRender();
 
     cimgui.c.igSetCurrentContext(self.ig_ctx);
     const io: *cimgui.c.ImGuiIO = cimgui.c.igGetIO();
-    const gdk_button = c.gtk_gesture_single_get_current_button(@ptrCast(gesture));
+    const gdk_button = gesture.as(gtk.GestureSingle).getCurrentButton();
     if (translateMouseButton(gdk_button)) |button| {
         cimgui.c.ImGuiIO_AddMouseButtonEvent(io, button, false);
     }
 }
 
 fn gtkMouseScroll(
-    _: *c.GtkEventControllerScroll,
-    x: c.gdouble,
-    y: c.gdouble,
-    ud: ?*anyopaque,
-) callconv(.C) void {
-    const self: *ImguiWidget = @ptrCast(@alignCast(ud.?));
+    _: *gtk.EventControllerScroll,
+    x: f64,
+    y: f64,
+    self: *ImguiWidget,
+) callconv(.C) c_int {
     self.queueRender();
 
     cimgui.c.igSetCurrentContext(self.ig_ctx);
@@ -301,10 +369,11 @@ fn gtkMouseScroll(
         @floatCast(x),
         @floatCast(-y),
     );
+
+    return @intFromBool(true);
 }
 
-fn gtkFocusEnter(_: *c.GtkEventControllerFocus, ud: ?*anyopaque) callconv(.C) void {
-    const self: *ImguiWidget = @ptrCast(@alignCast(ud.?));
+fn gtkFocusEnter(_: *gtk.EventControllerFocus, self: *ImguiWidget) callconv(.C) void {
     self.queueRender();
 
     cimgui.c.igSetCurrentContext(self.ig_ctx);
@@ -312,8 +381,7 @@ fn gtkFocusEnter(_: *c.GtkEventControllerFocus, ud: ?*anyopaque) callconv(.C) vo
     cimgui.c.ImGuiIO_AddFocusEvent(io, true);
 }
 
-fn gtkFocusLeave(_: *c.GtkEventControllerFocus, ud: ?*anyopaque) callconv(.C) void {
-    const self: *ImguiWidget = @ptrCast(@alignCast(ud.?));
+fn gtkFocusLeave(_: *gtk.EventControllerFocus, self: *ImguiWidget) callconv(.C) void {
     self.queueRender();
 
     cimgui.c.igSetCurrentContext(self.ig_ctx);
@@ -322,11 +390,10 @@ fn gtkFocusLeave(_: *c.GtkEventControllerFocus, ud: ?*anyopaque) callconv(.C) vo
 }
 
 fn gtkInputCommit(
-    _: *c.GtkIMContext,
+    _: *gtk.IMMulticontext,
     bytes: [*:0]u8,
-    ud: ?*anyopaque,
+    self: *ImguiWidget,
 ) callconv(.C) void {
-    const self: *ImguiWidget = @ptrCast(@alignCast(ud.?));
     self.queueRender();
 
     cimgui.c.igSetCurrentContext(self.ig_ctx);
@@ -335,44 +402,53 @@ fn gtkInputCommit(
 }
 
 fn gtkKeyPressed(
-    ec_key: *c.GtkEventControllerKey,
-    keyval: c.guint,
-    keycode: c.guint,
-    gtk_mods: c.GdkModifierType,
-    ud: ?*anyopaque,
-) callconv(.C) c.gboolean {
-    return if (keyEvent(.press, ec_key, keyval, keycode, gtk_mods, ud)) 1 else 0;
+    ec_key: *gtk.EventControllerKey,
+    keyval: c_uint,
+    keycode: c_uint,
+    gtk_mods: gdk.ModifierType,
+    self: *ImguiWidget,
+) callconv(.C) c_int {
+    return @intFromBool(self.keyEvent(
+        .press,
+        ec_key,
+        keyval,
+        keycode,
+        gtk_mods,
+    ));
 }
 
 fn gtkKeyReleased(
-    ec_key: *c.GtkEventControllerKey,
-    keyval: c.guint,
-    keycode: c.guint,
-    state: c.GdkModifierType,
-    ud: ?*anyopaque,
-) callconv(.C) c.gboolean {
-    return if (keyEvent(.release, ec_key, keyval, keycode, state, ud)) 1 else 0;
+    ec_key: *gtk.EventControllerKey,
+    keyval: c_uint,
+    keycode: c_uint,
+    gtk_mods: gdk.ModifierType,
+    self: *ImguiWidget,
+) callconv(.C) void {
+    _ = self.keyEvent(
+        .release,
+        ec_key,
+        keyval,
+        keycode,
+        gtk_mods,
+    );
 }
 
 fn keyEvent(
+    self: *ImguiWidget,
     action: input.Action,
-    ec_key: *c.GtkEventControllerKey,
-    keyval: c.guint,
-    keycode: c.guint,
-    gtk_mods: c.GdkModifierType,
-    ud: ?*anyopaque,
+    ec_key: *gtk.EventControllerKey,
+    keyval: c_uint,
+    keycode: c_uint,
+    gtk_mods: gdk.ModifierType,
 ) bool {
     _ = keycode;
 
-    const self: *ImguiWidget = @ptrCast(@alignCast(ud.?));
     self.queueRender();
 
     cimgui.c.igSetCurrentContext(self.ig_ctx);
     const io: *cimgui.c.ImGuiIO = cimgui.c.igGetIO();
 
-    // FIXME: when this file get converted to zig-gobject
-    // Translate the GTK mods and update the modifiers on every keypress
-    const mods = key.translateMods(@bitCast(gtk_mods));
+    const mods = key.translateMods(gtk_mods);
     cimgui.c.ImGuiIO_AddKeyEvent(io, cimgui.c.ImGuiKey_LeftShift, mods.shift);
     cimgui.c.ImGuiIO_AddKeyEvent(io, cimgui.c.ImGuiKey_LeftCtrl, mods.ctrl);
     cimgui.c.ImGuiIO_AddKeyEvent(io, cimgui.c.ImGuiKey_LeftAlt, mods.alt);
@@ -386,9 +462,9 @@ fn keyEvent(
     }
 
     // Try to process the event as text
-    const event = c.gtk_event_controller_get_current_event(@ptrCast(ec_key));
-    if (event != null)
-        _ = c.gtk_im_context_filter_keypress(self.im_context, event);
+    if (ec_key.as(gtk.EventController).getCurrentEvent()) |event| {
+        _ = self.im_context.filterKeypress(event);
+    }
 
     return true;
 }

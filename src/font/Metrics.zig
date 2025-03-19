@@ -154,7 +154,7 @@ pub fn calc(face: FaceMetrics) Metrics {
     // we place it 1 underline-thickness below the baseline.
     const underline_position = @round(top_to_baseline -
         (face.underline_position orelse
-        -underline_thickness));
+            -underline_thickness));
 
     // If we don't have a provided strikethrough position
     // then we center the strikethrough stroke at half the
@@ -162,7 +162,7 @@ pub fn calc(face: FaceMetrics) Metrics {
     // case text.
     const strikethrough_position = @round(top_to_baseline -
         (face.strikethrough_position orelse
-        ex_height * 0.5 + strikethrough_thickness * 0.5));
+            ex_height * 0.5 + strikethrough_thickness * 0.5));
 
     var result: Metrics = .{
         .cell_width = @intFromFloat(cell_width),

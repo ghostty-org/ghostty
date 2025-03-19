@@ -12,13 +12,12 @@ const gio = @import("gio");
 const apprt = @import("../../apprt.zig");
 const CoreSurface = @import("../../Surface.zig");
 const App = @import("App.zig");
-const View = @import("View.zig");
 const Builder = @import("Builder.zig");
-const adwaita = @import("adwaita.zig");
+const adw_version = @import("adw_version.zig");
 
 const log = std.log.scoped(.gtk);
 
-const DialogType = if (adwaita.versionAtLeast(1, 5, 0)) adw.AlertDialog else adw.MessageDialog;
+const DialogType = if (adw_version.atLeast(1, 5, 0)) adw.AlertDialog else adw.MessageDialog;
 
 app: *App,
 dialog: *DialogType,
@@ -142,7 +141,7 @@ fn init(
             dialog.choose(parent, null, gtkChoose, self);
         },
         adw.MessageDialog => {
-            if (adwaita.versionAtLeast(1, 3, 0)) {
+            if (adw_version.atLeast(1, 3, 0)) {
                 dialog.choose(null, gtkChoose, self);
             } else {
                 _ = adw.MessageDialog.signals.response.connect(
