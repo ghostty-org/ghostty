@@ -14,7 +14,6 @@ help_strings: HelpStrings,
 metallib: ?*MetallibStep,
 unicode_tables: UnicodeTables,
 framedata: GhosttyFrameData,
-steps: []*std.Build.Step,
 
 /// Used to keep track of a list of file sources.
 pub const LazyPathList = std.ArrayList(std.Build.LazyPath);
@@ -649,12 +648,19 @@ fn addGTK(
             } else {
                 // gtk4-layer-shell *must* be dynamically linked,
                 // so we don't add it as a static library
-                const sharedLib = gtk4_layer_shell.artifact("gtk4-layer-shell");
-                const artifact: *std.Build.Step.InstallArtifact = b.addInstallArtifact(sharedLib, .{});
+                const shared_lib = gtk4_layer_shell.artifact("gtk4-layer-shell");
+                const artifact: *std.Build.Step.InstallArtifact = b.addInstallArtifact(shared_lib, .{});
                 b.getInstallStep().dependOn(&artifact.step);
-                // Lookup dynamic libs from installed location
-                step.root_module.addRPathSpecial(b.getInstallPath(artifact.dest_dir.?, ""));
-                step.linkLibrary(sharedLib);
+                step.linkLibrary(shared_lib);
+                if (self.config.optimize == .Debug) {
+                    // Lookup dynamic libs from installed location
+                    const install_path = b.getInstallPath(artifact.dest_dir.?, "");
+                    if (!std.fs.path.isAbsolute(install_path)) {
+                        // Using a relative path as an rpath is almost useless
+                        return error.UndesirableRelativePath;
+                    }
+                    step.root_module.addRPathSpecial(install_path);
+                }
             }
         }
 
