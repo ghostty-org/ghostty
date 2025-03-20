@@ -37,17 +37,19 @@ msgstr "ОК"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:5
 msgid "Configuration Errors"
-msgstr ""
+msgstr "Помилки конфігурації"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:6
 msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
+"Виявлено одну або декілька помилок у конфігурації. Будь ласка, перегляньте наведені "
+"нижче помилки і або перезавантажте конфігурацію, або проігноруйте ці помилки."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
 msgid "Ignore"
-msgstr ""
+msgstr "Ігнорувати"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:10
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:97
@@ -202,7 +204,7 @@ msgstr ""
 
 #: src/apprt/gtk/inspector.zig:144
 msgid "Ghostty: Terminal Inspector"
-msgstr ""
+msgstr "Ghostty: Інспектор терміналу"
 
 #: src/apprt/gtk/Surface.zig:1243
 msgid "Copied to clipboard"
