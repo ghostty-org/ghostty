@@ -233,7 +233,7 @@ nix develop -c prettier --write .
 Nix modules are formatted with [Alejandra](https://github.com/kamadorueda/alejandra/). An Alejandra CI check
 will fail builds with improper formatting.
 
-Nix users can use the following command to format with Alejanda:
+Nix users can use the following command to format with Alejandra:
 
 ```
 nix develop -c alejandra .
