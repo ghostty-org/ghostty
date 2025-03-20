@@ -54,7 +54,7 @@ msgstr "Ignora"
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:97
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:95
 msgid "Reload Configuration"
-msgstr "Torna a carregar la configuració"
+msgstr "Carrega la configuració"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
