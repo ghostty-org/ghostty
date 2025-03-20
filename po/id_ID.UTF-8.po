@@ -197,7 +197,7 @@ msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
 msgstr ""
-"Menempelkan teks ini ke terminal mungkin berbahaya karena sepertinya 
+"Menempelkan teks ini ke terminal mungkin berbahaya karena sepertinya "
 "beberapa perintah mungkin dijalankan."
 
 #: src/apprt/gtk/inspector.zig:144
@@ -226,7 +226,7 @@ msgstr "Tutup Tab?"
 
 #: src/apprt/gtk/CloseDialog.zig:90
 msgid "Close Split?"
-msgstr "Tutup Layar?"
+msgstr "Tutup Bagi panel?"
 
 #: src/apprt/gtk/CloseDialog.zig:96
 msgid "All terminal sessions will be terminated."
