@@ -93,7 +93,20 @@ fn createUpdateStep(b: *std.Build) !*std.Build.Step {
                 else => continue,
             }
 
-            xgettext.addArg((b.pathJoin(&.{ "src/apprt/gtk", src.path })));
+            const path = b.pathJoin(&.{ "src/apprt/gtk", src.path });
+            xgettext.addArg(path);
+            xgettext.addFileInput(b.path(path));
+        }
+    }
+
+    {
+        const other_files = [_][]const u8{
+            "src/cli/args.zig",
+            "src/config/Config.zig",
+        };
+        for (other_files) |path| {
+            xgettext.addArg(path);
+            xgettext.addFileInput(b.path(path));
         }
     }
 

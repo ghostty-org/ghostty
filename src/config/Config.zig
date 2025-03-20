@@ -23,6 +23,7 @@ const terminal = @import("../terminal/main.zig");
 const internal_os = @import("../os/main.zig");
 const cli = @import("../cli.zig");
 const Command = @import("../Command.zig");
+const i18n = internal_os.i18n;
 
 const conditional = @import("conditional.zig");
 const Conditional = conditional.Conditional;
@@ -2717,8 +2718,8 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
             const diag: cli.Diagnostic = .{
                 .message = try std.fmt.allocPrintZ(
                     arena_alloc,
-                    "config-file {s}: cycle detected",
-                    .{path},
+                    "config-file {s}: {s}",
+                    .{ path, i18n._("cycle detected") },
                 ),
             };
 
@@ -2732,8 +2733,8 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
                 const diag: cli.Diagnostic = .{
                     .message = try std.fmt.allocPrintZ(
                         arena_alloc,
-                        "error opening config-file {s}: {}",
-                        .{ path, err },
+                        "{s} config-file {s}: {}",
+                        .{ i18n._("error opening"), path, err },
                     ),
                 };
 
@@ -2751,8 +2752,12 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
                 const diag: cli.Diagnostic = .{
                     .message = try std.fmt.allocPrintZ(
                         arena_alloc,
-                        "config-file {s}: not reading because file type is {s}",
-                        .{ path, @tagName(kind) },
+                        "config-file {s}: {s} {s}",
+                        .{
+                            path,
+                            i18n._("not reading because file type is"),
+                            @tagName(kind),
+                        },
                     ),
                 };
 
@@ -3167,8 +3172,8 @@ pub fn parseManuallyHook(
                 .location = try cli.Location.fromIter(iter, alloc),
                 .message = try std.fmt.allocPrintZ(
                     alloc,
-                    "missing command after {s}",
-                    .{arg},
+                    "{s} {s}",
+                    .{ i18n._("missing command after"), arg },
                 ),
             });
 

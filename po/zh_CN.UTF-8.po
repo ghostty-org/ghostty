@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-03-19 08:28-0700\n"
+"POT-Creation-Date: 2025-03-20 16:33-0500\n"
 "PO-Revision-Date: 2025-02-27 09:16+0100\n"
 "Last-Translator: Leah <hi@pluie.me>\n"
 "Language-Team: Chinese (simplified) <i18n-zh@googlegroups.com>\n"
@@ -194,14 +194,6 @@ msgid ""
 "commands may be executed."
 msgstr "将以下内容粘贴至终端内将可能执行有害命令。"
 
-#: src/apprt/gtk/inspector.zig:144
-msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty 终端检视器"
-
-#: src/apprt/gtk/Surface.zig:1243
-msgid "Copied to clipboard"
-msgstr "已复制至剪切板"
-
 #: src/apprt/gtk/CloseDialog.zig:47
 msgid "Close"
 msgstr "关闭"
@@ -238,6 +230,14 @@ msgstr "标签页内所有运行中的进程将被终止。"
 msgid "The currently running process in this split will be terminated."
 msgstr "分屏内正在运行中的进程将被终止。"
 
+#: src/apprt/gtk/inspector.zig:144
+msgid "Ghostty: Terminal Inspector"
+msgstr "Ghostty 终端检视器"
+
+#: src/apprt/gtk/Surface.zig:1243
+msgid "Copied to clipboard"
+msgstr "已复制至剪切板"
+
 #: src/apprt/gtk/Window.zig:200
 msgid "Main Menu"
 msgstr "主菜单"
@@ -258,3 +258,43 @@ msgstr "已重新加载设置"
 #: src/apprt/gtk/Window.zig:941
 msgid "Ghostty Developers"
 msgstr "Ghostty 开发团队"
+
+#: src/cli/args.zig:133
+msgid "invalid field"
+msgstr ""
+
+#: src/cli/args.zig:161
+msgid "unknown field"
+msgstr ""
+
+#: src/cli/args.zig:163 src/cli/args.zig:191
+msgid "value required"
+msgstr ""
+
+#: src/cli/args.zig:165 src/cli/args.zig:206
+msgid "invalid value"
+msgstr ""
+
+#: src/cli/args.zig:169
+msgid "unknown error"
+msgstr ""
+
+#: src/cli/args.zig:218
+msgid ", valid values are: "
+msgstr ""
+
+#: src/config/Config.zig:2722
+msgid "cycle detected"
+msgstr ""
+
+#: src/config/Config.zig:2737
+msgid "error opening"
+msgstr ""
+
+#: src/config/Config.zig:2758
+msgid "not reading because file type is"
+msgstr ""
+
+#: src/config/Config.zig:3176
+msgid "missing command after"
+msgstr ""

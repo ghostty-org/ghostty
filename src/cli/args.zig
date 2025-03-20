@@ -7,6 +7,7 @@ const diags = @import("diagnostics.zig");
 const internal_os = @import("../os/main.zig");
 const Diagnostic = diags.Diagnostic;
 const DiagnosticList = diags.DiagnosticList;
+const i18n = internal_os.i18n;
 
 const log = std.log.scoped(.cli);
 
@@ -129,7 +130,7 @@ pub fn parse(
             // Add our diagnostic
             try dst._diagnostics.append(arena_alloc, .{
                 .key = try arena_alloc.dupeZ(u8, arg),
-                .message = "invalid field",
+                .message = std.mem.span(i18n._("invalid field")),
                 .location = try diags.Location.fromIter(iter, arena_alloc),
             });
 
@@ -157,13 +158,15 @@ pub fn parse(
                 // OOM is not recoverable since we need to allocate to
                 // track more error messages.
                 error.OutOfMemory => return err,
-                error.InvalidField => "unknown field",
-                error.ValueRequired => formatValueRequired(T, arena_alloc, key) catch "value required",
-                error.InvalidValue => formatInvalidValue(T, arena_alloc, key, value) catch "invalid value",
+                error.InvalidField => std.mem.span(i18n._("unknown field")),
+                error.ValueRequired => formatValueRequired(T, arena_alloc, key) catch
+                    std.mem.span(i18n._("value required")),
+                error.InvalidValue => formatInvalidValue(T, arena_alloc, key, value) catch
+                    std.mem.span(i18n._("invalid value")),
                 else => try std.fmt.allocPrintZ(
                     arena_alloc,
-                    "unknown error {}",
-                    .{err},
+                    "{s} {}",
+                    .{ i18n._("unknown error"), err },
                 ),
             };
 
@@ -185,7 +188,7 @@ fn formatValueRequired(
     var buf = std.ArrayList(u8).init(arena_alloc);
     errdefer buf.deinit();
     const writer = buf.writer();
-    try writer.print("value required", .{});
+    try writer.writeAll(std.mem.span(i18n._("value required")));
     try formatValues(T, key, writer);
     try writer.writeByte(0);
     return buf.items[0 .. buf.items.len - 1 :0];
@@ -200,7 +203,7 @@ fn formatInvalidValue(
     var buf = std.ArrayList(u8).init(arena_alloc);
     errdefer buf.deinit();
     const writer = buf.writer();
-    try writer.print("invalid value \"{?s}\"", .{value});
+    try writer.print("{s} \"{?s}\"", .{ i18n._("invalid value"), value });
     try formatValues(T, key, writer);
     try writer.writeByte(0);
     return buf.items[0 .. buf.items.len - 1 :0];
@@ -212,7 +215,7 @@ fn formatValues(comptime T: type, key: []const u8, writer: anytype) std.mem.Allo
         if (std.mem.eql(u8, key, f.name)) {
             switch (@typeInfo(f.type)) {
                 .@"enum" => |e| {
-                    try writer.print(", valid values are: ", .{});
+                    try writer.writeAll(std.mem.span(i18n._(", valid values are: ")));
                     inline for (e.fields, 0..) |field, i| {
                         if (i != 0) try writer.print(", ", .{});
                         try writer.print("{s}", .{field.name});
