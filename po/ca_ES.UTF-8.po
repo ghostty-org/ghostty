@@ -174,7 +174,7 @@ msgstr ""
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:10
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:10
 msgid "Deny"
-msgstr "Denega"
+msgstr "Denegar"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:11
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:11
