@@ -58,7 +58,7 @@ msgstr "Återställ"
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:30
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:42
 msgid "Split"
-msgstr "Dela"
+msgstr "Dela fönster"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:33
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:45
@@ -126,11 +126,11 @@ msgstr "Öpnna konfiguration"
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:97
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:95
 msgid "Reload Configuration"
-msgstr "Ladda om configuration"
+msgstr "Ladda om konfiguration"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:85
 msgid "Terminal Inspector"
-msgstr "Inspektera terminalen"
+msgstr "Terminalinspektören"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:102
 #: src/apprt/gtk/Window.zig:933
@@ -150,6 +150,9 @@ msgstr "Tillåt åtkomst till urklipp"
 msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
+msgstr ""
+"Ett program försöker läsa från urklipp. Det aktuella "
+"innehållet visas nedan."
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:10
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:10
@@ -165,6 +168,9 @@ msgstr "Tillåt"
 msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
+msgstr ""
+"Ett program försöker skriva till urklipp. Det aktuella "
+"innehållet visas nedan."
 
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:6
 msgid "Warning: Potentially Unsafe Paste"
@@ -174,6 +180,9 @@ msgstr "Varning: Potentiellt osäker infogning"
 msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
+msgstr ""
+"Att klistra in den här texten i terminalen kan vara farligt eftersom det ser ut som "
+"att kommandon kan utföras."
 
 #: src/apprt/gtk/Window.zig:199
 msgid "View Open Tabs"
