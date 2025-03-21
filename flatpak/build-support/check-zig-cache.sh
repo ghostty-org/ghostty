@@ -45,6 +45,32 @@ decode_hash() {
   echo "$input" | base64 -d | od -vAn -t x1 | tr -d ' \n'
 }
 
+# Download GitHub source code as an archive and print out its
+# URL and sha256sum.
+#
+# Use for packages that are force-pushed frequently.
+github_archive() {
+  url=$2
+  git_commit=$3
+
+  if [[ ! $url =~ https://github\.com/* ]]; then
+    echo -e "\nERROR: '$url' is not a github url" >&2
+    return 1
+  fi
+
+  archive=$url/archive/${git_commit}.tar.gz
+  echo -e "\nDownloading '$archive'..." >&2
+  sha256=$(curl -Lq "$archive" | sha256sum - | cut -d' ' -f1)
+
+  printf "%s\n" archive "$archive" "" "$sha256"
+}
+
+# Special handling for troublesome sources
+declare -A workarounds=(
+  # TUSF/zigimg force pushes a lot, orphaning the requested commit
+  [https://github.com/TUSF/zigimg]=github_archive
+)
+
 ROOT="$(realpath "$(dirname "$0")/../../")"
 ZIG_PACKAGES_JSON="$ROOT/flatpak/zig-packages.json"
 BUILD_ZIG_ZON_JSON="$ROOT/build.zig.zon.json"
@@ -70,6 +96,15 @@ while read -r url sha256 dest; do
     git_commit=${url##*#}
     url=${url%%/\?ref*}
     url=${url%%#*}
+  fi
+
+  workaround=${workarounds[$url]-}
+  if [[ -n "$workaround" ]]; then
+    mapfile -t transform < <("$workaround" "$src_type" "$url" "$git_commit" "$sha256")
+    src_type=${transform[0]}
+    url=${transform[1]}
+    git_commit=${transform[2]}
+    sha256=${transform[3]}
   fi
 
   jq \
