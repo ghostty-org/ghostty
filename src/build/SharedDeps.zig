@@ -647,14 +647,23 @@ fn addGTK(
             // IMPORTANT: gtk4-layer-shell must be linked BEFORE
             // wayland-client, as it relies on shimming libwayland's APIs.
             if (b.systemIntegrationOption("gtk4-layer-shell", .{})) {
-                step.linkSystemLibrary2(
-                    "gtk4-layer-shell-0",
-                    dynamic_link_opts,
-                );
+                step.linkSystemLibrary2("gtk4-layer-shell-0", dynamic_link_opts);
             } else {
                 // gtk4-layer-shell *must* be dynamically linked,
                 // so we don't add it as a static library
-                step.linkLibrary(gtk4_layer_shell.artifact("gtk4-layer-shell"));
+                const shared_lib = gtk4_layer_shell.artifact("gtk4-layer-shell");
+                const artifact: *std.Build.Step.InstallArtifact = b.addInstallArtifact(shared_lib, .{});
+                b.getInstallStep().dependOn(&artifact.step);
+                step.linkLibrary(shared_lib);
+                if (self.config.optimize == .Debug) {
+                    // Lookup dynamic libs from installed location
+                    const install_path = b.getInstallPath(artifact.dest_dir.?, "");
+                    if (!std.fs.path.isAbsolute(install_path)) {
+                        // Using a relative path as an rpath is almost useless
+                        return error.UndesirableRelativePath;
+                    }
+                    step.root_module.addRPathSpecial(install_path);
+                }
             }
         }
 
