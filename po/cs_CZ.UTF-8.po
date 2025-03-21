@@ -261,7 +261,7 @@ msgstr ""
 
 #: src/apprt/gtk/Window.zig:725
 msgid "Reloaded the configuration"
-msgstr "Konfigurace bylo aktualizována"
+msgstr "Konfigurace byla aktualizována"
 
 #: src/apprt/gtk/Window.zig:941
 msgid "Ghostty Developers"
