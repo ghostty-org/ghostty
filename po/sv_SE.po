@@ -18,223 +18,221 @@ msgstr ""
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:5
-msgid "Ändra terminaltitel"
-msgstr ""
+msgid "Change Terminal Title"
+msgstr "Ändra terminaltitel"
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:6
-msgid "Lämna tomt för att återställa titeln till standardinställningarna."
-msgstr ""
+msgid "Leave blank to restore the default title."
+msgstr "Lämna tomt för att återställa titeln till standardinställningarna."
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:9
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:10 src/apprt/gtk/CloseDialog.zig:44
-msgid "Avbryt"
-msgstr ""
+msgid "Cancel"
+msgstr "Avbryt"
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:10
 msgid "OK"
-msgstr ""
+msgstr "OK"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
-msgid "Kopiera"
-msgstr ""
+msgid "Copy"
+msgstr "Kopiera"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:11
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:11
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:11
-msgid "Klistra in"
-msgstr ""
+msgid "Paste"
+msgstr "Klistra in"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:18
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:73
-msgid "Rensa"
-msgstr ""
+msgid "Clear"
+msgstr "Rensa"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:23
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:78
-msgid "Återställ"
-msgstr ""
+msgid "Reset"
+msgstr "Återställ"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:30
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:42
-msgid "Dela"
-msgstr ""
+msgid "Split"
+msgstr "Dela"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:33
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:45
-msgid "Ändra titel…"
-msgstr ""
+msgid "Change Title…"
+msgstr "Ändra titel…"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
-msgid "Dela uppåt"
-msgstr ""
+msgid "Split Up"
+msgstr "Dela uppåt"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
-msgid "Dela nedåt"
-msgstr ""
+msgid "Split Down"
+msgstr "Dela nedåt"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
-msgid "Dela åt vänster"
-msgstr ""
+msgid "Split Left"
+msgstr "Dela åt vänster"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
-msgid "Dela åt höger"
-msgstr ""
+msgid "Split Right"
+msgstr "Dela åt höger"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:59
-msgid "Flik"
-msgstr ""
+msgid "Tab"
+msgstr "Flik"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:62
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:30
 #: src/apprt/gtk/Window.zig:246
-msgid "Ny flik"
-msgstr ""
+msgid "New Tab"
+msgstr "Ny flik"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:67
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:35
-msgid "Stäng flik"
-msgstr ""
+msgid "Close Tab"
+msgstr "Stäng flik"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:73
-msgid "Fönster"
-msgstr ""
+msgid "Window"
+msgstr "Fönster"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:76
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:18
-msgid "Nytt fönster"
-msgstr ""
+msgid "New Window"
+msgstr "Nytt fönster"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:81
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:23
-msgid "Stäng fönster"
-msgstr ""
+msgid "Close Window"
+msgstr "Stäng fönster"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:89
-msgid "Konfiguration"
-msgstr ""
+msgid "Config"
+msgstr "Konfiguration"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:92
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:90
-msgid "Öpnna konfiguration"
-msgstr ""
+msgid "Open Configuration"
+msgstr "Öpnna konfiguration"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:97
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:95
-msgid "Ladda om configuration"
-msgstr ""
+msgid "Reload Configuration"
+msgstr "Ladda om configuration"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:85
-msgid "Inspektera terminalen"
-msgstr ""
+msgid "Terminal Inspector"
+msgstr "Inspektera terminalen"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:102
 #: src/apprt/gtk/Window.zig:933
-msgid "Om Ghostty"
-msgstr ""
+msgid "About Ghostty"
+msgstr "Om Ghostty"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:107
-msgid "Avsluta"
-msgstr ""
+msgid "Quit"
+msgstr "Avsluta"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:6
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:6
-msgid "Tillåt åtkomst till urklipp"
-msgstr ""
+msgid "Authorize Clipboard Access"
+msgstr "Tillåt åtkomst till urklipp"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:7
 msgid ""
-"Ett program försöker läsa från urklipp. Det aktuella "
-"innehållet visas nedan."
-msgstr ""
+"An application is attempting to read from the clipboard. The current "
+"clipboard contents are shown below."
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:10
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:10
-msgid "Neka"
-msgstr ""
+msgid "Deny"
+msgstr "Neka"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:11
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:11
-msgid "Tillåt"
-msgstr ""
+msgid "Allow"
+msgstr "Tillåt"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:7
 msgid ""
-"Ett program försöker skriva till urklipp. Det aktuella "
-"innehållet visas nedan."
-msgstr ""
+"An application is attempting to write to the clipboard. The current "
+"clipboard contents are shown below."
 
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:6
-msgid "Varning: Potentiellt osäker infogning"
-msgstr ""
+msgid "Warning: Potentially Unsafe Paste"
+msgstr "Varning: Potentiellt osäker infogning"
 
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:7
 msgid ""
-"Att klistra in den här texten i terminalen kan vara farligt eftersom det ser ut som "
-"att kommandon kan utföras."
-msgstr ""
+"Pasting this text into the terminal may be dangerous as it looks like some "
+"commands may be executed."
 
 #: src/apprt/gtk/Window.zig:199
-msgid "Huvudmeny"
-msgstr ""
+msgid "View Open Tabs"
+msgstr "Huvudmeny"
 
 #: src/apprt/gtk/Window.zig:219
-msgid "Visa öppna flikar"
-msgstr ""
+msgid "View Open Tabs"
+msgstr "Visa öppna flikar"
 
 #: src/apprt/gtk/Window.zig:265
 msgid ""
-"⚠️ Du kör en felsökningsversion av Ghostty! Prestanda kommer att försämras."
+"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
 msgstr ""
+"⚠️ Du kör en felsökningsversion av Ghostty! Prestanda kommer att försämras."
 
 #: src/apprt/gtk/Window.zig:681
-msgid "Laddade om konfigurationen"
-msgstr ""
+msgid "Reloaded the configuration"
+msgstr "Laddade om konfigurationen"
 
 #: src/apprt/gtk/Window.zig:914
-msgid "Ghostty-utvecklare"
-msgstr ""
+msgid "Ghostty Developers"
+msgstr "Ghostty-utvecklare"
 
 #: src/apprt/gtk/CloseDialog.zig:47
-msgid "Stäng"
-msgstr ""
+msgid "Close"
+msgstr "Stäng"
 
 #: src/apprt/gtk/CloseDialog.zig:87
-msgid "Vill du avsluta Ghostty?"
-msgstr ""
+msgid "Quit Ghostty?"
+msgstr "Vill du avsluta Ghostty?"
 
 #: src/apprt/gtk/CloseDialog.zig:88
-msgid "Vill du stänga fönstret?"
-msgstr ""
+msgid "Close Window?"
+msgstr "Vill du stänga fönstret?"
 
 #: src/apprt/gtk/CloseDialog.zig:89
-msgid "Vill du stänga fliken?"
-msgstr ""
+msgid "Close Tab?"
+msgstr "Vill du stänga fliken?"
 
 #: src/apprt/gtk/CloseDialog.zig:90
-msgid "Stäng uppdelning?"
-msgstr ""
+msgid "Close Split?"
+msgstr "Vill du stänga uppdelat fönster?"
 
 #: src/apprt/gtk/CloseDialog.zig:96
-msgid "Alla terminalsessioner kommer att avslutas."
-msgstr ""
+msgid "All terminal sessions will be terminated."
+msgstr "Alla terminalsessioner kommer att avslutas."
 
 #: src/apprt/gtk/CloseDialog.zig:97
-msgid "Alla terminalsessioner i detta fönster kommer att avslutas."
-msgstr ""
+msgid "All terminal sessions in this window will be terminated."
+msgstr "Alla terminalsessioner i detta fönster kommer att avslutas."
 
 #: src/apprt/gtk/CloseDialog.zig:98
-msgid "Alla terminalsessioner på den här fliken kommer att avslutas."
-msgstr ""
+msgid "All terminal sessions in this tab will be terminated."
+msgstr "Alla terminalsessioner på den här fliken kommer att avslutas."
 
 #: src/apprt/gtk/CloseDialog.zig:99
-msgid "Den för närvarande pågående processen i denna uppdelning kommer att avslutas."
-msgstr ""
+msgid "The currently running process in this split will be terminated."
+msgstr "Den för närvarande pågående processen i denna uppdelning kommer att avslutas."
 
 #: src/apprt/gtk/Surface.zig:1128
-msgid "Sparat i urklipp"
-msgstr ""
+msgid "Copied to clipboard"
+msgstr "Sparat i urklipp"
