@@ -186,10 +186,10 @@
     "sha256": "13bec6675e403d86db3b55b39ae262f1e1bdfe24056dcd82824341c6308b5219"
   },
   {
-    "type": "git",
-    "url": "https://github.com/TUSF/zigimg",
-    "commit": "0ce4eca3560d5553b13263d6b6bb72e146dd43d0",
-    "dest": "vendor/p/zigimg-0.1.0-lly-O4heEADSRxoTwJwrD3TBfUob9052sIgb9SL8Iz-A"
+    "type": "archive",
+    "url": "https://github.com/TUSF/zigimg/archive/0ce4eca3560d5553b13263d6b6bb72e146dd43d0.tar.gz",
+    "dest": "vendor/p/zigimg-0.1.0-lly-O4heEADSRxoTwJwrD3TBfUob9052sIgb9SL8Iz-A",
+    "sha256": "002a334b8a82aea2ea06795a0836350fea78cb74cfc88e9b8efc6e0f506590fa"
   },
   {
     "type": "archive",
