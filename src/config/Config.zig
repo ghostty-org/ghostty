@@ -2192,7 +2192,7 @@ keybind: Keybinds = .{},
 /// default GSK renderer, or set the GSK_RENDERER environment variable to your
 /// renderer of choice before launching Ghostty. This setting has no effect when
 /// using versions of GTK earlier than 4.14.0.
-@"gtk-gsk-renderer": GtkGskRenderer = .opengl,
+@"gtk-gsk-renderer": GtkGskRenderer = .vulkan,
 
 /// If `true`, the Ghostty GTK application will run in single-instance mode:
 /// each new `ghostty` process launched will result in a new window if there is
@@ -6503,6 +6503,7 @@ pub const WindowPadding = struct {
 pub const GtkGskRenderer = enum {
     default,
     opengl,
+    vulkan,
 };
 
 test "parse duration" {

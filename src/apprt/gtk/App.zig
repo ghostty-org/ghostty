@@ -189,7 +189,7 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
             // From gtk 4.16, GDK_DEBUG is split into GDK_DEBUG and GDK_DISABLE.
             // For the remainder of "why" see the 4.14 comment below.
             gdk_disable.@"gles-api" = true;
-            gdk_disable.vulkan = true;
+            gdk_disable.vulkan = config.@"gtk-gsk-renderer" != .vulkan;
             gdk_debug.@"gl-no-fractional" = true;
             break :environment;
         }
@@ -202,13 +202,13 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
             // Upstream issue: https://gitlab.gnome.org/GNOME/gtk/-/issues/6589
             gdk_debug.@"gl-disable-gles" = true;
             gdk_debug.@"gl-no-fractional" = true;
-            gdk_debug.@"vulkan-disable" = true;
+            gdk_debug.@"vulkan-disable" = config.@"gtk-gsk-renderer" != .vulkan;
             break :environment;
         }
         // Versions prior to 4.14 are a bit of an unknown for Ghostty. It
         // is an environment that isn't tested well and we don't have a
         // good understanding of what we may need to do.
-        gdk_debug.@"vulkan-disable" = true;
+        gdk_debug.@"vulkan-disable" = config.@"gtk-gsk-renderer" != .vulkan;
     }
 
     {
