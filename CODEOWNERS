@@ -161,6 +161,7 @@
 /po/de_DE.UTF-8.po @ghostty-org/de_DE
 /po/nb_NO.UTF-8.po @ghostty-org/nb_NO
 /po/zh_CN.UTF-8.po @ghostty-org/zh_CN
+/po/fr_FR.UTF-8.po @ghostty-org/fr_FR
 
 # Packaging - Snap
 /snap/ @ghostty-org/snap
