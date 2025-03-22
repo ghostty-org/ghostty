@@ -25,6 +25,7 @@ const log = std.log.scoped(.i18n);
 ///
 pub const locales = [_][:0]const u8{
     "de_DE.UTF-8",
+    "ja_JP.UTF-8",
     "nb_NO.UTF-8",
     "zh_CN.UTF-8",
 };
