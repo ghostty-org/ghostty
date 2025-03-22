@@ -389,8 +389,8 @@ extension Ghostty {
         func promptTitle() {
             // Create an alert dialog
             let alert = NSAlert()
-            alert.messageText = "Change Terminal Title"
-            alert.informativeText = "Leave blank to restore the default."
+            alert.messageText = String(localized: "Change Terminal Title")
+            alert.informativeText = String(localized: "Leave blank to restore the default.")
             alert.alertStyle = .informational
 
             // Add a text field to the alert
@@ -399,8 +399,8 @@ extension Ghostty {
             alert.accessoryView = textField
 
             // Add buttons
-            alert.addButton(withTitle: "OK")
-            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: String(localized: "OK"))
+            alert.addButton(withTitle: String(localized: "Cancel"))
 
             let response = alert.runModal()
 
@@ -1155,21 +1155,21 @@ extension Ghostty {
 
             // If we have a selection, add copy
             if self.selectedRange().length > 0 {
-                menu.addItem(withTitle: "Copy", action: #selector(copy(_:)), keyEquivalent: "")
+                menu.addItem(withTitle: String(localized: "Copy"), action: #selector(copy(_:)), keyEquivalent: "")
             }
-            menu.addItem(withTitle: "Paste", action: #selector(paste(_:)), keyEquivalent: "")
+            menu.addItem(withTitle: String(localized: "Paste"), action: #selector(paste(_:)), keyEquivalent: "")
 
             menu.addItem(.separator())
-            menu.addItem(withTitle: "Split Right", action: #selector(splitRight(_:)), keyEquivalent: "")
-            menu.addItem(withTitle: "Split Left", action: #selector(splitLeft(_:)), keyEquivalent: "")
-            menu.addItem(withTitle: "Split Down", action: #selector(splitDown(_:)), keyEquivalent: "")
-            menu.addItem(withTitle: "Split Up", action: #selector(splitUp(_:)), keyEquivalent: "")
+            menu.addItem(withTitle: String(localized: "Split Right"), action: #selector(splitRight(_:)), keyEquivalent: "")
+            menu.addItem(withTitle: String(localized: "Split Left"), action: #selector(splitLeft(_:)), keyEquivalent: "")
+            menu.addItem(withTitle: String(localized: "Split Down"), action: #selector(splitDown(_:)), keyEquivalent: "")
+            menu.addItem(withTitle: String(localized: "Split Up"), action: #selector(splitUp(_:)), keyEquivalent: "")
 
             menu.addItem(.separator())
-            menu.addItem(withTitle: "Reset Terminal", action: #selector(resetTerminal(_:)), keyEquivalent: "")
-            menu.addItem(withTitle: "Toggle Terminal Inspector", action: #selector(toggleTerminalInspector(_:)), keyEquivalent: "")
+            menu.addItem(withTitle: String(localized: "Reset Terminal"), action: #selector(resetTerminal(_:)), keyEquivalent: "")
+            menu.addItem(withTitle: String(localized: "Toggle Terminal Inspector"), action: #selector(toggleTerminalInspector(_:)), keyEquivalent: "")
             menu.addItem(.separator())
-            menu.addItem(withTitle: "Change Title...", action: #selector(changeTitle(_:)), keyEquivalent: "")
+            menu.addItem(withTitle: String(localized: "Change Title..."), action: #selector(changeTitle(_:)), keyEquivalent: "")
 
             return menu
         }

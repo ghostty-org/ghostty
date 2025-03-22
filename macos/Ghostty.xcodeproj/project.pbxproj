@@ -3,14 +3,16 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 60;
 	objects = {
 
 /* Begin PBXBuildFile section */
 		29C15B1D2CDC3B2900520DD4 /* bat in Resources */ = {isa = PBXBuildFile; fileRef = 29C15B1C2CDC3B2000520DD4 /* bat */; };
 		55154BE02B33911F001622DC /* ghostty in Resources */ = {isa = PBXBuildFile; fileRef = 55154BDF2B33911F001622DC /* ghostty */; };
 		552964E62B34A9B400030505 /* vim in Resources */ = {isa = PBXBuildFile; fileRef = 552964E52B34A9B400030505 /* vim */; };
-		857F63812A5E64F200CA4815 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = 857F63802A5E64F200CA4815 /* MainMenu.xib */; };
+		8DA16F602D84598D009A416E /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8DA16F5F2D84598D009A416E /* Localizable.xcstrings */; };
+		8DA16F612D84598D009A416E /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8DA16F5F2D84598D009A416E /* Localizable.xcstrings */; };
+		8DA16F662D845EF6009A416E /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = 8DA16F652D845EF6009A416E /* MainMenu.xib */; };
 		9351BE8E3D22937F003B3499 /* nvim in Resources */ = {isa = PBXBuildFile; fileRef = 9351BE8E2D22937F003B3499 /* nvim */; };
 		A514C8D62B54A16400493A16 /* Ghostty.Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = A514C8D52B54A16400493A16 /* Ghostty.Config.swift */; };
 		A514C8D72B54A16400493A16 /* Ghostty.Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = A514C8D52B54A16400493A16 /* Ghostty.Config.swift */; };
@@ -117,7 +119,9 @@
 		3B39CAA42B33949B00DABEB8 /* GhosttyReleaseLocal.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = GhosttyReleaseLocal.entitlements; sourceTree = "<group>"; };
 		55154BDF2B33911F001622DC /* ghostty */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ghostty; path = "../zig-out/share/ghostty"; sourceTree = "<group>"; };
 		552964E52B34A9B400030505 /* vim */ = {isa = PBXFileReference; lastKnownFileType = folder; name = vim; path = "../zig-out/share/vim"; sourceTree = "<group>"; };
-		857F63802A5E64F200CA4815 /* MainMenu.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = MainMenu.xib; sourceTree = "<group>"; };
+		8DA16F5F2D84598D009A416E /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		8DA16F642D845EF6009A416E /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = Base; path = Base.lproj/MainMenu.xib; sourceTree = "<group>"; };
+		8DA16F672D845EF6009A416E /* mul */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; name = mul; path = mul.lproj/MainMenu.xcstrings; sourceTree = "<group>"; };
 		9351BE8E2D22937F003B3499 /* nvim */ = {isa = PBXFileReference; lastKnownFileType = folder; name = nvim; path = "../zig-out/share/nvim"; sourceTree = "<group>"; };
 		A514C8D52B54A16400493A16 /* Ghostty.Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ghostty.Config.swift; sourceTree = "<group>"; };
 		A51B78462AF4B58B00F3EDB9 /* TerminalWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWindow.swift; sourceTree = "<group>"; };
@@ -336,7 +340,7 @@
 			children = (
 				A5FEB2FF2ABB69450068369E /* main.swift */,
 				A53426342A7DA53D00EBB7A2 /* AppDelegate.swift */,
-				857F63802A5E64F200CA4815 /* MainMenu.xib */,
+				8DA16F652D845EF6009A416E /* MainMenu.xib */,
 				C1F26EEA2B76CC2400404083 /* ghostty-bridging-header.h */,
 			);
 			path = macOS;
@@ -439,6 +443,7 @@
 		A5B30528299BEAAA0047F10C = {
 			isa = PBXGroup;
 			children = (
+				8DA16F5F2D84598D009A416E /* Localizable.xcstrings */,
 				A571AB1C2A206FC600248498 /* Ghostty-Info.plist */,
 				A5B30538299BEAAB0047F10C /* Assets.xcassets */,
 				A5B3053D299BEAAB0047F10C /* Ghostty.entitlements */,
@@ -575,6 +580,7 @@
 			knownRegions = (
 				en,
 				Base,
+				"zh-Hans",
 			);
 			mainGroup = A5B30528299BEAAA0047F10C;
 			packageReferences = (
@@ -603,13 +609,14 @@
 				A5985CE62C33060F00C57AD3 /* man in Resources */,
 				9351BE8E3D22937F003B3499 /* nvim in Resources */,
 				A5A1F8852A489D6800D1E8BC /* terminfo in Resources */,
+				8DA16F602D84598D009A416E /* Localizable.xcstrings in Resources */,
 				552964E62B34A9B400030505 /* vim in Resources */,
 				FC5218FA2D10FFCE004C93E0 /* zsh in Resources */,
 				A5B30539299BEAAB0047F10C /* Assets.xcassets in Resources */,
 				A51BFC1E2B2FB5CE00E92F16 /* About.xib in Resources */,
 				A5E112932AF73E6E00C6E0C2 /* ClipboardConfirmation.xib in Resources */,
 				A5CDF1912AAF9A5800513312 /* ConfigurationErrors.xib in Resources */,
-				857F63812A5E64F200CA4815 /* MainMenu.xib in Resources */,
+				8DA16F662D845EF6009A416E /* MainMenu.xib in Resources */,
 				A596309A2AEE1C6400D64628 /* Terminal.xib in Resources */,
 				A5CBD05C2CA0C5C70017A1AE /* QuickTerminal.xib in Resources */,
 			);
@@ -619,6 +626,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8DA16F612D84598D009A416E /* Localizable.xcstrings in Resources */,
 				A53D0C952B53B4D800305CE6 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -723,6 +731,18 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXVariantGroup section */
+		8DA16F652D845EF6009A416E /* MainMenu.xib */ = {
+			isa = PBXVariantGroup;
+			children = (
+				8DA16F642D845EF6009A416E /* Base */,
+				8DA16F672D845EF6009A416E /* mul */,
+			);
+			name = MainMenu.xib;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
 /* Begin XCBuildConfiguration section */
 		3B39CAA22B33946300DABEB8 /* ReleaseLocal */ = {
 			isa = XCBuildConfiguration;
@@ -775,6 +795,7 @@
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
 				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 			};
 			name = ReleaseLocal;
@@ -890,6 +911,7 @@
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
 			name = Debug;
@@ -945,6 +967,7 @@
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
 				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 			};
 			name = Release;
