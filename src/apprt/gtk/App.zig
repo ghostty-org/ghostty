@@ -497,6 +497,7 @@ pub fn performAction(
         .prompt_title => try self.promptTitle(target),
         .toggle_quick_terminal => return try self.toggleQuickTerminal(),
         .secure_input => self.setSecureInput(target, value),
+        .open_url => self.openUrl(value),
 
         // Unimplemented
         .close_all_windows,
@@ -1674,4 +1675,11 @@ test "isValidAppId" {
     try testing.expect(!isValidAppId(".foo"));
     try testing.expect(!isValidAppId(""));
     try testing.expect(!isValidAppId("foo" ** 86));
+}
+
+pub fn openUrl(
+    app: *App,
+    value: apprt.action.OpenUrl,
+) void {
+    internal_os.openUrlLinux(app.core_app.alloc, value.url);
 }
