@@ -23,7 +23,7 @@ msgstr "Changer nom du terminal"
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:6
 msgid "Leave blank to restore the default title."
-msgstr "Laisser vide pour restaurer le titre par défaut"
+msgstr "Laisser vide pour restaurer le titre par défaut."
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:9
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:10 src/apprt/gtk/CloseDialog.zig:44
@@ -42,7 +42,9 @@ msgstr "Erreur de configuration"
 msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
-msgstr "Une ou plusieurs erreurs de configuration ont été trouvée(s). Veuillez lire les erreurs ci-dessous, et recharger votre configuration ou bien ignorer ces erreurs."
+msgstr ""
+"Une ou plusieurs erreurs de configuration ont été trouvée(s). Veuillez lire les erreurs ci-dessous," 
+"et recharger votre configuration ou bien ignorer ces erreurs."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
 msgid "Ignore"
@@ -83,7 +85,7 @@ msgstr "Créer panneau"
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:33
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:45
 msgid "Change Title…"
-msgstr "Changer le titre"
+msgstr "Changer le titre…"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
@@ -167,7 +169,7 @@ msgid ""
 "clipboard contents are shown below."
 msgstr ""
 "Une application essai de lire depuis le presse-papier." 
-"Le contenu actuel du presse-papier est affiché ci-dessous"
+"Le contenu actuel du presse-papier est affiché ci-dessous."
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:10
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:10
@@ -185,11 +187,11 @@ msgid ""
 "clipboard contents are shown below."
 msgstr ""
 "Une application essai d'écrire dans le presse-papier." 
-"Le contenu actuel du presse-papier est affiché ci-dessous"
+"Le contenu actuel du presse-papier est affiché ci-dessous."
 
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:6
 msgid "Warning: Potentially Unsafe Paste"
-msgstr "Warning: Collage potentiellement non sécurisé"
+msgstr "Attention: Collage potentiellement dangereux"
 
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:7
 msgid ""
@@ -197,7 +199,7 @@ msgid ""
 "commands may be executed."
 msgstr ""
 "Coller ce texte dans le terminal pourrait être dangereux, "
-"il semblerait que certaines commandes pourraient être exécutées"
+"il semblerait que certaines commandes pourraient être exécutées."
 
 #: src/apprt/gtk/inspector.zig:144
 msgid "Ghostty: Terminal Inspector"
@@ -229,19 +231,19 @@ msgstr "Fermer le panneau?"
 
 #: src/apprt/gtk/CloseDialog.zig:96
 msgid "All terminal sessions will be terminated."
-msgstr "Toutes les sessions vont être arrêtées"
+msgstr "Toutes les sessions vont être arrêtées."
 
 #: src/apprt/gtk/CloseDialog.zig:97
 msgid "All terminal sessions in this window will be terminated."
-msgstr "Toutes les sessions de cette fenêtre vont être arrêtées"
+msgstr "Toutes les sessions de cette fenêtre vont être arrêtées."
 
 #: src/apprt/gtk/CloseDialog.zig:98
 msgid "All terminal sessions in this tab will be terminated."
-msgstr "Toutes les sessions de cet onglet vont être arrêtées"
+msgstr "Toutes les sessions de cet onglet vont être arrêtées."
 
 #: src/apprt/gtk/CloseDialog.zig:99
 msgid "The currently running process in this split will be terminated."
-msgstr "Le processus en cours dans ce panneau va être arrêté"
+msgstr "Le processus en cours dans ce panneau va être arrêté."
 
 #: src/apprt/gtk/Window.zig:200
 msgid "Main Menu"
@@ -264,4 +266,3 @@ msgstr "Recharger la configuration"
 #: src/apprt/gtk/Window.zig:941
 msgid "Ghostty Developers"
 msgstr "Les developpeurs de Ghostty"
-
