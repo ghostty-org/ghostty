@@ -2,6 +2,18 @@
   lib,
   stdenv,
   callPackage,
+  expat,
+  fontconfig,
+  freetype,
+  harfbuzz,
+  libhwy,
+  libpng,
+  oniguruma,
+  zlib,
+  libGL,
+  glib,
+  gtk4,
+  gtk4-layer-shell,
   gobject-introspection,
   blueprint-compiler,
   libxml2,
@@ -84,7 +96,36 @@ in
         wayland-protocols
       ];
 
-    buildInputs = buildInputs;
+    buildInputs =
+      [
+        libGL
+      ]
+      ++ lib.optionals stdenv.hostPlatform.isLinux [
+        bzip2
+        expat
+        fontconfig
+        freetype
+        harfbuzz
+        libhwy
+        libpng
+        oniguruma
+        zlib
+
+        libadwaita
+        gtk4
+        glib
+        gsettings-desktop-schemas
+      ]
+      ++ lib.optionals enableX11 [
+        libX11
+        libXcursor
+        libXi
+        libXrandr
+      ]
+      ++ lib.optionals enableWayland [
+        gtk4-layer-shell
+        wayland
+      ];
 
     dontConfigure = true;
 

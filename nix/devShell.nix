@@ -40,6 +40,8 @@
   hicolor-icon-theme,
   harfbuzz,
   libpng,
+  libGL,
+  libhwy,
   libxkbcommon,
   libX11,
   libXcursor,
@@ -65,6 +67,39 @@
   pkgs,
 }: let
   # See package.nix. Keep in sync.
+  rpathLibs =
+    [
+      libGL
+    ]
+    ++ lib.optionals stdenv.hostPlatform.isLinux [
+      bzip2
+      expat
+      fontconfig
+      freetype
+      harfbuzz
+      libhwy
+      libpng
+      libxml2
+      oniguruma
+      simdutf
+      zlib
+
+      glslang
+      spirv-cross
+
+      libxkbcommon
+      libX11
+      libXcursor
+      libXi
+      libXrandr
+
+      libadwaita
+      gtk4
+      gtk4-layer-shell
+      glib
+      gobject-introspection
+      wayland
+    ];
   ld_library_path = import ./build-support/ld-library-path.nix {
     inherit pkgs lib stdenv;
   };
@@ -134,6 +169,7 @@ in
         fontconfig
         freetype
         harfbuzz
+        libhwy
         libpng
         libxml2
         oniguruma
