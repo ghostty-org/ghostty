@@ -153,7 +153,7 @@ msgstr "端末インスペクター"
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:102
 #: src/apprt/gtk/Window.zig:960
 msgid "About Ghostty"
-msgstr "Ghosttyについて"
+msgstr "Ghostty について"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:107
 msgid "Quit"
@@ -216,7 +216,7 @@ msgstr "閉じる"
 
 #: src/apprt/gtk/CloseDialog.zig:87
 msgid "Quit Ghostty?"
-msgstr "Ghosttyを終了しますか?"
+msgstr "Ghostty を終了しますか?"
 
 #: src/apprt/gtk/CloseDialog.zig:88
 msgid "Close Window?"
@@ -257,7 +257,7 @@ msgstr "開いているすべてのタブを表示"
 #: src/apprt/gtk/Window.zig:295
 msgid ""
 "⚠️ You're running a debug build of Ghostty! Performance will be degraded."
-msgstr "⚠️ Ghosttyのデバッグビルドを実行しています! パフォーマンスが低下しています。"
+msgstr "⚠️ Ghostty のデバッグビルドを実行しています! パフォーマンスが低下しています。"
 
 #: src/apprt/gtk/Window.zig:725
 msgid "Reloaded the configuration"
