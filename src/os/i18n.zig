@@ -108,12 +108,15 @@ pub fn canonicalizeLocale(
     // Buffer must be 16 or at least as long as the locale and null term
     if (buf.len < @max(16, locale.len + 1)) return error.NoSpaceLeft;
 
+    // Fix zh locales for macOS
+    const updated = fixZHLocale(locale);
+
     // Copy our locale into the buffer since it modifies in place.
     // This must be null-terminated.
-    @memcpy(buf[0..locale.len], locale);
-    buf[locale.len] = 0;
+    @memcpy(buf[0..updated.len], updated);
+    buf[updated.len] = 0;
 
-    _libintl_locale_name_canonicalize(buf[0..locale.len :0]);
+    _libintl_locale_name_canonicalize(buf[0..updated.len :0]);
 
     // Convert the null-terminated result buffer into a slice. We
     // need to search for the null terminator and slice it back.
@@ -121,6 +124,24 @@ pub fn canonicalizeLocale(
     // null.
     const slice = std.mem.sliceTo(buf, 0);
     return buf[0..slice.len :0];
+}
+
+fn fixZHLocale(locale: []const u8) []const u8 {
+    if (locale.len == 10 and std.mem.eql(u8, locale[0..2], "zh")) {
+        const script = locale[3..7];
+        const region = locale[8..10];
+
+        if (std.mem.eql(u8, script, "Hans")) {
+            if (std.mem.eql(u8, region, "SG")) return "zh-SG";
+            return "zh-CN";
+        } else if (std.mem.eql(u8, script, "Hant")) {
+            if (std.mem.eql(u8, region, "HK")) return "zh-HK";
+            if (std.mem.eql(u8, region, "MO")) return "zh-MO";
+            return "zh-TW";
+        }
+    }
+
+    return locale;
 }
 
 /// This can be called at any point a compile-time-known locale is
@@ -156,6 +177,12 @@ test "canonicalizeLocale darwin" {
     try testing.expectEqualStrings("en_US", try canonicalizeLocale(&buf, "en_US"));
     try testing.expectEqualStrings("zh_CN", try canonicalizeLocale(&buf, "zh-Hans"));
     try testing.expectEqualStrings("zh_TW", try canonicalizeLocale(&buf, "zh-Hant"));
+
+    try testing.expectEqualStrings("zh_CN", try canonicalizeLocale(&buf, "zh-Hans-CN"));
+    try testing.expectEqualStrings("zh_SG", try canonicalizeLocale(&buf, "zh-Hans-SG"));
+    try testing.expectEqualStrings("zh_TW", try canonicalizeLocale(&buf, "zh-Hant-TW"));
+    try testing.expectEqualStrings("zh_HK", try canonicalizeLocale(&buf, "zh-Hant-HK"));
+    try testing.expectEqualStrings("zh_MO", try canonicalizeLocale(&buf, "zh-Hant-MO"));
 
     // This is just an edge case I want to make sure we're aware of:
     // canonicalizeLocale does not handle encodings and will turn them into
