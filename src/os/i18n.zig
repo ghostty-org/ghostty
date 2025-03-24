@@ -109,7 +109,7 @@ pub fn canonicalizeLocale(
     if (buf.len < @max(16, locale.len + 1)) return error.NoSpaceLeft;
 
     // Fix zh locales for macOS
-    const updated = fixZHLocale(locale);
+    const updated = fixZhLocale(locale);
 
     // Copy our locale into the buffer since it modifies in place.
     // This must be null-terminated.
@@ -126,18 +126,18 @@ pub fn canonicalizeLocale(
     return buf[0..slice.len :0];
 }
 
-fn fixZHLocale(locale: []const u8) []const u8 {
+fn fixZhLocale(locale: []const u8) []const u8 {
     if (locale.len == 10 and std.mem.eql(u8, locale[0..2], "zh")) {
         const script = locale[3..7];
         const region = locale[8..10];
 
         if (std.mem.eql(u8, script, "Hans")) {
-            if (std.mem.eql(u8, region, "SG")) return "zh-SG";
-            return "zh-CN";
+            if (std.mem.eql(u8, region, "SG")) return "zh_SG";
+            return "zh_CN";
         } else if (std.mem.eql(u8, script, "Hant")) {
-            if (std.mem.eql(u8, region, "HK")) return "zh-HK";
-            if (std.mem.eql(u8, region, "MO")) return "zh-MO";
-            return "zh-TW";
+            if (std.mem.eql(u8, region, "HK")) return "zh_HK";
+            if (std.mem.eql(u8, region, "MO")) return "zh_MO";
+            return "zh_TW";
         }
     }
 
