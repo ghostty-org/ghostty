@@ -1,7 +1,7 @@
 # Dutch translations for com.mitchellh.ghostty package.
 # Copyright (C) 2025 Mitchell Hashimoto
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
-#  <geesinknico@gmail.com>, 2025.
+# Nico Geesink <geesinknico@gmail.com>, 2025.
 #
 msgid ""
 msgstr ""
@@ -9,7 +9,7 @@ msgstr ""
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2025-03-19 08:28-0700\n"
 "PO-Revision-Date: 2025-03-24 15:00+0100\n"
-"Last-Translator:  <geesinknico@gmail.com>\n"
+"Last-Translator: Nico Geesink <geesinknico@gmail.com>\n"
 "Language-Team: Dutch <vertaling@vrijschrift.org>\n"
 "Language: nl\n"
 "MIME-Version: 1.0\n"
@@ -19,7 +19,7 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:5
 msgid "Change Terminal Title"
-msgstr "Verander De Titel van De Terminal"
+msgstr "Verander de titel van de terminal"
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:6
 msgid "Leave blank to restore the default title."
@@ -85,27 +85,27 @@ msgstr "Splitsing"
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:33
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:45
 msgid "Change Title…"
-msgstr "Verander Titel…"
+msgstr "Verander titel…"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
 msgid "Split Up"
-msgstr "Splits Naar Boven"
+msgstr "Splits naar boven"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
 msgid "Split Down"
-msgstr "Splits Naar Beneden"
+msgstr "Splits naar beneden"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
 msgid "Split Left"
-msgstr "Splits Naar Links"
+msgstr "Splits naar links"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
 msgid "Split Right"
-msgstr "Splits Naar Rechts"
+msgstr "Splits naar rechts"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:59
 msgid "Tab"
@@ -115,12 +115,12 @@ msgstr "Tablad"
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:30
 #: src/apprt/gtk/Window.zig:246
 msgid "New Tab"
-msgstr "Nieuw Tablad"
+msgstr "Nieuw tablad"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:67
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:35
 msgid "Close Tab"
-msgstr "Sluit Tablad"
+msgstr "Sluit tablad"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:73
 msgid "Window"
@@ -129,12 +129,12 @@ msgstr "Venster"
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:76
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:18
 msgid "New Window"
-msgstr "Nieuw Venster"
+msgstr "Nieuw venster"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:81
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:23
 msgid "Close Window"
-msgstr "Sluit Venster"
+msgstr "Sluit venster"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:89
 msgid "Config"
@@ -143,11 +143,11 @@ msgstr "Configuratie"
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:92
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:90
 msgid "Open Configuration"
-msgstr "Open Configuratie"
+msgstr "Open configuratie"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:85
 msgid "Terminal Inspector"
-msgstr "Terminal Inspecteur"
+msgstr "Terminal inspecteur"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:102
 #: src/apprt/gtk/Window.zig:960
@@ -161,7 +161,7 @@ msgstr "Afsluiten"
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:6
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:6
 msgid "Authorize Clipboard Access"
-msgstr "Verleen Toegang Tot Klembord"
+msgstr "Verleen toegang tot klembord"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:7
 msgid ""
@@ -191,7 +191,7 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:6
 msgid "Warning: Potentially Unsafe Paste"
-msgstr "Waarschuwing: Mogelijk Onveilige Plakactie"
+msgstr "Waarschuwing: mogelijk onveilige plakactie"
 
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:7
 msgid ""
@@ -203,7 +203,7 @@ msgstr ""
 
 #: src/apprt/gtk/inspector.zig:144
 msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: Terminal Inspecteur"
+msgstr "Ghostty: terminal inspecteur"
 
 #: src/apprt/gtk/Surface.zig:1243
 msgid "Copied to clipboard"
@@ -215,19 +215,19 @@ msgstr "Afsluiten"
 
 #: src/apprt/gtk/CloseDialog.zig:87
 msgid "Quit Ghostty?"
-msgstr "Wilt U Ghostty Afsluiten?"
+msgstr "Wilt u Ghostty afsluiten?"
 
 #: src/apprt/gtk/CloseDialog.zig:88
 msgid "Close Window?"
-msgstr "Wilt U Dit Venster Afsluiten?"
+msgstr "Wilt u dit venster afsluiten?"
 
 #: src/apprt/gtk/CloseDialog.zig:89
 msgid "Close Tab?"
-msgstr "Wil U Dit Tablad Afsluiten?"
+msgstr "Wil u dit tablad afsluiten?"
 
 #: src/apprt/gtk/CloseDialog.zig:90
 msgid "Close Split?"
-msgstr "Wilt U Deze Splitsing Afsluiten?"
+msgstr "Wilt u deze splitsing afsluiten?"
 
 #: src/apprt/gtk/CloseDialog.zig:96
 msgid "All terminal sessions will be terminated."
@@ -251,7 +251,7 @@ msgstr "Hoofdmenu"
 
 #: src/apprt/gtk/Window.zig:221
 msgid "View Open Tabs"
-msgstr "Open Tabladen Bekijken"
+msgstr "Open tabladen bekijken"
 
 #: src/apprt/gtk/Window.zig:295
 msgid ""
@@ -265,4 +265,4 @@ msgstr "De configuratie is herladen"
 
 #: src/apprt/gtk/Window.zig:941
 msgid "Ghostty Developers"
-msgstr "Ghostty Ontwikkelaars"
+msgstr "Ghostty ontwikkelaars"
