@@ -11,6 +11,9 @@ layout(binding = 0) uniform Globals {
     uniform vec4	iMouse;
     uniform vec4	iDate;
     uniform float	iSampleRate;
+    uniform vec4	iCurrentCursor;
+    uniform vec4	iPreviousCursor;
+    uniform float	iTimeCursorChange;
 };
 
 layout(binding = 0) uniform sampler2D	iChannel0;

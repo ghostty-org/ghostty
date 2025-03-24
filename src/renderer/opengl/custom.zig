@@ -22,6 +22,9 @@ pub const Uniforms = extern struct {
     mouse: [4]f32 align(16) = .{ 0, 0, 0, 0 },
     date: [4]f32 align(16) = .{ 0, 0, 0, 0 },
     sample_rate: f32 align(4) = 1,
+    current_cursor: [4]f32 align(16) = .{ 0, 0, 0, 0 }, 
+    previous_cursor: [4]f32 align(16) = .{ 0, 0, 0, 0 }, 
+    cursor_change_time: f32 align(4) = 1 
 };
 
 /// The state associated with custom shaders. This should only be initialized
