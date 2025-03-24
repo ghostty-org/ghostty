@@ -355,13 +355,13 @@ pub fn init(b: *std.Build) !Config {
         // generally want a fat binary. This can be overridden with the
         // `-fsys` flag.
         for (&[_][]const u8{
-            "freetype",
-            "harfbuzz",
             "fontconfig",
-            "libpng",
-            "zlib",
-            "oniguruma",
+            "freetype",
             "gtk4-layer-shell",
+            "harfbuzz",
+            "libpng",
+            "oniguruma",
+            "zlib",
         }) |dep| {
             _ = b.systemIntegrationOption(
                 dep,
@@ -379,6 +379,13 @@ pub fn init(b: *std.Build) !Config {
             "glslang",
             "spirv-cross",
             "simdutf",
+
+            // This is mostly header-only in release builds and the API
+            // isn't totally stable so this package either doesn't typically
+            // exist OR is a common source of build issues. Packagers who
+            // feel strongly about not building this from source can explicitly
+            // enable fsys on this.
+            "highway",
 
             // This is default false because it is used for testing
             // primarily and not official packaging. The packaging
