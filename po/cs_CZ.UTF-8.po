@@ -43,7 +43,7 @@ msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
-"Jedna nebo více chyb byly nalezeny v konfiguraci. Prosím podívejte se na chyby zobrazeny dole, "
+"Jedna nebo více chyb byly nalezeny v konfiguraci. Podívejte se prosím na chyby zobrazeny níže, "
 "a aktualizujte konfiguraci nebo ignorujte tyto chyby."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
@@ -54,7 +54,7 @@ msgstr "Ignorovat"
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:97
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:95
 msgid "Reload Configuration"
-msgstr "Aktualizovat konfiguraci"
+msgstr "Znovu načíst konfiguraci"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
@@ -169,7 +169,7 @@ msgid ""
 "clipboard contents are shown below."
 msgstr ""
 "Aplikace se snaží přečíst obsah ve schránce. Obsah schránky "
-"je zobrazen dole."
+"je zobrazen níže."
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:10
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:10
@@ -187,7 +187,7 @@ msgid ""
 "clipboard contents are shown below."
 msgstr ""
 "Aplikace se snaží zapsat do schránky. Obsah schránky "
-"je zobrazen dole."
+"je zobrazen níže."
 
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:6
 msgid "Warning: Potentially Unsafe Paste"
@@ -231,19 +231,19 @@ msgstr "Zavřít rozdělení?"
 
 #: src/apprt/gtk/CloseDialog.zig:96
 msgid "All terminal sessions will be terminated."
-msgstr "Všechny procesy budou terminovány."
+msgstr "Všechny procesy budou ukončeny."
 
 #: src/apprt/gtk/CloseDialog.zig:97
 msgid "All terminal sessions in this window will be terminated."
-msgstr "Všechny procesy v tomto okně budou terminovány."
+msgstr "Všechny procesy v tomto okně budou ukončeny."
 
 #: src/apprt/gtk/CloseDialog.zig:98
 msgid "All terminal sessions in this tab will be terminated."
-msgstr "Všechny procesy v této kartě budou terminovány."
+msgstr "Všechny procesy v této kartě budou ukončeny."
 
 #: src/apprt/gtk/CloseDialog.zig:99
 msgid "The currently running process in this split will be terminated."
-msgstr "Momentálně běžící proces v tomto rozdělení bude terminován."
+msgstr "Běžící proces v tomto rozdělení bude ukončen."
 
 #: src/apprt/gtk/Window.zig:200
 msgid "Main Menu"
@@ -261,7 +261,7 @@ msgstr ""
 
 #: src/apprt/gtk/Window.zig:725
 msgid "Reloaded the configuration"
-msgstr "Konfigurace byla aktualizována"
+msgstr "Konfigurace byla znovu načtena"
 
 #: src/apprt/gtk/Window.zig:941
 msgid "Ghostty Developers"
