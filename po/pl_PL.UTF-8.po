@@ -1,35 +1,36 @@
-# German translations for com.mitchellh.ghostty package
-# German translation for com.mitchellh.ghostty.
+# Polish translations for com.mitchellh.ghostty package
+# Polskie tłumaczenia dla pakietu com.mitchellh.ghostty.
 # Copyright (C) 2025 Mitchell Hashimoto
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
-# Robin Pfäffle <r@rpfaeffle.com>, 2025.
+# Bartosz Sokorski <b.sokorski@gmail.com>, 2025.
 #
 msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-03-19 08:54-0700\n"
-"PO-Revision-Date: 2025-03-06 14:57+0100\n"
-"Last-Translator: Robin <r@rpfaeffle.com>\n"
-"Language-Team: German <translation-team-de@lists.sourceforge.net>\n"
-"Language: de\n"
+"POT-Creation-Date: 2025-03-18 11:48+0100\n"
+"PO-Revision-Date: 2025-03-17 12:15+0100\n"
+"Last-Translator: Bartosz Sokorski <b.sokorski@gmail.com>\n"
+"Language-Team: Polish <translation-team-pl@lists.sourceforge.net>\n"
+"Language: pl\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 "
+"|| n%100>=20) ? 1 : 2);\n"
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:5
 msgid "Change Terminal Title"
-msgstr "Terminal-Titel bearbeiten"
+msgstr "Zmień tytuł terminala"
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:6
 msgid "Leave blank to restore the default title."
-msgstr "Leer lassen, um den Standardtitel wiederherzustellen."
+msgstr "Pozostaw puste by przywrócić domyślny tytuł."
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:9
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:10 src/apprt/gtk/CloseDialog.zig:44
 msgid "Cancel"
-msgstr "Abbrechen"
+msgstr "Anuluj"
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:10
 msgid "OK"
@@ -37,232 +38,232 @@ msgstr "OK"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:5
 msgid "Configuration Errors"
-msgstr ""
+msgstr "Błędy konfiguracji"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:6
 msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
+"Znaleziono jeden lub więcej błędów konfiguracji. Sprawdź błędy wylistowane poniżej "
+"i przeładuj konfigurację lub zignoruj je."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
 msgid "Ignore"
-msgstr ""
+msgstr "Zignoruj"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:10
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:97
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:95
 msgid "Reload Configuration"
-msgstr "Konfiguration neu laden"
+msgstr "Przeładuj konfigurację"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
 msgid "Copy"
-msgstr "Kopieren"
+msgstr "Kopiuj"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:11
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:11
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:11
 msgid "Paste"
-msgstr "Einfügen"
+msgstr "Wklej"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:18
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:73
 msgid "Clear"
-msgstr "Leeren"
+msgstr "Wyczyść"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:23
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:78
 msgid "Reset"
-msgstr "Zurücksetzen"
+msgstr "Zresetuj"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:30
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:42
 msgid "Split"
-msgstr "Fenster teilen"
+msgstr "Podział"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:33
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:45
 msgid "Change Title…"
-msgstr "Titel bearbeiten…"
+msgstr "Zmień tytuł…"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
 msgid "Split Up"
-msgstr "Fenster nach oben teilen"
+msgstr "Podziel w górę"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
 msgid "Split Down"
-msgstr "Fenster nach unten teilen"
+msgstr "Podziel w dół"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
 msgid "Split Left"
-msgstr "Fenter nach links teilen"
+msgstr "Podziel w lewo"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
 msgid "Split Right"
-msgstr "Fenster nach rechts teilen"
+msgstr "Podziel w prawo"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:59
 msgid "Tab"
-msgstr "Tab"
+msgstr "Karta"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:62
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:30
 #: src/apprt/gtk/Window.zig:246
 msgid "New Tab"
-msgstr "Neuer Tab"
+msgstr "Nowa karta"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:67
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:35
 msgid "Close Tab"
-msgstr "Tab schließen"
+msgstr "Zamknij kartę"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:73
 msgid "Window"
-msgstr "Fenster"
+msgstr "Okno"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:76
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:18
 msgid "New Window"
-msgstr "Neues Fenster"
+msgstr "Nowe okno"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:81
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:23
 msgid "Close Window"
-msgstr "Fenster schließen"
+msgstr "Zamknij okno"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:89
 msgid "Config"
-msgstr "Konfiguration"
+msgstr "Konfiguracja"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:92
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:90
 msgid "Open Configuration"
-msgstr "Konfiguration öffnen"
+msgstr "Otwórz konfigurację"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:85
 msgid "Terminal Inspector"
-msgstr "Terminalinspektor"
+msgstr "Inspektor terminala"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:102
-#: src/apprt/gtk/Window.zig:960
+#: src/apprt/gtk/Window.zig:958
 msgid "About Ghostty"
-msgstr "Über Ghostty"
+msgstr "O Ghostty"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:107
 msgid "Quit"
-msgstr "Beenden"
+msgstr "Zamknij"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:6
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:6
 msgid "Authorize Clipboard Access"
-msgstr "Zugriff auf die Zwischenablage gewähren"
+msgstr "Udziel dostępu do schowka"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:7
 msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
-"Eine Anwendung versucht von der Zwischenablage zu lesen. Der aktuelle Inhalt "
-"der Zwischenablage wird unten angezeigt."
+"Aplikacja próbuje odczytać zawartość schowka. Zawartość schowka pokazana "
+"poniżej."
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:10
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:10
 msgid "Deny"
-msgstr "Nicht erlauben"
+msgstr "Odmów"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:11
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:11
 msgid "Allow"
-msgstr "Erlauben"
+msgstr "Zezwól"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:7
 msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
-"Eine Anwendung versucht in die Zwischenablage zu schreiben. Der aktuelle "
-"Inhalt der Zwischenablage wird unten angezeigt."
+"Aplikacja próbuje zapisać do schowka. Obecna zawartość schowka pokazana "
+"poniżej."
 
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:6
 msgid "Warning: Potentially Unsafe Paste"
-msgstr "Achtung: Möglicherweise unsicheres Einfügen"
+msgstr "Uwaga: potencjalnie niebezpieczne wklejenie ze schowka"
 
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:7
 msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
 msgstr ""
-"Diesen Text in das Terminal einzufügen könnte möglicherweise gefährlich "
-"sein. Es scheint, dass Anweisungen ausgeführt werden könnten."
-
-#: src/apprt/gtk/inspector.zig:144
-msgid "Ghostty: Terminal Inspector"
-msgstr ""
-
-#: src/apprt/gtk/Surface.zig:1243
-msgid "Copied to clipboard"
-msgstr "In die Zwischenablage kopiert"
-
-#: src/apprt/gtk/CloseDialog.zig:47
-msgid "Close"
-msgstr "Schließen"
-
-#: src/apprt/gtk/CloseDialog.zig:87
-msgid "Quit Ghostty?"
-msgstr "Ghostty schließen?"
-
-#: src/apprt/gtk/CloseDialog.zig:88
-msgid "Close Window?"
-msgstr "Fenster schließen?"
-
-#: src/apprt/gtk/CloseDialog.zig:89
-msgid "Close Tab?"
-msgstr "Tab schließen?"
-
-#: src/apprt/gtk/CloseDialog.zig:90
-msgid "Close Split?"
-msgstr "Geteiltes Fenster schließen?"
-
-#: src/apprt/gtk/CloseDialog.zig:96
-msgid "All terminal sessions will be terminated."
-msgstr "Alle Terminalsitzungen werden beendet."
-
-#: src/apprt/gtk/CloseDialog.zig:97
-msgid "All terminal sessions in this window will be terminated."
-msgstr "Alle Terminalsitzungen in diesem Fenster werden beendet."
-
-#: src/apprt/gtk/CloseDialog.zig:98
-msgid "All terminal sessions in this tab will be terminated."
-msgstr "Alle Terminalsitzungen in diesem Tab werden beendet."
-
-#: src/apprt/gtk/CloseDialog.zig:99
-msgid "The currently running process in this split will be terminated."
-msgstr "Der aktuell laufende Prozess in diesem geteilten Fenster wird beendet."
+"Wklejenie tego tekstu do terminala może być niebezpieczne, ponieważ może "
+"spowodować wykonanie komend."
 
 #: src/apprt/gtk/Window.zig:200
 msgid "Main Menu"
-msgstr "Hauptmenü"
+msgstr "Menu główne"
 
 #: src/apprt/gtk/Window.zig:221
 msgid "View Open Tabs"
-msgstr "Offene Tabs einblenden"
+msgstr "Zobacz otwarte karty"
 
 #: src/apprt/gtk/Window.zig:295
 msgid ""
 "⚠️ You're running a debug build of Ghostty! Performance will be degraded."
-msgstr ""
-"⚠️ Du verwendest einen Debug Build von Ghostty! Die Leistung wird reduziert "
-"sein."
+msgstr "⚠️ Używasz wersji Ghostty do debugowania! Wydajność będzie obniżona."
 
 #: src/apprt/gtk/Window.zig:725
 msgid "Reloaded the configuration"
-msgstr "Konfiguration wurde neu geladen"
+msgstr "Przeładowano konfigurację"
 
-#: src/apprt/gtk/Window.zig:941
+#: src/apprt/gtk/Window.zig:939
 msgid "Ghostty Developers"
-msgstr "Ghostty-Entwickler"
+msgstr "Twórcy Ghostty"
+
+#: src/apprt/gtk/inspector.zig:144
+msgid "Ghostty: Terminal Inspector"
+msgstr "Inspektor terminala Ghostty"
+
+#: src/apprt/gtk/CloseDialog.zig:47
+msgid "Close"
+msgstr "Zamknij"
+
+#: src/apprt/gtk/CloseDialog.zig:87
+msgid "Quit Ghostty?"
+msgstr "Zamknąć Ghostty?"
+
+#: src/apprt/gtk/CloseDialog.zig:88
+msgid "Close Window?"
+msgstr "Zamknąć okno?"
+
+#: src/apprt/gtk/CloseDialog.zig:89
+msgid "Close Tab?"
+msgstr "Zamknąć kartę?"
+
+#: src/apprt/gtk/CloseDialog.zig:90
+msgid "Close Split?"
+msgstr "Zamknąć podział?"
+
+#: src/apprt/gtk/CloseDialog.zig:96
+msgid "All terminal sessions will be terminated."
+msgstr "Wszystkie sesje terminala zostaną zakończone."
+
+#: src/apprt/gtk/CloseDialog.zig:97
+msgid "All terminal sessions in this window will be terminated."
+msgstr "Wszystkie sesje terminala w obecnym oknie zostaną zakończone."
+
+#: src/apprt/gtk/CloseDialog.zig:98
+msgid "All terminal sessions in this tab will be terminated."
+msgstr "Wszystkie sesje terminala w obecnej karcie zostaną zakończone."
+
+#: src/apprt/gtk/CloseDialog.zig:99
+msgid "The currently running process in this split will be terminated."
+msgstr "Wszyskie trwające procesy w obecnym podziale zostaną zakończone."
+
+#: src/apprt/gtk/Surface.zig:1242
+msgid "Copied to clipboard"
+msgstr "Skopiowano do schowka"
