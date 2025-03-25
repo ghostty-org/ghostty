@@ -1,6 +1,9 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const CursorStyle = @import("../../renderer/cursor.zig").Style;
 const gl = @import("opengl");
+const Glyph = @import("../../font/Glyph.zig");
+const Screen = @import("../../terminal/Screen.zig");
 const Size = @import("../size.zig").Size;
 
 const log = std.log.scoped(.opengl_custom);
@@ -178,6 +181,29 @@ pub const State = struct {
             .UnsignedByte,
             null,
         );
+    }
+    
+    // Update the cursor related uniforms
+    pub fn addCursor(self: *State, size: Size, cursor: Screen.Cursor, cursor_style: CursorStyle, glyph: Glyph) void {
+        const current_x: f32 = @as(f32, @floatFromInt(cursor.x * size.cell.width)) + @as(f32, @floatFromInt(glyph.offset_x));
+        const current_y: f32 = @as(f32, @floatFromInt(size.screen.height - (cursor.y + 1) * size.cell.height)) + @as(f32, @floatFromInt(glyph.offset_y));
+
+        const cursor_width: f32 = if (cursor_style == .bar) 1.0 else @floatFromInt(glyph.width);
+        const cursor_height: f32 = @floatFromInt(glyph.height);
+
+        const cursor_changed: bool = current_x != self.uniforms.current_cursor[0] or
+            current_y != self.uniforms.current_cursor[1] or
+            cursor_width != self.uniforms.current_cursor[2] or
+            cursor_height != self.uniforms.current_cursor[3];
+
+        if (cursor_changed) {
+            self.uniforms.previous_cursor = self.uniforms.current_cursor;
+            self.uniforms.current_cursor = .{ current_x, current_y, cursor_width, cursor_height };
+
+            const now = std.time.Instant.now() catch self.last_frame_time;
+            const since_ns: f32 = @floatFromInt(now.since(self.first_frame_time));
+            self.uniforms.cursor_change_time = since_ns / std.time.ns_per_s;
+        }
     }
 
     /// Call this prior to drawing a frame to update the time
