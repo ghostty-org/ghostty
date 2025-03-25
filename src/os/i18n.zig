@@ -126,7 +126,7 @@ pub fn canonicalizeLocale(
     return buf[0..slice.len :0];
 }
 
-/// Handles some zh locales canonicalizations because internal libintl
+/// Handles some zh locales canonicalization because internal libintl
 /// canonicalization function doesn't handle correctly in these cases.
 fn fixZhLocale(locale: []const u8) ?[:0]const u8 {
     var it = std.mem.splitScalar(u8, locale, '-');
