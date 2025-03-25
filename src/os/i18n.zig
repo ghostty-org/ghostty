@@ -105,18 +105,18 @@ pub fn canonicalizeLocale(
     buf: []u8,
     locale: []const u8,
 ) error{NoSpaceLeft}![:0]const u8 {
+    // Fix zh locales for macOS
+    if (fixZhLocale(locale)) |fixed| return fixed;
+
     // Buffer must be 16 or at least as long as the locale and null term
     if (buf.len < @max(16, locale.len + 1)) return error.NoSpaceLeft;
 
-    // Fix zh locales for macOS
-    const updated = fixZhLocale(locale);
-
     // Copy our locale into the buffer since it modifies in place.
     // This must be null-terminated.
-    @memcpy(buf[0..updated.len], updated);
-    buf[updated.len] = 0;
+    @memcpy(buf[0..locale.len], locale);
+    buf[locale.len] = 0;
 
-    _libintl_locale_name_canonicalize(buf[0..updated.len :0]);
+    _libintl_locale_name_canonicalize(buf[0..locale.len :0]);
 
     // Convert the null-terminated result buffer into a slice. We
     // need to search for the null terminator and slice it back.
@@ -126,24 +126,28 @@ pub fn canonicalizeLocale(
     return buf[0..slice.len :0];
 }
 
-fn fixZhLocale(locale: []const u8) []const u8 {
+/// Handles some zh locales canonicalizations because internal libintl
+/// canonicalization function doesn't handle correctly in these cases.
+fn fixZhLocale(locale: []const u8) ?[:0]const u8 {
     var it = std.mem.splitScalar(u8, locale, '-');
-    const name = it.next() orelse return locale;
-    if (!std.mem.eql(u8, name, "zh")) return locale;
+    const name = it.next() orelse return null;
+    if (!std.mem.eql(u8, name, "zh")) return null;
 
-    const script = it.next() orelse return locale;
-    const region = it.next() orelse return locale;
+    const script = it.next() orelse return null;
+    const region = it.next() orelse return null;
 
     if (std.mem.eql(u8, script, "Hans")) {
         if (std.mem.eql(u8, region, "SG")) return "zh_SG";
         return "zh_CN";
-    } else if (std.mem.eql(u8, script, "Hant")) {
+    }
+
+    if (std.mem.eql(u8, script, "Hant")) {
         if (std.mem.eql(u8, region, "MO")) return "zh_MO";
         if (std.mem.eql(u8, region, "HK")) return "zh_HK";
         return "zh_TW";
     }
 
-    return locale;
+    return null;
 }
 
 /// This can be called at any point a compile-time-known locale is
