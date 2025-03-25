@@ -259,7 +259,7 @@ msgstr "Просмотреть открытые вкладки"
 msgid ""
 "⚠️ You're running a debug build of Ghostty! Performance will be degraded."
 msgstr "" 
-"⚠️ Вы запустили Ghostty в режиме отладки! Это может влиять на производительность."
+"⚠️ Вы запустили отладочную сборку Ghostty! Это может влиять на производительность."
 
 #: src/apprt/gtk/Window.zig:725
 msgid "Reloaded the configuration"
