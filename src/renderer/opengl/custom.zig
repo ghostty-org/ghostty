@@ -185,8 +185,8 @@ pub const State = struct {
     
     // Update the cursor related uniforms
     pub fn addCursor(self: *State, size: Size, cursor: Screen.Cursor, cursor_style: CursorStyle, glyph: Glyph) void {
-        const current_x: f32 = @as(f32, @floatFromInt(cursor.x * size.cell.width)) + @as(f32, @floatFromInt(glyph.offset_x));
-        const current_y: f32 = @as(f32, @floatFromInt(size.screen.height - (cursor.y + 1) * size.cell.height)) + @as(f32, @floatFromInt(glyph.offset_y));
+        const current_x: f32 = @as(f32, @floatFromInt(cursor.x * size.cell.width + size.padding.left)) + @as(f32, @floatFromInt(glyph.offset_x));
+        const current_y: f32 = @as(f32, @floatFromInt(size.screen.height - size.padding.top - (cursor.y + 1) * size.cell.height)) + @as(f32, @floatFromInt(glyph.offset_y));
 
         const cursor_width: f32 = if (cursor_style == .bar) 1.0 else @floatFromInt(glyph.width);
         const cursor_height: f32 = @floatFromInt(glyph.height);
