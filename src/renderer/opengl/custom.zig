@@ -185,12 +185,19 @@ pub const State = struct {
     
     // Update the cursor related uniforms
     pub fn addCursor(self: *State, size: Size, cursor: Screen.Cursor, cursor_style: CursorStyle, glyph: Glyph) void {
+        // Converts the cursor's cell-based position to pixel coordinates.
+        // Additionally, the y-position is adjusted to account for the inverted Y-axis
+        // in the window coordinate system used by gl_FragCoord, where the origin is at the bottom-left.
+        // The offset from the glyph is also added to position the cursor correctly.
         const current_x: f32 = @as(f32, @floatFromInt(cursor.x * size.cell.width + size.padding.left)) + @as(f32, @floatFromInt(glyph.offset_x));
         const current_y: f32 = @as(f32, @floatFromInt(size.screen.height - size.padding.top - (cursor.y + 1) * size.cell.height)) + @as(f32, @floatFromInt(glyph.offset_y));
 
+        // Determine the cursor's width and height based on the cursor style:
+        // - A bar-style cursor has a width of 1.0, while other cursor styles use the glyph's width.
         const cursor_width: f32 = if (cursor_style == .bar) 1.0 else @floatFromInt(glyph.width);
         const cursor_height: f32 = @floatFromInt(glyph.height);
 
+        // Check if the cursor's position or size has changed compared to the previously set values.
         const cursor_changed: bool = current_x != self.uniforms.current_cursor[0] or
             current_y != self.uniforms.current_cursor[1] or
             cursor_width != self.uniforms.current_cursor[2] or
@@ -200,6 +207,7 @@ pub const State = struct {
             self.uniforms.previous_cursor = self.uniforms.current_cursor;
             self.uniforms.current_cursor = .{ current_x, current_y, cursor_width, cursor_height };
 
+            // Calculate the time elapsed since the first frame to update the cursor change time.
             const now = std.time.Instant.now() catch self.last_frame_time;
             const since_ns: f32 = @floatFromInt(now.since(self.first_frame_time));
             self.uniforms.cursor_change_time = since_ns / std.time.ns_per_s;
