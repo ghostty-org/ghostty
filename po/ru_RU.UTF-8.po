@@ -245,7 +245,7 @@ msgstr "Все сессии терминала в этой вкладке буд
 
 #: src/apprt/gtk/CloseDialog.zig:99
 msgid "The currently running process in this split will be terminated."
-msgstr "Запущенный процесс в этой сплит-области будет остановлен."
+msgstr "Процесс, работающий в этой сплит-области, будет остановлен."
 
 #: src/apprt/gtk/Window.zig:200
 msgid "Main Menu"
