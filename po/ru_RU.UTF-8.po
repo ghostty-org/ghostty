@@ -1,5 +1,5 @@
 # Russian translations for com.mitchellh.ghostty package
-# Английские переводы для пакета com.mitchellh.ghostty.
+# Русские переводы для пакета com.mitchellh.ghostty.
 # Copyright (C) 2025 Mitchell Hashimoto
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
 # blackzeshi <sergey_zhuzhgov@mail.ru>, 2025.
