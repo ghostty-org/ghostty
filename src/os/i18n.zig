@@ -127,18 +127,20 @@ pub fn canonicalizeLocale(
 }
 
 fn fixZhLocale(locale: []const u8) []const u8 {
-    if (locale.len == 10 and std.mem.eql(u8, locale[0..2], "zh")) {
-        const script = locale[3..7];
-        const region = locale[8..10];
+    var it = std.mem.splitScalar(u8, locale, '-');
+    const name = it.next() orelse return locale;
+    if (!std.mem.eql(u8, name, "zh")) return locale;
 
-        if (std.mem.eql(u8, script, "Hans")) {
-            if (std.mem.eql(u8, region, "SG")) return "zh_SG";
-            return "zh_CN";
-        } else if (std.mem.eql(u8, script, "Hant")) {
-            if (std.mem.eql(u8, region, "HK")) return "zh_HK";
-            if (std.mem.eql(u8, region, "MO")) return "zh_MO";
-            return "zh_TW";
-        }
+    const script = it.next() orelse return locale;
+    const region = it.next() orelse return locale;
+
+    if (std.mem.eql(u8, script, "Hans")) {
+        if (std.mem.eql(u8, region, "SG")) return "zh_SG";
+        return "zh_CN";
+    } else if (std.mem.eql(u8, script, "Hant")) {
+        if (std.mem.eql(u8, region, "MO")) return "zh_MO";
+        if (std.mem.eql(u8, region, "HK")) return "zh_HK";
+        return "zh_TW";
     }
 
     return locale;
