@@ -198,7 +198,7 @@ msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
 msgstr ""
-"Het plakken van deze tekst tekst in de terminal is mogelijk gevaarlijk, omdat "
+"Het plakken van deze tekst in de terminal is mogelijk gevaarlijk, omdat "
 "het lijkt op een commando dat uitgevoerd kan worden."
 
 #: src/apprt/gtk/inspector.zig:144
