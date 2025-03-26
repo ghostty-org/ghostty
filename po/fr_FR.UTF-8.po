@@ -19,7 +19,7 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:5
 msgid "Change Terminal Title"
-msgstr "Changer nom du terminal"
+msgstr "Changer le nom du terminal"
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:6
 msgid "Leave blank to restore the default title."
@@ -36,14 +36,14 @@ msgstr "OK"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:5
 msgid "Configuration Errors"
-msgstr "Erreur de configuration"
+msgstr "Erreurs de configuration"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:6
 msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
-"Une ou plusieurs erreurs de configuration ont été trouvée(s). Veuillez lire les erreurs ci-dessous," 
+"Une ou plusieurs erreurs de configuration ont été trouvées. Veuillez lire les erreurs ci-dessous," 
 "et recharger votre configuration ou bien ignorer ces erreurs."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
@@ -161,15 +161,15 @@ msgstr "Quitter"
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:6
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:6
 msgid "Authorize Clipboard Access"
-msgstr "Autoriser l'accès au presse-papier"
+msgstr "Autoriser l'accès au presse-papiers"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:7
 msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
-"Une application essai de lire depuis le presse-papier." 
-"Le contenu actuel du presse-papier est affiché ci-dessous."
+"Une application essai de lire depuis le presse-papiers." 
+"Le contenu actuel du presse-papiers est affiché ci-dessous."
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:10
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:10
@@ -186,7 +186,7 @@ msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
-"Une application essai d'écrire dans le presse-papier." 
+"Une application essaie d'écrire dans le presse-papiers." 
 "Le contenu actuel du presse-papier est affiché ci-dessous."
 
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:6
@@ -207,7 +207,7 @@ msgstr "Ghostty: Inspecteur"
 
 #: src/apprt/gtk/Surface.zig:1243
 msgid "Copied to clipboard"
-msgstr "Copié dans le presse-papier"
+msgstr "Copié dans le presse-papiers"
 
 #: src/apprt/gtk/CloseDialog.zig:47
 msgid "Close"
@@ -265,4 +265,4 @@ msgstr "Recharger la configuration"
 
 #: src/apprt/gtk/Window.zig:941
 msgid "Ghostty Developers"
-msgstr "Les developpeurs de Ghostty"
+msgstr "Les développeurs de Ghostty"
