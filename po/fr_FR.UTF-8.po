@@ -168,7 +168,7 @@ msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
-"Une application essai de lire depuis le presse-papiers." 
+"Une application essaie de lire depuis le presse-papiers." 
 "Le contenu actuel du presse-papiers est affiché ci-dessous."
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:10
@@ -187,7 +187,7 @@ msgid ""
 "clipboard contents are shown below."
 msgstr ""
 "Une application essaie d'écrire dans le presse-papiers." 
-"Le contenu actuel du presse-papier est affiché ci-dessous."
+"Le contenu actuel du presse-papiers est affiché ci-dessous."
 
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:6
 msgid "Warning: Potentially Unsafe Paste"
@@ -215,19 +215,19 @@ msgstr "Fermer"
 
 #: src/apprt/gtk/CloseDialog.zig:87
 msgid "Quit Ghostty?"
-msgstr "Quitter Ghostty?"
+msgstr "Quitter Ghostty ?"
 
 #: src/apprt/gtk/CloseDialog.zig:88
 msgid "Close Window?"
-msgstr "Fermer la fenêtre?"
+msgstr "Fermer la fenêtre ?"
 
 #: src/apprt/gtk/CloseDialog.zig:89
 msgid "Close Tab?"
-msgstr "Fermer l'onglet?"
+msgstr "Fermer l'onglet ?"
 
 #: src/apprt/gtk/CloseDialog.zig:90
 msgid "Close Split?"
-msgstr "Fermer le panneau?"
+msgstr "Fermer le panneau ?"
 
 #: src/apprt/gtk/CloseDialog.zig:96
 msgid "All terminal sessions will be terminated."
@@ -257,7 +257,7 @@ msgstr "Voir les onglets ouverts"
 msgid ""
 "⚠️ You're running a debug build of Ghostty! Performance will be degraded."
 msgstr ""
-"⚠️ Vous utilisez une version de débogage de Ghostty! Les performances seront dégradées."
+"⚠️ Vous utilisez une version de débogage de Ghostty ! Les performances seront dégradées."
 
 #: src/apprt/gtk/Window.zig:725
 msgid "Reloaded the configuration"
