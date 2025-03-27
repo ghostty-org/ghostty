@@ -19,7 +19,7 @@ const GitVersion = @import("GitVersion.zig");
 /// TODO: When Zig 0.14 is released, derive this from build.zig.zon directly.
 /// Until then this MUST match build.zig.zon and should always be the
 /// _next_ version to release.
-const app_version: std.SemanticVersion = .{ .major = 1, .minor = 1, .patch = 3 };
+const app_version: std.SemanticVersion = .{ .major = 1, .minor = 1, .patch = 4 };
 
 /// Standard build configuration options.
 optimize: std.builtin.OptimizeMode,

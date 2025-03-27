@@ -425,11 +425,19 @@ vertex CellTextVertexOut cell_text_vertex(
   // If we're constrained then we need to scale the glyph.
   if (in.mode == MODE_TEXT_CONSTRAINED) {
     float max_width = uniforms.cell_size.x * in.constraint_width;
+    // If this glyph is wider than the constraint width,
+    // fit it to the width and remove its horizontal offset.
     if (size.x > max_width) {
       float new_y = size.y * (max_width / size.x);
       offset.y += (size.y - new_y) / 2;
+      offset.x = 0;
       size.y = new_y;
       size.x = max_width;
+    } else if (max_width - size.x > offset.x) {
+      // However, if it does fit in the constraint width, make
+      // sure the offset is small enough to not push it over the
+      // right edge of the constraint width.
+      offset.x = max_width - size.x;
     }
   }
 
@@ -499,7 +507,11 @@ fragment float4 cell_text_fragment(
   constexpr sampler textureSampler(
     coord::pixel,
     address::clamp_to_edge,
-    filter::nearest
+    // TODO(qwerasd): This can be changed back to filter::nearest when
+    //                we move the constraint logic out of the GPU code
+    //                which should once again guarantee pixel perfect
+    //                sizing.
+    filter::linear
   );
 
   switch (in.mode) {

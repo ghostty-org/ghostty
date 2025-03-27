@@ -23,6 +23,8 @@ pub fn ShellEscapeWriter(comptime T: type) type {
                     '?',
                     ' ',
                     '|',
+                    '(',
+                    ')',
                     => &[_]u8{ '\\', byte },
                     else => &[_]u8{byte},
                 };
@@ -92,4 +94,13 @@ test "shell escape 6" {
     const writer = shell.writer();
     try writer.writeAll("a\"c");
     try testing.expectEqualStrings("a\\\"c", fmt.getWritten());
+}
+
+test "shell escape 7" {
+    var buf: [128]u8 = undefined;
+    var fmt = std.io.fixedBufferStream(&buf);
+    var shell: ShellEscapeWriter(@TypeOf(fmt).Writer) = .{ .child_writer = fmt.writer() };
+    const writer = shell.writer();
+    try writer.writeAll("a(1)");
+    try testing.expectEqualStrings("a\\(1\\)", fmt.getWritten());
 }
