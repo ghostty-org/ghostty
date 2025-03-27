@@ -43,7 +43,7 @@ msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
-"Een of meer configuratiefouten zijn gevonden. Bekijk de fouten hieronder, "
+"Er zijn een of meer configuratiefouten gevonden. Bekijk de onderstaande fouten "
 "en herlaad uw configuratie of negeer deze fouten."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
@@ -80,7 +80,7 @@ msgstr "Herstellen"
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:30
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:42
 msgid "Split"
-msgstr "Splitsing"
+msgstr "Splitsen"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:33
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:45
@@ -223,7 +223,7 @@ msgstr "Wilt u dit venster afsluiten?"
 
 #: src/apprt/gtk/CloseDialog.zig:89
 msgid "Close Tab?"
-msgstr "Wil u dit tablad afsluiten?"
+msgstr "Wilt u dit tablad afsluiten?"
 
 #: src/apprt/gtk/CloseDialog.zig:90
 msgid "Close Split?"
