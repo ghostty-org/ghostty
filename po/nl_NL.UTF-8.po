@@ -19,7 +19,7 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:5
 msgid "Change Terminal Title"
-msgstr "Verander de titel van de terminal"
+msgstr "Titel van de terminal wijzigen"
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:6
 msgid "Leave blank to restore the default title."
@@ -44,7 +44,7 @@ msgid ""
 "and either reload your configuration or ignore these errors."
 msgstr ""
 "Er zijn een of meer configuratiefouten gevonden. Bekijk de onderstaande fouten "
-"en herlaad uw configuratie of negeer deze fouten."
+"en herlaad je configuratie of negeer deze fouten."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
 msgid "Ignore"
@@ -85,7 +85,7 @@ msgstr "Splitsen"
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:33
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:45
 msgid "Change Title…"
-msgstr "Verander titel…"
+msgstr "Wijzig titel…"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
@@ -215,19 +215,19 @@ msgstr "Afsluiten"
 
 #: src/apprt/gtk/CloseDialog.zig:87
 msgid "Quit Ghostty?"
-msgstr "Wilt u Ghostty afsluiten?"
+msgstr "Wil je Ghostty afsluiten?"
 
 #: src/apprt/gtk/CloseDialog.zig:88
 msgid "Close Window?"
-msgstr "Wilt u dit venster afsluiten?"
+msgstr "Wil je dit venster afsluiten?"
 
 #: src/apprt/gtk/CloseDialog.zig:89
 msgid "Close Tab?"
-msgstr "Wilt u dit tablad afsluiten?"
+msgstr "Wil je dit tablad afsluiten?"
 
 #: src/apprt/gtk/CloseDialog.zig:90
 msgid "Close Split?"
-msgstr "Wilt u deze splitsing afsluiten?"
+msgstr "Wil je deze splitsing afsluiten?"
 
 #: src/apprt/gtk/CloseDialog.zig:96
 msgid "All terminal sessions will be terminated."
@@ -257,7 +257,7 @@ msgstr "Open tabladen bekijken"
 msgid ""
 "⚠️ You're running a debug build of Ghostty! Performance will be degraded."
 msgstr ""
-"⚠️ U draait een debug versie van Ghostty! Prestaties zullen minder zijn dan normaal."
+"⚠️ Je draait een debug versie van Ghostty! Prestaties zullen minder zijn dan normaal."
 
 #: src/apprt/gtk/Window.zig:725
 msgid "Reloaded the configuration"
