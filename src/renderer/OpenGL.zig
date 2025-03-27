@@ -1951,7 +1951,7 @@ fn addCursor(
         .glyph_offset_y = render.glyph.offset_y,
     });
 
-    //Update cursor uniforms only when custom shaders are loaded
+    // Update cursor uniforms only when custom shaders are loaded
     if (self.gl_state) |*gl_state| {
         if (gl_state.custom) |*custom_state| {
             custom_state.addCursor(self.size, screen.cursor, cursor_style, render.glyph);
