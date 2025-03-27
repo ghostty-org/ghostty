@@ -114,11 +114,11 @@ in
       };
     }
     {
-      name = "N-V-__8AADTkRwBjUvVwTLOnV96QhN0J5Nyg7YzvnISe-Eax";
+      name = "N-V-__8AAMrJSwAUGb9-vTzkNR-5LXS81MR__ZRVfF3tWgG6";
       path = fetchZigArtifact {
         name = "glfw";
-        url = "https://github.com/glfw/glfw/archive/73948e6c0f15b1053cf74b7c4e6b04fd36e97e29.zip";
-        hash = "sha256-k7wBKiQpgxBhqHRwSEgZjmfncltlGG8BgY3FhyycM5E=";
+        url = "https://github.com/glfw/glfw/archive/e7ea71be039836da3a98cea55ae5569cb5eb885c.tar.gz";
+        hash = "sha256-M3N1XUAlMebBo5X1Py+9YxjKXgZ6eacqWRCbUmwLKQo=";
       };
     }
     {
@@ -146,11 +146,11 @@ in
       };
     }
     {
-      name = "N-V-__8AAKa0rgW4WI8QbJlq8QJJv6CSxvsvNfussVBe9Heg";
+      name = "N-V-__8AAG02ugUcWec-Ndp-i7JTsJ0dgF8nnJRUInkGLG7G";
       path = fetchZigArtifact {
         name = "harfbuzz";
-        url = "https://deps.files.ghostty.org/harfbuzz-1220b8588f106c996af10249bfa092c6fb2f35fbacb1505ef477a0b04a7dd1063122.tar.gz";
-        hash = "sha256-nxygiYE7BZRK0c6MfgGCEwJtNdybq0gKIeuHaDg5ZVY=";
+        url = "https://deps.files.ghostty.org/harfbuzz-11.0.0.tar.xz";
+        hash = "sha256-8WNRuv4hRyX+LB1bWfDZPkmQWkskeJn7kNcM/5U6K5s=";
       };
     }
     {
@@ -170,11 +170,11 @@ in
       };
     }
     {
-      name = "N-V-__8AAOCKKgR3_ixUa8LPz0Zz8okA9C6A3kXVLbmdLsGP";
+      name = "N-V-__8AADk6LwSAbK3OMyGiadf6aeyztHNV4-zKaLy6IZa6";
       path = fetchZigArtifact {
         name = "iterm2_themes";
-        url = "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/e348884a00ef6c98dc837a873c4a867c9164d8a0.tar.gz";
-        hash = "sha256-lt4fE77C41C/CpQweF+w/oy96xZJEzPEFTy4TSFEYbw=";
+        url = "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/8650079de477e80a5983646e3e4d24cda1dbaefa.tar.gz";
+        hash = "sha256-nOkH31MQQd2PPdjVpRxBxNQWfR9Exg6nRF/KHgSz3cM=";
       };
     }
     {

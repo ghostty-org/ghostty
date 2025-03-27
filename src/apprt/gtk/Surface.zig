@@ -1377,12 +1377,31 @@ fn gtkRealize(gl_area: *gtk.GLArea, self: *Surface) callconv(.C) void {
 
 /// This is called when the underlying OpenGL resources must be released.
 /// This is usually due to the OpenGL area changing GDK surfaces.
-fn gtkUnrealize(_: *gtk.GLArea, self: *Surface) callconv(.C) void {
+fn gtkUnrealize(gl_area: *gtk.GLArea, self: *Surface) callconv(.C) void {
     log.debug("gl surface unrealized", .{});
-    self.core_surface.renderer.displayUnrealized();
 
     // See gtkRealize for why we do this here.
     self.im_context.as(gtk.IMContext).setClientWidget(null);
+
+    // There is no guarantee that our GLArea context is current
+    // when unrealize is emitted, so we need to make it current.
+    gl_area.makeCurrent();
+    if (gl_area.getError()) |err| {
+        // I don't know a scenario this can happen, but it means
+        // we probably leaked memory because displayUnrealized
+        // below frees resources that aren't specifically OpenGL
+        // related. I didn't make the OpenGL renderer handle this
+        // scenario because I don't know if its even possible
+        // under valid circumstances, so let's log.
+        log.warn(
+            "gl_area_make_current failed in unrealize msg={s}",
+            .{err.f_message orelse "(no message)"},
+        );
+        log.warn("OpenGL resources and memory likely leaked", .{});
+        return;
+    } else {
+        self.core_surface.renderer.displayUnrealized();
+    }
 }
 
 /// render signal

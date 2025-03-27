@@ -922,6 +922,33 @@ extension Ghostty {
             _ = keyAction(GHOSTTY_ACTION_RELEASE, event: event)
         }
 
+        /// Records the timestamp of the last event to performKeyEquivalent that had a command key active.
+        ///
+        /// For command+key inputs, the AppKit input stack calls performKeyEquivalent to give us a chance
+        /// to handle them first. If we return "false" then it goes through the standard AppKit responder chain.
+        /// For an NSTextInputClient, that may redirect some commands _before_ our keyDown gets called.
+        /// Concretely: Command+Period will do: performKeyEquivalent, doCommand ("cancel:"). In doCommand,
+        /// we need to know that we actually want to handle that in keyDown, so we send it back through the
+        /// event dispatch system and use this timestamp as an identity to know to actually send it to keyDown.
+        ///
+        /// Why not send it to keyDown always? Because if the user rebinds a command to something we
+        /// actually handle then we do want the standard response chain to handle the key input. Unfortunately,
+        /// we can't know what a command is bound to at a system level until we let it flow through the system.
+        /// That's the crux of the problem.
+        ///
+        /// So, we have to send it back through if we didn't handle it.
+        ///
+        /// The next part of the problem is comparing NSEvent identity seems pretty nasty. I couldn't
+        /// find a good way to do it. I originally stored a weak ref and did identity comparison but that
+        /// doesn't work and for reasons I couldn't figure out the value gets mangled (fields don't match
+        /// before/after the assignment). I suspect it has something to do with the fact an NSEvent is wrapping
+        /// a lower level event pointer and its just not surviving the Swift runtime somehow. I don't know.
+        ///
+        /// The best thing I could find was to store the event timestamp which has decent granularity
+        /// and compare that. To further complicate things, some events are synthetic and have a zero
+        /// timestamp so we have to protect against that. Fun!
+        var lastCommandEvent: TimeInterval?
+
         /// Special case handling for some control keys
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
             switch (event.type) {
@@ -975,15 +1002,41 @@ extension Ghostty {
 
                 equivalent = "\r"
 
-            case ".":
-                if (!event.modifierFlags.contains(.command)) {
+            default:
+                // It looks like some part of AppKit sometimes generates synthetic NSEvents
+                // with a zero timestamp. We never process these at this point. Concretely,
+                // this happens for me when pressing Cmd+period with default bindings. This
+                // binds to "cancel" which goes through AppKit to produce a synthetic "escape".
+                //
+                // Question: should we be ignoring all synthetic events? Should we be finding
+                // synthetic escape and ignoring it? I feel like Cmd+period could map to a
+                // escape binding by accident, but it hasn't happened yet...
+                if event.timestamp == 0 {
                     return false
                 }
 
-                equivalent = "."
+                // All of this logic here re: lastCommandEvent is to workaround some
+                // nasty behavior. See the docs for lastCommandEvent for more info.
 
-            default:
-                // Ignore other events
+                // Ignore all other non-command events. This lets the event continue
+                // through the AppKit event systems.
+                if (!event.modifierFlags.contains(.command)) {
+                    // Reset since we got a non-command event.
+                    lastCommandEvent = nil
+                    return false
+                }
+
+                // If we have a prior command binding and the timestamp matches exactly
+                // then we pass it through to keyDown for encoding.
+                if let lastCommandEvent {
+                    self.lastCommandEvent = nil
+                    if lastCommandEvent == event.timestamp {
+                        equivalent = event.characters ?? ""
+                        break
+                    }
+                }
+
+                lastCommandEvent = event.timestamp
                 return false
             }
 
@@ -1480,9 +1533,19 @@ extension Ghostty.SurfaceView: NSTextInputClient {
         }
     }
 
+    /// This function needs to exist for two reasons:
+    /// 1. Prevents an audible NSBeep for unimplemented actions.
+    /// 2. Allows us to properly encode super+key input events that we don't handle
     override func doCommand(by selector: Selector) {
-        // This currently just prevents NSBeep from interpretKeyEvents but in the future
-        // we may want to make some of this work.
+        // If we are being processed by performKeyEquivalent with a command binding,
+        // we send it back through the event system so it can be encoded.
+        if let lastCommandEvent,
+           let current = NSApp.currentEvent,
+           lastCommandEvent == current.timestamp
+        {
+            NSApp.sendEvent(current)
+            return
+        }
 
         print("SEL: \(selector)")
     }

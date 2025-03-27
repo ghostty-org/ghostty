@@ -247,19 +247,6 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
         _ = internal_os.setenv("GDK_DISABLE", value[0 .. value.len - 1 :0]);
     }
 
-    if (gtk_version.runtimeAtLeast(4, 14, 0)) {
-        switch (config.@"gtk-gsk-renderer") {
-            .default => {},
-            else => |renderer| {
-                // Force the GSK renderer to a specific value. After GTK 4.14 the
-                // `ngl` renderer is used by default which causes artifacts when
-                // used with Ghostty so it should be avoided.
-                log.warn("setting GSK_RENDERER={s}", .{@tagName(renderer)});
-                _ = internal_os.setenv("GSK_RENDERER", @tagName(renderer));
-            },
-        }
-    }
-
     adw.init();
 
     const display: *gdk.Display = gdk.Display.getDefault() orelse {
@@ -1319,10 +1306,10 @@ pub fn run(self: *App) !void {
 
 // This timeout function is started when no surfaces are open. It can be
 // cancelled if a new surface is opened before the timer expires.
-pub fn gtkQuitTimerExpired(ud: ?*anyopaque) callconv(.C) c.gboolean {
+pub fn gtkQuitTimerExpired(ud: ?*anyopaque) callconv(.c) c_int {
     const self: *App = @ptrCast(@alignCast(ud));
     self.quit_timer = .{ .expired = {} };
-    return c.FALSE;
+    return 0;
 }
 
 /// This will get called when there are no more open surfaces.
@@ -1354,7 +1341,7 @@ fn stopQuitTimer(self: *App) void {
         .off => {},
         .expired => self.quit_timer = .{ .off = {} },
         .active => |source| {
-            if (c.g_source_remove(source) == c.FALSE) {
+            if (glib.Source.remove(source) == 0) {
                 log.warn("unable to remove quit timer source={d}", .{source});
             }
             self.quit_timer = .{ .off = {} };

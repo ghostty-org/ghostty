@@ -5,8 +5,8 @@
     .paths = .{""},
     .dependencies = .{
         .glfw = .{
-            .url = "https://github.com/glfw/glfw/archive/73948e6c0f15b1053cf74b7c4e6b04fd36e97e29.zip",
-            .hash = "N-V-__8AADTkRwBjUvVwTLOnV96QhN0J5Nyg7YzvnISe-Eax",
+            .url = "https://github.com/glfw/glfw/archive/e7ea71be039836da3a98cea55ae5569cb5eb885c.tar.gz",
+            .hash = "N-V-__8AAMrJSwAUGb9-vTzkNR-5LXS81MR__ZRVfF3tWgG6",
             .lazy = true,
         },
 

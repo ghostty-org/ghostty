@@ -473,11 +473,13 @@ pub fn syncAppearance(self: *Window) !void {
         if (self.isQuickTerminal()) break :visible false;
 
         // Unconditionally disable the header bar when fullscreened.
-        if (self.config.fullscreen) break :visible false;
+        if (self.window.as(gtk.Window).isFullscreen() != 0)
+            break :visible false;
 
         // *Conditionally* disable the header bar when maximized,
         // and gtk-titlebar-hide-when-maximized is set
-        if (self.config.maximize and self.config.gtk_titlebar_hide_when_maximized)
+        if (self.window.as(gtk.Window).isMaximized() != 0 and
+            self.config.gtk_titlebar_hide_when_maximized)
             break :visible false;
 
         break :visible self.config.gtk_titlebar;
@@ -672,7 +674,7 @@ pub fn toggleTabOverview(self: *Window) void {
 
 /// Toggle the maximized state for this window.
 pub fn toggleMaximize(self: *Window) void {
-    if (self.config.maximize) {
+    if (self.window.as(gtk.Window).isMaximized() != 0) {
         self.window.as(gtk.Window).unmaximize();
     } else {
         self.window.as(gtk.Window).maximize();
@@ -683,7 +685,7 @@ pub fn toggleMaximize(self: *Window) void {
 
 /// Toggle fullscreen for this window.
 pub fn toggleFullscreen(self: *Window) void {
-    if (self.config.fullscreen) {
+    if (self.window.as(gtk.Window).isFullscreen() != 0) {
         self.window.as(gtk.Window).unfullscreen();
     } else {
         self.window.as(gtk.Window).fullscreen();
@@ -754,7 +756,6 @@ fn gtkWindowNotifyMaximized(
     _: *gobject.ParamSpec,
     self: *Window,
 ) callconv(.c) void {
-    self.config.maximize = self.window.as(gtk.Window).isMaximized() != 0;
     self.syncAppearance() catch |err| {
         log.err("failed to sync appearance={}", .{err});
     };
@@ -765,7 +766,6 @@ fn gtkWindowNotifyFullscreened(
     _: *gobject.ParamSpec,
     self: *Window,
 ) callconv(.c) void {
-    self.config.fullscreen = self.window.as(gtk.Window).isFullscreen() != 0;
     self.syncAppearance() catch |err| {
         log.err("failed to sync appearance={}", .{err});
     };
