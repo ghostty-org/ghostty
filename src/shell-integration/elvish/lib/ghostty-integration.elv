@@ -36,6 +36,8 @@
 }
 
 {
+  use str
+
   # helper used by `mark-*` functions
   fn set-prompt-state {|new| set-env __ghostty_prompt_state $new }
 
@@ -104,20 +106,18 @@
   set edit:after-readline  = (conj $edit:after-readline $mark-output-start~)
   set edit:after-command   = (conj $edit:after-command $mark-output-end~)
 
-  var no-title  = (eq 1 $E:GHOSTTY_SHELL_INTEGRATION_NO_TITLE)
-  var no-cursor = (eq 1 $E:GHOSTTY_SHELL_INTEGRATION_NO_CURSOR)
-  var no-sudo   = (eq 1 $E:GHOSTTY_SHELL_INTEGRATION_NO_SUDO)
+  var features = [(str:split ',' $E:GHOSTTY_SHELL_FEATURES)]
 
-  if (not $no-title) {
+  if (has-value $features title) {
     set after-chdir = (conj $after-chdir {|_| report-pwd })
   }
-  if (not $no-cursor) {
+  if (has-value $features cursor) {
     fn beam  { printf "\e[5 q" }
     fn block { printf "\e[0 q" }
     set edit:before-readline = (conj $edit:before-readline $beam~)
     set edit:after-readline  = (conj $edit:after-readline {|_| block })
   }
-  if (and (not $no-sudo) (not-eq "" $E:TERMINFO) (has-external sudo)) {
+  if (and (has-value $features sudo) (not-eq "" $E:TERMINFO) (has-external sudo)) {
     edit:add-var sudo~ $sudo-with-terminfo~
   }
 }

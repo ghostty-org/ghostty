@@ -194,7 +194,7 @@ _ghostty_deferred_init() {
         _ghostty_report_pwd"
     _ghostty_report_pwd
 
-    if [[ "$GHOSTTY_SHELL_INTEGRATION_NO_TITLE" != 1 ]]; then
+    if [[ "$GHOSTTY_SHELL_FEATURES" == *"title"* ]]; then
       # Enable terminal title changes.
       functions[_ghostty_precmd]+="
           builtin print -rnu $_ghostty_fd \$'\\e]2;'\"\${(%):-%(4~|…/%3~|%~)}\"\$'\\a'"
@@ -202,7 +202,7 @@ _ghostty_deferred_init() {
           builtin print -rnu $_ghostty_fd \$'\\e]2;'\"\${(V)1}\"\$'\\a'"
     fi
 
-    if [[ "$GHOSTTY_SHELL_INTEGRATION_NO_CURSOR" != 1 ]]; then
+    if [[ "$GHOSTTY_SHELL_FEATURES" == *"cursor"* ]]; then
       # Enable cursor shape changes depending on the current keymap.
       # This implementation leaks blinking block cursor into external commands
       # executed from zle. For example, users of fzf-based widgets may find
@@ -221,7 +221,7 @@ _ghostty_deferred_init() {
     fi
 
     # Sudo
-    if [[ "$GHOSTTY_SHELL_INTEGRATION_NO_SUDO" != "1" ]] && [[ -n "$TERMINFO" ]]; then
+    if [[ "$GHOSTTY_SHELL_FEATURES" == *"sudo"* ]] && [[ -n "$TERMINFO" ]]; then
       # Wrap `sudo` command to ensure Ghostty terminfo is preserved
       sudo() {
         builtin local sudo_has_sudoedit_flags="no"

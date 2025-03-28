@@ -70,7 +70,7 @@ if [ -n "$GHOSTTY_BASH_INJECT" ]; then
 fi
 
 # Sudo
-if [[ "$GHOSTTY_SHELL_INTEGRATION_NO_SUDO" != "1" && -n "$TERMINFO" ]]; then
+if [[ "$GHOSTTY_SHELL_FEATURES" == *"sudo"* && -n "$TERMINFO" ]]; then
   # Wrap `sudo` command to ensure Ghostty terminfo is preserved.
   #
   # This approach supports wrapping a `sudo` alias, but the alias definition
@@ -124,13 +124,13 @@ function __ghostty_precmd() {
       fi
 
       # Cursor
-      if test "$GHOSTTY_SHELL_INTEGRATION_NO_CURSOR" != "1"; then
+      if [[ "$GHOSTTY_SHELL_FEATURES" == *"cursor"* ]]; then
         PS1=$PS1'\[\e[5 q\]'
         PS0=$PS0'\[\e[0 q\]'
       fi
 
       # Title (working directory)
-      if [[ "$GHOSTTY_SHELL_INTEGRATION_NO_TITLE" != 1 ]]; then
+      if [[ "$GHOSTTY_SHELL_FEATURES" == *"title"* ]]; then
         PS1=$PS1'\[\e]2;\w\a\]'
       fi
     fi
@@ -161,7 +161,7 @@ function __ghostty_preexec() {
     PS2="$_GHOSTTY_SAVE_PS2"
 
     # Title (current command)
-    if [[ -n $cmd && "$GHOSTTY_SHELL_INTEGRATION_NO_TITLE" != 1 ]]; then
+    if [[ -n $cmd && "$GHOSTTY_SHELL_FEATURES" == *"title"* ]]; then
       builtin printf "\e]2;%s\a" "${cmd//[[:cntrl:]]}"
     fi
 
