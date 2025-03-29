@@ -485,8 +485,13 @@ pub fn add(
         .target = target,
         .optimize = optimize,
     })) |highway_dep| {
-        step.linkLibrary(highway_dep.artifact("highway"));
-        try static_libs.append(highway_dep.artifact("highway").getEmittedBin());
+        step.root_module.addImport("highway", highway_dep.module("highway"));
+        if (b.systemIntegrationOption("highway", .{})) {
+            step.linkSystemLibrary2("libhwy", dynamic_link_opts);
+        } else {
+            step.linkLibrary(highway_dep.artifact("highway"));
+            try static_libs.append(highway_dep.artifact("highway").getEmittedBin());
+        }
     }
 
     // utfcpp - This is used as a dependency on our hand-written C++ code
