@@ -17,7 +17,7 @@ struct ConfigurationErrorsView<ViewModel: ConfigurationErrorsViewModel>: View {
                     .frame(alignment: .center)
 
                 Text("""
-                    ^[\(model.errors.count) error(s) were](inflect: true) found while loading the configuration. \
+                    \(model.errors.count) error(s) was/were found while loading the configuration. \
                     Please review the errors below and reload your configuration or ignore the erroneous lines.
                     """)
                     .frame(maxWidth: .infinity, alignment: .leading)
