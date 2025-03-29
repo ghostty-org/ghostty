@@ -30,8 +30,8 @@ pub fn maybePresent(app: *App, window: ?*Window) void {
     if (app.config._diagnostics.empty()) return;
 
     var builder = switch (DialogType) {
-        adw.AlertDialog => Builder.init("config-errors-dialog", 1, 5, .blp),
-        adw.MessageDialog => Builder.init("config-errors-dialog", 1, 2, .ui),
+        adw.AlertDialog => Builder.init("config-errors-dialog", 1, 5),
+        adw.MessageDialog => Builder.init("config-errors-dialog", 1, 2),
         else => unreachable,
     };
     defer builder.deinit();
