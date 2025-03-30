@@ -92,7 +92,7 @@ msgstr "Изменить заголовок…"
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
 msgid "Split Up"
-msgstr "Сплит наверх"
+msgstr "Сплит вверх"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
