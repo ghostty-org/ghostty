@@ -409,6 +409,10 @@ class AppDelegate: NSObject,
         reloadDockMenu()
     }
 
+    func applicationDidUpdate(_ notification: Notification) {
+        syncActivationPolicy()
+    }
+
     /// Syncs a single menu shortcut for the given action. The action string is the same
     /// action string used for the Ghostty configuration.
     private func syncMenuShortcut(_ config: Ghostty.Config, action: String, menuItem: NSMenuItem?) {
@@ -540,13 +544,7 @@ class AppDelegate: NSObject,
         DispatchQueue.main.async { self.syncAppearance(config: config) }
 
         // Decide whether to hide/unhide app from dock and app switcher
-        switch (config.macosHidden) {
-        case .never:
-            NSApp.setActivationPolicy(.regular)
-
-        case .always:
-            NSApp.setActivationPolicy(.accessory)
-        }
+        syncActivationPolicy()
 
         // If we have configuration errors, we need to show them.
         let c = ConfigurationErrorsController.sharedInstance
@@ -620,6 +618,20 @@ class AppDelegate: NSObject,
     /// Sync the appearance of our app with the theme specified in the config.
     private func syncAppearance(config: Ghostty.Config) {
         NSApplication.shared.appearance = .init(ghosttyConfig: config)
+    }
+
+    /// Sync the app activation policy based on the config `MacHidden` value.
+    private func syncActivationPolicy() {
+        switch (derivedConfig.macosHidden) {
+        case .never:
+            NSApp.setActivationPolicy(.regular)
+
+        case .always:
+            NSApp.setActivationPolicy(.accessory)
+
+        case .quick_terminal:
+            NSApp.setActivationPolicy(NSApp.visibleRegularWindows.isEmpty ? .accessory : .regular)
+        }
     }
 
     //MARK: - Restorable State
@@ -792,17 +804,20 @@ class AppDelegate: NSObject,
         let initialWindow: Bool
         let shouldQuitAfterLastWindowClosed: Bool
         let quickTerminalPosition: QuickTerminalPosition
+        let macosHidden: Ghostty.Config.MacHidden
 
         init() {
             self.initialWindow = true
             self.shouldQuitAfterLastWindowClosed = false
             self.quickTerminalPosition = .top
+            self.macosHidden = .never
         }
 
         init(_ config: Ghostty.Config) {
             self.initialWindow = config.initialWindow
             self.shouldQuitAfterLastWindowClosed = config.shouldQuitAfterLastWindowClosed
             self.quickTerminalPosition = config.quickTerminalPosition
+            self.macosHidden = config.macosHidden
         }
     }
 
