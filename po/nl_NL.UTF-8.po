@@ -43,7 +43,7 @@ msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
-"Er zijn een of meer configuratiefouten gevonden. Bekijk de onderstaande fouten "
+"Er zijn één of meer configuratiefouten gevonden. Bekijk de onderstaande fouten "
 "en herlaad je configuratie of negeer deze fouten."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
@@ -109,18 +109,18 @@ msgstr "Splits naar rechts"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:59
 msgid "Tab"
-msgstr "Tablad"
+msgstr "Tabblad"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:62
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:30
 #: src/apprt/gtk/Window.zig:246
 msgid "New Tab"
-msgstr "Nieuw tablad"
+msgstr "Nieuw tabblad"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:67
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:35
 msgid "Close Tab"
-msgstr "Sluit tablad"
+msgstr "Sluit tabblad"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:73
 msgid "Window"
@@ -223,7 +223,7 @@ msgstr "Wil je dit venster afsluiten?"
 
 #: src/apprt/gtk/CloseDialog.zig:89
 msgid "Close Tab?"
-msgstr "Wil je dit tablad afsluiten?"
+msgstr "Wil je dit tabblad afsluiten?"
 
 #: src/apprt/gtk/CloseDialog.zig:90
 msgid "Close Split?"
@@ -239,7 +239,7 @@ msgstr "Alle terminalsessies binnen dit venster zullen worden beëindigd."
 
 #: src/apprt/gtk/CloseDialog.zig:98
 msgid "All terminal sessions in this tab will be terminated."
-msgstr "Alle terminalsessies binnen dit tablad zullen worden beëindigd."
+msgstr "Alle terminalsessies binnen dit tabblad zullen worden beëindigd."
 
 #: src/apprt/gtk/CloseDialog.zig:99
 msgid "The currently running process in this split will be terminated."
@@ -251,7 +251,7 @@ msgstr "Hoofdmenu"
 
 #: src/apprt/gtk/Window.zig:221
 msgid "View Open Tabs"
-msgstr "Open tabladen bekijken"
+msgstr "Open tabbladen bekijken"
 
 #: src/apprt/gtk/Window.zig:295
 msgid ""
