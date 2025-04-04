@@ -111,12 +111,7 @@ cursor_color: ?terminal.color.RGB,
 /// This is cursor color as set in the user's config, if any. If no cursor color
 /// is set in the user's config, then the cursor color is determined by the
 /// current foreground color.
-default_cursor_color: ?terminal.color.RGB,
-
-/// When `cursor_color` is null, swap the foreground and background colors of
-/// the cell under the cursor for the cursor color. Otherwise, use the default
-/// foreground color as the cursor color.
-cursor_invert: bool,
+default_cursor_color: ?configpkg.Config.DynamicColor,
 
 /// The mailbox for communicating with the window.
 surface_mailbox: apprt.surface.Mailbox,
@@ -275,16 +270,14 @@ pub const DerivedConfig = struct {
     font_thicken_strength: u8,
     font_features: std.ArrayListUnmanaged([:0]const u8),
     font_styles: font.CodepointResolver.StyleStatus,
-    cursor_color: ?terminal.color.RGB,
-    cursor_invert: bool,
-    cursor_text: ?terminal.color.RGB,
+    cursor_color: ?configpkg.Config.DynamicColor,
+    cursor_text: ?configpkg.Config.DynamicColor,
     cursor_opacity: f64,
     background: terminal.color.RGB,
     background_opacity: f64,
     foreground: terminal.color.RGB,
-    selection_background: ?terminal.color.RGB,
-    selection_foreground: ?terminal.color.RGB,
-    invert_selection_fg_bg: bool,
+    selection_background: ?configpkg.Config.DynamicColor,
+    selection_foreground: ?configpkg.Config.DynamicColor,
     bold_is_bright: bool,
     min_contrast: f32,
     padding_color: configpkg.WindowPaddingColor,
@@ -317,8 +310,6 @@ pub const DerivedConfig = struct {
             config.link.links.items,
         );
 
-        const cursor_invert = config.@"cursor-invert-fg-bg";
-
         return .{
             .background_opacity = @max(0, @min(1, config.@"background-opacity")),
             .font_thicken = config.@"font-thicken",
@@ -326,36 +317,18 @@ pub const DerivedConfig = struct {
             .font_features = font_features.list,
             .font_styles = font_styles,
 
-            .cursor_color = if (!cursor_invert and config.@"cursor-color" != null)
-                config.@"cursor-color".?.toTerminalRGB()
-            else
-                null,
-
-            .cursor_invert = cursor_invert,
-
-            .cursor_text = if (config.@"cursor-text") |txt|
-                txt.toTerminalRGB()
-            else
-                null,
-
+            .cursor_color = config.@"cursor-color",
+            .cursor_text = config.@"cursor-text",
             .cursor_opacity = @max(0, @min(1, config.@"cursor-opacity")),
 
             .background = config.background.toTerminalRGB(),
             .foreground = config.foreground.toTerminalRGB(),
-            .invert_selection_fg_bg = config.@"selection-invert-fg-bg",
             .bold_is_bright = config.@"bold-is-bright",
             .min_contrast = @floatCast(config.@"minimum-contrast"),
             .padding_color = config.@"window-padding-color",
 
-            .selection_background = if (config.@"selection-background") |bg|
-                bg.toTerminalRGB()
-            else
-                null,
-
-            .selection_foreground = if (config.@"selection-foreground") |bg|
-                bg.toTerminalRGB()
-            else
-                null,
+            .selection_background = config.@"selection-background",
+            .selection_foreground = config.@"selection-foreground",
 
             .custom_shaders = custom_shaders,
             .links = links,
@@ -406,7 +379,6 @@ pub fn init(alloc: Allocator, options: renderer.Options) !OpenGL {
         .default_background_color = options.config.background,
         .cursor_color = null,
         .default_cursor_color = options.config.cursor_color,
-        .cursor_invert = options.config.cursor_invert,
         .surface_mailbox = options.surface_mailbox,
         .deferred_font_size = .{ .metrics = grid.metrics },
         .deferred_config = .{},
@@ -1458,22 +1430,15 @@ pub fn rebuildCells(
             // The final background color for the cell.
             const bg = bg: {
                 if (selected) {
-                    break :bg if (self.config.invert_selection_fg_bg)
-                        if (style.flags.inverse)
-                            // Cell is selected with invert selection fg/bg
-                            // enabled, and the cell has the inverse style
-                            // flag, so they cancel out and we get the normal
-                            // bg color.
-                            bg_style
-                        else
-                            // If it doesn't have the inverse style
-                            // flag then we use the fg color instead.
-                            fg_style
+                    break :bg if (self.config.selection_background) |sel|
+                        // Use the selection background if set, otherwise the default fg color.
+                        switch (sel) {
+                            .color => sel.color.toTerminalRGB(),
+                            .@"cell-foreground" => if (style.flags.inverse) bg_style else fg_style,
+                            .@"cell-background" => if (style.flags.inverse) fg_style else bg_style,
+                        }
                     else
-                        // If we don't have invert selection fg/bg set then we
-                        // just use the selection background if set, otherwise
-                        // the default fg color.
-                        break :bg self.config.selection_background orelse self.foreground_color orelse self.default_foreground_color;
+                        self.foreground_color orelse self.default_foreground_color;
                 }
 
                 // Not selected
@@ -1491,20 +1456,26 @@ pub fn rebuildCells(
             };
 
             const fg = fg: {
-                if (selected and !self.config.invert_selection_fg_bg) {
-                    // If we don't have invert selection fg/bg set
-                    // then we just use the selection foreground if
-                    // set, otherwise the default bg color.
-                    break :fg self.config.selection_foreground orelse self.background_color orelse self.default_background_color;
-                }
+                const final_bg = bg_style orelse self.background_color orelse self.default_background_color;
 
                 // Whether we need to use the bg color as our fg color:
+                // - Cell is selected, inverted, and set to cell-foreground
+                // - Cell is selected, not inverted, and set to cell-background
                 // - Cell is inverted and not selected
-                // - Cell is selected and not inverted
-                //    Note: if selected then invert sel fg / bg must be
-                //    false since we separately handle it if true above.
-                break :fg if (style.flags.inverse != selected)
-                    bg_style orelse self.background_color orelse self.default_background_color
+                if (selected) {
+                    // Use the selection foreground if set, otherwise the default bg color.
+                    break :fg if (self.config.selection_foreground) |sel|
+                        switch (sel) {
+                            .color => sel.color.toTerminalRGB(),
+                            .@"cell-foreground" => if (style.flags.inverse) final_bg else fg_style,
+                            .@"cell-background" => if (style.flags.inverse) fg_style else final_bg,
+                        }
+                    else
+                        self.background_color orelse self.default_background_color;
+                }
+
+                break :fg if (style.flags.inverse)
+                    final_bg
                 else
                     fg_style;
             };
@@ -1740,35 +1711,48 @@ pub fn rebuildCells(
             break :cursor_style;
         }
 
-        const cursor_color = self.cursor_color orelse self.default_cursor_color orelse color: {
-            if (self.cursor_invert) {
-                // Use the foreground color from the cell under the cursor, if any.
-                const sty = screen.cursor.page_pin.style(screen.cursor.page_cell);
-                break :color if (sty.flags.inverse)
-                    // If the cell is reversed, use background color instead.
-                    (sty.bg(screen.cursor.page_cell, color_palette) orelse self.background_color orelse self.default_background_color)
-                else
-                    (sty.fg(color_palette, self.config.bold_is_bright) orelse self.foreground_color orelse self.default_foreground_color);
-            } else {
-                break :color self.foreground_color orelse self.default_foreground_color;
+        const cursor_color = self.cursor_color orelse if (self.default_cursor_color) |color| color: {
+            // If cursor-color is set, then compute the correct color.
+            // Otherwise, use the foreground color
+            if (color == .color) {
+                // Use the color set by cursor-color, if any.
+                break :color color.color.toTerminalRGB();
             }
-        };
+
+            const sty = screen.cursor.page_pin.style(screen.cursor.page_cell);
+            const fg_style = sty.fg(color_palette, self.config.bold_is_bright) orelse self.foreground_color orelse self.default_foreground_color;
+            const bg_style = sty.bg(screen.cursor.page_cell, color_palette) orelse self.background_color orelse self.default_background_color;
+
+            break :color switch (color) {
+                // If the cell is reversed, use the opposite cell color instead.
+                .@"cell-foreground" => if (sty.flags.inverse) bg_style else fg_style,
+                .@"cell-background" => if (sty.flags.inverse) fg_style else bg_style,
+                else => unreachable,
+            };
+        } else self.foreground_color orelse self.default_foreground_color;
 
         _ = try self.addCursor(screen, cursor_style, cursor_color);
         for (cursor_cells.items) |*cell| {
             if (cell.mode.isFg() and cell.mode != .fg_color) {
-                const cell_color = if (self.cursor_invert) blk: {
-                    // Use the background color from the cell under the cursor, if any.
+                const cell_color = if (self.config.cursor_text) |txt| blk: {
+                    // If cursor-text is set, then compute the correct color.
+                    // Otherwise, use the background color
+                    if (txt == .color) {
+                        // Use the color set by cursor-text, if any.
+                        break :blk txt.color.toTerminalRGB();
+                    }
+
                     const sty = screen.cursor.page_pin.style(screen.cursor.page_cell);
-                    break :blk if (sty.flags.inverse)
-                        // If the cell is reversed, use foreground color instead.
-                        (sty.fg(color_palette, self.config.bold_is_bright) orelse self.foreground_color orelse self.default_foreground_color)
-                    else
-                        (sty.bg(screen.cursor.page_cell, color_palette) orelse self.background_color orelse self.default_background_color);
-                } else if (self.config.cursor_text) |txt|
-                    txt
-                else
-                    self.background_color orelse self.default_background_color;
+                    const fg_style = sty.fg(color_palette, self.config.bold_is_bright) orelse self.foreground_color orelse self.default_foreground_color;
+                    const bg_style = sty.bg(screen.cursor.page_cell, color_palette) orelse self.background_color orelse self.default_background_color;
+
+                    break :blk switch (txt) {
+                        // If the cell is reversed, use the opposite cell color instead.
+                        .@"cell-foreground" => if (sty.flags.inverse) bg_style else fg_style,
+                        .@"cell-background" => if (sty.flags.inverse) fg_style else bg_style,
+                        else => unreachable,
+                    };
+                } else self.background_color orelse self.default_background_color;
 
                 cell.r = cell_color.r;
                 cell.g = cell_color.g;
@@ -2177,8 +2161,7 @@ pub fn changeConfig(self: *OpenGL, config: *DerivedConfig) !void {
     // Set our new colors
     self.default_background_color = config.background;
     self.default_foreground_color = config.foreground;
-    self.default_cursor_color = if (!config.cursor_invert) config.cursor_color else null;
-    self.cursor_invert = config.cursor_invert;
+    self.default_cursor_color = config.cursor_color;
 
     // Update our uniforms
     self.deferred_config = .{};
