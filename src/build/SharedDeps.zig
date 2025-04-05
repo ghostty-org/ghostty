@@ -654,7 +654,20 @@ fn addGTK(
             } else {
                 // gtk4-layer-shell *must* be dynamically linked,
                 // so we don't add it as a static library
-                step.linkLibrary(gtk4_layer_shell.artifact("gtk4-layer-shell"));
+                const sharedLib = gtk4_layer_shell.artifact("gtk4-layer-shell");
+                const artifact: *std.Build.Step.InstallArtifact = b.addInstallArtifact(sharedLib, .{});
+                b.getInstallStep().dependOn(&artifact.step);
+                if (self.config.optimize == .Debug) {
+                    // Lookup dynamic libs from installed location
+                    const installPath = b.getInstallPath(artifact.dest_dir.?, "");
+                    if (!std.fs.path.isAbsolute(installPath)) {
+                        // Using a relative path as an rpath is almost useless
+                        return error.UndesirablePath;
+                    }
+                    // Lookup dynamic libs from installed location
+                    step.root_module.addRPathSpecial(b.getInstallPath(artifact.dest_dir.?, ""));
+                }
+                step.linkLibrary(sharedLib);
             }
         }
 
