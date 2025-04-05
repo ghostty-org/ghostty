@@ -592,8 +592,8 @@ class TerminalController: BaseTerminalController {
         let alert = NSAlert()
         alert.messageText = messageText
         alert.informativeText = informativeText
-        alert.addButton(withTitle: "Close")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: String(localized: "Close"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
         alert.alertStyle = .warning
         alert.beginSheetModal(for: window) { response in
             if response == .alertFirstButtonReturn {
@@ -613,8 +613,8 @@ class TerminalController: BaseTerminalController {
         if surfaceTree?.needsConfirmQuit() ?? false {
             confirmClose(
                 window: window,
-                messageText: "Close Tab?",
-                informativeText: "The terminal still has a running process. If you close the tab the process will be killed."
+                messageText: String(localized: "Close Tab?"),
+                informativeText: String(localized: "The terminal still has a running process. If you close the tab the process will be killed.")
             ) {
                 window.close()
             }
@@ -659,8 +659,8 @@ class TerminalController: BaseTerminalController {
 
         confirmClose(
             window: window,
-            messageText: "Close Window?",
-            informativeText: "All terminal sessions in this window will be terminated."
+            messageText: String(localized: "Close Window?"),
+            informativeText: String(localized: "All terminal sessions in this window will be terminated.")
         ) {
             tabGroup.windows.forEach { $0.close() }
         }
