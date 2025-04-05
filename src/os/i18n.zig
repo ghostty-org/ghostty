@@ -29,6 +29,7 @@ pub const locales = [_][:0]const u8{
     "nb_NO.UTF-8",
     "uk_UA.UTF-8",
     "pl_PL.UTF-8",
+    "pt_BR.UTF-8",
 };
 
 /// Set for faster membership lookup of locales.
