@@ -394,40 +394,45 @@ extension Ghostty {
 
         /// Set the title by prompting the user.
         func promptTitle() {
-            // Create an alert dialog
-            let alert = NSAlert()
-            alert.messageText = "Change Terminal Title"
-            alert.informativeText = "Leave blank to restore the default."
-            alert.alertStyle = .informational
-
-            // Add a text field to the alert
-            let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 250, height: 24))
-            textField.stringValue = title
-            alert.accessoryView = textField
-
-            // Add buttons
-            alert.addButton(withTitle: "OK")
-            alert.addButton(withTitle: "Cancel")
-
-            let response = alert.runModal()
-
-            // Check if the user clicked "OK"
-            if response == .alertFirstButtonReturn {
-                // Get the input text
-                let newTitle = textField.stringValue
-
-                if newTitle.isEmpty {
-                    // Empty means that user wants the title to be set automatically
-                    // We also need to reload the config for the "title" property to be
-                    // used again by this tab.
-                    let prevTitle = titleFromTerminal ?? "👻"
-                    titleFromTerminal = nil
-                    setTitle(prevTitle)
-                } else {
-                    // Set the title and prevent it from being changed automatically
-                    titleFromTerminal = title
-                    title = newTitle
+            // Create a popover
+            let hostingController = NSHostingController(rootView: TabTitleEditPopover(
+                currentTitle: title,
+                onComplete: { [weak self] newTitle in
+                    if newTitle.isEmpty {
+                        // Empty means that user wants the title to be set automatically
+                        let prevTitle = self?.titleFromTerminal ?? "👻"
+                        self?.titleFromTerminal = nil
+                        self?.setTitle(prevTitle)
+                    } else {
+                        // Set the title and prevent it from being changed automatically
+                        self?.titleFromTerminal = self?.title
+                        self?.title = newTitle
+                    }
                 }
+            ))
+
+            let popover = NSPopover()
+            popover.contentViewController = hostingController
+            popover.behavior = .transient
+
+            // Show the popover below the current tab title
+            if let window = self.window as? TerminalWindow,
+               let toolbar = window.toolbar as? TerminalToolbar,
+               let titleItem = toolbar.items.first(where: { $0.itemIdentifier == .titleText }),
+               let titleView = titleItem.view {
+                popover.show(
+                    relativeTo: titleView.bounds,
+                    of: titleView,
+                    preferredEdge: .maxY
+                )
+            } else if let window = self.window,
+                      let titlebarView = window.contentView?.superview?.firstDescendant(withClassName: "NSTitlebarView"),
+                      let titleView = titlebarView.firstDescendant(withClassName: "NSTextField") {
+                popover.show(
+                    relativeTo: titleView.bounds,
+                    of: titleView,
+                    preferredEdge: .maxY
+                )
             }
         }
 
@@ -1256,8 +1261,15 @@ extension Ghostty {
             menu.addItem(.separator())
             menu.addItem(withTitle: "Reset Terminal", action: #selector(resetTerminal(_:)), keyEquivalent: "")
             menu.addItem(withTitle: "Toggle Terminal Inspector", action: #selector(toggleTerminalInspector(_:)), keyEquivalent: "")
-            menu.addItem(.separator())
-            menu.addItem(withTitle: "Change Title...", action: #selector(changeTitle(_:)), keyEquivalent: "")
+
+            // Only show Change Title menu item if we have a title bar
+            if let window = self.window,
+               !window.styleMask.contains(.fullScreen),
+               let appDelegate = NSApplication.shared.delegate as? AppDelegate,
+               appDelegate.ghostty.config.windowDecorations {
+                menu.addItem(.separator())
+                menu.addItem(withTitle: "Change Title...", action: #selector(changeTitle(_:)), keyEquivalent: "")
+            }
 
             return menu
         }
@@ -1340,7 +1352,7 @@ extension Ghostty {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
-        
+
         @IBAction func changeTitle(_ sender: Any) {
             promptTitle()
         }
@@ -1653,6 +1665,11 @@ extension Ghostty.SurfaceView: NSMenuItemValidation {
             guard let str = pb.getOpinionatedStringContents() else { return false }
             return !str.isEmpty
 
+        case #selector(changeTitle):
+            guard let window = self.window,
+                  let appDelegate = NSApplication.shared.delegate as? AppDelegate else { return false }
+            return !window.styleMask.contains(.fullScreen) && appDelegate.ghostty.config.windowDecorations
+
         default:
             return true
         }
@@ -1715,5 +1732,49 @@ extension Ghostty.SurfaceView {
         }
 
         return false
+    }
+}
+
+struct TabTitleEditPopover: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var newTitle: String
+    let currentTitle: String
+    let onComplete: (String) -> Void
+
+    init(currentTitle: String, onComplete: @escaping (String) -> Void) {
+        self.currentTitle = currentTitle
+        self._newTitle = State(initialValue: currentTitle)
+        self.onComplete = onComplete
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextField("Enter title (leave empty for default)", text: $newTitle)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .onSubmit(submit)
+
+            HStack(spacing: 8) {
+                Button(action: { dismiss() }) {
+                    Text("Cancel")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .keyboardShortcut(.cancelAction)
+
+                Button(action: { submit() }) {
+                    Text("OK")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding()
+    }
+
+    private func submit() {
+        onComplete(newTitle)
+        dismiss()
     }
 }
