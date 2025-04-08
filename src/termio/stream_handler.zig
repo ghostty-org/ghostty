@@ -1056,6 +1056,13 @@ pub const StreamHandler = struct {
         self.terminal.markSemanticPrompt(.command);
     }
 
+    fn isUriPathSeparator(c: u8) bool {
+        return switch (c) {
+            '?', '#' => true,
+            else => false,
+        };
+    }
+
     pub fn reportPwd(self: *StreamHandler, url: []const u8) !void {
         // Special handling for the empty URL. We treat the empty URL
         // as resetting the pwd as if we never saw a pwd. I can't find any
@@ -1084,9 +1091,62 @@ pub const StreamHandler = struct {
             return;
         }
 
-        const uri = std.Uri.parse(url) catch |e| {
-            log.warn("invalid url in OSC 7: {}", .{e});
-            return;
+        const uri: std.Uri = uri: {
+            const uri = std.Uri.parse(url) catch |e| {
+                // It's possible this is a mac address on macOS where the last 2 characters in the
+                // address are non-digits, e.g. 'ff', and thus an invalid port.
+                //
+                // Example: file://12:34:56:78:90:12/path/to/file
+
+                // Insufficient length to have a mac address in the hostname.
+                if (url.len < 24) {
+                    log.warn("invalid url in OSC 7: {}", .{e});
+                    return;
+                }
+
+                // The first '/' after the scheme marks the end of the hostname. If the hostname is
+                // not 17 characters, it's not a mac address.
+                if (std.mem.indexOfScalarPos(u8, url, 7, '/') != 24) {
+                    log.warn("invalid url in OSC 7: {}", .{e});
+                    return;
+                }
+
+                // At this point we have a potential mac address as the hostname.
+                const mac_address = url[7..24];
+
+                for (0..mac_address.len) |i| {
+                    const c = mac_address[i];
+
+                    if (i + 1 % 3 == 0) {
+                        if (c != ':') {
+                            log.warn("invalid url in OSC 7: {}", .{e});
+                            return;
+                        }
+                    } else {
+                        if (!std.mem.containsAtLeastScalar(u8, "0123456789abcdef", 1, mac_address[i])) {
+                            log.warn("invalid url in OSC 7: {}", .{e});
+                            return;
+                        }
+                    }
+                }
+
+                // At this point we have what looks like a valid mac address.
+
+                var uri_path_end_idx: usize = 24;
+                while (uri_path_end_idx < url.len and !isUriPathSeparator(url[uri_path_end_idx])) {
+                    uri_path_end_idx += 1;
+                }
+
+                // Same compliance factor as std.Uri.parse(), i.e. not at all compliant with the URI
+                // spec.
+                break :uri .{
+                    .scheme = "file://",
+                    .host = .{ .percent_encoded = mac_address },
+                    .path = .{ .percent_encoded = url[24..uri_path_end_idx] },
+                };
+            };
+
+            break :uri uri;
         };
 
         if (!std.mem.eql(u8, "file", uri.scheme) and
