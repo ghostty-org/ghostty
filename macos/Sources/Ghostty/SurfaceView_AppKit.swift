@@ -195,6 +195,11 @@ extension Ghostty {
                 selector: #selector(windowDidChangeScreen),
                 name: NSWindow.didChangeScreenNotification,
                 object: nil)
+            center.addObserver(
+                self,
+                selector: #selector(ghosttyBackgroundOpacityDidToggle),
+                name: .ghosttyBackgroundOpacityDidToggle,
+                object: self)
 
             // Listen for local events that we need to know of outside of
             // single surface handlers.
@@ -572,6 +577,29 @@ extension Ghostty {
             // Issue: https://github.com/ghostty-org/ghostty/issues/2731
             DispatchQueue.main.async { [weak self] in
                 self?.viewDidChangeBackingProperties()
+            }
+        }
+
+        @objc private func ghosttyBackgroundOpacityDidToggle() {
+            guard let window = self.window as? TerminalWindow else { return }
+
+            // Don't toggle transparency if opacity is 1+ or in fullscreen mode
+            if self.derivedConfig.backgroundOpacity >= 1 || window.styleMask.contains(.fullScreen) {
+                return
+            }
+
+            // Toggle opacity state
+            window.isOpaque = !window.isOpaque
+
+            if window.isOpaque {
+                window.backgroundColor = NSColor(self.derivedConfig.backgroundColor)
+            } else {
+                // This is weird, but we don't use ".clear" because this creates a look that
+                // matches Terminal.app much more closer. This lets users transition from
+                // Terminal.app more easily.
+                window.backgroundColor = .white.withAlphaComponent(0.001)
+                guard let appDelegate = NSApplication.shared.delegate as? AppDelegate else { return }
+                ghostty_set_window_background_blur(appDelegate.ghostty.app, Unmanaged.passUnretained(window).toOpaque())
             }
         }
 
