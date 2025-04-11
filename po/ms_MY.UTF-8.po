@@ -42,8 +42,9 @@ msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
-"Terdapat satu atau lebih ralat di dalam konfigurasi. Sila semak ralat di bawah, "
-"kemudian pilih sama ada untuk memuat semula konfigurasi atau mengabaikan ralat ini."
+"Terdapat satu atau lebih ralat di dalam konfigurasi. Sila semak ralat di "
+"bawah, kemudian pilih sama ada untuk memuat semula konfigurasi atau "
+"mengabaikan ralat ini."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
 msgid "Ignore"
@@ -167,8 +168,8 @@ msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
-"Sesebuah aplikasi sedang cuba untuk membaca kandungan papan keratan. Kandungan semasa "
-"papan keratan ditunjukkan di bawah."
+"Sesebuah aplikasi sedang cuba untuk membaca kandungan papan keratan. "
+"Kandungan semasa papan keratan ditunjukkan di bawah."
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:10
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:10
@@ -185,8 +186,8 @@ msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
-"Sesebuah aplikasi sedang cuba untuk menulis kandungan ke papan keratan. Kandungan semasa "
-"papan keratan ditunjukkan di bawah."
+"Sesebuah aplikasi sedang cuba untuk menulis kandungan ke papan keratan. "
+"Kandungan semasa papan keratan ditunjukkan di bawah."
 
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:6
 msgid "Warning: Potentially Unsafe Paste"
@@ -197,8 +198,8 @@ msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
 msgstr ""
-"Menampal teks ini ke terminal mungkin berbahaya kerana kelihatan seperti "
-"ada arahan yang akan dilaksanakan secara automatik."
+"Menampal teks ini ke terminal mungkin berbahaya kerana kelihatan seperti ada "
+"arahan yang akan dilaksanakan secara automatik."
 
 #: src/apprt/gtk/inspector.zig:144
 msgid "Ghostty: Terminal Inspector"
@@ -252,15 +253,10 @@ msgstr "Menu Utama"
 msgid "View Open Tabs"
 msgstr "Lihat Tab Yang Terbuka"
 
-#: src/apprt/gtk/Window.zig:246
-msgid "New Tab"
-msgstr "Tab Baru"
-
 #: src/apprt/gtk/Window.zig:295
 msgid ""
 "⚠️ You're running a debug build of Ghostty! Performance will be degraded."
-msgstr ""
-"⚠️ Anda menjalankan versi debug Ghostty! Prestasi akan terjejas."
+msgstr "⚠️ Anda menjalankan versi debug Ghostty! Prestasi akan terjejas."
 
 #: src/apprt/gtk/Window.zig:725
 msgid "Reloaded the configuration"
@@ -269,7 +265,3 @@ msgstr "Konfigurasi telah dimuat semula"
 #: src/apprt/gtk/Window.zig:941
 msgid "Ghostty Developers"
 msgstr "Pembangun Perisian Ghostty"
-
-#: src/apprt/gtk/Window.zig:960
-msgid "About Ghostty"
-msgstr "Mengenai Ghostty"
