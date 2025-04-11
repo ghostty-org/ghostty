@@ -1451,9 +1451,6 @@ pub fn insertLines(self: *Terminal, count: usize) void {
         self.screen.cursor.x < self.scrolling_region.left or
         self.screen.cursor.x > self.scrolling_region.right) return;
 
-    // Scrolling dirties the images because it updates their placements pins.
-    self.screen.kitty_images.dirty = true;
-
     // At the end we need to return the cursor to the row it started on.
     const start_y = self.screen.cursor.y;
     defer {
@@ -1473,6 +1470,35 @@ pub fn insertLines(self: *Terminal, count: usize) void {
     // We can only insert lines up to our remaining lines in the scroll
     // region. So we take whichever is smaller.
     const adjusted_count = @min(count, rem);
+
+    // Scrolling dirties the images because it updates their placements pins.
+    self.screen.kitty_images.dirty = true;
+
+    // Adjust image placement pins for the scroll operation
+    var placement_it = self.screen.kitty_images.placements.iterator();
+    while (placement_it.next()) |entry| {
+        const placement = entry.value_ptr;
+        if (placement.location == .pin) {
+            const pin = placement.location.pin;
+            const y = pin.y;
+
+            // Only adjust images within the scroll region
+            if (y >= self.screen.cursor.y and y <= self.scrolling_region.bottom) {
+                // If image would get scrolled off the bottom, remove it
+                if (y + adjusted_count > self.scrolling_region.bottom) {
+                    self.screen.kitty_images.delete(self.screen.alloc, self, .{ .id = .{
+                        .image_id = entry.key_ptr.image_id,
+                        .delete = true,
+                    } });
+                } else if (y < self.scrolling_region.bottom - adjusted_count + 1) {
+                    // If the image is above where we're inserting lines, shift it down
+                    if (pin.down(adjusted_count)) |new_pin| {
+                        placement.location.pin.* = new_pin;
+                    }
+                }
+            }
+        }
+    }
 
     // Create a new tracked pin which we'll use to navigate the page list
     // so that if we need to adjust capacity it will be properly tracked.
@@ -1655,9 +1681,6 @@ pub fn deleteLines(self: *Terminal, count: usize) void {
         self.screen.cursor.x < self.scrolling_region.left or
         self.screen.cursor.x > self.scrolling_region.right) return;
 
-    // Scrolling dirties the images because it updates their placements pins.
-    self.screen.kitty_images.dirty = true;
-
     // At the end we need to return the cursor to the row it started on.
     const start_y = self.screen.cursor.y;
     defer {
@@ -1676,6 +1699,36 @@ pub fn deleteLines(self: *Terminal, count: usize) void {
     // We can only insert lines up to our remaining lines in the scroll
     // region. So we take whichever is smaller.
     const adjusted_count = @min(count, rem);
+
+    // Scrolling dirties the images because it updates their placements pins.
+    self.screen.kitty_images.dirty = true;
+
+    // Adjust image placement pins for the scroll operation
+    var placement_it = self.screen.kitty_images.placements.iterator();
+    while (placement_it.next()) |entry| {
+        const placement = entry.value_ptr;
+        if (placement.location == .pin) {
+            const pin = placement.location.pin;
+            const y = pin.y;
+
+            // Only adjust images within the scroll region
+            if (y >= self.screen.cursor.y and y <= self.scrolling_region.bottom) {
+
+                // Removes the image if the top right corner would be scrolled out
+                if (y < self.screen.cursor.y + adjusted_count) {
+                    self.screen.kitty_images.delete(self.screen.alloc, self, .{ .id = .{
+                        .image_id = entry.key_ptr.image_id,
+                        .delete = true,
+                    } });
+                } else if (y >= self.screen.cursor.y + adjusted_count) {
+                    // If the image is below the cursor but within range to be shifted up
+                    if (pin.up(adjusted_count)) |new_pin| {
+                        placement.location.pin.* = new_pin;
+                    }
+                }
+            }
+        }
+    }
 
     // Create a new tracked pin which we'll use to navigate the page list
     // so that if we need to adjust capacity it will be properly tracked.
@@ -5543,6 +5596,42 @@ test "Terminal: scrollUp full top/bottomleft/right scroll region" {
     }
 }
 
+test "Terminal: scrollUp moves Image" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    t.screen.cursor.x = 0;
+    t.screen.cursor.y = 0;
+    try t.screen.kitty_images.addImage(alloc, .{ .id = 1 });
+    try t.screen.kitty_images.addPlacement(alloc, 1, 1, .{ .location = .{ .pin = try t.screen.pages.trackPin(t.screen.pages.pin(.{ .active = .{ .x = 1, .y = 1 } }).?) } });
+
+    t.screen.kitty_images.dirty = false;
+    t.scrollUp(1);
+    const expectedY = @as(u16, 0);
+    try testing.expect(t.screen.kitty_images.dirty);
+    var p_it = t.screen.kitty_images.placements.iterator();
+    const placement = p_it.next().?;
+    try testing.expect(placement.value_ptr.location.pin.y == expectedY);
+}
+
+test "Terminal: scrollUp deletes Image" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    t.screen.cursor.x = 0;
+    t.screen.cursor.y = 0;
+    try t.screen.kitty_images.addImage(alloc, .{ .id = 1 });
+    try t.screen.kitty_images.addPlacement(alloc, 1, 1, .{ .location = .{ .pin = try t.screen.pages.trackPin(t.screen.pages.pin(.{ .active = .{ .x = 1, .y = 1 } }).?) } });
+
+    t.screen.kitty_images.dirty = false;
+    t.scrollUp(2);
+    try testing.expect(t.screen.kitty_images.dirty);
+    try testing.expect(t.screen.kitty_images.placements.count() == 0);
+    try testing.expect(t.screen.kitty_images.images.count() == 0);
+}
+
 test "Terminal: scrollDown simple" {
     const alloc = testing.allocator;
     var t = try init(alloc, .{ .rows = 5, .cols = 5 });
@@ -5854,6 +5943,42 @@ test "Terminal: scrollDown preserves pending wrap" {
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("\n    A\n    B\nX   C", str);
     }
+}
+
+test "Terminal: scrollDown moves Image" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    t.screen.cursor.x = 0;
+    t.screen.cursor.y = 0;
+    try t.screen.kitty_images.addImage(alloc, .{ .id = 1 });
+    try t.screen.kitty_images.addPlacement(alloc, 1, 1, .{ .location = .{ .pin = try t.screen.pages.trackPin(t.screen.pages.pin(.{ .active = .{ .x = 1, .y = 1 } }).?) } });
+
+    t.screen.kitty_images.dirty = false;
+    t.scrollDown(1);
+    const expectedY = @as(u16, 2);
+    try testing.expect(t.screen.kitty_images.dirty);
+    var p_it = t.screen.kitty_images.placements.iterator();
+    const placement = p_it.next().?;
+    try testing.expect(placement.value_ptr.location.pin.y == expectedY);
+}
+
+test "Terminal: scrollDown deletes Image" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+
+    t.screen.cursor.x = 0;
+    t.screen.cursor.y = 0;
+    try t.screen.kitty_images.addImage(alloc, .{ .id = 1 });
+    try t.screen.kitty_images.addPlacement(alloc, 1, 1, .{ .location = .{ .pin = try t.screen.pages.trackPin(t.screen.pages.pin(.{ .active = .{ .x = 1, .y = 1 } }).?) } });
+
+    t.screen.kitty_images.dirty = false;
+    t.scrollDown(t.scrolling_region.bottom);
+    try testing.expect(t.screen.kitty_images.dirty);
+    try testing.expect(t.screen.kitty_images.placements.count() == 0);
+    try testing.expect(t.screen.kitty_images.images.count() == 0);
 }
 
 test "Terminal: eraseChars simple operation" {
