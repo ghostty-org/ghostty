@@ -42,7 +42,7 @@ msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
-"Terdapat satu atau lebih ralat konfigurasi. Sila semak ralat di bawah, "
+"Terdapat satu atau lebih ralat di dalam konfigurasi. Sila semak ralat di bawah, "
 "kemudian pilih sama ada untuk memuat semula konfigurasi atau mengabaikan ralat ini."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
@@ -167,7 +167,7 @@ msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
-"Sebuah aplikasi cuba membaca kandungan papan keratan. Kandungan semasa "
+"Sesebuah aplikasi sedang cuba untuk membaca kandungan papan keratan. Kandungan semasa "
 "papan keratan ditunjukkan di bawah."
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:10
@@ -185,12 +185,12 @@ msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
-"Sebuah aplikasi cuba menulis ke papan keratan. Kandungan semasa "
+"Sesebuah aplikasi sedang cuba untuk menulis kandungan ke papan keratan. Kandungan semasa "
 "papan keratan ditunjukkan di bawah."
 
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:6
 msgid "Warning: Potentially Unsafe Paste"
-msgstr "Amaran: Tampalan Mungkin Tidak Selamat"
+msgstr "Amaran: Tampalan Berkemungkinan Tidak Selamat"
 
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:7
 msgid ""
