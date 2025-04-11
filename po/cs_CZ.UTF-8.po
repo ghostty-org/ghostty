@@ -43,8 +43,8 @@ msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
-"Jedna nebo více chyb byly nalezeny v konfiguraci. Podívejte se prosím na chyby zobrazeny níže, "
-"a aktualizujte konfiguraci nebo ignorujte tyto chyby."
+"Jedna nebo více chyb byly nalezeny v konfiguraci. Podívejte se prosím na chyby zobrazeny níže "
+"a aktualizujte konfiguraci, nebo ignorujte tyto chyby."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
 msgid "Ignore"
