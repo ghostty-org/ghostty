@@ -1,0 +1,512 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "%lld error(s) was/were found while loading the configuration. Please review the errors below and reload your configuration or ignore the erroneous lines." : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld error wasfound while loading the configuration. Please review the errors below and reload your configuration or ignore the erroneous lines."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld errors were found while loading the configuration. Please review the errors below and reload your configuration or ignore the erroneous lines."
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans" : {
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "加载设置时发现了%lld个错误。请查看下方的错误，并重新加载您的设置或忽略出错的行。"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "All terminal sessions in this window will be terminated." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "窗口内所有运行中的进程将被终止。"
+          }
+        }
+      }
+    },
+    "All terminal sessions will be terminated." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "终端内所有运行中的进程将被终止。"
+          }
+        }
+      }
+    },
+    "Allow" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "允许"
+          }
+        }
+      }
+    },
+    "Authorize Clipboard Access" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "剪切板访问授权"
+          }
+        }
+      }
+    },
+    "Cancel" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取消"
+          }
+        }
+      }
+    },
+    "Cannot Create New Tab" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法创建新的标签页"
+          }
+        }
+      }
+    },
+    "Change Terminal Title" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更改终端标题"
+          }
+        }
+      }
+    },
+    "Change Title..." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更改标题…"
+          }
+        }
+      }
+    },
+    "Close" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭"
+          }
+        }
+      }
+    },
+    "Close All Windows" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭所有窗口"
+          }
+        }
+      }
+    },
+    "Close All Windows?" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭所有窗口吗？"
+          }
+        }
+      }
+    },
+    "Close Ghostty" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭Ghostty"
+          }
+        }
+      }
+    },
+    "Close Tab?" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭标签页吗？"
+          }
+        }
+      }
+    },
+    "Close Terminal?" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭终端吗？"
+          }
+        }
+      }
+    },
+    "Close the Terminal" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭这个终端"
+          }
+        }
+      }
+    },
+    "Close Window?" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭窗口吗？"
+          }
+        }
+      }
+    },
+    "Coming Soon. 🚧" : {
+      "shouldTranslate" : false
+    },
+    "Copy" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拷贝"
+          }
+        }
+      }
+    },
+    "Debug builds of Ghostty are very slow and you may experience\nperformance problems. Debug builds are only recommended during\ndevelopment." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ghostty的调试版本运行非常缓慢，可能\n会出现性能问题。建议仅在开发过程中使\n用调试版本。"
+          }
+        }
+      }
+    },
+    "Deny" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拒绝"
+          }
+        }
+      }
+    },
+    "Docs" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文档"
+          }
+        }
+      }
+    },
+    "Enable window decorations to use tabs" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启用窗口装饰以使用标签页"
+          }
+        }
+      }
+    },
+    "Fast, native, feature-rich terminal \nemulator pushing modern features." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "快速、原生、功能丰富的终端模拟器，提供现代功能。"
+          }
+        }
+      }
+    },
+    "Ghostty" : {
+      "shouldTranslate" : false
+    },
+    "GitHub" : {
+      "shouldTranslate" : false
+    },
+    "Ignore" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "忽略"
+          }
+        }
+      }
+    },
+    "Leave blank to restore the default." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "留空以重置至默认标题。"
+          }
+        }
+      }
+    },
+    "Loading" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "加载中"
+          }
+        }
+      }
+    },
+    "New tabs are unsupported while in non-native fullscreen. Exit fullscreen and try again." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在非原生全屏幕模式下无法新建标签页。退出全屏幕后再试试。"
+          }
+        }
+      }
+    },
+    "Oh, no. 😭" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "大事不妙😭"
+          }
+        }
+      }
+    },
+    "OK" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "好"
+          }
+        }
+      }
+    },
+    "Paste" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "粘贴"
+          }
+        }
+      }
+    },
+    "Quit Ghostty?" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "退出Ghostty吗？"
+          }
+        }
+      }
+    },
+    "Reload Configuration" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新加载设置"
+          }
+        }
+      }
+    },
+    "Reset Terminal" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置终端"
+          }
+        }
+      }
+    },
+    "Reset Zoom" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置缩放"
+          }
+        }
+      }
+    },
+    "Secure Input is active. Secure Input is a macOS security feature that \nprevents applications from reading keyboard events. This is enabled \nautomatically whenever Ghostty detects a password prompt in the terminal, \nor at all times if `Ghostty > Secure Keyboard Entry` is active." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安全输入已启用。安全输入是macOS的一项安全功能，\n可防止其他应用程序读取键盘事件。当Ghostty在终端\n中检测到密码输入提示时，会自动启用该功能；如果启用\n`Ghostty > 安全键盘输入`，则会始终保持启用状态。"
+          }
+        }
+      }
+    },
+    "Something went fatally wrong.\nCheck the logs and restart Ghostty." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "发生致命错误。请检查日志并重新启动Ghostty。"
+          }
+        }
+      }
+    },
+    "Split Down" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "向下分屏"
+          }
+        }
+      }
+    },
+    "Split Left" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "向左分屏"
+          }
+        }
+      }
+    },
+    "Split Right" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "向右分屏"
+          }
+        }
+      }
+    },
+    "Split Up" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "向上分屏"
+          }
+        }
+      }
+    },
+    "Tabs are disabled" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "标签页已被禁用"
+          }
+        }
+      }
+    },
+    "Tabs aren't supported in the Quick Terminal." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "快捷终端不支持标签页"
+          }
+        }
+      }
+    },
+    "The terminal still has a running process. If you close the tab the process will be killed." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这个终端中有正在运行的进程。关闭这个标签页将终止该进程。"
+          }
+        }
+      }
+    },
+    "The terminal still has a running process. If you close the terminal the process will be killed." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这个终端中有正在运行的进程。关闭这个终端将终止该进程。"
+          }
+        }
+      }
+    },
+    "Toggle Terminal Inspector" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "切换终端检视器"
+          }
+        }
+      }
+    },
+    "Warning: Potentially Unsafe Paste" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "警告：粘贴内容可能不安全"
+          }
+        }
+      }
+    },
+    "You can't configure settings in the GUI yet. To modify settings, edit the file at $HOME/.config/ghostty/config and restart Ghostty." : {
+      "shouldTranslate" : false
+    },
+    "You're running a debug build of Ghostty! Performance will be degraded." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ghostty正在以调试模式运行！性能将大打折扣。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
