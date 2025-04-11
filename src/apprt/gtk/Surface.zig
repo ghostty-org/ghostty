@@ -2374,6 +2374,9 @@ pub fn defaultTermioEnv(self: *Surface) !std.process.EnvMap {
         env.remove("GDK_PIXBUF_MODULEDIR");
         env.remove("GDK_PIXBUF_MODULE_FILE");
         env.remove("GTK_PATH");
+        env.remove("XDG_CONFIG_HOME");
+        env.remove("XDG_CACHE_HOME");
+        env.remove("XDG_DATA_HOME");
     }
 
     if (self.container.window()) |window| {
