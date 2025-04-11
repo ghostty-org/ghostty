@@ -43,7 +43,7 @@ msgid ""
 "and either reload your configuration or ignore these errors."
 msgstr ""
 "Terdapat satu atau lebih ralat konfigurasi. Sila semak ralat di bawah, "
-"dan sama ada muat semula konfigurasi atau abaikan ralat ini."
+"kemudian pilih sama ada untuk memuat semula konfigurasi atau mengabaikan ralat ini."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
 msgid "Ignore"
