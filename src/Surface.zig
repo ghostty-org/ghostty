@@ -1635,6 +1635,9 @@ fn resize(self: *Surface, size: rendererpkg.ScreenSize) !void {
     self.size.screen = size;
     self.balancePaddingIfNeeded();
 
+    // Update renderer with latest size
+    self.renderer.setTrueSize(size);
+
     // Recalculate our grid size. Because Ghostty supports fluid resizing,
     // its possible the grid doesn't change at all even if the screen size changes.
     // We have to update the IO thread no matter what because we send

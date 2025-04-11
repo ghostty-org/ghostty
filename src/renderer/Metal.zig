@@ -1286,6 +1286,8 @@ pub fn updateFrame(
     }
 }
 
+pub fn setTrueSize(_: *Metal, _: renderer.ScreenSize) void {}
+
 /// Draw the frame to the screen.
 pub fn drawFrame(self: *Metal, surface: *apprt.Surface) !void {
     _ = surface;

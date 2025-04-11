@@ -54,6 +54,10 @@ grid_metrics: font.Metrics,
 /// The size of everything.
 size: renderer.Size,
 
+/// The most up to date size of the GLAarea. This comes from the thread where
+/// the resize occurs (UI), rather than the output of rendering.
+true_size: renderer.ScreenSize,
+
 /// The current set of cells to render. Each set of cells goes into
 /// a separate shader call.
 cells_bg: std.ArrayListUnmanaged(CellProgram.Cell),
@@ -394,6 +398,7 @@ pub fn init(alloc: Allocator, options: renderer.Options) !OpenGL {
         .cells = .{},
         .grid_metrics = grid.metrics,
         .size = options.size,
+        .true_size = options.size.screen,
         .gl_state = gl_state,
         .font_grid = grid,
         .font_shaper = shaper,
@@ -2288,6 +2293,10 @@ fn flushAtlasSingle(
     modified.* = atlas.modified.load(.monotonic);
 }
 
+pub fn setTrueSize(self: *OpenGL, new_size: renderer.ScreenSize) void {
+    self.true_size = new_size;
+}
+
 /// Render renders the current cell state. This will not modify any of
 /// the cells.
 pub fn drawFrame(self: *OpenGL, surface: *apprt.Surface) !void {
@@ -2295,6 +2304,11 @@ pub fn drawFrame(self: *OpenGL, surface: *apprt.Surface) !void {
     if (single_threaded_draw) self.draw_mutex.lock();
     defer if (single_threaded_draw) self.draw_mutex.unlock();
     const gl_state: *GLState = if (self.gl_state) |*v| v else return;
+
+    if (!self.size.screen.equals(self.true_size)) {
+        self.size.screen = self.true_size;
+        self.deferred_screen_size = .{ .size = self.size };
+    }
 
     // Go through our images and see if we need to setup any textures.
     {
