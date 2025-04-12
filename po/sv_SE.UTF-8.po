@@ -1,0 +1,272 @@
+# Swedish translations for com.mitchellh.ghostty package
+# Svenska översättningar för paket com.mitchellh.ghostty.
+# Copyright (C) 2025 Mitchell Hashimoto
+# This file is distributed under the same license as the com.mitchellh.ghostty package.
+# Miró Allard <info@miroallard.com>, 2025.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: com.mitchellh.ghostty\n"
+"Report-Msgid-Bugs-To: m@mitchellh.com\n"
+"POT-Creation-Date: 2025-03-19 08:54-0700\n"
+"PO-Revision-Date: 2025-04-12 16:45+0200\n"
+"Last-Translator: Miró Allard <info@miroallard.com>\n"
+"Language-Team: Swedish\n"
+"Language: sv\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:5
+msgid "Change Terminal Title"
+msgstr "Ställ in titel"
+
+#: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:6
+msgid "Leave blank to restore the default title."
+msgstr "Lämna tom för att återställa ursprunglig titel."
+
+#: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:9
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:10 src/apprt/gtk/CloseDialog.zig:44
+msgid "Cancel"
+msgstr "Avbryt"
+
+#: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:10
+msgid "OK"
+msgstr "OK"
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:5
+msgid "Configuration Errors"
+msgstr "Konfigurationsfel"
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:6
+msgid ""
+"One or more configuration errors were found. Please review the errors below, "
+"and either reload your configuration or ignore these errors."
+msgstr ""
+"Ett eller flera konfigurationsfel påträffades. Vänligen se över nedanstående "
+"felmeddelanden och ladda om konfigurationen, eller ignorera felen."
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
+msgid "Ignore"
+msgstr "Ignorera"
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:10
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:97
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:95
+msgid "Reload Configuration"
+msgstr "Ladda om konfiguration"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
+msgid "Copy"
+msgstr "Kopiera"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:11
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:11
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:11
+msgid "Paste"
+msgstr "Klistra in"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:18
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:73
+msgid "Clear"
+msgstr "Rensa"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:23
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:78
+msgid "Reset"
+msgstr "Återställ"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:30
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:42
+msgid "Split"
+msgstr "Dela"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:33
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:45
+msgid "Change Title…"
+msgstr "Ställ in titel…"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
+msgid "Split Up"
+msgstr "Dela uppåt"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
+msgid "Split Down"
+msgstr "Dela nedåt"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
+msgid "Split Left"
+msgstr "Dela åt vänster"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
+msgid "Split Right"
+msgstr "Dela åt höger"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:59
+msgid "Tab"
+msgstr "Flik"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:62
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:30
+#: src/apprt/gtk/Window.zig:246
+msgid "New Tab"
+msgstr "Ny flik"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:67
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:35
+msgid "Close Tab"
+msgstr "Stäng flik"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:73
+msgid "Window"
+msgstr "Fönster"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:76
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:18
+msgid "New Window"
+msgstr "Nytt fönster"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:81
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:23
+msgid "Close Window"
+msgstr "Stäng fönster"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:89
+msgid "Config"
+msgstr "Konfiguration"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:92
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:90
+msgid "Open Configuration"
+msgstr "Öppna konfiguration"
+
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:85
+msgid "Terminal Inspector"
+msgstr "Terminalinspektör"
+
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:102
+#: src/apprt/gtk/Window.zig:960
+msgid "About Ghostty"
+msgstr "Om Ghostty"
+
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:107
+msgid "Quit"
+msgstr "Avsluta"
+
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:6
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:6
+msgid "Authorize Clipboard Access"
+msgstr "Tillåt tillgång till urklipp"
+
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:7
+msgid ""
+"An application is attempting to read from the clipboard. The current "
+"clipboard contents are shown below."
+msgstr ""
+"Ett program försöker läsa från urklippet. Nuvarande innehåll i urklippet "
+"visas nedan."
+
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:10
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:10
+msgid "Deny"
+msgstr "Neka"
+
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:11
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:11
+msgid "Allow"
+msgstr "Tillåt"
+
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:7
+msgid ""
+"An application is attempting to write to the clipboard. The current "
+"clipboard contents are shown below."
+msgstr ""
+"Ett program försöker skriva till urklippet. Nuvarande innehåll i urklippet "
+"visas nedan."
+
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:6
+msgid "Warning: Potentially Unsafe Paste"
+msgstr "Varning: potentiellt osäker inklistring"
+
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:7
+msgid ""
+"Pasting this text into the terminal may be dangerous as it looks like some "
+"commands may be executed."
+msgstr ""
+"Att klistra in denna text i terminalen kan vara farligt då det ser ut som "
+"att några kommandon kan komma att exekveras."
+
+#: src/apprt/gtk/inspector.zig:144
+msgid "Ghostty: Terminal Inspector"
+msgstr "Ghostty: terminalinspektör"
+
+#: src/apprt/gtk/Surface.zig:1243
+msgid "Copied to clipboard"
+msgstr "Kopierat till urklipp"
+
+#: src/apprt/gtk/CloseDialog.zig:47
+msgid "Close"
+msgstr "Stäng"
+
+#: src/apprt/gtk/CloseDialog.zig:87
+msgid "Quit Ghostty?"
+msgstr "Avsluta Ghostty?"
+
+#: src/apprt/gtk/CloseDialog.zig:88
+msgid "Close Window?"
+msgstr "Stäng fönster?"
+
+#: src/apprt/gtk/CloseDialog.zig:89
+msgid "Close Tab?"
+msgstr "Stäng flik?"
+
+#: src/apprt/gtk/CloseDialog.zig:90
+# "Dela" som översättning till verbet "split" fungerar, men här fungerar det
+# inte lika bra. GNOME Builder är det enda program jag hittat splits och svensk
+# översätting: där används orden "ram" och "sida"t
+msgid "Close Split?"
+msgstr "Stäng delning?"
+
+#: src/apprt/gtk/CloseDialog.zig:96
+msgid "All terminal sessions will be terminated."
+msgstr "Alla terminalsessioner kommer avslutas."
+
+#: src/apprt/gtk/CloseDialog.zig:97
+msgid "All terminal sessions in this window will be terminated."
+msgstr "Alla terminalsessioner i detta fönster kommer avslutas."
+
+#: src/apprt/gtk/CloseDialog.zig:98
+msgid "All terminal sessions in this tab will be terminated."
+msgstr "Alla terminalsessioner i denna flik kommer avslutas."
+
+#: src/apprt/gtk/CloseDialog.zig:99
+msgid "The currently running process in this split will be terminated."
+msgstr "Den pågående processen i denna delning kommer att avslutas."
+
+#: src/apprt/gtk/Window.zig:200
+msgid "Main Menu"
+msgstr "Huvudmeny"
+
+#: src/apprt/gtk/Window.zig:221
+msgid "View Open Tabs"
+msgstr "Visa öppna flikar"
+
+#: src/apprt/gtk/Window.zig:295
+msgid ""
+"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
+msgstr ""
+"⚠️ Du kör en felsökningsversion av Ghostty! Prestanden kommer vara försämrad."
+
+#: src/apprt/gtk/Window.zig:725
+msgid "Reloaded the configuration"
+msgstr "Laddade om konfigurationen"
+
+#: src/apprt/gtk/Window.zig:941
+msgid "Ghostty Developers"
+msgstr "Ghostty-utvecklare"
