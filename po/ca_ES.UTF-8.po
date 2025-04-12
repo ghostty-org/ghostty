@@ -1,0 +1,269 @@
+# Catalan translations for com.mitchellh.ghostty package.
+# Copyright (C) 2025 Mitchell Hashimoto
+# This file is distributed under the same license as the com.mitchellh.ghostty package.
+# Francesc Arpi <francesc.arpi@gmail.com>, 2025.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: com.mitchellh.ghostty\n"
+"Report-Msgid-Bugs-To: m@mitchellh.com\n"
+"POT-Creation-Date: 2025-03-19 08:28-0700\n"
+"PO-Revision-Date: 2025-03-20 08:07+0100\n"
+"Last-Translator: Francesc Arpi <francesc.arpi@gmail.com>\n"
+"Language-Team: \n"
+"Language: ca\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:5
+msgid "Change Terminal Title"
+msgstr "Canvia el títol del terminal"
+
+#: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:6
+msgid "Leave blank to restore the default title."
+msgstr "Deixa en blanc per restaurar el títol per defecte."
+
+#: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:9
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:10 src/apprt/gtk/CloseDialog.zig:44
+msgid "Cancel"
+msgstr "Cancel·la"
+
+#: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:10
+msgid "OK"
+msgstr "D'acord"
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:5
+msgid "Configuration Errors"
+msgstr "Errors de configuració"
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:6
+msgid ""
+"One or more configuration errors were found. Please review the errors below, "
+"and either reload your configuration or ignore these errors."
+msgstr ""
+"S'han trobat un o més errors de configuració. Si us plau, revisa els errors a "
+"continuació i torna a carregar la configuració o ignora aquests errors."
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
+msgid "Ignore"
+msgstr "Ignora"
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:10
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:97
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:95
+msgid "Reload Configuration"
+msgstr "Carrega la configuració"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
+msgid "Copy"
+msgstr "Copia"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:11
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:11
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:11
+msgid "Paste"
+msgstr "Enganxa"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:18
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:73
+msgid "Clear"
+msgstr "Neteja"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:23
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:78
+msgid "Reset"
+msgstr "Reinicia"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:30
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:42
+msgid "Split"
+msgstr "Divideix"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:33
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:45
+msgid "Change Title…"
+msgstr "Canvia el títol…"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
+msgid "Split Up"
+msgstr "Divideix cap amunt"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
+msgid "Split Down"
+msgstr "Divideix cap avall"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
+msgid "Split Left"
+msgstr "Divideix a l'esquerra"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
+msgid "Split Right"
+msgstr "Divideix a la dreta"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:59
+msgid "Tab"
+msgstr "Pestanya"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:62
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:30
+#: src/apprt/gtk/Window.zig:246
+msgid "New Tab"
+msgstr "Nova pestanya"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:67
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:35
+msgid "Close Tab"
+msgstr "Tanca la pestanya"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:73
+msgid "Window"
+msgstr "Finestra"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:76
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:18
+msgid "New Window"
+msgstr "Nova finestra"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:81
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:23
+msgid "Close Window"
+msgstr "Tanca la finestra"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:89
+msgid "Config"
+msgstr "Configuració"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:92
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:90
+msgid "Open Configuration"
+msgstr "Obre la configuració"
+
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:85
+msgid "Terminal Inspector"
+msgstr "Inspector de terminal"
+
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:102
+#: src/apprt/gtk/Window.zig:960
+msgid "About Ghostty"
+msgstr "Sobre Ghostty"
+
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:107
+msgid "Quit"
+msgstr "Surt"
+
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:6
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:6
+msgid "Authorize Clipboard Access"
+msgstr "Autoritza l'accés al porta-retalls"
+
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:7
+msgid ""
+"An application is attempting to read from the clipboard. The current "
+"clipboard contents are shown below."
+msgstr ""
+"Una aplicació està intentant llegir del porta-retalls. El contingut actual "
+"del porta-retalls es mostra a continuació."
+
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:10
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:10
+msgid "Deny"
+msgstr "Denegar"
+
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:11
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:11
+msgid "Allow"
+msgstr "Permet"
+
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:7
+msgid ""
+"An application is attempting to write to the clipboard. The current "
+"clipboard contents are shown below."
+msgstr ""
+"Una aplicació està intentant escriure al porta-retalls. El contingut actual "
+"del porta-retalls es mostra a continuació."
+
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:6
+msgid "Warning: Potentially Unsafe Paste"
+msgstr "Avís: Enganxament potencialment insegur"
+
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:7
+msgid ""
+"Pasting this text into the terminal may be dangerous as it looks like some "
+"commands may be executed."
+msgstr ""
+"Enganxar aquest text al terminal pot ser perillós, ja que sembla que es "
+"podrien executar algunes ordres."
+
+#: src/apprt/gtk/inspector.zig:144
+msgid "Ghostty: Terminal Inspector"
+msgstr "Ghostty: Inspector de terminal"
+
+#: src/apprt/gtk/Surface.zig:1243
+msgid "Copied to clipboard"
+msgstr "Copiat al porta-retalls"
+
+#: src/apprt/gtk/CloseDialog.zig:47
+msgid "Close"
+msgstr "Tanca"
+
+#: src/apprt/gtk/CloseDialog.zig:87
+msgid "Quit Ghostty?"
+msgstr "Surt de Ghostty?"
+
+#: src/apprt/gtk/CloseDialog.zig:88
+msgid "Close Window?"
+msgstr "Tanca la finestra?"
+
+#: src/apprt/gtk/CloseDialog.zig:89
+msgid "Close Tab?"
+msgstr "Tanca la pestanya?"
+
+#: src/apprt/gtk/CloseDialog.zig:90
+msgid "Close Split?"
+msgstr "Tanca la divisió?"
+
+#: src/apprt/gtk/CloseDialog.zig:96
+msgid "All terminal sessions will be terminated."
+msgstr "Totes les sessions del terminal es tancaran."
+
+#: src/apprt/gtk/CloseDialog.zig:97
+msgid "All terminal sessions in this window will be terminated."
+msgstr "Totes les sessions del terminal en aquesta finestra es tancaran."
+
+#: src/apprt/gtk/CloseDialog.zig:98
+msgid "All terminal sessions in this tab will be terminated."
+msgstr "Totes les sessions del terminal en aquesta pestanya es tancaran."
+
+#: src/apprt/gtk/CloseDialog.zig:99
+msgid "The currently running process in this split will be terminated."
+msgstr "El procés actualment en execució en aquesta divisió es tancarà."
+
+#: src/apprt/gtk/Window.zig:200
+msgid "Main Menu"
+msgstr "Menú principal"
+
+#: src/apprt/gtk/Window.zig:221
+msgid "View Open Tabs"
+msgstr "Mostra les pestanyes obertes"
+
+#: src/apprt/gtk/Window.zig:295
+msgid ""
+"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
+msgstr ""
+"⚠️ Estàs executant una versió de depuració de Ghostty! El rendiment es "
+"veurà afectat."
+
+#: src/apprt/gtk/Window.zig:725
+msgid "Reloaded the configuration"
+msgstr "S'ha tornat a carregar la configuració"
+
+#: src/apprt/gtk/Window.zig:941
+msgid "Ghostty Developers"
+msgstr "Desenvolupadors de Ghostty"

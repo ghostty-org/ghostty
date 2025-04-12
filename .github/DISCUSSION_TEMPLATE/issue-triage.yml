@@ -1,0 +1,139 @@
+labels: ["needs confirmation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > [!IMPORTANT]
+        > Please read through [the Discussion rules](https://github.com/ghostty-org/ghostty/discussions/6937), review [the FAQs](https://ghostty.org/docs/help#common-issues-and-solutions), and check for both existing [Discussions](https://github.com/ghostty-org/ghostty/discussions?discussions_q=) and [Issues](https://github.com/ghostty-org/ghostty/issues?q=sort%3Areactions-desc) prior to opening a new Discussion.
+  - type: markdown
+    attributes:
+      value: "# Issue Details"
+  - type: textarea
+    attributes:
+      label: Issue Description
+      description: |
+        Provide a detailed description of the issue.  Include relevant information, such as:
+        - The feature or configuration option you encounter the issue with.
+        - The expected behavior.
+        - The actual behavior (and how it deviates from the expected behavior, if it is not immediately obvious).
+        - Relevant Ghostty logs or other stacktraces.
+        - Relevant screenshots, screen recordings, or other supporting media (as needed).
+        - If this is a regression of an existing issue that was closed or resolved, please include the previous item reference (Discussion, Issue, PR, commit) in your description.
+
+        >[!TIP]
+        > **Not sure what information to include?**
+        > Here are some recommendations:
+        > - **Input issues:** include your keyboard layout, a screenshot of the terminal inspector's logged keystrokes (Linux: <kbd>ctrl</kbd>+<kbd>shift</kbd>+<kbd>i</kbd>; MacOS: <kbd>cmd</kbd>+<kbd>alt</kbd>+<kbd>i</kbd>), input method, Linux input method engine (IBus, Fcitx 5, or none) and its version.
+        > - **Font issues:** include the problematic character(s), the output of `ghostty +show-face` for these character(s), and if they work in other applications.
+        > - **VT issues (including image rendering issues):** attach an [asciinema](https://docs.asciinema.org/getting-started/) cast file, shell script, or text file for reproduction.
+        > - **Renderer issues:** (Linux) include your OpenGL version, graphics card, driver version.
+
+      placeholder: |
+        Example: When using SSH to connect to my remote Linux machine from my local macOS device in Ghostty, I try to run `clear`, and the screen does not clear.  Instead, I see the following error message printed to the terminal: `Error opening terminal: xterm-ghostty.`
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Reproduction Steps
+      description: |
+        Provide a detailed set of step-by-step instructions for reproducing this issue.
+      placeholder: |
+        1. Open Ghostty.
+        2. Connect to a remote server via SSH.
+        3. Try to execute `clear`.
+        4. Observe `xterm-ghostty` error message above.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Ghostty Version
+      description: Paste the output of `ghostty +version` here.
+      placeholder: |
+        Ghostty 1.1.3
+
+        Version
+          - version: 1.1.3
+          - channel: stable
+        Build Config
+          - Zig version: 0.13.0
+          - build mode : builtin.OptimizeMode.ReleaseFast
+          - app runtime: apprt.Runtime.none
+          - font engine: font.main.Backend.coretext
+          - renderer   : renderer.Metal
+          - libxev     : main.Backend.kqueue
+      render: text
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: OS Version Information
+      description: |
+        Please tell us what operating system (name and version) you are using.
+      placeholder: Ubuntu 24.04.1 (Noble Numbat)
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: (Linux only) Display Server
+      description: |
+        If you run Linux, please tell us if you use X11 or Wayland. If you aren't sure, you can determine this by running `[ -z "$WAYLAND_DISPLAY" ] && echo X11 || echo Wayland`.
+      options:
+        - X11
+        - Wayland
+        - Other
+    validations:
+      required: false
+  - type: input
+    attributes:
+      label: (Linux only) Desktop Environment/Window Manager
+      description: |
+        If you run Linux, please tell us what Desktop Environment/Window Manager you are using (include the name and version).
+      placeholder: GNOME 47.4
+    validations:
+      required: false
+  - type: textarea
+    attributes:
+      label: Ghostty Configuration
+      description: |
+        Please provide the minimum configuration needed to reproduce this issue.  If you cannot determine this, paste the output of `ghostty +show-config` here.
+      placeholder: |
+        font-family = CommitMono Nerd Font
+        font-family-bold = CommitMono Nerd Font
+        font-family-italic = CommitMono Nerd Font
+        font-family-bold-italic = CommitMono Nerd Font
+        font-feature = +cv07
+        font-size = 16
+        font-thicken = true
+        theme = catppuccin-mocha
+      render: ini
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Additional Relevant Configuration
+      description: |
+        If your issue involves other programs, tools, or applications in addition to Ghostty (e.g. Neovim, tmux, Zellij, etc.), please provide the minimum configuration needed for all relevant programs to reproduce the issue here.  If you use custom CSS or shaders for Ghostty, also include them here, if applicable to your issue.
+      placeholder: |
+        `tmux.conf`
+        ---
+        set  -g default-terminal "tmux-256color"
+        set-option -sa terminal-overrides ",xterm*:Tc"
+        set  -g base-index      1
+        setw -g pane-base-index 1
+      render: text
+    validations:
+      required: false
+  - type: markdown
+    attributes:
+      value: |
+        # User Acknowledgements
+        > [!TIP]
+        > Use these links to review the existing Ghostty [Discussions](https://github.com/ghostty-org/ghostty/discussions?discussions_q=) and [Issues](https://github.com/ghostty-org/ghostty/issues?q=sort%3Areactions-desc).
+  - type: checkboxes
+    attributes:
+      label: "I acknowledge that:"
+      options:
+        - label: I have reviewed the FAQ and confirm that my issue is NOT among them.
+          required: true
+        - label: I have searched the Ghostty repository (both open and closed Discussions and Issues) and confirm this is not a duplicate of an existing issue or discussion.
+          required: true

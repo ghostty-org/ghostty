@@ -158,9 +158,19 @@
 # Localization
 /po/README_TRANSLATORS.md @ghostty-org/localization
 /po/com.mitchellh.ghostty.pot @ghostty-org/localization
+/po/ca_ES.UTF-8.po @ghostty-org/ca_ES
 /po/de_DE.UTF-8.po @ghostty-org/de_DE
+/po/es_BO.UTF-8.po @ghostty-org/es_BO
+/po/fr_FR.UTF-8.po @ghostty-org/fr_FR
+/po/id_ID.UTF-8.po @ghostty-org/id_ID
+/po/ja_JP.UTF-8.po @ghostty-org/ja_JP
+/po/mk_MK.UTF-8.po @ghostty-org/mk_MK
 /po/nb_NO.UTF-8.po @ghostty-org/nb_NO
+/po/nl_NL.UTF-8.po @ghostty-org/nl_NL
 /po/pl_PL.UTF-8.po @ghostty-org/pl_PL
+/po/pt_BR.UTF-8.po @ghostty-org/pt_BR
+/po/ru_RU.UTF-8.po @ghostty-org/ru_RU
+/po/tr_TR.UTF-8.po @ghostty-org/tr_TR
 /po/uk_UA.UTF-8.po @ghostty-org/uk_UA
 /po/zh_CN.UTF-8.po @ghostty-org/zh_CN
 
