@@ -33,6 +33,9 @@ class QuickTerminalController: BaseTerminalController {
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private var derivedConfig: DerivedConfig
 
+    /// Storage for the window frame before entering fullscreen mode
+    private var savedWindowFrame: NSRect? = nil
+
     init(_ ghostty: Ghostty.App,
          position: QuickTerminalPosition = .top,
          baseConfig base: Ghostty.SurfaceConfiguration? = nil,
@@ -485,9 +488,16 @@ class QuickTerminalController: BaseTerminalController {
     @objc private func onToggleFullscreen(notification: SwiftUI.Notification) {
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
         guard target == self.focusedSurface else { return }
+        guard let window = self.window else { return }
+        guard let screen = window.screen ?? NSScreen.main else { return }
 
-        // We ignore the requested mode and always use non-native for the quick terminal
-        toggleFullscreen(mode: .nonNative)
+        if let originalFrame = savedWindowFrame {
+            window.setFrame(originalFrame, display: true)
+            savedWindowFrame = nil
+        } else {
+            savedWindowFrame = window.frame
+            window.setFrame(screen.frame, display: true)
+        }
     }
 
     @objc private func ghosttyConfigDidChange(_ notification: Notification) {
