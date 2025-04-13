@@ -156,7 +156,6 @@ msgid "About Ghostty"
 msgstr "Informazioni su Ghostty"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:107
-# Check if "Esci" is better suited here
 msgid "Quit"
 msgstr "Chiudi"
 
