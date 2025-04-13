@@ -2201,12 +2201,6 @@ pub fn setScreenSize(
     if (single_threaded_draw) self.draw_mutex.lock();
     defer if (single_threaded_draw) self.draw_mutex.unlock();
 
-    // Reset our buffer sizes so that we free memory when the screen shrinks.
-    // This could be made more clever by only doing this when the screen
-    // shrinks but the performance cost really isn't that much.
-    self.cells.clearAndFree(self.alloc);
-    self.cells_bg.clearAndFree(self.alloc);
-
     // Store our screen size
     self.size = size;
 
