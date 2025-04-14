@@ -1110,12 +1110,33 @@ class: ?[:0]const u8 = null,
 /// `global:unconsumed:ctrl+a=reload_config` will make the keybind global
 /// and not consume the input to reload the config.
 ///
-/// Note: `global:` is only supported on macOS. On macOS,
-/// this feature requires accessibility permissions to be granted to Ghostty.
-/// When a `global:` keybind is specified and Ghostty is launched or reloaded,
-/// Ghostty will attempt to request these permissions. If the permissions are
-/// not granted, the keybind will not work. On macOS, you can find these
-/// permissions in System Preferences -> Privacy & Security -> Accessibility.
+/// Note: `global:` is only supported on macOS and certain Linux platforms.
+///
+/// On macOS, this feature requires accessibility permissions to be granted
+/// to Ghostty. When a `global:` keybind is specified and Ghostty is launched
+/// or reloaded, Ghostty will attempt to request these permissions.
+/// If the permissions are not granted, the keybind will not work. On macOS,
+/// you can find these permissions in System Preferences -> Privacy & Security
+/// -> Accessibility.
+///
+/// On Linux, you need a desktop environment that implements the
+/// [Global Shortcuts](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.GlobalShortcuts.html)
+/// protocol as a part of its XDG desktop protocol implementation.
+/// Desktop environments that are known to support (or not support)
+/// global shortcuts include:
+///
+///  - Users using KDE Plasma (since [5.27](https://kde.org/announcements/plasma/5/5.27.0/#wayland))
+///    and GNOME (since [48](https://release.gnome.org/48/#and-thats-not-all)) should be able
+///    to use global shortcuts with little to no configuration.
+///
+///  - Some manual configuration is required on Hyprland. Consult the steps
+///    outlined on the [Hyprland Wiki](https://wiki.hyprland.org/Configuring/Binds/#dbus-global-shortcuts)
+///    to set up global shortcuts correctly.
+///    (Important: [`xdg-desktop-portal-hyprland`](https://wiki.hyprland.org/Hypr-Ecosystem/xdg-desktop-portal-hyprland/)
+///    must also be installed!)
+///
+///  - Notably, global shortcuts have not been implemented on wlroots-based
+///    compositors like Sway (see [upstream issue](https://github.com/emersion/xdg-desktop-portal-wlr/issues/240)).
 keybind: Keybinds = .{},
 
 /// Horizontal window padding. This applies padding between the terminal cells
