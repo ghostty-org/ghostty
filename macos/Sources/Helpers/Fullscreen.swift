@@ -167,6 +167,9 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         // screen the window is currently on.
         guard let screen = window.screen else { return }
 
+        // Check if we're on a space that has a fullscreen window already
+        let alreadyHasFullscreenWindow = hasScreenWithFullscreenWindow(screen)
+
         // Save the state that we need to exit again
         guard let savedState = SavedState(window) else { return }
         self.savedState = savedState
@@ -179,8 +182,9 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
             hideDock()
         }
 
-        // Hide the menu if requested
-        if (properties.hideMenu) {
+        // Hide the menu if requested and if we don't already have a fullscreen window
+        // on this space (which would cause conflicts with presentation options)
+        if (properties.hideMenu && !alreadyHasFullscreenWindow) {
             hideMenu()
         }
 
@@ -325,11 +329,32 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
     // MARK: Menu
 
     func hideMenu() {
-        NSApp.acquirePresentationOption(.autoHideMenuBar)
+        // Check if we're on a space that already has a fullscreen window
+        // which would cause macOS to already have the menu bar hidden
+        let currentOptions = NSApp.presentationOptions
+        if !currentOptions.contains(.autoHideMenuBar) && !currentOptions.contains(.hideMenuBar) {
+            // Only set if not already managed by the system
+            NSApp.acquirePresentationOption(.autoHideMenuBar)
+        }
     }
 
     func unhideMenu() {
-        NSApp.releasePresentationOption(.autoHideMenuBar)
+        let currentOptions = NSApp.presentationOptions
+        if currentOptions.contains(.autoHideMenuBar) {
+            // Only release what we've acquired
+            NSApp.releasePresentationOption(.autoHideMenuBar)
+        }
+    }
+
+    /// Determines if a screen already has a fullscreen window, which would
+    /// affect how we handle presentation options
+    private func hasScreenWithFullscreenWindow(_ screen: NSScreen) -> Bool {
+        // Check if we're on a space with a fullscreen window already
+        let currentOptions = NSApp.presentationOptions
+
+        // If any of these are set, macOS is probably already managing the menu bar
+        return currentOptions.contains(.hideMenuBar) ||
+               currentOptions.contains(.autoHideMenuBar)
     }
 
     /// The state that must be saved for non-native fullscreen to exit fullscreen.
