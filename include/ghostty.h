@@ -601,6 +601,7 @@ typedef enum {
   GHOSTTY_ACTION_RELOAD_CONFIG,
   GHOSTTY_ACTION_CONFIG_CHANGE,
   GHOSTTY_ACTION_CLOSE_WINDOW,
+  GHOSTTY_ACTION_RING_BELL,
 } ghostty_action_tag_e;
 
 typedef union {

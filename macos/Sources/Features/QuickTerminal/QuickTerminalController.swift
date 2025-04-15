@@ -3,12 +3,6 @@ import Cocoa
 import SwiftUI
 import GhosttyKit
 
-// This is a Apple's private function that we need to call to get the active space.
-@_silgen_name("CGSGetActiveSpace")
-func CGSGetActiveSpace(_ cid: Int) -> size_t
-@_silgen_name("CGSMainConnectionID")
-func CGSMainConnectionID() -> Int
-
 /// Controller for the "quick" terminal.
 class QuickTerminalController: BaseTerminalController {
     override var windowNibName: NSNib.Name? { "QuickTerminal" }
@@ -25,7 +19,7 @@ class QuickTerminalController: BaseTerminalController {
     private var previousApp: NSRunningApplication? = nil
 
     // The active space when the quick terminal was last shown.
-    private var previousActiveSpace: size_t = 0
+    private var previousActiveSpace: CGSSpace? = nil
 
     /// Non-nil if we have hidden dock state.
     private var hiddenDock: HiddenDock? = nil
@@ -51,7 +45,7 @@ class QuickTerminalController: BaseTerminalController {
             object: nil)
         center.addObserver(
             self,
-            selector: #selector(onToggleFullscreen),
+            selector: #selector(onToggleFullscreen(notification:)),
             name: Ghostty.Notification.ghosttyToggleFullscreen,
             object: nil)
         center.addObserver(
@@ -154,14 +148,24 @@ class QuickTerminalController: BaseTerminalController {
                 animateOut()
 
             case .move:
-                let currentActiveSpace = CGSGetActiveSpace(CGSMainConnectionID())
+                let currentActiveSpace = CGSSpace.active()
                 if previousActiveSpace == currentActiveSpace {
                     // We haven't moved spaces. We lost focus to another app on the
                     // current space. Animate out.
                     animateOut()
                 } else {
-                    // We've moved to a different space. Bring the quick terminal back
-                    // into view.
+                    // We've moved to a different space.
+
+                    // If we're fullscreen, we need to exit fullscreen because the visible
+                    // bounds may have changed causing a new behavior.
+                    if let fullscreenStyle, fullscreenStyle.isFullscreen {
+                        fullscreenStyle.exit()
+                        DispatchQueue.main.async {
+                            self.onToggleFullscreen()
+                        }
+                    }
+
+                    // Make the window visible again on this space
                     DispatchQueue.main.async {
                         self.window?.makeKeyAndOrderFront(nil)
                     }
@@ -224,7 +228,7 @@ class QuickTerminalController: BaseTerminalController {
         }
 
         // Set previous active space
-        self.previousActiveSpace = CGSGetActiveSpace(CGSMainConnectionID())
+        self.previousActiveSpace = CGSSpace.active()
 
         // Animate the window in
         animateWindowIn(window: window, from: position)
@@ -485,9 +489,23 @@ class QuickTerminalController: BaseTerminalController {
     @objc private func onToggleFullscreen(notification: SwiftUI.Notification) {
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
         guard target == self.focusedSurface else { return }
+        onToggleFullscreen()
+    }
 
-        // We ignore the requested mode and always use non-native for the quick terminal
-        toggleFullscreen(mode: .nonNative)
+    private func onToggleFullscreen() {
+        // We ignore the configured fullscreen style and always use non-native
+        // because the way the quick terminal works doesn't support native.
+        //
+        // An additional detail is that if the is NOT frontmost, then our
+        // NSApp.presentationOptions will not take effect so we must always
+        // do the visible menu mode since we can't get rid of the menu.
+        let mode: FullscreenMode = if (NSApp.isFrontmost) {
+            .nonNative
+        } else {
+            .nonNativeVisibleMenu
+        }
+
+        toggleFullscreen(mode: mode)
     }
 
     @objc private func ghosttyConfigDidChange(_ notification: Notification) {

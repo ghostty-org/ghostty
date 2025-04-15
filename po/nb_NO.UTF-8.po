@@ -4,13 +4,14 @@
 # Hanna Rose <hanna@hanna.lol>, 2025.
 # Uzair Aftab <uzaaft@outlook.com>, 2025.
 # Christoffer Tønnessen <christoffer@cto.gg>, 2025.
+# cryptocode <cryptocode@zolo.io>, 2025.
 #
 msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"PO-Revision-Date: 2025-03-19 09:52+0100\n"
-"Last-Translator: Christoffer Tønnessen <christoffer@cto.gg>\n"
+"PO-Revision-Date: 2025-04-14 16:25+0200\n"
+"Last-Translator: cryptocode <cryptocode@zolo.io>\n"
 "Language-Team: Norwegian Bokmal <l10n-no@lister.huftis.org>\n"
 "Language: nb\n"
 "MIME-Version: 1.0\n"
@@ -162,7 +163,7 @@ msgstr "Avslutt"
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:6
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:6
 msgid "Authorize Clipboard Access"
-msgstr "Gi tilgang til utklippstavle"
+msgstr "Gi tilgang til utklippstavlen"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:7
 msgid ""
@@ -187,7 +188,7 @@ msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
-"En applikasjon er forsøker å skrive til utklippstavlen. Gjeldende "
+"En applikasjon forsøker å skrive til utklippstavlen. Gjeldende "
 "utklippstavleinnhold er vist nedenfor."
 
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:6
@@ -208,7 +209,7 @@ msgstr "Ghostty: Terminalinspektør"
 
 #: src/apprt/gtk/Surface.zig:1243
 msgid "Copied to clipboard"
-msgstr "Kopiert til utklippstavle"
+msgstr "Kopiert til utklippstavlen"
 
 #: src/apprt/gtk/CloseDialog.zig:47
 msgid "Close"

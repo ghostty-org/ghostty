@@ -484,6 +484,7 @@ pub fn performAction(
         .prompt_title => try self.promptTitle(target),
         .toggle_quick_terminal => return try self.toggleQuickTerminal(),
         .secure_input => self.setSecureInput(target, value),
+        .ring_bell => try self.ringBell(target),
 
         // Unimplemented
         .close_all_windows,
@@ -773,6 +774,13 @@ fn toggleQuickTerminal(self: *App) !bool {
     try qt.newTab(null);
     qt.present();
     return true;
+}
+
+fn ringBell(_: *App, target: apprt.Target) !void {
+    switch (target) {
+        .app => {},
+        .surface => |surface| try surface.rt_surface.ringBell(),
+    }
 }
 
 fn quitTimer(self: *App, mode: apprt.action.QuitTimer) void {

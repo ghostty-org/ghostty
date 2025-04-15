@@ -2439,3 +2439,25 @@ pub fn setSecureInput(self: *Surface, value: apprt.action.SecureInput) void {
         .toggle => self.is_secure_input = !self.is_secure_input,
     }
 }
+
+pub fn ringBell(self: *Surface) !void {
+    const features = self.app.config.@"bell-features";
+    const window = self.container.window() orelse {
+        log.warn("failed to ring bell: surface is not attached to any window", .{});
+        return;
+    };
+
+    // System beep
+    if (features.system) system: {
+        const surface = window.window.as(gtk.Native).getSurface() orelse break :system;
+        surface.beep();
+    }
+
+    // Mark tab as needing attention
+    if (self.container.tab()) |tab| tab: {
+        const page = window.notebook.getTabPage(tab) orelse break :tab;
+
+        // Need attention if we're not the currently selected tab
+        if (page.getSelected() == 0) page.setNeedsAttention(@intFromBool(true));
+    }
+}

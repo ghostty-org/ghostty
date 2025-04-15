@@ -930,6 +930,16 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
         .present_surface => try self.presentSurface(),
 
         .password_input => |v| try self.passwordInput(v),
+
+        .ring_bell => {
+            _ = self.rt_app.performAction(
+                .{ .surface = self },
+                .ring_bell,
+                {},
+            ) catch |err| {
+                log.warn("apprt failed to ring bell={}", .{err});
+            };
+        },
     }
 }
 
@@ -1031,9 +1041,64 @@ fn mouseRefreshLinks(
     // If the position is outside our viewport, do nothing
     if (pos.x < 0 or pos.y < 0) return;
 
+    // Update the last point that we checked for links so we don't
+    // recheck if the mouse moves some pixels to the same point.
     self.mouse.link_point = pos_vp;
 
-    if (try self.linkAtPos(pos)) |link| {
+    // We use an arena for everything below to make things easy to clean up.
+    // In the case we don't do any allocs this is very cheap to setup
+    // (effectively just struct init).
+    var arena = ArenaAllocator.init(self.alloc);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    // Get our link at the current position. This returns null if there
+    // isn't a link OR if we shouldn't be showing links for some reason
+    // (see further comments for cases).
+    const link_: ?apprt.action.MouseOverLink = link: {
+        // If we clicked and our mouse moved cells then we never
+        // highlight links until the mouse is unclicked. This follows
+        // standard macOS and Linux behavior where a click and drag cancels
+        // mouse actions.
+        const left_idx = @intFromEnum(input.MouseButton.left);
+        if (self.mouse.click_state[left_idx] == .press) click: {
+            const pin = self.mouse.left_click_pin orelse break :click;
+            const click_pt = self.io.terminal.screen.pages.pointFromPin(
+                .viewport,
+                pin.*,
+            ) orelse break :click;
+
+            if (!click_pt.coord().eql(pos_vp)) {
+                log.debug("mouse moved while left click held, ignoring link hover", .{});
+                break :link null;
+            }
+        }
+
+        const link = (try self.linkAtPos(pos)) orelse break :link null;
+        switch (link[0]) {
+            .open => {
+                const str = try self.io.terminal.screen.selectionString(alloc, .{
+                    .sel = link[1],
+                    .trim = false,
+                });
+                break :link .{ .url = str };
+            },
+
+            ._open_osc8 => {
+                // Show the URL in the status bar
+                const pin = link[1].start();
+                const uri = self.osc8URI(pin) orelse {
+                    log.warn("failed to get URI for OSC8 hyperlink", .{});
+                    break :link null;
+                };
+                break :link .{ .url = uri };
+            },
+        }
+    };
+
+    // If we found a link, setup our internal state and notify the
+    // apprt so it can highlight it.
+    if (link_) |link| {
         self.renderer_state.mouse.point = pos_vp;
         self.mouse.over_link = true;
         self.renderer_state.terminal.screen.dirty.hyperlink_hover = true;
@@ -1042,38 +1107,18 @@ fn mouseRefreshLinks(
             .mouse_shape,
             .pointer,
         );
-
-        switch (link[0]) {
-            .open => {
-                const str = try self.io.terminal.screen.selectionString(self.alloc, .{
-                    .sel = link[1],
-                    .trim = false,
-                });
-                defer self.alloc.free(str);
-                _ = try self.rt_app.performAction(
-                    .{ .surface = self },
-                    .mouse_over_link,
-                    .{ .url = str },
-                );
-            },
-
-            ._open_osc8 => link: {
-                // Show the URL in the status bar
-                const pin = link[1].start();
-                const uri = self.osc8URI(pin) orelse {
-                    log.warn("failed to get URI for OSC8 hyperlink", .{});
-                    break :link;
-                };
-                _ = try self.rt_app.performAction(
-                    .{ .surface = self },
-                    .mouse_over_link,
-                    .{ .url = uri },
-                );
-            },
-        }
-
+        _ = try self.rt_app.performAction(
+            .{ .surface = self },
+            .mouse_over_link,
+            link,
+        );
         try self.queueRender();
-    } else if (over_link) {
+        return;
+    }
+
+    // No link, if we're previously over a link then we need to clear
+    // the over-link apprt state.
+    if (over_link) {
         _ = try self.rt_app.performAction(
             .{ .surface = self },
             .mouse_shape,
@@ -1085,6 +1130,7 @@ fn mouseRefreshLinks(
             .{ .url = "" },
         );
         try self.queueRender();
+        return;
     }
 }
 

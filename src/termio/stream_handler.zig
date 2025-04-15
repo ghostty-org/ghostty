@@ -325,9 +325,8 @@ pub const StreamHandler = struct {
         try self.terminal.printRepeat(count);
     }
 
-    pub fn bell(self: StreamHandler) !void {
-        _ = self;
-        log.info("BELL", .{});
+    pub fn bell(self: *StreamHandler) !void {
+        self.surfaceMessageWriter(.ring_bell);
     }
 
     pub fn backspace(self: *StreamHandler) !void {

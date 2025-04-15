@@ -244,6 +244,8 @@ pub const Action = union(Key) {
     /// Closes the currently focused window.
     close_window,
 
+    ring_bell,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -287,6 +289,7 @@ pub const Action = union(Key) {
         reload_config,
         config_change,
         close_window,
+        ring_bell,
     };
 
     /// Sync with: ghostty_action_u

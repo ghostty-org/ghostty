@@ -1861,6 +1861,22 @@ keybind: Keybinds = .{},
 /// open terminals.
 @"custom-shader-animation": CustomShaderAnimation = .true,
 
+/// The list of enabled features that are activated after encountering
+/// a bell character.
+///
+/// Valid values are:
+///
+///  * `system` (default)
+///
+///    Instructs the system to notify the user using built-in system functions.
+///    This could result in an audiovisual effect, a notification, or something
+///    else entirely. Changing these effects require altering system settings:
+///    for instance under the "Sound > Alert Sound" setting in GNOME,
+///    or the "Accessibility > System Bell" settings in KDE Plasma.
+///
+/// Currently only implemented on Linux.
+@"bell-features": BellFeatures = .{},
+
 /// Control the in-app notifications that Ghostty shows.
 ///
 /// On Linux (GTK), in-app notifications show up as toasts. Toasts appear
@@ -5689,6 +5705,11 @@ pub const GtkToolbarStyle = enum {
 /// See app-notifications
 pub const AppNotifications = packed struct {
     @"clipboard-copy": bool = true,
+};
+
+/// See bell-features
+pub const BellFeatures = packed struct {
+    system: bool = false,
 };
 
 /// See mouse-shift-capture

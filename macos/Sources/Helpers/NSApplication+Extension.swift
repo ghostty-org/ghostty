@@ -1,5 +1,7 @@
 import Cocoa
 
+// MARK: Presentation Options
+
 extension NSApplication {
     private static var presentationOptionCounts: [NSApplication.PresentationOptions.Element: UInt] = [:]
 
@@ -27,5 +29,15 @@ extension NSApplication {
 extension NSApplication.PresentationOptions.Element: @retroactive Hashable {
     public func hash(into hasher: inout Hasher) {
         hasher.combine(rawValue)
+    }
+}
+
+// MARK: Frontmost
+
+extension NSApplication {
+    /// True if the application is frontmost. This isn't exactly the same as isActive because
+    /// an app can be active but not be frontmost if the window with activity is an NSPanel.
+    var isFrontmost: Bool {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Bundle.main.bundleIdentifier
     }
 }

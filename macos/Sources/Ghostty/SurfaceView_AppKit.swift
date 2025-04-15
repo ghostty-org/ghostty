@@ -743,6 +743,13 @@ extension Ghostty {
         override func mouseExited(with event: NSEvent) {
             guard let surface = self.surface else { return }
 
+            // If the mouse is being dragged then we don't have to emit
+            // this because we get mouse drag events even if we've already
+            // exited the viewport (i.e. mouseDragged)
+            if NSEvent.pressedMouseButtons != 0 {
+                return
+            }
+
             // Negative values indicate cursor has left the viewport
             let mods = Ghostty.ghosttyMods(event.modifierFlags)
             ghostty_surface_mouse_pos(surface, -1, -1, mods)
