@@ -2461,13 +2461,7 @@ pub fn ringBell(self: *Surface) !void {
             .required => |path| .{ path, false },
         };
 
-        const volume: f64 = @min(
-            @max(
-                0.0,
-                self.app.config.@"bell-audio-volume",
-            ),
-            1.0,
-        );
+        const volume = std.math.clamp(self.app.config.@"bell-audio-volume", 0.0, 1.0);
 
         std.debug.assert(std.fs.path.isAbsolute(pathname));
         const media_file = gtk.MediaFile.newForFilename(pathname);
