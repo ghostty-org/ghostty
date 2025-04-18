@@ -1,8 +1,8 @@
 # /// script
 # requires-python = ">=3.9"
 # dependencies = [
-#     "githubkit",
-#     "loguru",
+#     "githubkit==0.12.11",
+#     "loguru==0.7.3",
 # ]
 # ///
 
@@ -12,9 +12,9 @@ import asyncio
 import os
 import re
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
-from itertools import chain
+from itertools import batched, chain
 
 from githubkit import GitHub
 from githubkit.exception import RequestFailed
@@ -124,18 +124,19 @@ async def get_changed_files(pr_number: int) -> list[str]:
     return [d.filename for d in diff_entries]
 
 
-async def request_review(pr_number: int, user: str, pr_author: str) -> None:
-    if user == pr_author:
-        logger.debug(f"Skipping review request for {user!r} (is PR author)")
-    logger.debug(f"Requesting review from {user!r}...")
-    with log_fail(f"Failed to request review from {user}", die=False):
-        await gh.rest.pulls.async_request_reviewers(
-            ORG_NAME,
-            REPO_NAME,
-            pr_number,
-            headers={"Accept": "application/vnd.github+json"},
-            data={"reviewers": [user]},
-        )
+async def request_review(pr_number: int, users: Iterable[str], pr_author: str) -> None:
+    users = set(users) - {pr_author}
+    for batch in map(list, batched(users, 10)):
+        members_str = ", ".join(map(repr, batch))
+        logger.debug(f"Requesting review from: {members_str}...")
+        with log_fail(f"Failed to request review from {members_str}", die=False):
+            await gh.rest.pulls.async_request_reviewers(
+                ORG_NAME,
+                REPO_NAME,
+                pr_number,
+                headers={"Accept": "application/vnd.github+json"},
+                data={"reviewers": list(batch)},
+            )
 
 
 def is_localization_team(team_name: str) -> bool:
@@ -177,12 +178,7 @@ async def main() -> None:
     member_lists = await asyncio.gather(
         *(get_team_members(owner) for owner in found_owners)
     )
-    await asyncio.gather(
-        *(
-            request_review(pr_number, user, pr_author)
-            for user in chain.from_iterable(member_lists)
-        )
-    )
+    await request_review(pr_number, chain.from_iterable(member_lists), pr_author)
 
 
 if __name__ == "__main__":
