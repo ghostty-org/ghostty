@@ -40,6 +40,7 @@
   hicolor-icon-theme,
   harfbuzz,
   libpng,
+  libhwy,
   libxkbcommon,
   libX11,
   libXcursor,
@@ -141,6 +142,7 @@ in
         zlib
 
         glslang
+        libhwy
         spirv-cross
 
         libxkbcommon
