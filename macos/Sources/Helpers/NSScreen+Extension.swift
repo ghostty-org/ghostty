@@ -34,4 +34,11 @@ extension NSScreen {
 
         return visibleFrame.height < (frame.height - max(menuHeight, notchInset) - boundaryAreaPadding)
     }
+
+    /// Returns true if the screen has a visible notch (i.e., a non-zero safe area inset at the top).
+    var hasNotch: Bool {
+        // We assume that a top safe area means notch, since we don't currently
+        // know any other situation this is true.
+        return safeAreaInsets.top > 0
+    }
 }

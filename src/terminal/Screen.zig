@@ -924,8 +924,8 @@ fn cursorScrollAboveRotate(self: *Screen) !void {
     fastmem.rotateOnceR(Row, cur_rows[self.cursor.page_pin.y..cur_page.size.rows]);
     self.clearCells(
         cur_page,
-        &cur_rows[0],
-        cur_page.getCells(&cur_rows[0]),
+        &cur_rows[self.cursor.page_pin.y],
+        cur_page.getCells(&cur_rows[self.cursor.page_pin.y]),
     );
 
     // Set all the rows we rotated and cleared dirty
@@ -1254,6 +1254,17 @@ pub fn clearCells(
         page.pauseIntegrityChecks(false);
         page.assertIntegrity();
         self.assertIntegrity();
+    }
+
+    if (comptime std.debug.runtime_safety) {
+        // Our row and cells should be within the page.
+        const page_rows = page.rows.ptr(page.memory.ptr);
+        assert(@intFromPtr(row) >= @intFromPtr(&page_rows[0]));
+        assert(@intFromPtr(row) <= @intFromPtr(&page_rows[page.size.rows - 1]));
+
+        const row_cells = page.getCells(row);
+        assert(@intFromPtr(&cells[0]) >= @intFromPtr(&row_cells[0]));
+        assert(@intFromPtr(&cells[cells.len - 1]) <= @intFromPtr(&row_cells[row_cells.len - 1]));
     }
 
     // If this row has graphemes, then we need go through a slow path
@@ -4798,6 +4809,83 @@ test "Screen: scroll above creates new page" {
         const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
         defer alloc.free(contents);
         try testing.expectEqualStrings("2EFGH\n\n3IJKL", contents);
+    }
+    {
+        const list_cell = s.pages.getCell(.{ .active = .{ .x = 0, .y = 1 } }).?;
+        const cell = list_cell.cell;
+        try testing.expect(cell.content_tag == .bg_color_rgb);
+        try testing.expectEqual(Cell.RGB{
+            .r = 155,
+            .g = 0,
+            .b = 0,
+        }, cell.content.color_rgb);
+    }
+
+    // Page 0's penultimate row is dirty because the cursor moved off of it.
+    try testing.expect(s.pages.isDirty(.{ .active = .{ .x = 0, .y = 0 } }));
+    // Page 0's final row is dirty because it was cleared.
+    try testing.expect(s.pages.isDirty(.{ .active = .{ .x = 0, .y = 1 } }));
+    // Page 1's row is dirty because it's new.
+    try testing.expect(s.pages.isDirty(.{ .active = .{ .x = 0, .y = 2 } }));
+}
+
+test "Screen: scroll above with cursor on non-final row" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 4, 10);
+    defer s.deinit();
+
+    // Get the cursor to be 2 rows above a new page
+    const first_page_size = s.pages.pages.first.?.data.capacity.rows;
+    s.pages.pages.first.?.data.pauseIntegrityChecks(true);
+    for (0..first_page_size - 3) |_| try s.testWriteString("\n");
+    s.pages.pages.first.?.data.pauseIntegrityChecks(false);
+
+    // Write 3 lines of text, forcing the last line into the first
+    // row of a new page. Move our cursor onto the previous page.
+    try s.setAttribute(.{ .direct_color_bg = .{ .r = 155 } });
+    try s.testWriteString("1AB\n2BC\n3DE\n4FG");
+    s.cursorAbsolute(0, 1);
+    s.pages.clearDirty();
+
+    // Ensure we're still on the first page. So our cursor is on the first
+    // page but we have two pages of data.
+    try testing.expect(s.cursor.page_pin.node == s.pages.pages.first.?);
+
+    //      +----------+ = PAGE 0
+    //  ... :          :
+    //     +-------------+ ACTIVE
+    // 4305 |1AB0000000| | 0
+    // 4306 |2BC0000000| | 1
+    //      :^         : : = PIN 0
+    // 4307 |3DE0000000| | 2
+    //      +----------+ :
+    //      +----------+ : = PAGE 1
+    //    0 |4FG0000000| | 3
+    //      +----------+ :
+    //     +-------------+
+    try s.cursorScrollAbove();
+
+    //     +----------+ = PAGE 0
+    //  ... :          :
+    // 4305 |1AB0000000|
+    //     +-------------+ ACTIVE
+    // 4306 |2BC0000000| | 0
+    // 4307 |          | | 1
+    //      :^         : : = PIN 0
+    //      +----------+ :
+    //      +----------+ : = PAGE 1
+    //    0 |3DE0000000| | 2
+    //    1 |4FG0000000| | 3
+    //      +----------+ :
+    //     +-------------+
+    // try s.pages.diagram(std.io.getStdErr().writer());
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("2BC\n\n3DE\n4FG", contents);
     }
     {
         const list_cell = s.pages.getCell(.{ .active = .{ .x = 0, .y = 1 } }).?;

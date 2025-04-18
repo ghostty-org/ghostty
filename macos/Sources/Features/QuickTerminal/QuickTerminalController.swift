@@ -495,14 +495,20 @@ class QuickTerminalController: BaseTerminalController {
     private func onToggleFullscreen() {
         // We ignore the configured fullscreen style and always use non-native
         // because the way the quick terminal works doesn't support native.
-        //
-        // An additional detail is that if the is NOT frontmost, then our
-        // NSApp.presentationOptions will not take effect so we must always
-        // do the visible menu mode since we can't get rid of the menu.
-        let mode: FullscreenMode = if (NSApp.isFrontmost) {
-            .nonNative
+        let mode: FullscreenMode
+        if (NSApp.isFrontmost) {
+            // If we're frontmost and we have a notch then we keep padding
+            // so all lines of the terminal are visible.
+            if (window?.screen?.hasNotch ?? false) {
+                mode = .nonNativePaddedNotch
+            } else {
+                mode = .nonNative
+            }
         } else {
-            .nonNativeVisibleMenu
+            // An additional detail is that if the is NOT frontmost, then our
+            // NSApp.presentationOptions will not take effect so we must always
+            // do the visible menu mode since we can't get rid of the menu.
+            mode = .nonNativeVisibleMenu
         }
 
         toggleFullscreen(mode: mode)

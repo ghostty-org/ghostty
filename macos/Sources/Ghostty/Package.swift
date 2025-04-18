@@ -253,6 +253,9 @@ extension Notification.Name {
 
     /// Resize the window to a default size.
     static let ghosttyResetWindowSize = Notification.Name("com.mitchellh.ghostty.resetWindowSize")
+
+    /// Ring the bell
+    static let ghosttyBellDidRing = Notification.Name("com.mitchellh.ghostty.ghosttyBellDidRing")
 }
 
 // NOTE: I am moving all of these to Notification.Name extensions over time. This

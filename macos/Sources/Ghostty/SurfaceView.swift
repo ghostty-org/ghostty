@@ -59,6 +59,15 @@ extension Ghostty {
 
         @EnvironmentObject private var ghostty: Ghostty.App
 
+        var title: String {
+            var result = surfaceView.title
+            if (surfaceView.bell) {
+                result = "🔔 \(result)"
+            }
+
+            return result
+        }
+
         var body: some View {
             let center = NotificationCenter.default
 
@@ -74,7 +83,7 @@ extension Ghostty {
 
                     Surface(view: surfaceView, size: geo.size)
                         .focused($surfaceFocus)
-                        .focusedValue(\.ghosttySurfaceTitle, surfaceView.title)
+                        .focusedValue(\.ghosttySurfaceTitle, title)
                         .focusedValue(\.ghosttySurfacePwd, surfaceView.pwd)
                         .focusedValue(\.ghosttySurfaceView, surfaceView)
                         .focusedValue(\.ghosttySurfaceCellSize, surfaceView.cellSize)

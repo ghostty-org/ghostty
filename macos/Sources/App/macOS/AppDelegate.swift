@@ -186,6 +186,12 @@ class AppDelegate: NSObject,
             name: .ghosttyConfigDidChange,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(ghosttyBellDidRing(_:)),
+            name: .ghosttyBellDidRing,
+            object: nil
+        )
 
         // Configure user notifications
         let actions = [
@@ -500,6 +506,11 @@ class AppDelegate: NSObject,
         ] as? Ghostty.Config else { return }
 
         ghosttyConfigDidChange(config: config)
+    }
+
+    @objc private func ghosttyBellDidRing(_ notification: Notification) {
+        // Bounce the dock icon if we're not focused.
+        NSApp.requestUserAttention(.informationalRequest)
     }
 
     private func ghosttyConfigDidChange(config: Ghostty.Config) {

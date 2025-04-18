@@ -63,6 +63,9 @@ extension Ghostty {
         /// dynamically updated. Otherwise, the background color is the default background color.
         @Published private(set) var backgroundColor: Color? = nil
 
+        /// True when the bell is active. This is set inactive on focus or event.
+        @Published private(set) var bell: Bool = false
+
         // An initial size to request for a window. This will only affect
         // then the view is moved to a new window.
         var initialSize: NSSize? = nil
@@ -192,6 +195,11 @@ extension Ghostty {
                 object: self)
             center.addObserver(
                 self,
+                selector: #selector(ghosttyBellDidRing(_:)),
+                name: .ghosttyBellDidRing,
+                object: self)
+            center.addObserver(
+                self,
                 selector: #selector(windowDidChangeScreen),
                 name: NSWindow.didChangeScreenNotification,
                 object: nil)
@@ -300,9 +308,12 @@ extension Ghostty {
                 SecureInput.shared.setScoped(ObjectIdentifier(self), focused: focused)
             }
 
-            // On macOS 13+ we can store our continuous clock...
             if (focused) {
+                // On macOS 13+ we can store our continuous clock...
                 focusInstant = ContinuousClock.now
+
+                // We unset our bell state if we gained focus
+                bell = false
             }
         }
 
@@ -554,6 +565,11 @@ extension Ghostty {
                 // We don't do anything for the other colors yet.
                 break
             }
+        }
+
+        @objc private func ghosttyBellDidRing(_ notification: SwiftUI.Notification) {
+            // Bell state goes to true
+            bell = true
         }
 
         @objc private func windowDidChangeScreen(notification: SwiftUI.Notification) {
@@ -854,6 +870,9 @@ extension Ghostty {
                 self.interpretKeyEvents([event])
                 return
             }
+
+            // On any keyDown event we unset our bell state
+            bell = false
 
             // We need to translate the mods (maybe) to handle configs such as option-as-alt
             let translationModsGhostty = Ghostty.eventModifierFlags(

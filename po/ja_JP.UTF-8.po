@@ -1,5 +1,5 @@
 # Japanese translations for com.mitchellh.ghostty package
-# com.mitchellh.ghostty パッケージに対する英訳.
+# com.mitchellh.ghostty パッケージに対する和訳.
 # Copyright (C) 2025 Mitchell Hashimoto
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
 # Lon Sagisawa <lon@sagisawa.me>, 2025.
@@ -37,7 +37,7 @@ msgstr "OK"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:5
 msgid "Configuration Errors"
-msgstr "設定エラー"
+msgstr "設定ファイルにエラーがあります"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:6
 msgid ""
@@ -192,7 +192,7 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:6
 msgid "Warning: Potentially Unsafe Paste"
-msgstr "警告: 危険な可能性のあるペースト"
+msgstr "警告: 危険な可能性のある貼り付け"
 
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:7
 msgid ""
@@ -232,19 +232,19 @@ msgstr "分割ウィンドウを閉じますか?"
 
 #: src/apprt/gtk/CloseDialog.zig:96
 msgid "All terminal sessions will be terminated."
-msgstr "すべてのターミナルセッションが終了されます。"
+msgstr "すべてのターミナルセッションが終了します。"
 
 #: src/apprt/gtk/CloseDialog.zig:97
 msgid "All terminal sessions in this window will be terminated."
-msgstr "ウィンドウ内のすべてのターミナルセッションが終了されます。"
+msgstr "ウィンドウ内のすべてのターミナルセッションが終了します。"
 
 #: src/apprt/gtk/CloseDialog.zig:98
 msgid "All terminal sessions in this tab will be terminated."
-msgstr "タブ内のすべてのターミナルセッションが終了されます。"
+msgstr "タブ内のすべてのターミナルセッションが終了します。"
 
 #: src/apprt/gtk/CloseDialog.zig:99
 msgid "The currently running process in this split will be terminated."
-msgstr "分割ウィンドウ内のすべてのターミナルセッションが終了されます。"
+msgstr "分割ウィンドウ内のすべてのプロセスが終了します。"
 
 #: src/apprt/gtk/Window.zig:200
 msgid "Main Menu"

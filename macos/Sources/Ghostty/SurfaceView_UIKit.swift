@@ -35,6 +35,9 @@ extension Ghostty {
         // on supported platforms.
         @Published var focusInstant: ContinuousClock.Instant? = nil
 
+        /// True when the bell is active. This is set inactive on focus or event.
+        @Published var bell: Bool = false
+
         // Returns sizing information for the surface. This is the raw C
         // structure because I'm lazy.
         var surfaceSize: ghostty_surface_size_s? {

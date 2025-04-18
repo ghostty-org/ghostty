@@ -1874,7 +1874,13 @@ keybind: Keybinds = .{},
 ///    for instance under the "Sound > Alert Sound" setting in GNOME,
 ///    or the "Accessibility > System Bell" settings in KDE Plasma.
 ///
-/// Currently only implemented on Linux.
+///    On macOS this has no affect.
+///
+/// On macOS, if the app is unfocused, it will bounce the app icon in the dock
+/// once. Additionally, the title of the window with the alerted terminal
+/// surface will contain a bell emoji (🔔) until the terminal is focused
+/// or a key is pressed. These are not currently configurable since they're
+/// considered unobtrusive.
 @"bell-features": BellFeatures = .{},
 
 /// Control the in-app notifications that Ghostty shows.

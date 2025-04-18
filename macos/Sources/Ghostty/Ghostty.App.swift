@@ -538,6 +538,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_COLOR_CHANGE:
                 colorChange(app, target: target, change: action.action.color_change)
 
+            case GHOSTTY_ACTION_RING_BELL:
+                ringBell(app, target: target)
+
             case GHOSTTY_ACTION_CLOSE_ALL_WINDOWS:
                 fallthrough
             case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW:
@@ -745,6 +748,30 @@ extension Ghostty {
         ) {
             guard let appDelegate = NSApplication.shared.delegate as? AppDelegate else { return }
             appDelegate.toggleVisibility(self)
+        }
+
+        private static func ringBell(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s) {
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                // Technically we could still request app attention here but there
+                // are no known cases where the bell is rang with an app target so
+                // I think its better to warn.
+                Ghostty.logger.warning("ring bell does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                NotificationCenter.default.post(
+                    name: .ghosttyBellDidRing,
+                    object: surfaceView
+                )
+
+            default:
+                assertionFailure()
+            }
         }
 
         private static func moveTab(

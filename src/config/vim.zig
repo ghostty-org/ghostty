@@ -88,6 +88,7 @@ fn writeSyntax(writer: anytype) !void {
         \\let s:cpo_save = &cpo
         \\set cpo&vim
         \\
+        \\syn iskeyword @,48-57,-
         \\syn keyword ghosttyConfigKeyword
     );
 
