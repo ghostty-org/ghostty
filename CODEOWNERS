@@ -165,6 +165,7 @@
 /po/id_ID.UTF-8.po @ghostty-org/id_ID
 /po/ja_JP.UTF-8.po @ghostty-org/ja_JP
 /po/mk_MK.UTF-8.po @ghostty-org/mk_MK
+/po/ms_MY.UTF-8.po @ghostty-org/ms_MY
 /po/nb_NO.UTF-8.po @ghostty-org/nb_NO
 /po/nl_NL.UTF-8.po @ghostty-org/nl_NL
 /po/pl_PL.UTF-8.po @ghostty-org/pl_PL
@@ -173,7 +174,6 @@
 /po/tr_TR.UTF-8.po @ghostty-org/tr_TR
 /po/uk_UA.UTF-8.po @ghostty-org/uk_UA
 /po/zh_CN.UTF-8.po @ghostty-org/zh_CN
-/po/ms_MY.UTF-8.po @ghostty-org/ms_MY
 
 # Packaging - Snap
 /snap/ @ghostty-org/snap
