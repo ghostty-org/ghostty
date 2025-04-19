@@ -1306,7 +1306,7 @@ extension Ghostty {
                         name: Notification.didContinueKeySequence,
                         object: surfaceView,
                         userInfo: [
-                            Notification.KeySequenceKey: keyEquivalent(for: v.trigger) as Any
+                            Notification.KeySequenceKey: keyboardShortcut(for: v.trigger) as Any
                         ]
                     )
                 } else {

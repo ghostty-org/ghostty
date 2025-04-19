@@ -34,6 +34,8 @@
 		A5333E242B5A22D9008AEFF7 /* Ghostty.Shell.swift in Sources */ = {isa = PBXBuildFile; fileRef = A56D58852ACDDB4100508D2C /* Ghostty.Shell.swift */; };
 		A53426352A7DA53D00EBB7A2 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A53426342A7DA53D00EBB7A2 /* AppDelegate.swift */; };
 		A535B9DA299C569B0017E2E4 /* ErrorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A535B9D9299C569B0017E2E4 /* ErrorView.swift */; };
+		A53A297F2DB4480F00B6E02C /* EventModifiers+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A53A297E2DB4480A00B6E02C /* EventModifiers+Extension.swift */; };
+		A53A29812DB44A6100B6E02C /* KeyboardShortcut+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A53A29802DB44A5E00B6E02C /* KeyboardShortcut+Extension.swift */; };
 		A53A6C032CCC1B7F00943E98 /* Ghostty.Action.swift in Sources */ = {isa = PBXBuildFile; fileRef = A53A6C022CCC1B7D00943E98 /* Ghostty.Action.swift */; };
 		A53D0C8E2B53B0EA00305CE6 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A5D495A1299BEC7E00DD1313 /* GhosttyKit.xcframework */; };
 		A53D0C942B53B43700305CE6 /* iOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A53D0C932B53B43700305CE6 /* iOSApp.swift */; };
@@ -138,6 +140,8 @@
 		A5333E212B5A2128008AEFF7 /* SurfaceView_AppKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceView_AppKit.swift; sourceTree = "<group>"; };
 		A53426342A7DA53D00EBB7A2 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A535B9D9299C569B0017E2E4 /* ErrorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorView.swift; sourceTree = "<group>"; };
+		A53A297E2DB4480A00B6E02C /* EventModifiers+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EventModifiers+Extension.swift"; sourceTree = "<group>"; };
+		A53A29802DB44A5E00B6E02C /* KeyboardShortcut+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "KeyboardShortcut+Extension.swift"; sourceTree = "<group>"; };
 		A53A6C022CCC1B7D00943E98 /* Ghostty.Action.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ghostty.Action.swift; sourceTree = "<group>"; };
 		A53D0C932B53B43700305CE6 /* iOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = iOSApp.swift; sourceTree = "<group>"; };
 		A53D0C992B543F3B00305CE6 /* Ghostty.App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ghostty.App.swift; sourceTree = "<group>"; };
@@ -288,8 +292,10 @@
 				A52FFF582CAA4FF1000C6A5B /* Fullscreen.swift */,
 				A59630962AEE163600D64628 /* HostingWindow.swift */,
 				A5CA378B2D2A4DE800931030 /* KeyboardLayout.swift */,
+				A53A29802DB44A5E00B6E02C /* KeyboardShortcut+Extension.swift */,
 				A59FB5D02AE0DEA7009128F3 /* MetalView.swift */,
 				A5CBD0552C9E65A50017A1AE /* DraggableWindowView.swift */,
+				A53A297E2DB4480A00B6E02C /* EventModifiers+Extension.swift */,
 				C159E81C2B66A06B00FDFE9C /* OSColor+Extension.swift */,
 				A599CDAF2CF103F20049FA26 /* NSAppearance+Extension.swift */,
 				A5A2A3CB2D444AB80033CF96 /* NSApplication+Extension.swift */,
@@ -667,6 +673,7 @@
 				A5A2A3CA2D4445E30033CF96 /* Dock.swift in Sources */,
 				A51BFC222B2FB6B400E92F16 /* AboutView.swift in Sources */,
 				A5278A9B2AA05B2600CD3039 /* Ghostty.Input.swift in Sources */,
+				A53A29812DB44A6100B6E02C /* KeyboardShortcut+Extension.swift in Sources */,
 				A5CBD0562C9E65B80017A1AE /* DraggableWindowView.swift in Sources */,
 				C1F26EE92B76CBFC00404083 /* VibrantLayer.m in Sources */,
 				A59630972AEE163600D64628 /* HostingWindow.swift in Sources */,
@@ -691,6 +698,7 @@
 				A5A2A3CC2D444ABB0033CF96 /* NSApplication+Extension.swift in Sources */,
 				A59630A22AF0415000D64628 /* Ghostty.TerminalSplit.swift in Sources */,
 				A5FEB3002ABB69450068369E /* main.swift in Sources */,
+				A53A297F2DB4480F00B6E02C /* EventModifiers+Extension.swift in Sources */,
 				A55B7BB829B6F53A0055DE60 /* Package.swift in Sources */,
 				A51B78472AF4B58B00F3EDB9 /* TerminalWindow.swift in Sources */,
 				A57D79272C9C879B001D522E /* SecureInput.swift in Sources */,

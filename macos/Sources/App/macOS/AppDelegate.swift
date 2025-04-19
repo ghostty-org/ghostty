@@ -419,15 +419,15 @@ class AppDelegate: NSObject,
     /// action string used for the Ghostty configuration.
     private func syncMenuShortcut(_ config: Ghostty.Config, action: String, menuItem: NSMenuItem?) {
         guard let menu = menuItem else { return }
-        guard let equiv = config.keyEquivalent(for: action) else {
+        guard let shortcut = config.keyboardShortcut(for: action) else {
             // No shortcut, clear the menu item
             menu.keyEquivalent = ""
             menu.keyEquivalentModifierMask = []
             return
         }
 
-        menu.keyEquivalent = equiv.key
-        menu.keyEquivalentModifierMask = equiv.modifiers
+        menu.keyEquivalent = shortcut.key.character.description
+        menu.keyEquivalentModifierMask = .init(swiftUIFlags: shortcut.modifiers)
     }
 
     private func focusedSurface() -> ghostty_surface_t? {

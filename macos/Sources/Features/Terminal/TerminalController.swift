@@ -192,7 +192,7 @@ class TerminalController: BaseTerminalController {
             }
 
             let action = "goto_tab:\(tab)"
-            if let equiv = ghostty.config.keyEquivalent(for: action) {
+            if let equiv = ghostty.config.keyboardShortcut(for: action) {
                 window.keyEquivalent = "\(equiv)"
             } else {
                 window.keyEquivalent = ""

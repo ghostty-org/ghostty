@@ -43,7 +43,7 @@ extension Ghostty {
         @Published var hoverUrl: String? = nil
 
         // The currently active key sequence. The sequence is not active if this is empty.
-        @Published var keySequence: [Ghostty.KeyEquivalent] = []
+        @Published var keySequence: [KeyboardShortcut] = []
 
         // The time this surface last became focused. This is a ContinuousClock.Instant
         // on supported platforms.
@@ -526,7 +526,7 @@ extension Ghostty {
 
         @objc private func ghosttyDidContinueKeySequence(notification: SwiftUI.Notification) {
             guard let keyAny = notification.userInfo?[Ghostty.Notification.KeySequenceKey] else { return }
-            guard let key = keyAny as? Ghostty.KeyEquivalent else { return }
+            guard let key = keyAny as? KeyboardShortcut else { return }
             DispatchQueue.main.async { [weak self] in
                 self?.keySequence.append(key)
             }

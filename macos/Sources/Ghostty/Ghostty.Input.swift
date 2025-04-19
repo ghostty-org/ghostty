@@ -1,66 +1,52 @@
 import Cocoa
+import SwiftUI
 import GhosttyKit
 
 extension Ghostty {
-    // MARK: Key Equivalents
+    // MARK: Keyboard Shortcuts
 
-    /// Returns the "keyEquivalent" string for a given input key. This doesn't always have a corresponding key.
-    static func keyEquivalent(key: ghostty_input_key_e) -> String? {
+    /// Returns the SwiftUI KeyEquivalent for a given key. Note that not all keys known by
+    /// Ghostty have a macOS equivalent since macOS doesn't allow all keys as equivalents.
+    static func keyEquivalent(key: ghostty_input_key_e) -> KeyEquivalent? {
         return Self.keyToEquivalent[key]
     }
 
-    /// A convenience struct that has the key + modifiers for some keybinding.
-    struct KeyEquivalent: CustomStringConvertible {
-        let key: String
-        let modifiers: NSEvent.ModifierFlags
-
-        var description: String {
-            var key = self.key
-
-            // Note: the order below matters; it matches the ordering modifiers
-            // shown for macOS menu shortcut labels.
-            if modifiers.contains(.command) { key = "⌘\(key)" }
-            if modifiers.contains(.shift) { key = "⇧\(key)" }
-            if modifiers.contains(.option) { key = "⌥\(key)" }
-            if modifiers.contains(.control) { key = "⌃\(key)" }
-
-            return key
-        }
-    }
-
-    /// Return the key equivalent for the given trigger.
+    /// Return the keyboard shortcut for a trigger.
     ///
-    /// Returns nil if the trigger can't be processed. This should only happen for unknown trigger types
-    /// or keys.
-    static func keyEquivalent(for trigger: ghostty_input_trigger_s) -> KeyEquivalent? {
-        let equiv: String
+    /// Returns nil if the trigger doesn't have an equivalent KeyboardShortcut. This is possible
+    /// because Ghostty input triggers are a superset of what can be represented by a macOS
+    /// KeyboardShortcut. For example, macOS doesn't have any way to represent function keys
+    /// (F1, F2, ...) with a KeyboardShortcut. This doesn't represent a practical issue because input
+    /// handling for Ghostty is handled at a lower level (usually). This function should generally only
+    /// be used for things like NSMenu that only support keyboard shortcuts anyways.
+    static func keyboardShortcut(for trigger: ghostty_input_trigger_s) -> KeyboardShortcut? {
+        let key: KeyEquivalent
         switch (trigger.tag) {
         case GHOSTTY_TRIGGER_TRANSLATED:
             if let v = Ghostty.keyEquivalent(key: trigger.key.translated) {
-                equiv = v
+                key = v
             } else {
                 return nil
             }
 
         case GHOSTTY_TRIGGER_PHYSICAL:
             if let v = Ghostty.keyEquivalent(key: trigger.key.physical) {
-                equiv = v
+                key = v
             } else {
                 return nil
             }
 
         case GHOSTTY_TRIGGER_UNICODE:
             guard let scalar = UnicodeScalar(trigger.key.unicode) else { return nil }
-            equiv = String(scalar)
+            key = KeyEquivalent(Character(scalar))
 
         default:
             return nil
         }
 
-        return KeyEquivalent(
-            key: equiv,
-            modifiers: Ghostty.eventModifierFlags(mods: trigger.mods)
-        )
+        return KeyboardShortcut(
+            key,
+            modifiers: EventModifiers(nsFlags: Ghostty.eventModifierFlags(mods: trigger.mods)))
     }
 
     // MARK: Mods
@@ -96,8 +82,10 @@ extension Ghostty {
         return ghostty_input_mods_e(mods)
     }
 
-    /// A map from the Ghostty key enum to the keyEquivalent string for shortcuts.
-    static let keyToEquivalent: [ghostty_input_key_e : String] = [
+    /// A map from the Ghostty key enum to the keyEquivalent string for shortcuts. Note that
+    /// not all ghostty key enum values are represented here because not all of them can be
+    /// mapped to a KeyEquivalent.
+    static let keyToEquivalent: [ghostty_input_key_e : KeyEquivalent] = [
         // 0-9
         GHOSTTY_KEY_ZERO: "0",
         GHOSTTY_KEY_ONE: "1",
@@ -152,48 +140,19 @@ extension Ghostty {
         GHOSTTY_KEY_SLASH: "/",
 
         // Function keys
-        GHOSTTY_KEY_UP: "\u{F700}",
-        GHOSTTY_KEY_DOWN: "\u{F701}",
-        GHOSTTY_KEY_LEFT: "\u{F702}",
-        GHOSTTY_KEY_RIGHT: "\u{F703}",
-        GHOSTTY_KEY_HOME: "\u{F729}",
-        GHOSTTY_KEY_END: "\u{F72B}",
-        GHOSTTY_KEY_INSERT: "\u{F727}",
-        GHOSTTY_KEY_DELETE: "\u{F728}",
-        GHOSTTY_KEY_PAGE_UP: "\u{F72C}",
-        GHOSTTY_KEY_PAGE_DOWN: "\u{F72D}",
-        GHOSTTY_KEY_ESCAPE: "\u{1B}",
-        GHOSTTY_KEY_ENTER: "\r",
-        GHOSTTY_KEY_TAB: "\t",
-        GHOSTTY_KEY_BACKSPACE: "\u{7F}",
-        GHOSTTY_KEY_PRINT_SCREEN: "\u{F72E}",
-        GHOSTTY_KEY_PAUSE: "\u{F72F}",
-
-        GHOSTTY_KEY_F1: "\u{F704}",
-        GHOSTTY_KEY_F2: "\u{F705}",
-        GHOSTTY_KEY_F3: "\u{F706}",
-        GHOSTTY_KEY_F4: "\u{F707}",
-        GHOSTTY_KEY_F5: "\u{F708}",
-        GHOSTTY_KEY_F6: "\u{F709}",
-        GHOSTTY_KEY_F7: "\u{F70A}",
-        GHOSTTY_KEY_F8: "\u{F70B}",
-        GHOSTTY_KEY_F9: "\u{F70C}",
-        GHOSTTY_KEY_F10: "\u{F70D}",
-        GHOSTTY_KEY_F11: "\u{F70E}",
-        GHOSTTY_KEY_F12: "\u{F70F}",
-        GHOSTTY_KEY_F13: "\u{F710}",
-        GHOSTTY_KEY_F14: "\u{F711}",
-        GHOSTTY_KEY_F15: "\u{F712}",
-        GHOSTTY_KEY_F16: "\u{F713}",
-        GHOSTTY_KEY_F17: "\u{F714}",
-        GHOSTTY_KEY_F18: "\u{F715}",
-        GHOSTTY_KEY_F19: "\u{F716}",
-        GHOSTTY_KEY_F20: "\u{F717}",
-        GHOSTTY_KEY_F21: "\u{F718}",
-        GHOSTTY_KEY_F22: "\u{F719}",
-        GHOSTTY_KEY_F23: "\u{F71A}",
-        GHOSTTY_KEY_F24: "\u{F71B}",
-        GHOSTTY_KEY_F25: "\u{F71C}",
+        GHOSTTY_KEY_UP: .upArrow,
+        GHOSTTY_KEY_DOWN: .downArrow,
+        GHOSTTY_KEY_LEFT: .leftArrow,
+        GHOSTTY_KEY_RIGHT: .rightArrow,
+        GHOSTTY_KEY_HOME: .home,
+        GHOSTTY_KEY_END: .end,
+        GHOSTTY_KEY_DELETE: .delete,
+        GHOSTTY_KEY_PAGE_UP: .pageUp,
+        GHOSTTY_KEY_PAGE_DOWN: .pageDown,
+        GHOSTTY_KEY_ESCAPE: .escape,
+        GHOSTTY_KEY_ENTER: .return,
+        GHOSTTY_KEY_TAB: .tab,
+        GHOSTTY_KEY_BACKSPACE: .delete,
     ]
 
     static let asciiToKey: [UInt8 : ghostty_input_key_e] = [
