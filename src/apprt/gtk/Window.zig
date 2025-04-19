@@ -25,6 +25,7 @@ const input = @import("../../input.zig");
 const CoreSurface = @import("../../Surface.zig");
 
 const App = @import("App.zig");
+const Builder = @import("Builder.zig");
 const Color = configpkg.Config.Color;
 const Surface = @import("Surface.zig");
 const Menu = @import("menu.zig").Menu;
@@ -242,12 +243,19 @@ pub fn init(self: *Window, app: *App) !void {
     }
 
     {
-        const btn = gtk.Button.newFromIconName("tab-new-symbolic");
+        const btn = adw.SplitButton.new();
+        btn.setIconName("tab-new-symbolic");
         btn.as(gtk.Widget).setTooltipText(i18n._("New Tab"));
-        _ = gtk.Button.signals.clicked.connect(
+        btn.setDropdownTooltip(i18n._("New Split"));
+
+        var builder = Builder.init("menu-headerbar-split_menu", 1, 0, .blp);
+        defer builder.deinit();
+        btn.setMenuModel(builder.getObject(gio.MenuModel, "menu"));
+
+        _ = adw.SplitButton.signals.clicked.connect(
             btn,
             *Window,
-            gtkTabNewClick,
+            adwNewTabClick,
             self,
             .{},
         );
@@ -821,6 +829,11 @@ fn performBindingAction(self: *Window, action: input.Binding.Action) void {
 }
 
 fn gtkTabNewClick(_: *gtk.Button, self: *Window) callconv(.c) void {
+    self.performBindingAction(.{ .new_tab = {} });
+}
+
+/// Create a new surface (tab or split).
+fn adwNewTabClick(_: *adw.SplitButton, self: *Window) callconv(.c) void {
     self.performBindingAction(.{ .new_tab = {} });
 }
 
