@@ -36,6 +36,17 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
         "--format=tgz",
     });
 
+    // embed the Ghostty version in the tarball
+    {
+        const version = b.addWriteFiles().add("VERSION", b.fmt("{}", .{cfg.version}));
+        // --add-file uses the most recent --prefix to determine the path
+        // in the archive to copy the file (the directory only).
+        git_archive.addArg(b.fmt("--prefix=ghostty-{}/", .{
+            cfg.version,
+        }));
+        git_archive.addPrefixedFileArg("--add-file=", version);
+    }
+
     // Add all of our resources into the tarball.
     for (resources.items) |resource| {
         // Our dist path basename may not match our generated file basename,
