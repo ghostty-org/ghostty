@@ -811,14 +811,17 @@ fn gtkWindowUpdateScaleFactor(
     };
 }
 
-// Note: we MUST NOT use the GtkButton parameter because gtkActionNewTab
-// sends an undefined value.
-fn gtkTabNewClick(_: *gtk.Button, self: *Window) callconv(.c) void {
+/// Perform a binding action on the window's action surface.
+fn performBindingAction(self: *Window, action: input.Binding.Action) void {
     const surface = self.actionSurface() orelse return;
-    _ = surface.performBindingAction(.{ .new_tab = {} }) catch |err| {
+    _ = surface.performBindingAction(action) catch |err| {
         log.warn("error performing binding action error={}", .{err});
         return;
     };
+}
+
+fn gtkTabNewClick(_: *gtk.Button, self: *Window) callconv(.c) void {
+    self.performBindingAction(.{ .new_tab = {} });
 }
 
 /// Create a new tab from the AdwTabOverview. We can't copy gtkTabNewClick
@@ -1007,11 +1010,7 @@ fn gtkActionNewWindow(
     _: ?*glib.Variant,
     self: *Window,
 ) callconv(.C) void {
-    const surface = self.actionSurface() orelse return;
-    _ = surface.performBindingAction(.{ .new_window = {} }) catch |err| {
-        log.warn("error performing binding action error={}", .{err});
-        return;
-    };
+    self.performBindingAction(.{ .new_window = {} });
 }
 
 fn gtkActionNewTab(
@@ -1019,8 +1018,7 @@ fn gtkActionNewTab(
     _: ?*glib.Variant,
     self: *Window,
 ) callconv(.C) void {
-    // We can use undefined because the button is not used.
-    gtkTabNewClick(undefined, self);
+    self.performBindingAction(.{ .new_tab = {} });
 }
 
 fn gtkActionCloseTab(
@@ -1028,11 +1026,7 @@ fn gtkActionCloseTab(
     _: ?*glib.Variant,
     self: *Window,
 ) callconv(.C) void {
-    const surface = self.actionSurface() orelse return;
-    _ = surface.performBindingAction(.{ .close_tab = {} }) catch |err| {
-        log.warn("error performing binding action error={}", .{err});
-        return;
-    };
+    self.performBindingAction(.{ .close_tab = {} });
 }
 
 fn gtkActionSplitRight(
@@ -1040,11 +1034,7 @@ fn gtkActionSplitRight(
     _: ?*glib.Variant,
     self: *Window,
 ) callconv(.C) void {
-    const surface = self.actionSurface() orelse return;
-    _ = surface.performBindingAction(.{ .new_split = .right }) catch |err| {
-        log.warn("error performing binding action error={}", .{err});
-        return;
-    };
+    self.performBindingAction(.{ .new_split = .right });
 }
 
 fn gtkActionSplitDown(
@@ -1052,11 +1042,7 @@ fn gtkActionSplitDown(
     _: ?*glib.Variant,
     self: *Window,
 ) callconv(.C) void {
-    const surface = self.actionSurface() orelse return;
-    _ = surface.performBindingAction(.{ .new_split = .down }) catch |err| {
-        log.warn("error performing binding action error={}", .{err});
-        return;
-    };
+    self.performBindingAction(.{ .new_split = .down });
 }
 
 fn gtkActionSplitLeft(
@@ -1064,11 +1050,7 @@ fn gtkActionSplitLeft(
     _: ?*glib.Variant,
     self: *Window,
 ) callconv(.C) void {
-    const surface = self.actionSurface() orelse return;
-    _ = surface.performBindingAction(.{ .new_split = .left }) catch |err| {
-        log.warn("error performing binding action error={}", .{err});
-        return;
-    };
+    self.performBindingAction(.{ .new_split = .left });
 }
 
 fn gtkActionSplitUp(
@@ -1076,11 +1058,7 @@ fn gtkActionSplitUp(
     _: ?*glib.Variant,
     self: *Window,
 ) callconv(.C) void {
-    const surface = self.actionSurface() orelse return;
-    _ = surface.performBindingAction(.{ .new_split = .up }) catch |err| {
-        log.warn("error performing binding action error={}", .{err});
-        return;
-    };
+    self.performBindingAction(.{ .new_split = .right });
 }
 
 fn gtkActionToggleInspector(
@@ -1088,11 +1066,7 @@ fn gtkActionToggleInspector(
     _: ?*glib.Variant,
     self: *Window,
 ) callconv(.C) void {
-    const surface = self.actionSurface() orelse return;
-    _ = surface.performBindingAction(.{ .inspector = .toggle }) catch |err| {
-        log.warn("error performing binding action error={}", .{err});
-        return;
-    };
+    self.performBindingAction(.{ .inspector = .toggle });
 }
 
 fn gtkActionCopy(
@@ -1100,11 +1074,7 @@ fn gtkActionCopy(
     _: ?*glib.Variant,
     self: *Window,
 ) callconv(.C) void {
-    const surface = self.actionSurface() orelse return;
-    _ = surface.performBindingAction(.{ .copy_to_clipboard = {} }) catch |err| {
-        log.warn("error performing binding action error={}", .{err});
-        return;
-    };
+    self.performBindingAction(.{ .copy_to_clipboard = {} });
 }
 
 fn gtkActionPaste(
@@ -1112,11 +1082,7 @@ fn gtkActionPaste(
     _: ?*glib.Variant,
     self: *Window,
 ) callconv(.C) void {
-    const surface = self.actionSurface() orelse return;
-    _ = surface.performBindingAction(.{ .paste_from_clipboard = {} }) catch |err| {
-        log.warn("error performing binding action error={}", .{err});
-        return;
-    };
+    self.performBindingAction(.{ .paste_from_clipboard = {} });
 }
 
 fn gtkActionReset(
@@ -1124,11 +1090,7 @@ fn gtkActionReset(
     _: ?*glib.Variant,
     self: *Window,
 ) callconv(.C) void {
-    const surface = self.actionSurface() orelse return;
-    _ = surface.performBindingAction(.{ .reset = {} }) catch |err| {
-        log.warn("error performing binding action error={}", .{err});
-        return;
-    };
+    self.performBindingAction(.{ .reset = {} });
 }
 
 fn gtkActionClear(
@@ -1136,11 +1098,7 @@ fn gtkActionClear(
     _: ?*glib.Variant,
     self: *Window,
 ) callconv(.C) void {
-    const surface = self.actionSurface() orelse return;
-    _ = surface.performBindingAction(.{ .clear_screen = {} }) catch |err| {
-        log.warn("error performing binding action error={}", .{err});
-        return;
-    };
+    self.performBindingAction(.{ .clear_screen = {} });
 }
 
 fn gtkActionPromptTitle(
@@ -1148,11 +1106,7 @@ fn gtkActionPromptTitle(
     _: ?*glib.Variant,
     self: *Window,
 ) callconv(.C) void {
-    const surface = self.actionSurface() orelse return;
-    _ = surface.performBindingAction(.{ .prompt_surface_title = {} }) catch |err| {
-        log.warn("error performing binding action error={}", .{err});
-        return;
-    };
+    self.performBindingAction(.{ .prompt_surface_title = {} });
 }
 
 /// Returns the surface to use for an action.

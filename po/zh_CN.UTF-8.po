@@ -36,14 +36,14 @@ msgstr "确认"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:5
 msgid "Configuration Errors"
-msgstr "设置错误"
+msgstr "配置错误"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:6
 msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
-"加载设置时发现了以下错误。请仔细阅读错误信息，并选择忽略或重新加载设置文件。"
+"加载配置时发现了以下错误。请仔细阅读错误信息，并选择忽略或重新加载配置文件。"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
 msgid "Ignore"
@@ -53,7 +53,7 @@ msgstr "忽略"
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:97
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:95
 msgid "Reload Configuration"
-msgstr "重新加载设置"
+msgstr "重新加载配置"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
@@ -69,7 +69,7 @@ msgstr "粘贴"
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:18
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:73
 msgid "Clear"
-msgstr "清除界面"
+msgstr "清除屏幕"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:23
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:78
@@ -137,16 +137,16 @@ msgstr "关闭窗口"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:89
 msgid "Config"
-msgstr "设置"
+msgstr "配置"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:92
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:90
 msgid "Open Configuration"
-msgstr "打开设置文件"
+msgstr "打开配置文件"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:85
 msgid "Terminal Inspector"
-msgstr "终端检视器"
+msgstr "终端调试器"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:102
 #: src/apprt/gtk/Window.zig:960
@@ -160,13 +160,13 @@ msgstr "退出"
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:6
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:6
 msgid "Authorize Clipboard Access"
-msgstr "剪切板访问授权"
+msgstr "剪贴板访问授权"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:7
 msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
-msgstr "一个应用正在试图从剪切板读取内容。剪切板目前的内容如下："
+msgstr "一个应用正在试图从剪贴板读取内容。剪贴板目前的内容如下："
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:10
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:10
@@ -182,7 +182,7 @@ msgstr "允许"
 msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
-msgstr "一个应用正在试图向剪切板写入内容。剪切板目前的内容如下："
+msgstr "一个应用正在试图向剪贴板写入内容。剪贴板目前的内容如下："
 
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:6
 msgid "Warning: Potentially Unsafe Paste"
@@ -196,11 +196,11 @@ msgstr "将以下内容粘贴至终端内将可能执行有害命令。"
 
 #: src/apprt/gtk/inspector.zig:144
 msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty 终端检视器"
+msgstr "Ghostty 终端调试器"
 
 #: src/apprt/gtk/Surface.zig:1243
 msgid "Copied to clipboard"
-msgstr "已复制至剪切板"
+msgstr "已复制至剪贴板"
 
 #: src/apprt/gtk/CloseDialog.zig:47
 msgid "Close"
@@ -253,7 +253,7 @@ msgstr "⚠️ Ghostty 正在以调试模式运行！性能将大打折扣。"
 
 #: src/apprt/gtk/Window.zig:725
 msgid "Reloaded the configuration"
-msgstr "已重新加载设置"
+msgstr "已重新加载配置"
 
 #: src/apprt/gtk/Window.zig:941
 msgid "Ghostty Developers"
