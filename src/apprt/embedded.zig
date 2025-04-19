@@ -73,16 +73,68 @@ pub const App = struct {
     /// This is the key event sent for ghostty_surface_key and
     /// ghostty_app_key.
     pub const KeyEvent = struct {
-        /// The three below are absolutely required.
         action: input.Action,
         mods: input.Mods,
+        consumed_mods: input.Mods,
         keycode: u32,
-
-        /// Optionally, the embedder can handle text translation and send
-        /// the text value here. If text is non-nil, it is assumed that the
-        /// embedder also handles dead key states and sets composing as necessary.
         text: ?[:0]const u8,
+        unshifted_codepoint: u32,
         composing: bool,
+
+        /// Convert a libghostty key event into a core key event.
+        fn core(self: KeyEvent) ?input.KeyEvent {
+            const text: []const u8 = if (self.text) |v| v else "";
+            const unshifted_codepoint: u21 = std.math.cast(
+                u21,
+                self.unshifted_codepoint,
+            ) orelse 0;
+
+            // We want to get the physical unmapped key to process keybinds.
+            const physical_key = keycode: for (input.keycodes.entries) |entry| {
+                if (entry.native == self.keycode) break :keycode entry.key;
+            } else .invalid;
+
+            // If the resulting text has length 1 then we can take its key
+            // and attempt to translate it to a key enum and call the key callback.
+            // If the length is greater than 1 then we're going to call the
+            // charCallback.
+            //
+            // We also only do key translation if this is not a dead key.
+            const key = if (!self.composing) key: {
+                // If our physical key is a keypad key, we use that.
+                if (physical_key.keypad()) break :key physical_key;
+
+                // A completed key. If the length of the key is one then we can
+                // attempt to translate it to a key enum and call the key
+                // callback. First try plain ASCII.
+                if (text.len > 0) {
+                    if (input.Key.fromASCII(text[0])) |key| {
+                        break :key key;
+                    }
+                }
+
+                // If the above doesn't work, we use the unmodified value.
+                if (std.math.cast(u8, unshifted_codepoint)) |ascii| {
+                    if (input.Key.fromASCII(ascii)) |key| {
+                        break :key key;
+                    }
+                }
+
+                break :key physical_key;
+            } else .invalid;
+
+            // Build our final key event
+            return .{
+                .action = self.action,
+                .key = key,
+                .physical_key = physical_key,
+                .mods = self.mods,
+                .consumed_mods = self.consumed_mods,
+                .composing = self.composing,
+                .utf8 = text,
+                .unshifted_codepoint = unshifted_codepoint,
+            };
+        }
     };
 
     core_app: *CoreApp,
@@ -91,10 +143,6 @@ pub const App = struct {
 
     /// The configuration for the app. This is owned by this structure.
     config: Config,
-
-    /// The keymap state is used for global keybinds only. Each surface
-    /// also has its own keymap state for focused keybinds.
-    keymap_state: input.Keymap.State,
 
     pub fn init(
         core_app: *CoreApp,
@@ -114,7 +162,6 @@ pub const App = struct {
             .config = config_clone,
             .opts = opts,
             .keymap = keymap,
-            .keymap_state = .{},
         };
     }
 
@@ -148,219 +195,6 @@ pub const App = struct {
         self.core_app.focusEvent(focused);
     }
 
-    /// Convert a C key event into a Zig key event.
-    ///
-    /// The buffer is needed for possibly storing translated UTF-8 text.
-    /// This buffer may (or may not) be referenced by the resulting KeyEvent
-    /// so it should be valid for the lifetime of the KeyEvent.
-    ///
-    /// The size of the buffer doesn't need to be large, we always
-    /// used to hardcode 128 bytes and never ran into issues. If it isn't
-    /// large enough an error will be returned.
-    fn coreKeyEvent(
-        self: *App,
-        buf: []u8,
-        target: KeyTarget,
-        event: KeyEvent,
-    ) !?input.KeyEvent {
-        const action = event.action;
-        const keycode = event.keycode;
-        const mods = event.mods;
-
-        // True if this is a key down event
-        const is_down = action == .press or action == .repeat;
-
-        // If we're on macOS and we have macos-option-as-alt enabled,
-        // then we strip the alt modifier from the mods for translation.
-        const translate_mods = translate_mods: {
-            var translate_mods = mods;
-            if ((comptime builtin.target.os.tag.isDarwin()) and translate_mods.alt) {
-                // Note: the keyboardLayout() function is not super cheap
-                // so we only want to run it if alt is already pressed hence
-                // the above condition.
-                const option_as_alt: configpkg.OptionAsAlt =
-                    self.config.@"macos-option-as-alt" orelse
-                    self.keyboardLayout().detectOptionAsAlt();
-
-                const strip = switch (option_as_alt) {
-                    .false => false,
-                    .true => mods.alt,
-                    .left => mods.sides.alt == .left,
-                    .right => mods.sides.alt == .right,
-                };
-                if (strip) translate_mods.alt = false;
-            }
-
-            // We strip super on macOS because its not used for translation
-            // it results in a bad translation.
-            if (comptime builtin.target.os.tag.isDarwin()) {
-                translate_mods.super = false;
-            }
-
-            break :translate_mods translate_mods;
-        };
-
-        const event_text: ?[]const u8 = event_text: {
-            // This logic only applies to macOS.
-            if (comptime builtin.os.tag != .macos) break :event_text event.text;
-
-            // If we're in a preedit state then we allow it through. This
-            // allows ctrl sequences that affect IME to work. For example,
-            // Ctrl+H deletes a character with Japanese input.
-            if (event.composing) break :event_text event.text;
-
-            // If the modifiers are ONLY "control" then we never process
-            // the event text because we want to do our own translation so
-            // we can handle ctrl+c, ctrl+z, etc.
-            //
-            // This is specifically because on macOS using the
-            // "Dvorak - QWERTY ⌘" keyboard layout, ctrl+z is translated as
-            // "/" (the physical key that is z on a qwerty keyboard). But on
-            // other layouts, ctrl+<char> is not translated by AppKit. So,
-            // we just avoid this by never allowing AppKit to translate
-            // ctrl+<char> and instead do it ourselves.
-            const ctrl_only = comptime (input.Mods{ .ctrl = true }).int();
-            break :event_text if (mods.binding().int() == ctrl_only) null else event.text;
-        };
-
-        // Translate our key using the keymap for our localized keyboard layout.
-        // We only translate for keydown events. Otherwise, we only care about
-        // the raw keycode.
-        const result: input.Keymap.Translation = if (is_down) translate: {
-            // If the event provided us with text, then we use this as a result
-            // and do not do manual translation.
-            const result: input.Keymap.Translation = if (event_text) |text| .{
-                .text = text,
-                .composing = event.composing,
-                .mods = translate_mods,
-            } else try self.keymap.translate(
-                buf,
-                switch (target) {
-                    .app => &self.keymap_state,
-                    .surface => |surface| &surface.keymap_state,
-                },
-                @intCast(keycode),
-                translate_mods,
-            );
-
-            // TODO(mitchellh): I think we can get rid of the above keymap
-            // translation code completely and defer to AppKit/Swift
-            // (for macOS) for handling all translations. The translation
-            // within libghostty is an artifact of an earlier design and
-            // it is buggy (see #5558). We should move closer to a GTK-style
-            // model of tracking composing states and preedit in the apprt
-            // and not in libghostty.
-
-            // If this is a dead key, then we're composing a character and
-            // we need to set our proper preedit state if we're targeting a
-            // surface.
-            if (result.composing) {
-                switch (target) {
-                    .app => {},
-                    .surface => |surface| surface.core_surface.preeditCallback(
-                        result.text,
-                    ) catch |err| {
-                        log.err("error in preedit callback err={}", .{err});
-                        return null;
-                    },
-                }
-            } else {
-                switch (target) {
-                    .app => {},
-                    .surface => |surface| surface.core_surface.preeditCallback(null) catch |err| {
-                        log.err("error in preedit callback err={}", .{err});
-                        return null;
-                    },
-                }
-
-                // If the text is just a single non-printable ASCII character
-                // then we clear the text. We handle non-printables in the
-                // key encoder manual (such as tab, ctrl+c, etc.)
-                if (result.text.len == 1 and result.text[0] < 0x20) {
-                    break :translate .{};
-                }
-            }
-
-            break :translate result;
-        } else .{};
-
-        // We need to always do a translation with no modifiers at all in
-        // order to get the "unshifted_codepoint" for the key event.
-        const unshifted_codepoint: u21 = unshifted: {
-            var nomod_buf: [128]u8 = undefined;
-            var nomod_state: input.Keymap.State = .{};
-            const nomod = try self.keymap.translate(
-                &nomod_buf,
-                &nomod_state,
-                @intCast(keycode),
-                .{},
-            );
-
-            const view = std.unicode.Utf8View.init(nomod.text) catch |err| {
-                log.warn("cannot build utf8 view over text: {}", .{err});
-                break :unshifted 0;
-            };
-            var it = view.iterator();
-            break :unshifted it.nextCodepoint() orelse 0;
-        };
-
-        // log.warn("TRANSLATE: action={} keycode={x} dead={} key_len={} key={any} key_str={s} mods={}", .{
-        //     action,
-        //     keycode,
-        //     result.composing,
-        //     result.text.len,
-        //     result.text,
-        //     result.text,
-        //     mods,
-        // });
-
-        // We want to get the physical unmapped key to process keybinds.
-        const physical_key = keycode: for (input.keycodes.entries) |entry| {
-            if (entry.native == keycode) break :keycode entry.key;
-        } else .invalid;
-
-        // If the resulting text has length 1 then we can take its key
-        // and attempt to translate it to a key enum and call the key callback.
-        // If the length is greater than 1 then we're going to call the
-        // charCallback.
-        //
-        // We also only do key translation if this is not a dead key.
-        const key = if (!result.composing) key: {
-            // If our physical key is a keypad key, we use that.
-            if (physical_key.keypad()) break :key physical_key;
-
-            // A completed key. If the length of the key is one then we can
-            // attempt to translate it to a key enum and call the key
-            // callback. First try plain ASCII.
-            if (result.text.len > 0) {
-                if (input.Key.fromASCII(result.text[0])) |key| {
-                    break :key key;
-                }
-            }
-
-            // If the above doesn't work, we use the unmodified value.
-            if (std.math.cast(u8, unshifted_codepoint)) |ascii| {
-                if (input.Key.fromASCII(ascii)) |key| {
-                    break :key key;
-                }
-            }
-
-            break :key physical_key;
-        } else .invalid;
-
-        // Build our final key event
-        return .{
-            .action = action,
-            .key = key,
-            .physical_key = physical_key,
-            .mods = mods,
-            .consumed_mods = result.mods,
-            .composing = result.composing,
-            .utf8 = result.text,
-            .unshifted_codepoint = unshifted_codepoint,
-        };
-    }
-
     /// See CoreApp.keyEvent.
     pub fn keyEvent(
         self: *App,
@@ -368,12 +202,8 @@ pub const App = struct {
         event: KeyEvent,
     ) !bool {
         // Convert our C key event into a Zig one.
-        var buf: [128]u8 = undefined;
-        const input_event: input.KeyEvent = (try self.coreKeyEvent(
-            &buf,
-            target,
-            event,
-        )) orelse return false;
+        const input_event: input.KeyEvent = event.core() orelse
+            return false;
 
         // Invoke the core Ghostty logic to handle this input.
         const effect: CoreSurface.InputEffect = switch (target) {
@@ -390,23 +220,7 @@ pub const App = struct {
         return switch (effect) {
             .closed => true,
             .ignored => false,
-            .consumed => consumed: {
-                const is_down = input_event.action == .press or
-                    input_event.action == .repeat;
-
-                if (is_down) {
-                    // If we consume the key then we want to reset the dead
-                    // key state.
-                    self.keymap_state = .{};
-
-                    switch (target) {
-                        .app => {},
-                        .surface => |surface| surface.core_surface.preeditCallback(null) catch {},
-                    }
-                }
-
-                break :consumed true;
-            },
+            .consumed => true,
         };
     }
 
@@ -414,13 +228,6 @@ pub const App = struct {
     pub fn reloadKeymap(self: *App) !void {
         // Reload the keymap
         try self.keymap.reload();
-
-        // Clear the dead key state since we changed the keymap, any
-        // dead key state is just forgotten. i.e. if you type ' on us-intl
-        // and then switch to us and type a, you'll get a rather than á.
-        for (self.core_app.surfaces.items) |surface| {
-            surface.keymap_state = .{};
-        }
     }
 
     /// Loads the keyboard layout.
@@ -607,7 +414,6 @@ pub const Surface = struct {
     content_scale: apprt.ContentScale,
     size: apprt.SurfaceSize,
     cursor_pos: apprt.CursorPos,
-    keymap_state: input.Keymap.State,
     inspector: ?*Inspector = null,
 
     /// The current title of the surface. The embedded apprt saves this so
@@ -656,7 +462,6 @@ pub const Surface = struct {
             },
             .size = .{ .width = 800, .height = 600 },
             .cursor_pos = .{ .x = -1, .y = -1 },
-            .keymap_state = .{},
         };
 
         // Add ourselves to the list of surfaces on the app.
@@ -992,6 +797,13 @@ pub const Surface = struct {
         };
     }
 
+    pub fn preeditCallback(self: *Surface, preedit_: ?[]const u8) void {
+        _ = self.core_surface.preeditCallback(preedit_) catch |err| {
+            log.err("error in preedit callback err={}", .{err});
+            return;
+        };
+    }
+
     pub fn textCallback(self: *Surface, text: []const u8) void {
         _ = self.core_surface.textCallback(text) catch |err| {
             log.err("error in key callback err={}", .{err});
@@ -1082,7 +894,6 @@ pub const Inspector = struct {
     surface: *Surface,
     ig_ctx: *cimgui.c.ImGuiContext,
     backend: ?Backend = null,
-    keymap_state: input.Keymap.State = .{},
     content_scale: f64 = 1,
 
     /// Our previous instant used to calculate delta time for animations.
@@ -1328,11 +1139,13 @@ pub const CAPI = struct {
     const KeyEvent = extern struct {
         action: input.Action,
         mods: c_int,
+        consumed_mods: c_int,
         keycode: u32,
         text: ?[*:0]const u8,
+        unshifted_codepoint: u32,
         composing: bool,
 
-        /// Convert to surface key event.
+        /// Convert to Zig key event.
         fn keyEvent(self: KeyEvent) App.KeyEvent {
             return .{
                 .action = self.action,
@@ -1340,8 +1153,13 @@ pub const CAPI = struct {
                     input.Mods.Backing,
                     @truncate(@as(c_uint, @bitCast(self.mods))),
                 )),
+                .consumed_mods = @bitCast(@as(
+                    input.Mods.Backing,
+                    @truncate(@as(c_uint, @bitCast(self.consumed_mods))),
+                )),
                 .keycode = self.keycode,
                 .text = if (self.text) |ptr| std.mem.sliceTo(ptr, 0) else null,
+                .unshifted_codepoint = self.unshifted_codepoint,
                 .composing = self.composing,
             };
         }
@@ -1447,15 +1265,7 @@ pub const CAPI = struct {
         app: *App,
         event: KeyEvent,
     ) bool {
-        var buf: [128]u8 = undefined;
-        const core_event = app.coreKeyEvent(
-            &buf,
-            .app,
-            event.keyEvent(),
-        ) catch |err| {
-            log.warn("error processing key event err={}", .{err});
-            return false;
-        } orelse {
+        const core_event = event.keyEvent().core() orelse {
             log.warn("error processing key event", .{});
             return false;
         };
@@ -1701,20 +1511,7 @@ pub const CAPI = struct {
         surface: *Surface,
         event: KeyEvent,
     ) bool {
-        var buf: [128]u8 = undefined;
-        const core_event = surface.app.coreKeyEvent(
-            &buf,
-            // Note: this "app" target here looks like a bug, but it is
-            // intentional. coreKeyEvent uses the target only as a way to
-            // trigger preedit callbacks for keymap translation and we don't
-            // want to trigger that here. See the todo item in coreKeyEvent
-            // for a long term solution to this and removing target altogether.
-            .app,
-            event.keyEvent(),
-        ) catch |err| {
-            log.warn("error processing key event err={}", .{err});
-            return false;
-        } orelse {
+        const core_event = event.keyEvent().core() orelse {
             log.warn("error processing key event", .{});
             return false;
         };
@@ -1731,6 +1528,16 @@ pub const CAPI = struct {
         len: usize,
     ) void {
         surface.textCallback(ptr[0..len]);
+    }
+
+    /// Set the preedit text for the surface. This is used for IME
+    /// composition. If the length is 0, then the preedit text is cleared.
+    export fn ghostty_surface_preedit(
+        surface: *Surface,
+        ptr: [*]const u8,
+        len: usize,
+    ) void {
+        surface.preeditCallback(if (len == 0) null else ptr[0..len]);
     }
 
     /// Returns true if the surface currently has mouse capturing

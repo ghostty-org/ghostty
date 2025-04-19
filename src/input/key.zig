@@ -150,21 +150,25 @@ pub const Mods = packed struct(Mods.Backing) {
     /// like macos-option-as-alt. The translation mods should be used for
     /// translation but never sent back in for the key callback.
     pub fn translation(self: Mods, option_as_alt: config.OptionAsAlt) Mods {
-        // We currently only process macos-option-as-alt so other
-        // platforms don't need to do anything.
-        if (comptime !builtin.target.os.tag.isDarwin()) return self;
+        var result = self;
 
-        // Alt has to be set only on the correct side
-        switch (option_as_alt) {
-            .false => return self,
-            .true => {},
-            .left => if (self.sides.alt == .right) return self,
-            .right => if (self.sides.alt == .left) return self,
+        // Control is never used for translation.
+        result.ctrl = false;
+
+        // macos-option-as-alt for darwin
+        if (comptime builtin.target.os.tag.isDarwin()) alt: {
+            // Alt has to be set only on the correct side
+            switch (option_as_alt) {
+                .false => break :alt,
+                .true => {},
+                .left => if (self.sides.alt == .right) break :alt,
+                .right => if (self.sides.alt == .left) break :alt,
+            }
+
+            // Unset alt
+            result.alt = false;
         }
 
-        // Unset alt
-        var result = self;
-        result.alt = false;
         return result;
     }
 
@@ -184,6 +188,14 @@ pub const Mods = packed struct(Mods.Backing) {
             @as(Backing, @bitCast(Mods{ .shift = true })),
             @as(Backing, 0b0000_0001),
         );
+    }
+
+    test "translation removes control" {
+        const testing = std.testing;
+
+        const mods: Mods = .{ .ctrl = true };
+        const result = mods.translation(.true);
+        try testing.expectEqual(Mods{}, result);
     }
 
     test "translation macos-option-as-alt" {

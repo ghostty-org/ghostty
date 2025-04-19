@@ -254,8 +254,10 @@ typedef enum {
 typedef struct {
   ghostty_input_action_e action;
   ghostty_input_mods_e mods;
+  ghostty_input_mods_e consumed_mods;
   uint32_t keycode;
   const char* text;
+  uint32_t unshifted_codepoint;
   bool composing;
 } ghostty_input_key_s;
 
@@ -725,6 +727,7 @@ ghostty_input_mods_e ghostty_surface_key_translation_mods(ghostty_surface_t,
 bool ghostty_surface_key(ghostty_surface_t, ghostty_input_key_s);
 bool ghostty_surface_key_is_binding(ghostty_surface_t, ghostty_input_key_s);
 void ghostty_surface_text(ghostty_surface_t, const char*, uintptr_t);
+void ghostty_surface_preedit(ghostty_surface_t, const char*, uintptr_t);
 bool ghostty_surface_mouse_captured(ghostty_surface_t);
 bool ghostty_surface_mouse_button(ghostty_surface_t,
                                   ghostty_input_mouse_state_e,
