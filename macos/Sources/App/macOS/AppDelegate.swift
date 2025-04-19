@@ -199,6 +199,7 @@ class AppDelegate: NSObject,
         ]
 
         let center = UNUserNotificationCenter.current()
+
         center.setNotificationCategories([
             UNNotificationCategory(
                 identifier: Ghostty.userNotificationCategory,
@@ -230,6 +231,9 @@ class AppDelegate: NSObject,
     func applicationDidBecomeActive(_ notification: Notification) {
         // If we're back manually then clear the hidden state because macOS handles it.
         self.hiddenState = nil
+
+        // Clear the dock badge when the app becomes active
+        self.setDockBadge(nil)
 
         // First launch stuff
         if (!applicationHasBecomeActive) {
@@ -511,6 +515,53 @@ class AppDelegate: NSObject,
     @objc private func ghosttyBellDidRing(_ notification: Notification) {
         // Bounce the dock icon if we're not focused.
         NSApp.requestUserAttention(.informationalRequest)
+
+        // Handle setting the dock badge based on permissions
+        ghosttyUpdateBadgeForBell()
+    }
+
+    private func ghosttyUpdateBadgeForBell() {
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { settings in
+            switch settings.authorizationStatus {
+            case .authorized:
+                // Already authorized, check badge setting and set if enabled
+                if settings.badgeSetting == .enabled {
+                    DispatchQueue.main.async {
+                        self.setDockBadge()
+                    }
+                }
+
+            case .notDetermined:
+                // Not determined yet, request authorization for badge
+                center.requestAuthorization(options: [.badge]) { granted, error in
+                    if let error = error {
+                        Self.logger.warning("Error requesting badge authorization: \(error)")
+                        return
+                    }
+
+                    if granted {
+                        // Permission granted, set the badge
+                        DispatchQueue.main.async {
+                            self.setDockBadge()
+                        }
+                    }
+                }
+
+            case .denied, .provisional, .ephemeral:
+                // In these known non-authorized states, do not attempt to set the badge.
+                break
+
+            @unknown default:
+                // Handle future unknown states by doing nothing.
+                break
+            }
+        }
+    }
+
+    private func setDockBadge(_ label: String? = "•") {
+        NSApp.dockTile.badgeLabel = label
+        NSApp.dockTile.display()
     }
 
     private func ghosttyConfigDidChange(config: Ghostty.Config) {
@@ -790,12 +841,12 @@ class AppDelegate: NSObject,
         hiddenState?.restore()
         hiddenState = nil
     }
-    
+
     @IBAction func bringAllToFront(_ sender: Any) {
         if !NSApp.isActive {
             NSApp.activate(ignoringOtherApps: true)
         }
-        
+
         NSApplication.shared.arrangeInFront(sender)
     }
 
