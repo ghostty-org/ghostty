@@ -1861,27 +1861,48 @@ keybind: Keybinds = .{},
 /// open terminals.
 @"custom-shader-animation": CustomShaderAnimation = .true,
 
-/// The list of enabled features that are activated after encountering
-/// a bell character.
+/// Bell features to enable if bell support is available in your runtime. Not
+/// all features are available on all runtimes. The format of this is a list of
+/// features to enable separated by commas. If you prefix a feature with `no-`
+/// then it is disabled. If you omit a feature, its default value is used.
 ///
 /// Valid values are:
 ///
-///  * `system` (default)
+///  * `system`
 ///
 ///    Instructs the system to notify the user using built-in system functions.
 ///    This could result in an audiovisual effect, a notification, or something
 ///    else entirely. Changing these effects require altering system settings:
 ///    for instance under the "Sound > Alert Sound" setting in GNOME,
-///    or the "Accessibility > System Bell" settings in KDE Plasma.
+///    or the "Accessibility > System Bell" settings in KDE Plasma. (GTK only)
 ///
-///    On macOS this has no affect.
+///  * `audio`
+///
+///    Play a custom sound. (GTK only)
+///
+/// Example: `audio`, `no-audio`, `system`, `no-system`:
 ///
 /// On macOS, if the app is unfocused, it will bounce the app icon in the dock
 /// once. Additionally, the title of the window with the alerted terminal
 /// surface will contain a bell emoji (🔔) until the terminal is focused
 /// or a key is pressed. These are not currently configurable since they're
 /// considered unobtrusive.
+///
+/// By default, no bell features are enabled.
 @"bell-features": BellFeatures = .{},
+
+/// If `audio` is an enabled bell feature, this is a path to an audio file. If
+/// the path is not absolute, it is considered relative to the directory of the
+/// configuration file that it is referenced from, or from the current working
+/// directory if this is used as a CLI flag. The path may be prefixed with `~/`
+/// to reference the user's home directory. (GTK only)
+@"bell-audio-path": ?Path = null,
+
+/// If `audio` is an enabled bell feature, this is the volume to play the audio
+/// file at (relative to the system volume). This is a floating point number
+/// ranging from 0.0 (silence) to 1.0 (as loud as possible). The default is 0.5.
+/// (GTK only)
+@"bell-audio-volume": f64 = 0.5,
 
 /// Control the in-app notifications that Ghostty shows.
 ///
@@ -5716,6 +5737,7 @@ pub const AppNotifications = packed struct {
 /// See bell-features
 pub const BellFeatures = packed struct {
     system: bool = false,
+    audio: bool = false,
 };
 
 /// See mouse-shift-capture

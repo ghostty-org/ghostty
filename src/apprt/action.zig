@@ -244,6 +244,7 @@ pub const Action = union(Key) {
     /// Closes the currently focused window.
     close_window,
 
+    /// The system has received a request to ring the bell.
     ring_bell,
 
     /// Sync with: ghostty_action_tag_e
