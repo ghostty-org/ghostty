@@ -7,6 +7,7 @@ enum FullscreenMode {
     case nonNative
     case nonNativeVisibleMenu
     case nonNativePaddedNotch
+    case nonNativeTitledVisibleMenu
 
     /// Initializes the fullscreen style implementation for the mode. This will not toggle any
     /// fullscreen properties. This may fail if the window isn't configured properly for a given
@@ -24,6 +25,9 @@ enum FullscreenMode {
 
         case .nonNativePaddedNotch:
             return NonNativeFullscreenPaddedNotch(window)
+
+        case  .nonNativeTitledVisibleMenu:
+            return NonNativeTitledFullscreenVisibleMenu(window)
         }
     }
 }
@@ -145,6 +149,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
 
     struct Properties {
         var hideMenu: Bool = true
+        var titled: Bool = false
         var paddedNotch: Bool = false
     }
 
@@ -191,12 +196,14 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
             name: NSWindow.didChangeScreenNotification,
             object: window)
 
-        // Being untitled let's our content take up the full frame.
-        window.styleMask.remove(.titled)
+        if (!properties.titled) {
+            // Being untitled let's our content take up the full frame.
+            window.styleMask.remove(.titled)
 
-        // We dont' want the non-native fullscreen window to be resizable
-        // from the edges.
-        window.styleMask.remove(.resizable)
+            // We dont' want the non-native fullscreen window to be resizable
+            // from the edges.
+            window.styleMask.remove(.resizable)
+        }
 
         // Focus window
         window.makeKeyAndOrderFront(nil)
@@ -232,29 +239,31 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         window.styleMask = savedState.styleMask
         window.setFrame(window.frameRect(forContentRect: savedState.contentFrame), display: true)
 
-        // This is a hack that I want to remove from this but for now, we need to
-        // fix up the titlebar tabs here before we do everything below.
-        if let window = window as? TerminalWindow,
-           window.titlebarTabs {
-            window.titlebarTabs = true
-        }
+        if (!properties.titled) {
+            // This is a hack that I want to remove from this but for now, we need to
+            // fix up the titlebar tabs here before we do everything below.
+            if let window = window as? TerminalWindow,
+               window.titlebarTabs {
+                window.titlebarTabs = true
+            }
 
-        // If the window was previously in a tab group that isn't empty now,
-        // we re-add it. We have to do this because our process of doing non-native
-        // fullscreen removes the window from the tab group.
-        if let tabGroup = savedState.tabGroup,
-           let tabIndex = savedState.tabGroupIndex,
-            !tabGroup.windows.isEmpty {
-            if tabIndex == 0 {
-                // We were previously the first tab. Add it before ("below")
-                // the first window in the tab group currently.
-                tabGroup.windows.first!.addTabbedWindow(window, ordered: .below)
-            } else if tabIndex <= tabGroup.windows.count {
-                // We were somewhere in the middle
-                tabGroup.windows[tabIndex - 1].addTabbedWindow(window, ordered: .above)
-            } else {
-                // We were at the end
-                tabGroup.windows.last!.addTabbedWindow(window, ordered: .below)
+            // If the window was previously in a tab group that isn't empty now,
+            // we re-add it. We have to do this because our process of doing non-native
+            // fullscreen removes the window from the tab group.
+            if let tabGroup = savedState.tabGroup,
+               let tabIndex = savedState.tabGroupIndex,
+                !tabGroup.windows.isEmpty {
+                if tabIndex == 0 {
+                    // We were previously the first tab. Add it before ("below")
+                    // the first window in the tab group currently.
+                    tabGroup.windows.first!.addTabbedWindow(window, ordered: .below)
+                } else if tabIndex <= tabGroup.windows.count {
+                    // We were somewhere in the middle
+                    tabGroup.windows[tabIndex - 1].addTabbedWindow(window, ordered: .above)
+                } else {
+                    // We were at the end
+                    tabGroup.windows.last!.addTabbedWindow(window, ordered: .below)
+                }
             }
         }
 
@@ -376,4 +385,9 @@ class NonNativeFullscreenVisibleMenu: NonNativeFullscreen {
 
 class NonNativeFullscreenPaddedNotch: NonNativeFullscreen {
     override var properties: Properties { Properties(paddedNotch: true) }
+}
+
+class NonNativeTitledFullscreenVisibleMenu: NonNativeFullscreen {
+    override var supportsTabs: Bool { true }
+    override var properties: Properties { Properties(hideMenu: false, titled: true) }
 }
