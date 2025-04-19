@@ -64,24 +64,309 @@ parts:
     prime:
       - -*
 
+  buildenv:
+    plugin: nil
+    build-environment: &buildenv
+      - ACLOCAL_PATH: $CRAFT_STAGE/usr/share/aclocal
+      - XDG_DATA_DIRS: $CRAFT_STAGE/usr/share:/usr/share
+      - LD_LIBRARY_PATH: "$CRAFT_STAGE/usr/lib:\
+          $CRAFT_STAGE/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR\
+          ${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+      - PKG_CONFIG_PATH:
+          "$CRAFT_STAGE/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/pkgconfig:\
+          $CRAFT_STAGE/usr/lib/pkgconfig:\
+          $CRAFT_STAGE/usr/share/pkgconfig\
+          ${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+      - GI_TYPELIB_PATH: "$CRAFT_STAGE/usr/lib/girepository-1.0:\
+          $CRAFT_STAGE/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/girepository-1.0\
+          ${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}"
+
+  ninja:
+    plugin: nil
+    source: https://github.com/ninja-build/ninja.git
+    source-tag: "v1.12.1"
+    source-depth: 1
+    override-build: |
+      rm -rf build
+      rm -f ninja
+      rm -f ninja_bootstrap
+      sed -i 's_^#!/usr/bin/env python$_#!/usr/bin/env python3_g' configure.py
+      ./configure.py --bootstrap
+      mv ninja ninja_bootstrap
+      rm -rf build
+      ./ninja_bootstrap
+      rm -f ninja_bootstrap
+      mkdir -p $CRAFT_PART_INSTALL/usr/bin
+      mv ninja $CRAFT_PART_INSTALL/usr/bin/
+    build-environment: *buildenv
+    build-packages:
+      - python3
+    prime:
+      - -*
+
+  meson-deps:
+    after: [ninja]
+    plugin: nil
+    source: https://github.com/mesonbuild/meson.git
+    source-tag: "1.6.0"
+    source-depth: 1
+    override-build: |
+      python3 -m pip install --break-system-packages .
+      mkdir -p $CRAFT_PART_INSTALL/usr/lib/python3/dist-packages
+      rm -rf $CRAFT_PART_INSTALL/usr/lib/python3/dist-packages/meson*
+      python3 -m pip install --target=$CRAFT_PART_INSTALL/usr --break-system-packages .
+      mv $CRAFT_PART_INSTALL/usr/meson* $CRAFT_PART_INSTALL/usr/lib/python3/dist-packages/
+      sed -i "s%^#!/usr/bin/python3$%#!/usr/bin/env python3%g" /usr/local/bin/meson
+      sed -i "s%^#!/usr/bin/python3$%#!/usr/bin/env python3%g" $CRAFT_PART_INSTALL/usr/bin/meson
+    build-environment: *buildenv
+    build-packages:
+      - python3-pip
+    prime:
+      - -*
+
+  pixman:
+    after: [meson-deps]
+    source: https://gitlab.freedesktop.org/pixman/pixman.git
+    source-tag: "pixman-0.44.2"
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - -Doptimization=3
+      - -Dgtk=disabled
+      - -Dtests=disabled
+      - -Ddemos=disabled
+    build-attributes: [enable-patchelf]
+    build-environment: *buildenv
+    prime:
+      - usr/lib/*/libpix*.so.*
+
+  cairo:
+    after: [pixman, meson-deps]
+    source: https://gitlab.freedesktop.org/cairo/cairo.git
+    source-tag: "1.18.4"
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - -Doptimization=3
+      - -Dxlib=enabled
+      - -Dpng=enabled
+      - -Dxcb=enabled
+      - -Dtee=enabled
+      - -Dzlib=enabled
+      - -Dtests=disabled
+    build-attributes: [enable-patchelf]
+    build-environment: *buildenv
+    build-packages:
+      - libfontconfig1-dev
+      - libfreetype-dev
+      - libx11-dev
+      - libxext-dev
+      - libxcb1-dev
+      - libxcb-render0-dev
+      - libxcb-shm0-dev
+      - libsm-dev
+      - zlib1g-dev
+      - liblzo2-dev
+      - libxml2-dev
+    prime:
+      - usr/lib/*/libcairo*.so.*
+
+  fribidi:
+    after: [meson-deps]
+    source: https://github.com/fribidi/fribidi.git
+    source-tag: "v1.0.16"
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - -Doptimization=3
+      - -Ddocs=false
+      - -Dtests=false
+    build-attributes: [enable-patchelf]
+    build-environment: *buildenv
+    prime:
+      - usr/lib/*/libfribidi*.so.*
+
+  harfbuzz:
+    after: [fribidi, meson-deps]
+    source: https://github.com/harfbuzz/harfbuzz.git
+    source-tag: "10.1.0"
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - -Dgraphite2=enabled
+      - -Dintrospection=enabled
+      - -Dgobject=enabled
+      - -Doptimization=3
+      - -Dtests=disabled
+      - -Ddocs=disabled
+      - --default-library=both
+    build-attributes: [enable-patchelf]
+    build-environment: *buildenv
+    build-packages:
+      - ragel
+      - libgraphite2-dev
+    prime:
+      - usr/lib/*/libharfbuz*.so.*
+
+  pango:
+    after: [cairo, harfbuzz, meson-deps]
+    source: https://gitlab.gnome.org/GNOME/pango.git
+    source-tag: "1.56.2"
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - -Doptimization=3
+      - -Dbuild-testsuite=false
+      - -Ddocumentation=false
+      - -Dintrospection=enabled
+      - -Dbuild-examples=false
+    build-attributes: [enable-patchelf]
+    build-environment: *buildenv
+    build-packages:
+      - libthai-dev
+      - libxft-dev
+      - libxrender-dev
+      - libxt-dev
+      - cmake
+    prime:
+      - usr/lib/*/libpango*.so.*
+
+  wayland-protocols:
+    after: [meson-deps]
+    source: https://gitlab.freedesktop.org/wayland/wayland-protocols.git
+    source-tag: "1.38"
+    source-depth: 1
+    build-packages:
+      - libwayland-dev
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - -Doptimization=3
+      - -Dtests=false
+    build-attributes: [enable-patchelf]
+    build-environment: *buildenv
+    prime:
+      - usr/lib/*/libwayland*.so.*
+
+  gtk4:
+    after: [meson-deps, cairo, pango, wayland-protocols]
+    source: https://gitlab.gnome.org/GNOME/gtk.git
+    source-tag: "4.16.7"
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - -Doptimization=3
+      - -Ddebug=false
+      - -Dbroadway-backend=true
+      - -Dx11-backend=true
+      - -Dwayland-backend=true
+      - -Dwin32-backend=false
+      - -Dmacos-backend=false
+      - -Dintrospection=enabled
+      - -Ddocumentation=false
+      - -Dbuild-examples=false
+      - -Dbuild-tests=false
+      - -Dmedia-gstreamer=disabled
+      - -Dbuild-demos=false
+      - -Dbuild-testsuite=false
+      - -Dbuild-examples=false
+      - -Dbuild-tests=false
+      - -Dprint-cups=enabled
+    organize:
+      usr/lib/gtk-4.0: usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gtk-4.0
+    build-attributes: [enable-patchelf]
+    build-environment: *buildenv
+    build-packages:
+      - libxkbcommon-dev
+      - libcups2-dev
+      - libcolord-dev
+      - libdrm-dev
+      - libegl-dev
+      - libxrandr-dev
+      - libxcursor-dev
+      - libxcomposite-dev
+      - libxdamage-dev
+      - libxfixes-dev
+      - libxi-dev
+      - libxkbfile-dev
+      - libxml2-utils
+      - libvulkan-dev
+      - glslc
+      - libgraphene-1.0-dev
+      - libxinerama-dev
+      - gobject-introspection
+      - gir1.2-freedesktop-dev
+      - shared-mime-info
+    prime:
+      - -usr/lib/*/*/4.0.0/media/libmedia-gstreamer.so
+      - -usr/include
+      - -usr/lib/*/*.pc
+      - -usr/share
+
+  gtk4-layer-shell:
+    after: [meson-deps, gtk4]
+    source: https://github.com/wmww/gtk4-layer-shell.git
+    source-tag: "v1.1.0"
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - -Doptimization=3
+      - -Dintrospection=false
+      - -Dvapi=false
+    build-attributes: [enable-patchelf]
+    build-environment: *buildenv
+    prime:
+      - usr/lib/*/libgtk4-layer-shell.so*
+
+  libadwaita:
+    after: [meson-deps, gtk4]
+    source: https://gitlab.gnome.org/GNOME/libadwaita.git
+    source-tag: "1.6.5"
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - -Doptimization=3
+      - -Dintrospection=enabled
+      - -Dvapi=false
+      - -Dgtk_doc=false
+      - -Dtests=false
+      - -Dexamples=false
+    build-attributes: [enable-patchelf]
+    build-environment: *buildenv
+    build-packages:
+      - libsass-dev
+      - sassc
+      - libyaml-dev
+      - libzstd-dev
+      - libsystemd-dev
+      - gperf
+      - libappstream-dev
+    prime:
+      - usr/lib/*/libadwaita*.so.*
+
   ghostty:
+    after: [gtk4-layer-shell, libadwaita, zig]
     source: .
-    after: [zig]
     plugin: nil
     build-attributes: [enable-patchelf]
+    build-environment: *buildenv
     build-packages:
       - blueprint-compiler
-      - libgtk-4-dev
-      - libadwaita-1-dev
-      # TODO: Add when the Snap is updated to Ubuntu 24.10+
-      # - gtk4-layer-shell
       - libxml2-utils
       - git
       - patchelf
       - gettext
     override-build: |
       craftctl set version=$(git describe --abbrev=8)
-      $CRAFT_PART_SRC/../../zig/src/zig build -Dpatch-rpath=\$ORIGIN/../usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:/snap/core24/current/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR -Doptimize=ReleaseFast
+      $CRAFT_PART_SRC/../../zig/src/zig build -Dpatch-rpath=\$ORIGIN/../usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:/snap/core24/current/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR -Doptimize=ReleaseFast -fsys=gtk4-layer-shell
       cp -rp zig-out/* $CRAFT_PART_INSTALL/
       sed -i 's|Icon=com.mitchellh.ghostty|Icon=/snap/ghostty/current/share/icons/hicolor/512x512/apps/com.mitchellh.ghostty.png|g' $CRAFT_PART_INSTALL/share/applications/com.mitchellh.ghostty.desktop
 
@@ -89,10 +374,7 @@ parts:
     plugin: nil
     build-attributes: [enable-patchelf]
     stage-packages:
-      - libadwaita-1-0
       - libglib2.0-0t64
-      - libgtk-4-1
-      - libgtk-4-media-gstreamer
       - ibus-gtk4
       - libpciaccess0
       - libtinfo6
@@ -103,7 +385,23 @@ parts:
       - libunistring5
       - librsvg2-2
       - librsvg2-common
-      - libgdk-pixbuf-2.0-0
+      - libxcb-randr0
+      - libwayland-server0
+      - libxshmfence1
+      - libxcb-xfixes0
+      - libxcb-sync1
+      - libxcb-present0
+      - libxcb-dri3-0
+      - libxcb-dri2-0
+      - libglapi-mesa
+      - libx11-xcb1
+      - libxmlb2
+      - libstemmer0d
+      - libappstream5
+      - libwayland-client0
+      - libwayland-egl1
+      - libwayland-server0
+      - libxft2
       - on amd64:
           [
             i965-va-driver,
@@ -113,6 +411,19 @@ parts:
             libdrm-radeon1,
           ]
     stage:
+      - -usr/lib/*/*/4.0.0
+      - -usr/lib/*/libgtk-4.so.*
+      - -usr/lib/*/libpix*.so.*
+      - -usr/lib/*/libcairo*.so.*
+      - -usr/lib/*/libepoxy.so.*
+      - -usr/lib/*/libfribidi.so.*
+      - -usr/lib/*/libgdk_pixbuf-2.0.so.*
+      - -usr/lib/*/libharfbuzz*.so.*
+      - -usr/lib/*/libpango*.so.*
+      - -usr/lib/*/libpixman-1.so.*
+      - -usr/share/gtk-4.0
+      - -usr/lib/*/libgallium*so
+      - -usr/lib/*/gdk-pixbuf-2.0
       # The libraries in dri need no-patchelf, so they come from the mesa-unpatched part
       - -usr/lib/*/dri
 
@@ -130,9 +441,10 @@ parts:
       # The libraries in dri need no-patchelf, so they come from the mesa-unpatched part
       - usr/lib/*/*.so*
       - usr/lib/*/dri/libdril_dri.so
-      - -usr/lib/*/libxml2.so.*
       - -usr/lib/*/libgallium*so
+      - -usr/lib/*/libxml2.so.*
       - -usr/lib/*/dri
+      - -usr/lib/*/libwayland*.so.*
 
   mesa-gl1-dri:
     plugin: nil

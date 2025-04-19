@@ -25,6 +25,8 @@ extend-exclude = [
   "*.data",
   "*.xib",
   "src/cli/lorem_ipsum.txt",
+  # Ignore packaging as it caches some package names
+  "snap/snapcraft.yaml",
 ]
 
 [default]
