@@ -20,10 +20,40 @@ pub fn accelFromTrigger(buf: []u8, trigger: input.Binding.Trigger) !?[:0]const u
     if (trigger.mods.super) try writer.writeAll("<Super>");
 
     // Write our key
+    if (!try writeTriggerKey(writer, trigger)) return null;
+
+    // We need to make the string null terminated.
+    try writer.writeByte(0);
+    const slice = buf_stream.getWritten();
+    return slice[0 .. slice.len - 1 :0];
+}
+
+/// Returns a XDG-compliant shortcuts string from a trigger.
+/// Spec: https://specifications.freedesktop.org/shortcuts-spec/latest/
+pub fn xdgShortcutFromTrigger(buf: []u8, trigger: input.Binding.Trigger) !?[:0]const u8 {
+    var buf_stream = std.io.fixedBufferStream(buf);
+    const writer = buf_stream.writer();
+
+    // Modifiers
+    if (trigger.mods.shift) try writer.writeAll("SHIFT+");
+    if (trigger.mods.ctrl) try writer.writeAll("CTRL+");
+    if (trigger.mods.alt) try writer.writeAll("ALT+");
+    if (trigger.mods.super) try writer.writeAll("LOGO+");
+
+    // Write our key
+    if (!try writeTriggerKey(writer, trigger)) return null;
+
+    // We need to make the string null terminated.
+    try writer.writeByte(0);
+    const slice = buf_stream.getWritten();
+    return slice[0 .. slice.len - 1 :0];
+}
+
+fn writeTriggerKey(writer: anytype, trigger: input.Binding.Trigger) !bool {
     switch (trigger.key) {
         .physical, .translated => |k| {
-            const keyval = keyvalFromKey(k) orelse return null;
-            try writer.writeAll(std.mem.span(gdk.keyvalName(keyval) orelse return null));
+            const keyval = keyvalFromKey(k) orelse return false;
+            try writer.writeAll(std.mem.span(gdk.keyvalName(keyval) orelse return false));
         },
 
         .unicode => |cp| {
@@ -35,10 +65,7 @@ pub fn accelFromTrigger(buf: []u8, trigger: input.Binding.Trigger) !?[:0]const u
         },
     }
 
-    // We need to make the string null terminated.
-    try writer.writeByte(0);
-    const slice = buf_stream.getWritten();
-    return slice[0 .. slice.len - 1 :0];
+    return true;
 }
 
 pub fn translateMods(state: gdk.ModifierType) input.Mods {
