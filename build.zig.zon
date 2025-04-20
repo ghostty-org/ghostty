@@ -103,8 +103,8 @@
         // Other
         .apple_sdk = .{ .path = "./pkg/apple-sdk" },
         .iterm2_themes = .{
-            .url = "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/4c57d8c11d352a4aeda6928b65d78794c28883a5.tar.gz",
-            .hash = "N-V-__8AAEH8MwQaEsARbyV42-bSZGcu1am8xtg2h67wTFC3",
+            .url = "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/c5e4212e763d652a422c22955cbd13038de1a356.tar.gz",
+            .hash = "N-V-__8AAIVuNwQhgzy1gME091DLGpUf4kDPd5zVEbxg-NVC",
             .lazy = true,
         },
     },
