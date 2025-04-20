@@ -1784,6 +1784,15 @@ pub fn rebuildCells(
         }
     }
 
+    // Free up memory, generally in case where surface has shrunk.
+    // If more than half of the capacity is unused, remove all unused capacity.
+    if (self.cells.items.len * 2 < self.cells.capacity) {
+        self.cells.shrinkAndFree(self.alloc, self.cells.items.len);
+    }
+    if (self.cells_bg.items.len * 2 < self.cells_bg.capacity) {
+        self.cells_bg.shrinkAndFree(self.alloc, self.cells_bg.items.len);
+    }
+
     // Some debug mode safety checks
     if (std.debug.runtime_safety) {
         for (self.cells_bg.items) |cell| assert(cell.mode == .bg);
