@@ -1,6 +1,7 @@
 const c = @cImport({
     @cInclude("gtk4-layer-shell.h");
 });
+const std = @import("std");
 const gtk = @import("gtk");
 
 pub const ShellLayer = enum(c_uint) {
@@ -25,6 +26,14 @@ pub const KeyboardMode = enum(c_uint) {
 
 pub fn isProtocolSupported() bool {
     return c.gtk_layer_is_supported() != 0;
+}
+
+pub fn getRuntimeVersion() std.SemanticVersion {
+    return std.SemanticVersion{
+        .major = c.gtk_layer_get_major_version(),
+        .minor = c.gtk_layer_get_minor_version(),
+        .patch = c.gtk_layer_get_micro_version(),
+    };
 }
 
 pub fn initForWindow(window: *gtk.Window) void {

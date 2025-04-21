@@ -10,12 +10,15 @@ const gtk4_layer_shell = @import("gtk4-layer-shell");
 const gtk = @import("gtk");
 const wayland = @import("wayland");
 
+const gtk_version = @import("../gtk_version.zig");
+const gtk_layer_version = @import("../gtk_layer_version.zig");
 const Config = @import("../../../config.zig").Config;
 const input = @import("../../../input.zig");
 const ApprtWindow = @import("../Window.zig");
 
 const wl = wayland.client.wl;
 const org = wayland.client.org;
+const xdg = wayland.client.xdg;
 
 const log = std.log.scoped(.winproto_wayland);
 
@@ -34,6 +37,8 @@ pub const App = struct {
         kde_slide_manager: ?*org.KdeKwinSlideManager = null,
 
         default_deco_mode: ?org.KdeKwinServerDecorationManager.Mode = null,
+
+        xdg_wm_dialog: ?*xdg.WmDialogV1 = null,
     };
 
     pub fn init(
@@ -97,10 +102,18 @@ pub const App = struct {
         return null;
     }
 
-    pub fn supportsQuickTerminal(_: App) bool {
+    pub fn supportsQuickTerminal(self: App) bool {
         if (!gtk4_layer_shell.isProtocolSupported()) {
             log.warn("your compositor does not support the wlr-layer-shell protocol; disabling quick terminal", .{});
             return false;
+        }
+        // GTK4 >= 4.16.0 uses xdg_wm_dialog protocol if available which breaks gtk_layer_shell < 1.0.4
+        // See: https://github.com/wmww/gtk4-layer-shell/issues/50
+        if (self.context.xdg_wm_dialog) |_| {
+            if (gtk_version.atLeast(4, 16, 0) and !gtk_layer_version.atLeast(1, 0, 4)) {
+                log.warn("Your gtk4-layer-shell version is too old for your compositor and gtk4 version; disabling quick terminal", .{});
+                return false;
+            }
         }
         return true;
     }
@@ -148,6 +161,14 @@ pub const App = struct {
                     global,
                 )) |slide_manager| {
                     context.kde_slide_manager = slide_manager;
+                    return;
+                }
+                if (registryBind(
+                    xdg.WmDialogV1,
+                    registry,
+                    global,
+                )) |wm_dialog| {
+                    context.xdg_wm_dialog = wm_dialog;
                     return;
                 }
             },
