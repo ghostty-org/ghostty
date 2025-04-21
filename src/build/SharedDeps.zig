@@ -620,12 +620,15 @@ fn addGTK(
             plasma_wayland_protocols_dep.path("src/protocols/slide.xml"),
         );
         scanner.addSystemProtocol("staging/xdg-activation/xdg-activation-v1.xml");
+        scanner.addCustomProtocol(wayland_protocols_dep.path("staging/xdg-dialog/xdg-dialog-v1.xml"));
+        scanner.addCustomProtocol(wayland_protocols_dep.path("stable/xdg-shell/xdg-shell.xml"));
 
         scanner.generate("wl_compositor", 1);
         scanner.generate("org_kde_kwin_blur_manager", 1);
         scanner.generate("org_kde_kwin_server_decoration_manager", 1);
         scanner.generate("org_kde_kwin_slide_manager", 1);
         scanner.generate("xdg_activation_v1", 1);
+        scanner.generate("xdg_wm_dialog_v1", 1);
 
         step.root_module.addImport("wayland", b.createModule(.{
             .root_source_file = scanner.result,
