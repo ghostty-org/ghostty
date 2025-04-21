@@ -23,7 +23,7 @@ pub const KeyboardMode = enum(c_uint) {
     on_demand = c.GTK_LAYER_SHELL_KEYBOARD_MODE_ON_DEMAND,
 };
 
-pub fn isSupported() bool {
+pub fn isProtocolSupported() bool {
     return c.gtk_layer_is_supported() != 0;
 }
 
