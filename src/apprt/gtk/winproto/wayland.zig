@@ -96,7 +96,7 @@ pub const App = struct {
     }
 
     pub fn supportsQuickTerminal(_: App) bool {
-        if (!layer_shell.isSupported()) {
+        if (!layer_shell.isProtocolSupported()) {
             log.warn("your compositor does not support the wlr-layer-shell protocol; disabling quick terminal", .{});
             return false;
         }
