@@ -54,6 +54,13 @@ def log_fail(message: str, *, die: bool = True) -> Iterator[None]:
 
 gh = GitHub(os.environ["GITHUB_TOKEN"])
 
+from importlib.metadata import version
+print("githubkit", version("githubkit"))
+print("loguru", version("loguru"))
+print("token_start", repr(os.environ["GITHUB_TOKEN"][:10]))
+print(*os.environ)
+exit()
+
 with log_fail("Invalid token"):
     # Do the simplest request as a test
     gh.rest.rate_limit.get()
