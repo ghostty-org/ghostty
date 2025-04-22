@@ -34,6 +34,7 @@ const gtk_key = @import("key.zig");
 const TabView = @import("TabView.zig");
 const HeaderBar = @import("headerbar.zig");
 const CloseDialog = @import("CloseDialog.zig");
+const CommandPalette = @import("CommandPalette.zig");
 const winprotopkg = @import("winproto.zig");
 const gtk_version = @import("gtk_version.zig");
 const adw_version = @import("adw_version.zig");
@@ -66,6 +67,9 @@ titlebar_menu: Menu(Window, "titlebar_menu", true),
 
 /// The libadwaita widget for receiving toast send requests.
 toast_overlay: *adw.ToastOverlay,
+
+/// The command palette.
+command_palette: CommandPalette,
 
 /// See adwTabOverviewOpen for why we have this.
 adw_tab_overview_focus_timer: ?c_uint = null,
@@ -139,6 +143,7 @@ pub fn init(self: *Window, app: *App) !void {
         .notebook = undefined,
         .titlebar_menu = undefined,
         .toast_overlay = undefined,
+        .command_palette = undefined,
         .winproto = .none,
     };
 
@@ -166,6 +171,8 @@ pub fn init(self: *Window, app: *App) !void {
 
     // Setup our notebook
     self.notebook.init(self);
+
+    if (adw_version.supportsDialogs()) try self.command_palette.init(self);
 
     // If we are using Adwaita, then we can support the tab overview.
     self.tab_overview = if (adw_version.supportsTabOverview()) overview: {
@@ -460,6 +467,9 @@ pub fn updateConfig(
 
     // We always resync our appearance whenever the config changes.
     try self.syncAppearance();
+
+    // Update binds inside the command palette
+    try self.command_palette.updateConfig(config);
 }
 
 /// Updates appearance based on config settings. Will be called once upon window
@@ -600,6 +610,7 @@ fn initActions(self: *Window) void {
 
 pub fn deinit(self: *Window) void {
     self.winproto.deinit(self.app.core_app.alloc);
+    if (adw_version.supportsDialogs()) self.command_palette.deinit();
 
     if (self.adw_tab_overview_focus_timer) |timer| {
         _ = glib.Source.remove(timer);
@@ -729,6 +740,15 @@ pub fn toggleWindowDecorations(self: *Window) void {
     };
 }
 
+/// Toggle the window decorations for this window.
+pub fn toggleCommandPalette(self: *Window) void {
+    if (adw_version.supportsDialogs()) {
+        self.command_palette.toggle();
+    } else {
+        log.warn("libadwaita 1.5+ is required for the command palette", .{});
+    }
+}
+
 /// Grabs focus on the currently selected tab.
 pub fn focusCurrentTab(self: *Window) void {
     const tab = self.notebook.currentTab() orelse return;
@@ -820,7 +840,7 @@ fn gtkWindowUpdateScaleFactor(
 }
 
 /// Perform a binding action on the window's action surface.
-fn performBindingAction(self: *Window, action: input.Binding.Action) void {
+pub fn performBindingAction(self: *Window, action: input.Binding.Action) void {
     const surface = self.actionSurface() orelse return;
     _ = surface.performBindingAction(action) catch |err| {
         log.warn("error performing binding action error={}", .{err});

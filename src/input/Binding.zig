@@ -445,8 +445,6 @@ pub const Action = union(enum) {
     /// that lets you see what actions you can perform, their associated
     /// keybindings (if any), a search bar to filter the actions, and
     /// the ability to then execute the action.
-    ///
-    /// This only works on macOS.
     toggle_command_palette,
 
     /// Toggle the "quick" terminal. The quick terminal is a terminal that

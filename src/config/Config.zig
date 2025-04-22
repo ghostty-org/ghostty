@@ -4694,6 +4694,13 @@ pub const Keybinds = struct {
             .{ .toggle_split_zoom = {} },
         );
 
+        // Toggle command palette, matches VSCode
+        try self.set.put(
+            alloc,
+            .{ .key = .{ .translated = .p }, .mods = inputpkg.ctrlOrSuper(.{ .shift = true }) },
+            .toggle_command_palette,
+        );
+
         // Mac-specific keyboard bindings.
         if (comptime builtin.target.os.tag.isDarwin()) {
             try self.set.put(
@@ -4864,13 +4871,6 @@ pub const Keybinds = struct {
                 alloc,
                 .{ .key = .{ .translated = .down }, .mods = .{ .super = true } },
                 .{ .jump_to_prompt = 1 },
-            );
-
-            // Toggle command palette, matches VSCode
-            try self.set.put(
-                alloc,
-                .{ .key = .{ .translated = .p }, .mods = .{ .super = true, .shift = true } },
-                .{ .toggle_command_palette = {} },
             );
 
             // Inspector, matching Chromium
