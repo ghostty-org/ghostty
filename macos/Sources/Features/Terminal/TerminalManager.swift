@@ -134,9 +134,11 @@ class TerminalManager {
            let fullscreenStyle = controller.fullscreenStyle,
            fullscreenStyle.isFullscreen && !fullscreenStyle.supportsTabs {
             let alert = NSAlert()
-            alert.messageText = "Cannot Create New Tab"
-            alert.informativeText = "New tabs are unsupported while in non-native fullscreen. Exit fullscreen and try again."
-            alert.addButton(withTitle: "OK")
+            alert.messageText = String(localized: "Cannot Create New Tab")
+            alert.informativeText = String(
+                localized: "New tabs are unsupported while in non-native fullscreen. Exit fullscreen and try again."
+            )
+            alert.addButton(withTitle: String(localized: "OK"))
             alert.alertStyle = .warning
             alert.beginSheetModal(for: parent)
             return
@@ -296,10 +298,10 @@ class TerminalManager {
 
         // If we need confirmation by any, show one confirmation for all windows
         let alert = NSAlert()
-        alert.messageText = "Close All Windows?"
-        alert.informativeText = "All terminal sessions will be terminated."
-        alert.addButton(withTitle: "Close All Windows")
-        alert.addButton(withTitle: "Cancel")
+        alert.messageText = String(localized: "Close All Windows?")
+        alert.informativeText = String(localized: "All terminal sessions will be terminated.")
+        alert.addButton(withTitle: String(localized: "Close All Windows"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
         alert.alertStyle = .warning
         alert.beginSheetModal(for: alertWindow, completionHandler: { response in
             if (response == .alertFirstButtonReturn) {
