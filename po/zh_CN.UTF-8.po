@@ -28,7 +28,7 @@ msgstr "留空以重置至默认标题。"
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:9
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:10 src/apprt/gtk/CloseDialog.zig:44
 msgid "Cancel"
-msgstr "取消"
+msgstr "foo"
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:10
 msgid "OK"
