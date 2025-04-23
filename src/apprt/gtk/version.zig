@@ -1,20 +1,47 @@
 const std = @import("std");
 
-/// A generic way to dispatch version checks of a runtime dependency.
+/// A generic construct to dispatch version comparisons of a runtime dependency.
 ///
-/// The runtimeVersion function is expected to be created from the library we link against.
+/// The runtimeVersion function is to be created from the library we link against to detect a dynamically linked version.
 /// The comptime_version is optional
+///
+/// Whenever the runtimeVersion is required the provided function is called again, as opposed to being cached
 pub fn VersionChecked(
     comptime dependency_name: []const u8,
-    comptime log_scope: @TypeOf(std.log.scoped(.enum_literal)),
-    comptime getRuntimeVersion: fn () std.SemanticVersion,
+    comptime getRuntimeVersion_: fn () std.SemanticVersion,
     comptime comptime_version_: ?std.SemanticVersion,
 ) type {
     return struct {
         const Self = @This();
         const name = dependency_name;
-        const log = log_scope;
         const comptime_version = comptime_version_;
+        const getRuntimeVersion = getRuntimeVersion_;
+        pub const LogFormat = struct {
+            pub fn format(
+                _: LogFormat,
+                comptime _: []const u8,
+                _: std.fmt.FormatOptions,
+                writer: anytype,
+            ) !void {
+                if (Self.comptime_version) |comptime_version__| {
+                    try writer.print("{s} version build={} runtime={}", .{
+                        Self.name,
+                        comptime_version__,
+                        Self.getRuntimeVersion(),
+                    });
+                } else {
+                    try writer.print("{s} version runtime={}", .{
+                        Self.name,
+                        Self.getRuntimeVersion(),
+                    });
+                }
+            }
+        };
+
+        /// Provides an object that implements the std.fmt API intended for logging.
+        pub fn logFormat() LogFormat {
+            return .{};
+        }
 
         /// Verifies that the running dependency version is at least the given
         /// version.
@@ -84,7 +111,7 @@ pub fn VersionChecked(
         ) bool {
             // We use the functions instead of the constants such as c.GTK_MINOR_VERSION
             // because the function gets the actual runtime version.
-            const runtime_version = getRuntimeVersion();
+            const runtime_version = getRuntimeVersion_();
             return runtime_version.order(.{
                 .major = major,
                 .minor = minor,
@@ -103,27 +130,12 @@ pub fn VersionChecked(
             comptime minor: u16,
             comptime micro: u16,
         ) bool {
-            const runtime_version = getRuntimeVersion();
+            const runtime_version = getRuntimeVersion_();
             return runtime_version.order(.{
                 .major = major,
                 .minor = minor,
                 .patch = micro,
             }) == .lt;
-        }
-
-        pub fn logVersion() void {
-            if (Self.comptime_version) |comptime_version__| {
-                Self.log.info("{s} version build={} runtime={}", .{
-                    Self.name,
-                    comptime_version__,
-                    getRuntimeVersion(),
-                });
-            } else {
-                Self.log.info("{s} version runtime={}", .{
-                    Self.name,
-                    getRuntimeVersion(),
-                });
-            }
         }
 
         test "atLeast" {

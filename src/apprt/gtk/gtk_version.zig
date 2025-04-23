@@ -9,6 +9,7 @@ const c = @cImport({
 
 const gtk = @import("gtk");
 const VersionChecked = @import("version.zig").VersionChecked;
+const log = std.log.scoped(.gtk);
 
 pub const comptime_version: std.SemanticVersion = .{
     .major = c.GTK_MAJOR_VERSION,
@@ -24,10 +25,13 @@ pub fn getRuntimeVersion() std.SemanticVersion {
     };
 }
 
-const GTKVersion = VersionChecked("GTK", std.log.scoped(.gtk), getRuntimeVersion, comptime_version);
+const GTKVersion = VersionChecked("GTK", getRuntimeVersion, comptime_version);
 
 pub const atLeast = GTKVersion.atLeast;
 pub const until = GTKVersion.until;
 pub const runtimeAtLeast = GTKVersion.runtimeAtLeast;
 pub const runtimeUntil = GTKVersion.runtimeUntil;
-pub const logVersion = GTKVersion.logVersion;
+
+pub fn logVersion() void {
+    log.info("{s}", .{GTKVersion.logFormat()});
+}
