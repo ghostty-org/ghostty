@@ -105,11 +105,11 @@ pub const App = struct {
         }
         // GTK4 >= 4.16.0 uses xdg_wm_dialog protocol if available which breaks gtk_layer_shell < 1.0.4
         // See: https://github.com/wmww/gtk4-layer-shell/issues/50
-        if (self.context.xdg_wm_dialog) |_| {
-            if (gtk_version.atLeast(4, 16, 0) and !gtk_layer_version.atLeast(1, 0, 4)) {
-                log.warn("Your gtk4-layer-shell version is too old for your compositor and gtk4 version; disabling quick terminal", .{});
-                return false;
-            }
+        if (self.context.xdg_wm_dialog != null and
+            gtk_version.atLeast(4, 16, 0) and !gtk_layer_version.atLeast(1, 0, 4))
+        {
+            log.warn("Your gtk4-layer-shell version is defective, update to 1.0.4 or later (and contact distro maintainers if this is latest); disabling quick terminal", .{});
+            return false;
         }
         return true;
     }

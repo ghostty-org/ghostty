@@ -38,7 +38,7 @@ pub fn getProtocolVersion() c_uint {
 
 /// Returns the runtime version of the GTK Layer Shell library
 pub fn getRuntimeVersion() std.SemanticVersion {
-    return std.SemanticVersion{
+    return .{
         .major = c.gtk_layer_get_major_version(),
         .minor = c.gtk_layer_get_minor_version(),
         .patch = c.gtk_layer_get_micro_version(),
