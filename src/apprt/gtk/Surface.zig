@@ -2456,9 +2456,9 @@ pub fn ringBell(self: *Surface) !void {
     if (features.audio) audio: {
         // Play a user-specified audio file.
 
-        const pathname, const optional = switch (self.app.config.@"bell-audio-path" orelse break :audio) {
-            .optional => |path| .{ path, true },
-            .required => |path| .{ path, false },
+        const pathname, const required = switch (self.app.config.@"bell-audio-path" orelse break :audio) {
+            .optional => |path| .{ path, false },
+            .required => |path| .{ path, true },
         };
 
         const volume = std.math.clamp(self.app.config.@"bell-audio-volume", 0.0, 1.0);
@@ -2466,7 +2466,7 @@ pub fn ringBell(self: *Surface) !void {
         std.debug.assert(std.fs.path.isAbsolute(pathname));
         const media_file = gtk.MediaFile.newForFilename(pathname);
 
-        if (!optional) {
+        if (required) {
             _ = gobject.Object.signals.notify.connect(
                 media_file,
                 ?*anyopaque,
