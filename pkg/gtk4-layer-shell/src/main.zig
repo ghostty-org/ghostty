@@ -29,7 +29,7 @@ pub fn isProtocolSupported() bool {
 }
 
 pub fn getRuntimeVersion() std.SemanticVersion {
-    return std.SemanticVersion{
+    return .{
         .major = c.gtk_layer_get_major_version(),
         .minor = c.gtk_layer_get_minor_version(),
         .patch = c.gtk_layer_get_micro_version(),
