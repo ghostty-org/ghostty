@@ -123,10 +123,17 @@ pub const Style = struct {
     pub fn fg(
         self: Style,
         palette: *const color.Palette,
+        default_color: color.RGB,
         bold_is_bright: bool,
-    ) ?color.RGB {
+        bold_color: ?color.RGB,
+    ) color.RGB {
         return switch (self.fg_color) {
-            .none => null,
+            .none => default: {
+                if (self.flags.bold) {
+                    break :default bold_color orelse default_color;
+                }
+                break :default default_color;
+            },
             .palette => |idx| palette: {
                 if (bold_is_bright and self.flags.bold) {
                     const bright_offset = @intFromEnum(color.Name.bright_black);
@@ -136,7 +143,12 @@ pub const Style = struct {
 
                 break :palette palette[idx];
             },
-            .rgb => |rgb| rgb,
+            .rgb => |rgb| rgb: {
+                if (self.flags.bold and rgb.eql(default_color)) {
+                    break :rgb bold_color orelse rgb;
+                }
+                break :rgb rgb;
+            },
         };
     }
 
