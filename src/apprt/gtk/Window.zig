@@ -587,6 +587,7 @@ fn initActions(self: *Window) void {
         .{ "split-left", gtkActionSplitLeft },
         .{ "split-up", gtkActionSplitUp },
         .{ "toggle-inspector", gtkActionToggleInspector },
+        .{ "toggle-command-palette", gtkActionToggleCommandPalette },
         .{ "copy", gtkActionCopy },
         .{ "paste", gtkActionPaste },
         .{ "reset", gtkActionReset },
@@ -1100,6 +1101,14 @@ fn gtkActionToggleInspector(
     self: *Window,
 ) callconv(.C) void {
     self.performBindingAction(.{ .inspector = .toggle });
+}
+
+fn gtkActionToggleCommandPalette(
+    _: *gio.SimpleAction,
+    _: ?*glib.Variant,
+    self: *Window,
+) callconv(.C) void {
+    self.performBindingAction(.toggle_command_palette);
 }
 
 fn gtkActionCopy(
