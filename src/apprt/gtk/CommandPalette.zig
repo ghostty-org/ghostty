@@ -102,6 +102,16 @@ pub fn updateConfig(self: *CommandPalette, config: *const configpkg.Config) !voi
 
     // TODO: Allow user-configured palette entries
     for (inputpkg.command.defaults) |command| {
+        // Filter out actions that are not implemented
+        // or don't make sense for GTK
+        switch (command.action) {
+            .close_all_windows,
+            .toggle_secure_input,
+            => continue,
+
+            else => {},
+        }
+
         const cmd = try Command.new(
             self.arena.allocator(),
             command,
