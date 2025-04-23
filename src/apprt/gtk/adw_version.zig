@@ -27,11 +27,14 @@ pub fn getRuntimeVersion() std.SemanticVersion {
     };
 }
 
-const AdwaitaVersion = VersionChecked("libadwaita", std.log.scoped(.gtk), getRuntimeVersion, comptime_version);
+const AdwaitaVersion = VersionChecked("libadwaita", getRuntimeVersion, comptime_version);
 
 pub const atLeast = AdwaitaVersion.atLeast;
 pub const runtimeAtLeast = AdwaitaVersion.runtimeAtLeast;
-pub const logVersion = AdwaitaVersion.logVersion;
+
+pub fn logVersion() void {
+    log.info("{s}", .{AdwaitaVersion.logFormat()});
+}
 
 // Whether AdwDialog, AdwAlertDialog, etc. are supported (1.5+)
 pub inline fn supportsDialogs() bool {
