@@ -30,7 +30,7 @@ search: *gtk.SearchEntry,
 view: *gtk.ListView,
 
 /// The model that provides filtered data for the view to display.
-model: *gio.ListModel,
+model: *gtk.SingleSelection,
 
 /// The list that serves as the data source of the model.
 /// This is where all command data is ultimately stored.
@@ -50,7 +50,7 @@ pub fn init(self: *CommandPalette, window: *Window) !void {
         .dialog = builder.getObject(adw.Dialog, "command-palette").?,
         .search = builder.getObject(gtk.SearchEntry, "search").?,
         .view = builder.getObject(gtk.ListView, "view").?,
-        .model = builder.getObject(gio.ListModel, "model").?,
+        .model = builder.getObject(gtk.SingleSelection, "model").?,
         .source = builder.getObject(gio.ListStore, "source").?,
     };
 
@@ -143,9 +143,8 @@ fn searchStopped(_: *gtk.SearchEntry, self: *CommandPalette) callconv(.c) void {
 }
 
 fn searchActivated(_: *gtk.SearchEntry, self: *CommandPalette) callconv(.c) void {
-    // If Enter is pressed in the search bar,
-    // then activate the first entry (if any)
-    self.activated(0);
+    // If Enter is pressed, activate the selected entry
+    self.activated(self.model.getSelected());
 }
 
 fn rowActivated(_: *gtk.ListView, pos: c_uint, self: *CommandPalette) callconv(.c) void {
