@@ -258,14 +258,16 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
             }
         }
 
-        // Unset our saved state, we're restored!
-        self.savedState = nil
-
         // Focus window
         window.makeKeyAndOrderFront(nil)
 
-        // Notify the delegate
+        // Notify the delegate BEFORE unsetting the saved state
+        // This way fullscreenDidChange() can still access savedState.focusedSurface
+        // See: https://github.com/ghostty-org/ghostty/pull/7201
         self.delegate?.fullscreenDidChange()
+
+        // Unset our saved state, we're restored!
+        self.savedState = nil
     }
 
     private func fullscreenFrame(_ screen: NSScreen) -> NSRect {
@@ -315,6 +317,10 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         exit()
     }
 
+    func getSavedFocusedSurface() -> Ghostty.SurfaceView? {
+        return savedState?.focusedSurface
+    }
+
     // MARK: Dock
 
     private func hideDock() {
@@ -344,6 +350,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         let styleMask: NSWindow.StyleMask
         let dock: Bool
         let menu: Bool
+        let focusedSurface: Ghostty.SurfaceView?
 
         init?(_ window: NSWindow) {
             guard let contentView = window.contentView else { return nil }
@@ -354,6 +361,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
             self.contentFrame = window.convertToScreen(contentView.frame)
             self.styleMask = window.styleMask
             self.dock = window.screen?.hasDock ?? false
+            self.focusedSurface = (window as? TerminalWindow)?.windowController.flatMap { $0 as? BaseTerminalController }?.focusedSurface
 
             // We hide the menu only if this window is not on any fullscreen
             // spaces. We do this because fullscreen spaces already hide the

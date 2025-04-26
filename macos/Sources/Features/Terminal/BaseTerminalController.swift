@@ -279,11 +279,11 @@ class BaseTerminalController: NSWindowController,
 
     func titleDidChange(to: String) {
         guard let window else { return }
-        
+
         // Set the main window title
         window.title = to
     }
-    
+
     func pwdDidChange(to: URL?) {
         guard let window else { return }
 
@@ -362,11 +362,17 @@ class BaseTerminalController: NSWindowController,
     }
 
     func fullscreenDidChange() {
-        // For some reason focus can get lost when we change fullscreen. Regardless of
-        // mode above we just move it back.
-        if let focusedSurface {
-            Ghostty.moveFocus(to: focusedSurface)
-        }
+        // If we are in on-native fullscreen, try to restore the surface
+        // that was focused *before* entering fullscreen
+        // See: https://github.com/ghostty-org/ghostty/pull/7201
+        let preferredSurface = (fullscreenStyle as? NonNativeFullscreen)
+            .flatMap { $0.isFullscreen ? $0.getSavedFocusedSurface() : nil }
+
+        guard let surface = preferredSurface ?? focusedSurface else { return }
+
+        // For some reason focus can get lost when we change fullscreen.
+        // Regardless of mode above we just move it back.
+        Ghostty.moveFocus(to: surface)
     }
 
     // MARK: Clipboard Confirmation
