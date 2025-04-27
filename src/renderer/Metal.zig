@@ -2962,6 +2962,27 @@ fn rebuildCells(
                 uniform_color.b,
                 255,
             };
+            //TODO: Ignacio -> Do some testing to ensure this works fine on any conditions
+            if (self.cursor_invert) {
+                if (uniform_color.luminance() < 0.5) {
+                    self.uniforms.cursor_color = .{
+                        0,
+                        0,
+                        0,
+                        255,
+                    };
+                }
+                else {
+                    //This might not be required at all as current one looks ok, but this might give better contrast?
+                    //Will be testing how this looks turned on for different themes
+                    self.uniforms.cursor_color = .{
+                        255,
+                        255,
+                        255,
+                        255,
+                    };
+                }
+            }
         }
     }
 

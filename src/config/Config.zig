@@ -508,6 +508,10 @@ palette: Palette = .{},
 /// option overrides the `cursor-color` and `cursor-text` options.
 @"cursor-invert-fg-bg": bool = false,
 
+/// Uses a high contrast color for the cursor text when 
+/// `cursor-invert-fg-bg` is enabled so text is less prone to be lost.
+@"cursor-invert-high-contrast": bool = false,
+
 /// The opacity level (opposite of transparency) of the cursor. A value of 1
 /// is fully opaque and a value of 0 is fully transparent. A value less than 0
 /// or greater than 1 will be clamped to the nearest valid value. Note that a
@@ -888,7 +892,7 @@ title: ?[:0]const u8 = null,
 /// The class name must follow the requirements defined [in the GTK
 /// documentation](https://docs.gtk.org/gio/type_func.Application.id_is_valid.html).
 ///
-/// The default is `com.mitchellh.ghostty`.
+/// The default is `com.ghostty.terminal`.
 ///
 /// This only affects GTK builds.
 class: ?[:0]const u8 = null,
