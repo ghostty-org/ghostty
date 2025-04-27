@@ -3934,6 +3934,24 @@ pub const Palette = struct {
     /// The actual value that is updated as we parse.
     value: terminal.color.Palette = terminal.color.default,
 
+    /// ghostty_config_palette_s
+    pub const C = extern struct {
+        colors: [265]Color.C,
+    };
+
+    pub fn cval(self: Self) Palette.C {
+        var result: Palette.C = undefined;
+        for (self.value, 0..) |color, i| {
+            result.colors[i] = Color.C{
+                .r = color.r,
+                .g = color.g,
+                .b = color.b,
+            };
+        }
+
+        return result;
+    }
+
     pub fn parseCLI(
         self: *Self,
         input: ?[]const u8,

@@ -54,10 +54,10 @@
     "url": "https://deps.files.ghostty.org/imgui-1220bc6b9daceaf7c8c60f3c3998058045ba0c5c5f48ae255ff97776d9cd8bfc6402.tar.gz",
     "hash": "sha256-oF/QHgTPEat4Hig4fGIdLkIPHmBEyOJ6JeYD6pnveGA="
   },
-  "N-V-__8AAIVuNwQhgzy1gME091DLGpUf4kDPd5zVEbxg-NVC": {
+  "N-V-__8AAA38OASk6VOHVXwuyGVAeYu0nghqa1RSIliXV5ym": {
     "name": "iterm2_themes",
-    "url": "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/c5e4212e763d652a422c22955cbd13038de1a356.tar.gz",
-    "hash": "sha256-SVvSI8gp1ANAUwIMp/v+/ZUiOZ4mPy4nQHlxzThI2fs="
+    "url": "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/5233095e442645995e8af1fcb7b011478ee86f32.tar.gz",
+    "hash": "sha256-Vy5muiJ3hJXcOvmFHLhqc+Dvdh74GG6+u/L+EsavDb0="
   },
   "N-V-__8AAJrvXQCqAT8Mg9o_tk6m0yf5Fz-gCNEOKLyTSerD": {
     "name": "libpng",
@@ -124,10 +124,10 @@
     "url": "https://deps.files.ghostty.org/wuffs-122037b39d577ec2db3fd7b2130e7b69ef6cc1807d68607a7c232c958315d381b5cd.tar.gz",
     "hash": "sha256-nkzSCr6W5sTG7enDBXEIhgEm574uLD41UVR2wlC+HBM="
   },
-  "z2d-0.6.0-j5P_HvLdCABu-dXpCeRM7Uk4m16vULg1980lMNCQj4_C": {
+  "z2d-0.6.1-j5P_HlerCgBokMgrkl9QhJUKXuZWBGdPnH7cSXwv_ScW": {
     "name": "z2d",
-    "url": "https://github.com/vancluever/z2d/archive/1e89605a624940c310c7a1d81b46a7c5c05919e3.tar.gz",
-    "hash": "sha256-PEKVSUZ6teRbDyhFPWSiuBSe40pgr0kVRivIY8Cn8HQ="
+    "url": "https://github.com/vancluever/z2d/archive/1bf4bc81819385f4b24596445c9a7cf3b3592b08.tar.gz",
+    "hash": "sha256-wiJs6/LUiy+ApC5s7VPypbBukjBr4vjx3v/l9OrT70U="
   },
   "zf-0.10.3-OIRy8aiIAACLrBllz0zjxaH0aOe5oNm3KtEMyCntST-9": {
     "name": "zf",

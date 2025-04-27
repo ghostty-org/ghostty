@@ -4,7 +4,7 @@ struct CommandOption: Identifiable, Hashable {
     let id = UUID()
     let title: String
     let description: String?
-    let shortcut: String?
+    let symbols: [String]?
     let action: () -> Void
 
     static func == (lhs: CommandOption, rhs: CommandOption) -> Bool {
@@ -21,8 +21,8 @@ struct CommandPaletteView: View {
     var backgroundColor: Color = Color(nsColor: .windowBackgroundColor)
     var options: [CommandOption]
     @State private var query = ""
-    @State private var selectedIndex: UInt = 0
-    @State private var hoveredOptionID: UUID? = nil
+    @State private var selectedIndex: UInt?
+    @State private var hoveredOptionID: UUID?
 
     // The options that we should show, taking into account any filtering from
     // the query.
@@ -35,7 +35,8 @@ struct CommandPaletteView: View {
     }
 
     var selectedOption: CommandOption? {
-        if selectedIndex < filteredOptions.count {
+        guard let selectedIndex else { return nil }
+        return if selectedIndex < filteredOptions.count {
             filteredOptions[Int(selectedIndex)]
         } else {
             filteredOptions.last
@@ -43,6 +44,12 @@ struct CommandPaletteView: View {
     }
 
     var body: some View {
+        let scheme: ColorScheme = if OSColor(backgroundColor).isLightColor {
+            .light
+        } else {
+            .dark
+        }
+
         VStack(alignment: .leading, spacing: 0) {
             CommandPaletteQuery(query: $query) { event in
                 switch (event) {
@@ -54,23 +61,40 @@ struct CommandPaletteView: View {
                     selectedOption?.action()
 
                 case .move(.up):
-                    if selectedIndex > 0 {
-                        selectedIndex -= 1
-                    }
+                    if filteredOptions.isEmpty { break }
+                    let current = selectedIndex ?? UInt(filteredOptions.count)
+                    selectedIndex = (current == 0)
+                        ? UInt(filteredOptions.count - 1)
+                        : current - 1
 
                 case .move(.down):
-                    if selectedIndex < filteredOptions.count - 1 {
-                        selectedIndex += 1
-                    }
+                    if filteredOptions.isEmpty { break }
+                    let current = selectedIndex ?? UInt.max
+                    selectedIndex = (current >= UInt(filteredOptions.count - 1))
+                        ? 0
+                        : current + 1
 
                 case .move(_):
                     // Unknown, ignore
                     break
                 }
             }
+            .onChange(of: query) { newValue in
+                // If the user types a query then we want to make sure the first
+                // value is selected. If the user clears the query and we were selecting
+                // the first, we unset any selection.
+                if !newValue.isEmpty {
+                    if selectedIndex == nil {
+                        selectedIndex = 0
+                    }
+                } else {
+                    if let selectedIndex, selectedIndex == 0 {
+                        self.selectedIndex = nil
+                    }
+                }
+            }
 
             Divider()
-                .padding(.bottom, 4)
 
             CommandTable(
                 options: filteredOptions,
@@ -82,15 +106,23 @@ struct CommandPaletteView: View {
         }
         .frame(maxWidth: 500)
         .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(backgroundColor)
-                .shadow(color: .black.opacity(0.4), radius: 10, x: 0, y: 10)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.black.opacity(0.1), lineWidth: 1)
-                )
+            ZStack {
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                Rectangle()
+                    .fill(backgroundColor)
+                    .blendMode(.color)
+            }
+                .compositingGroup()
         )
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color(nsColor: .tertiaryLabelColor).opacity(0.75))
+        )
+        .shadow(radius: 32, x: 0, y: 12)
         .padding()
+        .environment(\.colorScheme, scheme)
     }
 }
 
@@ -128,8 +160,9 @@ fileprivate struct CommandPaletteQuery: View {
 
             TextField("Execute a command…", text: $query)
                 .padding()
-                .font(.system(size: 14))
-                .textFieldStyle(PlainTextFieldStyle())
+                .font(.system(size: 20, weight: .light))
+                .frame(height: 48)
+                .textFieldStyle(.plain)
                 .focused($isTextFieldFocused)
                 .onAppear {
                     isTextFieldFocused = true
@@ -148,7 +181,7 @@ fileprivate struct CommandPaletteQuery: View {
 
 fileprivate struct CommandTable: View {
     var options: [CommandOption]
-    @Binding var selectedIndex: UInt
+    @Binding var selectedIndex: UInt?
     @Binding var hoveredOptionID: UUID?
     var action: (CommandOption) -> Void
 
@@ -159,29 +192,34 @@ fileprivate struct CommandTable: View {
                 .padding()
         } else {
             ScrollViewReader { proxy in
-                ScrollView(showsIndicators: false) {
+                ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(Array(options.enumerated()), id: \.1.id) { index, option in
                             CommandRow(
                                 option: option,
-                                isSelected: selectedIndex == index ||
-                                    (selectedIndex >= options.count &&
-                                     index == options.count - 1),
+                                isSelected: {
+                                    if let selected = selectedIndex {
+                                        return selected == index ||
+                                            (selected >= options.count &&
+                                                index == options.count - 1)
+                                    } else {
+                                        return false
+                                    }
+                                }(),
                                 hoveredID: $hoveredOptionID
                             ) {
                                 action(option)
                             }
                         }
                     }
+                    .padding(10)
                 }
                 .frame(maxHeight: 200)
                 .onChange(of: selectedIndex) { _ in
-                    guard selectedIndex < options.count else { return }
-                    withAnimation {
-                        proxy.scrollTo(
-                            options[Int(selectedIndex)].id,
-                            anchor: .center)
-                    }
+                    guard let selectedIndex,
+                          selectedIndex < options.count else { return }
+                    proxy.scrollTo(
+                        options[Int(selectedIndex)].id)
                 }
             }
         }
@@ -200,20 +238,12 @@ fileprivate struct CommandRow: View {
             HStack {
                 Text(option.title)
                 Spacer()
-                if let shortcut = option.shortcut {
-                    Text(shortcut)
-                        .font(.system(.body, design: .monospaced))
-                        .kerning(1.5)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(Color.gray.opacity(0.2))
-                        )
+                if let symbols = option.symbols {
+                    ShortcutSymbolsView(symbols: symbols)
+                        .foregroundStyle(.secondary)
                 }
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 8)
+            .padding(8)
             .background(
                 isSelected
                     ? Color.accentColor.opacity(0.2)
@@ -221,14 +251,26 @@ fileprivate struct CommandRow: View {
                        ? Color.secondary.opacity(0.2)
                        : Color.clear)
             )
-            .cornerRadius(6)
+            .cornerRadius(5)
         }
         .help(option.description ?? "")
-        .buttonStyle(PlainButtonStyle())
+        .buttonStyle(.plain)
         .onHover { hovering in
             hoveredID = hovering ? option.id : nil
         }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 1)
+    }
+}
+
+/// A row of Text representing a shortcut.
+fileprivate struct ShortcutSymbolsView: View {
+    let symbols: [String]
+
+    var body: some View {
+        HStack(spacing: 1) {
+            ForEach(symbols, id: \.self) { symbol in
+                Text(symbol)
+                    .frame(minWidth: 13)
+            }
+        }
     }
 }

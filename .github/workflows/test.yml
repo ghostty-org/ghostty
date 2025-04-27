@@ -353,15 +353,19 @@ jobs:
         os:
           [namespace-profile-ghostty-snap, namespace-profile-ghostty-snap-arm64]
     runs-on: ${{ matrix.os }}
-    needs: test
+    needs: [test, build-dist]
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
     steps:
-      - uses: actions/checkout@v4
+      - name: Download Source Tarball Artifacts
+        uses: actions/download-artifact@v4
         with:
-          fetch-depth: 0
-          fetch-tags: true
+          name: source-tarball
+      - name: Extract tarball
+        run: |
+          mkdir dist
+          tar --verbose --extract --strip-components 1 --directory dist --file ghostty-source.tar.gz
       - name: Setup Cache
         uses: namespacelabs/nscloud-cache-action@v1.2.0
         with:
@@ -371,6 +375,8 @@ jobs:
       - run: sudo apt install -y udev
       - run: sudo systemctl start systemd-udevd
       - uses: snapcore/action-build@v1
+        with:
+          path: dist
 
   build-windows:
     runs-on: windows-2022

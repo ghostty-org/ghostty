@@ -2239,7 +2239,7 @@ fn draw_branch_node(
         @min(float_width - cx, float_height - cy),
     );
 
-    var ctx = canvas.getContext() catch return;
+    var ctx = canvas.getContext();
     defer ctx.deinit();
     ctx.setSource(.{ .opaque_pattern = .{
         .pixel = .{ .alpha8 = .{ .a = @intFromEnum(Shade.on) } },
@@ -2290,7 +2290,7 @@ fn draw_circle(
     };
     const r: f64 = 0.5 * @min(float_width, float_height);
 
-    var ctx = canvas.getContext() catch return;
+    var ctx = canvas.getContext();
     defer ctx.deinit();
     ctx.setSource(.{ .opaque_pattern = .{
         .pixel = .{ .alpha8 = .{ .a = @intFromEnum(Shade.on) } },
@@ -2680,7 +2680,7 @@ fn draw_arc(
     // Fraction away from the center to place the middle control points,
     const s: f64 = 0.25;
 
-    var ctx = try canvas.getContext();
+    var ctx = canvas.getContext();
     defer ctx.deinit();
     ctx.setSource(.{ .opaque_pattern = .{
         .pixel = .{ .alpha8 = .{ .a = @intFromEnum(Shade.on) } },
@@ -2974,7 +2974,7 @@ fn draw_separated_block_quadrant(self: Box, canvas: *font.sprite.Canvas, comptim
         }
     }
 
-    var ctx = try canvas.getContext();
+    var ctx = canvas.getContext();
     defer ctx.deinit();
     ctx.setSource(.{ .opaque_pattern = .{
         .pixel = .{ .alpha8 = .{ .a = @intFromEnum(Shade.on) } },

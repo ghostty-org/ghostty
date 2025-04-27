@@ -357,6 +357,11 @@ typedef struct {
   size_t len;
 } ghostty_config_color_list_s;
 
+// config.Palette
+typedef struct {
+  ghostty_config_color_s colors[256];
+} ghostty_config_palette_s;
+
 // apprt.Target.Key
 typedef enum {
   GHOSTTY_TARGET_APP,

@@ -50,6 +50,8 @@ jobs:
           if ! git diff --exit-code build.zig.zon; then
             nix develop -c ./nix/build-support/check-zig-cache.sh --update
             nix develop -c ./nix/build-support/check-zig-cache.sh
+            nix develop -c ./flatpak/build-support/check-zig-cache.sh --update
+            nix develop -c ./flatpak/build-support/check-zig-cache.sh
           fi
 
       # Verify the build still works. We choose an arbitrary build type
