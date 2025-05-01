@@ -1,0 +1,106 @@
+using Gtk 4.0;
+using Gio 2.0;
+using Adw 1;
+
+Adw.Dialog command-palette {
+  content-width: 700;
+
+  Adw.ToolbarView {
+    top-bar-style: flat;
+
+    [top]
+    Adw.HeaderBar {
+      [title]
+      SearchEntry search {
+        hexpand: true;
+        placeholder-text: _("Execute a command…");
+
+        styles [
+          "command-palette-search",
+        ]
+      }
+    }
+
+    ScrolledWindow {
+      min-content-height: 300;
+
+      ListView view {
+        show-separators: true;
+        single-click-activate: true;
+
+        model: SingleSelection model {
+          model: FilterListModel {
+            incremental: true;
+
+            filter: AnyFilter {
+              StringFilter {
+                expression: expr item as <$GhosttyCommand>.title;
+                search: bind search.text;
+              }
+
+              StringFilter {
+                expression: expr item as <$GhosttyCommand>.action-key;
+                search: bind search.text;
+              }
+            };
+
+            model: Gio.ListStore source {
+              item-type: typeof<$GhosttyCommand>;
+            };
+          };
+        };
+
+        styles [
+          "rich-list",
+        ]
+
+        factory: BuilderListItemFactory {
+          template ListItem {
+            child: Box {
+              orientation: horizontal;
+              spacing: 10;
+              tooltip-text: bind template.item as <$GhosttyCommand>.description;
+
+              Box {
+                orientation: vertical;
+                hexpand: true;
+
+                Label {
+                  ellipsize: end;
+                  halign: start;
+                  wrap: false;
+                  single-line-mode: true;
+
+                  styles [
+                    "title",
+                  ]
+
+                  label: bind template.item as <$GhosttyCommand>.title;
+                }
+
+                Label {
+                  ellipsize: end;
+                  halign: start;
+                  wrap: false;
+                  single-line-mode: true;
+
+                  styles [
+                    "subtitle",
+                    "monospace",
+                  ]
+
+                  label: bind template.item as <$GhosttyCommand>.action-key;
+                }
+              }
+
+              ShortcutLabel {
+                accelerator: bind template.item as <$GhosttyCommand>.action;
+                valign: center;
+              }
+            };
+          }
+        };
+      }
+    }
+  }
+}
