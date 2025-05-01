@@ -40,6 +40,21 @@ protocol TerminalViewModel: ObservableObject {
     var commandPaletteIsShowing: Bool { get set }
 }
 
+struct WindowAccessor: NSViewRepresentable {
+    @Binding var window: NSWindow?
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            // Ensure view is in hierarchy
+            self.window = view.window
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
 /// The main terminal view. This terminal view supports splits.
 struct TerminalView<ViewModel: TerminalViewModel>: View {
     @ObservedObject var ghostty: Ghostty.App
@@ -64,19 +79,12 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
     @FocusedValue(\.ghosttySurfaceZoomed) private var zoomedSplit
     @FocusedValue(\.ghosttySurfaceCellSize) private var cellSize
 
-    // The title for our window
-    private var title: String {
-        if let surfaceTitle, !surfaceTitle.isEmpty {
-            return surfaceTitle
-        }
-        return "👻"
-    }
-
-    // The pwd of the focused surface as a URL
-    private var pwdURL: URL? {
-        guard let surfacePwd, surfacePwd != "" else { return nil }
-        return URL(fileURLWithPath: surfacePwd)
-    }
+    // State to hold the last known valid title from the focused surface
+    @State private var lastKnownSurfaceTitle: String = "👻"
+    // State to hold the last known valid PWD URL
+    @State private var lastKnownPwdURL: URL?
+    // State to hold the NSWindow reference
+    @State private var hostingWindow: NSWindow?
 
     var body: some View {
         switch ghostty.readiness {
@@ -105,11 +113,11 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                                 self.delegate?.focusedSurfaceDidChange(to: newValue)
                             }
                         }
-                        .onChange(of: title) { newValue in
-                            self.delegate?.titleDidChange(to: newValue)
+                        .onChange(of: surfaceTitle) { newValue in
+                            updateWindowTitle(newValue)
                         }
-                        .onChange(of: pwdURL) { newValue in
-                            self.delegate?.pwdDidChange(to: newValue)
+                        .onChange(of: surfacePwd) { newValue in
+                            updatePwdURL(from: newValue)
                         }
                         .onChange(of: cellSize) { newValue in
                             guard let size = newValue else { return }
@@ -136,6 +144,53 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                         self.delegate?.performAction(action, on: surfaceView)
                     }
                 }
+            }
+            // Use WindowAccessor to get a reference to the hosting NSWindow
+            .background(WindowAccessor(window: $hostingWindow))
+            // Ensure the title is set via delegate once the window reference is available
+            .onChange(of: hostingWindow) { newWindow in
+                if newWindow != nil {
+                    DispatchQueue.main.async {
+                        self.delegate?.titleDidChange(to: self.lastKnownSurfaceTitle)
+                    }
+                }
+            }
+            // Set initial title and PWD when the view first appears
+            .onAppear {
+                updateWindowTitle(surfaceTitle)
+                updatePwdURL(from: surfacePwd)
+            }
+        }
+    }
+
+    private func updateWindowTitle(_ currentSurfaceTitle: String?) {
+        guard let newTitle = currentSurfaceTitle, !newTitle.isEmpty else {
+            // If the new title is nil or empty (e.g., focus lost to command palette),
+            // *do not* change the title. We simply do nothing here, preserving the last known title
+            return
+        }
+
+        if newTitle != lastKnownSurfaceTitle {
+            lastKnownSurfaceTitle = newTitle
+            DispatchQueue.main.async {
+                self.delegate?.titleDidChange(to: self.lastKnownSurfaceTitle)
+            }
+        }
+    }
+    private func updatePwdURL(from newPwdString: String?) {
+        guard let path = newPwdString, !path.isEmpty,
+            path.starts(with: "/") else {
+            // If newPwdString is nil, empty, or not an absolute path, do nothing
+            return
+        }
+
+        let newURL = URL(fileURLWithPath: path)
+
+        // If the newly created URL is different from the last known one, update and notify
+        if newURL != lastKnownPwdURL {
+            lastKnownPwdURL = newURL
+            DispatchQueue.main.async {
+                self.delegate?.pwdDidChange(to: self.lastKnownPwdURL)
             }
         }
     }

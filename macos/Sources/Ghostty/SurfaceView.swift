@@ -13,7 +13,6 @@ extension Ghostty {
                 SurfaceForApp(app) { surfaceView in
                     SurfaceWrapper(surfaceView: surfaceView)
                 }
-                .navigationTitle(surfaceTitle ?? "Ghostty")
             }
         }
     }

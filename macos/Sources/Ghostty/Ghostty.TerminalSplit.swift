@@ -77,7 +77,6 @@ extension Ghostty {
                         .onReceive(pubZoom) { onZoom(notification: $0) }
                     }
                 }
-                .navigationTitle(surfaceTitle ?? "Ghostty")
                 .id(node) // Needed for change detection on node
             } else {
                 // On these events we want to reset the split state and call it.
