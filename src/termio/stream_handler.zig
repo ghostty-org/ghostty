@@ -1122,24 +1122,34 @@ pub const StreamHandler = struct {
                 // Example: file://12:34:56:78:90:12/path/to/file
                 if (e != error.InvalidPort) return;
 
+                const url_without_scheme = url: {
+                    if (std.mem.startsWith(u8, url, "file://")) break :url url[7..];
+                    if (std.mem.startsWith(u8, url, "kitty-shell-cwd://")) break :url url[18..];
+
+                    log.warn("invalid url in OSC 7: invalid scheme", .{});
+                    return;
+                };
+
                 // The first '/' after the scheme marks the end of the hostname. If the first '/'
-                // following the end of the `file://` scheme is not at position 24 this is not a
+                // following the end of the scheme is not at the right position this is not a
                 // valid mac address.
-                if (std.mem.indexOfScalarPos(u8, url, 7, '/') != 24) {
+                if (std.mem.indexOfScalarPos(u8, url_without_scheme, 0, '/') != 17) {
                     log.warn("invalid url in OSC 7: {}", .{e});
                     return;
                 }
 
                 // At this point we may have a mac address as the hostname.
-                const mac_address = url[7..24];
+                const mac_address = url_without_scheme[0..17];
 
                 if (!isValidMacAddress(mac_address)) {
                     log.warn("ivalid url in OSC 7: {}", .{e});
                     return;
                 }
 
-                var uri_path_end_idx: usize = 24;
-                while (uri_path_end_idx < url.len and !isUriPathSeparator(url[uri_path_end_idx])) {
+                var uri_path_end_idx: usize = 17;
+                while (uri_path_end_idx < url_without_scheme.len and
+                    !isUriPathSeparator(url_without_scheme[uri_path_end_idx]))
+                {
                     uri_path_end_idx += 1;
                 }
 
@@ -1148,7 +1158,7 @@ pub const StreamHandler = struct {
                 break :uri .{
                     .scheme = "file",
                     .host = .{ .percent_encoded = mac_address },
-                    .path = .{ .percent_encoded = url[24..uri_path_end_idx] },
+                    .path = .{ .percent_encoded = url_without_scheme[17..uri_path_end_idx] },
                 };
             };
 
