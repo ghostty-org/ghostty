@@ -1063,6 +1063,29 @@ pub const StreamHandler = struct {
         };
     }
 
+    fn isValidMacAddress(mac_address: []const u8) bool {
+        // A valid mac address has 6 two-character components with 5 colons, e.g. 12:34:56:ab:cd:ef.
+        if (mac_address.len != 17) {
+            return false;
+        }
+
+        for (0..mac_address.len) |i| {
+            const c = mac_address[i];
+
+            if ((i + 1) % 3 == 0) {
+                if (c != ':') {
+                    return false;
+                }
+            } else {
+                if (!std.mem.containsAtLeastScalar(u8, "0123456789ABCDEFabcdef", 1, c)) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
     pub fn reportPwd(self: *StreamHandler, url: []const u8) !void {
         // Special handling for the empty URL. We treat the empty URL
         // as resetting the pwd as if we never saw a pwd. I can't find any
@@ -1099,39 +1122,21 @@ pub const StreamHandler = struct {
                 // Example: file://12:34:56:78:90:12/path/to/file
                 if (e != error.InvalidPort) return;
 
-                // Insufficient length to have a mac address in the hostname.
-                if (url.len < 24) {
-                    log.warn("invalid MAC address in OSC 7: insufficient length", .{});
-                    return;
-                }
-
-                // The first '/' after the scheme marks the end of the hostname. If the hostname is
-                // not 17 characters, it's not a mac address.
+                // The first '/' after the scheme marks the end of the hostname. If the first '/'
+                // following the end of the `file://` scheme is not at position 24 this is not a
+                // valid mac address.
                 if (std.mem.indexOfScalarPos(u8, url, 7, '/') != 24) {
-                    log.warn("invalid MAC address in OSC 7: invalid scheme", .{});
+                    log.warn("invalid url in OSC 7: {}", .{e});
                     return;
                 }
 
-                // At this point we have a potential mac address as the hostname.
+                // At this point we may have a mac address as the hostname.
                 const mac_address = url[7..24];
 
-                for (0..mac_address.len) |i| {
-                    const c = mac_address[i];
-
-                    if ((i + 1) % 3 == 0) {
-                        if (c != ':') {
-                            log.warn("invalid MAC address in OSC 7: missing colon", .{});
-                            return;
-                        }
-                    } else {
-                        if (!std.mem.containsAtLeastScalar(u8, "0123456789ABCDEFabcdef", 1, mac_address[i])) {
-                            log.warn("invalid MAC address in OSC 7: invalid character '{c}' at position '{d}'", .{ mac_address[i], i });
-                            return;
-                        }
-                    }
+                if (!isValidMacAddress(mac_address)) {
+                    log.warn("ivalid url in OSC 7: {}", .{e});
+                    return;
                 }
-
-                // At this point we have what looks like a valid mac address.
 
                 var uri_path_end_idx: usize = 24;
                 while (uri_path_end_idx < url.len and !isUriPathSeparator(url[uri_path_end_idx])) {
