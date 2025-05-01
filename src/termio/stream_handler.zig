@@ -1097,17 +1097,18 @@ pub const StreamHandler = struct {
                 // address are non-digits, e.g. 'ff', and thus an invalid port.
                 //
                 // Example: file://12:34:56:78:90:12/path/to/file
+                if (e != error.InvalidPort) return;
 
                 // Insufficient length to have a mac address in the hostname.
                 if (url.len < 24) {
-                    log.warn("invalid url in OSC 7: {}", .{e});
+                    log.warn("invalid MAC address in OSC 7: insufficient length", .{});
                     return;
                 }
 
                 // The first '/' after the scheme marks the end of the hostname. If the hostname is
                 // not 17 characters, it's not a mac address.
                 if (std.mem.indexOfScalarPos(u8, url, 7, '/') != 24) {
-                    log.warn("invalid url in OSC 7: {}", .{e});
+                    log.warn("invalid MAC address in OSC 7: invalid scheme", .{});
                     return;
                 }
 
@@ -1117,14 +1118,14 @@ pub const StreamHandler = struct {
                 for (0..mac_address.len) |i| {
                     const c = mac_address[i];
 
-                    if (i + 1 % 3 == 0) {
+                    if ((i + 1) % 3 == 0) {
                         if (c != ':') {
-                            log.warn("invalid url in OSC 7: {}", .{e});
+                            log.warn("invalid MAC address in OSC 7: missing colon", .{});
                             return;
                         }
                     } else {
-                        if (!std.mem.containsAtLeastScalar(u8, "0123456789abcdef", 1, mac_address[i])) {
-                            log.warn("invalid url in OSC 7: {}", .{e});
+                        if (!std.mem.containsAtLeastScalar(u8, "0123456789ABCDEFabcdef", 1, mac_address[i])) {
+                            log.warn("invalid MAC address in OSC 7: invalid character '{c}' at position '{d}'", .{ mac_address[i], i });
                             return;
                         }
                     }
@@ -1140,7 +1141,7 @@ pub const StreamHandler = struct {
                 // Same compliance factor as std.Uri.parse(), i.e. not at all compliant with the URI
                 // spec.
                 break :uri .{
-                    .scheme = "file://",
+                    .scheme = "file",
                     .host = .{ .percent_encoded = mac_address },
                     .path = .{ .percent_encoded = url[24..uri_path_end_idx] },
                 };
