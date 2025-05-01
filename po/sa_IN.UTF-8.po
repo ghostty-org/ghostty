@@ -1,0 +1,273 @@
+# English translations for com.mitchellh.ghostty package.
+# Copyright (C) 2025 Mitchell Hashimoto
+# This file is distributed under the same license as the com.mitchellh.ghostty package.
+#  <hii@cloudglides.me>, 2025.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: com.mitchellh.ghostty\n"
+"Report-Msgid-Bugs-To: m@mitchellh.com\n"
+"POT-Creation-Date: 2025-04-22 08:57-0700\n"
+"PO-Revision-Date: 2025-05-01 16:24+0530\n"
+"Last-Translator:  <hii@cloudglides.me>\n"
+"Language-Team: Sanskrit\n"
+"Language: sa_IN\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:5
+msgid "Change Terminal Title"
+msgstr "टर्मिनल शीर्षकम् परिवर्तयतु"
+
+#: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:6
+msgid "Leave blank to restore the default title."
+msgstr "पूर्वनिर्धारित शीर्षकम् पुनः प्राप्तये रिक्तं कुर्वन्तु।"
+
+#: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:9
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:10 src/apprt/gtk/CloseDialog.zig:44
+msgid "Cancel"
+msgstr "निरस्तयतु"
+
+#: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:10
+msgid "OK"
+msgstr "सम्यक्"
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:5
+msgid "Configuration Errors"
+msgstr "विन्यासदोषाः"
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:6
+msgid ""
+"One or more configuration errors were found. Please review the errors below, "
+"and either reload your configuration or ignore these errors."
+msgstr ""
+"एकः वा अधिकः विन्यासदोषः प्राप्तः। कृपया अधोलिखितदोषान् परीक्ष्य, "
+"विन्यासं पुनरारम्भयतु अथवा तान् उपेक्ष्यत।"
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
+msgid "Ignore"
+msgstr "उपेक्षा"
+
+#: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:10
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:97
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:95
+msgid "Reload Configuration"
+msgstr "विन्यासं पुनरारम्भयतु"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:6
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
+msgid "Split Up"
+msgstr "ऊर्ध्वम् विभाजनम्"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:11
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
+msgid "Split Down"
+msgstr "अधः विभाजनम्"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
+msgid "Split Left"
+msgstr "वाम् विभाजनम्"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:21
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
+msgid "Split Right"
+msgstr "दक्षिणम् विभाजनम्"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
+msgid "Copy"
+msgstr "प्रतिलिपि"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:11
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:11
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:11
+msgid "Paste"
+msgstr "सन्निवेशयतु"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:18
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:73
+msgid "Clear"
+msgstr "शून्ययतु"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:23
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:78
+msgid "Reset"
+msgstr "पुनःस्थापयतु"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:30
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:42
+msgid "Split"
+msgstr "विभाजनम्"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:33
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:45
+msgid "Change Title…"
+msgstr "शीर्षकं परिवर्तय…"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:59
+msgid "Tab"
+msgstr "टैब्"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:62
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:30
+#: src/apprt/gtk/Window.zig:248
+msgid "New Tab"
+msgstr "नवीनं टैब्"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:67
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:35
+msgid "Close Tab"
+msgstr "टैब् समापयतु"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:73
+msgid "Window"
+msgstr "विंडो"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:76
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:18
+msgid "New Window"
+msgstr "नवीनं विंडो"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:81
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:23
+msgid "Close Window"
+msgstr "विंडो समापयतु"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:89
+msgid "Config"
+msgstr "विन्यास"
+
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:92
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:90
+msgid "Open Configuration"
+msgstr "विन्यास उद्घाटय"
+
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:85
+msgid "Terminal Inspector"
+msgstr "टर्मिनल निरीक्षक"
+
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:102
+#: src/apprt/gtk/Window.zig:1003
+msgid "About Ghostty"
+msgstr "घोस्ट्टी विषये"
+
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:107
+msgid "Quit"
+msgstr "त्यजतु"
+
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:6
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:6
+msgid "Authorize Clipboard Access"
+msgstr "क्लिपबोर्ड् प्रवेशः अनुमतः"
+
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:7
+msgid ""
+"An application is attempting to read from the clipboard. The current "
+"clipboard contents are shown below."
+msgstr ""
+"एकः अनुप्रयोगः क्लिपबोर्ड् पठितुम् प्रयत्नं करोति। वर्तमानः क्लिपबोर्ड् "
+"विषयः अधोलिखित इति प्रदर्शितः।"
+
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:10
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:10
+msgid "Deny"
+msgstr "निषेधयतु"
+
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:11
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:11
+msgid "Allow"
+msgstr "अनुमदतु"
+
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:7
+msgid ""
+"An application is attempting to write to the clipboard. The current "
+"clipboard contents are shown below."
+msgstr ""
+"एकः अनुप्रयोगः क्लिपबोर्ड् लिखितुम् प्रयत्नं करोति। वर्तमानः क्लिपबोर्ड् "
+"विषयः अधोलिखित इति प्रदर्शितः।"
+
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:6
+msgid "Warning: Potentially Unsafe Paste"
+msgstr "चेतावनी: संभावित असुरक्षित सन्निवेशनम्"
+
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:7
+msgid ""
+"Pasting this text into the terminal may be dangerous as it looks like some "
+"commands may be executed."
+msgstr ""
+"अयं पाठः टर्मिनेल् मध्ये सन्निवेशयितुं जोखिमकरः भवेत्, कारणं यत् "
+"किञ्चित् आज्ञापत्राणि निष्पादितुं शक्यन्ते इति दृश्यते।"
+
+#: src/apprt/gtk/Window.zig:201
+msgid "Main Menu"
+msgstr "मुख्य मेनू"
+
+#: src/apprt/gtk/Window.zig:222
+msgid "View Open Tabs"
+msgstr "उद्घाटित टैबाः पश्यत"
+
+#: src/apprt/gtk/Window.zig:249
+msgid "New Split"
+msgstr "नवीनं विभाजनम्"
+
+#: src/apprt/gtk/Window.zig:312
+msgid "⚠️ You're running a debug build of Ghostty! Performance will be degraded."
+msgstr "⚠️ त्वं घोस्ट्टी इत्यस्य डीबग्-निर्माणं सञ्चालयसि! कार्यक्षमता न्यूनतया बाधिते भविष्यति।"
+
+#: src/apprt/gtk/Window.zig:744
+msgid "Reloaded the configuration"
+msgstr "विन्यासः पुनः लोड् कृतः।"
+
+#: src/apprt/gtk/Window.zig:984
+msgid "Ghostty Developers"
+msgstr "घोस्ट्टी विकासकाः"
+
+#: src/apprt/gtk/CloseDialog.zig:47
+msgid "Close"
+msgstr "समापयतु"
+
+#: src/apprt/gtk/CloseDialog.zig:87
+msgid "Quit Ghostty?"
+msgstr "घोस्ट्टी त्यजसि?"
+
+#: src/apprt/gtk/CloseDialog.zig:88
+msgid "Close Window?"
+msgstr "विंडो समापयसि?"
+
+#: src/apprt/gtk/CloseDialog.zig:89
+msgid "Close Tab?"
+msgstr "टैब् समापयसि?"
+
+#: src/apprt/gtk/CloseDialog.zig:90
+msgid "Close Split?"
+msgstr "विभाजनम् समापयसि?"
+
+#: src/apprt/gtk/CloseDialog.zig:96
+msgid "All terminal sessions will be terminated."
+msgstr "सर्वे टर्मिनल् सत्राणि समाप्तानि भविष्यन्ति।"
+
+#: src/apprt/gtk/CloseDialog.zig:97
+msgid "All terminal sessions in this window will be terminated."
+msgstr "अस्मिन् विंडोमध्ये सर्वे टर्मिनल् सत्राणि समाप्तानि भविष्यन्ति।"
+
+#: src/apprt/gtk/CloseDialog.zig:98
+msgid "All terminal sessions in this tab will be terminated."
+msgstr "अस्मिन् टैबमध्ये सर्वे टर्मिनल् सत्राणि समाप्तानि भविष्यन्ति।"
+
+#: src/apprt/gtk/CloseDialog.zig:99
+msgid "The currently running process in this split will be terminated."
+msgstr "अधुना अस्मिन् विभाजने सञ्चालितः कार्यक्रमः समाप्तः भविष्यति।"
+
+#: src/apprt/gtk/Surface.zig:1243
+msgid "Copied to clipboard"
+msgstr "क्लिपबोर्ड् मध्ये प्रतिलिपितम्।"
+
+#: src/apprt/gtk/inspector.zig:144
+msgid "Ghostty: Terminal Inspector"
+msgstr "घोस्ट्टी: टर्मिनल निरीक्षक"
