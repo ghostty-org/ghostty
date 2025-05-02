@@ -326,9 +326,8 @@ fn setupBash(
     );
     try env.put("ENV", integ_dir);
 
-    // Since we built up a command line, we don't need to wrap it in
-    // ANOTHER shell anymore and can do a direct command.
-    return .{ .direct = try args.toOwnedSlice() };
+    // Join the accumulated arguments to form the final command string.
+    return .{ .shell = try std.mem.joinZ(alloc, " ", args.items) };
 }
 
 test "bash" {
@@ -342,9 +341,7 @@ test "bash" {
 
     const command = try setupBash(alloc, .{ .shell = "bash" }, ".", &env);
 
-    try testing.expectEqual(2, command.?.direct.len);
-    try testing.expectEqualStrings("bash", command.?.direct[0]);
-    try testing.expectEqualStrings("--posix", command.?.direct[1]);
+    try testing.expectEqualStrings("bash --posix", command.?.shell);
     try testing.expectEqualStrings("./shell-integration/bash/ghostty.bash", env.get("ENV").?);
     try testing.expectEqualStrings("1", env.get("GHOSTTY_BASH_INJECT").?);
 }
@@ -387,9 +384,7 @@ test "bash: inject flags" {
 
         const command = try setupBash(alloc, .{ .shell = "bash --norc" }, ".", &env);
 
-        try testing.expectEqual(2, command.?.direct.len);
-        try testing.expectEqualStrings("bash", command.?.direct[0]);
-        try testing.expectEqualStrings("--posix", command.?.direct[1]);
+        try testing.expectEqualStrings("bash --posix", command.?.shell);
         try testing.expectEqualStrings("1 --norc", env.get("GHOSTTY_BASH_INJECT").?);
     }
 
@@ -400,9 +395,7 @@ test "bash: inject flags" {
 
         const command = try setupBash(alloc, .{ .shell = "bash --noprofile" }, ".", &env);
 
-        try testing.expectEqual(2, command.?.direct.len);
-        try testing.expectEqualStrings("bash", command.?.direct[0]);
-        try testing.expectEqualStrings("--posix", command.?.direct[1]);
+        try testing.expectEqualStrings("bash --posix", command.?.shell);
         try testing.expectEqualStrings("1 --noprofile", env.get("GHOSTTY_BASH_INJECT").?);
     }
 }
@@ -419,18 +412,14 @@ test "bash: rcfile" {
     // bash --rcfile
     {
         const command = try setupBash(alloc, .{ .shell = "bash --rcfile profile.sh" }, ".", &env);
-        try testing.expectEqual(2, command.?.direct.len);
-        try testing.expectEqualStrings("bash", command.?.direct[0]);
-        try testing.expectEqualStrings("--posix", command.?.direct[1]);
+        try testing.expectEqualStrings("bash --posix", command.?.shell);
         try testing.expectEqualStrings("profile.sh", env.get("GHOSTTY_BASH_RCFILE").?);
     }
 
     // bash --init-file
     {
         const command = try setupBash(alloc, .{ .shell = "bash --init-file profile.sh" }, ".", &env);
-        try testing.expectEqual(2, command.?.direct.len);
-        try testing.expectEqualStrings("bash", command.?.direct[0]);
-        try testing.expectEqualStrings("--posix", command.?.direct[1]);
+        try testing.expectEqualStrings("bash --posix", command.?.shell);
         try testing.expectEqualStrings("profile.sh", env.get("GHOSTTY_BASH_RCFILE").?);
     }
 }
@@ -476,25 +465,13 @@ test "bash: additional arguments" {
     // "-" argument separator
     {
         const command = try setupBash(alloc, .{ .shell = "bash - --arg file1 file2" }, ".", &env);
-        try testing.expectEqual(6, command.?.direct.len);
-        try testing.expectEqualStrings("bash", command.?.direct[0]);
-        try testing.expectEqualStrings("--posix", command.?.direct[1]);
-        try testing.expectEqualStrings("-", command.?.direct[2]);
-        try testing.expectEqualStrings("--arg", command.?.direct[3]);
-        try testing.expectEqualStrings("file1", command.?.direct[4]);
-        try testing.expectEqualStrings("file2", command.?.direct[5]);
+        try testing.expectEqualStrings("bash --posix - --arg file1 file2", command.?.shell);
     }
 
     // "--" argument separator
     {
         const command = try setupBash(alloc, .{ .shell = "bash -- --arg file1 file2" }, ".", &env);
-        try testing.expectEqual(6, command.?.direct.len);
-        try testing.expectEqualStrings("bash", command.?.direct[0]);
-        try testing.expectEqualStrings("--posix", command.?.direct[1]);
-        try testing.expectEqualStrings("--", command.?.direct[2]);
-        try testing.expectEqualStrings("--arg", command.?.direct[3]);
-        try testing.expectEqualStrings("file1", command.?.direct[4]);
-        try testing.expectEqualStrings("file2", command.?.direct[5]);
+        try testing.expectEqualStrings("bash --posix -- --arg file1 file2", command.?.shell);
     }
 }
 
