@@ -23,7 +23,7 @@ msgstr "टर्मिनल शीर्षक बदलें"
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:6
 msgid "Leave blank to restore the default title."
-msgstr "डिफ़ॉल्ट शीर्षक पुनर्स्थापित करने के लिए खाली छोड़ें।"
+msgstr "डिफ़ॉल्ट शीर्षक वापस लाने के लिए खाली छोड़ें।"
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:9
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:10 src/apprt/gtk/CloseDialog.zig:44
@@ -36,13 +36,13 @@ msgstr "ठीक है"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:5
 msgid "Configuration Errors"
-msgstr "कॉन्फ़िगरेशन त्रुटियाँ"
+msgstr "विन्यास त्रुटियाँ"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:6
 msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
-msgstr "एक या अधिक कॉन्फ़िगरेशन त्रुटियाँ मिलीं। कृपया नीचे दी गई त्रुटियों की समीक्षा करें, और या तो अपनी कॉन्फ़िगरेशन पुनः लोड करें या इन त्रुटियों को अनदेखा करें।"
+msgstr "एक या अधिक विन्यास त्रुटियाँ मिलीं। कृपया त्रुटियों की समीक्षा करें और विन्यास पुनः लोड करें या उन्हें अनदेखा करें।"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
 msgid "Ignore"
@@ -52,31 +52,31 @@ msgstr "अनदेखा करें"
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:97
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:95
 msgid "Reload Configuration"
-msgstr "कॉन्फ़िगरेशन पुनः लोड करें"
+msgstr "विन्यास पुनः लोड करें"
 
 #: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
 msgid "Split Up"
-msgstr "ऊपर विभाजित करें"
+msgstr "ऊपर बाँटें"
 
 #: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:11
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
 msgid "Split Down"
-msgstr "नीचे विभाजित करें"
+msgstr "नीचे बाँटें"
 
 #: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:16
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
 msgid "Split Left"
-msgstr "बाएँ विभाजित करें"
+msgstr "बाएँ बाँटें"
 
 #: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:21
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
 msgid "Split Right"
-msgstr "दाएँ विभाजित करें"
+msgstr "दाएँ बाँटें"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
@@ -102,7 +102,7 @@ msgstr "रीसेट करें"
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:30
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:42
 msgid "Split"
-msgstr "विभाजित करें"
+msgstr "बाँटें"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:33
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:45
@@ -145,11 +145,11 @@ msgstr "कॉन्फ़िग"
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:92
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:90
 msgid "Open Configuration"
-msgstr "कॉन्फ़िगरेशन खोलें"
+msgstr "विन्यास खोलें"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:85
 msgid "Terminal Inspector"
-msgstr "टर्मिनल निरीक्षक"
+msgstr "टर्मिनल जाँचकर्ता"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:102
 #: src/apprt/gtk/Window.zig:1003
@@ -195,7 +195,7 @@ msgstr "चेतावनी: संभावित रूप से असु�
 msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
-msgstr "इस पाठ को टर्मिनल में पेस्ट करना खतरनाक हो सकता है क्योंकि ऐसा लगता है कि कुछ कमांड निष्पादित हो सकते हैं।"
+msgstr "इस पाठ को टर्मिनल में पेस्ट करना खतरनाक हो सकता है, क्योंकि यह कुछ कमांड निष्पादित कर सकता है।"
 
 #: src/apprt/gtk/Window.zig:201
 msgid "Main Menu"
@@ -212,17 +212,17 @@ msgstr "नया विभाजन"
 #: src/apprt/gtk/Window.zig:312
 msgid ""
 "⚠️ You're running a debug build of Ghostty! Performance will be degraded."
-msgstr "⚠️ आप घोस्ट्टी का डिबग बिल्ड चला रहे हैं! प्रदर्शन कम हो जाएगा।"
+msgstr "⚠️ आप घोस्ट्टी का डिबग बिल्ड चला रहे हैं! इससे प्रदर्शन प्रभावित होगा।"
 
 #: src/apprt/gtk/Window.zig:744
 msgid "Reloaded the configuration"
-msgstr "कॉन्फ़िगरेशन पुनः लोड किया गया"
+msgstr "विन्यास पुनः लोड किया गया"
 
 #: src/apprt/gtk/Window.zig:984
 msgid "Ghostty Developers"
 msgstr "घोस्ट्टी डेवलपर्स"
 
-#: src/apprt/gtk/CloseDialog.zig:47
+#: src/apprt/gtk/CloseDialog.zig: DETERMINED
 msgid "Close"
 msgstr "बंद करें"
 
@@ -244,19 +244,19 @@ msgstr "विभाजन बंद करें?"
 
 #: src/apprt/gtk/CloseDialog.zig:96
 msgid "All terminal sessions will be terminated."
-msgstr "सभी टर्मिनल सत्र समाप्त कर दिए जाएंगे।"
+msgstr "सभी टर्मिनल सत्र समाप्त हो जाएंगे।"
 
 #: src/apprt/gtk/CloseDialog.zig:97
 msgid "All terminal sessions in this window will be terminated."
-msgstr "इस विंडो में सभी टर्मिनल सत्र समाप्त कर दिए जाएंगे।"
+msgstr "इस विंडो में सभी टर्मिनल सत्र समाप्त हो जाएंगे।"
 
 #: src/apprt/gtk/CloseDialog.zig:98
 msgid "All terminal sessions in this tab will be terminated."
-msgstr "इस टैब में सभी टर्मिनल सत्र समाप्त कर दिए जाएंगे।"
+msgstr "इस टैब में सभी टर्मिनल सत्र समाप्त हो जाएंगे।"
 
 #: src/apprt/gtk/CloseDialog.zig:99
 msgid "The currently running process in this split will be terminated."
-msgstr "इस विभाजन में वर्तमान में चल रही प्रक्रिया समाप्त कर दी जाएगी।"
+msgstr "इस विभाजन में चल रही प्रक्रिया समाप्त हो जाएगी।"
 
 #: src/apprt/gtk/Surface.zig:1243
 msgid "Copied to clipboard"
@@ -264,4 +264,4 @@ msgstr "क्लिपबोर्ड में कॉपी किया ग�
 
 #: src/apprt/gtk/inspector.zig:144
 msgid "Ghostty: Terminal Inspector"
-msgstr "घोस्ट्टी: टर्मिनल निरीक्षक"
+msgstr "घोस्ट्टी: टर्मिनल जाँचकर्ता"
