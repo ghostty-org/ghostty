@@ -1575,13 +1575,15 @@ fn execCommand(
         // Awesome.
         try args.append("/usr/bin/login");
         if (hush) try args.append("-q");
-        try args.append("-flp");
+        if (command == .shell) try args.append("-l");
+        try args.append("-fp");
         try args.append(username);
 
         switch (command) {
             // Direct args can be passed directly to login, since
             // login uses execvp we don't need to worry about PATH
-            // searching.
+            // searching. The command will be executed as a login
+            // session (login will prefix argv[0] with a hyphen).
             .direct => |v| try args.appendSlice(v),
 
             .shell => |v| {
@@ -1670,15 +1672,16 @@ test "execCommand darwin: shell command" {
         }
     });
 
-    try testing.expectEqual(8, result.len);
+    try testing.expectEqual(9, result.len);
     try testing.expectEqualStrings(result[0], "/usr/bin/login");
-    try testing.expectEqualStrings(result[1], "-flp");
-    try testing.expectEqualStrings(result[2], "testuser");
-    try testing.expectEqualStrings(result[3], "/bin/bash");
-    try testing.expectEqualStrings(result[4], "--noprofile");
-    try testing.expectEqualStrings(result[5], "--norc");
-    try testing.expectEqualStrings(result[6], "-c");
-    try testing.expectEqualStrings(result[7], "exec -l foo bar baz");
+    try testing.expectEqualStrings(result[1], "-l");
+    try testing.expectEqualStrings(result[2], "-fp");
+    try testing.expectEqualStrings(result[3], "testuser");
+    try testing.expectEqualStrings(result[4], "/bin/bash");
+    try testing.expectEqualStrings(result[5], "--noprofile");
+    try testing.expectEqualStrings(result[6], "--norc");
+    try testing.expectEqualStrings(result[7], "-c");
+    try testing.expectEqualStrings(result[8], "exec -l foo bar baz");
 }
 
 test "execCommand darwin: direct command" {
@@ -1702,7 +1705,7 @@ test "execCommand darwin: direct command" {
 
     try testing.expectEqual(5, result.len);
     try testing.expectEqualStrings(result[0], "/usr/bin/login");
-    try testing.expectEqualStrings(result[1], "-flp");
+    try testing.expectEqualStrings(result[1], "-fp");
     try testing.expectEqualStrings(result[2], "testuser");
     try testing.expectEqualStrings(result[3], "foo");
     try testing.expectEqualStrings(result[4], "bar baz");
