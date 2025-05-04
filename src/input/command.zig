@@ -346,6 +346,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Toggle the window decorations.",
         }},
 
+        .toggle_window_float_on_top => comptime &.{.{
+            .action = .toggle_window_float_on_top,
+            .title = "Toggle Float on Top",
+            .description = "Toggle the float on top state of the current window.",
+        }},
+
         .toggle_secure_input => comptime &.{.{
             .action = .toggle_secure_input,
             .title = "Toggle Secure Input",

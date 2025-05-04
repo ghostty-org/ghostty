@@ -45,7 +45,7 @@ msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
-"Конфигурация содержит ошибки. Проверьте их ниже, а затемлибо перезагрузите "
+"Конфигурация содержит ошибки. Проверьте их ниже, а затем либо перезагрузите "
 "конфигурацию, либо проигнорируйте ошибки."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9

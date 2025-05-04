@@ -374,6 +374,11 @@ jobs:
             /zig
       - run: sudo apt install -y udev
       - run: sudo systemctl start systemd-udevd
+      # Workaround until this is fixed: https://github.com/canonical/lxd-pkg-snap/pull/789
+      - run: |
+          _LXD_SNAP_DEVCGROUP_CONFIG="/var/lib/snapd/cgroup/snap.lxd.device"
+          sudo mkdir -p /var/lib/snapd/cgroup
+          echo 'self-managed=true' | sudo tee  "${_LXD_SNAP_DEVCGROUP_CONFIG}"
       - uses: snapcore/action-build@v1
         with:
           path: dist

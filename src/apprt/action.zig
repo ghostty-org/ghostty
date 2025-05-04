@@ -205,6 +205,10 @@ pub const Action = union(Key) {
     /// happen and can be ignored or cause a restart it isn't that important.
     quit_timer: QuitTimer,
 
+    /// Set the window floating state. A floating window is one that is
+    /// always on top of other windows even when not focused.
+    float_window: FloatWindow,
+
     /// Set the secure input functionality on or off. "Secure input" means
     /// that the user is currently at some sort of prompt where they may be
     /// entering a password or other sensitive information. This can be used
@@ -289,6 +293,7 @@ pub const Action = union(Key) {
         renderer_health,
         open_config,
         quit_timer,
+        float_window,
         secure_input,
         key_sequence,
         color_change,
@@ -423,6 +428,12 @@ pub const Fullscreen = enum(c_int) {
     macos_non_native,
     macos_non_native_visible_menu,
     macos_non_native_padded_notch,
+};
+
+pub const FloatWindow = enum(c_int) {
+    on,
+    off,
+    toggle,
 };
 
 pub const SecureInput = enum(c_int) {

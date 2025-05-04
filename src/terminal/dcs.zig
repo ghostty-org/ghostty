@@ -162,7 +162,12 @@ pub const Handler = struct {
                 break :tmux .{ .tmux = .{ .exit = {} } };
             },
 
-            .xtgettcap => |list| .{ .xtgettcap = .{ .data = list } },
+            .xtgettcap => |list| xtgettcap: {
+                for (list.items, 0..) |b, i| {
+                    list.items[i] = std.ascii.toUpper(b);
+                }
+                break :xtgettcap .{ .xtgettcap = .{ .data = list } };
+            },
 
             .decrqss => |buffer| .{ .decrqss = switch (buffer.len) {
                 0 => .none,
@@ -306,6 +311,21 @@ test "XTGETTCAP command" {
     try testing.expect(cmd.xtgettcap.next() == null);
 }
 
+test "XTGETTCAP mixed case" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var h: Handler = .{};
+    defer h.deinit();
+    try testing.expect(h.hook(alloc, .{ .intermediates = "+", .final = 'q' }) == null);
+    for ("536d756C78") |byte| _ = h.put(byte);
+    var cmd = h.unhook().?;
+    defer cmd.deinit();
+    try testing.expect(cmd == .xtgettcap);
+    try testing.expectEqualStrings("536D756C78", cmd.xtgettcap.next().?);
+    try testing.expect(cmd.xtgettcap.next() == null);
+}
+
 test "XTGETTCAP command multiple keys" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -333,7 +353,7 @@ test "XTGETTCAP command invalid data" {
     var cmd = h.unhook().?;
     defer cmd.deinit();
     try testing.expect(cmd == .xtgettcap);
-    try testing.expectEqualStrings("who", cmd.xtgettcap.next().?);
+    try testing.expectEqualStrings("WHO", cmd.xtgettcap.next().?);
     try testing.expectEqualStrings("536D756C78", cmd.xtgettcap.next().?);
     try testing.expect(cmd.xtgettcap.next() == null);
 }

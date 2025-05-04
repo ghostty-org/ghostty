@@ -488,6 +488,7 @@ pub fn performAction(
 
         // Unimplemented
         .close_all_windows,
+        .float_window,
         .toggle_command_palette,
         .toggle_visibility,
         .cell_size,
@@ -1290,6 +1291,13 @@ pub fn run(self: *App) !void {
 
     // Setup our actions
     self.initActions();
+
+    // On startup, we want to check for configuration errors right away
+    // so we can show our error window. We also need to setup other initial
+    // state.
+    self.syncConfigChanges(null) catch |err| {
+        log.warn("error handling configuration changes err={}", .{err});
+    };
 
     while (self.running) {
         _ = glib.MainContext.iteration(self.ctx, 1);

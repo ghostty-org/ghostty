@@ -144,7 +144,7 @@
 
 # Shell
 /src/shell-integration/ @ghostty-org/shell
-/src/termio/shell-integration.zig @ghostty-org/shell
+/src/termio/shell_integration.zig @ghostty-org/shell
 
 # Terminal
 /src/simd/ @ghostty-org/terminal

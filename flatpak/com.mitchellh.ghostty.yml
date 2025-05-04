@@ -1,6 +1,6 @@
 app-id: com.mitchellh.ghostty
 runtime: org.gnome.Platform
-runtime-version: "47"
+runtime-version: "48"
 sdk: org.gnome.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.ziglang

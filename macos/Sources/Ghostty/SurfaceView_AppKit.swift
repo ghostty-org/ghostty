@@ -975,7 +975,14 @@ extension Ghostty {
                     event: event,
                     translationEvent: translationEvent,
                     text: translationEvent.ghosttyCharacters,
-                    composing: markedText.length > 0
+
+                    // We're composing if we have preedit (the obvious case). But we're also
+                    // composing if we don't have preedit and we had marked text before,
+                    // because this input probably just reset the preedit state. It shouldn't
+                    // be encoded. Example: Japanese begin composing, the press backspace.
+                    // This should only cancel the composing state but not actually delete
+                    // the prior input characters (prior to the composing).
+                    composing: markedText.length > 0 || markedTextBefore
                 )
             }
         }

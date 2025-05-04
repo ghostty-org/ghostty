@@ -429,6 +429,13 @@ typedef enum {
   GHOSTTY_FULLSCREEN_NON_NATIVE_PADDED_NOTCH,
 } ghostty_action_fullscreen_e;
 
+// apprt.action.FloatWindow
+typedef enum {
+  GHOSTTY_FLOAT_WINDOW_ON,
+  GHOSTTY_FLOAT_WINDOW_OFF,
+  GHOSTTY_FLOAT_WINDOW_TOGGLE,
+} ghostty_action_float_window_e;
+
 // apprt.action.SecureInput
 typedef enum {
   GHOSTTY_SECURE_INPUT_ON,
@@ -610,6 +617,7 @@ typedef enum {
   GHOSTTY_ACTION_RENDERER_HEALTH,
   GHOSTTY_ACTION_OPEN_CONFIG,
   GHOSTTY_ACTION_QUIT_TIMER,
+  GHOSTTY_ACTION_FLOAT_WINDOW,
   GHOSTTY_ACTION_SECURE_INPUT,
   GHOSTTY_ACTION_KEY_SEQUENCE,
   GHOSTTY_ACTION_COLOR_CHANGE,
@@ -638,6 +646,7 @@ typedef union {
   ghostty_action_mouse_over_link_s mouse_over_link;
   ghostty_action_renderer_health_e renderer_health;
   ghostty_action_quit_timer_e quit_timer;
+  ghostty_action_float_window_e float_window;
   ghostty_action_secure_input_e secure_input;
   ghostty_action_key_sequence_s key_sequence;
   ghostty_action_color_change_s color_change;

@@ -222,12 +222,12 @@ pub fn lessThan(_: void, lhs: Binding, rhs: Binding) bool {
 pub const Action = union(enum) {
     /// Ignore this key combination, don't send it to the child process, just
     /// black hole it.
-    ignore: void,
+    ignore,
 
     /// This action is used to flag that the binding should be removed from
     /// the set. This should never exist in an active set and `set.put` has an
     /// assertion to verify this.
-    unbind: void,
+    unbind,
 
     /// Send a CSI sequence. The value should be the CSI sequence without the
     /// CSI header (`ESC [` or `\x1b[`).
@@ -252,35 +252,35 @@ pub const Action = union(enum) {
     /// If you do this while in a TUI program such as vim, this may break
     /// the program. If you do this while in a shell, you may have to press
     /// enter after to get a new prompt.
-    reset: void,
+    reset,
 
     /// Copy and paste.
-    copy_to_clipboard: void,
-    paste_from_clipboard: void,
-    paste_from_selection: void,
+    copy_to_clipboard,
+    paste_from_clipboard,
+    paste_from_selection,
 
     /// Copy the URL under the cursor to the clipboard. If there is no
     /// URL under the cursor, this does nothing.
-    copy_url_to_clipboard: void,
+    copy_url_to_clipboard,
 
     /// Increase/decrease the font size by a certain amount.
     increase_font_size: f32,
     decrease_font_size: f32,
 
     /// Reset the font size to the original configured size.
-    reset_font_size: void,
+    reset_font_size,
 
     /// Clear the screen. This also clears all scrollback.
-    clear_screen: void,
+    clear_screen,
 
     /// Select all text on the screen.
-    select_all: void,
+    select_all,
 
     /// Scroll the screen varying amounts.
-    scroll_to_top: void,
-    scroll_to_bottom: void,
-    scroll_page_up: void,
-    scroll_page_down: void,
+    scroll_to_top,
+    scroll_to_bottom,
+    scroll_page_up,
+    scroll_page_down,
     scroll_page_fractional: f32,
     scroll_page_lines: i16,
 
@@ -321,19 +321,19 @@ pub const Action = union(enum) {
 
     /// Open a new window. If the application isn't currently focused,
     /// this will bring it to the front.
-    new_window: void,
+    new_window,
 
     /// Open a new tab.
-    new_tab: void,
+    new_tab,
 
     /// Go to the previous tab.
-    previous_tab: void,
+    previous_tab,
 
     /// Go to the next tab.
-    next_tab: void,
+    next_tab,
 
     /// Go to the last tab (the one with the highest index)
-    last_tab: void,
+    last_tab,
 
     /// Go to the tab with the specific number, 1-indexed. If the tab number
     /// is higher than the number of tabs, this will go to the last tab.
@@ -346,10 +346,10 @@ pub const Action = union(enum) {
 
     /// Toggle the tab overview.
     /// This only works with libadwaita enabled currently.
-    toggle_tab_overview: void,
+    toggle_tab_overview,
 
     /// Change the title of the current focused surface via a prompt.
-    prompt_surface_title: void,
+    prompt_surface_title,
 
     /// Create a new split in the given direction.
     ///
@@ -365,7 +365,7 @@ pub const Action = union(enum) {
     goto_split: SplitFocusDirection,
 
     /// zoom/unzoom the current split.
-    toggle_split_zoom: void,
+    toggle_split_zoom,
 
     /// Resize the current split in a given direction.
     ///
@@ -378,12 +378,12 @@ pub const Action = union(enum) {
     resize_split: SplitResizeParameter,
 
     /// Equalize all splits in the current window
-    equalize_splits: void,
+    equalize_splits,
 
     /// Reset the window to the default size. The "default size" is the
     /// size that a new window would be created with. This has no effect
     /// if the window is fullscreen.
-    reset_window_size: void,
+    reset_window_size,
 
     /// Control the terminal inspector visibility.
     ///
@@ -397,39 +397,46 @@ pub const Action = union(enum) {
     /// Open the configuration file in the default OS editor. If your default OS
     /// editor isn't configured then this will fail. Currently, any failures to
     /// open the configuration will show up only in the logs.
-    open_config: void,
+    open_config,
 
     /// Reload the configuration. The exact meaning depends on the app runtime
     /// in use but this usually involves re-reading the configuration file
     /// and applying any changes. Note that not all changes can be applied at
     /// runtime.
-    reload_config: void,
+    reload_config,
 
     /// Close the current "surface", whether that is a window, tab, split, etc.
     /// This only closes ONE surface. This will trigger close confirmation as
     /// configured.
-    close_surface: void,
+    close_surface,
 
     /// Close the current tab, regardless of how many splits there may be.
     /// This will trigger close confirmation as configured.
-    close_tab: void,
+    close_tab,
 
     /// Close the window, regardless of how many tabs or splits there may be.
     /// This will trigger close confirmation as configured.
-    close_window: void,
+    close_window,
 
     /// Close all windows. This will trigger close confirmation as configured.
     /// This only works for macOS currently.
-    close_all_windows: void,
+    close_all_windows,
 
     /// Toggle maximized window state. This only works on Linux.
-    toggle_maximize: void,
+    toggle_maximize,
 
     /// Toggle fullscreen mode of window.
-    toggle_fullscreen: void,
+    toggle_fullscreen,
 
     /// Toggle window decorations on and off. This only works on Linux.
-    toggle_window_decorations: void,
+    toggle_window_decorations,
+
+    /// Toggle whether the terminal window is always on top of other
+    /// windows even when it is not focused. Terminal windows always start
+    /// as normal (not always on top) windows.
+    ///
+    /// This only works on macOS.
+    toggle_window_float_on_top,
 
     /// Toggle secure input mode on or off. This is used to prevent apps
     /// that monitor input from seeing what you type. This is useful for
@@ -439,7 +446,7 @@ pub const Action = union(enum) {
     /// terminal. You must toggle it off to disable it, or quit Ghostty.
     ///
     /// This only works on macOS, since this is a system API on macOS.
-    toggle_secure_input: void,
+    toggle_secure_input,
 
     /// Toggle the command palette. The command palette is a UI element
     /// that lets you see what actions you can perform, their associated
@@ -488,7 +495,7 @@ pub const Action = union(enum) {
     /// plugin enabled, open System Settings > Apps & Windows > Window
     /// Management > Desktop Effects, and enable the plugin in the plugin list.
     /// Ghostty would then need to be restarted for this to take effect.
-    toggle_quick_terminal: void,
+    toggle_quick_terminal,
 
     /// Show/hide all windows. If all windows become shown, we also ensure
     /// Ghostty becomes focused. When hiding all windows, focus is yielded
@@ -497,10 +504,10 @@ pub const Action = union(enum) {
     /// Note: When the focused surface is fullscreen, this method does nothing.
     ///
     /// This currently only works on macOS.
-    toggle_visibility: void,
+    toggle_visibility,
 
     /// Quit ghostty.
-    quit: void,
+    quit,
 
     /// Crash ghostty in the desired thread for the focused surface.
     ///
@@ -797,6 +804,7 @@ pub const Action = union(enum) {
             .toggle_maximize,
             .toggle_fullscreen,
             .toggle_window_decorations,
+            .toggle_window_float_on_top,
             .toggle_secure_input,
             .toggle_command_palette,
             .reset_window_size,

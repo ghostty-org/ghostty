@@ -1,6 +1,9 @@
 import Cocoa
 
 class TerminalWindow: NSWindow {
+    /// This is the key in UserDefaults to use for the default `level` value.
+    static let defaultLevelKey: String = "TerminalDefaultLevel"
+
     @objc dynamic var keyEquivalent: String = ""
 
     /// This is used to determine if certain elements should be drawn light or dark and should
@@ -63,6 +66,8 @@ class TerminalWindow: NSWindow {
 		if titlebarTabs {
 			generateToolbar()
 		}
+        
+        level = UserDefaults.standard.value(forKey: Self.defaultLevelKey) as? NSWindow.Level ?? .normal
     }
 
     deinit {

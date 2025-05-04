@@ -496,6 +496,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_OPEN_CONFIG:
                 ghostty_config_open()
 
+            case GHOSTTY_ACTION_FLOAT_WINDOW:
+                toggleFloatWindow(app, target: target, mode: action.action.float_window)
+
             case GHOSTTY_ACTION_SECURE_INPUT:
                 toggleSecureInput(app, target: target, mode: action.action.secure_input)
 
@@ -1020,6 +1023,43 @@ extension Ghostty {
                     surfaceView.showUserNotification(title: title, body: body)
                 }
 
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func toggleFloatWindow(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            mode mode_raw: ghostty_action_float_window_e
+        ) {
+            guard let mode = SetFloatWIndow.from(mode_raw) else { return }
+
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("toggle float window does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                guard let window = surfaceView.window as? TerminalWindow else { return }
+                
+                switch (mode) {
+                case .on:
+                    window.level = .floating
+
+                case .off:
+                    window.level = .normal
+
+                case .toggle:
+                    window.level = window.level == .floating ? .normal : .floating
+                }
+
+                if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
+                    appDelegate.syncFloatOnTopMenu(window)
+                }
 
             default:
                 assertionFailure()

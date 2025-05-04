@@ -235,6 +235,7 @@ pub const App = struct {
             .inspector,
             .render_inspector,
             .quit_timer,
+            .float_window,
             .secure_input,
             .key_sequence,
             .desktop_notification,
