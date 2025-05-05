@@ -355,16 +355,23 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
             self.styleMask = window.styleMask
             self.dock = window.screen?.hasDock ?? false
 
-            // We hide the menu only if this window is not on any fullscreen
-            // spaces. We do this because fullscreen spaces already hide the
-            // menu and if we insert/remove this presentation option we get
-            // issues (see #7075)
-            let activeSpace = CGSSpace.active()
-            let spaces = CGSSpace.list(for: window.cgWindowId)
-            if spaces.contains(activeSpace) {
-                self.menu = activeSpace.type != .fullscreen
+            if (window.isVisible) {
+                // We hide the menu only if this window is not on any fullscreen
+                // spaces. We do this because fullscreen spaces already hide the
+                // menu and if we insert/remove this presentation option we get
+                // issues (see #7075)
+                let activeSpace = CGSSpace.active()
+                let spaces = CGSSpace.list(for: window.cgWindowId)
+                if spaces.contains(activeSpace) {
+                    self.menu = activeSpace.type != .fullscreen
+                } else {
+                    self.menu = spaces.allSatisfy { $0.type != .fullscreen }
+                }
             } else {
-                self.menu = spaces.allSatisfy { $0.type != .fullscreen }
+                // When window is not visible at the moment of toggling non-native
+                // fullscreen it means it is launched with `fullscreen = true` and
+                // we want to hide menu in this case.
+                self.menu = true;
             }
         }
     }
