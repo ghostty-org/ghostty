@@ -379,7 +379,7 @@ pub const ghostty: Source = .{
         .{ .name = "khome", .value = .{ .string = "\\EOH" } },
         .{ .name = "kich1", .value = .{ .string = "\\E[2~" } },
         .{ .name = "kind", .value = .{ .string = "\\E[1;2B" } },
-        .{ .name = "kmous", .value = .{ .string = "\\E[<" } },
+        .{ .name = "kmous", .value = .{ .string = "\\E[M" } },
         .{ .name = "knp", .value = .{ .string = "\\E[6~" } },
         .{ .name = "kpp", .value = .{ .string = "\\E[5~" } },
         .{ .name = "kri", .value = .{ .string = "\\E[1;2A" } },
