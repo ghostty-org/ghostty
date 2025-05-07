@@ -29,11 +29,19 @@ pub const Face = struct {
         assert(font.face.FreetypeLoadFlags != void);
     }
 
-    /// Our freetype library
-    lib: freetype.Library,
+    /// Our Library
+    lib: Library,
 
     /// Our font face.
     face: freetype.Face,
+
+    /// This mutex MUST be held while doing anything with the
+    /// glyph slot on the freetype face, because this struct
+    /// may be shared across multiple surfaces.
+    ///
+    /// This means that anywhere where `self.face.loadGlyph`
+    /// is called, this mutex must be held.
+    ft_mutex: *std.Thread.Mutex,
 
     /// Harfbuzz font corresponding to this face.
     hb_font: harfbuzz.Font,
@@ -59,30 +67,52 @@ pub const Face = struct {
     };
 
     /// Initialize a new font face with the given source in-memory.
-    pub fn initFile(lib: Library, path: [:0]const u8, index: i32, opts: font.face.Options) !Face {
+    pub fn initFile(
+        lib: Library,
+        path: [:0]const u8,
+        index: i32,
+        opts: font.face.Options,
+    ) !Face {
+        lib.mutex.lock();
+        defer lib.mutex.unlock();
         const face = try lib.lib.initFace(path, index);
         errdefer face.deinit();
         return try initFace(lib, face, opts);
     }
 
     /// Initialize a new font face with the given source in-memory.
-    pub fn init(lib: Library, source: [:0]const u8, opts: font.face.Options) !Face {
+    pub fn init(
+        lib: Library,
+        source: [:0]const u8,
+        opts: font.face.Options,
+    ) !Face {
+        lib.mutex.lock();
+        defer lib.mutex.unlock();
         const face = try lib.lib.initMemoryFace(source, 0);
         errdefer face.deinit();
         return try initFace(lib, face, opts);
     }
 
-    fn initFace(lib: Library, face: freetype.Face, opts: font.face.Options) !Face {
+    fn initFace(
+        lib: Library,
+        face: freetype.Face,
+        opts: font.face.Options,
+    ) !Face {
         try face.selectCharmap(.unicode);
         try setSize_(face, opts.size);
 
         var hb_font = try harfbuzz.freetype.createFont(face.handle);
         errdefer hb_font.destroy();
 
+        const ft_mutex = try lib.alloc.create(std.Thread.Mutex);
+        errdefer lib.alloc.destroy(ft_mutex);
+        ft_mutex.* = .{};
+
         var result: Face = .{
-            .lib = lib.lib,
+            .lib = lib,
             .face = face,
             .hb_font = hb_font,
+            .ft_mutex = ft_mutex,
             .load_flags = opts.freetype_load_flags,
         };
         result.quirks_disable_default_font_features = quirks.disableDefaultFontFeatures(&result);
@@ -114,7 +144,13 @@ pub const Face = struct {
     }
 
     pub fn deinit(self: *Face) void {
-        self.face.deinit();
+        self.lib.alloc.destroy(self.ft_mutex);
+        {
+            self.lib.mutex.lock();
+            defer self.lib.mutex.unlock();
+
+            self.face.deinit();
+        }
         self.hb_font.destroy();
         self.* = undefined;
     }
@@ -147,11 +183,7 @@ pub const Face = struct {
         self.face.ref();
         errdefer self.face.deinit();
 
-        var f = try initFace(
-            .{ .lib = self.lib },
-            self.face,
-            opts,
-        );
+        var f = try initFace(self.lib, self.face, opts);
         errdefer f.deinit();
         f.synthetic = self.synthetic;
         f.synthetic.bold = true;
@@ -166,11 +198,7 @@ pub const Face = struct {
         self.face.ref();
         errdefer self.face.deinit();
 
-        var f = try initFace(
-            .{ .lib = self.lib },
-            self.face,
-            opts,
-        );
+        var f = try initFace(self.lib, self.face, opts);
         errdefer f.deinit();
         f.synthetic = self.synthetic;
         f.synthetic.italic = true;
@@ -228,7 +256,7 @@ pub const Face = struct {
         // first thing we have to do is get all the vars and put them into
         // an array.
         const mm = try self.face.getMMVar();
-        defer self.lib.doneMMVar(mm);
+        defer self.lib.lib.doneMMVar(mm);
 
         // To avoid allocations, we cap the number of variation axes we can
         // support. This is arbitrary but Firefox caps this at 16 so I
@@ -270,6 +298,9 @@ pub const Face = struct {
 
     /// Returns true if the given glyph ID is colorized.
     pub fn isColorGlyph(self: *const Face, glyph_id: u32) bool {
+        self.ft_mutex.lock();
+        defer self.ft_mutex.unlock();
+
         // Load the glyph and see what pixel mode it renders with.
         // All modes other than BGRA are non-color.
         // If the glyph fails to load, just return false.
@@ -296,6 +327,9 @@ pub const Face = struct {
         glyph_index: u32,
         opts: font.face.RenderOptions,
     ) !Glyph {
+        self.ft_mutex.lock();
+        defer self.ft_mutex.unlock();
+
         const metrics = opts.grid_metrics;
 
         // If we have synthetic italic, then we apply a transformation matrix.
@@ -741,6 +775,9 @@ pub const Face = struct {
         // If we fail to load any visible ASCII we just use max_advance from
         // the metrics provided by FreeType.
         const cell_width: f64 = cell_width: {
+            self.ft_mutex.lock();
+            defer self.ft_mutex.unlock();
+
             var max: f64 = 0.0;
             var c: u8 = ' ';
             while (c < 127) : (c += 1) {
@@ -780,6 +817,8 @@ pub const Face = struct {
 
             break :heights .{
                 cap: {
+                    self.ft_mutex.lock();
+                    defer self.ft_mutex.unlock();
                     if (face.getCharIndex('H')) |glyph_index| {
                         if (face.loadGlyph(glyph_index, .{
                             .render = true,
@@ -791,6 +830,8 @@ pub const Face = struct {
                     break :cap null;
                 },
                 ex: {
+                    self.ft_mutex.lock();
+                    defer self.ft_mutex.unlock();
                     if (face.getCharIndex('x')) |glyph_index| {
                         if (face.loadGlyph(glyph_index, .{
                             .render = true,
@@ -832,7 +873,7 @@ test {
     const testFont = font.embedded.inconsolata;
     const alloc = testing.allocator;
 
-    var lib = try Library.init();
+    var lib = try Library.init(alloc);
     defer lib.deinit();
 
     var atlas = try font.Atlas.init(alloc, 512, .grayscale);
@@ -881,7 +922,7 @@ test "color emoji" {
     const alloc = testing.allocator;
     const testFont = font.embedded.emoji;
 
-    var lib = try Library.init();
+    var lib = try Library.init(alloc);
     defer lib.deinit();
 
     var atlas = try font.Atlas.init(alloc, 512, .rgba);
@@ -936,7 +977,7 @@ test "mono to rgba" {
     const alloc = testing.allocator;
     const testFont = font.embedded.emoji;
 
-    var lib = try Library.init();
+    var lib = try Library.init(alloc);
     defer lib.deinit();
 
     var atlas = try font.Atlas.init(alloc, 512, .rgba);
@@ -958,7 +999,7 @@ test "svg font table" {
     const alloc = testing.allocator;
     const testFont = font.embedded.julia_mono;
 
-    var lib = try font.Library.init();
+    var lib = try font.Library.init(alloc);
     defer lib.deinit();
 
     var face = try Face.init(lib, testFont, .{ .size = .{ .points = 12, .xdpi = 72, .ydpi = 72 } });
@@ -995,7 +1036,7 @@ test "bitmap glyph" {
     const alloc = testing.allocator;
     const testFont = font.embedded.terminus_ttf;
 
-    var lib = try Library.init();
+    var lib = try Library.init(alloc);
     defer lib.deinit();
 
     var atlas = try font.Atlas.init(alloc, 512, .grayscale);

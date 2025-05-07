@@ -43,7 +43,7 @@ extension Ghostty {
         @Published var hoverUrl: String? = nil
 
         // The currently active key sequence. The sequence is not active if this is empty.
-        @Published var keySequence: [Ghostty.KeyEquivalent] = []
+        @Published var keySequence: [KeyboardShortcut] = []
 
         // The time this surface last became focused. This is a ContinuousClock.Instant
         // on supported platforms.
@@ -526,7 +526,7 @@ extension Ghostty {
 
         @objc private func ghosttyDidContinueKeySequence(notification: SwiftUI.Notification) {
             guard let keyAny = notification.userInfo?[Ghostty.Notification.KeySequenceKey] else { return }
-            guard let key = keyAny as? Ghostty.KeyEquivalent else { return }
+            guard let key = keyAny as? KeyboardShortcut else { return }
             DispatchQueue.main.async { [weak self] in
                 self?.keySequence.append(key)
             }
@@ -975,7 +975,14 @@ extension Ghostty {
                     event: event,
                     translationEvent: translationEvent,
                     text: translationEvent.ghosttyCharacters,
-                    composing: markedText.length > 0
+
+                    // We're composing if we have preedit (the obvious case). But we're also
+                    // composing if we don't have preedit and we had marked text before,
+                    // because this input probably just reset the preedit state. It shouldn't
+                    // be encoded. Example: Japanese begin composing, the press backspace.
+                    // This should only cancel the composing state but not actually delete
+                    // the prior input characters (prior to the composing).
+                    composing: markedText.length > 0 || markedTextBefore
                 )
             }
         }
@@ -1169,7 +1176,12 @@ extension Ghostty {
 
             var key_ev = event.ghosttyKeyEvent(action, translationMods: translationEvent?.modifierFlags)
             key_ev.composing = composing
-            if let text {
+
+            // For text, we only encode UTF8 if we don't have a single control
+            // character. Control characters are encoded by Ghostty itself.
+            // Without this, `ctrl+enter` does the wrong thing.
+            if let text, text.count > 0,
+               let codepoint = text.utf8.first, codepoint >= 0x20 {
                 return text.withCString { ptr in
                     key_ev.text = ptr
                     return ghostty_surface_key(surface, key_ev)

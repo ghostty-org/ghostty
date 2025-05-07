@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-03-18 11:48+0100\n"
+"POT-Creation-Date: 2025-04-22 08:57-0700\n"
 "PO-Revision-Date: 2025-03-17 12:15+0100\n"
 "Last-Translator: Bartosz Sokorski <b.sokorski@gmail.com>\n"
 "Language-Team: Polish <translation-team-pl@lists.sourceforge.net>\n"
@@ -45,8 +45,8 @@ msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
-"Znaleziono jeden lub więcej błędów konfiguracji. Sprawdź błędy wylistowane poniżej "
-"i przeładuj konfigurację lub zignoruj je."
+"Znaleziono jeden lub więcej błędów konfiguracji. Sprawdź błędy wylistowane "
+"poniżej i przeładuj konfigurację lub zignoruj je."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
 msgid "Ignore"
@@ -57,6 +57,30 @@ msgstr "Zignoruj"
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:95
 msgid "Reload Configuration"
 msgstr "Przeładuj konfigurację"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:6
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
+msgid "Split Up"
+msgstr "Podziel w górę"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:11
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
+msgid "Split Down"
+msgstr "Podziel w dół"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:16
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
+msgid "Split Left"
+msgstr "Podziel w lewo"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:21
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
+msgid "Split Right"
+msgstr "Podziel w prawo"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
@@ -89,33 +113,13 @@ msgstr "Podział"
 msgid "Change Title…"
 msgstr "Zmień tytuł…"
 
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
-msgid "Split Up"
-msgstr "Podziel w górę"
-
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
-msgid "Split Down"
-msgstr "Podziel w dół"
-
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
-msgid "Split Left"
-msgstr "Podziel w lewo"
-
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
-msgid "Split Right"
-msgstr "Podziel w prawo"
-
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:59
 msgid "Tab"
 msgstr "Karta"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:62
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:30
-#: src/apprt/gtk/Window.zig:246
+#: src/apprt/gtk/Window.zig:248
 msgid "New Tab"
 msgstr "Nowa karta"
 
@@ -152,7 +156,7 @@ msgid "Terminal Inspector"
 msgstr "Inspektor terminala"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:102
-#: src/apprt/gtk/Window.zig:958
+#: src/apprt/gtk/Window.zig:1003
 msgid "About Ghostty"
 msgstr "O Ghostty"
 
@@ -203,30 +207,30 @@ msgstr ""
 "Wklejenie tego tekstu do terminala może być niebezpieczne, ponieważ może "
 "spowodować wykonanie komend."
 
-#: src/apprt/gtk/Window.zig:200
+#: src/apprt/gtk/Window.zig:201
 msgid "Main Menu"
 msgstr "Menu główne"
 
-#: src/apprt/gtk/Window.zig:221
+#: src/apprt/gtk/Window.zig:222
 msgid "View Open Tabs"
 msgstr "Zobacz otwarte karty"
 
-#: src/apprt/gtk/Window.zig:295
+#: src/apprt/gtk/Window.zig:249
+msgid "New Split"
+msgstr ""
+
+#: src/apprt/gtk/Window.zig:312
 msgid ""
 "⚠️ You're running a debug build of Ghostty! Performance will be degraded."
 msgstr "⚠️ Używasz wersji Ghostty do debugowania! Wydajność będzie obniżona."
 
-#: src/apprt/gtk/Window.zig:725
+#: src/apprt/gtk/Window.zig:744
 msgid "Reloaded the configuration"
 msgstr "Przeładowano konfigurację"
 
-#: src/apprt/gtk/Window.zig:939
+#: src/apprt/gtk/Window.zig:984
 msgid "Ghostty Developers"
 msgstr "Twórcy Ghostty"
-
-#: src/apprt/gtk/inspector.zig:144
-msgid "Ghostty: Terminal Inspector"
-msgstr "Inspektor terminala Ghostty"
 
 #: src/apprt/gtk/CloseDialog.zig:47
 msgid "Close"
@@ -264,6 +268,10 @@ msgstr "Wszystkie sesje terminala w obecnej karcie zostaną zakończone."
 msgid "The currently running process in this split will be terminated."
 msgstr "Wszyskie trwające procesy w obecnym podziale zostaną zakończone."
 
-#: src/apprt/gtk/Surface.zig:1242
+#: src/apprt/gtk/Surface.zig:1243
 msgid "Copied to clipboard"
 msgstr "Skopiowano do schowka"
+
+#: src/apprt/gtk/inspector.zig:144
+msgid "Ghostty: Terminal Inspector"
+msgstr "Inspektor terminala Ghostty"

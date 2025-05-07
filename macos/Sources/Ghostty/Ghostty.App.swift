@@ -496,6 +496,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_OPEN_CONFIG:
                 ghostty_config_open()
 
+            case GHOSTTY_ACTION_FLOAT_WINDOW:
+                toggleFloatWindow(app, target: target, mode: action.action.float_window)
+
             case GHOSTTY_ACTION_SECURE_INPUT:
                 toggleSecureInput(app, target: target, mode: action.action.secure_input)
 
@@ -519,6 +522,12 @@ extension Ghostty {
 
             case GHOSTTY_ACTION_RENDERER_HEALTH:
                 rendererHealth(app, target: target, v: action.action.renderer_health)
+
+            case GHOSTTY_ACTION_TOGGLE_COMMAND_PALETTE:
+                toggleCommandPalette(app, target: target)
+
+            case GHOSTTY_ACTION_TOGGLE_MAXIMIZE:
+                toggleMaximize(app, target: target)
 
             case GHOSTTY_ACTION_TOGGLE_QUICK_TERMINAL:
                 toggleQuickTerminal(app, target: target)
@@ -734,6 +743,51 @@ extension Ghostty {
                     userInfo: [
                         Notification.FullscreenModeKey: mode,
                     ]
+                )
+
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func toggleCommandPalette(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s) {
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("toggle command palette does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                NotificationCenter.default.post(
+                    name: .ghosttyCommandPaletteDidToggle,
+                    object: surfaceView
+                )
+
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func toggleMaximize(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s
+        ) {
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("toggle maximize does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                NotificationCenter.default.post(
+                    name: .ghosttyMaximizeDidToggle,
+                    object: surfaceView
                 )
 
 
@@ -995,6 +1049,43 @@ extension Ghostty {
                     surfaceView.showUserNotification(title: title, body: body)
                 }
 
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func toggleFloatWindow(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            mode mode_raw: ghostty_action_float_window_e
+        ) {
+            guard let mode = SetFloatWIndow.from(mode_raw) else { return }
+
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("toggle float window does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                guard let window = surfaceView.window as? TerminalWindow else { return }
+                
+                switch (mode) {
+                case .on:
+                    window.level = .floating
+
+                case .off:
+                    window.level = .normal
+
+                case .toggle:
+                    window.level = window.level == .floating ? .normal : .floating
+                }
+
+                if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
+                    appDelegate.syncFloatOnTopMenu(window)
+                }
 
             default:
                 assertionFailure()
@@ -1306,7 +1397,7 @@ extension Ghostty {
                         name: Notification.didContinueKeySequence,
                         object: surfaceView,
                         userInfo: [
-                            Notification.KeySequenceKey: keyEquivalent(for: v.trigger) as Any
+                            Notification.KeySequenceKey: keyboardShortcut(for: v.trigger) as Any
                         ]
                     )
                 } else {

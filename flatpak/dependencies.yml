@@ -1,0 +1,66 @@
+name: dependencies-meta
+buildsystem: simple
+build-commands:
+  - true
+modules:
+  - name: bzip2-redirect
+    buildsystem: simple
+    build-commands:
+      - install -Dm644 libbzip2.so /app/lib/libbzip2.so
+    sources:
+      - type: inline
+        contents: INPUT(libbz2.so)
+        dest-filename: libbzip2.so
+
+  - name: blueprint-compiler
+    buildsystem: meson
+    cleanup:
+      - "*"
+    sources:
+      - type: git
+        url: https://gitlab.gnome.org/jwestman/blueprint-compiler.git
+        tag: v0.16.0
+        commit: 04ef0944db56ab01307a29aaa7303df6067cb3c0
+        x-checker-data:
+          type: git
+          tag-pattern: ^v([\d.]+)$
+
+  - name: gtk4-layer-shell
+    buildsystem: meson
+    sources:
+      # no x-checker-data since this should be synchronized with Nix
+      #
+      # TODO: Automate this with check-zig-cache.sh
+      - type: archive
+        url: https://github.com/wmww/gtk4-layer-shell/archive/refs/tags/v1.1.0.tar.gz
+        sha256: 98284281260a5eef5b4f63a55f16c4bf6a788a1020a6db037ecb0f71fa336988
+
+  - name: pandoc
+    buildsystem: simple
+    cleanup:
+      - "*"
+    build-commands:
+      - install -Dm755 bin/pandoc /app/bin/pandoc
+    sources:
+      - type: archive
+        sha256: d04c95c138202f87d6b00ac19aa3dd874c681f60a9feb3b55c74f764d6d1a17d
+        url: https://github.com/jgm/pandoc/releases/download/3.6.3/pandoc-3.6.3-linux-amd64.tar.gz
+        only-arches: [x86_64]
+        x-checker-data:
+          type: json
+          url: https://api.github.com/repos/jgm/pandoc/releases/latest
+          url-query:
+            .assets[] | select(.name=="pandoc-" + $version + "-linux-amd64.tar.gz")
+            | .browser_download_url
+          version-query: .tag_name
+      - type: archive
+        sha256: 4e774cb1bdb6e56bc55b8eb79200bd9aa6a39905a04ecda7267f5149116f0881
+        url: https://github.com/jgm/pandoc/releases/download/3.6.3/pandoc-3.6.3-linux-arm64.tar.gz
+        only-arches: [aarch64]
+        x-checker-data:
+          type: json
+          url: https://api.github.com/repos/jgm/pandoc/releases/latest
+          url-query:
+            .assets[] | select(.name=="pandoc-" + $version + "-linux-arm64.tar.gz")
+            | .browser_download_url
+          version-query: .tag_name

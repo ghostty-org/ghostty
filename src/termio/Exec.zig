@@ -745,7 +745,7 @@ const Subprocess = struct {
     });
 
     arena: std.heap.ArenaAllocator,
-    cwd: ?[]const u8,
+    cwd: ?[:0]const u8,
     env: ?EnvMap,
     args: []const [:0]const u8,
     grid_size: renderer.GridSize,
@@ -985,8 +985,8 @@ const Subprocess = struct {
 
         // We have to copy the cwd because there is no guarantee that
         // pointers in full_config remain valid.
-        const cwd: ?[]u8 = if (cfg.working_directory) |cwd|
-            try alloc.dupe(u8, cwd)
+        const cwd: ?[:0]u8 = if (cfg.working_directory) |cwd|
+            try alloc.dupeZ(u8, cwd)
         else
             null;
 
@@ -1048,6 +1048,47 @@ const Subprocess = struct {
 
         log.debug("starting command command={s}", .{self.args});
 
+        // If we can't access the cwd, then don't set any cwd and inherit.
+        // This is important because our cwd can be set by the shell (OSC 7)
+        // and we don't want to break new windows.
+        const cwd: ?[:0]const u8 = if (self.cwd) |proposed| cwd: {
+            if ((comptime build_config.flatpak) and internal_os.isFlatpak()) {
+                // Flatpak sandboxing prevents access to certain reserved paths
+                // regardless of configured permissions. Perform a test spawn
+                // to get around this problem
+                //
+                // https://docs.flatpak.org/en/latest/sandbox-permissions.html#reserved-paths
+                log.info("flatpak detected, will use host command to verify cwd access", .{});
+                const dev_null = try std.fs.cwd().openFile("/dev/null", .{ .mode = .read_write });
+                defer dev_null.close();
+                var cmd: internal_os.FlatpakHostCommand = .{
+                    .argv = &[_][]const u8{
+                        "/bin/sh",
+                        "-c",
+                        ":",
+                    },
+                    .cwd = proposed,
+                    .stdin = dev_null.handle,
+                    .stdout = dev_null.handle,
+                    .stderr = dev_null.handle,
+                };
+                _ = cmd.spawn(alloc) catch |err| {
+                    log.warn("cannot spawn command at cwd, ignoring: {}", .{err});
+                    break :cwd null;
+                };
+                _ = try cmd.wait();
+
+                break :cwd proposed;
+            }
+
+            if (std.fs.cwd().access(proposed, .{})) {
+                break :cwd proposed;
+            } else |err| {
+                log.warn("cannot access cwd, ignoring: {}", .{err});
+                break :cwd null;
+            }
+        } else null;
+
         // In flatpak, we use the HostCommand to execute our shell.
         if (internal_os.isFlatpak()) flatpak: {
             if (comptime !build_config.flatpak) {
@@ -1058,6 +1099,7 @@ const Subprocess = struct {
             // Flatpak command must have a stable pointer.
             self.flatpak_command = .{
                 .argv = self.args,
+                .cwd = cwd,
                 .env = if (self.env) |*env| env else null,
                 .stdin = pty.slave,
                 .stdout = pty.slave,
@@ -1082,18 +1124,6 @@ const Subprocess = struct {
                 .write = pty.master,
             };
         }
-
-        // If we can't access the cwd, then don't set any cwd and inherit.
-        // This is important because our cwd can be set by the shell (OSC 7)
-        // and we don't want to break new windows.
-        const cwd: ?[]const u8 = if (self.cwd) |proposed| cwd: {
-            if (std.fs.cwd().access(proposed, .{})) {
-                break :cwd proposed;
-            } else |err| {
-                log.warn("cannot access cwd, ignoring: {}", .{err});
-                break :cwd null;
-            }
-        } else null;
 
         // Build our subcommand
         var cmd: Command = .{

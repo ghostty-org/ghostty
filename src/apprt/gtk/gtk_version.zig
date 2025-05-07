@@ -87,10 +87,23 @@ pub inline fn runtimeAtLeast(
     }) != .lt;
 }
 
+pub inline fn runtimeUntil(
+    comptime major: u16,
+    comptime minor: u16,
+    comptime micro: u16,
+) bool {
+    const runtime_version = getRuntimeVersion();
+    return runtime_version.order(.{
+        .major = major,
+        .minor = minor,
+        .patch = micro,
+    }) == .lt;
+}
+
 test "atLeast" {
     const testing = std.testing;
 
-    const funs = &.{ atLeast, runtimeAtLeast };
+    const funs = &.{ atLeast, runtimeAtLeast, runtimeUntil };
     inline for (funs) |fun| {
         try testing.expect(fun(c.GTK_MAJOR_VERSION, c.GTK_MINOR_VERSION, c.GTK_MICRO_VERSION));
 

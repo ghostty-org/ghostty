@@ -1866,7 +1866,7 @@ keybind: Keybinds = .{},
 ///
 /// Valid values are:
 ///
-///  * `system` (default)
+///  * `system`
 ///
 ///    Instructs the system to notify the user using built-in system functions.
 ///    This could result in an audiovisual effect, a notification, or something
@@ -2275,6 +2275,18 @@ keybind: Keybinds = .{},
 @"gtk-wide-tabs": bool = true,
 
 /// Custom CSS files to be loaded.
+///
+/// GTK CSS documentation can be found at the following links:
+///
+///   * <https://docs.gtk.org/gtk4/css-overview.html> - An overview of GTK CSS.
+///   * <https://docs.gtk.org/gtk4/css-properties.html> - A comprehensive list
+///     of supported CSS properties.
+///
+/// Launch Ghostty with `env GTK_DEBUG=interactive ghostty` to tweak Ghostty's
+/// CSS in real time using the GTK Inspector. Errors in your CSS files would
+/// also be reported in the terminal you started Ghostty from. See
+/// <https://developer.gnome.org/documentation/tools/inspector.html> for more
+/// information about the GTK Inspector.
 ///
 /// This configuration can be repeated multiple times to load multiple files.
 /// Prepend a ? character to the file path to suppress errors if the file does
@@ -3930,6 +3942,24 @@ pub const Palette = struct {
     /// The actual value that is updated as we parse.
     value: terminal.color.Palette = terminal.color.default,
 
+    /// ghostty_config_palette_s
+    pub const C = extern struct {
+        colors: [265]Color.C,
+    };
+
+    pub fn cval(self: Self) Palette.C {
+        var result: Palette.C = undefined;
+        for (self.value, 0..) |color, i| {
+            result.colors[i] = Color.C{
+                .r = color.r,
+                .g = color.g,
+                .b = color.b,
+            };
+        }
+
+        return result;
+    }
+
     pub fn parseCLI(
         self: *Self,
         input: ?[]const u8,
@@ -4864,6 +4894,13 @@ pub const Keybinds = struct {
                 alloc,
                 .{ .key = .{ .translated = .down }, .mods = .{ .super = true } },
                 .{ .jump_to_prompt = 1 },
+            );
+
+            // Toggle command palette, matches VSCode
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .translated = .p }, .mods = .{ .super = true, .shift = true } },
+                .{ .toggle_command_palette = {} },
             );
 
             // Inspector, matching Chromium

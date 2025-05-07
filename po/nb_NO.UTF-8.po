@@ -10,6 +10,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
+"POT-Creation-Date: 2025-04-22 08:57-0700\n"
 "PO-Revision-Date: 2025-04-14 16:25+0200\n"
 "Last-Translator: cryptocode <cryptocode@zolo.io>\n"
 "Language-Team: Norwegian Bokmal <l10n-no@lister.huftis.org>\n"
@@ -45,8 +46,8 @@ msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
-"Én eller flere konfigurasjonsfeil ble funnet. Vennligst gjennomgå feilene under, "
-"og enten last konfigurasjonen din på nytt eller ignorer disse feilene."
+"Én eller flere konfigurasjonsfeil ble funnet. Vennligst gjennomgå feilene "
+"under, og enten last konfigurasjonen din på nytt eller ignorer disse feilene."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
 msgid "Ignore"
@@ -57,6 +58,30 @@ msgstr "Ignorer"
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:95
 msgid "Reload Configuration"
 msgstr "Last konfigurasjon på nytt"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:6
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
+msgid "Split Up"
+msgstr "Splitt opp"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:11
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
+msgid "Split Down"
+msgstr "Splitt ned"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:16
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
+msgid "Split Left"
+msgstr "Splitt venstre"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:21
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
+msgid "Split Right"
+msgstr "Splitt høyre"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
@@ -89,33 +114,13 @@ msgstr "Splitt"
 msgid "Change Title…"
 msgstr "Endre tittel…"
 
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
-msgid "Split Up"
-msgstr "Splitt opp"
-
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
-msgid "Split Down"
-msgstr "Splitt ned"
-
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
-msgid "Split Left"
-msgstr "Splitt venstre"
-
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
-msgid "Split Right"
-msgstr "Splitt høyre"
-
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:59
 msgid "Tab"
 msgstr "Fane"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:62
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:30
-#: src/apprt/gtk/Window.zig:246
+#: src/apprt/gtk/Window.zig:248
 msgid "New Tab"
 msgstr "Ny fane"
 
@@ -152,7 +157,7 @@ msgid "Terminal Inspector"
 msgstr "Terminalinspektør"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:102
-#: src/apprt/gtk/Window.zig:960
+#: src/apprt/gtk/Window.zig:1003
 msgid "About Ghostty"
 msgstr "Om Ghostty"
 
@@ -203,13 +208,30 @@ msgstr ""
 "Det ser ut som at kommandoer vil bli kjørt hvis du limer inn dette, vurder "
 "om du mener det er trygt."
 
-#: src/apprt/gtk/inspector.zig:144
-msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: Terminalinspektør"
+#: src/apprt/gtk/Window.zig:201
+msgid "Main Menu"
+msgstr "Hovedmeny"
 
-#: src/apprt/gtk/Surface.zig:1243
-msgid "Copied to clipboard"
-msgstr "Kopiert til utklippstavlen"
+#: src/apprt/gtk/Window.zig:222
+msgid "View Open Tabs"
+msgstr "Se åpne faner"
+
+#: src/apprt/gtk/Window.zig:249
+msgid "New Split"
+msgstr ""
+
+#: src/apprt/gtk/Window.zig:312
+msgid ""
+"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
+msgstr "⚠️ Du kjører et debug-bygg av Ghostty. Debug-bygg har redusert ytelse."
+
+#: src/apprt/gtk/Window.zig:744
+msgid "Reloaded the configuration"
+msgstr "Konfigurasjonen ble lastet på nytt"
+
+#: src/apprt/gtk/Window.zig:984
+msgid "Ghostty Developers"
+msgstr "Ghostty-utviklere"
 
 #: src/apprt/gtk/CloseDialog.zig:47
 msgid "Close"
@@ -247,23 +269,10 @@ msgstr "Alle terminaløkter i denne fanen vil bli avsluttet."
 msgid "The currently running process in this split will be terminated."
 msgstr "Den kjørende prosessen for denne splitten vil bli avsluttet."
 
-#: src/apprt/gtk/Window.zig:200
-msgid "Main Menu"
-msgstr "Hovedmeny"
+#: src/apprt/gtk/Surface.zig:1243
+msgid "Copied to clipboard"
+msgstr "Kopiert til utklippstavlen"
 
-#: src/apprt/gtk/Window.zig:221
-msgid "View Open Tabs"
-msgstr "Se åpne faner"
-
-#: src/apprt/gtk/Window.zig:295
-msgid ""
-"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
-msgstr "⚠️ Du kjører et debug-bygg av Ghostty. Debug-bygg har redusert ytelse."
-
-#: src/apprt/gtk/Window.zig:725
-msgid "Reloaded the configuration"
-msgstr "Konfigurasjonen ble lastet på nytt"
-
-#: src/apprt/gtk/Window.zig:941
-msgid "Ghostty Developers"
-msgstr "Ghostty-utviklere"
+#: src/apprt/gtk/inspector.zig:144
+msgid "Ghostty: Terminal Inspector"
+msgstr "Ghostty: Terminalinspektør"

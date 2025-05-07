@@ -99,7 +99,7 @@ test "SVG" {
     const alloc = testing.allocator;
     const testFont = font.embedded.julia_mono;
 
-    var lib = try font.Library.init();
+    var lib = try font.Library.init(alloc);
     defer lib.deinit();
 
     var face = try font.Face.init(lib, testFont, .{ .size = .{ .points = 12 } });

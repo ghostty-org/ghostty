@@ -84,7 +84,7 @@ pub const MutableArray = opaque {
             a: *const Elem,
             b: *const Elem,
             context: ?*Context,
-        ) callconv(.C) ComparisonResult,
+        ) callconv(.c) ComparisonResult,
     ) void {
         CFArraySortValues(
             self,
@@ -155,7 +155,7 @@ test "array sorting" {
         void,
         null,
         struct {
-            fn compare(a: *const u8, b: *const u8, _: ?*void) callconv(.C) ComparisonResult {
+            fn compare(a: *const u8, b: *const u8, _: ?*void) callconv(.c) ComparisonResult {
                 if (a.* > b.*) return .greater;
                 if (a.* == b.*) return .equal;
                 return .less;

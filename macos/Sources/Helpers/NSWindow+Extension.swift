@@ -2,7 +2,11 @@ import AppKit
 
 extension NSWindow {
     /// Get the CGWindowID type for the window (used for low level CoreGraphics APIs).
-    var cgWindowId: CGWindowID {
-        CGWindowID(windowNumber)
+    var cgWindowId: CGWindowID? {
+        // "If the window doesn’t have a window device, the value of this
+        // property is equal to or less than 0." - Docs. In practice I've
+        // found this is true if a window is not visible.
+        guard windowNumber > 0 else { return nil }
+        return CGWindowID(windowNumber)
     }
 }

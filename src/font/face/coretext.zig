@@ -46,7 +46,11 @@ pub const Face = struct {
     };
 
     /// Initialize a CoreText-based font from a TTF/TTC in memory.
-    pub fn init(lib: font.Library, source: [:0]const u8, opts: font.face.Options) !Face {
+    pub fn init(
+        lib: font.Library,
+        source: [:0]const u8,
+        opts: font.face.Options,
+    ) !Face {
         _ = lib;
 
         const data = try macos.foundation.Data.createWithBytesNoCopy(source);
@@ -914,7 +918,7 @@ test "in-memory" {
     var atlas = try font.Atlas.init(alloc, 512, .grayscale);
     defer atlas.deinit(alloc);
 
-    var lib = try font.Library.init();
+    var lib = try font.Library.init(alloc);
     defer lib.deinit();
 
     var face = try Face.init(lib, testFont, .{ .size = .{ .points = 12 } });
@@ -941,7 +945,7 @@ test "variable" {
     var atlas = try font.Atlas.init(alloc, 512, .grayscale);
     defer atlas.deinit(alloc);
 
-    var lib = try font.Library.init();
+    var lib = try font.Library.init(alloc);
     defer lib.deinit();
 
     var face = try Face.init(lib, testFont, .{ .size = .{ .points = 12 } });
@@ -968,7 +972,7 @@ test "variable set variation" {
     var atlas = try font.Atlas.init(alloc, 512, .grayscale);
     defer atlas.deinit(alloc);
 
-    var lib = try font.Library.init();
+    var lib = try font.Library.init(alloc);
     defer lib.deinit();
 
     var face = try Face.init(lib, testFont, .{ .size = .{ .points = 12 } });
@@ -996,7 +1000,7 @@ test "svg font table" {
     const alloc = testing.allocator;
     const testFont = font.embedded.julia_mono;
 
-    var lib = try font.Library.init();
+    var lib = try font.Library.init(alloc);
     defer lib.deinit();
 
     var face = try Face.init(lib, testFont, .{ .size = .{ .points = 12 } });
@@ -1010,9 +1014,10 @@ test "svg font table" {
 
 test "glyphIndex colored vs text" {
     const testing = std.testing;
+    const alloc = testing.allocator;
     const testFont = font.embedded.julia_mono;
 
-    var lib = try font.Library.init();
+    var lib = try font.Library.init(alloc);
     defer lib.deinit();
 
     var face = try Face.init(lib, testFont, .{ .size = .{ .points = 12 } });

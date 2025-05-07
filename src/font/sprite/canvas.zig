@@ -149,8 +149,8 @@ pub const Canvas = struct {
     }
 
     /// Acquires a z2d drawing context, caller MUST deinit context.
-    pub fn getContext(self: *Canvas) Allocator.Error!z2d.Context {
-        return try z2d.Context.init(self.alloc, &self.sfc);
+    pub fn getContext(self: *Canvas) z2d.Context {
+        return z2d.Context.init(self.alloc, &self.sfc);
     }
 
     /// Draw and fill a single pixel

@@ -159,6 +159,7 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
         opengl: bool = false,
         /// disable GLES, Ghostty can't use GLES
         @"gl-disable-gles": bool = false,
+        // GTK's new renderer can cause blurry font when using fractional scaling.
         @"gl-no-fractional": bool = false,
         /// Disabling Vulkan can improve startup times by hundreds of
         /// milliseconds on some systems. We don't use Vulkan so we can just
@@ -190,7 +191,6 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
             // For the remainder of "why" see the 4.14 comment below.
             gdk_disable.@"gles-api" = true;
             gdk_disable.vulkan = true;
-            gdk_debug.@"gl-no-fractional" = true;
             break :environment;
         }
         if (gtk_version.runtimeAtLeast(4, 14, 0)) {
@@ -201,8 +201,12 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
             //
             // Upstream issue: https://gitlab.gnome.org/GNOME/gtk/-/issues/6589
             gdk_debug.@"gl-disable-gles" = true;
-            gdk_debug.@"gl-no-fractional" = true;
             gdk_debug.@"vulkan-disable" = true;
+
+            if (gtk_version.runtimeUntil(4, 17, 5)) {
+                // Removed at GTK v4.17.5
+                gdk_debug.@"gl-no-fractional" = true;
+            }
             break :environment;
         }
         // Versions prior to 4.14 are a bit of an unknown for Ghostty. It
@@ -488,6 +492,8 @@ pub fn performAction(
 
         // Unimplemented
         .close_all_windows,
+        .float_window,
+        .toggle_command_palette,
         .toggle_visibility,
         .cell_size,
         .key_sequence,
@@ -1290,6 +1296,13 @@ pub fn run(self: *App) !void {
     // Setup our actions
     self.initActions();
 
+    // On startup, we want to check for configuration errors right away
+    // so we can show our error window. We also need to setup other initial
+    // state.
+    self.syncConfigChanges(null) catch |err| {
+        log.warn("error handling configuration changes err={}", .{err});
+    };
+
     while (self.running) {
         _ = glib.MainContext.iteration(self.ctx, 1);
 
@@ -1514,7 +1527,7 @@ fn adwNotifyDark(
     style_manager: *adw.StyleManager,
     _: *gobject.ParamSpec,
     self: *App,
-) callconv(.C) void {
+) callconv(.c) void {
     const color_scheme: apprt.ColorScheme = if (style_manager.getDark() == 0)
         .light
     else

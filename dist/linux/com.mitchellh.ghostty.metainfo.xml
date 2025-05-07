@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.mitchellh.ghostty</id>
+  <launchable type="desktop-id">com.mitchellh.ghostty.desktop</launchable>
+  <name>Ghostty</name>
+  <url type="homepage">https://ghostty.org</url>
+  <url type="help">https://ghostty.org/docs</url>
+  <url type="bugtracker">https://github.com/ghostty-org/ghostty/discussions</url>
+  <url type="contact">https://ghostty.org/docs/help</url>
+  <url type="contribute">https://github.com/ghostty-org/ghostty/blob/main/CONTRIBUTING.md</url>
+  <url type="translate">https://github.com/ghostty-org/ghostty/blob/main/po/README_TRANSLATORS.md</url>
+  <url type="vcs-browser">https://github.com/ghostty-org/ghostty</url>
+  <summary>Ghostty is a fast, feature-rich, and cross-platform terminal emulator</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <content_rating type="oars-1.1" />
+  <developer id="com.mitchellh">
+    <name>Mitchell Hashimoto</name>
+  </developer>
+  <update_contact>m@mitchellh.com</update_contact>
+  <description>
+    <p>
+      Ghostty is a terminal emulator that differentiates itself by being fast,
+      feature-rich, and native. While there are many excellent terminal
+      emulators available, they all force you to choose between speed,
+      features, or native UIs. Ghostty provides all three.
+    </p>
+  </description>
+  <recommends>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </recommends>
+  <requires>
+    <!--
+      Mobile/tablet AND desktop supported
+
+      Ref: https://docs.flathub.org/docs/for-app-authors/metainfo-guidelines#display-size
+    -->
+    <display_length compare="ge">360</display_length>
+  </requires>
+  <translation type="gettext">com.mitchellh.ghostty</translation>
+
+  <!--
+    TODO: Generate manifest location data.
+
+    Ref: https://docs.flathub.org/docs/for-app-authors/metainfo-guidelines#manifest-location
+
+  <custom>
+    <value key="flathub::manifest">https://github.com/ghostty-org/ghostty/blob/<hash>/flatpak/com.mitchellh.ghostty.yml</value>
+  </custom>
+  -->
+
+  <releases>
+    <!-- TODO: Generate this automatically -->
+    <release version="1.0.1" date="2024-12-31">
+        <url type="details">https://ghostty.org/docs/install/release-notes/1-0-1</url>
+    </release>
+  </releases>
+</component>

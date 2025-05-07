@@ -8,11 +8,11 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-03-19 08:54-0700\n"
+"POT-Creation-Date: 2025-04-22 08:57-0700\n"
 "PO-Revision-Date: 2025-03-28 11:04-0300\n"
 "Last-Translator: Gustavo Peres <gsodevel@gmail.com>\n"
-"Language-Team: Brazilian Portuguese <ldpbr-"
-"translation@lists.sourceforge.net>\n"
+"Language-Team: Brazilian Portuguese <ldpbr-translation@lists.sourceforge."
+"net>\n"
 "Language: pt_BR\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -45,8 +45,8 @@ msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
-"Um ou mais erros de configuração encontrados. Por favor revise os erros abaixo, "
-"e ou recarregue sua configuração, ou ignore esses erros."
+"Um ou mais erros de configuração encontrados. Por favor revise os erros "
+"abaixo, e ou recarregue sua configuração, ou ignore esses erros."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
 msgid "Ignore"
@@ -57,6 +57,30 @@ msgstr "Ignorar"
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:95
 msgid "Reload Configuration"
 msgstr "Recarregar configuração"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:6
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
+msgid "Split Up"
+msgstr "Dividir para cima"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:11
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
+msgid "Split Down"
+msgstr "Dividir para baixo"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:16
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
+msgid "Split Left"
+msgstr "Dividir à esquerda"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:21
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
+msgid "Split Right"
+msgstr "Dividir à direita"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
@@ -89,33 +113,13 @@ msgstr "Dividir"
 msgid "Change Title…"
 msgstr "Mudar título…"
 
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
-msgid "Split Up"
-msgstr "Dividir para cima"
-
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
-msgid "Split Down"
-msgstr "Dividir para baixo"
-
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
-msgid "Split Left"
-msgstr "Dividir à esquerda"
-
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
-msgid "Split Right"
-msgstr "Dividir à direita"
-
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:59
 msgid "Tab"
 msgstr "Aba"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:62
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:30
-#: src/apprt/gtk/Window.zig:246
+#: src/apprt/gtk/Window.zig:248
 msgid "New Tab"
 msgstr "Nova aba"
 
@@ -152,7 +156,7 @@ msgid "Terminal Inspector"
 msgstr "Inspetor de terminal"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:102
-#: src/apprt/gtk/Window.zig:960
+#: src/apprt/gtk/Window.zig:1003
 msgid "About Ghostty"
 msgstr "Sobre o Ghostty"
 
@@ -170,8 +174,8 @@ msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
-"Uma aplicação está tentando ler da área de transferência. O conteúdo "
-"atual da área de transferência está sendo exibido abaixo."
+"Uma aplicação está tentando ler da área de transferência. O conteúdo atual "
+"da área de transferência está sendo exibido abaixo."
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:10
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:10
@@ -203,13 +207,31 @@ msgstr ""
 "Colar esse texto em um terminal pode ser perigoso, pois parece que alguns "
 "comandos podem ser executados."
 
-#: src/apprt/gtk/inspector.zig:144
-msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: Inspetor de terminal"
+#: src/apprt/gtk/Window.zig:201
+msgid "Main Menu"
+msgstr "Menu Principal"
 
-#: src/apprt/gtk/Surface.zig:1243
-msgid "Copied to clipboard"
-msgstr "Copiado para a área de transferência"
+#: src/apprt/gtk/Window.zig:222
+msgid "View Open Tabs"
+msgstr "Visualizar abas abertas"
+
+#: src/apprt/gtk/Window.zig:249
+msgid "New Split"
+msgstr ""
+
+#: src/apprt/gtk/Window.zig:312
+msgid ""
+"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
+msgstr ""
+"⚠️ Você está rodando uma build de debug do Ghostty! O desempenho será afetado."
+
+#: src/apprt/gtk/Window.zig:744
+msgid "Reloaded the configuration"
+msgstr "Configuração recarregada"
+
+#: src/apprt/gtk/Window.zig:984
+msgid "Ghostty Developers"
+msgstr "Desenvolvedores Ghostty"
 
 #: src/apprt/gtk/CloseDialog.zig:47
 msgid "Close"
@@ -247,23 +269,10 @@ msgstr "Todas as sessões de terminal nessa aba serão finalizadas."
 msgid "The currently running process in this split will be terminated."
 msgstr "O processo atual rodando nessa divisão será finalizado."
 
-#: src/apprt/gtk/Window.zig:200
-msgid "Main Menu"
-msgstr "Menu Principal"
+#: src/apprt/gtk/Surface.zig:1243
+msgid "Copied to clipboard"
+msgstr "Copiado para a área de transferência"
 
-#: src/apprt/gtk/Window.zig:221
-msgid "View Open Tabs"
-msgstr "Visualizar abas abertas"
-
-#: src/apprt/gtk/Window.zig:295
-msgid ""
-"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
-msgstr "⚠️ Você está rodando uma build de debug do Ghostty! O desempenho será afetado."
-
-#: src/apprt/gtk/Window.zig:725
-msgid "Reloaded the configuration"
-msgstr "Configuração recarregada"
-
-#: src/apprt/gtk/Window.zig:941
-msgid "Ghostty Developers"
-msgstr "Desenvolvedores Ghostty"
+#: src/apprt/gtk/inspector.zig:144
+msgid "Ghostty: Terminal Inspector"
+msgstr "Ghostty: Inspetor de terminal"

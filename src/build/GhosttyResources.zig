@@ -202,6 +202,12 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
             "share/applications/com.mitchellh.ghostty.desktop",
         ).step);
 
+        // AppStream metainfo so that application has rich metadata within app stores
+        try steps.append(&b.addInstallFile(
+            b.path("dist/linux/com.mitchellh.ghostty.metainfo.xml"),
+            "share/metainfo/com.mitchellh.ghostty.metainfo.xml",
+        ).step);
+
         // Right click menu action for Plasma desktop
         try steps.append(&b.addInstallFile(
             b.path("dist/linux/ghostty_dolphin.desktop"),

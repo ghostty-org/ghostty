@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-03-19 08:28-0700\n"
+"POT-Creation-Date: 2025-04-22 08:57-0700\n"
 "PO-Revision-Date: 2025-03-20 08:07+0100\n"
 "Last-Translator: Francesc Arpi <francesc.arpi@gmail.com>\n"
 "Language-Team: \n"
@@ -43,8 +43,8 @@ msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
-"S'han trobat un o més errors de configuració. Si us plau, revisa els errors a "
-"continuació i torna a carregar la configuració o ignora aquests errors."
+"S'han trobat un o més errors de configuració. Si us plau, revisa els errors "
+"a continuació i torna a carregar la configuració o ignora aquests errors."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
 msgid "Ignore"
@@ -55,6 +55,30 @@ msgstr "Ignora"
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:95
 msgid "Reload Configuration"
 msgstr "Carrega la configuració"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:6
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
+msgid "Split Up"
+msgstr "Divideix cap amunt"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:11
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
+msgid "Split Down"
+msgstr "Divideix cap avall"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:16
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
+msgid "Split Left"
+msgstr "Divideix a l'esquerra"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:21
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
+msgid "Split Right"
+msgstr "Divideix a la dreta"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
@@ -87,33 +111,13 @@ msgstr "Divideix"
 msgid "Change Title…"
 msgstr "Canvia el títol…"
 
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
-msgid "Split Up"
-msgstr "Divideix cap amunt"
-
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
-msgid "Split Down"
-msgstr "Divideix cap avall"
-
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
-msgid "Split Left"
-msgstr "Divideix a l'esquerra"
-
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
-msgid "Split Right"
-msgstr "Divideix a la dreta"
-
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:59
 msgid "Tab"
 msgstr "Pestanya"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:62
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:30
-#: src/apprt/gtk/Window.zig:246
+#: src/apprt/gtk/Window.zig:248
 msgid "New Tab"
 msgstr "Nova pestanya"
 
@@ -150,7 +154,7 @@ msgid "Terminal Inspector"
 msgstr "Inspector de terminal"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:102
-#: src/apprt/gtk/Window.zig:960
+#: src/apprt/gtk/Window.zig:1003
 msgid "About Ghostty"
 msgstr "Sobre Ghostty"
 
@@ -201,13 +205,32 @@ msgstr ""
 "Enganxar aquest text al terminal pot ser perillós, ja que sembla que es "
 "podrien executar algunes ordres."
 
-#: src/apprt/gtk/inspector.zig:144
-msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: Inspector de terminal"
+#: src/apprt/gtk/Window.zig:201
+msgid "Main Menu"
+msgstr "Menú principal"
 
-#: src/apprt/gtk/Surface.zig:1243
-msgid "Copied to clipboard"
-msgstr "Copiat al porta-retalls"
+#: src/apprt/gtk/Window.zig:222
+msgid "View Open Tabs"
+msgstr "Mostra les pestanyes obertes"
+
+#: src/apprt/gtk/Window.zig:249
+msgid "New Split"
+msgstr ""
+
+#: src/apprt/gtk/Window.zig:312
+msgid ""
+"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
+msgstr ""
+"⚠️ Estàs executant una versió de depuració de Ghostty! El rendiment es veurà "
+"afectat."
+
+#: src/apprt/gtk/Window.zig:744
+msgid "Reloaded the configuration"
+msgstr "S'ha tornat a carregar la configuració"
+
+#: src/apprt/gtk/Window.zig:984
+msgid "Ghostty Developers"
+msgstr "Desenvolupadors de Ghostty"
 
 #: src/apprt/gtk/CloseDialog.zig:47
 msgid "Close"
@@ -245,25 +268,10 @@ msgstr "Totes les sessions del terminal en aquesta pestanya es tancaran."
 msgid "The currently running process in this split will be terminated."
 msgstr "El procés actualment en execució en aquesta divisió es tancarà."
 
-#: src/apprt/gtk/Window.zig:200
-msgid "Main Menu"
-msgstr "Menú principal"
+#: src/apprt/gtk/Surface.zig:1243
+msgid "Copied to clipboard"
+msgstr "Copiat al porta-retalls"
 
-#: src/apprt/gtk/Window.zig:221
-msgid "View Open Tabs"
-msgstr "Mostra les pestanyes obertes"
-
-#: src/apprt/gtk/Window.zig:295
-msgid ""
-"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
-msgstr ""
-"⚠️ Estàs executant una versió de depuració de Ghostty! El rendiment es "
-"veurà afectat."
-
-#: src/apprt/gtk/Window.zig:725
-msgid "Reloaded the configuration"
-msgstr "S'ha tornat a carregar la configuració"
-
-#: src/apprt/gtk/Window.zig:941
-msgid "Ghostty Developers"
-msgstr "Desenvolupadors de Ghostty"
+#: src/apprt/gtk/inspector.zig:144
+msgid "Ghostty: Terminal Inspector"
+msgstr "Ghostty: Inspector de terminal"

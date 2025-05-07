@@ -50,7 +50,7 @@ pub const InitError = Library.InitError;
 
 /// Initialize a new SharedGridSet.
 pub fn init(alloc: Allocator) InitError!SharedGridSet {
-    var font_lib = try Library.init();
+    var font_lib = try Library.init(alloc);
     errdefer font_lib.deinit();
 
     return .{

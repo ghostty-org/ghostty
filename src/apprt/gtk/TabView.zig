@@ -227,7 +227,7 @@ pub fn createWindow(window: *Window) !*Window {
     return new_window;
 }
 
-fn adwPageAttached(_: *adw.TabView, page: *adw.TabPage, _: c_int, self: *TabView) callconv(.C) void {
+fn adwPageAttached(_: *adw.TabView, page: *adw.TabPage, _: c_int, self: *TabView) callconv(.c) void {
     const child = page.getChild().as(gobject.Object);
     const tab: *Tab = @ptrCast(@alignCast(child.getData(Tab.GHOSTTY_TAB) orelse return));
     tab.window = self.window;
@@ -239,7 +239,7 @@ fn adwClosePage(
     _: *adw.TabView,
     page: *adw.TabPage,
     self: *TabView,
-) callconv(.C) c_int {
+) callconv(.c) c_int {
     const child = page.getChild().as(gobject.Object);
     const tab: *Tab = @ptrCast(@alignCast(child.getData(Tab.GHOSTTY_TAB) orelse return 0));
     self.tab_view.closePageFinish(page, @intFromBool(self.forcing_close));
@@ -251,7 +251,7 @@ fn adwClosePage(
 fn adwTabViewCreateWindow(
     _: *adw.TabView,
     self: *TabView,
-) callconv(.C) ?*adw.TabView {
+) callconv(.c) ?*adw.TabView {
     const window = createWindow(self.window) catch |err| {
         log.warn("error creating new window error={}", .{err});
         return null;
@@ -259,7 +259,7 @@ fn adwTabViewCreateWindow(
     return window.notebook.tab_view;
 }
 
-fn adwSelectPage(_: *adw.TabView, _: *gobject.ParamSpec, self: *TabView) callconv(.C) void {
+fn adwSelectPage(_: *adw.TabView, _: *gobject.ParamSpec, self: *TabView) callconv(.c) void {
     const page = self.tab_view.getSelectedPage() orelse return;
 
     // If the tab was previously marked as needing attention

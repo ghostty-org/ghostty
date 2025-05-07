@@ -3,6 +3,8 @@
   lib,
   stdenv,
   bashInteractive,
+  appstream,
+  flatpak-builder,
   gdb,
   #, glxinfo # unused
   ncurses,
@@ -128,6 +130,8 @@ in
         # build only has the qemu-system files.
         qemu
 
+        appstream
+        flatpak-builder
         gdb
         snapcraft
         valgrind

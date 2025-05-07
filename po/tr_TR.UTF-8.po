@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-03-19 08:54-0700\n"
+"POT-Creation-Date: 2025-04-22 08:57-0700\n"
 "PO-Revision-Date: 2025-03-24 22:01+0300\n"
 "Last-Translator: Emir SARI <emir_sari@icloud.com>\n"
 "Language-Team: Turkish\n"
@@ -57,6 +57,30 @@ msgstr "Yok Say"
 msgid "Reload Configuration"
 msgstr "Yapılandırmayı Yeniden Yükle"
 
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:6
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
+msgid "Split Up"
+msgstr "Yukarı Doğru Böl"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:11
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
+msgid "Split Down"
+msgstr "Aşağı Doğru Böl"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:16
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
+msgid "Split Left"
+msgstr "Sola Doğru Böl"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:21
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
+msgid "Split Right"
+msgstr "Sağa Doğru Böl"
+
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
 msgid "Copy"
@@ -88,33 +112,13 @@ msgstr "Böl"
 msgid "Change Title…"
 msgstr "Başlığı Değiştir…"
 
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
-msgid "Split Up"
-msgstr "Yukarı Doğru Böl"
-
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
-msgid "Split Down"
-msgstr "Aşağı Doğru Böl"
-
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
-msgid "Split Left"
-msgstr "Sola Doğru Böl"
-
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
-msgid "Split Right"
-msgstr "Sağa Doğru Böl"
-
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:59
 msgid "Tab"
 msgstr "Sekme"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:62
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:30
-#: src/apprt/gtk/Window.zig:246
+#: src/apprt/gtk/Window.zig:248
 msgid "New Tab"
 msgstr "Yeni Sekme"
 
@@ -151,7 +155,7 @@ msgid "Terminal Inspector"
 msgstr "Uçbirim Denetçisi"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:102
-#: src/apprt/gtk/Window.zig:960
+#: src/apprt/gtk/Window.zig:1003
 msgid "About Ghostty"
 msgstr "Ghostty Hakkında"
 
@@ -202,13 +206,32 @@ msgstr ""
 "Bu metni uçbirime yapıştırmak tehlikeli olabilir; çünkü bir komut "
 "yürütülebilecekmiş gibi duruyor."
 
-#: src/apprt/gtk/inspector.zig:144
-msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: Uçbirim Denetçisi"
+#: src/apprt/gtk/Window.zig:201
+msgid "Main Menu"
+msgstr "Ana Menü"
 
-#: src/apprt/gtk/Surface.zig:1243
-msgid "Copied to clipboard"
-msgstr "Panoya kopyalandı"
+#: src/apprt/gtk/Window.zig:222
+msgid "View Open Tabs"
+msgstr "Açık Sekmeleri Görüntüle"
+
+#: src/apprt/gtk/Window.zig:249
+msgid "New Split"
+msgstr ""
+
+#: src/apprt/gtk/Window.zig:312
+msgid ""
+"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
+msgstr ""
+"⚠️ Ghostty’nin hata ayıklama amaçlı yapılmış bir sürümünü kullanıyorsunuz! "
+"Başarım normale göre daha düşük olacaktır."
+
+#: src/apprt/gtk/Window.zig:744
+msgid "Reloaded the configuration"
+msgstr "Yapılandırma yeniden yüklendi"
+
+#: src/apprt/gtk/Window.zig:984
+msgid "Ghostty Developers"
+msgstr "Ghostty Geliştiricileri"
 
 #: src/apprt/gtk/CloseDialog.zig:47
 msgid "Close"
@@ -246,25 +269,10 @@ msgstr "Bu sekmedeki tüm uçbirim oturumları sonlandırılacaktır."
 msgid "The currently running process in this split will be terminated."
 msgstr "Bu bölmedeki şu anda çalışan süreç sonlandırılacaktır."
 
-#: src/apprt/gtk/Window.zig:200
-msgid "Main Menu"
-msgstr "Ana Menü"
+#: src/apprt/gtk/Surface.zig:1243
+msgid "Copied to clipboard"
+msgstr "Panoya kopyalandı"
 
-#: src/apprt/gtk/Window.zig:221
-msgid "View Open Tabs"
-msgstr "Açık Sekmeleri Görüntüle"
-
-#: src/apprt/gtk/Window.zig:295
-msgid ""
-"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
-msgstr ""
-"⚠️ Ghostty’nin hata ayıklama amaçlı yapılmış bir sürümünü kullanıyorsunuz! "
-"Başarım normale göre daha düşük olacaktır."
-
-#: src/apprt/gtk/Window.zig:725
-msgid "Reloaded the configuration"
-msgstr "Yapılandırma yeniden yüklendi"
-
-#: src/apprt/gtk/Window.zig:941
-msgid "Ghostty Developers"
-msgstr "Ghostty Geliştiricileri"
+#: src/apprt/gtk/inspector.zig:144
+msgid "Ghostty: Terminal Inspector"
+msgstr "Ghostty: Uçbirim Denetçisi"

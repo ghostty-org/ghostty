@@ -177,7 +177,7 @@ const Window = struct {
     }
 
     /// "destroy" signal for the window
-    fn gtkDestroy(_: *gtk.ApplicationWindow, self: *Window) callconv(.C) void {
+    fn gtkDestroy(_: *gtk.ApplicationWindow, self: *Window) callconv(.c) void {
         log.debug("window destroy", .{});
         self.deinit();
     }

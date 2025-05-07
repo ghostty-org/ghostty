@@ -1779,6 +1779,15 @@ pub fn rebuildCells(
         }
     }
 
+    // Free up memory, generally in case where surface has shrunk.
+    // If more than half of the capacity is unused, remove all unused capacity.
+    if (self.cells.items.len * 2 < self.cells.capacity) {
+        self.cells.shrinkAndFree(self.alloc, self.cells.items.len);
+    }
+    if (self.cells_bg.items.len * 2 < self.cells_bg.capacity) {
+        self.cells_bg.shrinkAndFree(self.alloc, self.cells_bg.items.len);
+    }
+
     // Some debug mode safety checks
     if (std.debug.runtime_safety) {
         for (self.cells_bg.items) |cell| assert(cell.mode == .bg);
@@ -2196,12 +2205,6 @@ pub fn setScreenSize(
     if (single_threaded_draw) self.draw_mutex.lock();
     defer if (single_threaded_draw) self.draw_mutex.unlock();
 
-    // Reset our buffer sizes so that we free memory when the screen shrinks.
-    // This could be made more clever by only doing this when the screen
-    // shrinks but the performance cost really isn't that much.
-    self.cells.clearAndFree(self.alloc);
-    self.cells_bg.clearAndFree(self.alloc);
-
     // Store our screen size
     self.size = size;
 
@@ -2337,6 +2340,23 @@ pub fn drawFrame(self: *OpenGL, surface: *apprt.Surface) !void {
     const cgl_ctx = if (comptime is_darwin) ogl.CGLGetCurrentContext();
     if (comptime is_darwin) _ = ogl.CGLLockContext(cgl_ctx);
     defer _ = if (comptime is_darwin) ogl.CGLUnlockContext(cgl_ctx);
+
+    // If our viewport size doesn't match the saved screen size then
+    // we need to update it. We rely on this over setScreenSize because
+    // we can pull it directly from the OpenGL context instead of relying
+    // on the eventual message.
+    {
+        var viewport: [4]gl.c.GLint = undefined;
+        gl.glad.context.GetIntegerv.?(gl.c.GL_VIEWPORT, &viewport);
+        const screen: renderer.ScreenSize = .{
+            .width = @intCast(viewport[2]),
+            .height = @intCast(viewport[3]),
+        };
+        if (!screen.equals(self.size.screen)) {
+            self.size.screen = screen;
+            self.deferred_screen_size = .{ .size = self.size };
+        }
+    }
 
     // Draw our terminal cells
     try self.drawCellProgram(gl_state);

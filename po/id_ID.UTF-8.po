@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-03-19 08:28-0700\n"
+"POT-Creation-Date: 2025-04-22 08:57-0700\n"
 "PO-Revision-Date: 2025-03-20 15:19+0700\n"
 "Last-Translator: Satrio Bayu Aji <halosatrio@gmail.com>\n"
 "Language-Team: Indonesian <translation-team-id@lists.sourceforge.net>\n"
@@ -42,8 +42,8 @@ msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
-"Ditemukan satu atau lebih kesalahan konfigurasi. Silakan tinjau kesalahan di bawah ini, "
-"dan muat ulang konfigurasi anda atau abaikan kesalahan ini."
+"Ditemukan satu atau lebih kesalahan konfigurasi. Silakan tinjau kesalahan di "
+"bawah ini, dan muat ulang konfigurasi anda atau abaikan kesalahan ini."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
 msgid "Ignore"
@@ -54,6 +54,30 @@ msgstr "Abaikan"
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:95
 msgid "Reload Configuration"
 msgstr "Muat ulang konfigurasi"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:6
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
+msgid "Split Up"
+msgstr "Belah atas"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:11
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
+msgid "Split Down"
+msgstr "Belah bawah"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:16
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
+msgid "Split Left"
+msgstr "Belah kiri"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:21
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
+msgid "Split Right"
+msgstr "Belah kanan"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
@@ -86,33 +110,13 @@ msgstr "Belah"
 msgid "Change Title…"
 msgstr "Ubah judul…"
 
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
-msgid "Split Up"
-msgstr "Belah atas"
-
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
-msgid "Split Down"
-msgstr "Belah bawah"
-
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
-msgid "Split Left"
-msgstr "Belah kiri"
-
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
-msgid "Split Right"
-msgstr "Belah kanan"
-
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:59
 msgid "Tab"
 msgstr "Tab"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:62
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:30
-#: src/apprt/gtk/Window.zig:246
+#: src/apprt/gtk/Window.zig:248
 msgid "New Tab"
 msgstr "Tab baru"
 
@@ -149,7 +153,7 @@ msgid "Terminal Inspector"
 msgstr "Inspektur terminal"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:102
-#: src/apprt/gtk/Window.zig:960
+#: src/apprt/gtk/Window.zig:1003
 msgid "About Ghostty"
 msgstr "Tentang Ghostty"
 
@@ -167,8 +171,8 @@ msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
-"Aplikasi sedang mencoba membaca dari papan klip. Isi papan klip "
-"saat ini ditampilkan di bawah ini."
+"Aplikasi sedang mencoba membaca dari papan klip. Isi papan klip saat ini "
+"ditampilkan di bawah ini."
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:10
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:10
@@ -185,8 +189,8 @@ msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
-"Aplikasi sedang mencoba menulis ke papan klip. Isi papan klip "
-"saat ini ditampilkan di bawah ini."
+"Aplikasi sedang mencoba menulis ke papan klip. Isi papan klip saat ini "
+"ditampilkan di bawah ini."
 
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:6
 msgid "Warning: Potentially Unsafe Paste"
@@ -200,13 +204,31 @@ msgstr ""
 "Menempelkan teks ini ke terminal mungkin berbahaya karena sepertinya "
 "beberapa perintah mungkin dijalankan."
 
-#: src/apprt/gtk/inspector.zig:144
-msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: Inspektur terminal"
+#: src/apprt/gtk/Window.zig:201
+msgid "Main Menu"
+msgstr "Menu utama"
 
-#: src/apprt/gtk/Surface.zig:1243
-msgid "Copied to clipboard"
-msgstr "Disalin ke papan klip"
+#: src/apprt/gtk/Window.zig:222
+msgid "View Open Tabs"
+msgstr "Lihat tab terbuka"
+
+#: src/apprt/gtk/Window.zig:249
+msgid "New Split"
+msgstr ""
+
+#: src/apprt/gtk/Window.zig:312
+msgid ""
+"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
+msgstr ""
+"⚠️ Anda sedang menjalankan versi debug dari Ghostty! Performa akan menurun."
+
+#: src/apprt/gtk/Window.zig:744
+msgid "Reloaded the configuration"
+msgstr "Memuat ulang konfigurasi"
+
+#: src/apprt/gtk/Window.zig:984
+msgid "Ghostty Developers"
+msgstr "Pengembang Ghostty"
 
 #: src/apprt/gtk/CloseDialog.zig:47
 msgid "Close"
@@ -244,23 +266,10 @@ msgstr "Semua sesi terminal di tab ini akan diakhiri."
 msgid "The currently running process in this split will be terminated."
 msgstr "Proses yang sedang berjalan dalam belahan ini akan diakhiri."
 
-#: src/apprt/gtk/Window.zig:200
-msgid "Main Menu"
-msgstr "Menu utama"
+#: src/apprt/gtk/Surface.zig:1243
+msgid "Copied to clipboard"
+msgstr "Disalin ke papan klip"
 
-#: src/apprt/gtk/Window.zig:221
-msgid "View Open Tabs"
-msgstr "Lihat tab terbuka"
-
-#: src/apprt/gtk/Window.zig:295
-msgid ""
-"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
-msgstr "⚠️ Anda sedang menjalankan versi debug dari Ghostty! Performa akan menurun."
-
-#: src/apprt/gtk/Window.zig:725
-msgid "Reloaded the configuration"
-msgstr "Memuat ulang konfigurasi"
-
-#: src/apprt/gtk/Window.zig:941
-msgid "Ghostty Developers"
-msgstr "Pengembang Ghostty"
+#: src/apprt/gtk/inspector.zig:144
+msgid "Ghostty: Terminal Inspector"
+msgstr "Ghostty: Inspektur terminal"

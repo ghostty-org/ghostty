@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-03-19 08:28-0700\n"
+"POT-Creation-Date: 2025-04-22 08:57-0700\n"
 "PO-Revision-Date: 2025-03-21 00:08+0900\n"
 "Last-Translator: Lon Sagisawa <lon@sagisawa.me>\n"
 "Language-Team: Japanese\n"
@@ -44,8 +44,8 @@ msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
-"設定ファイルにエラーがあります。以下のエラーを確認し、"
-"設定ファイルの再読み込みをするか、無視してください。"
+"設定ファイルにエラーがあります。以下のエラーを確認し、設定ファイルの再読み込"
+"みをするか、無視してください。"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
 msgid "Ignore"
@@ -56,6 +56,30 @@ msgstr "無視"
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:95
 msgid "Reload Configuration"
 msgstr "設定ファイルの再読み込み"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:6
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
+msgid "Split Up"
+msgstr "上に分割"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:11
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
+msgid "Split Down"
+msgstr "下に分割"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:16
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
+msgid "Split Left"
+msgstr "左に分割"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:21
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
+msgid "Split Right"
+msgstr "右に分割"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
@@ -88,33 +112,13 @@ msgstr "分割"
 msgid "Change Title…"
 msgstr "タイトルを変更…"
 
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
-msgid "Split Up"
-msgstr "上に分割"
-
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
-msgid "Split Down"
-msgstr "下に分割"
-
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
-msgid "Split Left"
-msgstr "左に分割"
-
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
-msgid "Split Right"
-msgstr "右に分割"
-
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:59
 msgid "Tab"
 msgstr "タブ"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:62
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:30
-#: src/apprt/gtk/Window.zig:246
+#: src/apprt/gtk/Window.zig:248
 msgid "New Tab"
 msgstr "新しいタブ"
 
@@ -151,7 +155,7 @@ msgid "Terminal Inspector"
 msgstr "端末インスペクター"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:102
-#: src/apprt/gtk/Window.zig:960
+#: src/apprt/gtk/Window.zig:1003
 msgid "About Ghostty"
 msgstr "Ghostty について"
 
@@ -169,8 +173,8 @@ msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
-"アプリケーションがクリップボードを読み取ろうとしています。"
-"現在のクリップボードの内容は以下の通りです。"
+"アプリケーションがクリップボードを読み取ろうとしています。現在のクリップボー"
+"ドの内容は以下の通りです。"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:10
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:10
@@ -187,8 +191,8 @@ msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
-"アプリケーションがクリップボードに書き込もうとしています。"
-"現在のクリップボードの内容は以下の通りです。"
+"アプリケーションがクリップボードに書き込もうとしています。現在のクリップボー"
+"ドの内容は以下の通りです。"
 
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:6
 msgid "Warning: Potentially Unsafe Paste"
@@ -199,16 +203,34 @@ msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
 msgstr ""
-"このテキストには実行可能なコマンドが含まれており、"
-"ターミナルに貼り付けるのは危険な可能性があります。"
+"このテキストには実行可能なコマンドが含まれており、ターミナルに貼り付けるのは"
+"危険な可能性があります。"
 
-#: src/apprt/gtk/inspector.zig:144
-msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: 端末インスペクター"
+#: src/apprt/gtk/Window.zig:201
+msgid "Main Menu"
+msgstr "メインメニュー"
 
-#: src/apprt/gtk/Surface.zig:1243
-msgid "Copied to clipboard"
-msgstr "クリップボードにコピーしました"
+#: src/apprt/gtk/Window.zig:222
+msgid "View Open Tabs"
+msgstr "開いているすべてのタブを表示"
+
+#: src/apprt/gtk/Window.zig:249
+msgid "New Split"
+msgstr ""
+
+#: src/apprt/gtk/Window.zig:312
+msgid ""
+"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
+msgstr ""
+"⚠️ Ghostty のデバッグビルドを実行しています! パフォーマンスが低下しています。"
+
+#: src/apprt/gtk/Window.zig:744
+msgid "Reloaded the configuration"
+msgstr "設定を再読み込みしました"
+
+#: src/apprt/gtk/Window.zig:984
+msgid "Ghostty Developers"
+msgstr "Ghostty 開発者"
 
 #: src/apprt/gtk/CloseDialog.zig:47
 msgid "Close"
@@ -246,23 +268,10 @@ msgstr "タブ内のすべてのターミナルセッションが終了します
 msgid "The currently running process in this split will be terminated."
 msgstr "分割ウィンドウ内のすべてのプロセスが終了します。"
 
-#: src/apprt/gtk/Window.zig:200
-msgid "Main Menu"
-msgstr "メインメニュー"
+#: src/apprt/gtk/Surface.zig:1243
+msgid "Copied to clipboard"
+msgstr "クリップボードにコピーしました"
 
-#: src/apprt/gtk/Window.zig:221
-msgid "View Open Tabs"
-msgstr "開いているすべてのタブを表示"
-
-#: src/apprt/gtk/Window.zig:295
-msgid ""
-"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
-msgstr "⚠️ Ghostty のデバッグビルドを実行しています! パフォーマンスが低下しています。"
-
-#: src/apprt/gtk/Window.zig:725
-msgid "Reloaded the configuration"
-msgstr "設定を再読み込みしました"
-
-#: src/apprt/gtk/Window.zig:941
-msgid "Ghostty Developers"
-msgstr "Ghostty 開発者"
+#: src/apprt/gtk/inspector.zig:144
+msgid "Ghostty: Terminal Inspector"
+msgstr "Ghostty: 端末インスペクター"

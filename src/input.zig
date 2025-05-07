@@ -5,6 +5,7 @@ const mouse = @import("input/mouse.zig");
 const key = @import("input/key.zig");
 const keyboard = @import("input/keyboard.zig");
 
+pub const command = @import("input/command.zig");
 pub const function_keys = @import("input/function_keys.zig");
 pub const keycodes = @import("input/keycodes.zig");
 pub const kitty = @import("input/kitty.zig");
@@ -12,6 +13,7 @@ pub const kitty = @import("input/kitty.zig");
 pub const ctrlOrSuper = key.ctrlOrSuper;
 pub const Action = key.Action;
 pub const Binding = @import("input/Binding.zig");
+pub const Command = command.Command;
 pub const Link = @import("input/Link.zig");
 pub const Key = key.Key;
 pub const KeyboardLayout = keyboard.Layout;

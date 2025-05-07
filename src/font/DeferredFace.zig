@@ -407,7 +407,7 @@ test "fontconfig" {
     const alloc = testing.allocator;
 
     // Load freetype
-    var lib = try Library.init();
+    var lib = try Library.init(alloc);
     defer lib.deinit();
 
     // Get a deferred face from fontconfig
@@ -425,7 +425,8 @@ test "fontconfig" {
     try testing.expect(n.len > 0);
 
     // Load it and verify it works
-    const face = try def.load(lib, .{ .size = .{ .points = 12 } });
+    var face = try def.load(lib, .{ .size = .{ .points = 12 } });
+    defer face.deinit();
     try testing.expect(face.glyphIndex(' ') != null);
 }
 
@@ -437,7 +438,7 @@ test "coretext" {
     const alloc = testing.allocator;
 
     // Load freetype
-    var lib = try Library.init();
+    var lib = try Library.init(alloc);
     defer lib.deinit();
 
     // Get a deferred face from fontconfig
@@ -456,6 +457,7 @@ test "coretext" {
     try testing.expect(n.len > 0);
 
     // Load it and verify it works
-    const face = try def.load(lib, .{ .size = .{ .points = 12 } });
+    var face = try def.load(lib, .{ .size = .{ .points = 12 } });
+    defer face.deinit();
     try testing.expect(face.glyphIndex(' ') != null);
 }

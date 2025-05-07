@@ -1,4 +1,4 @@
-labels: ["needs confirmation"]
+labels: ["needs-confirmation"]
 body:
   - type: markdown
     attributes:
@@ -14,22 +14,37 @@ body:
       description: |
         Provide a detailed description of the issue.  Include relevant information, such as:
         - The feature or configuration option you encounter the issue with.
-        - The expected behavior.
-        - The actual behavior (and how it deviates from the expected behavior, if it is not immediately obvious).
-        - Relevant Ghostty logs or other stacktraces.
-        - Relevant screenshots, screen recordings, or other supporting media (as needed).
+        - Screenshots, screen recordings, or other supporting media (as needed).
         - If this is a regression of an existing issue that was closed or resolved, please include the previous item reference (Discussion, Issue, PR, commit) in your description.
 
-        >[!TIP]
+        > [!TIP]
         > **Not sure what information to include?**
         > Here are some recommendations:
-        > - **Input issues:** include your keyboard layout, a screenshot of the terminal inspector's logged keystrokes (Linux: <kbd>ctrl</kbd>+<kbd>shift</kbd>+<kbd>i</kbd>; MacOS: <kbd>cmd</kbd>+<kbd>alt</kbd>+<kbd>i</kbd>), input method, Linux input method engine (IBus, Fcitx 5, or none) and its version.
+        > - **Input issues:** include your keyboard layout, a screenshot of logged keystrokes from the terminal inspector's "Keyboard" tab (Linux: <kbd>ctrl</kbd>+<kbd>shift</kbd>+<kbd>i</kbd>; MacOS: <kbd>cmd</kbd>+<kbd>alt</kbd>+<kbd>i</kbd>), input method, Linux input method engine (IBus, Fcitx 5, or none) and its version.
         > - **Font issues:** include the problematic character(s), the output of `ghostty +show-face` for these character(s), and if they work in other applications.
-        > - **VT issues (including image rendering issues):** attach an [asciinema](https://docs.asciinema.org/getting-started/) cast file, shell script, or text file for reproduction.
+        > - **Terminal emulation issues (including image rendering issues):** attach an [asciinema](https://docs.asciinema.org/getting-started/) cast file, shell script, or text file for reproduction.
         > - **Renderer issues:** (Linux) include your OpenGL version, graphics card, driver version.
-
+        > - **Crashes:** (macOS) include the [Sentry UUID](https://github.com/ghostty-org/ghostty?tab=readme-ov-file#crash-reports); (Linux) try to reproduce using a debug build and provide the stack trace.
       placeholder: |
-        Example: When using SSH to connect to my remote Linux machine from my local macOS device in Ghostty, I try to run `clear`, and the screen does not clear.  Instead, I see the following error message printed to the terminal: `Error opening terminal: xterm-ghostty.`
+        When using SSH to connect to my remote Linux machine from my local macOS device in Ghostty, I try to run `clear`, and the screen does not clear.  Instead, I see the following error message printed to the terminal: `Error opening terminal: xterm-ghostty.`
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Expected Behavior
+      description: |
+        Describe how you expect Ghostty to behave in this situation.  Include any relevant documentation links.
+      placeholder: |
+        The screen is cleared and the prompt is redrawn at the top of the window.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Actual Behavior
+      description: |
+        Describe how Ghostty actually behaves in this situation.  If it is not immediately obvious how the actual behavior differs from the expected behavior described above, please be sure to mention the deviation specifically.
+      placeholder: |
+        The screen is not cleared, and an error is printed: `Error opening terminal: xterm-ghostty`.
     validations:
       required: true
   - type: textarea
@@ -44,6 +59,12 @@ body:
         4. Observe `xterm-ghostty` error message above.
     validations:
       required: true
+  - type: textarea
+    attributes:
+      label: Ghostty Logs
+      description: |
+        Provide any captured Ghostty logs or stacktraces during your issue reproduction in this field.  On Linux, logs can be found by running `ghostty` from the command-line; on macOS, logs can be viewed with `sudo log stream --level debug --predicate 'subsystem=="com.mitchellh.ghostty"'` from another terminal emulator.
+      render: text
   - type: textarea
     attributes:
       label: Ghostty Version
@@ -93,9 +114,9 @@ body:
       required: false
   - type: textarea
     attributes:
-      label: Ghostty Configuration
+      label: Minimal Ghostty Configuration
       description: |
-        Please provide the minimum configuration needed to reproduce this issue.  If you cannot determine this, paste the output of `ghostty +show-config` here.
+        Please provide the **minimum** configuration needed to reproduce this issue.  If you can still reproduce the issue with one of the lines removed, do not include that line.  If and **only** if you are not able to determine this, paste the contents of your Ghostty configuration file here.
       placeholder: |
         font-family = CommitMono Nerd Font
         font-family-bold = CommitMono Nerd Font
@@ -112,15 +133,15 @@ body:
     attributes:
       label: Additional Relevant Configuration
       description: |
-        If your issue involves other programs, tools, or applications in addition to Ghostty (e.g. Neovim, tmux, Zellij, etc.), please provide the minimum configuration needed for all relevant programs to reproduce the issue here.  If you use custom CSS or shaders for Ghostty, also include them here, if applicable to your issue.
+        If your issue involves other programs, tools, or applications in addition to Ghostty (e.g. Neovim, tmux, Zellij, etc.), please provide the minimum configuration and versions needed for all relevant programs to reproduce the issue here.  If you use custom CSS or shaders for Ghostty, also include them here, if applicable to your issue.
       placeholder: |
-        `tmux.conf`
-        ---
+        #### `tmux.conf` (tmux 3.5a)
+        ```
         set  -g default-terminal "tmux-256color"
         set-option -sa terminal-overrides ",xterm*:Tc"
         set  -g base-index      1
         setw -g pane-base-index 1
-      render: text
+        ```
     validations:
       required: false
   - type: markdown
@@ -136,4 +157,6 @@ body:
         - label: I have reviewed the FAQ and confirm that my issue is NOT among them.
           required: true
         - label: I have searched the Ghostty repository (both open and closed Discussions and Issues) and confirm this is not a duplicate of an existing issue or discussion.
+          required: true
+        - label: I have checked the "Preview" tab on all text fields to ensure that everything looks right, and have wrapped all configuration and code in code blocks with a group of three backticks (` ``` `) on separate lines.
           required: true

@@ -33,11 +33,13 @@ extension NSEvent {
                 .subtracting([.control, .command]))
 
         // Our unshifted codepoint is the codepoint with no modifiers. We
-        // ignore multi-codepoint values.
+        // ignore multi-codepoint values. We have to use `byApplyingModifiers`
+        // instead of `charactersIgnoringModifiers` because the latter changes
+        // behavior with ctrl pressed and we don't want any of that.
         key_ev.unshifted_codepoint = 0
         if type == .keyDown || type == .keyUp {
-            if let charactersIgnoringModifiers,
-               let codepoint = charactersIgnoringModifiers.unicodeScalars.first
+            if let chars = characters(byApplyingModifiers: []),
+               let codepoint = chars.unicodeScalars.first
             {
                 key_ev.unshifted_codepoint = codepoint.value
             }

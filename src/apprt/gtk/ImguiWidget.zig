@@ -221,12 +221,12 @@ fn translateMouseButton(button: c_uint) ?c_int {
     };
 }
 
-fn gtkDestroy(_: *gtk.GLArea, self: *ImguiWidget) callconv(.C) void {
+fn gtkDestroy(_: *gtk.GLArea, self: *ImguiWidget) callconv(.c) void {
     log.debug("imgui widget destroy", .{});
     self.deinit();
 }
 
-fn gtkRealize(area: *gtk.GLArea, self: *ImguiWidget) callconv(.C) void {
+fn gtkRealize(area: *gtk.GLArea, self: *ImguiWidget) callconv(.c) void {
     log.debug("gl surface realized", .{});
 
     // We need to make the context current so we can call GL functions.
@@ -242,7 +242,7 @@ fn gtkRealize(area: *gtk.GLArea, self: *ImguiWidget) callconv(.C) void {
     _ = cimgui.ImGui_ImplOpenGL3_Init(null);
 }
 
-fn gtkUnrealize(area: *gtk.GLArea, self: *ImguiWidget) callconv(.C) void {
+fn gtkUnrealize(area: *gtk.GLArea, self: *ImguiWidget) callconv(.c) void {
     _ = area;
     log.debug("gl surface unrealized", .{});
 
@@ -250,7 +250,7 @@ fn gtkUnrealize(area: *gtk.GLArea, self: *ImguiWidget) callconv(.C) void {
     cimgui.ImGui_ImplOpenGL3_Shutdown();
 }
 
-fn gtkResize(area: *gtk.GLArea, width: c_int, height: c_int, self: *ImguiWidget) callconv(.C) void {
+fn gtkResize(area: *gtk.GLArea, width: c_int, height: c_int, self: *ImguiWidget) callconv(.c) void {
     cimgui.c.igSetCurrentContext(self.ig_ctx);
     const io: *cimgui.c.ImGuiIO = cimgui.c.igGetIO();
     const scale_factor = area.as(gtk.Widget).getScaleFactor();
@@ -273,7 +273,7 @@ fn gtkResize(area: *gtk.GLArea, width: c_int, height: c_int, self: *ImguiWidget)
     active_style.* = style.*;
 }
 
-fn gtkRender(_: *gtk.GLArea, _: *gdk.GLContext, self: *ImguiWidget) callconv(.C) c_int {
+fn gtkRender(_: *gtk.GLArea, _: *gdk.GLContext, self: *ImguiWidget) callconv(.c) c_int {
     cimgui.c.igSetCurrentContext(self.ig_ctx);
 
     // Setup our frame. We render twice because some ImGui behaviors
@@ -307,7 +307,7 @@ fn gtkMouseMotion(
     x: f64,
     y: f64,
     self: *ImguiWidget,
-) callconv(.C) void {
+) callconv(.c) void {
     cimgui.c.igSetCurrentContext(self.ig_ctx);
     const io: *cimgui.c.ImGuiIO = cimgui.c.igGetIO();
     const scale_factor: f64 = @floatFromInt(self.gl_area.as(gtk.Widget).getScaleFactor());
@@ -325,7 +325,7 @@ fn gtkMouseDown(
     _: f64,
     _: f64,
     self: *ImguiWidget,
-) callconv(.C) void {
+) callconv(.c) void {
     self.queueRender();
 
     cimgui.c.igSetCurrentContext(self.ig_ctx);
@@ -343,7 +343,7 @@ fn gtkMouseUp(
     _: f64,
     _: f64,
     self: *ImguiWidget,
-) callconv(.C) void {
+) callconv(.c) void {
     self.queueRender();
 
     cimgui.c.igSetCurrentContext(self.ig_ctx);
@@ -359,7 +359,7 @@ fn gtkMouseScroll(
     x: f64,
     y: f64,
     self: *ImguiWidget,
-) callconv(.C) c_int {
+) callconv(.c) c_int {
     self.queueRender();
 
     cimgui.c.igSetCurrentContext(self.ig_ctx);
@@ -373,7 +373,7 @@ fn gtkMouseScroll(
     return @intFromBool(true);
 }
 
-fn gtkFocusEnter(_: *gtk.EventControllerFocus, self: *ImguiWidget) callconv(.C) void {
+fn gtkFocusEnter(_: *gtk.EventControllerFocus, self: *ImguiWidget) callconv(.c) void {
     self.queueRender();
 
     cimgui.c.igSetCurrentContext(self.ig_ctx);
@@ -381,7 +381,7 @@ fn gtkFocusEnter(_: *gtk.EventControllerFocus, self: *ImguiWidget) callconv(.C) 
     cimgui.c.ImGuiIO_AddFocusEvent(io, true);
 }
 
-fn gtkFocusLeave(_: *gtk.EventControllerFocus, self: *ImguiWidget) callconv(.C) void {
+fn gtkFocusLeave(_: *gtk.EventControllerFocus, self: *ImguiWidget) callconv(.c) void {
     self.queueRender();
 
     cimgui.c.igSetCurrentContext(self.ig_ctx);
@@ -393,7 +393,7 @@ fn gtkInputCommit(
     _: *gtk.IMMulticontext,
     bytes: [*:0]u8,
     self: *ImguiWidget,
-) callconv(.C) void {
+) callconv(.c) void {
     self.queueRender();
 
     cimgui.c.igSetCurrentContext(self.ig_ctx);
@@ -407,7 +407,7 @@ fn gtkKeyPressed(
     keycode: c_uint,
     gtk_mods: gdk.ModifierType,
     self: *ImguiWidget,
-) callconv(.C) c_int {
+) callconv(.c) c_int {
     return @intFromBool(self.keyEvent(
         .press,
         ec_key,
@@ -423,7 +423,7 @@ fn gtkKeyReleased(
     keycode: c_uint,
     gtk_mods: gdk.ModifierType,
     self: *ImguiWidget,
-) callconv(.C) void {
+) callconv(.c) void {
     _ = self.keyEvent(
         .release,
         ec_key,

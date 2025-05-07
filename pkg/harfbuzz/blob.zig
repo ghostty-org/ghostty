@@ -77,11 +77,11 @@ pub const Blob = struct {
         comptime T: type,
         key: ?*anyopaque,
         ptr: ?*T,
-        comptime destroycb: ?*const fn (?*T) callconv(.C) void,
+        comptime destroycb: ?*const fn (?*T) callconv(.c) void,
         replace: bool,
     ) bool {
         const Callback = struct {
-            pub fn callback(data: ?*anyopaque) callconv(.C) void {
+            pub fn callback(data: ?*anyopaque) callconv(.c) void {
                 @call(.{ .modifier = .always_inline }, destroycb, .{
                     @as(?*T, @ptrCast(@alignCast(data))),
                 });

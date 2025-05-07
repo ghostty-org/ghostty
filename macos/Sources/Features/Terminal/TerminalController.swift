@@ -121,9 +121,7 @@ class TerminalController: BaseTerminalController {
     }
 
 
-    override func fullscreenDidChange() {
-        super.fullscreenDidChange()
-
+    func fullscreenDidChange() {
         // When our fullscreen state changes, we resync our appearance because some
         // properties change when fullscreen or not.
         guard let focusedSurface else { return }
@@ -192,7 +190,7 @@ class TerminalController: BaseTerminalController {
             }
 
             let action = "goto_tab:\(tab)"
-            if let equiv = ghostty.config.keyEquivalent(for: action) {
+            if let equiv = ghostty.config.keyboardShortcut(for: action) {
                 window.keyEquivalent = "\(equiv)"
             } else {
                 window.keyEquivalent = ""

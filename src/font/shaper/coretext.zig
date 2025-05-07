@@ -1761,7 +1761,7 @@ fn testShaperWithFont(alloc: Allocator, font_req: TestFont) !TestShaper {
         .nerd_font => font.embedded.nerd_font,
     };
 
-    var lib = try Library.init();
+    var lib = try Library.init(alloc);
     errdefer lib.deinit();
 
     var c = Collection.init();

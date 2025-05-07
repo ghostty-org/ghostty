@@ -279,6 +279,13 @@ typedef struct {
   ghostty_input_mods_e mods;
 } ghostty_input_trigger_s;
 
+typedef struct {
+  const char* action_key;
+  const char* action;
+  const char* title;
+  const char* description;
+} ghostty_command_s;
+
 typedef enum {
   GHOSTTY_BUILD_MODE_DEBUG,
   GHOSTTY_BUILD_MODE_RELEASE_SAFE,
@@ -350,6 +357,11 @@ typedef struct {
   size_t len;
 } ghostty_config_color_list_s;
 
+// config.Palette
+typedef struct {
+  ghostty_config_color_s colors[256];
+} ghostty_config_palette_s;
+
 // apprt.Target.Key
 typedef enum {
   GHOSTTY_TARGET_APP,
@@ -416,6 +428,13 @@ typedef enum {
   GHOSTTY_FULLSCREEN_NON_NATIVE_VISIBLE_MENU,
   GHOSTTY_FULLSCREEN_NON_NATIVE_PADDED_NOTCH,
 } ghostty_action_fullscreen_e;
+
+// apprt.action.FloatWindow
+typedef enum {
+  GHOSTTY_FLOAT_WINDOW_ON,
+  GHOSTTY_FLOAT_WINDOW_OFF,
+  GHOSTTY_FLOAT_WINDOW_TOGGLE,
+} ghostty_action_float_window_e;
 
 // apprt.action.SecureInput
 typedef enum {
@@ -573,6 +592,7 @@ typedef enum {
   GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW,
   GHOSTTY_ACTION_TOGGLE_WINDOW_DECORATIONS,
   GHOSTTY_ACTION_TOGGLE_QUICK_TERMINAL,
+  GHOSTTY_ACTION_TOGGLE_COMMAND_PALETTE,
   GHOSTTY_ACTION_TOGGLE_VISIBILITY,
   GHOSTTY_ACTION_MOVE_TAB,
   GHOSTTY_ACTION_GOTO_TAB,
@@ -597,6 +617,7 @@ typedef enum {
   GHOSTTY_ACTION_RENDERER_HEALTH,
   GHOSTTY_ACTION_OPEN_CONFIG,
   GHOSTTY_ACTION_QUIT_TIMER,
+  GHOSTTY_ACTION_FLOAT_WINDOW,
   GHOSTTY_ACTION_SECURE_INPUT,
   GHOSTTY_ACTION_KEY_SEQUENCE,
   GHOSTTY_ACTION_COLOR_CHANGE,
@@ -625,6 +646,7 @@ typedef union {
   ghostty_action_mouse_over_link_s mouse_over_link;
   ghostty_action_renderer_health_e renderer_health;
   ghostty_action_quit_timer_e quit_timer;
+  ghostty_action_float_window_e float_window;
   ghostty_action_secure_input_e secure_input;
   ghostty_action_key_sequence_s key_sequence;
   ghostty_action_color_change_s color_change;
@@ -724,6 +746,7 @@ void ghostty_surface_set_color_scheme(ghostty_surface_t,
                                       ghostty_color_scheme_e);
 ghostty_input_mods_e ghostty_surface_key_translation_mods(ghostty_surface_t,
                                                           ghostty_input_mods_e);
+void ghostty_surface_commands(ghostty_surface_t, ghostty_command_s**, size_t*);
 bool ghostty_surface_key(ghostty_surface_t, ghostty_input_key_s);
 bool ghostty_surface_key_is_binding(ghostty_surface_t, ghostty_input_key_s);
 void ghostty_surface_text(ghostty_surface_t, const char*, uintptr_t);

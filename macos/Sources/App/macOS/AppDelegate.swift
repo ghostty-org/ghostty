@@ -52,6 +52,8 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuSelectSplitLeft: NSMenuItem?
     @IBOutlet private var menuSelectSplitRight: NSMenuItem?
     @IBOutlet private var menuReturnToDefaultSize: NSMenuItem?
+    @IBOutlet private var menuFloatOnTop: NSMenuItem?
+    @IBOutlet private var menuUseAsDefault: NSMenuItem?
 
     @IBOutlet private var menuIncreaseFontSize: NSMenuItem?
     @IBOutlet private var menuDecreaseFontSize: NSMenuItem?
@@ -59,6 +61,7 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuChangeTitle: NSMenuItem?
     @IBOutlet private var menuQuickTerminal: NSMenuItem?
     @IBOutlet private var menuTerminalInspector: NSMenuItem?
+    @IBOutlet private var menuCommandPalette: NSMenuItem?
 
     @IBOutlet private var menuEqualizeSplits: NSMenuItem?
     @IBOutlet private var menuMoveSplitDividerUp: NSMenuItem?
@@ -176,6 +179,12 @@ class AppDelegate: NSObject,
         // Notifications
         NotificationCenter.default.addObserver(
             self,
+            selector: #selector(windowDidBecomeKey),
+            name: NSWindow.didBecomeKeyNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
             selector: #selector(quickTerminalDidChangeVisibility),
             name: .quickTerminalDidChangeVisibility,
             object: nil
@@ -199,6 +208,7 @@ class AppDelegate: NSObject,
         ]
 
         let center = UNUserNotificationCenter.current()
+
         center.setNotificationCategories([
             UNNotificationCategory(
                 identifier: Ghostty.userNotificationCategory,
@@ -230,6 +240,9 @@ class AppDelegate: NSObject,
     func applicationDidBecomeActive(_ notification: Notification) {
         // If we're back manually then clear the hidden state because macOS handles it.
         self.hiddenState = nil
+
+        // Clear the dock badge when the app becomes active
+        self.setDockBadge(nil)
 
         // First launch stuff
         if (!applicationHasBecomeActive) {
@@ -398,10 +411,12 @@ class AppDelegate: NSObject,
         syncMenuShortcut(config, action: "increase_font_size:1", menuItem: self.menuIncreaseFontSize)
         syncMenuShortcut(config, action: "decrease_font_size:1", menuItem: self.menuDecreaseFontSize)
         syncMenuShortcut(config, action: "reset_font_size", menuItem: self.menuResetFontSize)
-        syncMenuShortcut(config, action: "change_title_prompt", menuItem: self.menuChangeTitle)
+        syncMenuShortcut(config, action: "prompt_surface_title", menuItem: self.menuChangeTitle)
         syncMenuShortcut(config, action: "toggle_quick_terminal", menuItem: self.menuQuickTerminal)
         syncMenuShortcut(config, action: "toggle_visibility", menuItem: self.menuToggleVisibility)
+        syncMenuShortcut(config, action: "toggle_window_float_on_top", menuItem: self.menuFloatOnTop)
         syncMenuShortcut(config, action: "inspector:toggle", menuItem: self.menuTerminalInspector)
+        syncMenuShortcut(config, action: "toggle_command_palette", menuItem: self.menuCommandPalette)
 
         syncMenuShortcut(config, action: "toggle_secure_input", menuItem: self.menuSecureInput)
 
@@ -419,15 +434,15 @@ class AppDelegate: NSObject,
     /// action string used for the Ghostty configuration.
     private func syncMenuShortcut(_ config: Ghostty.Config, action: String, menuItem: NSMenuItem?) {
         guard let menu = menuItem else { return }
-        guard let equiv = config.keyEquivalent(for: action) else {
+        guard let shortcut = config.keyboardShortcut(for: action) else {
             // No shortcut, clear the menu item
             menu.keyEquivalent = ""
             menu.keyEquivalentModifierMask = []
             return
         }
 
-        menu.keyEquivalent = equiv.key
-        menu.keyEquivalentModifierMask = equiv.modifiers
+        menu.keyEquivalent = shortcut.key.character.description
+        menu.keyEquivalentModifierMask = .init(swiftUIFlags: shortcut.modifiers)
     }
 
     private func focusedSurface() -> ghostty_surface_t? {
@@ -491,6 +506,10 @@ class AppDelegate: NSObject,
         return event
     }
 
+    @objc private func windowDidBecomeKey(_ notification: Notification) {
+        syncFloatOnTopMenu(notification.object as? NSWindow)
+    }
+
     @objc private func quickTerminalDidChangeVisibility(_ notification: Notification) {
         guard let quickController = notification.object as? QuickTerminalController else { return }
         self.menuQuickTerminal?.state = if (quickController.visible) { .on } else { .off }
@@ -511,6 +530,53 @@ class AppDelegate: NSObject,
     @objc private func ghosttyBellDidRing(_ notification: Notification) {
         // Bounce the dock icon if we're not focused.
         NSApp.requestUserAttention(.informationalRequest)
+
+        // Handle setting the dock badge based on permissions
+        ghosttyUpdateBadgeForBell()
+    }
+
+    private func ghosttyUpdateBadgeForBell() {
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { settings in
+            switch settings.authorizationStatus {
+            case .authorized:
+                // Already authorized, check badge setting and set if enabled
+                if settings.badgeSetting == .enabled {
+                    DispatchQueue.main.async {
+                        self.setDockBadge()
+                    }
+                }
+
+            case .notDetermined:
+                // Not determined yet, request authorization for badge
+                center.requestAuthorization(options: [.badge]) { granted, error in
+                    if let error = error {
+                        Self.logger.warning("Error requesting badge authorization: \(error)")
+                        return
+                    }
+
+                    if granted {
+                        // Permission granted, set the badge
+                        DispatchQueue.main.async {
+                            self.setDockBadge()
+                        }
+                    }
+                }
+
+            case .denied, .provisional, .ephemeral:
+                // In these known non-authorized states, do not attempt to set the badge.
+                break
+
+            @unknown default:
+                // Handle future unknown states by doing nothing.
+                break
+            }
+        }
+    }
+
+    private func setDockBadge(_ label: String? = "•") {
+        NSApp.dockTile.badgeLabel = label
+        NSApp.dockTile.display()
     }
 
     private func ghosttyConfigDidChange(config: Ghostty.Config) {
@@ -790,12 +856,12 @@ class AppDelegate: NSObject,
         hiddenState?.restore()
         hiddenState = nil
     }
-    
+
     @IBAction func bringAllToFront(_ sender: Any) {
         if !NSApp.isActive {
             NSApp.activate(ignoringOtherApps: true)
         }
-        
+
         NSApplication.shared.arrangeInFront(sender)
     }
 
@@ -843,6 +909,53 @@ class AppDelegate: NSObject,
         func restore() {
             hiddenWindows.forEach { $0.value?.orderFrontRegardless() }
             keyWindow?.value?.makeKey()
+        }
+    }
+}
+
+// MARK: Floating Windows
+
+extension AppDelegate {
+    func syncFloatOnTopMenu(_ window: NSWindow?) {
+        guard let window = (window ?? NSApp.keyWindow) as? TerminalWindow else {
+            // If some other window became key we always turn this off
+            self.menuFloatOnTop?.state = .off
+            return
+        }
+
+        self.menuFloatOnTop?.state = window.level == .floating ? .on : .off
+    }
+
+    @IBAction func floatOnTop(_ menuItem: NSMenuItem) {
+        menuItem.state = menuItem.state == .on ? .off : .on
+        guard let window = NSApp.keyWindow else { return }
+        window.level = menuItem.state == .on ? .floating : .normal
+    }
+
+    @IBAction func useAsDefault(_ sender: NSMenuItem) {
+        let ud = UserDefaults.standard
+        let key = TerminalWindow.defaultLevelKey
+        if (menuFloatOnTop?.state == .on) {
+            ud.set(NSWindow.Level.floating, forKey: key)
+        } else {
+            ud.removeObject(forKey: key)
+        }
+    }
+}
+
+// MARK: NSMenuItemValidation
+
+extension AppDelegate: NSMenuItemValidation {
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        switch item.action {
+        case #selector(floatOnTop(_:)),
+            #selector(useAsDefault(_:)):
+            // Float on top items only active if the key window is a primary
+            // terminal window (not quick terminal).
+            return NSApp.keyWindow is TerminalWindow
+
+        default:
+            return true
         }
     }
 }

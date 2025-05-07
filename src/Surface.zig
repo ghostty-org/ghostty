@@ -4119,6 +4119,14 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             }, .unlocked);
         },
 
+        .scroll_to_selection => {
+            self.renderer_state.mutex.lock();
+            defer self.renderer_state.mutex.unlock();
+            const sel = self.io.terminal.screen.selection orelse return false;
+            const tl = sel.topLeft(&self.io.terminal.screen);
+            self.io.terminal.screen.scroll(.{ .pin = tl });
+        },
+
         .scroll_page_up => {
             const rows: isize = @intCast(self.size.grid().rows);
             self.io.queueMessage(.{
@@ -4289,10 +4297,22 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             {},
         ),
 
+        .toggle_window_float_on_top => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .float_window,
+            .toggle,
+        ),
+
         .toggle_secure_input => return try self.rt_app.performAction(
             .{ .surface = self },
             .secure_input,
             .toggle,
+        ),
+
+        .toggle_command_palette => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .toggle_command_palette,
+            {},
         ),
 
         .select_all => {

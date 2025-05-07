@@ -5,8 +5,8 @@ const Envelope = @import("envelope.zig").Envelope;
 
 /// sentry_transport_t
 pub const Transport = opaque {
-    pub const SendFunc = *const fn (envelope: *Envelope, state: ?*anyopaque) callconv(.C) void;
-    pub const FreeFunc = *const fn (state: ?*anyopaque) callconv(.C) void;
+    pub const SendFunc = *const fn (envelope: *Envelope, state: ?*anyopaque) callconv(.c) void;
+    pub const FreeFunc = *const fn (state: ?*anyopaque) callconv(.c) void;
 
     pub fn init(f: SendFunc) *Transport {
         return @ptrCast(c.sentry_transport_new(@ptrCast(f)).?);

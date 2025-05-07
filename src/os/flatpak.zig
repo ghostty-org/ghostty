@@ -444,7 +444,7 @@ pub const FlatpakHostCommand = struct {
         _: [*c]const u8,
         params: ?*c.GVariant,
         ud: ?*anyopaque,
-    ) callconv(.C) void {
+    ) callconv(.c) void {
         const self = @as(*FlatpakHostCommand, @ptrCast(@alignCast(ud)));
         const state = state: {
             self.state_mutex.lock();

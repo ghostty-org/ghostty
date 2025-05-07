@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-03-19 08:28-0700\n"
+"POT-Creation-Date: 2025-04-22 08:57-0700\n"
 "PO-Revision-Date: 2025-03-24 15:00+0100\n"
 "Last-Translator: Nico Geesink <geesinknico@gmail.com>\n"
 "Language-Team: Dutch <vertaling@vrijschrift.org>\n"
@@ -43,8 +43,8 @@ msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
-"Er zijn één of meer configuratiefouten gevonden. Bekijk de onderstaande fouten "
-"en herlaad je configuratie of negeer deze fouten."
+"Er zijn één of meer configuratiefouten gevonden. Bekijk de onderstaande "
+"fouten en herlaad je configuratie of negeer deze fouten."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
 msgid "Ignore"
@@ -55,6 +55,30 @@ msgstr "Negeer"
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:95
 msgid "Reload Configuration"
 msgstr "Herlaad configuratie"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:6
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
+msgid "Split Up"
+msgstr "Splits naar boven"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:11
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
+msgid "Split Down"
+msgstr "Splits naar beneden"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:16
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
+msgid "Split Left"
+msgstr "Splits naar links"
+
+#: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:21
+#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
+msgid "Split Right"
+msgstr "Splits naar rechts"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
@@ -87,33 +111,13 @@ msgstr "Splitsen"
 msgid "Change Title…"
 msgstr "Wijzig titel…"
 
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
-msgid "Split Up"
-msgstr "Splits naar boven"
-
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
-msgid "Split Down"
-msgstr "Splits naar beneden"
-
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
-msgid "Split Left"
-msgstr "Splits naar links"
-
-#: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
-msgid "Split Right"
-msgstr "Splits naar rechts"
-
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:59
 msgid "Tab"
 msgstr "Tabblad"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:62
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:30
-#: src/apprt/gtk/Window.zig:246
+#: src/apprt/gtk/Window.zig:248
 msgid "New Tab"
 msgstr "Nieuw tabblad"
 
@@ -150,7 +154,7 @@ msgid "Terminal Inspector"
 msgstr "Terminal inspecteur"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:102
-#: src/apprt/gtk/Window.zig:960
+#: src/apprt/gtk/Window.zig:1003
 msgid "About Ghostty"
 msgstr "Over Ghostty"
 
@@ -198,16 +202,35 @@ msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
 msgstr ""
-"Het plakken van deze tekst in de terminal is mogelijk gevaarlijk, omdat "
-"het lijkt op een commando dat uitgevoerd kan worden."
+"Het plakken van deze tekst in de terminal is mogelijk gevaarlijk, omdat het "
+"lijkt op een commando dat uitgevoerd kan worden."
 
-#: src/apprt/gtk/inspector.zig:144
-msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: terminal inspecteur"
+#: src/apprt/gtk/Window.zig:201
+msgid "Main Menu"
+msgstr "Hoofdmenu"
 
-#: src/apprt/gtk/Surface.zig:1243
-msgid "Copied to clipboard"
-msgstr "Gekopieerd naar klembord"
+#: src/apprt/gtk/Window.zig:222
+msgid "View Open Tabs"
+msgstr "Open tabbladen bekijken"
+
+#: src/apprt/gtk/Window.zig:249
+msgid "New Split"
+msgstr ""
+
+#: src/apprt/gtk/Window.zig:312
+msgid ""
+"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
+msgstr ""
+"⚠️ Je draait een debug versie van Ghostty! Prestaties zullen minder zijn dan "
+"normaal."
+
+#: src/apprt/gtk/Window.zig:744
+msgid "Reloaded the configuration"
+msgstr "De configuratie is herladen"
+
+#: src/apprt/gtk/Window.zig:984
+msgid "Ghostty Developers"
+msgstr "Ghostty ontwikkelaars"
 
 #: src/apprt/gtk/CloseDialog.zig:47
 msgid "Close"
@@ -243,26 +266,13 @@ msgstr "Alle terminalsessies binnen dit tabblad zullen worden beëindigd."
 
 #: src/apprt/gtk/CloseDialog.zig:99
 msgid "The currently running process in this split will be terminated."
-msgstr "Alle processen die nu draaien in deze splitsing zullen worden beëindigd."
-
-#: src/apprt/gtk/Window.zig:200
-msgid "Main Menu"
-msgstr "Hoofdmenu"
-
-#: src/apprt/gtk/Window.zig:221
-msgid "View Open Tabs"
-msgstr "Open tabbladen bekijken"
-
-#: src/apprt/gtk/Window.zig:295
-msgid ""
-"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
 msgstr ""
-"⚠️ Je draait een debug versie van Ghostty! Prestaties zullen minder zijn dan normaal."
+"Alle processen die nu draaien in deze splitsing zullen worden beëindigd."
 
-#: src/apprt/gtk/Window.zig:725
-msgid "Reloaded the configuration"
-msgstr "De configuratie is herladen"
+#: src/apprt/gtk/Surface.zig:1243
+msgid "Copied to clipboard"
+msgstr "Gekopieerd naar klembord"
 
-#: src/apprt/gtk/Window.zig:941
-msgid "Ghostty Developers"
-msgstr "Ghostty ontwikkelaars"
+#: src/apprt/gtk/inspector.zig:144
+msgid "Ghostty: Terminal Inspector"
+msgstr "Ghostty: terminal inspecteur"

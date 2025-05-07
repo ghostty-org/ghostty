@@ -102,11 +102,11 @@ extension Ghostty {
         /// configuration would be "quit" action.
         ///
         /// Returns nil if there is no key equivalent for the given action.
-        func keyEquivalent(for action: String) -> KeyEquivalent? {
+        func keyboardShortcut(for action: String) -> KeyboardShortcut? {
             guard let cfg = self.config else { return nil }
 
             let trigger = ghostty_config_trigger(cfg, action, UInt(action.count))
-            return Ghostty.keyEquivalent(for: trigger)
+            return Ghostty.keyboardShortcut(for: trigger)
         }
 #endif
 

@@ -250,7 +250,7 @@ fn spvCross(
     // It would be better to get this out into an output parameter to
     // show users but for now we can just log it.
     c.spvc_context_set_error_callback(ctx, @ptrCast(&(struct {
-        fn callback(_: ?*anyopaque, msg_ptr: [*c]const u8) callconv(.C) void {
+        fn callback(_: ?*anyopaque, msg_ptr: [*c]const u8) callconv(.c) void {
             const msg = std.mem.sliceTo(msg_ptr, 0);
             std.log.warn("spirv-cross error message={s}", .{msg});
         }
