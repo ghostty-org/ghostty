@@ -338,7 +338,7 @@ test getIndex {
     const alloc = testing.allocator;
     // const testEmoji = @import("test.zig").fontEmoji;
 
-    var lib = try Library.init();
+    var lib = try Library.init(alloc);
     defer lib.deinit();
 
     var grid = try testGrid(.normal, alloc, lib);

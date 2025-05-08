@@ -333,7 +333,7 @@ pub inline fn setCallback(comptime callback: ?fn (joystick: Joystick, event: Eve
 
     if (callback) |user_callback| {
         const CWrapper = struct {
-            pub fn joystickCallbackWrapper(jid: c_int, event: c_int) callconv(.C) void {
+            pub fn joystickCallbackWrapper(jid: c_int, event: c_int) callconv(.c) void {
                 @call(.always_inline, user_callback, .{
                     Joystick{ .jid = @as(Joystick.Id, @enumFromInt(jid)) },
                     @as(Event, @enumFromInt(event)),

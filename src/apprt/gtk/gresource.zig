@@ -53,19 +53,6 @@ const icons = [_]struct {
     },
 };
 
-pub const VersionedBuilderXML = struct {
-    major: u16,
-    minor: u16,
-    name: []const u8,
-};
-
-pub const ui_files = [_]VersionedBuilderXML{
-    .{ .major = 1, .minor = 2, .name = "config-errors-dialog" },
-    .{ .major = 1, .minor = 2, .name = "ccw-osc-52-read" },
-    .{ .major = 1, .minor = 2, .name = "ccw-osc-52-write" },
-    .{ .major = 1, .minor = 2, .name = "ccw-paste" },
-};
-
 pub const VersionedBlueprint = struct {
     major: u16,
     minor: u16,
@@ -81,16 +68,21 @@ pub const blueprint_files = [_]VersionedBlueprint{
     .{ .major = 1, .minor = 5, .name = "ccw-osc-52-read" },
     .{ .major = 1, .minor = 5, .name = "ccw-osc-52-write" },
     .{ .major = 1, .minor = 5, .name = "ccw-paste" },
+    .{ .major = 1, .minor = 2, .name = "config-errors-dialog" },
+    .{ .major = 1, .minor = 2, .name = "ccw-osc-52-read" },
+    .{ .major = 1, .minor = 2, .name = "ccw-osc-52-write" },
+    .{ .major = 1, .minor = 2, .name = "ccw-paste" },
 };
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const alloc = gpa.allocator();
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.deinit();
+    const alloc = debug_allocator.allocator();
 
-    var extra_ui_files = std.ArrayList([]const u8).init(alloc);
+    var extra_ui_files: std.ArrayListUnmanaged([]const u8) = .empty;
     defer {
         for (extra_ui_files.items) |item| alloc.free(item);
-        extra_ui_files.deinit();
+        extra_ui_files.deinit(alloc);
     }
 
     var it = try std.process.argsWithAllocator(alloc);
@@ -98,7 +90,7 @@ pub fn main() !void {
 
     while (it.next()) |argument| {
         if (std.mem.eql(u8, std.fs.path.extension(argument), ".ui")) {
-            try extra_ui_files.append(try alloc.dupe(u8, argument));
+            try extra_ui_files.append(alloc, try alloc.dupe(u8, argument));
         }
     }
 
@@ -132,16 +124,11 @@ pub fn main() !void {
         \\  <gresource prefix="/com/mitchellh/ghostty/ui">
         \\
     );
-    for (ui_files) |ui_file| {
-        try writer.print(
-            "    <file compressed=\"true\" preprocess=\"xml-stripblanks\" alias=\"{0d}.{1d}/{2s}.ui\">src/apprt/gtk/ui/{0d}.{1d}/{2s}.ui</file>\n",
-            .{ ui_file.major, ui_file.minor, ui_file.name },
-        );
-    }
     for (extra_ui_files.items) |ui_file| {
-        const stem = std.fs.path.stem(ui_file);
         for (blueprint_files) |file| {
-            if (!std.mem.eql(u8, file.name, stem)) continue;
+            const expected = try std.fmt.allocPrint(alloc, "/{d}.{d}/{s}.ui", .{ file.major, file.minor, file.name });
+            defer alloc.free(expected);
+            if (!std.mem.endsWith(u8, ui_file, expected)) continue;
             try writer.print(
                 "    <file compressed=\"true\" preprocess=\"xml-stripblanks\" alias=\"{d}.{d}/{s}.ui\">{s}</file>\n",
                 .{ file.major, file.minor, file.name, ui_file },
@@ -157,7 +144,7 @@ pub fn main() !void {
 }
 
 pub const dependencies = deps: {
-    const total = css_files.len + icons.len + ui_files.len + blueprint_files.len;
+    const total = css_files.len + icons.len + blueprint_files.len;
     var deps: [total][]const u8 = undefined;
     var index: usize = 0;
     for (css_files) |css_file| {
@@ -166,14 +153,6 @@ pub const dependencies = deps: {
     }
     for (icons) |icon| {
         deps[index] = std.fmt.comptimePrint("images/icons/icon_{s}.png", .{icon.source});
-        index += 1;
-    }
-    for (ui_files) |ui_file| {
-        deps[index] = std.fmt.comptimePrint("src/apprt/gtk/ui/{d}.{d}/{s}.ui", .{
-            ui_file.major,
-            ui_file.minor,
-            ui_file.name,
-        });
         index += 1;
     }
     for (blueprint_files) |blueprint_file| {

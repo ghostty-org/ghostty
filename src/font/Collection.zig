@@ -78,8 +78,8 @@ pub const AddError = Allocator.Error || error{
 /// next in priority if others exist already, i.e. it'll be the _last_ to be
 /// searched for a glyph in that list.
 ///
-/// The collection takes ownership of the face. The face will be deallocated
-/// when the collection is deallocated.
+/// If no error is encountered then the collection takes ownership of the face,
+/// in which case face will be deallocated when the collection is deallocated.
 ///
 /// If a loaded face is added to the collection, it should be the same
 /// size as all the other faces in the collection. This function will not
@@ -700,7 +700,7 @@ test "add full" {
     const alloc = testing.allocator;
     const testFont = font.embedded.regular;
 
-    var lib = try Library.init();
+    var lib = try Library.init(alloc);
     defer lib.deinit();
 
     var c = init();
@@ -714,15 +714,18 @@ test "add full" {
         ) });
     }
 
-    try testing.expectError(error.CollectionFull, c.add(
-        alloc,
-        .regular,
-        .{ .loaded = try Face.init(
-            lib,
-            testFont,
-            .{ .size = .{ .points = 12 } },
-        ) },
-    ));
+    var face = try Face.init(
+        lib,
+        testFont,
+        .{ .size = .{ .points = 12 } },
+    );
+    // We have to deinit it manually since the
+    // collection doesn't do it if adding fails.
+    defer face.deinit();
+    try testing.expectError(
+        error.CollectionFull,
+        c.add(alloc, .regular, .{ .loaded = face }),
+    );
 }
 
 test "add deferred without loading options" {
@@ -746,7 +749,7 @@ test getFace {
     const alloc = testing.allocator;
     const testFont = font.embedded.regular;
 
-    var lib = try Library.init();
+    var lib = try Library.init(alloc);
     defer lib.deinit();
 
     var c = init();
@@ -770,7 +773,7 @@ test getIndex {
     const alloc = testing.allocator;
     const testFont = font.embedded.regular;
 
-    var lib = try Library.init();
+    var lib = try Library.init(alloc);
     defer lib.deinit();
 
     var c = init();
@@ -801,7 +804,7 @@ test completeStyles {
     const alloc = testing.allocator;
     const testFont = font.embedded.regular;
 
-    var lib = try Library.init();
+    var lib = try Library.init(alloc);
     defer lib.deinit();
 
     var c = init();
@@ -828,7 +831,7 @@ test setSize {
     const alloc = testing.allocator;
     const testFont = font.embedded.regular;
 
-    var lib = try Library.init();
+    var lib = try Library.init(alloc);
     defer lib.deinit();
 
     var c = init();
@@ -851,7 +854,7 @@ test hasCodepoint {
     const alloc = testing.allocator;
     const testFont = font.embedded.regular;
 
-    var lib = try Library.init();
+    var lib = try Library.init(alloc);
     defer lib.deinit();
 
     var c = init();
@@ -875,7 +878,7 @@ test "hasCodepoint emoji default graphical" {
     const alloc = testing.allocator;
     const testEmoji = font.embedded.emoji;
 
-    var lib = try Library.init();
+    var lib = try Library.init(alloc);
     defer lib.deinit();
 
     var c = init();
@@ -898,7 +901,7 @@ test "metrics" {
     const alloc = testing.allocator;
     const testFont = font.embedded.inconsolata;
 
-    var lib = try Library.init();
+    var lib = try Library.init(alloc);
     defer lib.deinit();
 
     var c = init();

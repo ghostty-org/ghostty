@@ -170,6 +170,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Scroll to the bottom of the screen.",
         }},
 
+        .scroll_to_selection => comptime &.{.{
+            .action = .scroll_to_selection,
+            .title = "Scroll to Selection",
+            .description = "Scroll to the selected text.",
+        }},
+
         .scroll_page_up => comptime &.{.{
             .action = .scroll_page_up,
             .title = "Scroll Page Up",

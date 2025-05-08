@@ -240,6 +240,9 @@ typedef enum {
   GHOSTTY_KEY_KP_DELETE,
   GHOSTTY_KEY_KP_BEGIN,
 
+  // special keys
+  GHOSTTY_KEY_CONTEXT_MENU,
+
   // modifiers
   GHOSTTY_KEY_LEFT_SHIFT,
   GHOSTTY_KEY_LEFT_CONTROL,

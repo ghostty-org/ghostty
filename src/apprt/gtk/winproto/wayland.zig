@@ -410,7 +410,7 @@ pub const Window = struct {
         _: *gdk.Surface,
         monitor: *gdk.Monitor,
         apprt_window: *ApprtWindow,
-    ) callconv(.C) void {
+    ) callconv(.c) void {
         const window = apprt_window.window.as(gtk.Window);
         const size = apprt_window.config.quick_terminal_size;
         const position = apprt_window.config.quick_terminal_position;

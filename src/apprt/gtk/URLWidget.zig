@@ -101,7 +101,7 @@ fn gtkLeftEnter(
     _: f64,
     _: f64,
     right: *gtk.Label,
-) callconv(.C) void {
+) callconv(.c) void {
     right.as(gtk.Widget).removeCssClass("hidden");
 }
 
@@ -110,6 +110,6 @@ fn gtkLeftEnter(
 fn gtkLeftLeave(
     _: *gtk.EventControllerMotion,
     right: *gtk.Label,
-) callconv(.C) void {
+) callconv(.c) void {
     right.as(gtk.Widget).addCssClass("hidden");
 }

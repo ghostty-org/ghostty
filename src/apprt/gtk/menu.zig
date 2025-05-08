@@ -41,7 +41,7 @@ pub fn Menu(
                 else => unreachable,
             };
 
-            var builder = Builder.init("menu-" ++ object_type ++ "-" ++ menu_name, 1, 0, .blp);
+            var builder = Builder.init("menu-" ++ object_type ++ "-" ++ menu_name, 1, 0);
             defer builder.deinit();
 
             const menu_model = builder.getObject(gio.MenuModel, "menu").?;
@@ -130,7 +130,7 @@ pub fn Menu(
         }
 
         /// Refocus tab that lost focus because of the popover menu
-        fn gtkRefocusTerm(_: *gtk.PopoverMenu, self: *Self) callconv(.C) void {
+        fn gtkRefocusTerm(_: *gtk.PopoverMenu, self: *Self) callconv(.c) void {
             const window: *Window = switch (T) {
                 Window => self.parent,
                 Surface => self.parent.container.window() orelse return,

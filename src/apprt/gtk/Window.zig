@@ -248,7 +248,7 @@ pub fn init(self: *Window, app: *App) !void {
         btn.as(gtk.Widget).setTooltipText(i18n._("New Tab"));
         btn.setDropdownTooltip(i18n._("New Split"));
 
-        var builder = Builder.init("menu-headerbar-split_menu", 1, 0, .blp);
+        var builder = Builder.init("menu-headerbar-split_menu", 1, 0);
         defer builder.deinit();
         btn.setMenuModel(builder.getObject(gio.MenuModel, "menu"));
 
@@ -792,7 +792,7 @@ fn gtkWindowNotifyIsActive(
     _: *adw.ApplicationWindow,
     _: *gobject.ParamSpec,
     self: *Window,
-) callconv(.C) void {
+) callconv(.c) void {
     if (!self.isQuickTerminal()) return;
 
     // Hide when we're unfocused
@@ -883,7 +883,7 @@ fn adwTabOverviewOpen(
 
 fn adwTabOverviewFocusTimer(
     ud: ?*anyopaque,
-) callconv(.C) c_int {
+) callconv(.c) c_int {
     if (!adw_version.supportsTabOverview()) unreachable;
     const self: *Window = @ptrCast(@alignCast(ud orelse return 0));
     self.adw_tab_overview_focus_timer = null;
@@ -970,7 +970,7 @@ fn gtkActionAbout(
     _: *gio.SimpleAction,
     _: ?*glib.Variant,
     self: *Window,
-) callconv(.C) void {
+) callconv(.c) void {
     const name = "Ghostty";
     const icon = "com.mitchellh.ghostty";
     const website = "https://ghostty.org";
@@ -1014,7 +1014,7 @@ fn gtkActionClose(
     _: *gio.SimpleAction,
     _: ?*glib.Variant,
     self: *Window,
-) callconv(.C) void {
+) callconv(.c) void {
     self.closeWithConfirmation();
 }
 
@@ -1022,7 +1022,7 @@ fn gtkActionNewWindow(
     _: *gio.SimpleAction,
     _: ?*glib.Variant,
     self: *Window,
-) callconv(.C) void {
+) callconv(.c) void {
     self.performBindingAction(.{ .new_window = {} });
 }
 
@@ -1030,7 +1030,7 @@ fn gtkActionNewTab(
     _: *gio.SimpleAction,
     _: ?*glib.Variant,
     self: *Window,
-) callconv(.C) void {
+) callconv(.c) void {
     self.performBindingAction(.{ .new_tab = {} });
 }
 
@@ -1038,7 +1038,7 @@ fn gtkActionCloseTab(
     _: *gio.SimpleAction,
     _: ?*glib.Variant,
     self: *Window,
-) callconv(.C) void {
+) callconv(.c) void {
     self.performBindingAction(.{ .close_tab = {} });
 }
 
@@ -1046,7 +1046,7 @@ fn gtkActionSplitRight(
     _: *gio.SimpleAction,
     _: ?*glib.Variant,
     self: *Window,
-) callconv(.C) void {
+) callconv(.c) void {
     self.performBindingAction(.{ .new_split = .right });
 }
 
@@ -1054,7 +1054,7 @@ fn gtkActionSplitDown(
     _: *gio.SimpleAction,
     _: ?*glib.Variant,
     self: *Window,
-) callconv(.C) void {
+) callconv(.c) void {
     self.performBindingAction(.{ .new_split = .down });
 }
 
@@ -1062,7 +1062,7 @@ fn gtkActionSplitLeft(
     _: *gio.SimpleAction,
     _: ?*glib.Variant,
     self: *Window,
-) callconv(.C) void {
+) callconv(.c) void {
     self.performBindingAction(.{ .new_split = .left });
 }
 
@@ -1070,7 +1070,7 @@ fn gtkActionSplitUp(
     _: *gio.SimpleAction,
     _: ?*glib.Variant,
     self: *Window,
-) callconv(.C) void {
+) callconv(.c) void {
     self.performBindingAction(.{ .new_split = .up });
 }
 
@@ -1078,7 +1078,7 @@ fn gtkActionToggleInspector(
     _: *gio.SimpleAction,
     _: ?*glib.Variant,
     self: *Window,
-) callconv(.C) void {
+) callconv(.c) void {
     self.performBindingAction(.{ .inspector = .toggle });
 }
 
@@ -1086,7 +1086,7 @@ fn gtkActionCopy(
     _: *gio.SimpleAction,
     _: ?*glib.Variant,
     self: *Window,
-) callconv(.C) void {
+) callconv(.c) void {
     self.performBindingAction(.{ .copy_to_clipboard = {} });
 }
 
@@ -1094,7 +1094,7 @@ fn gtkActionPaste(
     _: *gio.SimpleAction,
     _: ?*glib.Variant,
     self: *Window,
-) callconv(.C) void {
+) callconv(.c) void {
     self.performBindingAction(.{ .paste_from_clipboard = {} });
 }
 
@@ -1102,7 +1102,7 @@ fn gtkActionReset(
     _: *gio.SimpleAction,
     _: ?*glib.Variant,
     self: *Window,
-) callconv(.C) void {
+) callconv(.c) void {
     self.performBindingAction(.{ .reset = {} });
 }
 
@@ -1110,7 +1110,7 @@ fn gtkActionClear(
     _: *gio.SimpleAction,
     _: ?*glib.Variant,
     self: *Window,
-) callconv(.C) void {
+) callconv(.c) void {
     self.performBindingAction(.{ .clear_screen = {} });
 }
 
@@ -1118,7 +1118,7 @@ fn gtkActionPromptTitle(
     _: *gio.SimpleAction,
     _: ?*glib.Variant,
     self: *Window,
-) callconv(.C) void {
+) callconv(.c) void {
     self.performBindingAction(.{ .prompt_surface_title = {} });
 }
 
@@ -1133,7 +1133,7 @@ fn gtkTitlebarMenuActivate(
     btn: *gtk.MenuButton,
     _: *gobject.ParamSpec,
     self: *Window,
-) callconv(.C) void {
+) callconv(.c) void {
     // debian 12 is stuck on GTK 4.8
     if (!gtk_version.atLeast(4, 10, 0)) return;
     const active = btn.getActive() != 0;

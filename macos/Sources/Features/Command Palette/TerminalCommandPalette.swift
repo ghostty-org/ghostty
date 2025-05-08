@@ -29,7 +29,6 @@ struct TerminalCommandPaletteView: View {
             let key = String(cString: c.action_key)
             switch (key) {
             case "toggle_tab_overview",
-                 "toggle_maximize",
                 "toggle_window_decorations":
                 return false
             default:

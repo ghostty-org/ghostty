@@ -29,15 +29,38 @@ error_message: *gtk.TextBuffer,
 pub fn maybePresent(app: *App, window: ?*Window) void {
     if (app.config._diagnostics.empty()) return;
 
-    var builder = switch (DialogType) {
-        adw.AlertDialog => Builder.init("config-errors-dialog", 1, 5, .blp),
-        adw.MessageDialog => Builder.init("config-errors-dialog", 1, 2, .ui),
-        else => unreachable,
-    };
-    defer builder.deinit();
+    const config_errors_dialog = config_errors_dialog: {
+        if (app.config_errors_dialog) |config_errors_dialog| break :config_errors_dialog config_errors_dialog;
 
-    const dialog = builder.getObject(DialogType, "config_errors_dialog").?;
-    const error_message = builder.getObject(gtk.TextBuffer, "error_message").?;
+        var builder = switch (DialogType) {
+            adw.AlertDialog => Builder.init("config-errors-dialog", 1, 5),
+            adw.MessageDialog => Builder.init("config-errors-dialog", 1, 2),
+            else => unreachable,
+        };
+
+        const dialog = builder.getObject(DialogType, "config_errors_dialog").?;
+        const error_message = builder.getObject(gtk.TextBuffer, "error_message").?;
+
+        _ = DialogType.signals.response.connect(dialog, *App, onResponse, app, .{});
+
+        app.config_errors_dialog = .{
+            .builder = builder,
+            .dialog = dialog,
+            .error_message = error_message,
+        };
+
+        break :config_errors_dialog app.config_errors_dialog.?;
+    };
+
+    {
+        var start = std.mem.zeroes(gtk.TextIter);
+        config_errors_dialog.error_message.getStartIter(&start);
+
+        var end = std.mem.zeroes(gtk.TextIter);
+        config_errors_dialog.error_message.getEndIter(&end);
+
+        config_errors_dialog.error_message.delete(&start, &end);
+    }
 
     var msg_buf: [4095:0]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&msg_buf);
@@ -52,22 +75,24 @@ pub fn maybePresent(app: *App, window: ?*Window) void {
             continue;
         };
 
-        error_message.insertAtCursor(&msg_buf, @intCast(fbs.pos));
-        error_message.insertAtCursor("\n", 1);
+        config_errors_dialog.error_message.insertAtCursor(&msg_buf, @intCast(fbs.pos));
+        config_errors_dialog.error_message.insertAtCursor("\n", 1);
     }
 
-    _ = DialogType.signals.response.connect(dialog, *App, onResponse, app, .{});
-
-    const parent = if (window) |w| w.window.as(gtk.Widget) else null;
-
     switch (DialogType) {
-        adw.AlertDialog => dialog.as(adw.Dialog).present(parent),
-        adw.MessageDialog => dialog.as(gtk.Window).present(),
+        adw.AlertDialog => {
+            const parent = if (window) |w| w.window.as(gtk.Widget) else null;
+            config_errors_dialog.dialog.as(adw.Dialog).present(parent);
+        },
+        adw.MessageDialog => config_errors_dialog.dialog.as(gtk.Window).present(),
         else => unreachable,
     }
 }
 
-fn onResponse(_: *DialogType, response: [*:0]const u8, app: *App) callconv(.C) void {
+fn onResponse(_: *DialogType, response: [*:0]const u8, app: *App) callconv(.c) void {
+    if (app.config_errors_dialog) |config_errors_dialog| config_errors_dialog.builder.deinit();
+    app.config_errors_dialog = null;
+
     if (std.mem.orderZ(u8, response, "reload") == .eq) {
         app.reloadConfig(.app, .{}) catch |err| {
             log.warn("error reloading config error={}", .{err});

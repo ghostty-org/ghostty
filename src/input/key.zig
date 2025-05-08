@@ -401,7 +401,8 @@ pub const Key = enum(c_int) {
     kp_delete,
     kp_begin,
 
-    // TODO: media keys
+    // special keys
+    context_menu,
 
     // modifiers
     left_shift,
@@ -579,6 +580,7 @@ pub const Key = enum(c_int) {
             .backspace => cimgui.c.ImGuiKey_Backspace,
             .print_screen => cimgui.c.ImGuiKey_PrintScreen,
             .pause => cimgui.c.ImGuiKey_Pause,
+            .context_menu => cimgui.c.ImGuiKey_Menu,
 
             .f1 => cimgui.c.ImGuiKey_F1,
             .f2 => cimgui.c.ImGuiKey_F2,

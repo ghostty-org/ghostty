@@ -161,7 +161,7 @@ pub fn closeWithConfirmation(tab: *Tab) void {
     }
 }
 
-fn gtkDestroy(_: *gtk.Box, self: *Tab) callconv(.C) void {
+fn gtkDestroy(_: *gtk.Box, self: *Tab) callconv(.c) void {
     log.debug("tab box destroy", .{});
 
     const alloc = self.window.app.core_app.alloc;

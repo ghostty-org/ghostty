@@ -8,9 +8,6 @@ protocol TerminalViewDelegate: AnyObject {
     /// Called when the currently focused surface changed. This can be nil.
     func focusedSurfaceDidChange(to: Ghostty.SurfaceView?)
 
-    /// The title of the terminal should change.
-    func titleDidChange(to: String)
-
     /// The URL of the pwd should change.
     func pwdDidChange(to: URL?)
 
@@ -59,18 +56,9 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
 
     // Various state values sent back up from the currently focused terminals.
     @FocusedValue(\.ghosttySurfaceView) private var focusedSurface
-    @FocusedValue(\.ghosttySurfaceTitle) private var surfaceTitle
     @FocusedValue(\.ghosttySurfacePwd) private var surfacePwd
     @FocusedValue(\.ghosttySurfaceZoomed) private var zoomedSplit
     @FocusedValue(\.ghosttySurfaceCellSize) private var cellSize
-
-    // The title for our window
-    private var title: String {
-        if let surfaceTitle, !surfaceTitle.isEmpty {
-            return surfaceTitle
-        }
-        return "👻"
-    }
 
     // The pwd of the focused surface as a URL
     private var pwdURL: URL? {
@@ -104,9 +92,6 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                                 lastFocusedSurface = .init(newValue)
                                 self.delegate?.focusedSurfaceDidChange(to: newValue)
                             }
-                        }
-                        .onChange(of: title) { newValue in
-                            self.delegate?.titleDidChange(to: newValue)
                         }
                         .onChange(of: pwdURL) { newValue in
                             self.delegate?.pwdDidChange(to: newValue)

@@ -153,6 +153,7 @@ const code_to_key = code_to_key: {
         .{ "Numpad0", .kp_0 },
         .{ "NumpadDecimal", .kp_decimal },
         .{ "NumpadEqual", .kp_equal },
+        .{ "ContextMenu", .context_menu },
         .{ "ControlLeft", .left_control },
         .{ "ShiftLeft", .left_shift },
         .{ "AltLeft", .left_alt },

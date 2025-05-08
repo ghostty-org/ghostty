@@ -662,34 +662,6 @@ fn addGTK(
     }
 
     {
-        // For our actual build, we validate our GTK builder files if we can.
-        {
-            const gtk_builder_check = b.addExecutable(.{
-                .name = "gtk_builder_check",
-                .root_source_file = b.path("src/apprt/gtk/builder_check.zig"),
-                .target = b.graph.host,
-            });
-            gtk_builder_check.root_module.addOptions("build_options", self.options);
-            if (gobject_) |gobject| {
-                gtk_builder_check.root_module.addImport(
-                    "gtk",
-                    gobject.module("gtk4"),
-                );
-                gtk_builder_check.root_module.addImport(
-                    "adw",
-                    gobject.module("adw1"),
-                );
-            }
-
-            for (gresource.dependencies) |pathname| {
-                const extension = std.fs.path.extension(pathname);
-                if (!std.mem.eql(u8, extension, ".ui")) continue;
-                const check = b.addRunArtifact(gtk_builder_check);
-                check.addFileArg(b.path(pathname));
-                step.step.dependOn(&check.step);
-            }
-        }
-
         // Get our gresource c/h files and add them to our build.
         const dist = gtkDistResources(b);
         step.addCSourceFile(.{ .file = dist.resources_c.path(b), .flags = &.{} });

@@ -4119,6 +4119,14 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             }, .unlocked);
         },
 
+        .scroll_to_selection => {
+            self.renderer_state.mutex.lock();
+            defer self.renderer_state.mutex.unlock();
+            const sel = self.io.terminal.screen.selection orelse return false;
+            const tl = sel.topLeft(&self.io.terminal.screen);
+            self.io.terminal.screen.scroll(.{ .pin = tl });
+        },
+
         .scroll_page_up => {
             const rows: isize = @intCast(self.size.grid().rows);
             self.io.queueMessage(.{

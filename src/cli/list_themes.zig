@@ -24,6 +24,9 @@ pub const Options = struct {
     /// If true, force a plain list of themes.
     plain: bool = false,
 
+    /// Specifies the color scheme of the themes to include in the list.
+    color: enum { all, dark, light } = .all,
+
     pub fn deinit(self: Options) void {
         _ = self;
     }
@@ -93,6 +96,9 @@ const ThemeListElement = struct {
 ///   * `--path`: Show the full path to the theme.
 ///
 ///   * `--plain`: Force a plain listing of themes.
+///
+///   * `--color`: Specify the color scheme of the themes included in the list.
+///                This can be `dark`, `light`, or `all`. The default is `all`.
 pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
     var opts: Options = .{};
     defer opts.deinit();
@@ -137,11 +143,30 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
                     if (std.mem.eql(u8, entry.name, ".DS_Store"))
                         continue;
                     count += 1;
-                    try themes.append(.{
-                        .location = loc.location,
-                        .path = try std.fs.path.join(alloc, &.{ loc.dir, entry.name }),
-                        .theme = try alloc.dupe(u8, entry.name),
-                    });
+
+                    const path = try std.fs.path.join(alloc, &.{ loc.dir, entry.name });
+                    // if there is no need to filter just append the theme to the list
+                    if (opts.color == .all) {
+                        try themes.append(.{
+                            .path = path,
+                            .location = loc.location,
+                            .theme = try alloc.dupe(u8, entry.name),
+                        });
+                        continue;
+                    }
+
+                    // otherwise check if the theme should be included based on the provided options
+                    var config = try Config.default(alloc);
+                    defer config.deinit();
+                    try config.loadFile(config._arena.?.allocator(), path);
+
+                    if (shouldIncludeTheme(opts, config)) {
+                        try themes.append(.{
+                            .path = path,
+                            .location = loc.location,
+                            .theme = try alloc.dupe(u8, entry.name),
+                        });
+                    }
                 },
                 else => {},
             }
@@ -1593,4 +1618,14 @@ fn preview(allocator: std.mem.Allocator, themes: []ThemeListElement) !void {
     var app = try Preview.init(allocator, themes);
     defer app.deinit();
     try app.run();
+}
+
+fn shouldIncludeTheme(opts: Options, theme_config: Config) bool {
+    const rf = @as(f32, @floatFromInt(theme_config.background.r)) / 255.0;
+    const gf = @as(f32, @floatFromInt(theme_config.background.g)) / 255.0;
+    const bf = @as(f32, @floatFromInt(theme_config.background.b)) / 255.0;
+    const luminance = 0.2126 * rf + 0.7152 * gf + 0.0722 * bf;
+    const is_dark = luminance < 0.5;
+
+    return (opts.color == .dark and is_dark) or (opts.color == .light and !is_dark);
 }

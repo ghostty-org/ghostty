@@ -66,7 +66,7 @@ pub const DisplayLink = opaque {
                     flagsIn: c.CVOptionFlags,
                     flagsOut: *c.CVOptionFlags,
                     inner_userinfo: ?*anyopaque,
-                ) callconv(.C) c.CVReturn {
+                ) callconv(.c) c.CVReturn {
                     _ = inNow;
                     _ = inOutputTime;
                     _ = flagsIn;

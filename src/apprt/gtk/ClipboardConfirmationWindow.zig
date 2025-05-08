@@ -71,14 +71,14 @@ fn init(
 ) !void {
     var builder = switch (DialogType) {
         adw.AlertDialog => switch (request) {
-            .osc_52_read => Builder.init("ccw-osc-52-read", 1, 5, .blp),
-            .osc_52_write => Builder.init("ccw-osc-52-write", 1, 5, .blp),
-            .paste => Builder.init("ccw-paste", 1, 5, .blp),
+            .osc_52_read => Builder.init("ccw-osc-52-read", 1, 5),
+            .osc_52_write => Builder.init("ccw-osc-52-write", 1, 5),
+            .paste => Builder.init("ccw-paste", 1, 5),
         },
         adw.MessageDialog => switch (request) {
-            .osc_52_read => Builder.init("ccw-osc-52-read", 1, 2, .ui),
-            .osc_52_write => Builder.init("ccw-osc-52-write", 1, 2, .ui),
-            .paste => Builder.init("ccw-paste", 1, 2, .ui),
+            .osc_52_read => Builder.init("ccw-osc-52-read", 1, 2),
+            .osc_52_write => Builder.init("ccw-osc-52-write", 1, 2),
+            .paste => Builder.init("ccw-paste", 1, 2),
         },
         else => unreachable,
     };
@@ -152,7 +152,7 @@ fn init(
     }
 }
 
-fn gtkResponse(_: *DialogType, response: [*:0]u8, self: *ClipboardConfirmation) callconv(.C) void {
+fn gtkResponse(_: *DialogType, response: [*:0]u8, self: *ClipboardConfirmation) callconv(.c) void {
     if (std.mem.orderZ(u8, response, "ok") == .eq) {
         self.core_surface.completeClipboardRequest(
             self.pending_req,
@@ -165,7 +165,7 @@ fn gtkResponse(_: *DialogType, response: [*:0]u8, self: *ClipboardConfirmation) 
     self.destroy();
 }
 
-fn gtkRevealButtonClicked(_: *gtk.Button, self: *ClipboardConfirmation) callconv(.C) void {
+fn gtkRevealButtonClicked(_: *gtk.Button, self: *ClipboardConfirmation) callconv(.c) void {
     self.text_view_scroll.as(gtk.Widget).setSensitive(@intFromBool(true));
     self.text_view.as(gtk.Widget).removeCssClass("blurred");
 
@@ -173,7 +173,7 @@ fn gtkRevealButtonClicked(_: *gtk.Button, self: *ClipboardConfirmation) callconv
     self.reveal_button.as(gtk.Widget).setVisible(@intFromBool(false));
 }
 
-fn gtkHideButtonClicked(_: *gtk.Button, self: *ClipboardConfirmation) callconv(.C) void {
+fn gtkHideButtonClicked(_: *gtk.Button, self: *ClipboardConfirmation) callconv(.c) void {
     self.text_view_scroll.as(gtk.Widget).setSensitive(@intFromBool(false));
     self.text_view.as(gtk.Widget).addCssClass("blurred");
 

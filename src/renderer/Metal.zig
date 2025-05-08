@@ -1524,7 +1524,7 @@ const CompletionBlock = objc.Block(struct { self: *Metal }, .{
 fn bufferCompleted(
     block: *const CompletionBlock.Context,
     buffer_id: objc.c.id,
-) callconv(.C) void {
+) callconv(.c) void {
     const self = block.self;
     const buffer = objc.Object.fromId(buffer_id);
 

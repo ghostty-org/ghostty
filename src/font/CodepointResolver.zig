@@ -380,7 +380,7 @@ test getIndex {
     const testEmoji = font.embedded.emoji;
     const testEmojiText = font.embedded.emoji_text;
 
-    var lib = try Library.init();
+    var lib = try Library.init(alloc);
     defer lib.deinit();
 
     var c = Collection.init();
@@ -461,7 +461,7 @@ test "getIndex disabled font style" {
     var atlas_grayscale = try font.Atlas.init(alloc, 512, .grayscale);
     defer atlas_grayscale.deinit(alloc);
 
-    var lib = try Library.init();
+    var lib = try Library.init(alloc);
     defer lib.deinit();
 
     var c = Collection.init();
@@ -513,7 +513,7 @@ test "getIndex box glyph" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var lib = try Library.init();
+    var lib = try Library.init(alloc);
     defer lib.deinit();
 
     const c = Collection.init();

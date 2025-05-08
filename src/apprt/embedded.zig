@@ -43,15 +43,15 @@ pub const App = struct {
 
         /// Callback called to wakeup the event loop. This should trigger
         /// a full tick of the app loop.
-        wakeup: *const fn (AppUD) callconv(.C) void,
+        wakeup: *const fn (AppUD) callconv(.c) void,
 
         /// Callback called to handle an action.
-        action: *const fn (*App, apprt.Target.C, apprt.Action.C) callconv(.C) bool,
+        action: *const fn (*App, apprt.Target.C, apprt.Action.C) callconv(.c) bool,
 
         /// Read the clipboard value. The return value must be preserved
         /// by the host until the next call. If there is no valid clipboard
         /// value then this should return null.
-        read_clipboard: *const fn (SurfaceUD, c_int, *apprt.ClipboardRequest) callconv(.C) void,
+        read_clipboard: *const fn (SurfaceUD, c_int, *apprt.ClipboardRequest) callconv(.c) void,
 
         /// This may be called after a read clipboard call to request
         /// confirmation that the clipboard value is safe to read. The embedder
@@ -61,13 +61,13 @@ pub const App = struct {
             [*:0]const u8,
             *apprt.ClipboardRequest,
             apprt.ClipboardRequestType,
-        ) callconv(.C) void,
+        ) callconv(.c) void,
 
         /// Write the clipboard value.
-        write_clipboard: *const fn (SurfaceUD, [*:0]const u8, c_int, bool) callconv(.C) void,
+        write_clipboard: *const fn (SurfaceUD, [*:0]const u8, c_int, bool) callconv(.c) void,
 
         /// Close the current surface given by this function.
-        close_surface: ?*const fn (SurfaceUD, bool) callconv(.C) void = null,
+        close_surface: ?*const fn (SurfaceUD, bool) callconv(.c) void = null,
     };
 
     /// This is the key event sent for ghostty_surface_key and

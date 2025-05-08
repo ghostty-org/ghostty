@@ -64,7 +64,7 @@ fn responseCallback(
     _: *DialogType,
     response: [*:0]const u8,
     target: *Target,
-) callconv(.C) void {
+) callconv(.c) void {
     const alloc = target.allocator();
     defer alloc.destroy(target);
 
@@ -141,7 +141,7 @@ pub const Target = union(enum) {
     }
 };
 
-fn findActiveWindow(data: ?*const anyopaque, _: ?*const anyopaque) callconv(.C) c_int {
+fn findActiveWindow(data: ?*const anyopaque, _: ?*const anyopaque) callconv(.c) c_int {
     const window: *gtk.Window = @ptrCast(@alignCast(@constCast(data orelse return -1)));
 
     // Confusingly, `isActive` returns 1 when active,

@@ -1025,7 +1025,7 @@ pub fn setTitle(self: *Surface, slice: [:0]const u8, source: SetTitleSource) !vo
     self.update_title_timer = glib.timeoutAdd(75, updateTitleTimerExpired, self);
 }
 
-fn updateTitleTimerExpired(ud: ?*anyopaque) callconv(.C) c_int {
+fn updateTitleTimerExpired(ud: ?*anyopaque) callconv(.c) c_int {
     const self: *Surface = @ptrCast(@alignCast(ud.?));
 
     self.updateTitleLabels();
@@ -1061,7 +1061,7 @@ pub fn promptTitle(self: *Surface) !void {
     if (!adw_version.atLeast(1, 5, 0)) return;
     const window = self.container.window() orelse return;
 
-    var builder = Builder.init("prompt-title-dialog", 1, 5, .blp);
+    var builder = Builder.init("prompt-title-dialog", 1, 5);
     defer builder.deinit();
 
     const entry = builder.getObject(gtk.Entry, "title_entry").?;
@@ -1265,7 +1265,7 @@ fn gtkClipboardRead(
     source: ?*gobject.Object,
     res: *gio.AsyncResult,
     ud: ?*anyopaque,
-) callconv(.C) void {
+) callconv(.c) void {
     const clipboard = gobject.ext.cast(gdk.Clipboard, source orelse return) orelse return;
     const req: *ClipboardRequest = @ptrCast(@alignCast(ud orelse return));
     const self = req.self;
@@ -1349,7 +1349,7 @@ pub fn showDesktopNotification(
     app.sendNotification(body.ptr, notification);
 }
 
-fn gtkRealize(gl_area: *gtk.GLArea, self: *Surface) callconv(.C) void {
+fn gtkRealize(gl_area: *gtk.GLArea, self: *Surface) callconv(.c) void {
     log.debug("gl surface realized", .{});
 
     // We need to make the context current so we can call GL functions.
@@ -1377,7 +1377,7 @@ fn gtkRealize(gl_area: *gtk.GLArea, self: *Surface) callconv(.C) void {
 
 /// This is called when the underlying OpenGL resources must be released.
 /// This is usually due to the OpenGL area changing GDK surfaces.
-fn gtkUnrealize(gl_area: *gtk.GLArea, self: *Surface) callconv(.C) void {
+fn gtkUnrealize(gl_area: *gtk.GLArea, self: *Surface) callconv(.c) void {
     log.debug("gl surface unrealized", .{});
 
     // See gtkRealize for why we do this here.
@@ -1405,7 +1405,7 @@ fn gtkUnrealize(gl_area: *gtk.GLArea, self: *Surface) callconv(.C) void {
 }
 
 /// render signal
-fn gtkRender(_: *gtk.GLArea, _: *gdk.GLContext, self: *Surface) callconv(.C) c_int {
+fn gtkRender(_: *gtk.GLArea, _: *gdk.GLContext, self: *Surface) callconv(.c) c_int {
     self.render() catch |err| {
         log.err("surface failed to render: {}", .{err});
         return 0;
@@ -1415,7 +1415,7 @@ fn gtkRender(_: *gtk.GLArea, _: *gdk.GLContext, self: *Surface) callconv(.C) c_i
 }
 
 /// resize signal
-fn gtkResize(gl_area: *gtk.GLArea, width: c_int, height: c_int, self: *Surface) callconv(.C) void {
+fn gtkResize(gl_area: *gtk.GLArea, width: c_int, height: c_int, self: *Surface) callconv(.c) void {
     // Some debug output to help understand what GTK is telling us.
     {
         const scale_factor = scale: {
@@ -1471,7 +1471,7 @@ fn gtkResize(gl_area: *gtk.GLArea, width: c_int, height: c_int, self: *Surface) 
 }
 
 /// "destroy" signal for surface
-fn gtkDestroy(_: *gtk.GLArea, self: *Surface) callconv(.C) void {
+fn gtkDestroy(_: *gtk.GLArea, self: *Surface) callconv(.c) void {
     log.debug("gl destroy", .{});
 
     const alloc = self.app.core_app.alloc;
@@ -1505,7 +1505,7 @@ fn gtkMouseDown(
     x: f64,
     y: f64,
     self: *Surface,
-) callconv(.C) void {
+) callconv(.c) void {
     const event = gesture.as(gtk.EventController).getCurrentEvent() orelse return;
 
     const gtk_mods = event.getModifierState();
@@ -1538,7 +1538,7 @@ fn gtkMouseUp(
     _: f64,
     _: f64,
     self: *Surface,
-) callconv(.C) void {
+) callconv(.c) void {
     const event = gesture.as(gtk.EventController).getCurrentEvent() orelse return;
 
     const gtk_mods = event.getModifierState();
@@ -1557,7 +1557,7 @@ fn gtkMouseMotion(
     x: f64,
     y: f64,
     self: *Surface,
-) callconv(.C) void {
+) callconv(.c) void {
     const event = ec.as(gtk.EventController).getCurrentEvent() orelse return;
 
     const scaled = self.scaledCoordinates(x, y);
@@ -1603,7 +1603,7 @@ fn gtkMouseMotion(
 fn gtkMouseLeave(
     ec_motion: *gtk.EventControllerMotion,
     self: *Surface,
-) callconv(.C) void {
+) callconv(.c) void {
     const event = ec_motion.as(gtk.EventController).getCurrentEvent() orelse return;
 
     // Get our modifiers
@@ -1618,14 +1618,14 @@ fn gtkMouseLeave(
 fn gtkMouseScrollPrecisionBegin(
     _: *gtk.EventControllerScroll,
     self: *Surface,
-) callconv(.C) void {
+) callconv(.c) void {
     self.precision_scroll = true;
 }
 
 fn gtkMouseScrollPrecisionEnd(
     _: *gtk.EventControllerScroll,
     self: *Surface,
-) callconv(.C) void {
+) callconv(.c) void {
     self.precision_scroll = false;
 }
 
@@ -1634,7 +1634,7 @@ fn gtkMouseScroll(
     x: f64,
     y: f64,
     self: *Surface,
-) callconv(.C) c_int {
+) callconv(.c) c_int {
     const scaled = self.scaledCoordinates(x, y);
 
     // GTK doesn't support any of the scroll mods.
@@ -1664,7 +1664,7 @@ fn gtkKeyPressed(
     keycode: c_uint,
     gtk_mods: gdk.ModifierType,
     self: *Surface,
-) callconv(.C) c_int {
+) callconv(.c) c_int {
     return @intFromBool(self.keyEvent(
         .press,
         ec_key,
@@ -1680,7 +1680,7 @@ fn gtkKeyReleased(
     keycode: c_uint,
     state: gdk.ModifierType,
     self: *Surface,
-) callconv(.C) void {
+) callconv(.c) void {
     _ = self.keyEvent(
         .release,
         ec_key,
@@ -1971,7 +1971,7 @@ pub fn keyEvent(
 fn gtkInputPreeditStart(
     _: *gtk.IMMulticontext,
     self: *Surface,
-) callconv(.C) void {
+) callconv(.c) void {
     // log.warn("GTKIM: preedit start", .{});
 
     // Start our composing state for the input method and reset our
@@ -1983,7 +1983,7 @@ fn gtkInputPreeditStart(
 fn gtkInputPreeditChanged(
     ctx: *gtk.IMMulticontext,
     self: *Surface,
-) callconv(.C) void {
+) callconv(.c) void {
     // Any preedit change should mark that we're composing. Its possible this
     // is false using fcitx5-hangul and typing "dkssud<space>" ("안녕"). The
     // second "s" results in a "commit" for "안" which sets composing to false,
@@ -2009,7 +2009,7 @@ fn gtkInputPreeditChanged(
 fn gtkInputPreeditEnd(
     _: *gtk.IMMulticontext,
     self: *Surface,
-) callconv(.C) void {
+) callconv(.c) void {
     // log.warn("GTKIM: preedit end", .{});
 
     // End our composing state for GTK, allowing us to commit the text.
@@ -2025,7 +2025,7 @@ fn gtkInputCommit(
     _: *gtk.IMMulticontext,
     bytes: [*:0]u8,
     self: *Surface,
-) callconv(.C) void {
+) callconv(.c) void {
     const str = std.mem.sliceTo(bytes, 0);
 
     // log.debug("GTKIM: input commit composing={} keyevent={} str={s}", .{
@@ -2100,7 +2100,7 @@ fn gtkInputCommit(
     };
 }
 
-fn gtkFocusEnter(_: *gtk.EventControllerFocus, self: *Surface) callconv(.C) void {
+fn gtkFocusEnter(_: *gtk.EventControllerFocus, self: *Surface) callconv(.c) void {
     if (!self.realized) return;
 
     // Notify our IM context
@@ -2125,7 +2125,7 @@ fn gtkFocusEnter(_: *gtk.EventControllerFocus, self: *Surface) callconv(.C) void
     };
 }
 
-fn gtkFocusLeave(_: *gtk.EventControllerFocus, self: *Surface) callconv(.C) void {
+fn gtkFocusLeave(_: *gtk.EventControllerFocus, self: *Surface) callconv(.c) void {
     if (!self.realized) return;
 
     // Notify our IM context
@@ -2243,7 +2243,7 @@ fn gtkDrop(
     _: f64,
     _: f64,
     self: *Surface,
-) callconv(.C) c_int {
+) callconv(.c) c_int {
     const alloc = self.app.core_app.alloc;
 
     if (g_value_holds(value, gdk.FileList.getGObjectType())) {
@@ -2395,7 +2395,7 @@ fn g_value_holds(value_: ?*gobject.Value, g_type: gobject.Type) bool {
     return false;
 }
 
-fn gtkPromptTitleResponse(source_object: ?*gobject.Object, result: *gio.AsyncResult, ud: ?*anyopaque) callconv(.C) void {
+fn gtkPromptTitleResponse(source_object: ?*gobject.Object, result: *gio.AsyncResult, ud: ?*anyopaque) callconv(.c) void {
     if (!adw_version.supportsDialogs()) return;
     const dialog = gobject.ext.cast(adw.AlertDialog, source_object.?).?;
     const self: *Surface = @ptrCast(@alignCast(ud));

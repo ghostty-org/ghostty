@@ -1220,7 +1220,7 @@ fn testShaperWithFont(alloc: Allocator, font_req: TestFont) !TestShaper {
         .arabic => font.embedded.arabic,
     };
 
-    var lib = try Library.init();
+    var lib = try Library.init(alloc);
     errdefer lib.deinit();
 
     var c = Collection.init();

@@ -31,7 +31,6 @@ extension Ghostty {
                     }, right: {
                         InspectorViewRepresentable(surfaceView: surfaceView)
                             .focused($inspectorFocus)
-                            .focusedValue(\.ghosttySurfaceTitle, surfaceView.title)
                             .focusedValue(\.ghosttySurfaceView, surfaceView)
                     })
                 }

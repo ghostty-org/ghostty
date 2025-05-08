@@ -2008,7 +2008,7 @@ keybind: Keybinds = .{},
 
 /// macOS doesn't have a distinct "alt" key and instead has the "option"
 /// key which behaves slightly differently. On macOS by default, the
-/// option key plus a character will sometimes produces a Unicode character.
+/// option key plus a character will sometimes produce a Unicode character.
 /// For example, on US standard layouts option-b produces "∫". This may be
 /// undesirable if you want to use "option" as an "alt" key for keybindings
 /// in terminal programs or shells.
