@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const assert = std.debug.assert;
 const apprt = @import("../apprt.zig");
 const configpkg = @import("../config.zig");
@@ -348,12 +347,10 @@ pub const Action = union(Key) {
         // For ABI compatibility, we expect that this is our union size.
         // At the time of writing, we don't promise ABI compatibility
         // so we can change this but I want to be aware of it.
-        assert(@sizeOf(CValue) == switch (builtin.target.os.tag) {
-            .windows => switch (builtin.target.cpu.arch) {
-                .x86 => 16,
-                else => 24,
-            },
-            else => 24,
+        assert(@sizeOf(CValue) == switch (@sizeOf(usize)) {
+            4 => 16,
+            8 => 24,
+            else => unreachable,
         });
     }
 
