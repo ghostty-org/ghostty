@@ -1056,82 +1056,6 @@ pub const StreamHandler = struct {
         self.terminal.markSemanticPrompt(.command);
     }
 
-    fn isUriPathSeparator(c: u8) bool {
-        return switch (c) {
-            '?', '#' => true,
-            else => false,
-        };
-    }
-
-    fn isValidMacAddress(mac_address: []const u8) bool {
-        // A valid mac address has 6 two-character components with 5 colons, e.g. 12:34:56:ab:cd:ef.
-        if (mac_address.len != 17) {
-            return false;
-        }
-
-        for (0..mac_address.len) |i| {
-            const c = mac_address[i];
-
-            if ((i + 1) % 3 == 0) {
-                if (c != ':') {
-                    return false;
-                }
-            } else {
-                if (!std.mem.containsAtLeastScalar(u8, "0123456789ABCDEFabcdef", 1, c)) {
-                    return false;
-                }
-            }
-        }
-
-        return true;
-    }
-
-    fn parseUrl(url: []const u8) !std.Uri {
-        return std.Uri.parse(url) catch |e| {
-            // It's possible this is a mac address on macOS where the last 2 characters in the
-            // address are non-digits, e.g. 'ff', and thus an invalid port.
-            //
-            // Example: file://12:34:56:78:90:12/path/to/file
-            if (e != error.InvalidPort) return e;
-
-            const url_without_scheme = url: {
-                if (std.mem.startsWith(u8, url, "file://")) break :url url[7..];
-                if (std.mem.startsWith(u8, url, "kitty-shell-cwd://")) break :url url[18..];
-
-                return error.UnsupportedScheme;
-            };
-
-            // The first '/' after the scheme marks the end of the hostname. If the first '/'
-            // following the end of the scheme is not at the right position this is not a
-            // valid mac address.
-            if (std.mem.indexOfScalarPos(u8, url_without_scheme, 0, '/') != 17) {
-                return error.HostnameIsNotMacAddress;
-            }
-
-            // At this point we may have a mac address as the hostname.
-            const mac_address = url_without_scheme[0..17];
-
-            if (!isValidMacAddress(mac_address)) {
-                return error.HostnameIsNotMacAddress;
-            }
-
-            var uri_path_end_idx: usize = 17;
-            while (uri_path_end_idx < url_without_scheme.len and
-                !isUriPathSeparator(url_without_scheme[uri_path_end_idx]))
-            {
-                uri_path_end_idx += 1;
-            }
-
-            // Same compliance factor as std.Uri.parse(), i.e. not at all compliant with the URI
-            // spec.
-            return .{
-                .scheme = "file",
-                .host = .{ .percent_encoded = mac_address },
-                .path = .{ .percent_encoded = url_without_scheme[17..uri_path_end_idx] },
-            };
-        };
-    }
-
     pub fn reportPwd(self: *StreamHandler, url: []const u8) !void {
         // Special handling for the empty URL. We treat the empty URL
         // as resetting the pwd as if we never saw a pwd. I can't find any
@@ -1160,7 +1084,7 @@ pub const StreamHandler = struct {
             return;
         }
 
-        const uri: std.Uri = parseUrl(url) catch |e| {
+        const uri: std.Uri = internal_os.hostname.parseUrl(url) catch |e| {
             log.warn("invalid url in OSC 7: {}", .{e});
             return;
         };
