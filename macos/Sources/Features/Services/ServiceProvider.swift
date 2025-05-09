@@ -36,25 +36,27 @@ class ServiceProvider: NSObject {
             error.pointee = Self.errorNoString
             return
         }
-        let filePaths = objs.map { $0.path }.compactMap { $0 }
+        let urlObjects = objs.map { $0 as URL }
 
-        openTerminal(filePaths, target: target)
+        openTerminal(urlObjects, target: target)
     }
 
-    private func openTerminal(_ paths: [String], target: OpenTarget) {
+    private func openTerminal(_ urls: [URL], target: OpenTarget) {
         guard let delegateRaw = NSApp.delegate else { return }
         guard let delegate = delegateRaw as? AppDelegate else { return }
         let terminalManager = delegate.terminalManager
 
-        for path in paths {
-            // We only open in directories.
-            var isDirectory = ObjCBool(true)
-            guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else { continue }
-            guard isDirectory.boolValue else { continue }
+        let uniqueCwds: Set<URL> = Set(
+            urls.map { url -> URL in
+                // We only open in directories.
+                url.hasDirectoryPath ? url : url.deletingLastPathComponent()
+            }
+        )
 
+        for cwd in uniqueCwds {
             // Build our config
             var config = Ghostty.SurfaceConfiguration()
-            config.workingDirectory = path
+            config.workingDirectory = cwd.path(percentEncoded: false)
 
             switch (target) {
             case .window:
