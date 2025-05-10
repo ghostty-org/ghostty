@@ -439,6 +439,9 @@ pub const Action = union(enum) {
     /// This only works on macOS.
     toggle_window_float_on_top,
 
+    /// Toggle background opacity of window.
+    toggle_background_opacity: void,
+
     /// Toggle secure input mode on or off. This is used to prevent apps
     /// that monitor input from seeing what you type. This is useful for
     /// entering passwords or other sensitive information.
@@ -830,6 +833,7 @@ pub const Action = union(enum) {
             .toggle_fullscreen,
             .toggle_window_decorations,
             .toggle_window_float_on_top,
+            .toggle_background_opacity,
             .toggle_secure_input,
             .toggle_command_palette,
             .reset_window_size,
