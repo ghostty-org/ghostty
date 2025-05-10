@@ -75,10 +75,10 @@ pub const KeyEntryArray = std.EnumArray(key.Key, []const Entry);
 pub const keys = keys: {
     var result = KeyEntryArray.initFill(&.{});
 
-    result.set(.up, pcStyle("\x1b[1;{}A") ++ cursorKey("\x1b[A", "\x1bOA"));
-    result.set(.down, pcStyle("\x1b[1;{}B") ++ cursorKey("\x1b[B", "\x1bOB"));
-    result.set(.right, pcStyle("\x1b[1;{}C") ++ cursorKey("\x1b[C", "\x1bOC"));
-    result.set(.left, pcStyle("\x1b[1;{}D") ++ cursorKey("\x1b[D", "\x1bOD"));
+    result.set(.arrow_up, pcStyle("\x1b[1;{}A") ++ cursorKey("\x1b[A", "\x1bOA"));
+    result.set(.arrow_down, pcStyle("\x1b[1;{}B") ++ cursorKey("\x1b[B", "\x1bOB"));
+    result.set(.arrow_right, pcStyle("\x1b[1;{}C") ++ cursorKey("\x1b[C", "\x1bOC"));
+    result.set(.arrow_left, pcStyle("\x1b[1;{}D") ++ cursorKey("\x1b[D", "\x1bOD"));
     result.set(.home, pcStyle("\x1b[1;{}H") ++ cursorKey("\x1b[H", "\x1bOH"));
     result.set(.end, pcStyle("\x1b[1;{}F") ++ cursorKey("\x1b[F", "\x1bOF"));
     result.set(.insert, pcStyle("\x1b[2;{}~") ++ .{Entry{ .sequence = "\x1B[2~" }});
@@ -101,33 +101,33 @@ pub const keys = keys: {
     result.set(.f12, pcStyle("\x1b[24;{}~") ++ .{Entry{ .sequence = "\x1B[24~" }});
 
     // Keypad keys
-    result.set(.kp_0, kpKeys("p"));
-    result.set(.kp_1, kpKeys("q"));
-    result.set(.kp_2, kpKeys("r"));
-    result.set(.kp_3, kpKeys("s"));
-    result.set(.kp_4, kpKeys("t"));
-    result.set(.kp_5, kpKeys("u"));
-    result.set(.kp_6, kpKeys("v"));
-    result.set(.kp_7, kpKeys("w"));
-    result.set(.kp_8, kpKeys("x"));
-    result.set(.kp_9, kpKeys("y"));
-    result.set(.kp_decimal, kpKeys("n"));
-    result.set(.kp_divide, kpKeys("o"));
-    result.set(.kp_multiply, kpKeys("j"));
-    result.set(.kp_subtract, kpKeys("m"));
-    result.set(.kp_add, kpKeys("k"));
-    result.set(.kp_enter, kpKeys("M") ++ .{Entry{ .sequence = "\r" }});
-    result.set(.kp_up, pcStyle("\x1b[1;{}A") ++ cursorKey("\x1b[A", "\x1bOA"));
-    result.set(.kp_down, pcStyle("\x1b[1;{}B") ++ cursorKey("\x1b[B", "\x1bOB"));
-    result.set(.kp_right, pcStyle("\x1b[1;{}C") ++ cursorKey("\x1b[C", "\x1bOC"));
-    result.set(.kp_left, pcStyle("\x1b[1;{}D") ++ cursorKey("\x1b[D", "\x1bOD"));
-    result.set(.kp_begin, pcStyle("\x1b[1;{}E") ++ cursorKey("\x1b[E", "\x1bOE"));
-    result.set(.kp_home, pcStyle("\x1b[1;{}H") ++ cursorKey("\x1b[H", "\x1bOH"));
-    result.set(.kp_end, pcStyle("\x1b[1;{}F") ++ cursorKey("\x1b[F", "\x1bOF"));
-    result.set(.kp_insert, pcStyle("\x1b[2;{}~") ++ .{Entry{ .sequence = "\x1B[2~" }});
-    result.set(.kp_delete, pcStyle("\x1b[3;{}~") ++ .{Entry{ .sequence = "\x1B[3~" }});
-    result.set(.kp_page_up, pcStyle("\x1b[5;{}~") ++ .{Entry{ .sequence = "\x1B[5~" }});
-    result.set(.kp_page_down, pcStyle("\x1b[6;{}~") ++ .{Entry{ .sequence = "\x1B[6~" }});
+    result.set(.numpad_0, kpKeys("p"));
+    result.set(.numpad_1, kpKeys("q"));
+    result.set(.numpad_2, kpKeys("r"));
+    result.set(.numpad_3, kpKeys("s"));
+    result.set(.numpad_4, kpKeys("t"));
+    result.set(.numpad_5, kpKeys("u"));
+    result.set(.numpad_6, kpKeys("v"));
+    result.set(.numpad_7, kpKeys("w"));
+    result.set(.numpad_8, kpKeys("x"));
+    result.set(.numpad_9, kpKeys("y"));
+    result.set(.numpad_decimal, kpKeys("n"));
+    result.set(.numpad_divide, kpKeys("o"));
+    result.set(.numpad_multiply, kpKeys("j"));
+    result.set(.numpad_subtract, kpKeys("m"));
+    result.set(.numpad_add, kpKeys("k"));
+    result.set(.numpad_enter, kpKeys("M") ++ .{Entry{ .sequence = "\r" }});
+    result.set(.numpad_up, pcStyle("\x1b[1;{}A") ++ cursorKey("\x1b[A", "\x1bOA"));
+    result.set(.numpad_down, pcStyle("\x1b[1;{}B") ++ cursorKey("\x1b[B", "\x1bOB"));
+    result.set(.numpad_right, pcStyle("\x1b[1;{}C") ++ cursorKey("\x1b[C", "\x1bOC"));
+    result.set(.numpad_left, pcStyle("\x1b[1;{}D") ++ cursorKey("\x1b[D", "\x1bOD"));
+    result.set(.numpad_begin, pcStyle("\x1b[1;{}E") ++ cursorKey("\x1b[E", "\x1bOE"));
+    result.set(.numpad_home, pcStyle("\x1b[1;{}H") ++ cursorKey("\x1b[H", "\x1bOH"));
+    result.set(.numpad_end, pcStyle("\x1b[1;{}F") ++ cursorKey("\x1b[F", "\x1bOF"));
+    result.set(.numpad_insert, pcStyle("\x1b[2;{}~") ++ .{Entry{ .sequence = "\x1B[2~" }});
+    result.set(.numpad_delete, pcStyle("\x1b[3;{}~") ++ .{Entry{ .sequence = "\x1B[3~" }});
+    result.set(.numpad_page_up, pcStyle("\x1b[5;{}~") ++ .{Entry{ .sequence = "\x1B[5~" }});
+    result.set(.numpad_page_down, pcStyle("\x1b[6;{}~") ++ .{Entry{ .sequence = "\x1B[6~" }});
 
     result.set(.backspace, &.{
         // Modify Keys Normal

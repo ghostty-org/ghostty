@@ -65,6 +65,6 @@ extension NSEvent {
             return self.characters(byApplyingModifiers: modifierFlags.subtracting(.control))
         }
 
-        return nil
+        return characters
     }
 }

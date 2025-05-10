@@ -92,42 +92,12 @@ pub const App = struct {
             // We want to get the physical unmapped key to process keybinds.
             const physical_key = keycode: for (input.keycodes.entries) |entry| {
                 if (entry.native == self.keycode) break :keycode entry.key;
-            } else .invalid;
-
-            // If the resulting text has length 1 then we can take its key
-            // and attempt to translate it to a key enum and call the key callback.
-            // If the length is greater than 1 then we're going to call the
-            // charCallback.
-            //
-            // We also only do key translation if this is not a dead key.
-            const key = if (!self.composing) key: {
-                // If our physical key is a keypad key, we use that.
-                if (physical_key.keypad()) break :key physical_key;
-
-                // A completed key. If the length of the key is one then we can
-                // attempt to translate it to a key enum and call the key
-                // callback. First try plain ASCII.
-                if (text.len > 0) {
-                    if (input.Key.fromASCII(text[0])) |key| {
-                        break :key key;
-                    }
-                }
-
-                // If the above doesn't work, we use the unmodified value.
-                if (std.math.cast(u8, unshifted_codepoint)) |ascii| {
-                    if (input.Key.fromASCII(ascii)) |key| {
-                        break :key key;
-                    }
-                }
-
-                break :key physical_key;
-            } else .invalid;
+            } else .unidentified;
 
             // Build our final key event
             return .{
                 .action = self.action,
-                .key = key,
-                .physical_key = physical_key,
+                .key = physical_key,
                 .mods = self.mods,
                 .consumed_mods = self.consumed_mods,
                 .composing = self.composing,

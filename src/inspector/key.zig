@@ -56,7 +56,7 @@ pub const Event = struct {
         // Write our key. If we have an invalid key we attempt to write
         // the utf8 associated with it if we have it to handle non-ascii.
         try writer.writeAll(switch (self.event.key) {
-            .invalid => if (self.event.utf8.len > 0) self.event.utf8 else @tagName(.invalid),
+            .unidentified => if (self.event.utf8.len > 0) self.event.utf8 else @tagName(self.event.key),
             else => @tagName(self.event.key),
         });
 
@@ -116,13 +116,6 @@ pub const Event = struct {
             cimgui.c.igText("Key");
             _ = cimgui.c.igTableSetColumnIndex(1);
             cimgui.c.igText("%s", @tagName(self.event.key).ptr);
-        }
-        if (self.event.physical_key != self.event.key) {
-            cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
-            _ = cimgui.c.igTableSetColumnIndex(0);
-            cimgui.c.igText("Physical Key");
-            _ = cimgui.c.igTableSetColumnIndex(1);
-            cimgui.c.igText("%s", @tagName(self.event.physical_key).ptr);
         }
         if (!self.event.mods.empty()) {
             cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
@@ -227,9 +220,9 @@ test "event string" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var event = try Event.init(alloc, .{ .key = .a });
+    var event = try Event.init(alloc, .{ .key = .key_a });
     defer event.deinit(alloc);
 
     var buf: [1024]u8 = undefined;
-    try testing.expectEqualStrings("Press: a", try event.label(&buf));
+    try testing.expectEqualStrings("Press: key_a", try event.label(&buf));
 }

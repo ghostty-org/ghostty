@@ -469,17 +469,22 @@ class AppDelegate: NSObject,
         guard NSApp.mainWindow == nil else { return event }
 
         // If this event as-is would result in a key binding then we send it.
-        if let app = ghostty.app,
-           ghostty_app_key_is_binding(
-            app,
-            event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)) {
+        if let app = ghostty.app {
+            var ghosttyEvent = event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)
+            let match = (event.characters ?? "").withCString { ptr in
+                ghosttyEvent.text = ptr
+                if !ghostty_app_key_is_binding(app, ghosttyEvent) {
+                    return false
+                }
+
+                return ghostty_app_key(app, ghosttyEvent)
+            }
+
             // If the key was handled by Ghostty we stop the event chain. If
             // the key wasn't handled then we let it fall through and continue
             // processing. This is important because some bindings may have no
             // affect at this scope.
-            if (ghostty_app_key(
-                app,
-                event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS))) {
+            if match {
                 return nil
             }
         }

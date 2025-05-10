@@ -1840,7 +1840,7 @@ pub fn keyEvent(
     // (These are keybinds explicitly marked as requesting physical mapping).
     const physical_key = keycode: for (input.keycodes.entries) |entry| {
         if (entry.native == keycode) break :keycode entry.key;
-    } else .invalid;
+    } else .unidentified;
 
     // Get our modifier for the event
     const mods: input.Mods = gtk_key.eventMods(
@@ -1860,52 +1860,6 @@ pub fn keyEvent(
         const masked = @as(I, @bitCast(key_event.getConsumedModifiers())) & @as(I, gdk.MODIFIER_MASK);
         break :consumed gtk_key.translateMods(@bitCast(masked));
     };
-
-    // If we're not in a dead key state, we want to translate our text
-    // to some input.Key.
-    const key = if (!self.im_composing) key: {
-        // First, try to convert the keyval directly to a key. This allows the
-        // use of key remapping and identification of keypad numerics (as
-        // opposed to their ASCII counterparts)
-        if (gtk_key.keyFromKeyval(keyval)) |key| {
-            break :key key;
-        }
-
-        // A completed key. If the length of the key is one then we can
-        // attempt to translate it to a key enum and call the key
-        // callback. First try plain ASCII.
-        if (self.im_len > 0) {
-            if (input.Key.fromASCII(self.im_buf[0])) |key| {
-                break :key key;
-            }
-        }
-
-        // If that doesn't work then we try to translate the kevval..
-        if (keyval_unicode != 0) {
-            if (std.math.cast(u8, keyval_unicode)) |byte| {
-                if (input.Key.fromASCII(byte)) |key| {
-                    break :key key;
-                }
-            }
-        }
-
-        // If that doesn't work we use the unshifted value...
-        if (std.math.cast(u8, keyval_unicode_unshifted)) |ascii| {
-            if (input.Key.fromASCII(ascii)) |key| {
-                break :key key;
-            }
-        }
-
-        // If we have im text then this is invalid. This means that
-        // the keypress generated some character that we don't know about
-        // in our key enum. We don't want to use the physical key because
-        // it can be simply wrong. For example on "Turkish Q" the "i" key
-        // on a US layout results in "ı" which is not the same as "i" so
-        // we shouldn't use the physical key.
-        if (self.im_len > 0 or keyval_unicode_unshifted != 0) break :key .invalid;
-
-        break :key physical_key;
-    } else .invalid;
 
     // log.debug("key pressed key={} keyval={x} physical_key={} composing={} text_len={} mods={}", .{
     //     key,
@@ -1936,8 +1890,7 @@ pub fn keyEvent(
     // Invoke the core Ghostty logic to handle this input.
     const effect = self.core_surface.keyCallback(.{
         .action = action,
-        .key = key,
-        .physical_key = physical_key,
+        .key = physical_key,
         .mods = mods,
         .consumed_mods = consumed_mods,
         .composing = self.im_composing,
@@ -2088,8 +2041,7 @@ fn gtkInputCommit(
     // invalid key, which should produce no PTY encoding).
     _ = self.core_surface.keyCallback(.{
         .action = .press,
-        .key = .invalid,
-        .physical_key = .invalid,
+        .key = .unidentified,
         .mods = .{},
         .consumed_mods = .{},
         .composing = false,

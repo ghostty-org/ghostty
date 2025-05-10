@@ -155,14 +155,12 @@ const ChordBinding = struct {
         while (l_trigger != null and r_trigger != null) {
             const lhs_key: c_int = blk: {
                 switch (l_trigger.?.data.key) {
-                    .translated => |key| break :blk @intFromEnum(key),
                     .physical => |key| break :blk @intFromEnum(key),
                     .unicode => |key| break :blk @intCast(key),
                 }
             };
             const rhs_key: c_int = blk: {
                 switch (r_trigger.?.data.key) {
-                    .translated => |key| break :blk @intFromEnum(key),
                     .physical => |key| break :blk @intFromEnum(key),
                     .unicode => |key| break :blk @intCast(key),
                 }
@@ -254,8 +252,7 @@ fn prettyPrint(alloc: Allocator, keybinds: Config.Keybinds) !u8 {
                 result = win.printSegment(.{ .text = " + " }, .{ .col_offset = result.col });
             }
             const key = switch (trigger.data.key) {
-                .translated => |k| try std.fmt.allocPrint(alloc, "{s}", .{@tagName(k)}),
-                .physical => |k| try std.fmt.allocPrint(alloc, "physical:{s}", .{@tagName(k)}),
+                .physical => |k| try std.fmt.allocPrint(alloc, "{s}", .{@tagName(k)}),
                 .unicode => |c| try std.fmt.allocPrint(alloc, "{u}", .{c}),
             };
             result = win.printSegment(.{ .text = key }, .{ .col_offset = result.col });
@@ -297,8 +294,7 @@ fn iterateBindings(alloc: Allocator, iter: anytype, win: *const vaxis.Window) !s
             if (t.mods.shift) try std.fmt.format(buf.writer(), "shift + ", .{});
 
             switch (t.key) {
-                .translated => |k| try std.fmt.format(buf.writer(), "{s}", .{@tagName(k)}),
-                .physical => |k| try std.fmt.format(buf.writer(), "physical:{s}", .{@tagName(k)}),
+                .physical => |k| try std.fmt.format(buf.writer(), "{s}", .{@tagName(k)}),
                 .unicode => |c| try std.fmt.format(buf.writer(), "{u}", .{c}),
             }
 

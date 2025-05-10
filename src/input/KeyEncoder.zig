@@ -103,11 +103,15 @@ fn kitty(
         // and UTF8 text we just send it directly since we assume that is
         // whats happening. See legacy()'s similar logic for more details
         // on how to verify this.
-        if (self.event.utf8.len > 0) {
+        if (self.event.utf8.len > 0) utf8: {
             switch (self.event.key) {
-                .enter => return try copyToBuf(buf, self.event.utf8),
-                .backspace => return "",
                 else => {},
+                inline .enter, .backspace => |tag| {
+                    // See legacy for why we handle this this way.
+                    if (isControlUtf8(self.event.utf8)) break :utf8;
+                    if (comptime tag == .backspace) return "";
+                    return try copyToBuf(buf, self.event.utf8);
+                },
             }
         }
 
@@ -272,11 +276,21 @@ fn legacy(
         //   - Korean: escape commits the dead key state
         //   - Korean: backspace should delete a single preedit char
         //
-        if (self.event.utf8.len > 0) {
+        if (self.event.utf8.len > 0) utf8: {
             switch (self.event.key) {
                 else => {},
-                .backspace => return "",
-                .enter, .escape => break :pc_style,
+                inline .backspace, .enter, .escape => |tag| {
+                    // We want to ignore control characters. This is because
+                    // some apprts (macOS) will send control characters as
+                    // UTF-8 encodings and we handle that manually.
+                    if (isControlUtf8(self.event.utf8)) break :utf8;
+
+                    // Backspace encodes nothing because we modified IME.
+                    // Enter/escape don't encode the PC-style encoding
+                    // because we want to encode committed text.
+                    if (comptime tag == .backspace) return "";
+                    break :pc_style;
+                },
             }
         }
 
@@ -571,7 +585,9 @@ fn ctrlSeq(
     if (!mods.ctrl) return null;
 
     const char, const unset_mods = unset_mods: {
-        var unset_mods = mods;
+        // We need to only get binding modifiers so we strip lock
+        // keys, sides, etc.
+        var unset_mods = mods.binding();
 
         // Remove alt from our modifiers because it does not impact whether
         // we are generating a ctrl sequence and we handle the ESC-prefix
@@ -640,7 +656,7 @@ fn ctrlSeq(
         // only matches Kitty in behavior. But I believe this is a
         // justified divergence because it's a useful distinction.
 
-        break :unset_mods .{ char, unset_mods.binding() };
+        break :unset_mods .{ char, unset_mods };
     };
 
     // After unsetting, we only continue if we have ONLY control set.
@@ -708,6 +724,12 @@ fn ctrlSeq(
 /// Returns true if this is an ASCII control character, matches libc implementation.
 fn isControl(cp: u21) bool {
     return cp < 0x20 or cp == 0x7F;
+}
+
+/// Returns true if this string is comprised of a single
+/// control character. This returns false for multi-byte strings.
+fn isControlUtf8(str: []const u8) bool {
+    return str.len == 1 and isControl(@intCast(str[0]));
 }
 
 /// This is the bitmask for fixterm CSI u modifiers.
@@ -1082,7 +1104,7 @@ test "kitty: plain text" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .a,
+            .key = .key_a,
             .mods = .{},
             .utf8 = "abcd",
         },
@@ -1098,7 +1120,7 @@ test "kitty: repeat with just disambiguate" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .a,
+            .key = .key_a,
             .action = .repeat,
             .mods = .{},
             .utf8 = "a",
@@ -1222,7 +1244,7 @@ test "kitty: enter with all flags" {
 test "kitty: ctrl with all flags" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
-        .event = .{ .key = .left_control, .mods = .{ .ctrl = true }, .utf8 = "" },
+        .event = .{ .key = .control_left, .mods = .{ .ctrl = true }, .utf8 = "" },
         .kitty_flags = .{
             .disambiguate = true,
             .report_events = true,
@@ -1240,7 +1262,7 @@ test "kitty: ctrl release with ctrl mod set" {
     var enc: KeyEncoder = .{
         .event = .{
             .action = .release,
-            .key = .left_control,
+            .key = .control_left,
             .mods = .{ .ctrl = true },
             .utf8 = "",
         },
@@ -1272,7 +1294,7 @@ test "kitty: composing with no modifier" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .a,
+            .key = .key_a,
             .mods = .{ .shift = true },
             .composing = true,
         },
@@ -1287,7 +1309,7 @@ test "kitty: composing with modifier" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .left_shift,
+            .key = .shift_left,
             .mods = .{ .shift = true },
             .composing = true,
         },
@@ -1302,7 +1324,7 @@ test "kitty: shift+a on US keyboard" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .a,
+            .key = .key_a,
             .mods = .{ .shift = true },
             .utf8 = "A",
             .unshifted_codepoint = 97, // lowercase A
@@ -1321,7 +1343,7 @@ test "kitty: matching unshifted codepoint" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .a,
+            .key = .key_a,
             .mods = .{ .shift = true },
             .utf8 = "A",
             .unshifted_codepoint = 65,
@@ -1344,7 +1366,7 @@ test "kitty: report alternates with caps" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .j,
+            .key = .key_j,
             .mods = .{ .caps_lock = true },
             .utf8 = "J",
             .unshifted_codepoint = 106,
@@ -1450,7 +1472,7 @@ test "kitty: report alternates with hu layout release" {
     var enc: KeyEncoder = .{
         .event = .{
             .action = .release,
-            .key = .left_bracket,
+            .key = .bracket_left,
             .mods = .{ .ctrl = true },
             .utf8 = "",
             .unshifted_codepoint = 337,
@@ -1473,7 +1495,7 @@ test "kitty: up arrow with utf8" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .up,
+            .key = .arrow_up,
             .mods = .{},
             .utf8 = &.{30},
         },
@@ -1505,7 +1527,7 @@ test "kitty: left shift" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .left_shift,
+            .key = .shift_left,
             .mods = .{},
             .utf8 = "",
         },
@@ -1521,7 +1543,7 @@ test "kitty: left shift with report all" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .left_shift,
+            .key = .shift_left,
             .mods = .{},
             .utf8 = "",
         },
@@ -1539,7 +1561,7 @@ test "kitty: report associated with alt text on macOS with option" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .w,
+            .key = .key_w,
             .mods = .{ .alt = true },
             .utf8 = "∑",
             .unshifted_codepoint = 119,
@@ -1565,7 +1587,7 @@ test "kitty: report associated with alt text on macOS with alt" {
         var buf: [128]u8 = undefined;
         var enc: KeyEncoder = .{
             .event = .{
-                .key = .w,
+                .key = .key_w,
                 .mods = .{ .alt = true },
                 .utf8 = "∑",
                 .unshifted_codepoint = 119,
@@ -1588,7 +1610,7 @@ test "kitty: report associated with alt text on macOS with alt" {
         var buf: [128]u8 = undefined;
         var enc: KeyEncoder = .{
             .event = .{
-                .key = .w,
+                .key = .key_w,
                 .mods = .{},
                 .utf8 = "∑",
                 .unshifted_codepoint = 119,
@@ -1611,7 +1633,7 @@ test "kitty: report associated with modifiers" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .j,
+            .key = .key_j,
             .mods = .{ .ctrl = true },
             .utf8 = "j",
             .unshifted_codepoint = 106,
@@ -1632,7 +1654,7 @@ test "kitty: report associated" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .j,
+            .key = .key_j,
             .mods = .{ .shift = true },
             .utf8 = "J",
             .unshifted_codepoint = 106,
@@ -1654,7 +1676,7 @@ test "kitty: report associated on release" {
     var enc: KeyEncoder = .{
         .event = .{
             .action = .release,
-            .key = .j,
+            .key = .key_j,
             .mods = .{ .shift = true },
             .utf8 = "J",
             .unshifted_codepoint = 106,
@@ -1713,7 +1735,7 @@ test "kitty: enter with utf8 (dead key state)" {
 test "kitty: keypad number" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
-        .event = .{ .key = .kp_1, .mods = .{}, .utf8 = "1" },
+        .event = .{ .key = .numpad_1, .mods = .{}, .utf8 = "1" },
         .kitty_flags = .{
             .disambiguate = true,
             .report_events = true,
@@ -1807,7 +1829,7 @@ test "legacy: ctrl+alt+c" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .c,
+            .key = .key_c,
             .mods = .{ .ctrl = true, .alt = true },
             .utf8 = "c",
         },
@@ -1821,7 +1843,7 @@ test "legacy: alt+c" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .c,
+            .key = .key_c,
             .utf8 = "c",
             .mods = .{ .alt = true },
         },
@@ -1837,7 +1859,7 @@ test "legacy: alt+e only unshifted" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .e,
+            .key = .key_e,
             .unshifted_codepoint = 'e',
             .mods = .{ .alt = true },
         },
@@ -1855,7 +1877,7 @@ test "legacy: alt+x macos" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .c,
+            .key = .key_c,
             .utf8 = "≈",
             .unshifted_codepoint = 'c',
             .mods = .{ .alt = true },
@@ -1891,7 +1913,7 @@ test "legacy: alt+ф" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .f,
+            .key = .key_f,
             .utf8 = "ф",
             .mods = .{ .alt = true },
         },
@@ -1906,7 +1928,7 @@ test "legacy: ctrl+c" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .c,
+            .key = .key_c,
             .mods = .{ .ctrl = true },
             .utf8 = "c",
         },
@@ -1947,7 +1969,7 @@ test "legacy: ctrl+shift+char with modify other state 2" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .h,
+            .key = .key_h,
             .mods = .{ .ctrl = true, .shift = true },
             .utf8 = "H",
         },
@@ -1962,7 +1984,7 @@ test "legacy: fixterm awkward letters" {
     var buf: [128]u8 = undefined;
     {
         var enc: KeyEncoder = .{ .event = .{
-            .key = .i,
+            .key = .key_i,
             .mods = .{ .ctrl = true },
             .utf8 = "i",
         } };
@@ -1971,7 +1993,7 @@ test "legacy: fixterm awkward letters" {
     }
     {
         var enc: KeyEncoder = .{ .event = .{
-            .key = .m,
+            .key = .key_m,
             .mods = .{ .ctrl = true },
             .utf8 = "m",
         } };
@@ -1980,7 +2002,7 @@ test "legacy: fixterm awkward letters" {
     }
     {
         var enc: KeyEncoder = .{ .event = .{
-            .key = .left_bracket,
+            .key = .bracket_left,
             .mods = .{ .ctrl = true },
             .utf8 = "[",
         } };
@@ -1989,7 +2011,7 @@ test "legacy: fixterm awkward letters" {
     }
     {
         var enc: KeyEncoder = .{ .event = .{
-            .key = .two,
+            .key = .digit_2,
             .mods = .{ .ctrl = true, .shift = true },
             .utf8 = "@",
             .unshifted_codepoint = '2',
@@ -2005,7 +2027,7 @@ test "legacy: ctrl+shift+letter ascii" {
     var buf: [128]u8 = undefined;
     {
         var enc: KeyEncoder = .{ .event = .{
-            .key = .m,
+            .key = .key_m,
             .mods = .{ .ctrl = true, .shift = true },
             .utf8 = "M",
             .unshifted_codepoint = 'm',
@@ -2019,7 +2041,7 @@ test "legacy: shift+function key should use all mods" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .up,
+            .key = .arrow_up,
             .mods = .{ .shift = true },
             .consumed_mods = .{ .shift = true },
         },
@@ -2033,7 +2055,7 @@ test "legacy: keypad enter" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .kp_enter,
+            .key = .numpad_enter,
             .mods = .{},
             .consumed_mods = .{},
         },
@@ -2047,7 +2069,7 @@ test "legacy: keypad 1" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .kp_1,
+            .key = .numpad_1,
             .mods = .{},
             .consumed_mods = .{},
             .utf8 = "1",
@@ -2062,7 +2084,7 @@ test "legacy: keypad 1 with application keypad" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .kp_1,
+            .key = .numpad_1,
             .mods = .{},
             .consumed_mods = .{},
             .utf8 = "1",
@@ -2078,7 +2100,7 @@ test "legacy: keypad 1 with application keypad and numlock" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .kp_1,
+            .key = .numpad_1,
             .mods = .{ .num_lock = true },
             .consumed_mods = .{},
             .utf8 = "1",
@@ -2094,7 +2116,7 @@ test "legacy: keypad 1 with application keypad and numlock ignore" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .kp_1,
+            .key = .numpad_1,
             .mods = .{ .num_lock = false },
             .consumed_mods = .{},
             .utf8 = "1",
@@ -2189,8 +2211,7 @@ test "legacy: hu layout ctrl+ő sends proper codepoint" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .left_bracket,
-            .physical_key = .left_bracket,
+            .key = .bracket_left,
             .mods = .{ .ctrl = true },
             .utf8 = "ő",
             .unshifted_codepoint = 337,
@@ -2207,7 +2228,7 @@ test "legacy: super-only on macOS with text" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .b,
+            .key = .key_b,
             .utf8 = "b",
             .mods = .{ .super = true },
         },
@@ -2223,7 +2244,7 @@ test "legacy: super and other mods on macOS with text" {
     var buf: [128]u8 = undefined;
     var enc: KeyEncoder = .{
         .event = .{
-            .key = .b,
+            .key = .key_b,
             .utf8 = "B",
             .mods = .{ .super = true, .shift = true },
         },
@@ -2233,51 +2254,73 @@ test "legacy: super and other mods on macOS with text" {
     try testing.expectEqualStrings("", actual);
 }
 
+test "legacy: backspace with DEL utf8" {
+    var buf: [128]u8 = undefined;
+    var enc: KeyEncoder = .{
+        .event = .{
+            .key = .backspace,
+            .utf8 = &.{0x7F},
+            .unshifted_codepoint = 0x08,
+        },
+    };
+
+    const actual = try enc.legacy(&buf);
+    try testing.expectEqualStrings("\x7F", actual);
+}
+
 test "ctrlseq: normal ctrl c" {
-    const seq = ctrlSeq(.invalid, "c", 'c', .{ .ctrl = true });
+    const seq = ctrlSeq(.unidentified, "c", 'c', .{ .ctrl = true });
     try testing.expectEqual(@as(u8, 0x03), seq.?);
 }
 
 test "ctrlseq: normal ctrl c, right control" {
-    const seq = ctrlSeq(.invalid, "c", 'c', .{ .ctrl = true, .sides = .{ .ctrl = .right } });
+    const seq = ctrlSeq(.unidentified, "c", 'c', .{ .ctrl = true, .sides = .{ .ctrl = .right } });
     try testing.expectEqual(@as(u8, 0x03), seq.?);
 }
 
 test "ctrlseq: alt should be allowed" {
-    const seq = ctrlSeq(.invalid, "c", 'c', .{ .alt = true, .ctrl = true });
+    const seq = ctrlSeq(.unidentified, "c", 'c', .{ .alt = true, .ctrl = true });
     try testing.expectEqual(@as(u8, 0x03), seq.?);
 }
 
 test "ctrlseq: no ctrl does nothing" {
-    try testing.expect(ctrlSeq(.invalid, "c", 'c', .{}) == null);
+    try testing.expect(ctrlSeq(.unidentified, "c", 'c', .{}) == null);
 }
 
 test "ctrlseq: shifted non-character" {
-    const seq = ctrlSeq(.invalid, "_", '-', .{ .ctrl = true, .shift = true });
+    const seq = ctrlSeq(.unidentified, "_", '-', .{ .ctrl = true, .shift = true });
     try testing.expectEqual(@as(u8, 0x1F), seq.?);
 }
 
 test "ctrlseq: caps ascii letter" {
-    const seq = ctrlSeq(.invalid, "C", 'c', .{ .ctrl = true, .caps_lock = true });
+    const seq = ctrlSeq(.unidentified, "C", 'c', .{ .ctrl = true, .caps_lock = true });
     try testing.expectEqual(@as(u8, 0x03), seq.?);
 }
 
 test "ctrlseq: shift does not generate ctrl seq" {
-    try testing.expect(ctrlSeq(.invalid, "C", 'c', .{ .shift = true }) == null);
-    try testing.expect(ctrlSeq(.invalid, "C", 'c', .{ .shift = true, .ctrl = true }) == null);
+    try testing.expect(ctrlSeq(.unidentified, "C", 'c', .{ .shift = true }) == null);
+    try testing.expect(ctrlSeq(.unidentified, "C", 'c', .{ .shift = true, .ctrl = true }) == null);
 }
 
 test "ctrlseq: russian ctrl c" {
-    const seq = ctrlSeq(.c, "с", 0x0441, .{ .ctrl = true });
+    const seq = ctrlSeq(.key_c, "с", 0x0441, .{ .ctrl = true });
     try testing.expectEqual(@as(u8, 0x03), seq.?);
 }
 
 test "ctrlseq: russian shifted ctrl c" {
-    const seq = ctrlSeq(.c, "с", 0x0441, .{ .ctrl = true, .shift = true });
+    const seq = ctrlSeq(.key_c, "с", 0x0441, .{ .ctrl = true, .shift = true });
     try testing.expect(seq == null);
 }
 
 test "ctrlseq: russian alt ctrl c" {
-    const seq = ctrlSeq(.c, "с", 0x0441, .{ .ctrl = true, .alt = true });
+    const seq = ctrlSeq(.key_c, "с", 0x0441, .{ .ctrl = true, .alt = true });
+    try testing.expectEqual(@as(u8, 0x03), seq.?);
+}
+
+test "ctrlseq: right ctrl c" {
+    const seq = ctrlSeq(.key_c, "с", 'c', .{
+        .ctrl = true,
+        .sides = .{ .ctrl = .right },
+    });
     try testing.expectEqual(@as(u8, 0x03), seq.?);
 }

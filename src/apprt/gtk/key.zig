@@ -21,7 +21,7 @@ pub fn accelFromTrigger(buf: []u8, trigger: input.Binding.Trigger) !?[:0]const u
 
     // Write our key
     switch (trigger.key) {
-        .physical, .translated => |k| {
+        .physical => |k| {
             const keyval = keyvalFromKey(k) orelse return null;
             try writer.writeAll(std.mem.span(gdk.keyvalName(keyval) orelse return null));
         },
@@ -122,42 +122,42 @@ pub fn eventMods(
     // if only the modifier key is pressed, but our core logic
     // relies on it.
     switch (physical_key) {
-        .left_shift => {
+        .shift_left => {
             mods.shift = action != .release;
             mods.sides.shift = .left;
         },
 
-        .right_shift => {
+        .shift_right => {
             mods.shift = action != .release;
             mods.sides.shift = .right;
         },
 
-        .left_control => {
+        .control_left => {
             mods.ctrl = action != .release;
             mods.sides.ctrl = .left;
         },
 
-        .right_control => {
+        .control_right => {
             mods.ctrl = action != .release;
             mods.sides.ctrl = .right;
         },
 
-        .left_alt => {
+        .alt_left => {
             mods.alt = action != .release;
             mods.sides.alt = .left;
         },
 
-        .right_alt => {
+        .alt_right => {
             mods.alt = action != .release;
             mods.sides.alt = .right;
         },
 
-        .left_super => {
+        .meta_left => {
             mods.super = action != .release;
             mods.sides.super = .left;
         },
 
-        .right_super => {
+        .meta_right => {
             mods.super = action != .release;
             mods.sides.super = .right;
         },
@@ -182,7 +182,7 @@ pub fn keyvalFromKey(key: input.Key) ?c_uint {
     switch (key) {
         inline else => |key_comptime| {
             return comptime value: {
-                @setEvalBranchQuota(10_000);
+                @setEvalBranchQuota(50_000);
                 for (keymap) |entry| {
                     if (entry[1] == key_comptime) break :value entry[0];
                 }
@@ -199,7 +199,7 @@ test "accelFromTrigger" {
 
     try testing.expectEqualStrings("<Super>q", (try accelFromTrigger(&buf, .{
         .mods = .{ .super = true },
-        .key = .{ .translated = .q },
+        .key = .{ .unicode = 'q' },
     })).?);
 
     try testing.expectEqualStrings("<Shift><Ctrl><Alt><Super>backslash", (try accelFromTrigger(&buf, .{
@@ -213,61 +213,61 @@ test "accelFromTrigger" {
 const RawEntry = struct { c_uint, input.Key };
 
 const keymap: []const RawEntry = &.{
-    .{ gdk.KEY_a, .a },
-    .{ gdk.KEY_b, .b },
-    .{ gdk.KEY_c, .c },
-    .{ gdk.KEY_d, .d },
-    .{ gdk.KEY_e, .e },
-    .{ gdk.KEY_f, .f },
-    .{ gdk.KEY_g, .g },
-    .{ gdk.KEY_h, .h },
-    .{ gdk.KEY_i, .i },
-    .{ gdk.KEY_j, .j },
-    .{ gdk.KEY_k, .k },
-    .{ gdk.KEY_l, .l },
-    .{ gdk.KEY_m, .m },
-    .{ gdk.KEY_n, .n },
-    .{ gdk.KEY_o, .o },
-    .{ gdk.KEY_p, .p },
-    .{ gdk.KEY_q, .q },
-    .{ gdk.KEY_r, .r },
-    .{ gdk.KEY_s, .s },
-    .{ gdk.KEY_t, .t },
-    .{ gdk.KEY_u, .u },
-    .{ gdk.KEY_v, .v },
-    .{ gdk.KEY_w, .w },
-    .{ gdk.KEY_x, .x },
-    .{ gdk.KEY_y, .y },
-    .{ gdk.KEY_z, .z },
+    .{ gdk.KEY_a, .key_a },
+    .{ gdk.KEY_b, .key_b },
+    .{ gdk.KEY_c, .key_c },
+    .{ gdk.KEY_d, .key_d },
+    .{ gdk.KEY_e, .key_e },
+    .{ gdk.KEY_f, .key_f },
+    .{ gdk.KEY_g, .key_g },
+    .{ gdk.KEY_h, .key_h },
+    .{ gdk.KEY_i, .key_i },
+    .{ gdk.KEY_j, .key_j },
+    .{ gdk.KEY_k, .key_k },
+    .{ gdk.KEY_l, .key_l },
+    .{ gdk.KEY_m, .key_m },
+    .{ gdk.KEY_n, .key_n },
+    .{ gdk.KEY_o, .key_o },
+    .{ gdk.KEY_p, .key_p },
+    .{ gdk.KEY_q, .key_q },
+    .{ gdk.KEY_r, .key_r },
+    .{ gdk.KEY_s, .key_s },
+    .{ gdk.KEY_t, .key_t },
+    .{ gdk.KEY_u, .key_u },
+    .{ gdk.KEY_v, .key_v },
+    .{ gdk.KEY_w, .key_w },
+    .{ gdk.KEY_x, .key_x },
+    .{ gdk.KEY_y, .key_y },
+    .{ gdk.KEY_z, .key_z },
 
-    .{ gdk.KEY_0, .zero },
-    .{ gdk.KEY_1, .one },
-    .{ gdk.KEY_2, .two },
-    .{ gdk.KEY_3, .three },
-    .{ gdk.KEY_4, .four },
-    .{ gdk.KEY_5, .five },
-    .{ gdk.KEY_6, .six },
-    .{ gdk.KEY_7, .seven },
-    .{ gdk.KEY_8, .eight },
-    .{ gdk.KEY_9, .nine },
+    .{ gdk.KEY_0, .digit_0 },
+    .{ gdk.KEY_1, .digit_1 },
+    .{ gdk.KEY_2, .digit_2 },
+    .{ gdk.KEY_3, .digit_3 },
+    .{ gdk.KEY_4, .digit_4 },
+    .{ gdk.KEY_5, .digit_5 },
+    .{ gdk.KEY_6, .digit_6 },
+    .{ gdk.KEY_7, .digit_7 },
+    .{ gdk.KEY_8, .digit_8 },
+    .{ gdk.KEY_9, .digit_9 },
 
     .{ gdk.KEY_semicolon, .semicolon },
     .{ gdk.KEY_space, .space },
-    .{ gdk.KEY_apostrophe, .apostrophe },
+    .{ gdk.KEY_apostrophe, .quote },
     .{ gdk.KEY_comma, .comma },
-    .{ gdk.KEY_grave, .grave_accent },
+    .{ gdk.KEY_grave, .backquote },
     .{ gdk.KEY_period, .period },
     .{ gdk.KEY_slash, .slash },
     .{ gdk.KEY_minus, .minus },
     .{ gdk.KEY_equal, .equal },
-    .{ gdk.KEY_bracketleft, .left_bracket },
-    .{ gdk.KEY_bracketright, .right_bracket },
+    .{ gdk.KEY_bracketleft, .bracket_left },
+    .{ gdk.KEY_bracketright, .bracket_right },
     .{ gdk.KEY_backslash, .backslash },
 
-    .{ gdk.KEY_Up, .up },
-    .{ gdk.KEY_Down, .down },
-    .{ gdk.KEY_Right, .right },
-    .{ gdk.KEY_Left, .left },
+    .{ gdk.KEY_Up, .arrow_up },
+    .{ gdk.KEY_Down, .arrow_down },
+    .{ gdk.KEY_Right, .arrow_right },
+    .{ gdk.KEY_Left, .arrow_left },
     .{ gdk.KEY_Home, .home },
     .{ gdk.KEY_End, .end },
     .{ gdk.KEY_Insert, .insert },
@@ -310,45 +310,45 @@ const keymap: []const RawEntry = &.{
     .{ gdk.KEY_F24, .f24 },
     .{ gdk.KEY_F25, .f25 },
 
-    .{ gdk.KEY_KP_0, .kp_0 },
-    .{ gdk.KEY_KP_1, .kp_1 },
-    .{ gdk.KEY_KP_2, .kp_2 },
-    .{ gdk.KEY_KP_3, .kp_3 },
-    .{ gdk.KEY_KP_4, .kp_4 },
-    .{ gdk.KEY_KP_5, .kp_5 },
-    .{ gdk.KEY_KP_6, .kp_6 },
-    .{ gdk.KEY_KP_7, .kp_7 },
-    .{ gdk.KEY_KP_8, .kp_8 },
-    .{ gdk.KEY_KP_9, .kp_9 },
-    .{ gdk.KEY_KP_Decimal, .kp_decimal },
-    .{ gdk.KEY_KP_Divide, .kp_divide },
-    .{ gdk.KEY_KP_Multiply, .kp_multiply },
-    .{ gdk.KEY_KP_Subtract, .kp_subtract },
-    .{ gdk.KEY_KP_Add, .kp_add },
-    .{ gdk.KEY_KP_Enter, .kp_enter },
-    .{ gdk.KEY_KP_Equal, .kp_equal },
+    .{ gdk.KEY_KP_0, .numpad_0 },
+    .{ gdk.KEY_KP_1, .numpad_1 },
+    .{ gdk.KEY_KP_2, .numpad_2 },
+    .{ gdk.KEY_KP_3, .numpad_3 },
+    .{ gdk.KEY_KP_4, .numpad_4 },
+    .{ gdk.KEY_KP_5, .numpad_5 },
+    .{ gdk.KEY_KP_6, .numpad_6 },
+    .{ gdk.KEY_KP_7, .numpad_7 },
+    .{ gdk.KEY_KP_8, .numpad_8 },
+    .{ gdk.KEY_KP_9, .numpad_9 },
+    .{ gdk.KEY_KP_Decimal, .numpad_decimal },
+    .{ gdk.KEY_KP_Divide, .numpad_divide },
+    .{ gdk.KEY_KP_Multiply, .numpad_multiply },
+    .{ gdk.KEY_KP_Subtract, .numpad_subtract },
+    .{ gdk.KEY_KP_Add, .numpad_add },
+    .{ gdk.KEY_KP_Enter, .numpad_enter },
+    .{ gdk.KEY_KP_Equal, .numpad_equal },
 
-    .{ gdk.KEY_KP_Separator, .kp_separator },
-    .{ gdk.KEY_KP_Left, .kp_left },
-    .{ gdk.KEY_KP_Right, .kp_right },
-    .{ gdk.KEY_KP_Up, .kp_up },
-    .{ gdk.KEY_KP_Down, .kp_down },
-    .{ gdk.KEY_KP_Page_Up, .kp_page_up },
-    .{ gdk.KEY_KP_Page_Down, .kp_page_down },
-    .{ gdk.KEY_KP_Home, .kp_home },
-    .{ gdk.KEY_KP_End, .kp_end },
-    .{ gdk.KEY_KP_Insert, .kp_insert },
-    .{ gdk.KEY_KP_Delete, .kp_delete },
-    .{ gdk.KEY_KP_Begin, .kp_begin },
+    .{ gdk.KEY_KP_Separator, .numpad_separator },
+    .{ gdk.KEY_KP_Left, .numpad_left },
+    .{ gdk.KEY_KP_Right, .numpad_right },
+    .{ gdk.KEY_KP_Up, .numpad_up },
+    .{ gdk.KEY_KP_Down, .numpad_down },
+    .{ gdk.KEY_KP_Page_Up, .numpad_page_up },
+    .{ gdk.KEY_KP_Page_Down, .numpad_page_down },
+    .{ gdk.KEY_KP_Home, .numpad_home },
+    .{ gdk.KEY_KP_End, .numpad_end },
+    .{ gdk.KEY_KP_Insert, .numpad_insert },
+    .{ gdk.KEY_KP_Delete, .numpad_delete },
+    .{ gdk.KEY_KP_Begin, .numpad_begin },
 
-    .{ gdk.KEY_Shift_L, .left_shift },
-    .{ gdk.KEY_Control_L, .left_control },
-    .{ gdk.KEY_Alt_L, .left_alt },
-    .{ gdk.KEY_Super_L, .left_super },
-    .{ gdk.KEY_Shift_R, .right_shift },
-    .{ gdk.KEY_Control_R, .right_control },
-    .{ gdk.KEY_Alt_R, .right_alt },
-    .{ gdk.KEY_Super_R, .right_super },
+    .{ gdk.KEY_Shift_L, .shift_left },
+    .{ gdk.KEY_Control_L, .control_left },
+    .{ gdk.KEY_Alt_L, .alt_left },
+    .{ gdk.KEY_Super_L, .meta_left },
+    .{ gdk.KEY_Shift_R, .shift_right },
+    .{ gdk.KEY_Control_R, .control_right },
+    .{ gdk.KEY_Alt_R, .alt_right },
+    .{ gdk.KEY_Super_R, .meta_right },
 
     // TODO: media keys
 };

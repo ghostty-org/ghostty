@@ -929,12 +929,30 @@ class: ?[:0]const u8 = null,
 /// Trigger: `+`-separated list of keys and modifiers. Example: `ctrl+a`,
 /// `ctrl+shift+b`, `up`.
 ///
-/// Valid keys are currently only listed in the
-/// [Ghostty source code](https://github.com/ghostty-org/ghostty/blob/d6e76858164d52cff460fedc61ddf2e560912d71/src/input/key.zig#L255).
-/// This is a documentation limitation and we will improve this in the future.
-/// A common gotcha is that numeric keys are written as words: e.g. `one`,
-/// `two`, `three`, etc. and not `1`, `2`, `3`. This will also be improved in
-/// the future.
+/// If the key is a single Unicode codepoint, the trigger will match
+/// any presses that produce that codepoint. These are impacted by
+/// keyboard layouts. For example, `a` will match the `a` key on a
+/// QWERTY keyboard, but will match the `q` key on a AZERTY keyboard
+/// (assuming US physical layout).
+///
+/// Physical key codes can be specified by using any of the key codes
+/// as specified by the [W3C specification](https://www.w3.org/TR/uievents-code/).
+/// For example, `KeyA` will match the physical `a` key on a US standard
+/// keyboard regardless of the keyboard layout. These are case-sensitive.
+///
+/// For aesthetic reasons, the w3c codes also support snake case. For
+/// example, `key_a` is equivalent to `KeyA`. The only exceptions are
+/// function keys, e.g. `F1` is `f1` (no underscore). This is a consequence
+/// of our internal code using snake case but is purposely supported
+/// and tested so it is safe to use. It allows an all-lowercase binding
+/// which I find more aesthetically pleasing.
+///
+/// Function keys such as `insert`, `up`, `f5`, etc. are also specified
+/// using the keys as specified by the previously linked W3C specification.
+///
+/// Physical keys always match with a higher priority than Unicode codepoints,
+/// so if you specify both `a` and `KeyA`, the physical key will always be used
+/// regardless of what order they are configured.
 ///
 /// Valid modifiers are `shift`, `ctrl` (alias: `control`), `alt` (alias: `opt`,
 /// `option`), and `super` (alias: `cmd`, `command`). You may use the modifier
@@ -953,11 +971,6 @@ class: ?[:0]const u8 = null,
 ///     but valid.
 ///
 ///   * only a single key input is allowed, `ctrl+a+b` is invalid.
-///
-///   * the key input can be prefixed with `physical:` to specify a
-///     physical key mapping rather than a logical one. A physical key
-///     mapping responds to the hardware keycode and not the keycode
-///     translated by any system keyboard layouts. Example: "ctrl+physical:a"
 ///
 /// You may also specify multiple triggers separated by `>` to require a
 /// sequence of triggers to activate the action. For example,
@@ -4343,12 +4356,12 @@ pub const Keybinds = struct {
         // keybinds for opening and reloading config
         try self.set.put(
             alloc,
-            .{ .key = .{ .translated = .comma }, .mods = inputpkg.ctrlOrSuper(.{ .shift = true }) },
+            .{ .key = .{ .unicode = ',' }, .mods = inputpkg.ctrlOrSuper(.{ .shift = true }) },
             .{ .reload_config = {} },
         );
         try self.set.put(
             alloc,
-            .{ .key = .{ .translated = .comma }, .mods = inputpkg.ctrlOrSuper(.{}) },
+            .{ .key = .{ .unicode = ',' }, .mods = inputpkg.ctrlOrSuper(.{}) },
             .{ .open_config = {} },
         );
 
@@ -4362,12 +4375,12 @@ pub const Keybinds = struct {
             if (!builtin.target.os.tag.isDarwin()) {
                 try self.set.put(
                     alloc,
-                    .{ .key = .{ .translated = .insert }, .mods = .{ .ctrl = true } },
+                    .{ .key = .{ .physical = .insert }, .mods = .{ .ctrl = true } },
                     .{ .copy_to_clipboard = {} },
                 );
                 try self.set.put(
                     alloc,
-                    .{ .key = .{ .translated = .insert }, .mods = .{ .shift = true } },
+                    .{ .key = .{ .physical = .insert }, .mods = .{ .shift = true } },
                     .{ .paste_from_clipboard = {} },
                 );
             }
@@ -4381,12 +4394,12 @@ pub const Keybinds = struct {
 
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .c }, .mods = mods },
+                .{ .key = .{ .unicode = 'c' }, .mods = mods },
                 .{ .copy_to_clipboard = {} },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .v }, .mods = mods },
+                .{ .key = .{ .unicode = 'v' }, .mods = mods },
                 .{ .paste_from_clipboard = {} },
             );
         }
@@ -4397,84 +4410,84 @@ pub const Keybinds = struct {
         // set the expected keybind for the menu.
         try self.set.put(
             alloc,
-            .{ .key = .{ .translated = .plus }, .mods = inputpkg.ctrlOrSuper(.{}) },
+            .{ .key = .{ .physical = .equal }, .mods = inputpkg.ctrlOrSuper(.{}) },
             .{ .increase_font_size = 1 },
         );
         try self.set.put(
             alloc,
-            .{ .key = .{ .translated = .equal }, .mods = inputpkg.ctrlOrSuper(.{}) },
+            .{ .key = .{ .unicode = '+' }, .mods = inputpkg.ctrlOrSuper(.{}) },
             .{ .increase_font_size = 1 },
         );
 
         try self.set.put(
             alloc,
-            .{ .key = .{ .translated = .minus }, .mods = inputpkg.ctrlOrSuper(.{}) },
+            .{ .key = .{ .unicode = '-' }, .mods = inputpkg.ctrlOrSuper(.{}) },
             .{ .decrease_font_size = 1 },
         );
         try self.set.put(
             alloc,
-            .{ .key = .{ .translated = .zero }, .mods = inputpkg.ctrlOrSuper(.{}) },
+            .{ .key = .{ .unicode = '0' }, .mods = inputpkg.ctrlOrSuper(.{}) },
             .{ .reset_font_size = {} },
         );
 
         try self.set.put(
             alloc,
-            .{ .key = .{ .translated = .j }, .mods = inputpkg.ctrlOrSuper(.{ .shift = true }) },
+            .{ .key = .{ .unicode = 'j' }, .mods = inputpkg.ctrlOrSuper(.{ .shift = true }) },
             .{ .write_screen_file = .paste },
         );
 
         try self.set.put(
             alloc,
-            .{ .key = .{ .translated = .j }, .mods = inputpkg.ctrlOrSuper(.{ .shift = true, .alt = true }) },
+            .{ .key = .{ .unicode = 'j' }, .mods = inputpkg.ctrlOrSuper(.{ .shift = true, .alt = true }) },
             .{ .write_screen_file = .open },
         );
 
         // Expand Selection
         try self.set.putFlags(
             alloc,
-            .{ .key = .{ .translated = .left }, .mods = .{ .shift = true } },
+            .{ .key = .{ .physical = .arrow_left }, .mods = .{ .shift = true } },
             .{ .adjust_selection = .left },
             .{ .performable = true },
         );
         try self.set.putFlags(
             alloc,
-            .{ .key = .{ .translated = .right }, .mods = .{ .shift = true } },
+            .{ .key = .{ .physical = .arrow_right }, .mods = .{ .shift = true } },
             .{ .adjust_selection = .right },
             .{ .performable = true },
         );
         try self.set.putFlags(
             alloc,
-            .{ .key = .{ .translated = .up }, .mods = .{ .shift = true } },
+            .{ .key = .{ .physical = .arrow_up }, .mods = .{ .shift = true } },
             .{ .adjust_selection = .up },
             .{ .performable = true },
         );
         try self.set.putFlags(
             alloc,
-            .{ .key = .{ .translated = .down }, .mods = .{ .shift = true } },
+            .{ .key = .{ .physical = .arrow_down }, .mods = .{ .shift = true } },
             .{ .adjust_selection = .down },
             .{ .performable = true },
         );
         try self.set.putFlags(
             alloc,
-            .{ .key = .{ .translated = .page_up }, .mods = .{ .shift = true } },
+            .{ .key = .{ .physical = .page_up }, .mods = .{ .shift = true } },
             .{ .adjust_selection = .page_up },
             .{ .performable = true },
         );
         try self.set.putFlags(
             alloc,
-            .{ .key = .{ .translated = .page_down }, .mods = .{ .shift = true } },
+            .{ .key = .{ .physical = .page_down }, .mods = .{ .shift = true } },
             .{ .adjust_selection = .page_down },
             .{ .performable = true },
         );
         try self.set.putFlags(
             alloc,
-            .{ .key = .{ .translated = .home }, .mods = .{ .shift = true } },
+            .{ .key = .{ .physical = .home }, .mods = .{ .shift = true } },
             .{ .adjust_selection = .home },
             .{ .performable = true },
         );
         try self.set.putFlags(
             alloc,
-            .{ .key = .{ .translated = .end }, .mods = .{ .shift = true } },
+            .{ .key = .{ .physical = .end }, .mods = .{ .shift = true } },
             .{ .adjust_selection = .end },
             .{ .performable = true },
         );
@@ -4482,12 +4495,12 @@ pub const Keybinds = struct {
         // Tabs common to all platforms
         try self.set.put(
             alloc,
-            .{ .key = .{ .translated = .tab }, .mods = .{ .ctrl = true, .shift = true } },
+            .{ .key = .{ .physical = .tab }, .mods = .{ .ctrl = true, .shift = true } },
             .{ .previous_tab = {} },
         );
         try self.set.put(
             alloc,
-            .{ .key = .{ .translated = .tab }, .mods = .{ .ctrl = true } },
+            .{ .key = .{ .physical = .tab }, .mods = .{ .ctrl = true } },
             .{ .next_tab = {} },
         );
 
@@ -4495,174 +4508,169 @@ pub const Keybinds = struct {
         if (comptime !builtin.target.os.tag.isDarwin()) {
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .n }, .mods = .{ .ctrl = true, .shift = true } },
+                .{ .key = .{ .unicode = 'n' }, .mods = .{ .ctrl = true, .shift = true } },
                 .{ .new_window = {} },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .w }, .mods = .{ .ctrl = true, .shift = true } },
+                .{ .key = .{ .unicode = 'w' }, .mods = .{ .ctrl = true, .shift = true } },
                 .{ .close_surface = {} },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .q }, .mods = .{ .ctrl = true, .shift = true } },
+                .{ .key = .{ .unicode = 'q' }, .mods = .{ .ctrl = true, .shift = true } },
                 .{ .quit = {} },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .f4 }, .mods = .{ .alt = true } },
+                .{ .key = .{ .physical = .f4 }, .mods = .{ .alt = true } },
                 .{ .close_window = {} },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .t }, .mods = .{ .ctrl = true, .shift = true } },
+                .{ .key = .{ .unicode = 't' }, .mods = .{ .ctrl = true, .shift = true } },
                 .{ .new_tab = {} },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .w }, .mods = .{ .ctrl = true, .shift = true } },
+                .{ .key = .{ .unicode = 'w' }, .mods = .{ .ctrl = true, .shift = true } },
                 .{ .close_tab = {} },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .left }, .mods = .{ .ctrl = true, .shift = true } },
+                .{ .key = .{ .physical = .arrow_left }, .mods = .{ .ctrl = true, .shift = true } },
                 .{ .previous_tab = {} },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .right }, .mods = .{ .ctrl = true, .shift = true } },
+                .{ .key = .{ .physical = .arrow_right }, .mods = .{ .ctrl = true, .shift = true } },
                 .{ .next_tab = {} },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .page_up }, .mods = .{ .ctrl = true } },
+                .{ .key = .{ .physical = .page_up }, .mods = .{ .ctrl = true } },
                 .{ .previous_tab = {} },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .page_down }, .mods = .{ .ctrl = true } },
+                .{ .key = .{ .physical = .page_down }, .mods = .{ .ctrl = true } },
                 .{ .next_tab = {} },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .o }, .mods = .{ .ctrl = true, .shift = true } },
+                .{ .key = .{ .unicode = 'o' }, .mods = .{ .ctrl = true, .shift = true } },
                 .{ .new_split = .right },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .e }, .mods = .{ .ctrl = true, .shift = true } },
+                .{ .key = .{ .unicode = 'e' }, .mods = .{ .ctrl = true, .shift = true } },
                 .{ .new_split = .down },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .left_bracket }, .mods = .{ .ctrl = true, .super = true } },
+                .{ .key = .{ .physical = .bracket_left }, .mods = .{ .ctrl = true, .super = true } },
                 .{ .goto_split = .previous },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .right_bracket }, .mods = .{ .ctrl = true, .super = true } },
+                .{ .key = .{ .physical = .bracket_right }, .mods = .{ .ctrl = true, .super = true } },
                 .{ .goto_split = .next },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .up }, .mods = .{ .ctrl = true, .alt = true } },
+                .{ .key = .{ .physical = .arrow_up }, .mods = .{ .ctrl = true, .alt = true } },
                 .{ .goto_split = .up },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .down }, .mods = .{ .ctrl = true, .alt = true } },
+                .{ .key = .{ .physical = .arrow_down }, .mods = .{ .ctrl = true, .alt = true } },
                 .{ .goto_split = .down },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .left }, .mods = .{ .ctrl = true, .alt = true } },
+                .{ .key = .{ .physical = .arrow_left }, .mods = .{ .ctrl = true, .alt = true } },
                 .{ .goto_split = .left },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .right }, .mods = .{ .ctrl = true, .alt = true } },
+                .{ .key = .{ .physical = .arrow_right }, .mods = .{ .ctrl = true, .alt = true } },
                 .{ .goto_split = .right },
             );
 
             // Resizing splits
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .up }, .mods = .{ .super = true, .ctrl = true, .shift = true } },
+                .{ .key = .{ .physical = .arrow_up }, .mods = .{ .super = true, .ctrl = true, .shift = true } },
                 .{ .resize_split = .{ .up, 10 } },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .down }, .mods = .{ .super = true, .ctrl = true, .shift = true } },
+                .{ .key = .{ .physical = .arrow_down }, .mods = .{ .super = true, .ctrl = true, .shift = true } },
                 .{ .resize_split = .{ .down, 10 } },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .left }, .mods = .{ .super = true, .ctrl = true, .shift = true } },
+                .{ .key = .{ .physical = .arrow_left }, .mods = .{ .super = true, .ctrl = true, .shift = true } },
                 .{ .resize_split = .{ .left, 10 } },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .right }, .mods = .{ .super = true, .ctrl = true, .shift = true } },
+                .{ .key = .{ .physical = .arrow_right }, .mods = .{ .super = true, .ctrl = true, .shift = true } },
                 .{ .resize_split = .{ .right, 10 } },
-            );
-            try self.set.put(
-                alloc,
-                .{ .key = .{ .translated = .plus }, .mods = .{ .super = true, .ctrl = true, .shift = true } },
-                .{ .equalize_splits = {} },
             );
 
             // Viewport scrolling
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .home }, .mods = .{ .shift = true } },
+                .{ .key = .{ .physical = .home }, .mods = .{ .shift = true } },
                 .{ .scroll_to_top = {} },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .end }, .mods = .{ .shift = true } },
+                .{ .key = .{ .physical = .end }, .mods = .{ .shift = true } },
                 .{ .scroll_to_bottom = {} },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .page_up }, .mods = .{ .shift = true } },
+                .{ .key = .{ .physical = .page_up }, .mods = .{ .shift = true } },
                 .{ .scroll_page_up = {} },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .page_down }, .mods = .{ .shift = true } },
+                .{ .key = .{ .physical = .page_down }, .mods = .{ .shift = true } },
                 .{ .scroll_page_down = {} },
             );
 
             // Semantic prompts
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .page_up }, .mods = .{ .shift = true, .ctrl = true } },
+                .{ .key = .{ .physical = .page_up }, .mods = .{ .shift = true, .ctrl = true } },
                 .{ .jump_to_prompt = -1 },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .page_down }, .mods = .{ .shift = true, .ctrl = true } },
+                .{ .key = .{ .physical = .page_down }, .mods = .{ .shift = true, .ctrl = true } },
                 .{ .jump_to_prompt = 1 },
             );
 
             // Inspector, matching Chromium
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .i }, .mods = .{ .shift = true, .ctrl = true } },
+                .{ .key = .{ .unicode = 'i' }, .mods = .{ .shift = true, .ctrl = true } },
                 .{ .inspector = .toggle },
             );
 
             // Terminal
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .a }, .mods = .{ .shift = true, .ctrl = true } },
+                .{ .key = .{ .unicode = 'a' }, .mods = .{ .shift = true, .ctrl = true } },
                 .{ .select_all = {} },
             );
 
             // Selection clipboard paste
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .insert }, .mods = .{ .shift = true } },
+                .{ .key = .{ .physical = .insert }, .mods = .{ .shift = true } },
                 .{ .paste_from_selection = {} },
             );
         }
@@ -4675,23 +4683,14 @@ pub const Keybinds = struct {
                 .{ .alt = true };
 
             // Cmd+N for goto tab N
-            const start = @intFromEnum(inputpkg.Key.one);
-            const end = @intFromEnum(inputpkg.Key.eight);
-            var i: usize = start;
+            const start: u21 = '1';
+            const end: u21 = '8';
+            var i: u21 = start;
             while (i <= end) : (i += 1) {
                 try self.set.put(
                     alloc,
                     .{
-                        // On macOS, we use the physical key for tab changing so
-                        // that this works across all keyboard layouts. This may
-                        // want to be true on other platforms as well but this
-                        // is definitely true on macOS so we just do it here for
-                        // now (#817)
-                        .key = if (comptime builtin.target.os.tag.isDarwin())
-                            .{ .physical = @enumFromInt(i) }
-                        else
-                            .{ .translated = @enumFromInt(i) },
-
+                        .key = .{ .unicode = i },
                         .mods = mods,
                     },
                     .{ .goto_tab = (i - start) + 1 },
@@ -4700,10 +4699,7 @@ pub const Keybinds = struct {
             try self.set.put(
                 alloc,
                 .{
-                    .key = if (comptime builtin.target.os.tag.isDarwin())
-                        .{ .physical = .nine }
-                    else
-                        .{ .translated = .nine },
+                    .key = .{ .unicode = '9' },
                     .mods = mods,
                 },
                 .{ .last_tab = {} },
@@ -4713,14 +4709,14 @@ pub const Keybinds = struct {
         // Toggle fullscreen
         try self.set.put(
             alloc,
-            .{ .key = .{ .translated = .enter }, .mods = inputpkg.ctrlOrSuper(.{}) },
+            .{ .key = .{ .physical = .enter }, .mods = inputpkg.ctrlOrSuper(.{}) },
             .{ .toggle_fullscreen = {} },
         );
 
         // Toggle zoom a split
         try self.set.put(
             alloc,
-            .{ .key = .{ .translated = .enter }, .mods = inputpkg.ctrlOrSuper(.{ .shift = true }) },
+            .{ .key = .{ .physical = .enter }, .mods = inputpkg.ctrlOrSuper(.{ .shift = true }) },
             .{ .toggle_split_zoom = {} },
         );
 
@@ -4728,199 +4724,199 @@ pub const Keybinds = struct {
         if (comptime builtin.target.os.tag.isDarwin()) {
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .q }, .mods = .{ .super = true } },
+                .{ .key = .{ .unicode = 'q' }, .mods = .{ .super = true } },
                 .{ .quit = {} },
             );
             try self.set.putFlags(
                 alloc,
-                .{ .key = .{ .translated = .k }, .mods = .{ .super = true } },
+                .{ .key = .{ .unicode = 'k' }, .mods = .{ .super = true } },
                 .{ .clear_screen = {} },
                 .{ .performable = true },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .a }, .mods = .{ .super = true } },
+                .{ .key = .{ .unicode = 'a' }, .mods = .{ .super = true } },
                 .{ .select_all = {} },
             );
 
             // Viewport scrolling
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .home }, .mods = .{ .super = true } },
+                .{ .key = .{ .physical = .home }, .mods = .{ .super = true } },
                 .{ .scroll_to_top = {} },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .end }, .mods = .{ .super = true } },
+                .{ .key = .{ .physical = .end }, .mods = .{ .super = true } },
                 .{ .scroll_to_bottom = {} },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .page_up }, .mods = .{ .super = true } },
+                .{ .key = .{ .physical = .page_up }, .mods = .{ .super = true } },
                 .{ .scroll_page_up = {} },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .page_down }, .mods = .{ .super = true } },
+                .{ .key = .{ .physical = .page_down }, .mods = .{ .super = true } },
                 .{ .scroll_page_down = {} },
             );
 
             // Semantic prompts
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .up }, .mods = .{ .super = true, .shift = true } },
+                .{ .key = .{ .physical = .arrow_up }, .mods = .{ .super = true, .shift = true } },
                 .{ .jump_to_prompt = -1 },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .down }, .mods = .{ .super = true, .shift = true } },
+                .{ .key = .{ .physical = .arrow_down }, .mods = .{ .super = true, .shift = true } },
                 .{ .jump_to_prompt = 1 },
             );
 
             // Mac windowing
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .n }, .mods = .{ .super = true } },
+                .{ .key = .{ .unicode = 'n' }, .mods = .{ .super = true } },
                 .{ .new_window = {} },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .w }, .mods = .{ .super = true } },
+                .{ .key = .{ .unicode = 'w' }, .mods = .{ .super = true } },
                 .{ .close_surface = {} },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .w }, .mods = .{ .super = true, .alt = true } },
+                .{ .key = .{ .unicode = 'w' }, .mods = .{ .super = true, .alt = true } },
                 .{ .close_tab = {} },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .w }, .mods = .{ .super = true, .shift = true } },
+                .{ .key = .{ .unicode = 'w' }, .mods = .{ .super = true, .shift = true } },
                 .{ .close_window = {} },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .w }, .mods = .{ .super = true, .shift = true, .alt = true } },
+                .{ .key = .{ .unicode = 'w' }, .mods = .{ .super = true, .shift = true, .alt = true } },
                 .{ .close_all_windows = {} },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .t }, .mods = .{ .super = true } },
+                .{ .key = .{ .unicode = 't' }, .mods = .{ .super = true } },
                 .{ .new_tab = {} },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .left_bracket }, .mods = .{ .super = true, .shift = true } },
+                .{ .key = .{ .physical = .bracket_left }, .mods = .{ .super = true, .shift = true } },
                 .{ .previous_tab = {} },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .right_bracket }, .mods = .{ .super = true, .shift = true } },
+                .{ .key = .{ .physical = .bracket_right }, .mods = .{ .super = true, .shift = true } },
                 .{ .next_tab = {} },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .d }, .mods = .{ .super = true } },
+                .{ .key = .{ .unicode = 'd' }, .mods = .{ .super = true } },
                 .{ .new_split = .right },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .d }, .mods = .{ .super = true, .shift = true } },
+                .{ .key = .{ .unicode = 'd' }, .mods = .{ .super = true, .shift = true } },
                 .{ .new_split = .down },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .left_bracket }, .mods = .{ .super = true } },
+                .{ .key = .{ .physical = .bracket_left }, .mods = .{ .super = true } },
                 .{ .goto_split = .previous },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .right_bracket }, .mods = .{ .super = true } },
+                .{ .key = .{ .physical = .bracket_right }, .mods = .{ .super = true } },
                 .{ .goto_split = .next },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .up }, .mods = .{ .super = true, .alt = true } },
+                .{ .key = .{ .physical = .arrow_up }, .mods = .{ .super = true, .alt = true } },
                 .{ .goto_split = .up },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .down }, .mods = .{ .super = true, .alt = true } },
+                .{ .key = .{ .physical = .arrow_down }, .mods = .{ .super = true, .alt = true } },
                 .{ .goto_split = .down },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .left }, .mods = .{ .super = true, .alt = true } },
+                .{ .key = .{ .physical = .arrow_left }, .mods = .{ .super = true, .alt = true } },
                 .{ .goto_split = .left },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .right }, .mods = .{ .super = true, .alt = true } },
+                .{ .key = .{ .physical = .arrow_right }, .mods = .{ .super = true, .alt = true } },
                 .{ .goto_split = .right },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .up }, .mods = .{ .super = true, .ctrl = true } },
+                .{ .key = .{ .physical = .arrow_up }, .mods = .{ .super = true, .ctrl = true } },
                 .{ .resize_split = .{ .up, 10 } },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .down }, .mods = .{ .super = true, .ctrl = true } },
+                .{ .key = .{ .physical = .arrow_down }, .mods = .{ .super = true, .ctrl = true } },
                 .{ .resize_split = .{ .down, 10 } },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .left }, .mods = .{ .super = true, .ctrl = true } },
+                .{ .key = .{ .physical = .arrow_left }, .mods = .{ .super = true, .ctrl = true } },
                 .{ .resize_split = .{ .left, 10 } },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .right }, .mods = .{ .super = true, .ctrl = true } },
+                .{ .key = .{ .physical = .arrow_right }, .mods = .{ .super = true, .ctrl = true } },
                 .{ .resize_split = .{ .right, 10 } },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .equal }, .mods = .{ .super = true, .ctrl = true } },
+                .{ .key = .{ .physical = .equal }, .mods = .{ .super = true, .ctrl = true } },
                 .{ .equalize_splits = {} },
             );
 
             // Jump to prompt, matches Terminal.app
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .up }, .mods = .{ .super = true } },
+                .{ .key = .{ .physical = .arrow_up }, .mods = .{ .super = true } },
                 .{ .jump_to_prompt = -1 },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .down }, .mods = .{ .super = true } },
+                .{ .key = .{ .physical = .arrow_down }, .mods = .{ .super = true } },
                 .{ .jump_to_prompt = 1 },
             );
 
             // Toggle command palette, matches VSCode
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .p }, .mods = .{ .super = true, .shift = true } },
+                .{ .key = .{ .unicode = 'p' }, .mods = .{ .super = true, .shift = true } },
                 .{ .toggle_command_palette = {} },
             );
 
             // Inspector, matching Chromium
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .i }, .mods = .{ .alt = true, .super = true } },
+                .{ .key = .{ .unicode = 'i' }, .mods = .{ .alt = true, .super = true } },
                 .{ .inspector = .toggle },
             );
 
             // Alternate keybind, common to Mac programs
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .f }, .mods = .{ .super = true, .ctrl = true } },
+                .{ .key = .{ .unicode = 'f' }, .mods = .{ .super = true, .ctrl = true } },
                 .{ .toggle_fullscreen = {} },
             );
 
             // Selection clipboard paste, matches Terminal.app
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .v }, .mods = .{ .super = true, .shift = true } },
+                .{ .key = .{ .unicode = 'v' }, .mods = .{ .super = true, .shift = true } },
                 .{ .paste_from_selection = {} },
             );
 
@@ -4931,27 +4927,27 @@ pub const Keybinds = struct {
             // the keybinds to `unbind`.
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .right }, .mods = .{ .super = true } },
+                .{ .key = .{ .physical = .arrow_right }, .mods = .{ .super = true } },
                 .{ .text = "\\x05" },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .left }, .mods = .{ .super = true } },
+                .{ .key = .{ .physical = .arrow_left }, .mods = .{ .super = true } },
                 .{ .text = "\\x01" },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .backspace }, .mods = .{ .super = true } },
+                .{ .key = .{ .physical = .backspace }, .mods = .{ .super = true } },
                 .{ .text = "\\x15" },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .left }, .mods = .{ .alt = true } },
+                .{ .key = .{ .physical = .arrow_left }, .mods = .{ .alt = true } },
                 .{ .esc = "b" },
             );
             try self.set.put(
                 alloc,
-                .{ .key = .{ .translated = .right }, .mods = .{ .alt = true } },
+                .{ .key = .{ .physical = .arrow_right }, .mods = .{ .alt = true } },
                 .{ .esc = "f" },
             );
         }
@@ -5138,8 +5134,8 @@ pub const Keybinds = struct {
         // Note they turn into translated keys because they match
         // their ASCII mapping.
         const want =
-            \\keybind = ctrl+z>two=goto_tab:2
-            \\keybind = ctrl+z>one=goto_tab:1
+            \\keybind = ctrl+z>2=goto_tab:2
+            \\keybind = ctrl+z>1=goto_tab:1
             \\
         ;
         try std.testing.expectEqualStrings(want, buf.items);
@@ -5163,9 +5159,9 @@ pub const Keybinds = struct {
 
         // NB: This does not currently retain the order of the keybinds.
         const want =
+            \\a = ctrl+a>ctrl+c>t=new_tab
             \\a = ctrl+a>ctrl+b>w=close_window
             \\a = ctrl+a>ctrl+b>n=new_window
-            \\a = ctrl+a>ctrl+c>t=new_tab
             \\a = ctrl+b>ctrl+d>a=previous_tab
             \\
         ;

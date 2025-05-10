@@ -132,7 +132,7 @@ test "keyToMouseShape" {
     {
         // No specific key pressed
         const m: SurfaceMouse = .{
-            .physical_key = .invalid,
+            .physical_key = .unidentified,
             .mouse_event = .none,
             .mouse_shape = .progress,
             .mods = .{},
@@ -148,7 +148,7 @@ test "keyToMouseShape" {
         // Over a link. NOTE: This tests that we don't touch the inbound state,
         // not necessarily if we're over a link.
         const m: SurfaceMouse = .{
-            .physical_key = .left_shift,
+            .physical_key = .shift_left,
             .mouse_event = .none,
             .mouse_shape = .progress,
             .mods = .{},
@@ -163,7 +163,7 @@ test "keyToMouseShape" {
     {
         // Mouse is currently hidden
         const m: SurfaceMouse = .{
-            .physical_key = .left_shift,
+            .physical_key = .shift_left,
             .mouse_event = .none,
             .mouse_shape = .progress,
             .mods = .{},
@@ -178,7 +178,7 @@ test "keyToMouseShape" {
     {
         // default, no mods (mouse tracking)
         const m: SurfaceMouse = .{
-            .physical_key = .left_shift,
+            .physical_key = .shift_left,
             .mouse_event = .x10,
             .mouse_shape = .default,
             .mods = .{},
@@ -194,7 +194,7 @@ test "keyToMouseShape" {
     {
         // default -> crosshair (mouse tracking)
         const m: SurfaceMouse = .{
-            .physical_key = .left_alt,
+            .physical_key = .alt_left,
             .mouse_event = .x10,
             .mouse_shape = .default,
             .mods = .{ .ctrl = true, .super = true, .alt = true, .shift = true },
@@ -210,7 +210,7 @@ test "keyToMouseShape" {
     {
         // default -> text (mouse tracking)
         const m: SurfaceMouse = .{
-            .physical_key = .left_shift,
+            .physical_key = .shift_left,
             .mouse_event = .x10,
             .mouse_shape = .default,
             .mods = .{ .shift = true },
@@ -226,7 +226,7 @@ test "keyToMouseShape" {
     {
         // crosshair -> text (mouse tracking)
         const m: SurfaceMouse = .{
-            .physical_key = .left_alt,
+            .physical_key = .alt_left,
             .mouse_event = .x10,
             .mouse_shape = .crosshair,
             .mods = .{ .shift = true },
@@ -242,7 +242,7 @@ test "keyToMouseShape" {
     {
         // crosshair -> default (mouse tracking)
         const m: SurfaceMouse = .{
-            .physical_key = .left_alt,
+            .physical_key = .alt_left,
             .mouse_event = .x10,
             .mouse_shape = .crosshair,
             .mods = .{},
@@ -258,7 +258,7 @@ test "keyToMouseShape" {
     {
         // text -> crosshair (mouse tracking)
         const m: SurfaceMouse = .{
-            .physical_key = .left_alt,
+            .physical_key = .alt_left,
             .mouse_event = .x10,
             .mouse_shape = .text,
             .mods = .{ .ctrl = true, .super = true, .alt = true, .shift = true },
@@ -274,7 +274,7 @@ test "keyToMouseShape" {
     {
         // text -> default (mouse tracking)
         const m: SurfaceMouse = .{
-            .physical_key = .left_shift,
+            .physical_key = .shift_left,
             .mouse_event = .x10,
             .mouse_shape = .text,
             .mods = .{},
@@ -290,7 +290,7 @@ test "keyToMouseShape" {
     {
         // text, no mods (no mouse tracking)
         const m: SurfaceMouse = .{
-            .physical_key = .left_shift,
+            .physical_key = .shift_left,
             .mouse_event = .none,
             .mouse_shape = .text,
             .mods = .{},
@@ -306,7 +306,7 @@ test "keyToMouseShape" {
     {
         // text -> crosshair (no mouse tracking)
         const m: SurfaceMouse = .{
-            .physical_key = .left_alt,
+            .physical_key = .alt_left,
             .mouse_event = .none,
             .mouse_shape = .text,
             .mods = .{ .ctrl = true, .super = true, .alt = true },
@@ -322,7 +322,7 @@ test "keyToMouseShape" {
     {
         // crosshair -> text (no mouse tracking)
         const m: SurfaceMouse = .{
-            .physical_key = .left_alt,
+            .physical_key = .alt_left,
             .mouse_event = .none,
             .mouse_shape = .crosshair,
             .mods = .{},
