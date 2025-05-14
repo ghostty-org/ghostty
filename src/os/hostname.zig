@@ -7,6 +7,14 @@ pub const HostnameParsingError = error{
     NoSpaceLeft,
 };
 
+pub const UrlParsingError = error{
+    HostnameIsNotMacAddress,
+    InvalidFormat,
+    InvalidPort,
+    NoSchemeProvided,
+    UnexpectedCharacter,
+};
+
 fn isUriPathSeparator(c: u8) bool {
     return switch (c) {
         '?', '#' => true,
@@ -39,7 +47,7 @@ fn isValidMacAddress(mac_address: []const u8) bool {
 /// path information for Ghostty's PWD reporting functionality. Takes into account that on macOS
 /// the url passed to this function might have a mac address as its hostname and parses it
 /// correctly.
-pub fn parseUrl(url: []const u8) !std.Uri {
+pub fn parseUrl(url: []const u8) UrlParsingError!std.Uri {
     return std.Uri.parse(url) catch |e| {
         // The mac-address-as-hostname issue is specific to macOS so we just return an error if we
         // hit it on other platforms.
@@ -52,7 +60,7 @@ pub fn parseUrl(url: []const u8) !std.Uri {
         if (e != error.InvalidPort) return e;
 
         const url_without_scheme_start = std.mem.indexOf(u8, url, "://") orelse {
-            return error.InvalidScheme;
+            return error.NoSchemeProvided;
         };
         const scheme = url[0..url_without_scheme_start];
         const url_without_scheme = url[url_without_scheme_start + 3 ..];
