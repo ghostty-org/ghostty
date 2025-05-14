@@ -19,9 +19,7 @@ fn isValidMacAddress(mac_address: []const u8) bool {
         return false;
     }
 
-    for (0..mac_address.len) |i| {
-        const c = mac_address[i];
-
+    for (mac_address, 0..) |c, i| {
         if ((i + 1) % 3 == 0) {
             if (c != ':') {
                 return false;
