@@ -55,20 +55,21 @@ pub fn parseUrl(url: []const u8) !std.Uri {
         // The first '/' after the scheme marks the end of the hostname. If the first '/'
         // following the end of the scheme is not at the right position this is not a
         // valid mac address.
-        if (url_without_scheme.len != 17 and
-            std.mem.indexOfScalarPos(u8, url_without_scheme, 0, '/') != 17)
+        const mac_address_length = 17;
+        if (url_without_scheme.len != mac_address_length and
+            std.mem.indexOfScalarPos(u8, url_without_scheme, 0, '/') != mac_address_length)
         {
             return error.HostnameIsNotMacAddress;
         }
 
         // At this point we may have a mac address as the hostname.
-        const mac_address = url_without_scheme[0..17];
+        const mac_address = url_without_scheme[0..mac_address_length];
 
         if (!isValidMacAddress(mac_address)) {
             return error.HostnameIsNotMacAddress;
         }
 
-        var uri_path_end_idx: usize = 17;
+        var uri_path_end_idx: usize = mac_address_length;
         while (uri_path_end_idx < url_without_scheme.len and
             !isUriPathSeparator(url_without_scheme[uri_path_end_idx]))
         {
@@ -80,7 +81,9 @@ pub fn parseUrl(url: []const u8) !std.Uri {
         return .{
             .scheme = scheme,
             .host = .{ .percent_encoded = mac_address },
-            .path = .{ .percent_encoded = url_without_scheme[17..uri_path_end_idx] },
+            .path = .{
+                .percent_encoded = url_without_scheme[mac_address_length..uri_path_end_idx],
+            },
         };
     };
 }
