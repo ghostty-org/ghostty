@@ -46,15 +46,11 @@ pub fn parseUrl(url: []const u8) !std.Uri {
         // Example: file://12:34:56:78:90:12/path/to/file
         if (e != error.InvalidPort) return e;
 
-        const scheme, const url_without_scheme = url: {
-            if (std.mem.startsWith(u8, url, "file://")) break :url .{ "file", url[7..] };
-            if (std.mem.startsWith(u8, url, "kitty-shell-cwd://")) break :url .{
-                "kitty-shell-cwd",
-                url[18..],
-            };
-
-            return error.UnsupportedScheme;
+        const url_without_scheme_start = std.mem.indexOf(u8, url, "://") orelse {
+            return error.InvalidScheme;
         };
+        const scheme = url[0..url_without_scheme_start];
+        const url_without_scheme = url[url_without_scheme_start + 3 ..];
 
         // The first '/' after the scheme marks the end of the hostname. If the first '/'
         // following the end of the scheme is not at the right position this is not a
