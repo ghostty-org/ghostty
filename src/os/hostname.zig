@@ -199,6 +199,40 @@ test parseUrl {
     try std.testing.expectEqualStrings("ab:cd:ef:ab:cd:ef", uri.host.?.percent_encoded);
     try std.testing.expectEqualStrings("/home/test/", uri.path.percent_encoded);
     try std.testing.expect(uri.port == null);
+
+    // 3. Hostnames that are mac addresses with no path.
+
+    // Numerical mac addresses.
+
+    uri = try parseUrl("file://12:34:56:78:90:12");
+
+    try std.testing.expectEqualStrings("file", uri.scheme);
+    try std.testing.expectEqualStrings("12:34:56:78:90", uri.host.?.percent_encoded);
+    try std.testing.expectEqualStrings("", uri.path.percent_encoded);
+    try std.testing.expect(uri.port == 12);
+
+    uri = try parseUrl("kitty-shell-cwd://12:34:56:78:90:12");
+
+    try std.testing.expectEqualStrings("kitty-shell-cwd", uri.scheme);
+    try std.testing.expectEqualStrings("12:34:56:78:90", uri.host.?.percent_encoded);
+    try std.testing.expectEqualStrings("", uri.path.percent_encoded);
+    try std.testing.expect(uri.port == 12);
+
+    // Alphabetical mac addresses.
+
+    uri = try parseUrl("file://ab:cd:ef:ab:cd:ef");
+
+    try std.testing.expectEqualStrings("file", uri.scheme);
+    try std.testing.expectEqualStrings("ab:cd:ef:ab:cd:ef", uri.host.?.percent_encoded);
+    try std.testing.expectEqualStrings("", uri.path.percent_encoded);
+    try std.testing.expect(uri.port == null);
+
+    uri = try parseUrl("kitty-shell-cwd://ab:cd:ef:ab:cd:ef");
+
+    try std.testing.expectEqualStrings("kitty-shell-cwd", uri.scheme);
+    try std.testing.expectEqualStrings("ab:cd:ef:ab:cd:ef", uri.host.?.percent_encoded);
+    try std.testing.expectEqualStrings("", uri.path.percent_encoded);
+    try std.testing.expect(uri.port == null);
 }
 
 test "parseUrl succeeds even if path component is missing" {
