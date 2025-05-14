@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const posix = std.posix;
 
 pub const HostnameParsingError = error{
@@ -40,6 +41,10 @@ fn isValidMacAddress(mac_address: []const u8) bool {
 /// correctly.
 pub fn parseUrl(url: []const u8) !std.Uri {
     return std.Uri.parse(url) catch |e| {
+        // The mac-address-as-hostname issue is specific to macOS so we just return an error if we
+        // hit it on other platforms.
+        comptime if (builtin.os.tag != .macos) return e;
+
         // It's possible this is a mac address on macOS where the last 2 characters in the
         // address are non-digits, e.g. 'ff', and thus an invalid port.
         //
