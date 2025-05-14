@@ -55,8 +55,8 @@ pub fn parseUrl(url: []const u8) !std.Uri {
         // The first '/' after the scheme marks the end of the hostname. If the first '/'
         // following the end of the scheme is not at the right position this is not a
         // valid mac address.
-        if (std.mem.indexOfScalarPos(u8, url_without_scheme, 0, '/') != 17 and
-            url_without_scheme.len != 17)
+        if (url_without_scheme.len != 17 and
+            std.mem.indexOfScalarPos(u8, url_without_scheme, 0, '/') != 17)
         {
             return error.HostnameIsNotMacAddress;
         }
