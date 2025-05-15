@@ -171,10 +171,7 @@ pub const GlobalState = struct {
 
         // Find our resources directory once for the app so every launch
         // hereafter can use this cached value.
-        self.resources_dir = rd: {
-            if (@hasDecl(apprt.runtime, "resourcesDir")) break :rd try apprt.runtime.resourcesDir(self.alloc);
-            break :rd try internal_os.resourcesDir(self.alloc);
-        };
+        self.resources_dir = try apprt.runtime.resourcesDir(self.alloc);
         errdefer self.resources_dir.deinit(self.alloc);
 
         // Setup i18n
