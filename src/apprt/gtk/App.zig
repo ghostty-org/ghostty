@@ -40,6 +40,7 @@ const Window = @import("Window.zig");
 const ConfigErrorsDialog = @import("ConfigErrorsDialog.zig");
 const ClipboardConfirmationWindow = @import("ClipboardConfirmationWindow.zig");
 const CloseDialog = @import("CloseDialog.zig");
+const GlobalShortcuts = @import("GlobalShortcuts.zig");
 const Split = @import("Split.zig");
 const inspector = @import("inspector.zig");
 const key = @import("key.zig");
@@ -94,6 +95,8 @@ css_provider: *gtk.CssProvider,
 
 /// Providers for loading custom stylesheets defined by user
 custom_css_providers: std.ArrayListUnmanaged(*gtk.CssProvider) = .{},
+
+global_shortcuts: ?GlobalShortcuts,
 
 /// The timer used to quit the application after the last window is closed.
 quit_timer: union(enum) {
@@ -422,6 +425,7 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
         // our "activate" call above will open a window.
         .running = gio_app.getIsRemote() == 0,
         .css_provider = css_provider,
+        .global_shortcuts = .init(core_app.alloc, gio_app),
     };
 }
 
@@ -442,6 +446,8 @@ pub fn terminate(self: *App) void {
     self.custom_css_providers.deinit(self.core_app.alloc);
 
     self.winproto.deinit(self.core_app.alloc);
+
+    if (self.global_shortcuts) |*shortcuts| shortcuts.deinit();
 
     self.config.deinit();
 }
@@ -1029,6 +1035,12 @@ pub fn reloadConfig(
 fn syncConfigChanges(self: *App, window: ?*Window) !void {
     ConfigErrorsDialog.maybePresent(self, window);
     try self.syncActionAccelerators();
+
+    if (self.global_shortcuts) |*shortcuts| {
+        shortcuts.refreshSession(self) catch |err| {
+            log.warn("failed to refresh global shortcuts={}", .{err});
+        };
+    }
 
     // Load our runtime and custom CSS. If this fails then our window is just stuck
     // with the old CSS but we don't want to fail the entire sync operation.
