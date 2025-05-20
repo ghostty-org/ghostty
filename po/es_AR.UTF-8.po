@@ -43,8 +43,8 @@ msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
-"Se encontraron uno o más errores de configuración. Por favor revisa los "
-"errores a continuación, y recarga tu configuración o ignora estos errores."
+"Se encontraron uno o más errores de configuración. Por favor revisá los "
+"errores a continuación, y recargá tu configuración o ignorá estos errores."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
 msgid "Ignore"
@@ -229,7 +229,7 @@ msgstr "Nueva división"
 msgid ""
 "⚠️ You're running a debug build of Ghostty! Performance will be degraded."
 msgstr ""
-"⚠️ Está ejecutando una versión de depuración de Ghostty. El rendimiento no "
+"⚠️ Estás ejecutando una versión de depuración de Ghostty. El rendimiento no "
 "será óptimo."
 
 #: src/apprt/gtk/Window.zig:765
