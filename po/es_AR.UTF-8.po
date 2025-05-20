@@ -23,7 +23,7 @@ msgstr "Cambiar el título de la terminal"
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:6
 msgid "Leave blank to restore the default title."
-msgstr "Deja en blanco para restaurar el título predeterminado."
+msgstr "Dejar en blanco para restaurar el título predeterminado."
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:9
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:10 src/apprt/gtk/CloseDialog.zig:44
@@ -32,7 +32,7 @@ msgstr "Cancelar"
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:10
 msgid "OK"
-msgstr Aceptar"
+msgstr "Aceptar"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:5
 msgid "Configuration Errors"
@@ -60,25 +60,25 @@ msgstr "Recargar configuración"
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
 msgid "Split Up"
-msgstr "Dividir hacia arriba"
+msgstr "Dividir arriba"
 
 #: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:11
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
 msgid "Split Down"
-msgstr "Dividir hacia abajo"
+msgstr "Dividir abajo"
 
 #: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:16
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
 msgid "Split Left"
-msgstr "Dividir hacia la izquierda"
+msgstr "Dividir a la izquierda"
 
 #: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:21
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
 msgid "Split Right"
-msgstr "Dividir hacia la derecha"
+msgstr "Dividir a la derecha"
 
 #: src/apprt/gtk/ui/1.5/command-palette.blp:16
 msgid "Execute a command…"
@@ -262,19 +262,19 @@ msgstr "¿Cerrar pestaña?"
 
 #: src/apprt/gtk/CloseDialog.zig:90
 msgid "Close Split?"
-msgstr "msgstr "¿Cerrar división?"
+msgstr "¿Cerrar división?"
 
 #: src/apprt/gtk/CloseDialog.zig:96
 msgid "All terminal sessions will be terminated."
-msgstr "Todas las sesiones de la terminal serán terminadas."
+msgstr "Todas las sesiones de terminal serán terminadas."
 
 #: src/apprt/gtk/CloseDialog.zig:97
 msgid "All terminal sessions in this window will be terminated."
-msgstr "Todas las sesiones de la terminal en esta ventana serán terminadas."
+msgstr "Todas las sesiones de terminal en esta ventana serán terminadas."
 
 #: src/apprt/gtk/CloseDialog.zig:98
 msgid "All terminal sessions in this tab will be terminated."
-msgstr "Todas las sesiones de la terminal en esta pestaña serán terminadas."
+msgstr "Todas las sesiones de terminal en esta pestaña serán terminadas."
 
 #: src/apprt/gtk/CloseDialog.zig:99
 msgid "The currently running process in this split will be terminated."
