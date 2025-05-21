@@ -351,6 +351,11 @@ pub const Action = union(enum) {
     /// This only works with libadwaita version 1.4.0 or newer.
     toggle_tab_overview,
 
+    /// Toggle tab icons. This only affects the focused window. New windows will
+    /// not inherit the state of tab icons from the focused window but will use
+    /// the value defined by the config.
+    toggle_tab_icons,
+
     /// Change the title of the current focused surface via a prompt.
     prompt_surface_title,
 
@@ -853,6 +858,7 @@ pub const Action = union(enum) {
             .goto_tab,
             .move_tab,
             .toggle_tab_overview,
+            .toggle_tab_icons,
             .new_split,
             .goto_split,
             .toggle_split_zoom,

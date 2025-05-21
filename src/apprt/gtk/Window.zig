@@ -84,6 +84,7 @@ pub const DerivedConfig = struct {
     gtk_titlebar: bool,
     gtk_titlebar_hide_when_maximized: bool,
     gtk_tabs_location: configpkg.Config.GtkTabsLocation,
+    gtk_tab_icons: bool,
     gtk_wide_tabs: bool,
     gtk_toolbar_style: configpkg.Config.GtkToolbarStyle,
 
@@ -103,6 +104,7 @@ pub const DerivedConfig = struct {
             .gtk_titlebar = config.@"gtk-titlebar",
             .gtk_titlebar_hide_when_maximized = config.@"gtk-titlebar-hide-when-maximized",
             .gtk_tabs_location = config.@"gtk-tabs-location",
+            .gtk_tab_icons = config.@"gtk-tab-icons",
             .gtk_wide_tabs = config.@"gtk-wide-tabs",
             .gtk_toolbar_style = config.@"gtk-toolbar-style",
 
@@ -556,6 +558,8 @@ pub fn syncAppearance(self: *Window) !void {
     self.winproto.syncAppearance() catch |err| {
         log.warn("failed to sync winproto appearance error={}", .{err});
     };
+
+    self.notebook.syncAppearance();
 }
 
 fn toggleCssClass(
@@ -588,6 +592,7 @@ fn initActions(self: *Window) void {
         .{ "split-up", gtkActionSplitUp },
         .{ "toggle-inspector", gtkActionToggleInspector },
         .{ "toggle-command-palette", gtkActionToggleCommandPalette },
+        .{ "toggle-tab-icons", gtkActionToggleTabIcons },
         .{ "copy", gtkActionCopy },
         .{ "paste", gtkActionPaste },
         .{ "reset", gtkActionReset },
@@ -699,6 +704,13 @@ pub fn toggleTabOverview(self: *Window) void {
         const is_open = tab_overview.getOpen() != 0;
         tab_overview.setOpen(@intFromBool(!is_open));
     }
+}
+
+pub fn toggleTabIcons(self: *Window) void {
+    self.config.gtk_tab_icons = !self.config.gtk_tab_icons;
+    self.syncAppearance() catch |err| {
+        log.warn("unable to sync appearance: error={}", .{err});
+    };
 }
 
 /// Toggle the maximized state for this window.
@@ -1109,6 +1121,14 @@ fn gtkActionToggleCommandPalette(
     self: *Window,
 ) callconv(.C) void {
     self.performBindingAction(.toggle_command_palette);
+}
+
+fn gtkActionToggleTabIcons(
+    _: *gio.SimpleAction,
+    _: ?*glib.Variant,
+    self: *Window,
+) callconv(.c) void {
+    self.performBindingAction(.toggle_tab_icons);
 }
 
 fn gtkActionCopy(
