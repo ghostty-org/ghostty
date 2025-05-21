@@ -41,10 +41,7 @@ jobs:
           path: |
             /nix
             /zig
-      - name: Setup Nix
-        uses: cachix/install-nix-action@v30
-        with:
-          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: DeterminateSystems/nix-installer-action@v17
       - uses: cachix/cachix-action@v15
         with:
           name: ghostty
