@@ -827,17 +827,17 @@ pub fn updateFrame(
             try self.prepKittyGraphics(state.terminal);
         }
 
-        if (self.current_background_image == null and
-            self.background_image.value != null)
-        {
-            if (single_threaded_draw) self.draw_mutex.lock();
-            defer if (single_threaded_draw) self.draw_mutex.unlock();
-            self.prepBackgroundImage() catch |err| switch (err) {
-                error.InvalidData => {
-                    log.warn("invalid image data, skipping", .{});
-                },
-                else => return err,
-            };
+        if (self.current_background_image == null) {
+            if (self.background_image.value) |img_path| {
+                if (single_threaded_draw) self.draw_mutex.lock();
+                defer if (single_threaded_draw) self.draw_mutex.unlock();
+                self.prepBackgroundImage(img_path) catch |err| switch (err) {
+                    error.InvalidData => {
+                        log.warn("invalid image data, skipping", .{});
+                    },
+                    else => return err,
+                };
+            }
         }
 
         // If we have any terminal dirty flags set then we need to rebuild
@@ -1206,10 +1206,7 @@ fn prepKittyImage(
 }
 
 /// Prepares the current background image for upload
-pub fn prepBackgroundImage(self: *OpenGL) !void {
-    // If the user doesn't have a background image, do nothing...
-    const path = self.background_image.value orelse return;
-
+pub fn prepBackgroundImage(self: *OpenGL, path: []const u8) !void {
     // Read the file content
     const file_content = try self.readImageContent(path);
     defer self.alloc.free(file_content);
@@ -1218,13 +1215,11 @@ pub fn prepBackgroundImage(self: *OpenGL) !void {
     const decoded_image: wuffs.ImageData = blk: {
         // Extract the file extension
         const ext = std.fs.path.extension(path);
-        const ext_lower = try std.ascii.allocLowerString(self.alloc, ext);
-        defer self.alloc.free(ext_lower);
 
         // Match based on extension
-        if (std.mem.eql(u8, ext_lower, ".png")) {
+        if (std.ascii.eqlIgnoreCase(ext, ".png")) {
             break :blk try wuffs.png.decode(self.alloc, file_content);
-        } else if (std.mem.eql(u8, ext_lower, ".jpg") or std.mem.eql(u8, ext_lower, ".jpeg")) {
+        } else if (std.ascii.eqlIgnoreCase(ext, ".jpg") or std.ascii.eqlIgnoreCase(ext, ".jpeg")) {
             break :blk try wuffs.jpeg.decode(self.alloc, file_content);
         } else {
             log.warn("unsupported image format: {s}", .{ext});
