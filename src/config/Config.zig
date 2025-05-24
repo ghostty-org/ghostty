@@ -1446,6 +1446,27 @@ keybind: Keybinds = .{},
 ///   * `end` - Insert the new tab at the end of the tab list.
 @"window-new-tab-position": WindowNewTabPosition = .current,
 
+/// Whether to show the tab bar.
+///
+/// Valid values:
+///
+///  - `always`
+///
+///    Always display the tab bar, even when there's only one tab.
+///
+///  - `auto` *(default)*
+///
+///    Automatically show and hide the tab bar. The tab bar is only
+///    shown when there are two or more tabs present.
+///
+///  - `never`
+///
+///    Never show the tab bar. Tabs are only accessible via the tab
+///    overview or by keybind actions.
+///
+/// Currently only supported on Linux (GTK).
+@"window-show-tab-bar": WindowShowTabBar = .auto,
+
 /// Background color for the window titlebar. This only takes effect if
 /// window-theme is set to ghostty. Currently only supported in the GTK app
 /// runtime.
@@ -5804,7 +5825,6 @@ pub const GtkSingleInstance = enum {
 pub const GtkTabsLocation = enum {
     top,
     bottom,
-    hidden,
 };
 
 /// See gtk-toolbar-style
@@ -5851,6 +5871,13 @@ pub const WindowSaveState = enum {
 pub const WindowNewTabPosition = enum {
     current,
     end,
+};
+
+/// See window-show-tab-bar
+pub const WindowShowTabBar = enum {
+    always,
+    auto,
+    never,
 };
 
 /// See resize-overlay
