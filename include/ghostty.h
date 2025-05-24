@@ -626,6 +626,19 @@ typedef struct {
   bool soft;
 } ghostty_action_reload_config_s;
 
+// apprt.action.OpenUrlKind
+typedef enum {
+  GHOSTTY_ACTION_OPEN_URL_KIND_TEXT,
+  GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN,
+} ghostty_action_open_url_kind_e;
+
+// apprt.action.OpenUrl.C
+typedef struct {
+  ghostty_action_open_url_kind_e kind;
+  const char* url;
+  uintptr_t len;
+} ghostty_action_open_url_s;
+
 // apprt.Action.Key
 typedef enum {
   GHOSTTY_ACTION_QUIT,
@@ -672,7 +685,8 @@ typedef enum {
   GHOSTTY_ACTION_CONFIG_CHANGE,
   GHOSTTY_ACTION_CLOSE_WINDOW,
   GHOSTTY_ACTION_RING_BELL,
-  GHOSTTY_ACTION_CHECK_FOR_UPDATES
+  GHOSTTY_ACTION_CHECK_FOR_UPDATES,
+  GHOSTTY_ACTION_OPEN_URL,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -700,6 +714,7 @@ typedef union {
   ghostty_action_color_change_s color_change;
   ghostty_action_reload_config_s reload_config;
   ghostty_action_config_change_s config_change;
+  ghostty_action_open_url_s open_url;
 } ghostty_action_u;
 
 typedef struct {
