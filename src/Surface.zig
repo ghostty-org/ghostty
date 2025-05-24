@@ -3583,7 +3583,7 @@ pub fn cursorPosCallback(
 
         // Convert to points
         const screen = &self.renderer_state.terminal.screen;
-        const pin = screen.pages.pin(.{
+        var pin = screen.pages.pin(.{
             .viewport = .{
                 .x = pos_vp.x,
                 .y = pos_vp.y,
@@ -3592,6 +3592,9 @@ pub fn cursorPosCallback(
             if (comptime std.debug.runtime_safety) unreachable;
             return;
         };
+        if (pos.x <= @as(f32, @floatFromInt(self.size.padding.left))) {
+            pin.x = .neg;
+        }
 
         // Handle dragging depending on click count
         switch (self.mouse.left_click_count) {
@@ -3710,7 +3713,7 @@ fn dragLeftClickSingle(
 
     // first xpos of the clicked cell adjusted for padding
     const left_padding_f64: f64 = @as(f64, @floatFromInt(self.size.padding.left));
-    const cell_xstart = @as(f64, @floatFromInt(click_pin.x)) * cell_width_f64;
+    const cell_xstart = @as(f64, @floatFromInt(click_pin.xInt())) * cell_width_f64;
     const cell_start_xpos = self.mouse.left_click_xpos - cell_xstart - left_padding_f64;
 
     // If this is the same cell, then we only start the selection if weve
@@ -3746,16 +3749,16 @@ fn dragLeftClickSingle(
             self.mouse.mods,
         )) start: {
             if (cell_start_xpos >= cell_xboundary) break :start click_pin;
-            if (click_pin.x > 0) break :start click_pin.left(1);
+            if (click_pin.xInt() > 0) break :start click_pin.left(1);
             var start = click_pin.up(1) orelse click_pin;
-            start.x = self.io.terminal.screen.pages.cols - 1;
+            start.x = .{ .col = self.io.terminal.screen.pages.cols - 1 };
             break :start start;
         } else start: {
             if (cell_start_xpos < cell_xboundary) break :start click_pin;
-            if (click_pin.x < self.io.terminal.screen.pages.cols - 1)
+            if (click_pin.xInt() < self.io.terminal.screen.pages.cols - 1)
                 break :start click_pin.right(1);
             var start = click_pin.down(1) orelse click_pin;
-            start.x = 0;
+            start.x = .{ .col = 0 };
             break :start start;
         };
 
@@ -3798,14 +3801,14 @@ fn checkResetSelSwitch(
         // the click point depending on the selection mode we're in, with
         // the exception of single-column selections, which we always reset
         // on if we drift.
-        if (sel_start.x == sel_end.x) {
-            reset = drag_pin.x != sel_start.x;
+        if (sel_start.x.eq(sel_end.x)) {
+            reset = !drag_pin.x.eq(sel_start.x);
         } else {
             reset = switch (sel.order(screen)) {
-                .forward => drag_pin.x < sel_start.x or drag_pin.before(sel_start),
-                .reverse => drag_pin.x > sel_start.x or sel_start.before(drag_pin),
-                .mirrored_forward => drag_pin.x > sel_start.x or drag_pin.before(sel_start),
-                .mirrored_reverse => drag_pin.x < sel_start.x or sel_start.before(drag_pin),
+                .forward => drag_pin.x.lessThan(sel_start.x) or drag_pin.before(sel_start),
+                .reverse => drag_pin.x.greaterThan(sel_start.x) or sel_start.before(drag_pin),
+                .mirrored_forward => drag_pin.x.greaterThan(sel_start.x) or drag_pin.before(sel_start),
+                .mirrored_reverse => drag_pin.x.lessThan(sel_start.x) or sel_start.before(drag_pin),
             };
         }
     } else {
@@ -3831,7 +3834,7 @@ fn dragLeftClickBefore(
     mods: input.Mods,
 ) bool {
     if (mods.ctrlOrSuper() and mods.alt) {
-        return drag_pin.x < click_pin.x;
+        return drag_pin.x.lessThan(click_pin.x);
     }
 
     return drag_pin.before(click_pin);

@@ -272,7 +272,7 @@ fn display(
 
                 terminal.setCursorPos(
                     terminal.screen.cursor.y,
-                    pin.x + size.cols + 1,
+                    pin.x.col + size.cols + 1,
                 );
             },
         },

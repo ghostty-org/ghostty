@@ -331,7 +331,7 @@ pub const ImageStorage = struct {
                 while (it.next()) |entry| {
                     const img = self.imageById(entry.key_ptr.image_id) orelse continue;
                     const rect = entry.value_ptr.rect(img, t) orelse continue;
-                    if (rect.top_left.x <= x and rect.bottom_right.x >= x) {
+                    if (rect.top_left.x.col <= x and rect.bottom_right.x.col >= x) {
                         entry.value_ptr.deinit(&t.screen);
                         self.placements.removeByPtr(entry.key_ptr);
                         if (v.delete) self.deleteIfUnused(alloc, img.id);
@@ -790,13 +790,13 @@ pub const ImageStorage = struct {
                 .offset => |v| v,
                 .overflow => |v| v.end,
             };
-            br.x = @min(
+            br.x = .{ .col = @min(
                 // We need to sub one here because the x value is
                 // one width already. So if the image is width "1"
                 // then we add zero to X because X itself is width 1.
-                pin.x + (grid_size.cols - 1),
+                pin.x.col + (grid_size.cols - 1),
                 t.cols - 1,
-            );
+            ) };
 
             return .{
                 .top_left = pin.*,

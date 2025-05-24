@@ -397,7 +397,7 @@ const SlidingWindow = struct {
             return .{
                 .node = meta.node,
                 .y = map.y,
-                .x = map.x,
+                .x = .{ .col = map.x },
             };
         }
 

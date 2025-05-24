@@ -48,12 +48,12 @@ pub const PlacementIterator = struct {
 
             // Iterate over our remaining cells and find one with a placeholder.
             const cells = row.cells(.right);
-            for (cells, row.x..) |*cell, x| {
+            for (cells, row.xInt()..) |*cell, x| {
                 // "row" now points to the top-left pin of the placement.
                 // We need this temporary state to build our incomplete
                 // placement.
                 assert(@intFromPtr(row) == @intFromPtr(&self.row));
-                row.x = @intCast(x);
+                row.x = .{ .col = @intCast(x) };
 
                 // If this cell doesn't have the placeholder, then we
                 // complete the run if we have it otherwise we just move
