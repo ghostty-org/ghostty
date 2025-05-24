@@ -460,7 +460,7 @@ background: Color = .{ .r = 0x28, .g = 0x2C, .b = 0x34 },
 foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 
 /// Background image for the window.
-@"background-image": SinglePath = .{},
+@"background-image": ?Path = null,
 
 /// Background image opacity
 @"background-image-opacity": f32 = 1.0,
@@ -3012,86 +3012,6 @@ fn expandPaths(self: *Config, base: []const u8) !void {
     }
 }
 
-/// Expand a relative path to an absolute path. This function is used by
-/// the RepeatablePath and SinglePath to expand the paths they store.
-fn expandPath(
-    alloc: Allocator,
-    base: []const u8,
-    path: []const u8,
-    diags: *cli.DiagnosticList,
-) ![]const u8 {
-    assert(std.fs.path.isAbsolute(base));
-    var dir = try std.fs.cwd().openDir(base, .{});
-    defer dir.close();
-
-    // If it is already absolute we can just return it
-    if (path.len == 0 or std.fs.path.isAbsolute(path)) return path;
-
-    // If it isn't absolute, we need to make it absolute relative
-    // to the base.
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
-
-    // Check if the path starts with a tilde and expand it to the
-    // home directory on Linux/macOS. We explicitly look for "~/"
-    // because we don't support alternate users such as "~alice/"
-    if (std.mem.startsWith(u8, path, "~/")) expand: {
-        // Windows isn't supported yet
-        if (comptime builtin.os.tag == .windows) break :expand;
-
-        const expanded: []const u8 = internal_os.expandHome(
-            path,
-            &buf,
-        ) catch |err| {
-            try diags.append(alloc, .{
-                .message = try std.fmt.allocPrintZ(
-                    alloc,
-                    "error expanding home directory for path {s}: {}",
-                    .{ path, err },
-                ),
-            });
-
-            // We can't expand this path so return an empty string
-            return "";
-        };
-
-        log.debug(
-            "expanding file path from home directory: path={s}",
-            .{expanded},
-        );
-
-        return expanded;
-    }
-
-    const abs = dir.realpath(path, &buf) catch |err| abs: {
-        if (err == error.FileNotFound) {
-            // The file doesn't exist. Try to resolve the relative path
-            // another way.
-            const resolved = try std.fs.path.resolve(alloc, &.{ base, path });
-            defer alloc.free(resolved);
-            @memcpy(buf[0..resolved.len], resolved);
-            break :abs buf[0..resolved.len];
-        }
-
-        try diags.append(alloc, .{
-            .message = try std.fmt.allocPrintZ(
-                alloc,
-                "error resolving file path {s}: {}",
-                .{ path, err },
-            ),
-        });
-
-        // We can't expand this path so return an empty string
-        return "";
-    };
-
-    log.debug(
-        "expanding file path relative={s} abs={s}",
-        .{ path, abs },
-    );
-
-    return abs;
-}
-
 fn loadTheme(self: *Config, theme: Theme) !void {
     // Load the correct theme depending on the conditional state.
     // Dark/light themes were programmed prior to conditional configuration
@@ -4267,63 +4187,6 @@ pub const Palette = struct {
         try testing.expect(p.value[2].r == 0x12);
         try testing.expect(p.value[2].g == 0x34);
         try testing.expect(p.value[2].b == 0x56);
-    }
-};
-
-/// SinglePath is a path to a single file. When loading the configuration
-/// file, always the last one will be kept and be automatically expanded
-/// relative to the path of the config file.
-pub const SinglePath = struct {
-    const Self = @This();
-
-    /// The actual value that is updated as we parse.
-    value: ?[]const u8 = null,
-
-    /// Parse a single path.
-    pub fn parseCLI(self: *Self, alloc: Allocator, input: ?[]const u8) !void {
-        const value = input orelse return error.ValueRequired;
-        // If the value is empty, we set the value to null
-        if (value.len == 0) {
-            self.value = null;
-            return;
-        }
-        const copy = try alloc.dupe(u8, value);
-        self.value = copy;
-    }
-
-    /// Deep copy of the struct. Required by Config.
-    pub fn clone(self: Self, alloc: Allocator) Allocator.Error!Self {
-        const value = self.value orelse return .{};
-
-        const copy_path = try alloc.dupe(u8, value);
-        return .{
-            .value = copy_path,
-        };
-    }
-
-    /// Used by Formatter
-    pub fn formatEntry(self: Self, formatter: anytype) !void {
-        const value = self.value orelse return;
-        try formatter.formatEntry([]const u8, value);
-    }
-
-    /// Expand all the paths relative to the base directory.
-    pub fn expand(
-        self: *Self,
-        alloc: Allocator,
-        base: []const u8,
-        diags: *cli.DiagnosticList,
-    ) !void {
-        // Try expanding path relative to the base.
-        const path = self.value orelse return;
-        const abs = try expandPath(alloc, base, path, diags);
-
-        if (abs.len == 0) {
-            // Blank this path so that we don't attempt to resolve it again
-            self.value = null;
-            return;
-        }
-        self.value = try alloc.dupeZ(u8, abs);
     }
 };
 

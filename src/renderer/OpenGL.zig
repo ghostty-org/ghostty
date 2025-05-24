@@ -141,7 +141,7 @@ draw_mutex: DrawMutex = drawMutexZero,
 draw_background: terminal.color.RGB,
 
 /// The background image(s) to draw. Currently, we always draw the last image.
-background_image: configpkg.SinglePath,
+background_image: ?configpkg.Path,
 
 /// The opacity of the background image. Not to be confused with background-opacity
 background_image_opacity: f32,
@@ -299,7 +299,7 @@ pub const DerivedConfig = struct {
     cursor_opacity: f64,
     background: terminal.color.RGB,
     background_opacity: f64,
-    background_image: configpkg.SinglePath,
+    background_image: ?configpkg.Path,
     background_image_opacity: f32,
     background_image_mode: configpkg.BackgroundImageMode,
     foreground: terminal.color.RGB,
@@ -324,7 +324,7 @@ pub const DerivedConfig = struct {
         const custom_shaders = try config.@"custom-shader".clone(alloc);
 
         // Copy our background image
-        const background_image = try config.@"background-image".clone(alloc);
+        const background_image = try config.@"background-image".?.clone(alloc);
 
         // Copy our font features
         const font_features = try config.@"font-feature".clone(alloc);
@@ -828,14 +828,22 @@ pub fn updateFrame(
         }
 
         if (self.current_background_image == null) {
-            if (self.background_image.value) |img_path| {
+            if (self.background_image) |background_image| {
+                const img_path, const optional = switch (background_image) {
+                    .optional => |path| .{ path, true },
+                    .required => |path| .{ path, false },
+                };
                 if (single_threaded_draw) self.draw_mutex.lock();
                 defer if (single_threaded_draw) self.draw_mutex.unlock();
-                self.prepBackgroundImage(img_path) catch |err| switch (err) {
-                    error.InvalidData => {
-                        log.warn("invalid image data, skipping", .{});
-                    },
-                    else => return err,
+                self.prepBackgroundImage(img_path) catch |err| {
+                    switch (err) {
+                        error.InvalidData => {
+                            if (!optional) {
+                                log.err("error loading background image {s}: {}", .{ img_path, err });
+                            }
+                        },
+                        else => return err,
+                    }
                 };
             }
         }
@@ -1246,7 +1254,7 @@ pub fn readImageContent(self: *OpenGL, path: []const u8) ![]u8 {
     assert(std.fs.path.isAbsolute(path));
     // Open the file
     var file = std.fs.openFileAbsolute(path, .{}) catch |err| {
-        log.warn("failed to open file: {}", .{err});
+        log.warn("failed to open file {s}: {}", .{ path, err });
         return error.InvalidData;
     };
     defer file.close();
