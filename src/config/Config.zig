@@ -469,23 +469,23 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 ///
 /// Valid values are:
 ///
-///   * `zoomed` - Image is scaled to fit the window, preserving aspect ratio.
-///   * `stretched` - Image is stretched to fill the window, not preserving aspect ratio.
-///   * `cropped` - Image is centered in the window, preserving the aspect ratio
+///   * `contain` - Image is scaled to fit the window, preserving aspect ratio.
+///   * `fill` - Image is stretched to fill the window, not preserving aspect ratio.
+///   * `cover` - Image is centered in the window, preserving the aspect ratio
 ///     but cropping the image to fill the window, as needed.
 ///   * `tiled` - Image is repeated horizontally and vertically to fill the window.
 ///   * `centered` - Image is centered in the window and displayed 1-to-1 pixel
 ///     scale, preserving both the aspect ratio and the image size.
-///   * `upper-left` - Image is anchored to the upper left corner of the window,
+///   * `top-left` - Image is anchored to the top left corner of the window,
 ///     preserving the aspect ratio.
-///   * `upper-right` - Image is anchored to the upper right corner of the window,
+///   * `top-right` - Image is anchored to the top right corner of the window,
 ///     preserving the aspect ratio.
-///   * `lower-left` - Image is anchored to the lower left corner of the window,
+///   * `bottom-left` - Image is anchored to the bottom left corner of the window,
 ///     preserving the aspect ratio.
-///   * `lower-right` - Image is anchored to the lower right corner of the window,
+///   * `bottom-right` - Image is anchored to the bottom right corner of the window,
 ///     preserving the aspect ratio.
 ///
-@"background-image-mode": BackgroundImageMode = .zoomed,
+@"background-image-mode": BackgroundImageMode = .contain,
 
 /// The foreground and background color for selection. If this is not set, then
 /// the selection color is just the inverted window background and foreground
@@ -6330,15 +6330,15 @@ pub const AlphaBlending = enum {
 /// in sync with the values in the vertex shader used to render the
 /// background image (`bgimage`).
 pub const BackgroundImageMode = enum(u8) {
-    zoomed = 0,
-    stretched = 1,
-    cropped = 2,
+    contain = 0,
+    fill = 1,
+    cover = 2,
     tiled = 3,
     centered = 4,
-    upper_left = 5,
-    upper_right = 6,
-    lower_left = 7,
-    lower_right = 8,
+    @"top-left" = 5,
+    @"top-right" = 6,
+    @"bottom-left" = 7,
+    @"bottom-right" = 8,
 };
 
 /// See freetype-load-flag

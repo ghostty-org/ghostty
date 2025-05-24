@@ -11,7 +11,7 @@ pub const Input = extern struct {
     terminal_height: u32 = 0,
 
     /// uint mode
-    mode: configpkg.BackgroundImageMode = .zoomed,
+    mode: configpkg.BackgroundImageMode = .contain,
 };
 
 program: gl.Program,

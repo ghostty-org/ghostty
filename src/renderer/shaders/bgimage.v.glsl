@@ -3,15 +3,15 @@
 // These are the possible modes that "mode" can be set to.
 //
 // NOTE: this must be kept in sync with the BackgroundImageMode
-const uint MODE_ZOOMED = 0u;
-const uint MODE_STRETCHED = 1u;
-const uint MODE_CROPPED = 2u;
+const uint MODE_CONTAIN = 0u;
+const uint MODE_FILL = 1u;
+const uint MODE_COVER = 2u;
 const uint MODE_TILED = 3u;
 const uint MODE_CENTERED = 4u;
-const uint MODE_UPPER_LEFT = 5u;
-const uint MODE_UPPER_RIGHT = 6u;
-const uint MODE_LOWER_LEFT = 7u;
-const uint MODE_LOWER_RIGHT = 8u;
+const uint MODE_TOP_LEFT = 5u;
+const uint MODE_TOP_RIGHT = 6u;
+const uint MODE_BOTTOM_LEFT = 7u;
+const uint MODE_BOTTOM_RIGHT = 8u;
 
 layout (location = 0) in vec2 terminal_size;
 layout (location = 1) in uint mode;
@@ -40,7 +40,7 @@ void main() {
 	);
 
 	switch (mode) {
-	case MODE_ZOOMED:
+	case MODE_CONTAIN:
 		// If zoomed, we want to scale the image to fit the terminal
 		if (aspect_ratio.x > aspect_ratio.y) {
 			scale.x = aspect_ratio.y / aspect_ratio.x;
@@ -49,7 +49,7 @@ void main() {
 			scale.y = aspect_ratio.x / aspect_ratio.y;
 		}
 		break;
-	case MODE_CROPPED:
+	case MODE_COVER:
 		// If cropped, we want to scale the image to fit the terminal
 		if (aspect_ratio.x < aspect_ratio.y) {
 			scale.x = aspect_ratio.y / aspect_ratio.x;
@@ -59,16 +59,16 @@ void main() {
 		}
 		break;
 	case MODE_CENTERED:
-	case MODE_UPPER_LEFT:
-	case MODE_UPPER_RIGHT:
-	case MODE_LOWER_LEFT:
-	case MODE_LOWER_RIGHT:
+	case MODE_TOP_LEFT:
+	case MODE_TOP_RIGHT:
+	case MODE_BOTTOM_LEFT:
+	case MODE_BOTTOM_RIGHT:
 		// If centered, the final scale of the image should match the actual
 		// size of the image and should be centered
 		scale.x = image_size.x / terminal_size.x;
 		scale.y = image_size.y / terminal_size.y;
 		break;
-	case MODE_STRETCHED:
+	case MODE_FILL:
 	case MODE_TILED:
 		// We don't need to do anything for stretched or tiled
 		break;
@@ -77,23 +77,23 @@ void main() {
 	vec2 final_image_size = terminal_size * position * scale;
 	vec2 offset = vec2(0.0, 0.0);
 	switch (mode) {
-	case MODE_ZOOMED:
-	case MODE_STRETCHED:
-	case MODE_CROPPED:
+	case MODE_CONTAIN:
+	case MODE_FILL:
+	case MODE_COVER:
 	case MODE_TILED:
 	case MODE_CENTERED:
 		offset = (terminal_size * (1.0 - scale)) / 2.0;
 		break;
-	case MODE_UPPER_LEFT:
+	case MODE_TOP_LEFT:
 		offset = vec2(0.0, 0.0);
 		break;
-	case MODE_UPPER_RIGHT:
+	case MODE_TOP_RIGHT:
 		offset = vec2(terminal_size.x - image_size.x, 0.0);
 		break;
-	case MODE_LOWER_LEFT:
+	case MODE_BOTTOM_LEFT:
 		offset = vec2(0.0, terminal_size.y - image_size.y);
 		break;
-	case MODE_LOWER_RIGHT:
+	case MODE_BOTTOM_RIGHT:
 		offset = vec2(terminal_size.x - image_size.x, terminal_size.y - image_size.y);
 		break;
 	}
