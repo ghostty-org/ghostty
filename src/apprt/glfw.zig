@@ -35,6 +35,8 @@ const darwin_enabled = builtin.target.os.tag.isDarwin() and
 
 const log = std.log.scoped(.glfw);
 
+pub const resourcesDir = internal_os.resourcesDir;
+
 pub const App = struct {
     app: *CoreApp,
     config: Config,
