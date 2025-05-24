@@ -149,6 +149,9 @@ background_image_opacity: f32,
 /// The background image mode to use.
 background_image_mode: configpkg.BackgroundImageMode,
 
+/// The background image position to use.
+background_image_position: configpkg.BackgroundImagePosition,
+
 /// The current background image to draw. If it is null, then we will not
 /// draw any background image.
 current_background_image: ?Image = null,
@@ -302,6 +305,7 @@ pub const DerivedConfig = struct {
     background_image: ?configpkg.Path,
     background_image_opacity: f32,
     background_image_mode: configpkg.BackgroundImageMode,
+    background_image_position: configpkg.BackgroundImagePosition,
     foreground: terminal.color.RGB,
     selection_background: ?terminal.color.RGB,
     selection_foreground: ?terminal.color.RGB,
@@ -370,6 +374,7 @@ pub const DerivedConfig = struct {
             .background_image = background_image,
             .background_image_opacity = config.@"background-image-opacity",
             .background_image_mode = config.@"background-image-mode",
+            .background_image_position = config.@"background-image-position",
 
             .invert_selection_fg_bg = config.@"selection-invert-fg-bg",
             .bold_is_bright = config.@"bold-is-bright",
@@ -438,6 +443,7 @@ pub fn init(alloc: Allocator, options: renderer.Options) !OpenGL {
         .background_image = options.config.background_image,
         .background_image_opacity = options.config.background_image_opacity,
         .background_image_mode = options.config.background_image_mode,
+        .background_image_position = options.config.background_image_position,
         .cursor_invert = options.config.cursor_invert,
         .surface_mailbox = options.surface_mailbox,
         .deferred_font_size = .{ .metrics = grid.metrics },
@@ -2288,6 +2294,7 @@ pub fn changeConfig(self: *OpenGL, config: *DerivedConfig) !void {
     self.background_image = config.background_image;
     self.background_image_opacity = config.background_image_opacity;
     self.background_image_mode = config.background_image_mode;
+    self.background_image_position = config.background_image_position;
     if (self.current_background_image) |*img| {
         img.markForUnload();
     }
@@ -2635,6 +2642,7 @@ fn drawBackgroundImage(
         .terminal_width = self.size.terminal().width,
         .terminal_height = self.size.terminal().height,
         .mode = self.background_image_mode,
+        .position_index = self.background_image_position,
     }, .static_draw);
     try gl_state.bgimage_program.program.setUniform("opacity", self.config.background_image_opacity);
 

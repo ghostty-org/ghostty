@@ -12,6 +12,9 @@ pub const Input = extern struct {
 
     /// uint mode
     mode: configpkg.BackgroundImageMode = .contain,
+
+    /// uint position_index
+    position_index: configpkg.BackgroundImagePosition = .center,
 };
 
 program: gl.Program,
@@ -60,10 +63,14 @@ pub fn init() !BackgroundImageProgram {
     offset += 2 * @sizeOf(u32);
     try vbobind.attributeIAdvanced(1, 1, gl.c.GL_UNSIGNED_BYTE, @sizeOf(Input), offset);
     offset += 1 * @sizeOf(u8);
+    try vbobind.attributeIAdvanced(2, 1, gl.c.GL_UNSIGNED_BYTE, @sizeOf(Input), offset);
+    offset += 1 * @sizeOf(u8);
     try vbobind.enableAttribArray(0);
     try vbobind.enableAttribArray(1);
+    try vbobind.enableAttribArray(2);
     try vbobind.attributeDivisor(0, 1);
     try vbobind.attributeDivisor(1, 1);
+    try vbobind.attributeDivisor(2, 1);
 
     return .{
         .program = program,

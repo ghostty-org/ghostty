@@ -474,18 +474,25 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 ///   * `cover` - Image is centered in the window, preserving the aspect ratio
 ///     but cropping the image to fill the window, as needed.
 ///   * `tiled` - Image is repeated horizontally and vertically to fill the window.
-///   * `centered` - Image is centered in the window and displayed 1-to-1 pixel
-///     scale, preserving both the aspect ratio and the image size.
-///   * `top-left` - Image is anchored to the top left corner of the window,
-///     preserving the aspect ratio.
-///   * `top-right` - Image is anchored to the top right corner of the window,
-///     preserving the aspect ratio.
-///   * `bottom-left` - Image is anchored to the bottom left corner of the window,
-///     preserving the aspect ratio.
-///   * `bottom-right` - Image is anchored to the bottom right corner of the window,
-///     preserving the aspect ratio.
+///   * `none` - Image is displayed 1-to-1 pixel scale, preserving both the aspect
+///     ratio and the image size.
 ///
-@"background-image-mode": BackgroundImageMode = .contain,
+@"background-image-mode": BackgroundImageMode = .none,
+
+/// Background image position.
+///
+/// Valid values are:
+///   * `top-left`
+///   * `top-center`
+///   * `top-right`
+///   * `center-left`
+///   * `center`
+///   * `center-right`
+///   * `bottom-left`
+///   * `bottom-center`
+///   * `bottom-right`
+///
+@"background-image-position": BackgroundImagePosition = .center,
 
 /// The foreground and background color for selection. If this is not set, then
 /// the selection color is just the inverted window background and foreground
@@ -6197,10 +6204,24 @@ pub const BackgroundImageMode = enum(u8) {
     fill = 1,
     cover = 2,
     tiled = 3,
-    centered = 4,
-    @"top-left" = 5,
-    @"top-right" = 6,
-    @"bottom-left" = 7,
+    none = 4,
+};
+
+/// See background-image-position
+///
+/// This enum is used to set the background image position. The shader expects
+/// a `uint`, so we use `u8` here. The values for each position should be kept
+/// in sync with the values in the vertex shader used to render the
+/// background image (`bgimage`).
+pub const BackgroundImagePosition = enum(u8) {
+    @"top-left" = 0,
+    @"top-center" = 1,
+    @"top-right" = 2,
+    @"center-left" = 3,
+    center = 4,
+    @"center-right" = 5,
+    @"bottom-left" = 6,
+    @"bottom-center" = 7,
     @"bottom-right" = 8,
 };
 
