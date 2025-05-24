@@ -217,7 +217,7 @@ pub fn order(self: Selection, s: *const Screen) Order {
 
     if (start_pt.y < end_pt.y) return .forward;
     if (start_pt.y > end_pt.y) return .reverse;
-    if (start_pt.x <= end_pt.x) return .forward;
+    if (self.start().x.lessEq(self.end().x)) return .forward;
     return .reverse;
 }
 
@@ -266,13 +266,13 @@ pub fn contains(self: Selection, s: *const Screen, pin: Pin) bool {
     // If tl/br are same line
     if (tl.y == br.y) return p.y == tl.y and
         p.x >= tl.x and
-        p.x <= br.x;
+        pin.x.lessEq(br_pin.x);
 
     // If on top line, just has to be left of X
-    if (p.y == tl.y) return p.x >= tl.x;
+    if (p.y == tl.y) return tl_pin.x.lessEq(pin.x);
 
     // If on bottom line, just has to be right of X
-    if (p.y == br.y) return p.x <= br.x;
+    if (p.y == br.y) return pin.x.lessEq(br_pin.x);
 
     // If between the top/bottom, always good.
     return p.y > tl.y and p.y < br.y;
@@ -437,15 +437,15 @@ pub fn adjust(
                 const cells = next.node.data.getCells(rac.row);
                 if (page.Cell.hasTextAny(cells)) {
                     end_pin.* = next;
-                    end_pin.x = @intCast(cells.len - 1);
+                    end_pin.x = .{ .col = @intCast(cells.len - 1) };
                     break;
                 }
             }
         },
 
-        .beginning_of_line => end_pin.x = 0,
+        .beginning_of_line => end_pin.x = .{ .col = 0 },
 
-        .end_of_line => end_pin.x = end_pin.node.data.size.cols - 1,
+        .end_of_line => end_pin.x = .{ .col = end_pin.node.data.size.cols - 1 },
     }
 }
 

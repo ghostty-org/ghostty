@@ -1563,7 +1563,7 @@ fn gtkMouseMotion(
     const scaled = self.scaledCoordinates(x, y);
 
     const pos: apprt.CursorPos = .{
-        .x = @floatCast(@max(0, scaled.x)),
+        .x = @floatCast(scaled.x),
         .y = @floatCast(scaled.y),
     };
 

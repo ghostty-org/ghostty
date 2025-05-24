@@ -411,7 +411,7 @@ pub fn reset(self: *PageList) void {
         while (it.next()) |entry| {
             const p: *Pin = entry.key_ptr.*;
             p.node = self.pages.first.?;
-            p.x = 0;
+            p.x = .{ .col = 0 };
             p.y = 0;
         }
     }
@@ -846,19 +846,19 @@ const ReflowCursor = struct {
             const pin_keys = list.tracked_pins.keys();
             for (pin_keys) |p| {
                 if (&p.node.data != src_page or
-                    p.y != src_y) continue;
+                    p.y != src_y or p.x != .col) continue;
 
                 // If this pin is in the blanks on the right and past the end
                 // of the dst col width then we move it to the end of the dst
                 // col width instead.
-                if (p.x >= cols_len) {
-                    p.x = @min(p.x, cap.cols - 1 - self.x);
+                if (p.x.col >= cols_len) {
+                    p.x.col = @min(p.x.col, cap.cols - 1 - self.x);
                 }
 
                 // We increase our col len to at least include this pin.
                 // This ensures that blank rows with pins are processed,
                 // so that the pins can be properly remapped.
-                cols_len = @max(cols_len, p.x + 1);
+                cols_len = @max(cols_len, p.x.col + 1);
             }
         }
 
@@ -897,10 +897,11 @@ const ReflowCursor = struct {
                 for (pin_keys) |p| {
                     if (&p.node.data != src_page or
                         p.y != src_y or
-                        p.x != x) continue;
+                        p.x != .col or
+                        p.x.col != x) continue;
 
                     p.node = self.node;
-                    p.x = self.x;
+                    p.x = .{ .col = self.x };
                     p.y = self.y;
                 }
             }
@@ -1303,7 +1304,12 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
                 // beyond the edge, clamp it.
                 const pin_keys = self.tracked_pins.keys();
                 for (pin_keys) |p| {
-                    if (p.x >= cols) p.x = cols - 1;
+                    switch (p.x) {
+                        .col => |x| {
+                            if (x >= cols) p.x.col = cols - 1;
+                        },
+                        .neg => {},
+                    }
                 }
 
                 self.cols = cols;
@@ -1828,7 +1834,7 @@ pub fn grow(self: *PageList) !?*List.Node {
             if (p.node != first) continue;
             p.node = self.pages.first.?;
             p.y = 0;
-            p.x = 0;
+            p.x = .{ .col = 0 };
         }
 
         // In this case we do NOT need to update page_size because
@@ -2161,7 +2167,7 @@ pub fn eraseRowBounded(
                 p.y <= pn.y + limit)
             {
                 if (p.y == 0) {
-                    p.x = 0;
+                    p.x = .{ .col = 0 };
                 } else {
                     p.y -= 1;
                 }
@@ -2190,7 +2196,7 @@ pub fn eraseRowBounded(
         for (pin_keys) |p| {
             if (p.node == node and p.y >= pn.y) {
                 if (p.y == 0) {
-                    p.x = 0;
+                    p.x = .{ .col = 0 };
                 } else {
                     p.y -= 1;
                 }
@@ -2341,7 +2347,7 @@ pub fn eraseRows(
                 p.y -= chunk.end;
             } else {
                 p.y = 0;
-                p.x = 0;
+                p.x = .{ .col = 0 };
             }
         }
 
@@ -2397,7 +2403,7 @@ fn erasePage(self: *PageList, node: *List.Node) void {
         if (p.node != node) continue;
         p.node = node.next orelse node.prev orelse unreachable;
         p.y = 0;
-        p.x = 0;
+        p.x = .{ .col = 0 };
     }
 
     // Remove the page from the linked list
@@ -2419,7 +2425,7 @@ pub fn pin(self: *const PageList, pt: point.Point) ?Pin {
 
     // Grab the top left and move to the point.
     var p = self.getTopLeft(pt).down(pt.coord().y) orelse return null;
-    p.x = x;
+    p.x = .{ .col = x };
     return p;
 }
 
@@ -2466,7 +2472,7 @@ pub fn pinIsValid(self: *const PageList, p: Pin) bool {
     while (it) |node| : (it = node.next) {
         if (node != p.node) continue;
         return p.y < node.data.size.rows and
-            p.x < node.data.size.cols;
+            (p.x != .col or p.x.col < node.data.size.cols);
     }
 
     return false;
@@ -2509,7 +2515,7 @@ pub fn pointFromPin(self: *const PageList, tag: point.Tag, p: Pin) ?point.Point 
     const tl = self.getTopLeft(tag);
 
     // Count our first page which is special because it may be partial.
-    var coord: point.Coordinate = .{ .x = p.x };
+    var coord: point.Coordinate = .{ .x = p.xInt() };
     if (p.node == tl.node) {
         // If our top-left is after our y then we're outside the range.
         if (tl.y > p.y) return null;
@@ -2545,13 +2551,13 @@ pub fn pointFromPin(self: *const PageList, tag: point.Tag, p: Pin) ?point.Point 
 /// Warning: this is slow and should not be used in performance critical paths
 pub fn getCell(self: *const PageList, pt: point.Point) ?Cell {
     const pt_pin = self.pin(pt) orelse return null;
-    const rac = pt_pin.node.data.getRowAndCell(pt_pin.x, pt_pin.y);
+    const rac = pt_pin.node.data.getRowAndCell(pt_pin.xInt(), pt_pin.y);
     return .{
         .node = pt_pin.node,
         .row = rac.row,
         .cell = rac.cell,
         .row_idx = pt_pin.y,
-        .col_idx = pt_pin.x,
+        .col_idx = pt_pin.xInt(),
     };
 }
 
@@ -2815,12 +2821,13 @@ pub const CellIterator = struct {
     pub fn next(self: *CellIterator) ?Pin {
         const cell = self.cell orelse return null;
 
+        const x: u16 = cell.xInt();
         switch (self.row_it.page_it.direction) {
             .right_down => {
-                if (cell.x + 1 < cell.node.data.size.cols) {
+                if (x + 1 < cell.node.data.size.cols) {
                     // We still have cells in this row, increase x.
                     var copy = cell;
-                    copy.x += 1;
+                    copy.x = .{ .col = x + 1 };
                     self.cell = copy;
                 } else {
                     // We need to move to the next row.
@@ -2829,16 +2836,16 @@ pub const CellIterator = struct {
             },
 
             .left_up => {
-                if (cell.x > 0) {
+                if (x > 0) {
                     // We still have cells in this row, decrease x.
                     var copy = cell;
-                    copy.x -= 1;
+                    copy.x = .{ .col = x - 1 };
                     self.cell = copy;
                 } else {
                     // We need to move to the previous row and last col
                     if (self.row_it.next()) |next_cell| {
                         var copy = next_cell;
-                        copy.x = next_cell.node.data.size.cols - 1;
+                        copy.x = .{ .col = next_cell.node.data.size.cols - 1 };
                         self.cell = copy;
                     } else {
                         self.cell = null;
@@ -3191,7 +3198,7 @@ pub fn getBottomRight(self: *const PageList, tag: point.Tag) ?Pin {
             break :last .{
                 .node = node,
                 .y = node.data.size.rows - 1,
-                .x = node.data.size.cols - 1,
+                .x = .{ .col = node.data.size.cols - 1 },
             };
         },
 
@@ -3294,13 +3301,59 @@ fn markDirty(self: *PageList, pt: point.Point) void {
 pub const Pin = struct {
     node: *List.Node,
     y: size.CellCountInt = 0,
-    x: size.CellCountInt = 0,
+    x: union(enum) {
+        col: size.CellCountInt,
+        neg: void,
+
+        pub fn lessThan(self: @This(), other: @This()) bool {
+            return switch (self) {
+                .col => |col| switch (other) {
+                    .col => |other_col| col < other_col,
+                    .neg => false, // col is always greater than negative
+                },
+                .neg => switch (other) {
+                    .col => true,
+                    .neg => false,
+                },
+            };
+        }
+        pub fn eq(self: @This(), other: @This()) bool {
+            return switch (self) {
+                .col => |col| switch (other) {
+                    .col => |other_col| col == other_col,
+                    .neg => false,
+                },
+                .neg => switch (other) {
+                    .col => false,
+                    .neg => true,
+                },
+            };
+        }
+        pub fn lessEq(self: @This(), other: @This()) bool {
+            return switch (self) {
+                .col => |col| switch (other) {
+                    .col => |other_col| col <= other_col,
+                    .neg => false, // col is always greater than negative
+                },
+                .neg => true,
+            };
+        }
+        pub fn greaterThan(self: @This(), other: @This()) bool {
+            return !self.lessEq(other);
+        }
+    } = .{ .col = 0 },
+    pub fn xInt(self: Pin) size.CellCountInt {
+        return switch (self.x) {
+            .col => |x| x,
+            .neg => 0,
+        };
+    }
 
     pub fn rowAndCell(self: Pin) struct {
         row: *pagepkg.Row,
         cell: *pagepkg.Cell,
     } {
-        const rac = self.node.data.getRowAndCell(self.x, self.y);
+        const rac = self.node.data.getRowAndCell(self.xInt(), self.y);
         return .{ .row = rac.row, .cell = rac.cell };
     }
 
@@ -3312,10 +3365,17 @@ pub const Pin = struct {
     pub fn cells(self: Pin, subset: CellSubset) []pagepkg.Cell {
         const rac = self.rowAndCell();
         const all = self.node.data.getCells(rac.row);
-        return switch (subset) {
-            .all => all,
-            .left => all[0 .. self.x + 1],
-            .right => all[self.x..],
+        return switch (self.x) {
+            .col => |x| switch (subset) {
+                .all => all,
+                .left => all[0 .. x + 1],
+                .right => all[x..],
+            },
+            .neg => switch (subset) {
+                .all => all,
+                .left => all[0..0],
+                .right => all,
+            },
         };
     }
 
@@ -3469,7 +3529,7 @@ pub const Pin = struct {
                 // If top is bottom, must be ordered.
                 assert(top.y <= bottom.y);
                 if (top.y == bottom.y) {
-                    assert(top.x <= bottom.x);
+                    assert(top.x.lessEq(bottom.x));
                 }
             } else {
                 // If top is not bottom, top must be before bottom.
@@ -3501,7 +3561,7 @@ pub const Pin = struct {
             // Otherwise our y is the same as the top y, so we need to
             // check the x coordinate.
             assert(self.y == top.y);
-            if (self.x < top.x) return false;
+            if (self.x.lessThan(top.x)) return false;
         }
         if (self.node == bottom.node) {
             // Our page is the bottom page so we're between the top and
@@ -3512,7 +3572,7 @@ pub const Pin = struct {
             // If our y is the same, then we're between if we're before
             // or equal to the bottom x.
             assert(self.y == bottom.y);
-            return self.x <= bottom.x;
+            return self.x.lessEq(bottom.x);
         }
 
         // Our page isn't the top or bottom so we need to check if
@@ -3538,7 +3598,7 @@ pub const Pin = struct {
         if (self.node == other.node) {
             if (self.y < other.y) return true;
             if (self.y > other.y) return false;
-            return self.x < other.x;
+            return self.x.lessThan(other.x);
         }
 
         var node_ = self.node.next;
@@ -3552,22 +3612,28 @@ pub const Pin = struct {
     pub fn eql(self: Pin, other: Pin) bool {
         return self.node == other.node and
             self.y == other.y and
-            self.x == other.x;
+            self.x.eq(other.x);
     }
 
     /// Move the pin left n columns. n must fit within the size.
     pub fn left(self: Pin, n: usize) Pin {
-        assert(n <= self.x);
+        switch (self.x) {
+            .col => |x| assert(n <= x),
+            .neg => assert(false),
+        }
         var result = self;
-        result.x -= std.math.cast(size.CellCountInt, n) orelse result.x;
+        result.x.col -= std.math.cast(size.CellCountInt, n) orelse result.x.col;
         return result;
     }
 
     /// Move the pin right n columns. n must fit within the size.
     pub fn right(self: Pin, n: usize) Pin {
-        assert(self.x + n < self.node.data.size.cols);
+        switch (self.x) {
+            .col => |x| assert(x + n < self.node.data.size.cols),
+            .neg => assert(false),
+        }
         var result = self;
-        result.x +|= std.math.cast(size.CellCountInt, n) orelse
+        result.x.col +|= std.math.cast(size.CellCountInt, n) orelse
             std.math.maxInt(size.CellCountInt);
         return result;
     }
@@ -3727,7 +3793,7 @@ test "PageList" {
     try testing.expectEqual(Pin{
         .node = s.pages.first.?,
         .y = 0,
-        .x = 0,
+        .x = .{ .col = 0 },
     }, s.getTopLeft(.active));
 }
 
@@ -3770,7 +3836,7 @@ test "PageList pointFromPin active no history" {
         }, s.pointFromPin(.active, .{
             .node = s.pages.first.?,
             .y = 0,
-            .x = 0,
+            .x = .{ .col = 0 },
         }).?);
     }
     {
@@ -3782,7 +3848,7 @@ test "PageList pointFromPin active no history" {
         }, s.pointFromPin(.active, .{
             .node = s.pages.first.?,
             .y = 2,
-            .x = 4,
+            .x = .{ .col = 4 },
         }).?);
     }
 }
@@ -3804,7 +3870,7 @@ test "PageList pointFromPin active with history" {
         }, s.pointFromPin(.active, .{
             .node = s.pages.first.?,
             .y = 30,
-            .x = 2,
+            .x = .{ .col = 2 },
         }).?);
     }
 
@@ -3813,7 +3879,7 @@ test "PageList pointFromPin active with history" {
         try testing.expect(s.pointFromPin(.active, .{
             .node = s.pages.first.?,
             .y = 21,
-            .x = 2,
+            .x = .{ .col = 2 },
         }) == null);
     }
 }
@@ -3846,7 +3912,7 @@ test "PageList pointFromPin active from prior page" {
         }, s.pointFromPin(.active, .{
             .node = s.pages.last.?,
             .y = 0,
-            .x = 2,
+            .x = .{ .col = 2 },
         }).?);
     }
 
@@ -3855,7 +3921,7 @@ test "PageList pointFromPin active from prior page" {
         try testing.expect(s.pointFromPin(.active, .{
             .node = s.pages.first.?,
             .y = 0,
-            .x = 0,
+            .x = .{ .col = 0 },
         }) == null);
     }
 }
@@ -3893,7 +3959,7 @@ test "PageList pointFromPin traverse pages" {
         }, s.pointFromPin(.screen, .{
             .node = s.pages.last.?.prev.?,
             .y = 5,
-            .x = 2,
+            .x = .{ .col = 2 },
         }).?);
     }
 
@@ -3902,7 +3968,7 @@ test "PageList pointFromPin traverse pages" {
         try testing.expect(s.pointFromPin(.active, .{
             .node = s.pages.first.?,
             .y = 0,
-            .x = 0,
+            .x = .{ .col = 0 },
         }) == null);
     }
 }
@@ -4402,7 +4468,7 @@ test "PageList grow prune scrollback" {
 
     // Our tracked pin should point to the top-left of the first page
     try testing.expect(p.node == s.pages.first.?);
-    try testing.expect(p.x == 0);
+    try testing.expect(p.x.col == 0);
     try testing.expect(p.y == 0);
 }
 
@@ -4912,7 +4978,7 @@ test "PageList erase row with tracked pin resets to top-left" {
     // Our pin should move to the first page
     try testing.expectEqual(s.pages.first.?, p.node);
     try testing.expectEqual(@as(usize, 0), p.y);
-    try testing.expectEqual(@as(usize, 0), p.x);
+    try testing.expectEqual(@as(usize, 0), p.x.col);
 }
 
 test "PageList erase row with tracked pin shifts" {
@@ -4933,7 +4999,7 @@ test "PageList erase row with tracked pin shifts" {
     // Our pin should move to the first page
     try testing.expectEqual(s.pages.first.?, p.node);
     try testing.expectEqual(@as(usize, 0), p.y);
-    try testing.expectEqual(@as(usize, 2), p.x);
+    try testing.expectEqual(@as(usize, 2), p.x.col);
 }
 
 test "PageList erase row with tracked pin is erased" {
@@ -4954,7 +5020,7 @@ test "PageList erase row with tracked pin is erased" {
     // Our pin should move to the first page
     try testing.expectEqual(s.pages.first.?, p.node);
     try testing.expectEqual(@as(usize, 0), p.y);
-    try testing.expectEqual(@as(usize, 0), p.x);
+    try testing.expectEqual(@as(usize, 0), p.x.col);
 }
 
 test "PageList erase resets viewport to active if moves within active" {
@@ -5113,15 +5179,15 @@ test "PageList eraseRowBounded less than full row" {
 
     try testing.expectEqual(s.pages.first.?, p_top.node);
     try testing.expectEqual(@as(usize, 4), p_top.y);
-    try testing.expectEqual(@as(usize, 0), p_top.x);
+    try testing.expectEqual(@as(usize, 0), p_top.x.col);
 
     try testing.expectEqual(s.pages.first.?, p_bot.node);
     try testing.expectEqual(@as(usize, 7), p_bot.y);
-    try testing.expectEqual(@as(usize, 0), p_bot.x);
+    try testing.expectEqual(@as(usize, 0), p_bot.x.col);
 
     try testing.expectEqual(s.pages.first.?, p_out.node);
     try testing.expectEqual(@as(usize, 9), p_out.y);
-    try testing.expectEqual(@as(usize, 0), p_out.x);
+    try testing.expectEqual(@as(usize, 0), p_out.x.col);
 }
 
 test "PageList eraseRowBounded with pin at top" {
@@ -5147,7 +5213,7 @@ test "PageList eraseRowBounded with pin at top" {
 
     try testing.expectEqual(s.pages.first.?, p_top.node);
     try testing.expectEqual(@as(usize, 0), p_top.y);
-    try testing.expectEqual(@as(usize, 0), p_top.x);
+    try testing.expectEqual(@as(usize, 0), p_top.x.col);
 }
 
 test "PageList eraseRowBounded full rows single page" {
@@ -5177,11 +5243,11 @@ test "PageList eraseRowBounded full rows single page" {
     // Our pin should move to the first page
     try testing.expectEqual(s.pages.first.?, p_in.node);
     try testing.expectEqual(@as(usize, 6), p_in.y);
-    try testing.expectEqual(@as(usize, 0), p_in.x);
+    try testing.expectEqual(@as(usize, 0), p_in.x.col);
 
     try testing.expectEqual(s.pages.first.?, p_out.node);
     try testing.expectEqual(@as(usize, 8), p_out.y);
-    try testing.expectEqual(@as(usize, 0), p_out.x);
+    try testing.expectEqual(@as(usize, 0), p_out.x.col);
 }
 
 test "PageList eraseRowBounded full rows two pages" {
@@ -5215,19 +5281,19 @@ test "PageList eraseRowBounded full rows two pages" {
     {
         try testing.expectEqual(s.pages.last.?.prev.?, p_first.node);
         try testing.expectEqual(@as(usize, p_first.node.data.size.rows - 1), p_first.y);
-        try testing.expectEqual(@as(usize, 0), p_first.x);
+        try testing.expectEqual(@as(usize, 0), p_first.x.col);
 
         try testing.expectEqual(s.pages.last.?.prev.?, p_first_out.node);
         try testing.expectEqual(@as(usize, p_first_out.node.data.size.rows - 2), p_first_out.y);
-        try testing.expectEqual(@as(usize, 0), p_first_out.x);
+        try testing.expectEqual(@as(usize, 0), p_first_out.x.col);
 
         try testing.expectEqual(s.pages.last.?, p_in.node);
         try testing.expectEqual(@as(usize, 3), p_in.y);
-        try testing.expectEqual(@as(usize, 0), p_in.x);
+        try testing.expectEqual(@as(usize, 0), p_in.x.col);
 
         try testing.expectEqual(s.pages.last.?, p_out.node);
         try testing.expectEqual(@as(usize, 4), p_out.y);
-        try testing.expectEqual(@as(usize, 0), p_out.x);
+        try testing.expectEqual(@as(usize, 0), p_out.x.col);
     }
 
     // Erase only a few rows in our active
@@ -5243,22 +5309,22 @@ test "PageList eraseRowBounded full rows two pages" {
     // In page in first page is shifted
     try testing.expectEqual(s.pages.last.?.prev.?, p_first.node);
     try testing.expectEqual(@as(usize, p_first.node.data.size.rows - 2), p_first.y);
-    try testing.expectEqual(@as(usize, 0), p_first.x);
+    try testing.expectEqual(@as(usize, 0), p_first.x.col);
 
     // Out page in first page should not be shifted
     try testing.expectEqual(s.pages.last.?.prev.?, p_first_out.node);
     try testing.expectEqual(@as(usize, p_first_out.node.data.size.rows - 2), p_first_out.y);
-    try testing.expectEqual(@as(usize, 0), p_first_out.x);
+    try testing.expectEqual(@as(usize, 0), p_first_out.x.col);
 
     // In page is shifted
     try testing.expectEqual(s.pages.last.?, p_in.node);
     try testing.expectEqual(@as(usize, 2), p_in.y);
-    try testing.expectEqual(@as(usize, 0), p_in.x);
+    try testing.expectEqual(@as(usize, 0), p_in.x.col);
 
     // Out page is not shifted
     try testing.expectEqual(s.pages.last.?, p_out.node);
     try testing.expectEqual(@as(usize, 4), p_out.y);
-    try testing.expectEqual(@as(usize, 0), p_out.x);
+    try testing.expectEqual(@as(usize, 0), p_out.x.col);
 }
 
 test "PageList clone" {
@@ -7484,7 +7550,7 @@ test "PageList resize reflow less cols no wrapped rows" {
     while (it.next()) |offset| {
         for (0..4) |x| {
             var offset_copy = offset;
-            offset_copy.x = @intCast(x);
+            offset_copy.x = .{ .col = @intCast(x) };
             const rac = offset_copy.rowAndCell();
             const cells = offset.node.data.getCells(rac.row);
             try testing.expectEqual(@as(usize, 5), cells.len);
@@ -8177,7 +8243,7 @@ test "PageList resize reflow less cols copy style" {
     while (it.next()) |offset| {
         for (0..s.cols - 1) |x| {
             var offset_copy = offset;
-            offset_copy.x = @intCast(x);
+            offset_copy.x = .{ .col = @intCast(x) };
             const rac = offset_copy.rowAndCell();
             const style_id = rac.cell.style_id;
             try testing.expect(style_id != 0);
@@ -8337,7 +8403,7 @@ test "PageList resize reflow less cols copy kitty placeholder" {
     while (it.next()) |offset| {
         for (0..s.cols - 1) |x| {
             var offset_copy = offset;
-            offset_copy.x = @intCast(x);
+            offset_copy.x = .{ .col = @intCast(x) };
             const rac = offset_copy.rowAndCell();
 
             const row = rac.row;
@@ -8441,7 +8507,7 @@ test "PageList reset" {
     try testing.expectEqual(Pin{
         .node = s.pages.first.?,
         .y = 0,
-        .x = 0,
+        .x = .{ .col = 0 },
     }, s.getTopLeft(.active));
 }
 
@@ -8485,6 +8551,6 @@ test "PageList clears history" {
     try testing.expectEqual(Pin{
         .node = s.pages.first.?,
         .y = 0,
-        .x = 0,
+        .x = .{ .col = 0 },
     }, s.getTopLeft(.active));
 }

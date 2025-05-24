@@ -89,8 +89,8 @@ pub const RunIterator = struct {
             if (self.selection) |unordered_sel| {
                 if (j > self.i) {
                     const sel = unordered_sel.ordered(self.screen, .forward);
-                    const start_x = sel.start().x;
-                    const end_x = sel.end().x;
+                    const start_x = sel.start().xInt();
+                    const end_x = sel.end().xInt();
 
                     if (start_x > 0 and
                         j == start_x) break;

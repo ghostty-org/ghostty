@@ -268,7 +268,8 @@ pub fn reset(self: *Screen) void {
     // our cursor pin, which should be at the top-left already.
     const cursor_pin: *PageList.Pin = self.cursor.page_pin;
     assert(cursor_pin.node == self.pages.pages.first.?);
-    assert(cursor_pin.x == 0);
+    assert(cursor_pin.x == .col);
+    assert(cursor_pin.x.col == 0);
     assert(cursor_pin.y == 0);
     const cursor_rac = cursor_pin.rowAndCell();
     self.cursor.deinit(self.alloc);
@@ -536,7 +537,7 @@ pub fn cursorCellEndOfPrev(self: *Screen) *pagepkg.Cell {
     assert(self.cursor.y > 0);
 
     var page_pin = self.cursor.page_pin.up(1).?;
-    page_pin.x = self.pages.cols - 1;
+    page_pin.x = .{ .col = self.pages.cols - 1 };
     const page_rac = page_pin.rowAndCell();
     return page_rac.cell;
 }
@@ -549,7 +550,7 @@ pub fn cursorRight(self: *Screen, n: size.CellCountInt) void {
 
     const cell: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
     self.cursor.page_cell = @ptrCast(cell + n);
-    self.cursor.page_pin.x += n;
+    self.cursor.page_pin.x = .{ .col = self.cursor.page_pin.xInt() + n };
     self.cursor.x += n;
 }
 
@@ -560,7 +561,7 @@ pub fn cursorLeft(self: *Screen, n: size.CellCountInt) void {
 
     const cell: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
     self.cursor.page_cell = @ptrCast(cell - n);
-    self.cursor.page_pin.x -= n;
+    self.cursor.page_pin.x = .{ .col = self.cursor.page_pin.xInt() - n };
     self.cursor.x -= n;
 }
 
@@ -611,7 +612,7 @@ pub fn cursorHorizontalAbsolute(self: *Screen, x: size.CellCountInt) void {
     assert(x < self.pages.cols);
     defer self.assertIntegrity();
 
-    self.cursor.page_pin.x = x;
+    self.cursor.page_pin.x = .{ .col = x };
     const page_rac = self.cursor.page_pin.rowAndCell();
     self.cursor.page_cell = page_rac.cell;
     self.cursor.x = x;
@@ -629,7 +630,7 @@ pub fn cursorAbsolute(self: *Screen, x: size.CellCountInt, y: size.CellCountInt)
         self.cursor.page_pin.down(y - self.cursor.y).?
     else
         self.cursor.page_pin.*;
-    page_pin.x = x;
+    page_pin.x = .{ .col = x };
     self.cursor.x = x; // Must be set before cursorChangePin
     self.cursor.y = y;
     self.cursorChangePin(page_pin);
@@ -746,7 +747,7 @@ pub fn cursorDownScroll(self: *Screen) !void {
             self.cursor.page_pin.down(1).?
         else reuse: {
             var pin = self.cursor.page_pin.*;
-            pin.x = self.cursor.x;
+            pin.x = .{ .col = self.cursor.x };
             break :reuse pin;
         };
 
@@ -2161,7 +2162,7 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
     const sel_start: Pin = start: {
         var start: Pin = sel_ordered.start();
         const cell = start.rowAndCell().cell;
-        if (cell.wide == .spacer_tail) start.x -= 1;
+        if (cell.wide == .spacer_tail) start.x = .{ .col = start.x.col - 1 };
         break :start start;
     };
     const sel_end: Pin = end: {
@@ -2171,12 +2172,12 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
             .narrow, .wide => {},
 
             // We can omit the tail
-            .spacer_tail => end.x -= 1,
+            .spacer_tail => end.x.col -= 1,
 
             // With the head we want to include the wrapped wide character.
             .spacer_head => if (end.down(1)) |p| {
                 end = p;
-                end.x = 0;
+                end.x = .{ .col = 0 };
             },
         }
         break :end end;
@@ -2190,12 +2191,15 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
 
             const start_x = if ((row_i == 0 or sel_ordered.rectangle) and
                 sel_start.node == chunk.node)
-                sel_start.x
+                sel_start.xInt()
             else
                 0;
             const end_x = if ((row_i == rows.len - 1 or sel_ordered.rectangle) and
                 sel_end.node == chunk.node)
-                sel_end.x + 1
+                switch (sel_end.x) {
+                    .col => |x| x + 1,
+                    .neg => 0,
+                }
             else
                 self.pages.cols;
 
@@ -2217,7 +2221,7 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
                         for (0..encode_len) |_| try b.append(.{
                             .node = chunk.node,
                             .y = @intCast(y),
-                            .x = @intCast(x),
+                            .x = .{ .col = @intCast(x) },
                         });
                     }
                 }
@@ -2230,7 +2234,7 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
                             for (0..encode_len) |_| try b.append(.{
                                 .node = chunk.node,
                                 .y = @intCast(y),
-                                .x = @intCast(x),
+                                .x = .{ .col = @intCast(x) },
                             });
                         }
                     }
@@ -2246,7 +2250,7 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
                 if (mapbuilder) |*b| try b.append(.{
                     .node = chunk.node,
                     .y = @intCast(y),
-                    .x = chunk.node.data.size.cols - 1,
+                    .x = .{ .col = chunk.node.data.size.cols - 1 },
                 });
             }
         }
@@ -2341,7 +2345,7 @@ pub fn selectLine(self: *const Screen, opts: SelectLine) ?Selection {
 
             if (!row.wrap) {
                 var copy = it_prev;
-                copy.x = 0;
+                copy.x = .{ .col = 0 };
                 break :start_pin copy;
             }
 
@@ -2350,7 +2354,7 @@ pub fn selectLine(self: *const Screen, opts: SelectLine) ?Selection {
                 const current_prompt = row.semantic_prompt.promptOrInput();
                 if (current_prompt != v) {
                     var copy = it_prev;
-                    copy.x = 0;
+                    copy.x = .{ .col = 0 };
                     break :start_pin copy;
                 }
             }
@@ -2358,7 +2362,7 @@ pub fn selectLine(self: *const Screen, opts: SelectLine) ?Selection {
             it_prev = p;
         } else {
             var copy = it_prev;
-            copy.x = 0;
+            copy.x = .{ .col = 0 };
             break :start_pin copy;
         }
     };
@@ -2374,14 +2378,14 @@ pub fn selectLine(self: *const Screen, opts: SelectLine) ?Selection {
                 const current_prompt = row.semantic_prompt.promptOrInput();
                 if (current_prompt != v) {
                     var prev = p.up(1).?;
-                    prev.x = p.node.data.size.cols - 1;
+                    prev.x = .{ .col = p.node.data.size.cols - 1 };
                     break :end_pin prev;
                 }
             }
 
             if (!row.wrap) {
                 var copy = p;
-                copy.x = p.node.data.size.cols - 1;
+                copy.x = .{ .col = p.node.data.size.cols - 1 };
                 break :end_pin copy;
             }
         }
@@ -2583,7 +2587,7 @@ pub fn selectWord(self: *Screen, pin: Pin) ?Selection {
 
             // If we are going to the next row and it isn't wrapped, we
             // return the previous.
-            if (p.x == p.node.data.size.cols - 1 and !rac.row.wrap) {
+            if (p.xInt() == p.node.data.size.cols - 1 and !rac.row.wrap) {
                 break :end p;
             }
 
@@ -2603,7 +2607,7 @@ pub fn selectWord(self: *Screen, pin: Pin) ?Selection {
 
             // If we are going to the next row and it isn't wrapped, we
             // return the previous.
-            if (p.x == p.node.data.size.cols - 1 and !rac.row.wrap) {
+            if (p.xInt() == p.node.data.size.cols - 1 and !rac.row.wrap) {
                 break :start prev;
             }
 
@@ -2657,7 +2661,7 @@ pub fn selectOutput(self: *Screen, pin: Pin) ?Selection {
             switch (row.semantic_prompt) {
                 .input, .prompt_continuation, .prompt => {
                     var copy = it_prev;
-                    copy.x = it_prev.node.data.size.cols - 1;
+                    copy.x = .{ .col = it_prev.node.data.size.cols - 1 };
                     break :boundary copy;
                 },
                 else => {},
@@ -2673,7 +2677,7 @@ pub fn selectOutput(self: *Screen, pin: Pin) ?Selection {
             const cells = p.node.data.getCells(row);
             if (Cell.hasTextAny(cells)) {
                 var copy = p;
-                copy.x = p.node.data.size.cols - 1;
+                copy.x = .{ .col = p.node.data.size.cols - 1 };
                 break :boundary copy;
             }
         }
@@ -2787,7 +2791,7 @@ pub fn selectPrompt(self: *Screen, pin: Pin) ?Selection {
     const end: Pin = end: {
         var it = pin.rowIterator(.right_down, null);
         var it_prev = it.next().?;
-        it_prev.x = it_prev.node.data.size.cols - 1;
+        it_prev.x = .{ .col = it_prev.node.data.size.cols - 1 };
         while (it.next()) |p| {
             const row = p.rowAndCell().row;
             switch (row.semantic_prompt) {
@@ -2799,7 +2803,7 @@ pub fn selectPrompt(self: *Screen, pin: Pin) ?Selection {
             }
 
             it_prev = p;
-            it_prev.x = it_prev.node.data.size.cols - 1;
+            it_prev.x = .{ .col = it_prev.node.data.size.cols - 1 };
         }
 
         break :end it_prev;
@@ -8358,6 +8362,57 @@ test "Screen: selectionString end outside of written area" {
         });
         defer alloc.free(contents);
         const expected = "3IJKL";
+        try testing.expectEqualStrings(expected, contents);
+    }
+}
+
+test "Screen: selectionString end at left side of area" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 10, 0);
+    defer s.deinit();
+    const str = "1ABCD\n2EFGH\n3IJKL\n4MNOP\n5QRST\n6UVWX";
+    try s.testWriteString(str);
+
+    {
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 0, .y = 2 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 0, .y = 4 } }).?,
+            false,
+        );
+        const contents = try s.selectionString(alloc, .{
+            .sel = sel,
+            .trim = true,
+        });
+        defer alloc.free(contents);
+        const expected = "3IJKL\n4MNOP\n5";
+        try testing.expectEqualStrings(expected, contents);
+    }
+}
+
+test "Screen: selectionString end left of area" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 10, 0);
+    defer s.deinit();
+    const str = "1ABCD\n2EFGH\n3IJKL\n4MNOP\n5QRST\n6UVWX";
+    try s.testWriteString(str);
+
+    {
+        var sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 0, .y = 2 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 0, .y = 4 } }).?,
+            false,
+        );
+        sel.endPtr().x = .neg;
+        const contents = try s.selectionString(alloc, .{
+            .sel = sel,
+            .trim = true,
+        });
+        defer alloc.free(contents);
+        const expected = "3IJKL\n4MNOP";
         try testing.expectEqualStrings(expected, contents);
     }
 }

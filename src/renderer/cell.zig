@@ -70,16 +70,16 @@ pub fn fgMode(
             }
 
             // If we are at the end of the screen its definitely constrained
-            if (cell_pin.x == cell_pin.node.data.size.cols - 1) break :text .constrained;
+            if (cell_pin.xInt() == cell_pin.node.data.size.cols - 1) break :text .constrained;
 
             // If we have a previous cell and it was PUA then we need to
             // also constrain. This is so that multiple PUA glyphs align.
             // As an exception, we ignore powerline glyphs since they are
             // used for box drawing and we consider them whitespace.
-            if (cell_pin.x > 0) prev: {
+            if (cell_pin.xInt() > 0) prev: {
                 const prev_cp = prev_cp: {
                     var copy = cell_pin;
-                    copy.x -= 1;
+                    copy.x.col -= 1;
                     const prev_cell = copy.rowAndCell().cell;
                     break :prev_cp prev_cell.codepoint();
                 };
@@ -96,7 +96,7 @@ pub fn fgMode(
             // full glyph size.
             const next_cp = next_cp: {
                 var copy = cell_pin;
-                copy.x += 1;
+                copy.x = .{ .col = copy.xInt() + 1 };
                 const next_cell = copy.rowAndCell().cell;
                 break :next_cp next_cell.codepoint();
             };
