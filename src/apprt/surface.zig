@@ -74,7 +74,7 @@ pub const Message = union(enum) {
 
     /// A terminal color was changed using OSC sequences.
     color_change: struct {
-        kind: terminal.osc.Command.ColorKind,
+        kind: terminal.osc.Command.ColorOperation.Kind,
         color: terminal.color.RGB,
     },
 
