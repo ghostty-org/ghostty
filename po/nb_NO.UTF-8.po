@@ -63,25 +63,25 @@ msgstr "Last konfigurasjon på nytt"
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
 msgid "Split Up"
-msgstr "Splitt opp"
+msgstr "Del oppover"
 
 #: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:11
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
 msgid "Split Down"
-msgstr "Splitt ned"
+msgstr "Del nedover"
 
 #: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:16
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
 msgid "Split Left"
-msgstr "Splitt venstre"
+msgstr "Del til venstre"
 
 #: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:21
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
 msgid "Split Right"
-msgstr "Splitt høyre"
+msgstr "Del til høyre"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
@@ -107,7 +107,7 @@ msgstr "Nullstill"
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:30
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:42
 msgid "Split"
-msgstr "Splitt"
+msgstr "Del vindu"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:33
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:45
@@ -218,7 +218,7 @@ msgstr "Se åpne faner"
 
 #: src/apprt/gtk/Window.zig:249
 msgid "New Split"
-msgstr ""
+msgstr "Del opp vindu"
 
 #: src/apprt/gtk/Window.zig:312
 msgid ""
@@ -251,7 +251,7 @@ msgstr "Lukk fane?"
 
 #: src/apprt/gtk/CloseDialog.zig:90
 msgid "Close Split?"
-msgstr "Lukk splitt?"
+msgstr "Lukk delt vindu?"
 
 #: src/apprt/gtk/CloseDialog.zig:96
 msgid "All terminal sessions will be terminated."
