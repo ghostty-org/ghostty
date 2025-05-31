@@ -545,7 +545,7 @@ pub fn init(
             .shell_integration = config.@"shell-integration",
             .shell_integration_features = config.@"shell-integration-features",
             .working_directory = config.@"working-directory",
-            .resources_dir = global_state.resources_dir,
+            .resources_dir = global_state.resources_dir.host(),
             .term = config.term,
 
             // Get the cgroup if we're on linux and have the decl. I'd love
