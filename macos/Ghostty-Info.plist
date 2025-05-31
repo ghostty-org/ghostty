@@ -53,6 +53,8 @@
 	</dict>
 	<key>MDItemKeywords</key>
 	<string>Terminal</string>
+	<key>NSSupportsAutomaticTermination</key>
+	<true/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSServices</key>
