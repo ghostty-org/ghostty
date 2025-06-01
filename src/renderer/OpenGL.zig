@@ -328,7 +328,7 @@ pub const DerivedConfig = struct {
         const custom_shaders = try config.@"custom-shader".clone(alloc);
 
         // Copy our background image
-        const background_image = try config.@"background-image".?.clone(alloc);
+        const background_image = if (config.@"background-image") |v| try v.clone(alloc) else null;
 
         // Copy our font features
         const font_features = try config.@"font-feature".clone(alloc);
@@ -835,21 +835,17 @@ pub fn updateFrame(
 
         if (self.current_background_image == null) {
             if (self.background_image) |background_image| {
-                const img_path, const optional = switch (background_image) {
-                    .optional => |path| .{ path, true },
-                    .required => |path| .{ path, false },
+                const img_path, const required = switch (background_image) {
+                    .optional => |path| .{ path, false },
+                    .required => |path| .{ path, true },
                 };
                 if (single_threaded_draw) self.draw_mutex.lock();
                 defer if (single_threaded_draw) self.draw_mutex.unlock();
-                self.prepBackgroundImage(img_path) catch |err| {
-                    switch (err) {
-                        error.InvalidData => {
-                            if (!optional) {
-                                log.err("error loading background image {s}: {}", .{ img_path, err });
-                            }
-                        },
-                        else => return err,
-                    }
+                self.prepBackgroundImage(img_path) catch |err| switch (err) {
+                    error.InvalidData => if (required) {
+                        log.err("error loading background image {s}: {}", .{ img_path, err });
+                    },
+                    else => return err,
                 };
             }
         }
@@ -1225,7 +1221,7 @@ pub fn prepBackgroundImage(self: *OpenGL, path: []const u8) !void {
     const file_content = try self.readImageContent(path);
     defer self.alloc.free(file_content);
 
-    // Decode the png (currently, we only support png)
+    // Decode the image
     const decoded_image: wuffs.ImageData = blk: {
         // Extract the file extension
         const ext = std.fs.path.extension(path);
@@ -1265,29 +1261,16 @@ pub fn readImageContent(self: *OpenGL, path: []const u8) ![]u8 {
     };
     defer file.close();
 
-    // File must be a regular file
-    if (file.stat()) |stat| {
-        if (stat.kind != .file) {
-            log.warn("file is not a regular file kind={}", .{stat.kind});
-            return error.InvalidData;
-        }
-    } else |err| {
-        log.warn("failed to stat file: {}", .{err});
-        return error.InvalidData;
-    }
-
     var buf_reader = std.io.bufferedReader(file.reader());
     const reader = buf_reader.reader();
 
     // Read the file
-    var managed = std.ArrayList(u8).init(self.alloc);
-    errdefer managed.deinit();
-    reader.readAllArrayList(&managed, max_image_size) catch |err| {
+    const image_content = reader.readAllAlloc(self.alloc, max_image_size) catch |err| {
         log.warn("failed to read file: {}", .{err});
         return error.InvalidData;
     };
 
-    return managed.toOwnedSlice();
+    return image_content;
 }
 
 /// rebuildCells rebuilds all the GPU cells from our CPU state. This is a
@@ -2438,8 +2421,8 @@ pub fn drawFrame(self: *OpenGL, surface: *apprt.Surface) !void {
     }
 
     // Check if we need to update our current background image
-    if (self.current_background_image) |current_background_image| {
-        switch (current_background_image) {
+    if (self.current_background_image) |*current_background_image| {
+        switch (current_background_image.*) {
             .ready => {},
 
             .pending_gray,
@@ -2450,13 +2433,13 @@ pub fn drawFrame(self: *OpenGL, surface: *apprt.Surface) !void {
             .replace_gray_alpha,
             .replace_rgb,
             .replace_rgba,
-            => try self.current_background_image.?.upload(self.alloc),
+            => try current_background_image.upload(self.alloc),
 
             .unload_pending,
             .unload_replace,
             .unload_ready,
             => {
-                self.current_background_image.?.deinit(self.alloc);
+                current_background_image.deinit(self.alloc);
                 self.current_background_image = null;
             },
         }

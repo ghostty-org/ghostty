@@ -38,7 +38,7 @@ void main() {
 
 	switch (mode) {
 	case MODE_CONTAIN:
-		// If zoomed, we want to scale the image to fit the terminal
+		// If contained, we want to scale the image to fit the terminal
 		if (aspect_ratio.x > aspect_ratio.y) {
 			scale.x = aspect_ratio.y / aspect_ratio.x;
 		}
@@ -47,7 +47,7 @@ void main() {
 		}
 		break;
 	case MODE_COVER:
-		// If cropped, we want to scale the image to fit the terminal
+		// If covered, we want to scale the image to fit the terminal
 		if (aspect_ratio.x < aspect_ratio.y) {
 			scale.x = aspect_ratio.y / aspect_ratio.x;
 		}
@@ -56,23 +56,22 @@ void main() {
 		}
 		break;
 	case MODE_NONE:
-		// If none, the final scale of the image should match the actual
-		// size of the image and should be centered
+		// If none, the final scale of the image should match the actual size of the image
 		scale.x = image_size.x / terminal_size.x;
 		scale.y = image_size.y / terminal_size.y;
 		break;
 	case MODE_FILL:
 	case MODE_TILED:
-		// We don't need to do anything for stretched or tiled
+		// We don't need to do anything for fill or tiled
 		break;
 	}
 
 	vec2 final_image_size = terminal_size * position * scale;
-	vec2 offset = vec2(0.0, 0.0);
 
 	uint y_pos = position_index / 3u; // 0 = top, 1 = center, 2 = bottom
 	uint x_pos = position_index % 3u; // 0 = left, 1 = center, 2 = right
-	offset = ((terminal_size * (1.0 - scale)) / 2.0) * vec2(x_pos, y_pos);
+	vec2 offset = ((terminal_size * (1.0 - scale)) / 2.0) * vec2(x_pos, y_pos);
+
 	gl_Position = projection * vec4(final_image_size.xy + offset, 0.0, 1.0);
 	tex_coord = position;
 	if (mode == MODE_TILED) {
