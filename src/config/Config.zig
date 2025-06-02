@@ -3014,6 +3014,15 @@ fn expandPaths(self: *Config, base: []const u8) !void {
                     &self._diagnostics,
                 );
             },
+            ?Path => {
+                if (@field(self, field.name)) |*path| {
+                    try path.expand(
+                        arena_alloc,
+                        base,
+                        &self._diagnostics,
+                    );
+                }
+            },
             else => {},
         }
     }
