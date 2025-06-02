@@ -98,6 +98,16 @@ class TerminalManager {
         // All new_window actions force our app to be active.
         NSApp.activate(ignoringOtherApps: true)
 
+        // Reapply dock visibility setting after activation
+        DispatchQueue.main.async {
+            switch self.ghostty.config.macosHidden {
+            case .never:
+                NSApp.setActivationPolicy(.regular)
+            case .always:
+                NSApp.setActivationPolicy(.accessory)
+            }
+        }
+
         // We're dispatching this async because otherwise the lastCascadePoint doesn't
         // take effect. Our best theory is there is some next-event-loop-tick logic
         // that Cocoa is doing that we need to be after.
