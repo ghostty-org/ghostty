@@ -1236,15 +1236,13 @@ pub fn prepBackgroundImage(self: *OpenGL, path: []const u8) !void {
             return error.InvalidData;
         }
     };
-    defer self.alloc.free(decoded_image.data);
+    errdefer self.alloc.free(decoded_image.data);
 
     // Copy the data into the pending state
-    const data = try self.alloc.dupe(u8, decoded_image.data);
-    errdefer self.alloc.free(data);
     const pending: Image.Pending = .{
         .width = decoded_image.width,
         .height = decoded_image.height,
-        .data = data.ptr,
+        .data = @constCast(decoded_image.data).ptr,
     };
 
     // Store the image
@@ -1253,7 +1251,6 @@ pub fn prepBackgroundImage(self: *OpenGL, path: []const u8) !void {
 
 /// Reads the content of the given image path and returns it
 pub fn readImageContent(self: *OpenGL, path: []const u8) ![]u8 {
-    assert(std.fs.path.isAbsolute(path));
     // Open the file
     var file = std.fs.openFileAbsolute(path, .{}) catch |err| {
         log.warn("failed to open file {s}: {}", .{ path, err });
