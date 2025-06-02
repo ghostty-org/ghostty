@@ -685,20 +685,17 @@ fragment float4 image_fragment(
 #pragma mark - BG Image Shader
 
 enum BgImageMode : uint8_t {
-  MODE_ZOOMED =  0u,
-  MODE_STRETCHED = 1u,
-  MODE_CROPPED = 2u,
+  MODE_CONTAIN =  0u,
+  MODE_FILL = 1u,
+  MODE_COVER = 2u,
   MODE_TILED = 3u,
-  MODE_CENTERED = 4u,
-  MODE_UPPER_LEFT = 5u,
-  MODE_UPPER_RIGHT = 6u,
-  MODE_LOWER_LEFT = 7u,
-  MODE_LOWER_RIGHT = 8u,
+  MODE_NONE = 4u,
 };
 
 struct BgImageVertexIn {
   float2 terminal_size [[attribute(0)]];
   uint8_t mode [[attribute(1)]];
+  uint8_t position_index [[attribute(2)]];
 };
 
 struct BgImageVertexOut {
@@ -709,7 +706,7 @@ struct BgImageVertexOut {
 vertex BgImageVertexOut bg_image_vertex(
   uint vid [[vertex_id]],
   BgImageVertexIn in [[stage_in]],
-  texture2d<uint> image [[texture(0)]],
+  texture2d<float> image [[texture(0)]],
   constant Uniforms& uniforms [[buffer(1)]]
 ) {
   BgImageVertexOut out;
@@ -732,7 +729,7 @@ vertex BgImageVertexOut bg_image_vertex(
   );
 
   switch (in.mode) {
-    case MODE_ZOOMED: {
+    case MODE_CONTAIN: {
         // Scale to fit the terminal size
         if (aspect_ratio.x > aspect_ratio.y) {
             scale.x = aspect_ratio.y / aspect_ratio.x;
@@ -741,7 +738,7 @@ vertex BgImageVertexOut bg_image_vertex(
         }
         break;
     }
-    case MODE_CROPPED: {
+    case MODE_COVER: {
         // Scale to fit the terminal size
         if (aspect_ratio.x < aspect_ratio.y) {
           scale.x = aspect_ratio.y / aspect_ratio.x;
@@ -750,17 +747,13 @@ vertex BgImageVertexOut bg_image_vertex(
         }
         break;
     }
-    case MODE_CENTERED:
-    case MODE_UPPER_LEFT:
-    case MODE_UPPER_RIGHT:
-    case MODE_LOWER_LEFT:
-    case MODE_LOWER_RIGHT: {
+    case MODE_NONE: {
         // Scale to match the actual size of the image
         scale.x = image_size.x / in.terminal_size.x;
         scale.y = image_size.y / in.terminal_size.y;
         break;
     }
-    case MODE_STRETCHED:
+    case MODE_FILL:
     case MODE_TILED:
         // No adjustments needed
         break;
@@ -768,28 +761,9 @@ vertex BgImageVertexOut bg_image_vertex(
 
   float2 final_image_size = in.terminal_size * position * scale;
 
-  float2 offset = float2(0.0, 0.0);
-  switch (in.mode) {
-    case MODE_ZOOMED:
-    case MODE_CROPPED:
-    case MODE_STRETCHED:
-    case MODE_TILED:
-    case MODE_CENTERED:
-        offset = (in.terminal_size * (1.0 - scale)) / 2.0;
-        break;
-    case MODE_UPPER_LEFT:
-        offset = float2(0.0, 0.0);
-        break;
-    case MODE_UPPER_RIGHT:
-        offset = float2(in.terminal_size.x - image_size.x, 0.0);
-        break;
-    case MODE_LOWER_LEFT:
-        offset = float2(0.0, in.terminal_size.y - image_size.y);
-        break;
-    case MODE_LOWER_RIGHT:
-        offset = float2(in.terminal_size.x - image_size.x, in.terminal_size.y - image_size.y);
-        break;
-  }
+  uint y_pos = in.position_index / 3u; // 0 = top, 1 = center, 2 = bottom
+  uint x_pos = in.position_index % 3u; // 0 = left, 1 = center, 2 = right
+  float2 offset = float2(x_pos, y_pos) * (in.terminal_size) * (1.0 - scale) / 2.0;
 
   out.position = uniforms.projection_matrix * float4(final_image_size + offset, 0.0, 1.0);
   out.tex_coord = position;
@@ -802,12 +776,15 @@ vertex BgImageVertexOut bg_image_vertex(
 
 fragment float4 bg_image_fragment(
   BgImageVertexOut in [[stage_in]],
-  texture2d<uint> image [[texture(0)]],
+  texture2d<float> image [[texture(0)]],
   constant Uniforms& uniforms [[buffer(1)]]
 ) {
   constexpr sampler textureSampler(address::repeat, filter::linear);
   float2 norm_coord = fract(in.tex_coord);
-  float4 color = float4(image.sample(textureSampler, norm_coord)) / 255.0f;
+  float4 color = image.sample(textureSampler, norm_coord);
+  if (!uniforms.use_linear_blending) {
+      color = unlinearize(color);
+  }
 
   return float4(color.rgb * color.a * uniforms.bg_image_opacity, color.a * uniforms.bg_image_opacity);
 }

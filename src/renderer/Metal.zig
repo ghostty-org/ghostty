@@ -135,10 +135,13 @@ font_shaper: font.Shaper,
 font_shaper_cache: font.ShaperCache,
 
 /// The background image(s) to draw. Currently, we always draw the last image.
-background_image: configpkg.SinglePath,
+background_image: ?configpkg.Path,
 
 /// The background image mode to use.
 background_image_mode: configpkg.BackgroundImageMode,
+
+/// The background image position to use.
+background_image_position: configpkg.BackgroundImagePosition,
 
 /// The current background image to draw. If it is null, then we will not
 /// draw any background image.
@@ -443,9 +446,10 @@ pub const DerivedConfig = struct {
     cursor_text: ?terminal.color.RGB,
     background: terminal.color.RGB,
     background_opacity: f64,
-    background_image: configpkg.SinglePath,
+    background_image: ?configpkg.Path,
     background_image_opacity: f32,
     background_image_mode: configpkg.BackgroundImageMode,
+    background_image_position: configpkg.BackgroundImagePosition,
     foreground: terminal.color.RGB,
     selection_background: ?terminal.color.RGB,
     selection_foreground: ?terminal.color.RGB,
@@ -471,7 +475,7 @@ pub const DerivedConfig = struct {
         const custom_shaders = try config.@"custom-shader".clone(alloc);
 
         // Copy our background image
-        const background_image = try config.@"background-image".clone(alloc);
+        const background_image = if (config.@"background-image") |v| try v.clone(alloc) else null;
 
         // Copy our font features
         const font_features = try config.@"font-feature".clone(alloc);
@@ -517,6 +521,7 @@ pub const DerivedConfig = struct {
             .background_image = background_image,
             .background_image_opacity = config.@"background-image-opacity",
             .background_image_mode = config.@"background-image-mode",
+            .background_image_position = config.@"background-image-position",
 
             .invert_selection_fg_bg = config.@"selection-invert-fg-bg",
             .bold_is_bright = config.@"bold-is-bright",
@@ -623,7 +628,7 @@ pub fn init(alloc: Allocator, options: renderer.Options) !Metal {
         else => @compileError("unsupported target for Metal"),
     };
     layer.setProperty("device", gpu_state.device.value);
-    layer.setProperty("opaque", options.config.background_opacity >= 1 and options.config.background_image.value == null);
+    layer.setProperty("opaque", options.config.background_opacity >= 1 and options.config.background_image == null);
     layer.setProperty("displaySyncEnabled", options.config.vsync);
 
     // Set our layer's pixel format appropriately.
@@ -719,6 +724,7 @@ pub fn init(alloc: Allocator, options: renderer.Options) !Metal {
         .default_background_color = options.config.background,
         .background_image = options.config.background_image,
         .background_image_mode = options.config.background_image_mode,
+        .background_image_position = options.config.background_image_position,
         .cursor_color = null,
         .default_cursor_color = options.config.cursor_color,
         .cursor_invert = options.config.cursor_invert,
@@ -744,7 +750,7 @@ pub fn init(alloc: Allocator, options: renderer.Options) !Metal {
             .use_display_p3 = options.config.colorspace == .@"display-p3",
             .use_linear_blending = options.config.blending.isLinear(),
             .use_linear_correction = options.config.blending == .@"linear-corrected",
-            .has_bg_image = (options.config.background_image.value != null),
+            .has_bg_image = (options.config.background_image != null),
             .bg_image_opacity = options.config.background_image_opacity,
         },
 
@@ -1172,15 +1178,19 @@ pub fn updateFrame(
             try self.prepKittyGraphics(state.terminal);
         }
 
-        if (self.current_background_image == null and
-            self.background_image.value != null)
-        {
-            self.prepBackgroundImage() catch |err| switch (err) {
-                error.InvalidData => {
-                    log.warn("invalid image data, skipping", .{});
-                },
-                else => return err,
-            };
+        if (self.current_background_image == null) {
+            if (self.background_image) |background_image| {
+                const img_path, const required = switch (background_image) {
+                    .optional => |path| .{ path, false },
+                    .required => |path| .{ path, true },
+                };
+                self.prepBackgroundImage(img_path) catch |err| switch (err) {
+                    error.InvalidData => if (required) {
+                        log.err("error loading background image {s}: {}", .{ img_path, err });
+                    },
+                    else => return err,
+                };
+            }
         }
 
         // If we have any terminal dirty flags set then we need to rebuild
@@ -1326,8 +1336,8 @@ pub fn updateFrame(
     }
 
     // Check if we need to update our current background image
-    if (self.current_background_image) |current_background_image| {
-        switch (current_background_image) {
+    if (self.current_background_image) |*current_background_image| {
+        switch (current_background_image.*) {
             .ready => {},
 
             .pending_gray,
@@ -1338,7 +1348,7 @@ pub fn updateFrame(
             .replace_gray_alpha,
             .replace_rgb,
             .replace_rgba,
-            => try self.current_background_image.?.upload(
+            => try current_background_image.upload(
                 self.alloc,
                 self.gpu_state.device,
                 self.gpu_state.default_storage_mode,
@@ -1348,7 +1358,7 @@ pub fn updateFrame(
             .unload_replace,
             .unload_ready,
             => {
-                self.current_background_image.?.deinit(self.alloc);
+                current_background_image.deinit(self.alloc);
                 self.current_background_image = null;
             },
         }
@@ -1723,6 +1733,7 @@ fn drawBackgroundImage(
             @as(f32, @floatFromInt(self.size.terminal().height)),
         },
         .mode = self.background_image_mode,
+        .position_index = self.background_image_position,
     }}, .{
         // Indicate that the CPU writes to this resource but never reads it.
         .cpu_cache_mode = .write_combined,
@@ -2281,10 +2292,7 @@ fn prepKittyImage(
 }
 
 /// Prepares the current background image for upload
-pub fn prepBackgroundImage(self: *Metal) !void {
-    // If the user doesn't have a background image, do nothing...
-    const path = self.background_image.value orelse return;
-
+pub fn prepBackgroundImage(self: *Metal, path: []const u8) !void {
     // Read the file content
     const file_content = try self.readImageContent(path);
     defer self.alloc.free(file_content);
@@ -2293,28 +2301,24 @@ pub fn prepBackgroundImage(self: *Metal) !void {
     const decoded_image: wuffs.ImageData = blk: {
         // Extract the file extension
         const ext = std.fs.path.extension(path);
-        const ext_lower = try std.ascii.allocLowerString(self.alloc, ext);
-        defer self.alloc.free(ext_lower);
 
         // Match based on extension
-        if (std.mem.eql(u8, ext_lower, ".png")) {
+        if (std.ascii.eqlIgnoreCase(ext, ".png")) {
             break :blk try wuffs.png.decode(self.alloc, file_content);
-        } else if (std.mem.eql(u8, ext_lower, ".jpg") or std.mem.eql(u8, ext_lower, ".jpeg")) {
+        } else if (std.ascii.eqlIgnoreCase(ext, ".jpg") or std.ascii.eqlIgnoreCase(ext, ".jpeg")) {
             break :blk try wuffs.jpeg.decode(self.alloc, file_content);
         } else {
             log.warn("unsupported image format: {s}", .{ext});
             return error.InvalidData;
         }
     };
-    defer self.alloc.free(decoded_image.data);
+    errdefer self.alloc.free(decoded_image.data);
 
     // Copy the data into the pending state
-    const data = try self.alloc.dupe(u8, decoded_image.data);
-    errdefer self.alloc.free(data);
     const pending: Image.Pending = .{
         .width = decoded_image.width,
         .height = decoded_image.height,
-        .data = data.ptr,
+        .data = @constCast(decoded_image.data).ptr,
     };
 
     // Store the image
@@ -2323,37 +2327,23 @@ pub fn prepBackgroundImage(self: *Metal) !void {
 
 /// Reads the content of the given image path and returns it
 pub fn readImageContent(self: *Metal, path: []const u8) ![]u8 {
-    assert(std.fs.path.isAbsolute(path));
     // Open the file
     var file = std.fs.openFileAbsolute(path, .{}) catch |err| {
-        log.warn("failed to open file: {}", .{err});
+        log.warn("failed to open file {s}: {}", .{ path, err });
         return error.InvalidData;
     };
     defer file.close();
-
-    // File must be a regular file
-    if (file.stat()) |stat| {
-        if (stat.kind != .file) {
-            log.warn("file is not a regular file kind={}", .{stat.kind});
-            return error.InvalidData;
-        }
-    } else |err| {
-        log.warn("failed to stat file: {}", .{err});
-        return error.InvalidData;
-    }
 
     var buf_reader = std.io.bufferedReader(file.reader());
     const reader = buf_reader.reader();
 
     // Read the file
-    var managed = std.ArrayList(u8).init(self.alloc);
-    errdefer managed.deinit();
-    reader.readAllArrayList(&managed, max_image_size) catch |err| {
+    const image_content = reader.readAllAlloc(self.alloc, max_image_size) catch |err| {
         log.warn("failed to read file: {}", .{err});
         return error.InvalidData;
     };
 
-    return managed.toOwnedSlice();
+    return image_content;
 }
 
 /// Update the configuration.
@@ -2392,9 +2382,10 @@ pub fn changeConfig(self: *Metal, config: *DerivedConfig) !void {
 
     // Reset current background image
     self.background_image = config.background_image;
-    self.uniforms.has_bg_image = (config.background_image.value != null);
+    self.uniforms.has_bg_image = (config.background_image != null);
     self.uniforms.bg_image_opacity = config.background_image_opacity;
     self.background_image_mode = config.background_image_mode;
+    self.background_image_position = config.background_image_position;
     if (self.current_background_image) |*img| {
         img.markForUnload();
     }
@@ -2408,7 +2399,7 @@ pub fn changeConfig(self: *Metal, config: *DerivedConfig) !void {
         CATransaction.msgSend(void, "begin", .{});
         defer CATransaction.msgSend(void, "commit", .{});
 
-        self.layer.setProperty("opaque", config.background_opacity >= 1 and config.background_image.value == null);
+        self.layer.setProperty("opaque", config.background_opacity >= 1 and config.background_image == null);
         self.layer.setProperty("displaySyncEnabled", config.vsync);
     }
 

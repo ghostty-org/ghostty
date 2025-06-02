@@ -117,6 +117,7 @@ pub const Image = extern struct {
 pub const BgImage = extern struct {
     terminal_size: [2]f32,
     mode: configpkg.BackgroundImageMode,
+    position_index: configpkg.BackgroundImagePosition,
 };
 
 /// The uniforms that are passed to the terminal cell shader.
