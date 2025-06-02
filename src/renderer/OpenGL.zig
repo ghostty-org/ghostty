@@ -1242,7 +1242,7 @@ pub fn prepBackgroundImage(self: *OpenGL, path: []const u8) !void {
     const pending: Image.Pending = .{
         .width = decoded_image.width,
         .height = decoded_image.height,
-        .data = @constCast(decoded_image.data).ptr,
+        .data = decoded_image.data.ptr,
     };
 
     // Store the image
