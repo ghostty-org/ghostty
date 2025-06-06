@@ -1385,7 +1385,7 @@ pub const CAPI = struct {
 
     /// Get the visible text content of the terminal viewport. Returns the
     /// number of bytes written. If the buffer is too small, returns 0.
-    export fn ghostty_surface_viewport_text(surface: *Surface, buf: [*]u8, cap: usize) usize {
+    export fn ghostty_surface_viewport_text(_: *Surface, buf: [*]u8, cap: usize) usize {
         // For now, just return a simple placeholder text to test accessibility
         // A proper implementation would iterate through the terminal rows
         const placeholder = "Terminal content placeholder - accessibility support enabled";
