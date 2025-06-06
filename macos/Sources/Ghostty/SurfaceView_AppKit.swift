@@ -662,6 +662,23 @@ extension Ghostty {
         override func updateLayer() {
             guard let surface = self.surface else { return }
             ghostty_surface_draw(surface);
+            
+            // Notify accessibility of potential content changes
+            // We do this on a throttled basis to avoid overwhelming the accessibility system
+            throttledAccessibilityUpdate()
+        }
+        
+        private var lastAccessibilityUpdateTime: TimeInterval = 0
+        private let accessibilityUpdateInterval: TimeInterval = 0.5 // Update at most twice per second
+        
+        private func throttledAccessibilityUpdate() {
+            let currentTime = CACurrentMediaTime()
+            if currentTime - lastAccessibilityUpdateTime >= accessibilityUpdateInterval {
+                lastAccessibilityUpdateTime = currentTime
+                DispatchQueue.main.async { [weak self] in
+                    self?.notifyAccessibilityContentChanged()
+                }
+            }
         }
 
         override func mouseDown(with event: NSEvent) {
@@ -1742,6 +1759,139 @@ extension Ghostty.SurfaceView: NSMenuItemValidation {
         default:
             return true
         }
+    }
+}
+
+// MARK: - NSAccessibility
+
+extension Ghostty.SurfaceView {
+    override func isAccessibilityElement() -> Bool {
+        return true
+    }
+    
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        return .textArea
+    }
+    
+    override func accessibilityRoleDescription() -> String? {
+        return NSAccessibility.Role.textArea.description(with: nil)
+    }
+    
+    override func accessibilityValue() -> Any? {
+        // Get the viewport text from the terminal
+        guard let surface = self.surface else { return "" }
+        
+        // Allocate a buffer for the text (1MB should be enough for most terminals)
+        let bufferSize = 1_048_576
+        let buffer = UnsafeMutablePointer<CChar>.allocate(capacity: bufferSize)
+        defer { buffer.deallocate() }
+        
+        let length = ghostty_surface_viewport_text(surface, buffer, bufferSize)
+        guard length > 0 else { return "" }
+        
+        return String(cString: buffer)
+    }
+    
+    override func accessibilityLabel() -> String? {
+        return "Terminal"
+    }
+    
+    override func isAccessibilityFocused() -> Bool {
+        return self.focused
+    }
+    
+    override func accessibilitySelectedText() -> String? {
+        guard let surface = self.surface else { return nil }
+        guard ghostty_surface_has_selection(surface) else { return nil }
+        
+        // Get the selection text
+        let bufferSize = 1_000_000
+        let buffer = UnsafeMutablePointer<CChar>.allocate(capacity: bufferSize)
+        defer { buffer.deallocate() }
+        
+        let length = ghostty_surface_selection(surface, buffer, bufferSize)
+        guard length > 0 else { return nil }
+        
+        return String(bytesNoCopy: buffer, length: Int(length), encoding: .utf8, freeWhenDone: false)
+    }
+    
+    override func accessibilitySelectedTextRange() -> NSRange {
+        guard let surface = self.surface else { return NSRange() }
+        
+        var sel: ghostty_selection_s = ghostty_selection_s()
+        guard ghostty_surface_selection_info(surface, &sel) else { return NSRange() }
+        
+        return NSRange(location: Int(sel.offset_start), length: Int(sel.offset_len))
+    }
+    
+    override func accessibilityNumberOfCharacters() -> Int {
+        guard let text = self.accessibilityValue() as? String else { return 0 }
+        return text.count
+    }
+    
+    override func accessibilityString(for range: NSRange) -> String? {
+        guard let text = self.accessibilityValue() as? String else { return nil }
+        guard let stringRange = Range(range, in: text) else { return nil }
+        return String(text[stringRange])
+    }
+    
+    override func accessibilityLine(for index: Int) -> Int {
+        guard let text = self.accessibilityValue() as? String else { return 0 }
+        
+        var lineNumber = 0
+        var currentIndex = 0
+        
+        for char in text {
+            if currentIndex >= index { break }
+            if char == "\n" { lineNumber += 1 }
+            currentIndex += 1
+        }
+        
+        return lineNumber
+    }
+    
+    override func accessibilityRange(forLine line: Int) -> NSRange {
+        guard let text = self.accessibilityValue() as? String else { return NSRange() }
+        
+        var currentLine = 0
+        var lineStart = 0
+        var lineEnd = 0
+        var index = 0
+        
+        for char in text {
+            if currentLine == line && lineStart == 0 {
+                lineStart = index
+            }
+            
+            if char == "\n" {
+                if currentLine == line {
+                    lineEnd = index
+                    break
+                }
+                currentLine += 1
+            }
+            
+            index += 1
+        }
+        
+        // If we reached the end without finding a newline
+        if currentLine == line && lineEnd == 0 {
+            lineEnd = text.count
+        }
+        
+        return NSRange(location: lineStart, length: lineEnd - lineStart)
+    }
+    
+    // Support for accessibility actions
+    override func accessibilityPerformPress() -> Bool {
+        // Focus the terminal when pressed
+        self.window?.makeFirstResponder(self)
+        return true
+    }
+    
+    // Notify accessibility when content changes
+    func notifyAccessibilityContentChanged() {
+        NSAccessibility.post(element: self, notification: .valueChanged)
     }
 }
 
