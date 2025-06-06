@@ -1386,7 +1386,7 @@ pub const CAPI = struct {
     /// Get the visible text content of the terminal viewport. Returns the
     /// number of bytes written. If the buffer is too small, returns 0.
     export fn ghostty_surface_viewport_text(surface: *Surface, buf: [*]u8, cap: usize) usize {
-        const t = surface.core_surface.terminal;
+        const t = &surface.core_surface.io.terminal;
         const screen = &t.screen;
         
         // Allocate a temporary buffer to build the string
@@ -1406,7 +1406,7 @@ pub const CAPI = struct {
             
             // Track trailing spaces to trim them
             var last_non_space: usize = 0;
-            var line_start = temp_buf.items.len;
+            const line_start = temp_buf.items.len;
             
             // Convert row to text
             var col: usize = 0;
