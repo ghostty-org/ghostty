@@ -1899,7 +1899,7 @@ extension Ghostty.SurfaceView {
     
     // MARK: Custom Attributes
     
-    override func accessibilityAttributeValue(_ attribute: NSAccessibilityAttributeName) -> Any? {
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
         switch attribute {
         case .help:
             return "Terminal content area. Use VoiceOver navigation to read terminal output."

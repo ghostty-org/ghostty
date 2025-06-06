@@ -1417,7 +1417,7 @@ pub const CAPI = struct {
             for (cells) |cell| {
                 if (cell.content.codepoint > 0) {
                     // Ensure we have space for UTF-8 encoding + newline + null terminator
-                    if (pos + std.unicode.utf8MaxBytesPerScalar + 1 >= cap) break;
+                    if (pos + 4 + 1 >= cap) break;
                     
                     // Encode the codepoint to UTF-8
                     var utf8_buf: [4]u8 = undefined;
