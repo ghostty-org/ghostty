@@ -1385,14 +1385,61 @@ pub const CAPI = struct {
 
     /// Get the visible text content of the terminal viewport. Returns the
     /// number of bytes written. If the buffer is too small, returns 0.
-    export fn ghostty_surface_viewport_text(_: *Surface, buf: [*]u8, cap: usize) usize {
-        // For now, just return a simple placeholder text to test accessibility
-        // A proper implementation would iterate through the terminal rows
-        const placeholder = "Terminal content placeholder - accessibility support enabled";
-        const len = @min(placeholder.len, cap - 1);
-        @memcpy(buf[0..len], placeholder[0..len]);
-        buf[len] = 0;
-        return len;
+    export fn ghostty_surface_viewport_text(ptr: *Surface, buf: [*]u8, cap: usize) usize {
+        const surface = &ptr.core_surface;
+        
+        // Lock the renderer state to safely access terminal data
+        surface.renderer_state.mutex.lock();
+        defer surface.renderer_state.mutex.unlock();
+        
+        const screen = &surface.renderer_state.terminal.screen;
+        const pages = &screen.pages;
+        
+        // Get the viewport bounds
+        const tl = pages.getTopLeft(.viewport);
+        const br = pages.getBottomRight(.viewport) orelse return 0;
+        
+        // Track our position in the buffer
+        var pos: usize = 0;
+        
+        // Iterate through all rows in the viewport
+        var row_it = tl.rowIterator(.right_down, br);
+        while (row_it.next()) |row_pin| {
+            // Get the cells for this row
+            const cells = row_pin.cells(.right);
+            
+            // Add each cell's text to the buffer
+            for (cells) |cell| {
+                if (cell.content.codepoint > 0) {
+                    // Ensure we have space for UTF-8 encoding (max 4 bytes + null terminator)
+                    if (pos + 5 >= cap) break;
+                    
+                    // Encode the codepoint to UTF-8
+                    var utf8_buf: [4]u8 = undefined;
+                    const len = std.unicode.utf8Encode(@intCast(cell.content.codepoint), &utf8_buf) catch continue;
+                    
+                    // Copy to output buffer
+                    @memcpy(buf[pos..pos + len], utf8_buf[0..len]);
+                    pos += len;
+                }
+            }
+            
+            // Add newline after each row (except the last)
+            if (row_it.page_it.row != null and pos + 1 < cap) {
+                buf[pos] = '\n';
+                pos += 1;
+            }
+        }
+        
+        // Null terminate
+        if (pos < cap) {
+            buf[pos] = 0;
+        } else if (cap > 0) {
+            buf[cap - 1] = 0;
+            pos = cap - 1;
+        }
+        
+        return pos;
     }
 
     /// Tell the surface that it needs to schedule a render

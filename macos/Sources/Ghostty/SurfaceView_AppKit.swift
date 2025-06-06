@@ -1786,7 +1786,7 @@ extension Ghostty.SurfaceView {
         let buffer = UnsafeMutablePointer<CChar>.allocate(capacity: bufferSize)
         defer { buffer.deallocate() }
         
-        let length = ghostty_surface_viewport_text(surface, buffer, bufferSize)
+        let length = ghostty_surface_viewport_text(surface, buffer, UInt(bufferSize))
         guard length > 0 else { return "" }
         
         return String(cString: buffer)
@@ -1809,7 +1809,7 @@ extension Ghostty.SurfaceView {
         let buffer = UnsafeMutablePointer<CChar>.allocate(capacity: bufferSize)
         defer { buffer.deallocate() }
         
-        let length = ghostty_surface_selection(surface, buffer, bufferSize)
+        let length = ghostty_surface_selection(surface, buffer, UInt(bufferSize))
         guard length > 0 else { return nil }
         
         return String(bytesNoCopy: buffer, length: Int(length), encoding: .utf8, freeWhenDone: false)
