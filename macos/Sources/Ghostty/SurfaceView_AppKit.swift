@@ -1789,7 +1789,7 @@ extension Ghostty.SurfaceView {
         let length = ghostty_surface_viewport_text(surface, buffer, UInt(bufferSize))
         guard length > 0 else { return "" }
         
-        return String(cString: buffer)
+        return String(validatingUTF8: buffer) ?? ""
     }
     
     override func accessibilityLabel() -> String? {
