@@ -1801,9 +1801,6 @@ extension Ghostty.SurfaceView {
         return NSAccessibility.Role.textArea.description(with: nil)
     }
     
-    override func accessibilityIdentifier() -> String? {
-        return "ghostty-terminal-view"
-    }
     
     override func accessibilityValue() -> Any? {
         return getAccessibilityCache().text
