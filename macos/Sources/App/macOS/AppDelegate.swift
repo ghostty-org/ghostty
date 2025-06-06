@@ -316,6 +316,13 @@ class AppDelegate: NSObject,
         }
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        // We have no notifications we want to persist after death,
+        // so remove them all now. In the future we may want to be
+        // more selective and only remove surface-targeted notifications.
+        UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+    }
+
     /// This is called when the application is already open and someone double-clicks the icon
     /// or clicks the dock icon.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
