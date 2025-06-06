@@ -1388,6 +1388,11 @@ pub const CAPI = struct {
     export fn ghostty_surface_viewport_text(ptr: *Surface, buf: [*]u8, cap: usize) usize {
         const surface = &ptr.core_surface;
         
+        // Initialize buffer to prevent data leaks
+        if (cap > 0) {
+            @memset(buf[0..cap], 0);
+        }
+        
         // Lock the renderer state to safely access terminal data
         surface.renderer_state.mutex.lock();
         defer surface.renderer_state.mutex.unlock();
@@ -1411,8 +1416,8 @@ pub const CAPI = struct {
             // Add each cell's text to the buffer
             for (cells) |cell| {
                 if (cell.content.codepoint > 0) {
-                    // Ensure we have space for UTF-8 encoding (max 4 bytes + null terminator)
-                    if (pos + 5 >= cap) break;
+                    // Ensure we have space for UTF-8 encoding + newline + null terminator
+                    if (pos + std.unicode.utf8MaxBytesPerScalar + 1 >= cap) break;
                     
                     // Encode the codepoint to UTF-8
                     var utf8_buf: [4]u8 = undefined;

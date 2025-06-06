@@ -1837,7 +1837,12 @@ extension Ghostty.SurfaceView {
     override func accessibilitySelectedTextRange() -> NSRange {
         guard let surface = self.surface else { return NSRange() }
         
-        var sel: ghostty_selection_s = ghostty_selection_s()
+        var sel = ghostty_selection_s(
+            tl_px_x: 0.0,
+            tl_px_y: 0.0, 
+            offset_start: 0,
+            offset_len: 0
+        )
         guard ghostty_surface_selection_info(surface, &sel) else { return NSRange() }
         
         return NSRange(location: Int(sel.offset_start), length: Int(sel.offset_len))
