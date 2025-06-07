@@ -830,6 +830,7 @@ void ghostty_surface_complete_clipboard_request(ghostty_surface_t,
                                                 bool);
 bool ghostty_surface_has_selection(ghostty_surface_t);
 uintptr_t ghostty_surface_selection(ghostty_surface_t, char*, uintptr_t);
+uintptr_t ghostty_surface_viewport_text(ghostty_surface_t, char*, uintptr_t);
 
 #ifdef __APPLE__
 void ghostty_surface_set_display_id(ghostty_surface_t, uint32_t);
