@@ -32,7 +32,6 @@ class ServiceProvider: NSObject {
         error: AutoreleasingUnsafeMutablePointer<NSString>
     ) {
         guard let delegate = NSApp.delegate as? AppDelegate else { return }
-        let terminalManager = delegate.terminalManager
 
         guard let pathURLs = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] else {
             error.pointee = Self.errorNoString
@@ -53,10 +52,10 @@ class ServiceProvider: NSObject {
 
             switch (target) {
             case .window:
-                terminalManager.newWindow(withBaseConfig: config)
+                _ = TerminalController.newWindow(delegate.ghostty, withBaseConfig: config)
 
             case .tab:
-                terminalManager.newTab(withBaseConfig: config)
+                _ = TerminalController.newTab(delegate.ghostty, withBaseConfig: config)
             }
         }
 

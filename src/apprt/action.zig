@@ -258,6 +258,13 @@ pub const Action = union(Key) {
     /// it needs to ring the bell. This is usually a sound or visual effect.
     ring_bell,
 
+    /// Undo the last action. See the "undo" keybinding for more
+    /// details on what can and cannot be undone.
+    undo,
+
+    /// Redo the last undone action.
+    redo,
+
     check_for_updates,
 
     /// Sync with: ghostty_action_tag_e
@@ -307,6 +314,8 @@ pub const Action = union(Key) {
         config_change,
         close_window,
         ring_bell,
+        undo,
+        redo,
         check_for_updates,
     };
 

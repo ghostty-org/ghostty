@@ -83,9 +83,9 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
         // can be found for events from libghostty. This uses the low-level
         // createWindow so that AppKit can place the window wherever it should
         // be.
-        let c = appDelegate.terminalManager.createWindow(
-            withSurfaceTree: state.surfaceTree
-        )
+        let c = TerminalController.init(
+            appDelegate.ghostty,
+            withSurfaceTree: state.surfaceTree)
         guard let window = c.window else {
             completionHandler(nil, TerminalRestoreError.windowDidNotLoad)
             return

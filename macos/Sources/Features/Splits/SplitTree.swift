@@ -107,6 +107,18 @@ extension SplitTree {
         self.init(root: .leaf(view: view), zoomed: nil)
     }
 
+    /// Checks if the tree contains the specified node.
+    ///
+    /// Note that SplitTree implements Sequence on views so there's already a `contains`
+    /// for views too.
+    ///
+    /// - Parameter node: The node to search for in the tree
+    /// - Returns: True if the node exists in the tree, false otherwise
+    func contains(_ node: Node) -> Bool {
+        guard let root else { return false }
+        return root.path(to: node) != nil
+    }
+
     /// Insert a new view at the given view point by creating a split in the given direction.
     /// This will always reset the zoomed state of the tree.
     func insert(view: ViewType, at: ViewType, direction: NewDirection) throws -> Self {
@@ -1076,5 +1088,31 @@ extension SplitTree: Sequence {
 extension SplitTree.Node: Sequence {
     func makeIterator() -> [ViewType].Iterator {
         return leaves().makeIterator()
+    }
+}
+
+// MARK: SplitTree Collection
+
+extension SplitTree: Collection {
+    typealias Index = Int
+    typealias Element = ViewType
+
+    var startIndex: Int {
+        return 0
+    }
+
+    var endIndex: Int {
+        return root?.leaves().count ?? 0
+    }
+
+    subscript(position: Int) -> ViewType {
+        precondition(position >= 0 && position < endIndex, "Index out of bounds")
+        let leaves = root?.leaves() ?? []
+        return leaves[position]
+    }
+
+    func index(after i: Int) -> Int {
+        precondition(i < endIndex, "Cannot increment index beyond endIndex")
+        return i + 1
     }
 }

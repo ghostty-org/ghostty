@@ -3923,6 +3923,21 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 .{ .parent = self },
             ),
 
+            // Undo and redo both support both surface and app targeting.
+            // If we are triggering on a surface then we perform the
+            // action with the surface target.
+            .undo => return try self.rt_app.performAction(
+                .{ .surface = self },
+                .undo,
+                {},
+            ),
+
+            .redo => return try self.rt_app.performAction(
+                .{ .surface = self },
+                .redo,
+                {},
+            ),
+
             else => try self.app.performAction(
                 self.rt_app,
                 action.scoped(.app).?,

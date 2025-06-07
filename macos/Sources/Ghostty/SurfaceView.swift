@@ -301,8 +301,12 @@ extension Ghostty {
             if let instant = focusInstant {
                 let d = instant.duration(to: ContinuousClock.now)
                 if (d < .milliseconds(500)) {
-                    // Avoid this size completely.
-                    lastSize = geoSize
+                    // Avoid this size completely. We can't set values during
+                    // view updates so we have to defer this to another tick.
+                    DispatchQueue.main.async {
+                        lastSize = geoSize
+                    }
+
                     return true;
                 }
             }

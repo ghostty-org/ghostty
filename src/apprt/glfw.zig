@@ -250,6 +250,8 @@ pub const App = struct {
             .reset_window_size,
             .ring_bell,
             .check_for_updates,
+            .undo,
+            .redo,
             .show_gtk_inspector,
             => {
                 log.info("unimplemented action={}", .{action});

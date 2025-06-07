@@ -40,6 +40,7 @@
                 <outlet property="menuPreviousSplit" destination="Lic-px-1wg" id="Rto-CG-yRe"/>
                 <outlet property="menuQuickTerminal" destination="1pv-LF-NBJ" id="glN-5B-IGi"/>
                 <outlet property="menuQuit" destination="4sb-4s-VLi" id="qYN-S1-6UW"/>
+                <outlet property="menuRedo" destination="EX8-lB-4s7" id="wON-2J-yT1"/>
                 <outlet property="menuReloadConfig" destination="KKH-XX-5py" id="Wvp-7J-wqX"/>
                 <outlet property="menuResetFontSize" destination="Jah-MY-aLX" id="ger-qM-wrm"/>
                 <outlet property="menuReturnToDefaultSize" destination="Gbx-Vi-OGC" id="po9-qC-Iz6"/>
@@ -57,6 +58,7 @@
                 <outlet property="menuTerminalInspector" destination="QwP-M5-fvh" id="wJi-Dh-S9f"/>
                 <outlet property="menuToggleFullScreen" destination="8kY-Pi-KaY" id="yQg-6V-OO6"/>
                 <outlet property="menuToggleVisibility" destination="DOX-wA-ilh" id="iBj-Bc-2bq"/>
+                <outlet property="menuUndo" destination="r83-CV-syt" id="bU9-0b-xgQ"/>
                 <outlet property="menuUseAsDefault" destination="TrB-O8-g8H" id="af4-Jh-2HU"/>
                 <outlet property="menuZoomSplit" destination="oPd-mn-IEH" id="wTu-jK-egI"/>
             </connections>
@@ -204,6 +206,19 @@
                     <modifierMask key="keyEquivalentModifierMask"/>
                     <menu key="submenu" title="Edit" id="iU4-OB-ccf">
                         <items>
+                            <menuItem title="Undo" id="r83-CV-syt">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="undo:" target="-1" id="jrW-j3-OZj"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Redo" id="EX8-lB-4s7">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="redo:" target="-1" id="7UK-Hj-s4O"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="4O9-zO-zB9"/>
                             <menuItem title="Copy" id="Jqf-pv-Zcu">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>

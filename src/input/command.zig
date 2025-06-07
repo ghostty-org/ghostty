@@ -409,6 +409,18 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Check for updates to the application.",
         }},
 
+        .undo => comptime &.{.{
+            .action = .undo,
+            .title = "Undo",
+            .description = "Undo the last action.",
+        }},
+
+        .redo => comptime &.{.{
+            .action = .redo,
+            .title = "Redo",
+            .description = "Redo the last undone action.",
+        }},
+
         .quit => comptime &.{.{
             .action = .quit,
             .title = "Quit",

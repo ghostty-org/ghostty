@@ -92,6 +92,12 @@ extension Ghostty {
             return ghostty_surface_needs_confirm_quit(surface)
         }
 
+        // Returns true if the process in this surface has exited.
+        var processExited: Bool {
+            guard let surface = self.surface else { return true }
+            return ghostty_surface_process_exited(surface)
+        }
+
         // Returns the inspector instance for this surface, or nil if the
         // surface has been closed.
         var inspector: ghostty_inspector_t? {

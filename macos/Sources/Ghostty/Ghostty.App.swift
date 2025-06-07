@@ -553,6 +553,12 @@ extension Ghostty {
             case GHOSTTY_ACTION_CHECK_FOR_UPDATES:
                 checkForUpdates(app)
 
+            case GHOSTTY_ACTION_UNDO:
+                return undo(app, target: target)
+
+            case GHOSTTY_ACTION_REDO:
+                return redo(app, target: target)
+
             case GHOSTTY_ACTION_CLOSE_ALL_WINDOWS:
                 fallthrough
             case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW:
@@ -597,6 +603,48 @@ extension Ghostty {
             if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
                 appDelegate.checkForUpdates(nil)
             }
+        }
+
+        private static func undo(_ app: ghostty_app_t, target: ghostty_target_s) -> Bool {
+            let undoManager: UndoManager?
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                undoManager = (NSApp.delegate as? AppDelegate)?.undoManager
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                undoManager = surfaceView.undoManager
+
+            default:
+                assertionFailure()
+                return false
+            }
+
+            guard let undoManager, undoManager.canUndo else { return false }
+            undoManager.undo()
+            return true
+        }
+
+        private static func redo(_ app: ghostty_app_t, target: ghostty_target_s) -> Bool {
+            let undoManager: UndoManager?
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                undoManager = (NSApp.delegate as? AppDelegate)?.undoManager
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                undoManager = surfaceView.undoManager
+
+            default:
+                assertionFailure()
+                return false
+            }
+
+            guard let undoManager, undoManager.canRedo else { return false }
+            undoManager.redo()
+            return true
         }
 
         private static func newWindow(_ app: ghostty_app_t, target: ghostty_target_s) {

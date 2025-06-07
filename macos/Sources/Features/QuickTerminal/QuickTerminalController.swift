@@ -63,6 +63,12 @@ class QuickTerminalController: BaseTerminalController {
             object: nil)
         center.addObserver(
             self,
+            selector: #selector(closeWindow(_:)),
+            name: .ghosttyCloseWindow,
+            object: nil
+        )
+        center.addObserver(
+            self,
             selector: #selector(onNewTab),
             name: Ghostty.Notification.ghosttyNewTab,
             object: nil)
@@ -196,16 +202,48 @@ class QuickTerminalController: BaseTerminalController {
     override func surfaceTreeDidChange(from: SplitTree<Ghostty.SurfaceView>, to: SplitTree<Ghostty.SurfaceView>) {
         super.surfaceTreeDidChange(from: from, to: to)
 
-        // If our surface tree is nil then we animate the window out.
-        if (to.isEmpty) {
-            // Save the current window frame before animating out. This preserves
-            // the user's preferred window size and position for when the quick
-            // terminal is reactivated with a new surface. Without this, SwiftUI
-            // would reset the window to its minimum content size.
-            lastClosedFrame = window?.frame
-
+        // If our surface tree is nil then we animate the window out. We
+        // defer reinitializing the tree to save some memory here.
+        if to.isEmpty {
             animateOut()
+            return
         }
+
+        // If we're not empty (e.g. this isn't the first set) and we're
+        // not visible, then we animate in. This allows us to show the quick
+        // terminal when things such as undo/redo are done.
+        if !from.isEmpty && !visible {
+            animateIn()
+            return
+        }
+    }
+
+    override func closeSurfaceNode(
+        _ node: SplitTree<Ghostty.SurfaceView>.Node,
+        withConfirmation: Bool = true
+    ) {
+        // If this isn't the root then we're dealing with a split closure.
+        if surfaceTree.root != node {
+            super.closeSurfaceNode(node, withConfirmation: withConfirmation)
+            return
+        }
+
+        // If this isn't a final leaf then we're dealing with a split closure
+        guard case .leaf(let surface) = node else {
+            super.closeSurfaceNode(node, withConfirmation: withConfirmation)
+            return
+        }
+
+        // If its the root, we check if the process exited. If it did,
+        // then we do empty the tree.
+        if surface.processExited {
+            surfaceTree = .init()
+            return
+        }
+
+        // If its the root then we just animate out. We never actually allow
+        // the surface to fully close.
+        animateOut()
     }
 
     // MARK: Methods
@@ -252,12 +290,6 @@ class QuickTerminalController: BaseTerminalController {
             let view = Ghostty.SurfaceView(ghostty_app, baseConfig: nil)
             surfaceTree = SplitTree(view: view)
             focusedSurface = view
-
-            // Restore our previous frame if we have one
-            if let lastClosedFrame {
-                window.setFrame(lastClosedFrame, display: false)
-                self.lastClosedFrame = nil
-            }
         }
 
         // Animate the window in
@@ -282,6 +314,12 @@ class QuickTerminalController: BaseTerminalController {
 
     private func animateWindowIn(window: NSWindow, from position: QuickTerminalPosition) {
         guard let screen = derivedConfig.quickTerminalScreen.screen else { return }
+
+        // Restore our previous frame if we have one
+        if let lastClosedFrame {
+            window.setFrame(lastClosedFrame, display: false)
+            self.lastClosedFrame = nil
+        }
 
         // Move our window off screen to the top
         position.setInitial(in: window, on: screen)
@@ -393,6 +431,12 @@ class QuickTerminalController: BaseTerminalController {
     }
 
     private func animateWindowOut(window: NSWindow, to position: QuickTerminalPosition) {
+        // Save the current window frame before animating out. This preserves
+        // the user's preferred window size and position for when the quick
+        // terminal is reactivated with a new surface. Without this, SwiftUI
+        // would reset the window to its minimum content size.
+        lastClosedFrame = window.frame
+
         // If we hid the dock then we unhide it.
         hiddenDock = nil
 

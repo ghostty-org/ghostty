@@ -62,6 +62,9 @@
 		A586365F2DEE6C2300E04A10 /* SplitTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = A586365E2DEE6C2100E04A10 /* SplitTree.swift */; };
 		A58636662DEF964100E04A10 /* TerminalSplitTreeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A58636652DEF963F00E04A10 /* TerminalSplitTreeView.swift */; };
 		A586366B2DF0A98C00E04A10 /* Array+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A586366A2DF0A98900E04A10 /* Array+Extension.swift */; };
+		A586366F2DF25D8600E04A10 /* Duration+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A586366E2DF25D8300E04A10 /* Duration+Extension.swift */; };
+		A58636712DF298FB00E04A10 /* ExpiringUndoManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A58636702DF298F700E04A10 /* ExpiringUndoManager.swift */; };
+		A58636732DF4813400E04A10 /* UndoManager+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A58636722DF4813000E04A10 /* UndoManager+Extension.swift */; };
 		A5874D992DAD751B00E83852 /* CGS.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5874D982DAD751A00E83852 /* CGS.swift */; };
 		A5874D9D2DAD786100E83852 /* NSWindow+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5874D9C2DAD785F00E83852 /* NSWindow+Extension.swift */; };
 		A59444F729A2ED5200725BBA /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59444F629A2ED5200725BBA /* SettingsView.swift */; };
@@ -69,7 +72,6 @@
 		A596309A2AEE1C6400D64628 /* Terminal.xib in Resources */ = {isa = PBXBuildFile; fileRef = A59630992AEE1C6400D64628 /* Terminal.xib */; };
 		A596309C2AEE1C9E00D64628 /* TerminalController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A596309B2AEE1C9E00D64628 /* TerminalController.swift */; };
 		A596309E2AEE1D6C00D64628 /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A596309D2AEE1D6C00D64628 /* TerminalView.swift */; };
-		A59630A02AEF6AEB00D64628 /* TerminalManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A596309F2AEF6AEB00D64628 /* TerminalManager.swift */; };
 		A5985CD72C320C4500C57AD3 /* String+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5985CD62C320C4500C57AD3 /* String+Extension.swift */; };
 		A5985CD82C320C4500C57AD3 /* String+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5985CD62C320C4500C57AD3 /* String+Extension.swift */; };
 		A5985CE62C33060F00C57AD3 /* man in Resources */ = {isa = PBXBuildFile; fileRef = A5985CE52C33060F00C57AD3 /* man */; };
@@ -168,6 +170,9 @@
 		A586365E2DEE6C2100E04A10 /* SplitTree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitTree.swift; sourceTree = "<group>"; };
 		A58636652DEF963F00E04A10 /* TerminalSplitTreeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSplitTreeView.swift; sourceTree = "<group>"; };
 		A586366A2DF0A98900E04A10 /* Array+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Array+Extension.swift"; sourceTree = "<group>"; };
+		A586366E2DF25D8300E04A10 /* Duration+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Duration+Extension.swift"; sourceTree = "<group>"; };
+		A58636702DF298F700E04A10 /* ExpiringUndoManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpiringUndoManager.swift; sourceTree = "<group>"; };
+		A58636722DF4813000E04A10 /* UndoManager+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UndoManager+Extension.swift"; sourceTree = "<group>"; };
 		A5874D982DAD751A00E83852 /* CGS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CGS.swift; sourceTree = "<group>"; };
 		A5874D9C2DAD785F00E83852 /* NSWindow+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSWindow+Extension.swift"; sourceTree = "<group>"; };
 		A59444F629A2ED5200725BBA /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -175,7 +180,6 @@
 		A59630992AEE1C6400D64628 /* Terminal.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = Terminal.xib; sourceTree = "<group>"; };
 		A596309B2AEE1C9E00D64628 /* TerminalController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalController.swift; sourceTree = "<group>"; };
 		A596309D2AEE1D6C00D64628 /* TerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalView.swift; sourceTree = "<group>"; };
-		A596309F2AEF6AEB00D64628 /* TerminalManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalManager.swift; sourceTree = "<group>"; };
 		A5985CD62C320C4500C57AD3 /* String+Extension.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "String+Extension.swift"; sourceTree = "<group>"; };
 		A5985CE52C33060F00C57AD3 /* man */ = {isa = PBXFileReference; lastKnownFileType = folder; name = man; path = "../zig-out/share/man"; sourceTree = "<group>"; };
 		A599CDAF2CF103F20049FA26 /* NSAppearance+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSAppearance+Extension.swift"; sourceTree = "<group>"; };
@@ -298,6 +302,7 @@
 				A5333E1B2B5A1CE3008AEFF7 /* CrossKit.swift */,
 				A5CBD0572C9F30860017A1AE /* Cursor.swift */,
 				A5D0AF3C2B37804400D21823 /* CodableBridge.swift */,
+				A58636702DF298F700E04A10 /* ExpiringUndoManager.swift */,
 				A52FFF582CAA4FF1000C6A5B /* Fullscreen.swift */,
 				A59630962AEE163600D64628 /* HostingWindow.swift */,
 				A5CA378B2D2A4DE800931030 /* KeyboardLayout.swift */,
@@ -432,6 +437,7 @@
 			isa = PBXGroup;
 			children = (
 				A586366A2DF0A98900E04A10 /* Array+Extension.swift */,
+				A586366E2DF25D8300E04A10 /* Duration+Extension.swift */,
 				A53A29802DB44A5E00B6E02C /* KeyboardShortcut+Extension.swift */,
 				A53A297E2DB4480A00B6E02C /* EventModifiers+Extension.swift */,
 				C159E81C2B66A06B00FDFE9C /* OSColor+Extension.swift */,
@@ -443,6 +449,7 @@
 				C1F26EA62B738B9900404083 /* NSView+Extension.swift */,
 				A5874D9C2DAD785F00E83852 /* NSWindow+Extension.swift */,
 				A5985CD62C320C4500C57AD3 /* String+Extension.swift */,
+				A58636722DF4813000E04A10 /* UndoManager+Extension.swift */,
 				A5CC36142C9CDA03004D6760 /* View+Extension.swift */,
 			);
 			path = Extensions;
@@ -461,7 +468,6 @@
 			isa = PBXGroup;
 			children = (
 				A59630992AEE1C6400D64628 /* Terminal.xib */,
-				A596309F2AEF6AEB00D64628 /* TerminalManager.swift */,
 				A596309B2AEE1C9E00D64628 /* TerminalController.swift */,
 				A5D0AF3A2B36A1DE00D21823 /* TerminalRestorable.swift */,
 				A596309D2AEE1D6C00D64628 /* TerminalView.swift */,
@@ -680,12 +686,14 @@
 				A54B0CEB2D0CFB4C00CBEFF8 /* NSImage+Extension.swift in Sources */,
 				A5874D9D2DAD786100E83852 /* NSWindow+Extension.swift in Sources */,
 				A54D786C2CA7978E001B19B1 /* BaseTerminalController.swift in Sources */,
+				A58636732DF4813400E04A10 /* UndoManager+Extension.swift in Sources */,
 				A59FB5CF2AE0DB50009128F3 /* InspectorView.swift in Sources */,
 				CFBB5FEA2D231E5000FD62EE /* QuickTerminalSpaceBehavior.swift in Sources */,
 				A54B0CE92D0CECD100CBEFF8 /* ColorizedGhosttyIconView.swift in Sources */,
 				A5D0AF3D2B37804400D21823 /* CodableBridge.swift in Sources */,
 				A5D0AF3B2B36A1DE00D21823 /* TerminalRestorable.swift in Sources */,
 				C1F26EA72B738B9900404083 /* NSView+Extension.swift in Sources */,
+				A586366F2DF25D8600E04A10 /* Duration+Extension.swift in Sources */,
 				A5CF66D42D289CEE00139794 /* NSEvent+Extension.swift in Sources */,
 				A5CBD0642CA122E70017A1AE /* QuickTerminalPosition.swift in Sources */,
 				A596309C2AEE1C9E00D64628 /* TerminalController.swift in Sources */,
@@ -701,8 +709,8 @@
 				A53A29812DB44A6100B6E02C /* KeyboardShortcut+Extension.swift in Sources */,
 				A5CBD0562C9E65B80017A1AE /* DraggableWindowView.swift in Sources */,
 				C1F26EE92B76CBFC00404083 /* VibrantLayer.m in Sources */,
+				A58636712DF298FB00E04A10 /* ExpiringUndoManager.swift in Sources */,
 				A59630972AEE163600D64628 /* HostingWindow.swift in Sources */,
-				A59630A02AEF6AEB00D64628 /* TerminalManager.swift in Sources */,
 				A51BFC2B2B30F6BE00E92F16 /* UpdateDelegate.swift in Sources */,
 				A5CBD06B2CA322430017A1AE /* GlobalEventTap.swift in Sources */,
 				AEE8B3452B9AA39600260C5E /* NSPasteboard+Extension.swift in Sources */,

@@ -506,6 +506,14 @@ extension Ghostty {
             return v;
         }
 
+        var undoTimeout: Duration {
+            guard let config = self.config else { return .seconds(5) }
+            var v: UInt = 0
+            let key = "undo-timeout"
+            _ = ghostty_config_get(config, &v, key, UInt(key.count))
+            return .milliseconds(v)
+        }
+
         var autoUpdate: AutoUpdate? {
             guard let config = self.config else { return nil }
             var v: UnsafePointer<Int8>? = nil

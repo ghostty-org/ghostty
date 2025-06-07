@@ -1,3 +1,4 @@
+import AppKit
 import Cocoa
 
 // MARK: Presentation Options

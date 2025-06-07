@@ -36,6 +36,8 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuCloseWindow: NSMenuItem?
     @IBOutlet private var menuCloseAllWindows: NSMenuItem?
 
+    @IBOutlet private var menuUndo: NSMenuItem?
+    @IBOutlet private var menuRedo: NSMenuItem?
     @IBOutlet private var menuCopy: NSMenuItem?
     @IBOutlet private var menuPaste: NSMenuItem?
     @IBOutlet private var menuPasteSelection: NSMenuItem?
@@ -85,8 +87,8 @@ class AppDelegate: NSObject,
     /// The ghostty global state. Only one per process.
     let ghostty: Ghostty.App = Ghostty.App()
 
-    /// Manages our terminal windows.
-    let terminalManager: TerminalManager
+    /// The global undo manager for app-level state such as window restoration.
+    lazy var undoManager = ExpiringUndoManager()
 
     /// Our quick terminal. This starts out uninitialized and only initializes if used.
     private var quickController: QuickTerminalController? = nil
@@ -114,7 +116,6 @@ class AppDelegate: NSObject,
     }
 
     override init() {
-        terminalManager = TerminalManager(ghostty)
         updaterController = SPUStandardUpdaterController(
             // Important: we must not start the updater here because we need to read our configuration
             // first to determine whether we're automatically checking, downloading, etc. The updater
@@ -197,6 +198,16 @@ class AppDelegate: NSObject,
             name: .ghosttyBellDidRing,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(ghosttyNewWindow(_:)),
+            name: Ghostty.Notification.ghosttyNewWindow,
+            object: nil)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(ghosttyNewTab(_:)),
+            name: Ghostty.Notification.ghosttyNewTab,
+            object: nil)
 
         // Configure user notifications
         let actions = [
@@ -248,8 +259,10 @@ class AppDelegate: NSObject,
             // is possible to have other windows in a few scenarios:
             //   - if we're opening a URL since `application(_:openFile:)` is called before this.
             //   - if we're restoring from persisted state
-            if terminalManager.windows.count == 0 && derivedConfig.initialWindow {
-                terminalManager.newWindow()
+            if TerminalController.all.isEmpty && derivedConfig.initialWindow {
+                undoManager.disableUndoRegistration()
+                _ = TerminalController.newWindow(ghostty)
+                undoManager.enableUndoRegistration()
             }
         }
     }
@@ -334,10 +347,15 @@ class AppDelegate: NSObject,
         // This is possible with flag set to false if there a race where the
         // window is still initializing and is not visible but the user clicked
         // the dock icon.
-        guard terminalManager.windows.count == 0 else { return true }
+        guard TerminalController.all.isEmpty else { return true }
+
+        // If the application isn't active yet then we don't want to process
+        // this because we're not ready. This happens sometimes in Xcode runs
+        // but I haven't seen it happen in releases. I'm unsure why.
+        guard applicationHasBecomeActive else { return true }
 
         // No visible windows, open a new one.
-        terminalManager.newWindow()
+        _ = TerminalController.newWindow(ghostty)
         return false
     }
 
@@ -353,16 +371,17 @@ class AppDelegate: NSObject,
         var config = Ghostty.SurfaceConfiguration()
 
         if (isDirectory.boolValue) {
-            // When opening a directory, create a new tab in the main window with that as the working directory.
+            // When opening a directory, create a new tab in the main
+            // window with that as the working directory.
             // If no windows exist, a new one will be created.
             config.workingDirectory = filename
-            terminalManager.newTab(withBaseConfig: config)
+            _ = TerminalController.newTab(ghostty, withBaseConfig: config)
         } else {
             // When opening a file, open a new window with that file as the command,
             // and its parent directory as the working directory.
             config.command = filename
             config.workingDirectory = (filename as NSString).deletingLastPathComponent
-            terminalManager.newWindow(withBaseConfig: config)
+            _ = TerminalController.newWindow(ghostty, withBaseConfig: config)
         }
 
         return true
@@ -393,6 +412,8 @@ class AppDelegate: NSObject,
         syncMenuShortcut(config, action: "new_split:down", menuItem: self.menuSplitDown)
         syncMenuShortcut(config, action: "new_split:up", menuItem: self.menuSplitUp)
 
+        syncMenuShortcut(config, action: "undo", menuItem: self.menuUndo)
+        syncMenuShortcut(config, action: "redo", menuItem: self.menuRedo)
         syncMenuShortcut(config, action: "copy_to_clipboard", menuItem: self.menuCopy)
         syncMenuShortcut(config, action: "paste_from_clipboard", menuItem: self.menuPaste)
         syncMenuShortcut(config, action: "paste_from_selection", menuItem: self.menuPasteSelection)
@@ -447,10 +468,6 @@ class AppDelegate: NSObject,
 
         menu.keyEquivalent = shortcut.key.character.description
         menu.keyEquivalentModifierMask = .init(swiftUIFlags: shortcut.modifiers)
-    }
-
-    private func focusedSurface() -> ghostty_surface_t? {
-        return terminalManager.focusedSurface?.surface
     }
 
     // MARK: Notifications and Events
@@ -585,6 +602,26 @@ class AppDelegate: NSObject,
         }
     }
 
+    @objc private func ghosttyNewWindow(_ notification: Notification) {
+        let configAny = notification.userInfo?[Ghostty.Notification.NewSurfaceConfigKey]
+        let config = configAny as? Ghostty.SurfaceConfiguration
+        _ = TerminalController.newWindow(ghostty, withBaseConfig: config)
+    }
+
+    @objc private func ghosttyNewTab(_ notification: Notification) {
+        guard let surfaceView = notification.object as? Ghostty.SurfaceView else { return }
+        guard let window = surfaceView.window else { return }
+
+        // We only want to listen to new tabs if the focused parent is
+        // a regular terminal controller.
+        guard window.windowController is TerminalController else { return }
+
+        let configAny = notification.userInfo?[Ghostty.Notification.NewSurfaceConfigKey]
+        let config = configAny as? Ghostty.SurfaceConfiguration
+
+        _ = TerminalController.newTab(ghostty, from: window, withBaseConfig: config)
+    }
+
     private func setDockBadge(_ label: String? = "•") {
         NSApp.dockTile.badgeLabel = label
         NSApp.dockTile.display()
@@ -620,7 +657,7 @@ class AppDelegate: NSObject,
 
         // Config could change keybindings, so update everything that depends on that
         syncMenuShortcuts(config)
-        terminalManager.relabelAllTabs()
+        TerminalController.all.forEach { $0.relabelTabs() }
 
         // Config could change window appearance. We wrap this in an async queue because when
         // this is called as part of application launch it can deadlock with an internal
@@ -749,8 +786,8 @@ class AppDelegate: NSObject,
     //MARK: - GhosttyAppDelegate
 
     func findSurface(forUUID uuid: UUID) -> Ghostty.SurfaceView? {
-        for c in terminalManager.windows {
-            for view in c.controller.surfaceTree {
+        for c in TerminalController.all {
+            for view in c.surfaceTree {
                 if view.uuid == uuid {
                     return view
                 }
@@ -804,7 +841,7 @@ class AppDelegate: NSObject,
     }
 
     @IBAction func newWindow(_ sender: Any?) {
-        terminalManager.newWindow()
+        _ = TerminalController.newWindow(ghostty)
 
         // We also activate our app so that it becomes front. This may be
         // necessary for the dock menu.
@@ -812,7 +849,7 @@ class AppDelegate: NSObject,
     }
 
     @IBAction func newTab(_ sender: Any?) {
-        terminalManager.newTab()
+        _ = TerminalController.newTab(ghostty)
 
         // We also activate our app so that it becomes front. This may be
         // necessary for the dock menu.
@@ -820,7 +857,7 @@ class AppDelegate: NSObject,
     }
 
     @IBAction func closeAllWindows(_ sender: Any?) {
-        terminalManager.closeAllWindows()
+        TerminalController.closeAllWindows()
         AboutController.shared.hide()
     }
 
@@ -880,6 +917,14 @@ class AppDelegate: NSObject,
         }
 
         NSApplication.shared.arrangeInFront(sender)
+    }
+
+    @IBAction func undo(_ sender: Any?) {
+        undoManager.undo()
+    }
+
+    @IBAction func redo(_ sender: Any?) {
+        undoManager.redo()
     }
 
     private struct DerivedConfig {
@@ -970,6 +1015,22 @@ extension AppDelegate: NSMenuItemValidation {
             // Float on top items only active if the key window is a primary
             // terminal window (not quick terminal).
             return NSApp.keyWindow is TerminalWindow
+
+        case #selector(undo(_:)):
+            if undoManager.canUndo {
+                item.title = "Undo \(undoManager.undoActionName)"
+            } else {
+                item.title = "Undo"
+            }
+            return undoManager.canUndo
+
+        case #selector(redo(_:)):
+            if undoManager.canRedo {
+                item.title = "Redo \(undoManager.redoActionName)"
+            } else {
+                item.title = "Redo"
+            }
+            return undoManager.canRedo
 
         default:
             return true
