@@ -459,6 +459,41 @@ background: Color = .{ .r = 0x28, .g = 0x2C, .b = 0x34 },
 /// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
 foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 
+/// Background image for the window.
+@"background-image": ?Path = null,
+
+/// Background image opacity
+@"background-image-opacity": f32 = 1.0,
+
+/// Background image mode to use.
+///
+/// Valid values are:
+///
+///   * `contain` - Image is scaled to fit the window, preserving aspect ratio.
+///   * `fill` - Image is stretched to fill the window, not preserving aspect ratio.
+///   * `cover` - Image is centered in the window, preserving the aspect ratio
+///     but cropping the image to fill the window, as needed.
+///   * `tiled` - Image is repeated horizontally and vertically to fill the window.
+///   * `none` - Image is displayed 1-to-1 pixel scale, preserving both the aspect
+///     ratio and the image size.
+///
+@"background-image-mode": BackgroundImageMode = .none,
+
+/// Background image position.
+///
+/// Valid values are:
+///   * `top-left`
+///   * `top-center`
+///   * `top-right`
+///   * `center-left`
+///   * `center`
+///   * `center-right`
+///   * `bottom-left`
+///   * `bottom-center`
+///   * `bottom-right`
+///
+@"background-image-position": BackgroundImagePosition = .center,
+
 /// The foreground and background color for selection. If this is not set, then
 /// the selection color is just the inverted window background and foreground
 /// (note: not to be confused with the cell bg/fg).
@@ -3035,6 +3070,15 @@ fn expandPaths(self: *Config, base: []const u8) !void {
                     base,
                     &self._diagnostics,
                 );
+            },
+            ?Path => {
+                if (@field(self, field.name)) |*path| {
+                    try path.expand(
+                        arena_alloc,
+                        base,
+                        &self._diagnostics,
+                    );
+                }
             },
             else => {},
         }
@@ -6262,6 +6306,38 @@ pub const AlphaBlending = enum {
             .linear, .@"linear-corrected" => true,
         };
     }
+};
+
+/// See background-image-mode
+///
+/// This enum is used to set the background image mode. The shader expects
+/// a `uint`, so we use `u8` here. The values for each mode should be kept
+/// in sync with the values in the vertex shader used to render the
+/// background image (`bgimage`).
+pub const BackgroundImageMode = enum(u8) {
+    contain = 0,
+    fill = 1,
+    cover = 2,
+    tiled = 3,
+    none = 4,
+};
+
+/// See background-image-position
+///
+/// This enum is used to set the background image position. The shader expects
+/// a `uint`, so we use `u8` here. The values for each position should be kept
+/// in sync with the values in the vertex shader used to render the
+/// background image (`bgimage`).
+pub const BackgroundImagePosition = enum(u8) {
+    @"top-left" = 0,
+    @"top-center" = 1,
+    @"top-right" = 2,
+    @"center-left" = 3,
+    center = 4,
+    @"center-right" = 5,
+    @"bottom-left" = 6,
+    @"bottom-center" = 7,
+    @"bottom-right" = 8,
 };
 
 /// See freetype-load-flag
