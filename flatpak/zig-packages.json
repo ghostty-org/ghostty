@@ -67,9 +67,9 @@
   },
   {
     "type": "archive",
-    "url": "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/273a780bcd7e8a514d49ff42612b6856601cc052.tar.gz",
-    "dest": "vendor/p/N-V-__8AAIgLXgT76kRaZJzBE-1ZTXqaSx2jjIvPpIsnL2Gj",
-    "sha256": "d80b0e095f51ca67c36e114545d35513e198080984ef5ded336ed304f2b1016d"
+    "url": "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/10f216f54a32cee6f1f2e3aa01812650a209c16b.tar.gz",
+    "dest": "vendor/p/N-V-__8AAMJWXQSVe0xzU_4UVRTDVERqnNpQU4wfS0FRGRRj",
+    "sha256": "4dcad36540957adbc01465f47c1aa0df3946f747e596349c36bfce611fcc2796"
   },
   {
     "type": "archive",
