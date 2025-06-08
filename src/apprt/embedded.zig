@@ -23,6 +23,8 @@ const Config = configpkg.Config;
 
 const log = std.log.scoped(.embedded_window);
 
+pub const resourcesDir = internal_os.resourcesDir;
+
 pub const App = struct {
     /// Because we only expect the embedding API to be used in embedded
     /// environments, the options are extern so that we can expose it
