@@ -3698,7 +3698,17 @@ fn linkAtPos(
     for (self.config.links) |link| {
         switch (link.highlight) {
             .always, .hover => {},
-            .always_mods, .hover_mods => |v| if (!v.equal(mouse_mods)) continue,
+            .always_mods, .hover_mods => |v| {
+                // Special case: if the expected mods are "ctrl or super" (like the default URL config),
+                // then we should match if the user pressed either ctrl or super, just like OSC8 links.
+                const is_ctrl_or_super_expected = (v.ctrl and !v.super and !v.shift and !v.alt) or
+                    (v.super and !v.ctrl and !v.shift and !v.alt);
+                if (is_ctrl_or_super_expected) {
+                    if (!(mouse_mods.ctrl or mouse_mods.super)) continue;
+                } else {
+                    if (!v.equal(mouse_mods)) continue;
+                }
+            },
         }
 
         var it = strmap.searchIterator(link.regex);
