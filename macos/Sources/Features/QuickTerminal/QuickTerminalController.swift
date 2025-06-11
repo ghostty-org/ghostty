@@ -105,7 +105,7 @@ class QuickTerminalController: BaseTerminalController {
         syncAppearance()
 
         // Setup our initial size based on our configured position
-        position.setLoaded(window)
+        position.setLoaded(window, size: derivedConfig.quickTerminalSize)
 
         // Setup our content
         window.contentView = NSHostingView(rootView: TerminalView(
@@ -194,7 +194,7 @@ class QuickTerminalController: BaseTerminalController {
         // We use the actual screen the window is on for this, since it should
         // be on the proper screen.
         guard let screen = window?.screen ?? NSScreen.main else { return frameSize }
-        return position.restrictFrameSize(frameSize, on: screen)
+        return position.restrictFrameSize(frameSize, on: screen, terminalSize: derivedConfig.quickTerminalSize)
     }
 
     // MARK: Base Controller Overrides
@@ -322,7 +322,7 @@ class QuickTerminalController: BaseTerminalController {
         }
 
         // Move our window off screen to the top
-        position.setInitial(in: window, on: screen)
+        position.setInitial(in: window, on: screen, terminalSize: derivedConfig.quickTerminalSize)
 
         // We need to set our window level to a high value. In testing, only
         // popUpMenu and above do what we want. This gets it above the menu bar
@@ -353,7 +353,7 @@ class QuickTerminalController: BaseTerminalController {
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = derivedConfig.quickTerminalAnimationDuration
             context.timingFunction = .init(name: .easeIn)
-            position.setFinal(in: window.animator(), on: screen)
+            position.setFinal(in: window.animator(), on: screen, terminalSize: derivedConfig.quickTerminalSize)
         }, completionHandler: {
             // There is a very minor delay here so waiting at least an event loop tick
             // keeps us safe from the view not being on the window.
@@ -477,7 +477,7 @@ class QuickTerminalController: BaseTerminalController {
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = derivedConfig.quickTerminalAnimationDuration
             context.timingFunction = .init(name: .easeIn)
-            position.setInitial(in: window.animator(), on: screen)
+            position.setInitial(in: window.animator(), on: screen, terminalSize: derivedConfig.quickTerminalSize)
         }, completionHandler: {
             // This causes the window to be removed from the screen list and macOS
             // handles what should be focused next.
@@ -608,6 +608,7 @@ class QuickTerminalController: BaseTerminalController {
         let quickTerminalAnimationDuration: Double
         let quickTerminalAutoHide: Bool
         let quickTerminalSpaceBehavior: QuickTerminalSpaceBehavior
+        let quickTerminalSize: QuickTerminalSize
         let backgroundOpacity: Double
 
         init() {
@@ -615,6 +616,7 @@ class QuickTerminalController: BaseTerminalController {
             self.quickTerminalAnimationDuration = 0.2
             self.quickTerminalAutoHide = true
             self.quickTerminalSpaceBehavior = .move
+            self.quickTerminalSize = QuickTerminalSize()
             self.backgroundOpacity = 1.0
         }
 
@@ -623,6 +625,7 @@ class QuickTerminalController: BaseTerminalController {
             self.quickTerminalAnimationDuration = config.quickTerminalAnimationDuration
             self.quickTerminalAutoHide = config.quickTerminalAutoHide
             self.quickTerminalSpaceBehavior = config.quickTerminalSpaceBehavior
+            self.quickTerminalSize = config.quickTerminalSize
             self.backgroundOpacity = config.backgroundOpacity
         }
     }
