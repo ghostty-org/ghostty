@@ -102,6 +102,7 @@
 		A5AEB1652D5BE7D000513529 /* LastWindowPosition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5AEB1642D5BE7BF00513529 /* LastWindowPosition.swift */; };
 		A5B30539299BEAAB0047F10C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5B30538299BEAAB0047F10C /* Assets.xcassets */; };
 		A5B4EA852DFE691B0022C3A2 /* NSMenuItem+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5B4EA842DFE69140022C3A2 /* NSMenuItem+Extension.swift */; };
+		A5BB78B92DF9D8CE009AC3FA /* QuickTerminalSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5BB78B82DF9D8CE009AC3FA /* QuickTerminalSize.swift */; };
 		A5CA378C2D2A4DEB00931030 /* KeyboardLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5CA378B2D2A4DE800931030 /* KeyboardLayout.swift */; };
 		A5CA378E2D31D6C300931030 /* Weak.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5CA378D2D31D6C100931030 /* Weak.swift */; };
 		A5CBD0562C9E65B80017A1AE /* DraggableWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5CBD0552C9E65A50017A1AE /* DraggableWindowView.swift */; };
@@ -237,6 +238,7 @@
 		A5B30538299BEAAB0047F10C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A5B3053D299BEAAB0047F10C /* Ghostty.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Ghostty.entitlements; sourceTree = "<group>"; };
 		A5B4EA842DFE69140022C3A2 /* NSMenuItem+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSMenuItem+Extension.swift"; sourceTree = "<group>"; };
+		A5BB78B82DF9D8CE009AC3FA /* QuickTerminalSize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickTerminalSize.swift; sourceTree = "<group>"; };
 		A5CA378B2D2A4DE800931030 /* KeyboardLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardLayout.swift; sourceTree = "<group>"; };
 		A5CA378D2D31D6C100931030 /* Weak.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Weak.swift; sourceTree = "<group>"; };
 		A5CBD0552C9E65A50017A1AE /* DraggableWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DraggableWindowView.swift; sourceTree = "<group>"; };
@@ -608,6 +610,7 @@
 				A5CBD0632CA122E70017A1AE /* QuickTerminalPosition.swift */,
 				A52FFF562CA90481000C6A5B /* QuickTerminalScreen.swift */,
 				A5CBD05F2CA0C9080017A1AE /* QuickTerminalWindow.swift */,
+				A5BB78B82DF9D8CE009AC3FA /* QuickTerminalSize.swift */,
 			);
 			path = QuickTerminal;
 			sourceTree = "<group>";
@@ -865,6 +868,8 @@
 				A53A297B2DB2E49700B6E02C /* CommandPalette.swift in Sources */,
 				A55B7BB829B6F53A0055DE60 /* Package.swift in Sources */,
 				A51B78472AF4B58B00F3EDB9 /* TitlebarTabsVenturaTerminalWindow.swift in Sources */,
+ 				A51B78472AF4B58B00F3EDB9 /* TerminalWindow.swift in Sources */,
+				A5BB78B92DF9D8CE009AC3FA /* QuickTerminalSize.swift in Sources */,
 				A57D79272C9C879B001D522E /* SecureInput.swift in Sources */,
 				A5CEAFDC29B8009000646FDA /* SplitView.swift in Sources */,
 				A5593FE12DF8D74000B47B10 /* HiddenTitlebarTerminalWindow.swift in Sources */,

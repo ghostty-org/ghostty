@@ -6705,6 +6705,35 @@ pub const QuickTerminalSize = struct {
         height: u32,
     };
 
+    /// C API structure for QuickTerminalSize
+    pub const C = extern struct {
+        primary_type: u8, // 0 = none, 1 = percentage, 2 = pixels
+        primary_value: f32,
+        secondary_type: u8, // 0 = none, 1 = percentage, 2 = pixels
+        secondary_value: f32,
+    };
+
+    pub fn cval(self: QuickTerminalSize) C {
+        return .{
+            .primary_type = if (self.primary) |p| switch (p) {
+                .percentage => 1,
+                .pixels => 2,
+            } else 0,
+            .primary_value = if (self.primary) |p| switch (p) {
+                .percentage => |v| v,
+                .pixels => |v| @floatFromInt(v),
+            } else 0,
+            .secondary_type = if (self.secondary) |s| switch (s) {
+                .percentage => 1,
+                .pixels => 2,
+            } else 0,
+            .secondary_value = if (self.secondary) |s| switch (s) {
+                .percentage => |v| v,
+                .pixels => |v| @floatFromInt(v),
+            } else 0,
+        };
+    }
+
     pub fn calculate(
         self: QuickTerminalSize,
         position: QuickTerminalPosition,

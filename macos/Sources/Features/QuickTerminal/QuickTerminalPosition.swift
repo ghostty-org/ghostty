@@ -8,72 +8,58 @@ enum QuickTerminalPosition : String {
     case center
 
     /// Set the loaded state for a window.
-    func setLoaded(_ window: NSWindow) {
+    func setLoaded(_ window: NSWindow, size: QuickTerminalSize) {
         guard let screen = window.screen ?? NSScreen.main else { return }
-        switch (self) {
-        case .top, .bottom:
-            window.setFrame(.init(
-                origin: window.frame.origin,
-                size: .init(
-                    width: screen.frame.width,
-                    height: screen.frame.height / 4)
-            ), display: false)
-
-        case .left, .right:
-            window.setFrame(.init(
-                origin: window.frame.origin,
-                size: .init(
-                    width: screen.frame.width / 4,
-                    height: screen.frame.height)
-            ), display: false)
-
-        case .center:
-            window.setFrame(.init(
-                origin: window.frame.origin,
-                size: .init(
-                    width: screen.frame.width / 2,
-                    height: screen.frame.height / 3)
-            ), display: false)
-        }
+        let dimensions = size.calculate(position: self, screenDimensions: screen.frame.size)
+        window.setFrame(.init(
+            origin: window.frame.origin,
+            size: .init(
+                width: dimensions.width,
+                height: dimensions.height)
+        ), display: false)
     }
 
     /// Set the initial state for a window for animating out of this position.
-    func setInitial(in window: NSWindow, on screen: NSScreen) {
+    func setInitial(in window: NSWindow, on screen: NSScreen, terminalSize: QuickTerminalSize) {
         // We always start invisible
         window.alphaValue = 0
 
         // Position depends
         window.setFrame(.init(
             origin: initialOrigin(for: window, on: screen),
-            size: restrictFrameSize(window.frame.size, on: screen)
+            size: restrictFrameSize(window.frame.size, on: screen, terminalSize: terminalSize)
         ), display: false)
     }
 
     /// Set the final state for a window in this position.
-    func setFinal(in window: NSWindow, on screen: NSScreen) {
+    func setFinal(in window: NSWindow, on screen: NSScreen, terminalSize: QuickTerminalSize) {
         // We always end visible
         window.alphaValue = 1
 
         // Position depends
         window.setFrame(.init(
             origin: finalOrigin(for: window, on: screen),
-            size: restrictFrameSize(window.frame.size, on: screen)
+            size: restrictFrameSize(window.frame.size, on: screen, terminalSize: terminalSize)
         ), display: true)
     }
 
     /// Restrict the frame size during resizing.
-    func restrictFrameSize(_ size: NSSize, on screen: NSScreen) -> NSSize {
+    func restrictFrameSize(_ size: NSSize, on screen: NSScreen, terminalSize: QuickTerminalSize) -> NSSize {
         var finalSize = size
+        let dimensions = terminalSize.calculate(position: self, screenDimensions: screen.frame.size)
+        
         switch (self) {
         case .top, .bottom:
-            finalSize.width = screen.frame.width
+            finalSize.width = dimensions.width
+            finalSize.height = dimensions.height
 
         case .left, .right:
-            finalSize.height = screen.visibleFrame.height
+            finalSize.width = dimensions.width
+            finalSize.height = dimensions.height
 
         case .center:
-            finalSize.width = screen.frame.width / 2
-            finalSize.height = screen.frame.height / 3
+            finalSize.width = dimensions.width
+            finalSize.height = dimensions.height
         }
 
         return finalSize
@@ -83,16 +69,16 @@ enum QuickTerminalPosition : String {
     func initialOrigin(for window: NSWindow, on screen: NSScreen) -> CGPoint {
         switch (self) {
         case .top:
-            return .init(x: screen.frame.minX, y: screen.frame.maxY)
+            return .init(x: screen.frame.origin.x + (screen.frame.width - window.frame.width) / 2, y: screen.frame.maxY)
 
         case .bottom:
-            return .init(x: screen.frame.minX, y: -window.frame.height)
+            return .init(x: screen.frame.origin.x + (screen.frame.width - window.frame.width) / 2, y: -window.frame.height)
 
         case .left:
-            return .init(x: screen.frame.minX-window.frame.width, y: 0)
+            return .init(x: screen.frame.minX-window.frame.width, y: screen.frame.origin.y + (screen.frame.height - window.frame.height) / 2)
 
         case .right:
-            return .init(x: screen.frame.maxX, y: 0)
+            return .init(x: screen.frame.maxX, y: screen.frame.origin.y + (screen.frame.height - window.frame.height) / 2)
 
         case .center:
             return .init(x: screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2, y:  screen.visibleFrame.height - window.frame.width)
@@ -103,16 +89,16 @@ enum QuickTerminalPosition : String {
     func finalOrigin(for window: NSWindow, on screen: NSScreen) -> CGPoint {
         switch (self) {
         case .top:
-            return .init(x: screen.frame.minX, y: screen.visibleFrame.maxY - window.frame.height)
+            return .init(x: screen.frame.origin.x + (screen.frame.width - window.frame.width) / 2, y: screen.visibleFrame.maxY - window.frame.height)
 
         case .bottom:
-            return .init(x: screen.frame.minX, y: screen.frame.minY)
+            return .init(x: screen.frame.origin.x + (screen.frame.width - window.frame.width) / 2, y: screen.frame.minY)
 
         case .left:
-            return .init(x: screen.frame.minX, y: window.frame.origin.y)
+            return .init(x: screen.frame.minX, y: screen.frame.origin.y + (screen.frame.height - window.frame.height) / 2)
 
         case .right:
-            return .init(x: screen.visibleFrame.maxX - window.frame.width, y: window.frame.origin.y)
+            return .init(x: screen.visibleFrame.maxX - window.frame.width, y: screen.frame.origin.y + (screen.frame.height - window.frame.height) / 2)
 
         case .center:
             return .init(x: screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2, y: screen.visibleFrame.origin.y + (screen.visibleFrame.height - window.frame.height) / 2)
