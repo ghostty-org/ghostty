@@ -446,11 +446,20 @@ typedef struct {
 } ghostty_config_palette_s;
 
 // config.QuickTerminalSize
+typedef enum {
+  GHOSTTY_QUICK_TERMINAL_SIZE_NONE,
+  GHOSTTY_QUICK_TERMINAL_SIZE_PERCENTAGE,
+  GHOSTTY_QUICK_TERMINAL_SIZE_PIXELS,
+} ghostty_quick_terminal_size_e;
+
 typedef struct {
-  uint8_t primary_type;    // 0 = none, 1 = percentage, 2 = pixels
-  float primary_value;
-  uint8_t secondary_type;  // 0 = none, 1 = percentage, 2 = pixels
-  float secondary_value;
+  ghostty_quick_terminal_size_e type;
+  uint32_t value;
+} ghostty_quick_terminal_size_u;
+
+typedef struct {
+  ghostty_quick_terminal_size_u primary;
+  ghostty_quick_terminal_size_u secondary;
 } ghostty_config_quick_terminal_size_s;
 
 // apprt.Target.Key
