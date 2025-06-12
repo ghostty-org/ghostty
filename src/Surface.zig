@@ -907,12 +907,7 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
         },
 
         .close => self.close(),
-
-        // Close without confirmation.
-        .child_exited => {
-            self.child_exited = true;
-            self.close();
-        },
+        .child_exited => self.child_exited = true,
 
         .desktop_notification => |notification| {
             if (!self.config.desktop_notifications) {
