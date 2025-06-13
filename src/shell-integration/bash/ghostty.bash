@@ -15,8 +15,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-# We need to be in interactive mode to proceed.
-if [[ "$-" != *i* ]] ; then builtin return; fi
+# We need to be in interactive mode and we need to have the Ghostty
+# resources dir set which also tells us we're running in Ghostty.
+if [[ "$-" != *i* ]]; then builtin return; fi
+if [ -z "$GHOSTTY_RESOURCES_DIR" ]; then builtin return; fi
 
 # When automatic shell integration is active, we were started in POSIX
 # mode and need to manually recreate the bash startup sequence.
@@ -43,7 +45,10 @@ if [ -n "$GHOSTTY_BASH_INJECT" ]; then
     if [[ $__ghostty_bash_flags != *"--noprofile"* ]]; then
       [ -r /etc/profile ] && builtin source "/etc/profile"
       for __ghostty_rcfile in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
-        [ -r "$__ghostty_rcfile" ] && { builtin source "$__ghostty_rcfile"; break; }
+        [ -r "$__ghostty_rcfile" ] && {
+          builtin source "$__ghostty_rcfile"
+          break
+        }
       done
     fi
   else
@@ -55,7 +60,10 @@ if [ -n "$GHOSTTY_BASH_INJECT" ]; then
       #  Void Linux uses /etc/bash/bashrc
       #  Nixos uses /etc/bashrc
       for __ghostty_rcfile in /etc/bash.bashrc /etc/bash/bashrc /etc/bashrc; do
-        [ -r "$__ghostty_rcfile" ] && { builtin source "$__ghostty_rcfile"; break; }
+        [ -r "$__ghostty_rcfile" ] && {
+          builtin source "$__ghostty_rcfile"
+          break
+        }
       done
       if [[ -z "$GHOSTTY_BASH_RCFILE" ]]; then GHOSTTY_BASH_RCFILE="$HOME/.bashrc"; fi
       [ -r "$GHOSTTY_BASH_RCFILE" ] && builtin source "$GHOSTTY_BASH_RCFILE"
@@ -88,15 +96,105 @@ if [[ "$GHOSTTY_SHELL_FEATURES" == *"sudo"* && -n "$TERMINFO" ]]; then
       fi
     done
     if [[ "$sudo_has_sudoedit_flags" == "yes" ]]; then
-      builtin command sudo "$@";
+      builtin command sudo "$@"
     else
-      builtin command sudo TERMINFO="$TERMINFO" "$@";
+      builtin command sudo TERMINFO="$TERMINFO" "$@"
     fi
   }
 fi
 
+if [[ -n "$GHOSTTY_SSH_INTEGRATION" && "$GHOSTTY_SSH_INTEGRATION" != "off" ]]; then
+  # Wrap `ssh` command to provide Ghostty SSH integration.
+  #
+  # This approach supports wrapping an `ssh` alias, but the alias definition
+  # must come _after_ this function is defined. Otherwise, the alias expansion
+  # will take precedence over this function, and it won't be wrapped.
+  function ssh {
+    case "$GHOSTTY_SSH_INTEGRATION" in
+    "term_only")
+      _ghostty_ssh_term_only "$@"
+      ;;
+    "basic")
+      _ghostty_ssh_basic "$@"
+      ;;
+    "full")
+      _ghostty_ssh_full "$@"
+      ;;
+    *)
+      # Unknown level, fall back to basic
+      _ghostty_ssh_basic "$@"
+      ;;
+    esac
+  }
+
+  # Level: term_only - Just fix TERM compatibility
+  _ghostty_ssh_term_only() {
+    if [[ "$TERM" == "xterm-ghostty" ]]; then
+      TERM=xterm-256color command ssh "$@"
+    else
+      command ssh "$@"
+    fi
+  }
+
+  # Level: basic - TERM fix + environment variable propagation
+  _ghostty_ssh_basic() {
+    local env_vars=()
+
+    # Fix TERM compatibility
+    if [[ "$TERM" == "xterm-ghostty" ]]; then
+      env_vars+=("TERM=xterm-256color")
+    fi
+
+    # Propagate Ghostty shell integration environment variables
+    [[ -n "$GHOSTTY_SHELL_FEATURES" ]] && env_vars+=("GHOSTTY_SHELL_FEATURES=$GHOSTTY_SHELL_FEATURES")
+    [[ -n "$GHOSTTY_RESOURCES_DIR" ]] && env_vars+=("GHOSTTY_RESOURCES_DIR=$GHOSTTY_RESOURCES_DIR")
+
+    # Execute with environment variables if any were set
+    if [[ ${#env_vars[@]} -gt 0 ]]; then
+      env "${env_vars[@]}" ssh "$@"
+    else
+      builtin command ssh "$@"
+    fi
+  }
+
+  # Level: full - All features
+  _ghostty_ssh_full() {
+    # Full integration: Two-step terminfo installation
+    if command -v infocmp >/dev/null 2>&1; then
+      echo "Installing Ghostty terminfo on remote host..." >&2
+
+      # Step 1: Install terminfo using the same approach that works manually
+      # This requires authentication but is quick and reliable
+      if infocmp -x xterm-ghostty 2>/dev/null | command ssh "$@" 'mkdir -p ~/.terminfo/x 2>/dev/null && tic -x -o ~/.terminfo /dev/stdin 2>/dev/null'; then
+        echo "Terminfo installed successfully. Connecting with full Ghostty support..." >&2
+
+        # Step 2: Connect with xterm-ghostty since we know terminfo is now available
+        local env_vars=()
+
+        # Use xterm-ghostty since we just installed it
+        env_vars+=("TERM=xterm-ghostty")
+
+        # Propagate Ghostty shell integration environment variables
+        [[ -n "$GHOSTTY_SHELL_INTEGRATION_NO_CURSOR" ]] && env_vars+=("GHOSTTY_SHELL_INTEGRATION_NO_CURSOR=$GHOSTTY_SHELL_INTEGRATION_NO_CURSOR")
+        [[ -n "$GHOSTTY_SHELL_INTEGRATION_NO_SUDO" ]] && env_vars+=("GHOSTTY_SHELL_INTEGRATION_NO_SUDO=$GHOSTTY_SHELL_INTEGRATION_NO_SUDO")
+        [[ -n "$GHOSTTY_SHELL_INTEGRATION_NO_TITLE" ]] && env_vars+=("GHOSTTY_SHELL_INTEGRATION_NO_TITLE=$GHOSTTY_SHELL_INTEGRATION_NO_TITLE")
+
+        # Normal SSH connection with Ghostty terminfo available
+        env "${env_vars[@]}" ssh "$@"
+        return 0
+      else
+        echo "Terminfo installation failed. Using basic integration." >&2
+      fi
+    fi
+
+    # Fallback to basic integration
+    _ghostty_ssh_basic "$@"
+  }
+
+fi
+
 # Import bash-preexec, safe to do multiple times
-builtin source "$(dirname -- "${BASH_SOURCE[0]}")/bash-preexec.sh"
+builtin source "$GHOSTTY_RESOURCES_DIR/shell-integration/bash/bash-preexec.sh"
 
 # This is set to 1 when we're executing a command so that we don't
 # send prompt marks multiple times.
@@ -104,68 +202,68 @@ _ghostty_executing=""
 _ghostty_last_reported_cwd=""
 
 function __ghostty_precmd() {
-    local ret="$?"
-    if test "$_ghostty_executing" != "0"; then
-      _GHOSTTY_SAVE_PS0="$PS0"
-      _GHOSTTY_SAVE_PS1="$PS1"
-      _GHOSTTY_SAVE_PS2="$PS2"
+  local ret="$?"
+  if test "$_ghostty_executing" != "0"; then
+    _GHOSTTY_SAVE_PS0="$PS0"
+    _GHOSTTY_SAVE_PS1="$PS1"
+    _GHOSTTY_SAVE_PS2="$PS2"
 
-      # Marks
-      PS1=$PS1'\[\e]133;B\a\]'
-      PS2=$PS2'\[\e]133;B\a\]'
+    # Marks
+    PS1=$PS1'\[\e]133;B\a\]'
+    PS2=$PS2'\[\e]133;B\a\]'
 
-      # bash doesn't redraw the leading lines in a multiline prompt so
-      # mark the last line as a secondary prompt (k=s) to prevent the
-      # preceding lines from being erased by ghostty after a resize.
-      if [[ "${PS1}" == *"\n"* || "${PS1}" == *$'\n'* ]]; then
-        PS1=$PS1'\[\e]133;A;k=s\a\]'
-      fi
-
-      # Cursor
-      if [[ "$GHOSTTY_SHELL_FEATURES" == *"cursor"* ]]; then
-        PS1=$PS1'\[\e[5 q\]'
-        PS0=$PS0'\[\e[0 q\]'
-      fi
-
-      # Title (working directory)
-      if [[ "$GHOSTTY_SHELL_FEATURES" == *"title"* ]]; then
-        PS1=$PS1'\[\e]2;\w\a\]'
-      fi
+    # bash doesn't redraw the leading lines in a multiline prompt so
+    # mark the last line as a secondary prompt (k=s) to prevent the
+    # preceding lines from being erased by ghostty after a resize.
+    if [[ "${PS1}" == *"\n"* || "${PS1}" == *$'\n'* ]]; then
+      PS1=$PS1'\[\e]133;A;k=s\a\]'
     fi
 
-    if test "$_ghostty_executing" != ""; then
-      # End of current command. Report its status.
-      builtin printf "\e]133;D;%s;aid=%s\a" "$ret" "$BASHPID"
+    # Cursor
+    if [[ "$GHOSTTY_SHELL_FEATURES" == *"cursor"* ]]; then
+      PS1=$PS1'\[\e[5 q\]'
+      PS0=$PS0'\[\e[0 q\]'
     fi
 
-    # unfortunately bash provides no hooks to detect cwd changes
-    # in particular this means cwd reporting will not happen for a
-    # command like cd /test && cat. PS0 is evaluated before cd is run.
-    if [[ "$_ghostty_last_reported_cwd" != "$PWD" ]]; then
-      _ghostty_last_reported_cwd="$PWD"
-      builtin printf "\e]7;kitty-shell-cwd://%s%s\a" "$HOSTNAME" "$PWD"
+    # Title (working directory)
+    if [[ "$GHOSTTY_SHELL_FEATURES" == *"title"* ]]; then
+      PS1=$PS1'\[\e]2;\w\a\]'
     fi
+  fi
 
-    # Fresh line and start of prompt.
-    builtin printf "\e]133;A;aid=%s\a" "$BASHPID"
-    _ghostty_executing=0
+  if test "$_ghostty_executing" != ""; then
+    # End of current command. Report its status.
+    builtin printf "\e]133;D;%s;aid=%s\a" "$ret" "$BASHPID"
+  fi
+
+  # unfortunately bash provides no hooks to detect cwd changes
+  # in particular this means cwd reporting will not happen for a
+  # command like cd /test && cat. PS0 is evaluated before cd is run.
+  if [[ "$_ghostty_last_reported_cwd" != "$PWD" ]]; then
+    _ghostty_last_reported_cwd="$PWD"
+    builtin printf "\e]7;kitty-shell-cwd://%s%s\a" "$HOSTNAME" "$PWD"
+  fi
+
+  # Fresh line and start of prompt.
+  builtin printf "\e]133;A;aid=%s\a" "$BASHPID"
+  _ghostty_executing=0
 }
 
 function __ghostty_preexec() {
-    builtin local cmd="$1"
+  builtin local cmd="$1"
 
-    PS0="$_GHOSTTY_SAVE_PS0"
-    PS1="$_GHOSTTY_SAVE_PS1"
-    PS2="$_GHOSTTY_SAVE_PS2"
+  PS0="$_GHOSTTY_SAVE_PS0"
+  PS1="$_GHOSTTY_SAVE_PS1"
+  PS2="$_GHOSTTY_SAVE_PS2"
 
-    # Title (current command)
-    if [[ -n $cmd && "$GHOSTTY_SHELL_FEATURES" == *"title"* ]]; then
-      builtin printf "\e]2;%s\a" "${cmd//[[:cntrl:]]}"
-    fi
+  # Title (current command)
+  if [[ -n $cmd && "$GHOSTTY_SHELL_FEATURES" == *"title"* ]]; then
+    builtin printf "\e]2;%s\a" "${cmd//[[:cntrl:]]/}"
+  fi
 
-    # End of input, start of output.
-    builtin printf "\e]133;C;\a"
-    _ghostty_executing=1
+  # End of input, start of output.
+  builtin printf "\e]133;C;\a"
+  _ghostty_executing=1
 }
 
 preexec_functions+=(__ghostty_preexec)

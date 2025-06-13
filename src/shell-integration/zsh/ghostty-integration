@@ -243,6 +243,87 @@ _ghostty_deferred_init() {
         fi
       }
     fi
+    
+    # SSH
+    if [[ -n "$GHOSTTY_SSH_INTEGRATION" && "$GHOSTTY_SSH_INTEGRATION" != "off" ]]; then
+      # Wrap `ssh` command to provide Ghostty SSH integration
+      ssh() {
+        case "$GHOSTTY_SSH_INTEGRATION" in
+          "term_only")
+            _ghostty_ssh_term_only "$@"
+            ;;
+          "basic")
+            _ghostty_ssh_basic "$@"
+            ;;
+          "full")
+            _ghostty_ssh_full "$@"
+            ;;
+          *)
+            # Unknown level, fall back to basic
+            _ghostty_ssh_basic "$@"
+            ;;
+        esac
+      }
+
+      # Level: term_only - Just fix TERM compatibility
+      _ghostty_ssh_term_only() {
+        if [[ "$TERM" == "xterm-ghostty" ]]; then
+          TERM=xterm-256color builtin command ssh "$@"
+        else
+          builtin command ssh "$@"
+        fi
+      }
+
+      # Level: basic - TERM fix + environment variable propagation
+      _ghostty_ssh_basic() {
+        # Fix TERM compatibility and propagate key environment variables
+        if [[ "$TERM" == "xterm-ghostty" ]]; then
+          TERM=xterm-256color \
+          GHOSTTY_SHELL_FEATURES="${GHOSTTY_SHELL_FEATURES}" \
+          GHOSTTY_RESOURCES_DIR="${GHOSTTY_RESOURCES_DIR}" \
+          builtin command ssh "$@"
+        else
+          GHOSTTY_SHELL_FEATURES="${GHOSTTY_SHELL_FEATURES}" \
+          GHOSTTY_RESOURCES_DIR="${GHOSTTY_RESOURCES_DIR}" \
+          builtin command ssh "$@"
+        fi
+      }
+
+      # Level: full - All features
+      _ghostty_ssh_full() {
+          # Full integration: Two-step terminfo installation
+          if command -v infocmp >/dev/null 2>&1; then
+              echo "Installing Ghostty terminfo on remote host..." >&2
+              
+              # Step 1: Install terminfo using the same approach that works manually
+              # This requires authentication but is quick and reliable
+              if infocmp -x xterm-ghostty 2>/dev/null | command ssh "$@" 'mkdir -p ~/.terminfo/x 2>/dev/null && tic -x -o ~/.terminfo /dev/stdin 2>/dev/null'; then
+                  echo "Terminfo installed successfully. Connecting with full Ghostty support..." >&2
+                  
+                  # Step 2: Connect with xterm-ghostty since we know terminfo is now available
+                  local env_vars=()
+                  
+                  # Use xterm-ghostty since we just installed it
+                  env_vars+=("TERM=xterm-ghostty")
+                  
+                  # Propagate Ghostty shell integration environment variables
+                  [[ -n "$GHOSTTY_SHELL_INTEGRATION_NO_CURSOR" ]] && env_vars+=("GHOSTTY_SHELL_INTEGRATION_NO_CURSOR=$GHOSTTY_SHELL_INTEGRATION_NO_CURSOR")
+                  [[ -n "$GHOSTTY_SHELL_INTEGRATION_NO_SUDO" ]] && env_vars+=("GHOSTTY_SHELL_INTEGRATION_NO_SUDO=$GHOSTTY_SHELL_INTEGRATION_NO_SUDO")
+                  [[ -n "$GHOSTTY_SHELL_INTEGRATION_NO_TITLE" ]] && env_vars+=("GHOSTTY_SHELL_INTEGRATION_NO_TITLE=$GHOSTTY_SHELL_INTEGRATION_NO_TITLE")
+                  
+                  # Normal SSH connection with Ghostty terminfo available
+                  env "${env_vars[@]}" ssh "$@"
+                  return 0
+              else
+                  echo "Terminfo installation failed. Using basic integration." >&2
+              fi
+          fi
+          
+          # Fallback to basic integration
+          _ghostty_ssh_basic "$@"
+      }
+
+    fi
 
     # Some zsh users manually run `source ~/.zshrc` in order to apply rc file
     # changes to the current shell. This is a terrible practice that breaks many

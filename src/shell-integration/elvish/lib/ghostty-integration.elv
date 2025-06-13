@@ -98,6 +98,107 @@
     (external sudo) $@args
   }
 
+  fn ssh-with-ghostty-integration {|@args|
+    if (and (has-env GHOSTTY_SSH_INTEGRATION) (not-eq "" $E:GHOSTTY_SSH_INTEGRATION) (not-eq "off" $E:GHOSTTY_SSH_INTEGRATION)) {
+      if (eq "term_only" $E:GHOSTTY_SSH_INTEGRATION) {
+        ssh-term-only $@args
+      } elif (eq "basic" $E:GHOSTTY_SSH_INTEGRATION) {
+        ssh-basic $@args  
+      } elif (eq "full" $E:GHOSTTY_SSH_INTEGRATION) {
+        ssh-full $@args
+      } else {
+        # Unknown level, fall back to basic
+        ssh-basic $@args
+      }
+    } else {
+      (external ssh) $@args
+    }
+  }
+
+  fn ssh-term-only {|@args|
+    # Level: term_only - Just fix TERM compatibility
+    if (eq "xterm-ghostty" $E:TERM) {
+      TERM=xterm-256color (external ssh) $@args
+    } else {
+      (external ssh) $@args
+    }
+  }
+
+  fn ssh-basic {|@args|
+    # Level: basic - TERM fix + environment variable propagation
+    var env-vars = []
+    
+    # Fix TERM compatibility
+    if (eq "xterm-ghostty" $E:TERM) {
+      set env-vars = [$@env-vars TERM=xterm-256color]
+    }
+    
+    # Propagate Ghostty shell integration environment variables
+    if (has-env GHOSTTY_SHELL_FEATURES) {
+      if (not-eq "" $E:GHOSTTY_SHELL_FEATURES) {
+        set env-vars = [$@env-vars GHOSTTY_SHELL_FEATURES=$E:GHOSTTY_SHELL_FEATURES]
+      }
+    }
+    
+    if (has-env GHOSTTY_RESOURCES_DIR) {
+      if (not-eq "" $E:GHOSTTY_RESOURCES_DIR) {
+        set env-vars = [$@env-vars GHOSTTY_RESOURCES_DIR=$E:GHOSTTY_RESOURCES_DIR]
+      }
+    }
+    
+    # Execute with environment variables if any were set
+    if (> (count $env-vars) 0) {
+      (external env) $@env-vars ssh $@args
+    } else {
+      (external ssh) $@args
+    }
+  }
+
+  fn ghostty-ssh-full {|@args|
+      # Full integration: Two-step terminfo installation
+      if (has-external infocmp) {
+          echo "Installing Ghostty terminfo on remote host..." >&2
+          
+          # Step 1: Install terminfo using the same approach that works manually
+          # This requires authentication but is quick and reliable
+          try {
+              infocmp -x xterm-ghostty 2>/dev/null | command ssh $@args 'mkdir -p ~/.terminfo/x 2>/dev/null && tic -x -o ~/.terminfo /dev/stdin 2>/dev/null'
+              echo "Terminfo installed successfully. Connecting with full Ghostty support..." >&2
+              
+              # Step 2: Connect with xterm-ghostty since we know terminfo is now available
+              var env-vars = []
+              
+              # Use xterm-ghostty since we just installed it
+              set env-vars = [$@env-vars TERM=xterm-ghostty]
+              
+              # Propagate Ghostty shell integration environment variables
+              if (has-env GHOSTTY_SHELL_INTEGRATION_NO_CURSOR) {
+                  set env-vars = [$@env-vars GHOSTTY_SHELL_INTEGRATION_NO_CURSOR=$E:GHOSTTY_SHELL_INTEGRATION_NO_CURSOR]
+              }
+              if (has-env GHOSTTY_SHELL_INTEGRATION_NO_SUDO) {
+                  set env-vars = [$@env-vars GHOSTTY_SHELL_INTEGRATION_NO_SUDO=$E:GHOSTTY_SHELL_INTEGRATION_NO_SUDO]
+              }
+              if (has-env GHOSTTY_SHELL_INTEGRATION_NO_TITLE) {
+                  set env-vars = [$@env-vars GHOSTTY_SHELL_INTEGRATION_NO_TITLE=$E:GHOSTTY_SHELL_INTEGRATION_NO_TITLE]
+              }
+              
+              # Normal SSH connection with Ghostty terminfo available
+              env $@env-vars ssh $@args
+              return
+          } catch e {
+              echo "Terminfo installation failed. Using basic integration." >&2
+          }
+      }
+      
+      # Fallback to basic integration
+      ghostty-ssh-basic $@args
+  }
+
+  # Register SSH integration if enabled
+  if (and (has-env GHOSTTY_SSH_INTEGRATION) (not-eq "" $E:GHOSTTY_SSH_INTEGRATION) (not-eq "off" $E:GHOSTTY_SSH_INTEGRATION) (has-external ssh)) {
+    edit:add-var ssh~ $ssh-with-ghostty-integration~
+  }
+
   defer {
     mark-prompt-start
     report-pwd

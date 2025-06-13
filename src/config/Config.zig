@@ -1927,6 +1927,15 @@ keybind: Keybinds = .{},
 /// Example: `cursor`, `no-cursor`, `sudo`, `no-sudo`, `title`, `no-title`
 @"shell-integration-features": ShellIntegrationFeatures = .{},
 
+/// SSH integration level. This controls what level of SSH integration
+/// is performed when using the ssh wrapper provided by shell integration.
+/// Requires shell integration to be enabled to function.
+///
+/// See SSHIntegration for available options.
+///
+/// The default value is `off`.
+@"ssh-integration": SSHIntegration = .off,
+
 /// Sets the reporting format for OSC sequences that request color information.
 /// Ghostty currently supports OSC 10 (foreground), OSC 11 (background), and
 /// OSC 4 (256 color palette) queries, and by default the reported values
@@ -5880,6 +5889,35 @@ pub const ShellIntegrationFeatures = packed struct {
     cursor: bool = true,
     sudo: bool = false,
     title: bool = true,
+};
+
+/// SSH integration levels for shell integration.
+/// Controls how much SSH integration is performed when connecting to remote hosts.
+///
+/// Allowable values are:
+///
+///   * `off` - No SSH integration, use standard ssh command
+///
+///   * `term_only` - Only fix TERM compatibility (xterm-ghostty -> xterm-256color)
+///
+///   * `basic` - TERM fix + environment variable propagation
+///
+///   * `full` - All features: TERM fix + env vars + terminfo installation + shell integration injection
+///
+/// The default value is `off`.
+pub const SSHIntegration = enum {
+    off,
+    term_only,
+    basic,
+    full,
+
+    pub fn jsonStringify(
+        self: SSHIntegration,
+        options: std.json.StringifyOptions,
+        writer: anytype,
+    ) !void {
+        try std.json.stringify(@tagName(self), options, writer);
+    }
 };
 
 /// OSC 4, 10, 11, and 12 default color reporting format.

@@ -31,6 +31,7 @@ pub const RepeatableString = Config.RepeatableString;
 pub const RepeatableStringMap = @import("config/RepeatableStringMap.zig");
 pub const RepeatablePath = Config.RepeatablePath;
 pub const ShellIntegrationFeatures = Config.ShellIntegrationFeatures;
+pub const SSHIntegration = Config.SSHIntegration;
 pub const WindowPaddingColor = Config.WindowPaddingColor;
 
 // Alternate APIs

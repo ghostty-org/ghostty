@@ -733,6 +733,7 @@ pub const Config = struct {
     env_override: configpkg.RepeatableStringMap = .{},
     shell_integration: configpkg.Config.ShellIntegration = .detect,
     shell_integration_features: configpkg.Config.ShellIntegrationFeatures = .{},
+    ssh_integration: configpkg.SSHIntegration,
     working_directory: ?[]const u8 = null,
     resources_dir: ?[]const u8,
     term: []const u8,
@@ -937,6 +938,7 @@ const Subprocess = struct {
                 &env,
                 force,
                 cfg.shell_integration_features,
+                cfg.ssh_integration,
             ) orelse {
                 log.warn("shell could not be detected, no automatic shell integration will be injected", .{});
                 break :shell default_shell_command;

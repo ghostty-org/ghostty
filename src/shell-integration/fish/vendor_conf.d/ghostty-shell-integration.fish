@@ -63,14 +63,14 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
 
     # When using sudo shell integration feature, ensure $TERMINFO is set
     # and `sudo` is not already a function or alias
-    if contains sudo $features; and test -n "$TERMINFO"; and test "file" = (type -t sudo 2> /dev/null; or echo "x")
+    if contains sudo $features; and test -n "$TERMINFO"; and test file = (type -t sudo 2> /dev/null; or echo "x")
         # Wrap `sudo` command to ensure Ghostty terminfo is preserved
         function sudo -d "Wrap sudo to preserve terminfo"
-            set --function sudo_has_sudoedit_flags "no"
+            set --function sudo_has_sudoedit_flags no
             for arg in $argv
                 # Check if argument is '-e' or '--edit' (sudoedit flags)
-                if string match -q -- "-e" "$arg"; or string match -q -- "--edit" "$arg"
-                    set --function sudo_has_sudoedit_flags "yes"
+                if string match -q -- -e "$arg"; or string match -q -- --edit "$arg"
+                    set --function sudo_has_sudoedit_flags yes
                     break
                 end
                 # Check if argument is neither an option nor a key-value pair
@@ -78,11 +78,104 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
                     break
                 end
             end
-            if test "$sudo_has_sudoedit_flags" = "yes"
+            if test "$sudo_has_sudoedit_flags" = yes
                 command sudo $argv
             else
                 command sudo TERMINFO="$TERMINFO" $argv
             end
+        end
+    end
+
+    # SSH integration wrapper
+    if test -n "$GHOSTTY_SSH_INTEGRATION"; and test "$GHOSTTY_SSH_INTEGRATION" != off
+        function ssh -d "Wrap ssh to provide Ghostty SSH integration"
+            switch "$GHOSTTY_SSH_INTEGRATION"
+                case term_only
+                    _ghostty_ssh_term_only $argv
+                case basic
+                    _ghostty_ssh_basic $argv
+                case full
+                    _ghostty_ssh_full $argv
+                case "*"
+                    # Unknown level, fall back to basic
+                    _ghostty_ssh_basic $argv
+            end
+        end
+
+        # Level: term_only - Just fix TERM compatibility
+        function _ghostty_ssh_term_only -d "SSH with TERM compatibility fix"
+            if test "$TERM" = xterm-ghostty
+                TERM=xterm-256color command ssh $argv
+            else
+                command ssh $argv
+            end
+        end
+
+        # Level: basic - TERM fix + environment variable propagation
+        function _ghostty_ssh_basic -d "SSH with TERM fix and environment propagation"
+            # Build environment variables to propagate
+            set --local env_vars
+
+            # Fix TERM compatibility
+            if test "$TERM" = xterm-ghostty
+                set env_vars $env_vars TERM=xterm-256color
+            end
+
+            # Propagate Ghostty shell integration environment variables
+            if test -n "$GHOSTTY_SHELL_FEATURES"
+                set env_vars $env_vars GHOSTTY_SHELL_FEATURES="$GHOSTTY_SHELL_FEATURES"
+            end
+
+            if test -n "$GHOSTTY_RESOURCES_DIR"
+                set env_vars $env_vars GHOSTTY_RESOURCES_DIR="$GHOSTTY_RESOURCES_DIR"
+            end
+
+            # Execute with environment variables if any were set
+            if test (count $env_vars) -gt 0
+                env $env_vars ssh $argv
+            else
+                command ssh $argv
+            end
+        end
+
+        # Level: full - All features
+        function _ghostty_ssh_full
+            # Full integration: Two-step terminfo installation
+            if command -v infocmp >/dev/null 2>&1
+                echo "Installing Ghostty terminfo on remote host..." >&2
+                
+                # Step 1: Install terminfo using the same approach that works manually
+                # This requires authentication but is quick and reliable
+                if infocmp -x xterm-ghostty 2>/dev/null | command ssh $argv 'mkdir -p ~/.terminfo/x 2>/dev/null && tic -x -o ~/.terminfo /dev/stdin 2>/dev/null'
+                    echo "Terminfo installed successfully. Connecting with full Ghostty support..." >&2
+                    
+                    # Step 2: Connect with xterm-ghostty since we know terminfo is now available
+                    set -l env_vars
+                    
+                    # Use xterm-ghostty since we just installed it
+                    set -a env_vars TERM=xterm-ghostty
+                    
+                    # Propagate Ghostty shell integration environment variables
+                    if set -q GHOSTTY_SHELL_INTEGRATION_NO_CURSOR
+                        set -a env_vars GHOSTTY_SHELL_INTEGRATION_NO_CURSOR=$GHOSTTY_SHELL_INTEGRATION_NO_CURSOR
+                    end
+                    if set -q GHOSTTY_SHELL_INTEGRATION_NO_SUDO
+                        set -a env_vars GHOSTTY_SHELL_INTEGRATION_NO_SUDO=$GHOSTTY_SHELL_INTEGRATION_NO_SUDO
+                    end
+                    if set -q GHOSTTY_SHELL_INTEGRATION_NO_TITLE
+                        set -a env_vars GHOSTTY_SHELL_INTEGRATION_NO_TITLE=$GHOSTTY_SHELL_INTEGRATION_NO_TITLE
+                    end
+                    
+                    # Normal SSH connection with Ghostty terminfo available
+                    env $env_vars ssh $argv
+                    return 0
+                else
+                    echo "Terminfo installation failed. Using basic integration." >&2
+                end
+            end
+            
+            # Fallback to basic integration
+            _ghostty_ssh_basic $argv
         end
     end
 

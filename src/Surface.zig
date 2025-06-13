@@ -544,6 +544,7 @@ pub fn init(
             .env_override = config.env,
             .shell_integration = config.@"shell-integration",
             .shell_integration_features = config.@"shell-integration-features",
+            .ssh_integration = config.@"ssh-integration",
             .working_directory = config.@"working-directory",
             .resources_dir = global_state.resources_dir,
             .term = config.term,
