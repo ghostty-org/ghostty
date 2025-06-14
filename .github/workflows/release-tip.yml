@@ -154,7 +154,7 @@ jobs:
         )
       }}
 
-    runs-on: namespace-profile-ghostty-macos
+    runs-on: namespace-profile-ghostty-macos-sequoia
     timeout-minutes: 90
     steps:
       - name: Checkout code
@@ -173,7 +173,7 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: XCode Select
-        run: sudo xcode-select -s /Applications/Xcode_16.0.app
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app
 
       # Setup Sparkle
       - name: Setup Sparkle
@@ -369,7 +369,7 @@ jobs:
         )
       }}
 
-    runs-on: namespace-profile-ghostty-macos
+    runs-on: namespace-profile-ghostty-macos-sequoia
     timeout-minutes: 90
     steps:
       - name: Checkout code
@@ -388,7 +388,7 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: XCode Select
-        run: sudo xcode-select -s /Applications/Xcode_16.0.app
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app
 
       # Setup Sparkle
       - name: Setup Sparkle
@@ -544,7 +544,7 @@ jobs:
         )
       }}
 
-    runs-on: namespace-profile-ghostty-macos
+    runs-on: namespace-profile-ghostty-macos-sequoia
     timeout-minutes: 90
     steps:
       - name: Checkout code
@@ -563,7 +563,7 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: XCode Select
-        run: sudo xcode-select -s /Applications/Xcode_16.0.app
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app
 
       # Setup Sparkle
       - name: Setup Sparkle
