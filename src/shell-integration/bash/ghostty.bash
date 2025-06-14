@@ -111,8 +111,8 @@ if [[ -n "$GHOSTTY_SSH_INTEGRATION" && "$GHOSTTY_SSH_INTEGRATION" != "off" ]]; t
   # will take precedence over this function, and it won't be wrapped.
   function ssh {
     case "$GHOSTTY_SSH_INTEGRATION" in
-    "term_only")
-      _ghostty_ssh_term_only "$@"
+    "term-only")
+      _ghostty_ssh_term-only "$@"
       ;;
     "basic")
       _ghostty_ssh_basic "$@"
@@ -127,8 +127,8 @@ if [[ -n "$GHOSTTY_SSH_INTEGRATION" && "$GHOSTTY_SSH_INTEGRATION" != "off" ]]; t
     esac
   }
 
-  # Level: term_only - Just fix TERM compatibility
-  _ghostty_ssh_term_only() {
+  # Level: term-only - Just fix TERM compatibility
+  _ghostty_ssh_term-only() {
     if [[ "$TERM" == "xterm-ghostty" ]]; then
       TERM=xterm-256color command ssh "$@"
     else

@@ -90,8 +90,8 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
     if test -n "$GHOSTTY_SSH_INTEGRATION"; and test "$GHOSTTY_SSH_INTEGRATION" != off
         function ssh -d "Wrap ssh to provide Ghostty SSH integration"
             switch "$GHOSTTY_SSH_INTEGRATION"
-                case term_only
-                    _ghostty_ssh_term_only $argv
+                case term-only
+                    _ghostty_ssh_term-only $argv
                 case basic
                     _ghostty_ssh_basic $argv
                 case full
@@ -102,8 +102,8 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
             end
         end
 
-        # Level: term_only - Just fix TERM compatibility
-        function _ghostty_ssh_term_only -d "SSH with TERM compatibility fix"
+        # Level: term-only - Just fix TERM compatibility
+        function _ghostty_ssh_term-only -d "SSH with TERM compatibility fix"
             if test "$TERM" = xterm-ghostty
                 TERM=xterm-256color command ssh $argv
             else
@@ -143,18 +143,18 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
             # Full integration: Two-step terminfo installation
             if command -v infocmp >/dev/null 2>&1
                 echo "Installing Ghostty terminfo on remote host..." >&2
-                
+
                 # Step 1: Install terminfo using the same approach that works manually
                 # This requires authentication but is quick and reliable
                 if infocmp -x xterm-ghostty 2>/dev/null | command ssh $argv 'mkdir -p ~/.terminfo/x 2>/dev/null && tic -x -o ~/.terminfo /dev/stdin 2>/dev/null'
                     echo "Terminfo installed successfully. Connecting with full Ghostty support..." >&2
-                    
+
                     # Step 2: Connect with xterm-ghostty since we know terminfo is now available
                     set -l env_vars
-                    
+
                     # Use xterm-ghostty since we just installed it
                     set -a env_vars TERM=xterm-ghostty
-                    
+
                     # Propagate Ghostty shell integration environment variables
                     if set -q GHOSTTY_SHELL_INTEGRATION_NO_CURSOR
                         set -a env_vars GHOSTTY_SHELL_INTEGRATION_NO_CURSOR=$GHOSTTY_SHELL_INTEGRATION_NO_CURSOR
@@ -165,7 +165,7 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
                     if set -q GHOSTTY_SHELL_INTEGRATION_NO_TITLE
                         set -a env_vars GHOSTTY_SHELL_INTEGRATION_NO_TITLE=$GHOSTTY_SHELL_INTEGRATION_NO_TITLE
                     end
-                    
+
                     # Normal SSH connection with Ghostty terminfo available
                     env $env_vars ssh $argv
                     return 0
@@ -173,7 +173,7 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
                     echo "Terminfo installation failed. Using basic integration." >&2
                 end
             end
-            
+
             # Fallback to basic integration
             _ghostty_ssh_basic $argv
         end

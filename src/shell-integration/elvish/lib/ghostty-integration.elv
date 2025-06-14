@@ -100,7 +100,7 @@
 
   fn ssh-with-ghostty-integration {|@args|
     if (and (has-env GHOSTTY_SSH_INTEGRATION) (not-eq "" $E:GHOSTTY_SSH_INTEGRATION) (not-eq "off" $E:GHOSTTY_SSH_INTEGRATION)) {
-      if (eq "term_only" $E:GHOSTTY_SSH_INTEGRATION) {
+      if (eq "term-only" $E:GHOSTTY_SSH_INTEGRATION) {
         ssh-term-only $@args
       } elif (eq "basic" $E:GHOSTTY_SSH_INTEGRATION) {
         ssh-basic $@args  
@@ -116,7 +116,7 @@
   }
 
   fn ssh-term-only {|@args|
-    # Level: term_only - Just fix TERM compatibility
+    # Level: term-only - Just fix TERM compatibility
     if (eq "xterm-ghostty" $E:TERM) {
       TERM=xterm-256color (external ssh) $@args
     } else {

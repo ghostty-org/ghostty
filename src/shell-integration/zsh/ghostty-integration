@@ -249,8 +249,8 @@ _ghostty_deferred_init() {
       # Wrap `ssh` command to provide Ghostty SSH integration
       ssh() {
         case "$GHOSTTY_SSH_INTEGRATION" in
-          "term_only")
-            _ghostty_ssh_term_only "$@"
+          "term-only")
+            _ghostty_ssh_term-only "$@"
             ;;
           "basic")
             _ghostty_ssh_basic "$@"
@@ -265,8 +265,8 @@ _ghostty_deferred_init() {
         esac
       }
 
-      # Level: term_only - Just fix TERM compatibility
-      _ghostty_ssh_term_only() {
+      # Level: term-only - Just fix TERM compatibility
+      _ghostty_ssh_term-only() {
         if [[ "$TERM" == "xterm-ghostty" ]]; then
           TERM=xterm-256color builtin command ssh "$@"
         else
