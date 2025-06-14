@@ -1927,11 +1927,18 @@ keybind: Keybinds = .{},
 /// Example: `cursor`, `no-cursor`, `sudo`, `no-sudo`, `title`, `no-title`
 @"shell-integration-features": ShellIntegrationFeatures = .{},
 
-/// SSH integration level. This controls what level of SSH integration
-/// is performed when using the ssh wrapper provided by shell integration.
-/// Requires shell integration to be enabled to function.
+/// SSH integration levels for shell integration.
+/// Controls how much SSH integration is performed when connecting to remote hosts.
 ///
-/// See SSHIntegration for available options.
+/// Allowable values are:
+///
+///   * `off` - No SSH integration, use standard ssh command
+///
+///   * `term-only` - Only fix TERM compatibility (xterm-ghostty -> xterm-256color)
+///
+///   * `basic` - TERM fix + environment variable propagation
+///
+///   * `full` - All features: TERM fix + env vars + terminfo installation
 ///
 /// The default value is `off`.
 @"ssh-integration": SSHIntegration = .off,
