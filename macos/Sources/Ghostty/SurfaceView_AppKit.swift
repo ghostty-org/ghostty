@@ -676,6 +676,23 @@ extension Ghostty {
         override func updateLayer() {
             guard let surface = self.surface else { return }
             ghostty_surface_draw(surface);
+            
+            // Notify accessibility of potential content changes
+            // We do this on a throttled basis to avoid overwhelming the accessibility system
+            throttledAccessibilityUpdate()
+        }
+        
+        private var lastAccessibilityUpdateTime: TimeInterval = 0
+        private let accessibilityUpdateInterval: TimeInterval = 0.5 // Update at most twice per second
+        
+        private func throttledAccessibilityUpdate() {
+            let currentTime = CACurrentMediaTime()
+            if currentTime - lastAccessibilityUpdateTime >= accessibilityUpdateInterval {
+                lastAccessibilityUpdateTime = currentTime
+                DispatchQueue.main.async { [weak self] in
+                    self?.notifyAccessibilityContentChanged()
+                }
+            }
         }
 
         override func mouseDown(with event: NSEvent) {
@@ -1772,6 +1789,211 @@ extension Ghostty.SurfaceView: NSMenuItemValidation {
         default:
             return true
         }
+    }
+}
+
+// MARK: - NSAccessibility
+
+extension Ghostty.SurfaceView {
+    // MARK: Accessibility Cache
+    
+    private struct AccessibilityCache {
+        let text: String
+        let lines: [String]
+        let timestamp: CFTimeInterval
+        
+        init(text: String) {
+            self.text = text
+            self.lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+            self.timestamp = CACurrentMediaTime()
+        }
+        
+        var isValid: Bool {
+            // Cache for 100ms to avoid recomputing during burst accessibility queries
+            return CACurrentMediaTime() - timestamp < 0.1
+        }
+    }
+    
+    private static var accessibilityCache: AccessibilityCache?
+    private static var accessibilityNotificationWorkItem: DispatchWorkItem?
+    
+    // MARK: Core Accessibility Properties
+    
+    override func isAccessibilityElement() -> Bool {
+        return true
+    }
+    
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        return .textArea
+    }
+    
+    override func accessibilityRoleDescription() -> String? {
+        return NSAccessibility.Role.textArea.description(with: nil)
+    }
+    
+    
+    override func accessibilityValue() -> Any? {
+        return getAccessibilityCache().text
+    }
+    
+    override func accessibilityLabel() -> String? {
+        return "Terminal"
+    }
+    
+    override func isAccessibilityFocused() -> Bool {
+        return self.focused
+    }
+    
+    // MARK: Selection Support
+    
+    override func accessibilitySelectedText() -> String? {
+        guard let surface = self.surface else { return nil }
+        guard ghostty_surface_has_selection(surface) else { return nil }
+        
+        // Get the selection text with safe buffer size
+        let bufferSize = min(1_000_000, Int.max / 4) // Ensure we don't overflow
+        let buffer = UnsafeMutablePointer<CChar>.allocate(capacity: bufferSize)
+        defer { buffer.deallocate() }
+        
+        let length = ghostty_surface_selection(surface, buffer, UInt(bufferSize))
+        guard length > 0 else { return nil }
+        
+        return String(validatingUTF8: buffer) ?? ""
+    }
+    
+    override func accessibilitySelectedTextRange() -> NSRange {
+        guard let surface = self.surface else { return NSRange() }
+        
+        var sel = ghostty_selection_s(
+            tl_px_x: 0.0,
+            tl_px_y: 0.0, 
+            offset_start: 0,
+            offset_len: 0
+        )
+        guard ghostty_surface_selection_info(surface, &sel) else { return NSRange() }
+        
+        return NSRange(location: Int(sel.offset_start), length: Int(sel.offset_len))
+    }
+    
+    // MARK: Text Navigation (Cached)
+    
+    override func accessibilityNumberOfCharacters() -> Int {
+        return getAccessibilityCache().text.count
+    }
+    
+    override func accessibilityString(for range: NSRange) -> String? {
+        let cache = getAccessibilityCache()
+        guard let stringRange = Range(range, in: cache.text) else { return nil }
+        return String(cache.text[stringRange])
+    }
+    
+    override func accessibilityLine(for index: Int) -> Int {
+        let cache = getAccessibilityCache()
+        guard index >= 0 else { return 0 }
+        
+        var currentIndex = 0
+        for (lineIndex, line) in cache.lines.enumerated() {
+            let lineLength = line.count + 1 // +1 for newline character
+            if currentIndex + lineLength > index {
+                return lineIndex
+            }
+            currentIndex += lineLength
+        }
+        
+        return max(0, cache.lines.count - 1)
+    }
+    
+    override func accessibilityRange(forLine line: Int) -> NSRange {
+        let cache = getAccessibilityCache()
+        guard line >= 0 && line < cache.lines.count else { return NSRange() }
+        
+        var startIndex = 0
+        for i in 0..<line {
+            startIndex += cache.lines[i].count + 1 // +1 for newline
+        }
+        
+        let lineLength = cache.lines[line].count
+        return NSRange(location: startIndex, length: lineLength)
+    }
+    
+    // MARK: Actions
+    
+    override func accessibilityPerformPress() -> Bool {
+        // Focus the terminal when pressed
+        self.window?.makeFirstResponder(self)
+        return true
+    }
+    
+    // MARK: Custom Attributes
+    
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        switch attribute {
+        case .help:
+            return "Terminal content area. Use VoiceOver navigation to read terminal output."
+        case .title:
+            // Try to get window title from the surface if available
+            if let surface = self.surface,
+               let title = ghostty_surface_inherited_config(surface).font_size != 0 ? nil : "Ghostty Terminal" {
+                return title
+            }
+            return "Ghostty Terminal"
+        default:
+            return super.accessibilityAttributeValue(attribute)
+        }
+    }
+    
+    // MARK: Private Helpers
+    
+    private func getAccessibilityCache() -> AccessibilityCache {
+        // Return cached value if still valid
+        if let cache = Self.accessibilityCache, cache.isValid {
+            return cache
+        }
+        
+        // Generate fresh content
+        let freshText = generateAccessibilityText()
+        let newCache = AccessibilityCache(text: freshText)
+        Self.accessibilityCache = newCache
+        return newCache
+    }
+    
+    private func generateAccessibilityText() -> String {
+        guard let surface = self.surface else { return "" }
+        
+        // Use a reasonable buffer size with safety bounds
+        let bufferSize = min(1_048_576, Int.max / 4) // 1MB max, avoid integer overflow
+        let buffer = UnsafeMutablePointer<CChar>.allocate(capacity: bufferSize)
+        defer { buffer.deallocate() }
+        
+        let length = ghostty_surface_viewport_text(surface, buffer, UInt(bufferSize))
+        guard length > 0 else { return "" }
+        
+        return String(validatingUTF8: buffer) ?? ""
+    }
+    
+    // MARK: Content Change Notifications
+    
+    func invalidateAccessibilityCache() {
+        Self.accessibilityCache = nil
+    }
+    
+    func notifyAccessibilityContentChanged() {
+        // Cancel any pending notification
+        Self.accessibilityNotificationWorkItem?.cancel()
+        
+        // Invalidate cache immediately
+        invalidateAccessibilityCache()
+        
+        // Create new work item for throttled notification
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            NSAccessibility.post(element: self, notification: .valueChanged)
+        }
+        
+        Self.accessibilityNotificationWorkItem = workItem
+        
+        // Post notification after a brief delay to coalesce rapid changes
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: workItem)
     }
 }
 
