@@ -54,7 +54,7 @@ fn createUpdateStep(b: *std.Build) !*std.Build.Step {
         "--keyword=C_:1c,2",
         "--package-name=" ++ domain,
         "--msgid-bugs-address=m@mitchellh.com",
-        "--copyright-holder=Mitchell Hashimoto",
+        "--copyright-holder=\"Mitchell Hashimoto, Ghostty contributors\"",
         "-o",
         "-",
     });

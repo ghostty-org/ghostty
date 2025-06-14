@@ -1,4 +1,8 @@
 extension Array {
+    subscript(safe index: Int) -> Element? {
+        return indices.contains(index) ? self[index] : nil
+    }
+    
     /// Returns the index before i, with wraparound. Assumes i is a valid index.
     func indexWrapping(before i: Int) -> Int {
         if i == 0 {

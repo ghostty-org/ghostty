@@ -12,7 +12,7 @@ paste them into your project.
 the Ghostty project. This license does not apply to the rest of the
 Ghostty project.**
 
-Copyright © 2024 Mitchell Hashimoto
+Copyright © 2024 Mitchell Hashimoto, Ghostty contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the “Software”), to deal in

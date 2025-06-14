@@ -581,6 +581,120 @@ fn draw(self: Box, alloc: Allocator, canvas: *font.sprite.Canvas, cp: u32) !void
         // '▟'
         0x259f => self.draw_quadrant(canvas, .{ .tr = true, .bl = true, .br = true }),
 
+        // '◢'
+        0x25e2 => self.draw_corner_triangle_shade(canvas, .br, .on),
+        // '◣'
+        0x25e3 => self.draw_corner_triangle_shade(canvas, .bl, .on),
+        // '◤'
+        0x25e4 => self.draw_corner_triangle_shade(canvas, .tl, .on),
+        // '◥'
+        0x25e5 => self.draw_corner_triangle_shade(canvas, .tr, .on),
+
+        // '◸'
+        0x25f8 => {
+            const thickness_px = Thickness.light.height(self.metrics.box_thickness);
+            // top edge
+            self.rect(
+                canvas,
+                0,
+                0,
+                self.metrics.cell_width,
+                thickness_px,
+            );
+            // left edge
+            self.rect(
+                canvas,
+                0,
+                0,
+                thickness_px,
+                self.metrics.cell_height -| 1,
+            );
+            // diagonal
+            self.draw_cell_diagonal(
+                canvas,
+                .lower_left,
+                .upper_right,
+            );
+        },
+        // '◹'
+        0x25f9 => {
+            const thickness_px = Thickness.light.height(self.metrics.box_thickness);
+            // top edge
+            self.rect(
+                canvas,
+                0,
+                0,
+                self.metrics.cell_width,
+                thickness_px,
+            );
+            // right edge
+            self.rect(
+                canvas,
+                self.metrics.cell_width -| thickness_px,
+                0,
+                self.metrics.cell_width,
+                self.metrics.cell_height -| 1,
+            );
+            // diagonal
+            self.draw_cell_diagonal(
+                canvas,
+                .upper_left,
+                .lower_right,
+            );
+        },
+        // '◺'
+        0x25fa => {
+            const thickness_px = Thickness.light.height(self.metrics.box_thickness);
+            // bottom edge
+            self.rect(
+                canvas,
+                0,
+                self.metrics.cell_height -| thickness_px,
+                self.metrics.cell_width,
+                self.metrics.cell_height,
+            );
+            // left edge
+            self.rect(
+                canvas,
+                0,
+                1,
+                thickness_px,
+                self.metrics.cell_height,
+            );
+            // diagonal
+            self.draw_cell_diagonal(
+                canvas,
+                .upper_left,
+                .lower_right,
+            );
+        },
+        // '◿'
+        0x25ff => {
+            const thickness_px = Thickness.light.height(self.metrics.box_thickness);
+            // bottom edge
+            self.rect(
+                canvas,
+                0,
+                self.metrics.cell_height -| thickness_px,
+                self.metrics.cell_width,
+                self.metrics.cell_height,
+            );
+            // right edge
+            self.rect(
+                canvas,
+                self.metrics.cell_width -| thickness_px,
+                1,
+                self.metrics.cell_width,
+                self.metrics.cell_height,
+            );
+            // diagonal
+            self.draw_cell_diagonal(
+                canvas,
+                .lower_left,
+                .upper_right,
+            );
+        },
+
         0x2800...0x28ff => self.draw_braille(canvas, cp),
 
         0x1fb00...0x1fb3b => self.draw_sextant(canvas, cp),
@@ -3196,6 +3310,15 @@ fn testRenderAll(self: Box, alloc: Allocator, atlas: *font.Atlas) !void {
             ),
             else => {},
         }
+    }
+
+    // Geometric Shapes: filled and outlined corners
+    for ([_]u21{ '◢', '◣', '◤', '◥', '◸', '◹', '◺', '◿' }) |char| {
+        _ = try self.renderGlyph(
+            alloc,
+            atlas,
+            char,
+        );
     }
 }
 

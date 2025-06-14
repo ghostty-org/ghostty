@@ -1,5 +1,5 @@
 # SOME DESCRIPTIVE TITLE.
-# Copyright (C) YEAR Mitchell Hashimoto
+# Copyright (C) YEAR Mitchell Hashimoto, Ghostty contributors
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
 #

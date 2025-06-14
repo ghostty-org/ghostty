@@ -1,6 +1,6 @@
 # Chinese translations for com.mitchellh.ghostty package
 # com.mitchellh.ghostty 软件包的简体中文翻译.
-# Copyright (C) 2025 Mitchell Hashimoto
+# Copyright (C) 2025 Mitchell Hashimoto, Ghostty contributors
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
 # Leah <hi@pluie.me>, 2025.
 #

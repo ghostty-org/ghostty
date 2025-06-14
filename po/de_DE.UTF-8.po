@@ -1,6 +1,6 @@
 # German translations for com.mitchellh.ghostty package
 # German translation for com.mitchellh.ghostty.
-# Copyright (C) 2025 Mitchell Hashimoto
+# Copyright (C) 2025 Mitchell Hashimoto, Ghostty contributors
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
 # Robin Pfäffle <r@rpfaeffle.com>, 2025.
 #

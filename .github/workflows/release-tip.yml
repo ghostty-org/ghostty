@@ -132,7 +132,7 @@ jobs:
           nix develop -c minisign -S -m ghostty-source.tar.gz -s minisign.key < minisign.password
 
       - name: Update Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.3.2
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -299,7 +299,7 @@ jobs:
 
       # Update Release
       - name: Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.3.2
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -507,7 +507,7 @@ jobs:
 
       # Update Release
       - name: Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.3.2
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -682,7 +682,7 @@ jobs:
 
       # Update Release
       - name: Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.3.2
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true

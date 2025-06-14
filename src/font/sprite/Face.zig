@@ -190,6 +190,11 @@ const Kind = enum {
             // ▀ ▁ ▂ ▃ ▄ ▅ ▆ ▇ █ ▉ ▊ ▋ ▌ ▍ ▎ ▏ ▐ ░ ▒ ▓ ▔ ▕ ▖ ▗ ▘ ▙ ▚ ▛ ▜ ▝ ▞ ▟
             0x2580...0x259F,
 
+            // "Geometric Shapes" block
+            0x25e2...0x25e5, // ◢◣◤◥
+            0x25f8...0x25fa, // ◸◹◺
+            0x25ff, // ◿
+
             // "Braille" block
             0x2800...0x28FF,
 

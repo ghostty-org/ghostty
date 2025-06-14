@@ -1,6 +1,6 @@
 # Japanese translations for com.mitchellh.ghostty package
 # com.mitchellh.ghostty パッケージに対する和訳.
-# Copyright (C) 2025 Mitchell Hashimoto
+# Copyright (C) 2025 Mitchell Hashimoto, Ghostty contributors
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
 # Lon Sagisawa <lon@sagisawa.me>, 2025.
 #
