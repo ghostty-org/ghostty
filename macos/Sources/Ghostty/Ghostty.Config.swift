@@ -250,6 +250,17 @@ extension Ghostty {
             return String(cString: ptr)
         }
 
+        var macosWindowButtons: MacOSWindowButtons {
+            let defaultValue = MacOSWindowButtons.visible
+            guard let config = self.config else { return defaultValue }
+            var v: UnsafePointer<Int8>? = nil
+            let key = "macos-window-buttons"
+            guard ghostty_config_get(config, &v, key, UInt(key.count)) else { return defaultValue }
+            guard let ptr = v else { return defaultValue }
+            let str = String(cString: ptr)
+            return MacOSWindowButtons(rawValue: str) ?? defaultValue
+        }
+
         var macosTitlebarStyle: String {
             let defaultValue = "transparent"
             guard let config = self.config else { return defaultValue }
@@ -495,6 +506,14 @@ extension Ghostty {
             return v;
         }
 
+        var undoTimeout: Duration {
+            guard let config = self.config else { return .seconds(5) }
+            var v: UInt = 0
+            let key = "undo-timeout"
+            _ = ghostty_config_get(config, &v, key, UInt(key.count))
+            return .milliseconds(v)
+        }
+
         var autoUpdate: AutoUpdate? {
             guard let config = self.config else { return nil }
             var v: UnsafePointer<Int8>? = nil
@@ -555,6 +574,9 @@ extension Ghostty.Config {
         let rawValue: CUnsignedInt
 
         static let system = BellFeatures(rawValue: 1 << 0)
+        static let audio = BellFeatures(rawValue: 1 << 1)
+        static let attention = BellFeatures(rawValue: 1 << 2)
+        static let title = BellFeatures(rawValue: 1 << 3)
     }
 
     enum MacHidden : String {

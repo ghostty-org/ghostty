@@ -370,7 +370,7 @@ pub fn wait(self: Command, block: bool) !Exit {
         }
     };
 
-    return Exit.init(res.status);
+    return .init(res.status);
 }
 
 /// Sets command->data to data.

@@ -50,12 +50,12 @@ first: bool = true,
 pub fn init(self: *ResizeOverlay, surface: *Surface, config: *const configpkg.Config) void {
     self.* = .{
         .surface = surface,
-        .config = DerivedConfig.init(config),
+        .config = .init(config),
     };
 }
 
 pub fn updateConfig(self: *ResizeOverlay, config: *const configpkg.Config) void {
-    self.config = DerivedConfig.init(config);
+    self.config = .init(config);
 }
 
 /// De-initialize the ResizeOverlay. This removes any pending idlers/timers that

@@ -26,7 +26,7 @@ pub fn genConfig(writer: anytype, cli: bool) !void {
         \\
     );
 
-    @setEvalBranchQuota(3000);
+    @setEvalBranchQuota(5000);
     inline for (@typeInfo(Config).@"struct".fields) |field| {
         if (field.name[0] == '_') continue;
 
@@ -94,6 +94,7 @@ pub fn genKeybindActions(writer: anytype) !void {
     const info = @typeInfo(KeybindAction);
     std.debug.assert(info == .@"union");
 
+    @setEvalBranchQuota(5000);
     inline for (info.@"union".fields) |field| {
         if (field.name[0] == '_') continue;
 

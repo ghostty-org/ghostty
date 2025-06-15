@@ -60,7 +60,7 @@ pub fn main() !void {
     var args: Args = .{};
     defer args.deinit();
     {
-        var iter = try std.process.argsWithAllocator(alloc);
+        var iter = try cli.args.argsIterator(alloc);
         defer iter.deinit();
         try cli.args.parse(Args, alloc, &args, &iter);
     }

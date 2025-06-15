@@ -155,7 +155,7 @@ pub fn init(
 
     return .{
         .alloc = alloc,
-        .config = DerivedConfig.init(config),
+        .config = .init(config),
         .loop = loop,
         .wakeup = wakeup_h,
         .stop = stop_h,

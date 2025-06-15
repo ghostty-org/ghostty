@@ -44,7 +44,7 @@ const masks = blk: {
 cols: usize = 0,
 
 /// Preallocated tab stops.
-prealloc_stops: [prealloc_count]Unit = [1]Unit{0} ** prealloc_count,
+prealloc_stops: [prealloc_count]Unit = @splat(0),
 
 /// Dynamically expanded stops above prealloc stops.
 dynamic_stops: []Unit = &[0]Unit{},

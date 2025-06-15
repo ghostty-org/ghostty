@@ -37,7 +37,7 @@ collection: Collection,
 
 /// The set of statuses and whether they're enabled or not. This defaults
 /// to true. This can be changed at runtime with no ill effect.
-styles: StyleStatus = StyleStatus.initFill(true),
+styles: StyleStatus = .initFill(true),
 
 /// If discovery is available, we'll look up fonts where we can't find
 /// the codepoint. This can be set after initialization.
@@ -140,7 +140,7 @@ pub fn getIndex(
     // handle this.
     if (self.sprite) |sprite| {
         if (sprite.hasCodepoint(cp, p)) {
-            return Collection.Index.initSpecial(.sprite);
+            return .initSpecial(.sprite);
         }
     }
 
@@ -388,7 +388,7 @@ test getIndex {
 
     {
         errdefer c.deinit(alloc);
-        _ = try c.add(alloc, .regular, .{ .loaded = try Face.init(
+        _ = try c.add(alloc, .regular, .{ .loaded = try .init(
             lib,
             testFont,
             .{ .size = .{ .points = 12, .xdpi = 96, .ydpi = 96 } },
@@ -398,7 +398,7 @@ test getIndex {
             _ = try c.add(
                 alloc,
                 .regular,
-                .{ .loaded = try Face.init(
+                .{ .loaded = try .init(
                     lib,
                     testEmoji,
                     .{ .size = .{ .points = 12 } },
@@ -408,7 +408,7 @@ test getIndex {
         _ = try c.add(
             alloc,
             .regular,
-            .{ .loaded = try Face.init(
+            .{ .loaded = try .init(
                 lib,
                 testEmojiText,
                 .{ .size = .{ .points = 12 } },
@@ -467,17 +467,17 @@ test "getIndex disabled font style" {
     var c = Collection.init();
     c.load_options = .{ .library = lib };
 
-    _ = try c.add(alloc, .regular, .{ .loaded = try Face.init(
+    _ = try c.add(alloc, .regular, .{ .loaded = try .init(
         lib,
         testFont,
         .{ .size = .{ .points = 12, .xdpi = 96, .ydpi = 96 } },
     ) });
-    _ = try c.add(alloc, .bold, .{ .loaded = try Face.init(
+    _ = try c.add(alloc, .bold, .{ .loaded = try .init(
         lib,
         testFont,
         .{ .size = .{ .points = 12, .xdpi = 96, .ydpi = 96 } },
     ) });
-    _ = try c.add(alloc, .italic, .{ .loaded = try Face.init(
+    _ = try c.add(alloc, .italic, .{ .loaded = try .init(
         lib,
         testFont,
         .{ .size = .{ .points = 12, .xdpi = 96, .ydpi = 96 } },

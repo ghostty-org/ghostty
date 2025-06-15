@@ -21,7 +21,7 @@ pub const Feature = struct {
     pub fn fromString(str: []const u8) ?Feature {
         var fbs = std.io.fixedBufferStream(str);
         const reader = fbs.reader();
-        return Feature.fromReader(reader);
+        return .fromReader(reader);
     }
 
     /// Parse a single font feature setting from a std.io.Reader, with a version
@@ -35,190 +35,156 @@ pub const Feature = struct {
     ///
     /// Ref: https://harfbuzz.github.io/harfbuzz-hb-common.html#hb-feature-from-string
     pub fn fromReader(reader: anytype) ?Feature {
-        var tag: [4]u8 = undefined;
+        var tag_buf: [4]u8 = undefined;
+        var tag: []u8 = tag_buf[0..0];
         var value: ?u32 = null;
 
-        // TODO: when we move to Zig 0.14 this can be replaced with a
-        //       labeled switch continue pattern rather than this loop.
-        var state: union(enum) {
+        state: switch ((enum {
             /// Initial state.
-            start: void,
-            /// Parsing the tag, data is index.
-            tag: u2,
+            start,
+            /// Parsing the tag.
+            tag,
             /// In the space between the tag and the value.
-            space: void,
+            space,
             /// Parsing an integer parameter directly in to `value`.
-            int: void,
+            int,
             /// Parsing a boolean keyword parameter ("on"/"off").
-            bool: void,
+            bool,
             /// Encountered an unrecoverable syntax error, advancing to boundary.
-            err: void,
-            /// Done parsing feature.
-            done: void,
-        } = .start;
-        while (true) {
-            // If we hit the end of the stream we just pretend it's a comma.
-            const byte = reader.readByte() catch ',';
-            switch (state) {
-                // If we're done then we skip whitespace until we see a ','.
-                .done => switch (byte) {
-                    ' ', '\t' => continue,
-                    ',' => break,
-                    // If we see something other than whitespace or a ','
-                    // then this is an error since the intent is unclear.
-                    else => {
-                        state = .err;
-                        continue;
-                    },
+            err,
+            /// Done parsing feature, skip whitespace until end.
+            done,
+        }).start) {
+            // If we're done then we skip whitespace until we see a ','.
+            .done => while (true) switch (reader.readByte() catch ',') {
+                ' ', '\t' => continue,
+                ',' => break,
+                // If we see something other than whitespace or a ','
+                // then this is an error since the intent is unclear.
+                else => continue :state .err,
+            },
+
+            // If we're fast-forwarding from an error we just wanna
+            // stop at the first boundary and ignore all other bytes.
+            .err => {
+                reader.skipUntilDelimiterOrEof(',') catch {};
+                return null;
+            },
+
+            .start => while (true) switch (reader.readByte() catch ',') {
+                // Ignore leading whitespace.
+                ' ', '\t' => continue,
+                // Empty feature string.
+                ',' => return null,
+                // '+' prefix to explicitly enable feature.
+                '+' => {
+                    value = 1;
+                    continue :state .tag;
                 },
+                // '-' prefix to explicitly disable feature.
+                '-' => {
+                    value = 0;
+                    continue :state .tag;
+                },
+                // Quote mark introducing a tag.
+                '"', '\'' => {
+                    continue :state .tag;
+                },
+                // First letter of tag.
+                else => |byte| {
+                    tag.len = 1;
+                    tag[0] = byte;
+                    continue :state .tag;
+                },
+            },
 
-                // If we're fast-forwarding from an error we just wanna
-                // stop at the first boundary and ignore all other bytes.
-                .err => if (byte == ',') return null,
+            .tag => while (true) switch (reader.readByte() catch ',') {
+                // If the tag is interrupted by a comma it's invalid.
+                ',' => return null,
+                // Ignore quote marks. This does technically ignore cases like
+                // "'k'e'r'n' = 0", but it's unambiguous so if someone really
+                // wants to do that in their config then... sure why not.
+                '"', '\'' => continue,
+                // In all other cases we add the byte to our tag.
+                else => |byte| {
+                    tag.len += 1;
+                    tag[tag.len - 1] = byte;
+                    if (tag.len == 4) continue :state .space;
+                },
+            },
 
-                .start => switch (byte) {
-                    // Ignore leading whitespace.
-                    ' ', '\t' => continue,
-                    // Empty feature string.
-                    ',' => return null,
-                    // '+' prefix to explicitly enable feature.
-                    '+' => {
-                        value = 1;
-                        state = .{ .tag = 0 };
-                        continue;
-                    },
-                    // '-' prefix to explicitly disable feature.
-                    '-' => {
+            .space => while (true) switch (reader.readByte() catch ',') {
+                ' ', '\t' => continue,
+                // Ignore quote marks since we might have a
+                // closing quote from the tag still ahead.
+                '"', '\'' => continue,
+                // Allow an '=' (which we can safely ignore)
+                // only if we don't already have a value due
+                // to a '+' or '-' prefix.
+                '=' => if (value != null) continue :state .err,
+                ',' => {
+                    // Specifying only a tag turns a feature on.
+                    if (value == null) value = 1;
+                    break;
+                },
+                '0'...'9' => |byte| {
+                    // If we already have value because of a
+                    // '+' or '-' prefix then this is an error.
+                    if (value != null) continue :state .err;
+                    value = byte - '0';
+                    continue :state .int;
+                },
+                'o', 'O' => {
+                    // If we already have value because of a
+                    // '+' or '-' prefix then this is an error.
+                    if (value != null) continue :state .err;
+                    continue :state .bool;
+                },
+                else => continue :state .err,
+            },
+
+            .int => while (true) switch (reader.readByte() catch ',') {
+                ',' => break,
+                '0'...'9' => |byte| {
+                    // If our value gets too big while
+                    // parsing we consider it an error.
+                    value = std.math.mul(u32, value.?, 10) catch {
+                        continue :state .err;
+                    };
+                    value.? += byte - '0';
+                },
+                else => continue :state .err,
+            },
+
+            .bool => while (true) switch (reader.readByte() catch ',') {
+                ',' => return null,
+                'n', 'N' => {
+                    // "ofn"
+                    if (value != null) {
+                        assert(value == 0);
+                        continue :state .err;
+                    }
+                    value = 1;
+                    continue :state .done;
+                },
+                'f', 'F' => {
+                    // To make sure we consume two 'f's.
+                    if (value == null) {
                         value = 0;
-                        state = .{ .tag = 0 };
-                        continue;
-                    },
-                    // Quote mark introducing a tag.
-                    '"', '\'' => {
-                        state = .{ .tag = 0 };
-                        continue;
-                    },
-                    // First letter of tag.
-                    else => {
-                        tag[0] = byte;
-                        state = .{ .tag = 1 };
-                        continue;
-                    },
+                    } else {
+                        assert(value == 0);
+                        continue :state .done;
+                    }
                 },
-
-                .tag => |*i| switch (byte) {
-                    // If the tag is interrupted by a comma it's invalid.
-                    ',' => return null,
-                    // Ignore quote marks.
-                    '"', '\'' => continue,
-                    // A prefix of '+' or '-'
-                    // In all other cases we add the byte to our tag.
-                    else => {
-                        tag[i.*] = byte;
-                        if (i.* == 3) {
-                            state = .space;
-                            continue;
-                        }
-                        i.* += 1;
-                    },
-                },
-
-                .space => switch (byte) {
-                    ' ', '\t' => continue,
-                    // Ignore quote marks since we might have a
-                    // closing quote from the tag still ahead.
-                    '"', '\'' => continue,
-                    // Allow an '=' (which we can safely ignore)
-                    // only if we don't already have a value due
-                    // to a '+' or '-' prefix.
-                    '=' => if (value != null) {
-                        state = .err;
-                        continue;
-                    },
-                    ',' => {
-                        // Specifying only a tag turns a feature on.
-                        if (value == null) value = 1;
-                        break;
-                    },
-                    '0'...'9' => {
-                        // If we already have value because of a
-                        // '+' or '-' prefix then this is an error.
-                        if (value != null) {
-                            state = .err;
-                            continue;
-                        }
-                        value = byte - '0';
-                        state = .int;
-                        continue;
-                    },
-                    'o', 'O' => {
-                        // If we already have value because of a
-                        // '+' or '-' prefix then this is an error.
-                        if (value != null) {
-                            state = .err;
-                            continue;
-                        }
-                        state = .bool;
-                        continue;
-                    },
-                    else => {
-                        state = .err;
-                        continue;
-                    },
-                },
-
-                .int => switch (byte) {
-                    ',' => break,
-                    '0'...'9' => {
-                        // If our value gets too big while
-                        // parsing we consider it an error.
-                        value = std.math.mul(u32, value.?, 10) catch {
-                            state = .err;
-                            continue;
-                        };
-                        value.? += byte - '0';
-                    },
-                    else => {
-                        state = .err;
-                        continue;
-                    },
-                },
-
-                .bool => switch (byte) {
-                    ',' => return null,
-                    'n', 'N' => {
-                        // "ofn"
-                        if (value != null) {
-                            assert(value == 0);
-                            state = .err;
-                            continue;
-                        }
-                        value = 1;
-                        state = .done;
-                        continue;
-                    },
-                    'f', 'F' => {
-                        // To make sure we consume two 'f's.
-                        if (value == null) {
-                            value = 0;
-                        } else {
-                            assert(value == 0);
-                            state = .done;
-                            continue;
-                        }
-                    },
-                    else => {
-                        state = .err;
-                        continue;
-                    },
-                },
-            }
+                else => continue :state .err,
+            },
         }
 
         assert(value != null);
+        assert(tag.len == 4);
 
         return .{
-            .tag = tag,
+            .tag = tag_buf,
             .value = value.?,
         };
     }

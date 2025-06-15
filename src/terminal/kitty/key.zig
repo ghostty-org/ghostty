@@ -8,7 +8,7 @@ const std = @import("std");
 pub const FlagStack = struct {
     const len = 8;
 
-    flags: [len]Flags = .{Flags{}} ** len,
+    flags: [len]Flags = @splat(.{}),
     idx: u3 = 0,
 
     /// Return the current stack value
@@ -51,7 +51,7 @@ pub const FlagStack = struct {
         // could send a huge number of pop commands to waste cpu.
         if (n >= self.flags.len) {
             self.idx = 0;
-            self.flags = .{Flags{}} ** len;
+            self.flags = @splat(.{});
             return;
         }
 
@@ -82,6 +82,15 @@ pub const Flags = packed struct(u5) {
     report_alternates: bool = false,
     report_all: bool = false,
     report_associated: bool = false,
+
+    /// Sets all modes on.
+    pub const @"true": Flags = .{
+        .disambiguate = true,
+        .report_events = true,
+        .report_alternates = true,
+        .report_all = true,
+        .report_associated = true,
+    };
 
     pub fn int(self: Flags) u5 {
         return @bitCast(self);

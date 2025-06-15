@@ -115,7 +115,7 @@ pub fn RefCountedSet(
         /// input. We handle this gracefully by returning an error
         /// anywhere where we're about to insert if there's any
         /// item with a PSL in the last slot of the stats array.
-        psl_stats: [32]Id = [_]Id{0} ** 32,
+        psl_stats: [32]Id = @splat(0),
 
         /// The backing store of items
         items: Offset(Item),
@@ -663,7 +663,7 @@ pub fn RefCountedSet(
                 const table = self.table.ptr(base);
                 const items = self.items.ptr(base);
 
-                var psl_stats: [32]Id = [_]Id{0} ** 32;
+                var psl_stats: [32]Id = @splat(0);
 
                 for (items[0..self.layout.cap], 0..) |item, id| {
                     if (item.meta.bucket < std.math.maxInt(Id)) {
@@ -676,7 +676,7 @@ pub fn RefCountedSet(
 
                 assert(std.mem.eql(Id, &psl_stats, &self.psl_stats));
 
-                psl_stats = [_]Id{0} ** 32;
+                psl_stats = @splat(0);
 
                 for (table[0..self.layout.table_cap], 0..) |id, bucket| {
                     const item = items[id];

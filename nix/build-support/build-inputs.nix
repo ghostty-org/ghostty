@@ -28,6 +28,9 @@
   pkgs.glib
   pkgs.gobject-introspection
   pkgs.gsettings-desktop-schemas
+  pkgs.gst_all_1.gst-plugins-base
+  pkgs.gst_all_1.gst-plugins-good
+  pkgs.gst_all_1.gstreamer
   pkgs.gtk4
   pkgs.libadwaita
 ]

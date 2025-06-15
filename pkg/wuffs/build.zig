@@ -11,11 +11,6 @@ pub fn build(b: *std.Build) !void {
         .link_libc = true,
     });
 
-    if (target.result.os.tag.isDarwin()) {
-        const apple_sdk = @import("apple_sdk");
-        try apple_sdk.addPaths(b, module);
-    }
-
     const unit_tests = b.addTest(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,

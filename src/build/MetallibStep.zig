@@ -22,13 +22,12 @@ step: *Step,
 output: LazyPath,
 
 pub fn create(b: *std.Build, opts: Options) ?*MetallibStep {
-    const self = b.allocator.create(MetallibStep) catch @panic("OOM");
+    switch (opts.target.result.os.tag) {
+        .macos, .ios => {},
+        else => return null, // Only macOS and iOS are supported.
+    }
 
-    const sdk = switch (opts.target.result.os.tag) {
-        .macos => "macosx",
-        .ios => "iphoneos",
-        else => return null,
-    };
+    const self = b.allocator.create(MetallibStep) catch @panic("OOM");
 
     const min_version = if (opts.target.query.os_version_min) |v|
         b.fmt("{}", .{v.semver})
@@ -38,11 +37,31 @@ pub fn create(b: *std.Build, opts: Options) ?*MetallibStep {
         else => unreachable,
     };
 
+    // Find the metal and metallib executables. The Apple docs
+    // at the time of writing (June 2025) say to use
+    // `xcrun --sdk <sdk> metal` but this doesn't work with Xcode 26.
+    //
+    // I don't know if this is a bug but the xcodebuild approach also
+    // works with Xcode 15 so it seems safe to use this instead.
+    //
+    // Reported bug: FB17874042.
+    var code: u8 = undefined;
+    const metal_exe = std.mem.trim(u8, b.runAllowFail(
+        &.{ "xcodebuild", "-find-executable", "metal" },
+        &code,
+        .Ignore,
+    ) catch return null, "\r\n ");
+    const metallib_exe = std.mem.trim(u8, b.runAllowFail(
+        &.{ "xcodebuild", "-find-executable", "metallib" },
+        &code,
+        .Ignore,
+    ) catch return null, "\r\n ");
+
     const run_ir = RunStep.create(
         b,
         b.fmt("metal {s}", .{opts.name}),
     );
-    run_ir.addArgs(&.{ "/usr/bin/xcrun", "-sdk", sdk, "metal", "-o" });
+    run_ir.addArgs(&.{ metal_exe, "-o" });
     const output_ir = run_ir.addOutputFileArg(b.fmt("{s}.ir", .{opts.name}));
     run_ir.addArgs(&.{"-c"});
     for (opts.sources) |source| run_ir.addFileArg(source);
@@ -62,7 +81,7 @@ pub fn create(b: *std.Build, opts: Options) ?*MetallibStep {
         b,
         b.fmt("metallib {s}", .{opts.name}),
     );
-    run_lib.addArgs(&.{ "/usr/bin/xcrun", "-sdk", sdk, "metallib", "-o" });
+    run_lib.addArgs(&.{ metallib_exe, "-o" });
     const output_lib = run_lib.addOutputFileArg(b.fmt("{s}.metallib", .{opts.name}));
     run_lib.addFileArg(output_ir);
     run_lib.step.dependOn(&run_ir.step);

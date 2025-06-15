@@ -153,7 +153,7 @@ pub const FileFormatter = struct {
         // If we're change-tracking then we need the default config to
         // compare against.
         var default: ?Config = if (self.changed)
-            try Config.default(self.alloc)
+            try .default(self.alloc)
         else
             null;
         defer if (default) |*v| v.deinit();

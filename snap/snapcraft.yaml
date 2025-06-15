@@ -80,7 +80,7 @@ parts:
       - gettext
     override-build: |
       craftctl set version=$(cat VERSION)
-      $CRAFT_PART_SRC/../../zig/src/zig build -Dpatch-rpath=\$ORIGIN/../usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:/snap/core24/current/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR -Doptimize=ReleaseFast
+      $CRAFT_PART_SRC/../../zig/src/zig build -Dpatch-rpath=\$ORIGIN/../usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:/snap/core24/current/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR -Doptimize=ReleaseFast -Dcpu=baseline
       cp -rp zig-out/* $CRAFT_PART_INSTALL/
       sed -i 's|Icon=com.mitchellh.ghostty|Icon=/snap/ghostty/current/share/icons/hicolor/512x512/apps/com.mitchellh.ghostty.png|g' $CRAFT_PART_INSTALL/share/applications/com.mitchellh.ghostty.desktop
 

@@ -746,7 +746,21 @@ pub fn deinit(self: *Surface) void {
     self.core_surface.deinit();
     self.core_surface = undefined;
 
-    if (self.cgroup_path) |path| self.app.core_app.alloc.free(path);
+    // Remove the cgroup if we have one. We do this after deiniting the core
+    // surface to ensure all processes have exited.
+    if (self.cgroup_path) |path| {
+        internal_os.cgroup.remove(path) catch |err| {
+            // We don't want this to be fatal in any way so we just log
+            // and continue. A dangling empty cgroup is not a big deal
+            // and this should be rare.
+            log.warn(
+                "failed to remove cgroup for surface path={s} err={}",
+                .{ path, err },
+            );
+        };
+
+        self.app.core_app.alloc.free(path);
+    }
 
     // Free all our GTK stuff
     //
@@ -1191,7 +1205,7 @@ pub fn mouseOverLink(self: *Surface, uri_: ?[]const u8) void {
         return;
     }
 
-    self.url_widget = URLWidget.init(self.overlay, uriZ);
+    self.url_widget = .init(self.overlay, uriZ);
 }
 
 pub fn supportsClipboard(
@@ -1563,7 +1577,7 @@ fn gtkMouseMotion(
     const scaled = self.scaledCoordinates(x, y);
 
     const pos: apprt.CursorPos = .{
-        .x = @floatCast(@max(0, scaled.x)),
+        .x = @floatCast(scaled.x),
         .y = @floatCast(scaled.y),
     };
 
@@ -1840,7 +1854,7 @@ pub fn keyEvent(
     // (These are keybinds explicitly marked as requesting physical mapping).
     const physical_key = keycode: for (input.keycodes.entries) |entry| {
         if (entry.native == keycode) break :keycode entry.key;
-    } else .invalid;
+    } else .unidentified;
 
     // Get our modifier for the event
     const mods: input.Mods = gtk_key.eventMods(
@@ -1860,52 +1874,6 @@ pub fn keyEvent(
         const masked = @as(I, @bitCast(key_event.getConsumedModifiers())) & @as(I, gdk.MODIFIER_MASK);
         break :consumed gtk_key.translateMods(@bitCast(masked));
     };
-
-    // If we're not in a dead key state, we want to translate our text
-    // to some input.Key.
-    const key = if (!self.im_composing) key: {
-        // First, try to convert the keyval directly to a key. This allows the
-        // use of key remapping and identification of keypad numerics (as
-        // opposed to their ASCII counterparts)
-        if (gtk_key.keyFromKeyval(keyval)) |key| {
-            break :key key;
-        }
-
-        // A completed key. If the length of the key is one then we can
-        // attempt to translate it to a key enum and call the key
-        // callback. First try plain ASCII.
-        if (self.im_len > 0) {
-            if (input.Key.fromASCII(self.im_buf[0])) |key| {
-                break :key key;
-            }
-        }
-
-        // If that doesn't work then we try to translate the kevval..
-        if (keyval_unicode != 0) {
-            if (std.math.cast(u8, keyval_unicode)) |byte| {
-                if (input.Key.fromASCII(byte)) |key| {
-                    break :key key;
-                }
-            }
-        }
-
-        // If that doesn't work we use the unshifted value...
-        if (std.math.cast(u8, keyval_unicode_unshifted)) |ascii| {
-            if (input.Key.fromASCII(ascii)) |key| {
-                break :key key;
-            }
-        }
-
-        // If we have im text then this is invalid. This means that
-        // the keypress generated some character that we don't know about
-        // in our key enum. We don't want to use the physical key because
-        // it can be simply wrong. For example on "Turkish Q" the "i" key
-        // on a US layout results in "ı" which is not the same as "i" so
-        // we shouldn't use the physical key.
-        if (self.im_len > 0 or keyval_unicode_unshifted != 0) break :key .invalid;
-
-        break :key physical_key;
-    } else .invalid;
 
     // log.debug("key pressed key={} keyval={x} physical_key={} composing={} text_len={} mods={}", .{
     //     key,
@@ -1936,8 +1904,7 @@ pub fn keyEvent(
     // Invoke the core Ghostty logic to handle this input.
     const effect = self.core_surface.keyCallback(.{
         .action = action,
-        .key = key,
-        .physical_key = physical_key,
+        .key = physical_key,
         .mods = mods,
         .consumed_mods = consumed_mods,
         .composing = self.im_composing,
@@ -2088,8 +2055,7 @@ fn gtkInputCommit(
     // invalid key, which should produce no PTY encoding).
     _ = self.core_surface.keyCallback(.{
         .action = .press,
-        .key = .invalid,
-        .physical_key = .invalid,
+        .key = .unidentified,
         .mods = .{},
         .consumed_mods = .{},
         .composing = false,
@@ -2453,6 +2419,48 @@ pub fn ringBell(self: *Surface) !void {
         surface.beep();
     }
 
+    if (features.audio) audio: {
+        // Play a user-specified audio file.
+
+        const pathname, const required = switch (self.app.config.@"bell-audio-path" orelse break :audio) {
+            .optional => |path| .{ path, false },
+            .required => |path| .{ path, true },
+        };
+
+        const volume = std.math.clamp(self.app.config.@"bell-audio-volume", 0.0, 1.0);
+
+        std.debug.assert(std.fs.path.isAbsolute(pathname));
+        const media_file = gtk.MediaFile.newForFilename(pathname);
+
+        if (required) {
+            _ = gobject.Object.signals.notify.connect(
+                media_file,
+                ?*anyopaque,
+                gtkStreamError,
+                null,
+                .{ .detail = "error" },
+            );
+        }
+        _ = gobject.Object.signals.notify.connect(
+            media_file,
+            ?*anyopaque,
+            gtkStreamEnded,
+            null,
+            .{ .detail = "ended" },
+        );
+
+        const media_stream = media_file.as(gtk.MediaStream);
+        media_stream.setVolume(volume);
+        media_stream.play();
+    }
+
+    if (features.attention) {
+        // Request user attention
+        window.winproto.setUrgent(true) catch |err| {
+            log.err("failed to request user attention={}", .{err});
+        };
+    }
+
     // Mark tab as needing attention
     if (self.container.tab()) |tab| tab: {
         const page = window.notebook.getTabPage(tab) orelse break :tab;
@@ -2460,4 +2468,28 @@ pub fn ringBell(self: *Surface) !void {
         // Need attention if we're not the currently selected tab
         if (page.getSelected() == 0) page.setNeedsAttention(@intFromBool(true));
     }
+}
+
+/// Handle a stream that is in an error state.
+fn gtkStreamError(media_file: *gtk.MediaFile, _: *gobject.ParamSpec, _: ?*anyopaque) callconv(.c) void {
+    const path = path: {
+        const file = media_file.getFile() orelse break :path null;
+        break :path file.getPath();
+    };
+    defer if (path) |p| glib.free(p);
+
+    const media_stream = media_file.as(gtk.MediaStream);
+    const err = media_stream.getError() orelse return;
+
+    log.warn("error playing bell from {s}: {s} {d} {s}", .{
+        path orelse "<<unknown>>",
+        glib.quarkToString(err.f_domain),
+        err.f_code,
+        err.f_message orelse "",
+    });
+}
+
+/// Stream is finished, release the memory.
+fn gtkStreamEnded(media_file: *gtk.MediaFile, _: *gobject.ParamSpec, _: ?*anyopaque) callconv(.c) void {
+    media_file.unref();
 }

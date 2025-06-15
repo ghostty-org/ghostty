@@ -55,7 +55,7 @@ load_options: ?LoadOptions = null,
 pub fn init() Collection {
     // Initialize our styles array, preallocating some space that is
     // likely to be used.
-    return .{ .faces = StyleArray.initFill(.{}) };
+    return .{ .faces = .initFill(.{}) };
 }
 
 pub fn deinit(self: *Collection, alloc: Allocator) void {
@@ -707,7 +707,7 @@ test "add full" {
     defer c.deinit(alloc);
 
     for (0..Index.Special.start - 1) |_| {
-        _ = try c.add(alloc, .regular, .{ .loaded = try Face.init(
+        _ = try c.add(alloc, .regular, .{ .loaded = try .init(
             lib,
             testFont,
             .{ .size = .{ .points = 12 } },
@@ -755,7 +755,7 @@ test getFace {
     var c = init();
     defer c.deinit(alloc);
 
-    const idx = try c.add(alloc, .regular, .{ .loaded = try Face.init(
+    const idx = try c.add(alloc, .regular, .{ .loaded = try .init(
         lib,
         testFont,
         .{ .size = .{ .points = 12, .xdpi = 96, .ydpi = 96 } },
@@ -779,7 +779,7 @@ test getIndex {
     var c = init();
     defer c.deinit(alloc);
 
-    _ = try c.add(alloc, .regular, .{ .loaded = try Face.init(
+    _ = try c.add(alloc, .regular, .{ .loaded = try .init(
         lib,
         testFont,
         .{ .size = .{ .points = 12, .xdpi = 96, .ydpi = 96 } },
@@ -811,7 +811,7 @@ test completeStyles {
     defer c.deinit(alloc);
     c.load_options = .{ .library = lib };
 
-    _ = try c.add(alloc, .regular, .{ .loaded = try Face.init(
+    _ = try c.add(alloc, .regular, .{ .loaded = try .init(
         lib,
         testFont,
         .{ .size = .{ .points = 12, .xdpi = 96, .ydpi = 96 } },
@@ -838,7 +838,7 @@ test setSize {
     defer c.deinit(alloc);
     c.load_options = .{ .library = lib };
 
-    _ = try c.add(alloc, .regular, .{ .loaded = try Face.init(
+    _ = try c.add(alloc, .regular, .{ .loaded = try .init(
         lib,
         testFont,
         .{ .size = .{ .points = 12, .xdpi = 96, .ydpi = 96 } },
@@ -861,7 +861,7 @@ test hasCodepoint {
     defer c.deinit(alloc);
     c.load_options = .{ .library = lib };
 
-    const idx = try c.add(alloc, .regular, .{ .loaded = try Face.init(
+    const idx = try c.add(alloc, .regular, .{ .loaded = try .init(
         lib,
         testFont,
         .{ .size = .{ .points = 12, .xdpi = 96, .ydpi = 96 } },
@@ -885,7 +885,7 @@ test "hasCodepoint emoji default graphical" {
     defer c.deinit(alloc);
     c.load_options = .{ .library = lib };
 
-    const idx = try c.add(alloc, .regular, .{ .loaded = try Face.init(
+    const idx = try c.add(alloc, .regular, .{ .loaded = try .init(
         lib,
         testEmoji,
         .{ .size = .{ .points = 12, .xdpi = 96, .ydpi = 96 } },
@@ -908,7 +908,7 @@ test "metrics" {
     defer c.deinit(alloc);
     c.load_options = .{ .library = lib };
 
-    _ = try c.add(alloc, .regular, .{ .loaded = try Face.init(
+    _ = try c.add(alloc, .regular, .{ .loaded = try .init(
         lib,
         testFont,
         .{ .size = .{ .points = 12, .xdpi = 96, .ydpi = 96 } },

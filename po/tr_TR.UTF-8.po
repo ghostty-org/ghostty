@@ -1,5 +1,5 @@
 # Turkish translations for com.mitchellh.ghostty package.
-# Copyright (C) 2025 Mitchell Hashimoto
+# Copyright (C) 2025 Mitchell Hashimoto, Ghostty contributors
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
 # Emir SARI <emir_sari@icloud.com>, 2025.
 #
@@ -216,7 +216,7 @@ msgstr "Açık Sekmeleri Görüntüle"
 
 #: src/apprt/gtk/Window.zig:249
 msgid "New Split"
-msgstr ""
+msgstr "Yeni Bölme"
 
 #: src/apprt/gtk/Window.zig:312
 msgid ""

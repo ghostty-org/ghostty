@@ -7,6 +7,7 @@ const std = @import("std");
 const gtk = @import("gtk");
 const adw = @import("adw");
 const gobject = @import("gobject");
+const glib = @import("glib");
 
 const Window = @import("Window.zig");
 const Tab = @import("Tab.zig");
@@ -243,7 +244,14 @@ fn adwClosePage(
     const child = page.getChild().as(gobject.Object);
     const tab: *Tab = @ptrCast(@alignCast(child.getData(Tab.GHOSTTY_TAB) orelse return 0));
     self.tab_view.closePageFinish(page, @intFromBool(self.forcing_close));
-    if (!self.forcing_close) tab.closeWithConfirmation();
+    if (!self.forcing_close) {
+        // We cannot trigger a close directly in here as the page will stay
+        // alive until this handler returns, breaking the assumption where
+        // no pages means they are all destroyed.
+        //
+        // Schedule the close request to happen in the next event cycle.
+        _ = glib.idleAddOnce(glibIdleOnceCloseTab, tab);
+    }
 
     return 1;
 }
@@ -268,4 +276,9 @@ fn adwSelectPage(_: *adw.TabView, _: *gobject.ParamSpec, self: *TabView) callcon
 
     const title = page.getTitle();
     self.window.setTitle(std.mem.span(title));
+}
+
+fn glibIdleOnceCloseTab(data: ?*anyopaque) callconv(.c) void {
+    const tab: *Tab = @ptrCast(@alignCast(data orelse return));
+    tab.closeWithConfirmation();
 }

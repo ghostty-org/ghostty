@@ -1,5 +1,5 @@
 # Ukrainian translations for com.mitchellh.ghostty package.
-# Copyright (C) 2025 Mitchell Hashimoto
+# Copyright (C) 2025 Mitchell Hashimoto, Ghostty contributors
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
 # Danylo Zalizchuk <danilmail0110@gmail.com>, 2025.
 #

@@ -80,7 +80,7 @@ pub const Match = struct {
         const end_idx: usize = @intCast(self.region.ends()[0] - 1);
         const start_pt = self.map.map[self.offset + start_idx];
         const end_pt = self.map.map[self.offset + end_idx];
-        return Selection.init(start_pt, end_pt, false);
+        return .init(start_pt, end_pt, false);
     }
 };
 

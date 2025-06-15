@@ -16,7 +16,7 @@
   python3,
   qemu,
   scdoc,
-  snapcraft,
+  # snapcraft,
   valgrind,
   #, vulkan-loader # unused
   vttest,
@@ -35,6 +35,7 @@
   gtk4,
   gtk4-layer-shell,
   gobject-introspection,
+  gst_all_1,
   libadwaita,
   blueprint-compiler,
   gettext,
@@ -133,7 +134,7 @@ in
         appstream
         flatpak-builder
         gdb
-        snapcraft
+        # snapcraft
         valgrind
         wraptest
 
@@ -166,6 +167,9 @@ in
         wayland
         wayland-scanner
         wayland-protocols
+        gst_all_1.gstreamer
+        gst_all_1.gst-plugins-base
+        gst_all_1.gst-plugins-good
       ];
 
     # This should be set onto the rpath of the ghostty binary if you want

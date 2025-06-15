@@ -403,7 +403,7 @@ test "BitmapAllocator alloc sequentially" {
     const buf = try alloc.alignedAlloc(u8, Alloc.base_align, layout.total_size);
     defer alloc.free(buf);
 
-    var bm = Alloc.init(OffsetBuf.init(buf), layout);
+    var bm = Alloc.init(.init(buf), layout);
     const ptr = try bm.alloc(u8, buf, 1);
     ptr[0] = 'A';
 
@@ -429,7 +429,7 @@ test "BitmapAllocator alloc non-byte" {
     const buf = try alloc.alignedAlloc(u8, Alloc.base_align, layout.total_size);
     defer alloc.free(buf);
 
-    var bm = Alloc.init(OffsetBuf.init(buf), layout);
+    var bm = Alloc.init(.init(buf), layout);
     const ptr = try bm.alloc(u21, buf, 1);
     ptr[0] = 'A';
 
@@ -453,7 +453,7 @@ test "BitmapAllocator alloc non-byte multi-chunk" {
     const buf = try alloc.alignedAlloc(u8, Alloc.base_align, layout.total_size);
     defer alloc.free(buf);
 
-    var bm = Alloc.init(OffsetBuf.init(buf), layout);
+    var bm = Alloc.init(.init(buf), layout);
     const ptr = try bm.alloc(u21, buf, 6);
     try testing.expectEqual(@as(usize, 6), ptr.len);
     for (ptr) |*v| v.* = 'A';
@@ -478,7 +478,7 @@ test "BitmapAllocator alloc large" {
     const buf = try alloc.alignedAlloc(u8, Alloc.base_align, layout.total_size);
     defer alloc.free(buf);
 
-    var bm = Alloc.init(OffsetBuf.init(buf), layout);
+    var bm = Alloc.init(.init(buf), layout);
     const ptr = try bm.alloc(u8, buf, 129);
     ptr[0] = 'A';
     bm.free(buf, ptr);

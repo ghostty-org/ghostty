@@ -74,7 +74,7 @@ pub fn xtgettcapMap(comptime self: Source) std.StaticStringMap([]const u8) {
     // We have all of our capabilities plus To, TN, and RGB which aren't
     // in the capabilities list but are query-able.
     const len = self.capabilities.len + 3;
-    var kvs: [len]KV = .{.{ "", "" }} ** len;
+    var kvs: [len]KV = @splat(.{ "", "" });
 
     // We first build all of our entries with raw K=V pairs.
     kvs[0] = .{ "TN", self.names[0] };

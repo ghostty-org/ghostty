@@ -241,23 +241,23 @@ pub const Page = struct {
                 l.styles_layout,
                 .{},
             ),
-            .string_alloc = StringAlloc.init(
+            .string_alloc = .init(
                 buf.add(l.string_alloc_start),
                 l.string_alloc_layout,
             ),
-            .grapheme_alloc = GraphemeAlloc.init(
+            .grapheme_alloc = .init(
                 buf.add(l.grapheme_alloc_start),
                 l.grapheme_alloc_layout,
             ),
-            .grapheme_map = GraphemeMap.init(
+            .grapheme_map = .init(
                 buf.add(l.grapheme_map_start),
                 l.grapheme_map_layout,
             ),
-            .hyperlink_map = hyperlink.Map.init(
+            .hyperlink_map = .init(
                 buf.add(l.hyperlink_map_start),
                 l.hyperlink_map_layout,
             ),
-            .hyperlink_set = hyperlink.Set.init(
+            .hyperlink_set = .init(
                 buf.add(l.hyperlink_set_start),
                 l.hyperlink_set_layout,
                 .{},
@@ -280,7 +280,7 @@ pub const Page = struct {
         // We zero the page memory as u64 instead of u8 because
         // we can and it's empirically quite a bit faster.
         @memset(@as([*]u64, @ptrCast(self.memory))[0 .. self.memory.len / 8], 0);
-        self.* = initBuf(OffsetBuf.init(self.memory), layout(self.capacity));
+        self.* = initBuf(.init(self.memory), layout(self.capacity));
     }
 
     pub const IntegrityError = error{
@@ -1316,7 +1316,12 @@ pub const Page = struct {
 
     /// Set the graphemes for the given cell. This asserts that the cell
     /// has no graphemes set, and only contains a single codepoint.
-    pub fn setGraphemes(self: *Page, row: *Row, cell: *Cell, cps: []u21) GraphemeError!void {
+    pub fn setGraphemes(
+        self: *Page,
+        row: *Row,
+        cell: *Cell,
+        cps: []const u21,
+    ) GraphemeError!void {
         defer self.assertIntegrity();
 
         assert(cell.codepoint() > 0);
@@ -2260,7 +2265,7 @@ test "Page appendGrapheme small" {
     defer page.deinit();
 
     const rac = page.getRowAndCell(0, 0);
-    rac.cell.* = Cell.init(0x09);
+    rac.cell.* = .init(0x09);
 
     // One
     try page.appendGrapheme(rac.row, rac.cell, 0x0A);
@@ -2289,7 +2294,7 @@ test "Page appendGrapheme larger than chunk" {
     defer page.deinit();
 
     const rac = page.getRowAndCell(0, 0);
-    rac.cell.* = Cell.init(0x09);
+    rac.cell.* = .init(0x09);
 
     const count = grapheme_chunk_len * 10;
     for (0..count) |i| {
@@ -2312,11 +2317,11 @@ test "Page clearGrapheme not all cells" {
     defer page.deinit();
 
     const rac = page.getRowAndCell(0, 0);
-    rac.cell.* = Cell.init(0x09);
+    rac.cell.* = .init(0x09);
     try page.appendGrapheme(rac.row, rac.cell, 0x0A);
 
     const rac2 = page.getRowAndCell(1, 0);
-    rac2.cell.* = Cell.init(0x09);
+    rac2.cell.* = .init(0x09);
     try page.appendGrapheme(rac2.row, rac2.cell, 0x0A);
 
     // Clear it

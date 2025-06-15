@@ -47,7 +47,7 @@ pub inline fn makeContextCurrent(window: ?Window) void {
 /// see also: context_current, glfwMakeContextCurrent
 pub inline fn getCurrentContext() ?Window {
     internal_debug.assertInitialized();
-    if (c.glfwGetCurrentContext()) |handle| return Window.from(handle);
+    if (c.glfwGetCurrentContext()) |handle| return .from(handle);
     return null;
 }
 

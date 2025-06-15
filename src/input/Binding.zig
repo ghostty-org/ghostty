@@ -5,6 +5,7 @@ const Binding = @This();
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+const ziglyph = @import("ziglyph");
 const key = @import("key.zig");
 const KeyEvent = key.KeyEvent;
 
@@ -62,15 +63,17 @@ pub const Parser = struct {
         const flags, const start_idx = try parseFlags(raw_input);
         const input = raw_input[start_idx..];
 
-        // Find the first = which splits are mapping into the trigger
+        // Find the last = which splits are mapping into the trigger
         // and action, respectively.
-        const eql_idx = std.mem.indexOf(u8, input, "=") orelse return Error.InvalidFormat;
+        // We use the last = because the keybind itself could contain
+        // raw equal signs (for the = codepoint)
+        const eql_idx = std.mem.lastIndexOf(u8, input, "=") orelse return Error.InvalidFormat;
 
         // Sequence iterator goes up to the equal, action is after. We can
         // parse the action now.
         return .{
             .trigger_it = .{ .input = input[0..eql_idx] },
-            .action = try Action.parse(input[eql_idx + 1 ..]),
+            .action = try .parse(input[eql_idx + 1 ..]),
             .flags = flags,
         };
     }
@@ -99,9 +102,12 @@ pub const Parser = struct {
                 if (flags.performable) return Error.InvalidFormat;
                 flags.performable = true;
             } else {
-                // If we don't recognize the prefix then we're done.
-                // There are trigger-specific prefixes like "physical:" so
-                // this lets us fall into that.
+                // If we don't recognize the prefix then we're done. We
+                // let any unknown prefix fallthrough to trigger-specific
+                // parsing in case there are trigger-specific prefixes
+                // (none currently but historically there was `physical:`
+                // at one point). Breaking here lets us always implement new
+                // prefixes.
                 break;
             }
 
@@ -154,7 +160,7 @@ const SequenceIterator = struct {
         const rem = self.input[self.i..];
         const idx = std.mem.indexOf(u8, rem, ">") orelse rem.len;
         defer self.i += idx + 1;
-        return try Trigger.parse(rem[0..idx]);
+        return try .parse(rem[0..idx]);
     }
 
     /// Returns true if there are no more triggers to parse.
@@ -202,14 +208,12 @@ pub fn lessThan(_: void, lhs: Binding, rhs: Binding) bool {
 
     const lhs_key: c_int = blk: {
         switch (lhs.trigger.key) {
-            .translated => break :blk @intFromEnum(lhs.trigger.key.translated),
             .physical => break :blk @intFromEnum(lhs.trigger.key.physical),
             .unicode => break :blk @intCast(lhs.trigger.key.unicode),
         }
     };
     const rhs_key: c_int = blk: {
         switch (rhs.trigger.key) {
-            .translated => break :blk @intFromEnum(rhs.trigger.key.translated),
             .physical => break :blk @intFromEnum(rhs.trigger.key.physical),
             .unicode => break :blk @intCast(rhs.trigger.key.unicode),
         }
@@ -220,107 +224,191 @@ pub fn lessThan(_: void, lhs: Binding, rhs: Binding) bool {
 
 /// The set of actions that a keybinding can take.
 pub const Action = union(enum) {
-    /// Ignore this key combination, don't send it to the child process, just
-    /// black hole it.
+    /// Ignore this key combination.
+    ///
+    /// Ghostty will not process this combination nor forward it to the child
+    /// process within the terminal, but it may still be processed by the OS or
+    /// other applications.
     ignore,
 
-    /// This action is used to flag that the binding should be removed from
-    /// the set. This should never exist in an active set and `set.put` has an
-    /// assertion to verify this.
+    /// Unbind a previously bound key binding.
+    ///
+    /// This cannot unbind bindings that were not bound by Ghostty or the user
+    /// (e.g. bindings set by the OS or some other application).
     unbind,
 
-    /// Send a CSI sequence. The value should be the CSI sequence without the
-    /// CSI header (`ESC [` or `\x1b[`).
+    /// Send a CSI sequence.
+    ///
+    /// The value should be the CSI sequence without the CSI header (`ESC [` or
+    /// `\x1b[`).
+    ///
+    /// For example, `csi:0m` can be sent to reset all styles of the current text.
     csi: []const u8,
 
     /// Send an `ESC` sequence.
     esc: []const u8,
 
-    /// Send the given text. Uses Zig string literal syntax. This is currently
-    /// not validated. If the text is invalid (i.e. contains an invalid escape
-    /// sequence), the error will currently only show up in logs.
+    /// Send the specified text.
+    ///
+    /// Uses Zig string literal syntax. This is currently not validated.
+    /// If the text is invalid (i.e. contains an invalid escape sequence),
+    /// the error will currently only show up in logs.
     text: []const u8,
 
     /// Send data to the pty depending on whether cursor key mode is enabled
     /// (`application`) or disabled (`normal`).
     cursor_key: CursorKey,
 
-    /// Reset the terminal. This can fix a lot of issues when a running
-    /// program puts the terminal into a broken state. This is equivalent to
-    /// when you type "reset" and press enter.
+    /// Reset the terminal.
+    ///
+    /// This can fix a lot of issues when a running program puts the terminal
+    /// into a broken state, equivalent to running the `reset` command.
     ///
     /// If you do this while in a TUI program such as vim, this may break
     /// the program. If you do this while in a shell, you may have to press
     /// enter after to get a new prompt.
     reset,
 
-    /// Copy and paste.
+    /// Copy the selected text to the clipboard.
     copy_to_clipboard,
+
+    /// Paste the contents of the default clipboard.
     paste_from_clipboard,
+
+    /// Paste the contents of the selection clipboard.
     paste_from_selection,
 
-    /// Copy the URL under the cursor to the clipboard. If there is no
-    /// URL under the cursor, this does nothing.
+    /// If there is a URL under the cursor, copy it to the default clipboard.
     copy_url_to_clipboard,
 
-    /// Increase/decrease the font size by a certain amount.
+    /// Increase the font size by the specified amount in points (pt).
+    ///
+    /// For example, `increase_font_size:1.5` will increase the font size
+    /// by 1.5 points.
     increase_font_size: f32,
+
+    /// Decrease the font size by the specified amount in points (pt).
+    ///
+    /// For example, `decrease_font_size:1.5` will decrease the font size
+    /// by 1.5 points.
     decrease_font_size: f32,
 
     /// Reset the font size to the original configured size.
     reset_font_size,
 
-    /// Clear the screen. This also clears all scrollback.
+    /// Clear the screen and all scrollback.
     clear_screen,
 
     /// Select all text on the screen.
     select_all,
 
-    /// Scroll the screen varying amounts.
+    /// Scroll to the top of the screen.
     scroll_to_top,
+
+    /// Scroll to the bottom of the screen.
     scroll_to_bottom,
+
+    /// Scroll to the selected text.
     scroll_to_selection,
+
+    /// Scroll the screen up by one page.
     scroll_page_up,
+
+    /// Scroll the screen down by one page.
     scroll_page_down,
+
+    /// Scroll the screen by the specified fraction of a page.
+    ///
+    /// Positive values scroll downwards, and negative values scroll upwards.
+    ///
+    /// For example, `scroll_page_fractional:0.5` would scroll the screen
+    /// downwards by half a page, while `scroll_page_fractional:-1.5` would
+    /// scroll it upwards by one and a half pages.
     scroll_page_fractional: f32,
+
+    /// Scroll the screen by the specified amount of lines.
+    ///
+    /// Positive values scroll downwards, and negative values scroll upwards.
+    ///
+    /// For example, `scroll_page_lines:3` would scroll the screen downwards
+    /// by 3 lines, while `scroll_page_lines:-10` would scroll it upwards by 10
+    /// lines.
     scroll_page_lines: i16,
 
-    /// Adjust the current selection in a given direction. Does nothing if no
-    /// selection exists.
+    /// Adjust the current selection in the given direction or position,
+    /// relative to the cursor.
     ///
-    /// Arguments:
-    ///   - left, right, up, down, page_up, page_down, home, end,
-    ///     beginning_of_line, end_of_line
+    /// WARNING: This does not create a new selection, and does nothing when
+    /// there currently isn't one.
     ///
-    /// Example: Extend selection to the right
-    ///   keybind = shift+right=adjust_selection:right
+    /// Valid arguments are:
+    ///
+    ///   - `left`, `right`
+    ///
+    ///     Adjust the selection one cell to the left or right respectively.
+    ///
+    ///   - `up`, `down`
+    ///
+    ///     Adjust the selection one line upwards or downwards respectively.
+    ///
+    ///   - `page_up`, `page_down`
+    ///
+    ///     Adjust the selection one page upwards or downwards respectively.
+    ///
+    ///   - `home`, `end`
+    ///
+    ///     Adjust the selection to the top-left or the bottom-right corner
+    ///     of the screen respectively.
+    ///
+    ///   - `beginning_of_line`, `end_of_line`
+    ///
+    ///     Adjust the selection to the beginning or the end of the line
+    ///     respectively.
+    ///
     adjust_selection: AdjustSelection,
 
-    /// Jump the viewport forward or back by prompt. Positive number is the
-    /// number of prompts to jump forward, negative is backwards.
+    /// Jump the viewport forward or back by the given number of prompts.
+    ///
+    /// Requires shell integration.
+    ///
+    /// Positive values scroll downwards, and negative values scroll upwards.
     jump_to_prompt: i16,
 
-    /// Write the entire scrollback into a temporary file. The action
-    /// determines what to do with the filepath. Valid values are:
+    /// Write the entire scrollback into a temporary file with the specified
+    /// action. The action determines what to do with the filepath.
     ///
-    ///   - "paste": Paste the file path into the terminal.
-    ///   - "open": Open the file in the default OS editor for text files.
+    /// Valid actions are:
+    ///
+    ///   - `paste`
+    ///
+    ///     Paste the file path into the terminal.
+    ///
+    ///   - `open`
+    ///
+    ///     Open the file in the default OS editor for text files.
+    ///
     ///     The default OS editor is determined by using `open` on macOS
     ///     and `xdg-open` on Linux.
     ///
     write_scrollback_file: WriteScreenAction,
 
-    /// Same as write_scrollback_file but writes the full screen contents.
-    /// See write_scrollback_file for available values.
+    /// Write the contents of the screen into a temporary file with the
+    /// specified action.
+    ///
+    /// See `write_scrollback_file` for possible actions.
     write_screen_file: WriteScreenAction,
 
-    /// Same as write_scrollback_file but writes the selected text.
-    /// If there is no selected text this does nothing (it doesn't
-    /// even create an empty file). See write_scrollback_file for
-    /// available values.
+    /// Write the currently selected text into a temporary file with the
+    /// specified action.
+    ///
+    /// See `write_scrollback_file` for possible actions.
+    ///
+    /// Does nothing when no text is selected.
     write_selection_file: WriteScreenAction,
 
-    /// Open a new window. If the application isn't currently focused,
+    /// Open a new window.
+    ///
+    /// If the application isn't currently focused,
     /// this will bring it to the front.
     new_window,
 
@@ -333,184 +421,275 @@ pub const Action = union(enum) {
     /// Go to the next tab.
     next_tab,
 
-    /// Go to the last tab (the one with the highest index)
+    /// Go to the last tab.
     last_tab,
 
-    /// Go to the tab with the specific number, 1-indexed. If the tab number
-    /// is higher than the number of tabs, this will go to the last tab.
+    /// Go to the tab with the specific index, starting from 1.
+    ///
+    /// If the tab number is higher than the number of tabs,
+    /// this will go to the last tab.
     goto_tab: usize,
 
     /// Moves a tab by a relative offset.
-    /// Adjusts the tab position based on `offset`. For example `move_tab:-1` for left, `move_tab:1` for right.
-    /// If the new position is out of bounds, it wraps around cyclically within the tab range.
+    ///
+    /// Positive values move the tab forwards, and negative values move it
+    /// backwards. If the new position is out of bounds, it is wrapped around
+    /// cyclically within the tab list.
+    ///
+    /// For example, `move_tab:1` moves the tab one position forwards, and if
+    /// it was already the last tab in the list, it wraps around and becomes
+    /// the first tab in the list. Likewise, `move_tab:-1` moves the tab one
+    /// position backwards, and if it was the first tab, then it will become
+    /// the last tab.
     move_tab: isize,
 
     /// Toggle the tab overview.
-    /// This only works with libadwaita version 1.4.0 or newer.
+    ///
+    /// This is only supported on Linux and when the system's libadwaita
+    /// version is 1.4 or newer. The current libadwaita version can be
+    /// found by running `ghostty +version`.
     toggle_tab_overview,
 
-    /// Change the title of the current focused surface via a prompt.
+    /// Change the title of the current focused surface via a pop-up prompt.
+    ///
+    /// This requires libadwaita 1.5 or newer on Linux. The current libadwaita
+    /// version can be found by running `ghostty +version`.
     prompt_surface_title,
 
-    /// Create a new split in the given direction.
+    /// Create a new split in the specified direction.
     ///
-    /// Arguments:
-    ///   - right, down, left, up, auto (splits along the larger direction)
+    /// Valid arguments:
     ///
-    /// Example: Create split on the right
-    ///   keybind = cmd+shift+d=new_split:right
+    ///   - `right`, `down`, `left`, `up`
+    ///
+    ///     Creates a new split in the corresponding direction.
+    ///
+    ///   - `auto`
+    ///
+    ///     Creates a new split along the larger direction.
+    ///     For example, if the parent split is currently wider than it is tall,
+    ///     then a left-right split would be created, and vice versa.
+    ///
     new_split: SplitDirection,
 
-    /// Focus on a split in a given direction. For example `goto_split:up`.
-    /// Valid values are left, right, up, down, previous and next.
+    /// Focus on a split either in the specified direction (`right`, `down`,
+    /// `left` and `up`), or in the adjacent split in the order of creation
+    /// (`previous` and `next`).
     goto_split: SplitFocusDirection,
 
-    /// zoom/unzoom the current split.
+    /// Zoom in or out of the current split.
+    ///
+    /// When a split is zoomed into, it will take up the entire space in
+    /// the current tab, hiding other splits. The tab or tab bar would also
+    /// reflect this by displaying an icon indicating the zoomed state.
     toggle_split_zoom,
 
-    /// Resize the current split in a given direction.
-    ///
-    /// Arguments:
-    ///   - up, down, left, right
-    ///   - the number of pixels to resize the split by
-    ///
-    /// Example: Move divider up 10 pixels
-    ///   keybind = cmd+shift+up=resize_split:up,10
+    /// Resize the current split in the specified direction and amount in
+    /// pixels. The two arguments should be joined with a comma (`,`),
+    /// like in `resize_split:up,10`.
     resize_split: SplitResizeParameter,
 
-    /// Equalize all splits in the current window
+    /// Equalize the size of all splits in the current window.
     equalize_splits,
 
     /// Reset the window to the default size. The "default size" is the
     /// size that a new window would be created with. This has no effect
     /// if the window is fullscreen.
+    ///
+    /// Only implemented on macOS.
     reset_window_size,
 
-    /// Control the terminal inspector visibility.
+    /// Control the visibility of the terminal inspector.
     ///
-    /// Arguments:
-    ///   - toggle, show, hide
-    ///
-    /// Example: Toggle inspector visibility
-    ///   keybind = cmd+i=inspector:toggle
+    /// Valid arguments: `toggle`, `show`, `hide`.
     inspector: InspectorMode,
 
-    /// Open the configuration file in the default OS editor. If your default OS
-    /// editor isn't configured then this will fail. Currently, any failures to
-    /// open the configuration will show up only in the logs.
+    /// Show the GTK inspector.
+    ///
+    /// Has no effect on macOS.
+    show_gtk_inspector,
+
+    /// Open the configuration file in the default OS editor.
+    ///
+    /// If your default OS editor isn't configured then this will fail.
+    /// Currently, any failures to open the configuration will show up only in
+    /// the logs.
     open_config,
 
-    /// Reload the configuration. The exact meaning depends on the app runtime
-    /// in use but this usually involves re-reading the configuration file
-    /// and applying any changes. Note that not all changes can be applied at
-    /// runtime.
+    /// Reload the configuration.
+    ///
+    /// The exact meaning depends on the app runtime in use, but this usually
+    /// involves re-reading the configuration file and applying any changes
+    /// Note that not all changes can be applied at runtime.
     reload_config,
 
     /// Close the current "surface", whether that is a window, tab, split, etc.
-    /// This only closes ONE surface. This will trigger close confirmation as
-    /// configured.
+    ///
+    /// This might trigger a close confirmation popup, depending on the value
+    /// of the `confirm-close-surface` configuration setting.
     close_surface,
 
-    /// Close the current tab, regardless of how many splits there may be.
-    /// This will trigger close confirmation as configured.
+    /// Close the current tab and all splits therein.
+    ///
+    /// This might trigger a close confirmation popup, depending on the value
+    /// of the `confirm-close-surface` configuration setting.
     close_tab,
 
-    /// Close the window, regardless of how many tabs or splits there may be.
-    /// This will trigger close confirmation as configured.
+    /// Close the current window and all tabs and splits therein.
+    ///
+    /// This might trigger a close confirmation popup, depending on the value
+    /// of the `confirm-close-surface` configuration setting.
     close_window,
 
-    /// Close all windows. This will trigger close confirmation as configured.
-    /// This only works for macOS currently.
+    /// Close all windows.
+    ///
+    /// WARNING: This action has been deprecated and has no effect on either
+    /// Linux or macOS. Users are instead encouraged to use `all:close_window`
+    /// instead.
     close_all_windows,
 
-    /// Toggle maximized window state. This only works on Linux.
+    /// Maximize or unmaximize the current window.
+    ///
+    /// This has no effect on macOS as it does not have the concept of
+    /// maximized windows.
     toggle_maximize,
 
-    /// Toggle fullscreen mode of window.
+    /// Fullscreen or unfullscreen the current window.
     toggle_fullscreen,
 
-    /// Toggle window decorations on and off. This only works on Linux.
+    /// Toggle window decorations (titlebar, buttons, etc.) for the current window.
+    ///
+    /// Only implemented on Linux.
     toggle_window_decorations,
 
-    /// Toggle whether the terminal window is always on top of other
-    /// windows even when it is not focused. Terminal windows always start
-    /// as normal (not always on top) windows.
+    /// Toggle whether the terminal window should always float on top of other
+    /// windows even when unfocused.
     ///
-    /// This only works on macOS.
+    /// Terminal windows always start as normal (not float-on-top) windows.
+    ///
+    /// Only implemented on macOS.
     toggle_window_float_on_top,
 
-    /// Toggle secure input mode on or off. This is used to prevent apps
-    /// that monitor input from seeing what you type. This is useful for
-    /// entering passwords or other sensitive information.
+    /// Toggle secure input mode.
     ///
-    /// This applies to the entire application, not just the focused
-    /// terminal. You must toggle it off to disable it, or quit Ghostty.
+    /// This is used to prevent apps from monitoring your keyboard input
+    /// when entering passwords or other sensitive information.
     ///
-    /// This only works on macOS, since this is a system API on macOS.
+    /// This applies to the entire application, not just the focused terminal.
+    /// You must manually untoggle it or quit Ghostty entirely to disable it.
+    ///
+    /// Only implemented on macOS, as this uses a built-in system API.
     toggle_secure_input,
 
-    /// Toggle the command palette. The command palette is a UI element
-    /// that lets you see what actions you can perform, their associated
-    /// keybindings (if any), a search bar to filter the actions, and
-    /// the ability to then execute the action.
+    /// Toggle the command palette.
     ///
-    /// This only works on macOS.
+    /// The command palette is a popup that lets you see what actions
+    /// you can perform, their associated keybindings (if any), a search bar
+    /// to filter the actions, and the ability to then execute the action.
+    ///
+    /// This requires libadwaita 1.5 or newer on Linux. The current libadwaita
+    /// version can be found by running `ghostty +version`.
     toggle_command_palette,
 
-    /// Toggle the "quick" terminal. The quick terminal is a terminal that
-    /// appears on demand from a keybinding, often sliding in from a screen
-    /// edge such as the top. This is useful for quick access to a terminal
-    /// without having to open a new window or tab.
+    /// Toggle the quick terminal.
     ///
-    /// When the quick terminal loses focus, it disappears. The terminal state
-    /// is preserved between appearances, so you can always press the keybinding
-    /// to bring it back up.
+    /// The quick terminal, also known as the "Quake-style" or drop-down
+    /// terminal, is a terminal window that appears on demand from a keybinding,
+    /// often sliding in from a screen edge such as the top. This is useful for
+    /// quick access to a terminal without having to open a new window or tab.
     ///
-    /// To enable the quick terminal globally so that Ghostty doesn't
-    /// have to be focused, prefix your keybind with `global`. Example:
+    /// The terminal state is preserved between appearances, so showing the
+    /// quick terminal after it was already hidden would display the same
+    /// window instead of creating a new one.
+    ///
+    /// As quick terminals are often useful when other windows are currently
+    /// focused, they are best used with *global* keybinds. For example, one
+    /// can define the following key bind to toggle the quick terminal from
+    /// anywhere within the system by pressing `` Cmd+` ``:
     ///
     /// ```ini
-    /// keybind = global:cmd+grave_accent=toggle_quick_terminal
+    /// keybind = global:cmd+backquote=toggle_quick_terminal
     /// ```
     ///
     /// The quick terminal has some limitations:
     ///
-    ///   - It is a singleton; only one instance can exist at a time.
-    ///   - It does not support tabs, but it does support splits.
-    ///   - It will not be restored when the application is restarted
-    ///     (for systems that support window restoration).
-    ///   - It supports fullscreen, but fullscreen will always be a non-native
-    ///     fullscreen (macos-non-native-fullscreen = true). This only applies
-    ///     to the quick terminal window. This is a requirement due to how
-    ///     the quick terminal is rendered.
+    ///   - Only one quick terminal instance can exist at a time.
+    ///
+    ///   - Unlike normal terminal windows, the quick terminal will not be
+    ///     restored when the application is restarted on systems that support
+    ///     window restoration like macOS.
+    ///
+    ///   - On Linux, the quick terminal is only supported on Wayland and not
+    ///     X11, and only on Wayland compositors that support the `wlr-layer-shell-v1`
+    ///     protocol. In practice, this means that only GNOME users would not be
+    ///     able to use this feature.
+    ///
+    ///   - On Linux, slide-in animations are only supported on KDE, and when
+    ///     the "Sliding Popups" KWin plugin is enabled.
+    ///
+    ///     If you do not have this plugin enabled, open System Settings > Apps
+    ///     & Windows > Window Management > Desktop Effects, and enable the
+    ///     plugin in the plugin list. Ghostty would then need to be restarted
+    ///     fully for this to take effect.
+    ///
+    ///   - Quick terminal tabs are only supported on Linux and not on macOS.
+    ///     This is because tabs on macOS require a title bar.
+    ///
+    ///   - On macOS, a fullscreened quick terminal will always be in non-native
+    ///     fullscreen mode. This is a requirement due to how the quick terminal
+    ///     is rendered.
     ///
     /// See the various configurations for the quick terminal in the
     /// configuration file to customize its behavior.
-    ///
-    /// Supported on macOS and some desktop environments on Linux, namely
-    /// those that support the `wlr-layer-shell` Wayland protocol
-    /// (i.e. most desktop environments and window managers except GNOME).
-    ///
-    /// Slide-in animations on Linux are only supported on KDE when the
-    /// "Sliding Popups" KWin plugin is enabled. If you do not have this
-    /// plugin enabled, open System Settings > Apps & Windows > Window
-    /// Management > Desktop Effects, and enable the plugin in the plugin list.
-    /// Ghostty would then need to be restarted for this to take effect.
     toggle_quick_terminal,
 
-    /// Show/hide all windows. If all windows become shown, we also ensure
+    /// Show or hide all windows. If all windows become shown, we also ensure
     /// Ghostty becomes focused. When hiding all windows, focus is yielded
     /// to the next application as determined by the OS.
     ///
     /// Note: When the focused surface is fullscreen, this method does nothing.
     ///
-    /// This currently only works on macOS.
+    /// Only implemented on macOS.
     toggle_visibility,
 
-    /// Quit ghostty.
+    /// Check for updates.
+    ///
+    /// Only implemented on macOS.
+    check_for_updates,
+
+    /// Undo the last undoable action for the focused surface or terminal,
+    /// if possible. This can undo actions such as closing tabs or
+    /// windows.
+    ///
+    /// Not every action in Ghostty can be undone or redone. The list
+    /// of actions support undo/redo is currently limited to:
+    ///
+    ///   - New window, close window
+    ///   - New tab, close tab
+    ///   - New split, close split
+    ///
+    /// All actions are only undoable/redoable for a limited time.
+    /// For example, restoring a closed split can only be done for
+    /// some number of seconds since the split was closed. The exact
+    /// amount is configured with `TODO`.
+    ///
+    /// The undo/redo actions being limited ensures that there is
+    /// bounded memory usage over time, closed surfaces don't continue running
+    /// in the background indefinitely, and the keybinds become available
+    /// for terminal applications to use.
+    ///
+    /// Only implemented on macOS.
+    undo,
+
+    /// Redo the last undoable action for the focused surface or terminal,
+    /// if possible. See "undo" for more details on what can and cannot
+    /// be undone or redone.
+    redo,
+
+    /// Quit Ghostty.
     quit,
 
-    /// Crash ghostty in the desired thread for the focused surface.
+    /// Crash Ghostty in the desired thread for the focused surface.
     ///
     /// WARNING: This is a hard crash (panic) and data can be lost.
     ///
@@ -520,9 +699,17 @@ pub const Action = union(enum) {
     ///
     /// The value determines the crash location:
     ///
-    ///   - "main" - crash on the main (GUI) thread.
-    ///   - "io" - crash on the IO thread for the focused surface.
-    ///   - "render" - crash on the render thread for the focused surface.
+    ///   - `main`
+    ///
+    ///     Crash on the main (GUI) thread.
+    ///
+    ///   - `io`
+    ///
+    ///     Crash on the IO thread for the focused surface.
+    ///
+    ///   - `render`
+    ///
+    ///     Crash on the render thread for the focused surface.
     ///
     crash: CrashThread,
 
@@ -789,10 +976,14 @@ pub const Action = union(enum) {
             .quit,
             .toggle_quick_terminal,
             .toggle_visibility,
+            .check_for_updates,
+            .show_gtk_inspector,
             => .app,
 
             // These are app but can be special-cased in a surface context.
             .new_window,
+            .undo,
+            .redo,
             => .app,
 
             // Obviously surface actions.
@@ -1065,18 +1256,12 @@ pub const Action = union(enum) {
 /// This must be kept in sync with include/ghostty.h ghostty_input_trigger_s
 pub const Trigger = struct {
     /// The key that has to be pressed for a binding to take action.
-    key: Trigger.Key = .{ .translated = .invalid },
+    key: Trigger.Key = .{ .physical = .unidentified },
 
     /// The key modifiers that must be active for this to match.
     mods: key.Mods = .{},
 
     pub const Key = union(C.Tag) {
-        /// key is the translated version of a key. This is the key that
-        /// a logical keyboard layout at the OS level would translate the
-        /// physical key to. For example if you use a US hardware keyboard
-        /// but have a Dvorak layout, the key would be the Dvorak key.
-        translated: key.Key,
-
         /// key is the "physical" version. This is the same as mapped for
         /// standard US keyboard layouts. For non-US keyboard layouts, this
         /// is used to bind to a physical key location rather than a translated
@@ -1091,18 +1276,16 @@ pub const Trigger = struct {
 
     /// The extern struct used for triggers in the C API.
     pub const C = extern struct {
-        tag: Tag = .translated,
-        key: C.Key = .{ .translated = .invalid },
+        tag: Tag = .physical,
+        key: C.Key = .{ .physical = .unidentified },
         mods: key.Mods = .{},
 
         pub const Tag = enum(c_int) {
-            translated,
             physical,
             unicode,
         };
 
         pub const Key = extern union {
-            translated: key.Key,
             physical: key.Key,
             unicode: u32,
         };
@@ -1115,10 +1298,11 @@ pub const Trigger = struct {
     pub fn parse(input: []const u8) !Trigger {
         if (input.len == 0) return Error.InvalidFormat;
         var result: Trigger = .{};
-        var iter = std.mem.tokenizeScalar(u8, input, '+');
-        loop: while (iter.next()) |part| {
-            // All parts must be non-empty
-            if (part.len == 0) return Error.InvalidFormat;
+        var rem: []const u8 = input;
+        loop: while (rem.len > 0) {
+            const idx = std.mem.indexOfScalar(u8, rem, '+') orelse rem.len;
+            const part = rem[0..idx];
+            rem = if (idx >= rem.len) "" else rem[idx + 1 ..];
 
             // Check if its a modifier
             const modsInfo = @typeInfo(key.Mods).@"struct";
@@ -1150,24 +1334,24 @@ pub const Trigger = struct {
                 }
             }
 
-            // If the key starts with "physical" then this is an physical key.
-            const physical_prefix = "physical:";
-            const physical = std.mem.startsWith(u8, part, physical_prefix);
-            const key_part = if (physical) part[physical_prefix.len..] else part;
+            // Anything after this point is a key and we only support
+            // single keys.
+            if (!result.isKeyUnset()) return Error.InvalidFormat;
+
+            // If the part is empty it means that it is actually
+            // a literal `+`, which we treat as a Unicode character.
+            if (part.len == 0) {
+                result.key = .{ .unicode = '+' };
+                continue :loop;
+            }
 
             // Check if its a key
             const keysInfo = @typeInfo(key.Key).@"enum";
             inline for (keysInfo.fields) |field| {
-                if (!std.mem.eql(u8, field.name, "invalid")) {
-                    if (std.mem.eql(u8, key_part, field.name)) {
-                        // Repeat not allowed
-                        if (!result.isKeyUnset()) return Error.InvalidFormat;
-
+                if (!std.mem.eql(u8, field.name, "unidentified")) {
+                    if (std.mem.eql(u8, part, field.name)) {
                         const keyval = @field(key.Key, field.name);
-                        result.key = if (physical)
-                            .{ .physical = keyval }
-                        else
-                            .{ .translated = keyval };
+                        result.key = .{ .physical = keyval };
                         continue :loop;
                     }
                 }
@@ -1177,22 +1361,28 @@ pub const Trigger = struct {
             // character then we can use that as a key.
             if (result.isKeyUnset()) unicode: {
                 // Invalid UTF8 drops to invalid format
-                const view = std.unicode.Utf8View.init(key_part) catch break :unicode;
+                const view = std.unicode.Utf8View.init(part) catch break :unicode;
                 var it = view.iterator();
 
                 // No codepoints or multiple codepoints drops to invalid format
                 const cp = it.nextCodepoint() orelse break :unicode;
                 if (it.nextCodepoint() != null) break :unicode;
 
-                // If this is ASCII and we have a translated key, set that.
-                if (std.math.cast(u8, cp)) |ascii| {
-                    if (key.Key.fromASCII(ascii)) |k| {
-                        result.key = .{ .translated = k };
-                        continue :loop;
-                    }
-                }
-
                 result.key = .{ .unicode = cp };
+                continue :loop;
+            }
+
+            // Look for a matching w3c name next.
+            if (key.Key.fromW3C(part)) |w3c_key| {
+                result.key = .{ .physical = w3c_key };
+                continue :loop;
+            }
+
+            // If we're still unset then we look for backwards compatible
+            // keys with Ghostty 1.1.x. We do this last so its least likely
+            // to impact performance for modern users.
+            if (backwards_compatible_keys.get(part)) |old_key| {
+                result.key = old_key;
                 continue :loop;
             }
 
@@ -1202,10 +1392,132 @@ pub const Trigger = struct {
 
         return result;
     }
+
+    /// The values that are backwards compatible with Ghostty 1.1.x.
+    /// Ghostty 1.2+ doesn't support these anymore since we moved to
+    /// W3C key codes.
+    const backwards_compatible_keys = std.StaticStringMap(Key).initComptime(.{
+        .{ "zero", Key{ .unicode = '0' } },
+        .{ "one", Key{ .unicode = '1' } },
+        .{ "two", Key{ .unicode = '2' } },
+        .{ "three", Key{ .unicode = '3' } },
+        .{ "four", Key{ .unicode = '4' } },
+        .{ "five", Key{ .unicode = '5' } },
+        .{ "six", Key{ .unicode = '6' } },
+        .{ "seven", Key{ .unicode = '7' } },
+        .{ "eight", Key{ .unicode = '8' } },
+        .{ "nine", Key{ .unicode = '9' } },
+        .{ "plus", Key{ .unicode = '+' } },
+        .{ "apostrophe", Key{ .unicode = '\'' } },
+        .{ "grave_accent", Key{ .physical = .backquote } },
+        .{ "left_bracket", Key{ .physical = .bracket_left } },
+        .{ "right_bracket", Key{ .physical = .bracket_right } },
+        .{ "up", Key{ .physical = .arrow_up } },
+        .{ "down", Key{ .physical = .arrow_down } },
+        .{ "left", Key{ .physical = .arrow_left } },
+        .{ "right", Key{ .physical = .arrow_right } },
+        .{ "kp_0", Key{ .physical = .numpad_0 } },
+        .{ "kp_1", Key{ .physical = .numpad_1 } },
+        .{ "kp_2", Key{ .physical = .numpad_2 } },
+        .{ "kp_3", Key{ .physical = .numpad_3 } },
+        .{ "kp_4", Key{ .physical = .numpad_4 } },
+        .{ "kp_5", Key{ .physical = .numpad_5 } },
+        .{ "kp_6", Key{ .physical = .numpad_6 } },
+        .{ "kp_7", Key{ .physical = .numpad_7 } },
+        .{ "kp_8", Key{ .physical = .numpad_8 } },
+        .{ "kp_9", Key{ .physical = .numpad_9 } },
+        .{ "kp_add", Key{ .physical = .numpad_add } },
+        .{ "kp_subtract", Key{ .physical = .numpad_subtract } },
+        .{ "kp_multiply", Key{ .physical = .numpad_multiply } },
+        .{ "kp_divide", Key{ .physical = .numpad_divide } },
+        .{ "kp_decimal", Key{ .physical = .numpad_decimal } },
+        .{ "kp_enter", Key{ .physical = .numpad_enter } },
+        .{ "kp_equal", Key{ .physical = .numpad_equal } },
+        .{ "kp_separator", Key{ .physical = .numpad_separator } },
+        .{ "kp_left", Key{ .physical = .numpad_left } },
+        .{ "kp_right", Key{ .physical = .numpad_right } },
+        .{ "kp_up", Key{ .physical = .numpad_up } },
+        .{ "kp_down", Key{ .physical = .numpad_down } },
+        .{ "kp_page_up", Key{ .physical = .numpad_page_up } },
+        .{ "kp_page_down", Key{ .physical = .numpad_page_down } },
+        .{ "kp_home", Key{ .physical = .numpad_home } },
+        .{ "kp_end", Key{ .physical = .numpad_end } },
+        .{ "kp_insert", Key{ .physical = .numpad_insert } },
+        .{ "kp_delete", Key{ .physical = .numpad_delete } },
+        .{ "kp_begin", Key{ .physical = .numpad_begin } },
+        .{ "left_shift", Key{ .physical = .shift_left } },
+        .{ "right_shift", Key{ .physical = .shift_right } },
+        .{ "left_control", Key{ .physical = .control_left } },
+        .{ "right_control", Key{ .physical = .control_right } },
+        .{ "left_alt", Key{ .physical = .alt_left } },
+        .{ "right_alt", Key{ .physical = .alt_right } },
+        .{ "left_super", Key{ .physical = .meta_left } },
+        .{ "right_super", Key{ .physical = .meta_right } },
+
+        // Physical variants. This is a blunt approach to this but its
+        // glue for backwards compatibility so I'm not too worried about
+        // making this super nice.
+        .{ "physical:zero", Key{ .physical = .digit_0 } },
+        .{ "physical:one", Key{ .physical = .digit_1 } },
+        .{ "physical:two", Key{ .physical = .digit_2 } },
+        .{ "physical:three", Key{ .physical = .digit_3 } },
+        .{ "physical:four", Key{ .physical = .digit_4 } },
+        .{ "physical:five", Key{ .physical = .digit_5 } },
+        .{ "physical:six", Key{ .physical = .digit_6 } },
+        .{ "physical:seven", Key{ .physical = .digit_7 } },
+        .{ "physical:eight", Key{ .physical = .digit_8 } },
+        .{ "physical:nine", Key{ .physical = .digit_9 } },
+        .{ "physical:apostrophe", Key{ .physical = .quote } },
+        .{ "physical:grave_accent", Key{ .physical = .backquote } },
+        .{ "physical:left_bracket", Key{ .physical = .bracket_left } },
+        .{ "physical:right_bracket", Key{ .physical = .bracket_right } },
+        .{ "physical:up", Key{ .physical = .arrow_up } },
+        .{ "physical:down", Key{ .physical = .arrow_down } },
+        .{ "physical:left", Key{ .physical = .arrow_left } },
+        .{ "physical:right", Key{ .physical = .arrow_right } },
+        .{ "physical:kp_0", Key{ .physical = .numpad_0 } },
+        .{ "physical:kp_1", Key{ .physical = .numpad_1 } },
+        .{ "physical:kp_2", Key{ .physical = .numpad_2 } },
+        .{ "physical:kp_3", Key{ .physical = .numpad_3 } },
+        .{ "physical:kp_4", Key{ .physical = .numpad_4 } },
+        .{ "physical:kp_5", Key{ .physical = .numpad_5 } },
+        .{ "physical:kp_6", Key{ .physical = .numpad_6 } },
+        .{ "physical:kp_7", Key{ .physical = .numpad_7 } },
+        .{ "physical:kp_8", Key{ .physical = .numpad_8 } },
+        .{ "physical:kp_9", Key{ .physical = .numpad_9 } },
+        .{ "physical:kp_add", Key{ .physical = .numpad_add } },
+        .{ "physical:kp_subtract", Key{ .physical = .numpad_subtract } },
+        .{ "physical:kp_multiply", Key{ .physical = .numpad_multiply } },
+        .{ "physical:kp_divide", Key{ .physical = .numpad_divide } },
+        .{ "physical:kp_decimal", Key{ .physical = .numpad_decimal } },
+        .{ "physical:kp_enter", Key{ .physical = .numpad_enter } },
+        .{ "physical:kp_equal", Key{ .physical = .numpad_equal } },
+        .{ "physical:kp_separator", Key{ .physical = .numpad_separator } },
+        .{ "physical:kp_left", Key{ .physical = .numpad_left } },
+        .{ "physical:kp_right", Key{ .physical = .numpad_right } },
+        .{ "physical:kp_up", Key{ .physical = .numpad_up } },
+        .{ "physical:kp_down", Key{ .physical = .numpad_down } },
+        .{ "physical:kp_page_up", Key{ .physical = .numpad_page_up } },
+        .{ "physical:kp_page_down", Key{ .physical = .numpad_page_down } },
+        .{ "physical:kp_home", Key{ .physical = .numpad_home } },
+        .{ "physical:kp_end", Key{ .physical = .numpad_end } },
+        .{ "physical:kp_insert", Key{ .physical = .numpad_insert } },
+        .{ "physical:kp_delete", Key{ .physical = .numpad_delete } },
+        .{ "physical:kp_begin", Key{ .physical = .numpad_begin } },
+        .{ "physical:left_shift", Key{ .physical = .shift_left } },
+        .{ "physical:right_shift", Key{ .physical = .shift_right } },
+        .{ "physical:left_control", Key{ .physical = .control_left } },
+        .{ "physical:right_control", Key{ .physical = .control_right } },
+        .{ "physical:left_alt", Key{ .physical = .alt_left } },
+        .{ "physical:right_alt", Key{ .physical = .alt_right } },
+        .{ "physical:left_super", Key{ .physical = .meta_left } },
+        .{ "physical:right_super", Key{ .physical = .meta_right } },
+    });
+
     /// Returns true if this trigger has no key set.
     pub fn isKeyUnset(self: Trigger) bool {
         return switch (self.key) {
-            .translated => |v| v == .invalid,
+            .physical => |v| v == .unidentified,
             else => false,
         };
     }
@@ -1219,8 +1531,30 @@ pub const Trigger = struct {
 
     /// Hash the trigger into the given hasher.
     fn hashIncremental(self: Trigger, hasher: anytype) void {
-        std.hash.autoHash(hasher, self.key);
+        std.hash.autoHash(hasher, std.meta.activeTag(self.key));
+        switch (self.key) {
+            .physical => |v| std.hash.autoHash(hasher, v),
+            .unicode => |cp| std.hash.autoHash(
+                hasher,
+                foldedCodepoint(cp),
+            ),
+        }
         std.hash.autoHash(hasher, self.mods.binding());
+    }
+
+    /// The codepoint we use for comparisons. Case folding can result
+    /// in more codepoints so we need to use a 3 element array.
+    fn foldedCodepoint(cp: u21) [3]u21 {
+        // ASCII fast path
+        if (ziglyph.letter.isAsciiLetter(cp)) {
+            return .{ ziglyph.letter.toLower(cp), 0, 0 };
+        }
+
+        // Unicode slow path. Case folding can resultin more codepoints.
+        // If more codepoints are produced then we return the codepoint
+        // as-is which isn't correct but until we have a failing test
+        // then I don't want to handle this.
+        return ziglyph.letter.toCaseFold(cp);
     }
 
     /// Convert the trigger to a C API compatible trigger.
@@ -1228,7 +1562,6 @@ pub const Trigger = struct {
         return .{
             .tag = self.key,
             .key = switch (self.key) {
-                .translated => |v| .{ .translated = v },
                 .physical => |v| .{ .physical = v },
                 .unicode => |v| .{ .unicode = @intCast(v) },
             },
@@ -1254,8 +1587,7 @@ pub const Trigger = struct {
 
         // Key
         switch (self.key) {
-            .translated => |k| try writer.print("{s}", .{@tagName(k)}),
-            .physical => |k| try writer.print("physical:{s}", .{@tagName(k)}),
+            .physical => |k| try writer.print("{s}", .{@tagName(k)}),
             .unicode => |c| try writer.print("{u}", .{c}),
         }
     }
@@ -1620,13 +1952,27 @@ pub const Set = struct {
     pub fn getEvent(self: *const Set, event: KeyEvent) ?Entry {
         var trigger: Trigger = .{
             .mods = event.mods.binding(),
-            .key = .{ .translated = event.key },
+            .key = .{ .physical = event.key },
         };
         if (self.get(trigger)) |v| return v;
 
-        trigger.key = .{ .physical = event.physical_key };
-        if (self.get(trigger)) |v| return v;
+        // If our UTF-8 text is exactly one codepoint, we try to match that.
+        if (event.utf8.len > 0) unicode: {
+            const view = std.unicode.Utf8View.init(event.utf8) catch break :unicode;
+            var it = view.iterator();
 
+            // No codepoints or multiple codepoints drops to invalid format
+            const cp = it.nextCodepoint() orelse break :unicode;
+            if (it.nextCodepoint() != null) break :unicode;
+
+            trigger.key = .{ .unicode = cp };
+            if (self.get(trigger)) |v| return v;
+        }
+
+        // Finally fallback to the full unshifted codepoint if we have one.
+        // Question: should we be doing this if we have UTF-8 text? I
+        // suspect "no" but we don't currently have any failing scenarios
+        // to verify this.
         if (event.unshifted_codepoint > 0) {
             trigger.key = .{ .unicode = event.unshifted_codepoint };
             if (self.get(trigger)) |v| return v;
@@ -1637,19 +1983,7 @@ pub const Set = struct {
 
     /// Remove a binding for a given trigger.
     pub fn remove(self: *Set, alloc: Allocator, t: Trigger) void {
-        // Remove whatever this trigger is
         self.removeExact(alloc, t);
-
-        // If we have a physical we remove translated and vice versa.
-        const alternate: Trigger.Key = switch (t.key) {
-            .unicode => return,
-            .translated => |k| .{ .physical = k },
-            .physical => |k| .{ .translated = k },
-        };
-
-        var alt_t: Trigger = t;
-        alt_t.key = alternate;
-        self.removeExact(alloc, alt_t);
     }
 
     fn removeExact(self: *Set, alloc: Allocator, t: Trigger) void {
@@ -1750,37 +2084,24 @@ test "parse: triggers" {
     // single character
     try testing.expectEqual(
         Binding{
-            .trigger = .{ .key = .{ .translated = .a } },
+            .trigger = .{ .key = .{ .unicode = 'a' } },
             .action = .{ .ignore = {} },
         },
         try parseSingle("a=ignore"),
     );
 
-    // unicode keys that map to translated
-    try testing.expectEqual(Binding{
-        .trigger = .{ .key = .{ .translated = .one } },
-        .action = .{ .ignore = {} },
-    }, try parseSingle("1=ignore"));
-    try testing.expectEqual(Binding{
-        .trigger = .{
-            .mods = .{ .super = true },
-            .key = .{ .translated = .period },
-        },
-        .action = .{ .ignore = {} },
-    }, try parseSingle("cmd+.=ignore"));
-
     // single modifier
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .shift = true },
-            .key = .{ .translated = .a },
+            .key = .{ .unicode = 'a' },
         },
         .action = .{ .ignore = {} },
     }, try parseSingle("shift+a=ignore"));
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .ctrl = true },
-            .key = .{ .translated = .a },
+            .key = .{ .unicode = 'a' },
         },
         .action = .{ .ignore = {} },
     }, try parseSingle("ctrl+a=ignore"));
@@ -1789,7 +2110,7 @@ test "parse: triggers" {
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .shift = true, .ctrl = true },
-            .key = .{ .translated = .a },
+            .key = .{ .unicode = 'a' },
         },
         .action = .{ .ignore = {} },
     }, try parseSingle("shift+ctrl+a=ignore"));
@@ -1798,7 +2119,7 @@ test "parse: triggers" {
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .shift = true },
-            .key = .{ .translated = .a },
+            .key = .{ .unicode = 'a' },
         },
         .action = .{ .ignore = {} },
     }, try parseSingle("a+shift=ignore"));
@@ -1807,10 +2128,10 @@ test "parse: triggers" {
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .shift = true },
-            .key = .{ .physical = .a },
+            .key = .{ .physical = .key_a },
         },
         .action = .{ .ignore = {} },
-    }, try parseSingle("shift+physical:a=ignore"));
+    }, try parseSingle("shift+key_a=ignore"));
 
     // unicode keys
     try testing.expectEqual(Binding{
@@ -1825,7 +2146,7 @@ test "parse: triggers" {
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .shift = true },
-            .key = .{ .translated = .a },
+            .key = .{ .unicode = 'a' },
         },
         .action = .{ .ignore = {} },
         .flags = .{ .consumed = false },
@@ -1835,17 +2156,17 @@ test "parse: triggers" {
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .shift = true },
-            .key = .{ .physical = .a },
+            .key = .{ .physical = .key_a },
         },
         .action = .{ .ignore = {} },
         .flags = .{ .consumed = false },
-    }, try parseSingle("unconsumed:physical:a+shift=ignore"));
+    }, try parseSingle("unconsumed:key_a+shift=ignore"));
 
     // performable keys
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .shift = true },
-            .key = .{ .translated = .a },
+            .key = .{ .unicode = 'a' },
         },
         .action = .{ .ignore = {} },
         .flags = .{ .performable = true },
@@ -1861,6 +2182,117 @@ test "parse: triggers" {
     try testing.expectError(Error.InvalidFormat, parseSingle("a+b=ignore"));
 }
 
+test "parse: w3c key names" {
+    const testing = std.testing;
+
+    // Exact match
+    try testing.expectEqual(
+        Binding{
+            .trigger = .{ .key = .{ .physical = .key_a } },
+            .action = .{ .ignore = {} },
+        },
+        try parseSingle("KeyA=ignore"),
+    );
+
+    // Case-sensitive
+    try testing.expectError(Error.InvalidFormat, parseSingle("Keya=ignore"));
+}
+
+test "parse: plus sign" {
+    const testing = std.testing;
+
+    try testing.expectEqual(
+        Binding{
+            .trigger = .{ .key = .{ .unicode = '+' } },
+            .action = .{ .ignore = {} },
+        },
+        try parseSingle("+=ignore"),
+    );
+
+    // Modifier
+    try testing.expectEqual(
+        Binding{
+            .trigger = .{
+                .key = .{ .unicode = '+' },
+                .mods = .{ .ctrl = true },
+            },
+            .action = .{ .ignore = {} },
+        },
+        try parseSingle("ctrl++=ignore"),
+    );
+
+    try testing.expectError(Error.InvalidFormat, parseSingle("++=ignore"));
+}
+
+test "parse: equals sign" {
+    const testing = std.testing;
+
+    try testing.expectEqual(
+        Binding{
+            .trigger = .{ .key = .{ .unicode = '=' } },
+            .action = .ignore,
+        },
+        try parseSingle("==ignore"),
+    );
+
+    // Modifier
+    try testing.expectEqual(
+        Binding{
+            .trigger = .{
+                .key = .{ .unicode = '=' },
+                .mods = .{ .ctrl = true },
+            },
+            .action = .ignore,
+        },
+        try parseSingle("ctrl+==ignore"),
+    );
+
+    try testing.expectError(Error.InvalidFormat, parseSingle("=ignore"));
+}
+
+// For Ghostty 1.2+ we changed our key names to match the W3C and removed
+// `physical:`. This tests the backwards compatibility with the old format.
+// Note that our backwards compatibility isn't 100% perfect since triggers
+// like `a` now map to unicode instead of "translated" (which was also
+// removed). But we did our best here with what was unambiguous.
+test "parse: backwards compatibility with <= 1.1.x" {
+    const testing = std.testing;
+
+    // simple, for sanity
+    try testing.expectEqual(
+        Binding{
+            .trigger = .{ .key = .{ .unicode = '0' } },
+            .action = .{ .ignore = {} },
+        },
+        try parseSingle("zero=ignore"),
+    );
+    try testing.expectEqual(
+        Binding{
+            .trigger = .{ .key = .{ .physical = .digit_0 } },
+            .action = .{ .ignore = {} },
+        },
+        try parseSingle("physical:zero=ignore"),
+    );
+
+    // duplicates
+    try testing.expectError(Error.InvalidFormat, parseSingle("zero+one=ignore"));
+
+    // test our full map
+    for (
+        Trigger.backwards_compatible_keys.keys(),
+        Trigger.backwards_compatible_keys.values(),
+    ) |k, v| {
+        var buf: [128]u8 = undefined;
+        try testing.expectEqual(
+            Binding{
+                .trigger = .{ .key = v },
+                .action = .{ .ignore = {} },
+            },
+            try parseSingle(try std.fmt.bufPrint(&buf, "{s}=ignore", .{k})),
+        );
+    }
+}
+
 test "parse: global triggers" {
     const testing = std.testing;
 
@@ -1868,7 +2300,7 @@ test "parse: global triggers" {
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .shift = true },
-            .key = .{ .translated = .a },
+            .key = .{ .unicode = 'a' },
         },
         .action = .{ .ignore = {} },
         .flags = .{ .global = true },
@@ -1878,17 +2310,17 @@ test "parse: global triggers" {
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .shift = true },
-            .key = .{ .physical = .a },
+            .key = .{ .physical = .key_a },
         },
         .action = .{ .ignore = {} },
         .flags = .{ .global = true },
-    }, try parseSingle("global:physical:a+shift=ignore"));
+    }, try parseSingle("global:key_a+shift=ignore"));
 
     // global unconsumed keys
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .shift = true },
-            .key = .{ .translated = .a },
+            .key = .{ .unicode = 'a' },
         },
         .action = .{ .ignore = {} },
         .flags = .{
@@ -1911,7 +2343,7 @@ test "parse: all triggers" {
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .shift = true },
-            .key = .{ .translated = .a },
+            .key = .{ .unicode = 'a' },
         },
         .action = .{ .ignore = {} },
         .flags = .{ .all = true },
@@ -1921,17 +2353,17 @@ test "parse: all triggers" {
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .shift = true },
-            .key = .{ .physical = .a },
+            .key = .{ .physical = .key_a },
         },
         .action = .{ .ignore = {} },
         .flags = .{ .all = true },
-    }, try parseSingle("all:physical:a+shift=ignore"));
+    }, try parseSingle("all:key_a+shift=ignore"));
 
     // all unconsumed keys
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .shift = true },
-            .key = .{ .translated = .a },
+            .key = .{ .unicode = 'a' },
         },
         .action = .{ .ignore = {} },
         .flags = .{
@@ -1953,14 +2385,14 @@ test "parse: modifier aliases" {
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .super = true },
-            .key = .{ .translated = .a },
+            .key = .{ .unicode = 'a' },
         },
         .action = .{ .ignore = {} },
     }, try parseSingle("cmd+a=ignore"));
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .super = true },
-            .key = .{ .translated = .a },
+            .key = .{ .unicode = 'a' },
         },
         .action = .{ .ignore = {} },
     }, try parseSingle("command+a=ignore"));
@@ -1968,14 +2400,14 @@ test "parse: modifier aliases" {
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .alt = true },
-            .key = .{ .translated = .a },
+            .key = .{ .unicode = 'a' },
         },
         .action = .{ .ignore = {} },
     }, try parseSingle("opt+a=ignore"));
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .alt = true },
-            .key = .{ .translated = .a },
+            .key = .{ .unicode = 'a' },
         },
         .action = .{ .ignore = {} },
     }, try parseSingle("option+a=ignore"));
@@ -1983,7 +2415,7 @@ test "parse: modifier aliases" {
     try testing.expectEqual(Binding{
         .trigger = .{
             .mods = .{ .ctrl = true },
-            .key = .{ .translated = .a },
+            .key = .{ .unicode = 'a' },
         },
         .action = .{ .ignore = {} },
     }, try parseSingle("control+a=ignore"));
@@ -2002,7 +2434,7 @@ test "parse: action no parameters" {
     // no parameters
     try testing.expectEqual(
         Binding{
-            .trigger = .{ .key = .{ .translated = .a } },
+            .trigger = .{ .key = .{ .unicode = 'a' } },
             .action = .{ .ignore = {} },
         },
         try parseSingle("a=ignore"),
@@ -2108,15 +2540,15 @@ test "sequence iterator" {
     // single character
     {
         var it: SequenceIterator = .{ .input = "a" };
-        try testing.expectEqual(Trigger{ .key = .{ .translated = .a } }, (try it.next()).?);
+        try testing.expectEqual(Trigger{ .key = .{ .unicode = 'a' } }, (try it.next()).?);
         try testing.expect(try it.next() == null);
     }
 
     // multi character
     {
         var it: SequenceIterator = .{ .input = "a>b" };
-        try testing.expectEqual(Trigger{ .key = .{ .translated = .a } }, (try it.next()).?);
-        try testing.expectEqual(Trigger{ .key = .{ .translated = .b } }, (try it.next()).?);
+        try testing.expectEqual(Trigger{ .key = .{ .unicode = 'a' } }, (try it.next()).?);
+        try testing.expectEqual(Trigger{ .key = .{ .unicode = 'b' } }, (try it.next()).?);
         try testing.expect(try it.next() == null);
     }
 
@@ -2135,7 +2567,7 @@ test "sequence iterator" {
     // empty ending sequence
     {
         var it: SequenceIterator = .{ .input = "a>" };
-        try testing.expectEqual(Trigger{ .key = .{ .translated = .a } }, (try it.next()).?);
+        try testing.expectEqual(Trigger{ .key = .{ .unicode = 'a' } }, (try it.next()).?);
         try testing.expectError(Error.InvalidFormat, it.next());
     }
 }
@@ -2149,7 +2581,7 @@ test "parse: sequences" {
         try testing.expectEqual(Parser.Elem{ .binding = .{
             .trigger = .{
                 .mods = .{ .ctrl = true },
-                .key = .{ .translated = .a },
+                .key = .{ .unicode = 'a' },
             },
             .action = .{ .ignore = {} },
         } }, (try p.next()).?);
@@ -2160,11 +2592,11 @@ test "parse: sequences" {
     {
         var p = try Parser.init("a>b=ignore");
         try testing.expectEqual(Parser.Elem{ .leader = .{
-            .key = .{ .translated = .a },
+            .key = .{ .unicode = 'a' },
         } }, (try p.next()).?);
         try testing.expectEqual(Parser.Elem{ .binding = .{
             .trigger = .{
-                .key = .{ .translated = .b },
+                .key = .{ .unicode = 'b' },
             },
             .action = .{ .ignore = {} },
         } }, (try p.next()).?);
@@ -2183,7 +2615,7 @@ test "set: parseAndPut typical binding" {
 
     // Creates forward mapping
     {
-        const action = s.get(.{ .key = .{ .translated = .a } }).?.value_ptr.*.leaf;
+        const action = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*.leaf;
         try testing.expect(action.action == .new_window);
         try testing.expectEqual(Flags{}, action.flags);
     }
@@ -2191,7 +2623,7 @@ test "set: parseAndPut typical binding" {
     // Creates reverse mapping
     {
         const trigger = s.getTrigger(.{ .new_window = {} }).?;
-        try testing.expect(trigger.key.translated == .a);
+        try testing.expect(trigger.key.unicode == 'a');
     }
 }
 
@@ -2206,7 +2638,7 @@ test "set: parseAndPut unconsumed binding" {
 
     // Creates forward mapping
     {
-        const trigger: Trigger = .{ .key = .{ .translated = .a } };
+        const trigger: Trigger = .{ .key = .{ .unicode = 'a' } };
         const action = s.get(trigger).?.value_ptr.*.leaf;
         try testing.expect(action.action == .new_window);
         try testing.expectEqual(Flags{ .consumed = false }, action.flags);
@@ -2215,7 +2647,7 @@ test "set: parseAndPut unconsumed binding" {
     // Creates reverse mapping
     {
         const trigger = s.getTrigger(.{ .new_window = {} }).?;
-        try testing.expect(trigger.key.translated == .a);
+        try testing.expect(trigger.key.unicode == 'a');
     }
 }
 
@@ -2231,25 +2663,7 @@ test "set: parseAndPut removed binding" {
 
     // Creates forward mapping
     {
-        const trigger: Trigger = .{ .key = .{ .translated = .a } };
-        try testing.expect(s.get(trigger) == null);
-    }
-    try testing.expect(s.getTrigger(.{ .new_window = {} }) == null);
-}
-
-test "set: parseAndPut removed physical binding" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    var s: Set = .{};
-    defer s.deinit(alloc);
-
-    try s.parseAndPut(alloc, "physical:a=new_window");
-    try s.parseAndPut(alloc, "a=unbind");
-
-    // Creates forward mapping
-    {
-        const trigger: Trigger = .{ .key = .{ .physical = .a } };
+        const trigger: Trigger = .{ .key = .{ .unicode = 'a' } };
         try testing.expect(s.get(trigger) == null);
     }
     try testing.expect(s.getTrigger(.{ .new_window = {} }) == null);
@@ -2265,13 +2679,13 @@ test "set: parseAndPut sequence" {
     try s.parseAndPut(alloc, "a>b=new_window");
     var current: *Set = &s;
     {
-        const t: Trigger = .{ .key = .{ .translated = .a } };
+        const t: Trigger = .{ .key = .{ .unicode = 'a' } };
         const e = current.get(t).?.value_ptr.*;
         try testing.expect(e == .leader);
         current = e.leader;
     }
     {
-        const t: Trigger = .{ .key = .{ .translated = .b } };
+        const t: Trigger = .{ .key = .{ .unicode = 'b' } };
         const e = current.get(t).?.value_ptr.*;
         try testing.expect(e == .leaf);
         try testing.expect(e.leaf.action == .new_window);
@@ -2290,20 +2704,20 @@ test "set: parseAndPut sequence with two actions" {
     try s.parseAndPut(alloc, "a>c=new_tab");
     var current: *Set = &s;
     {
-        const t: Trigger = .{ .key = .{ .translated = .a } };
+        const t: Trigger = .{ .key = .{ .unicode = 'a' } };
         const e = current.get(t).?.value_ptr.*;
         try testing.expect(e == .leader);
         current = e.leader;
     }
     {
-        const t: Trigger = .{ .key = .{ .translated = .b } };
+        const t: Trigger = .{ .key = .{ .unicode = 'b' } };
         const e = current.get(t).?.value_ptr.*;
         try testing.expect(e == .leaf);
         try testing.expect(e.leaf.action == .new_window);
         try testing.expectEqual(Flags{}, e.leaf.flags);
     }
     {
-        const t: Trigger = .{ .key = .{ .translated = .c } };
+        const t: Trigger = .{ .key = .{ .unicode = 'c' } };
         const e = current.get(t).?.value_ptr.*;
         try testing.expect(e == .leaf);
         try testing.expect(e.leaf.action == .new_tab);
@@ -2322,13 +2736,13 @@ test "set: parseAndPut overwrite sequence" {
     try s.parseAndPut(alloc, "a>b=new_window");
     var current: *Set = &s;
     {
-        const t: Trigger = .{ .key = .{ .translated = .a } };
+        const t: Trigger = .{ .key = .{ .unicode = 'a' } };
         const e = current.get(t).?.value_ptr.*;
         try testing.expect(e == .leader);
         current = e.leader;
     }
     {
-        const t: Trigger = .{ .key = .{ .translated = .b } };
+        const t: Trigger = .{ .key = .{ .unicode = 'b' } };
         const e = current.get(t).?.value_ptr.*;
         try testing.expect(e == .leaf);
         try testing.expect(e.leaf.action == .new_window);
@@ -2347,13 +2761,13 @@ test "set: parseAndPut overwrite leader" {
     try s.parseAndPut(alloc, "a>b=new_window");
     var current: *Set = &s;
     {
-        const t: Trigger = .{ .key = .{ .translated = .a } };
+        const t: Trigger = .{ .key = .{ .unicode = 'a' } };
         const e = current.get(t).?.value_ptr.*;
         try testing.expect(e == .leader);
         current = e.leader;
     }
     {
-        const t: Trigger = .{ .key = .{ .translated = .b } };
+        const t: Trigger = .{ .key = .{ .unicode = 'b' } };
         const e = current.get(t).?.value_ptr.*;
         try testing.expect(e == .leaf);
         try testing.expect(e.leaf.action == .new_window);
@@ -2372,7 +2786,7 @@ test "set: parseAndPut unbind sequence unbinds leader" {
     try s.parseAndPut(alloc, "a>b=unbind");
     var current: *Set = &s;
     {
-        const t: Trigger = .{ .key = .{ .translated = .a } };
+        const t: Trigger = .{ .key = .{ .unicode = 'a' } };
         try testing.expect(current.get(t) == null);
     }
 }
@@ -2387,7 +2801,7 @@ test "set: parseAndPut unbind sequence unbinds leader if not set" {
     try s.parseAndPut(alloc, "a>b=unbind");
     var current: *Set = &s;
     {
-        const t: Trigger = .{ .key = .{ .translated = .a } };
+        const t: Trigger = .{ .key = .{ .unicode = 'a' } };
         try testing.expect(current.get(t) == null);
     }
 }
@@ -2405,7 +2819,7 @@ test "set: parseAndPut sequence preserves reverse mapping" {
     // Creates reverse mapping
     {
         const trigger = s.getTrigger(.{ .new_window = {} }).?;
-        try testing.expect(trigger.key.translated == .a);
+        try testing.expect(trigger.key.unicode == 'a');
     }
 }
 
@@ -2419,13 +2833,13 @@ test "set: put overwrites sequence" {
     try s.parseAndPut(alloc, "ctrl+a>b=new_window");
     try s.put(alloc, .{
         .mods = .{ .ctrl = true },
-        .key = .{ .translated = .a },
+        .key = .{ .unicode = 'a' },
     }, .{ .new_window = {} });
 
     // Creates reverse mapping
     {
         const trigger = s.getTrigger(.{ .new_window = {} }).?;
-        try testing.expect(trigger.key.translated == .a);
+        try testing.expect(trigger.key.unicode == 'a');
     }
 }
 
@@ -2436,24 +2850,24 @@ test "set: maintains reverse mapping" {
     var s: Set = .{};
     defer s.deinit(alloc);
 
-    try s.put(alloc, .{ .key = .{ .translated = .a } }, .{ .new_window = {} });
+    try s.put(alloc, .{ .key = .{ .unicode = 'a' } }, .{ .new_window = {} });
     {
         const trigger = s.getTrigger(.{ .new_window = {} }).?;
-        try testing.expect(trigger.key.translated == .a);
+        try testing.expect(trigger.key.unicode == 'a');
     }
 
     // should be most recent
-    try s.put(alloc, .{ .key = .{ .translated = .b } }, .{ .new_window = {} });
+    try s.put(alloc, .{ .key = .{ .unicode = 'b' } }, .{ .new_window = {} });
     {
         const trigger = s.getTrigger(.{ .new_window = {} }).?;
-        try testing.expect(trigger.key.translated == .b);
+        try testing.expect(trigger.key.unicode == 'b');
     }
 
     // removal should replace
-    s.remove(alloc, .{ .key = .{ .translated = .b } });
+    s.remove(alloc, .{ .key = .{ .unicode = 'b' } });
     {
         const trigger = s.getTrigger(.{ .new_window = {} }).?;
-        try testing.expect(trigger.key.translated == .a);
+        try testing.expect(trigger.key.unicode == 'a');
     }
 }
 
@@ -2464,29 +2878,29 @@ test "set: performable is not part of reverse mappings" {
     var s: Set = .{};
     defer s.deinit(alloc);
 
-    try s.put(alloc, .{ .key = .{ .translated = .a } }, .{ .new_window = {} });
+    try s.put(alloc, .{ .key = .{ .unicode = 'a' } }, .{ .new_window = {} });
     {
         const trigger = s.getTrigger(.{ .new_window = {} }).?;
-        try testing.expect(trigger.key.translated == .a);
+        try testing.expect(trigger.key.unicode == 'a');
     }
 
     // trigger should be non-performable
     try s.putFlags(
         alloc,
-        .{ .key = .{ .translated = .b } },
+        .{ .key = .{ .unicode = 'b' } },
         .{ .new_window = {} },
         .{ .performable = true },
     );
     {
         const trigger = s.getTrigger(.{ .new_window = {} }).?;
-        try testing.expect(trigger.key.translated == .a);
+        try testing.expect(trigger.key.unicode == 'a');
     }
 
     // removal of performable should do nothing
-    s.remove(alloc, .{ .key = .{ .translated = .b } });
+    s.remove(alloc, .{ .key = .{ .unicode = 'b' } });
     {
         const trigger = s.getTrigger(.{ .new_window = {} }).?;
-        try testing.expect(trigger.key.translated == .a);
+        try testing.expect(trigger.key.unicode == 'a');
     }
 }
 
@@ -2497,14 +2911,14 @@ test "set: overriding a mapping updates reverse" {
     var s: Set = .{};
     defer s.deinit(alloc);
 
-    try s.put(alloc, .{ .key = .{ .translated = .a } }, .{ .new_window = {} });
+    try s.put(alloc, .{ .key = .{ .unicode = 'a' } }, .{ .new_window = {} });
     {
         const trigger = s.getTrigger(.{ .new_window = {} }).?;
-        try testing.expect(trigger.key.translated == .a);
+        try testing.expect(trigger.key.unicode == 'a');
     }
 
     // should be most recent
-    try s.put(alloc, .{ .key = .{ .translated = .a } }, .{ .new_tab = {} });
+    try s.put(alloc, .{ .key = .{ .unicode = 'a' } }, .{ .new_tab = {} });
     {
         const trigger = s.getTrigger(.{ .new_window = {} });
         try testing.expect(trigger == null);
@@ -2518,24 +2932,134 @@ test "set: consumed state" {
     var s: Set = .{};
     defer s.deinit(alloc);
 
-    try s.put(alloc, .{ .key = .{ .translated = .a } }, .{ .new_window = {} });
-    try testing.expect(s.get(.{ .key = .{ .translated = .a } }).?.value_ptr.* == .leaf);
-    try testing.expect(s.get(.{ .key = .{ .translated = .a } }).?.value_ptr.*.leaf.flags.consumed);
+    try s.put(alloc, .{ .key = .{ .unicode = 'a' } }, .{ .new_window = {} });
+    try testing.expect(s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.* == .leaf);
+    try testing.expect(s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*.leaf.flags.consumed);
 
     try s.putFlags(
         alloc,
-        .{ .key = .{ .translated = .a } },
+        .{ .key = .{ .unicode = 'a' } },
         .{ .new_window = {} },
         .{ .consumed = false },
     );
-    try testing.expect(s.get(.{ .key = .{ .translated = .a } }).?.value_ptr.* == .leaf);
-    try testing.expect(!s.get(.{ .key = .{ .translated = .a } }).?.value_ptr.*.leaf.flags.consumed);
+    try testing.expect(s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.* == .leaf);
+    try testing.expect(!s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*.leaf.flags.consumed);
 
-    try s.put(alloc, .{ .key = .{ .translated = .a } }, .{ .new_window = {} });
-    try testing.expect(s.get(.{ .key = .{ .translated = .a } }).?.value_ptr.* == .leaf);
-    try testing.expect(s.get(.{ .key = .{ .translated = .a } }).?.value_ptr.*.leaf.flags.consumed);
+    try s.put(alloc, .{ .key = .{ .unicode = 'a' } }, .{ .new_window = {} });
+    try testing.expect(s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.* == .leaf);
+    try testing.expect(s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*.leaf.flags.consumed);
 }
 
+test "set: getEvent physical" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "ctrl+quote=new_window");
+
+    // Physical matches on physical
+    {
+        const action = s.getEvent(.{
+            .key = .quote,
+            .mods = .{ .ctrl = true },
+        }).?.value_ptr.*.leaf;
+        try testing.expect(action.action == .new_window);
+    }
+
+    // Physical does not match on UTF8/codepoint
+    {
+        const action = s.getEvent(.{
+            .key = .key_a,
+            .mods = .{ .ctrl = true },
+            .utf8 = "'",
+            .unshifted_codepoint = '\'',
+        });
+        try testing.expect(action == null);
+    }
+}
+
+test "set: getEvent codepoint" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "ctrl+'=new_window");
+
+    // Matches on codepoint
+    {
+        const action = s.getEvent(.{
+            .key = .key_a,
+            .mods = .{ .ctrl = true },
+            .utf8 = "",
+            .unshifted_codepoint = '\'',
+        }).?.value_ptr.*.leaf;
+        try testing.expect(action.action == .new_window);
+    }
+
+    // Matches on UTF-8
+    {
+        const action = s.getEvent(.{
+            .key = .key_a,
+            .mods = .{ .ctrl = true },
+            .utf8 = "'",
+        }).?.value_ptr.*.leaf;
+        try testing.expect(action.action == .new_window);
+    }
+
+    // Doesn't match on physical
+    {
+        const action = s.getEvent(.{
+            .key = .key_a,
+            .mods = .{ .ctrl = true },
+        });
+        try testing.expect(action == null);
+    }
+}
+
+test "set: getEvent codepoint case folding" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "ctrl+A=new_window");
+
+    // Lowercase codepoint
+    {
+        const action = s.getEvent(.{
+            .key = .key_j,
+            .mods = .{ .ctrl = true },
+            .utf8 = "",
+            .unshifted_codepoint = 'a',
+        }).?.value_ptr.*.leaf;
+        try testing.expect(action.action == .new_window);
+    }
+
+    // Uppercase codepoint
+    {
+        const action = s.getEvent(.{
+            .key = .key_a,
+            .mods = .{ .ctrl = true },
+            .utf8 = "",
+            .unshifted_codepoint = 'A',
+        }).?.value_ptr.*.leaf;
+        try testing.expect(action.action == .new_window);
+    }
+
+    // Negative case for sanity
+    {
+        const action = s.getEvent(.{
+            .key = .key_j,
+            .mods = .{ .ctrl = true },
+        });
+        try testing.expect(action == null);
+    }
+}
 test "Action: clone" {
     const testing = std.testing;
     var arena = std.heap.ArenaAllocator.init(testing.allocator);

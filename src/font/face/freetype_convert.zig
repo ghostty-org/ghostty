@@ -30,7 +30,7 @@ fn genMap() Map {
     // Initialize to no converter
     var i: usize = 0;
     while (i < freetype.c.FT_PIXEL_MODE_MAX) : (i += 1) {
-        result[i] = AtlasArray.initFill(null);
+        result[i] = .initFill(null);
     }
 
     // Map our converters

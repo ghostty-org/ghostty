@@ -228,7 +228,7 @@ pub fn order(self: Selection, s: *const Screen) Order {
 /// Note that only forward and reverse are useful desired orders for this
 /// function. All other orders act as if forward order was desired.
 pub fn ordered(self: Selection, s: *const Screen, desired: Order) Selection {
-    if (self.order(s) == desired) return Selection.init(
+    if (self.order(s) == desired) return .init(
         self.start(),
         self.end(),
         self.rectangle,
@@ -237,9 +237,9 @@ pub fn ordered(self: Selection, s: *const Screen, desired: Order) Selection {
     const tl = self.topLeft(s);
     const br = self.bottomRight(s);
     return switch (desired) {
-        .forward => Selection.init(tl, br, self.rectangle),
-        .reverse => Selection.init(br, tl, self.rectangle),
-        else => Selection.init(tl, br, self.rectangle),
+        .forward => .init(tl, br, self.rectangle),
+        .reverse => .init(br, tl, self.rectangle),
+        else => .init(tl, br, self.rectangle),
     };
 }
 

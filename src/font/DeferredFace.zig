@@ -254,7 +254,7 @@ fn loadWebCanvas(
     opts: font.face.Options,
 ) !Face {
     const wc = self.wc.?;
-    return try Face.initNamed(wc.alloc, wc.font_str, opts, wc.presentation);
+    return try .initNamed(wc.alloc, wc.font_str, opts, wc.presentation);
 }
 
 /// Returns true if this face can satisfy the given codepoint and

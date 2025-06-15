@@ -12,8 +12,13 @@ output: std.Build.LazyPath,
 pub fn init(b: *std.Build, cfg: *const Config) !HelpStrings {
     const exe = b.addExecutable(.{
         .name = "helpgen",
-        .root_source_file = b.path("src/helpgen.zig"),
-        .target = b.graph.host,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/helpgen.zig"),
+            .target = b.graph.host,
+            .strip = false,
+            .omit_frame_pointer = false,
+            .unwind_tables = .sync,
+        }),
     });
 
     const help_config = config: {

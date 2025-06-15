@@ -97,7 +97,7 @@ pub const Face = struct {
         errdefer if (comptime harfbuzz_shaper) hb_font.destroy();
 
         const color: ?ColorState = if (traits.color_glyphs)
-            try ColorState.init(ct_font)
+            try .init(ct_font)
         else
             null;
         errdefer if (color) |v| v.deinit();

@@ -29,7 +29,8 @@ struct TerminalCommandPaletteView: View {
             let key = String(cString: c.action_key)
             switch (key) {
             case "toggle_tab_overview",
-                "toggle_window_decorations":
+                "toggle_window_decorations",
+                "show_gtk_inspector":
                 return false
             default:
                 return true

@@ -658,6 +658,86 @@ pub const ImageStorage = struct {
             }
         }
 
+        /// Calculates the size of this placement's image in pixels,
+        /// taking in to account the specified rows and columns.
+        pub fn calculatedSize(
+            self: Placement,
+            image: Image,
+            t: *const terminal.Terminal,
+        ) struct {
+            width: u32,
+            height: u32,
+        } {
+            // Height / width of the image in px.
+            const width = if (self.source_width > 0) self.source_width else image.width;
+            const height = if (self.source_height > 0) self.source_height else image.height;
+
+            // If we don't have any specified cols or rows then the placement
+            // should be the native size of the image, and doesn't need to be
+            // re-scaled.
+            if (self.columns == 0 and self.rows == 0) return .{
+                .width = width,
+                .height = height,
+            };
+
+            // We calculate the size of a cell so that we can multiply
+            // it by the specified cols/rows to get the correct px size.
+            //
+            // We assume that the width is divided evenly by the column
+            // count and the height by the row count, because it should be.
+            const cell_width: u32 = t.width_px / t.cols;
+            const cell_height: u32 = t.height_px / t.rows;
+
+            const width_f64: f64 = @floatFromInt(width);
+            const height_f64: f64 = @floatFromInt(height);
+
+            // If we have a specified cols AND rows then we calculate
+            // the width and height from them directly, we don't need
+            // to adjust for aspect ratio.
+            if (self.columns > 0 and self.rows > 0) {
+                const calc_width = cell_width * self.columns;
+                const calc_height = cell_height * self.rows;
+
+                return .{
+                    .width = calc_width,
+                    .height = calc_height,
+                };
+            }
+
+            // Either the columns or the rows were specified, but not both,
+            // so we need to calculate the other one based on the aspect ratio.
+
+            // If only the columns were specified, we determine
+            // the height of the image based on the aspect ratio.
+            if (self.columns > 0) {
+                const aspect = height_f64 / width_f64;
+                const calc_width: u32 = cell_width * self.columns;
+                const calc_height: u32 = @intFromFloat(@round(
+                    @as(f64, @floatFromInt(calc_width)) * aspect,
+                ));
+
+                return .{
+                    .width = calc_width,
+                    .height = calc_height,
+                };
+            }
+
+            // Otherwise, only the rows were specified, so we
+            // determine the width based on the aspect ratio.
+            {
+                const aspect = width_f64 / height_f64;
+                const calc_height: u32 = cell_height * self.rows;
+                const calc_width: u32 = @intFromFloat(@round(
+                    @as(f64, @floatFromInt(calc_height)) * aspect,
+                ));
+
+                return .{
+                    .width = calc_width,
+                    .height = calc_height,
+                };
+            }
+        }
+
         /// Returns the size in grid cells that this placement takes up.
         pub fn gridSize(
             self: Placement,
@@ -667,60 +747,29 @@ pub const ImageStorage = struct {
             cols: u32,
             rows: u32,
         } {
+            // If we have a specified columns and rows then this is trivial.
             if (self.columns > 0 and self.rows > 0) return .{
                 .cols = self.columns,
                 .rows = self.rows,
             };
 
-            // Calculate our cell size.
-            const terminal_width_f64: f64 = @floatFromInt(t.width_px);
-            const terminal_height_f64: f64 = @floatFromInt(t.height_px);
-            const grid_columns_f64: f64 = @floatFromInt(t.cols);
-            const grid_rows_f64: f64 = @floatFromInt(t.rows);
-            const cell_width_f64 = terminal_width_f64 / grid_columns_f64;
-            const cell_height_f64 = terminal_height_f64 / grid_rows_f64;
-
-            // Our image width
-            const width_px = if (self.source_width > 0) self.source_width else image.width;
-            const height_px = if (self.source_height > 0) self.source_height else image.height;
-
-            // Calculate our image size in grid cells
-            const width_f64: f64 = @floatFromInt(width_px);
-            const height_f64: f64 = @floatFromInt(height_px);
-
-            // If only columns is specified, calculate rows based on aspect ratio
-            if (self.columns > 0 and self.rows == 0) {
-                const cols_f64: f64 = @floatFromInt(self.columns);
-                const cols_px = cols_f64 * cell_width_f64;
-                const aspect_ratio = height_f64 / width_f64;
-                const rows_px = cols_px * aspect_ratio;
-                const rows_cells = rows_px / cell_height_f64;
-                return .{
-                    .cols = self.columns,
-                    .rows = @intFromFloat(@ceil(rows_cells)),
-                };
-            }
-
-            // If only rows is specified, calculate columns based on aspect ratio
-            if (self.rows > 0 and self.columns == 0) {
-                const rows_f64: f64 = @floatFromInt(self.rows);
-                const rows_px = rows_f64 * cell_height_f64;
-                const aspect_ratio = width_f64 / height_f64;
-                const cols_px = rows_px * aspect_ratio;
-                const cols_cells = cols_px / cell_width_f64;
-                return .{
-                    .cols = @intFromFloat(@ceil(cols_cells)),
-                    .rows = self.rows,
-                };
-            }
-
-            const width_cells: u32 = @intFromFloat(@ceil(width_f64 / cell_width_f64));
-            const height_cells: u32 = @intFromFloat(@ceil(height_f64 / cell_height_f64));
-
+            // Otherwise we calculate the pixel size, divide by
+            // cell size, and round up to the nearest integer.
+            const calc_size = self.calculatedSize(image, t);
             return .{
-                .cols = width_cells,
-                .rows = height_cells,
+                .cols = std.math.divCeil(
+                    u32,
+                    calc_size.width + self.x_offset,
+                    t.width_px / t.cols,
+                ) catch 0,
+                .rows = std.math.divCeil(
+                    u32,
+                    calc_size.height + self.y_offset,
+                    t.height_px / t.rows,
+                ) catch 0,
             };
+            // NOTE: Above `divCeil`s can only fail if the cell size is 0,
+            //       in such a case it seems safe to return 0 for this.
         }
 
         /// Returns a selection of the entire rectangle this placement
@@ -1269,36 +1318,42 @@ test "storage: aspect ratio calculation when only columns or rows specified" {
 
     var t = try terminal.Terminal.init(alloc, .{ .cols = 100, .rows = 100 });
     defer t.deinit(alloc);
-    t.width_px = 100;
-    t.height_px = 100;
+    t.width_px = 1000; // 10 px per col
+    t.height_px = 2000; // 20 px per row
 
     // Case 1: Only columns specified
     {
-        const image = Image{ .id = 1, .width = 4, .height = 2 };
+        const image = Image{ .id = 1, .width = 16, .height = 9 };
         var placement = ImageStorage.Placement{
             .location = .{ .virtual = {} },
-            .columns = 6,
+            .columns = 10,
             .rows = 0,
         };
 
-        const grid_size = placement.gridSize(image, &t);
-        // 6 columns * (2/4) = 3 rows
-        try testing.expectEqual(@as(u32, 6), grid_size.cols);
-        try testing.expectEqual(@as(u32, 3), grid_size.rows);
+        // Image is 16x9, set to a width of 10 columns, at 10px per column
+        // that's 100px width. 100px * (9 / 16) = 56.25, which should round
+        // to a height of 56px.
+
+        const calc_size = placement.calculatedSize(image, &t);
+        try testing.expectEqual(@as(u32, 100), calc_size.width);
+        try testing.expectEqual(@as(u32, 56), calc_size.height);
     }
 
     // Case 2: Only rows specified
     {
-        const image = Image{ .id = 2, .width = 2, .height = 4 };
+        const image = Image{ .id = 2, .width = 16, .height = 9 };
         var placement = ImageStorage.Placement{
             .location = .{ .virtual = {} },
             .columns = 0,
-            .rows = 6,
+            .rows = 5,
         };
 
-        const grid_size = placement.gridSize(image, &t);
-        // 6 rows * (2/4) = 3 columns
-        try testing.expectEqual(@as(u32, 3), grid_size.cols);
-        try testing.expectEqual(@as(u32, 6), grid_size.rows);
+        // Image is 16x9, set to a height of 5 rows, at 20px per row that's
+        // 100px height. 100px * (16 / 9) = 177.77..., which should round to
+        // a width of 178px.
+
+        const calc_size = placement.calculatedSize(image, &t);
+        try testing.expectEqual(@as(u32, 178), calc_size.width);
+        try testing.expectEqual(@as(u32, 100), calc_size.height);
     }
 }

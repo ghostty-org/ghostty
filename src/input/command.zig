@@ -119,7 +119,7 @@ fn actionCommands(action: Action.Key) []const Command {
         .paste_from_clipboard => comptime &.{.{
             .action = .paste_from_clipboard,
             .title = "Paste from Clipboard",
-            .description = "Paste the contents of the clipboard.",
+            .description = "Paste the contents of the main clipboard.",
         }},
 
         .paste_from_selection => comptime &.{.{
@@ -274,6 +274,39 @@ fn actionCommands(action: Action.Key) []const Command {
             },
         },
 
+        .goto_split => comptime &.{
+            .{
+                .action = .{ .goto_split = .previous },
+                .title = "Focus Split: Previous",
+                .description = "Focus the previous split, if any.",
+            },
+            .{
+                .action = .{ .goto_split = .next },
+                .title = "Focus Split: Next",
+                .description = "Focus the next split, if any.",
+            },
+            .{
+                .action = .{ .goto_split = .left },
+                .title = "Focus Split: Left",
+                .description = "Focus the split to the left, if it exists.",
+            },
+            .{
+                .action = .{ .goto_split = .right },
+                .title = "Focus Split: Right",
+                .description = "Focus the split to the right, if it exists.",
+            },
+            .{
+                .action = .{ .goto_split = .up },
+                .title = "Focus Split: Up",
+                .description = "Focus the split above, if it exists.",
+            },
+            .{
+                .action = .{ .goto_split = .down },
+                .title = "Focus Split: Down",
+                .description = "Focus the split below, if it exists.",
+            },
+        },
+
         .toggle_split_zoom => comptime &.{.{
             .action = .toggle_split_zoom,
             .title = "Toggle Split Zoom",
@@ -296,6 +329,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .action = .{ .inspector = .toggle },
             .title = "Toggle Inspector",
             .description = "Toggle the inspector.",
+        }},
+
+        .show_gtk_inspector => comptime &.{.{
+            .action = .show_gtk_inspector,
+            .title = "Show the GTK Inspector",
+            .description = "Show the GTK inspector.",
         }},
 
         .open_config => comptime &.{.{
@@ -364,6 +403,24 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Toggle secure input mode.",
         }},
 
+        .check_for_updates => comptime &.{.{
+            .action = .check_for_updates,
+            .title = "Check for Updates",
+            .description = "Check for updates to the application.",
+        }},
+
+        .undo => comptime &.{.{
+            .action = .undo,
+            .title = "Undo",
+            .description = "Undo the last action.",
+        }},
+
+        .redo => comptime &.{.{
+            .action = .redo,
+            .title = "Redo",
+            .description = "Redo the last undone action.",
+        }},
+
         .quit => comptime &.{.{
             .action = .quit,
             .title = "Quit",
@@ -384,7 +441,6 @@ fn actionCommands(action: Action.Key) []const Command {
         .jump_to_prompt,
         .write_scrollback_file,
         .goto_tab,
-        .goto_split,
         .resize_split,
         .crash,
         => comptime &.{},

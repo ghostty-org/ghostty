@@ -4,13 +4,12 @@ Ghostty relies on downstream package maintainers to distribute Ghostty to
 end-users. This document provides guidance to package maintainers on how to
 package Ghostty for distribution.
 
-> [!NOTE]
+> [!IMPORTANT]
 >
-> While Ghostty went through an extensive private beta testing period,
-> packaging Ghostty is immature and may require additional build script
-> tweaks and documentation improvement. I'm extremely motivated to work with
-> package maintainers to improve the packaging process. Please open issues
-> to discuss any packaging issues you encounter.
+> This document is only accurate for the Ghostty source alongside it.
+> **Do not use this document for older or newer versions of Ghostty!** If
+> you are reading this document in a different version of Ghostty, please
+> find the `PACKAGING.md` file alongside that version.
 
 ## Source Tarballs
 
@@ -36,6 +35,19 @@ RWQlAjJC23149WL2sEpT/l0QKy7hMIFhYdQOFy0Z7z7PbneUgvlsnYcV
 Use the `ghostty-source.tar.gz` asset and _not the GitHub auto-generated
 source tarball_. These tarballs are generated for every commit to
 the `main` branch and are not associated with a specific version.
+
+> [!WARNING]
+>
+> Source tarballs are _not the same_ as a Git checkout. Source tarballs
+> contain some preprocessed files that allow building Ghostty with less
+> dependencies. If you are building Ghostty from a Git checkout, the
+> steps below are the same but they may require additional dependencies
+> not listed here. See the `README.md` for more information on building
+> from a Git checkout.
+>
+> For everyone except Ghostty developers, please use the source tarballs.
+> We generate tip source tarballs for users following the development
+> branch.
 
 ## Zig Version
 
@@ -80,13 +92,6 @@ binary will be at `/tmp/ghostty/usr/bin/ghostty`). This style is common
 for system packages which separate a build and install step, since the
 install step can then be done with a `mv` or `cp` command (from `/tmp/ghostty`
 to wherever the package manager expects it).
-
-> [!NOTE]
->
-> **Version 1.1.1 and 1.1.2 are missing `fetch-zig-cache.sh`.** This was
-> an oversight on the release process. You can use the script from version
-> 1.1.0 to fetch the Zig cache for these versions. Future versions will
-> restore the script.
 
 ### Build Options
 

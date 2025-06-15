@@ -141,12 +141,7 @@ fileprivate func cgEventFlagsChangedHandler(
     guard let event: NSEvent = .init(cgEvent: cgEvent) else { return result }
 
     // Build our event input and call ghostty
-    var key_ev = ghostty_input_key_s()
-    key_ev.action = GHOSTTY_ACTION_PRESS
-    key_ev.mods = Ghostty.ghosttyMods(event.modifierFlags)
-    key_ev.keycode = UInt32(event.keyCode)
-    key_ev.text = nil
-    key_ev.composing = false
+    let key_ev = event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)
     if (ghostty_app_key(ghostty, key_ev)) {
         GlobalEventTap.logger.info("global key event handled event=\(event)")
         return nil

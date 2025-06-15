@@ -26,8 +26,13 @@ pub fn init(
     inline for (manpages) |manpage| {
         const generate_markdown = b.addExecutable(.{
             .name = "mdgen_" ++ manpage.name ++ "_" ++ manpage.section,
-            .root_source_file = b.path("src/main.zig"),
-            .target = b.graph.host,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/main.zig"),
+                .target = b.graph.host,
+                .strip = false,
+                .omit_frame_pointer = false,
+                .unwind_tables = .sync,
+            }),
         });
         deps.help_strings.addImport(generate_markdown);
 

@@ -56,15 +56,22 @@ extension NSEvent {
         // If we have no characters associated with this event we do nothing.
         guard let characters else { return nil }
 
-        // If we have a single control character, then we return the characters
-        // without control pressed. We do this because we handle control character
-        // encoding directly within Ghostty's KeyEncoder.
         if characters.count == 1,
-            let scalar = characters.unicodeScalars.first,
-            scalar.value < 0x20 {
-            return self.characters(byApplyingModifiers: modifierFlags.subtracting(.control))
+           let scalar = characters.unicodeScalars.first {
+            // If we have a single control character, then we return the characters
+            // without control pressed. We do this because we handle control character
+            // encoding directly within Ghostty's KeyEncoder.
+            if scalar.value < 0x20 {
+                return self.characters(byApplyingModifiers: modifierFlags.subtracting(.control))
+            }
+
+            // If we have a single value in the PUA, then it's a function key and
+            // we don't want to send PUA ranges down to Ghostty.
+            if scalar.value >= 0xF700 && scalar.value <= 0xF8FF {
+                return nil
+            }
         }
 
-        return nil
+        return characters
     }
 }

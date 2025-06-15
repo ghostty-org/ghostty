@@ -171,7 +171,7 @@ pub const SavedCursor = struct {
 /// State required for all charset operations.
 pub const CharsetState = struct {
     /// The list of graphical charsets by slot
-    charsets: CharsetArray = CharsetArray.initFill(charsets.Charset.utf8),
+    charsets: CharsetArray = .initFill(charsets.Charset.utf8),
 
     /// GL is the slot to use when using a 7-bit printable char (up to 127)
     /// GR used for 8-bit printable chars.
@@ -2433,7 +2433,7 @@ pub fn selectLine(self: *const Screen, opts: SelectLine) ?Selection {
         return null;
     };
 
-    return Selection.init(start, end, false);
+    return .init(start, end, false);
 }
 
 /// Return the selection for all contents on the screen. Surrounding
@@ -2489,7 +2489,7 @@ pub fn selectAll(self: *Screen) ?Selection {
         return null;
     };
 
-    return Selection.init(start, end, false);
+    return .init(start, end, false);
 }
 
 /// Select the nearest word to start point that is between start_pt and
@@ -2624,7 +2624,7 @@ pub fn selectWord(self: *Screen, pin: Pin) ?Selection {
         break :start prev;
     };
 
-    return Selection.init(start, end, false);
+    return .init(start, end, false);
 }
 
 /// Select the command output under the given point. The limits of the output
@@ -2724,7 +2724,7 @@ pub fn selectOutput(self: *Screen, pin: Pin) ?Selection {
         break :boundary it_prev;
     };
 
-    return Selection.init(start, end, false);
+    return .init(start, end, false);
 }
 
 /// Returns the selection bounds for the prompt at the given point. If the
@@ -2805,7 +2805,7 @@ pub fn selectPrompt(self: *Screen, pin: Pin) ?Selection {
         break :end it_prev;
     };
 
-    return Selection.init(start, end, false);
+    return .init(start, end, false);
 }
 
 pub const LineIterator = struct {

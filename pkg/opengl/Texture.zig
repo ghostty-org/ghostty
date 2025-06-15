@@ -70,6 +70,9 @@ pub const InternalFormat = enum(c_int) {
     rgb = c.GL_RGB,
     rgba = c.GL_RGBA,
 
+    srgb = c.GL_SRGB,
+    srgba = c.GL_SRGB_ALPHA,
+
     // There are so many more that I haven't filled in.
     _,
 };

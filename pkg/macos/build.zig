@@ -45,8 +45,7 @@ pub fn build(b: *std.Build) !void {
         module.linkFramework("CoreVideo", .{});
         module.linkFramework("QuartzCore", .{});
 
-        try apple_sdk.addPaths(b, lib.root_module);
-        try apple_sdk.addPaths(b, module);
+        try apple_sdk.addPaths(b, lib);
     }
     b.installArtifact(lib);
 
@@ -58,7 +57,7 @@ pub fn build(b: *std.Build) !void {
             .optimize = optimize,
         });
         if (target.result.os.tag.isDarwin()) {
-            try apple_sdk.addPaths(b, test_exe.root_module);
+            try apple_sdk.addPaths(b, test_exe);
         }
         test_exe.linkLibrary(lib);
 

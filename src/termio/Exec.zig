@@ -418,25 +418,27 @@ fn processExitCommon(td: *termio.Termio.ThreadData, exit_code: u32) void {
         return;
     }
 
+    // We output a message so that the user knows whats going on and
+    // doesn't think their terminal just froze. We show this unconditionally
+    // on close even if `wait_after_command` is false and the surface closes
+    // immediately because if a user does an `undo` to restore a closed
+    // surface then they will see this message and know the process has
+    // completed.
+    terminal: {
+        td.renderer_state.mutex.lock();
+        defer td.renderer_state.mutex.unlock();
+        const t = td.renderer_state.terminal;
+        t.carriageReturn();
+        t.linefeed() catch break :terminal;
+        t.printString("Process exited. Press any key to close the terminal.") catch
+            break :terminal;
+        t.modes.set(.cursor_visible, false);
+    }
+
     // If we're purposely waiting then we just return since the process
     // exited flag is set to true. This allows the terminal window to remain
     // open.
-    if (execdata.wait_after_command) {
-        // We output a message so that the user knows whats going on and
-        // doesn't think their terminal just froze.
-        terminal: {
-            td.renderer_state.mutex.lock();
-            defer td.renderer_state.mutex.unlock();
-            const t = td.renderer_state.terminal;
-            t.carriageReturn();
-            t.linefeed() catch break :terminal;
-            t.printString("Process exited. Press any key to close the terminal.") catch
-                break :terminal;
-            t.modes.set(.cursor_visible, false);
-        }
-
-        return;
-    }
+    if (execdata.wait_after_command) return;
 
     // Notify our surface we want to close
     _ = td.surface_mailbox.push(.{

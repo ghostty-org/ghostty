@@ -217,7 +217,7 @@ intermediates_idx: u8 = 0,
 
 /// Param tracking, building
 params: [MAX_PARAMS]u16 = undefined,
-params_sep: Action.CSI.SepList = Action.CSI.SepList.initEmpty(),
+params_sep: Action.CSI.SepList = .initEmpty(),
 params_idx: u8 = 0,
 param_acc: u16 = 0,
 param_acc_idx: u8 = 0,
@@ -395,7 +395,7 @@ fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
 pub fn clear(self: *Parser) void {
     self.intermediates_idx = 0;
     self.params_idx = 0;
-    self.params_sep = Action.CSI.SepList.initEmpty();
+    self.params_sep = .initEmpty();
     self.param_acc = 0;
     self.param_acc_idx = 0;
 }
@@ -877,7 +877,10 @@ test "osc: change window title (end in esc)" {
 // https://github.com/darrenstarr/VtNetCore/pull/14
 // Saw this on HN, decided to add a test case because why not.
 test "osc: 112 incomplete sequence" {
-    var p = init();
+    var p: Parser = init();
+    defer p.deinit();
+    p.osc_parser.alloc = std.testing.allocator;
+
     _ = p.next(0x1B);
     _ = p.next(']');
     _ = p.next('1');
@@ -892,8 +895,20 @@ test "osc: 112 incomplete sequence" {
         try testing.expect(a[2] == null);
 
         const cmd = a[0].?.osc_dispatch;
-        try testing.expect(cmd == .reset_color);
-        try testing.expectEqual(cmd.reset_color.kind, .cursor);
+        try testing.expect(cmd == .color_operation);
+        try testing.expectEqual(cmd.color_operation.terminator, .bel);
+        try testing.expect(cmd.color_operation.source == .reset_cursor);
+        try testing.expect(cmd.color_operation.operations.count() == 1);
+        var it = cmd.color_operation.operations.constIterator(0);
+        {
+            const op = it.next().?;
+            try testing.expect(op.* == .reset);
+            try testing.expectEqual(
+                osc.Command.ColorOperation.Kind.cursor,
+                op.reset,
+            );
+        }
+        try std.testing.expect(it.next() == null);
     }
 }
 

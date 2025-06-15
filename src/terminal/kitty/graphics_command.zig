@@ -155,17 +155,17 @@ pub const Parser = struct {
             break :action c;
         };
         const control: Command.Control = switch (action) {
-            'q' => .{ .query = try Transmission.parse(self.kv) },
-            't' => .{ .transmit = try Transmission.parse(self.kv) },
+            'q' => .{ .query = try .parse(self.kv) },
+            't' => .{ .transmit = try .parse(self.kv) },
             'T' => .{ .transmit_and_display = .{
-                .transmission = try Transmission.parse(self.kv),
-                .display = try Display.parse(self.kv),
+                .transmission = try .parse(self.kv),
+                .display = try .parse(self.kv),
             } },
-            'p' => .{ .display = try Display.parse(self.kv) },
-            'd' => .{ .delete = try Delete.parse(self.kv) },
-            'f' => .{ .transmit_animation_frame = try AnimationFrameLoading.parse(self.kv) },
-            'a' => .{ .control_animation = try AnimationControl.parse(self.kv) },
-            'c' => .{ .compose_animation = try AnimationFrameComposition.parse(self.kv) },
+            'p' => .{ .display = try .parse(self.kv) },
+            'd' => .{ .delete = try .parse(self.kv) },
+            'f' => .{ .transmit_animation_frame = try .parse(self.kv) },
+            'a' => .{ .control_animation = try .parse(self.kv) },
+            'c' => .{ .compose_animation = try .parse(self.kv) },
             else => return error.InvalidFormat,
         };
 

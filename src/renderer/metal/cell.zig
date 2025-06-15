@@ -44,7 +44,7 @@ fn ArrayListPool(comptime T: type) type {
             };
 
             for (self.lists) |*list| {
-                list.* = try ArrayListT.initCapacity(alloc, initial_capacity);
+                list.* = try .initCapacity(alloc, initial_capacity);
             }
 
             return self;

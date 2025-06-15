@@ -36,6 +36,7 @@
   buildInputs = import ./build-support/build-inputs.nix {
     inherit pkgs lib stdenv enableX11 enableWayland;
   };
+  strip = optimize != "Debug" && optimize != "ReleaseSafe";
 in
   stdenv.mkDerivation (finalAttrs: {
     pname = "ghostty";
@@ -87,6 +88,7 @@ in
     buildInputs = buildInputs;
 
     dontConfigure = true;
+    dontStrip = !strip;
 
     GI_TYPELIB_PATH = gi_typelib_path;
 
@@ -96,6 +98,7 @@ in
       "-Dversion-string=${finalAttrs.version}-${revision}-nix"
       "-Dgtk-x11=${lib.boolToString enableX11}"
       "-Dgtk-wayland=${lib.boolToString enableWayland}"
+      "-Dstrip=${lib.boolToString strip}"
     ];
 
     outputs = [
@@ -127,6 +130,10 @@ in
       mv $out/share/vim/vimfiles "$vim"
       ln -sf "$vim" "$out/share/vim/vimfiles"
       echo "$vim" >> "$out/nix-support/propagated-user-env-packages"
+
+      echo "gst_all_1.gstreamer" >> "$out/nix-support/propagated-user-env-packages"
+      echo "gst_all_1.gst-plugins-base" >> "$out/nix-support/propagated-user-env-packages"
+      echo "gst_all_1.gst-plugins-good" >> "$out/nix-support/propagated-user-env-packages"
     '';
 
     meta = {

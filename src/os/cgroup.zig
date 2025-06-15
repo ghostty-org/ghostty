@@ -56,6 +56,25 @@ pub fn create(
     }
 }
 
+/// Remove a cgroup. This will only succeed if the cgroup is empty
+/// (has no processes). The cgroup path should be relative to the
+/// cgroup root (e.g. "/user.slice/surfaces/abc123.scope").
+pub fn remove(cgroup: []const u8) !void {
+    assert(cgroup.len > 0);
+    assert(cgroup[0] == '/');
+
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const path = try std.fmt.bufPrint(&buf, "/sys/fs/cgroup{s}", .{cgroup});
+    std.fs.cwd().deleteDir(path) catch |err| switch (err) {
+        // If it doesn't exist, that's fine - maybe it was already cleaned up
+        error.FileNotFound => {},
+
+        // Any other error we failed to delete it so we want to notify
+        // the user.
+        else => return err,
+    };
+}
+
 /// Move the given PID into the given cgroup.
 pub fn moveInto(
     cgroup: []const u8,

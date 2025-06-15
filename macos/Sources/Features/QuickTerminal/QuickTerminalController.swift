@@ -21,6 +21,14 @@ class QuickTerminalController: BaseTerminalController {
     // The active space when the quick terminal was last shown.
     private var previousActiveSpace: CGSSpace? = nil
 
+    /// The window frame saved when the quick terminal's surface tree becomes empty.
+    /// 
+    /// This preserves the user's window size and position when all terminal surfaces
+    /// are closed (e.g., via the `exit` command). When a new surface is created,
+    /// the window will be restored to this frame, preventing SwiftUI from resetting
+    /// the window to its default minimum size.
+    private var lastClosedFrame: NSRect? = nil
+
     /// Non-nil if we have hidden dock state.
     private var hiddenDock: HiddenDock? = nil
 
@@ -30,7 +38,7 @@ class QuickTerminalController: BaseTerminalController {
     init(_ ghostty: Ghostty.App,
          position: QuickTerminalPosition = .top,
          baseConfig base: Ghostty.SurfaceConfiguration? = nil,
-         surfaceTree tree: Ghostty.SplitNode? = nil
+         surfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil
     ) {
         self.position = position
         self.derivedConfig = DerivedConfig(ghostty.config)
@@ -53,6 +61,12 @@ class QuickTerminalController: BaseTerminalController {
             selector: #selector(ghosttyConfigDidChange(_:)),
             name: .ghosttyConfigDidChange,
             object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(closeWindow(_:)),
+            name: .ghosttyCloseWindow,
+            object: nil
+        )
         center.addObserver(
             self,
             selector: #selector(onNewTab),
@@ -185,13 +199,51 @@ class QuickTerminalController: BaseTerminalController {
 
     // MARK: Base Controller Overrides
 
-    override func surfaceTreeDidChange(from: Ghostty.SplitNode?, to: Ghostty.SplitNode?) {
+    override func surfaceTreeDidChange(from: SplitTree<Ghostty.SurfaceView>, to: SplitTree<Ghostty.SurfaceView>) {
         super.surfaceTreeDidChange(from: from, to: to)
 
-        // If our surface tree is nil then we animate the window out.
-        if (to == nil) {
+        // If our surface tree is nil then we animate the window out. We
+        // defer reinitializing the tree to save some memory here.
+        if to.isEmpty {
             animateOut()
+            return
         }
+
+        // If we're not empty (e.g. this isn't the first set) and we're
+        // not visible, then we animate in. This allows us to show the quick
+        // terminal when things such as undo/redo are done.
+        if !from.isEmpty && !visible {
+            animateIn()
+            return
+        }
+    }
+
+    override func closeSurfaceNode(
+        _ node: SplitTree<Ghostty.SurfaceView>.Node,
+        withConfirmation: Bool = true
+    ) {
+        // If this isn't the root then we're dealing with a split closure.
+        if surfaceTree.root != node {
+            super.closeSurfaceNode(node, withConfirmation: withConfirmation)
+            return
+        }
+
+        // If this isn't a final leaf then we're dealing with a split closure
+        guard case .leaf(let surface) = node else {
+            super.closeSurfaceNode(node, withConfirmation: withConfirmation)
+            return
+        }
+
+        // If its the root, we check if the process exited. If it did,
+        // then we do empty the tree.
+        if surface.processExited {
+            surfaceTree = .init()
+            return
+        }
+
+        // If its the root then we just animate out. We never actually allow
+        // the surface to fully close.
+        animateOut()
     }
 
     // MARK: Methods
@@ -230,17 +282,18 @@ class QuickTerminalController: BaseTerminalController {
         // Set previous active space
         self.previousActiveSpace = CGSSpace.active()
 
+        // If our surface tree is empty then we initialize a new terminal. The surface
+        // tree can be empty if for example we run "exit" in the terminal and force
+        // animate out.
+        if surfaceTree.isEmpty,
+           let ghostty_app = ghostty.app {
+            let view = Ghostty.SurfaceView(ghostty_app, baseConfig: nil)
+            surfaceTree = SplitTree(view: view)
+            focusedSurface = view
+        }
+
         // Animate the window in
         animateWindowIn(window: window, from: position)
-
-        // If our surface tree is nil then we initialize a new terminal. The surface
-        // tree can be nil if for example we run "eixt" in the terminal and force
-        // animate out.
-        if (surfaceTree == nil) {
-            let leaf: Ghostty.SplitNode.Leaf = .init(ghostty.app!, baseConfig: nil)
-            surfaceTree = .leaf(leaf)
-            focusedSurface = leaf.surface
-        }
     }
 
     func animateOut() {
@@ -261,6 +314,12 @@ class QuickTerminalController: BaseTerminalController {
 
     private func animateWindowIn(window: NSWindow, from position: QuickTerminalPosition) {
         guard let screen = derivedConfig.quickTerminalScreen.screen else { return }
+
+        // Restore our previous frame if we have one
+        if let lastClosedFrame {
+            window.setFrame(lastClosedFrame, display: false)
+            self.lastClosedFrame = nil
+        }
 
         // Move our window off screen to the top
         position.setInitial(in: window, on: screen)
@@ -372,6 +431,12 @@ class QuickTerminalController: BaseTerminalController {
     }
 
     private func animateWindowOut(window: NSWindow, to position: QuickTerminalPosition) {
+        // Save the current window frame before animating out. This preserves
+        // the user's preferred window size and position for when the quick
+        // terminal is reactivated with a new surface. Without this, SwiftUI
+        // would reset the window to its minimum content size.
+        lastClosedFrame = window.frame
+
         // If we hid the dock then we unhide it.
         hiddenDock = nil
 

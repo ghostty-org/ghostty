@@ -22,7 +22,7 @@ pub const Size = struct {
     /// taking the screen size, removing padding, and dividing by the cell
     /// dimensions.
     pub fn grid(self: Size) GridSize {
-        return GridSize.init(self.screen.subPadding(self.padding), self.cell);
+        return .init(self.screen.subPadding(self.padding), self.cell);
     }
 
     /// The size of the terminal. This is the same as the screen without
@@ -39,7 +39,7 @@ pub const Size = struct {
         self.padding = explicit;
 
         // Now we can calculate the balanced padding
-        self.padding = Padding.balanced(
+        self.padding = .balanced(
             self.screen,
             self.grid(),
             self.cell,

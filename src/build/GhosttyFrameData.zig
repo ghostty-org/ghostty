@@ -15,8 +15,13 @@ output: std.Build.LazyPath,
 pub fn init(b: *std.Build) !GhosttyFrameData {
     const exe = b.addExecutable(.{
         .name = "framegen",
-        .root_source_file = b.path("src/build/framegen/main.zig"),
-        .target = b.graph.host,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/build/framegen/main.zig"),
+            .target = b.graph.host,
+            .strip = false,
+            .omit_frame_pointer = false,
+            .unwind_tables = .sync,
+        }),
     });
 
     const run = b.addRunArtifact(exe);

@@ -84,7 +84,7 @@ pub fn parse(
         // If the arena is unset, we create it. We mark that we own it
         // only so that we can clean it up on error.
         if (dst._arena == null) {
-            dst._arena = ArenaAllocator.init(alloc);
+            dst._arena = .init(alloc);
             arena_owned = true;
         }
 
@@ -481,7 +481,7 @@ pub fn parseAutoStruct(comptime T: type, alloc: Allocator, v: []const u8) !T {
     // Keep track of which fields were set so we can error if a required
     // field was not set.
     const FieldSet = std.StaticBitSet(info.fields.len);
-    var fields_set: FieldSet = FieldSet.initEmpty();
+    var fields_set: FieldSet = .initEmpty();
 
     // We split each value by ","
     var iter = std.mem.splitSequence(u8, v, ",");

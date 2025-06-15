@@ -324,7 +324,7 @@ fn loadAndAddImage(
         }
 
         break :loading loading.*;
-    } else try LoadingImage.init(alloc, cmd);
+    } else try .init(alloc, cmd);
 
     // We only want to deinit on error. If we're chunking, then we don't
     // want to deinit at all. If we're not chunking, then we'll deinit

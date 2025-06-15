@@ -2,6 +2,7 @@
 //! system. These aren't restricted to syscalls or low-level operations, but
 //! also OS-specific features and conventions.
 
+const dbus = @import("dbus.zig");
 const desktop = @import("desktop.zig");
 const env = @import("env.zig");
 const file = @import("file.zig");
@@ -12,6 +13,7 @@ const mouse = @import("mouse.zig");
 const openpkg = @import("open.zig");
 const pipepkg = @import("pipe.zig");
 const resourcesdir = @import("resourcesdir.zig");
+const systemd = @import("systemd.zig");
 
 // Namespaces
 pub const args = @import("args.zig");
@@ -35,6 +37,8 @@ pub const getenv = env.getenv;
 pub const setenv = env.setenv;
 pub const unsetenv = env.unsetenv;
 pub const launchedFromDesktop = desktop.launchedFromDesktop;
+pub const launchedByDbusActivation = dbus.launchedByDbusActivation;
+pub const launchedBySystemd = systemd.launchedBySystemd;
 pub const desktopEnvironment = desktop.desktopEnvironment;
 pub const rlimit = file.rlimit;
 pub const fixMaxFiles = file.fixMaxFiles;

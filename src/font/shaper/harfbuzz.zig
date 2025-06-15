@@ -1227,7 +1227,7 @@ fn testShaperWithFont(alloc: Allocator, font_req: TestFont) !TestShaper {
     c.load_options = .{ .library = lib };
 
     // Setup group
-    _ = try c.add(alloc, .regular, .{ .loaded = try Face.init(
+    _ = try c.add(alloc, .regular, .{ .loaded = try .init(
         lib,
         testFont,
         .{ .size = .{ .points = 12 } },
@@ -1235,7 +1235,7 @@ fn testShaperWithFont(alloc: Allocator, font_req: TestFont) !TestShaper {
 
     if (comptime !font.options.backend.hasCoretext()) {
         // Coretext doesn't support Noto's format
-        _ = try c.add(alloc, .regular, .{ .loaded = try Face.init(
+        _ = try c.add(alloc, .regular, .{ .loaded = try .init(
             lib,
             testEmoji,
             .{ .size = .{ .points = 12 } },
@@ -1254,7 +1254,7 @@ fn testShaperWithFont(alloc: Allocator, font_req: TestFont) !TestShaper {
         errdefer face.deinit();
         _ = try c.add(alloc, .regular, .{ .deferred = face });
     }
-    _ = try c.add(alloc, .regular, .{ .loaded = try Face.init(
+    _ = try c.add(alloc, .regular, .{ .loaded = try .init(
         lib,
         testEmojiText,
         .{ .size = .{ .points = 12 } },
@@ -1262,7 +1262,7 @@ fn testShaperWithFont(alloc: Allocator, font_req: TestFont) !TestShaper {
 
     const grid_ptr = try alloc.create(SharedGrid);
     errdefer alloc.destroy(grid_ptr);
-    grid_ptr.* = try SharedGrid.init(alloc, .{ .collection = c });
+    grid_ptr.* = try .init(alloc, .{ .collection = c });
     errdefer grid_ptr.*.deinit(alloc);
 
     var shaper = try Shaper.init(alloc, .{});

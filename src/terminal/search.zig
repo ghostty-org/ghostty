@@ -365,7 +365,7 @@ const SlidingWindow = struct {
         }
 
         self.assertIntegrity();
-        return Selection.init(tl, br, false);
+        return .init(tl, br, false);
     }
 
     /// Convert a data index into a pin.
@@ -417,7 +417,7 @@ const SlidingWindow = struct {
         // Initialize our metadata for the node.
         var meta: Meta = .{
             .node = node,
-            .cell_map = Page.CellMap.init(alloc),
+            .cell_map = .init(alloc),
         };
         errdefer meta.deinit();
 

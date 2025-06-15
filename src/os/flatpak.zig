@@ -112,6 +112,8 @@ pub const FlatpakHostCommand = struct {
     pub fn spawn(self: *FlatpakHostCommand, alloc: Allocator) !u32 {
         const thread = try std.Thread.spawn(.{}, threadMain, .{ self, alloc });
         thread.setName("flatpak-host-command") catch {};
+        // We don't track this thread, it will terminate on its own on command exit
+        thread.detach();
 
         // Wait for the process to start or error.
         self.state_mutex.lock();
@@ -232,9 +234,10 @@ pub const FlatpakHostCommand = struct {
         };
 
         // Get our bus connection.
-        var g_err: [*c]c.GError = null;
+        var g_err: ?*c.GError = null;
+        defer if (g_err) |ptr| c.g_error_free(ptr);
         const bus = c.g_bus_get_sync(c.G_BUS_TYPE_SESSION, null, &g_err) orelse {
-            log.warn("signal error getting bus: {s}", .{g_err.*.message});
+            log.warn("signal error getting bus: {s}", .{g_err.?.*.message});
             return Error.FlatpakSetupFail;
         };
         defer c.g_object_unref(bus);
@@ -258,7 +261,7 @@ pub const FlatpakHostCommand = struct {
             &g_err,
         );
         if (g_err != null) {
-            log.warn("signal send error: {s}", .{g_err.*.message});
+            log.warn("signal send error: {s}", .{g_err.?.*.message});
             return;
         }
         defer c.g_variant_unref(reply);
@@ -278,9 +281,10 @@ pub const FlatpakHostCommand = struct {
 
         // Get our bus connection. This has to remain active until we exit
         // the thread otherwise our signals won't be called.
-        var g_err: [*c]c.GError = null;
+        var g_err: ?*c.GError = null;
+        defer if (g_err) |ptr| c.g_error_free(ptr);
         const bus = c.g_bus_get_sync(c.G_BUS_TYPE_SESSION, null, &g_err) orelse {
-            log.warn("spawn error getting bus: {s}", .{g_err.*.message});
+            log.warn("spawn error getting bus: {s}", .{g_err.?.*.message});
             self.updateState(.{ .err = {} });
             return;
         };
@@ -308,7 +312,8 @@ pub const FlatpakHostCommand = struct {
         bus: *c.GDBusConnection,
         loop: *c.GMainLoop,
     ) !void {
-        var err: [*c]c.GError = null;
+        var err: ?*c.GError = null;
+        defer if (err) |ptr| c.g_error_free(ptr);
         var arena_allocator = std.heap.ArenaAllocator.init(alloc);
         defer arena_allocator.deinit();
         const arena = arena_allocator.allocator();
@@ -317,15 +322,15 @@ pub const FlatpakHostCommand = struct {
         const fd_list = c.g_unix_fd_list_new();
         defer c.g_object_unref(fd_list);
         if (c.g_unix_fd_list_append(fd_list, self.stdin, &err) < 0) {
-            log.warn("error adding fd: {s}", .{err.*.message});
+            log.warn("error adding fd: {s}", .{err.?.*.message});
             return Error.FlatpakSetupFail;
         }
         if (c.g_unix_fd_list_append(fd_list, self.stdout, &err) < 0) {
-            log.warn("error adding fd: {s}", .{err.*.message});
+            log.warn("error adding fd: {s}", .{err.?.*.message});
             return Error.FlatpakSetupFail;
         }
         if (c.g_unix_fd_list_append(fd_list, self.stderr, &err) < 0) {
-            log.warn("error adding fd: {s}", .{err.*.message});
+            log.warn("error adding fd: {s}", .{err.?.*.message});
             return Error.FlatpakSetupFail;
         }
 
@@ -405,7 +410,7 @@ pub const FlatpakHostCommand = struct {
             null,
             &err,
         ) orelse {
-            log.warn("Flatpak.HostCommand failed: {s}", .{err.*.message});
+            log.warn("Flatpak.HostCommand failed: {s}", .{err.?.*.message});
             return Error.FlatpakRPCFail;
         };
         defer c.g_variant_unref(reply);

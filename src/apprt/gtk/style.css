@@ -73,3 +73,19 @@ window.ssd.no-border-radius {
   filter: blur(5px);
   transition: filter 0.3s ease;
 }
+
+.command-palette-search {
+  font-size: 1.25rem;
+  padding: 4px;
+  -gtk-icon-size: 20px;
+}
+
+.command-palette-search > image:first-child {
+  margin-left: 8px;
+  margin-right: 4px;
+}
+
+.command-palette-search > image:last-child {
+  margin-left: 4px;
+  margin-right: 8px;
+}

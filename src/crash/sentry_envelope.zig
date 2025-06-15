@@ -331,7 +331,7 @@ pub const Item = union(enum) {
 
         // Decode the item.
         self.* = switch (encoded.type) {
-            .attachment => .{ .attachment = try Attachment.decode(
+            .attachment => .{ .attachment = try .decode(
                 alloc,
                 encoded,
             ) },

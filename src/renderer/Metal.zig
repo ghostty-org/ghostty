@@ -1872,6 +1872,8 @@ fn prepKittyGraphics(
     // points. This lets us determine offsets and containment of placements.
     const top = t.screen.pages.getTopLeft(.viewport);
     const bot = t.screen.pages.getBottomRight(.viewport).?;
+    const top_y = t.screen.pages.pointFromPin(.screen, top).?.screen.y;
+    const bot_y = t.screen.pages.pointFromPin(.screen, bot).?.screen.y;
 
     // Go through the placements and ensure the image is loaded on the GPU.
     var it = storage.placements.iterator();
@@ -1903,7 +1905,7 @@ fn prepKittyGraphics(
             continue;
         };
 
-        try self.prepKittyPlacement(t, &top, &bot, &image, p);
+        try self.prepKittyPlacement(t, top_y, bot_y, &image, p);
     }
 
     // If we have virtual placements then we need to scan for placeholders.
@@ -2009,8 +2011,8 @@ fn prepKittyVirtualPlacement(
 fn prepKittyPlacement(
     self: *Metal,
     t: *terminal.Terminal,
-    top: *const terminal.Pin,
-    bot: *const terminal.Pin,
+    top_y: u32,
+    bot_y: u32,
     image: *const terminal.kitty.graphics.Image,
     p: *const terminal.kitty.graphics.ImageStorage.Placement,
 ) !void {
@@ -2018,78 +2020,47 @@ fn prepKittyPlacement(
     // a rect then its virtual or something so skip it.
     const rect = p.rect(image.*, t) orelse return;
 
+    // This is expensive but necessary.
+    const img_top_y = t.screen.pages.pointFromPin(.screen, rect.top_left).?.screen.y;
+    const img_bot_y = t.screen.pages.pointFromPin(.screen, rect.bottom_right).?.screen.y;
+
     // If the selection isn't within our viewport then skip it.
-    if (bot.before(rect.top_left)) return;
-    if (rect.bottom_right.before(top.*)) return;
-
-    // If the top left is outside the viewport we need to calc an offset
-    // so that we render (0, 0) with some offset for the texture.
-    const offset_y: u32 = if (rect.top_left.before(top.*)) offset_y: {
-        const vp_y = t.screen.pages.pointFromPin(.screen, top.*).?.screen.y;
-        const img_y = t.screen.pages.pointFromPin(.screen, rect.top_left).?.screen.y;
-        const offset_cells = vp_y - img_y;
-        const offset_pixels = offset_cells * self.grid_metrics.cell_height;
-        break :offset_y @intCast(offset_pixels);
-    } else 0;
-
-    // Get the grid size that respects aspect ratio
-    const grid_size = p.gridSize(image.*, t);
-
-    // If we specify `rows` then our offset above is in viewport space
-    // and not in the coordinate space of the source image. Without `rows`
-    // that's one and the same.
-    const source_offset_y: u32 = if (grid_size.rows > 0) source_offset_y: {
-        // Determine the scale factor to apply for this row height.
-        const image_height: f64 = @floatFromInt(image.height);
-        const viewport_height: f64 = @floatFromInt(grid_size.rows * self.grid_metrics.cell_height);
-        const scale: f64 = image_height / viewport_height;
-
-        // Apply the scale to the offset
-        const offset_y_f64: f64 = @floatFromInt(offset_y);
-        const source_offset_y_f64: f64 = offset_y_f64 * scale;
-        break :source_offset_y @intFromFloat(@round(source_offset_y_f64));
-    } else offset_y;
+    if (img_top_y > bot_y) return;
+    if (img_bot_y < top_y) return;
 
     // We need to prep this image for upload if it isn't in the cache OR
     // it is in the cache but the transmit time doesn't match meaning this
     // image is different.
     try self.prepKittyImage(image);
 
-    // Convert our screen point to a viewport point
-    const viewport: terminal.point.Point = t.screen.pages.pointFromPin(
-        .viewport,
-        rect.top_left,
-    ) orelse .{ .viewport = .{} };
+    // Calculate the dimensions of our image, taking in to
+    // account the rows / columns specified by the placement.
+    const dest_size = p.calculatedSize(image.*, t);
 
     // Calculate the source rectangle
     const source_x = @min(image.width, p.source_x);
-    const source_y = @min(image.height, p.source_y + source_offset_y);
+    const source_y = @min(image.height, p.source_y);
     const source_width = if (p.source_width > 0)
         @min(image.width - source_x, p.source_width)
     else
         image.width;
     const source_height = if (p.source_height > 0)
-        @min(image.height, p.source_height)
+        @min(image.height - source_y, p.source_height)
     else
-        image.height -| source_y;
+        image.height;
 
-    // Calculate the width/height of our image.
-    const dest_width = grid_size.cols * self.grid_metrics.cell_width;
-    const dest_height = if (grid_size.rows > 0) rows: {
-        // Clip to the viewport to handle scrolling. offset_y is already in
-        // viewport scale so we can subtract it directly.
-        break :rows (grid_size.rows * self.grid_metrics.cell_height) - offset_y;
-    } else source_height;
+    // Get the viewport-relative Y position of the placement.
+    const y_pos: i32 = @as(i32, @intCast(img_top_y)) - @as(i32, @intCast(top_y));
 
     // Accumulate the placement
-    if (image.width > 0 and image.height > 0) {
+    if (dest_size.width > 0 and dest_size.height > 0) {
         try self.image_placements.append(self.alloc, .{
             .image_id = image.id,
             .x = @intCast(rect.top_left.x),
-            .y = @intCast(viewport.viewport.y),
+            .y = y_pos,
             .z = p.z,
-            .width = dest_width,
-            .height = dest_height,
+            .width = dest_size.width,
+            .height = dest_size.height,
             .cell_offset_x = p.x_offset,
             .cell_offset_y = p.y_offset,
             .source_x = source_x,

@@ -9,6 +9,8 @@ command: ghostty
 finish-args:
   # 3D rendering
   - --device=dri
+  # use host PTS namespace
+  - --device=all
   # Windowing
   - --share=ipc
   - --socket=fallback-x11

@@ -308,7 +308,7 @@ pub const VTHandler = struct {
     current_seq: usize = 1,
 
     /// Exclude certain actions by tag.
-    filter_exclude: ActionTagSet = ActionTagSet.initMany(&.{.print}),
+    filter_exclude: ActionTagSet = .initMany(&.{.print}),
     filter_text: *cimgui.c.ImGuiTextFilter,
 
     const ActionTagSet = std.EnumSet(terminal.Parser.Action.Tag);

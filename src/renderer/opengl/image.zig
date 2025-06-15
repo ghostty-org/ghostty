@@ -11,8 +11,8 @@ pub const Placement = struct {
     image_id: u32,
 
     /// The grid x/y where this placement is located.
-    x: u32,
-    y: u32,
+    x: i32,
+    y: i32,
     z: i32,
 
     /// The width/height of the placed image.
@@ -368,8 +368,8 @@ pub const Image = union(enum) {
             internal: gl.Texture.InternalFormat,
             format: gl.Texture.Format,
         } = switch (self.*) {
-            .pending_rgb, .replace_rgb => .{ .internal = .rgb, .format = .rgb },
-            .pending_rgba, .replace_rgba => .{ .internal = .rgba, .format = .rgba },
+            .pending_rgb, .replace_rgb => .{ .internal = .srgb, .format = .rgb },
+            .pending_rgba, .replace_rgba => .{ .internal = .srgba, .format = .rgba },
             else => unreachable,
         };
 

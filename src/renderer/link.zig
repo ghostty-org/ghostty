@@ -179,7 +179,7 @@ pub const Set = struct {
                     if (current) |*sel| {
                         sel.endPtr().* = cell_pin;
                     } else {
-                        current = terminal.Selection.init(
+                        current = .init(
                             cell_pin,
                             cell_pin,
                             false,

@@ -40,6 +40,7 @@ const Window = @import("Window.zig");
 const ConfigErrorsDialog = @import("ConfigErrorsDialog.zig");
 const ClipboardConfirmationWindow = @import("ClipboardConfirmationWindow.zig");
 const CloseDialog = @import("CloseDialog.zig");
+const GlobalShortcuts = @import("GlobalShortcuts.zig");
 const Split = @import("Split.zig");
 const inspector = @import("inspector.zig");
 const key = @import("key.zig");
@@ -74,6 +75,9 @@ cursor_none: ?*gdk.Cursor,
 /// The clipboard confirmation window, if it is currently open.
 clipboard_confirmation_window: ?*ClipboardConfirmationWindow = null,
 
+/// The config errors dialog, if it is currently open.
+config_errors_dialog: ?ConfigErrorsDialog = null,
+
 /// The window containing the quick terminal.
 /// Null when never initialized.
 quick_terminal: ?*Window = null,
@@ -91,6 +95,8 @@ css_provider: *gtk.CssProvider,
 
 /// Providers for loading custom stylesheets defined by user
 custom_css_providers: std.ArrayListUnmanaged(*gtk.CssProvider) = .{},
+
+global_shortcuts: ?GlobalShortcuts,
 
 /// The timer used to quit the application after the last window is closed.
 quit_timer: union(enum) {
@@ -267,7 +273,10 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
     const single_instance = switch (config.@"gtk-single-instance") {
         .true => true,
         .false => false,
-        .desktop => internal_os.launchedFromDesktop(),
+        .desktop => switch (config.@"launched-from".?) {
+            .desktop, .systemd, .dbus => true,
+            .cli => false,
+        },
     };
 
     // Setup the flags for our application.
@@ -282,7 +291,7 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
     // can develop Ghostty in Ghostty.
     const app_id: [:0]const u8 = app_id: {
         if (config.class) |class| {
-            if (isValidAppId(class)) {
+            if (gio.Application.idIsValid(class) != 0) {
                 break :app_id class;
             } else {
                 log.warn("invalid 'class' in config, ignoring", .{});
@@ -419,6 +428,7 @@ pub fn init(core_app: *CoreApp, opts: Options) !App {
         // our "activate" call above will open a window.
         .running = gio_app.getIsRemote() == 0,
         .css_provider = css_provider,
+        .global_shortcuts = .init(core_app.alloc, gio_app),
     };
 }
 
@@ -439,6 +449,8 @@ pub fn terminate(self: *App) void {
     self.custom_css_providers.deinit(self.core_app.alloc);
 
     self.winproto.deinit(self.core_app.alloc);
+
+    if (self.global_shortcuts) |*shortcuts| shortcuts.deinit();
 
     self.config.deinit();
 }
@@ -472,6 +484,7 @@ pub fn performAction(
         .config_change => self.configChange(target, value.config),
         .reload_config => try self.reloadConfig(target, value),
         .inspector => self.controlInspector(target, value),
+        .show_gtk_inspector => self.showGTKInspector(),
         .desktop_notification => self.showDesktopNotification(target, value),
         .set_title => try self.setTitle(target, value),
         .pwd => try self.setPwd(target, value),
@@ -489,11 +502,11 @@ pub fn performAction(
         .toggle_quick_terminal => return try self.toggleQuickTerminal(),
         .secure_input => self.setSecureInput(target, value),
         .ring_bell => try self.ringBell(target),
+        .toggle_command_palette => try self.toggleCommandPalette(target),
 
         // Unimplemented
         .close_all_windows,
         .float_window,
-        .toggle_command_palette,
         .toggle_visibility,
         .cell_size,
         .key_sequence,
@@ -501,6 +514,9 @@ pub fn performAction(
         .renderer_health,
         .color_change,
         .reset_window_size,
+        .check_for_updates,
+        .undo,
+        .redo,
         => {
             log.warn("unimplemented action={}", .{action});
             return false;
@@ -677,6 +693,12 @@ fn controlInspector(
     surface.controlInspector(mode);
 }
 
+fn showGTKInspector(
+    _: *const App,
+) void {
+    gtk.Window.setInteractiveDebugging(@intFromBool(true));
+}
+
 fn toggleMaximize(_: *App, target: apprt.Target) void {
     switch (target) {
         .app => {},
@@ -747,7 +769,7 @@ fn toggleWindowDecorations(
         .surface => |v| {
             const window = v.rt_surface.container.window() orelse {
                 log.info(
-                    "toggleFullscreen invalid for container={s}",
+                    "toggleWindowDecorations invalid for container={s}",
                     .{@tagName(v.rt_surface.container)},
                 );
                 return;
@@ -786,6 +808,23 @@ fn ringBell(_: *App, target: apprt.Target) !void {
     switch (target) {
         .app => {},
         .surface => |surface| try surface.rt_surface.ringBell(),
+    }
+}
+
+fn toggleCommandPalette(_: *App, target: apprt.Target) !void {
+    switch (target) {
+        .app => {},
+        .surface => |surface| {
+            const window = surface.rt_surface.container.window() orelse {
+                log.info(
+                    "toggleCommandPalette invalid for container={s}",
+                    .{@tagName(surface.rt_surface.container)},
+                );
+                return;
+            };
+
+            window.toggleCommandPalette();
+        },
     }
 }
 
@@ -1009,6 +1048,12 @@ fn syncConfigChanges(self: *App, window: ?*Window) !void {
     ConfigErrorsDialog.maybePresent(self, window);
     try self.syncActionAccelerators();
 
+    if (self.global_shortcuts) |*shortcuts| {
+        shortcuts.refreshSession(self) catch |err| {
+            log.warn("failed to refresh global shortcuts={}", .{err});
+        };
+    }
+
     // Load our runtime and custom CSS. If this fails then our window is just stuck
     // with the old CSS but we don't want to fail the entire sync operation.
     self.loadRuntimeCss() catch |err| switch (err) {
@@ -1027,6 +1072,8 @@ fn syncActionAccelerators(self: *App) !void {
     try self.syncActionAccelerator("app.open-config", .{ .open_config = {} });
     try self.syncActionAccelerator("app.reload-config", .{ .reload_config = {} });
     try self.syncActionAccelerator("win.toggle-inspector", .{ .inspector = .toggle });
+    try self.syncActionAccelerator("app.show-gtk-inspector", .show_gtk_inspector);
+    try self.syncActionAccelerator("win.toggle-command-palette", .toggle_command_palette);
     try self.syncActionAccelerator("win.close", .{ .close_window = {} });
     try self.syncActionAccelerator("win.new-window", .{ .new_window = {} });
     try self.syncActionAccelerator("win.new-tab", .{ .new_tab = {} });
@@ -1621,6 +1668,16 @@ fn gtkActionPresentSurface(
     );
 }
 
+fn gtkActionShowGTKInspector(
+    _: *gio.SimpleAction,
+    _: ?*glib.Variant,
+    self: *App,
+) callconv(.c) void {
+    self.core_app.performAction(self, .show_gtk_inspector) catch |err| {
+        log.err("error showing GTK inspector err={}", .{err});
+    };
+}
+
 /// This is called to setup the action map that this application supports.
 /// This should be called only once on startup.
 fn initActions(self: *App) void {
@@ -1639,6 +1696,7 @@ fn initActions(self: *App) void {
         .{ "open-config", gtkActionOpenConfig, null },
         .{ "reload-config", gtkActionReloadConfig, null },
         .{ "present-surface", gtkActionPresentSurface, t },
+        .{ "show-gtk-inspector", gtkActionShowGTKInspector, null },
     };
     inline for (actions) |entry| {
         const action = gio.SimpleAction.new(entry[0], entry[2]);
@@ -1653,33 +1711,4 @@ fn initActions(self: *App) void {
         const action_map = self.app.as(gio.ActionMap);
         action_map.addAction(action.as(gio.Action));
     }
-}
-
-fn isValidAppId(app_id: [:0]const u8) bool {
-    if (app_id.len > 255 or app_id.len == 0) return false;
-    if (app_id[0] == '.') return false;
-    if (app_id[app_id.len - 1] == '.') return false;
-
-    var hasDot = false;
-    for (app_id) |char| {
-        switch (char) {
-            'a'...'z', 'A'...'Z', '0'...'9', '_', '-' => {},
-            '.' => hasDot = true,
-            else => return false,
-        }
-    }
-    if (!hasDot) return false;
-
-    return true;
-}
-
-test "isValidAppId" {
-    try testing.expect(isValidAppId("foo.bar"));
-    try testing.expect(isValidAppId("foo.bar.baz"));
-    try testing.expect(!isValidAppId("foo"));
-    try testing.expect(!isValidAppId("foo.bar?"));
-    try testing.expect(!isValidAppId("foo."));
-    try testing.expect(!isValidAppId(".foo"));
-    try testing.expect(!isValidAppId(""));
-    try testing.expect(!isValidAppId("foo" ** 86));
 }

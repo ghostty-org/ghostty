@@ -44,7 +44,7 @@ pub const Pattern = opaque {
             &val,
         ))).toError();
 
-        return Value.init(&val);
+        return .init(&val);
     }
 
     pub fn delete(self: *Pattern, prop: Property) bool {
@@ -138,7 +138,7 @@ pub const Pattern = opaque {
             return Entry{
                 .result = @enumFromInt(result),
                 .binding = @enumFromInt(binding),
-                .value = Value.init(&value),
+                .value = .init(&value),
             };
         }
     };

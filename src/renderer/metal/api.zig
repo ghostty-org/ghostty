@@ -96,6 +96,7 @@ pub const MTLVertexStepFunction = enum(c_ulong) {
 pub const MTLPixelFormat = enum(c_ulong) {
     r8unorm = 10,
     rgba8unorm = 70,
+    rgba8unorm_srgb = 71,
     rgba8uint = 73,
     bgra8unorm = 80,
     bgra8unorm_srgb = 81,

@@ -108,11 +108,8 @@ fn setLangFromCocoa() void {
     }
 
     // Get our preferred languages and set that to the LANGUAGE
-    // env var in case our language differs from our locale. We only
-    // do this when the app is launched from the desktop because then
-    // we're in an app bundle and we are expected to read from our
-    // Bundle's preferred languages.
-    if (internal_os.launchedFromDesktop()) language: {
+    // env var in case our language differs from our locale.
+    language: {
         var buf: [1024]u8 = undefined;
         const pref_ = preferredLanguageFromCocoa(
             &buf,

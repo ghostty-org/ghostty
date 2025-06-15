@@ -1,4 +1,4 @@
-app-id: com.mitchellh.ghostty.Devel
+app-id: com.mitchellh.ghostty-debug
 runtime: org.gnome.Platform
 runtime-version: "48"
 sdk: org.gnome.Sdk
@@ -10,10 +10,12 @@ command: ghostty
 rename-desktop-file: com.mitchellh.ghostty.desktop
 rename-appdata-file: com.mitchellh.ghostty.metainfo.xml
 rename-icon: com.mitchellh.ghostty
-desktop-file-name-suffix: " (Devel)"
+desktop-file-name-suffix: " (Debug)"
 finish-args:
   # 3D rendering
   - --device=dri
+  # use host PTS namespace
+  - --device=all
   # Windowing
   - --share=ipc
   - --socket=fallback-x11

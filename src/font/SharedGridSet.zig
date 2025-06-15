@@ -126,7 +126,7 @@ pub fn ref(
         .ref = 1,
     };
 
-    grid.* = try SharedGrid.init(self.alloc, resolver: {
+    grid.* = try .init(self.alloc, resolver: {
         // Build our collection. This is the expensive operation that
         // involves finding fonts, loading them (maybe, some are deferred),
         // etc.
@@ -258,7 +258,7 @@ fn collection(
     _ = try c.add(
         self.alloc,
         .regular,
-        .{ .fallback_loaded = try Face.init(
+        .{ .fallback_loaded = try .init(
             self.font_lib,
             font.embedded.regular,
             load_options.faceOptions(),
@@ -267,7 +267,7 @@ fn collection(
     _ = try c.add(
         self.alloc,
         .bold,
-        .{ .fallback_loaded = try Face.init(
+        .{ .fallback_loaded = try .init(
             self.font_lib,
             font.embedded.bold,
             load_options.faceOptions(),
@@ -276,7 +276,7 @@ fn collection(
     _ = try c.add(
         self.alloc,
         .italic,
-        .{ .fallback_loaded = try Face.init(
+        .{ .fallback_loaded = try .init(
             self.font_lib,
             font.embedded.italic,
             load_options.faceOptions(),
@@ -285,7 +285,7 @@ fn collection(
     _ = try c.add(
         self.alloc,
         .bold_italic,
-        .{ .fallback_loaded = try Face.init(
+        .{ .fallback_loaded = try .init(
             self.font_lib,
             font.embedded.bold_italic,
             load_options.faceOptions(),
@@ -318,7 +318,7 @@ fn collection(
         _ = try c.add(
             self.alloc,
             .regular,
-            .{ .fallback_loaded = try Face.init(
+            .{ .fallback_loaded = try .init(
                 self.font_lib,
                 font.embedded.emoji,
                 load_options.faceOptions(),
@@ -327,7 +327,7 @@ fn collection(
         _ = try c.add(
             self.alloc,
             .regular,
-            .{ .fallback_loaded = try Face.init(
+            .{ .fallback_loaded = try .init(
                 self.font_lib,
                 font.embedded.emoji_text,
                 load_options.faceOptions(),
@@ -391,7 +391,7 @@ fn discover(self: *SharedGridSet) !?*Discover {
     // If we initialized, use it
     if (self.font_discover) |*v| return v;
 
-    self.font_discover = Discover.init();
+    self.font_discover = .init();
     return &self.font_discover.?;
 }
 
@@ -498,7 +498,7 @@ pub const Key = struct {
     /// each style. For example, bold is from
     /// offsets[@intFromEnum(.bold) - 1] to
     /// offsets[@intFromEnum(.bold)].
-    style_offsets: StyleOffsets = .{0} ** style_offsets_len,
+    style_offsets: StyleOffsets = @splat(0),
 
     /// The codepoint map configuration.
     codepoint_map: CodepointMap = .{},

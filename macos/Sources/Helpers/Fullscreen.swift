@@ -45,10 +45,6 @@ protocol FullscreenDelegate: AnyObject {
     func fullscreenDidChange()
 }
 
-extension FullscreenDelegate {
-    func fullscreenDidChange() {}
-}
-
 /// The base class for fullscreen implementations, cannot be used as a FullscreenStyle on its own.
 class FullscreenBase {
     let window: NSWindow
@@ -78,10 +74,12 @@ class FullscreenBase {
     }
 
     @objc private func didEnterFullScreenNotification(_ notification: Notification) {
+        NotificationCenter.default.post(name: .fullscreenDidEnter, object: self)
         delegate?.fullscreenDidChange()
     }
 
     @objc private func didExitFullScreenNotification(_ notification: Notification) {
+        NotificationCenter.default.post(name: .fullscreenDidExit, object: self)
         delegate?.fullscreenDidChange()
     }
 }
@@ -149,6 +147,26 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
     }
 
     private var savedState: SavedState?
+
+    required init?(_ window: NSWindow) {
+        super.init(window)
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowWillCloseNotification),
+            name: NSWindow.willCloseNotification,
+            object: window)
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func windowWillCloseNotification(_ notification: Notification) {
+        // When the window closes we need to explicitly exit non-native fullscreen
+        // otherwise some state like the menu bar can remain hidden.
+        exit()
+    }
 
     func enter() {
         // If we are in fullscreen we don't do it again.
@@ -218,6 +236,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
                 self.window.makeFirstResponder(firstResponder)
             }
 
+            NotificationCenter.default.post(name: .fullscreenDidEnter, object: self)
             self.delegate?.fullscreenDidChange()
         }
     }
@@ -246,13 +265,24 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         window.styleMask = savedState.styleMask
         window.setFrame(window.frameRect(forContentRect: savedState.contentFrame), display: true)
 
-        // This is a hack that I want to remove from this but for now, we need to
-        // fix up the titlebar tabs here before we do everything below.
-        if let window = window as? TerminalWindow,
-           window.titlebarTabs {
-            window.titlebarTabs = true
+        // Removing the "titled" style also derefs all our accessory view controllers
+        // so we need to restore those.
+        for c in savedState.titlebarAccessoryViewControllers {
+            // Restoring the tab bar causes all sorts of problems. Its best to just ignore it,
+            // even though this is kind of a hack.
+            if let window = window as? TerminalWindow, window.isTabBar(c) {
+                continue
+            }
+            
+            if window.titlebarAccessoryViewControllers.firstIndex(of: c) == nil {
+                window.addTitlebarAccessoryViewController(c)
+            }
         }
 
+        // Removing "titled" also clears our toolbar
+        window.toolbar = savedState.toolbar
+        window.toolbarStyle = savedState.toolbarStyle
+        
         // If the window was previously in a tab group that isn't empty now,
         // we re-add it. We have to do this because our process of doing non-native
         // fullscreen removes the window from the tab group.
@@ -283,6 +313,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         window.makeKeyAndOrderFront(nil)
 
         // Notify the delegate
+        NotificationCenter.default.post(name: .fullscreenDidExit, object: self)
         self.delegate?.fullscreenDidChange()
     }
 
@@ -360,6 +391,9 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         let tabGroupIndex: Int?
         let contentFrame: NSRect
         let styleMask: NSWindow.StyleMask
+        let toolbar: NSToolbar?
+        let toolbarStyle: NSWindow.ToolbarStyle
+        let titlebarAccessoryViewControllers: [NSTitlebarAccessoryViewController]
         let dock: Bool
         let menu: Bool
 
@@ -371,6 +405,9 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
             self.tabGroupIndex = window.tabGroup?.windows.firstIndex(of: window)
             self.contentFrame = window.convertToScreen(contentView.frame)
             self.styleMask = window.styleMask
+            self.toolbar = window.toolbar
+            self.toolbarStyle = window.toolbarStyle
+            self.titlebarAccessoryViewControllers = window.titlebarAccessoryViewControllers
             self.dock = window.screen?.hasDock ?? false
 
             if let cgWindowId = window.cgWindowId {
@@ -401,4 +438,9 @@ class NonNativeFullscreenVisibleMenu: NonNativeFullscreen {
 
 class NonNativeFullscreenPaddedNotch: NonNativeFullscreen {
     override var properties: Properties { Properties(paddedNotch: true) }
+}
+
+extension Notification.Name {
+    static let fullscreenDidEnter = Notification.Name("com.mitchellh.fullscreenDidEnter")
+    static let fullscreenDidExit = Notification.Name("com.mitchellh.fullscreenDidExit")
 }

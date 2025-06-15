@@ -110,9 +110,15 @@ pub fn build(b: *std.Build) !void {
 
         const test_exe = b.addTest(.{
             .name = "ghostty-test",
-            .root_source_file = b.path("src/main.zig"),
-            .target = config.target,
-            .filter = test_filter,
+            .filters = if (test_filter) |v| &.{v} else &.{},
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/main.zig"),
+                .target = config.target,
+                .optimize = .Debug,
+                .strip = false,
+                .omit_frame_pointer = false,
+                .unwind_tables = .sync,
+            }),
         });
 
         {

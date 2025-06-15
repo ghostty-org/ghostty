@@ -62,7 +62,7 @@ pub fn style(
     }
 
     // Otherwise, we use whatever style the terminal wants.
-    return Style.fromTerminal(state.terminal.screen.cursor.cursor_style);
+    return .fromTerminal(state.terminal.screen.cursor.cursor_style);
 }
 
 test "cursor: default uses configured style" {

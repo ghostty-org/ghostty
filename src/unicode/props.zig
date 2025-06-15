@@ -125,7 +125,7 @@ pub fn get(cp: u21) Properties {
 
     return .{
         .width = @intCast(@min(2, @max(0, zg_width))),
-        .grapheme_boundary_class = GraphemeBoundaryClass.init(cp),
+        .grapheme_boundary_class = .init(cp),
     };
 }
 

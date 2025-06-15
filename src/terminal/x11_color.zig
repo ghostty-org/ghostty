@@ -33,7 +33,7 @@ fn colorMap() !ColorMap {
     }
     assert(i == len);
 
-    return ColorMap.initComptime(kvs);
+    return .initComptime(kvs);
 }
 
 /// This is the rgb.txt file from the X11 project. This was last sourced

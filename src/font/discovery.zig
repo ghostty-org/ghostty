@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const fontconfig = @import("fontconfig");
 const macos = @import("macos");
+const opentype = @import("opentype.zig");
 const options = @import("main.zig").options;
 const Collection = @import("main.zig").Collection;
 const DeferredFace = @import("main.zig").DeferredFace;
@@ -562,149 +563,266 @@ pub const CoreText = struct {
         desc: *const Descriptor,
         list: []*macos.text.FontDescriptor,
     ) void {
-        var desc_mut = desc.*;
-        if (desc_mut.style == null) {
-            // If there is no explicit style set, we set a preferred
-            // based on the style bool attributes.
-            //
-            // TODO: doesn't handle i18n font names well, we should have
-            // another mechanism that uses the weight attribute if it exists.
-            // Wait for this to be a real problem.
-            desc_mut.style = if (desc_mut.bold and desc_mut.italic)
-                "Bold Italic"
-            else if (desc_mut.bold)
-                "Bold"
-            else if (desc_mut.italic)
-                "Italic"
-            else
-                null;
-        }
-
-        std.mem.sortUnstable(*macos.text.FontDescriptor, list, &desc_mut, struct {
+        std.mem.sortUnstable(*macos.text.FontDescriptor, list, desc, struct {
             fn lessThan(
                 desc_inner: *const Descriptor,
                 lhs: *macos.text.FontDescriptor,
                 rhs: *macos.text.FontDescriptor,
             ) bool {
-                const lhs_score = score(desc_inner, lhs);
-                const rhs_score = score(desc_inner, rhs);
+                const lhs_score: Score = .score(desc_inner, lhs);
+                const rhs_score: Score = .score(desc_inner, rhs);
                 // Higher score is "less" (earlier)
                 return lhs_score.int() > rhs_score.int();
             }
         }.lessThan);
     }
 
-    /// We represent our sorting score as a packed struct so that we can
-    /// compare scores numerically but build scores symbolically.
+    /// We represent our sorting score as a packed struct so that we
+    /// can compare scores numerically but build scores symbolically.
+    ///
+    /// Note that packed structs store their fields from least to most
+    /// significant, so the fields here are defined in increasing order
+    /// of precedence.
     const Score = packed struct {
         const Backing = @typeInfo(@This()).@"struct".backing_integer.?;
 
-        glyph_count: u16 = 0, // clamped if > intmax
-        traits: Traits = .unmatched,
-        style: Style = .unmatched,
+        /// Number of glyphs in the font, if two fonts have identical
+        /// scores otherwise then we prefer the one with more glyphs.
+        ///
+        /// (Number of glyphs clamped at u16 intmax)
+        glyph_count: u16 = 0,
+        /// A fuzzy match on the style string, less important than
+        /// an exact match, and less important than trait matches.
+        fuzzy_style: u8 = 0,
+        /// Whether the bold-ness of the font matches the descriptor.
+        /// This is less important than italic because a font that's italic
+        /// when it shouldn't be or not italic when it should be is a bigger
+        /// problem (subjectively) than being the wrong weight.
+        bold: bool = false,
+        /// Whether the italic-ness of the font matches the descriptor.
+        /// This is less important than an exact match on the style string
+        /// because we want users to be allowed to override trait matching
+        /// for the bold/italic/bold italic styles if they want.
+        italic: bool = false,
+        /// An exact (case-insensitive) match on the style string.
+        exact_style: bool = false,
+        /// Whether the font is monospace, this is more important than any of
+        /// the other fields unless we're looking for a specific codepoint,
+        /// in which case that is the most important thing.
         monospace: bool = false,
+        /// If we're looking for a codepoint, whether this font has it.
         codepoint: bool = false,
-
-        const Traits = enum(u8) { unmatched = 0, _ };
-        const Style = enum(u8) { unmatched = 0, match = 0xFF, _ };
 
         pub fn int(self: Score) Backing {
             return @bitCast(self);
         }
-    };
 
-    fn score(desc: *const Descriptor, ct_desc: *const macos.text.FontDescriptor) Score {
-        var score_acc: Score = .{};
+        fn score(desc: *const Descriptor, ct_desc: *const macos.text.FontDescriptor) Score {
+            var self: Score = .{};
 
-        // We always load the font if we can since some things can only be
-        // inspected on the font itself.
-        const font_: ?*macos.text.Font = macos.text.Font.createWithFontDescriptor(
-            ct_desc,
-            12,
-        ) catch null;
-        defer if (font_) |font| font.release();
+            // We always load the font if we can since some things can only be
+            // inspected on the font itself. Fonts that can't be loaded score
+            // 0 automatically because we don't want a font we can't load.
+            const font: *macos.text.Font = macos.text.Font.createWithFontDescriptor(
+                ct_desc,
+                12,
+            ) catch return self;
+            defer font.release();
 
-        // If we have a font, prefer the font with more glyphs.
-        if (font_) |font| {
-            const Type = @TypeOf(score_acc.glyph_count);
-            score_acc.glyph_count = std.math.cast(
-                Type,
-                font.getGlyphCount(),
-            ) orelse std.math.maxInt(Type);
-        }
-
-        // If we're searching for a codepoint, prioritize fonts that
-        // have that codepoint.
-        if (desc.codepoint > 0) codepoint: {
-            const font = font_ orelse break :codepoint;
-
-            // Turn UTF-32 into UTF-16 for CT API
-            var unichars: [2]u16 = undefined;
-            const pair = macos.foundation.stringGetSurrogatePairForLongCharacter(
-                desc.codepoint,
-                &unichars,
-            );
-            const len: usize = if (pair) 2 else 1;
-
-            // Get our glyphs
-            var glyphs = [2]macos.graphics.Glyph{ 0, 0 };
-            score_acc.codepoint = font.getGlyphsForCharacters(unichars[0..len], glyphs[0..len]);
-        }
-
-        // Get our symbolic traits for the descriptor so we can compare
-        // boolean attributes like bold, monospace, etc.
-        const symbolic_traits: macos.text.FontSymbolicTraits = traits: {
-            const traits = ct_desc.copyAttribute(.traits) orelse break :traits .{};
-            defer traits.release();
-
-            const key = macos.text.FontTraitKey.symbolic.key();
-            const symbolic = traits.getValue(macos.foundation.Number, key) orelse
-                break :traits .{};
-
-            break :traits macos.text.FontSymbolicTraits.init(symbolic);
-        };
-
-        score_acc.monospace = symbolic_traits.monospace;
-
-        score_acc.style = style: {
-            const style = ct_desc.copyAttribute(.style_name) orelse
-                break :style .unmatched;
-            defer style.release();
-
-            // Get our style string
-            var buf: [128]u8 = undefined;
-            const style_str = style.cstring(&buf, .utf8) orelse break :style .unmatched;
-
-            // If we have a specific desired style, attempt to search for that.
-            if (desc.style) |desired_style| {
-                // Matching style string gets highest score
-                if (std.mem.eql(u8, desired_style, style_str)) break :style .match;
-            } else if (!desc.bold and !desc.italic) {
-                // If we do not, and we have no symbolic traits, then we try
-                // to find "regular" (or no style). If we have symbolic traits
-                // we do nothing but we can improve scoring by taking that into
-                // account, too.
-                if (std.mem.eql(u8, "Regular", style_str)) {
-                    break :style .match;
-                }
+            // We prefer fonts with more glyphs, all else being equal.
+            {
+                const Type = @TypeOf(self.glyph_count);
+                self.glyph_count = std.math.cast(
+                    Type,
+                    font.getGlyphCount(),
+                ) orelse std.math.maxInt(Type);
             }
 
-            // Otherwise the score is based on the length of the style string.
-            // Shorter styles are scored higher. This is a heuristic that
-            // if we don't have a desired style then shorter tends to be
-            // more often the "regular" style.
-            break :style @enumFromInt(100 -| style_str.len);
-        };
+            // If we're searching for a codepoint, then we
+            // prioritize fonts that have that codepoint.
+            if (desc.codepoint > 0) {
+                // Turn UTF-32 into UTF-16 for CT API
+                var unichars: [2]u16 = undefined;
+                const pair = macos.foundation.stringGetSurrogatePairForLongCharacter(
+                    desc.codepoint,
+                    &unichars,
+                );
+                const len: usize = if (pair) 2 else 1;
 
-        score_acc.traits = traits: {
-            var count: u8 = 0;
-            if (desc.bold == symbolic_traits.bold) count += 1;
-            if (desc.italic == symbolic_traits.italic) count += 1;
-            break :traits @enumFromInt(count);
-        };
+                // Get our glyphs
+                var glyphs = [2]macos.graphics.Glyph{ 0, 0 };
+                self.codepoint = font.getGlyphsForCharacters(
+                    unichars[0..len],
+                    glyphs[0..len],
+                );
+            }
 
-        return score_acc;
-    }
+            // Get our symbolic traits for the descriptor so we can
+            // compare boolean attributes like bold, monospace, etc.
+            const symbolic_traits: macos.text.FontSymbolicTraits = traits: {
+                const traits = ct_desc.copyAttribute(.traits) orelse break :traits .{};
+                defer traits.release();
+
+                const key = macos.text.FontTraitKey.symbolic.key();
+                const symbolic = traits.getValue(macos.foundation.Number, key) orelse
+                    break :traits .{};
+
+                break :traits macos.text.FontSymbolicTraits.init(symbolic);
+            };
+
+            self.monospace = symbolic_traits.monospace;
+
+            // We try to derived data from the font itself, which is generally
+            // more reliable than only using the symbolic traits for this.
+            const is_bold: bool, const is_italic: bool = derived: {
+                // We start with initial guesses based on the symbolic traits,
+                // but refine these with more information if we can get it.
+                var is_italic = symbolic_traits.italic;
+                var is_bold = symbolic_traits.bold;
+
+                // Read the 'head' table out of the font data if it's available.
+                if (head: {
+                    const tag = macos.text.FontTableTag.init("head");
+                    const data = font.copyTable(tag) orelse break :head null;
+                    defer data.release();
+                    const ptr = data.getPointer();
+                    const len = data.getLength();
+                    break :head opentype.Head.init(ptr[0..len]) catch |err| {
+                        log.warn("error parsing head table: {}", .{err});
+                        break :head null;
+                    };
+                }) |head_| {
+                    const head: opentype.Head = head_;
+                    is_bold = is_bold or (head.macStyle & 1 == 1);
+                    is_italic = is_italic or (head.macStyle & 2 == 2);
+                }
+
+                // Read the 'OS/2' table out of the font data if it's available.
+                if (os2: {
+                    const tag = macos.text.FontTableTag.init("OS/2");
+                    const data = font.copyTable(tag) orelse break :os2 null;
+                    defer data.release();
+                    const ptr = data.getPointer();
+                    const len = data.getLength();
+                    break :os2 opentype.OS2.init(ptr[0..len]) catch |err| {
+                        log.warn("error parsing OS/2 table: {}", .{err});
+                        break :os2 null;
+                    };
+                }) |os2| {
+                    is_bold = is_bold or os2.fsSelection.bold;
+                    is_italic = is_italic or os2.fsSelection.italic;
+                }
+
+                // Check if we have variation axes in our descriptor, if we
+                // do then we can derive weight italic-ness or both from them.
+                if (font.copyAttribute(.variation_axes)) |axes| variations: {
+                    defer axes.release();
+
+                    // Copy the variation values for this instance of the font.
+                    // if there are none then we just break out immediately.
+                    const values: *macos.foundation.Dictionary =
+                        font.copyAttribute(.variation) orelse break :variations;
+                    defer values.release();
+
+                    var buf: [1024]u8 = undefined;
+
+                    // If we see the 'ital' value then we ignore 'slnt'.
+                    var ital_seen = false;
+
+                    const len = axes.getCount();
+                    for (0..len) |i| {
+                        const dict = axes.getValueAtIndex(macos.foundation.Dictionary, i);
+                        const Key = macos.text.FontVariationAxisKey;
+                        const cf_id = dict.getValue(Key.identifier.Value(), Key.identifier.key()).?;
+                        const cf_name = dict.getValue(Key.name.Value(), Key.name.key()).?;
+                        const cf_def = dict.getValue(Key.default_value.Value(), Key.default_value.key()).?;
+
+                        const name_str = cf_name.cstring(&buf, .utf8) orelse "";
+
+                        // Default value
+                        var def: f64 = 0;
+                        _ = cf_def.getValue(.double, &def);
+                        // Value in this font
+                        var val: f64 = def;
+                        if (values.getValue(
+                            macos.foundation.Number,
+                            cf_id,
+                        )) |cf_val| _ = cf_val.getValue(.double, &val);
+
+                        if (std.mem.eql(u8, "wght", name_str)) {
+                            // Somewhat subjective threshold, we consider fonts
+                            // bold if they have a 'wght' set greater than 600.
+                            is_bold = val > 600;
+                            continue;
+                        }
+                        if (std.mem.eql(u8, "ital", name_str)) {
+                            is_italic = val > 0.5;
+                            ital_seen = true;
+                            continue;
+                        }
+                        if (!ital_seen and std.mem.eql(u8, "slnt", name_str)) {
+                            // Arbitrary threshold of anything more than a 5
+                            // degree clockwise slant is considered italic.
+                            is_italic = val <= -5.0;
+                            continue;
+                        }
+                    }
+                }
+
+                break :derived .{ is_bold, is_italic };
+            };
+
+            self.bold = desc.bold == is_bold;
+            self.italic = desc.italic == is_italic;
+
+            // Get the style string from the font.
+            var style_str_buf: [128]u8 = undefined;
+            const style_str: []const u8 = style_str: {
+                const style = ct_desc.copyAttribute(.style_name) orelse
+                    break :style_str "";
+                defer style.release();
+
+                break :style_str style.cstring(&style_str_buf, .utf8) orelse "";
+            };
+
+            // The first string in this slice will be used for the exact match,
+            // and for the fuzzy match, all matching substrings will increase
+            // the rank.
+            const desired_styles: []const [:0]const u8 = desired: {
+                if (desc.style) |s| break :desired &.{s};
+
+                // If we don't have an explicitly desired style name, we base
+                // it on the bold and italic properties, this isn't ideal since
+                // fonts may use style names other than these, but it helps in
+                // some edge cases.
+                if (desc.bold) {
+                    if (desc.italic) break :desired &.{ "bold italic", "bold", "italic", "oblique" };
+                    break :desired &.{ "bold", "upright" };
+                } else if (desc.italic) {
+                    break :desired &.{ "italic", "regular", "oblique" };
+                }
+                break :desired &.{ "regular", "upright" };
+            };
+
+            self.exact_style = std.ascii.eqlIgnoreCase(
+                style_str,
+                desired_styles[0],
+            );
+            // Our "fuzzy match" score is 0 if the desired style isn't present
+            // in the string, otherwise we give higher priority for styles that
+            // have fewer characters not in the desired_styles list.
+            const fuzzy_type = @TypeOf(self.fuzzy_style);
+            self.fuzzy_style = @intCast(style_str.len);
+            for (desired_styles) |s| {
+                if (std.ascii.indexOfIgnoreCase(style_str, s) != null) {
+                    self.fuzzy_style -|= @intCast(s.len);
+                }
+            }
+            self.fuzzy_style = std.math.maxInt(fuzzy_type) -| self.fuzzy_style;
+
+            return self;
+        }
+    };
 
     pub const DiscoverIterator = struct {
         alloc: Allocator,
@@ -836,4 +954,86 @@ test "coretext codepoint" {
 
     // Should have other codepoints too
     try testing.expect(face.hasCodepoint('B', null));
+}
+
+test "coretext sorting" {
+    if (options.backend != .coretext and options.backend != .coretext_freetype)
+        return error.SkipZigTest;
+
+    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!//
+    // FIXME: Disabled for now because SF Pro is not available in CI
+    //        The solution likely involves directly testing that the
+    //        `sortMatchingDescriptors` function sorts a bundled test
+    //        font correctly, instead of relying on the system fonts.
+    if (true) return error.SkipZigTest;
+    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!//
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var ct = CoreText.init();
+    defer ct.deinit();
+
+    // We try to get a Regular, Italic, Bold, & Bold Italic version of SF Pro,
+    // which should be installed on all Macs, and has many styles which makes
+    // it a good test, since there will be many results for each discovery.
+
+    // Regular
+    {
+        var it = try ct.discover(alloc, .{
+            .family = "SF Pro",
+            .size = 12,
+        });
+        defer it.deinit();
+        const res = (try it.next()).?;
+        var buf: [1024]u8 = undefined;
+        const name = try res.name(&buf);
+        try testing.expectEqualStrings("SF Pro Regular", name);
+    }
+
+    // Regular Italic
+    //
+    // NOTE: This makes sure that we don't accidentally prefer "Thin Italic",
+    //       which we previously did, because it has a shorter name.
+    {
+        var it = try ct.discover(alloc, .{
+            .family = "SF Pro",
+            .size = 12,
+            .italic = true,
+        });
+        defer it.deinit();
+        const res = (try it.next()).?;
+        var buf: [1024]u8 = undefined;
+        const name = try res.name(&buf);
+        try testing.expectEqualStrings("SF Pro Regular Italic", name);
+    }
+
+    // Bold
+    {
+        var it = try ct.discover(alloc, .{
+            .family = "SF Pro",
+            .size = 12,
+            .bold = true,
+        });
+        defer it.deinit();
+        const res = (try it.next()).?;
+        var buf: [1024]u8 = undefined;
+        const name = try res.name(&buf);
+        try testing.expectEqualStrings("SF Pro Bold", name);
+    }
+
+    // Bold Italic
+    {
+        var it = try ct.discover(alloc, .{
+            .family = "SF Pro",
+            .size = 12,
+            .bold = true,
+            .italic = true,
+        });
+        defer it.deinit();
+        const res = (try it.next()).?;
+        var buf: [1024]u8 = undefined;
+        const name = try res.name(&buf);
+        try testing.expectEqualStrings("SF Pro Bold Italic", name);
+    }
 }

@@ -49,6 +49,8 @@ grey = "gray"
 greyscale = "grayscale"
 DECID = "DECID"
 flate = "flate"
+typ = "typ"
+kend = "kend"
 
 [type.po]
 extend-glob = ["*.po"]

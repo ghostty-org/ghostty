@@ -36,11 +36,13 @@ pub fn init(
         const bin_name = try std.fmt.allocPrint(b.allocator, "bench-{s}", .{name});
         const c_exe = b.addExecutable(.{
             .name = bin_name,
-            .root_source_file = b.path("src/main.zig"),
-            .target = deps.config.target,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/main.zig"),
+                .target = deps.config.target,
 
-            // We always want our benchmarks to be in release mode.
-            .optimize = .ReleaseFast,
+                // We always want our benchmarks to be in release mode.
+                .optimize = .ReleaseFast,
+            }),
         });
         c_exe.linkLibC();
 

@@ -4,10 +4,10 @@ import Cocoa
 class TerminalRestorableState: Codable {
     static let selfKey = "state"
     static let versionKey = "version"
-    static let version: Int = 2
+    static let version: Int = 3
 
     let focusedSurface: String?
-    let surfaceTree: Ghostty.SplitNode?
+    let surfaceTree: SplitTree<Ghostty.SurfaceView>
 
     init(from controller: TerminalController) {
         self.focusedSurface = controller.focusedSurface?.uuid.uuidString
@@ -83,18 +83,29 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
         // can be found for events from libghostty. This uses the low-level
         // createWindow so that AppKit can place the window wherever it should
         // be.
-        let c = appDelegate.terminalManager.createWindow(withSurfaceTree: state.surfaceTree)
+        let c = TerminalController.init(
+            appDelegate.ghostty,
+            withSurfaceTree: state.surfaceTree)
         guard let window = c.window else {
             completionHandler(nil, TerminalRestoreError.windowDidNotLoad)
             return
         }
 
         // Setup our restored state on the controller
-        if let focusedStr = state.focusedSurface,
-           let focusedUUID = UUID(uuidString: focusedStr),
-           let view = c.surfaceTree?.findUUID(uuid: focusedUUID) {
-            c.focusedSurface = view
-            restoreFocus(to: view, inWindow: window)
+        // Find the focused surface in surfaceTree
+        if let focusedStr = state.focusedSurface {
+            var foundView: Ghostty.SurfaceView?
+            for view in c.surfaceTree {
+                if view.uuid.uuidString == focusedStr {
+                    foundView = view
+                    break
+                }
+            }
+            
+            if let view = foundView {
+                c.focusedSurface = view
+                restoreFocus(to: view, inWindow: window)
+            }
         }
 
         completionHandler(window, nil)

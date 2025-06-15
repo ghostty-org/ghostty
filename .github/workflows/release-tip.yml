@@ -107,15 +107,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@v1.2.0
+        uses: namespacelabs/nscloud-cache-action@v1.2.8
         with:
           path: |
             /nix
             /zig
-      - uses: cachix/install-nix-action@v30
+      - uses: cachix/install-nix-action@v31
         with:
           nix_path: nixpkgs=channel:nixos-unstable
-      - uses: cachix/cachix-action@v15
+      - uses: cachix/cachix-action@v16
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
@@ -132,7 +132,7 @@ jobs:
           nix develop -c minisign -S -m ghostty-source.tar.gz -s minisign.key < minisign.password
 
       - name: Update Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.3.2
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -154,7 +154,7 @@ jobs:
         )
       }}
 
-    runs-on: namespace-profile-ghostty-macos
+    runs-on: namespace-profile-ghostty-macos-sequoia
     timeout-minutes: 90
     steps:
       - name: Checkout code
@@ -164,16 +164,16 @@ jobs:
           fetch-depth: 0
 
       # Install Nix and use that to run our tests so our environment matches exactly.
-      - uses: cachix/install-nix-action@v30
+      - uses: cachix/install-nix-action@v31
         with:
           nix_path: nixpkgs=channel:nixos-unstable
-      - uses: cachix/cachix-action@v15
+      - uses: cachix/cachix-action@v16
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: XCode Select
-        run: sudo xcode-select -s /Applications/Xcode_16.0.app
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app
 
       # Setup Sparkle
       - name: Setup Sparkle
@@ -299,7 +299,7 @@ jobs:
 
       # Update Release
       - name: Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.3.2
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -369,7 +369,7 @@ jobs:
         )
       }}
 
-    runs-on: namespace-profile-ghostty-macos
+    runs-on: namespace-profile-ghostty-macos-sequoia
     timeout-minutes: 90
     steps:
       - name: Checkout code
@@ -379,16 +379,16 @@ jobs:
           fetch-depth: 0
 
       # Install Nix and use that to run our tests so our environment matches exactly.
-      - uses: cachix/install-nix-action@v30
+      - uses: cachix/install-nix-action@v31
         with:
           nix_path: nixpkgs=channel:nixos-unstable
-      - uses: cachix/cachix-action@v15
+      - uses: cachix/cachix-action@v16
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: XCode Select
-        run: sudo xcode-select -s /Applications/Xcode_16.0.app
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app
 
       # Setup Sparkle
       - name: Setup Sparkle
@@ -507,7 +507,7 @@ jobs:
 
       # Update Release
       - name: Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.3.2
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -544,7 +544,7 @@ jobs:
         )
       }}
 
-    runs-on: namespace-profile-ghostty-macos
+    runs-on: namespace-profile-ghostty-macos-sequoia
     timeout-minutes: 90
     steps:
       - name: Checkout code
@@ -554,16 +554,16 @@ jobs:
           fetch-depth: 0
 
       # Install Nix and use that to run our tests so our environment matches exactly.
-      - uses: cachix/install-nix-action@v30
+      - uses: cachix/install-nix-action@v31
         with:
           nix_path: nixpkgs=channel:nixos-unstable
-      - uses: cachix/cachix-action@v15
+      - uses: cachix/cachix-action@v16
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: XCode Select
-        run: sudo xcode-select -s /Applications/Xcode_16.0.app
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app
 
       # Setup Sparkle
       - name: Setup Sparkle
@@ -682,7 +682,7 @@ jobs:
 
       # Update Release
       - name: Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.3.2
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true

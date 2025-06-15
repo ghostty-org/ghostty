@@ -138,7 +138,7 @@ pub fn init(
         .container = container,
         .top_left = .{ .surface = tl },
         .bottom_right = .{ .surface = br },
-        .orientation = Orientation.fromDirection(direction),
+        .orientation = .fromDirection(direction),
     };
 
     // Replace the previous containers element with our split. This allows a

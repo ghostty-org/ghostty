@@ -3,10 +3,12 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const size = @import("size.zig");
 
-/// The possible reference locations for a point. When someone says "(42, 80)" in the context of a terminal, that could mean multiple
-/// things: it is in the current visible viewport? the current active
-/// area of the screen where the cursor is? the entire scrollback history?
-/// etc. This tag is used to differentiate those cases.
+/// The possible reference locations for a point. When someone says "(42, 80)"
+/// in the context of a terminal, that could mean multiple things: it is in the
+/// current visible viewport? the current active area of the screen where the
+/// cursor is? the entire scrollback history? etc.
+///
+/// This tag is used to differentiate those cases.
 pub const Tag = enum {
     /// Top-left is part of the active area where a running program can
     /// jump the cursor and make changes. The active area is the "editable"

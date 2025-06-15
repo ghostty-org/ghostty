@@ -6,7 +6,7 @@ import GhosttyKit
 
 extension Ghostty {
     /// The NSView implementation for a terminal surface.
-    class SurfaceView: OSView, ObservableObject {
+    class SurfaceView: OSView, ObservableObject, Codable {
         /// Unique ID per surface
         let uuid: UUID
 
@@ -90,6 +90,12 @@ extension Ghostty {
         var needsConfirmQuit: Bool {
             guard let surface = self.surface else { return false }
             return ghostty_surface_needs_confirm_quit(surface)
+        }
+
+        // Returns true if the process in this surface has exited.
+        var processExited: Bool {
+            guard let surface = self.surface else { return true }
+            return ghostty_surface_process_exited(surface)
         }
 
         // Returns the inspector instance for this surface, or nil if the
@@ -279,22 +285,14 @@ extension Ghostty {
             // Remove ourselves from secure input if we have to
             SecureInput.shared.removeScoped(ObjectIdentifier(self))
 
-            guard let surface = self.surface else { return }
-            ghostty_surface_free(surface)
-        }
-
-        /// Close the surface early. This will free the associated Ghostty surface and the view will
-        /// no longer render. The view can never be used again. This is a way for us to free the
-        /// Ghostty resources while references may still be held to this view. I've found that SwiftUI
-        /// tends to hold this view longer than it should so we free the expensive stuff explicitly.
-        func close() {
             // Remove any notifications associated with this surface
             let identifiers = Array(self.notificationIdentifiers)
             UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: identifiers)
 
-            guard let surface = self.surface else { return }
-            ghostty_surface_free(surface)
-            self.surface = nil
+            // Free our core surface resources
+            if let surface = self.surface {
+                ghostty_surface_free(surface)
+            }
         }
 
         func focusDidChange(_ focused: Bool) {
@@ -314,6 +312,14 @@ extension Ghostty {
 
                 // We unset our bell state if we gained focus
                 bell = false
+
+                // Remove any notifications for this surface once we gain focus.
+                if !notificationIdentifiers.isEmpty {
+                    UNUserNotificationCenter.current()
+                        .removeDeliveredNotifications(
+                            withIdentifiers: Array(notificationIdentifiers))
+                    self.notificationIdentifiers = []
+                }
             }
         }
 
@@ -1043,12 +1049,16 @@ extension Ghostty {
             }
 
             // If this event as-is would result in a key binding then we send it.
-            if let surface,
-               ghostty_surface_key_is_binding(
-                  surface,
-                  event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)) {
-                self.keyDown(with: event)
-                return true
+            if let surface {
+                var ghosttyEvent = event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)
+                let match = (event.characters ?? "").withCString { ptr in
+                    ghosttyEvent.text = ptr
+                    return ghostty_surface_key_is_binding(surface, ghosttyEvent)
+                }
+                if match {
+                    self.keyDown(with: event)
+                    return true
+                }
             }
 
             let equivalent: String
@@ -1061,6 +1071,16 @@ extension Ghostty {
                 }
 
                 equivalent = "\r"
+
+            case "/":
+                // Treat C-/ as C-_. We do this because C-/ makes macOS make a beep
+                // sound and we don't like the beep sound.
+                if (!event.modifierFlags.contains(.control) ||
+                    !event.modifierFlags.isDisjoint(with: [.shift, .command, .option])) {
+                    return false
+                }
+
+                equivalent = "_"
 
             default:
                 // It looks like some part of AppKit sometimes generates synthetic NSEvents
@@ -1261,6 +1281,10 @@ extension Ghostty {
 
             let menu = NSMenu()
 
+            // We just use a floating var so we can easily setup metadata on each item
+            // in a row without storing it all.
+            var item: NSMenuItem
+
             // If we have a selection, add copy
             if self.selectedRange().length > 0 {
                 menu.addItem(withTitle: "Copy", action: #selector(copy(_:)), keyEquivalent: "")
@@ -1268,16 +1292,23 @@ extension Ghostty {
             menu.addItem(withTitle: "Paste", action: #selector(paste(_:)), keyEquivalent: "")
 
             menu.addItem(.separator())
-            menu.addItem(withTitle: "Split Right", action: #selector(splitRight(_:)), keyEquivalent: "")
-            menu.addItem(withTitle: "Split Left", action: #selector(splitLeft(_:)), keyEquivalent: "")
-            menu.addItem(withTitle: "Split Down", action: #selector(splitDown(_:)), keyEquivalent: "")
-            menu.addItem(withTitle: "Split Up", action: #selector(splitUp(_:)), keyEquivalent: "")
+            item = menu.addItem(withTitle: "Split Right", action: #selector(splitRight(_:)), keyEquivalent: "")
+            item.setImageIfDesired(systemSymbolName: "rectangle.righthalf.inset.filled")
+            item = menu.addItem(withTitle: "Split Left", action: #selector(splitLeft(_:)), keyEquivalent: "")
+            item.setImageIfDesired(systemSymbolName: "rectangle.leadinghalf.inset.filled")
+            item = menu.addItem(withTitle: "Split Down", action: #selector(splitDown(_:)), keyEquivalent: "")
+            item.setImageIfDesired(systemSymbolName: "rectangle.bottomhalf.inset.filled")
+            item = menu.addItem(withTitle: "Split Up", action: #selector(splitUp(_:)), keyEquivalent: "")
+            item.setImageIfDesired(systemSymbolName: "rectangle.tophalf.inset.filled")
 
             menu.addItem(.separator())
-            menu.addItem(withTitle: "Reset Terminal", action: #selector(resetTerminal(_:)), keyEquivalent: "")
-            menu.addItem(withTitle: "Toggle Terminal Inspector", action: #selector(toggleTerminalInspector(_:)), keyEquivalent: "")
+            item = menu.addItem(withTitle: "Reset Terminal", action: #selector(resetTerminal(_:)), keyEquivalent: "")
+            item.setImageIfDesired(systemSymbolName: "arrow.trianglehead.2.clockwise")
+            item = menu.addItem(withTitle: "Toggle Terminal Inspector", action: #selector(toggleTerminalInspector(_:)), keyEquivalent: "")
+            item.setImageIfDesired(systemSymbolName: "scope")
             menu.addItem(.separator())
-            menu.addItem(withTitle: "Change Title...", action: #selector(changeTitle(_:)), keyEquivalent: "")
+            item = menu.addItem(withTitle: "Change Title...", action: #selector(changeTitle(_:)), keyEquivalent: "")
+            item.setImageIfDesired(systemSymbolName: "pencil.line")
 
             return menu
         }
@@ -1382,13 +1413,29 @@ extension Ghostty {
                 trigger: nil
             )
 
-            UNUserNotificationCenter.current().add(request) { error in
+            // Note the callback may be executed on a background thread as documented
+            // so we need @MainActor since we're reading/writing view state.
+            UNUserNotificationCenter.current().add(request) { @MainActor error in
                 if let error = error {
                     AppDelegate.logger.error("Error scheduling user notification: \(error)")
                     return
                 }
 
+                // We need to keep track of this notification so we can remove it
+                // under certain circumstances
                 self.notificationIdentifiers.insert(uuid)
+
+                // If we're focused then we schedule to remove the notification
+                // after a few seconds. If we gain focus we automatically remove it
+                // in focusDidChange.
+                if (self.focused) {
+                    Task { @MainActor [weak self] in
+                        try await Task.sleep(for: .seconds(3))
+                        self?.notificationIdentifiers.remove(uuid)
+                        UNUserNotificationCenter.current()
+                            .removeDeliveredNotifications(withIdentifiers: [uuid])
+                    }
+                }
             }
         }
 
@@ -1424,6 +1471,35 @@ extension Ghostty {
                 self.windowTitleFontFamily = config.windowTitleFontFamily
                 self.windowAppearance = .init(ghosttyConfig: config)
             }
+        }
+
+        // MARK: - Codable
+
+        enum CodingKeys: String, CodingKey {
+            case pwd
+            case uuid
+        }
+
+        required convenience init(from decoder: Decoder) throws {
+            // Decoding uses the global Ghostty app
+            guard let del = NSApplication.shared.delegate,
+                  let appDel = del as? AppDelegate,
+                  let app = appDel.ghostty.app else {
+                throw TerminalRestoreError.delegateInvalid
+            }
+
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let uuid = UUID(uuidString: try container.decode(String.self, forKey: .uuid))
+            var config = Ghostty.SurfaceConfiguration()
+            config.workingDirectory = try container.decode(String?.self, forKey: .pwd)
+
+            self.init(app, baseConfig: config, uuid: uuid)
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(pwd, forKey: .pwd)
+            try container.encode(uuid.uuidString, forKey: .uuid)
         }
     }
 }

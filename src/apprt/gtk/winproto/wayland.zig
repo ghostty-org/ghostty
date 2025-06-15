@@ -6,8 +6,8 @@ const build_options = @import("build_options");
 const gdk = @import("gdk");
 const gdk_wayland = @import("gdk_wayland");
 const gobject = @import("gobject");
-const gtk4_layer_shell = @import("gtk4-layer-shell");
 const gtk = @import("gtk");
+const layer_shell = @import("gtk4-layer-shell");
 const wayland = @import("wayland");
 
 const Config = @import("../../../config.zig").Config;
@@ -16,6 +16,7 @@ const ApprtWindow = @import("../Window.zig");
 
 const wl = wayland.client.wl;
 const org = wayland.client.org;
+const xdg = wayland.client.xdg;
 
 const log = std.log.scoped(.winproto_wayland);
 
@@ -34,6 +35,8 @@ pub const App = struct {
         kde_slide_manager: ?*org.KdeKwinSlideManager = null,
 
         default_deco_mode: ?org.KdeKwinServerDecorationManager.Mode = null,
+
+        xdg_activation: ?*xdg.ActivationV1 = null,
     };
 
     pub fn init(
@@ -45,16 +48,11 @@ pub const App = struct {
         _ = config;
         _ = app_id;
 
-        // Check if we're actually on Wayland
-        if (gobject.typeCheckInstanceIsA(
-            gdk_display.as(gobject.TypeInstance),
-            gdk_wayland.WaylandDisplay.getGObjectType(),
-        ) == 0) return null;
-
         const gdk_wayland_display = gobject.ext.cast(
             gdk_wayland.WaylandDisplay,
             gdk_display,
-        ) orelse return error.NoWaylandDisplay;
+        ) orelse return null;
+
         const display: *wl.Display = @ptrCast(@alignCast(
             gdk_wayland_display.getWlDisplay() orelse return error.NoWaylandDisplay,
         ));
@@ -73,9 +71,9 @@ pub const App = struct {
         registry.setListener(*Context, registryListener, context);
         if (display.roundtrip() != .SUCCESS) return error.RoundtripFailed;
 
-        if (context.kde_decoration_manager != null) {
-            // FIXME: Roundtrip again because we have to wait for the decoration
-            // manager to respond with the preferred default mode. Ew.
+        // Do another round-trip to get the default decoration mode
+        if (context.kde_decoration_manager) |deco_manager| {
+            deco_manager.setListener(*Context, decoManagerListener, context);
             if (display.roundtrip() != .SUCCESS) return error.RoundtripFailed;
         }
 
@@ -98,7 +96,7 @@ pub const App = struct {
     }
 
     pub fn supportsQuickTerminal(_: App) bool {
-        if (!gtk4_layer_shell.isSupported()) {
+        if (!layer_shell.isSupported()) {
             log.warn("your compositor does not support the wlr-layer-shell protocol; disabling quick terminal", .{});
             return false;
         }
@@ -108,9 +106,9 @@ pub const App = struct {
     pub fn initQuickTerminal(_: *App, apprt_window: *ApprtWindow) !void {
         const window = apprt_window.window.as(gtk.Window);
 
-        gtk4_layer_shell.initForWindow(window);
-        gtk4_layer_shell.setLayer(window, .top);
-        gtk4_layer_shell.setKeyboardMode(window, .on_demand);
+        layer_shell.initForWindow(window);
+        layer_shell.setLayer(window, .top);
+        layer_shell.setNamespace(window, "ghostty-quick-terminal");
     }
 
     fn registryListener(
@@ -118,69 +116,52 @@ pub const App = struct {
         event: wl.Registry.Event,
         context: *Context,
     ) void {
-        switch (event) {
-            // https://wayland.app/protocols/wayland#wl_registry:event:global
-            .global => |global| {
-                log.debug("wl_registry.global: interface={s}", .{global.interface});
+        inline for (@typeInfo(Context).@"struct".fields) |field| {
+            // Globals should be optional pointers
+            const T = switch (@typeInfo(field.type)) {
+                .optional => |o| switch (@typeInfo(o.child)) {
+                    .pointer => |v| v.child,
+                    else => continue,
+                },
+                else => continue,
+            };
 
-                if (registryBind(
-                    org.KdeKwinBlurManager,
-                    registry,
-                    global,
-                )) |blur_manager| {
-                    context.kde_blur_manager = blur_manager;
-                    return;
-                }
+            // Only process Wayland interfaces
+            if (!@hasDecl(T, "interface")) continue;
 
-                if (registryBind(
-                    org.KdeKwinServerDecorationManager,
-                    registry,
-                    global,
-                )) |deco_manager| {
-                    context.kde_decoration_manager = deco_manager;
-                    deco_manager.setListener(*Context, decoManagerListener, context);
-                    return;
-                }
+            switch (event) {
+                .global => |v| global: {
+                    if (std.mem.orderZ(
+                        u8,
+                        v.interface,
+                        T.interface.name,
+                    ) != .eq) break :global;
 
-                if (registryBind(
-                    org.KdeKwinSlideManager,
-                    registry,
-                    global,
-                )) |slide_manager| {
-                    context.kde_slide_manager = slide_manager;
-                    return;
-                }
-            },
+                    @field(context, field.name) = registry.bind(
+                        v.name,
+                        T,
+                        T.generated_version,
+                    ) catch |err| {
+                        log.warn(
+                            "error binding interface {s} error={}",
+                            .{ v.interface, err },
+                        );
+                        return;
+                    };
+                },
 
-            // We don't handle removal events
-            .global_remove => {},
+                // This should be a rare occurrence, but in case a global
+                // is suddenly no longer available, we destroy and unset it
+                // as the protocol mandates.
+                .global_remove => |v| remove: {
+                    const global = @field(context, field.name) orelse break :remove;
+                    if (global.getId() == v.name) {
+                        global.destroy();
+                        @field(context, field.name) = null;
+                    }
+                },
+            }
         }
-    }
-
-    /// Bind a Wayland interface to a global object. Returns non-null
-    /// if the binding was successful, otherwise null.
-    ///
-    /// The type T is the Wayland interface type that we're requesting.
-    /// This function will verify that the global object is the correct
-    /// interface and version before binding.
-    fn registryBind(
-        comptime T: type,
-        registry: *wl.Registry,
-        global: anytype,
-    ) ?*T {
-        if (std.mem.orderZ(
-            u8,
-            global.interface,
-            T.interface.name,
-        ) != .eq) return null;
-
-        return registry.bind(global.name, T, T.generated_version) catch |err| {
-            log.warn("error binding interface {s} error={}", .{
-                global.interface,
-                err,
-            });
-            return null;
-        };
     }
 
     fn decoManagerListener(
@@ -207,15 +188,19 @@ pub const Window = struct {
     app_context: *App.Context,
 
     /// A token that, when present, indicates that the window is blurred.
-    blur_token: ?*org.KdeKwinBlur,
+    blur_token: ?*org.KdeKwinBlur = null,
 
     /// Object that controls the decoration mode (client/server/auto)
     /// of the window.
-    decoration: ?*org.KdeKwinServerDecoration,
+    decoration: ?*org.KdeKwinServerDecoration = null,
 
     /// Object that controls the slide-in/slide-out animations of the
     /// quick terminal. Always null for windows other than the quick terminal.
-    slide: ?*org.KdeKwinSlide,
+    slide: ?*org.KdeKwinSlide = null,
+
+    /// Object that, when present, denotes that the window is currently
+    /// requesting attention from the user.
+    activation_token: ?*xdg.ActivationTokenV1 = null,
 
     pub fn init(
         alloc: Allocator,
@@ -268,9 +253,7 @@ pub const Window = struct {
             .apprt_window = apprt_window,
             .surface = wl_surface,
             .app_context = app.context,
-            .blur_token = null,
             .decoration = deco,
-            .slide = null,
         };
     }
 
@@ -315,6 +298,21 @@ pub const Window = struct {
         _ = env;
     }
 
+    pub fn setUrgent(self: *Window, urgent: bool) !void {
+        const activation = self.app_context.xdg_activation orelse return;
+
+        // If there already is a token, destroy and unset it
+        if (self.activation_token) |token| token.destroy();
+
+        self.activation_token = if (urgent) token: {
+            const token = try activation.getActivationToken();
+            token.setSurface(self.surface);
+            token.setListener(*Window, onActivationTokenEvent, self);
+            token.commit();
+            break :token token;
+        } else null;
+    }
+
     /// Update the blur state of the window.
     fn syncBlur(self: *Window) !void {
         const manager = self.app_context.kde_blur_manager orelse return;
@@ -356,9 +354,24 @@ pub const Window = struct {
 
     fn syncQuickTerminal(self: *Window) !void {
         const window = self.apprt_window.window.as(gtk.Window);
-        const position = self.apprt_window.config.quick_terminal_position;
+        const config = &self.apprt_window.config;
 
-        const anchored_edge: ?gtk4_layer_shell.ShellEdge = switch (position) {
+        layer_shell.setKeyboardMode(
+            window,
+            switch (config.quick_terminal_keyboard_interactivity) {
+                .none => .none,
+                .@"on-demand" => on_demand: {
+                    if (layer_shell.getProtocolVersion() < 4) {
+                        log.warn("your compositor does not support on-demand keyboard access; falling back to exclusive access", .{});
+                        break :on_demand .exclusive;
+                    }
+                    break :on_demand .on_demand;
+                },
+                .exclusive => .exclusive,
+            },
+        );
+
+        const anchored_edge: ?layer_shell.ShellEdge = switch (config.quick_terminal_position) {
             .left => .left,
             .right => .right,
             .top => .top,
@@ -366,43 +379,41 @@ pub const Window = struct {
             .center => null,
         };
 
-        for (std.meta.tags(gtk4_layer_shell.ShellEdge)) |edge| {
+        for (std.meta.tags(layer_shell.ShellEdge)) |edge| {
             if (anchored_edge) |anchored| {
                 if (edge == anchored) {
-                    gtk4_layer_shell.setMargin(window, edge, 0);
-                    gtk4_layer_shell.setAnchor(window, edge, true);
+                    layer_shell.setMargin(window, edge, 0);
+                    layer_shell.setAnchor(window, edge, true);
                     continue;
                 }
             }
 
             // Arbitrary margin - could be made customizable?
-            gtk4_layer_shell.setMargin(window, edge, 20);
-            gtk4_layer_shell.setAnchor(window, edge, false);
+            layer_shell.setMargin(window, edge, 20);
+            layer_shell.setAnchor(window, edge, false);
         }
 
-        if (self.apprt_window.isQuickTerminal()) {
-            if (self.slide) |slide| slide.release();
+        if (self.slide) |slide| slide.release();
 
-            self.slide = if (anchored_edge) |anchored| slide: {
-                const mgr = self.app_context.kde_slide_manager orelse break :slide null;
+        self.slide = if (anchored_edge) |anchored| slide: {
+            const mgr = self.app_context.kde_slide_manager orelse break :slide null;
 
-                const slide = mgr.create(self.surface) catch |err| {
-                    log.warn("could not create slide object={}", .{err});
-                    break :slide null;
-                };
+            const slide = mgr.create(self.surface) catch |err| {
+                log.warn("could not create slide object={}", .{err});
+                break :slide null;
+            };
 
-                const slide_location: org.KdeKwinSlide.Location = switch (anchored) {
-                    .top => .top,
-                    .bottom => .bottom,
-                    .left => .left,
-                    .right => .right,
-                };
+            const slide_location: org.KdeKwinSlide.Location = switch (anchored) {
+                .top => .top,
+                .bottom => .bottom,
+                .left => .left,
+                .right => .right,
+            };
 
-                slide.setLocation(@intCast(@intFromEnum(slide_location)));
-                slide.commit();
-                break :slide slide;
-            } else null;
-        }
+            slide.setLocation(@intCast(@intFromEnum(slide_location)));
+            slide.commit();
+            break :slide slide;
+        } else null;
     }
 
     /// Update the size of the quick terminal based on monitor dimensions.
@@ -412,17 +423,41 @@ pub const Window = struct {
         apprt_window: *ApprtWindow,
     ) callconv(.c) void {
         const window = apprt_window.window.as(gtk.Window);
-        const size = apprt_window.config.quick_terminal_size;
-        const position = apprt_window.config.quick_terminal_position;
+        const config = &apprt_window.config;
 
         var monitor_size: gdk.Rectangle = undefined;
         monitor.getGeometry(&monitor_size);
 
-        const dims = size.calculate(position, .{
-            .width = @intCast(monitor_size.f_width),
-            .height = @intCast(monitor_size.f_height),
-        });
+        const dims = config.quick_terminal_size.calculate(
+            config.quick_terminal_position,
+            .{
+                .width = @intCast(monitor_size.f_width),
+                .height = @intCast(monitor_size.f_height),
+            },
+        );
 
         window.setDefaultSize(@intCast(dims.width), @intCast(dims.height));
+    }
+
+    fn onActivationTokenEvent(
+        token: *xdg.ActivationTokenV1,
+        event: xdg.ActivationTokenV1.Event,
+        self: *Window,
+    ) void {
+        const activation = self.app_context.xdg_activation orelse return;
+        const current_token = self.activation_token orelse return;
+
+        if (token.getId() != current_token.getId()) {
+            log.warn("received event for unknown activation token; ignoring", .{});
+            return;
+        }
+
+        switch (event) {
+            .done => |done| {
+                activation.activate(done.token, self.surface);
+                token.destroy();
+                self.activation_token = null;
+            },
+        }
     }
 };

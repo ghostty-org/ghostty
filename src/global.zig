@@ -139,7 +139,7 @@ pub const GlobalState = struct {
         std.log.info("libxev default backend={s}", .{@tagName(xev.backend)});
 
         // As early as possible, initialize our resource limits.
-        self.rlimits = ResourceLimits.init();
+        self.rlimits = .init();
 
         // Initialize our crash reporting.
         crash.init(self.alloc) catch |err| {

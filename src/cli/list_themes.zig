@@ -77,7 +77,7 @@ const ThemeListElement = struct {
 /// Two different directories will be searched for themes.
 ///
 /// The first directory is the `themes` subdirectory of your Ghostty
-/// configuration directory. This is `$XDG_CONFIG_DIR/ghostty/themes` or
+/// configuration directory. This is `$XDG_CONFIG_HOME/ghostty/themes` or
 /// `~/.config/ghostty/themes`.
 ///
 /// The second directory is the `themes` subdirectory of the Ghostty resources

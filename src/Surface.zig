@@ -160,7 +160,7 @@ pub const InputEffect = enum {
 /// Mouse state for the surface.
 const Mouse = struct {
     /// The last tracked mouse button state by button.
-    click_state: [input.MouseButton.max]input.MouseButtonState = .{.release} ** input.MouseButton.max,
+    click_state: [input.MouseButton.max]input.MouseButtonState = @splat(.release),
 
     /// The last mods state when the last mouse button (whatever it was) was
     /// pressed or release.
@@ -253,6 +253,7 @@ const DerivedConfig = struct {
     mouse_shift_capture: configpkg.MouseShiftCapture,
     macos_non_native_fullscreen: configpkg.NonNativeFullscreen,
     macos_option_as_alt: ?configpkg.OptionAsAlt,
+    selection_clear_on_typing: bool,
     vt_kam_allowed: bool,
     window_padding_top: u32,
     window_padding_bottom: u32,
@@ -316,6 +317,7 @@ const DerivedConfig = struct {
             .mouse_shift_capture = config.@"mouse-shift-capture",
             .macos_non_native_fullscreen = config.@"macos-non-native-fullscreen",
             .macos_option_as_alt = config.@"macos-option-as-alt",
+            .selection_clear_on_typing = config.@"selection-clear-on-typing",
             .vt_kam_allowed = config.@"vt-kam-allowed",
             .window_padding_top = config.@"window-padding-y".top_left,
             .window_padding_bottom = config.@"window-padding-y".bottom_right,
@@ -461,7 +463,7 @@ pub fn init(
     // Create our terminal grid with the initial size
     const app_mailbox: App.Mailbox = .{ .rt_app = rt_app, .mailbox = &app.mailbox };
     var renderer_impl = try Renderer.init(alloc, .{
-        .config = try Renderer.DerivedConfig.init(alloc, config),
+        .config = try .init(alloc, config),
         .font_grid = font_grid,
         .size = size,
         .surface_mailbox = .{ .surface = self, .app = app_mailbox },
@@ -1687,7 +1689,9 @@ pub fn preeditCallback(self: *Surface, preedit_: ?[]const u8) !void {
     if (self.renderer_state.preedit != null or
         preedit_ != null)
     {
-        self.setSelection(null) catch {};
+        if (self.config.selection_clear_on_typing) {
+            self.setSelection(null) catch {};
+        }
     }
 
     // We always clear our prior preedit
@@ -1760,6 +1764,8 @@ pub fn keyEventIsBinding(
     // Our keybinding set is either our current nested set (for
     // sequences) or the root set.
     const set = self.keyboard.bindings orelse &self.config.keybind.set;
+
+    // log.warn("text keyEventIsBinding event={} match={}", .{ event, set.getEvent(event) != null });
 
     // If we have a keybinding for this event then we return true.
     return set.getEvent(event) != null;
@@ -1870,7 +1876,7 @@ pub fn keyCallback(
     // Process the cursor state logic. This will update the cursor shape if
     // needed, depending on the key state.
     if ((SurfaceMouse{
-        .physical_key = event.physical_key,
+        .physical_key = event.key,
         .mouse_event = self.io.terminal.flags.mouse_event,
         .mouse_shape = self.io.terminal.mouse_shape,
         .mods = self.mouse.mods,
@@ -1895,12 +1901,12 @@ pub fn keyCallback(
             // if we didn't have a previous event and this is a release
             // event then we just want to set it to null.
             const prev = self.pressed_key orelse break :event null;
-            if (prev.key == copy.key) copy.key = .invalid;
+            if (prev.key == copy.key) copy.key = .unidentified;
         }
 
         // If our key is invalid and we have no mods, then we're done!
         // This helps catch the state that we naturally released all keys.
-        if (copy.key == .invalid and copy.mods.empty()) break :event null;
+        if (copy.key == .unidentified and copy.mods.empty()) break :event null;
 
         break :event copy;
     };
@@ -1928,7 +1934,13 @@ pub fn keyCallback(
     if (!event.key.modifier()) {
         self.renderer_state.mutex.lock();
         defer self.renderer_state.mutex.unlock();
-        try self.setSelection(null);
+
+        if (self.config.selection_clear_on_typing or
+            event.key == .escape)
+        {
+            try self.setSelection(null);
+        }
+
         try self.io.terminal.scrollViewport(.{ .bottom = {} });
         try self.queueRender();
     }
@@ -2057,12 +2069,18 @@ fn maybeHandleBinding(
         break :performed try self.performBindingAction(action);
     };
 
-    // If we performed an action and it was a closing action,
-    // our "self" pointer is not safe to use anymore so we need to
-    // just exit immediately.
-    if (performed and closingAction(action)) {
-        log.debug("key binding is a closing binding, halting key event processing", .{});
-        return .closed;
+    if (performed) {
+        // If we performed an action and it was a closing action,
+        // our "self" pointer is not safe to use anymore so we need to
+        // just exit immediately.
+        if (closingAction(action)) {
+            log.debug("key binding is a closing binding, halting key event processing", .{});
+            return .closed;
+        }
+
+        // If our action was "ignore" then we return the special input
+        // effect of "ignored".
+        if (action == .ignore) return .ignored;
     }
 
     // If we have the performable flag and the action was not performed,
@@ -2295,7 +2313,7 @@ pub fn focusCallback(self: *Surface, focused: bool) !void {
         pressed_key.action = .release;
 
         // Release the full key first
-        if (pressed_key.key != .invalid) {
+        if (pressed_key.key != .unidentified) {
             assert(self.keyCallback(pressed_key) catch |err| err: {
                 log.warn("error releasing key on focus loss err={}", .{err});
                 break :err .ignored;
@@ -2315,8 +2333,15 @@ pub fn focusCallback(self: *Surface, focused: bool) !void {
             if (@field(pressed_key.mods, key)) {
                 @field(pressed_key.mods, key) = false;
                 inline for (&.{ "right", "left" }) |side| {
-                    const keyname = if (comptime std.mem.eql(u8, key, "ctrl")) "control" else key;
-                    pressed_key.key = @field(input.Key, side ++ "_" ++ keyname);
+                    const keyname = comptime keyname: {
+                        break :keyname if (std.mem.eql(u8, key, "ctrl"))
+                            "control"
+                        else if (std.mem.eql(u8, key, "super"))
+                            "meta"
+                        else
+                            key;
+                    };
+                    pressed_key.key = @field(input.Key, keyname ++ "_" ++ side);
                     if (pressed_key.key != original_key) {
                         assert(self.keyCallback(pressed_key) catch |err| err: {
                             log.warn("error releasing key on focus loss err={}", .{err});
@@ -3657,165 +3682,162 @@ fn dragLeftClickTriple(
 fn dragLeftClickSingle(
     self: *Surface,
     drag_pin: terminal.Pin,
-    xpos: f64,
+    drag_x: f64,
 ) !void {
-    // NOTE(mitchellh): This logic super sucks. There has to be an easier way
-    // to calculate this, but this is good for a v1. Selection isn't THAT
-    // common so its not like this performance heavy code is running that
-    // often.
-    // TODO: unit test this, this logic sucks
-
-    // If we were selecting, and we switched directions, then we restart
-    // calculations because it forces us to reconsider if the first cell is
-    // selected.
-    self.checkResetSelSwitch(drag_pin);
-
-    // Our logic for determining if the starting cell is selected:
-    //
-    //   - The "xboundary" is 60% the width of a cell from the left. We choose
-    //     60% somewhat arbitrarily based on feeling.
-    //   - If we started our click left of xboundary, backwards selections
-    //     can NEVER select the current char.
-    //   - If we started our click right of xboundary, backwards selections
-    //     ALWAYS selected the current char, but we must move the cursor
-    //     left of the xboundary.
-    //   - Inverted logic for forwards selections.
-    //
-
-    // Our clicking point
-    const click_pin = self.mouse.left_click_pin.?.*;
-
-    // the boundary point at which we consider selection or non-selection
-    const cell_width_f64: f64 = @floatFromInt(self.size.cell.width);
-    const cell_xboundary = cell_width_f64 * 0.6;
-
-    // first xpos of the clicked cell adjusted for padding
-    const left_padding_f64: f64 = @as(f64, @floatFromInt(self.size.padding.left));
-    const cell_xstart = @as(f64, @floatFromInt(click_pin.x)) * cell_width_f64;
-    const cell_start_xpos = self.mouse.left_click_xpos - cell_xstart - left_padding_f64;
-
-    // If this is the same cell, then we only start the selection if weve
-    // moved past the boundary point the opposite direction from where we
-    // started.
-    if (click_pin.eql(drag_pin)) {
-        // Ensuring to adjusting the cursor position for padding
-        const cell_xpos = xpos - cell_xstart - left_padding_f64;
-        const selected: bool = if (cell_start_xpos < cell_xboundary)
-            cell_xpos >= cell_xboundary
-        else
-            cell_xpos < cell_xboundary;
-
-        try self.setSelection(if (selected) terminal.Selection.init(
-            drag_pin,
-            drag_pin,
-            SurfaceMouse.isRectangleSelectState(self.mouse.mods),
-        ) else null);
-
-        return;
-    }
-
-    // If this is a different cell and we haven't started selection,
-    // we determine the starting cell first.
-    if (self.io.terminal.screen.selection == null) {
-        //   - If we're moving to a point before the start, then we select
-        //     the starting cell if we started after the boundary, else
-        //     we start selection of the prior cell.
-        //   - Inverse logic for a point after the start.
-        const start: terminal.Pin = if (dragLeftClickBefore(
-            drag_pin,
-            click_pin,
-            self.mouse.mods,
-        )) start: {
-            if (cell_start_xpos >= cell_xboundary) break :start click_pin;
-            if (click_pin.x > 0) break :start click_pin.left(1);
-            var start = click_pin.up(1) orelse click_pin;
-            start.x = self.io.terminal.screen.pages.cols - 1;
-            break :start start;
-        } else start: {
-            if (cell_start_xpos < cell_xboundary) break :start click_pin;
-            if (click_pin.x < self.io.terminal.screen.pages.cols - 1)
-                break :start click_pin.right(1);
-            var start = click_pin.down(1) orelse click_pin;
-            start.x = 0;
-            break :start start;
-        };
-
-        try self.setSelection(terminal.Selection.init(
-            start,
-            drag_pin,
-            SurfaceMouse.isRectangleSelectState(self.mouse.mods),
-        ));
-        return;
-    }
-
-    // TODO: detect if selection point is passed the point where we've
-    // actually written data before and disallow it.
-
-    // We moved! Set the selection end point. The start point should be
-    // set earlier.
-    assert(self.io.terminal.screen.selection != null);
-    const sel = self.io.terminal.screen.selection.?;
-    try self.setSelection(terminal.Selection.init(
-        sel.start(),
+    // This logic is in a separate function so that it can be unit tested.
+    try self.setSelection(mouseSelection(
+        self.mouse.left_click_pin.?.*,
         drag_pin,
-        sel.rectangle,
+        @intFromFloat(@max(0.0, self.mouse.left_click_xpos)),
+        @intFromFloat(@max(0.0, drag_x)),
+        self.mouse.mods,
+        self.size,
     ));
 }
 
-// Resets the selection if we switched directions, depending on the select
-// mode. See dragLeftClickSingle for more details.
-fn checkResetSelSwitch(
-    self: *Surface,
+/// Calculates the appropriate selection given pins and pixel x positions for
+/// the click point and the drag point, as well as mouse mods and screen size.
+fn mouseSelection(
+    click_pin: terminal.Pin,
     drag_pin: terminal.Pin,
-) void {
-    const screen = &self.io.terminal.screen;
-    const sel = screen.selection orelse return;
-    const sel_start = sel.start();
-    const sel_end = sel.end();
+    click_x: u32,
+    drag_x: u32,
+    mods: input.Mods,
+    size: rendererpkg.Size,
+) ?terminal.Selection {
+    // Explanation:
+    //
+    // # Normal selections
+    //
+    // ## Left-to-right selections
+    // - The clicked cell is included if it was clicked to the left of its
+    //   threshold point and the drag location is right of the threshold point.
+    // - The cell under the cursor (the "drag cell") is included if the drag
+    //   location is right of its threshold point.
+    //
+    // ## Right-to-left selections
+    // - The clicked cell is included if it was clicked to the right of its
+    //   threshold point and the drag location is left of the threshold point.
+    // - The cell under the cursor (the "drag cell") is included if the drag
+    //   location is left of its threshold point.
+    //
+    // # Rectangular selections
+    //
+    // Rectangular selections are handled similarly, except that
+    // entire columns are considered rather than individual cells.
 
-    var reset: bool = false;
-    if (sel.rectangle) {
-        // When we're in rectangle mode, we reset the selection relative to
-        // the click point depending on the selection mode we're in, with
-        // the exception of single-column selections, which we always reset
-        // on if we drift.
-        if (sel_start.x == sel_end.x) {
-            reset = drag_pin.x != sel_start.x;
-        } else {
-            reset = switch (sel.order(screen)) {
-                .forward => drag_pin.x < sel_start.x or drag_pin.before(sel_start),
-                .reverse => drag_pin.x > sel_start.x or sel_start.before(drag_pin),
-                .mirrored_forward => drag_pin.x > sel_start.x or drag_pin.before(sel_start),
-                .mirrored_reverse => drag_pin.x < sel_start.x or sel_start.before(drag_pin),
+    // We only include cells in the selection if the threshold point lies
+    // between the start and end points of the selection. A threshold of
+    // 60% of the cell width was chosen empirically because it felt good.
+    const threshold_point: u32 = @intFromFloat(@round(
+        @as(f64, @floatFromInt(size.cell.width)) * 0.6,
+    ));
+
+    // We use this to clamp the pixel positions below.
+    const max_x = size.grid().columns * size.cell.width - 1;
+
+    // We need to know how far across in the cell the drag pos is, so
+    // we subtract the padding and then take it modulo the cell width.
+    const drag_x_frac = @min(max_x, drag_x -| size.padding.left) % size.cell.width;
+
+    // We figure out the fractional part of the click x position similarly.
+    const click_x_frac = @min(max_x, click_x -| size.padding.left) % size.cell.width;
+
+    // Whether or not this is a rectangular selection.
+    const rectangle_selection = SurfaceMouse.isRectangleSelectState(mods);
+
+    // Whether the click pin and drag pin are equal.
+    const same_pin = drag_pin.eql(click_pin);
+
+    // Whether or not the end point of our selection is before the start point.
+    const end_before_start = ebs: {
+        if (same_pin) {
+            break :ebs drag_x_frac < click_x_frac;
+        }
+
+        // Special handling for rectangular selections, we only use x position.
+        if (rectangle_selection) {
+            break :ebs switch (std.math.order(drag_pin.x, click_pin.x)) {
+                .eq => drag_x_frac < click_x_frac,
+                .lt => true,
+                .gt => false,
             };
         }
-    } else {
-        // Normal select uses simpler logic that is just based on the
-        // selection start/end.
-        reset = if (sel_end.before(sel_start))
-            sel_start.before(drag_pin)
+
+        break :ebs drag_pin.before(click_pin);
+    };
+
+    // Whether or not the the click pin cell
+    // should be included in the selection.
+    const include_click_cell = if (end_before_start)
+        click_x_frac >= threshold_point
+    else
+        click_x_frac < threshold_point;
+
+    // Whether or not the the drag pin cell
+    // should be included in the selection.
+    const include_drag_cell = if (end_before_start)
+        drag_x_frac < threshold_point
+    else
+        drag_x_frac >= threshold_point;
+
+    // If the click cell should be included in the selection then it's the
+    // start, otherwise we get the previous or next cell to it depending on
+    // the type and direction of the selection.
+    const start_pin =
+        if (include_click_cell)
+            click_pin
+        else if (end_before_start)
+            if (rectangle_selection)
+                click_pin.leftClamp(1)
+            else
+                click_pin.leftWrap(1) orelse click_pin
+        else if (rectangle_selection)
+            click_pin.rightClamp(1)
         else
-            drag_pin.before(sel_start);
+            click_pin.rightWrap(1) orelse click_pin;
+
+    // Likewise for the end pin with the drag cell.
+    const end_pin =
+        if (include_drag_cell)
+            drag_pin
+        else if (end_before_start)
+            if (rectangle_selection)
+                drag_pin.rightClamp(1)
+            else
+                drag_pin.rightWrap(1) orelse drag_pin
+        else if (rectangle_selection)
+            drag_pin.leftClamp(1)
+        else
+            drag_pin.leftWrap(1) orelse drag_pin;
+
+    // If the click cell is the same as the drag cell and the click cell
+    // shouldn't be included, or if the cells are adjacent such that the
+    // start or end pin becomes the other cell, and that cell should not
+    // be included, then we have no selection, so we set it to null.
+    //
+    // If in rectangular selection mode, we compare columns as well.
+    //
+    // TODO(qwerasd): this can/should probably be refactored, it's a bit
+    //                repetitive and does excess work in rectangle mode.
+    if ((!include_click_cell and same_pin) or
+        (!include_click_cell and rectangle_selection and click_pin.x == drag_pin.x) or
+        (!include_click_cell and end_pin.eql(click_pin)) or
+        (!include_click_cell and rectangle_selection and end_pin.x == click_pin.x) or
+        (!include_drag_cell and start_pin.eql(drag_pin)) or
+        (!include_drag_cell and rectangle_selection and start_pin.x == drag_pin.x))
+    {
+        return null;
     }
 
-    // Nullifying a selection can't fail.
-    if (reset) self.setSelection(null) catch unreachable;
-}
+    // TODO: Clamp selection to the screen area, don't
+    //       let it extend past the last written row.
 
-// Handles how whether or not the drag screen point is before the click point.
-// When we are in rectangle select, we only interpret the x axis to determine
-// where to start the selection (before or after the click point). See
-// dragLeftClickSingle for more details.
-fn dragLeftClickBefore(
-    drag_pin: terminal.Pin,
-    click_pin: terminal.Pin,
-    mods: input.Mods,
-) bool {
-    if (mods.ctrlOrSuper() and mods.alt) {
-        return drag_pin.x < click_pin.x;
-    }
-
-    return drag_pin.before(click_pin);
+    return .init(
+        start_pin,
+        end_pin,
+        rectangle_selection,
+    );
 }
 
 /// Call to notify Ghostty that the color scheme for the terminal has
@@ -3899,6 +3921,21 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             .new_window => try self.app.newWindow(
                 self.rt_app,
                 .{ .parent = self },
+            ),
+
+            // Undo and redo both support both surface and app targeting.
+            // If we are triggering on a surface then we perform the
+            // action with the surface target.
+            .undo => return try self.rt_app.performAction(
+                .{ .surface = self },
+                .undo,
+                {},
+            ),
+
+            .redo => return try self.rt_app.performAction(
+                .{ .surface = self },
+                .redo,
+                {},
             ),
 
             else => try self.app.performAction(
@@ -4798,5 +4835,432 @@ fn presentSurface(self: *Surface) !void {
         .{ .surface = self },
         .present_terminal,
         {},
+    );
+}
+
+/// Utility function for the unit tests for mouse selection logic.
+///
+/// Tests a click and drag on a 10x5 cell grid, x positions are given in
+/// fractional cells, e.g. 3.1 would be 10% through the cell at x = 3.
+///
+/// NOTE: The size tested with has 10px wide cells, meaning only one digit
+///       after the decimal place has any meaning, e.g. 3.14 is equal to 3.1.
+///
+/// The provided start_x/y and end_x/y are the expected start and end points
+/// of the resulting selection.
+fn testMouseSelection(
+    click_x: f64,
+    click_y: u32,
+    drag_x: f64,
+    drag_y: u32,
+    start_x: terminal.size.CellCountInt,
+    start_y: u32,
+    end_x: terminal.size.CellCountInt,
+    end_y: u32,
+    rect: bool,
+) !void {
+    assert(builtin.is_test);
+
+    // Our screen size is 10x5 cells that are
+    // 10x20 px, with 5px padding on all sides.
+    const size: rendererpkg.Size = .{
+        .cell = .{ .width = 10, .height = 20 },
+        .padding = .{ .left = 5, .top = 5, .right = 5, .bottom = 5 },
+        .screen = .{ .width = 110, .height = 110 },
+    };
+    var screen = try terminal.Screen.init(std.testing.allocator, 10, 5, 0);
+    defer screen.deinit();
+
+    // We hold both ctrl and alt for rectangular
+    // select so that this test is platform agnostic.
+    const mods: input.Mods = .{
+        .ctrl = rect,
+        .alt = rect,
+    };
+
+    try std.testing.expectEqual(rect, SurfaceMouse.isRectangleSelectState(mods));
+
+    const click_pin = screen.pages.pin(.{
+        .viewport = .{ .x = @intFromFloat(@floor(click_x)), .y = click_y },
+    }) orelse unreachable;
+    const drag_pin = screen.pages.pin(.{
+        .viewport = .{ .x = @intFromFloat(@floor(drag_x)), .y = drag_y },
+    }) orelse unreachable;
+
+    const cell_width_f64: f64 = @floatFromInt(size.cell.width);
+    const click_x_pos: u32 =
+        @as(u32, @intFromFloat(@floor(click_x * cell_width_f64))) +
+        size.padding.left;
+    const drag_x_pos: u32 =
+        @as(u32, @intFromFloat(@floor(drag_x * cell_width_f64))) +
+        size.padding.left;
+
+    const start_pin = screen.pages.pin(.{
+        .viewport = .{ .x = start_x, .y = start_y },
+    }) orelse unreachable;
+    const end_pin = screen.pages.pin(.{
+        .viewport = .{ .x = end_x, .y = end_y },
+    }) orelse unreachable;
+
+    try std.testing.expectEqualDeep(terminal.Selection{
+        .bounds = .{ .untracked = .{
+            .start = start_pin,
+            .end = end_pin,
+        } },
+        .rectangle = rect,
+    }, mouseSelection(
+        click_pin,
+        drag_pin,
+        click_x_pos,
+        drag_x_pos,
+        mods,
+        size,
+    ));
+}
+
+/// Like `testMouseSelection` but checks that the resulting selection is null.
+///
+/// See `testMouseSelection` for more details.
+fn testMouseSelectionIsNull(
+    click_x: f64,
+    click_y: u32,
+    drag_x: f64,
+    drag_y: u32,
+    rect: bool,
+) !void {
+    assert(builtin.is_test);
+
+    // Our screen size is 10x5 cells that are
+    // 10x20 px, with 5px padding on all sides.
+    const size: rendererpkg.Size = .{
+        .cell = .{ .width = 10, .height = 20 },
+        .padding = .{ .left = 5, .top = 5, .right = 5, .bottom = 5 },
+        .screen = .{ .width = 110, .height = 110 },
+    };
+    var screen = try terminal.Screen.init(std.testing.allocator, 10, 5, 0);
+    defer screen.deinit();
+
+    // We hold both ctrl and alt for rectangular
+    // select so that this test is platform agnostic.
+    const mods: input.Mods = .{
+        .ctrl = rect,
+        .alt = rect,
+    };
+
+    try std.testing.expectEqual(rect, SurfaceMouse.isRectangleSelectState(mods));
+
+    const click_pin = screen.pages.pin(.{
+        .viewport = .{ .x = @intFromFloat(@floor(click_x)), .y = click_y },
+    }) orelse unreachable;
+    const drag_pin = screen.pages.pin(.{
+        .viewport = .{ .x = @intFromFloat(@floor(drag_x)), .y = drag_y },
+    }) orelse unreachable;
+
+    const cell_width_f64: f64 = @floatFromInt(size.cell.width);
+    const click_x_pos: u32 =
+        @as(u32, @intFromFloat(@floor(click_x * cell_width_f64))) +
+        size.padding.left;
+    const drag_x_pos: u32 =
+        @as(u32, @intFromFloat(@floor(drag_x * cell_width_f64))) +
+        size.padding.left;
+
+    try std.testing.expectEqual(
+        null,
+        mouseSelection(
+            click_pin,
+            drag_pin,
+            click_x_pos,
+            drag_x_pos,
+            mods,
+            size,
+        ),
+    );
+}
+
+test "Surface: selection logic" {
+    // We disable format to make these easier to
+    // read by pairing sets of coordinates per line.
+    // zig fmt: off
+
+    // -- LTR
+    // single cell selection
+    try testMouseSelection(
+        3.0, 3, // click
+        3.9, 3, // drag
+        3, 3, // expected start
+        3, 3, // expected end
+        false, // regular selection
+    );
+    // including click and drag pin cells
+    try testMouseSelection(
+        3.0, 3, // click
+        5.9, 3, // drag
+        3, 3, // expected start
+        5, 3, // expected end
+        false, // regular selection
+    );
+    // including click pin cell but not drag pin cell
+    try testMouseSelection(
+        3.0, 3, // click
+        5.0, 3, // drag
+        3, 3, // expected start
+        4, 3, // expected end
+        false, // regular selection
+    );
+    // including drag pin cell but not click pin cell
+    try testMouseSelection(
+        3.9, 3, // click
+        5.9, 3, // drag
+        4, 3, // expected start
+        5, 3, // expected end
+        false, // regular selection
+    );
+    // including neither click nor drag pin cells
+    try testMouseSelection(
+        3.9, 3, // click
+        5.0, 3, // drag
+        4, 3, // expected start
+        4, 3, // expected end
+        false, // regular selection
+    );
+    // empty selection (single cell on only left half)
+    try testMouseSelectionIsNull(
+        3.0, 3, // click
+        3.1, 3, // drag
+        false, // regular selection
+    );
+    // empty selection (single cell on only right half)
+    try testMouseSelectionIsNull(
+        3.8, 3, // click
+        3.9, 3, // drag
+        false, // regular selection
+    );
+    // empty selection (between two cells, not crossing threshold)
+    try testMouseSelectionIsNull(
+        3.9, 3, // click
+        4.0, 3, // drag
+        false, // regular selection
+    );
+
+    // -- RTL
+    // single cell selection
+    try testMouseSelection(
+        3.9, 3, // click
+        3.0, 3, // drag
+        3, 3, // expected start
+        3, 3, // expected end
+        false, // regular selection
+    );
+    // including click and drag pin cells
+    try testMouseSelection(
+        5.9, 3, // click
+        3.0, 3, // drag
+        5, 3, // expected start
+        3, 3, // expected end
+        false, // regular selection
+    );
+    // including click pin cell but not drag pin cell
+    try testMouseSelection(
+        5.9, 3, // click
+        3.9, 3, // drag
+        5, 3, // expected start
+        4, 3, // expected end
+        false, // regular selection
+    );
+    // including drag pin cell but not click pin cell
+    try testMouseSelection(
+        5.0, 3, // click
+        3.0, 3, // drag
+        4, 3, // expected start
+        3, 3, // expected end
+        false, // regular selection
+    );
+    // including neither click nor drag pin cells
+    try testMouseSelection(
+        5.0, 3, // click
+        3.9, 3, // drag
+        4, 3, // expected start
+        4, 3, // expected end
+        false, // regular selection
+    );
+    // empty selection (single cell on only left half)
+    try testMouseSelectionIsNull(
+        3.1, 3, // click
+        3.0, 3, // drag
+        false, // regular selection
+    );
+    // empty selection (single cell on only right half)
+    try testMouseSelectionIsNull(
+        3.9, 3, // click
+        3.8, 3, // drag
+        false, // regular selection
+    );
+    // empty selection (between two cells, not crossing threshold)
+    try testMouseSelectionIsNull(
+        4.0, 3, // click
+        3.9, 3, // drag
+        false, // regular selection
+    );
+
+    // -- Wrapping
+    // LTR, wrap excluded cells
+    try testMouseSelection(
+        9.9, 2, // click
+        0.0, 4, // drag
+        0, 3, // expected start
+        9, 3, // expected end
+        false, // regular selection
+    );
+    // RTL, wrap excluded cells
+    try testMouseSelection(
+        0.0, 4, // click
+        9.9, 2, // drag
+        9, 3, // expected start
+        0, 3, // expected end
+        false, // regular selection
+    );
+}
+
+test "Surface: rectangle selection logic" {
+    // We disable format to make these easier to
+    // read by pairing sets of coordinates per line.
+    // zig fmt: off
+
+    // -- LTR
+    // single column selection
+    try testMouseSelection(
+        3.0, 2, // click
+        3.9, 4, // drag
+        3, 2, // expected start
+        3, 4, // expected end
+        true, //rectangle selection
+    );
+    // including click and drag pin columns
+    try testMouseSelection(
+        3.0, 2, // click
+        5.9, 4, // drag
+        3, 2, // expected start
+        5, 4, // expected end
+        true, //rectangle selection
+    );
+    // including click pin column but not drag pin column
+    try testMouseSelection(
+        3.0, 2, // click
+        5.0, 4, // drag
+        3, 2, // expected start
+        4, 4, // expected end
+        true, //rectangle selection
+    );
+    // including drag pin column but not click pin column
+    try testMouseSelection(
+        3.9, 2, // click
+        5.9, 4, // drag
+        4, 2, // expected start
+        5, 4, // expected end
+        true, //rectangle selection
+    );
+    // including neither click nor drag pin columns
+    try testMouseSelection(
+        3.9, 2, // click
+        5.0, 4, // drag
+        4, 2, // expected start
+        4, 4, // expected end
+        true, //rectangle selection
+    );
+    // empty selection (single column on only left half)
+    try testMouseSelectionIsNull(
+        3.0, 2, // click
+        3.1, 4, // drag
+        true, //rectangle selection
+    );
+    // empty selection (single column on only right half)
+    try testMouseSelectionIsNull(
+        3.8, 2, // click
+        3.9, 4, // drag
+        true, //rectangle selection
+    );
+    // empty selection (between two columns, not crossing threshold)
+    try testMouseSelectionIsNull(
+        3.9, 2, // click
+        4.0, 4, // drag
+        true, //rectangle selection
+    );
+
+    // -- RTL
+    // single column selection
+    try testMouseSelection(
+        3.9, 2, // click
+        3.0, 4, // drag
+        3, 2, // expected start
+        3, 4, // expected end
+        true, //rectangle selection
+    );
+    // including click and drag pin columns
+    try testMouseSelection(
+        5.9, 2, // click
+        3.0, 4, // drag
+        5, 2, // expected start
+        3, 4, // expected end
+        true, //rectangle selection
+    );
+    // including click pin column but not drag pin column
+    try testMouseSelection(
+        5.9, 2, // click
+        3.9, 4, // drag
+        5, 2, // expected start
+        4, 4, // expected end
+        true, //rectangle selection
+    );
+    // including drag pin column but not click pin column
+    try testMouseSelection(
+        5.0, 2, // click
+        3.0, 4, // drag
+        4, 2, // expected start
+        3, 4, // expected end
+        true, //rectangle selection
+    );
+    // including neither click nor drag pin columns
+    try testMouseSelection(
+        5.0, 2, // click
+        3.9, 4, // drag
+        4, 2, // expected start
+        4, 4, // expected end
+        true, //rectangle selection
+    );
+    // empty selection (single column on only left half)
+    try testMouseSelectionIsNull(
+        3.1, 2, // click
+        3.0, 4, // drag
+        true, //rectangle selection
+    );
+    // empty selection (single column on only right half)
+    try testMouseSelectionIsNull(
+        3.9, 2, // click
+        3.8, 4, // drag
+        true, //rectangle selection
+    );
+    // empty selection (between two columns, not crossing threshold)
+    try testMouseSelectionIsNull(
+        4.0, 2, // click
+        3.9, 4, // drag
+        true, //rectangle selection
+    );
+
+    // -- Wrapping
+    // LTR, do not wrap
+    try testMouseSelection(
+        9.9, 2, // click
+        0.0, 4, // drag
+        9, 2, // expected start
+        0, 4, // expected end
+        true, //rectangle selection
+    );
+    // RTL, do not wrap
+    try testMouseSelection(
+        0.0, 4, // click
+        9.9, 2, // drag
+        0, 4, // expected start
+        9, 2, // expected end
+        true, //rectangle selection
     );
 }

@@ -1,5 +1,5 @@
 # Spanish translations for com.mitchellh.ghostty package.
-# Copyright (C) 2025 Mitchell Hashimoto
+# Copyright (C) 2025 Mitchell Hashimoto, Ghostty contributors
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
 # Miguel Peredo <miguelp@quientienemail.com>, 2025.
 #

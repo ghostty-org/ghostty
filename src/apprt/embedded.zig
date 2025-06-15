@@ -92,42 +92,12 @@ pub const App = struct {
             // We want to get the physical unmapped key to process keybinds.
             const physical_key = keycode: for (input.keycodes.entries) |entry| {
                 if (entry.native == self.keycode) break :keycode entry.key;
-            } else .invalid;
-
-            // If the resulting text has length 1 then we can take its key
-            // and attempt to translate it to a key enum and call the key callback.
-            // If the length is greater than 1 then we're going to call the
-            // charCallback.
-            //
-            // We also only do key translation if this is not a dead key.
-            const key = if (!self.composing) key: {
-                // If our physical key is a keypad key, we use that.
-                if (physical_key.keypad()) break :key physical_key;
-
-                // A completed key. If the length of the key is one then we can
-                // attempt to translate it to a key enum and call the key
-                // callback. First try plain ASCII.
-                if (text.len > 0) {
-                    if (input.Key.fromASCII(text[0])) |key| {
-                        break :key key;
-                    }
-                }
-
-                // If the above doesn't work, we use the unmodified value.
-                if (std.math.cast(u8, unshifted_codepoint)) |ascii| {
-                    if (input.Key.fromASCII(ascii)) |key| {
-                        break :key key;
-                    }
-                }
-
-                break :key physical_key;
-            } else .invalid;
+            } else .unidentified;
 
             // Build our final key event
             return .{
                 .action = self.action,
-                .key = key,
-                .physical_key = physical_key,
+                .key = physical_key,
                 .mods = self.mods,
                 .consumed_mods = self.consumed_mods,
                 .composing = self.composing,
@@ -453,7 +423,7 @@ pub const Surface = struct {
     pub fn init(self: *Surface, app: *App, opts: Options) !void {
         self.* = .{
             .app = app,
-            .platform = try Platform.init(opts.platform_tag, opts.platform),
+            .platform = try .init(opts.platform_tag, opts.platform),
             .userdata = opts.userdata,
             .core_surface = undefined,
             .content_scale = .{
@@ -552,7 +522,7 @@ pub const Surface = struct {
         const alloc = self.app.core_app.alloc;
         const inspector = try alloc.create(Inspector);
         errdefer alloc.destroy(inspector);
-        inspector.* = try Inspector.init(self);
+        inspector.* = try .init(self);
         self.inspector = inspector;
         return inspector;
     }
@@ -872,7 +842,10 @@ pub const Surface = struct {
             // our translation settings for Ghostty. If we aren't from
             // the desktop then we didn't set our LANGUAGE var so we
             // don't need to remove it.
-            if (internal_os.launchedFromDesktop()) env.remove("LANGUAGE");
+            switch (self.app.config.@"launched-from".?) {
+                .desktop => env.remove("LANGUAGE"),
+                .dbus, .systemd, .cli => {},
+            }
         }
 
         return env;
@@ -1210,7 +1183,7 @@ pub const CAPI = struct {
         // Create our runtime app
         var app = try global.alloc.create(App);
         errdefer global.alloc.destroy(app);
-        app.* = try App.init(core_app, config, opts.*);
+        app.* = try .init(core_app, config, opts.*);
         errdefer app.terminate();
 
         return app;
@@ -1384,6 +1357,11 @@ pub const CAPI = struct {
     /// Returns true if the surface needs to confirm quitting.
     export fn ghostty_surface_needs_confirm_quit(surface: *Surface) bool {
         return surface.core_surface.needsConfirmQuit();
+    }
+
+    /// Returns true if the surface process has exited.
+    export fn ghostty_surface_process_exited(surface: *Surface) bool {
+        return surface.core_surface.child_exited;
     }
 
     /// Returns true if the surface has a selection.
@@ -1979,7 +1957,7 @@ pub const CAPI = struct {
         }
 
         export fn ghostty_inspector_metal_init(ptr: *Inspector, device: objc.c.id) bool {
-            return ptr.initMetal(objc.Object.fromId(device));
+            return ptr.initMetal(.fromId(device));
         }
 
         export fn ghostty_inspector_metal_render(
@@ -1988,8 +1966,8 @@ pub const CAPI = struct {
             descriptor: objc.c.id,
         ) void {
             return ptr.renderMetal(
-                objc.Object.fromId(command_buffer),
-                objc.Object.fromId(descriptor),
+                .fromId(command_buffer),
+                .fromId(descriptor),
             ) catch |err| {
                 log.err("error rendering inspector err={}", .{err});
                 return;

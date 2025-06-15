@@ -146,4 +146,10 @@ pub const Window = union(Protocol) {
             inline else => |*v| try v.addSubprocessEnv(env),
         }
     }
+
+    pub fn setUrgent(self: *Window, urgent: bool) !void {
+        switch (self.*) {
+            inline else => |*v| try v.setUrgent(urgent),
+        }
+    }
 };

@@ -12,7 +12,7 @@ pub fn build(b: *std.Build) !void {
     lib.linkLibC();
     if (target.result.os.tag.isDarwin()) {
         const apple_sdk = @import("apple_sdk");
-        try apple_sdk.addPaths(b, lib.root_module);
+        try apple_sdk.addPaths(b, lib);
     }
 
     if (b.lazyDependency("zlib", .{})) |upstream| {

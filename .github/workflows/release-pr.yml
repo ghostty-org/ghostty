@@ -47,7 +47,7 @@ jobs:
           sentry-cli dif upload --project ghostty --wait dsym.zip
 
   build-macos:
-    runs-on: namespace-profile-ghostty-macos
+    runs-on: namespace-profile-ghostty-macos-sequoia
     timeout-minutes: 90
     steps:
       - name: Checkout code
@@ -57,10 +57,10 @@ jobs:
           fetch-depth: 0
 
       # Install Nix and use that to run our tests so our environment matches exactly.
-      - uses: cachix/install-nix-action@v30
+      - uses: cachix/install-nix-action@v31
         with:
           nix_path: nixpkgs=channel:nixos-unstable
-      - uses: cachix/cachix-action@v15
+      - uses: cachix/cachix-action@v16
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
@@ -94,7 +94,7 @@ jobs:
       - name: Build Ghostty.app
         run: |
           cd macos
-          sudo xcode-select -s /Applications/Xcode_16.0.app
+          sudo xcode-select -s /Applications/Xcode_16.4.app
           xcodebuild -target Ghostty -configuration Release
 
       # We inject the "build number" as simply the number of commits since HEAD.
@@ -199,7 +199,7 @@ jobs:
           destination-dir: ./
 
   build-macos-debug:
-    runs-on: namespace-profile-ghostty-macos
+    runs-on: namespace-profile-ghostty-macos-sequoia
     timeout-minutes: 90
     steps:
       - name: Checkout code
@@ -209,10 +209,10 @@ jobs:
           fetch-depth: 0
 
       # Install Nix and use that to run our tests so our environment matches exactly.
-      - uses: cachix/install-nix-action@v30
+      - uses: cachix/install-nix-action@v31
         with:
           nix_path: nixpkgs=channel:nixos-unstable
-      - uses: cachix/cachix-action@v15
+      - uses: cachix/cachix-action@v16
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
@@ -246,7 +246,7 @@ jobs:
       - name: Build Ghostty.app
         run: |
           cd macos
-          sudo xcode-select -s /Applications/Xcode_16.0.app
+          sudo xcode-select -s /Applications/Xcode_16.4.app
           xcodebuild -target Ghostty -configuration Release
 
       # We inject the "build number" as simply the number of commits since HEAD.

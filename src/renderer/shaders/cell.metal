@@ -621,9 +621,6 @@ vertex ImageVertexOut image_vertex(
   texture2d<uint> image [[texture(0)]],
   constant Uniforms& uniforms [[buffer(1)]]
 ) {
-  // The size of the image in pixels
-  float2 image_size = float2(image.get_width(), image.get_height());
-
   // Turn the image position into a vertex point depending on the
   // vertex ID. Since we use instanced drawing, we have 4 vertices
   // for each corner of the cell. We can use vertex ID to determine
@@ -638,11 +635,12 @@ vertex ImageVertexOut image_vertex(
   corner.x = (vid == 0 || vid == 1) ? 1.0f : 0.0f;
   corner.y = (vid == 0 || vid == 3) ? 0.0f : 1.0f;
 
-  // The texture coordinates start at our source x/y, then add the width/height
-  // as enabled by our instance id, then normalize to [0, 1]
+  // The texture coordinates start at our source x/y
+  // and add the width/height depending on the corner.
+  //
+  // We don't need to normalize because we use pixel addressing for our sampler.
   float2 tex_coord = in.source_rect.xy;
   tex_coord += in.source_rect.zw * corner;
-  tex_coord /= image_size;
 
   ImageVertexOut out;
 
@@ -659,22 +657,23 @@ vertex ImageVertexOut image_vertex(
 
 fragment float4 image_fragment(
   ImageVertexOut in [[stage_in]],
-  texture2d<uint> image [[texture(0)]],
+  texture2d<float> image [[texture(0)]],
   constant Uniforms& uniforms [[buffer(1)]]
 ) {
-  constexpr sampler textureSampler(address::clamp_to_edge, filter::linear);
-
-  // Ehhhhh our texture is in RGBA8Uint but our color attachment is
-  // BGRA8Unorm. So we need to convert it. We should really be converting
-  // our texture to BGRA8Unorm.
-  uint4 rgba = image.sample(textureSampler, in.tex_coord);
-
-  return load_color(
-    uchar4(rgba),
-    // We assume all images are sRGB regardless of the configured colorspace
-    // TODO: Maybe support wide gamut images?
-    false,
-    uniforms.use_linear_blending
+  constexpr sampler textureSampler(
+    coord::pixel,
+    address::clamp_to_edge,
+    filter::linear
   );
+
+  float4 rgba = image.sample(textureSampler, in.tex_coord);
+
+  if (!uniforms.use_linear_blending) {
+    rgba = unlinearize(rgba);
+  }
+
+  rgba.rgb *= rgba.a;
+
+  return rgba;
 }
 

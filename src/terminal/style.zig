@@ -87,10 +87,9 @@ pub const Style = struct {
 
     /// True if the style is equal to another style.
     pub fn eql(self: Style, other: Style) bool {
-        const packed_self = PackedStyle.fromStyle(self);
-        const packed_other = PackedStyle.fromStyle(other);
-        // TODO: in Zig 0.14, equating packed structs is allowed. Remove this work around.
-        return @as(u128, @bitCast(packed_self)) == @as(u128, @bitCast(packed_other));
+        // We convert the styles to packed structs and compare as integers
+        // because this is much faster than comparing each field separately.
+        return PackedStyle.fromStyle(self) == PackedStyle.fromStyle(other);
     }
 
     /// Returns the bg color for a cell with this style given the cell
@@ -303,9 +302,9 @@ pub const Style = struct {
                     .underline = std.meta.activeTag(style.underline_color),
                 },
                 .data = .{
-                    .fg = Data.fromColor(style.fg_color),
-                    .bg = Data.fromColor(style.bg_color),
-                    .underline = Data.fromColor(style.underline_color),
+                    .fg = .fromColor(style.fg_color),
+                    .bg = .fromColor(style.bg_color),
+                    .underline = .fromColor(style.underline_color),
                 },
                 .flags = style.flags,
             };
@@ -350,7 +349,7 @@ test "Set basic usage" {
     const style: Style = .{ .flags = .{ .bold = true } };
     const style2: Style = .{ .flags = .{ .italic = true } };
 
-    var set = Set.init(OffsetBuf.init(buf), layout, .{});
+    var set = Set.init(.init(buf), layout, .{});
 
     // Add style
     const id = try set.add(buf, style);

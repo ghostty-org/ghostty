@@ -582,34 +582,31 @@ pub const StreamHandler = struct {
                 self.terminal.scrolling_region.right = self.terminal.cols - 1;
             },
 
+            .alt_screen_legacy => {
+                self.terminal.switchScreenMode(.@"47", enabled);
+                try self.queueRender();
+            },
+
             .alt_screen => {
-                const opts: terminal.Terminal.AlternateScreenOptions = .{
-                    .cursor_save = false,
-                    .clear_on_enter = false,
-                };
-
-                if (enabled)
-                    self.terminal.alternateScreen(opts)
-                else
-                    self.terminal.primaryScreen(opts);
-
-                // Schedule a render since we changed screens
+                self.terminal.switchScreenMode(.@"1047", enabled);
                 try self.queueRender();
             },
 
             .alt_screen_save_cursor_clear_enter => {
-                const opts: terminal.Terminal.AlternateScreenOptions = .{
-                    .cursor_save = true,
-                    .clear_on_enter = true,
-                };
-
-                if (enabled)
-                    self.terminal.alternateScreen(opts)
-                else
-                    self.terminal.primaryScreen(opts);
-
-                // Schedule a render since we changed screens
+                self.terminal.switchScreenMode(.@"1049", enabled);
                 try self.queueRender();
+            },
+
+            // Mode 1048 is xterm's conditional save cursor depending
+            // on if alt screen is enabled or not (at the terminal emulator
+            // level). Alt screen is always enabled for us so this just
+            // does a save/restore cursor.
+            .save_cursor => {
+                if (enabled) {
+                    self.terminal.saveCursor();
+                } else {
+                    try self.terminal.restoreCursor();
+                }
             },
 
             // Force resize back to the window size
@@ -1185,200 +1182,185 @@ pub const StreamHandler = struct {
         }
     }
 
-    /// Implements OSC 4, OSC 10, and OSC 11, which reports palette color,
-    /// default foreground color, and background color respectively.
-    pub fn reportColor(
+    pub fn handleColorOperation(
         self: *StreamHandler,
-        kind: terminal.osc.Command.ColorKind,
+        source: terminal.osc.Command.ColorOperation.Source,
+        operations: *const terminal.osc.Command.ColorOperation.List,
         terminator: terminal.osc.Terminator,
     ) !void {
-        if (self.osc_color_report_format == .none) return;
+        // return early if there is nothing to do
+        if (operations.count() == 0) return;
 
-        const color = switch (kind) {
-            .palette => |i| self.terminal.color_palette.colors[i],
-            .foreground => self.foreground_color orelse self.default_foreground_color,
-            .background => self.background_color orelse self.default_background_color,
-            .cursor => self.cursor_color orelse
-                self.default_cursor_color orelse
-                self.foreground_color orelse
-                self.default_foreground_color,
-        };
+        var buffer: [1024]u8 = undefined;
+        var fba: std.heap.FixedBufferAllocator = .init(&buffer);
+        const alloc = fba.allocator();
 
-        var msg: termio.Message = .{ .write_small = .{} };
-        const resp = switch (self.osc_color_report_format) {
-            .@"16-bit" => switch (kind) {
-                .palette => |i| try std.fmt.bufPrint(
-                    &msg.write_small.data,
-                    "\x1B]{s};{d};rgb:{x:0>4}/{x:0>4}/{x:0>4}{s}",
-                    .{
-                        kind.code(),
-                        i,
-                        @as(u16, color.r) * 257,
-                        @as(u16, color.g) * 257,
-                        @as(u16, color.b) * 257,
-                        terminator.string(),
-                    },
-                ),
-                else => try std.fmt.bufPrint(
-                    &msg.write_small.data,
-                    "\x1B]{s};rgb:{x:0>4}/{x:0>4}/{x:0>4}{s}",
-                    .{
-                        kind.code(),
-                        @as(u16, color.r) * 257,
-                        @as(u16, color.g) * 257,
-                        @as(u16, color.b) * 257,
-                        terminator.string(),
-                    },
-                ),
-            },
+        var response: std.ArrayListUnmanaged(u8) = .empty;
+        const writer = response.writer(alloc);
 
-            .@"8-bit" => switch (kind) {
-                .palette => |i| try std.fmt.bufPrint(
-                    &msg.write_small.data,
-                    "\x1B]{s};{d};rgb:{x:0>2}/{x:0>2}/{x:0>2}{s}",
-                    .{
-                        kind.code(),
-                        i,
-                        @as(u16, color.r),
-                        @as(u16, color.g),
-                        @as(u16, color.b),
-                        terminator.string(),
-                    },
-                ),
-                else => try std.fmt.bufPrint(
-                    &msg.write_small.data,
-                    "\x1B]{s};rgb:{x:0>2}/{x:0>2}/{x:0>2}{s}",
-                    .{
-                        kind.code(),
-                        @as(u16, color.r),
-                        @as(u16, color.g),
-                        @as(u16, color.b),
-                        terminator.string(),
-                    },
-                ),
-            },
-            .none => unreachable, // early return above
-        };
-        msg.write_small.len = @intCast(resp.len);
-        self.messageWriter(msg);
-    }
+        var report: bool = false;
 
-    pub fn setColor(
-        self: *StreamHandler,
-        kind: terminal.osc.Command.ColorKind,
-        value: []const u8,
-    ) !void {
-        const color = try terminal.color.RGB.parse(value);
+        try writer.print("\x1b]{}", .{source});
 
-        switch (kind) {
-            .palette => |i| {
-                self.terminal.flags.dirty.palette = true;
-                self.terminal.color_palette.colors[i] = color;
-                self.terminal.color_palette.mask.set(i);
-            },
-            .foreground => {
-                self.foreground_color = color;
-                _ = self.renderer_mailbox.push(.{
-                    .foreground_color = color,
-                }, .{ .forever = {} });
-            },
-            .background => {
-                self.background_color = color;
-                _ = self.renderer_mailbox.push(.{
-                    .background_color = color,
-                }, .{ .forever = {} });
-            },
-            .cursor => {
-                self.cursor_color = color;
-                _ = self.renderer_mailbox.push(.{
-                    .cursor_color = color,
-                }, .{ .forever = {} });
-            },
-        }
+        var it = operations.constIterator(0);
 
-        // Notify the surface of the color change
-        self.surfaceMessageWriter(.{ .color_change = .{
-            .kind = kind,
-            .color = color,
-        } });
-    }
-
-    pub fn resetColor(
-        self: *StreamHandler,
-        kind: terminal.osc.Command.ColorKind,
-        value: []const u8,
-    ) !void {
-        switch (kind) {
-            .palette => {
-                const mask = &self.terminal.color_palette.mask;
-                if (value.len == 0) {
-                    // Find all bit positions in the mask which are set and
-                    // reset those indices to the default palette
-                    var it = mask.iterator(.{});
-                    while (it.next()) |i| {
-                        self.terminal.flags.dirty.palette = true;
-                        self.terminal.color_palette.colors[i] = self.terminal.default_palette[i];
-                        mask.unset(i);
-
-                        self.surfaceMessageWriter(.{ .color_change = .{
-                            .kind = .{ .palette = @intCast(i) },
-                            .color = self.terminal.color_palette.colors[i],
-                        } });
+        while (it.next()) |op| {
+            switch (op.*) {
+                .set => |set| {
+                    switch (set.kind) {
+                        .palette => |i| {
+                            self.terminal.flags.dirty.palette = true;
+                            self.terminal.color_palette.colors[i] = set.color;
+                            self.terminal.color_palette.mask.set(i);
+                        },
+                        .foreground => {
+                            self.foreground_color = set.color;
+                            _ = self.renderer_mailbox.push(.{
+                                .foreground_color = set.color,
+                            }, .{ .forever = {} });
+                        },
+                        .background => {
+                            self.background_color = set.color;
+                            _ = self.renderer_mailbox.push(.{
+                                .background_color = set.color,
+                            }, .{ .forever = {} });
+                        },
+                        .cursor => {
+                            self.cursor_color = set.color;
+                            _ = self.renderer_mailbox.push(.{
+                                .cursor_color = set.color,
+                            }, .{ .forever = {} });
+                        },
                     }
-                } else {
-                    var it = std.mem.tokenizeScalar(u8, value, ';');
-                    while (it.next()) |param| {
-                        // Skip invalid parameters
-                        const i = std.fmt.parseUnsigned(u8, param, 10) catch continue;
-                        if (mask.isSet(i)) {
+
+                    // Notify the surface of the color change
+                    self.surfaceMessageWriter(.{ .color_change = .{
+                        .kind = set.kind,
+                        .color = set.color,
+                    } });
+                },
+
+                .reset => |kind| {
+                    switch (kind) {
+                        .palette => |i| {
+                            const mask = &self.terminal.color_palette.mask;
                             self.terminal.flags.dirty.palette = true;
                             self.terminal.color_palette.colors[i] = self.terminal.default_palette[i];
                             mask.unset(i);
 
+                            self.surfaceMessageWriter(.{
+                                .color_change = .{
+                                    .kind = .{ .palette = @intCast(i) },
+                                    .color = self.terminal.color_palette.colors[i],
+                                },
+                            });
+                        },
+                        .foreground => {
+                            self.foreground_color = null;
+                            _ = self.renderer_mailbox.push(.{
+                                .foreground_color = self.foreground_color,
+                            }, .{ .forever = {} });
+
                             self.surfaceMessageWriter(.{ .color_change = .{
-                                .kind = .{ .palette = @intCast(i) },
-                                .color = self.terminal.color_palette.colors[i],
+                                .kind = .foreground,
+                                .color = self.default_foreground_color,
                             } });
-                        }
+                        },
+                        .background => {
+                            self.background_color = null;
+                            _ = self.renderer_mailbox.push(.{
+                                .background_color = self.background_color,
+                            }, .{ .forever = {} });
+
+                            self.surfaceMessageWriter(.{ .color_change = .{
+                                .kind = .background,
+                                .color = self.default_background_color,
+                            } });
+                        },
+                        .cursor => {
+                            self.cursor_color = null;
+
+                            _ = self.renderer_mailbox.push(.{
+                                .cursor_color = self.cursor_color,
+                            }, .{ .forever = {} });
+
+                            if (self.default_cursor_color) |color| {
+                                self.surfaceMessageWriter(.{ .color_change = .{
+                                    .kind = .cursor,
+                                    .color = color,
+                                } });
+                            }
+                        },
                     }
-                }
-            },
-            .foreground => {
-                self.foreground_color = null;
-                _ = self.renderer_mailbox.push(.{
-                    .foreground_color = self.foreground_color,
-                }, .{ .forever = {} });
+                },
 
-                self.surfaceMessageWriter(.{ .color_change = .{
-                    .kind = .foreground,
-                    .color = self.default_foreground_color,
-                } });
-            },
-            .background => {
-                self.background_color = null;
-                _ = self.renderer_mailbox.push(.{
-                    .background_color = self.background_color,
-                }, .{ .forever = {} });
+                .report => |kind| report: {
+                    if (self.osc_color_report_format == .none) break :report;
 
-                self.surfaceMessageWriter(.{ .color_change = .{
-                    .kind = .background,
-                    .color = self.default_background_color,
-                } });
-            },
-            .cursor => {
-                self.cursor_color = null;
+                    report = true;
 
-                _ = self.renderer_mailbox.push(.{
-                    .cursor_color = self.cursor_color,
-                }, .{ .forever = {} });
+                    const color = switch (kind) {
+                        .palette => |i| self.terminal.color_palette.colors[i],
+                        .foreground => self.foreground_color orelse self.default_foreground_color,
+                        .background => self.background_color orelse self.default_background_color,
+                        .cursor => self.cursor_color orelse
+                            self.default_cursor_color orelse
+                            self.foreground_color orelse
+                            self.default_foreground_color,
+                    };
 
-                if (self.default_cursor_color) |color| {
-                    self.surfaceMessageWriter(.{ .color_change = .{
-                        .kind = .cursor,
-                        .color = color,
-                    } });
-                }
-            },
+                    switch (self.osc_color_report_format) {
+                        .@"16-bit" => switch (kind) {
+                            .palette => |i| try writer.print(
+                                ";{d};rgb:{x:0>4}/{x:0>4}/{x:0>4}",
+                                .{
+                                    i,
+                                    @as(u16, color.r) * 257,
+                                    @as(u16, color.g) * 257,
+                                    @as(u16, color.b) * 257,
+                                },
+                            ),
+                            else => try writer.print(
+                                ";rgb:{x:0>4}/{x:0>4}/{x:0>4}",
+                                .{
+                                    @as(u16, color.r) * 257,
+                                    @as(u16, color.g) * 257,
+                                    @as(u16, color.b) * 257,
+                                },
+                            ),
+                        },
+
+                        .@"8-bit" => switch (kind) {
+                            .palette => |i| try writer.print(
+                                ";{d};rgb:{x:0>2}/{x:0>2}/{x:0>2}",
+                                .{
+                                    i,
+                                    @as(u16, color.r),
+                                    @as(u16, color.g),
+                                    @as(u16, color.b),
+                                },
+                            ),
+                            else => try writer.print(
+                                ";rgb:{x:0>2}/{x:0>2}/{x:0>2}",
+                                .{
+                                    @as(u16, color.r),
+                                    @as(u16, color.g),
+                                    @as(u16, color.b),
+                                },
+                            ),
+                        },
+
+                        .none => unreachable,
+                    }
+                },
+            }
+        }
+        if (report) {
+            // If any of the operations were reports, finalize the report
+            // string and send it to the terminal.
+            try writer.writeAll(terminator.string());
+            const msg = try termio.Message.writeReq(self.alloc, response.items);
+            self.messageWriter(msg);
         }
     }
 

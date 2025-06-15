@@ -69,16 +69,16 @@ fn init(
     request: apprt.ClipboardRequest,
     is_secure_input: bool,
 ) !void {
-    var builder = switch (DialogType) {
+    var builder: Builder = switch (DialogType) {
         adw.AlertDialog => switch (request) {
-            .osc_52_read => Builder.init("ccw-osc-52-read", 1, 5),
-            .osc_52_write => Builder.init("ccw-osc-52-write", 1, 5),
-            .paste => Builder.init("ccw-paste", 1, 5),
+            .osc_52_read => .init("ccw-osc-52-read", 1, 5),
+            .osc_52_write => .init("ccw-osc-52-write", 1, 5),
+            .paste => .init("ccw-paste", 1, 5),
         },
         adw.MessageDialog => switch (request) {
-            .osc_52_read => Builder.init("ccw-osc-52-read", 1, 2),
-            .osc_52_write => Builder.init("ccw-osc-52-write", 1, 2),
-            .paste => Builder.init("ccw-paste", 1, 2),
+            .osc_52_read => .init("ccw-osc-52-read", 1, 2),
+            .osc_52_write => .init("ccw-osc-52-write", 1, 2),
+            .paste => .init("ccw-paste", 1, 2),
         },
         else => unreachable,
     };

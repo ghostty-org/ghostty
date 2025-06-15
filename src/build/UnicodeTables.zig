@@ -12,8 +12,13 @@ output: std.Build.LazyPath,
 pub fn init(b: *std.Build) !UnicodeTables {
     const exe = b.addExecutable(.{
         .name = "unigen",
-        .root_source_file = b.path("src/unicode/props.zig"),
-        .target = b.graph.host,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/unicode/props.zig"),
+            .target = b.graph.host,
+            .strip = false,
+            .omit_frame_pointer = false,
+            .unwind_tables = .sync,
+        }),
     });
 
     if (b.lazyDependency("ziglyph", .{

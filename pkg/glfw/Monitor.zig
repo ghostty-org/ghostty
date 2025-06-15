@@ -281,7 +281,7 @@ pub inline fn setGamma(self: Monitor, gamma: f32) void {
 /// see also: monitor_gamma
 pub inline fn getGammaRamp(self: Monitor) ?GammaRamp {
     internal_debug.assertInitialized();
-    if (c.glfwGetGammaRamp(self.handle)) |ramp| return GammaRamp.fromC(ramp.*);
+    if (c.glfwGetGammaRamp(self.handle)) |ramp| return .fromC(ramp.*);
     return null;
 }
 

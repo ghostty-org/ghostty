@@ -34,6 +34,7 @@ const gtk_key = @import("key.zig");
 const TabView = @import("TabView.zig");
 const HeaderBar = @import("headerbar.zig");
 const CloseDialog = @import("CloseDialog.zig");
+const CommandPalette = @import("CommandPalette.zig");
 const winprotopkg = @import("winproto.zig");
 const gtk_version = @import("gtk_version.zig");
 const adw_version = @import("adw_version.zig");
@@ -67,6 +68,9 @@ titlebar_menu: Menu(Window, "titlebar_menu", true),
 /// The libadwaita widget for receiving toast send requests.
 toast_overlay: *adw.ToastOverlay,
 
+/// The command palette.
+command_palette: CommandPalette,
+
 /// See adwTabOverviewOpen for why we have this.
 adw_tab_overview_focus_timer: ?c_uint = null,
 
@@ -86,6 +90,7 @@ pub const DerivedConfig = struct {
     quick_terminal_position: configpkg.Config.QuickTerminalPosition,
     quick_terminal_size: configpkg.Config.QuickTerminalSize,
     quick_terminal_autohide: bool,
+    quick_terminal_keyboard_interactivity: configpkg.Config.QuickTerminalKeyboardInteractivity,
 
     maximize: bool,
     fullscreen: bool,
@@ -105,6 +110,7 @@ pub const DerivedConfig = struct {
             .quick_terminal_position = config.@"quick-terminal-position",
             .quick_terminal_size = config.@"quick-terminal-size",
             .quick_terminal_autohide = config.@"quick-terminal-autohide",
+            .quick_terminal_keyboard_interactivity = config.@"quick-terminal-keyboard-interactivity",
 
             .maximize = config.maximize,
             .fullscreen = config.fullscreen,
@@ -132,18 +138,19 @@ pub fn init(self: *Window, app: *App) !void {
     self.* = .{
         .app = app,
         .last_config = @intFromPtr(&app.config),
-        .config = DerivedConfig.init(&app.config),
+        .config = .init(&app.config),
         .window = undefined,
         .headerbar = undefined,
         .tab_overview = null,
         .notebook = undefined,
         .titlebar_menu = undefined,
         .toast_overlay = undefined,
+        .command_palette = undefined,
         .winproto = .none,
     };
 
     // Create the window
-    self.window = adw.ApplicationWindow.new(app.app.as(gtk.Application));
+    self.window = .new(app.app.as(gtk.Application));
     const gtk_window = self.window.as(gtk.Window);
     const gtk_widget = self.window.as(gtk.Widget);
     errdefer gtk_window.destroy();
@@ -166,6 +173,8 @@ pub fn init(self: *Window, app: *App) !void {
 
     // Setup our notebook
     self.notebook.init(self);
+
+    if (adw_version.supportsDialogs()) try self.command_palette.init(self);
 
     // If we are using Adwaita, then we can support the tab overview.
     self.tab_overview = if (adw_version.supportsTabOverview()) overview: {
@@ -326,7 +335,7 @@ pub fn init(self: *Window, app: *App) !void {
     }
 
     // Setup our toast overlay if we have one
-    self.toast_overlay = adw.ToastOverlay.new();
+    self.toast_overlay = .new();
     self.toast_overlay.setChild(self.notebook.asWidget());
     box.append(self.toast_overlay.as(gtk.Widget));
 
@@ -456,10 +465,13 @@ pub fn updateConfig(
     if (self.last_config == this_config) return;
     self.last_config = this_config;
 
-    self.config = DerivedConfig.init(config);
+    self.config = .init(config);
 
     // We always resync our appearance whenever the config changes.
     try self.syncAppearance();
+
+    // Update binds inside the command palette
+    try self.command_palette.updateConfig(config);
 }
 
 /// Updates appearance based on config settings. Will be called once upon window
@@ -577,6 +589,7 @@ fn initActions(self: *Window) void {
         .{ "split-left", gtkActionSplitLeft },
         .{ "split-up", gtkActionSplitUp },
         .{ "toggle-inspector", gtkActionToggleInspector },
+        .{ "toggle-command-palette", gtkActionToggleCommandPalette },
         .{ "copy", gtkActionCopy },
         .{ "paste", gtkActionPaste },
         .{ "reset", gtkActionReset },
@@ -600,6 +613,7 @@ fn initActions(self: *Window) void {
 
 pub fn deinit(self: *Window) void {
     self.winproto.deinit(self.app.core_app.alloc);
+    if (adw_version.supportsDialogs()) self.command_palette.deinit();
 
     if (self.adw_tab_overview_focus_timer) |timer| {
         _ = glib.Source.remove(timer);
@@ -729,6 +743,15 @@ pub fn toggleWindowDecorations(self: *Window) void {
     };
 }
 
+/// Toggle the window decorations for this window.
+pub fn toggleCommandPalette(self: *Window) void {
+    if (adw_version.supportsDialogs()) {
+        self.command_palette.toggle();
+    } else {
+        log.warn("libadwaita 1.5+ is required for the command palette", .{});
+    }
+}
+
 /// Grabs focus on the currently selected tab.
 pub fn focusCurrentTab(self: *Window) void {
     const tab = self.notebook.currentTab() orelse return;
@@ -793,11 +816,15 @@ fn gtkWindowNotifyIsActive(
     _: *gobject.ParamSpec,
     self: *Window,
 ) callconv(.c) void {
-    if (!self.isQuickTerminal()) return;
+    self.winproto.setUrgent(false) catch |err| {
+        log.err("failed to unrequest user attention={}", .{err});
+    };
 
-    // Hide when we're unfocused
-    if (self.config.quick_terminal_autohide and self.window.as(gtk.Window).isActive() == 0) {
-        self.toggleVisibility();
+    if (self.isQuickTerminal()) {
+        // Hide when we're unfocused
+        if (self.config.quick_terminal_autohide and self.window.as(gtk.Window).isActive() == 0) {
+            self.toggleVisibility();
+        }
     }
 }
 
@@ -820,7 +847,7 @@ fn gtkWindowUpdateScaleFactor(
 }
 
 /// Perform a binding action on the window's action surface.
-fn performBindingAction(self: *Window, action: input.Binding.Action) void {
+pub fn performBindingAction(self: *Window, action: input.Binding.Action) void {
     const surface = self.actionSurface() orelse return;
     _ = surface.performBindingAction(action) catch |err| {
         log.warn("error performing binding action error={}", .{err});
@@ -1080,6 +1107,14 @@ fn gtkActionToggleInspector(
     self: *Window,
 ) callconv(.c) void {
     self.performBindingAction(.{ .inspector = .toggle });
+}
+
+fn gtkActionToggleCommandPalette(
+    _: *gio.SimpleAction,
+    _: ?*glib.Variant,
+    self: *Window,
+) callconv(.C) void {
+    self.performBindingAction(.toggle_command_palette);
 }
 
 fn gtkActionCopy(

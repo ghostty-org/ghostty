@@ -11,8 +11,8 @@ vbo: gl.Buffer,
 
 pub const Input = extern struct {
     /// vec2 grid_coord
-    grid_col: u16,
-    grid_row: u16,
+    grid_col: i32,
+    grid_row: i32,
 
     /// vec2 cell_offset
     cell_offset_x: u32 = 0,
@@ -66,8 +66,8 @@ pub fn init() !ImageProgram {
     var vbobind = try vbo.bind(.array);
     defer vbobind.unbind();
     var offset: usize = 0;
-    try vbobind.attributeAdvanced(0, 2, gl.c.GL_UNSIGNED_SHORT, false, @sizeOf(Input), offset);
-    offset += 2 * @sizeOf(u16);
+    try vbobind.attributeAdvanced(0, 2, gl.c.GL_INT, false, @sizeOf(Input), offset);
+    offset += 2 * @sizeOf(i32);
     try vbobind.attributeAdvanced(1, 2, gl.c.GL_UNSIGNED_INT, false, @sizeOf(Input), offset);
     offset += 2 * @sizeOf(u32);
     try vbobind.attributeAdvanced(2, 4, gl.c.GL_UNSIGNED_INT, false, @sizeOf(Input), offset);

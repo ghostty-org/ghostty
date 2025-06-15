@@ -13,16 +13,16 @@ pub const Placement = struct {
     image_id: u32,
 
     /// The grid x/y where this placement is located.
-    x: u32,
-    y: u32,
+    x: i32,
+    y: i32,
     z: i32,
 
     /// The width/height of the placed image.
     width: u32,
     height: u32,
 
-    /// The offset in pixels from the top left of the cell. This is
-    /// clamped to the size of a cell.
+    /// The offset in pixels from the top left of the cell.
+    /// This is clamped to the size of a cell.
     cell_offset_x: u32,
     cell_offset_y: u32,
 
@@ -441,7 +441,7 @@ pub const Image = union(enum) {
         };
 
         // Set our properties
-        desc.setProperty("pixelFormat", @intFromEnum(mtl.MTLPixelFormat.rgba8uint));
+        desc.setProperty("pixelFormat", @intFromEnum(mtl.MTLPixelFormat.rgba8unorm_srgb));
         desc.setProperty("width", @as(c_ulong, @intCast(p.width)));
         desc.setProperty("height", @as(c_ulong, @intCast(p.height)));
 

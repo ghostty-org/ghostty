@@ -24,7 +24,7 @@ pub fn build(b: *std.Build) !void {
             .optimize = optimize,
         });
         if (target.result.os.tag.isDarwin()) {
-            try apple_sdk.addPaths(b, exe.root_module);
+            try apple_sdk.addPaths(b, exe);
         }
 
         const tests_run = b.addRunArtifact(exe);
@@ -122,8 +122,7 @@ fn buildLib(
         },
 
         .macos => {
-            try apple_sdk.addPaths(b, lib.root_module);
-            try apple_sdk.addPaths(b, module);
+            try apple_sdk.addPaths(b, lib);
 
             // Transitive dependencies, explicit linkage of these works around
             // ziglang/zig#17130
