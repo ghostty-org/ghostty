@@ -138,6 +138,9 @@ child_exited: bool = false,
 /// to let us know.
 focused: bool = true,
 
+/// Used to determine whether to continuously scroll.
+selection_scroll_active: bool = false,
+
 /// The effect of an input event. This can be used by callers to take
 /// the appropriate action after an input event. For example, key
 /// input can be forwarded to the OS for further processing if it
@@ -941,6 +944,34 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             ) catch |err| {
                 log.warn("apprt failed to ring bell={}", .{err});
             };
+        },
+
+        .selection_scroll => |active| {
+            self.selection_scroll_active = active;
+
+            if (self.selection_scroll_active) {
+                const pos = try self.rt_surface.getCursorPos();
+                const pos_vp = self.posToViewport(pos.x, pos.y);
+                const screen = &self.renderer_state.terminal.screen;
+                const delta: isize = if (pos.y < 0) -1 else 1;
+
+                try self.io.terminal.scrollViewport(.{ .delta = delta });
+
+                // Always the case, but doesn't hurt to check
+                if (self.mouse.left_click_count == 1) {
+                    const pin = screen.pages.pin(.{
+                        .viewport = .{
+                            .x = pos_vp.x,
+                            .y = pos_vp.y,
+                        },
+                    }) orelse {
+                        if (comptime std.debug.runtime_safety) unreachable;
+                        return;
+                    };
+
+                    try self.dragLeftClickSingle(pin, pos.x);
+                }
+            }
         },
     }
 }
@@ -2964,6 +2995,12 @@ pub fn mouseButtonCallback(
         }
     }
 
+    // Stop selection scrolling when releasing the left mouse button
+    // but only when selection scrolling is active.
+    if (button == .left and action == .release and self.selection_scroll_active) {
+        self.io.queueMessage(.{ .selection_scroll = false }, .unlocked);
+    }
+
     // Handle link clicking. We want to do this before we do mouse
     // reporting or any other mouse handling because a successfully
     // clicked link will swallow the event.
@@ -3477,6 +3514,12 @@ pub fn cursorPosCallback(
         self.renderer_state.terminal.screen.dirty.hyperlink_hover = true;
     }
 
+    // Stop selection scrolling when inside the viewport within a 1px buffer
+    // for fullscreen windows, but only when selection scrolling is active.
+    if (pos.x >= 1 and pos.y >= 1 and self.selection_scroll_active) {
+        self.io.queueMessage(.{ .selection_scroll = false }, .unlocked);
+    }
+
     // Always show the mouse again if it is hidden
     if (self.mouse.hidden) self.showMouse();
 
@@ -3578,13 +3621,11 @@ pub fn cursorPosCallback(
         // Note: one day, we can change this from distance to time based if we want.
         //log.warn("CURSOR POS: {} {}", .{ pos, self.size.screen });
         const max_y: f32 = @floatFromInt(self.size.screen.height);
-        if (pos.y <= 1 or pos.y > max_y - 1) {
-            const delta: isize = if (pos.y < 0) -1 else 1;
-            try self.io.terminal.scrollViewport(.{ .delta = delta });
 
-            // TODO: We want a timer or something to repeat while we're still
-            // at this cursor position. Right now, the user has to jiggle their
-            // mouse in order to scroll.
+        // Only send a message when outside the viewport and
+        // selection scrolling is not currently active.
+        if ((pos.y <= 1 or pos.y > max_y - 1) and !self.selection_scroll_active) {
+            self.io.queueMessage(.{ .selection_scroll = true }, .locked);
         }
 
         // Convert to points
