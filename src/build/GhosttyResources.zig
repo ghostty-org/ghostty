@@ -201,6 +201,16 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
             b.path("dist/linux/app.desktop"),
             "share/applications/com.mitchellh.ghostty.desktop",
         ).step);
+        // DBus service for DBus activation
+        try steps.append(&b.addInstallFile(
+            b.path("dist/linux/dbus.service"),
+            "share/dbus-1/services/com.mitchellh.ghostty.service",
+        ).step);
+        // systemd user service
+        try steps.append(&b.addInstallFile(
+            b.path("dist/linux/systemd.service"),
+            "lib/systemd/user/com.mitchellh.ghostty.service",
+        ).step);
 
         // AppStream metainfo so that application has rich metadata within app stores
         try steps.append(&b.addInstallFile(

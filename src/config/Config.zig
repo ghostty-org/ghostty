@@ -894,11 +894,16 @@ title: ?[:0]const u8 = null,
 /// The setting that will change the application class value.
 ///
 /// This controls the class field of the `WM_CLASS` X11 property (when running
-/// under X11), and the Wayland application ID (when running under Wayland).
+/// under X11), the Wayland application ID (when running under Wayland), and the
+/// bus name that Ghostty uses to connect to DBus.
 ///
 /// Note that changing this value between invocations will create new, separate
 /// instances, of Ghostty when running with `gtk-single-instance=true`. See that
 /// option for more details.
+///
+/// Changing this value may break launching Ghostty from `.desktop` files, via
+/// DBus activation, or systemd user services as the system is expecting Ghostty
+/// to connect to DBus using the default `class` when it is launched.
 ///
 /// The class name must follow the requirements defined [in the GTK
 /// documentation](https://docs.gtk.org/gio/type_func.Application.id_is_valid.html).
