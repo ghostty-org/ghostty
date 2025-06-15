@@ -3359,7 +3359,11 @@ fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
                 .trim = false,
             });
             defer self.alloc.free(str);
-            try internal_os.open(self.alloc, .unknown, str);
+            _ = try self.rt_app.performAction(
+                .{ .surface = self },
+                .open_url,
+                .{ .kind = .unknown, .url = str },
+            );
         },
 
         ._open_osc8 => {
@@ -3367,7 +3371,11 @@ fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
                 log.warn("failed to get URI for OSC8 hyperlink", .{});
                 return false;
             };
-            try internal_os.open(self.alloc, .unknown, uri);
+            _ = try self.rt_app.performAction(
+                .{ .surface = self },
+                .open_url,
+                .{ .kind = .unknown, .url = uri },
+            );
         },
     }
 
@@ -4555,7 +4563,13 @@ fn writeScreenFile(
     const path = try tmp_dir.dir.realpath(filename, &path_buf);
 
     switch (write_action) {
-        .open => try internal_os.open(self.alloc, .text, path),
+        .open => {
+            _ = try self.rt_app.performAction(
+                .{ .surface = self },
+                .open_url,
+                .{ .kind = .text, .url = path },
+            );
+        },
         .paste => self.io.queueMessage(try termio.Message.writeReq(
             self.alloc,
             path,
