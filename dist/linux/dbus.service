@@ -1,0 +1,4 @@
+[D-BUS Service]
+Name=com.mitchellh.ghostty
+SystemdService=com.mitchellh.ghostty.service
+Exec=ghostty --launched-from=dbus

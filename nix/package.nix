@@ -117,6 +117,11 @@ in
 
       mkdir -p "$out/nix-support"
 
+      sed -i -e "s@^Exec=.*ghostty@Exec=$out/bin/ghostty@" $out/share/applications/com.mitchellh.ghostty.desktop
+      sed -i -e "s@^TryExec=.*ghostty@TryExec=$out/bin/ghostty@" $out/share/applications/com.mitchellh.ghostty.desktop
+      sed -i -e "s@^Exec=.*ghostty@Exec=$out/bin/ghostty@" $out/share/dbus-1/services/com.mitchellh.ghostty.service
+      sed -i -e "s@^ExecStart=.*ghostty@ExecStart=$out/bin/ghostty@" $out/lib/systemd/user/com.mitchellh.ghostty.service
+
       mkdir -p "$terminfo/share"
       mv "$terminfo_src" "$terminfo/share/terminfo"
       ln -sf "$terminfo/share/terminfo" "$terminfo_src"
