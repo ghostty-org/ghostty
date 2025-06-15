@@ -166,7 +166,7 @@ class AppDelegate: NSObject,
 
         // This registers the Ghostty => Services menu to exist.
         NSApp.servicesMenu = menuServices
-
+        
         // Setup a local event monitor for app-level keyboard shortcuts. See
         // localEventHandler for more info why.
         _ = NSEvent.addLocalMonitorForEvents(
@@ -242,6 +242,9 @@ class AppDelegate: NSObject,
 
             ghostty_app_set_color_scheme(app, scheme)
         }
+
+        // Setup our menu
+        setupMenuImages()
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -390,6 +393,41 @@ class AppDelegate: NSObject,
     /// This is called for the dock right-click menu.
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         return dockMenu
+    }
+
+    /// Setup all the images for our menu items.
+    private func setupMenuImages() {
+        // Note: This COULD Be done all in the xib file, but I find it easier to
+        // modify this stuff as code.
+        self.menuNewWindow?.setImageIfDesired(systemSymbolName: "macwindow.badge.plus")
+        self.menuNewTab?.setImageIfDesired(systemSymbolName: "macwindow")
+        self.menuSplitRight?.setImageIfDesired(systemSymbolName: "rectangle.righthalf.inset.filled")
+        self.menuSplitLeft?.setImageIfDesired(systemSymbolName: "rectangle.leadinghalf.inset.filled")
+        self.menuSplitUp?.setImageIfDesired(systemSymbolName: "rectangle.tophalf.inset.filled")
+        self.menuSplitDown?.setImageIfDesired(systemSymbolName: "rectangle.bottomhalf.inset.filled")
+        self.menuClose?.setImageIfDesired(systemSymbolName: "xmark")
+        self.menuIncreaseFontSize?.setImageIfDesired(systemSymbolName: "textformat.size.larger")
+        self.menuResetFontSize?.setImageIfDesired(systemSymbolName: "textformat.size")
+        self.menuDecreaseFontSize?.setImageIfDesired(systemSymbolName: "textformat.size.smaller")
+        self.menuCommandPalette?.setImageIfDesired(systemSymbolName: "filemenu.and.selection")
+        self.menuQuickTerminal?.setImageIfDesired(systemSymbolName: "apple.terminal")
+        self.menuChangeTitle?.setImageIfDesired(systemSymbolName: "pencil.line")
+        self.menuTerminalInspector?.setImageIfDesired(systemSymbolName: "scope")
+        self.menuToggleFullScreen?.setImageIfDesired(systemSymbolName: "square.arrowtriangle.4.outward")
+        self.menuToggleVisibility?.setImageIfDesired(systemSymbolName: "eye")
+        self.menuZoomSplit?.setImageIfDesired(systemSymbolName: "arrow.up.left.and.arrow.down.right")
+        self.menuPreviousSplit?.setImageIfDesired(systemSymbolName: "chevron.backward.2")
+        self.menuNextSplit?.setImageIfDesired(systemSymbolName: "chevron.forward.2")
+        self.menuEqualizeSplits?.setImageIfDesired(systemSymbolName: "inset.filled.topleft.topright.bottomleft.bottomright.rectangle")
+        self.menuSelectSplitLeft?.setImageIfDesired(systemSymbolName: "arrow.left")
+        self.menuSelectSplitRight?.setImageIfDesired(systemSymbolName: "arrow.right")
+        self.menuSelectSplitAbove?.setImageIfDesired(systemSymbolName: "arrow.up")
+        self.menuSelectSplitBelow?.setImageIfDesired(systemSymbolName: "arrow.down")
+        self.menuMoveSplitDividerUp?.setImageIfDesired(systemSymbolName: "arrow.up.to.line")
+        self.menuMoveSplitDividerDown?.setImageIfDesired(systemSymbolName: "arrow.down.to.line")
+        self.menuMoveSplitDividerLeft?.setImageIfDesired(systemSymbolName: "arrow.left.to.line")
+        self.menuMoveSplitDividerRight?.setImageIfDesired(systemSymbolName: "arrow.right.to.line")
+        self.menuFloatOnTop?.setImageIfDesired(systemSymbolName: "square.3.layers.3d.top.filled")
     }
 
     /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.

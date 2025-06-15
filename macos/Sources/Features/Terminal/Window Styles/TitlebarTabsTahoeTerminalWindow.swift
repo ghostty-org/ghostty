@@ -21,18 +21,6 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         }
     }
 
-    override var toolbar: NSToolbar? {
-        didSet{
-            guard toolbar != nil else { return }
-
-            // When a toolbar is added, remove the Liquid Glass look to have a cleaner
-            // appearance for our custom titlebar tabs.
-            if let glass = titlebarContainer?.firstDescendant(withClassName: "NSGlassContainerView") {
-                glass.isHidden = true
-            }
-        }
-    }
-
     override func awakeFromNib() {
         super.awakeFromNib()
 
@@ -222,6 +210,11 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
             item.view = NSHostingView(rootView: TitleItem(viewModel: viewModel))
             item.visibilityPriority = .user
             item.isEnabled = true
+
+            // This is the documented way to avoid the glass view on an item.
+            // We don't want glass on our title.
+            item.isBordered = false
+            
             return item
         default:
             return NSToolbarItem(itemIdentifier: itemIdentifier)

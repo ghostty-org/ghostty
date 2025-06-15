@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="23727" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES" customObjectInstantitationMethod="direct">
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="24093.7" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES" customObjectInstantitationMethod="direct">
     <dependencies>
         <deployment identifier="macosx"/>
-        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="23727"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="24093.7"/>
     </dependencies>
     <objects>
         <customObject id="-2" userLabel="File's Owner" customClass="NSApplication">
@@ -251,16 +251,16 @@
                     <modifierMask key="keyEquivalentModifierMask"/>
                     <menu key="submenu" title="View" id="m6z-2H-VW7">
                         <items>
-                            <menuItem title="Increase Font Size" id="CIH-ey-Z6x" userLabel="Increase Font Size">
-                                <modifierMask key="keyEquivalentModifierMask"/>
-                                <connections>
-                                    <action selector="increaseFontSize:" target="-1" id="361-5E-7PY"/>
-                                </connections>
-                            </menuItem>
                             <menuItem title="Reset Font Size" id="Jah-MY-aLX">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="resetFontSize:" target="-1" id="3dh-T9-IkH"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Increase Font Size" id="CIH-ey-Z6x" userLabel="Increase Font Size">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="increaseFontSize:" target="-1" id="361-5E-7PY"/>
                                 </connections>
                             </menuItem>
                             <menuItem title="Decrease Font Size" id="kzb-SZ-dOA">

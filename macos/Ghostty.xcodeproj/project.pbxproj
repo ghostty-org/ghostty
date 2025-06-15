@@ -93,6 +93,7 @@
 		A5A6F72A2CC41B8900B232A5 /* AppInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A6F7292CC41B8700B232A5 /* AppInfo.swift */; };
 		A5AEB1652D5BE7D000513529 /* LastWindowPosition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5AEB1642D5BE7BF00513529 /* LastWindowPosition.swift */; };
 		A5B30539299BEAAB0047F10C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5B30538299BEAAB0047F10C /* Assets.xcassets */; };
+		A5B4EA852DFE691B0022C3A2 /* NSMenuItem+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5B4EA842DFE69140022C3A2 /* NSMenuItem+Extension.swift */; };
 		A5CA378C2D2A4DEB00931030 /* KeyboardLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5CA378B2D2A4DE800931030 /* KeyboardLayout.swift */; };
 		A5CA378E2D31D6C300931030 /* Weak.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5CA378D2D31D6C100931030 /* Weak.swift */; };
 		A5CBD0562C9E65B80017A1AE /* DraggableWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5CBD0552C9E65A50017A1AE /* DraggableWindowView.swift */; };
@@ -210,6 +211,7 @@
 		A5B30531299BEAAA0047F10C /* Ghostty.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Ghostty.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A5B30538299BEAAB0047F10C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A5B3053D299BEAAB0047F10C /* Ghostty.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Ghostty.entitlements; sourceTree = "<group>"; };
+		A5B4EA842DFE69140022C3A2 /* NSMenuItem+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSMenuItem+Extension.swift"; sourceTree = "<group>"; };
 		A5CA378B2D2A4DE800931030 /* KeyboardLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardLayout.swift; sourceTree = "<group>"; };
 		A5CA378D2D31D6C100931030 /* Weak.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Weak.swift; sourceTree = "<group>"; };
 		A5CBD0552C9E65A50017A1AE /* DraggableWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DraggableWindowView.swift; sourceTree = "<group>"; };
@@ -478,6 +480,7 @@
 				A599CDAF2CF103F20049FA26 /* NSAppearance+Extension.swift */,
 				A5A2A3CB2D444AB80033CF96 /* NSApplication+Extension.swift */,
 				A54B0CEA2D0CFB4A00CBEFF8 /* NSImage+Extension.swift */,
+				A5B4EA842DFE69140022C3A2 /* NSMenuItem+Extension.swift */,
 				A52FFF5C2CAB4D05000C6A5B /* NSScreen+Extension.swift */,
 				AEE8B3442B9AA39600260C5E /* NSPasteboard+Extension.swift */,
 				C1F26EA62B738B9900404083 /* NSView+Extension.swift */,
@@ -763,6 +766,7 @@
 				A5CDF1952AAFA19600513312 /* ConfigurationErrorsView.swift in Sources */,
 				A55B7BBC29B6FC330055DE60 /* SurfaceView.swift in Sources */,
 				A5333E1C2B5A1CE3008AEFF7 /* CrossKit.swift in Sources */,
+				A5B4EA852DFE691B0022C3A2 /* NSMenuItem+Extension.swift in Sources */,
 				A5874D992DAD751B00E83852 /* CGS.swift in Sources */,
 				A586366B2DF0A98C00E04A10 /* Array+Extension.swift in Sources */,
 				A51544FE2DFB111C009E85D8 /* TitlebarTabsTahoeTerminalWindow.swift in Sources */,
