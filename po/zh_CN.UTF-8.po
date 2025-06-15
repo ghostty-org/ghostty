@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-04-23 16:58+0800\n"
+"POT-Creation-Date: 2025-06-13 10:27-0500\n"
 "PO-Revision-Date: 2025-02-27 09:16+0100\n"
 "Last-Translator: Leah <hi@pluie.me>\n"
 "Language-Team: Chinese (simplified) <i18n-zh@googlegroups.com>\n"
@@ -26,7 +26,8 @@ msgid "Leave blank to restore the default title."
 msgstr "留空以重置至默认标题。"
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:9
-#: src/apprt/gtk/ui/1.5/ccw-paste.blp:10 src/apprt/gtk/CloseDialog.zig:44
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:10 src/apprt/gtk/ui/1.2/ccw-paste.blp:10
+#: src/apprt/gtk/CloseDialog.zig:44
 msgid "Cancel"
 msgstr "取消"
 
@@ -35,10 +36,12 @@ msgid "OK"
 msgstr "确认"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:5
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:5
 msgid "Configuration Errors"
 msgstr "配置错误"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:6
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:6
 msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
@@ -46,36 +49,38 @@ msgstr ""
 "加载配置时发现了以下错误。请仔细阅读错误信息，并选择忽略或重新加载配置文件。"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:9
 msgid "Ignore"
 msgstr "忽略"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:10
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:97
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:100
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:105
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:10
 msgid "Reload Configuration"
 msgstr "重新加载配置"
 
 #: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
 msgid "Split Up"
 msgstr "向上分屏"
 
 #: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:11
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
 msgid "Split Down"
 msgstr "向下分屏"
 
 #: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:16
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
 msgid "Split Left"
 msgstr "向左分屏"
 
 #: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:21
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:70
 msgid "Split Right"
 msgstr "向右分屏"
 
@@ -90,27 +95,27 @@ msgstr "复制"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:11
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:11
-#: src/apprt/gtk/ui/1.5/ccw-paste.blp:11
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:11 src/apprt/gtk/ui/1.2/ccw-paste.blp:11
 msgid "Paste"
 msgstr "粘贴"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:18
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:73
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:78
 msgid "Clear"
 msgstr "清除屏幕"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:23
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:78
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:83
 msgid "Reset"
 msgstr "重置终端"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:30
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:42
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:47
 msgid "Split"
 msgstr "分屏"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:33
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:45
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
 msgid "Change Title…"
 msgstr "更改标题……"
 
@@ -120,7 +125,7 @@ msgstr "标签页"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:62
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:30
-#: src/apprt/gtk/Window.zig:255
+#: src/apprt/gtk/Window.zig:259
 msgid "New Tab"
 msgstr "新建标签页"
 
@@ -148,33 +153,40 @@ msgid "Config"
 msgstr "配置"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:92
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:95
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:100
 msgid "Open Configuration"
 msgstr "打开配置文件"
 
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:85
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:40
+msgid "Toggle Tab Icons"
+msgstr ""
+
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:90
 msgid "Command Palette"
 msgstr "命令面板"
 
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:90
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:95
 msgid "Terminal Inspector"
 msgstr "终端调试器"
 
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:107
-#: src/apprt/gtk/Window.zig:1024
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:112
+#: src/apprt/gtk/Window.zig:1042
 msgid "About Ghostty"
 msgstr "关于 Ghostty"
 
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:112
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:117
 msgid "Quit"
 msgstr "退出"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:6
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:6
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-read.blp:6
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:6
 msgid "Authorize Clipboard Access"
 msgstr "剪贴板访问授权"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:7
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-read.blp:7
 msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
@@ -182,58 +194,67 @@ msgstr "一个应用正在试图从剪贴板读取内容。剪贴板目前的内
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:10
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:10
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-read.blp:10
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:10
 msgid "Deny"
 msgstr "拒绝"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:11
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:11
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-read.blp:11
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:11
 msgid "Allow"
 msgstr "允许"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:7
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:7
 msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
 msgstr "一个应用正在试图向剪贴板写入内容。剪贴板目前的内容如下："
 
-#: src/apprt/gtk/ui/1.5/ccw-paste.blp:6
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:6 src/apprt/gtk/ui/1.2/ccw-paste.blp:6
 msgid "Warning: Potentially Unsafe Paste"
 msgstr "警告：粘贴内容可能不安全"
 
-#: src/apprt/gtk/ui/1.5/ccw-paste.blp:7
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:7 src/apprt/gtk/ui/1.2/ccw-paste.blp:7
 msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
 msgstr "将以下内容粘贴至终端内将可能执行有害命令。"
 
-#: src/apprt/gtk/Window.zig:208
+#: src/apprt/gtk/inspector.zig:144
+msgid "Ghostty: Terminal Inspector"
+msgstr "Ghostty 终端调试器"
+
+#: src/apprt/gtk/Surface.zig:1257
+msgid "Copied to clipboard"
+msgstr "已复制至剪贴板"
+
+#: src/apprt/gtk/Window.zig:212
 msgid "Main Menu"
 msgstr "主菜单"
 
-#: src/apprt/gtk/Window.zig:229
+#: src/apprt/gtk/Window.zig:233
 msgid "View Open Tabs"
 msgstr "浏览标签页"
 
-#: src/apprt/gtk/Window.zig:256
+#: src/apprt/gtk/Window.zig:260
 msgid "New Split"
 msgstr "新建分屏"
 
-#: src/apprt/gtk/Window.zig:319
+#: src/apprt/gtk/Window.zig:323
 msgid ""
 "⚠️ You're running a debug build of Ghostty! Performance will be degraded."
 msgstr "⚠️ Ghostty 正在以调试模式运行！性能将大打折扣。"
 
-#: src/apprt/gtk/Window.zig:765
+#: src/apprt/gtk/Window.zig:779
 msgid "Reloaded the configuration"
 msgstr "已重新加载配置"
 
-#: src/apprt/gtk/Window.zig:1005
+#: src/apprt/gtk/Window.zig:1023
 msgid "Ghostty Developers"
 msgstr "Ghostty 开发团队"
-
-#: src/apprt/gtk/inspector.zig:144
-msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty 终端调试器"
 
 #: src/apprt/gtk/CloseDialog.zig:47
 msgid "Close"
@@ -270,7 +291,3 @@ msgstr "标签页内所有运行中的进程将被终止。"
 #: src/apprt/gtk/CloseDialog.zig:99
 msgid "The currently running process in this split will be terminated."
 msgstr "分屏内正在运行中的进程将被终止。"
-
-#: src/apprt/gtk/Surface.zig:1243
-msgid "Copied to clipboard"
-msgstr "已复制至剪贴板"

@@ -30,7 +30,8 @@ struct TerminalCommandPaletteView: View {
             switch (key) {
             case "toggle_tab_overview",
                 "toggle_window_decorations",
-                "show_gtk_inspector":
+                "show_gtk_inspector",
+                "toggle_tab_icons":
                 return false
             default:
                 return true

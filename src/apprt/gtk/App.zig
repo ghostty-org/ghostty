@@ -495,6 +495,7 @@ pub fn performAction(
         .mouse_shape => try self.setMouseShape(target, value),
         .mouse_over_link => self.setMouseOverLink(target, value),
         .toggle_tab_overview => self.toggleTabOverview(target),
+        .toggle_tab_icons => self.toggleTabIcons(target),
         .toggle_split_zoom => self.toggleSplitZoom(target),
         .toggle_window_decorations => self.toggleWindowDecorations(target),
         .quit_timer => self.quitTimer(value),
@@ -749,6 +750,23 @@ fn toggleTabOverview(_: *App, target: apprt.Target) void {
             };
 
             window.toggleTabOverview();
+        },
+    }
+}
+
+fn toggleTabIcons(_: *App, target: apprt.Target) void {
+    switch (target) {
+        .app => {},
+        .surface => |v| {
+            const window = v.rt_surface.container.window() orelse {
+                log.info(
+                    "toggleTabIcons invalid for container={s}",
+                    .{@tagName(v.rt_surface.container)},
+                );
+                return;
+            };
+
+            window.toggleTabIcons();
         },
     }
 }
@@ -1044,8 +1062,8 @@ pub fn reloadConfig(
 }
 
 /// Call this anytime the configuration changes.
-fn syncConfigChanges(self: *App, window: ?*Window) !void {
-    ConfigErrorsDialog.maybePresent(self, window);
+fn syncConfigChanges(self: *App, window_: ?*Window) !void {
+    ConfigErrorsDialog.maybePresent(self, window_);
     try self.syncActionAccelerators();
 
     if (self.global_shortcuts) |*shortcuts| {
@@ -1065,6 +1083,9 @@ fn syncConfigChanges(self: *App, window: ?*Window) !void {
     self.loadCustomCss() catch |err| {
         log.warn("Failed to load custom CSS, no custom CSS applied, err={}", .{err});
     };
+
+    // if we have a window, it may need to update it's appearance
+    if (window_) |window| try window.syncAppearance();
 }
 
 fn syncActionAccelerators(self: *App) !void {
@@ -1087,6 +1108,7 @@ fn syncActionAccelerators(self: *App) !void {
     try self.syncActionAccelerator("win.reset", .{ .reset = {} });
     try self.syncActionAccelerator("win.clear", .{ .clear_screen = {} });
     try self.syncActionAccelerator("win.prompt-title", .{ .prompt_surface_title = {} });
+    try self.syncActionAccelerator("win.toggle-tab-icons", .toggle_tab_icons);
 }
 
 fn syncActionAccelerator(

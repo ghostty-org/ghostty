@@ -2449,6 +2449,16 @@ keybind: Keybinds = .{},
 /// with keybinds.
 @"gtk-tabs-location": GtkTabsLocation = .top,
 
+/// If `true`, show a numeric icon on the GTK tab header that indicate the
+/// position of the tab. Tabs are numbered starting at 1.
+///
+/// By default, Ghostty has keybinds for directly switching to tabs 1-8, using
+/// `Alt+N`. `Alt+9` is configured by default to go to the last tab. These
+/// keybinds always work and are not affected by the state of the tab icons.
+///
+/// The default is `false` (no icons will be shown).
+@"gtk-tab-icons": bool = false,
+
 /// If this is `true`, the titlebar will be hidden when the window is maximized,
 /// and shown when the titlebar is unmaximized. GTK only.
 @"gtk-titlebar-hide-when-maximized": bool = false,
