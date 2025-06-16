@@ -4,6 +4,7 @@ const TabView = @This();
 
 const std = @import("std");
 
+const gio = @import("gio");
 const gtk = @import("gtk");
 const adw = @import("adw");
 const gobject = @import("gobject");
@@ -11,6 +12,7 @@ const glib = @import("glib");
 
 const Window = @import("Window.zig");
 const Tab = @import("Tab.zig");
+const gtk_version = @import("gtk_version.zig");
 const adw_version = @import("adw_version.zig");
 
 const log = std.log.scoped(.gtk);
@@ -62,6 +64,20 @@ pub fn init(self: *TabView, window: *Window) void {
         self,
         .{},
     );
+    _ = adw.TabView.signals.page_detached.connect(
+        self.tab_view,
+        *TabView,
+        adwPageDetached,
+        self,
+        .{},
+    );
+    _ = adw.TabView.signals.page_reordered.connect(
+        self.tab_view,
+        *TabView,
+        adwPageReordered,
+        self,
+        .{},
+    );
     _ = adw.TabView.signals.close_page.connect(
         self.tab_view,
         *TabView,
@@ -91,8 +107,70 @@ pub fn asWidget(self: *TabView) *gtk.Widget {
     return self.tab_view.as(gtk.Widget);
 }
 
+pub fn syncAppearance(self: *TabView) void {
+    self.setPageIcons();
+}
+
 pub fn nPages(self: *TabView) c_int {
     return self.tab_view.getNPages();
+}
+
+fn setPageIcons(self: *TabView) void {
+    const count: usize = @intCast(self.nPages());
+    for (0..count) |position| {
+        const page = self.tab_view.getNthPage(@intCast(position));
+        const icon: ?*gio.Icon = icon: {
+            const number = position + 1;
+
+            if (!self.window.config.gtk_tab_icons) break :icon null;
+
+            if (number > 99) break :icon null;
+
+            const color = switch (self.window.app.core_app.config_conditional_state.theme) {
+                .light => "black",
+                .dark => "white",
+            };
+
+            var buf: [1024]u8 = undefined;
+            const svg = std.fmt.bufPrintZ(
+                &buf,
+                \\<svg width="48px" height="48px">
+                \\  <path
+                \\    d="M 0 23 C 0 5.75, 5.75 0, 23 0 S 46 5.75, 46 23, 40.25 46 23 46, 0 40.25, 0 23"
+                \\    transform="rotate(0, 23, 23) translate(1, 1)"
+                \\    stroke="{[color]s}"
+                \\    stroke-width="1px"
+                \\    fill="none"/>
+                \\  <text
+                \\    x="50%" y="50%"
+                \\    dy=".35em"
+                \\    text-anchor="middle"
+                \\    dominant-baseline="central"
+                \\    fill="{[color]s}"
+                \\    font-size="{[size]d}px"
+                \\    font-family="mono">{[number]d}</text>
+                \\</svg>
+                \\
+            ,
+                .{
+                    .color = color,
+                    .size = @as(usize, switch (number) {
+                        0...9 => 36,
+                        10...99 => 30,
+                        else => 22,
+                    }),
+                    .number = number,
+                },
+            ) catch unreachable;
+
+            const bytes = glib.Bytes.new(svg.ptr, svg.len);
+            defer bytes.unref();
+
+            break :icon gio.BytesIcon.new(bytes).as(gio.Icon);
+        };
+
+        page.setIcon(icon);
+    }
 }
 
 /// Returns the index of the currently selected page.
@@ -234,6 +312,15 @@ fn adwPageAttached(_: *adw.TabView, page: *adw.TabPage, _: c_int, self: *TabView
     tab.window = self.window;
 
     self.window.focusCurrentTab();
+    self.setPageIcons();
+}
+
+fn adwPageDetached(_: *adw.TabView, _: *adw.TabPage, _: c_int, self: *TabView) callconv(.c) void {
+    self.setPageIcons();
+}
+
+fn adwPageReordered(_: *adw.TabView, _: *adw.TabPage, _: c_int, self: *TabView) callconv(.c) void {
+    self.setPageIcons();
 }
 
 fn adwClosePage(
