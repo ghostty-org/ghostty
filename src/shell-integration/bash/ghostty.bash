@@ -17,7 +17,7 @@
 
 # We need to be in interactive mode and we need to have the Ghostty
 # resources dir set which also tells us we're running in Ghostty.
-if [[ "$-" != *i* ]]; then builtin return; fi
+if [[ "$-" != *i* ]] ; then builtin return; fi
 if [ -z "$GHOSTTY_RESOURCES_DIR" ]; then builtin return; fi
 
 # When automatic shell integration is active, we were started in POSIX
@@ -45,10 +45,7 @@ if [ -n "$GHOSTTY_BASH_INJECT" ]; then
     if [[ $__ghostty_bash_flags != *"--noprofile"* ]]; then
       [ -r /etc/profile ] && builtin source "/etc/profile"
       for __ghostty_rcfile in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
-        [ -r "$__ghostty_rcfile" ] && {
-          builtin source "$__ghostty_rcfile"
-          break
-        }
+        [ -r "$__ghostty_rcfile" ] && { builtin source "$__ghostty_rcfile"; break; }
       done
     fi
   else
@@ -60,10 +57,7 @@ if [ -n "$GHOSTTY_BASH_INJECT" ]; then
       #  Void Linux uses /etc/bash/bashrc
       #  Nixos uses /etc/bashrc
       for __ghostty_rcfile in /etc/bash.bashrc /etc/bash/bashrc /etc/bashrc; do
-        [ -r "$__ghostty_rcfile" ] && {
-          builtin source "$__ghostty_rcfile"
-          break
-        }
+        [ -r "$__ghostty_rcfile" ] && { builtin source "$__ghostty_rcfile"; break; }
       done
       if [[ -z "$GHOSTTY_BASH_RCFILE" ]]; then GHOSTTY_BASH_RCFILE="$HOME/.bashrc"; fi
       [ -r "$GHOSTTY_BASH_RCFILE" ] && builtin source "$GHOSTTY_BASH_RCFILE"
@@ -96,9 +90,9 @@ if [[ "$GHOSTTY_SHELL_FEATURES" == *"sudo"* && -n "$TERMINFO" ]]; then
       fi
     done
     if [[ "$sudo_has_sudoedit_flags" == "yes" ]]; then
-      builtin command sudo "$@"
+      builtin command sudo "$@";
     else
-      builtin command sudo TERMINFO="$TERMINFO" "$@"
+      builtin command sudo TERMINFO="$TERMINFO" "$@";
     fi
   }
 fi
