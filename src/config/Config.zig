@@ -1927,18 +1927,32 @@ keybind: Keybinds = .{},
 /// Example: `cursor`, `no-cursor`, `sudo`, `no-sudo`, `title`, `no-title`
 @"shell-integration-features": ShellIntegrationFeatures = .{},
 
-/// SSH integration levels for shell integration.
-/// Controls how much SSH integration is performed when connecting to remote hosts.
+/// SSH integration configuration for shell integration.
+///
+/// When enabled (any value other than `off`), Ghostty replaces the `ssh` command
+/// with a shell function to provide enhanced terminal compatibility and feature
+/// propagation when connecting to remote hosts. Users can verify this by running
+/// `type ssh` which will show "ssh is a shell function" instead of the binary path.
 ///
 /// Allowable values are:
 ///
-///   * `off` - No SSH integration, use standard ssh command
+///   * `off` - No SSH integration, use standard ssh binary
 ///
-///   * `term-only` - Only fix TERM compatibility (xterm-ghostty -> xterm-256color)
+///   * `term-only` - Automatically converts TERM from `xterm-ghostty` to `xterm-256color`
+///     when connecting to remote hosts. This prevents "unknown terminal type" errors
+///     on systems that lack Ghostty's terminfo entry, but sacrifices Ghostty-specific
+///     terminal features like enhanced cursor reporting and shell integration markers.
+///     See: https://ghostty.org/docs/help/terminfo
 ///
-///   * `basic` - TERM fix + environment variable propagation
+///   * `basic` - TERM compatibility fix plus environment variable propagation.
+///     Forwards `GHOSTTY_SHELL_FEATURES` to enable shell integration features on
+///     remote systems that have Ghostty installed and configured.
 ///
-///   * `full` - All features: TERM fix + env vars + terminfo installation
+///   * `full` - All basic features plus automatic terminfo installation. Attempts
+///     to install Ghostty's terminfo entry on the remote host using `infocmp` and `tic`,
+///     then connects with full `xterm-ghostty` support. Requires two SSH authentications
+///     (one for installation, one for the session) but enables complete Ghostty
+///     terminal functionality on the remote system.
 ///
 /// The default value is `off`.
 @"ssh-integration": SSHIntegration = .off,
@@ -5898,20 +5912,7 @@ pub const ShellIntegrationFeatures = packed struct {
     title: bool = true,
 };
 
-/// SSH integration levels for shell integration.
-/// Controls how much SSH integration is performed when connecting to remote hosts.
-///
-/// Allowable values are:
-///
-///   * `off` - No SSH integration, use standard ssh command
-///
-///   * `term-only` - Only fix TERM compatibility (xterm-ghostty -> xterm-256color)
-///
-///   * `basic` - TERM fix + environment variable propagation
-///
-///   * `full` - All features: TERM fix + env vars + terminfo installation + shell integration injection
-///
-/// The default value is `off`.
+/// See ssh-integration
 pub const SSHIntegration = enum {
     off,
     @"term-only",
@@ -7455,3 +7456,4 @@ test "theme specifying light/dark sets theme usage in conditional state" {
         try testing.expect(cfg._conditional_set.contains(.theme));
     }
 }
+
