@@ -170,9 +170,7 @@ if [[ -n "$GHOSTTY_SSH_INTEGRATION" ]]; then
         env_vars+=("TERM=xterm-ghostty")
 
         # Propagate Ghostty shell integration environment variables
-        [[ -n "$GHOSTTY_SHELL_INTEGRATION_NO_CURSOR" ]] && env_vars+=("GHOSTTY_SHELL_INTEGRATION_NO_CURSOR=$GHOSTTY_SHELL_INTEGRATION_NO_CURSOR")
-        [[ -n "$GHOSTTY_SHELL_INTEGRATION_NO_SUDO" ]] && env_vars+=("GHOSTTY_SHELL_INTEGRATION_NO_SUDO=$GHOSTTY_SHELL_INTEGRATION_NO_SUDO")
-        [[ -n "$GHOSTTY_SHELL_INTEGRATION_NO_TITLE" ]] && env_vars+=("GHOSTTY_SHELL_INTEGRATION_NO_TITLE=$GHOSTTY_SHELL_INTEGRATION_NO_TITLE")
+        [[ -n "$GHOSTTY_SHELL_FEATURES" ]] && env_vars+=("GHOSTTY_SHELL_FEATURES=$GHOSTTY_SHELL_FEATURES")
 
         # Normal SSH connection with Ghostty terminfo available
         env "${env_vars[@]}" ssh "$@"

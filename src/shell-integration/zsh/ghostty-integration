@@ -280,11 +280,9 @@ _ghostty_deferred_init() {
         if [[ "$TERM" == "xterm-ghostty" ]]; then
           TERM=xterm-256color \
           GHOSTTY_SHELL_FEATURES="${GHOSTTY_SHELL_FEATURES}" \
-          GHOSTTY_RESOURCES_DIR="${GHOSTTY_RESOURCES_DIR}" \
           builtin command ssh "$@"
         else
           GHOSTTY_SHELL_FEATURES="${GHOSTTY_SHELL_FEATURES}" \
-          GHOSTTY_RESOURCES_DIR="${GHOSTTY_RESOURCES_DIR}" \
           builtin command ssh "$@"
         fi
       }
@@ -307,9 +305,7 @@ _ghostty_deferred_init() {
                   env_vars+=("TERM=xterm-ghostty")
                   
                   # Propagate Ghostty shell integration environment variables
-                  [[ -n "$GHOSTTY_SHELL_INTEGRATION_NO_CURSOR" ]] && env_vars+=("GHOSTTY_SHELL_INTEGRATION_NO_CURSOR=$GHOSTTY_SHELL_INTEGRATION_NO_CURSOR")
-                  [[ -n "$GHOSTTY_SHELL_INTEGRATION_NO_SUDO" ]] && env_vars+=("GHOSTTY_SHELL_INTEGRATION_NO_SUDO=$GHOSTTY_SHELL_INTEGRATION_NO_SUDO")
-                  [[ -n "$GHOSTTY_SHELL_INTEGRATION_NO_TITLE" ]] && env_vars+=("GHOSTTY_SHELL_INTEGRATION_NO_TITLE=$GHOSTTY_SHELL_INTEGRATION_NO_TITLE")
+                  [[ -n "$GHOSTTY_SHELL_FEATURES" ]] && env_vars+=("GHOSTTY_SHELL_FEATURES=$GHOSTTY_SHELL_FEATURES")
                   
                   # Normal SSH connection with Ghostty terminfo available
                   env "${env_vars[@]}" ssh "$@"

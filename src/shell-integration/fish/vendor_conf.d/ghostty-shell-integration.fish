@@ -126,10 +126,6 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
                 set env_vars $env_vars GHOSTTY_SHELL_FEATURES="$GHOSTTY_SHELL_FEATURES"
             end
 
-            if test -n "$GHOSTTY_RESOURCES_DIR"
-                set env_vars $env_vars GHOSTTY_RESOURCES_DIR="$GHOSTTY_RESOURCES_DIR"
-            end
-
             # Execute with environment variables if any were set
             if test (count $env_vars) -gt 0
                 env $env_vars ssh $argv
@@ -156,14 +152,8 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
                     set -a env_vars TERM=xterm-ghostty
 
                     # Propagate Ghostty shell integration environment variables
-                    if set -q GHOSTTY_SHELL_INTEGRATION_NO_CURSOR
-                        set -a env_vars GHOSTTY_SHELL_INTEGRATION_NO_CURSOR=$GHOSTTY_SHELL_INTEGRATION_NO_CURSOR
-                    end
-                    if set -q GHOSTTY_SHELL_INTEGRATION_NO_SUDO
-                        set -a env_vars GHOSTTY_SHELL_INTEGRATION_NO_SUDO=$GHOSTTY_SHELL_INTEGRATION_NO_SUDO
-                    end
-                    if set -q GHOSTTY_SHELL_INTEGRATION_NO_TITLE
-                        set -a env_vars GHOSTTY_SHELL_INTEGRATION_NO_TITLE=$GHOSTTY_SHELL_INTEGRATION_NO_TITLE
+                    if test -n "$GHOSTTY_SHELL_FEATURES"
+                        set env_vars $env_vars GHOSTTY_SHELL_FEATURES="$GHOSTTY_SHELL_FEATURES"
                     end
 
                     # Normal SSH connection with Ghostty terminfo available

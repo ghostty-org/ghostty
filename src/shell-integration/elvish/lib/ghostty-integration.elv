@@ -172,14 +172,10 @@
               set env-vars = [$@env-vars TERM=xterm-ghostty]
               
               # Propagate Ghostty shell integration environment variables
-              if (has-env GHOSTTY_SHELL_INTEGRATION_NO_CURSOR) {
-                  set env-vars = [$@env-vars GHOSTTY_SHELL_INTEGRATION_NO_CURSOR=$E:GHOSTTY_SHELL_INTEGRATION_NO_CURSOR]
-              }
-              if (has-env GHOSTTY_SHELL_INTEGRATION_NO_SUDO) {
-                  set env-vars = [$@env-vars GHOSTTY_SHELL_INTEGRATION_NO_SUDO=$E:GHOSTTY_SHELL_INTEGRATION_NO_SUDO]
-              }
-              if (has-env GHOSTTY_SHELL_INTEGRATION_NO_TITLE) {
-                  set env-vars = [$@env-vars GHOSTTY_SHELL_INTEGRATION_NO_TITLE=$E:GHOSTTY_SHELL_INTEGRATION_NO_TITLE]
+              if (has-env GHOSTTY_SHELL_FEATURES) {
+                if (not-eq "" $E:GHOSTTY_SHELL_FEATURES) {
+                  set env-vars = [$@env-vars GHOSTTY_SHELL_FEATURES=$E:GHOSTTY_SHELL_FEATURES]
+                }
               }
               
               # Normal SSH connection with Ghostty terminfo available
