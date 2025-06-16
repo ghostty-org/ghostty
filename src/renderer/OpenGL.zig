@@ -4,6 +4,7 @@ pub const OpenGL = @This();
 const std = @import("std");
 const builtin = @import("builtin");
 const glfw = @import("glfw");
+const wuffs = @import("wuffs");
 const assert = std.debug.assert;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
@@ -24,6 +25,7 @@ const math = @import("../math.zig");
 const Surface = @import("../Surface.zig");
 
 const CellProgram = @import("opengl/CellProgram.zig");
+const BackgroundImageProgram = @import("opengl/BackgroundImageProgram.zig");
 const ImageProgram = @import("opengl/ImageProgram.zig");
 const gl_image = @import("opengl/image.zig");
 const custom = @import("opengl/custom.zig");
@@ -42,6 +44,9 @@ else
     false;
 const DrawMutex = if (single_threaded_draw) std.Thread.Mutex else void;
 const drawMutexZero: DrawMutex = if (DrawMutex == void) void{} else .{};
+
+/// The maximum size of a background image.
+const max_image_size = 400 * 1024 * 1024; // 400MB
 
 alloc: std.mem.Allocator,
 
@@ -135,6 +140,22 @@ draw_mutex: DrawMutex = drawMutexZero,
 /// terminal is in reversed mode.
 draw_background: terminal.color.RGB,
 
+/// The background image(s) to draw. Currently, we always draw the last image.
+background_image: ?configpkg.Path,
+
+/// The opacity of the background image. Not to be confused with background-opacity
+background_image_opacity: f32,
+
+/// The background image mode to use.
+background_image_mode: configpkg.BackgroundImageMode,
+
+/// The background image position to use.
+background_image_position: configpkg.BackgroundImagePosition,
+
+/// The current background image to draw. If it is null, then we will not
+/// draw any background image.
+current_background_image: ?Image = null,
+
 /// Whether we're doing padding extension for vertical sides.
 padding_extend_top: bool = true,
 padding_extend_bottom: bool = true,
@@ -183,7 +204,7 @@ const SetScreenSize = struct {
         );
 
         // Update the projection uniform within our shader
-        inline for (.{ "cell_program", "image_program" }) |name| {
+        inline for (.{ "cell_program", "image_program", "bgimage_program" }) |name| {
             const program = @field(gl_state, name);
             const bind = try program.program.use();
             defer bind.unbind();
@@ -281,6 +302,10 @@ pub const DerivedConfig = struct {
     cursor_opacity: f64,
     background: terminal.color.RGB,
     background_opacity: f64,
+    background_image: ?configpkg.Path,
+    background_image_opacity: f32,
+    background_image_mode: configpkg.BackgroundImageMode,
+    background_image_position: configpkg.BackgroundImagePosition,
     foreground: terminal.color.RGB,
     selection_background: ?terminal.color.RGB,
     selection_foreground: ?terminal.color.RGB,
@@ -301,6 +326,9 @@ pub const DerivedConfig = struct {
 
         // Copy our shaders
         const custom_shaders = try config.@"custom-shader".clone(alloc);
+
+        // Copy our background image
+        const background_image = if (config.@"background-image") |v| try v.clone(alloc) else null;
 
         // Copy our font features
         const font_features = try config.@"font-feature".clone(alloc);
@@ -342,6 +370,12 @@ pub const DerivedConfig = struct {
 
             .background = config.background.toTerminalRGB(),
             .foreground = config.foreground.toTerminalRGB(),
+
+            .background_image = background_image,
+            .background_image_opacity = config.@"background-image-opacity",
+            .background_image_mode = config.@"background-image-mode",
+            .background_image_position = config.@"background-image-position",
+
             .invert_selection_fg_bg = config.@"selection-invert-fg-bg",
             .bold_is_bright = config.@"bold-is-bright",
             .min_contrast = @floatCast(config.@"minimum-contrast"),
@@ -406,6 +440,10 @@ pub fn init(alloc: Allocator, options: renderer.Options) !OpenGL {
         .default_background_color = options.config.background,
         .cursor_color = null,
         .default_cursor_color = options.config.cursor_color,
+        .background_image = options.config.background_image,
+        .background_image_opacity = options.config.background_image_opacity,
+        .background_image_mode = options.config.background_image_mode,
+        .background_image_position = options.config.background_image_position,
         .cursor_invert = options.config.cursor_invert,
         .surface_mailbox = options.surface_mailbox,
         .deferred_font_size = .{ .metrics = grid.metrics },
@@ -795,6 +833,23 @@ pub fn updateFrame(
             try self.prepKittyGraphics(state.terminal);
         }
 
+        if (self.current_background_image == null) {
+            if (self.background_image) |background_image| {
+                const img_path, const required = switch (background_image) {
+                    .optional => |path| .{ path, false },
+                    .required => |path| .{ path, true },
+                };
+                if (single_threaded_draw) self.draw_mutex.lock();
+                defer if (single_threaded_draw) self.draw_mutex.unlock();
+                self.prepBackgroundImage(img_path) catch |err| switch (err) {
+                    error.InvalidData => if (required) {
+                        log.err("error loading background image {s}: {}", .{ img_path, err });
+                    },
+                    else => return err,
+                };
+            }
+        }
+
         // If we have any terminal dirty flags set then we need to rebuild
         // the entire screen. This can be optimized in the future.
         const full_rebuild: bool = rebuild: {
@@ -1158,6 +1213,61 @@ fn prepKittyImage(
     }
 
     gop.value_ptr.transmit_time = image.transmit_time;
+}
+
+/// Prepares the current background image for upload
+pub fn prepBackgroundImage(self: *OpenGL, path: []const u8) !void {
+    // Read the file content
+    const file_content = try self.readImageContent(path);
+    defer self.alloc.free(file_content);
+
+    // Decode the image
+    const decoded_image: wuffs.ImageData = blk: {
+        // Extract the file extension
+        const ext = std.fs.path.extension(path);
+
+        // Match based on extension
+        if (std.ascii.eqlIgnoreCase(ext, ".png")) {
+            break :blk try wuffs.png.decode(self.alloc, file_content);
+        } else if (std.ascii.eqlIgnoreCase(ext, ".jpg") or std.ascii.eqlIgnoreCase(ext, ".jpeg")) {
+            break :blk try wuffs.jpeg.decode(self.alloc, file_content);
+        } else {
+            log.warn("unsupported image format: {s}", .{ext});
+            return error.InvalidData;
+        }
+    };
+    errdefer self.alloc.free(decoded_image.data);
+
+    // Copy the data into the pending state
+    const pending: Image.Pending = .{
+        .width = decoded_image.width,
+        .height = decoded_image.height,
+        .data = decoded_image.data.ptr,
+    };
+
+    // Store the image
+    self.current_background_image = .{ .pending_rgba = pending };
+}
+
+/// Reads the content of the given image path and returns it
+pub fn readImageContent(self: *OpenGL, path: []const u8) ![]u8 {
+    // Open the file
+    var file = std.fs.openFileAbsolute(path, .{}) catch |err| {
+        log.warn("failed to open file {s}: {}", .{ path, err });
+        return error.InvalidData;
+    };
+    defer file.close();
+
+    var buf_reader = std.io.bufferedReader(file.reader());
+    const reader = buf_reader.reader();
+
+    // Read the file
+    const image_content = reader.readAllAlloc(self.alloc, max_image_size) catch |err| {
+        log.warn("failed to read file: {}", .{err});
+        return error.InvalidData;
+    };
+
+    return image_content;
 }
 
 /// rebuildCells rebuilds all the GPU cells from our CPU state. This is a
@@ -2160,6 +2270,15 @@ pub fn changeConfig(self: *OpenGL, config: *DerivedConfig) !void {
     self.default_cursor_color = if (!config.cursor_invert) config.cursor_color else null;
     self.cursor_invert = config.cursor_invert;
 
+    // Reset current background image
+    self.background_image = config.background_image;
+    self.background_image_opacity = config.background_image_opacity;
+    self.background_image_mode = config.background_image_mode;
+    self.background_image_position = config.background_image_position;
+    if (self.current_background_image) |*img| {
+        img.markForUnload();
+    }
+
     // Update our uniforms
     self.deferred_config = .{};
 
@@ -2298,6 +2417,31 @@ pub fn drawFrame(self: *OpenGL, surface: *apprt.Surface) !void {
         }
     }
 
+    // Check if we need to update our current background image
+    if (self.current_background_image) |*current_background_image| {
+        switch (current_background_image.*) {
+            .ready => {},
+
+            .pending_gray,
+            .pending_gray_alpha,
+            .pending_rgb,
+            .pending_rgba,
+            .replace_gray,
+            .replace_gray_alpha,
+            .replace_rgb,
+            .replace_rgba,
+            => try current_background_image.upload(self.alloc),
+
+            .unload_pending,
+            .unload_replace,
+            .unload_ready,
+            => {
+                current_background_image.deinit(self.alloc);
+                self.current_background_image = null;
+            },
+        }
+    }
+
     // In the "OpenGL Programming Guide for Mac" it explains that: "When you
     // use an NSOpenGLView object with OpenGL calls that are issued from a
     // thread other than the main one, you must set up mutex locking."
@@ -2422,6 +2566,9 @@ fn drawCellProgram(
         );
     }
 
+    // Draw our background image if defined
+    try self.drawBackgroundImage(gl_state);
+
     // Draw background images first
     try self.drawImages(
         gl_state,
@@ -2444,6 +2591,46 @@ fn drawCellProgram(
     try self.drawImages(
         gl_state,
         self.image_placements.items[self.image_text_end..],
+    );
+}
+
+fn drawBackgroundImage(
+    self: *OpenGL,
+    gl_state: *const GLState,
+) !void {
+    // If we don't have a background image, just return
+    const current_background_image = self.current_background_image orelse return;
+
+    // Bind our background image program
+    const bind = try gl_state.bgimage_program.bind();
+    defer bind.unbind();
+
+    // Get the texture
+    const texture = switch (current_background_image) {
+        .ready => |t| t,
+        else => {
+            return;
+        },
+    };
+
+    // Bind the texture
+    try gl.Texture.active(gl.c.GL_TEXTURE0);
+    var texbind = try texture.bind(.@"2D");
+    defer texbind.unbind();
+
+    try bind.vbo.setData(BackgroundImageProgram.Input{
+        .terminal_width = self.size.terminal().width,
+        .terminal_height = self.size.terminal().height,
+        .mode = self.background_image_mode,
+        .position_index = self.background_image_position,
+    }, .static_draw);
+    try gl_state.bgimage_program.program.setUniform("opacity", self.config.background_image_opacity);
+
+    try gl.drawElementsInstanced(
+        gl.c.GL_TRIANGLES,
+        6,
+        gl.c.GL_UNSIGNED_BYTE,
+        1,
     );
 }
 
@@ -2572,6 +2759,7 @@ fn drawCells(
 /// easy to create/destroy these as a set in situations i.e. where the
 /// OpenGL context is replaced.
 const GLState = struct {
+    bgimage_program: BackgroundImageProgram,
     cell_program: CellProgram,
     image_program: ImageProgram,
     texture: gl.Texture,
@@ -2657,6 +2845,10 @@ const GLState = struct {
             );
         }
 
+        // Build our background image renderer
+        const bgimage_program = try BackgroundImageProgram.init();
+        errdefer bgimage_program.deinit();
+
         // Build our cell renderer
         const cell_program = try CellProgram.init();
         errdefer cell_program.deinit();
@@ -2666,6 +2858,7 @@ const GLState = struct {
         errdefer image_program.deinit();
 
         return .{
+            .bgimage_program = bgimage_program,
             .cell_program = cell_program,
             .image_program = image_program,
             .texture = tex,
@@ -2678,6 +2871,7 @@ const GLState = struct {
         if (self.custom) |v| v.deinit(alloc);
         self.texture.destroy();
         self.texture_color.destroy();
+        self.bgimage_program.deinit();
         self.image_program.deinit();
         self.cell_program.deinit();
     }
