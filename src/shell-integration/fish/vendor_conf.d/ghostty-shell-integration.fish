@@ -87,7 +87,7 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
     end
 
     # SSH integration wrapper
-    if test -n "$GHOSTTY_SSH_INTEGRATION"; and test "$GHOSTTY_SSH_INTEGRATION" != off
+    if test -n "$GHOSTTY_SSH_INTEGRATION"
         function ssh -d "Wrap ssh to provide Ghostty SSH integration"
             switch "$GHOSTTY_SSH_INTEGRATION"
                 case term-only

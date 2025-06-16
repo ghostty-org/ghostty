@@ -103,7 +103,7 @@ if [[ "$GHOSTTY_SHELL_FEATURES" == *"sudo"* && -n "$TERMINFO" ]]; then
   }
 fi
 
-if [[ -n "$GHOSTTY_SSH_INTEGRATION" && "$GHOSTTY_SSH_INTEGRATION" != "off" ]]; then
+if [[ -n "$GHOSTTY_SSH_INTEGRATION" ]]; then
   # Wrap `ssh` command to provide Ghostty SSH integration.
   #
   # This approach supports wrapping an `ssh` alias, but the alias definition

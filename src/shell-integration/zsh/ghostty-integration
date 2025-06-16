@@ -245,7 +245,7 @@ _ghostty_deferred_init() {
     fi
     
     # SSH
-    if [[ -n "$GHOSTTY_SSH_INTEGRATION" && "$GHOSTTY_SSH_INTEGRATION" != "off" ]]; then
+    if [[ -n "$GHOSTTY_SSH_INTEGRATION" ]]; then
       # Wrap `ssh` command to provide Ghostty SSH integration
       ssh() {
         case "$GHOSTTY_SSH_INTEGRATION" in

@@ -99,7 +99,7 @@
   }
 
   fn ssh-with-ghostty-integration {|@args|
-    if (and (has-env GHOSTTY_SSH_INTEGRATION) (not-eq "" $E:GHOSTTY_SSH_INTEGRATION) (not-eq "off" $E:GHOSTTY_SSH_INTEGRATION)) {
+    if (has-env GHOSTTY_SSH_INTEGRATION) {
       if (eq "term-only" $E:GHOSTTY_SSH_INTEGRATION) {
         ssh-term-only $@args
       } elif (eq "basic" $E:GHOSTTY_SSH_INTEGRATION) {
@@ -195,7 +195,7 @@
   }
 
   # Register SSH integration if enabled
-  if (and (has-env GHOSTTY_SSH_INTEGRATION) (not-eq "" $E:GHOSTTY_SSH_INTEGRATION) (not-eq "off" $E:GHOSTTY_SSH_INTEGRATION) (has-external ssh)) {
+  if (and (has-env GHOSTTY_SSH_INTEGRATION) (has-external ssh)) {
     edit:add-var ssh~ $ssh-with-ghostty-integration~
   }
 
