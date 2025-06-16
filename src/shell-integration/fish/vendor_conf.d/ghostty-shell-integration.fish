@@ -118,12 +118,12 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
 
             # Fix TERM compatibility
             if test "$TERM" = xterm-ghostty
-                set env_vars $env_vars TERM=xterm-256color
+                set --append env_vars TERM=xterm-256color
             end
 
             # Propagate Ghostty shell integration environment variables
             if test -n "$GHOSTTY_SHELL_FEATURES"
-                set env_vars $env_vars GHOSTTY_SHELL_FEATURES="$GHOSTTY_SHELL_FEATURES"
+                set --append env_vars GHOSTTY_SHELL_FEATURES="$GHOSTTY_SHELL_FEATURES"
             end
 
             # Execute with environment variables if any were set
@@ -137,7 +137,7 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
         # Level: full - All features
         function _ghostty_ssh_full
             # Full integration: Two-step terminfo installation
-            if command -v infocmp >/dev/null 2>&1
+            if type -q infocmp
                 echo "Installing Ghostty terminfo on remote host..." >&2
 
                 # Step 1: Install terminfo using the same approach that works manually
@@ -153,7 +153,7 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
 
                     # Propagate Ghostty shell integration environment variables
                     if test -n "$GHOSTTY_SHELL_FEATURES"
-                        set env_vars $env_vars GHOSTTY_SHELL_FEATURES="$GHOSTTY_SHELL_FEATURES"
+                        set --append env_vars GHOSTTY_SHELL_FEATURES="$GHOSTTY_SHELL_FEATURES"
                     end
 
                     # Normal SSH connection with Ghostty terminfo available
