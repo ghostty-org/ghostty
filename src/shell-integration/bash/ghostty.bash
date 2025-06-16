@@ -103,6 +103,7 @@ if [[ "$GHOSTTY_SHELL_FEATURES" == *"sudo"* && -n "$TERMINFO" ]]; then
   }
 fi
 
+# SSH
 if [[ -n "$GHOSTTY_SSH_INTEGRATION" ]]; then
   # Wrap `ssh` command to provide Ghostty SSH integration.
   #
@@ -190,7 +191,6 @@ if [[ -n "$GHOSTTY_SSH_INTEGRATION" ]]; then
     # Fallback to basic integration
     _ghostty_ssh_basic "$@"
   }
-
 fi
 
 # Import bash-preexec, safe to do multiple times
@@ -202,68 +202,68 @@ _ghostty_executing=""
 _ghostty_last_reported_cwd=""
 
 function __ghostty_precmd() {
-  local ret="$?"
-  if test "$_ghostty_executing" != "0"; then
-    _GHOSTTY_SAVE_PS0="$PS0"
-    _GHOSTTY_SAVE_PS1="$PS1"
-    _GHOSTTY_SAVE_PS2="$PS2"
+    local ret="$?"
+    if test "$_ghostty_executing" != "0"; then
+      _GHOSTTY_SAVE_PS0="$PS0"
+      _GHOSTTY_SAVE_PS1="$PS1"
+      _GHOSTTY_SAVE_PS2="$PS2"
 
-    # Marks
-    PS1=$PS1'\[\e]133;B\a\]'
-    PS2=$PS2'\[\e]133;B\a\]'
+      # Marks
+      PS1=$PS1'\[\e]133;B\a\]'
+      PS2=$PS2'\[\e]133;B\a\]'
 
-    # bash doesn't redraw the leading lines in a multiline prompt so
-    # mark the last line as a secondary prompt (k=s) to prevent the
-    # preceding lines from being erased by ghostty after a resize.
-    if [[ "${PS1}" == *"\n"* || "${PS1}" == *$'\n'* ]]; then
-      PS1=$PS1'\[\e]133;A;k=s\a\]'
+      # bash doesn't redraw the leading lines in a multiline prompt so
+      # mark the last line as a secondary prompt (k=s) to prevent the
+      # preceding lines from being erased by ghostty after a resize.
+      if [[ "${PS1}" == *"\n"* || "${PS1}" == *$'\n'* ]]; then
+        PS1=$PS1'\[\e]133;A;k=s\a\]'
+      fi
+
+      # Cursor
+      if [[ "$GHOSTTY_SHELL_FEATURES" == *"cursor"* ]]; then
+        PS1=$PS1'\[\e[5 q\]'
+        PS0=$PS0'\[\e[0 q\]'
+      fi
+
+      # Title (working directory)
+      if [[ "$GHOSTTY_SHELL_FEATURES" == *"title"* ]]; then
+        PS1=$PS1'\[\e]2;\w\a\]'
+      fi
     fi
 
-    # Cursor
-    if [[ "$GHOSTTY_SHELL_FEATURES" == *"cursor"* ]]; then
-      PS1=$PS1'\[\e[5 q\]'
-      PS0=$PS0'\[\e[0 q\]'
+    if test "$_ghostty_executing" != ""; then
+      # End of current command. Report its status.
+      builtin printf "\e]133;D;%s;aid=%s\a" "$ret" "$BASHPID"
     fi
 
-    # Title (working directory)
-    if [[ "$GHOSTTY_SHELL_FEATURES" == *"title"* ]]; then
-      PS1=$PS1'\[\e]2;\w\a\]'
+    # unfortunately bash provides no hooks to detect cwd changes
+    # in particular this means cwd reporting will not happen for a
+    # command like cd /test && cat. PS0 is evaluated before cd is run.
+    if [[ "$_ghostty_last_reported_cwd" != "$PWD" ]]; then
+      _ghostty_last_reported_cwd="$PWD"
+      builtin printf "\e]7;kitty-shell-cwd://%s%s\a" "$HOSTNAME" "$PWD"
     fi
-  fi
 
-  if test "$_ghostty_executing" != ""; then
-    # End of current command. Report its status.
-    builtin printf "\e]133;D;%s;aid=%s\a" "$ret" "$BASHPID"
-  fi
-
-  # unfortunately bash provides no hooks to detect cwd changes
-  # in particular this means cwd reporting will not happen for a
-  # command like cd /test && cat. PS0 is evaluated before cd is run.
-  if [[ "$_ghostty_last_reported_cwd" != "$PWD" ]]; then
-    _ghostty_last_reported_cwd="$PWD"
-    builtin printf "\e]7;kitty-shell-cwd://%s%s\a" "$HOSTNAME" "$PWD"
-  fi
-
-  # Fresh line and start of prompt.
-  builtin printf "\e]133;A;aid=%s\a" "$BASHPID"
-  _ghostty_executing=0
+    # Fresh line and start of prompt.
+    builtin printf "\e]133;A;aid=%s\a" "$BASHPID"
+    _ghostty_executing=0
 }
 
 function __ghostty_preexec() {
-  builtin local cmd="$1"
+    builtin local cmd="$1"
 
-  PS0="$_GHOSTTY_SAVE_PS0"
-  PS1="$_GHOSTTY_SAVE_PS1"
-  PS2="$_GHOSTTY_SAVE_PS2"
+    PS0="$_GHOSTTY_SAVE_PS0"
+    PS1="$_GHOSTTY_SAVE_PS1"
+    PS2="$_GHOSTTY_SAVE_PS2"
 
-  # Title (current command)
-  if [[ -n $cmd && "$GHOSTTY_SHELL_FEATURES" == *"title"* ]]; then
-    builtin printf "\e]2;%s\a" "${cmd//[[:cntrl:]]/}"
-  fi
+    # Title (current command)
+    if [[ -n $cmd && "$GHOSTTY_SHELL_FEATURES" == *"title"* ]]; then
+      builtin printf "\e]2;%s\a" "${cmd//[[:cntrl:]]}"
+    fi
 
-  # End of input, start of output.
-  builtin printf "\e]133;C;\a"
-  _ghostty_executing=1
+    # End of input, start of output.
+    builtin printf "\e]133;C;\a"
+    _ghostty_executing=1
 }
 
 preexec_functions+=(__ghostty_preexec)
