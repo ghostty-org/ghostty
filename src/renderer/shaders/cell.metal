@@ -23,6 +23,8 @@ struct Uniforms {
   bool use_display_p3;
   bool use_linear_blending;
   bool use_linear_correction;
+  bool has_bg_image;
+  float bg_image_opacity;
 };
 
 //-------------------------------------------------------------------
@@ -255,12 +257,12 @@ fragment float4 cell_bg_fragment(
   int2 grid_pos = int2(floor((in.position.xy - uniforms.grid_padding.wx) / uniforms.cell_size));
 
   float4 bg = float4(0.0);
-  // If we have any background transparency then we render bg-colored cells as
-  // fully transparent, since the background is handled by the layer bg color
-  // and we don't want to double up our bg color, but if our bg color is fully
-  // opaque then our layer is opaque and can't handle transparency, so we need
-  // to return the bg color directly instead.
-  if (uniforms.bg_color.a == 255) {
+  // If we have any background transparency or a background image, then we
+  // render bg-colored cells as fully transparent, since the background is
+  // handled by the layer bg color and we don't want to double up our bg color.
+  // But if our bg color is fully opaque, then our layer is opaque and can't
+  // handle transparency, so we need to return the bg color directly instead.
+  if (uniforms.bg_color.a == 255 && !uniforms.has_bg_image) {
     bg = in.bg_color;
   }
 
@@ -677,3 +679,112 @@ fragment float4 image_fragment(
   return rgba;
 }
 
+//-------------------------------------------------------------------
+// Background Image Shader
+//-------------------------------------------------------------------
+#pragma mark - BG Image Shader
+
+enum BgImageMode : uint8_t {
+  MODE_CONTAIN =  0u,
+  MODE_FILL = 1u,
+  MODE_COVER = 2u,
+  MODE_TILED = 3u,
+  MODE_NONE = 4u,
+};
+
+struct BgImageVertexIn {
+  float2 terminal_size [[attribute(0)]];
+  uint8_t mode [[attribute(1)]];
+  uint8_t position_index [[attribute(2)]];
+};
+
+struct BgImageVertexOut {
+  float4 position [[position]];
+  float2 tex_coord;
+};
+
+vertex BgImageVertexOut bg_image_vertex(
+  uint vid [[vertex_id]],
+  BgImageVertexIn in [[stage_in]],
+  texture2d<float> image [[texture(0)]],
+  constant Uniforms& uniforms [[buffer(1)]]
+) {
+  BgImageVertexOut out;
+
+  // Calculate the position of the image
+  float2 position;
+  position.x = (vid == 0 || vid == 1) ? 1.0 : 0.0;
+  position.y = (vid == 0 || vid == 3) ? 0.0 : 1.0;
+
+  // Get the size of the image
+  float2 image_size = float2(image.get_width(), image.get_height());
+
+  // Handles the scale of the image relative to the terminal size
+  float2 scale = float2(1.0, 1.0);
+
+  // Calculate the aspect ratio of the terminal and the image
+  float2 aspect_ratio = float2(
+      in.terminal_size.x / in.terminal_size.y,
+      image_size.x / image_size.y
+  );
+
+  switch (in.mode) {
+    case MODE_CONTAIN: {
+        // Scale to fit the terminal size
+        if (aspect_ratio.x > aspect_ratio.y) {
+            scale.x = aspect_ratio.y / aspect_ratio.x;
+        } else {
+            scale.y = aspect_ratio.x / aspect_ratio.y;
+        }
+        break;
+    }
+    case MODE_COVER: {
+        // Scale to fit the terminal size
+        if (aspect_ratio.x < aspect_ratio.y) {
+          scale.x = aspect_ratio.y / aspect_ratio.x;
+        } else {
+          scale.y = aspect_ratio.x / aspect_ratio.y;
+        }
+        break;
+    }
+    case MODE_NONE: {
+        // Scale to match the actual size of the image
+        scale.x = image_size.x / in.terminal_size.x;
+        scale.y = image_size.y / in.terminal_size.y;
+        break;
+    }
+    case MODE_FILL:
+    case MODE_TILED:
+        // No adjustments needed
+        break;
+  }
+
+  float2 final_image_size = in.terminal_size * position * scale;
+
+  uint y_pos = in.position_index / 3u; // 0 = top, 1 = center, 2 = bottom
+  uint x_pos = in.position_index % 3u; // 0 = left, 1 = center, 2 = right
+  float2 offset = float2(x_pos, y_pos) * (in.terminal_size) * (1.0 - scale) / 2.0;
+
+  out.position = uniforms.projection_matrix * float4(final_image_size + offset, 0.0, 1.0);
+  out.tex_coord = position;
+  if (in.mode == MODE_TILED) {
+      out.tex_coord = position * in.terminal_size / image_size;
+  }
+
+  return out;
+}
+
+fragment float4 bg_image_fragment(
+  BgImageVertexOut in [[stage_in]],
+  texture2d<float> image [[texture(0)]],
+  constant Uniforms& uniforms [[buffer(1)]]
+) {
+  constexpr sampler textureSampler(address::repeat, filter::linear);
+  float2 norm_coord = fract(in.tex_coord);
+  float4 color = image.sample(textureSampler, norm_coord);
+  if (!uniforms.use_linear_blending) {
+      color = unlinearize(color);
+  }
+
+  return float4(color.rgb * color.a * uniforms.bg_image_opacity, color.a * uniforms.bg_image_opacity);
+}
