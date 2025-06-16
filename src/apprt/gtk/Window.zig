@@ -55,6 +55,9 @@ window: *adw.ApplicationWindow,
 /// The header bar for the window.
 headerbar: HeaderBar,
 
+/// The tab bar for the window.
+tab_bar: *adw.TabBar,
+
 /// The tab overview for the window. This is possibly null since there is no
 /// taboverview without a AdwApplicationWindow (libadwaita >= 1.4.0).
 tab_overview: ?*adw.TabOverview,
@@ -86,6 +89,7 @@ pub const DerivedConfig = struct {
     gtk_tabs_location: configpkg.Config.GtkTabsLocation,
     gtk_wide_tabs: bool,
     gtk_toolbar_style: configpkg.Config.GtkToolbarStyle,
+    window_show_tab_bar: configpkg.Config.WindowShowTabBar,
 
     quick_terminal_position: configpkg.Config.QuickTerminalPosition,
     quick_terminal_size: configpkg.Config.QuickTerminalSize,
@@ -106,6 +110,7 @@ pub const DerivedConfig = struct {
             .gtk_tabs_location = config.@"gtk-tabs-location",
             .gtk_wide_tabs = config.@"gtk-wide-tabs",
             .gtk_toolbar_style = config.@"gtk-toolbar-style",
+            .window_show_tab_bar = config.@"window-show-tab-bar",
 
             .quick_terminal_position = config.@"quick-terminal-position",
             .quick_terminal_size = config.@"quick-terminal-size",
@@ -141,6 +146,7 @@ pub fn init(self: *Window, app: *App) !void {
         .config = .init(&app.config),
         .window = undefined,
         .headerbar = undefined,
+        .tab_bar = undefined,
         .tab_overview = null,
         .notebook = undefined,
         .titlebar_menu = undefined,
@@ -225,8 +231,9 @@ pub fn init(self: *Window, app: *App) !void {
     // If we're using an AdwWindow then we can support the tab overview.
     if (self.tab_overview) |tab_overview| {
         if (!adw_version.supportsTabOverview()) unreachable;
-        const btn = switch (self.config.gtk_tabs_location) {
-            .top, .bottom => btn: {
+
+        const btn = switch (self.config.window_show_tab_bar) {
+            .always, .auto => btn: {
                 const btn = gtk.ToggleButton.new();
                 btn.as(gtk.Widget).setTooltipText(i18n._("View Open Tabs"));
                 btn.as(gtk.Button).setIconName("view-grid-symbolic");
@@ -238,8 +245,7 @@ pub fn init(self: *Window, app: *App) !void {
                 );
                 break :btn btn.as(gtk.Widget);
             },
-
-            .hidden => btn: {
+            .never => btn: {
                 const btn = adw.TabButton.new();
                 btn.setView(self.notebook.tab_view);
                 btn.as(gtk.Actionable).setActionName("overview.open");
@@ -385,21 +391,16 @@ pub fn init(self: *Window, app: *App) !void {
     // Our actions for the menu
     initActions(self);
 
+    self.tab_bar = adw.TabBar.new();
+    self.tab_bar.setView(self.notebook.tab_view);
+
     if (adw_version.supportsToolbarView()) {
         const toolbar_view = adw.ToolbarView.new();
         toolbar_view.addTopBar(self.headerbar.asWidget());
 
-        if (self.config.gtk_tabs_location != .hidden) {
-            const tab_bar = adw.TabBar.new();
-            tab_bar.setView(self.notebook.tab_view);
-
-            if (!self.config.gtk_wide_tabs) tab_bar.setExpandTabs(0);
-
-            switch (self.config.gtk_tabs_location) {
-                .top => toolbar_view.addTopBar(tab_bar.as(gtk.Widget)),
-                .bottom => toolbar_view.addBottomBar(tab_bar.as(gtk.Widget)),
-                .hidden => unreachable,
-            }
+        switch (self.config.gtk_tabs_location) {
+            .top => toolbar_view.addTopBar(self.tab_bar.as(gtk.Widget)),
+            .bottom => toolbar_view.addBottomBar(self.tab_bar.as(gtk.Widget)),
         }
         toolbar_view.setContent(box.as(gtk.Widget));
 
@@ -414,23 +415,18 @@ pub fn init(self: *Window, app: *App) !void {
         // Set our application window content.
         self.tab_overview.?.setChild(toolbar_view.as(gtk.Widget));
         self.window.setContent(self.tab_overview.?.as(gtk.Widget));
-    } else tab_bar: {
-        if (self.config.gtk_tabs_location == .hidden) break :tab_bar;
+    } else {
         // In earlier adwaita versions, we need to add the tabbar manually since we do not use
         // an AdwToolbarView.
-        const tab_bar = adw.TabBar.new();
-        tab_bar.as(gtk.Widget).addCssClass("inline");
+        self.tab_bar.as(gtk.Widget).addCssClass("inline");
+
         switch (self.config.gtk_tabs_location) {
             .top => box.insertChildAfter(
-                tab_bar.as(gtk.Widget),
+                self.tab_bar.as(gtk.Widget),
                 self.headerbar.asWidget(),
             ),
-            .bottom => box.append(tab_bar.as(gtk.Widget)),
-            .hidden => unreachable,
+            .bottom => box.append(self.tab_bar.as(gtk.Widget)),
         }
-        tab_bar.setView(self.notebook.tab_view);
-
-        if (!self.config.gtk_wide_tabs) tab_bar.setExpandTabs(0);
     }
 
     // If we want the window to be maximized, we do that here.
@@ -554,6 +550,16 @@ pub fn syncAppearance(self: *Window) !void {
             toolbar_view.setBottomBarStyle(toolbar_style);
         }
     }
+
+    self.tab_bar.setExpandTabs(@intFromBool(self.config.gtk_wide_tabs));
+    self.tab_bar.setAutohide(switch (self.config.window_show_tab_bar) {
+        .auto, .never => @intFromBool(true),
+        .always => @intFromBool(false),
+    });
+    self.tab_bar.as(gtk.Widget).setVisible(switch (self.config.window_show_tab_bar) {
+        .always, .auto => @intFromBool(true),
+        .never => @intFromBool(false),
+    });
 
     self.winproto.syncAppearance() catch |err| {
         log.warn("failed to sync winproto appearance error={}", .{err});
