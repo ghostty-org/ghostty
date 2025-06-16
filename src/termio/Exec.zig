@@ -418,6 +418,11 @@ fn processExitCommon(td: *termio.Termio.ThreadData, exit_code: u32) void {
         return;
     }
 
+    // Notify our surface that the child process has exited
+    _ = td.surface_mailbox.push(.{
+        .child_exited = {},
+    }, .{ .forever = {} });
+
     // We output a message so that the user knows whats going on and
     // doesn't think their terminal just froze. We show this unconditionally
     // on close even if `wait_after_command` is false and the surface closes
@@ -442,7 +447,7 @@ fn processExitCommon(td: *termio.Termio.ThreadData, exit_code: u32) void {
 
     // Notify our surface we want to close
     _ = td.surface_mailbox.push(.{
-        .child_exited = {},
+        .close = {},
     }, .{ .forever = {} });
 }
 
@@ -568,6 +573,9 @@ pub fn queueWrite(
     if (exec.exited) {
         _ = td.surface_mailbox.push(.{
             .child_exited = {},
+        }, .{ .forever = {} });
+        _ = td.surface_mailbox.push(.{
+            .close = {},
         }, .{ .forever = {} });
         return;
     }
