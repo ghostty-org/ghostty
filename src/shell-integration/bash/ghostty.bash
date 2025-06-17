@@ -157,16 +157,12 @@ if [[ -n "$GHOSTTY_SSH_INTEGRATION" ]]; then
     if builtin command -v infocmp >/dev/null 2>&1; then
       echo "Installing Ghostty terminfo on remote host..." >&2
 
-      # Step 1: Install terminfo using the same approach that works manually
-      # This requires authentication but is quick and reliable
-      if infocmp -x xterm-ghostty 2>/dev/null | builtin command ssh "$@" 'mkdir -p ~/.terminfo/x 2>/dev/null && tic -x -o ~/.terminfo /dev/stdin 2>/dev/null'; then
+      # Step 1: Install terminfo
+      if infocmp -x xterm-ghostty 2>/dev/null | builtin command ssh "$@" 'tic -x - 2>/dev/null'; then
         echo "Terminfo installed successfully. Connecting with full Ghostty support..." >&2
 
         # Step 2: Connect with xterm-ghostty since we know terminfo is now available
-        local env_vars=()
-
-        # Use xterm-ghostty since we just installed it
-        env_vars+=("TERM=xterm-ghostty")
+        local env_vars=("TERM=xterm-ghostty")
 
         # Propagate Ghostty shell integration environment variables
         [[ -n "$GHOSTTY_SHELL_FEATURES" ]] && env_vars+=("GHOSTTY_SHELL_FEATURES=$GHOSTTY_SHELL_FEATURES")
@@ -174,9 +170,8 @@ if [[ -n "$GHOSTTY_SSH_INTEGRATION" ]]; then
         # Normal SSH connection with Ghostty terminfo available
         env "${env_vars[@]}" ssh "$@"
         builtin return 0
-      else
-        echo "Terminfo installation failed. Using basic integration." >&2
       fi
+      echo "Terminfo installation failed. Using basic integration." >&2
     fi
 
     # Fallback to basic integration
