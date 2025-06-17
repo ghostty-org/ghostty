@@ -118,7 +118,7 @@
   fn ssh-term-only {|@args|
     # Level: term-only - Just fix TERM compatibility
     if (eq "xterm-ghostty" $E:TERM) {
-      TERM=xterm-256color (external ssh) $@args
+      (external env) TERM=xterm-256color ssh $@args
     } else {
       (external ssh) $@args
     }
@@ -179,7 +179,7 @@
               }
               
               # Normal SSH connection with Ghostty terminfo available
-              env $@env-vars ssh $@args
+              (external env) $@env-vars ssh $@args
               return
           } catch e {
               echo "Terminfo installation failed. Using basic integration." >&2
