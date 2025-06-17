@@ -140,12 +140,6 @@
       }
     }
     
-    if (has-env GHOSTTY_RESOURCES_DIR) {
-      if (not-eq "" $E:GHOSTTY_RESOURCES_DIR) {
-        set env-vars = [$@env-vars GHOSTTY_RESOURCES_DIR=$E:GHOSTTY_RESOURCES_DIR]
-      }
-    }
-    
     # Execute with environment variables if any were set
     if (> (count $env-vars) 0) {
       (external env) $@env-vars ssh $@args
