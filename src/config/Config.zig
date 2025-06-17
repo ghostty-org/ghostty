@@ -1936,7 +1936,7 @@ keybind: Keybinds = .{},
 ///
 /// Allowable values are:
 ///
-///   * `off` - No SSH integration, use standard ssh binary
+///   * `off` - No SSH integration, use standard ssh binary.
 ///
 ///   * `term-only` - Automatically converts TERM from `xterm-ghostty` to `xterm-256color`
 ///     when connecting to remote hosts. This prevents "unknown terminal type" errors
