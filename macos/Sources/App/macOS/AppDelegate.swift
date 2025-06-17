@@ -18,6 +18,7 @@ class AppDelegate: NSObject,
     )
 
     /// Various menu items so that we can programmatically sync the keyboard shortcut with the Ghostty config
+    @IBOutlet private var menuAbout: NSMenuItem?
     @IBOutlet private var menuServices: NSMenu?
     @IBOutlet private var menuCheckForUpdates: NSMenuItem?
     @IBOutlet private var menuOpenConfig: NSMenuItem?
@@ -399,6 +400,11 @@ class AppDelegate: NSObject,
     private func setupMenuImages() {
         // Note: This COULD Be done all in the xib file, but I find it easier to
         // modify this stuff as code.
+        self.menuAbout?.setImageIfDesired(systemSymbolName: "info.circle")
+        self.menuCheckForUpdates?.setImageIfDesired(systemSymbolName: "square.and.arrow.down")
+        self.menuOpenConfig?.setImageIfDesired(systemSymbolName: "gear")
+        self.menuReloadConfig?.setImageIfDesired(systemSymbolName: "arrow.trianglehead.2.clockwise.rotate.90")
+        self.menuSecureInput?.setImageIfDesired(systemSymbolName: "lock.display")
         self.menuNewWindow?.setImageIfDesired(systemSymbolName: "macwindow.badge.plus")
         self.menuNewTab?.setImageIfDesired(systemSymbolName: "macwindow")
         self.menuSplitRight?.setImageIfDesired(systemSymbolName: "rectangle.righthalf.inset.filled")

@@ -138,6 +138,9 @@ extension Ghostty {
         // by the user, this is set to the prior value (which may be empty, but non-nil).
         private var titleFromTerminal: String?
 
+        // The cached contents of the screen.
+        private var cachedScreenContents: CachedValue<String>
+
         /// Event monitor (see individual events for why)
         private var eventMonitor: Any? = nil
 
@@ -159,10 +162,37 @@ extension Ghostty {
                 self.derivedConfig = DerivedConfig()
             }
 
+            // We need to initialize this so it does something but we want to set
+            // it back up later so we can reference `self`. This is a hack we should
+            // fix at some point.
+            self.cachedScreenContents = .init(duration: .milliseconds(500)) { "" }
+
             // Initialize with some default frame size. The important thing is that this
             // is non-zero so that our layer bounds are non-zero so that our renderer
             // can do SOMETHING.
             super.init(frame: NSMakeRect(0, 0, 800, 600))
+
+            // Our cache of screen data
+            cachedScreenContents = .init(duration: .milliseconds(500)) { [weak self] in
+                guard let self else { return "" }
+                guard let surface = self.surface else { return "" }
+                var text = ghostty_text_s()
+                let sel = ghostty_selection_s(
+                    top_left: ghostty_point_s(
+                        tag: GHOSTTY_POINT_SCREEN,
+                        coord: GHOSTTY_POINT_COORD_TOP_LEFT,
+                        x: 0,
+                        y: 0),
+                    bottom_right: ghostty_point_s(
+                        tag: GHOSTTY_POINT_SCREEN,
+                        coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+                        x: 0,
+                        y: 0),
+                    rectangle: false)
+                guard ghostty_surface_read_text(surface, sel, &text) else { return "" }
+                defer { ghostty_surface_free_text(surface, &text) }
+                return String(cString: text.text)
+            }
 
             // Set a timer to show the ghost emoji after 500ms if no title is set
             titleFallbackTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
@@ -1215,11 +1245,10 @@ extension Ghostty {
             guard let surface = self.surface else { return super.quickLook(with: event) }
 
             // Grab the text under the cursor
-            var info: ghostty_selection_s = ghostty_selection_s();
-            let text = String(unsafeUninitializedCapacity: 1000000) {
-                Int(ghostty_surface_quicklook_word(surface, $0.baseAddress, UInt($0.count), &info))
-            }
-            guard !text.isEmpty  else { return super.quickLook(with: event) }
+            var text = ghostty_text_s()
+            guard ghostty_surface_quicklook_word(surface, &text) else { return super.quickLook(with: event) }
+            defer { ghostty_surface_free_text(surface, &text) }
+            guard text.text_len > 0  else { return super.quickLook(with: event) }
 
             // If we can get a font then we use the font. This should always work
             // since we always have a primary font. The only scenario this doesn't
@@ -1236,8 +1265,8 @@ extension Ghostty {
             }
 
             // Ghostty coordinate system is top-left, convert to bottom-left for AppKit
-            let pt = NSMakePoint(info.tl_px_x, frame.size.height - info.tl_px_y)
-            let str = NSAttributedString.init(string: text, attributes: attributes)
+            let pt = NSMakePoint(text.tl_px_x, frame.size.height - text.tl_px_y)
+            let str = NSAttributedString.init(string: String(cString: text.text), attributes: attributes)
             self.showDefinition(for: str, at: pt);
         }
 
@@ -1522,9 +1551,10 @@ extension Ghostty.SurfaceView: NSTextInputClient {
         // Get our range from the Ghostty API. There is a race condition between getting the
         // range and actually using it since our selection may change but there isn't a good
         // way I can think of to solve this for AppKit.
-        var sel: ghostty_selection_s = ghostty_selection_s();
-        guard ghostty_surface_selection_info(surface, &sel) else { return NSRange() }
-        return NSRange(location: Int(sel.offset_start), length: Int(sel.offset_len))
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_selection(surface, &text) else { return NSRange() }
+        defer { ghostty_surface_free_text(surface, &text) }
+        return NSRange(location: Int(text.offset_start), length: Int(text.offset_len))
     }
 
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
@@ -1562,7 +1592,6 @@ extension Ghostty.SurfaceView: NSTextInputClient {
     func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
         // Ghostty.logger.warning("pressure substring range=\(range) selectedRange=\(self.selectedRange())")
         guard let surface = self.surface else { return nil }
-        guard ghostty_surface_has_selection(surface) else { return nil }
 
         // If the range is empty then we don't need to return anything
         guard range.length > 0 else { return nil }
@@ -1572,11 +1601,10 @@ extension Ghostty.SurfaceView: NSTextInputClient {
         // bogus ranges I truly don't understand so we just always return the
         // attributed string containing our selection which is... weird but works?
 
-        // Get our selection. We cap it at 1MB for the purpose of this. This is
-        // arbitrary. If this is a good reason to increase it I'm happy to.
-        let v = String(unsafeUninitializedCapacity: 1000000) {
-            Int(ghostty_surface_selection(surface, $0.baseAddress, UInt($0.count)))
-        }
+        // Get our selection text
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_selection(surface, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
 
         // If we can get a font then we use the font. This should always work
         // since we always have a primary font. The only scenario this doesn't
@@ -1592,7 +1620,7 @@ extension Ghostty.SurfaceView: NSTextInputClient {
             font.release()
         }
 
-        return .init(string: v, attributes: attributes)
+        return .init(string: String(cString: text.text), attributes: attributes)
     }
 
     func characterIndex(for point: NSPoint) -> Int {
@@ -1614,12 +1642,15 @@ extension Ghostty.SurfaceView: NSTextInputClient {
         // point right now. I'm sure I'm missing something fundamental...
         if range.length > 0 && range != self.selectedRange() {
             // QuickLook
-            var sel: ghostty_selection_s = ghostty_selection_s();
-            if ghostty_surface_selection_info(surface, &sel) {
+            var text = ghostty_text_s()
+            if ghostty_surface_read_selection(surface, &text) {
                 // The -2/+2 here is subjective. QuickLook seems to offset the rectangle
                 // a bit and I think these small adjustments make it look more natural.
-                x = sel.tl_px_x - 2;
-                y = sel.tl_px_y + 2;
+                x = text.tl_px_x - 2;
+                y = text.tl_px_y + 2;
+
+                // Free our text
+                ghostty_surface_free_text(surface, &text)
             } else {
                 ghostty_surface_ime_point(surface, &x, &y)
             }
@@ -1745,14 +1776,13 @@ extension Ghostty.SurfaceView: NSServicesMenuRequestor {
     ) -> Bool {
         guard let surface = self.surface else { return false }
 
-        // We currently cap the maximum copy size to 1MB. iTerm2 I believe
-        // caps theirs at 0.1MB (configurable) so this is probably reasonable.
-        let v = String(unsafeUninitializedCapacity: 1000000) {
-            Int(ghostty_surface_selection(surface, $0.baseAddress, UInt($0.count)))
-        }
+        // Read the selection
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_selection(surface, &text) else { return false }
+        defer { ghostty_surface_free_text(surface, &text) }
 
         pboard.declareTypes([.string], owner: nil)
-        pboard.setString(v, forType: .string)
+        pboard.setString(String(cString: text.text), forType: .string)
         return true
     }
 
@@ -1842,5 +1872,150 @@ extension Ghostty.SurfaceView {
         }
 
         return false
+    }
+}
+
+// MARK: Accessibility
+
+extension Ghostty.SurfaceView {
+    /// Indicates that this view should be exposed to accessibility tools like VoiceOver.
+    /// By returning true, we make the terminal surface accessible to screen readers
+    /// and other assistive technologies.
+    override func isAccessibilityElement() -> Bool {
+         return true
+     }
+
+    /// Defines the accessibility role for this view, which helps assistive technologies
+    /// understand what kind of content this view contains and how users can interact with it.
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        /// We use .textArea because the terminal surface is essentially an editable text area
+        /// where users can input commands and view output.
+        return .textArea
+    }
+
+    override func accessibilityHelp() -> String? {
+        return "Terminal content area"
+    }
+
+    override func accessibilityValue() -> Any? {
+        return cachedScreenContents.get()
+    }
+
+    /// Returns the range of text that is currently selected in the terminal.
+    /// This allows VoiceOver and other assistive technologies to understand
+    /// what text the user has selected.
+    override func accessibilitySelectedTextRange() -> NSRange {
+        return selectedRange()
+    }
+    
+    /// Returns the currently selected text as a string.
+    /// This allows assistive technologies to read the selected content.
+    override func accessibilitySelectedText() -> String? {
+        guard let surface = self.surface else { return nil }
+
+        // Attempt to read the selection
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_selection(surface, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+
+        let str = String(cString: text.text)
+        return str.isEmpty ? nil : str
+    }
+    
+    /// Returns the number of characters in the terminal content.
+    /// This helps assistive technologies understand the size of the content.
+    override func accessibilityNumberOfCharacters() -> Int {
+        let content = cachedScreenContents.get()
+        return content.count
+    }
+    
+    /// Returns the visible character range for the terminal.
+    /// For terminals, we typically show all content as visible.
+    override func accessibilityVisibleCharacterRange() -> NSRange {
+        let content = cachedScreenContents.get()
+        return NSRange(location: 0, length: content.count)
+    }
+    
+    /// Returns the line number for a given character index.
+    /// This helps assistive technologies navigate by line.
+    override func accessibilityLine(for index: Int) -> Int {
+        let content = cachedScreenContents.get()
+        let substring = String(content.prefix(index))
+        return substring.components(separatedBy: .newlines).count - 1
+    }
+    
+    /// Returns a substring for the given range.
+    /// This allows assistive technologies to read specific portions of the content.
+    override func accessibilityString(for range: NSRange) -> String? {
+        let content = cachedScreenContents.get()
+        guard let swiftRange = Range(range, in: content) else { return nil }
+        return String(content[swiftRange])
+    }
+    
+    /// Returns an attributed string for the given range.
+    ///
+    /// Note: right now this only applies font information. One day it'd be nice to extend
+    /// this to copy styling information as well but we need to augment Ghostty core to
+    /// expose that.
+    ///
+    /// This provides styling information to assistive technologies.
+    override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
+        guard let surface = self.surface else { return nil }
+        guard let plainString = accessibilityString(for: range) else { return nil }
+        
+        var attributes: [NSAttributedString.Key: Any] = [:]
+        
+        // Try to get the font from the surface
+        if let fontRaw = ghostty_surface_quicklook_font(surface) {
+            let font = Unmanaged<CTFont>.fromOpaque(fontRaw)
+            attributes[.font] = font.takeUnretainedValue()
+            font.release()
+        }
+
+        return NSAttributedString(string: plainString, attributes: attributes)
+    }
+}
+
+/// Caches a value for some period of time, evicting it automatically when that time expires.
+/// We use this to cache our surface content. This probably should be extracted some day
+/// to a more generic helper.
+fileprivate class CachedValue<T> {
+    private var value: T?
+    private let fetch: () -> T
+    private let duration: Duration
+    private var expiryTask: Task<Void, Never>?
+
+    init(duration: Duration, fetch: @escaping () -> T) {
+        self.duration = duration
+        self.fetch = fetch
+    }
+
+    deinit {
+        expiryTask?.cancel()
+    }
+
+    func get() -> T {
+        if let value {
+            return value
+        }
+
+        // We don't have a value (or it expired). Fetch and store.
+        let result = fetch()
+        let now = ContinuousClock.now
+        let expires = now + duration
+        self.value = result
+
+        // Schedule a task to clear the value
+        expiryTask = Task { [weak self] in
+            do {
+                try await Task.sleep(until: expires)
+                self?.value = nil
+                self?.expiryTask = nil
+            } catch {
+                // Task was cancelled, do nothing
+            }
+        }
+
+        return result
     }
 }

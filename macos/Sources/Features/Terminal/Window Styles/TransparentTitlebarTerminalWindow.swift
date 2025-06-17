@@ -96,9 +96,16 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
     @available(macOS 13.0, *)
     private func syncAppearanceVentura(_ surfaceConfig: Ghostty.SurfaceView.DerivedConfig) {
         guard let titlebarContainer else { return }
+        
+        // Setup the titlebar background color to match ours
         titlebarContainer.wantsLayer = true
         titlebarContainer.layer?.backgroundColor = preferredBackgroundColor?.cgColor
+        
+        // See the docs for the function that sets this to true on why
         effectViewIsHidden = false
+        
+        // Necessary to not draw the border around the title
+        titlebarAppearsTransparent = true
     }
 
     // MARK: View Finders

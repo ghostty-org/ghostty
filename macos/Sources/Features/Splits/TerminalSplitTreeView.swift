@@ -32,6 +32,8 @@ struct TerminalSplitSubtreeView: View {
             Ghostty.InspectableSurface(
                 surfaceView: leafView,
                 isSplit: !isRoot)
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Terminal pane")
 
         case .split(let split):
             let splitViewDirection: SplitViewDirection = switch (split.direction) {
