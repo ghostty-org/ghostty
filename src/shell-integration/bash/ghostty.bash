@@ -142,7 +142,6 @@ if [[ -n "$GHOSTTY_SSH_INTEGRATION" ]]; then
 
     # Propagate Ghostty shell integration environment variables
     [[ -n "$GHOSTTY_SHELL_FEATURES" ]] && env_vars+=("GHOSTTY_SHELL_FEATURES=$GHOSTTY_SHELL_FEATURES")
-    [[ -n "$GHOSTTY_RESOURCES_DIR" ]] && env_vars+=("GHOSTTY_RESOURCES_DIR=$GHOSTTY_RESOURCES_DIR")
 
     # Execute with environment variables if any were set
     if [[ ${#env_vars[@]} -gt 0 ]]; then
@@ -174,7 +173,7 @@ if [[ -n "$GHOSTTY_SSH_INTEGRATION" ]]; then
 
         # Normal SSH connection with Ghostty terminfo available
         env "${env_vars[@]}" ssh "$@"
-        return 0
+        builtin return 0
       else
         echo "Terminfo installation failed. Using basic integration." >&2
       fi
