@@ -125,9 +125,9 @@ if [[ -n "$GHOSTTY_SSH_INTEGRATION" ]]; then
   # Level: term-only - Just fix TERM compatibility
   _ghostty_ssh_term-only() {
     if [[ "$TERM" == "xterm-ghostty" ]]; then
-      TERM=xterm-256color command ssh "$@"
+      TERM=xterm-256color builtin command ssh "$@"
     else
-      command ssh "$@"
+      builtin command ssh "$@"
     fi
   }
 
@@ -154,12 +154,12 @@ if [[ -n "$GHOSTTY_SSH_INTEGRATION" ]]; then
   # Level: full - All features
   _ghostty_ssh_full() {
     # Full integration: Two-step terminfo installation
-    if command -v infocmp >/dev/null 2>&1; then
+    if builtin command -v infocmp >/dev/null 2>&1; then
       echo "Installing Ghostty terminfo on remote host..." >&2
 
       # Step 1: Install terminfo using the same approach that works manually
       # This requires authentication but is quick and reliable
-      if infocmp -x xterm-ghostty 2>/dev/null | command ssh "$@" 'mkdir -p ~/.terminfo/x 2>/dev/null && tic -x -o ~/.terminfo /dev/stdin 2>/dev/null'; then
+      if infocmp -x xterm-ghostty 2>/dev/null | builtin command ssh "$@" 'mkdir -p ~/.terminfo/x 2>/dev/null && tic -x -o ~/.terminfo /dev/stdin 2>/dev/null'; then
         echo "Terminfo installed successfully. Connecting with full Ghostty support..." >&2
 
         # Step 2: Connect with xterm-ghostty since we know terminfo is now available
