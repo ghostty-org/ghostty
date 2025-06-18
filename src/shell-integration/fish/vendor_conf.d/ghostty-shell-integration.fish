@@ -86,8 +86,68 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
         end
     end
 
-    # SSH integration wrapper
+    # SSH integration
     if test -n "$GHOSTTY_SSH_INTEGRATION"
+        # Cache file for tracking hosts with terminfo installed
+        set -l _ghostty_cache_file (string join / (test -n "$GHOSTTY_RESOURCES_DIR"; and echo "$GHOSTTY_RESOURCES_DIR"; or echo "$HOME/.config/ghostty") "terminfo_hosts")
+
+        # Extract target host from SSH arguments
+        function _ghostty_get_ssh_target
+            set -l target ""
+            set -l skip_next false
+
+            for arg in $argv
+                if test "$skip_next" = "true"
+                    set skip_next false
+                    continue
+                end
+
+                # Skip flags that take arguments
+                if string match -qr '^-[bcDEeFIiJLlmOopQRSWw]$' -- "$arg"
+                    set skip_next true
+                    continue
+                end
+
+                # Skip other flags
+                if string match -q -- '-*' "$arg"
+                    continue
+                end
+
+                # This should be the target
+                set target "$arg"
+                break
+            end
+
+            echo "$target"
+        end
+
+        # Check if host has terminfo installed
+        function _ghostty_host_has_terminfo
+            set -l target $argv[1]
+            test -f "$_ghostty_cache_file"; and grep -qFx "$target" "$_ghostty_cache_file" 2>/dev/null
+        end
+
+        # Add host to terminfo cache
+        function _ghostty_cache_host
+            set -l target $argv[1]
+            set -l cache_dir (dirname "$_ghostty_cache_file")
+
+            # Create cache directory if needed
+            test -d "$cache_dir"; or mkdir -p "$cache_dir"
+
+            # Atomic write to cache file
+            begin
+                if test -f "$_ghostty_cache_file"
+                    cat "$_ghostty_cache_file"
+                end
+                echo "$target"
+            end | sort -u > "$_ghostty_cache_file.tmp"; and mv "$_ghostty_cache_file.tmp" "$_ghostty_cache_file"
+
+            # Secure permissions
+            chmod 600 "$_ghostty_cache_file" 2>/dev/null
+        end
+
+        # Wrap `ssh` command to provide Ghostty SSH integration.
         function ssh -d "Wrap ssh to provide Ghostty SSH integration"
             switch "$GHOSTTY_SSH_INTEGRATION"
                 case term-only
@@ -136,22 +196,38 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
 
         # Level: full - All features
         function _ghostty_ssh_full
-            # Full integration: Two-step terminfo installation
-            if type -q infocmp
-                echo "Installing Ghostty terminfo on remote host..." >&2
+            set -l target (_ghostty_get_ssh_target $argv)
 
-                # Step 1: Install terminfo 
-                if infocmp -x xterm-ghostty 2>/dev/null | ssh $argv 'tic -x - 2>/dev/null'
-                    echo "Terminfo installed successfully. Connecting with full Ghostty support..." >&2
-                    
-                    # Step 2: Connect with xterm-ghostty since we know terminfo is now available
+            # Check if we already know this host has terminfo
+            if test -n "$target"; and _ghostty_host_has_terminfo "$target"
+                # Direct connection with xterm-ghostty
+                set --local env_vars TERM=xterm-ghostty
+                if test -n "$GHOSTTY_SHELL_FEATURES"
+                    set --append env_vars GHOSTTY_SHELL_FEATURES="$GHOSTTY_SHELL_FEATURES"
+                end
+                env $env_vars ssh $argv
+                return 0
+            end
+
+            # Full integration: Install terminfo if needed
+            if type -q infocmp
+                # Install terminfo only if needed
+                if infocmp -x xterm-ghostty 2>/dev/null | ssh $argv '
+                    if ! infocmp xterm-ghostty >/dev/null 2>&1
+                        echo "Installing Ghostty terminfo..." >&2
+                        tic -x - 2>/dev/null
+                    end
+                '
+                    echo "Connecting with full Ghostty support..." >&2
+
+                    # Cache this host for future connections
+                    test -n "$target"; and _ghostty_cache_host "$target"
+
+                    # Connect with xterm-ghostty since terminfo is available
                     set --local env_vars TERM=xterm-ghostty
-                    
-                    # Propagate Ghostty shell integration environment variables
                     if test -n "$GHOSTTY_SHELL_FEATURES"
                         set --append env_vars GHOSTTY_SHELL_FEATURES="$GHOSTTY_SHELL_FEATURES"
                     end
-                    
                     env $env_vars ssh $argv
                     builtin return 0
                 end
@@ -162,6 +238,7 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
             _ghostty_ssh_basic $argv
         end
     end
+
     # Setup prompt marking
     function __ghostty_mark_prompt_start --on-event fish_prompt --on-event fish_cancel --on-event fish_posterror
         # If we never got the output end event, then we need to send it now.
