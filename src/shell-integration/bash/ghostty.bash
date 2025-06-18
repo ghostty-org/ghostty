@@ -99,91 +99,90 @@ fi
 
 # SSH
 if [[ -n "$GHOSTTY_SSH_INTEGRATION" ]]; then
-  # Cache file for tracking hosts with terminfo installed
-  _ghostty_cache_file="${GHOSTTY_RESOURCES_DIR:-$HOME/.config/ghostty}/terminfo_hosts"
+  # Cache configuration
+  _ghostty_cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/ghostty"
+  _ghostty_cache_file="$_ghostty_cache_dir/terminfo_hosts"
 
-  # Extract target host from SSH arguments
+  # Create cache directory with proper permissions
+  [[ ! -d "$_ghostty_cache_dir" ]] && mkdir -p "$_ghostty_cache_dir" && chmod 700 "$_ghostty_cache_dir"
+
+  # Extract SSH target from arguments
   _ghostty_get_ssh_target() {
     local target=""
     local skip_next=false
+    local args=("$@")
 
-    for arg in "$@"; do
-      if [[ "$skip_next" == "true" ]]; then
-        skip_next=false
-        continue
-      fi
+    for ((i=0; i<${#args[@]}; i++)); do
+      local arg="${args[i]}"
 
-      # Skip flags that take arguments
+      # Skip if we're processing a flag's argument
+      [[ "$skip_next" == "true" ]] && { skip_next=false; continue; }
+
+      # Handle flags that take arguments
       if [[ "$arg" =~ ^-[bcDEeFIiJLlmOopQRSWw]$ ]]; then
         skip_next=true
         continue
       fi
 
-      # Skip other flags
-      if [[ "$arg" =~ ^- ]]; then
-        continue
-      fi
+      # Handle combined short flags with values (e.g., -p22)
+      [[ "$arg" =~ ^-[bcDEeFIiJLlmOopQRSWw].+ ]] && continue
 
-      # This should be the target
+      # Skip other flags
+      [[ "$arg" =~ ^- ]] && continue
+
+      # This should be our target
       target="$arg"
       break
     done
 
-    echo "$target"
+    # Handle user@host format
+    echo "${target##*@}"
   }
 
-  # Check if host has terminfo installed
+  # Check if host has terminfo cached
   _ghostty_host_has_terminfo() {
-    local target="$1"
-    [[ -f "$_ghostty_cache_file" ]] && grep -qFx "$target" "$_ghostty_cache_file" 2>/dev/null
+    local host="$1"
+    [[ -f "$_ghostty_cache_file" ]] && grep -qFx "$host" "$_ghostty_cache_file" 2>/dev/null
   }
 
-  # Add host to terminfo cache
+  # Add host to cache atomically
   _ghostty_cache_host() {
-    local target="$1"
-    local cache_dir
-    cache_dir="$(dirname "$_ghostty_cache_file")"
+    local host="$1"
+    local temp_file
+    temp_file="$_ghostty_cache_file.$$"
 
-    # Create cache directory if needed
-    [[ ! -d "$cache_dir" ]] && mkdir -p "$cache_dir"
-
-    # Atomic write to cache file
+    # Merge existing cache with new host
     {
-      if [[ -f "$_ghostty_cache_file" ]]; then
-        cat "$_ghostty_cache_file"
-      fi
-      echo "$target"
-    } | sort -u > "$_ghostty_cache_file.tmp" && mv "$_ghostty_cache_file.tmp" "$_ghostty_cache_file"
+      [[ -f "$_ghostty_cache_file" ]] && cat "$_ghostty_cache_file"
+      echo "$host"
+    } | sort -u > "$temp_file"
 
-    # Secure permissions
-    chmod 600 "$_ghostty_cache_file" 2>/dev/null
+    # Atomic replace with proper permissions
+    mv -f "$temp_file" "$_ghostty_cache_file" && chmod 600 "$_ghostty_cache_file"
   }
 
-  # Wrap `ssh` command to provide Ghostty SSH integration.
-  #
-  # This approach supports wrapping an `ssh` alias, but the alias definition
-  # must come _after_ this function is defined. Otherwise, the alias expansion
-  # will take precedence over this function, and it won't be wrapped.
-  function ssh {
+  # Remove host from cache (for maintenance)
+  _ghostty_uncache_host() {
+    local host="$1"
+    [[ -f "$_ghostty_cache_file" ]] || return 0
+
+    local temp_file="$_ghostty_cache_file.$$"
+    grep -vFx "$host" "$_ghostty_cache_file" > "$temp_file" 2>/dev/null || true
+    mv -f "$temp_file" "$_ghostty_cache_file"
+  }
+
+  # Main SSH wrapper
+  ssh() {
     case "$GHOSTTY_SSH_INTEGRATION" in
-    "term-only")
-      _ghostty_ssh_term-only "$@"
-      ;;
-    "basic")
-      _ghostty_ssh_basic "$@"
-      ;;
-    "full")
-      _ghostty_ssh_full "$@"
-      ;;
-    *)
-      # Unknown level, fall back to basic
-      _ghostty_ssh_basic "$@"
-      ;;
+      term-only) _ghostty_ssh_term_only "$@" ;;
+      basic)     _ghostty_ssh_basic "$@" ;;
+      full)      _ghostty_ssh_full "$@" ;;
+      *)         _ghostty_ssh_basic "$@" ;;  # Default to basic
     esac
   }
 
   # Level: term-only - Just fix TERM compatibility
-  _ghostty_ssh_term-only() {
+  _ghostty_ssh_term_only() {
     if [[ "$TERM" == "xterm-ghostty" ]]; then
       TERM=xterm-256color builtin command ssh "$@"
     else
@@ -191,65 +190,158 @@ if [[ -n "$GHOSTTY_SSH_INTEGRATION" ]]; then
     fi
   }
 
-  # Level: basic - TERM fix + environment variable propagation
+  # Level: basic - TERM fix + environment propagation
   _ghostty_ssh_basic() {
-    local env_vars=()
+    local term_value
+    term_value=$([[ "$TERM" == "xterm-ghostty" ]] && echo "xterm-256color" || echo "$TERM")
 
-    # Fix TERM compatibility
-    if [[ "$TERM" == "xterm-ghostty" ]]; then
-      env_vars+=("TERM=xterm-256color")
-    fi
+    builtin command ssh "$@" "
+      # Set environment for this session
+      export GHOSTTY_SHELL_FEATURES='$GHOSTTY_SHELL_FEATURES'
+      export TERM='$term_value'
 
-    # Propagate Ghostty shell integration environment variables
-    [[ -n "$GHOSTTY_SHELL_FEATURES" ]] && env_vars+=("GHOSTTY_SHELL_FEATURES=$GHOSTTY_SHELL_FEATURES")
-
-    # Execute with environment variables if any were set
-    if [[ ${#env_vars[@]} -gt 0 ]]; then
-      env "${env_vars[@]}" ssh "$@"
-    else
-      builtin command ssh "$@"
-    fi
+      # Start interactive shell
+      exec \$SHELL -l
+    "
   }
 
-  # Level: full - All features
+  # Level: full - Complete integration with terminfo
   _ghostty_ssh_full() {
     local target
     target="$(_ghostty_get_ssh_target "$@")"
 
-    # Check if we already know this host has terminfo
+    # Quick path for cached hosts
     if [[ -n "$target" ]] && _ghostty_host_has_terminfo "$target"; then
-      # Direct connection with xterm-ghostty
-      local env_vars=("TERM=xterm-ghostty")
-      [[ -n "$GHOSTTY_SHELL_FEATURES" ]] && env_vars+=("GHOSTTY_SHELL_FEATURES=$GHOSTTY_SHELL_FEATURES")
-      env "${env_vars[@]}" ssh "$@"
-      return 0
+      # Direct connection with full ghostty support
+      builtin command ssh -t "$@" "
+        export GHOSTTY_SHELL_FEATURES='$GHOSTTY_SHELL_FEATURES'
+        export TERM='xterm-ghostty'
+        exec \$SHELL -l
+      "
+      return $?
     fi
 
-    # Full integration: Install terminfo if needed
-    if builtin command -v infocmp >/dev/null 2>&1; then
-      # Install terminfo only if needed
-      if infocmp -x xterm-ghostty 2>/dev/null | builtin command ssh "$@" '
-          if ! infocmp xterm-ghostty >/dev/null 2>&1; then
-              echo "Installing Ghostty terminfo..." >&2
-              tic -x - 2>/dev/null
-          fi
-      '; then
-        echo "Connecting with full Ghostty support..." >&2
+    # Check if we can export terminfo
+    if ! builtin command -v infocmp >/dev/null 2>&1; then
+      echo "Warning: infocmp not found locally. Using basic integration." >&2
+      _ghostty_ssh_basic "$@"
+      return $?
+    fi
 
-        # Cache this host for future connections
-        [[ -n "$target" ]] && _ghostty_cache_host "$target"
+    # Generate terminfo data
+    local terminfo_data
+    terminfo_data="$(infocmp -x xterm-ghostty 2>/dev/null)" || {
+      echo "Warning: xterm-ghostty terminfo not found locally. Using basic integration." >&2
+      _ghostty_ssh_basic "$@"
+      return $?
+    }
 
-        # Connect with xterm-ghostty since terminfo is available
-        local env_vars=("TERM=xterm-ghostty")
-        [[ -n "$GHOSTTY_SHELL_FEATURES" ]] && env_vars+=("GHOSTTY_SHELL_FEATURES=$GHOSTTY_SHELL_FEATURES")
-        env "${env_vars[@]}" ssh "$@"
-        builtin return 0
+    echo "Setting up Ghostty terminal support on remote host..." >&2
+
+    # Create control socket path
+    local control_path="/tmp/ghostty-ssh-${USER}-$"
+    trap "rm -f '$control_path'" EXIT
+
+    # Start control master and check/install terminfo
+    local setup_script='
+      if ! infocmp xterm-ghostty >/dev/null 2>&1; then
+        if command -v tic >/dev/null 2>&1; then
+          mkdir -p "$HOME/.terminfo" 2>/dev/null
+          echo "NEEDS_INSTALL"
+        else
+          echo "NO_TIC"
+        fi
+      else
+        echo "ALREADY_INSTALLED"
       fi
-      echo "Terminfo installation failed. Using basic integration." >&2
+    '
+
+    # First connection: Start control master and check status
+    local install_status
+    install_status=$(builtin command ssh -o ControlMaster=yes \
+                                       -o ControlPath="$control_path" \
+                                       -o ControlPersist=30s \
+                                       "$@" "$setup_script")
+
+    case "$install_status" in
+      "NEEDS_INSTALL")
+        echo "Installing xterm-ghostty terminfo..." >&2
+        # Send terminfo through existing control connection
+        if echo "$terminfo_data" | builtin command ssh -o ControlPath="$control_path" "$@" \
+          'tic -x - 2>/dev/null && echo "SUCCESS"' | grep -q "SUCCESS"; then
+          echo "Terminfo installed successfully." >&2
+          [[ -n "$target" ]] && _ghostty_cache_host "$target"
+        else
+          echo "Warning: Failed to install terminfo. Using basic integration." >&2
+          ssh -O exit -o ControlPath="$control_path" "$@" 2>/dev/null || true
+          _ghostty_ssh_basic "$@"
+          return $?
+        fi
+        ;;
+      "ALREADY_INSTALLED")
+        [[ -n "$target" ]] && _ghostty_cache_host "$target"
+        ;;
+      "NO_TIC")
+        echo "Warning: tic not found on remote host. Using basic integration." >&2
+        ssh -O exit -o ControlPath="$control_path" "$@" 2>/dev/null || true
+        _ghostty_ssh_basic "$@"
+        return $?
+        ;;
+    esac
+
+    # Now use the existing control connection for interactive session
+    echo "Connecting with full Ghostty support..." >&2
+
+    # Pass environment through and start login shell to show MOTD
+    builtin command ssh -t -o ControlPath="$control_path" "$@" "
+      # Set up Ghostty environment
+      export GHOSTTY_SHELL_FEATURES='$GHOSTTY_SHELL_FEATURES'
+      export TERM='xterm-ghostty'
+
+      # Display MOTD if this is a fresh connection
+      if [[ '$install_status' == 'NEEDS_INSTALL' ]]; then
+        # Try to display MOTD manually
+        if [[ -f /etc/motd ]]; then
+          cat /etc/motd 2>/dev/null || true
+        fi
+        # Run update-motd if available (Ubuntu/Debian)
+        if [[ -d /etc/update-motd.d ]]; then
+          run-parts /etc/update-motd.d 2>/dev/null || true
+        fi
+      fi
+
+      # Force a login shell
+      exec \$SHELL -l
+    "
+
+    local exit_code=$?
+
+    # Clean up control socket
+    ssh -O exit -o ControlPath="$control_path" "$@" 2>/dev/null || true
+
+    return $exit_code
+  }
+
+  # Utility function to clear cache for a specific host
+  ghostty_ssh_reset() {
+    local host="${1:-}"
+    if [[ -z "$host" ]]; then
+      echo "Usage: ghostty_ssh_reset <hostname>" >&2
+      return 1
     fi
 
-    # Fallback to basic integration
-    _ghostty_ssh_basic "$@"
+    _ghostty_uncache_host "$host"
+    echo "Cleared Ghostty terminfo cache for: $host"
+  }
+
+  # Utility function to list cached hosts
+  ghostty_ssh_list_cached() {
+    if [[ -f "$_ghostty_cache_file" ]]; then
+      echo "Hosts with cached Ghostty terminfo:"
+      cat "$_ghostty_cache_file"
+    else
+      echo "No hosts cached yet."
+    fi
   }
 fi
 
