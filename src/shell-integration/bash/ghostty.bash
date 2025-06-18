@@ -98,7 +98,7 @@ fi
 # SSH
 if [[ -n "$GHOSTTY_SSH_INTEGRATION" ]]; then
   # Cache configuration
-  _ghostty_cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/ghostty"
+  _ghostty_cache_dir="${XDG_STATE_HOME:-$HOME/.local/state}/ghostty"
   _ghostty_cache_file="$_ghostty_cache_dir/terminfo_hosts"
 
   # Create cache directory with proper permissions
