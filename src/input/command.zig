@@ -245,6 +245,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Toggle the tab overview.",
         }},
 
+        .toggle_tab_icons => comptime &.{.{
+            .action = .toggle_tab_icons,
+            .title = "Toggle Tab Icons",
+            .description = "Toggle the tab icons.",
+        }},
+
         .prompt_surface_title => comptime &.{.{
             .action = .prompt_surface_title,
             .title = "Change Title...",

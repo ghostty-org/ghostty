@@ -101,6 +101,9 @@ pub const Action = union(Key) {
     /// Toggle tab overview.
     toggle_tab_overview,
 
+    /// Toggle tab icons.
+    toggle_tab_icons,
+
     /// Toggle whether window directions are shown.
     toggle_window_decorations,
 
@@ -278,6 +281,7 @@ pub const Action = union(Key) {
         toggle_maximize,
         toggle_fullscreen,
         toggle_tab_overview,
+        toggle_tab_icons,
         toggle_window_decorations,
         toggle_quick_terminal,
         toggle_command_palette,

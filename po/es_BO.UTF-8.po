@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-04-22 08:57-0700\n"
+"POT-Creation-Date: 2025-06-13 10:27-0500\n"
 "PO-Revision-Date: 2025-03-28 17:46+0200\n"
 "Last-Translator: Miguel Peredo <miguelp@quientienemail.com>\n"
 "Language-Team: Spanish <es@tp.org.es>\n"
@@ -26,7 +26,8 @@ msgid "Leave blank to restore the default title."
 msgstr "Dejar en blanco para restaurar el título predeterminado."
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:9
-#: src/apprt/gtk/ui/1.5/ccw-paste.blp:10 src/apprt/gtk/CloseDialog.zig:44
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:10 src/apprt/gtk/ui/1.2/ccw-paste.blp:10
+#: src/apprt/gtk/CloseDialog.zig:44
 msgid "Cancel"
 msgstr "Cancelar"
 
@@ -35,10 +36,12 @@ msgid "OK"
 msgstr "Aceptar"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:5
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:5
 msgid "Configuration Errors"
 msgstr "Errores de configuración"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:6
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:6
 msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
@@ -47,38 +50,44 @@ msgstr ""
 "errores a continuación, y recargue su configuración o ignore estos errores."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:9
 msgid "Ignore"
 msgstr "Ignorar"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:10
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:97
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:95
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:105
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:10
 msgid "Reload Configuration"
 msgstr "Recargar configuración"
 
 #: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
 msgid "Split Up"
 msgstr "Dividir arriba"
 
 #: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:11
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:43
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:55
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
 msgid "Split Down"
 msgstr "Dividir abajo"
 
 #: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:16
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:48
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:60
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
 msgid "Split Left"
 msgstr "Dividir a la izquierda"
 
 #: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:21
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:53
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:65
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:70
 msgid "Split Right"
 msgstr "Dividir a la derecha"
+
+#: src/apprt/gtk/ui/1.5/command-palette.blp:16
+msgid "Execute a command…"
+msgstr ""
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
@@ -87,27 +96,27 @@ msgstr "Copiar"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:11
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:11
-#: src/apprt/gtk/ui/1.5/ccw-paste.blp:11
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:11 src/apprt/gtk/ui/1.2/ccw-paste.blp:11
 msgid "Paste"
 msgstr "Pegar"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:18
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:73
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:78
 msgid "Clear"
 msgstr "Limpiar"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:23
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:78
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:83
 msgid "Reset"
 msgstr "Reiniciar"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:30
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:42
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:47
 msgid "Split"
 msgstr "Dividir"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:33
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:45
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:50
 msgid "Change Title…"
 msgstr "Cambiar título…"
 
@@ -117,7 +126,7 @@ msgstr "Pestaña"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:62
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:30
-#: src/apprt/gtk/Window.zig:248
+#: src/apprt/gtk/Window.zig:259
 msgid "New Tab"
 msgstr "Nueva pestaña"
 
@@ -145,29 +154,40 @@ msgid "Config"
 msgstr "Configuración"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:92
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:90
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:100
 msgid "Open Configuration"
 msgstr "Abrir configuración"
 
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:85
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:40
+msgid "Toggle Tab Icons"
+msgstr ""
+
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:90
+msgid "Command Palette"
+msgstr ""
+
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:95
 msgid "Terminal Inspector"
 msgstr "Inspector de la terminal"
 
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:102
-#: src/apprt/gtk/Window.zig:1003
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:112
+#: src/apprt/gtk/Window.zig:1042
 msgid "About Ghostty"
 msgstr "Acerca de Ghostty"
 
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:107
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:117
 msgid "Quit"
 msgstr "Salir"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:6
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:6
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-read.blp:6
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:6
 msgid "Authorize Clipboard Access"
 msgstr "Autorizar acceso al portapapeles"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:7
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-read.blp:7
 msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
@@ -177,15 +197,20 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:10
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:10
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-read.blp:10
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:10
 msgid "Deny"
 msgstr "Denegar"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:11
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:11
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-read.blp:11
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:11
 msgid "Allow"
 msgstr "Permitir"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:7
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:7
 msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
@@ -193,11 +218,11 @@ msgstr ""
 "Una aplicación está intentando escribir en el portapapeles. El contenido "
 "actual del portapapeles se muestra a continuación."
 
-#: src/apprt/gtk/ui/1.5/ccw-paste.blp:6
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:6 src/apprt/gtk/ui/1.2/ccw-paste.blp:6
 msgid "Warning: Potentially Unsafe Paste"
 msgstr "Advertencia: Pegado potencialmente inseguro"
 
-#: src/apprt/gtk/ui/1.5/ccw-paste.blp:7
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:7 src/apprt/gtk/ui/1.2/ccw-paste.blp:7
 msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
@@ -205,30 +230,38 @@ msgstr ""
 "Pegar este texto en la terminal puede ser peligroso ya que parece que "
 "algunos comandos podrían ejecutarse."
 
-#: src/apprt/gtk/Window.zig:201
+#: src/apprt/gtk/inspector.zig:144
+msgid "Ghostty: Terminal Inspector"
+msgstr "Ghostty: Inspector de la terminal"
+
+#: src/apprt/gtk/Surface.zig:1257
+msgid "Copied to clipboard"
+msgstr "Copiado al portapapeles"
+
+#: src/apprt/gtk/Window.zig:212
 msgid "Main Menu"
 msgstr "Menú principal"
 
-#: src/apprt/gtk/Window.zig:222
+#: src/apprt/gtk/Window.zig:233
 msgid "View Open Tabs"
 msgstr "Ver pestañas abiertas"
 
-#: src/apprt/gtk/Window.zig:249
+#: src/apprt/gtk/Window.zig:260
 msgid "New Split"
 msgstr ""
 
-#: src/apprt/gtk/Window.zig:312
+#: src/apprt/gtk/Window.zig:323
 msgid ""
 "⚠️ You're running a debug build of Ghostty! Performance will be degraded."
 msgstr ""
 "⚠️ Está ejecutando una versión de depuración de Ghostty. El rendimiento no "
 "será óptimo."
 
-#: src/apprt/gtk/Window.zig:744
+#: src/apprt/gtk/Window.zig:779
 msgid "Reloaded the configuration"
 msgstr "Configuración recargada"
 
-#: src/apprt/gtk/Window.zig:984
+#: src/apprt/gtk/Window.zig:1023
 msgid "Ghostty Developers"
 msgstr "Desarrolladores de Ghostty"
 
@@ -267,11 +300,3 @@ msgstr "Todas las sesiones de terminal en esta pestaña serán terminadas."
 #: src/apprt/gtk/CloseDialog.zig:99
 msgid "The currently running process in this split will be terminated."
 msgstr "El proceso actualmente en ejecución en esta división será terminado."
-
-#: src/apprt/gtk/Surface.zig:1243
-msgid "Copied to clipboard"
-msgstr "Copiado al portapapeles"
-
-#: src/apprt/gtk/inspector.zig:144
-msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: Inspector de la terminal"
