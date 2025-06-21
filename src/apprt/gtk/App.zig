@@ -503,6 +503,7 @@ pub fn performAction(
         .secure_input => self.setSecureInput(target, value),
         .ring_bell => try self.ringBell(target),
         .toggle_command_palette => try self.toggleCommandPalette(target),
+        .open_url => self.openUrl(value),
 
         // Unimplemented
         .close_all_windows,
@@ -1711,4 +1712,11 @@ fn initActions(self: *App) void {
         const action_map = self.app.as(gio.ActionMap);
         action_map.addAction(action.as(gio.Action));
     }
+}
+
+pub fn openUrl(
+    app: *App,
+    value: apprt.action.OpenUrl,
+) void {
+    internal_os.openUrlLinux(app.core_app.alloc, value.url);
 }
