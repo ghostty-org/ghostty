@@ -1927,6 +1927,36 @@ keybind: Keybinds = .{},
 /// Example: `cursor`, `no-cursor`, `sudo`, `no-sudo`, `title`, `no-title`
 @"shell-integration-features": ShellIntegrationFeatures = .{},
 
+/// SSH integration configuration for shell integration.
+///
+/// When enabled (any value other than `off`), Ghostty replaces the `ssh` command
+/// with a shell function to provide enhanced terminal compatibility and feature
+/// propagation when connecting to remote hosts. Users can verify this by running
+/// `type ssh` which will show "ssh is a shell function" instead of the binary path.
+///
+/// Allowable values are:
+///
+///   * `off` - No SSH integration, use standard ssh binary.
+///
+///   * `term-only` - Automatically converts TERM from `xterm-ghostty` to `xterm-256color`
+///     when connecting to remote hosts. This prevents "unknown terminal type" errors
+///     on systems that lack Ghostty's terminfo entry, but sacrifices Ghostty-specific
+///     terminal features like enhanced cursor reporting and shell integration markers.
+///     See: https://ghostty.org/docs/help/terminfo
+///
+///   * `basic` - TERM compatibility fix plus environment variable propagation.
+///     Forwards `GHOSTTY_SHELL_FEATURES` to enable shell integration features on
+///     remote systems that have Ghostty installed and configured.
+///
+///   * `full` - All basic features plus automatic terminfo installation. Attempts
+///     to install Ghostty's terminfo entry on the remote host using `infocmp` and `tic`,
+///     then connects with full `xterm-ghostty` support. Requires two SSH authentications
+///     (one for installation, one for the session) but enables complete Ghostty
+///     terminal functionality on the remote system.
+///
+/// The default value is `off`.
+@"ssh-integration": SSHIntegration = .off,
+
 /// Sets the reporting format for OSC sequences that request color information.
 /// Ghostty currently supports OSC 10 (foreground), OSC 11 (background), and
 /// OSC 4 (256 color palette) queries, and by default the reported values
@@ -5911,6 +5941,14 @@ pub const ShellIntegrationFeatures = packed struct {
     cursor: bool = true,
     sudo: bool = false,
     title: bool = true,
+};
+
+/// See ssh-integration
+pub const SSHIntegration = enum {
+    off,
+    @"term-only",
+    basic,
+    full,
 };
 
 /// OSC 4, 10, 11, and 12 default color reporting format.
