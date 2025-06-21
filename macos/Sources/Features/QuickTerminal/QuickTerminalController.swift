@@ -22,7 +22,7 @@ class QuickTerminalController: BaseTerminalController {
     private var previousActiveSpace: CGSSpace? = nil
 
     /// The window frame saved when the quick terminal's surface tree becomes empty.
-    /// 
+    ///
     /// This preserves the user's window size and position when all terminal surfaces
     /// are closed (e.g., via the `exit` command). When a new surface is created,
     /// the window will be restored to this frame, preventing SwiftUI from resetting
@@ -34,6 +34,9 @@ class QuickTerminalController: BaseTerminalController {
 
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private var derivedConfig: DerivedConfig
+    
+    /// Tracks if we're currently handling a manual resize to prevent recursion
+    private var isHandlingResize: Bool = false
 
     init(_ ghostty: Ghostty.App,
          position: QuickTerminalPosition = .top,
@@ -75,6 +78,11 @@ class QuickTerminalController: BaseTerminalController {
             self,
             selector: #selector(onNewTab),
             name: Ghostty.Notification.ghosttyNewTab,
+            object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(windowDidResize(_:)),
+            name: NSWindow.didResizeNotification,
             object: nil)
     }
 
@@ -195,10 +203,45 @@ class QuickTerminalController: BaseTerminalController {
     }
 
     func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
-        // We use the actual screen the window is on for this, since it should
-        // be on the proper screen.
-        guard let screen = window?.screen ?? NSScreen.main else { return frameSize }
-        return position.restrictFrameSize(frameSize, on: screen, terminalSize: derivedConfig.quickTerminalSize)
+        // Allow unrestricted resizing - users have full control
+        return frameSize
+    }
+
+    override func windowDidResize(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow,
+              window == self.window,
+              visible,
+              !isHandlingResize else { return }
+        
+        // For centered positions (top, bottom, center), we need to recenter the window
+        // when it's manually resized to maintain proper positioning
+        switch position {
+        case .top, .bottom, .center:
+            recenterWindow(window)
+        case .left, .right:
+            // For side positions, we may need to adjust vertical centering
+            recenterWindowVertically(window)
+        }
+    }
+
+    private func recenterWindow(_ window: NSWindow) {
+        guard let screen = window.screen ?? NSScreen.main else { return }
+        
+        isHandlingResize = true
+        defer { isHandlingResize = false }
+        
+        let newOrigin = position.centeredOrigin(for: window, on: screen)
+        window.setFrameOrigin(newOrigin)
+    }
+
+    private func recenterWindowVertically(_ window: NSWindow) {
+        guard let screen = window.screen ?? NSScreen.main else { return }
+        
+        isHandlingResize = true
+        defer { isHandlingResize = false }
+        
+        let newOrigin = position.verticallyCenteredOrigin(for: window, on: screen)
+        window.setFrameOrigin(newOrigin)
     }
 
     // MARK: Base Controller Overrides
@@ -320,13 +363,15 @@ class QuickTerminalController: BaseTerminalController {
         guard let screen = derivedConfig.quickTerminalScreen.screen else { return }
 
         // Restore our previous frame if we have one
+        var preserveSize: NSSize? = nil
         if let lastClosedFrame {
             window.setFrame(lastClosedFrame, display: false)
+            preserveSize = lastClosedFrame.size
             self.lastClosedFrame = nil
         }
 
         // Move our window off screen to the top
-        position.setInitial(in: window, on: screen, terminalSize: derivedConfig.quickTerminalSize)
+        position.setInitial(in: window, on: screen, terminalSize: derivedConfig.quickTerminalSize, preserveSize: preserveSize)
 
         // We need to set our window level to a high value. In testing, only
         // popUpMenu and above do what we want. This gets it above the menu bar
@@ -357,7 +402,7 @@ class QuickTerminalController: BaseTerminalController {
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = derivedConfig.quickTerminalAnimationDuration
             context.timingFunction = .init(name: .easeIn)
-            position.setFinal(in: window.animator(), on: screen, terminalSize: derivedConfig.quickTerminalSize)
+            position.setFinal(in: window.animator(), on: screen, terminalSize: derivedConfig.quickTerminalSize, preserveSize: preserveSize)
         }, completionHandler: {
             // There is a very minor delay here so waiting at least an event loop tick
             // keeps us safe from the view not being on the window.
@@ -481,7 +526,7 @@ class QuickTerminalController: BaseTerminalController {
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = derivedConfig.quickTerminalAnimationDuration
             context.timingFunction = .init(name: .easeIn)
-            position.setInitial(in: window.animator(), on: screen, terminalSize: derivedConfig.quickTerminalSize)
+            position.setInitial(in: window.animator(), on: screen, terminalSize: derivedConfig.quickTerminalSize, preserveSize: window.frame.size)
         }, completionHandler: {
             // This causes the window to be removed from the screen list and macOS
             // handles what should be focused next.
