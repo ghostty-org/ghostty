@@ -3,6 +3,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const trace = @import("tracy").trace;
 const font = @import("../main.zig");
+const config = @import("../../config.zig");
 const Face = font.Face;
 const Collection = font.Collection;
 const DeferredFace = font.DeferredFace;
@@ -75,6 +76,7 @@ pub const Shaper = struct {
         row: terminal.Pin,
         selection: ?terminal.Selection,
         cursor_x: ?usize,
+        break_config: config.FontShapingBreak,
     ) font.shape.RunIterator {
         return .{
             .hooks = .{ .shaper = self },
@@ -83,6 +85,7 @@ pub const Shaper = struct {
             .row = row,
             .selection = selection,
             .cursor_x = cursor_x,
+            .break_config = break_config,
         };
     }
 
