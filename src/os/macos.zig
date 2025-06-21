@@ -88,6 +88,10 @@ extern "c" fn pthread_set_qos_class_self_np(
     relative_priority: c_int,
 ) c_int;
 
+pub extern "c" fn pthread_setname_np(
+    name: [*:0]const u8,
+) void;
+
 pub const NSOperatingSystemVersion = extern struct {
     major: i64,
     minor: i64,

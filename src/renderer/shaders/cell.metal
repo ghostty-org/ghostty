@@ -249,20 +249,12 @@ vertex CellBgVertexOut cell_bg_vertex(
 
 fragment float4 cell_bg_fragment(
   CellBgVertexOut in [[stage_in]],
-  constant uchar4 *cells [[buffer(0)]],
-  constant Uniforms& uniforms [[buffer(1)]]
+  constant Uniforms& uniforms [[buffer(1)]],
+  constant uchar4 *cells [[buffer(2)]]
 ) {
   int2 grid_pos = int2(floor((in.position.xy - uniforms.grid_padding.wx) / uniforms.cell_size));
 
-  float4 bg = float4(0.0);
-  // If we have any background transparency then we render bg-colored cells as
-  // fully transparent, since the background is handled by the layer bg color
-  // and we don't want to double up our bg color, but if our bg color is fully
-  // opaque then our layer is opaque and can't handle transparency, so we need
-  // to return the bg color directly instead.
-  if (uniforms.bg_color.a == 255) {
-    bg = in.bg_color;
-  }
+  float4 bg = in.bg_color;
 
   // Clamp x position, extends edge bg colors in to padding on sides.
   if (grid_pos.x < 0) {
@@ -374,19 +366,23 @@ vertex CellTextVertexOut cell_text_vertex(
   // Convert the grid x, y into world space x, y by accounting for cell size
   float2 cell_pos = uniforms.cell_size * float2(in.grid_pos);
 
-  // Turn the cell position into a vertex point depending on the
-  // vertex ID. Since we use instanced drawing, we have 4 vertices
-  // for each corner of the cell. We can use vertex ID to determine
-  // which one we're looking at. Using this, we can use 1 or 0 to keep
-  // or discard the value for the vertex.
+  // We use a triangle strip with 4 vertices to render quads,
+  // so we determine which corner of the cell this vertex is in
+  // based on the vertex ID.
   //
-  // 0 = top-right
-  // 1 = bot-right
-  // 2 = bot-left
-  // 3 = top-left
+  //   0 --> 1
+  //   |   .'|
+  //   |  /  |
+  //   | L   |
+  //   2 --> 3
+  //
+  // 0 = top-left  (0, 0)
+  // 1 = top-right (1, 0)
+  // 2 = bot-left  (0, 1)
+  // 3 = bot-right (1, 1)
   float2 corner;
-  corner.x = (vid == 0 || vid == 1) ? 1.0f : 0.0f;
-  corner.y = (vid == 0 || vid == 3) ? 0.0f : 1.0f;
+  corner.x = float(vid == 1 || vid == 3);
+  corner.y = float(vid == 2 || vid == 3);
 
   CellTextVertexOut out;
   out.mode = in.mode;
@@ -502,7 +498,7 @@ fragment float4 cell_text_fragment(
   CellTextVertexOut in [[stage_in]],
   texture2d<float> textureGrayscale [[texture(0)]],
   texture2d<float> textureColor [[texture(1)]],
-  constant Uniforms& uniforms [[buffer(2)]]
+  constant Uniforms& uniforms [[buffer(1)]]
 ) {
   constexpr sampler textureSampler(
     coord::pixel,
@@ -621,19 +617,23 @@ vertex ImageVertexOut image_vertex(
   texture2d<uint> image [[texture(0)]],
   constant Uniforms& uniforms [[buffer(1)]]
 ) {
-  // Turn the image position into a vertex point depending on the
-  // vertex ID. Since we use instanced drawing, we have 4 vertices
-  // for each corner of the cell. We can use vertex ID to determine
-  // which one we're looking at. Using this, we can use 1 or 0 to keep
-  // or discard the value for the vertex.
+  // We use a triangle strip with 4 vertices to render quads,
+  // so we determine which corner of the cell this vertex is in
+  // based on the vertex ID.
   //
-  // 0 = top-right
-  // 1 = bot-right
-  // 2 = bot-left
-  // 3 = top-left
+  //   0 --> 1
+  //   |   .'|
+  //   |  /  |
+  //   | L   |
+  //   2 --> 3
+  //
+  // 0 = top-left  (0, 0)
+  // 1 = top-right (1, 0)
+  // 2 = bot-left  (0, 1)
+  // 3 = bot-right (1, 1)
   float2 corner;
-  corner.x = (vid == 0 || vid == 1) ? 1.0f : 0.0f;
-  corner.y = (vid == 0 || vid == 3) ? 0.0f : 1.0f;
+  corner.x = float(vid == 1 || vid == 3);
+  corner.y = float(vid == 2 || vid == 3);
 
   // The texture coordinates start at our source x/y
   // and add the width/height depending on the corner.

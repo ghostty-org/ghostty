@@ -158,10 +158,6 @@ extension Ghostty {
         // We need to support being a first responder so that we can get input events
         override var acceptsFirstResponder: Bool { return true }
 
-        // I don't think we need this but this lets us know we should redraw our layer
-        // so we'll use that to tell ghostty to refresh.
-        override var wantsUpdateLayer: Bool { return true }
-
         init(_ app: ghostty_app_t, baseConfig: SurfaceConfiguration? = nil, uuid: UUID? = nil) {
             self.markedText = NSMutableAttributedString()
             self.uuid = uuid ?? .init()
@@ -730,11 +726,6 @@ extension Ghostty {
 
             // When our scale factor changes, so does our fb size so we send that too
             setSurfaceSize(width: UInt32(fbFrame.size.width), height: UInt32(fbFrame.size.height))
-        }
-
-        override func updateLayer() {
-            guard let surface = self.surface else { return }
-            ghostty_surface_draw(surface);
         }
 
         override func mouseDown(with event: NSEvent) {

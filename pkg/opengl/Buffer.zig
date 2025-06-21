@@ -51,7 +51,7 @@ pub const Binding = struct {
         data: anytype,
         usage: Usage,
     ) !void {
-        const info = dataInfo(&data);
+        const info = dataInfo(data);
         glad.context.BufferData.?(
             @intFromEnum(b.target),
             info.size,
@@ -134,10 +134,6 @@ pub const Binding = struct {
                 unreachable;
             },
         };
-    }
-
-    pub fn enableAttribArray(_: Binding, idx: c.GLuint) !void {
-        glad.context.EnableVertexAttribArray.?(idx);
     }
 
     /// Shorthand for vertexAttribPointer that is specialized towards the
@@ -230,6 +226,7 @@ pub const Target = enum(c_uint) {
     array = c.GL_ARRAY_BUFFER,
     element_array = c.GL_ELEMENT_ARRAY_BUFFER,
     uniform = c.GL_UNIFORM_BUFFER,
+    storage = c.GL_SHADER_STORAGE_BUFFER,
     _,
 };
 

@@ -468,6 +468,7 @@ pub fn init(
         .size = size,
         .surface_mailbox = .{ .surface = self, .app = app_mailbox },
         .rt_surface = rt_surface,
+        .thread = &self.renderer_thread,
     });
     errdefer renderer_impl.deinit();
 
@@ -726,7 +727,9 @@ pub fn close(self: *Surface) void {
 /// is in the middle of animation (such as a resize, etc.) or when
 /// the render timer is managed manually by the apprt.
 pub fn draw(self: *Surface) !void {
-    try self.renderer_thread.draw_now.notify();
+    // Renderers are required to support `drawFrame` being called from
+    // the main thread, so that they can update contents during resize.
+    try self.renderer.drawFrame(true);
 }
 
 /// Activate the inspector. This will begin collecting inspection data.

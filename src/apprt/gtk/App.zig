@@ -55,6 +55,11 @@ pub const c = @cImport({
 
 const log = std.log.scoped(.gtk);
 
+/// This is detected by the Renderer, in which case it sends a `redraw_surface`
+/// message so that we can call `drawFrame` ourselves from the app thread,
+/// because GTK's `GLArea` does not support drawing from a different thread.
+pub const must_draw_from_app_thread = true;
+
 pub const Options = struct {};
 
 core_app: *CoreApp,

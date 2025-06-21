@@ -266,6 +266,9 @@ pub const renamed = std.StaticStringMap([]const u8).initComptime(&.{
 /// This affects the appearance of text and of any images with transparency.
 /// Additionally, custom shaders will receive colors in the configured space.
 ///
+/// On macOS the default is `native`, on all other platforms the default is
+/// `linear-corrected`.
+///
 /// Valid values:
 ///
 /// * `native` - Perform alpha blending in the native color space for the OS.
@@ -276,12 +279,15 @@ pub const renamed = std.StaticStringMap([]const u8).initComptime(&.{
 ///   when certain color combinations are used (e.g. red / green), but makes
 ///   dark text look much thinner than normal and light text much thicker.
 ///   This is also sometimes known as "gamma correction".
-///   (Currently only supported on macOS. Has no effect on Linux.)
 ///
 /// * `linear-corrected` - Same as `linear`, but with a correction step applied
 ///   for text that makes it look nearly or completely identical to `native`,
 ///   but without any of the darkening artifacts.
-@"alpha-blending": AlphaBlending = .native,
+@"alpha-blending": AlphaBlending =
+    if (builtin.os.tag == .macos)
+        .native
+    else
+        .@"linear-corrected",
 
 /// All of the configurations behavior adjust various metrics determined by the
 /// font. The values can be integers (1, -1, etc.) or a percentage (20%, -15%,
@@ -1961,9 +1967,6 @@ keybind: Keybinds = .{},
 /// causing the window to be completely black. If this happens, you can
 /// unset this configuration to disable the shader.
 ///
-/// On Linux, this requires OpenGL 4.2. Ghostty typically only requires
-/// OpenGL 3.3, but custom shaders push that requirement up to 4.2.
-///
 /// The shader API is identical to the Shadertoy API: you specify a `mainImage`
 /// function and the available uniforms match Shadertoy. The iChannel0 uniform
 /// is a texture containing the rendered terminal screen.
@@ -1977,8 +1980,7 @@ keybind: Keybinds = .{},
 /// This can be repeated multiple times to load multiple shaders. The shaders
 /// will be run in the order they are specified.
 ///
-/// Changing this value at runtime and reloading the configuration will only
-/// affect new windows, tabs, and splits.
+/// This can be changed at runtime and will affect all open terminals.
 @"custom-shader": RepeatablePath = .{},
 
 /// If `true` (default), the focused terminal surface will run an animation
@@ -1996,8 +1998,7 @@ keybind: Keybinds = .{},
 /// will use more CPU per terminal surface and can become quite expensive
 /// depending on the shader and your terminal usage.
 ///
-/// This value can be changed at runtime and will affect all currently
-/// open terminals.
+/// This can be changed at runtime and will affect all open terminals.
 @"custom-shader-animation": CustomShaderAnimation = .true,
 
 /// Bell features to enable if bell support is available in your runtime. Not
