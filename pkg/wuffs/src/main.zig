@@ -7,7 +7,7 @@ pub const swizzle = @import("swizzle.zig");
 pub const ImageData = struct {
     width: u32,
     height: u32,
-    data: []const u8,
+    data: []u8,
 };
 
 test {
