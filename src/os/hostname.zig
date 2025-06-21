@@ -1,10 +1,101 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const posix = std.posix;
 
 pub const HostnameParsingError = error{
     NoHostnameInUri,
     NoSpaceLeft,
 };
+
+pub const UrlParsingError = std.Uri.ParseError || error{
+    HostnameIsNotMacAddress,
+    NoSchemeProvided,
+};
+
+const mac_address_length = 17;
+
+fn isUriPathSeparator(c: u8) bool {
+    return switch (c) {
+        '?', '#' => true,
+        else => false,
+    };
+}
+
+fn isValidMacAddress(mac_address: []const u8) bool {
+    // A valid mac address has 6 two-character components with 5 colons, e.g. 12:34:56:ab:cd:ef.
+    if (mac_address.len != 17) {
+        return false;
+    }
+
+    for (mac_address, 0..) |c, i| {
+        if ((i + 1) % 3 == 0) {
+            if (c != ':') {
+                return false;
+            }
+        } else if (!std.mem.containsAtLeastScalar(u8, "0123456789ABCDEFabcdef", 1, c)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/// Parses the provided url to a `std.Uri` struct. This is very specific to getting hostname and
+/// path information for Ghostty's PWD reporting functionality. Takes into account that on macOS
+/// the url passed to this function might have a mac address as its hostname and parses it
+/// correctly.
+pub fn parseUrl(url: []const u8) UrlParsingError!std.Uri {
+    return std.Uri.parse(url) catch |e| {
+        // The mac-address-as-hostname issue is specific to macOS so we just return an error if we
+        // hit it on other platforms.
+        if (comptime builtin.os.tag != .macos) return e;
+
+        // It's possible this is a mac address on macOS where the last 2 characters in the
+        // address are non-digits, e.g. 'ff', and thus an invalid port.
+        //
+        // Example: file://12:34:56:78:90:12/path/to/file
+        if (e != error.InvalidPort) return e;
+
+        const url_without_scheme_start = std.mem.indexOf(u8, url, "://") orelse {
+            return error.NoSchemeProvided;
+        };
+        const scheme = url[0..url_without_scheme_start];
+        const url_without_scheme = url[url_without_scheme_start + 3 ..];
+
+        // The first '/' after the scheme marks the end of the hostname. If the first '/'
+        // following the end of the scheme is not at the right position this is not a
+        // valid mac address.
+        if (url_without_scheme.len != mac_address_length and
+            std.mem.indexOfScalarPos(u8, url_without_scheme, 0, '/') != mac_address_length)
+        {
+            return error.HostnameIsNotMacAddress;
+        }
+
+        // At this point we may have a mac address as the hostname.
+        const mac_address = url_without_scheme[0..mac_address_length];
+
+        if (!isValidMacAddress(mac_address)) {
+            return error.HostnameIsNotMacAddress;
+        }
+
+        var uri_path_end_idx: usize = mac_address_length;
+        while (uri_path_end_idx < url_without_scheme.len and
+            !isUriPathSeparator(url_without_scheme[uri_path_end_idx]))
+        {
+            uri_path_end_idx += 1;
+        }
+
+        // Same compliance factor as std.Uri.parse(), i.e. not at all compliant with the URI
+        // spec.
+        return .{
+            .scheme = scheme,
+            .host = .{ .percent_encoded = mac_address },
+            .path = .{
+                .percent_encoded = url_without_scheme[mac_address_length..uri_path_end_idx],
+            },
+        };
+    };
+}
 
 /// Print the hostname from a file URI into a buffer.
 pub fn bufPrintHostnameFromFileUri(
@@ -70,6 +161,101 @@ pub fn isLocalHostname(hostname: []const u8) LocalHostnameValidationError!bool {
     return std.mem.eql(u8, hostname, ourHostname);
 }
 
+test parseUrl {
+    // 1. Typical hostnames.
+
+    var uri = try parseUrl("file://personal.computer/home/test/");
+
+    try std.testing.expectEqualStrings("file", uri.scheme);
+    try std.testing.expectEqualStrings("personal.computer", uri.host.?.percent_encoded);
+    try std.testing.expectEqualStrings("/home/test/", uri.path.percent_encoded);
+    try std.testing.expect(uri.port == null);
+
+    uri = try parseUrl("kitty-shell-cwd://personal.computer/home/test/");
+
+    try std.testing.expectEqualStrings("kitty-shell-cwd", uri.scheme);
+    try std.testing.expectEqualStrings("personal.computer", uri.host.?.percent_encoded);
+    try std.testing.expectEqualStrings("/home/test/", uri.path.percent_encoded);
+    try std.testing.expect(uri.port == null);
+
+    // 2. Hostnames that are mac addresses.
+
+    // Numerical mac addresses.
+
+    uri = try parseUrl("file://12:34:56:78:90:12/home/test/");
+
+    try std.testing.expectEqualStrings("file", uri.scheme);
+    try std.testing.expectEqualStrings("12:34:56:78:90", uri.host.?.percent_encoded);
+    try std.testing.expectEqualStrings("/home/test/", uri.path.percent_encoded);
+    try std.testing.expect(uri.port == 12);
+
+    uri = try parseUrl("kitty-shell-cwd://12:34:56:78:90:12/home/test/");
+
+    try std.testing.expectEqualStrings("kitty-shell-cwd", uri.scheme);
+    try std.testing.expectEqualStrings("12:34:56:78:90", uri.host.?.percent_encoded);
+    try std.testing.expectEqualStrings("/home/test/", uri.path.percent_encoded);
+    try std.testing.expect(uri.port == 12);
+
+    // Alphabetical mac addresses.
+
+    uri = try parseUrl("file://ab:cd:ef:ab:cd:ef/home/test/");
+
+    try std.testing.expectEqualStrings("file", uri.scheme);
+    try std.testing.expectEqualStrings("ab:cd:ef:ab:cd:ef", uri.host.?.percent_encoded);
+    try std.testing.expectEqualStrings("/home/test/", uri.path.percent_encoded);
+    try std.testing.expect(uri.port == null);
+
+    uri = try parseUrl("kitty-shell-cwd://ab:cd:ef:ab:cd:ef/home/test/");
+
+    try std.testing.expectEqualStrings("kitty-shell-cwd", uri.scheme);
+    try std.testing.expectEqualStrings("ab:cd:ef:ab:cd:ef", uri.host.?.percent_encoded);
+    try std.testing.expectEqualStrings("/home/test/", uri.path.percent_encoded);
+    try std.testing.expect(uri.port == null);
+
+    // 3. Hostnames that are mac addresses with no path.
+
+    // Numerical mac addresses.
+
+    uri = try parseUrl("file://12:34:56:78:90:12");
+
+    try std.testing.expectEqualStrings("file", uri.scheme);
+    try std.testing.expectEqualStrings("12:34:56:78:90", uri.host.?.percent_encoded);
+    try std.testing.expectEqualStrings("", uri.path.percent_encoded);
+    try std.testing.expect(uri.port == 12);
+
+    uri = try parseUrl("kitty-shell-cwd://12:34:56:78:90:12");
+
+    try std.testing.expectEqualStrings("kitty-shell-cwd", uri.scheme);
+    try std.testing.expectEqualStrings("12:34:56:78:90", uri.host.?.percent_encoded);
+    try std.testing.expectEqualStrings("", uri.path.percent_encoded);
+    try std.testing.expect(uri.port == 12);
+
+    // Alphabetical mac addresses.
+
+    uri = try parseUrl("file://ab:cd:ef:ab:cd:ef");
+
+    try std.testing.expectEqualStrings("file", uri.scheme);
+    try std.testing.expectEqualStrings("ab:cd:ef:ab:cd:ef", uri.host.?.percent_encoded);
+    try std.testing.expectEqualStrings("", uri.path.percent_encoded);
+    try std.testing.expect(uri.port == null);
+
+    uri = try parseUrl("kitty-shell-cwd://ab:cd:ef:ab:cd:ef");
+
+    try std.testing.expectEqualStrings("kitty-shell-cwd", uri.scheme);
+    try std.testing.expectEqualStrings("ab:cd:ef:ab:cd:ef", uri.host.?.percent_encoded);
+    try std.testing.expectEqualStrings("", uri.path.percent_encoded);
+    try std.testing.expect(uri.port == null);
+}
+
+test "parseUrl succeeds even if path component is missing" {
+    const uri = try parseUrl("file://12:34:56:78:90:ab");
+
+    try std.testing.expectEqualStrings("file", uri.scheme);
+    try std.testing.expectEqualStrings("12:34:56:78:90:ab", uri.host.?.percent_encoded);
+    try std.testing.expect(uri.path.isEmpty());
+    try std.testing.expect(uri.port == null);
+}
+
 test "bufPrintHostnameFromFileUri succeeds with ascii hostname" {
     const uri = try std.Uri.parse("file://localhost/");
 
@@ -84,6 +270,14 @@ test "bufPrintHostnameFromFileUri succeeds with hostname as mac address" {
     var buf: [posix.HOST_NAME_MAX]u8 = undefined;
     const actual = try bufPrintHostnameFromFileUri(&buf, uri);
     try std.testing.expectEqualStrings("12:34:56:78:90:12", actual);
+}
+
+test "bufPrintHostnameFromFileUri succeeds with hostname as mac address with the last component as ascii" {
+    const uri = try parseUrl("file://12:34:56:78:90:ab");
+
+    var buf: [posix.HOST_NAME_MAX]u8 = undefined;
+    const actual = try bufPrintHostnameFromFileUri(&buf, uri);
+    try std.testing.expectEqualStrings("12:34:56:78:90:ab", actual);
 }
 
 test "bufPrintHostnameFromFileUri succeeds with hostname as a mac address and the last section is < 10" {

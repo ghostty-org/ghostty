@@ -1081,7 +1081,7 @@ pub const StreamHandler = struct {
             return;
         }
 
-        const uri = std.Uri.parse(url) catch |e| {
+        const uri: std.Uri = internal_os.hostname.parseUrl(url) catch |e| {
             log.warn("invalid url in OSC 7: {}", .{e});
             return;
         };
