@@ -3407,7 +3407,7 @@ fn linkAtPos(
     const mouse_mods = self.mouseModsWithCapture(self.mouse.mods);
 
     // If we have the proper modifiers set then we can check for OSC8 links.
-    if (mouse_mods.equal(input.ctrlOrSuper(.{}))) hyperlink: {
+    if (mouse_mods.ctrl or mouse_mods.super) hyperlink: {
         const rac = mouse_pin.rowAndCell();
         const cell = rac.cell;
         if (!cell.hyperlink) break :hyperlink;
@@ -3438,7 +3438,17 @@ fn linkAtPos(
     for (self.config.links) |link| {
         switch (link.highlight) {
             .always, .hover => {},
-            .always_mods, .hover_mods => |v| if (!v.equal(mouse_mods)) continue,
+            .always_mods, .hover_mods => |v| {
+                // Special case: if the expected mods are "ctrl or super" (like the default URL config),
+                // then we should match if the user pressed either ctrl or super, just like OSC8 links.
+                const is_ctrl_or_super_expected = (v.ctrl and !v.super and !v.shift and !v.alt) or
+                    (v.super and !v.ctrl and !v.shift and !v.alt);
+                if (is_ctrl_or_super_expected) {
+                    if (!(mouse_mods.ctrl or mouse_mods.super)) continue;
+                } else {
+                    if (!v.equal(mouse_mods)) continue;
+                }
+            },
         }
 
         var it = strmap.searchIterator(link.regex);
@@ -4186,19 +4196,32 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
 
             const pos = try self.rt_surface.getCursorPos();
             if (try self.linkAtPos(pos)) |link_info| {
-                // Get the URL text from selection
-                const url_text = (self.io.terminal.screen.selectionString(self.alloc, .{
-                    .sel = link_info[1],
-                    .trim = self.config.clipboard_trim_trailing_spaces,
-                })) catch |err| {
-                    log.err("error reading url string err={}", .{err});
-                    return false;
+                const url_text = switch (link_info[0]) {
+                    ._open_osc8 => url_text: {
+                        // For OSC8 links, get the URI directly from hyperlink data
+                        const uri = self.osc8URI(link_info[1].start()) orelse {
+                            log.warn("failed to get URI for OSC8 hyperlink", .{});
+                            return false;
+                        };
+                        break :url_text try self.alloc.dupeZ(u8, uri);
+                    },
+                    .open => url_text: {
+                        // For regex links, get the text from selection
+                        break :url_text (self.io.terminal.screen.selectionString(self.alloc, .{
+                            .sel = link_info[1],
+                            .trim = self.config.clipboard_trim_trailing_spaces,
+                        })) catch |err| {
+                            log.err("error reading url string err={}", .{err});
+                            return false;
+                        };
+                    },
                 };
+
                 defer self.alloc.free(url_text);
 
                 self.rt_surface.setClipboardString(url_text, .standard, false) catch |err| {
                     log.err("error copying url to clipboard err={}", .{err});
-                    return true;
+                    return false;
                 };
 
                 return true;
