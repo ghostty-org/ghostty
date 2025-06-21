@@ -286,6 +286,7 @@ pub const DerivedConfig = struct {
     selection_foreground: ?terminal.color.RGB,
     invert_selection_fg_bg: bool,
     bold_is_bright: bool,
+    bold_color: ?terminal.color.RGB,
     min_contrast: f32,
     padding_color: configpkg.WindowPaddingColor,
     custom_shaders: configpkg.RepeatablePath,
@@ -353,6 +354,11 @@ pub const DerivedConfig = struct {
                 null,
 
             .selection_foreground = if (config.@"selection-foreground") |bg|
+                bg.toTerminalRGB()
+            else
+                null,
+
+            .bold_color = if (config.@"bold-color") |bg|
                 bg.toTerminalRGB()
             else
                 null,
@@ -1424,7 +1430,7 @@ pub fn rebuildCells(
                 false;
 
             const bg_style = style.bg(cell, color_palette);
-            const fg_style = style.fg(color_palette, self.config.bold_is_bright) orelse self.foreground_color orelse self.default_foreground_color;
+            const fg_style = style.fg(color_palette, self.foreground_color orelse self.default_foreground_color, self.config.bold_is_bright, self.config.bold_color);
 
             // The final background color for the cell.
             const bg = bg: {
@@ -1719,7 +1725,7 @@ pub fn rebuildCells(
                     // If the cell is reversed, use background color instead.
                     (sty.bg(screen.cursor.page_cell, color_palette) orelse self.background_color orelse self.default_background_color)
                 else
-                    (sty.fg(color_palette, self.config.bold_is_bright) orelse self.foreground_color orelse self.default_foreground_color);
+                    (sty.fg(color_palette, self.foreground_color orelse self.default_foreground_color, self.config.bold_is_bright, self.config.bold_color));
             } else {
                 break :color self.foreground_color orelse self.default_foreground_color;
             }
@@ -1733,7 +1739,7 @@ pub fn rebuildCells(
                     const sty = screen.cursor.page_pin.style(screen.cursor.page_cell);
                     break :blk if (sty.flags.inverse)
                         // If the cell is reversed, use foreground color instead.
-                        (sty.fg(color_palette, self.config.bold_is_bright) orelse self.foreground_color orelse self.default_foreground_color)
+                        (sty.fg(color_palette, self.foreground_color orelse self.default_foreground_color, self.config.bold_is_bright, self.config.bold_color))
                     else
                         (sty.bg(screen.cursor.page_cell, color_palette) orelse self.background_color orelse self.default_background_color);
                 } else if (self.config.cursor_text) |txt|
