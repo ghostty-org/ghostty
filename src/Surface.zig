@@ -3350,38 +3350,35 @@ fn clickMoveCursor(self: *Surface, to: terminal.Pin) !void {
     // move the cursor so we can fast path out of here.
     if (!t.flags.shell_redraws_prompt) return;
 
-    // Get our path
+    // Get the current cursor position and target position
     const from = t.screen.cursor.page_pin.*;
-    const path = t.screen.promptPath(from, to);
-    log.debug("click-to-move-cursor from={} to={} path={}", .{ from, to, path });
+    log.debug("click-to-move-cursor from={} to={}", .{ from, to });
 
     // If we aren't moving at all, fast path out of here.
-    if (path.x == 0 and path.y == 0) return;
+    if (from.x == to.x and from.y == to.y) return;
 
-    // Convert our path to arrow key inputs. Yes, that is how this works.
-    // Yes, that is pretty sad. Yes, this could backfire in various ways.
-    // But its the best we can do.
+    // First, calculate the total character distance.
+    // We need to consider the terminal width for proper wrapping.
+    const cols = t.cols;
+    const from_pos = from.y * cols + from.x;
+    const to_pos = to.y * cols + to.x;
+    const distance = @as(isize, @intCast(to_pos)) - @as(isize, @intCast(from_pos));
 
-    // We do Y first because it prevents any weird wrap behavior.
-    if (path.y != 0) {
-        const arrow = if (path.y < 0) arrow: {
-            break :arrow if (t.modes.get(.cursor_keys)) "\x1bOA" else "\x1b[A";
-        } else arrow: {
-            break :arrow if (t.modes.get(.cursor_keys)) "\x1bOB" else "\x1b[B";
-        };
-        for (0..@abs(path.y)) |_| {
-            self.io.queueMessage(.{ .write_stable = arrow }, .locked);
-        }
-    }
-    if (path.x != 0) {
-        const arrow = if (path.x < 0) arrow: {
-            break :arrow if (t.modes.get(.cursor_keys)) "\x1bOD" else "\x1b[D";
-        } else arrow: {
-            break :arrow if (t.modes.get(.cursor_keys)) "\x1bOC" else "\x1b[C";
-        };
-        for (0..@abs(path.x)) |_| {
-            self.io.queueMessage(.{ .write_stable = arrow }, .locked);
-        }
+    if (distance == 0) return;
+
+    // Determine which arrow key to use for movement
+    const arrow = if (distance < 0) arrow: {
+        // Moving left
+        break :arrow if (t.modes.get(.cursor_keys)) "\x1bOD" else "\x1b[D";
+    } else arrow: {
+        // Moving right
+        break :arrow if (t.modes.get(.cursor_keys)) "\x1bOC" else "\x1b[C";
+    };
+
+    // Move the cursor step by step
+    const steps = @abs(distance);
+    for (0..@intCast(steps)) |_| {
+        self.io.queueMessage(.{ .write_stable = arrow }, .locked);
     }
 }
 
