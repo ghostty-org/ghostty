@@ -665,6 +665,13 @@ pub fn gotoPreviousTab(self: *Window, surface: *Surface) bool {
     return true;
 }
 
+/// Go to the last tab used for a surface.
+pub fn gotoLastUsedTab(self: *Window) bool {
+    if (!self.notebook.gotoLastUsedTab()) return false;
+    self.focusCurrentTab();
+    return true;
+}
+
 /// Go to the next tab for a surface.
 pub fn gotoNextTab(self: *Window, surface: *Surface) bool {
     const tab = surface.container.tab() orelse {

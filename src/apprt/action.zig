@@ -463,6 +463,7 @@ pub const GotoTab = enum(c_int) {
     previous = -1,
     next = -2,
     last = -3,
+    last_used_tab = -4,
     _,
 };
 

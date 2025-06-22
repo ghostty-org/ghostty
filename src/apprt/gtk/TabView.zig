@@ -21,6 +21,9 @@ window: *Window,
 /// the tab view
 tab_view: *adw.TabView,
 
+/// latest tab to toggle
+latest_tab_used: ?*Tab = null,
+
 /// Set to true so that the adw close-page handler knows we're forcing
 /// and to allow a close to happen with no confirm. This is a bit of a hack
 /// because we currently use GTK alerts to confirm tab close and they
@@ -110,9 +113,18 @@ pub fn currentTab(self: *TabView) ?*Tab {
 }
 
 pub fn gotoNthTab(self: *TabView, position: c_int) bool {
+    if (self.currentTab()) |current_tab| {
+        self.latest_tab_used = current_tab;
+    }
     const page_to_select = self.tab_view.getNthPage(position);
     self.tab_view.setSelectedPage(page_to_select);
     return true;
+}
+
+pub fn gotoLastUsedTab(self: *TabView) bool {
+    const latest_tab = self.latest_tab_used orelse return false;
+    const latest_tab_idx = self.getTabPosition(latest_tab) orelse return false;
+    return self.gotoNthTab(latest_tab_idx);
 }
 
 pub fn getTabPage(self: *TabView, tab: *Tab) ?*adw.TabPage {
@@ -188,6 +200,7 @@ fn newTabInsertPosition(self: *TabView, tab: *Tab) c_int {
 
 /// Adds a new tab with the given title to the notebook.
 pub fn addTab(self: *TabView, tab: *Tab, title: [:0]const u8) void {
+    self.latest_tab_used = self.currentTab() orelse null;
     const position = self.newTabInsertPosition(tab);
     const page = self.tab_view.insert(tab.box.as(gtk.Widget), position);
     self.setTabTitle(tab, title);

@@ -4681,6 +4681,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         .next_tab,
         .last_tab,
         .goto_tab,
+        .last_used_tab,
         => |v, tag| return try self.rt_app.performAction(
             .{ .surface = self },
             .goto_tab,
@@ -4688,6 +4689,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 .previous_tab => .previous,
                 .next_tab => .next,
                 .last_tab => .last,
+                .last_used_tab => .last_used_tab,
                 .goto_tab => @enumFromInt(v),
                 else => comptime unreachable,
             },
