@@ -8,6 +8,7 @@ pub const graphics = @import("graphics.zig");
 pub const os = @import("os.zig");
 pub const text = @import("text.zig");
 pub const video = @import("video.zig");
+pub const iosurface = @import("iosurface.zig");
 
 // All of our C imports consolidated into one place. We used to
 // import them one by one in each package but Zig 0.14 has some
@@ -17,7 +18,9 @@ pub const c = @cImport({
     @cInclude("CoreGraphics/CoreGraphics.h");
     @cInclude("CoreText/CoreText.h");
     @cInclude("CoreVideo/CoreVideo.h");
+    @cInclude("CoreVideo/CVPixelBuffer.h");
     @cInclude("QuartzCore/CALayer.h");
+    @cInclude("IOSurface/IOSurfaceRef.h");
     @cInclude("dispatch/dispatch.h");
     @cInclude("os/log.h");
 

@@ -355,7 +355,40 @@ typedef struct {
   double tl_px_y;
   uint32_t offset_start;
   uint32_t offset_len;
+  const char* text;
+  uintptr_t text_len;
+} ghostty_text_s;
+
+typedef enum {
+  GHOSTTY_POINT_ACTIVE,
+  GHOSTTY_POINT_VIEWPORT,
+  GHOSTTY_POINT_SCREEN,
+  GHOSTTY_POINT_SURFACE,
+} ghostty_point_tag_e;
+
+typedef enum {
+  GHOSTTY_POINT_COORD_EXACT,
+  GHOSTTY_POINT_COORD_TOP_LEFT,
+  GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+} ghostty_point_coord_e;
+
+typedef struct {
+  ghostty_point_tag_e tag;
+  ghostty_point_coord_e coord;
+  uint32_t x;
+  uint32_t y;
+} ghostty_point_s;
+
+typedef struct {
+  ghostty_point_s top_left;
+  ghostty_point_s bottom_right;
+  bool rectangle;
 } ghostty_selection_s;
+
+typedef struct {
+  const char* key;
+  const char* value;
+} ghostty_env_var_s;
 
 typedef struct {
   void* nsview;
@@ -378,6 +411,9 @@ typedef struct {
   float font_size;
   const char* working_directory;
   const char* command;
+  ghostty_env_var_s* env_vars;
+  size_t env_var_count;
+  const char* initial_input;
 } ghostty_surface_config_s;
 
 typedef struct {
@@ -796,7 +832,8 @@ void ghostty_app_set_color_scheme(ghostty_app_t, ghostty_color_scheme_e);
 
 ghostty_surface_config_s ghostty_surface_config_new();
 
-ghostty_surface_t ghostty_surface_new(ghostty_app_t, ghostty_surface_config_s*);
+ghostty_surface_t ghostty_surface_new(ghostty_app_t,
+                                      const ghostty_surface_config_s*);
 void ghostty_surface_free(ghostty_surface_t);
 void* ghostty_surface_userdata(ghostty_surface_t);
 ghostty_app_t ghostty_surface_app(ghostty_surface_t);
@@ -849,16 +886,16 @@ void ghostty_surface_complete_clipboard_request(ghostty_surface_t,
                                                 void*,
                                                 bool);
 bool ghostty_surface_has_selection(ghostty_surface_t);
-uintptr_t ghostty_surface_selection(ghostty_surface_t, char*, uintptr_t);
+bool ghostty_surface_read_selection(ghostty_surface_t, ghostty_text_s*);
+bool ghostty_surface_read_text(ghostty_surface_t,
+                               ghostty_selection_s,
+                               ghostty_text_s*);
+void ghostty_surface_free_text(ghostty_surface_t, ghostty_text_s*);
 
 #ifdef __APPLE__
 void ghostty_surface_set_display_id(ghostty_surface_t, uint32_t);
 void* ghostty_surface_quicklook_font(ghostty_surface_t);
-uintptr_t ghostty_surface_quicklook_word(ghostty_surface_t,
-                                         char*,
-                                         uintptr_t,
-                                         ghostty_selection_s*);
-bool ghostty_surface_selection_info(ghostty_surface_t, ghostty_selection_s*);
+bool ghostty_surface_quicklook_word(ghostty_surface_t, ghostty_text_s*);
 #endif
 
 ghostty_inspector_t ghostty_surface_inspector(ghostty_surface_t);

@@ -17,33 +17,19 @@ struct TerminalCommandPaletteView: View {
 
     // The commands available to the command palette.
     private var commandOptions: [CommandOption] {
-        guard let surface = surfaceView.surface else { return [] }
-
-        var ptr: UnsafeMutablePointer<ghostty_command_s>? = nil
-        var count: Int = 0
-        ghostty_surface_commands(surface, &ptr, &count)
-        guard let ptr else { return [] }
-
-        let buffer = UnsafeBufferPointer(start: ptr, count: count)
-        return Array(buffer).filter { c in
-            let key = String(cString: c.action_key)
-            switch (key) {
-            case "toggle_tab_overview",
-                "toggle_window_decorations",
-                "show_gtk_inspector":
-                return false
-            default:
-                return true
+        guard let surface = surfaceView.surfaceModel else { return [] }
+        do {
+            return try surface.commands().map { c in
+                return CommandOption(
+                    title: c.title,
+                    description: c.description,
+                    symbols: ghosttyConfig.keyboardShortcut(for: c.action)?.keyList
+                ) {
+                    onAction(c.action)
+                }
             }
-        }.map { c in
-            let action = String(cString: c.action)
-            return CommandOption(
-                title: String(cString: c.title),
-                description: String(cString: c.description),
-                symbols: ghosttyConfig.keyboardShortcut(for: action)?.keyList
-            ) {
-                onAction(action)
-            }
+        } catch {
+            return []
         }
     }
 

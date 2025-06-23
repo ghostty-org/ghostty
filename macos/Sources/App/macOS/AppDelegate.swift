@@ -18,6 +18,7 @@ class AppDelegate: NSObject,
     )
 
     /// Various menu items so that we can programmatically sync the keyboard shortcut with the Ghostty config
+    @IBOutlet private var menuAbout: NSMenuItem?
     @IBOutlet private var menuServices: NSMenu?
     @IBOutlet private var menuCheckForUpdates: NSMenuItem?
     @IBOutlet private var menuOpenConfig: NSMenuItem?
@@ -91,7 +92,10 @@ class AppDelegate: NSObject,
     lazy var undoManager = ExpiringUndoManager()
 
     /// Our quick terminal. This starts out uninitialized and only initializes if used.
-    private var quickController: QuickTerminalController? = nil
+    private(set) lazy var quickController = QuickTerminalController(
+        ghostty,
+        position: derivedConfig.quickTerminalPosition
+    )
 
     /// Manages updates
     let updaterController: SPUStandardUpdaterController
@@ -242,6 +246,9 @@ class AppDelegate: NSObject,
 
             ghostty_app_set_color_scheme(app, scheme)
         }
+
+        // Setup our menu
+        setupMenuImages()
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -282,7 +289,7 @@ class AppDelegate: NSObject,
         // NOTE(mitchellh): I don't think we need this check at all anymore. I'm keeping it
         // here because I don't want to remove it in a patch release cycle but we should
         // target removing it soon.
-        if (self.quickController == nil && windows.allSatisfy { !$0.isVisible }) {
+        if (windows.allSatisfy { !$0.isVisible }) {
             return .terminateNow
         }
 
@@ -377,10 +384,17 @@ class AppDelegate: NSObject,
             config.workingDirectory = filename
             _ = TerminalController.newTab(ghostty, withBaseConfig: config)
         } else {
-            // When opening a file, open a new window with that file as the command,
-            // and its parent directory as the working directory.
-            config.command = filename
+            // When opening a file, we want to execute the file. To do this, we
+            // don't override the command directly, because it won't load the
+            // profile/rc files for the shell, which is super important on macOS
+            // due to things like Homebrew. Instead, we set the command to
+            // `<filename>; exit` which is what Terminal and iTerm2 do.
+            config.initialInput = "\(filename); exit\n"
+
+            // Set the parent directory to our working directory so that relative
+            // paths in scripts work.
             config.workingDirectory = (filename as NSString).deletingLastPathComponent
+
             _ = TerminalController.newWindow(ghostty, withBaseConfig: config)
         }
 
@@ -390,6 +404,46 @@ class AppDelegate: NSObject,
     /// This is called for the dock right-click menu.
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         return dockMenu
+    }
+
+    /// Setup all the images for our menu items.
+    private func setupMenuImages() {
+        // Note: This COULD Be done all in the xib file, but I find it easier to
+        // modify this stuff as code.
+        self.menuAbout?.setImageIfDesired(systemSymbolName: "info.circle")
+        self.menuCheckForUpdates?.setImageIfDesired(systemSymbolName: "square.and.arrow.down")
+        self.menuOpenConfig?.setImageIfDesired(systemSymbolName: "gear")
+        self.menuReloadConfig?.setImageIfDesired(systemSymbolName: "arrow.trianglehead.2.clockwise.rotate.90")
+        self.menuSecureInput?.setImageIfDesired(systemSymbolName: "lock.display")
+        self.menuNewWindow?.setImageIfDesired(systemSymbolName: "macwindow.badge.plus")
+        self.menuNewTab?.setImageIfDesired(systemSymbolName: "macwindow")
+        self.menuSplitRight?.setImageIfDesired(systemSymbolName: "rectangle.righthalf.inset.filled")
+        self.menuSplitLeft?.setImageIfDesired(systemSymbolName: "rectangle.leadinghalf.inset.filled")
+        self.menuSplitUp?.setImageIfDesired(systemSymbolName: "rectangle.tophalf.inset.filled")
+        self.menuSplitDown?.setImageIfDesired(systemSymbolName: "rectangle.bottomhalf.inset.filled")
+        self.menuClose?.setImageIfDesired(systemSymbolName: "xmark")
+        self.menuIncreaseFontSize?.setImageIfDesired(systemSymbolName: "textformat.size.larger")
+        self.menuResetFontSize?.setImageIfDesired(systemSymbolName: "textformat.size")
+        self.menuDecreaseFontSize?.setImageIfDesired(systemSymbolName: "textformat.size.smaller")
+        self.menuCommandPalette?.setImageIfDesired(systemSymbolName: "filemenu.and.selection")
+        self.menuQuickTerminal?.setImageIfDesired(systemSymbolName: "apple.terminal")
+        self.menuChangeTitle?.setImageIfDesired(systemSymbolName: "pencil.line")
+        self.menuTerminalInspector?.setImageIfDesired(systemSymbolName: "scope")
+        self.menuToggleFullScreen?.setImageIfDesired(systemSymbolName: "square.arrowtriangle.4.outward")
+        self.menuToggleVisibility?.setImageIfDesired(systemSymbolName: "eye")
+        self.menuZoomSplit?.setImageIfDesired(systemSymbolName: "arrow.up.left.and.arrow.down.right")
+        self.menuPreviousSplit?.setImageIfDesired(systemSymbolName: "chevron.backward.2")
+        self.menuNextSplit?.setImageIfDesired(systemSymbolName: "chevron.forward.2")
+        self.menuEqualizeSplits?.setImageIfDesired(systemSymbolName: "inset.filled.topleft.topright.bottomleft.bottomright.rectangle")
+        self.menuSelectSplitLeft?.setImageIfDesired(systemSymbolName: "arrow.left")
+        self.menuSelectSplitRight?.setImageIfDesired(systemSymbolName: "arrow.right")
+        self.menuSelectSplitAbove?.setImageIfDesired(systemSymbolName: "arrow.up")
+        self.menuSelectSplitBelow?.setImageIfDesired(systemSymbolName: "arrow.down")
+        self.menuMoveSplitDividerUp?.setImageIfDesired(systemSymbolName: "arrow.up.to.line")
+        self.menuMoveSplitDividerDown?.setImageIfDesired(systemSymbolName: "arrow.down.to.line")
+        self.menuMoveSplitDividerLeft?.setImageIfDesired(systemSymbolName: "arrow.left.to.line")
+        self.menuMoveSplitDividerRight?.setImageIfDesired(systemSymbolName: "arrow.right.to.line")
+        self.menuFloatOnTop?.setImageIfDesired(systemSymbolName: "square.3.layers.3d.top.filled")
     }
 
     /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.
@@ -875,14 +929,6 @@ class AppDelegate: NSObject,
     }
 
     @IBAction func toggleQuickTerminal(_ sender: Any) {
-        if quickController == nil {
-            quickController = QuickTerminalController(
-                ghostty,
-                position: derivedConfig.quickTerminalPosition
-            )
-        }
-
-        guard let quickController = self.quickController else { return }
         quickController.toggle()
     }
 

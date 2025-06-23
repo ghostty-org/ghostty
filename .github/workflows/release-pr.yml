@@ -47,7 +47,7 @@ jobs:
           sentry-cli dif upload --project ghostty --wait dsym.zip
 
   build-macos:
-    runs-on: namespace-profile-ghostty-macos
+    runs-on: namespace-profile-ghostty-macos-sequoia
     timeout-minutes: 90
     steps:
       - name: Checkout code
@@ -94,7 +94,7 @@ jobs:
       - name: Build Ghostty.app
         run: |
           cd macos
-          sudo xcode-select -s /Applications/Xcode_16.0.app
+          sudo xcode-select -s /Applications/Xcode_26.0.app
           xcodebuild -target Ghostty -configuration Release
 
       # We inject the "build number" as simply the number of commits since HEAD.
@@ -199,7 +199,7 @@ jobs:
           destination-dir: ./
 
   build-macos-debug:
-    runs-on: namespace-profile-ghostty-macos
+    runs-on: namespace-profile-ghostty-macos-sequoia
     timeout-minutes: 90
     steps:
       - name: Checkout code
@@ -246,7 +246,7 @@ jobs:
       - name: Build Ghostty.app
         run: |
           cd macos
-          sudo xcode-select -s /Applications/Xcode_16.0.app
+          sudo xcode-select -s /Applications/Xcode_26.0.app
           xcodebuild -target Ghostty -configuration Release
 
       # We inject the "build number" as simply the number of commits since HEAD.

@@ -57,8 +57,10 @@ extension Ghostty {
 
             // Setup our surface. This will also initialize all the terminal IO.
             let surface_cfg = baseConfig ?? SurfaceConfiguration()
-            var surface_cfg_c = surface_cfg.ghosttyConfig(view: self)
-            guard let surface = ghostty_surface_new(app, &surface_cfg_c) else {
+            let surface = surface_cfg.withCValue(view: self) { surface_cfg_c in
+                ghostty_surface_new(app, &surface_cfg_c)
+            }
+            guard let surface = surface else {
                 // TODO
                 return
             }

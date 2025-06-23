@@ -11,6 +11,9 @@ zig-out/
 # macos is managed by XCode GUI
 macos/
 
+# produced by Icon Composer on macOS
+images/Ghostty.icon/icon.json
+
 # website dev run
 website/.next
 

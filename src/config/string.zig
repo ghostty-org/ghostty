@@ -3,7 +3,7 @@ const std = @import("std");
 /// Parse a string literal into a byte array. The string can contain
 /// any valid Zig string literal escape sequences.
 ///
-/// The output buffer never needs sto be larger than the input buffer.
+/// The output buffer never needs to be larger than the input buffer.
 /// The buffers may alias.
 pub fn parse(out: []u8, bytes: []const u8) ![]u8 {
     var dst_i: usize = 0;

@@ -50,7 +50,11 @@ pub fn renderGlyph(
     const region = try canvas.writeAtlas(alloc, atlas);
 
     return font.Glyph{
-        .width = width,
+        // HACK: Set the width for the bar cursor to just the thickness,
+        //       this is just for the benefit of the custom shader cursor
+        //       uniform code. -- In the future code will be introduced to
+        //       auto-crop the canvas so that this isn't needed.
+        .width = if (sprite == .cursor_bar) thickness else width,
         .height = height,
         .offset_x = 0,
         .offset_y = @intCast(height),

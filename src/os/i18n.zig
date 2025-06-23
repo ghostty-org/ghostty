@@ -68,23 +68,27 @@ pub const InitError = error{
 /// want to set the domain for the entire application since this is also
 /// used by libghostty.
 pub fn init(resources_dir: []const u8) InitError!void {
-    // i18n is unsupported on Windows
-    if (builtin.os.tag == .windows) return;
+    switch (builtin.os.tag) {
+        // i18n is unsupported on Windows
+        .windows => return,
 
-    // Our resources dir is always nested below the share dir that
-    // is standard for translations.
-    const share_dir = std.fs.path.dirname(resources_dir) orelse
-        return error.InvalidResourcesDir;
+        else => {
+            // Our resources dir is always nested below the share dir that
+            // is standard for translations.
+            const share_dir = std.fs.path.dirname(resources_dir) orelse
+                return error.InvalidResourcesDir;
 
-    // Build our locale path
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const path = std.fmt.bufPrintZ(&buf, "{s}/locale", .{share_dir}) catch
-        return error.OutOfMemory;
+            // Build our locale path
+            var buf: [std.fs.max_path_bytes]u8 = undefined;
+            const path = std.fmt.bufPrintZ(&buf, "{s}/locale", .{share_dir}) catch
+                return error.OutOfMemory;
 
-    // Bind our bundle ID to the given locale path
-    log.debug("binding domain={s} path={s}", .{ build_config.bundle_id, path });
-    _ = bindtextdomain(build_config.bundle_id, path.ptr) orelse
-        return error.OutOfMemory;
+            // Bind our bundle ID to the given locale path
+            log.debug("binding domain={s} path={s}", .{ build_config.bundle_id, path });
+            _ = bindtextdomain(build_config.bundle_id, path.ptr) orelse
+                return error.OutOfMemory;
+        },
+    }
 }
 
 /// Set the global gettext domain to our bundle ID, allowing unqualified

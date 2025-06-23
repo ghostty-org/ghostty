@@ -22,10 +22,24 @@ step: *Step,
 output: LazyPath,
 
 pub fn create(b: *std.Build, opts: Options) ?*MetallibStep {
-    switch (opts.target.result.os.tag) {
-        .macos, .ios => {},
-        else => return null, // Only macOS and iOS are supported.
-    }
+    const sdk = switch (opts.target.result.os.tag) {
+        .macos => "macosx",
+        .ios => switch (opts.target.result.abi) {
+            // The iOS simulator uses the same SDK for Metal as the device,
+            // but the minimum version tag causes different behaviors.
+            .simulator => "iphoneos",
+            else => "iphoneos",
+        },
+        else => return null,
+    };
+    const platform_version_arg = switch (opts.target.result.os.tag) {
+        .macos => "-mmacos-version-min",
+        .ios => switch (opts.target.result.abi) {
+            .simulator => "-mios-simulator-version-min",
+            else => "-mios-version-min",
+        },
+        else => null,
+    };
 
     const self = b.allocator.create(MetallibStep) catch @panic("OOM");
 
@@ -37,51 +51,26 @@ pub fn create(b: *std.Build, opts: Options) ?*MetallibStep {
         else => unreachable,
     };
 
-    // Find the metal and metallib executables. The Apple docs
-    // at the time of writing (June 2025) say to use
-    // `xcrun --sdk <sdk> metal` but this doesn't work with Xcode 26.
-    //
-    // I don't know if this is a bug but the xcodebuild approach also
-    // works with Xcode 15 so it seems safe to use this instead.
-    //
-    // Reported bug: FB17874042.
-    var code: u8 = undefined;
-    const metal_exe = std.mem.trim(u8, b.runAllowFail(
-        &.{ "xcodebuild", "-find-executable", "metal" },
-        &code,
-        .Ignore,
-    ) catch return null, "\r\n ");
-    const metallib_exe = std.mem.trim(u8, b.runAllowFail(
-        &.{ "xcodebuild", "-find-executable", "metallib" },
-        &code,
-        .Ignore,
-    ) catch return null, "\r\n ");
-
     const run_ir = RunStep.create(
         b,
         b.fmt("metal {s}", .{opts.name}),
     );
-    run_ir.addArgs(&.{ metal_exe, "-o" });
+    run_ir.addArgs(&.{ "/usr/bin/xcrun", "-sdk", sdk, "metal", "-o" });
     const output_ir = run_ir.addOutputFileArg(b.fmt("{s}.ir", .{opts.name}));
     run_ir.addArgs(&.{"-c"});
     for (opts.sources) |source| run_ir.addFileArg(source);
-    switch (opts.target.result.os.tag) {
-        .ios => run_ir.addArgs(&.{b.fmt(
-            "-mios-version-min={s}",
-            .{min_version},
-        )}),
-        .macos => run_ir.addArgs(&.{b.fmt(
-            "-mmacos-version-min={s}",
-            .{min_version},
-        )}),
-        else => {},
+    if (platform_version_arg) |arg| {
+        run_ir.addArgs(&.{b.fmt(
+            "{s}={s}",
+            .{ arg, min_version },
+        )});
     }
 
     const run_lib = RunStep.create(
         b,
         b.fmt("metallib {s}", .{opts.name}),
     );
-    run_lib.addArgs(&.{ metallib_exe, "-o" });
+    run_lib.addArgs(&.{ "/usr/bin/xcrun", "-sdk", sdk, "metallib", "-o" });
     const output_lib = run_lib.addOutputFileArg(b.fmt("{s}.metallib", .{opts.name}));
     run_lib.addFileArg(output_ir);
     run_lib.step.dependOn(&run_ir.step);

@@ -5,8 +5,34 @@ import Combine
 import GhosttyKit
 
 /// A classic, tabbed terminal experience.
-class TerminalController: BaseTerminalController {
-    override var windowNibName: NSNib.Name? { "Terminal" }
+class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Controller {
+    override var windowNibName: NSNib.Name? {
+        let defaultValue = "Terminal"
+
+        guard let appDelegate = NSApp.delegate as? AppDelegate else { return defaultValue }
+        let config = appDelegate.ghostty.config
+
+        // If we have no window decorations, there's no reason to do anything but
+        // the default titlebar (because there will be no titlebar).
+        if !config.windowDecorations {
+            return defaultValue
+        }
+
+        let nib = switch config.macosTitlebarStyle {
+        case "native": "Terminal"
+        case "hidden": "TerminalHiddenTitlebar"
+        case "transparent": "TerminalTransparentTitlebar"
+        case "tabs":
+            if #available(macOS 26.0, *) {
+                "TerminalTabsTitlebarTahoe"
+            } else {
+                "TerminalTabsTitlebarVentura"
+            }
+        default: defaultValue
+        }
+
+        return nib
+    }
 
     /// This is set to true when we care about frame changes. This is a small optimization since
     /// this controller registers a listener for ALL frame change notifications and this lets us bail
@@ -125,15 +151,12 @@ class TerminalController: BaseTerminalController {
     }
 
 
-    func fullscreenDidChange() {
+    override func fullscreenDidChange() {
+        super.fullscreenDidChange()
+
         // When our fullscreen state changes, we resync our appearance because some
         // properties change when fullscreen or not.
         guard let focusedSurface else { return }
-        if (!(fullscreenStyle?.isFullscreen ?? false) &&
-           ghostty.config.macosTitlebarStyle == "hidden")
-        {
-            applyHiddenTitlebarStyle()
-        }
 
         syncAppearance(focusedSurface.derivedConfig)
     }
@@ -153,7 +176,7 @@ class TerminalController: BaseTerminalController {
     private static var lastCascadePoint = NSPoint(x: 0, y: 0)
 
     // The preferred parent terminal controller.
-    private static var preferredParent: TerminalController? {
+    static var preferredParent: TerminalController? {
         all.first {
             $0.window?.isMainWindow ?? false
         } ?? all.last
@@ -278,9 +301,8 @@ class TerminalController: BaseTerminalController {
             tg.removeWindow(window)
         }
 
-        // If we have the "hidden" titlebar style we want to create new
-        // tabs as windows instead, so just skip adding it to the parent.
-        if (ghostty.config.macosTitlebarStyle != "hidden") {
+        // If we don't allow tabs then we create a new window instead.
+        if (window.tabbingMode != .disallowed) {
             // Add the window to the tab group and show it.
             switch ghostty.config.windowNewTabPosition {
             case "end":
@@ -386,28 +408,25 @@ class TerminalController: BaseTerminalController {
     /// changes, when a window is closed, and when tabs are reordered
     /// with the mouse.
     func relabelTabs() {
-        // Reset this to false. It'll be set back to true later.
-        tabListenForFrame = false
-
-        guard let windows = self.window?.tabbedWindows as? [TerminalWindow] else { return }
-
         // We only listen for frame changes if we have more than 1 window,
         // otherwise the accessory view doesn't matter.
-        tabListenForFrame = windows.count > 1
+        tabListenForFrame = window?.tabbedWindows?.count ?? 0 > 1
 
-        for (tab, window) in zip(1..., windows) {
-            // We need to clear any windows beyond this because they have had
-            // a keyEquivalent set previously.
-            guard tab <= 9 else {
-                window.keyEquivalent = ""
-                continue
-            }
+        if let windows = window?.tabbedWindows as? [TerminalWindow] {
+            for (tab, window) in zip(1..., windows) {
+                // We need to clear any windows beyond this because they have had
+                // a keyEquivalent set previously.
+                guard tab <= 9 else {
+                    window.keyEquivalent = ""
+                    continue
+                }
 
-            let action = "goto_tab:\(tab)"
-            if let equiv = ghostty.config.keyboardShortcut(for: action) {
-                window.keyEquivalent = "\(equiv)"
-            } else {
-                window.keyEquivalent = ""
+                let action = "goto_tab:\(tab)"
+                if let equiv = ghostty.config.keyboardShortcut(for: action) {
+                    window.keyEquivalent = "\(equiv)"
+                } else {
+                    window.keyEquivalent = ""
+                }
             }
         }
     }
@@ -440,21 +459,11 @@ class TerminalController: BaseTerminalController {
     }
 
     private func syncAppearance(_ surfaceConfig: Ghostty.SurfaceView.DerivedConfig) {
-        guard let window = self.window as? TerminalWindow else { return }
-
-        // Set our explicit appearance if we need to based on the configuration.
-        window.appearance = surfaceConfig.windowAppearance
-
-        // Update our window light/darkness based on our updated background color
-        window.isLightTheme = OSColor(surfaceConfig.backgroundColor).isLightColor
+        // Let our window handle its own appearance
+        guard let window = window as? TerminalWindow else { return }
 
         // Sync our zoom state for splits
         window.surfaceIsZoomed = surfaceTree.zoomed != nil
-
-        // If our window is not visible, then we do nothing. Some things such as blurring
-        // have no effect if the window is not visible. Ultimately, we'll have this called
-        // at some point when a surface becomes focused.
-        guard window.isVisible else { return }
 
         // Set the font for the window and tab titles.
         if let titleFontName = surfaceConfig.windowTitleFontFamily {
@@ -463,89 +472,8 @@ class TerminalController: BaseTerminalController {
             window.titlebarFont = nil
         }
 
-        // If we have window transparency then set it transparent. Otherwise set it opaque.
-
-        // Window transparency only takes effect if our window is not native fullscreen.
-        // In native fullscreen we disable transparency/opacity because the background
-        // becomes gray and widgets show through.
-        if (!window.styleMask.contains(.fullScreen) &&
-            surfaceConfig.backgroundOpacity < 1
-        ) {
-            window.isOpaque = false
-
-            // This is weird, but we don't use ".clear" because this creates a look that
-            // matches Terminal.app much more closer. This lets users transition from
-            // Terminal.app more easily.
-            window.backgroundColor = .white.withAlphaComponent(0.001)
-
-            ghostty_set_window_background_blur(ghostty.app, Unmanaged.passUnretained(window).toOpaque())
-        } else {
-            window.isOpaque = true
-            window.backgroundColor = .windowBackgroundColor
-        }
-
-        window.hasShadow = surfaceConfig.macosWindowShadow
-
-        guard window.hasStyledTabs else { return }
-
-        // Our background color depends on if our focused surface borders the top or not.
-        // If it does, we match the focused surface. If it doesn't, we use the app
-        // configuration.
-        let backgroundColor: OSColor
-        if !surfaceTree.isEmpty {
-            if let focusedSurface = focusedSurface,
-               let treeRoot = surfaceTree.root,
-               let focusedNode = treeRoot.node(view: focusedSurface),
-               treeRoot.spatial().doesBorder(side: .up, from: focusedNode) {
-                // Similar to above, an alpha component of "0" causes compositor issues, so
-                // we use 0.001. See: https://github.com/ghostty-org/ghostty/pull/4308
-                backgroundColor = OSColor(focusedSurface.backgroundColor ?? surfaceConfig.backgroundColor).withAlphaComponent(0.001)
-            } else {
-                // We don't have a focused surface or our surface doesn't border the
-                // top. We choose to match the color of the top-left most surface.
-                let topLeftSurface = surfaceTree.root?.leftmostLeaf()
-                backgroundColor = OSColor(topLeftSurface?.backgroundColor ?? derivedConfig.backgroundColor)
-            }
-        } else {
-            backgroundColor = OSColor(self.derivedConfig.backgroundColor)
-        }
-        window.titlebarColor = backgroundColor.withAlphaComponent(surfaceConfig.backgroundOpacity)
-
-        if (window.isOpaque) {
-            // Bg color is only synced if we have no transparency. This is because
-            // the transparency is handled at the surface level (window.backgroundColor
-            // ignores alpha components)
-            window.backgroundColor = backgroundColor
-
-            // If there is transparency, calling this will make the titlebar opaque
-            // so we only call this if we are opaque.
-            window.updateTabBar()
-        }
-    }
-
-    private func setInitialWindowPosition(x: Int16?, y: Int16?, windowDecorations: Bool) {
-        guard let window else { return }
-
-        // If we don't have an X/Y then we try to use the previously saved window pos.
-        guard let x, let y else {
-            if (!LastWindowPosition.shared.restore(window)) {
-                window.center()
-            }
-
-            return
-        }
-
-        // Prefer the screen our window is being placed on otherwise our primary screen.
-        guard let screen = window.screen ?? NSScreen.screens.first else {
-            window.center()
-            return
-        }
-
-        // Orient based on the top left of the primary monitor
-        let frame = screen.visibleFrame
-        window.setFrameOrigin(.init(
-            x: frame.minX + CGFloat(x),
-            y: frame.maxY - (CGFloat(y) + window.frame.height)))
+        // Call this last in case it uses any of the properties above.
+        window.syncAppearance(surfaceConfig)
     }
 
     /// Returns the default size of the window. This is contextual based on the focused surface because
@@ -598,13 +526,13 @@ class TerminalController: BaseTerminalController {
     }
 
     /// This is called anytime a node in the surface tree is being removed.
-    override func closeSurfaceNode(
+    override func closeSurface(
         _ node: SplitTree<Ghostty.SurfaceView>.Node,
         withConfirmation: Bool = true
     ) {
         // If this isn't the root then we're dealing with a split closure.
         if surfaceTree.root != node {
-            super.closeSurfaceNode(node, withConfirmation: withConfirmation)
+            super.closeSurface(node, withConfirmation: withConfirmation)
             return
         }
 
@@ -889,52 +817,9 @@ class TerminalController: BaseTerminalController {
         shouldCascadeWindows = false
     }
 
-   fileprivate func hideWindowButtons() {
-        guard let window else { return }
-
-        window.standardWindowButton(.closeButton)?.isHidden = true
-        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        window.standardWindowButton(.zoomButton)?.isHidden = true
-    }
-
-    fileprivate func applyHiddenTitlebarStyle() {
-        guard let window else { return }
-
-        window.styleMask = [
-            // We need `titled` in the mask to get the normal window frame
-            .titled,
-
-            // Full size content view so we can extend
-            // content in to the hidden titlebar's area
-            .fullSizeContentView,
-
-            .resizable,
-            .closable,
-            .miniaturizable,
-        ]
-
-        // Hide the title
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-
-        // Hide the traffic lights (window control buttons)
-        hideWindowButtons()
-
-        // Disallow tabbing if the titlebar is hidden, since that will (should) also hide the tab bar.
-        window.tabbingMode = .disallowed
-
-        // Nuke it from orbit -- hide the titlebar container entirely, just in case. There are
-        // some operations that appear to bring back the titlebar visibility so this ensures
-        // it is gone forever.
-        if let themeFrame = window.contentView?.superview,
-           let titleBarContainer = themeFrame.firstDescendant(withClassName: "NSTitlebarContainerView") {
-            titleBarContainer.isHidden = true
-        }
-    }
-
     override func windowDidLoad() {
         super.windowDidLoad()
-        guard let window = window as? TerminalWindow else { return }
+        guard let window else { return }
 
         // Store our initial frame so we can know our default later.
         initialFrame = window.frame
@@ -952,9 +837,6 @@ class TerminalController: BaseTerminalController {
             window.identifier = .init(String(describing: TerminalWindowRestoration.self))
         }
 
-        // If window decorations are disabled, remove our title
-        if (!config.windowDecorations) { window.styleMask.remove(.titled) }
-
         // If we have only a single surface (no splits) and there is a default size then
         // we should resize to that default size.
         if case let .leaf(view) = surfaceTree.root {
@@ -967,55 +849,12 @@ class TerminalController: BaseTerminalController {
             }
         }
 
-        // Set our window positioning to coordinates if config value exists, otherwise
-        // fallback to original centering behavior
-        setInitialWindowPosition(
-            x: config.windowPositionX,
-            y: config.windowPositionY,
-            windowDecorations: config.windowDecorations)
-
-        if config.macosWindowButtons == .hidden {
-            hideWindowButtons()
-        }
-
-        // Make sure our theme is set on the window so styling is correct.
-        if let windowTheme = config.windowTheme {
-            window.windowTheme = .init(rawValue: windowTheme)
-        }
-
-        // Handle titlebar tabs config option. Something about what we do while setting up the
-        // titlebar tabs interferes with the window restore process unless window.tabbingMode
-        // is set to .preferred, so we set it, and switch back to automatic as soon as we can.
-        if (config.macosTitlebarStyle == "tabs") {
-            window.tabbingMode = .preferred
-            window.titlebarTabs = true
-            DispatchQueue.main.async {
-                window.tabbingMode = .automatic
-            }
-        } else if (config.macosTitlebarStyle == "transparent") {
-            window.transparentTabs = true
-        }
-
-        if window.hasStyledTabs {
-            // Set the background color of the window
-            let backgroundColor = NSColor(config.backgroundColor)
-            window.backgroundColor = backgroundColor
-
-            // This makes sure our titlebar renders correctly when there is a transparent background
-            window.titlebarColor = backgroundColor.withAlphaComponent(config.backgroundOpacity)
-        }
-
         // Initialize our content view to the SwiftUI root
         window.contentView = NSHostingView(rootView: TerminalView(
             ghostty: self.ghostty,
             viewModel: self,
             delegate: self
         ))
-
-        // If our titlebar style is "hidden" we adjust the style appropriately
-        if (config.macosTitlebarStyle == "hidden") {
-            applyHiddenTitlebarStyle()
-        }
 
         // In various situations, macOS automatically tabs new windows. Ghostty handles
         // its own tabbing so we DONT want this behavior. This detects this scenario and undoes
@@ -1050,14 +889,20 @@ class TerminalController: BaseTerminalController {
         ghostty.newTab(surface: surface)
     }
 
-    //MARK: - NSWindowDelegate
+    // MARK: NSWindowDelegate
+
+    // TabGroupCloseCoordinator.Controller
+    lazy private(set) var tabGroupCloseCoordinator = TabGroupCloseCoordinator()
 
     override func windowShouldClose(_ sender: NSWindow) -> Bool {
-        // If we have tabs, then this should only close the tab.
-        if window?.tabGroup?.windows.count ?? 0 > 1 {
-            closeTab(sender)
-        } else {
-            closeWindow(sender)
+        tabGroupCloseCoordinator.windowShouldClose(sender) { [weak self] scope in
+            guard let self else { return }
+            switch (scope) {
+            case .tab: closeTab(nil)
+            case .window:
+                guard self.window?.isFirstWindowInTabGroup ?? false else { return }
+                closeWindow(nil)
+            }
         }
 
         // We will always explicitly close the window using the above
@@ -1169,20 +1014,14 @@ class TerminalController: BaseTerminalController {
 
     @IBAction override func closeWindow(_ sender: Any?) {
         guard let window = window else { return }
-        guard let tabGroup = window.tabGroup else {
-            // No tabs, no tab group, just perform a normal close.
-            closeWindowImmediately()
-            return
-        }
 
-        // If have one window then we just do a normal close
-        if tabGroup.windows.count == 1 {
-            closeWindowImmediately()
-            return
-        }
+        // We need to check all the windows in our tab group for confirmation
+        // if we're closing the window. If we don't have a tabgroup for any
+        // reason we check ourselves.
+        let windows: [NSWindow] = window.tabGroup?.windows ?? [window]
 
         // Check if any windows require close confirmation.
-        let needsConfirm = tabGroup.windows.contains { tabWindow in
+        let needsConfirm = windows.contains { tabWindow in
             guard let controller = tabWindow.windowController as? TerminalController else {
                 return false
             }
@@ -1214,23 +1053,6 @@ class TerminalController: BaseTerminalController {
     }
 
     //MARK: - TerminalViewDelegate
-
-    override func titleDidChange(to: String) {
-        super.titleDidChange(to: to)
-
-        guard let window = window as? TerminalWindow else { return }
-
-        // Custom toolbar-based title used when titlebar tabs are enabled.
-        if let toolbar = window.toolbar as? TerminalToolbar {
-            if (window.titlebarTabs || derivedConfig.macosTitlebarStyle == "hidden") {
-                // Updating the title text as above automatically reveals the
-                // native title view in macOS 15.0 and above. Since we're using
-                // a custom view instead, we need to re-hide it.
-                window.titleVisibility = .hidden
-            }
-            toolbar.titleText = to
-        }
-    }
     
     override func focusedSurfaceDidChange(to: Ghostty.SurfaceView?) {
         super.focusedSurfaceDidChange(to: to)
@@ -1455,4 +1277,3 @@ extension TerminalController: NSMenuItemValidation {
         }
     }
 }
-

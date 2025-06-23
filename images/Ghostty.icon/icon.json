@@ -1,0 +1,170 @@
+{
+  "color-space-for-untagged-svg-colors" : "display-p3",
+  "fill" : {
+    "linear-gradient" : [
+      "display-p3:0.87945,0.87945,0.87945,1.00000",
+      "display-p3:0.40000,0.40000,0.40392,1.00000"
+    ]
+  },
+  "groups" : [
+    {
+      "blend-mode" : "normal",
+      "layers" : [
+        {
+          "blend-mode" : "overlay",
+          "fill" : {
+            "linear-gradient" : [
+              "srgb:1.00000,1.00000,1.00000,1.00000",
+              "srgb:0.00000,0.00000,0.00000,1.00000"
+            ]
+          },
+          "hidden" : false,
+          "image-name" : "gloss.png",
+          "name" : "GlossTop",
+          "opacity" : 0.25,
+          "position" : {
+            "scale" : 0.98,
+            "translation-in-points" : [
+              0.90625,
+              -236.4609375
+            ]
+          }
+        },
+        {
+          "blend-mode" : "normal",
+          "fill" : "automatic",
+          "hidden" : false,
+          "image-name" : "gloss.png",
+          "name" : "gloss",
+          "position" : {
+            "scale" : 0.98,
+            "translation-in-points" : [
+              0.90625,
+              -236.4609375
+            ]
+          }
+        }
+      ],
+      "lighting" : "individual",
+      "name" : "Group 4",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    },
+    {
+      "blend-mode" : "overlay",
+      "layers" : [
+        {
+          "blend-mode" : "overlay",
+          "fill" : "automatic",
+          "glass" : false,
+          "hidden" : false,
+          "image-name" : "Screen Effects.png",
+          "name" : "Screen Effects"
+        },
+        {
+          "blend-mode" : "overlay",
+          "fill" : "automatic",
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "Screen Effects.png",
+          "name" : "Screen Effects"
+        }
+      ],
+      "lighting" : "individual",
+      "name" : "Group 3",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0.5
+      }
+    },
+    {
+      "blur-material" : null,
+      "layers" : [
+        {
+          "blend-mode" : "normal",
+          "fill" : "automatic",
+          "hidden" : false,
+          "image-name" : "Ghostty.png",
+          "name" : "Ghostty",
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              -185.015625,
+              -143.8359375
+            ]
+          }
+        },
+        {
+          "blend-mode" : "normal",
+          "fill" : {
+            "solid" : "extended-srgb:0.00000,0.47843,1.00000,1.00000"
+          },
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "Ghostty.png",
+          "name" : "GhosttyBlur",
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              -186.59375,
+              -143.8359375
+            ]
+          }
+        },
+        {
+          "hidden" : false,
+          "image-name" : "Screen.png",
+          "name" : "Screen"
+        }
+      ],
+      "lighting" : "individual",
+      "name" : "Group 2",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0.5
+      }
+    },
+    {
+      "blend-mode" : "normal",
+      "blur-material" : null,
+      "hidden" : false,
+      "layers" : [
+        {
+          "image-name" : "Inner Bevel 6px.png",
+          "name" : "Inner Bevel 6px"
+        }
+      ],
+      "lighting" : "individual",
+      "name" : "Group 1",
+      "shadow" : {
+        "kind" : "layer-color",
+        "opacity" : 0.2
+      },
+      "specular" : false,
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}

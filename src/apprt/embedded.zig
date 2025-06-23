@@ -376,6 +376,14 @@ pub const PlatformTag = enum(c_int) {
     ios = 2,
 };
 
+pub const EnvVar = extern struct {
+    /// The name of the environment variable.
+    key: [*:0]const u8,
+
+    /// The value of the environment variable.
+    value: [*:0]const u8,
+};
+
 pub const Surface = struct {
     app: *App,
     platform: Platform,
@@ -407,7 +415,7 @@ pub const Surface = struct {
         font_size: f32 = 0,
 
         /// The working directory to load into.
-        working_directory: [*:0]const u8 = "",
+        working_directory: ?[*:0]const u8 = null,
 
         /// The command to run in the new surface. If this is set then
         /// the "wait-after-command" option is also automatically set to true,
@@ -417,7 +425,14 @@ pub const Surface = struct {
         /// despite Ghostty allowing directly executed commands via config.
         /// This is a legacy thing and we should probably change it in the
         /// future once we have a concrete use case.
-        command: [*:0]const u8 = "",
+        command: ?[*:0]const u8 = null,
+
+        /// Extra environment variables to set for the surface.
+        env_vars: ?[*]EnvVar = null,
+        env_var_count: usize = 0,
+
+        /// Input to send to the command after it is started.
+        initial_input: ?[*:0]const u8 = null,
     };
 
     pub fn init(self: *Surface, app: *App, opts: Options) !void {
@@ -443,41 +458,72 @@ pub const Surface = struct {
         defer config.deinit();
 
         // If we have a working directory from the options then we set it.
-        const wd = std.mem.sliceTo(opts.working_directory, 0);
-        if (wd.len > 0) wd: {
-            var dir = std.fs.openDirAbsolute(wd, .{}) catch |err| {
-                log.warn(
-                    "error opening requested working directory dir={s} err={}",
-                    .{ wd, err },
-                );
-                break :wd;
-            };
-            defer dir.close();
+        if (opts.working_directory) |c_wd| {
+            const wd = std.mem.sliceTo(c_wd, 0);
+            if (wd.len > 0) wd: {
+                var dir = std.fs.openDirAbsolute(wd, .{}) catch |err| {
+                    log.warn(
+                        "error opening requested working directory dir={s} err={}",
+                        .{ wd, err },
+                    );
+                    break :wd;
+                };
+                defer dir.close();
 
-            const stat = dir.stat() catch |err| {
-                log.warn(
-                    "failed to stat requested working directory dir={s} err={}",
-                    .{ wd, err },
-                );
-                break :wd;
-            };
+                const stat = dir.stat() catch |err| {
+                    log.warn(
+                        "failed to stat requested working directory dir={s} err={}",
+                        .{ wd, err },
+                    );
+                    break :wd;
+                };
 
-            if (stat.kind != .directory) {
-                log.warn(
-                    "requested working directory is not a directory dir={s}",
-                    .{wd},
-                );
-                break :wd;
+                if (stat.kind != .directory) {
+                    log.warn(
+                        "requested working directory is not a directory dir={s}",
+                        .{wd},
+                    );
+                    break :wd;
+                }
+
+                config.@"working-directory" = wd;
             }
-
-            config.@"working-directory" = wd;
         }
 
         // If we have a command from the options then we set it.
-        const cmd = std.mem.sliceTo(opts.command, 0);
-        if (cmd.len > 0) {
-            config.command = .{ .shell = cmd };
-            config.@"wait-after-command" = true;
+        if (opts.command) |c_command| {
+            const cmd = std.mem.sliceTo(c_command, 0);
+            if (cmd.len > 0) {
+                config.command = .{ .shell = cmd };
+                config.@"wait-after-command" = true;
+            }
+        }
+
+        // Apply any environment variables that were requested.
+        if (opts.env_var_count > 0) {
+            const alloc = config.arenaAlloc();
+            for (opts.env_vars.?[0..opts.env_var_count]) |env_var| {
+                const key = std.mem.sliceTo(env_var.key, 0);
+                const value = std.mem.sliceTo(env_var.value, 0);
+                try config.env.map.put(
+                    alloc,
+                    try alloc.dupeZ(u8, key),
+                    try alloc.dupeZ(u8, value),
+                );
+            }
+        }
+
+        // If we have an initial input then we set it.
+        if (opts.initial_input) |c_input| {
+            const alloc = config.arenaAlloc();
+            config.input.list.clearRetainingCapacity();
+            try config.input.list.append(
+                alloc,
+                .{ .raw = try alloc.dupeZ(u8, std.mem.sliceTo(
+                    c_input,
+                    0,
+                )) },
+            );
         }
 
         // Initialize our surface right away. We're given a view that is
@@ -1138,13 +1184,6 @@ pub const CAPI = struct {
         }
     };
 
-    const Selection = extern struct {
-        tl_x_px: f64,
-        tl_y_px: f64,
-        offset_start: u32,
-        offset_len: u32,
-    };
-
     const SurfaceSize = extern struct {
         columns: u16,
         rows: u16,
@@ -1152,6 +1191,104 @@ pub const CAPI = struct {
         height_px: u32,
         cell_width_px: u32,
         cell_height_px: u32,
+    };
+
+    // ghostty_text_s
+    const Text = extern struct {
+        tl_px_x: f64,
+        tl_px_y: f64,
+        offset_start: u32,
+        offset_len: u32,
+        text: ?[*:0]const u8,
+        text_len: usize,
+
+        pub fn deinit(self: *Text) void {
+            if (self.text) |ptr| {
+                global.alloc.free(ptr[0..self.text_len :0]);
+            }
+        }
+    };
+
+    // ghostty_point_s
+    const Point = extern struct {
+        tag: Tag,
+        coord_tag: CoordTag,
+        x: u32,
+        y: u32,
+
+        const Tag = enum(c_int) {
+            active = 0,
+            viewport = 1,
+            screen = 2,
+            history = 3,
+        };
+
+        const CoordTag = enum(c_int) {
+            exact = 0,
+            top_left = 1,
+            bottom_right = 2,
+        };
+
+        fn pin(
+            self: Point,
+            screen: *const terminal.Screen,
+        ) ?terminal.Pin {
+            // The core point tag.
+            const tag: terminal.point.Tag = switch (self.tag) {
+                inline else => |tag| @field(
+                    terminal.point.Tag,
+                    @tagName(tag),
+                ),
+            };
+
+            // Clamp our point to the screen bounds.
+            const clamped_x = @min(self.x, screen.pages.cols -| 1);
+            const clamped_y = @min(self.y, screen.pages.rows -| 1);
+
+            return switch (self.coord_tag) {
+                // Exact coordinates require a specific pin.
+                .exact => exact: {
+                    const pt_x = std.math.cast(
+                        terminal.size.CellCountInt,
+                        clamped_x,
+                    ) orelse std.math.maxInt(terminal.size.CellCountInt);
+
+                    const pt: terminal.Point = switch (tag) {
+                        inline else => |v| @unionInit(
+                            terminal.Point,
+                            @tagName(v),
+                            .{ .x = pt_x, .y = clamped_y },
+                        ),
+                    };
+
+                    break :exact screen.pages.pin(pt) orelse null;
+                },
+
+                .top_left => screen.pages.getTopLeft(tag),
+
+                .bottom_right => screen.pages.getBottomRight(tag),
+            };
+        }
+    };
+
+    // ghostty_selection_s
+    const Selection = extern struct {
+        tl: Point,
+        br: Point,
+        rectangle: bool,
+
+        fn core(
+            self: Selection,
+            screen: *const terminal.Screen,
+        ) ?terminal.Selection {
+            return .{
+                .bounds = .{ .untracked = .{
+                    .start = self.tl.pin(screen) orelse return null,
+                    .end = self.br.pin(screen) orelse return null,
+                } },
+                .rectangle = self.rectangle,
+            };
+        }
     };
 
     // Reference the conditional exports based on target platform
@@ -1369,23 +1506,80 @@ pub const CAPI = struct {
         return surface.core_surface.hasSelection();
     }
 
-    /// Copies the surface selection text into the provided buffer and
-    /// returns the copied size. If the buffer is too small, there is no
-    /// selection, or there is an error, then 0 is returned.
-    export fn ghostty_surface_selection(surface: *Surface, buf: [*]u8, cap: usize) usize {
-        const selection_ = surface.core_surface.selectionString(global.alloc) catch |err| {
-            log.warn("error getting selection err={}", .{err});
-            return 0;
+    /// Same as ghostty_surface_read_text but reads from the user selection,
+    /// if any.
+    export fn ghostty_surface_read_selection(
+        surface: *Surface,
+        result: *Text,
+    ) bool {
+        const core_surface = &surface.core_surface;
+        core_surface.renderer_state.mutex.lock();
+        defer core_surface.renderer_state.mutex.unlock();
+
+        // If we don't have a selection, do nothing.
+        const core_sel = core_surface.io.terminal.screen.selection orelse return false;
+
+        // Read the text from the selection.
+        return readTextLocked(surface, core_sel, result);
+    }
+
+    /// Read some arbitrary text from the surface.
+    ///
+    /// This is an expensive operation so it shouldn't be called too
+    /// often. We recommend that callers cache the result and throttle
+    /// calls to this function.
+    export fn ghostty_surface_read_text(
+        surface: *Surface,
+        sel: Selection,
+        result: *Text,
+    ) bool {
+        surface.core_surface.renderer_state.mutex.lock();
+        defer surface.core_surface.renderer_state.mutex.unlock();
+
+        const core_sel = sel.core(
+            &surface.core_surface.renderer_state.terminal.screen,
+        ) orelse return false;
+
+        return readTextLocked(surface, core_sel, result);
+    }
+
+    fn readTextLocked(
+        surface: *Surface,
+        core_sel: terminal.Selection,
+        result: *Text,
+    ) bool {
+        const core_surface = &surface.core_surface;
+
+        // Get our text directly from the core surface.
+        const text = core_surface.dumpTextLocked(
+            global.alloc,
+            core_sel,
+        ) catch |err| {
+            log.warn("error reading text err={}", .{err});
+            return false;
         };
-        const selection = selection_ orelse return 0;
-        defer global.alloc.free(selection);
 
-        // If the buffer is too small, return no selection.
-        if (selection.len > cap) return 0;
+        const vp: CoreSurface.Text.Viewport = text.viewport orelse .{
+            .tl_px_x = -1,
+            .tl_px_y = -1,
+            .offset_start = 0,
+            .offset_len = 0,
+        };
 
-        // Copy into the buffer and return the length
-        @memcpy(buf[0..selection.len], selection);
-        return selection.len;
+        result.* = .{
+            .tl_px_x = vp.tl_px_x,
+            .tl_px_y = vp.tl_px_y,
+            .offset_start = vp.offset_start,
+            .offset_len = vp.offset_len,
+            .text = text.text.ptr,
+            .text_len = text.text.len,
+        };
+
+        return true;
+    }
+
+    export fn ghostty_surface_free_text(ptr: *Text) void {
+        ptr.deinit();
     }
 
     /// Tell the surface that it needs to schedule a render
@@ -1689,12 +1883,10 @@ pub const CAPI = struct {
             return false;
         };
 
-        _ = ptr.core_surface.performBindingAction(action) catch |err| {
+        return ptr.core_surface.performBindingAction(action) catch |err| {
             log.err("error performing binding action action={} err={}", .{ action, err });
             return false;
         };
-
-        return true;
     }
 
     /// Complete a clipboard read request started via the read callback.
@@ -1888,20 +2080,11 @@ pub const CAPI = struct {
         /// This does not modify the selection active on the surface (if any).
         export fn ghostty_surface_quicklook_word(
             ptr: *Surface,
-            buf: [*]u8,
-            cap: usize,
-            info: *Selection,
-        ) usize {
+            result: *Text,
+        ) bool {
             const surface = &ptr.core_surface;
             surface.renderer_state.mutex.lock();
             defer surface.renderer_state.mutex.unlock();
-
-            // To make everything in this function easier, we modify the
-            // selection to be the word under the cursor and call normal APIs.
-            // We restore the old selection so it isn't ever changed. Since we hold
-            // the renderer mutex it'll never show up in a frame.
-            const prev = surface.io.terminal.screen.selection;
-            defer surface.io.terminal.screen.selection = prev;
 
             // Get our word selection
             const sel = sel: {
@@ -1915,45 +2098,13 @@ pub const CAPI = struct {
                     },
                 }) orelse {
                     if (comptime std.debug.runtime_safety) unreachable;
-                    return 0;
+                    return false;
                 };
-                break :sel surface.io.terminal.screen.selectWord(pin) orelse return 0;
+                break :sel surface.io.terminal.screen.selectWord(pin) orelse return false;
             };
 
-            // Set the selection
-            surface.io.terminal.screen.selection = sel;
-
-            // No we call normal functions. These require that the lock
-            // is unlocked. This may cause a frame flicker with the fake
-            // selection but I think the lack of new complexity is worth it
-            // for now.
-            {
-                surface.renderer_state.mutex.unlock();
-                defer surface.renderer_state.mutex.lock();
-                const len = ghostty_surface_selection(ptr, buf, cap);
-                if (!ghostty_surface_selection_info(ptr, info)) return 0;
-                return len;
-            }
-        }
-
-        /// This returns the selection metadata for the current selection.
-        /// This will return false if there is no selection or the
-        /// selection is not fully contained in the viewport (since the
-        /// metadata is all about that).
-        export fn ghostty_surface_selection_info(
-            ptr: *Surface,
-            info: *Selection,
-        ) bool {
-            const sel = ptr.core_surface.selectionInfo() orelse
-                return false;
-
-            info.* = .{
-                .tl_x_px = sel.tl_x_px,
-                .tl_y_px = sel.tl_y_px,
-                .offset_start = sel.offset_start,
-                .offset_len = sel.offset_len,
-            };
-            return true;
+            // Read the selection
+            return readTextLocked(ptr, sel, result);
         }
 
         export fn ghostty_inspector_metal_init(ptr: *Inspector, device: objc.c.id) bool {

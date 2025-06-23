@@ -67,9 +67,9 @@
   },
   {
     "type": "archive",
-    "url": "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/10f216f54a32cee6f1f2e3aa01812650a209c16b.tar.gz",
-    "dest": "vendor/p/N-V-__8AAMJWXQSVe0xzU_4UVRTDVERqnNpQU4wfS0FRGRRj",
-    "sha256": "4dcad36540957adbc01465f47c1aa0df3946f747e596349c36bfce611fcc2796"
+    "url": "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/e436898274ecb89c055da476a8188aa4f79ffb17.tar.gz",
+    "dest": "vendor/p/N-V-__8AAHncWgThrlpsuJJ2BIINQ6L7SO6SUOT1pEL8UQaX",
+    "sha256": "0bddcc4b2360c81fae86fccc4044c35ebefcdfd845c97ecd7d3329e0750ab375"
   },
   {
     "type": "archive",
@@ -79,9 +79,9 @@
   },
   {
     "type": "archive",
-    "url": "https://github.com/mitchellh/libxev/archive/3df9337a9e84450a58a2c4af434ec1a036f7b494.tar.gz",
-    "dest": "vendor/p/libxev-0.0.0-86vtc-ziEgDbLP0vihUn1MhsxNKY4GJEga6BEr7oyHpz",
-    "sha256": "a0a66a03d77bf631e7a7f1eca89590137dc57e7e447b91b85679507a942e638a"
+    "url": "https://github.com/mitchellh/libxev/archive/9bc52324d4f0c036a3b244e992680a9fb217bbd3.tar.gz",
+    "dest": "vendor/p/libxev-0.0.0-86vtc5b1EgB7vFmt9Tk7ySteR5AeEHW7xcR6gK9dMUD3",
+    "sha256": "570141c83a29b6a88de5492894543b4db461c0c11145e0fd12bda98f14c26085"
   },
   {
     "type": "archive",

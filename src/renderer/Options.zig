@@ -20,3 +20,6 @@ surface_mailbox: apprt.surface.Mailbox,
 
 /// The apprt surface.
 rt_surface: *apprt.Surface,
+
+/// The renderer thread.
+thread: *renderer.Thread,

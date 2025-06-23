@@ -5,8 +5,16 @@ const objc = @import("objc");
 const macos = @import("macos");
 
 const mtl = @import("api.zig");
+const Metal = @import("../Metal.zig");
 
 const log = std.log.scoped(.metal);
+
+/// Options for initializing a buffer.
+pub const Options = struct {
+    /// MTLDevice
+    device: objc.Object,
+    resource_options: mtl.MTLResourceOptions,
+};
 
 /// Metal data storage for a certain set of equal types. This is usually
 /// used for vertex buffers, etc. This helpful wrapper makes it easy to
@@ -15,65 +23,48 @@ pub fn Buffer(comptime T: type) type {
     return struct {
         const Self = @This();
 
-        /// The resource options for this buffer.
-        options: mtl.MTLResourceOptions,
+        /// The options this buffer was initialized with.
+        opts: Options,
 
-        buffer: objc.Object, // MTLBuffer
+        /// The underlying MTLBuffer object.
+        buffer: objc.Object,
+
+        /// The allocated length of the buffer.
+        /// Note that this is the number
+        /// of `T`s not the size in bytes.
+        len: usize,
 
         /// Initialize a buffer with the given length pre-allocated.
-        pub fn init(
-            device: objc.Object,
-            len: usize,
-            options: mtl.MTLResourceOptions,
-        ) !Self {
-            const buffer = device.msgSend(
+        pub fn init(opts: Options, len: usize) !Self {
+            const buffer = opts.device.msgSend(
                 objc.Object,
                 objc.sel("newBufferWithLength:options:"),
                 .{
                     @as(c_ulong, @intCast(len * @sizeOf(T))),
-                    options,
+                    opts.resource_options,
                 },
             );
 
-            return .{ .buffer = buffer, .options = options };
+            return .{ .buffer = buffer, .opts = opts, .len = len };
         }
 
         /// Init the buffer filled with the given data.
-        pub fn initFill(
-            device: objc.Object,
-            data: []const T,
-            options: mtl.MTLResourceOptions,
-        ) !Self {
-            const buffer = device.msgSend(
+        pub fn initFill(opts: Options, data: []const T) !Self {
+            const buffer = opts.device.msgSend(
                 objc.Object,
                 objc.sel("newBufferWithBytes:length:options:"),
                 .{
                     @as(*const anyopaque, @ptrCast(data.ptr)),
                     @as(c_ulong, @intCast(data.len * @sizeOf(T))),
-                    options,
+                    opts.resource_options,
                 },
             );
 
-            return .{ .buffer = buffer, .options = options };
+            return .{ .buffer = buffer, .opts = opts, .len = data.len };
         }
 
-        pub fn deinit(self: *Self) void {
+        pub fn deinit(self: *const Self) void {
             self.buffer.msgSend(void, objc.sel("release"), .{});
-        }
-
-        /// Get the buffer contents as a slice of T. The contents are
-        /// mutable. The contents may or may not be automatically synced
-        /// depending on the buffer storage mode. See the Metal docs.
-        pub fn contents(self: *Self) ![]T {
-            const len_bytes = self.buffer.getProperty(c_ulong, "length");
-            assert(@mod(len_bytes, @sizeOf(T)) == 0);
-            const len = @divExact(len_bytes, @sizeOf(T));
-            const ptr = self.buffer.msgSend(
-                ?[*]T,
-                objc.sel("contents"),
-                .{},
-            ).?;
-            return ptr[0..len];
         }
 
         /// Sync new contents to the buffer. The data is expected to be the
@@ -82,7 +73,7 @@ pub fn Buffer(comptime T: type) type {
         ///
         /// If the amount of data is smaller than the buffer length, the
         /// remaining data in the buffer is left untouched.
-        pub fn sync(self: *Self, device: objc.Object, data: []const T) !void {
+        pub fn sync(self: *Self, data: []const T) !void {
             // If we need more bytes than our buffer has, we need to reallocate.
             const req_bytes = data.len * @sizeOf(T);
             const avail_bytes = self.buffer.getProperty(c_ulong, "length");
@@ -92,12 +83,12 @@ pub fn Buffer(comptime T: type) type {
 
                 // Allocate a new buffer with enough to hold double what we require.
                 const size = req_bytes * 2;
-                self.buffer = device.msgSend(
+                self.buffer = self.opts.device.msgSend(
                     objc.Object,
                     objc.sel("newBufferWithLength:options:"),
                     .{
                         @as(c_ulong, @intCast(size * @sizeOf(T))),
-                        self.options,
+                        self.opts.resource_options,
                     },
                 );
             }
@@ -123,7 +114,7 @@ pub fn Buffer(comptime T: type) type {
             // we need to signal Metal to synchronize the buffer data.
             //
             // Ref: https://developer.apple.com/documentation/metal/synchronizing-a-managed-resource-in-macos?language=objc
-            if (self.options.storage_mode == .managed) {
+            if (self.opts.resource_options.storage_mode == .managed) {
                 self.buffer.msgSend(
                     void,
                     "didModifyRange:",
@@ -134,7 +125,7 @@ pub fn Buffer(comptime T: type) type {
 
         /// Like Buffer.sync but takes data from an array of ArrayLists,
         /// rather than a single array. Returns the number of items synced.
-        pub fn syncFromArrayLists(self: *Self, device: objc.Object, lists: []std.ArrayListUnmanaged(T)) !usize {
+        pub fn syncFromArrayLists(self: *Self, lists: []const std.ArrayListUnmanaged(T)) !usize {
             var total_len: usize = 0;
             for (lists) |list| {
                 total_len += list.items.len;
@@ -149,12 +140,12 @@ pub fn Buffer(comptime T: type) type {
 
                 // Allocate a new buffer with enough to hold double what we require.
                 const size = req_bytes * 2;
-                self.buffer = device.msgSend(
+                self.buffer = self.opts.device.msgSend(
                     objc.Object,
                     objc.sel("newBufferWithLength:options:"),
                     .{
                         @as(c_ulong, @intCast(size * @sizeOf(T))),
-                        self.options,
+                        self.opts.resource_options,
                     },
                 );
             }
@@ -181,7 +172,7 @@ pub fn Buffer(comptime T: type) type {
             // we need to signal Metal to synchronize the buffer data.
             //
             // Ref: https://developer.apple.com/documentation/metal/synchronizing-a-managed-resource-in-macos?language=objc
-            if (self.options.storage_mode == .managed) {
+            if (self.opts.resource_options.storage_mode == .managed) {
                 self.buffer.msgSend(
                     void,
                     "didModifyRange:",

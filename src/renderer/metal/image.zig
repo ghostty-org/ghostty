@@ -4,6 +4,9 @@ const assert = std.debug.assert;
 const objc = @import("objc");
 const wuffs = @import("wuffs");
 
+const Metal = @import("../Metal.zig");
+const Texture = Metal.Texture;
+
 const mtl = @import("api.zig");
 
 /// Represents a single image placement on the grid. A placement is a
@@ -61,15 +64,15 @@ pub const Image = union(enum) {
     replace_rgba: Replace,
 
     /// The image is uploaded and ready to be used.
-    ready: objc.Object, // MTLTexture
+    ready: Texture,
 
     /// The image is uploaded but is scheduled to be unloaded.
     unload_pending: []u8,
-    unload_ready: objc.Object, // MTLTexture
-    unload_replace: struct { []u8, objc.Object },
+    unload_ready: Texture,
+    unload_replace: struct { []u8, Texture },
 
     pub const Replace = struct {
-        texture: objc.Object,
+        texture: Texture,
         pending: Pending,
     };
 
@@ -101,32 +104,32 @@ pub const Image = union(enum) {
 
             .replace_gray => |r| {
                 alloc.free(r.pending.dataSlice(1));
-                r.texture.msgSend(void, objc.sel("release"), .{});
+                r.texture.deinit();
             },
 
             .replace_gray_alpha => |r| {
                 alloc.free(r.pending.dataSlice(2));
-                r.texture.msgSend(void, objc.sel("release"), .{});
+                r.texture.deinit();
             },
 
             .replace_rgb => |r| {
                 alloc.free(r.pending.dataSlice(3));
-                r.texture.msgSend(void, objc.sel("release"), .{});
+                r.texture.deinit();
             },
 
             .replace_rgba => |r| {
                 alloc.free(r.pending.dataSlice(4));
-                r.texture.msgSend(void, objc.sel("release"), .{});
+                r.texture.deinit();
             },
 
             .unload_replace => |r| {
                 alloc.free(r[0]);
-                r[1].msgSend(void, objc.sel("release"), .{});
+                r[1].deinit();
             },
 
             .ready,
             .unload_ready,
-            => |obj| obj.msgSend(void, objc.sel("release"), .{}),
+            => |t| t.deinit(),
         }
     }
 
@@ -170,7 +173,7 @@ pub const Image = union(enum) {
         // Get our existing texture. This switch statement will also handle
         // scenarios where there is no existing texture and we can modify
         // the self pointer directly.
-        const existing: objc.Object = switch (self.*) {
+        const existing: Texture = switch (self.*) {
             // For pending, we can free the old data and become pending
             // ourselves.
             .pending_gray => |p| {
@@ -357,10 +360,11 @@ pub const Image = union(enum) {
     pub fn upload(
         self: *Image,
         alloc: Allocator,
-        device: objc.Object,
-        /// Storage mode for the MTLTexture object
-        storage_mode: mtl.MTLResourceOptions.StorageMode,
+        metal: *const Metal,
     ) !void {
+        const device = metal.device;
+        const storage_mode = metal.default_storage_mode;
+
         // Convert our data if we have to
         try self.convert(alloc);
 
@@ -368,27 +372,19 @@ pub const Image = union(enum) {
         const p = self.pending().?;
 
         // Create our texture
-        const texture = try initTexture(p, device, storage_mode);
-        errdefer texture.msgSend(void, objc.sel("release"), .{});
-
-        // Upload our data
-        const d = self.depth();
-        texture.msgSend(
-            void,
-            objc.sel("replaceRegion:mipmapLevel:withBytes:bytesPerRow:"),
+        const texture = try Texture.init(
             .{
-                mtl.MTLRegion{
-                    .origin = .{ .x = 0, .y = 0, .z = 0 },
-                    .size = .{
-                        .width = @intCast(p.width),
-                        .height = @intCast(p.height),
-                        .depth = 1,
-                    },
+                .device = device,
+                .pixel_format = .rgba8unorm_srgb,
+                .resource_options = .{
+                    // Indicate that the CPU writes to this resource but never reads it.
+                    .cpu_cache_mode = .write_combined,
+                    .storage_mode = storage_mode,
                 },
-                @as(c_ulong, 0),
-                @as(*const anyopaque, p.data),
-                @as(c_ulong, d * p.width),
             },
+            @intCast(p.width),
+            @intCast(p.height),
+            p.data[0 .. p.width * p.height * self.depth()],
         );
 
         // Uploaded. We can now clear our data and change our state.
@@ -424,43 +420,5 @@ pub const Image = union(enum) {
 
             else => null,
         };
-    }
-
-    fn initTexture(
-        p: Pending,
-        device: objc.Object,
-        /// Storage mode for the MTLTexture object
-        storage_mode: mtl.MTLResourceOptions.StorageMode,
-    ) !objc.Object {
-        // Create our descriptor
-        const desc = init: {
-            const Class = objc.getClass("MTLTextureDescriptor").?;
-            const id_alloc = Class.msgSend(objc.Object, objc.sel("alloc"), .{});
-            const id_init = id_alloc.msgSend(objc.Object, objc.sel("init"), .{});
-            break :init id_init;
-        };
-
-        // Set our properties
-        desc.setProperty("pixelFormat", @intFromEnum(mtl.MTLPixelFormat.rgba8unorm_srgb));
-        desc.setProperty("width", @as(c_ulong, @intCast(p.width)));
-        desc.setProperty("height", @as(c_ulong, @intCast(p.height)));
-
-        desc.setProperty(
-            "resourceOptions",
-            mtl.MTLResourceOptions{
-                // Indicate that the CPU writes to this resource but never reads it.
-                .cpu_cache_mode = .write_combined,
-                .storage_mode = storage_mode,
-            },
-        );
-
-        // Initialize
-        const id = device.msgSend(
-            ?*anyopaque,
-            objc.sel("newTextureWithDescriptor:"),
-            .{desc},
-        ) orelse return error.MetalFailed;
-
-        return objc.Object.fromId(id);
     }
 };

@@ -9,6 +9,25 @@ const configpkg = @import("../config.zig");
 
 const log = std.log.scoped(.shadertoy);
 
+/// The uniform struct used for shadertoy shaders.
+pub const Uniforms = extern struct {
+    resolution: [3]f32 align(16),
+    time: f32 align(4),
+    time_delta: f32 align(4),
+    frame_rate: f32 align(4),
+    frame: i32 align(4),
+    channel_time: [4][4]f32 align(16),
+    channel_resolution: [4][4]f32 align(16),
+    mouse: [4]f32 align(16),
+    date: [4]f32 align(16),
+    sample_rate: f32 align(4),
+    current_cursor: [4]f32 align(16),
+    previous_cursor: [4]f32 align(16),
+    current_cursor_color: [4]f32 align(16),
+    previous_cursor_color: [4]f32 align(16),
+    cursor_change_time: f32 align(4),
+};
+
 /// The target to load shaders for.
 pub const Target = enum { glsl, msl };
 
@@ -205,18 +224,25 @@ pub const SpirvLog = struct {
 
 /// Convert SPIR-V binary to MSL.
 pub fn mslFromSpv(alloc: Allocator, spv: []const u8) ![:0]const u8 {
-    return try spvCross(alloc, spvcross.c.SPVC_BACKEND_MSL, spv, null);
+    const c = spvcross.c;
+    return try spvCross(alloc, spvcross.c.SPVC_BACKEND_MSL, spv, (struct {
+        fn setOptions(options: c.spvc_compiler_options) error{SpvcFailed}!void {
+            // We enable decoration binding, because we need this
+            // to properly locate the uniform block to index 1.
+            if (c.spvc_compiler_options_set_bool(
+                options,
+                c.SPVC_COMPILER_OPTION_MSL_ENABLE_DECORATION_BINDING,
+                c.SPVC_TRUE,
+            ) != c.SPVC_SUCCESS) {
+                return error.SpvcFailed;
+            }
+        }
+    }).setOptions);
 }
 
-/// Convert SPIR-V binary to GLSL..
+/// Convert SPIR-V binary to GLSL.
 pub fn glslFromSpv(alloc: Allocator, spv: []const u8) ![:0]const u8 {
-    // Our minimum version for shadertoy shaders is OpenGL 4.2 because
-    // Spirv-Cross generates binding locations for uniforms which is
-    // only supported in OpenGL 4.2 and above.
-    //
-    // If we can figure out a way to NOT do this then we can lower this
-    // version.
-    const GLSL_VERSION = 420;
+    const GLSL_VERSION = 430;
 
     const c = spvcross.c;
     return try spvCross(alloc, c.SPVC_BACKEND_GLSL, spv, (struct {

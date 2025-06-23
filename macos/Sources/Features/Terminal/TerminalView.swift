@@ -139,6 +139,10 @@ struct DebugBuildWarningView: View {
         }
         .background(Color(.windowBackgroundColor))
         .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Debug build warning")
+        .accessibilityValue("Debug builds of Ghostty are very slow and you may experience performance problems. Debug builds are only recommended during development.")
+        .accessibilityAddTraits(.isStaticText)
         .onTapGesture {
             isPopover = true
         }

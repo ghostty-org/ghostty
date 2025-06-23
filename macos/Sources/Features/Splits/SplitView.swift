@@ -42,16 +42,23 @@ struct SplitView<L: View, R: View>: View {
                 left
                     .frame(width: leftRect.size.width, height: leftRect.size.height)
                     .offset(x: leftRect.origin.x, y: leftRect.origin.y)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel(leftPaneLabel)
                 right
                     .frame(width: rightRect.size.width, height: rightRect.size.height)
                     .offset(x: rightRect.origin.x, y: rightRect.origin.y)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel(rightPaneLabel)
                 Divider(direction: direction,
                         visibleSize: splitterVisibleSize,
                         invisibleSize: splitterInvisibleSize,
-                        color: dividerColor)
+                        color: dividerColor,
+                        split: $split)
                     .position(splitterPoint)
                     .gesture(dragGesture(geo.size, splitterPoint: splitterPoint))
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(splitViewLabel)
         }
     }
 
@@ -135,6 +142,35 @@ struct SplitView<L: View, R: View>: View {
 
         case .vertical:
             return CGPoint(x: size.width / 2, y: leftRect.size.height)
+        }
+    }
+    
+    // MARK: Accessibility
+    
+    private var splitViewLabel: String {
+        switch direction {
+        case .horizontal:
+            return "Horizontal split view"
+        case .vertical:
+            return "Vertical split view"
+        }
+    }
+    
+    private var leftPaneLabel: String {
+        switch direction {
+        case .horizontal:
+            return "Left pane"
+        case .vertical:
+            return "Top pane"
+        }
+    }
+    
+    private var rightPaneLabel: String {
+        switch direction {
+        case .horizontal:
+            return "Right pane"
+        case .vertical:
+            return "Bottom pane"
         }
     }
 }

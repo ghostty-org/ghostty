@@ -337,9 +337,9 @@ extension Ghostty {
 
         private func keyAction(_ action: ghostty_input_action_e, event: NSEvent) {
             guard let inspector = self.inspector else { return }
-            guard let key = Ghostty.keycodeToKey[event.keyCode] else { return }
+            guard let key = Ghostty.Input.Key(keyCode: event.keyCode) else { return }
             let mods = Ghostty.ghosttyMods(event.modifierFlags)
-            ghostty_inspector_key(inspector, action, key, mods)
+            ghostty_inspector_key(inspector, action, key.cKey, mods)
         }
 
         // MARK: NSTextInputClient

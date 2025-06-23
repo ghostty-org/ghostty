@@ -7,6 +7,7 @@ extension SplitView {
         let visibleSize: CGFloat
         let invisibleSize: CGFloat
         let color: Color
+        @Binding var split: CGFloat
 
         private var visibleWidth: CGFloat? {
             switch (direction) {
@@ -78,6 +79,40 @@ extension SplitView {
                 } else {
                     NSCursor.pop()
                 }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(axLabel)
+            .accessibilityValue("\(Int(split * 100))%")
+            .accessibilityHint(axHint)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAdjustableAction { direction in
+                let adjustment: CGFloat = 0.025
+                switch direction {
+                case .increment:
+                    split = min(split + adjustment, 0.9)
+                case .decrement:
+                    split = max(split - adjustment, 0.1)
+                @unknown default:
+                    break
+                }
+            }
+        }
+
+        private var axLabel: String {
+            switch direction {
+            case .horizontal:
+                return "Horizontal split divider"
+            case .vertical:
+                return "Vertical split divider"
+            }
+        }
+
+        private var axHint: String {
+            switch direction {
+            case .horizontal:
+                return "Drag to resize the left and right panes"
+            case .vertical:
+                return "Drag to resize the top and bottom panes"
             }
         }
     }

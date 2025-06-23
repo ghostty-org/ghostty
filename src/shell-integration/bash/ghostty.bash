@@ -15,10 +15,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-# We need to be in interactive mode and we need to have the Ghostty
-# resources dir set which also tells us we're running in Ghostty.
+# We need to be in interactive mode to proceed.
 if [[ "$-" != *i* ]] ; then builtin return; fi
-if [ -z "$GHOSTTY_RESOURCES_DIR" ]; then builtin return; fi
 
 # When automatic shell integration is active, we were started in POSIX
 # mode and need to manually recreate the bash startup sequence.
@@ -98,7 +96,7 @@ if [[ "$GHOSTTY_SHELL_FEATURES" == *"sudo"* && -n "$TERMINFO" ]]; then
 fi
 
 # Import bash-preexec, safe to do multiple times
-builtin source "$GHOSTTY_RESOURCES_DIR/shell-integration/bash/bash-preexec.sh"
+builtin source "$(dirname -- "${BASH_SOURCE[0]}")/bash-preexec.sh"
 
 # This is set to 1 when we're executing a command so that we don't
 # send prompt marks multiple times.

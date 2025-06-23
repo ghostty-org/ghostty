@@ -99,6 +99,10 @@ const PosixPty = struct {
             @cInclude("sys/ioctl.h"); // ioctl and constants
             @cInclude("util.h"); // openpty()
         }),
+        .freebsd => @cImport({
+            @cInclude("termios.h"); // ioctl and constants
+            @cInclude("libutil.h"); // openpty()
+        }),
         else => @cImport({
             @cInclude("sys/ioctl.h"); // ioctl and constants
             @cInclude("pty.h");

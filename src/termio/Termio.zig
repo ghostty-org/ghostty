@@ -70,6 +70,89 @@ terminal_stream: terminalpkg.Stream(StreamHandler),
 /// flooding with cursor resets.
 last_cursor_reset: ?std.time.Instant = null,
 
+/// State we have for thread enter. This may be null if we don't need
+/// to keep track of any state or if its already been freed.
+thread_enter_state: ?*ThreadEnterState = null,
+
+/// The state we need to keep around only until we enter the IO
+/// thread. Then we can throw it all away.
+const ThreadEnterState = struct {
+    arena: ArenaAllocator,
+
+    /// Initial input to send to the subprocess after starting. This
+    /// memory is freed once the subprocess start is attempted, even
+    /// if it fails, because Exec only starts once.
+    input: configpkg.io.RepeatableReadableIO,
+
+    pub fn create(
+        alloc: Allocator,
+        config: *const configpkg.Config,
+    ) !?*ThreadEnterState {
+        // If we have no input then we have no thread enter state
+        if (config.input.list.items.len == 0) return null;
+
+        // Create our arena allocator
+        var arena = ArenaAllocator.init(alloc);
+        errdefer arena.deinit();
+        const arena_alloc = arena.allocator();
+
+        // Allocate our ThreadEnterState
+        const ptr = try arena_alloc.create(ThreadEnterState);
+
+        // Copy the input from the config
+        const input = try config.input.cloneParsed(arena_alloc);
+
+        // Return the initialized state
+        ptr.* = .{
+            .arena = arena,
+            .input = input,
+        };
+        return ptr;
+    }
+
+    pub fn destroy(self: *ThreadEnterState) void {
+        self.arena.deinit();
+    }
+
+    /// Prepare the inputs for use. Allocations happen on the arena.
+    pub fn prepareInput(
+        self: *ThreadEnterState,
+    ) (Allocator.Error || error{InputNotFound})![]const Input {
+        const alloc = self.arena.allocator();
+
+        var input = try alloc.alloc(
+            Input,
+            self.input.list.items.len,
+        );
+        for (self.input.list.items, 0..) |item, i| {
+            input[i] = switch (item) {
+                .raw => |v| .{ .string = try alloc.dupe(u8, v) },
+                .path => |path| file: {
+                    const f = std.fs.cwd().openFile(
+                        path,
+                        .{},
+                    ) catch |err| {
+                        log.warn("failed to open input file={s} err={}", .{
+                            path,
+                            err,
+                        });
+                        return error.InputNotFound;
+                    };
+
+                    break :file .{ .file = f };
+                },
+            };
+        }
+
+        return input;
+    }
+
+    const Input = union(enum) {
+        string: []const u8,
+        file: std.fs.File,
+    };
+};
+
 /// The configuration for this IO that is derived from the main
 /// configuration. This must be exported so that we don't need to
 /// pass around Config pointers which makes memory management a pain.
@@ -211,6 +294,11 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
         };
     };
 
+    const thread_enter_state = try ThreadEnterState.create(
+        alloc,
+        opts.full_config,
+    );
+
     self.* = .{
         .alloc = alloc,
         .terminal = term,
@@ -232,6 +320,7 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
                 },
             },
         },
+        .thread_enter_state = thread_enter_state,
     };
 }
 
@@ -244,9 +333,30 @@ pub fn deinit(self: *Termio) void {
     // Clear any StreamHandler state
     self.terminal_stream.handler.deinit();
     self.terminal_stream.deinit();
+
+    // Clear any initial state if we have it
+    if (self.thread_enter_state) |v| v.destroy();
 }
 
-pub fn threadEnter(self: *Termio, thread: *termio.Thread, data: *ThreadData) !void {
+pub fn threadEnter(
+    self: *Termio,
+    thread: *termio.Thread,
+    data: *ThreadData,
+) !void {
+    // Always free our thread enter state when we're done.
+    defer if (self.thread_enter_state) |v| {
+        v.destroy();
+        self.thread_enter_state = null;
+    };
+
+    // If we have thread enter state then we're going to validate
+    // and set that all up now so that we can error before we actually
+    // start the command and pty.
+    const inputs: ?[]const ThreadEnterState.Input = if (self.thread_enter_state) |v|
+        try v.prepareInput()
+    else
+        null;
+
     data.* = .{
         .alloc = self.alloc,
         .loop = &thread.loop,
@@ -258,6 +368,29 @@ pub fn threadEnter(self: *Termio, thread: *termio.Thread, data: *ThreadData) !vo
 
     // Setup our backend
     try self.backend.threadEnter(self.alloc, self, data);
+    errdefer self.backend.threadExit(data);
+
+    // If we have inputs, then queue them all up.
+    for (inputs orelse &.{}) |input| switch (input) {
+        .string => |v| self.queueWrite(data, v, false) catch |err| {
+            log.warn("failed to queue input string err={}", .{err});
+            return error.InputFailed;
+        },
+        .file => |f| self.queueWrite(
+            data,
+            f.readToEndAlloc(
+                self.alloc,
+                10 * 1024 * 1024, // 10 MiB max
+            ) catch |err| {
+                log.warn("failed to read input file err={}", .{err});
+                return error.InputFailed;
+            },
+            false,
+        ) catch |err| {
+            log.warn("failed to queue input file err={}", .{err});
+            return error.InputFailed;
+        },
+    };
 }
 
 pub fn threadExit(self: *Termio, data: *ThreadData) void {
