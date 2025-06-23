@@ -173,6 +173,7 @@
 /po/tr_TR.UTF-8.po @ghostty-org/tr_TR
 /po/uk_UA.UTF-8.po @ghostty-org/uk_UA
 /po/zh_CN.UTF-8.po @ghostty-org/zh_CN
+/po/hu_HU.UTF-8.po @ghostty-org/hu_HU
 
 # Packaging - Snap
 /snap/ @ghostty-org/snap
