@@ -1,6 +1,7 @@
 const GhosttyResources = @This();
 
 const std = @import("std");
+const builtin = @import("builtin");
 const buildpkg = @import("main.zig");
 const Config = @import("Config.zig");
 const config_vim = @import("../config/vim.zig");
@@ -16,6 +17,12 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
 
     // Terminfo
     terminfo: {
+        const os_tag = cfg.target.result.os.tag;
+        const terminfo_share_dir = if (os_tag == .freebsd)
+            "site-terminfo"
+        else
+            "terminfo";
+
         // Encode our terminfo
         var str = std.ArrayList(u8).init(b.allocator);
         defer str.deinit();
@@ -26,12 +33,19 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
         const source = wf.add("ghostty.terminfo", str.items);
 
         if (cfg.emit_terminfo) {
-            const source_install = b.addInstallFile(source, "share/terminfo/ghostty.terminfo");
+            const source_install = b.addInstallFile(
+                source,
+                if (os_tag == .freebsd)
+                    "share/site-terminfo/ghostty.terminfo"
+                else
+                    "share/terminfo/ghostty.terminfo",
+            );
+
             try steps.append(&source_install.step);
         }
 
         // Windows doesn't have the binaries below.
-        if (cfg.target.result.os.tag == .windows) break :terminfo;
+        if (os_tag == .windows) break :terminfo;
 
         // Convert to termcap source format if thats helpful to people and
         // install it. The resulting value here is the termcap source in case
@@ -43,7 +57,14 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
             const out_source = run_step.captureStdOut();
             _ = run_step.captureStdErr(); // so we don't see stderr
 
-            const cap_install = b.addInstallFile(out_source, "share/terminfo/ghostty.termcap");
+            const cap_install = b.addInstallFile(
+                out_source,
+                if (os_tag == .freebsd)
+                    "share/site-terminfo/ghostty.termcap"
+                else
+                    "share/terminfo/ghostty.termcap",
+            );
+
             try steps.append(&cap_install.step);
         }
 
@@ -51,7 +72,8 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
         {
             const run_step = RunStep.create(b, "tic");
             run_step.addArgs(&.{ "tic", "-x", "-o" });
-            const path = run_step.addOutputFileArg("terminfo");
+            const path = run_step.addOutputFileArg(terminfo_share_dir);
+
             run_step.addFileArg(source);
             _ = run_step.captureStdErr(); // so we don't see stderr
 
@@ -63,7 +85,12 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
                 .windows => mkdir_step.addArgs(&.{"mkdir"}),
                 else => mkdir_step.addArgs(&.{ "mkdir", "-p" }),
             }
-            mkdir_step.addArg(b.fmt("{s}/share/terminfo", .{b.install_path}));
+
+            mkdir_step.addArg(b.fmt(
+                "{s}/share/{s}",
+                .{ b.install_path, terminfo_share_dir },
+            ));
+
             try steps.append(&mkdir_step.step);
 
             // Use cp -R instead of Step.InstallDir because we need to preserve

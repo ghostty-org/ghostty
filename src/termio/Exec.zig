@@ -1364,6 +1364,13 @@ pub const ReadThread = struct {
         // Always close our end of the pipe when we exit.
         defer posix.close(quit);
 
+        // Right now, on Darwin, `std.Thread.setName` can only name the current
+        // thread, and we have no way to get the current thread from within it,
+        // so instead we use this code to name the thread instead.
+        if (builtin.os.tag.isDarwin()) {
+            internal_os.macos.pthread_setname_np(&"io-reader".*);
+        }
+
         // Setup our crash metadata
         crash.sentry.thread_state = .{
             .type = .io,

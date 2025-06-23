@@ -20,6 +20,16 @@ const log = std.log.scoped(.renderer_thread);
 const DRAW_INTERVAL = 8; // 120 FPS
 const CURSOR_BLINK_INTERVAL = 600;
 
+/// Whether calls to `drawFrame` must be done from the app thread.
+///
+/// If this is `true` then we send a `redraw_surface` message to the apprt
+/// whenever we need to draw instead of calling `drawFrame` directly.
+const must_draw_from_app_thread =
+    if (@hasDecl(apprt.App, "must_draw_from_app_thread"))
+        apprt.App.must_draw_from_app_thread
+    else
+        false;
+
 /// The type used for sending messages to the IO thread. For now this is
 /// hardcoded with a capacity. We can make this a comptime parameter in
 /// the future if we want it configurable.
@@ -198,6 +208,13 @@ pub fn threadMain(self: *Thread) void {
 fn threadMain_(self: *Thread) !void {
     defer log.debug("renderer thread exited", .{});
 
+    // Right now, on Darwin, `std.Thread.setName` can only name the current
+    // thread, and we have no way to get the current thread from within it,
+    // so instead we use this code to name the thread instead.
+    if (builtin.os.tag.isDarwin()) {
+        internal_os.macos.pthread_setname_np(&"renderer".*);
+    }
+
     // Setup our crash metadata
     crash.sentry.thread_state = .{
         .type = .renderer,
@@ -307,6 +324,16 @@ fn stopDrawTimer(self: *Thread) void {
 
 /// Drain the mailbox.
 fn drainMailbox(self: *Thread) !void {
+    // There's probably a more elegant way to do this...
+    //
+    // This is effectively an @autoreleasepool{} block, which we need in
+    // order to ensure that autoreleased objects are properly released.
+    const pool = if (builtin.os.tag.isDarwin())
+        @import("objc").AutoreleasePool.init()
+    else
+        void;
+    defer if (builtin.os.tag.isDarwin()) pool.deinit();
+
     while (self.mailbox.pop()) |message| {
         log.debug("mailbox message={}", .{message});
         switch (message) {
@@ -425,7 +452,7 @@ fn drainMailbox(self: *Thread) !void {
                 self.renderer.markDirty();
             },
 
-            .resize => |v| try self.renderer.setScreenSize(v),
+            .resize => |v| self.renderer.setScreenSize(v),
 
             .change_config => |config| {
                 defer config.alloc.destroy(config.thread);
@@ -461,20 +488,16 @@ fn drawFrame(self: *Thread, now: bool) void {
     if (!self.flags.visible) return;
 
     // If the renderer is managing a vsync on its own, we only draw
-    // when we're forced to via now.
+    // when we're forced to via `now`.
     if (!now and self.renderer.hasVsync()) return;
 
-    // If we're doing single-threaded GPU calls then we just wake up the
-    // app thread to redraw at this point.
-    if (rendererpkg.Renderer == rendererpkg.OpenGL and
-        rendererpkg.OpenGL.single_threaded_draw)
-    {
+    if (must_draw_from_app_thread) {
         _ = self.app_mailbox.push(
             .{ .redraw_surface = self.surface },
             .{ .instant = {} },
         );
     } else {
-        self.renderer.drawFrame(self.surface) catch |err|
+        self.renderer.drawFrame(false) catch |err|
             log.warn("error drawing err={}", .{err});
     }
 }
@@ -582,7 +605,6 @@ fn renderCallback(
 
     // Update our frame data
     t.renderer.updateFrame(
-        t.surface,
         t.state,
         t.flags.cursor_blink_visible,
     ) catch |err|

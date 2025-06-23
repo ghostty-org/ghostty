@@ -9,4 +9,10 @@ extension NSWindow {
         guard windowNumber > 0 else { return nil }
         return CGWindowID(windowNumber)
     }
+
+    /// True if this is the first window in the tab group.
+    var isFirstWindowInTabGroup: Bool {
+        guard let firstWindow = tabGroup?.windows.first else { return true }
+        return firstWindow === self
+    }
 }

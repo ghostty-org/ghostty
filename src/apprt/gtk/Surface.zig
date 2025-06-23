@@ -41,10 +41,6 @@ const adw_version = @import("adw_version.zig");
 
 const log = std.log.scoped(.gtk_surface);
 
-/// This is detected by the OpenGL renderer to move to a single-threaded
-/// draw operation. This basically puts locks around our draw path.
-pub const opengl_single_threaded_draw = true;
-
 pub const Options = struct {
     /// The parent surface to inherit settings such as font size, working
     /// directory, etc. from.
@@ -394,7 +390,10 @@ pub fn init(self: *Surface, app: *App, opts: Options) !void {
 
     // Various other GL properties
     gl_area_widget.setCursorFromName("text");
-    gl_area.setRequiredVersion(3, 3);
+    gl_area.setRequiredVersion(
+        renderer.OpenGL.MIN_VERSION_MAJOR,
+        renderer.OpenGL.MIN_VERSION_MINOR,
+    );
     gl_area.setHasStencilBuffer(0);
     gl_area.setHasDepthBuffer(0);
     gl_area.setUseEs(0);
@@ -683,12 +682,13 @@ pub fn init(self: *Surface, app: *App, opts: Options) !void {
 
 fn realize(self: *Surface) !void {
     // If this surface has already been realized, then we don't need to
-    // reinitialize. This can happen if a surface is moved from one GDK surface
-    // to another (i.e. a tab is pulled out into a window).
+    // reinitialize. This can happen if a surface is moved from one GDK
+    // surface to another (i.e. a tab is pulled out into a window).
     if (self.realized) {
         // If we have no OpenGL state though, we do need to reinitialize.
-        // We allow the renderer to figure that out
-        try self.core_surface.renderer.displayRealize();
+        // We allow the renderer to figure that out, and then queue a draw.
+        try self.core_surface.renderer.displayRealized();
+        self.redraw();
         return;
     }
 
@@ -794,7 +794,7 @@ pub fn primaryWidget(self: *Surface) *gtk.Widget {
 }
 
 fn render(self: *Surface) !void {
-    try self.core_surface.renderer.drawFrame(self);
+    try self.core_surface.renderer.drawFrame(true);
 }
 
 /// Called by core surface to get the cgroup.

@@ -92,7 +92,10 @@ class AppDelegate: NSObject,
     lazy var undoManager = ExpiringUndoManager()
 
     /// Our quick terminal. This starts out uninitialized and only initializes if used.
-    private var quickController: QuickTerminalController? = nil
+    private(set) lazy var quickController = QuickTerminalController(
+        ghostty,
+        position: derivedConfig.quickTerminalPosition
+    )
 
     /// Manages updates
     let updaterController: SPUStandardUpdaterController
@@ -167,7 +170,7 @@ class AppDelegate: NSObject,
 
         // This registers the Ghostty => Services menu to exist.
         NSApp.servicesMenu = menuServices
-        
+
         // Setup a local event monitor for app-level keyboard shortcuts. See
         // localEventHandler for more info why.
         _ = NSEvent.addLocalMonitorForEvents(
@@ -286,7 +289,7 @@ class AppDelegate: NSObject,
         // NOTE(mitchellh): I don't think we need this check at all anymore. I'm keeping it
         // here because I don't want to remove it in a patch release cycle but we should
         // target removing it soon.
-        if (self.quickController == nil && windows.allSatisfy { !$0.isVisible }) {
+        if (windows.allSatisfy { !$0.isVisible }) {
             return .terminateNow
         }
 
@@ -381,10 +384,17 @@ class AppDelegate: NSObject,
             config.workingDirectory = filename
             _ = TerminalController.newTab(ghostty, withBaseConfig: config)
         } else {
-            // When opening a file, open a new window with that file as the command,
-            // and its parent directory as the working directory.
-            config.command = filename
+            // When opening a file, we want to execute the file. To do this, we
+            // don't override the command directly, because it won't load the
+            // profile/rc files for the shell, which is super important on macOS
+            // due to things like Homebrew. Instead, we set the command to
+            // `<filename>; exit` which is what Terminal and iTerm2 do.
+            config.initialInput = "\(filename); exit\n"
+
+            // Set the parent directory to our working directory so that relative
+            // paths in scripts work.
             config.workingDirectory = (filename as NSString).deletingLastPathComponent
+
             _ = TerminalController.newWindow(ghostty, withBaseConfig: config)
         }
 
@@ -919,14 +929,6 @@ class AppDelegate: NSObject,
     }
 
     @IBAction func toggleQuickTerminal(_ sender: Any) {
-        if quickController == nil {
-            quickController = QuickTerminalController(
-                ghostty,
-                position: derivedConfig.quickTerminalPosition
-            )
-        }
-
-        guard let quickController = self.quickController else { return }
         quickController.toggle()
     }
 

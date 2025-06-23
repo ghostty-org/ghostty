@@ -224,6 +224,28 @@ macOS users don't require any additional dependencies.
 > source tarballs, see the
 > [website](http://ghostty.org/docs/install/build).
 
+### Xcode Version and SDKs
+
+Building the Ghostty macOS app requires that Xcode, the macOS SDK,
+and the iOS SDK are all installed.
+
+A common issue is that the incorrect version of Xcode is either
+installed or selected. Use the `xcode-select` command to
+ensure that the correct version of Xcode is selected:
+
+```shell-session
+sudo xcode-select --switch /Applications/Xcode-beta.app
+```
+
+> [!IMPORTANT]
+>
+> Main branch development of Ghostty is preparing for the next major
+> macOS release, Tahoe (macOS 26). Therefore, the main branch requires
+> **Xcode 26 and the macOS 26 SDK**.
+>
+> You do not need to be running on macOS 26 to build Ghostty, you can
+> still use Xcode 26 beta on macOS 15 stable.
+
 ### Linting
 
 #### Prettier

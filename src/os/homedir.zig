@@ -14,7 +14,7 @@ const Error = error{
 /// is generally an expensive process so the value should be cached.
 pub inline fn home(buf: []u8) !?[]const u8 {
     return switch (builtin.os.tag) {
-        inline .linux, .macos => try homeUnix(buf),
+        inline .linux, .freebsd, .macos => try homeUnix(buf),
         .windows => try homeWindows(buf),
 
         // iOS doesn't have a user-writable home directory
@@ -122,7 +122,7 @@ pub const ExpandError = error{
 /// than `buf.len`.
 pub fn expandHome(path: []const u8, buf: []u8) ExpandError![]const u8 {
     return switch (builtin.os.tag) {
-        .linux, .macos => try expandHomeUnix(path, buf),
+        .linux, .freebsd, .macos => try expandHomeUnix(path, buf),
         .ios => return path,
         else => @compileError("unimplemented"),
     };

@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 extension NSView {
     /// Returns true if this view is currently in the responder chain
@@ -12,6 +13,24 @@ extension NSView {
         }
 
         return false
+    }
+}
+
+// MARK: Screenshot
+
+extension NSView {
+    /// Take a screenshot of just this view.
+    func screenshot() -> NSImage? {
+        guard let bitmapRep = bitmapImageRepForCachingDisplay(in: bounds) else { return nil }
+        cacheDisplay(in: bounds, to: bitmapRep)
+        let image = NSImage(size: bounds.size)
+        image.addRepresentation(bitmapRep)
+        return image
+    }
+
+    func screenshot() -> Image? {
+        guard let nsImage: NSImage = self.screenshot() else { return nil }
+        return Image(nsImage: nsImage)
     }
 }
 

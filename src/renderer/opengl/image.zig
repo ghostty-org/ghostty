@@ -3,6 +3,8 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const gl = @import("opengl");
 const wuffs = @import("wuffs");
+const OpenGL = @import("../OpenGL.zig");
+const Texture = OpenGL.Texture;
 
 /// Represents a single image placement on the grid. A placement is a
 /// request to render an instance of an image.
@@ -59,15 +61,15 @@ pub const Image = union(enum) {
     replace_rgba: Replace,
 
     /// The image is uploaded and ready to be used.
-    ready: gl.Texture,
+    ready: Texture,
 
     /// The image is uploaded but is scheduled to be unloaded.
     unload_pending: []u8,
-    unload_ready: gl.Texture,
-    unload_replace: struct { []u8, gl.Texture },
+    unload_ready: Texture,
+    unload_replace: struct { []u8, Texture },
 
     pub const Replace = struct {
-        texture: gl.Texture,
+        texture: Texture,
         pending: Pending,
     };
 
@@ -99,32 +101,32 @@ pub const Image = union(enum) {
 
             .replace_gray => |r| {
                 alloc.free(r.pending.dataSlice(1));
-                r.texture.destroy();
+                r.texture.deinit();
             },
 
             .replace_gray_alpha => |r| {
                 alloc.free(r.pending.dataSlice(2));
-                r.texture.destroy();
+                r.texture.deinit();
             },
 
             .replace_rgb => |r| {
                 alloc.free(r.pending.dataSlice(3));
-                r.texture.destroy();
+                r.texture.deinit();
             },
 
             .replace_rgba => |r| {
                 alloc.free(r.pending.dataSlice(4));
-                r.texture.destroy();
+                r.texture.deinit();
             },
 
             .unload_replace => |r| {
                 alloc.free(r[0]);
-                r[1].destroy();
+                r[1].deinit();
             },
 
             .ready,
             .unload_ready,
-            => |tex| tex.destroy(),
+            => |tex| tex.deinit(),
         }
     }
 
@@ -168,7 +170,7 @@ pub const Image = union(enum) {
         // Get our existing texture. This switch statement will also handle
         // scenarios where there is no existing texture and we can modify
         // the self pointer directly.
-        const existing: gl.Texture = switch (self.*) {
+        const existing: Texture = switch (self.*) {
             // For pending, we can free the old data and become pending ourselves.
             .pending_gray => |p| {
                 alloc.free(p.dataSlice(1));
@@ -356,7 +358,10 @@ pub const Image = union(enum) {
     pub fn upload(
         self: *Image,
         alloc: Allocator,
+        opengl: *const OpenGL,
     ) !void {
+        _ = opengl;
+
         // Convert our data if we have to
         try self.convert(alloc);
 
@@ -374,23 +379,15 @@ pub const Image = union(enum) {
         };
 
         // Create our texture
-        const tex = try gl.Texture.create();
-        errdefer tex.destroy();
-
-        const texbind = try tex.bind(.@"2D");
-        try texbind.parameter(.WrapS, gl.c.GL_CLAMP_TO_EDGE);
-        try texbind.parameter(.WrapT, gl.c.GL_CLAMP_TO_EDGE);
-        try texbind.parameter(.MinFilter, gl.c.GL_LINEAR);
-        try texbind.parameter(.MagFilter, gl.c.GL_LINEAR);
-        try texbind.image2D(
-            0,
-            formats.internal,
+        const tex = try Texture.init(
+            .{
+                .format = formats.format,
+                .internal_format = formats.internal,
+                .target = .Rectangle,
+            },
             @intCast(p.width),
             @intCast(p.height),
-            0,
-            formats.format,
-            .UnsignedByte,
-            p.data,
+            p.data[0 .. p.width * p.height * self.depth()],
         );
 
         // Uploaded. We can now clear our data and change our state.

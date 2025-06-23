@@ -286,7 +286,7 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: Xcode Select
-        run: sudo xcode-select -s /Applications/Xcode_16.4.app
+        run: sudo xcode-select -s /Applications/Xcode_26.0.app
 
       - name: get the Zig deps
         id: deps
@@ -328,17 +328,6 @@ jobs:
       - name: Xcode Select
         run: sudo xcode-select -s /Applications/Xcode_26.0.app
 
-      # TODO(tahoe):
-      # https://developer.apple.com/documentation/xcode-release-notes/xcode-26-release-notes#Interface-Builder
-      # We allow this step to fail because if our image already has
-      # the workaround in place this will fail.
-      - name: Xcode 26 Beta 17A5241e Metal Workaround
-        continue-on-error: true
-        run: |
-          xcodebuild -downloadComponent metalToolchain -exportPath /tmp/MyMetalExport/
-          sed -i '' -e 's/17A5241c/17A5241e/g' /tmp/MyMetalExport/MetalToolchain-17A5241c.exportedBundle/ExportMetadata.plist
-          xcodebuild -importComponent metalToolchain -importPath /tmp/MyMetalExport/MetalToolchain-17A5241c.exportedBundle
-
       - name: get the Zig deps
         id: deps
         run: nix build -L .#deps && echo "deps=$(readlink ./result)" >> $GITHUB_OUTPUT
@@ -377,7 +366,7 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: Xcode Select
-        run: sudo xcode-select -s /Applications/Xcode_16.4.app
+        run: sudo xcode-select -s /Applications/Xcode_26.0.app
 
       - name: get the Zig deps
         id: deps
@@ -695,7 +684,7 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: Xcode Select
-        run: sudo xcode-select -s /Applications/Xcode_16.4.app
+        run: sudo xcode-select -s /Applications/Xcode_26.0.app
 
       - name: get the Zig deps
         id: deps

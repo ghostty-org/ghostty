@@ -32,6 +32,7 @@ pub fn resourcesDir(alloc: std.mem.Allocator) !?[]const u8 {
     const sentinels = switch (comptime builtin.target.os.tag) {
         .windows => .{"terminfo/ghostty.terminfo"},
         .macos => .{"terminfo/78/xterm-ghostty"},
+        .freebsd => .{ "site-terminfo/g/ghostty", "site-terminfo/x/xterm-ghostty" },
         else => .{ "terminfo/g/ghostty", "terminfo/x/xterm-ghostty" },
     };
 
@@ -54,11 +55,16 @@ pub fn resourcesDir(alloc: std.mem.Allocator) !?[]const u8 {
             }
         }
 
-        // On all platforms, we look for a /usr/share style path. This
+        // On all platforms (except BSD), we look for a /usr/share style path. This
         // is valid even on Mac since there is nothing that requires
         // Ghostty to be in an app bundle.
         inline for (sentinels) |sentinel| {
-            if (try maybeDir(&dir_buf, dir, "share", sentinel)) |v| {
+            if (try maybeDir(
+                &dir_buf,
+                dir,
+                if (builtin.target.os.tag == .freebsd) "local/share" else "share",
+                sentinel,
+            )) |v| {
                 return try std.fs.path.join(alloc, &.{ v, "ghostty" });
             }
         }

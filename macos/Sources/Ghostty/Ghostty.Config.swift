@@ -558,6 +558,17 @@ extension Ghostty {
             _ = ghostty_config_get(config, &v, key, UInt(key.count))
             return v
         }
+
+        var macosShortcuts: MacShortcuts {
+            let defaultValue = MacShortcuts.ask
+            guard let config = self.config else { return defaultValue }
+            var v: UnsafePointer<Int8>? = nil
+            let key = "macos-shortcuts"
+            guard ghostty_config_get(config, &v, key, UInt(key.count)) else { return defaultValue }
+            guard let ptr = v else { return defaultValue }
+            let str = String(cString: ptr)
+            return MacShortcuts(rawValue: str) ?? defaultValue
+        }
     }
 }
 
@@ -582,6 +593,12 @@ extension Ghostty.Config {
     enum MacHidden : String {
         case never
         case always
+    }
+
+    enum MacShortcuts: String {
+        case allow
+        case deny
+        case ask
     }
 
     enum ResizeOverlay : String {

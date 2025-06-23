@@ -386,6 +386,11 @@ typedef struct {
 } ghostty_selection_s;
 
 typedef struct {
+  const char* key;
+  const char* value;
+} ghostty_env_var_s;
+
+typedef struct {
   void* nsview;
 } ghostty_platform_macos_s;
 
@@ -406,6 +411,9 @@ typedef struct {
   float font_size;
   const char* working_directory;
   const char* command;
+  ghostty_env_var_s* env_vars;
+  size_t env_var_count;
+  const char* initial_input;
 } ghostty_surface_config_s;
 
 typedef struct {
@@ -807,7 +815,8 @@ void ghostty_app_set_color_scheme(ghostty_app_t, ghostty_color_scheme_e);
 
 ghostty_surface_config_s ghostty_surface_config_new();
 
-ghostty_surface_t ghostty_surface_new(ghostty_app_t, ghostty_surface_config_s*);
+ghostty_surface_t ghostty_surface_new(ghostty_app_t,
+                                      const ghostty_surface_config_s*);
 void ghostty_surface_free(ghostty_surface_t);
 void* ghostty_surface_userdata(ghostty_surface_t);
 ghostty_app_t ghostty_surface_app(ghostty_surface_t);

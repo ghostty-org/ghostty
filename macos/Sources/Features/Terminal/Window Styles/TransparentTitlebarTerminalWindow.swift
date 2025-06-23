@@ -45,11 +45,13 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
     
     override func update() {
         super.update()
-        
+
         // On macOS 13 to 15, we need to hide the NSVisualEffectView in order to allow our
         // titlebar to be truly transparent.
-        if !effectViewIsHidden && !hasLiquidGlass() {
-            hideEffectView()
+        if #unavailable(macOS 26) {
+            if !effectViewIsHidden {
+                hideEffectView()
+            }
         }
     }
 
@@ -65,7 +67,7 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
         // references changed (e.g. tabGroup is new).
         setupKVO()
 
-        if #available(macOS 26.0, *), hasLiquidGlass() {
+        if #available(macOS 26.0, *) {
             syncAppearanceTahoe(surfaceConfig)
         } else {
             syncAppearanceVentura(surfaceConfig)

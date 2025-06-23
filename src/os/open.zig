@@ -19,7 +19,7 @@ pub fn open(
     url: []const u8,
 ) !void {
     const cmd: OpenCommand = switch (builtin.os.tag) {
-        .linux => .{ .child = std.process.Child.init(
+        .linux, .freebsd => .{ .child = std.process.Child.init(
             &.{ "xdg-open", url },
             alloc,
         ) },

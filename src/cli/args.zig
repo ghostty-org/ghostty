@@ -414,7 +414,7 @@ pub fn parseIntoField(
     return error.InvalidField;
 }
 
-fn parseTaggedUnion(comptime T: type, alloc: Allocator, v: []const u8) !T {
+pub fn parseTaggedUnion(comptime T: type, alloc: Allocator, v: []const u8) !T {
     const info = @typeInfo(T).@"union";
     assert(@typeInfo(info.tag_type.?) == .@"enum");
 
@@ -1090,6 +1090,7 @@ test "parseIntoField: tagged union" {
             b: u8,
             c: void,
             d: []const u8,
+            e: [:0]const u8,
         } = undefined,
     } = .{};
 
@@ -1108,6 +1109,10 @@ test "parseIntoField: tagged union" {
     // Set string field
     try parseIntoField(@TypeOf(data), alloc, &data, "value", "d:hello");
     try testing.expectEqualStrings("hello", data.value.d);
+
+    // Set sentinel string field
+    try parseIntoField(@TypeOf(data), alloc, &data, "value", "e:hello");
+    try testing.expectEqualStrings("hello", data.value.e);
 }
 
 test "parseIntoField: tagged union unknown filed" {

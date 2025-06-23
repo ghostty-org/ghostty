@@ -164,11 +164,23 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
             "-DHAVE_SYS_STATVFS_H",
 
             "-DFC_CACHEDIR=\"/var/cache/fontconfig\"",
-            "-DFC_TEMPLATEDIR=\"/usr/share/fontconfig/conf.avail\"",
-            "-DFONTCONFIG_PATH=\"/etc/fonts\"",
-            "-DCONFIGDIR=\"/usr/local/fontconfig/conf.d\"",
             "-DFC_DEFAULT_FONTS=\"<dir>/usr/share/fonts</dir><dir>/usr/local/share/fonts</dir>\"",
         });
+
+        if (target.result.os.tag == .freebsd) {
+            try flags.appendSlice(&.{
+                "-DFC_TEMPLATEDIR=\"/usr/local/etc/fonts/conf.avail\"",
+                "-DFONTCONFIG_PATH=\"/usr/local/etc/fonts\"",
+                "-DCONFIGDIR=\"/usr/local/etc/fonts/conf.d\"",
+            });
+        } else {
+            try flags.appendSlice(&.{
+                "-DFC_TEMPLATEDIR=\"/usr/share/fontconfig/conf.avail\"",
+                "-DFONTCONFIG_PATH=\"/etc/fonts\"",
+                "-DCONFIGDIR=\"/usr/local/fontconfig/conf.d\"",
+            });
+        }
+
         if (target.result.os.tag == .linux) {
             try flags.appendSlice(&.{
                 "-DHAVE_SYS_STATFS_H",

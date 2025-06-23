@@ -376,6 +376,14 @@ pub const PlatformTag = enum(c_int) {
     ios = 2,
 };
 
+pub const EnvVar = extern struct {
+    /// The name of the environment variable.
+    key: [*:0]const u8,
+
+    /// The value of the environment variable.
+    value: [*:0]const u8,
+};
+
 pub const Surface = struct {
     app: *App,
     platform: Platform,
@@ -407,7 +415,7 @@ pub const Surface = struct {
         font_size: f32 = 0,
 
         /// The working directory to load into.
-        working_directory: [*:0]const u8 = "",
+        working_directory: ?[*:0]const u8 = null,
 
         /// The command to run in the new surface. If this is set then
         /// the "wait-after-command" option is also automatically set to true,
@@ -417,7 +425,14 @@ pub const Surface = struct {
         /// despite Ghostty allowing directly executed commands via config.
         /// This is a legacy thing and we should probably change it in the
         /// future once we have a concrete use case.
-        command: [*:0]const u8 = "",
+        command: ?[*:0]const u8 = null,
+
+        /// Extra environment variables to set for the surface.
+        env_vars: ?[*]EnvVar = null,
+        env_var_count: usize = 0,
+
+        /// Input to send to the command after it is started.
+        initial_input: ?[*:0]const u8 = null,
     };
 
     pub fn init(self: *Surface, app: *App, opts: Options) !void {
@@ -443,41 +458,72 @@ pub const Surface = struct {
         defer config.deinit();
 
         // If we have a working directory from the options then we set it.
-        const wd = std.mem.sliceTo(opts.working_directory, 0);
-        if (wd.len > 0) wd: {
-            var dir = std.fs.openDirAbsolute(wd, .{}) catch |err| {
-                log.warn(
-                    "error opening requested working directory dir={s} err={}",
-                    .{ wd, err },
-                );
-                break :wd;
-            };
-            defer dir.close();
+        if (opts.working_directory) |c_wd| {
+            const wd = std.mem.sliceTo(c_wd, 0);
+            if (wd.len > 0) wd: {
+                var dir = std.fs.openDirAbsolute(wd, .{}) catch |err| {
+                    log.warn(
+                        "error opening requested working directory dir={s} err={}",
+                        .{ wd, err },
+                    );
+                    break :wd;
+                };
+                defer dir.close();
 
-            const stat = dir.stat() catch |err| {
-                log.warn(
-                    "failed to stat requested working directory dir={s} err={}",
-                    .{ wd, err },
-                );
-                break :wd;
-            };
+                const stat = dir.stat() catch |err| {
+                    log.warn(
+                        "failed to stat requested working directory dir={s} err={}",
+                        .{ wd, err },
+                    );
+                    break :wd;
+                };
 
-            if (stat.kind != .directory) {
-                log.warn(
-                    "requested working directory is not a directory dir={s}",
-                    .{wd},
-                );
-                break :wd;
+                if (stat.kind != .directory) {
+                    log.warn(
+                        "requested working directory is not a directory dir={s}",
+                        .{wd},
+                    );
+                    break :wd;
+                }
+
+                config.@"working-directory" = wd;
             }
-
-            config.@"working-directory" = wd;
         }
 
         // If we have a command from the options then we set it.
-        const cmd = std.mem.sliceTo(opts.command, 0);
-        if (cmd.len > 0) {
-            config.command = .{ .shell = cmd };
-            config.@"wait-after-command" = true;
+        if (opts.command) |c_command| {
+            const cmd = std.mem.sliceTo(c_command, 0);
+            if (cmd.len > 0) {
+                config.command = .{ .shell = cmd };
+                config.@"wait-after-command" = true;
+            }
+        }
+
+        // Apply any environment variables that were requested.
+        if (opts.env_var_count > 0) {
+            const alloc = config.arenaAlloc();
+            for (opts.env_vars.?[0..opts.env_var_count]) |env_var| {
+                const key = std.mem.sliceTo(env_var.key, 0);
+                const value = std.mem.sliceTo(env_var.value, 0);
+                try config.env.map.put(
+                    alloc,
+                    try alloc.dupeZ(u8, key),
+                    try alloc.dupeZ(u8, value),
+                );
+            }
+        }
+
+        // If we have an initial input then we set it.
+        if (opts.initial_input) |c_input| {
+            const alloc = config.arenaAlloc();
+            config.input.list.clearRetainingCapacity();
+            try config.input.list.append(
+                alloc,
+                .{ .raw = try alloc.dupeZ(u8, std.mem.sliceTo(
+                    c_input,
+                    0,
+                )) },
+            );
         }
 
         // Initialize our surface right away. We're given a view that is
@@ -1837,12 +1883,10 @@ pub const CAPI = struct {
             return false;
         };
 
-        _ = ptr.core_surface.performBindingAction(action) catch |err| {
+        return ptr.core_surface.performBindingAction(action) catch |err| {
             log.err("error performing binding action action={} err={}", .{ action, err });
             return false;
         };
-
-        return true;
     }
 
     /// Complete a clipboard read request started via the read callback.

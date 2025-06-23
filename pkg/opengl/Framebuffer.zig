@@ -5,6 +5,7 @@ const c = @import("c.zig").c;
 const errors = @import("errors.zig");
 const glad = @import("glad.zig");
 const Texture = @import("Texture.zig");
+const Renderbuffer = @import("Renderbuffer.zig");
 
 id: c.GLuint,
 
@@ -83,6 +84,29 @@ pub const Binding = struct {
             texture.id,
             level,
         );
+        try errors.getError();
+    }
+
+    pub fn renderbuffer(
+        self: Binding,
+        attachment: Attachment,
+        buffer: Renderbuffer,
+    ) !void {
+        glad.context.FramebufferRenderbuffer.?(
+            @intFromEnum(self.target),
+            @intFromEnum(attachment),
+            c.GL_RENDERBUFFER,
+            buffer.id,
+        );
+        try errors.getError();
+    }
+
+    pub fn drawBuffers(
+        self: Binding,
+        bufs: []Attachment,
+    ) !void {
+        _ = self;
+        glad.context.DrawBuffers.?(@intCast(bufs.len), bufs.ptr);
         try errors.getError();
     }
 

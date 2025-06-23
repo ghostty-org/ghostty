@@ -30,24 +30,24 @@ pub fn launchedFromDesktop() bool {
             break :macos c.getppid() == 1;
         },
 
-        // On Linux, GTK sets GIO_LAUNCHED_DESKTOP_FILE and
+        // On Linux and BSD, GTK sets GIO_LAUNCHED_DESKTOP_FILE and
         // GIO_LAUNCHED_DESKTOP_FILE_PID. We only check the latter to see if
         // we match the PID and assume that if we do, we were launched from
         // the desktop file. Pid comparing catches the scenario where
         // another terminal was launched from a desktop file and then launches
         // Ghostty and Ghostty inherits the env.
-        .linux => linux: {
+        .linux, .freebsd => ul: {
             const gio_pid_str = posix.getenv("GIO_LAUNCHED_DESKTOP_FILE_PID") orelse
-                break :linux false;
+                break :ul false;
 
             const pid = c.getpid();
             const gio_pid = std.fmt.parseInt(
                 @TypeOf(pid),
                 gio_pid_str,
                 10,
-            ) catch break :linux false;
+            ) catch break :ul false;
 
-            break :linux gio_pid == pid;
+            break :ul gio_pid == pid;
         },
 
         // TODO: This should have some logic to detect this. Perhaps std.builtin.subsystem
@@ -71,14 +71,14 @@ pub const DesktopEnvironment = enum {
 };
 
 /// Detect what desktop environment we are running under. This is mainly used
-/// on Linux to enable or disable certain features but there may be more uses in
+/// on Linux and BSD to enable or disable certain features but there may be more uses in
 /// the future.
 pub fn desktopEnvironment() DesktopEnvironment {
     return switch (comptime builtin.os.tag) {
         .macos => .macos,
         .windows => .windows,
-        .linux => de: {
-            if (@inComptime()) @compileError("Checking for the desktop environment on Linux must be done at runtime.");
+        .linux, .freebsd => de: {
+            if (@inComptime()) @compileError("Checking for the desktop environment on Linux/BSD must be done at runtime.");
 
             // Use $XDG_SESSION_DESKTOP to determine what DE we are using on Linux
             // https://www.freedesktop.org/software/systemd/man/latest/pam_systemd.html#desktop=
@@ -110,7 +110,7 @@ test "desktop environment" {
     switch (builtin.os.tag) {
         .macos => try testing.expectEqual(.macos, desktopEnvironment()),
         .windows => try testing.expectEqual(.windows, desktopEnvironment()),
-        .linux => {
+        .linux, .freebsd => {
             const getenv = std.posix.getenv;
             const setenv = @import("env.zig").setenv;
             const unsetenv = @import("env.zig").unsetenv;

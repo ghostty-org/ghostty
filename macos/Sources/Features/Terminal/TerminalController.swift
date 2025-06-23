@@ -5,18 +5,25 @@ import Combine
 import GhosttyKit
 
 /// A classic, tabbed terminal experience.
-class TerminalController: BaseTerminalController {
+class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Controller {
     override var windowNibName: NSNib.Name? {
         let defaultValue = "Terminal"
 
         guard let appDelegate = NSApp.delegate as? AppDelegate else { return defaultValue }
         let config = appDelegate.ghostty.config
+
+        // If we have no window decorations, there's no reason to do anything but
+        // the default titlebar (because there will be no titlebar).
+        if !config.windowDecorations {
+            return defaultValue
+        }
+
         let nib = switch config.macosTitlebarStyle {
         case "native": "Terminal"
         case "hidden": "TerminalHiddenTitlebar"
         case "transparent": "TerminalTransparentTitlebar"
         case "tabs":
-            if #available(macOS 26.0, *), hasLiquidGlass() {
+            if #available(macOS 26.0, *) {
                 "TerminalTabsTitlebarTahoe"
             } else {
                 "TerminalTabsTitlebarVentura"
@@ -169,7 +176,7 @@ class TerminalController: BaseTerminalController {
     private static var lastCascadePoint = NSPoint(x: 0, y: 0)
 
     // The preferred parent terminal controller.
-    private static var preferredParent: TerminalController? {
+    static var preferredParent: TerminalController? {
         all.first {
             $0.window?.isMainWindow ?? false
         } ?? all.last
@@ -519,13 +526,13 @@ class TerminalController: BaseTerminalController {
     }
 
     /// This is called anytime a node in the surface tree is being removed.
-    override func closeSurfaceNode(
+    override func closeSurface(
         _ node: SplitTree<Ghostty.SurfaceView>.Node,
         withConfirmation: Bool = true
     ) {
         // If this isn't the root then we're dealing with a split closure.
         if surfaceTree.root != node {
-            super.closeSurfaceNode(node, withConfirmation: withConfirmation)
+            super.closeSurface(node, withConfirmation: withConfirmation)
             return
         }
 
@@ -882,14 +889,20 @@ class TerminalController: BaseTerminalController {
         ghostty.newTab(surface: surface)
     }
 
-    //MARK: - NSWindowDelegate
+    // MARK: NSWindowDelegate
+
+    // TabGroupCloseCoordinator.Controller
+    lazy private(set) var tabGroupCloseCoordinator = TabGroupCloseCoordinator()
 
     override func windowShouldClose(_ sender: NSWindow) -> Bool {
-        // If we have tabs, then this should only close the tab.
-        if window?.tabGroup?.windows.count ?? 0 > 1 {
-            closeTab(sender)
-        } else {
-            closeWindow(sender)
+        tabGroupCloseCoordinator.windowShouldClose(sender) { [weak self] scope in
+            guard let self else { return }
+            switch (scope) {
+            case .tab: closeTab(nil)
+            case .window:
+                guard self.window?.isFirstWindowInTabGroup ?? false else { return }
+                closeWindow(nil)
+            }
         }
 
         // We will always explicitly close the window using the above
@@ -1001,20 +1014,14 @@ class TerminalController: BaseTerminalController {
 
     @IBAction override func closeWindow(_ sender: Any?) {
         guard let window = window else { return }
-        guard let tabGroup = window.tabGroup else {
-            // No tabs, no tab group, just perform a normal close.
-            closeWindowImmediately()
-            return
-        }
 
-        // If have one window then we just do a normal close
-        if tabGroup.windows.count == 1 {
-            closeWindowImmediately()
-            return
-        }
+        // We need to check all the windows in our tab group for confirmation
+        // if we're closing the window. If we don't have a tabgroup for any
+        // reason we check ourselves.
+        let windows: [NSWindow] = window.tabGroup?.windows ?? [window]
 
         // Check if any windows require close confirmation.
-        let needsConfirm = tabGroup.windows.contains { tabWindow in
+        let needsConfirm = windows.contains { tabWindow in
             guard let controller = tabWindow.windowController as? TerminalController else {
                 return false
             }
@@ -1270,4 +1277,3 @@ extension TerminalController: NSMenuItemValidation {
         }
     }
 }
-

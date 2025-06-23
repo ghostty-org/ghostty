@@ -1,1 +1,0 @@
-#include <glad/gl.h>

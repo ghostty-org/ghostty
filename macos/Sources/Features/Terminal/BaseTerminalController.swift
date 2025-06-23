@@ -193,6 +193,46 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
+    // MARK: Methods
+
+    /// Create a new split.
+    @discardableResult
+    func newSplit(
+        at oldView: Ghostty.SurfaceView,
+        direction: SplitTree<Ghostty.SurfaceView>.NewDirection,
+        baseConfig config: Ghostty.SurfaceConfiguration? = nil
+    ) -> Ghostty.SurfaceView? {
+        // We can only create new splits for surfaces in our tree.
+        guard surfaceTree.root?.node(view: oldView) != nil else { return nil }
+
+        // Create a new surface view
+        guard let ghostty_app = ghostty.app else { return nil }
+        let newView = Ghostty.SurfaceView(ghostty_app, baseConfig: config)
+
+        // Do the split
+        let newTree: SplitTree<Ghostty.SurfaceView>
+        do {
+            newTree = try surfaceTree.insert(
+                view: newView,
+                at: oldView,
+                direction: direction)
+        } catch {
+            // If splitting fails for any reason (it should not), then we just log
+            // and return. The new view we created will be deinitialized and its
+            // no big deal.
+            Ghostty.logger.warning("failed to insert split: \(error)")
+            return nil
+        }
+
+        replaceSurfaceTree(
+            newTree,
+            moveFocusTo: newView,
+            moveFocusFrom: oldView,
+            undoAction: "New Split")
+
+        return newView
+    }
+
     /// Called when the surfaceTree variable changed.
     ///
     /// Subclasses should call super first.
@@ -258,6 +298,46 @@ class BaseTerminalController: NSWindowController,
 
         // Store our alert so we only ever show one.
         self.alert = alert
+    }
+
+    /// Close a surface from a view.
+    func closeSurface(
+        _ view: Ghostty.SurfaceView,
+        withConfirmation: Bool = true
+    ) {
+        guard let node = surfaceTree.root?.node(view: view) else { return }
+        closeSurface(node, withConfirmation: withConfirmation)
+    }
+
+    /// Close a surface node (which may contain splits), requesting confirmation if necessary.
+    ///
+    /// This will also insert the proper undo stack information in.
+    func closeSurface(
+        _ node: SplitTree<Ghostty.SurfaceView>.Node,
+        withConfirmation: Bool = true
+    ) {
+        // This node must be part of our tree
+        guard surfaceTree.contains(node) else { return }
+
+        // If the child process is not alive, then we exit immediately
+        guard withConfirmation else {
+            removeSurfaceNode(node)
+            return
+        }
+
+        // Confirm close. We use an NSAlert instead of a SwiftUI confirmationDialog
+        // due to SwiftUI bugs (see Ghostty #560). To repeat from #560, the bug is that
+        // confirmationDialog allows the user to Cmd-W close the alert, but when doing
+        // so SwiftUI does not update any of the bindings to note that window is no longer
+        // being shown, and provides no callback to detect this.
+        confirmClose(
+            messageText: "Close Terminal?",
+            informativeText: "The terminal still has a running process. If you close the terminal the process will be killed."
+        ) { [weak self] in
+            if let self {
+                self.removeSurfaceNode(node)
+            }
+        }
     }
 
     // MARK: Split Tree Management
@@ -420,40 +500,9 @@ class BaseTerminalController: NSWindowController,
     @objc private func ghosttyDidCloseSurface(_ notification: Notification) {
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
         guard let node = surfaceTree.root?.node(view: target) else { return }
-        closeSurfaceNode(
+        closeSurface(
             node,
             withConfirmation: (notification.userInfo?["process_alive"] as? Bool) ?? false)
-    }
-
-    /// Close a surface node (which may contain splits), requesting confirmation if necessary.
-    ///
-    /// This will also insert the proper undo stack information in.
-    func closeSurfaceNode(
-        _ node: SplitTree<Ghostty.SurfaceView>.Node,
-        withConfirmation: Bool = true
-    ) {
-        // This node must be part of our tree
-        guard surfaceTree.contains(node) else { return }
-
-        // If the child process is not alive, then we exit immediately
-        guard withConfirmation else {
-            removeSurfaceNode(node)
-            return
-        }
-
-        // Confirm close. We use an NSAlert instead of a SwiftUI confirmationDialog
-        // due to SwiftUI bugs (see Ghostty #560). To repeat from #560, the bug is that
-        // confirmationDialog allows the user to Cmd-W close the alert, but when doing
-        // so SwiftUI does not update any of the bindings to note that window is no longer
-        // being shown, and provides no callback to detect this.
-        confirmClose(
-            messageText: "Close Terminal?",
-            informativeText: "The terminal still has a running process. If you close the terminal the process will be killed."
-        ) { [weak self] in
-            if let self {
-                self.removeSurfaceNode(node)
-            }
-        }
     }
 
     @objc private func ghosttyDidNewSplit(_ notification: Notification) {
@@ -477,30 +526,7 @@ class BaseTerminalController: NSWindowController,
         default: return
         }
 
-        // Create a new surface view
-        guard let ghostty_app = ghostty.app else { return }
-        let newView = Ghostty.SurfaceView(ghostty_app, baseConfig: config)
-
-        // Do the split
-        let newTree: SplitTree<Ghostty.SurfaceView>
-        do {
-            newTree = try surfaceTree.insert(
-                view: newView,
-                at: oldView,
-                direction: splitDirection)
-        } catch {
-            // If splitting fails for any reason (it should not), then we just log
-            // and return. The new view we created will be deinitialized and its
-            // no big deal.
-            Ghostty.logger.warning("failed to insert split: \(error)")
-            return
-        }
-
-        replaceSurfaceTree(
-            newTree,
-            moveFocusTo: newView,
-            moveFocusFrom: oldView,
-            undoAction: "New Split")
+        newSplit(at: oldView, direction: splitDirection, baseConfig: config)
     }
 
     @objc private func ghosttyDidEqualizeSplits(_ notification: Notification) {

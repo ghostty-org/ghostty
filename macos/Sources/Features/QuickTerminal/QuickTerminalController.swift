@@ -42,7 +42,11 @@ class QuickTerminalController: BaseTerminalController {
     ) {
         self.position = position
         self.derivedConfig = DerivedConfig(ghostty.config)
-        super.init(ghostty, baseConfig: base, surfaceTree: tree)
+
+        // Important detail here: we initialize with an empty surface tree so
+        // that we don't start a terminal process. This gets started when the
+        // first terminal is shown in `animateIn`.
+        super.init(ghostty, baseConfig: base, surfaceTree: .init())
 
         // Setup our notifications for behaviors
         let center = NotificationCenter.default
@@ -218,19 +222,19 @@ class QuickTerminalController: BaseTerminalController {
         }
     }
 
-    override func closeSurfaceNode(
+    override func closeSurface(
         _ node: SplitTree<Ghostty.SurfaceView>.Node,
         withConfirmation: Bool = true
     ) {
         // If this isn't the root then we're dealing with a split closure.
         if surfaceTree.root != node {
-            super.closeSurfaceNode(node, withConfirmation: withConfirmation)
+            super.closeSurface(node, withConfirmation: withConfirmation)
             return
         }
 
         // If this isn't a final leaf then we're dealing with a split closure
         guard case .leaf(let surface) = node else {
-            super.closeSurfaceNode(node, withConfirmation: withConfirmation)
+            super.closeSurface(node, withConfirmation: withConfirmation)
             return
         }
 

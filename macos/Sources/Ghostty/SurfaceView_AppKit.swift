@@ -115,10 +115,20 @@ extension Ghostty {
             }
         }
 
+        /// Returns the data model for this surface.
+        ///
+        /// Note: eventually, all surface access will be through this, but presently its in a transition
+        /// state so we're mixing this with direct surface access.
+        private(set) var surfaceModel: Ghostty.Surface?
+
+        /// Returns the underlying C value for the surface. See "note" on surfaceModel.
+        var surface: ghostty_surface_t? {
+            surfaceModel?.unsafeCValue
+        }
+
         // Notification identifiers associated with this surface
         var notificationIdentifiers: Set<String> = []
 
-        private(set) var surface: ghostty_surface_t?
         private var markedText: NSMutableAttributedString
         private(set) var focused: Bool = true
         private var prevPressureStage: Int = 0
@@ -139,17 +149,14 @@ extension Ghostty {
         private var titleFromTerminal: String?
 
         // The cached contents of the screen.
-        private var cachedScreenContents: CachedValue<String>
+        private(set) var cachedScreenContents: CachedValue<String>
+        private(set) var cachedVisibleContents: CachedValue<String>
 
         /// Event monitor (see individual events for why)
         private var eventMonitor: Any? = nil
 
         // We need to support being a first responder so that we can get input events
         override var acceptsFirstResponder: Bool { return true }
-
-        // I don't think we need this but this lets us know we should redraw our layer
-        // so we'll use that to tell ghostty to refresh.
-        override var wantsUpdateLayer: Bool { return true }
 
         init(_ app: ghostty_app_t, baseConfig: SurfaceConfiguration? = nil, uuid: UUID? = nil) {
             self.markedText = NSMutableAttributedString()
@@ -166,6 +173,7 @@ extension Ghostty {
             // it back up later so we can reference `self`. This is a hack we should
             // fix at some point.
             self.cachedScreenContents = .init(duration: .milliseconds(500)) { "" }
+            self.cachedVisibleContents = self.cachedScreenContents
 
             // Initialize with some default frame size. The important thing is that this
             // is non-zero so that our layer bounds are non-zero so that our renderer
@@ -185,6 +193,26 @@ extension Ghostty {
                         y: 0),
                     bottom_right: ghostty_point_s(
                         tag: GHOSTTY_POINT_SCREEN,
+                        coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+                        x: 0,
+                        y: 0),
+                    rectangle: false)
+                guard ghostty_surface_read_text(surface, sel, &text) else { return "" }
+                defer { ghostty_surface_free_text(surface, &text) }
+                return String(cString: text.text)
+            }
+            cachedVisibleContents = .init(duration: .milliseconds(500)) { [weak self] in
+                guard let self else { return "" }
+                guard let surface = self.surface else { return "" }
+                var text = ghostty_text_s()
+                let sel = ghostty_selection_s(
+                    top_left: ghostty_point_s(
+                        tag: GHOSTTY_POINT_VIEWPORT,
+                        coord: GHOSTTY_POINT_COORD_TOP_LEFT,
+                        x: 0,
+                        y: 0),
+                    bottom_right: ghostty_point_s(
+                        tag: GHOSTTY_POINT_VIEWPORT,
                         coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
                         x: 0,
                         y: 0),
@@ -258,12 +286,14 @@ extension Ghostty {
 
             // Setup our surface. This will also initialize all the terminal IO.
             let surface_cfg = baseConfig ?? SurfaceConfiguration()
-            var surface_cfg_c = surface_cfg.ghosttyConfig(view: self)
-            guard let surface = ghostty_surface_new(app, &surface_cfg_c) else {
-                self.error = AppError.surfaceCreateError
+            let surface = surface_cfg.withCValue(view: self) { surface_cfg_c in
+                ghostty_surface_new(app, &surface_cfg_c)
+            }
+            guard let surface = surface else {
+                self.error = Ghostty.Error.apiFailed
                 return
             }
-            self.surface = surface;
+            self.surfaceModel = Ghostty.Surface(cSurface: surface)
 
             // Setup our tracking area so we get mouse moved events
             updateTrackingAreas()
@@ -318,11 +348,6 @@ extension Ghostty {
             // Remove any notifications associated with this surface
             let identifiers = Array(self.notificationIdentifiers)
             UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: identifiers)
-
-            // Free our core surface resources
-            if let surface = self.surface {
-                ghostty_surface_free(surface)
-            }
         }
 
         func focusDidChange(_ focused: Bool) {
@@ -703,11 +728,6 @@ extension Ghostty {
             setSurfaceSize(width: UInt32(fbFrame.size.width), height: UInt32(fbFrame.size.height))
         }
 
-        override func updateLayer() {
-            guard let surface = self.surface else { return }
-            ghostty_surface_draw(surface);
-        }
-
         override func mouseDown(with event: NSEvent) {
             guard let surface = self.surface else { return }
             let mods = Ghostty.ghosttyMods(event.modifierFlags)
@@ -781,19 +801,23 @@ extension Ghostty {
         override func mouseEntered(with event: NSEvent) {
             super.mouseEntered(with: event)
 
-            guard let surface = self.surface else { return }
+            guard let surfaceModel else { return }
 
             // On mouse enter we need to reset our cursor position. This is
             // super important because we set it to -1/-1 on mouseExit and
             // lots of mouse logic (i.e. whether to send mouse reports) depend
             // on the position being in the viewport if it is.
             let pos = self.convert(event.locationInWindow, from: nil)
-            let mods = Ghostty.ghosttyMods(event.modifierFlags)
-            ghostty_surface_mouse_pos(surface, pos.x, frame.height - pos.y, mods)
+            let mouseEvent = Ghostty.Input.MousePosEvent(
+                x: pos.x,
+                y: frame.height - pos.y,
+                mods: .init(nsFlags: event.modifierFlags)
+            )
+            surfaceModel.sendMousePos(mouseEvent)
         }
 
         override func mouseExited(with event: NSEvent) {
-            guard let surface = self.surface else { return }
+            guard let surfaceModel else { return }
 
             // If the mouse is being dragged then we don't have to emit
             // this because we get mouse drag events even if we've already
@@ -803,17 +827,25 @@ extension Ghostty {
             }
 
             // Negative values indicate cursor has left the viewport
-            let mods = Ghostty.ghosttyMods(event.modifierFlags)
-            ghostty_surface_mouse_pos(surface, -1, -1, mods)
+            let mouseEvent = Ghostty.Input.MousePosEvent(
+                x: -1,
+                y: -1,
+                mods: .init(nsFlags: event.modifierFlags)
+            )
+            surfaceModel.sendMousePos(mouseEvent)
         }
 
         override func mouseMoved(with event: NSEvent) {
-            guard let surface = self.surface else { return }
+            guard let surfaceModel else { return }
 
             // Convert window position to view position. Note (0, 0) is bottom left.
             let pos = self.convert(event.locationInWindow, from: nil)
-            let mods = Ghostty.ghosttyMods(event.modifierFlags)
-            ghostty_surface_mouse_pos(surface, pos.x, frame.height - pos.y, mods)
+            let mouseEvent = Ghostty.Input.MousePosEvent(
+                x: pos.x,
+                y: frame.height - pos.y,
+                mods: .init(nsFlags: event.modifierFlags)
+            )
+            surfaceModel.sendMousePos(mouseEvent)
 
             // Handle focus-follows-mouse
             if let window,
@@ -839,16 +871,13 @@ extension Ghostty {
         }
 
         override func scrollWheel(with event: NSEvent) {
-            guard let surface = self.surface else { return }
-
-            // Builds up the "input.ScrollMods" bitmask
-            var mods: Int32 = 0
+            guard let surfaceModel else { return }
 
             var x = event.scrollingDeltaX
             var y = event.scrollingDeltaY
-            if event.hasPreciseScrollingDeltas {
-                mods = 1
-
+            let precision = event.hasPreciseScrollingDeltas
+            
+            if precision {
                 // We do a 2x speed multiplier. This is subjective, it "feels" better to me.
                 x *= 2;
                 y *= 2;
@@ -856,29 +885,12 @@ extension Ghostty {
                 // TODO(mitchellh): do we have to scale the x/y here by window scale factor?
             }
 
-            // Determine our momentum value
-            var momentum: ghostty_input_mouse_momentum_e = GHOSTTY_MOUSE_MOMENTUM_NONE
-            switch (event.momentumPhase) {
-            case .began:
-                momentum = GHOSTTY_MOUSE_MOMENTUM_BEGAN
-            case .stationary:
-                momentum = GHOSTTY_MOUSE_MOMENTUM_STATIONARY
-            case .changed:
-                momentum = GHOSTTY_MOUSE_MOMENTUM_CHANGED
-            case .ended:
-                momentum = GHOSTTY_MOUSE_MOMENTUM_ENDED
-            case .cancelled:
-                momentum = GHOSTTY_MOUSE_MOMENTUM_CANCELLED
-            case .mayBegin:
-                momentum = GHOSTTY_MOUSE_MOMENTUM_MAY_BEGIN
-            default:
-                break
-            }
-
-            // Pack our momentum value into the mods bitmask
-            mods |= Int32(momentum.rawValue) << 1
-
-            ghostty_surface_mouse_scroll(surface, x, y, mods)
+            let scrollEvent = Ghostty.Input.MouseScrollEvent(
+                x: x,
+                y: y,
+                mods: .init(precision: precision, momentum: .init(event.momentumPhase))
+            )
+            surfaceModel.sendMouseScroll(scrollEvent)
         }
 
         override func pressureChange(with event: NSEvent) {
@@ -1285,8 +1297,8 @@ extension Ghostty {
                 // In this case, AppKit calls menu BEFORE calling any mouse events.
                 // If mouse capturing is enabled then we never show the context menu
                 // so that we can handle ctrl+left-click in the terminal app.
-                guard let surface = self.surface else { return nil }
-                if ghostty_surface_mouse_captured(surface) {
+                guard let surfaceModel else { return nil }
+                if surfaceModel.mouseCaptured {
                     return nil
                 }
 
@@ -1296,13 +1308,10 @@ extension Ghostty {
                 //
                 // Note this never sounds a right mouse up event but that's the
                 // same as normal right-click with capturing disabled from AppKit.
-                let mods = Ghostty.ghosttyMods(event.modifierFlags)
-                ghostty_surface_mouse_button(
-                    surface,
-                    GHOSTTY_MOUSE_PRESS,
-                    GHOSTTY_MOUSE_RIGHT,
-                    mods
-                )
+                surfaceModel.sendMouseButton(.init(
+                    action: .press,
+                    button: .right,
+                    mods: .init(nsFlags: event.modifierFlags)))
 
             default:
                 return nil
@@ -1673,7 +1682,7 @@ extension Ghostty.SurfaceView: NSTextInputClient {
     func insertText(_ string: Any, replacementRange: NSRange) {
         // We must have an associated event
         guard NSApp.currentEvent != nil else { return }
-        guard let surface = self.surface else { return }
+        guard let surfaceModel else { return }
 
         // We want the string view of the any value
         var chars = ""
@@ -1697,13 +1706,7 @@ extension Ghostty.SurfaceView: NSTextInputClient {
             return
         }
 
-        let len = chars.utf8CString.count
-        if (len == 0) { return }
-
-        chars.withCString { ptr in
-            // len includes the null terminator so we do len - 1
-            ghostty_surface_text(surface, ptr, UInt(len - 1))
-        }
+        surfaceModel.sendText(chars)
     }
 
     /// This function needs to exist for two reasons:
@@ -1979,7 +1982,7 @@ extension Ghostty.SurfaceView {
 /// Caches a value for some period of time, evicting it automatically when that time expires.
 /// We use this to cache our surface content. This probably should be extracted some day
 /// to a more generic helper.
-fileprivate class CachedValue<T> {
+class CachedValue<T> {
     private var value: T?
     private let fetch: () -> T
     private let duration: Duration

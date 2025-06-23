@@ -16,6 +16,7 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 const builtin = @import("builtin");
 const xev = @import("../global.zig").xev;
 const crash = @import("../crash/main.zig");
+const internal_os = @import("../os/main.zig");
 const termio = @import("../termio.zig");
 const renderer = @import("../renderer.zig");
 const BlockingQueue = @import("../datastruct/main.zig").BlockingQueue;
@@ -145,6 +146,8 @@ pub fn threadMain(self: *Thread, io: *termio.Termio) void {
         // have "OpenptyFailed".
         const Err = @TypeOf(err) || error{
             OpenptyFailed,
+            InputNotFound,
+            InputFailed,
         };
 
         switch (@as(Err, @errorCast(err))) {
@@ -158,6 +161,24 @@ pub fn threadMain(self: *Thread, io: *termio.Termio) void {
                     \\many pty devices.
                     \\
                     \\Please free up some pty devices and try again.
+                ;
+
+                t.eraseDisplay(.complete, false);
+                t.printString(str) catch {};
+            },
+
+            error.InputNotFound,
+            error.InputFailed,
+            => {
+                const str =
+                    \\A configured `input` path was not found, was not readable,
+                    \\was too large, or the underlying pty failed to accept
+                    \\the write.
+                    \\
+                    \\Ghostty can't continue since it can't guarantee that
+                    \\initial terminal state will be as desired. Please review
+                    \\the value of `input` in your configuration file and
+                    \\ensure that all the path values exist and are readable.
                 ;
 
                 t.eraseDisplay(.complete, false);
@@ -201,6 +222,13 @@ pub fn threadMain(self: *Thread, io: *termio.Termio) void {
 
 fn threadMain_(self: *Thread, io: *termio.Termio) !void {
     defer log.debug("IO thread exited", .{});
+
+    // Right now, on Darwin, `std.Thread.setName` can only name the current
+    // thread, and we have no way to get the current thread from within it,
+    // so instead we use this code to name the thread instead.
+    if (builtin.os.tag.isDarwin()) {
+        internal_os.macos.pthread_setname_np(&"io".*);
+    }
 
     // Setup our crash metadata
     crash.sentry.thread_state = .{
