@@ -174,6 +174,7 @@ const Kind = enum {
                 .cursor_rect,
                 .cursor_hollow_rect,
                 .cursor_bar,
+                .cursor_underline,
                 => .cursor,
             },
 

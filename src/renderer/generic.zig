@@ -2868,7 +2868,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         .block => .cursor_rect,
                         .block_hollow => .cursor_hollow_rect,
                         .bar => .cursor_bar,
-                        .underline => .underline,
+                        .underline => .cursor_underline,
                         .lock => unreachable,
                     };
 

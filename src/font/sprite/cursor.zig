@@ -43,6 +43,12 @@ pub fn renderGlyph(
             .width = thickness,
             .height = height,
         }, .on),
+        Sprite.cursor_underline => canvas.rect(.{
+            .x = 0,
+            .y = height -| thickness,
+            .width = width,
+            .height = thickness,
+        }, .on),
         else => unreachable,
     }
 
