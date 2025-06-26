@@ -6717,9 +6717,7 @@ pub const QuickTerminalSize = struct {
 
         pub const Type = enum(u8) { none, percentage, pixels };
 
-        fn none() CSize {
-            return .{ .type = .none, .value = 0 };
-        }
+        pub const none: CSize = .{ .type = .none, .value = 0 };
 
         fn percentage(v: f32) CSize {
             return .{ .type = .percentage, .value = @bitCast(v) };
@@ -6733,13 +6731,13 @@ pub const QuickTerminalSize = struct {
     pub fn cval(self: QuickTerminalSize) C {
         return .{
             .primary = if (self.primary) |p| switch (p) {
-                .percentage => |v| CSize.percentage(v),
-                .pixels => |v| CSize.pixels(v),
-            } else CSize.none(),
+                .percentage => |v| .percentage(v),
+                .pixels => |v| .pixels(v),
+            } else .none,
             .secondary = if (self.secondary) |s| switch (s) {
-                .percentage => |v| CSize.percentage(v),
-                .pixels => |v| CSize.pixels(v),
-            } else CSize.none(),
+                .percentage => |v| .percentage(v),
+                .pixels => |v| .pixels(v),
+            } else .none,
         };
     }
 
