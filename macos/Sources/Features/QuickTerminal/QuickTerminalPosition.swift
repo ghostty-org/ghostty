@@ -58,19 +58,19 @@ enum QuickTerminalPosition : String {
     func initialOrigin(for window: NSWindow, on screen: NSScreen) -> CGPoint {
         switch (self) {
         case .top:
-            return .init(x: screen.frame.origin.x + (screen.frame.width - window.frame.width) / 2, y: screen.frame.maxY)
+            return .init(x: round(screen.frame.origin.x + (screen.frame.width - window.frame.width) / 2), y: screen.frame.maxY)
 
         case .bottom:
-            return .init(x: screen.frame.origin.x + (screen.frame.width - window.frame.width) / 2, y: -window.frame.height)
+            return .init(x: round(screen.frame.origin.x + (screen.frame.width - window.frame.width) / 2), y: -window.frame.height)
 
         case .left:
-            return .init(x: screen.frame.minX-window.frame.width, y: screen.frame.origin.y + (screen.frame.height - window.frame.height) / 2)
+            return .init(x: screen.frame.minX-window.frame.width, y: round(screen.frame.origin.y + (screen.frame.height - window.frame.height) / 2))
 
         case .right:
-            return .init(x: screen.frame.maxX, y: screen.frame.origin.y + (screen.frame.height - window.frame.height) / 2)
+            return .init(x: screen.frame.maxX, y: round(screen.frame.origin.y + (screen.frame.height - window.frame.height) / 2))
 
         case .center:
-            return .init(x: screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2, y:  screen.visibleFrame.height - window.frame.width)
+            return .init(x: round(screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2), y:  screen.visibleFrame.height - window.frame.width)
         }
     }
 
@@ -78,19 +78,19 @@ enum QuickTerminalPosition : String {
     func finalOrigin(for window: NSWindow, on screen: NSScreen) -> CGPoint {
         switch (self) {
         case .top:
-            return .init(x: screen.frame.origin.x + (screen.frame.width - window.frame.width) / 2, y: screen.visibleFrame.maxY - window.frame.height)
+            return .init(x: round(screen.frame.origin.x + (screen.frame.width - window.frame.width) / 2), y: screen.visibleFrame.maxY - window.frame.height)
 
         case .bottom:
-            return .init(x: screen.frame.origin.x + (screen.frame.width - window.frame.width) / 2, y: screen.frame.minY)
+            return .init(x: round(screen.frame.origin.x + (screen.frame.width - window.frame.width) / 2), y: screen.frame.minY)
 
         case .left:
-            return .init(x: screen.frame.minX, y: screen.frame.origin.y + (screen.frame.height - window.frame.height) / 2)
+            return .init(x: screen.frame.minX, y: round(screen.frame.origin.y + (screen.frame.height - window.frame.height) / 2))
 
         case .right:
-            return .init(x: screen.visibleFrame.maxX - window.frame.width, y: screen.frame.origin.y + (screen.frame.height - window.frame.height) / 2)
+            return .init(x: screen.visibleFrame.maxX - window.frame.width, y: round(screen.frame.origin.y + (screen.frame.height - window.frame.height) / 2))
 
         case .center:
-            return .init(x: screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2, y: screen.visibleFrame.origin.y + (screen.visibleFrame.height - window.frame.height) / 2)
+            return .init(x: round(screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2), y: round(screen.visibleFrame.origin.y + (screen.visibleFrame.height - window.frame.height) / 2))
         }
     }
 
@@ -117,20 +117,20 @@ enum QuickTerminalPosition : String {
         switch self {
         case .top:
             return CGPoint(
-                x: screen.frame.origin.x + (screen.frame.width - window.frame.width) / 2,
+                x: round(screen.frame.origin.x + (screen.frame.width - window.frame.width) / 2),
                 y: window.frame.origin.y // Keep the same Y position
             )
             
         case .bottom:
             return CGPoint(
-                x: screen.frame.origin.x + (screen.frame.width - window.frame.width) / 2,
+                x: round(screen.frame.origin.x + (screen.frame.width - window.frame.width) / 2),
                 y: window.frame.origin.y // Keep the same Y position
             )
             
         case .center:
             return CGPoint(
-                x: screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2,
-                y: screen.visibleFrame.origin.y + (screen.visibleFrame.height - window.frame.height) / 2
+                x: round(screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2),
+                y: round(screen.visibleFrame.origin.y + (screen.visibleFrame.height - window.frame.height) / 2)
             )
             
         case .left, .right:
@@ -145,13 +145,13 @@ enum QuickTerminalPosition : String {
         case .left:
             return CGPoint(
                 x: window.frame.origin.x, // Keep the same X position
-                y: screen.frame.origin.y + (screen.frame.height - window.frame.height) / 2
+                y: round(screen.frame.origin.y + (screen.frame.height - window.frame.height) / 2)
             )
             
         case .right:
             return CGPoint(
                 x: window.frame.origin.x, // Keep the same X position
-                y: screen.frame.origin.y + (screen.frame.height - window.frame.height) / 2
+                y: round(screen.frame.origin.y + (screen.frame.height - window.frame.height) / 2)
             )
             
         case .top, .bottom, .center:
