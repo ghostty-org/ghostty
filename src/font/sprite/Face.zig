@@ -133,6 +133,7 @@ pub fn renderGlyph(
                 width,
                 metrics.cursor_height,
                 metrics.cursor_thickness,
+                metrics.underline_position,
             );
 
             // Cursors are drawn at their specified height

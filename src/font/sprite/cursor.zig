@@ -14,6 +14,7 @@ pub fn renderGlyph(
     width: u32,
     height: u32,
     thickness: u32,
+    underline_pos: u32,
 ) !font.Glyph {
     // Make a canvas of the desired size
     var canvas = try font.sprite.Canvas.init(alloc, width, height);
@@ -45,7 +46,7 @@ pub fn renderGlyph(
         }, .on),
         Sprite.cursor_underline => canvas.rect(.{
             .x = 0,
-            .y = height -| thickness,
+            .y = 0,
             .width = width,
             .height = thickness,
         }, .on),
@@ -61,9 +62,9 @@ pub fn renderGlyph(
         //       uniform code. -- In the future code will be introduced to
         //       auto-crop the canvas so that this isn't needed.
         .width = if (sprite == .cursor_bar) thickness else width,
-        .height = height,
+        .height = if (sprite == .cursor_underline) thickness else height,
         .offset_x = 0,
-        .offset_y = @intCast(height),
+        .offset_y = if (sprite == .cursor_underline) @intCast(height -| underline_pos) else @intCast(height),
         .atlas_x = region.x,
         .atlas_y = region.y,
         .advance_x = @floatFromInt(width),
