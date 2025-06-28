@@ -619,7 +619,7 @@ fn addGTK(
         scanner.addCustomProtocol(
             plasma_wayland_protocols_dep.path("src/protocols/slide.xml"),
         );
-        scanner.addSystemProtocol("staging/xdg-activation/xdg-activation-v1.xml");
+        scanner.addCustomProtocol(wayland_protocols_dep.path("staging/xdg-activation/xdg-activation-v1.xml"));
         scanner.addCustomProtocol(wayland_protocols_dep.path("staging/xdg-dialog/xdg-dialog-v1.xml"));
         scanner.addCustomProtocol(wayland_protocols_dep.path("stable/xdg-shell/xdg-shell.xml"));
 
