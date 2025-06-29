@@ -251,6 +251,37 @@ pub fn set(self: *Atlas, reg: Region, data: []const u8) void {
     _ = self.modified.fetchAdd(1, .monotonic);
 }
 
+/// Like `set` but allows specifying a width for the source data and an
+/// offset x and y, so that a section of a larger buffer may be copied
+/// in to the atlas.
+pub fn setFromLarger(
+    self: *Atlas,
+    reg: Region,
+    src: []const u8,
+    src_width: u32,
+    src_x: u32,
+    src_y: u32,
+) void {
+    assert(reg.x < (self.size - 1));
+    assert((reg.x + reg.width) <= (self.size - 1));
+    assert(reg.y < (self.size - 1));
+    assert((reg.y + reg.height) <= (self.size - 1));
+
+    const depth = self.format.depth();
+    var i: u32 = 0;
+    while (i < reg.height) : (i += 1) {
+        const tex_offset = (((reg.y + i) * self.size) + reg.x) * depth;
+        const src_offset = (((src_y + i) * src_width) + src_x) * depth;
+        fastmem.copy(
+            u8,
+            self.data[tex_offset..],
+            src[src_offset .. src_offset + (reg.width * depth)],
+        );
+    }
+
+    _ = self.modified.fetchAdd(1, .monotonic);
+}
+
 // Grow the texture to the new size, preserving all previously written data.
 pub fn grow(self: *Atlas, alloc: Allocator, size_new: u32) Allocator.Error!void {
     assert(size_new >= self.size);
