@@ -191,3 +191,83 @@ pub fn draw1CC21_1CC2F(
         .on,
     );
 }
+
+/// Separated Block Sextants
+pub fn draw1CE51_1CE8F(
+    cp: u32,
+    canvas: *font.sprite.Canvas,
+    width: u32,
+    height: u32,
+    metrics: font.Metrics,
+) !void {
+    _ = metrics;
+
+    // Struct laid out to match the codepoint order so we can cast from it.
+    const Sextants = packed struct(u6) {
+        tl: bool,
+        tr: bool,
+        ml: bool,
+        mr: bool,
+        bl: bool,
+        br: bool,
+    };
+
+    const sex: Sextants = @bitCast(@as(u6, @truncate(cp - 0x1CE50)));
+
+    const gap: i32 = @intCast(@max(1, width / 12));
+
+    const mid_gap_x: i32 = gap * 2 + @as(i32, @intCast(width % 2));
+    const y_extra: i32 = @as(i32, @intCast(height % 3));
+    const mid_gap_y: i32 = gap * 2 + @divFloor(y_extra, 2);
+
+    const w: i32 = @divExact(@as(i32, @intCast(width)) - gap * 2 - mid_gap_x, 2);
+    const h: i32 = @divFloor(
+        @as(i32, @intCast(height)) - gap * 2 - mid_gap_y * 2,
+        3,
+    );
+    // Distribute any leftover height in to the middle row of blocks.
+    const h_m: i32 = @as(i32, @intCast(height)) - gap * 2 - mid_gap_y * 2 - h * 2;
+
+    if (sex.tl) canvas.box(
+        gap,
+        gap,
+        gap + w,
+        gap + h,
+        .on,
+    );
+    if (sex.tr) canvas.box(
+        gap + w + mid_gap_x,
+        gap,
+        gap + w + mid_gap_x + w,
+        gap + h,
+        .on,
+    );
+    if (sex.ml) canvas.box(
+        gap,
+        gap + h + mid_gap_y,
+        gap + w,
+        gap + h + mid_gap_y + h_m,
+        .on,
+    );
+    if (sex.mr) canvas.box(
+        gap + w + mid_gap_x,
+        gap + h + mid_gap_y,
+        gap + w + mid_gap_x + w,
+        gap + h + mid_gap_y + h_m,
+        .on,
+    );
+    if (sex.bl) canvas.box(
+        gap,
+        gap + h + mid_gap_y + h_m + mid_gap_y,
+        gap + w,
+        gap + h + mid_gap_y + h_m + mid_gap_y + h,
+        .on,
+    );
+    if (sex.br) canvas.box(
+        gap + w + mid_gap_x,
+        gap + h + mid_gap_y + h_m + mid_gap_y,
+        gap + w + mid_gap_x + w,
+        gap + h + mid_gap_y + h_m + mid_gap_y + h,
+        .on,
+    );
+}
