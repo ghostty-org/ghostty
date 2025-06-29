@@ -32,6 +32,7 @@ pub const Sprite = enum(u32) {
     cursor_rect,
     cursor_hollow_rect,
     cursor_bar,
+    cursor_underline,
 
     test {
         const testing = std.testing;

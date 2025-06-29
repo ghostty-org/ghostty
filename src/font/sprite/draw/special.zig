@@ -326,3 +326,21 @@ pub fn cursor_bar(
         .height = @intCast(height),
     }, .on);
 }
+
+pub fn cursor_underline(
+    cp: u32,
+    canvas: *font.sprite.Canvas,
+    width: u32,
+    height: u32,
+    metrics: font.Metrics,
+) !void {
+    _ = cp;
+    _ = height;
+
+    canvas.rect(.{
+        .x = 0,
+        .y = @intCast(metrics.underline_position),
+        .width = @intCast(width),
+        .height = @intCast(metrics.cursor_thickness),
+    }, .on);
+}
