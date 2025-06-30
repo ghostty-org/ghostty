@@ -32,6 +32,8 @@ extend-ignore-re = [
   # Ignore typos in test expectations
   "testing\\.expect[^;]*;",
   "kHOM\\d*",
+  # Ignore "typos" in sprite font draw fn names
+  "draw[0-9A-F]+(_[0-9A-F]+)?\\(",
 ]
 
 [default.extend-words]
