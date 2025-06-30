@@ -18,7 +18,7 @@ struct QuickTerminalSize {
         case percentage(Float)
         case pixels(UInt32)
 
-        init?(from cStruct: ghostty_quick_terminal_size_u) {
+        init?(from cStruct: ghostty_quick_terminal_size_s) {
             switch cStruct.type {
             case GHOSTTY_QUICK_TERMINAL_SIZE_NONE:
                 return nil

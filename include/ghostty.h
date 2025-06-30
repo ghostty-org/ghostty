@@ -455,11 +455,11 @@ typedef enum {
 typedef struct {
   ghostty_quick_terminal_size_e type;
   uint32_t value;
-} ghostty_quick_terminal_size_u;
+} ghostty_quick_terminal_size_s;
 
 typedef struct {
-  ghostty_quick_terminal_size_u primary;
-  ghostty_quick_terminal_size_u secondary;
+  ghostty_quick_terminal_size_s primary;
+  ghostty_quick_terminal_size_s secondary;
 } ghostty_config_quick_terminal_size_s;
 
 // apprt.Target.Key
