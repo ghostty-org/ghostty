@@ -1,6 +1,6 @@
 #include "common.glsl"
 
-layout(binding = 0) uniform sampler2DRect image;
+layout(binding = 0) uniform sampler2D image;
 
 in vec2 tex_coord;
 

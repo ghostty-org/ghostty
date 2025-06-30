@@ -2,13 +2,42 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 
+pub const ResourcesDir = struct {
+    /// Avoid accessing these directly, use the app() and host() methods instead.
+    app_path: ?[]const u8 = null,
+    host_path: ?[]const u8 = null,
+
+    /// Free resources held. Requires the same allocator as when resourcesDir()
+    /// is called.
+    pub fn deinit(self: *ResourcesDir, alloc: Allocator) void {
+        if (self.app_path) |p| alloc.free(p);
+        if (self.host_path) |p| alloc.free(p);
+    }
+
+    /// Get the directory to the bundled resources directory accessible
+    /// by the application.
+    pub fn app(self: *ResourcesDir) ?[]const u8 {
+        return self.app_path;
+    }
+
+    /// Get the directory to the bundled resources directory accessible
+    /// by the host environment (i.e. for sandboxed applications). The
+    /// returned directory might not be accessible from the application
+    /// itself.
+    ///
+    /// In non-sandboxed environment, this should be the same as app().
+    pub fn host(self: *ResourcesDir) ?[]const u8 {
+        return self.host_path orelse self.app_path;
+    }
+};
+
 /// Gets the directory to the bundled resources directory, if it
 /// exists (not all platforms or packages have it). The output is
 /// owned by the caller.
 ///
 /// This is highly Ghostty-specific and can likely be generalized at
 /// some point but we can cross that bridge if we ever need to.
-pub fn resourcesDir(alloc: std.mem.Allocator) !?[]const u8 {
+pub fn resourcesDir(alloc: Allocator) !ResourcesDir {
     // Use the GHOSTTY_RESOURCES_DIR environment variable in release builds.
     //
     // In debug builds we try using terminfo detection first instead, since
@@ -20,7 +49,7 @@ pub fn resourcesDir(alloc: std.mem.Allocator) !?[]const u8 {
     // freed, do not try to use internal_os.getenv or posix getenv.
     if (comptime builtin.mode != .Debug) {
         if (std.process.getEnvVarOwned(alloc, "GHOSTTY_RESOURCES_DIR")) |dir| {
-            if (dir.len > 0) return dir;
+            if (dir.len > 0) return .{ .app_path = dir };
         } else |err| switch (err) {
             error.EnvironmentVariableNotFound => {},
             else => return err,
@@ -38,7 +67,7 @@ pub fn resourcesDir(alloc: std.mem.Allocator) !?[]const u8 {
 
     // Get the path to our running binary
     var exe_buf: [std.fs.max_path_bytes]u8 = undefined;
-    var exe: []const u8 = std.fs.selfExePath(&exe_buf) catch return null;
+    var exe: []const u8 = std.fs.selfExePath(&exe_buf) catch return .{};
 
     // We have an exe path! Climb the tree looking for the terminfo
     // bundle as we expect it.
@@ -50,7 +79,7 @@ pub fn resourcesDir(alloc: std.mem.Allocator) !?[]const u8 {
         if (comptime builtin.target.os.tag.isDarwin()) {
             inline for (sentinels) |sentinel| {
                 if (try maybeDir(&dir_buf, dir, "Contents/Resources", sentinel)) |v| {
-                    return try std.fs.path.join(alloc, &.{ v, "ghostty" });
+                    return .{ .app_path = try std.fs.path.join(alloc, &.{ v, "ghostty" }) };
                 }
             }
         }
@@ -65,7 +94,7 @@ pub fn resourcesDir(alloc: std.mem.Allocator) !?[]const u8 {
                 if (builtin.target.os.tag == .freebsd) "local/share" else "share",
                 sentinel,
             )) |v| {
-                return try std.fs.path.join(alloc, &.{ v, "ghostty" });
+                return .{ .app_path = try std.fs.path.join(alloc, &.{ v, "ghostty" }) };
             }
         }
     }
@@ -74,14 +103,14 @@ pub fn resourcesDir(alloc: std.mem.Allocator) !?[]const u8 {
     // fallback and use the provided resources dir.
     if (comptime builtin.mode == .Debug) {
         if (std.process.getEnvVarOwned(alloc, "GHOSTTY_RESOURCES_DIR")) |dir| {
-            if (dir.len > 0) return dir;
+            if (dir.len > 0) return .{ .app_path = dir };
         } else |err| switch (err) {
             error.EnvironmentVariableNotFound => {},
             else => return err,
         }
     }
 
-    return null;
+    return .{};
 }
 
 /// Little helper to check if the "base/sub/suffix" directory exists and

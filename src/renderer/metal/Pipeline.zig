@@ -160,6 +160,7 @@ fn autoAttribute(T: type, attrs: objc.Object) void {
         const offset = @offsetOf(T, field.name);
 
         const FT = switch (@typeInfo(field.type)) {
+            .@"struct" => |e| e.backing_integer.?,
             .@"enum" => |e| e.tag_type,
             else => field.type,
         };
@@ -169,13 +170,17 @@ fn autoAttribute(T: type, attrs: objc.Object) void {
             [4]u8 => mtl.MTLVertexFormat.uchar4,
             [2]u16 => mtl.MTLVertexFormat.ushort2,
             [2]i16 => mtl.MTLVertexFormat.short2,
+            f32 => mtl.MTLVertexFormat.float,
             [2]f32 => mtl.MTLVertexFormat.float2,
             [4]f32 => mtl.MTLVertexFormat.float4,
+            i32 => mtl.MTLVertexFormat.int,
             [2]i32 => mtl.MTLVertexFormat.int2,
+            [4]i32 => mtl.MTLVertexFormat.int2,
             u32 => mtl.MTLVertexFormat.uint,
             [2]u32 => mtl.MTLVertexFormat.uint2,
             [4]u32 => mtl.MTLVertexFormat.uint4,
             u8 => mtl.MTLVertexFormat.uchar,
+            i8 => mtl.MTLVertexFormat.char,
             else => comptime unreachable,
         };
 

@@ -402,32 +402,47 @@ pub fn clonePool(
         };
 
         const start_pin = pin_remap.get(ordered.tl) orelse start: {
-            // No start means it is outside the cloned area. We change it
-            // to the top-left.
+            // No start means it is outside the cloned area.
 
             // If we have no end pin then either
             // (1) our whole selection is outside the cloned area or
             // (2) our cloned area is within the selection
             if (pin_remap.get(ordered.br) == null) {
-                // If our tl is before the cloned area and br is after
-                // the cloned area then the whole screen is selected.
-                // This detection is somewhat more expensive so we try
-                // to avoid it if possible so its nested in this if.
+                // We check if the selection bottom right pin is above
+                // the cloned area or if the top left pin is below the
+                // cloned area, in either of these cases it means that
+                // the selection is fully out of bounds, so we have no
+                // selection in the cloned area and break out now.
                 const clone_top = self.pages.pin(top) orelse break :sel null;
-                if (!sel.contains(self, clone_top)) break :sel null;
+                const clone_top_y = self.pages.pointFromPin(
+                    .screen,
+                    clone_top,
+                ).?.screen.y;
+                if (self.pages.pointFromPin(
+                    .screen,
+                    ordered.br.*,
+                ).?.screen.y < clone_top_y) break :sel null;
+                if (self.pages.pointFromPin(
+                    .screen,
+                    ordered.tl.*,
+                ).?.screen.y > clone_top_y) break :sel null;
             }
 
-            break :start try pages.trackPin(.{ .node = pages.pages.first.? });
+            // We move the top pin back in bounds to the top row.
+            break :start try pages.trackPin(.{
+                .node = pages.pages.first.?,
+                .x = if (sel.rectangle) ordered.tl.x else 0,
+            });
         };
 
-        const end_pin = pin_remap.get(ordered.br) orelse end: {
-            // No end means it is outside the cloned area. We change it
-            // to the bottom-right.
-            break :end try pages.trackPin(pages.pin(.{ .active = .{
-                .x = pages.cols - 1,
-                .y = pages.rows - 1,
-            } }) orelse break :sel null);
-        };
+        // If we got to this point it means that the selection is not
+        // fully out of bounds, so we move the bottom right pin back
+        // in bounds if it isn't already.
+        const end_pin = pin_remap.get(ordered.br) orelse try pages.trackPin(.{
+            .node = pages.pages.last.?,
+            .x = if (sel.rectangle) ordered.br.x else pages.cols - 1,
+            .y = pages.pages.last.?.data.size.rows - 1,
+        });
 
         break :sel .{
             .bounds = .{ .tracked = .{
@@ -3053,6 +3068,29 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
     }
 }
 
+/// Write text that's marked as a semantic prompt.
+fn testWriteSemanticString(self: *Screen, text: []const u8, semantic_prompt: Row.SemanticPrompt) !void {
+    // Determine the first row using the cursor position. If we know that our
+    // first write is going to start on the next line because of a pending
+    // wrap, we'll proactively start there.
+    const start_y = if (self.cursor.pending_wrap) self.cursor.y + 1 else self.cursor.y;
+
+    try self.testWriteString(text);
+
+    // Determine the last row that we actually wrote by inspecting the cursor's
+    // position. If we're in the first column, we haven't actually written any
+    // characters to it, so we end at the preceding row instead.
+    const end_y = if (self.cursor.x > 0) self.cursor.y else self.cursor.y - 1;
+
+    // Mark the full range of written rows with our semantic prompt.
+    var y = start_y;
+    while (y <= end_y) {
+        const pin = self.pages.pin(.{ .active = .{ .y = y } }).?;
+        pin.rowAndCell().row.semantic_prompt = semantic_prompt;
+        y += 1;
+    }
+}
+
 test "Screen read and write" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -3671,16 +3709,11 @@ test "Screen: clearPrompt" {
 
     var s = try init(alloc, 5, 3, 0);
     defer s.deinit();
-    const str = "1ABCD\n2EFGH\n3IJKL";
-    try s.testWriteString(str);
 
     // Set one of the rows to be a prompt
-    {
-        s.cursorAbsolute(0, 1);
-        s.cursor.page_row.semantic_prompt = .prompt;
-        s.cursorAbsolute(0, 2);
-        s.cursor.page_row.semantic_prompt = .input;
-    }
+    try s.testWriteSemanticString("1ABCD\n", .unknown);
+    try s.testWriteSemanticString("2EFGH\n", .prompt);
+    try s.testWriteSemanticString("3IJKL", .input);
 
     s.clearPrompt();
 
@@ -3697,18 +3730,12 @@ test "Screen: clearPrompt continuation" {
 
     var s = try init(alloc, 5, 4, 0);
     defer s.deinit();
-    const str = "1ABCD\n2EFGH\n3IJKL\n4MNOP";
-    try s.testWriteString(str);
 
     // Set one of the rows to be a prompt followed by a continuation row
-    {
-        s.cursorAbsolute(0, 1);
-        s.cursor.page_row.semantic_prompt = .prompt;
-        s.cursorAbsolute(0, 2);
-        s.cursor.page_row.semantic_prompt = .prompt_continuation;
-        s.cursorAbsolute(0, 3);
-        s.cursor.page_row.semantic_prompt = .input;
-    }
+    try s.testWriteSemanticString("1ABCD\n", .unknown);
+    try s.testWriteSemanticString("2EFGH\n", .prompt);
+    try s.testWriteSemanticString("3IJKL\n", .prompt_continuation);
+    try s.testWriteSemanticString("4MNOP", .input);
 
     s.clearPrompt();
 
@@ -3719,22 +3746,17 @@ test "Screen: clearPrompt continuation" {
     }
 }
 
-test "Screen: clearPrompt consecutive prompts" {
+test "Screen: clearPrompt consecutive inputs" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
     var s = try init(alloc, 5, 3, 0);
     defer s.deinit();
-    const str = "1ABCD\n2EFGH\n3IJKL";
-    try s.testWriteString(str);
 
-    // Set both rows to be prompts
-    {
-        s.cursorAbsolute(0, 1);
-        s.cursor.page_row.semantic_prompt = .input;
-        s.cursorAbsolute(0, 2);
-        s.cursor.page_row.semantic_prompt = .input;
-    }
+    // Set both rows to be inputs
+    try s.testWriteSemanticString("1ABCD\n", .unknown);
+    try s.testWriteSemanticString("2EFGH\n", .input);
+    try s.testWriteSemanticString("3IJKL", .input);
 
     s.clearPrompt();
 
@@ -5287,6 +5309,45 @@ test "Screen: clone contains subset of selection" {
     }
 }
 
+test "Screen: clone contains subset of rectangle selection" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 5, 4, 1);
+    defer s.deinit();
+    try s.testWriteString("1ABCD\n2EFGH\n3IJKL\n4ABCD");
+
+    // Select the full screen from x=1 to x=3
+    try s.select(Selection.init(
+        s.pages.pin(.{ .active = .{ .x = 1, .y = 0 } }).?,
+        s.pages.pin(.{ .active = .{ .x = 3, .y = 3 } }).?,
+        true,
+    ));
+
+    // Clone
+    var s2 = try s.clone(
+        alloc,
+        .{ .active = .{ .y = 1 } },
+        .{ .active = .{ .y = 2 } },
+    );
+    defer s2.deinit();
+
+    // Our selection should remain valid and be properly clipped
+    // preserving the columns of the start and end points of the
+    // selection.
+    {
+        const sel = s2.selection.?;
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 1,
+            .y = 0,
+        } }, s2.pages.pointFromPin(.active, sel.start()).?);
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 3,
+            .y = 3,
+        } }, s2.pages.pointFromPin(.active, sel.end()).?);
+    }
+}
+
 test "Screen: clone basic" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -6003,26 +6064,24 @@ test "Screen: resize more cols no reflow preserves semantic prompt" {
 
     var s = try init(alloc, 5, 3, 0);
     defer s.deinit();
-    const str = "1ABCD\n2EFGH\n3IJKL";
-    try s.testWriteString(str);
 
     // Set one of the rows to be a prompt
-    {
-        s.cursorAbsolute(0, 1);
-        s.cursor.page_row.semantic_prompt = .prompt;
-    }
+    try s.testWriteSemanticString("1ABCD\n", .unknown);
+    try s.testWriteSemanticString("2EFGH\n", .prompt);
+    try s.testWriteSemanticString("3IJKL", .unknown);
 
     try s.resize(10, 3);
 
+    const expected = "1ABCD\n2EFGH\n3IJKL";
     {
         const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
         defer alloc.free(contents);
-        try testing.expectEqualStrings(str, contents);
+        try testing.expectEqualStrings(expected, contents);
     }
     {
         const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
         defer alloc.free(contents);
-        try testing.expectEqualStrings(str, contents);
+        try testing.expectEqualStrings(expected, contents);
     }
 
     // Our one row should still be a semantic prompt, the others should not.
@@ -7453,18 +7512,14 @@ test "Screen: selectLine semantic prompt boundary" {
 
     var s = try init(alloc, 5, 10, 0);
     defer s.deinit();
-    try s.testWriteString("ABCDE\nA    > ");
+    try s.testWriteSemanticString("ABCDE\n", .unknown);
+    try s.testWriteSemanticString("A    ", .prompt);
+    try s.testWriteSemanticString("> ", .unknown);
 
     {
         const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
         defer alloc.free(contents);
         try testing.expectEqualStrings("ABCDE\nA    \n> ", contents);
-    }
-
-    {
-        const pin = s.pages.pin(.{ .screen = .{ .y = 1 } }).?;
-        const row = pin.rowAndCell().row;
-        row.semantic_prompt = .prompt;
     }
 
     // Selecting output stops at the prompt even if soft-wrapped
@@ -7851,54 +7906,22 @@ test "Screen: selectOutput" {
     // zig fmt: off
     {
                                                                   // line number:
-        try s.testWriteString("output1\n");                       // 0
-        try s.testWriteString("output1\n");                       // 1
-        try s.testWriteString("prompt2\n");                       // 2
-        try s.testWriteString("input2\n");                        // 3
-        try s.testWriteString("output2output2output2output2\n");  // 4, 5, 6 due to overflow
-        try s.testWriteString("output2\n");                       // 7
-        try s.testWriteString("prompt3$ input3\n");               // 8
-        try s.testWriteString("output3\n");                       // 9
-        try s.testWriteString("output3\n");                       // 10
-        try s.testWriteString("output3");                         // 11
+        try s.testWriteSemanticString("output1\n", .command);     // 0
+        try s.testWriteSemanticString("output1\n", .command);     // 1
+        try s.testWriteSemanticString("prompt2\n", .prompt);      // 2
+        try s.testWriteSemanticString("input2\n", .input);        // 3
+        try s.testWriteSemanticString(                            //
+            "output2output2output2output2\n",                     // 4, 5, 6 due to overflow
+            .command,                                             //
+        );                                                        //
+        try s.testWriteSemanticString("output2\n", .command);     // 7
+        try s.testWriteSemanticString("$ ", .prompt);             // 8 prompt
+        try s.testWriteSemanticString("input3\n", .input);        // 8 input
+        try s.testWriteSemanticString("output3\n", .command);     // 9
+        try s.testWriteSemanticString("output3\n", .command);     // 10
+        try s.testWriteSemanticString("output3", .command);       // 11
     }
     // zig fmt: on
-
-    {
-        const pin = s.pages.pin(.{ .screen = .{ .y = 2 } }).?;
-        const row = pin.rowAndCell().row;
-        row.semantic_prompt = .prompt;
-    }
-    {
-        const pin = s.pages.pin(.{ .screen = .{ .y = 3 } }).?;
-        const row = pin.rowAndCell().row;
-        row.semantic_prompt = .input;
-    }
-    {
-        const pin = s.pages.pin(.{ .screen = .{ .y = 4 } }).?;
-        const row = pin.rowAndCell().row;
-        row.semantic_prompt = .command;
-    }
-    {
-        const pin = s.pages.pin(.{ .screen = .{ .y = 5 } }).?;
-        const row = pin.rowAndCell().row;
-        row.semantic_prompt = .command;
-    }
-    {
-        const pin = s.pages.pin(.{ .screen = .{ .y = 6 } }).?;
-        const row = pin.rowAndCell().row;
-        row.semantic_prompt = .command;
-    }
-    {
-        const pin = s.pages.pin(.{ .screen = .{ .y = 8 } }).?;
-        const row = pin.rowAndCell().row;
-        row.semantic_prompt = .input;
-    }
-    {
-        const pin = s.pages.pin(.{ .screen = .{ .y = 9 } }).?;
-        const row = pin.rowAndCell().row;
-        row.semantic_prompt = .command;
-    }
 
     // No start marker, should select from the beginning
     {
@@ -7945,26 +7968,17 @@ test "Screen: selectOutput" {
         } }, s.pages.pointFromPin(.active, sel.start()).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 9,
-            .y = 12,
+            .y = 11,
         } }, s.pages.pointFromPin(.active, sel.end()).?);
     }
     // input / prompt at y = 0, pt.y = 0
     {
         s.deinit();
         s = try init(alloc, 10, 5, 0);
-        try s.testWriteString("prompt1$ input1\n");
-        try s.testWriteString("output1\n");
-        try s.testWriteString("prompt2\n");
-        {
-            const pin = s.pages.pin(.{ .screen = .{ .y = 0 } }).?;
-            const row = pin.rowAndCell().row;
-            row.semantic_prompt = .input;
-        }
-        {
-            const pin = s.pages.pin(.{ .screen = .{ .y = 1 } }).?;
-            const row = pin.rowAndCell().row;
-            row.semantic_prompt = .command;
-        }
+        try s.testWriteSemanticString("$ ", .prompt);
+        try s.testWriteSemanticString("input1\n", .input);
+        try s.testWriteSemanticString("output1\n", .command);
+        try s.testWriteSemanticString("prompt2\n", .prompt);
         try testing.expect(s.selectOutput(s.pages.pin(.{ .active = .{
             .x = 2,
             .y = 0,
@@ -7981,45 +7995,20 @@ test "Screen: selectPrompt basics" {
 
     // zig fmt: off
     {
-                                                    // line number:
-        try s.testWriteString("output1\n");         // 0
-        try s.testWriteString("output1\n");         // 1
-        try s.testWriteString("prompt2\n");         // 2
-        try s.testWriteString("input2\n");          // 3
-        try s.testWriteString("output2\n");         // 4
-        try s.testWriteString("output2\n");         // 5
-        try s.testWriteString("prompt3$ input3\n"); // 6
-        try s.testWriteString("output3\n");         // 7
-        try s.testWriteString("output3\n");         // 8
-        try s.testWriteString("output3");           // 9
+                                                                // line number:
+        try s.testWriteSemanticString("output1\n", .command);   // 0
+        try s.testWriteSemanticString("output1\n", .command);   // 1
+        try s.testWriteSemanticString("prompt2\n", .prompt);    // 2
+        try s.testWriteSemanticString("input2\n", .input);      // 3
+        try s.testWriteSemanticString("output2\n", .command);   // 4
+        try s.testWriteSemanticString("output2\n", .command);   // 5
+        try s.testWriteSemanticString("$ ", .prompt);           // 6 prompt
+        try s.testWriteSemanticString("input3\n", .input);      // 6 input
+        try s.testWriteSemanticString("output3\n", .command);   // 7
+        try s.testWriteSemanticString("output3\n", .command);   // 8
+        try s.testWriteSemanticString("output3", .command);     // 9
     }
     // zig fmt: on
-
-    {
-        const pin = s.pages.pin(.{ .screen = .{ .y = 2 } }).?;
-        const row = pin.rowAndCell().row;
-        row.semantic_prompt = .prompt;
-    }
-    {
-        const pin = s.pages.pin(.{ .screen = .{ .y = 3 } }).?;
-        const row = pin.rowAndCell().row;
-        row.semantic_prompt = .input;
-    }
-    {
-        const pin = s.pages.pin(.{ .screen = .{ .y = 4 } }).?;
-        const row = pin.rowAndCell().row;
-        row.semantic_prompt = .command;
-    }
-    {
-        const pin = s.pages.pin(.{ .screen = .{ .y = 6 } }).?;
-        const row = pin.rowAndCell().row;
-        row.semantic_prompt = .input;
-    }
-    {
-        const pin = s.pages.pin(.{ .screen = .{ .y = 7 } }).?;
-        const row = pin.rowAndCell().row;
-        row.semantic_prompt = .command;
-    }
 
     // Not at a prompt
     {
@@ -8081,29 +8070,13 @@ test "Screen: selectPrompt prompt at start" {
 
     // zig fmt: off
     {
-                                                    // line number:
-        try s.testWriteString("prompt1\n");         // 0
-        try s.testWriteString("input1\n");          // 1
-        try s.testWriteString("output2\n");         // 2
-        try s.testWriteString("output2\n");         // 3
+                                                                // line number:
+        try s.testWriteSemanticString("prompt1\n", .prompt);    // 0
+        try s.testWriteSemanticString("input1\n", .input);      // 1
+        try s.testWriteSemanticString("output2\n", .command);   // 2
+        try s.testWriteSemanticString("output2\n", .command);   // 3
     }
     // zig fmt: on
-
-    {
-        const pin = s.pages.pin(.{ .screen = .{ .y = 0 } }).?;
-        const row = pin.rowAndCell().row;
-        row.semantic_prompt = .prompt;
-    }
-    {
-        const pin = s.pages.pin(.{ .screen = .{ .y = 1 } }).?;
-        const row = pin.rowAndCell().row;
-        row.semantic_prompt = .input;
-    }
-    {
-        const pin = s.pages.pin(.{ .screen = .{ .y = 2 } }).?;
-        const row = pin.rowAndCell().row;
-        row.semantic_prompt = .command;
-    }
 
     // Not at a prompt
     {
@@ -8141,24 +8114,13 @@ test "Screen: selectPrompt prompt at end" {
 
     // zig fmt: off
     {
-                                                    // line number:
-        try s.testWriteString("output2\n");         // 0
-        try s.testWriteString("output2\n");         // 1
-        try s.testWriteString("prompt1\n");         // 2
-        try s.testWriteString("input1\n");          // 3
+                                                                // line number:
+        try s.testWriteSemanticString("output2\n", .command);   // 0
+        try s.testWriteSemanticString("output2\n", .command);   // 1
+        try s.testWriteSemanticString("prompt1\n", .prompt);    // 2
+        try s.testWriteSemanticString("input1\n", .input);      // 3
     }
     // zig fmt: on
-
-    {
-        const pin = s.pages.pin(.{ .screen = .{ .y = 2 } }).?;
-        const row = pin.rowAndCell().row;
-        row.semantic_prompt = .prompt;
-    }
-    {
-        const pin = s.pages.pin(.{ .screen = .{ .y = 3 } }).?;
-        const row = pin.rowAndCell().row;
-        row.semantic_prompt = .input;
-    }
 
     // Not at a prompt
     {
@@ -8196,45 +8158,20 @@ test "Screen: promptPath" {
 
     // zig fmt: off
     {
-                                                    // line number:
-        try s.testWriteString("output1\n");         // 0
-        try s.testWriteString("output1\n");         // 1
-        try s.testWriteString("prompt2\n");         // 2
-        try s.testWriteString("input2\n");          // 3
-        try s.testWriteString("output2\n");         // 4
-        try s.testWriteString("output2\n");         // 5
-        try s.testWriteString("prompt3$ input3\n"); // 6
-        try s.testWriteString("output3\n");         // 7
-        try s.testWriteString("output3\n");         // 8
-        try s.testWriteString("output3");           // 9
+                                                                // line number:
+        try s.testWriteSemanticString("output1\n", .command);   // 0
+        try s.testWriteSemanticString("output1\n", .command);   // 1
+        try s.testWriteSemanticString("prompt2\n", .prompt);    // 2
+        try s.testWriteSemanticString("input2\n", .input);      // 3
+        try s.testWriteSemanticString("output2\n", .command);   // 4
+        try s.testWriteSemanticString("output2\n", .command);   // 5
+        try s.testWriteSemanticString("$ ", .prompt);           // 6 prompt
+        try s.testWriteSemanticString("input3\n", .input);      // 6 input
+        try s.testWriteSemanticString("output3\n", .command);   // 7
+        try s.testWriteSemanticString("output3\n", .command);   // 8
+        try s.testWriteSemanticString("output3", .command);     // 9
     }
     // zig fmt: on
-
-    {
-        const pin = s.pages.pin(.{ .screen = .{ .y = 2 } }).?;
-        const row = pin.rowAndCell().row;
-        row.semantic_prompt = .prompt;
-    }
-    {
-        const pin = s.pages.pin(.{ .screen = .{ .y = 3 } }).?;
-        const row = pin.rowAndCell().row;
-        row.semantic_prompt = .input;
-    }
-    {
-        const pin = s.pages.pin(.{ .screen = .{ .y = 4 } }).?;
-        const row = pin.rowAndCell().row;
-        row.semantic_prompt = .command;
-    }
-    {
-        const pin = s.pages.pin(.{ .screen = .{ .y = 6 } }).?;
-        const row = pin.rowAndCell().row;
-        row.semantic_prompt = .input;
-    }
-    {
-        const pin = s.pages.pin(.{ .screen = .{ .y = 7 } }).?;
-        const row = pin.rowAndCell().row;
-        row.semantic_prompt = .command;
-    }
 
     // From is not in the prompt
     {

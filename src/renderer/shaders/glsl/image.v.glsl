@@ -1,6 +1,6 @@
 #include "common.glsl"
 
-layout(binding = 0) uniform sampler2DRect image;
+layout(binding = 0) uniform sampler2D image;
 
 layout(location = 0) in vec2 grid_pos;
 layout(location = 1) in vec2 cell_offset;
@@ -32,10 +32,11 @@ void main() {
 
     // The texture coordinates start at our source x/y
     // and add the width/height depending on the corner.
-    //
-    // We don't need to normalize because we use pixel addressing for our sampler.
     tex_coord = source_rect.xy;
     tex_coord += source_rect.zw * corner;
+
+    // Normalize the coordinates.
+    tex_coord /= textureSize(image, 0);
 
     // The position of our image starts at the top-left of the grid cell and
     // adds the source rect width/height components.

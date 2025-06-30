@@ -1,0 +1,7 @@
+[Unit]
+Description=@NAME@
+
+[Service]
+Type=dbus
+BusName=@APPID@
+ExecStart=@GHOSTTY@ --launched-from=systemd

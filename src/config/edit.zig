@@ -20,10 +20,10 @@ pub fn open(alloc_gpa: Allocator) !void {
     // Use an arena to make memory management easier in here.
     var arena = ArenaAllocator.init(alloc_gpa);
     defer arena.deinit();
-    const alloc = arena.allocator();
+    const alloc_arena = arena.allocator();
 
     // Get the path we should open
-    const config_path = try configPath(alloc);
+    const config_path = try configPath(alloc_arena);
 
     // Create config directory recursively.
     if (std.fs.path.dirname(config_path)) |config_dir| {
@@ -41,7 +41,7 @@ pub fn open(alloc_gpa: Allocator) !void {
         }
     };
 
-    try internal_os.open(alloc, .text, config_path);
+    try internal_os.open(alloc_gpa, .text, config_path);
 }
 
 /// Returns the config path to use for open for the current OS.

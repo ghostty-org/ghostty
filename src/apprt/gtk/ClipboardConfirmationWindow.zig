@@ -17,7 +17,7 @@ const adw_version = @import("adw_version.zig");
 
 const log = std.log.scoped(.gtk);
 
-const DialogType = if (adw_version.atLeast(1, 5, 0)) adw.AlertDialog else adw.MessageDialog;
+const DialogType = if (adw_version.supportsDialogs()) adw.AlertDialog else adw.MessageDialog;
 
 app: *App,
 dialog: *DialogType,
@@ -28,6 +28,7 @@ text_view: *gtk.TextView,
 text_view_scroll: *gtk.ScrolledWindow,
 reveal_button: *gtk.Button,
 hide_button: *gtk.Button,
+remember_choice: if (adw_version.supportsSwitchRow()) ?*adw.SwitchRow else ?*anyopaque,
 
 pub fn create(
     app: *App,
@@ -89,6 +90,10 @@ fn init(
     const reveal_button = builder.getObject(gtk.Button, "reveal_button").?;
     const hide_button = builder.getObject(gtk.Button, "hide_button").?;
     const text_view_scroll = builder.getObject(gtk.ScrolledWindow, "text_view_scroll").?;
+    const remember_choice = if (adw_version.supportsSwitchRow())
+        builder.getObject(adw.SwitchRow, "remember_choice")
+    else
+        null;
 
     const copy = try app.core_app.alloc.dupeZ(u8, data);
     errdefer app.core_app.alloc.free(copy);
@@ -102,6 +107,7 @@ fn init(
         .text_view_scroll = text_view_scroll,
         .reveal_button = reveal_button,
         .hide_button = hide_button,
+        .remember_choice = remember_choice,
     };
 
     const buffer = gtk.TextBuffer.new(null);
@@ -152,8 +158,10 @@ fn init(
     }
 }
 
-fn gtkResponse(_: *DialogType, response: [*:0]u8, self: *ClipboardConfirmation) callconv(.c) void {
-    if (std.mem.orderZ(u8, response, "ok") == .eq) {
+fn handleResponse(self: *ClipboardConfirmation, response: [*:0]const u8) void {
+    const is_ok = std.mem.orderZ(u8, response, "ok") == .eq;
+
+    if (is_ok) {
         self.core_surface.completeClipboardRequest(
             self.pending_req,
             self.data,
@@ -162,7 +170,29 @@ fn gtkResponse(_: *DialogType, response: [*:0]u8, self: *ClipboardConfirmation) 
             log.err("Failed to requeue clipboard request: {}", .{err});
         };
     }
+
+    if (self.remember_choice) |remember| remember: {
+        if (!adw_version.supportsSwitchRow()) break :remember;
+        if (remember.getActive() == 0) break :remember;
+
+        switch (self.pending_req) {
+            .osc_52_read => self.core_surface.config.clipboard_read = if (is_ok) .allow else .deny,
+            .osc_52_write => self.core_surface.config.clipboard_write = if (is_ok) .allow else .deny,
+            .paste => {},
+        }
+    }
+
     self.destroy();
+}
+fn gtkChoose(dialog_: ?*gobject.Object, result: *gio.AsyncResult, ud: ?*anyopaque) callconv(.C) void {
+    const dialog = gobject.ext.cast(DialogType, dialog_.?).?;
+    const self: *ClipboardConfirmation = @ptrCast(@alignCast(ud.?));
+    const response = dialog.chooseFinish(result);
+    self.handleResponse(response);
+}
+
+fn gtkResponse(_: *DialogType, response: [*:0]u8, self: *ClipboardConfirmation) callconv(.C) void {
+    self.handleResponse(response);
 }
 
 fn gtkRevealButtonClicked(_: *gtk.Button, self: *ClipboardConfirmation) callconv(.c) void {

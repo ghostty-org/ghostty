@@ -57,7 +57,6 @@ pub fn init(
             opts.internal_format,
             @intCast(width),
             @intCast(height),
-            0,
             opts.format,
             .UnsignedByte,
             if (data) |d| @ptrCast(d.ptr) else null,

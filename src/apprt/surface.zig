@@ -43,8 +43,9 @@ pub const Message = union(enum) {
     close: void,
 
     /// The child process running in the surface has exited. This may trigger
-    /// a surface close, it may not.
-    child_exited: void,
+    /// a surface close, it may not. Additional details about the child
+    /// command are given in the `ChildExited` struct.
+    child_exited: ChildExited,
 
     /// Show a desktop notification.
     desktop_notification: struct {
@@ -78,6 +79,13 @@ pub const Message = union(enum) {
         color: terminal.color.RGB,
     },
 
+    /// Notifies the surface that a tick of the timer that is timing
+    /// out selection scrolling has occurred. "selection scrolling"
+    /// is when the user has clicked and dragged the mouse outside
+    /// the viewport of the terminal and the terminal is scrolling
+    /// the viewport to follow the mouse cursor.
+    selection_scroll_tick: bool,
+
     /// The terminal has reported a change in the working directory.
     pwd_change: WriteReq,
 
@@ -88,6 +96,11 @@ pub const Message = union(enum) {
         csi_21_t,
 
         // This enum is a placeholder for future title styles.
+    };
+
+    pub const ChildExited = struct {
+        exit_code: u32,
+        runtime_ms: u64,
     };
 };
 

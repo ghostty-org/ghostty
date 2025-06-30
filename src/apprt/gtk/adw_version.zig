@@ -109,6 +109,10 @@ pub inline fn supportsTabOverview() bool {
     return atLeast(1, 4, 0);
 }
 
+pub inline fn supportsSwitchRow() bool {
+    return atLeast(1, 4, 0);
+}
+
 pub inline fn supportsToolbarView() bool {
     return atLeast(1, 4, 0);
 }

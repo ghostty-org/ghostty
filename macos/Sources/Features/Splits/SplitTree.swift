@@ -610,14 +610,18 @@ extension SplitTree.Node {
             return (self, 1)
             
         case .split(let split):
-            // Recursively equalize children
-            let (leftNode, leftWeight) = split.left.equalizeWithWeight()
-            let (rightNode, rightWeight) = split.right.equalizeWithWeight()
-            
+            // Calculate weights based on split direction
+            let leftWeight = split.left.weightForDirection(split.direction)
+            let rightWeight = split.right.weightForDirection(split.direction)
+
             // Calculate new ratio based on relative weights
             let totalWeight = leftWeight + rightWeight
             let newRatio = Double(leftWeight) / Double(totalWeight)
-            
+
+            // Recursively equalize children
+            let (leftNode, _) = split.left.equalizeWithWeight()
+            let (rightNode, _) = split.right.equalizeWithWeight()
+
             // Create new split with equalized ratio
             let newSplit = Split(
                 direction: split.direction,
@@ -629,6 +633,23 @@ extension SplitTree.Node {
             return (.split(newSplit), totalWeight)
         }
     }
+
+    /// Calculate weight for equalization based on split direction.
+    /// Children with the same direction contribute their full weight,
+    /// children with different directions count as 1.
+    private func weightForDirection(_ direction: SplitTree.Direction) -> Int {
+        switch self {
+        case .leaf:
+            return 1
+        case .split(let split):
+            if split.direction == direction {
+                return split.left.weightForDirection(direction) + split.right.weightForDirection(direction)
+            } else {
+                return 1
+            }
+        }
+    }
+
 
     /// Calculate the bounds of all views in this subtree based on split ratios
     func calculateViewBounds(in bounds: CGRect) -> [(view: ViewType, bounds: CGRect)] {

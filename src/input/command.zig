@@ -18,7 +18,7 @@ const Action = @import("Binding.zig").Action;
 pub const Command = struct {
     action: Action,
     title: [:0]const u8,
-    description: [:0]const u8,
+    description: [:0]const u8 = "",
 
     /// ghostty_command_s
     pub const C = extern struct {
@@ -27,6 +27,21 @@ pub const Command = struct {
         title: [*:0]const u8,
         description: [*:0]const u8,
     };
+
+    pub fn clone(self: *const Command, alloc: Allocator) Allocator.Error!Command {
+        return .{
+            .action = try self.action.clone(alloc),
+            .title = try alloc.dupeZ(u8, self.title),
+            .description = try alloc.dupeZ(u8, self.description),
+        };
+    }
+
+    pub fn equal(self: Command, other: Command) bool {
+        if (self.action.hash() != other.action.hash()) return false;
+        if (!std.mem.eql(u8, self.title, other.title)) return false;
+        if (!std.mem.eql(u8, self.description, other.description)) return false;
+        return true;
+    }
 
     /// Convert this command to a C struct.
     pub fn comptimeCval(self: Command) C {
@@ -190,6 +205,11 @@ fn actionCommands(action: Action.Key) []const Command {
 
         .write_screen_file => comptime &.{
             .{
+                .action = .{ .write_screen_file = .copy },
+                .title = "Copy Screen to Temporary File and Copy Path",
+                .description = "Copy the screen contents to a temporary file and copy the path to the clipboard.",
+            },
+            .{
                 .action = .{ .write_screen_file = .paste },
                 .title = "Copy Screen to Temporary File and Paste Path",
                 .description = "Copy the screen contents to a temporary file and paste the path to the file.",
@@ -202,6 +222,11 @@ fn actionCommands(action: Action.Key) []const Command {
         },
 
         .write_selection_file => comptime &.{
+            .{
+                .action = .{ .write_selection_file = .copy },
+                .title = "Copy Selection to Temporary File and Copy Path",
+                .description = "Copy the selection contents to a temporary file and copy the path to the clipboard.",
+            },
             .{
                 .action = .{ .write_selection_file = .paste },
                 .title = "Copy Selection to Temporary File and Paste Path",

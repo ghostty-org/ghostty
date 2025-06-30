@@ -122,11 +122,7 @@ pub const ThreadData = union(Kind) {
     }
 
     pub fn changeConfig(self: *ThreadData, config: *termio.DerivedConfig) void {
-        switch (self.*) {
-            .exec => |*exec| {
-                exec.abnormal_runtime_threshold_ms = config.abnormal_runtime_threshold_ms;
-                exec.wait_after_command = config.wait_after_command;
-            },
-        }
+        _ = self;
+        _ = config;
     }
 };

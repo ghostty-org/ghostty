@@ -23,6 +23,8 @@ const Config = configpkg.Config;
 
 const log = std.log.scoped(.embedded_window);
 
+pub const resourcesDir = internal_os.resourcesDir;
+
 pub const App = struct {
     /// Because we only expect the embedding API to be used in embedded
     /// environments, the options are extern so that we can expose it
@@ -115,10 +117,11 @@ pub const App = struct {
     config: Config,
 
     pub fn init(
+        self: *App,
         core_app: *CoreApp,
         config: *const Config,
         opts: Options,
-    ) !App {
+    ) !void {
         // We have to clone the config.
         const alloc = core_app.alloc;
         var config_clone = try config.clone(alloc);
@@ -127,7 +130,7 @@ pub const App = struct {
         var keymap = try input.Keymap.init();
         errdefer keymap.deinit();
 
-        return .{
+        self.* = .{
             .core_app = core_app,
             .config = config_clone,
             .opts = opts,
@@ -1314,13 +1317,13 @@ pub const CAPI = struct {
         opts: *const apprt.runtime.App.Options,
         config: *const Config,
     ) !*App {
-        var core_app = try CoreApp.create(global.alloc);
+        const core_app = try CoreApp.create(global.alloc);
         errdefer core_app.destroy();
 
         // Create our runtime app
         var app = try global.alloc.create(App);
         errdefer global.alloc.destroy(app);
-        app.* = try .init(core_app, config, opts.*);
+        try app.init(core_app, config, opts.*);
         errdefer app.terminate();
 
         return app;

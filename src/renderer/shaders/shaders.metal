@@ -11,6 +11,7 @@ enum Padding : uint8_t {
 
 struct Uniforms {
   float4x4 projection_matrix;
+  float2 screen_size;
   float2 cell_size;
   ushort2 grid_size;
   float4 grid_padding;
@@ -216,45 +217,245 @@ vertex FullScreenVertexOut full_screen_vertex(
 }
 
 //-------------------------------------------------------------------
-// Cell Background Shader
+// Background Color Shader
 //-------------------------------------------------------------------
-#pragma mark - Cell BG Shader
+#pragma mark - BG Color Shader
 
-struct CellBgVertexOut {
-  float4 position [[position]];
-  float4 bg_color;
-};
-
-vertex CellBgVertexOut cell_bg_vertex(
-  uint vid [[vertex_id]],
+fragment float4 bg_color_fragment(
+  FullScreenVertexOut in [[stage_in]],
   constant Uniforms& uniforms [[buffer(1)]]
 ) {
-  CellBgVertexOut out;
+  return load_color(
+    uniforms.bg_color,
+    uniforms.use_display_p3,
+    uniforms.use_linear_blending
+  );
+}
+
+//-------------------------------------------------------------------
+// Background Image Shader
+//-------------------------------------------------------------------
+#pragma mark - BG Image Shader
+
+struct BgImageVertexIn {
+  float opacity [[attribute(0)]];
+  uint8_t info [[attribute(1)]];
+};
+
+enum BgImagePosition : uint8_t {
+  // 4 bits of info.
+  BG_IMAGE_POSITION = 15u,
+
+  BG_IMAGE_TL = 0u,
+  BG_IMAGE_TC = 1u,
+  BG_IMAGE_TR = 2u,
+  BG_IMAGE_ML = 3u,
+  BG_IMAGE_MC = 4u,
+  BG_IMAGE_MR = 5u,
+  BG_IMAGE_BL = 6u,
+  BG_IMAGE_BC = 7u,
+  BG_IMAGE_BR = 8u,
+};
+
+enum BgImageFit : uint8_t {
+  // 2 bits of info shifted 4.
+  BG_IMAGE_FIT = 3u << 4,
+
+  BG_IMAGE_CONTAIN = 0u << 4,
+  BG_IMAGE_COVER = 1u << 4,
+  BG_IMAGE_STRETCH = 2u << 4,
+  BG_IMAGE_NO_FIT = 3u << 4,
+};
+
+enum BgImageRepeat : uint8_t {
+  // 1 bit of info shifted 6.
+  BG_IMAGE_REPEAT = 1u << 6,
+};
+
+struct BgImageVertexOut {
+  float4 position [[position]];
+  float4 bg_color [[flat]];
+  float2 offset [[flat]];
+  float2 scale [[flat]];
+  float opacity [[flat]];
+  bool repeat [[flat]];
+};
+
+vertex BgImageVertexOut bg_image_vertex(
+  uint vid [[vertex_id]],
+  BgImageVertexIn in [[stage_in]],
+  texture2d<float> image [[texture(0)]],
+  constant Uniforms& uniforms [[buffer(1)]]
+) {
+  BgImageVertexOut out;
 
   float4 position;
   position.x = (vid == 2) ? 3.0 : -1.0;
   position.y = (vid == 0) ? -3.0 : 1.0;
   position.zw = 1.0;
+
+  // Single triangle is clipped to viewport.
+  //
+  // X <- vid == 0: (-1, -3)
+  // |\
+  // | \
+  // |  \
+  // |###\
+  // |#+# \ `+` is (0, 0). `#`s are viewport area.
+  // |###  \
+  // X------X <- vid == 2: (3, 1)
+  // ^
+  // vid == 1: (-1, 1)
+
   out.position = position;
 
-  // Convert the background color to Display P3
-  out.bg_color = load_color(
-    uniforms.bg_color,
+  out.opacity = in.opacity;
+
+  out.repeat = (in.info & BG_IMAGE_REPEAT) == BG_IMAGE_REPEAT;
+
+  float2 screen_size = uniforms.screen_size;
+  float2 tex_size = float2(image.get_width(), image.get_height());
+
+  float2 dest_size = tex_size;
+  switch (in.info & BG_IMAGE_FIT) {
+    // For `contain` we scale by a factor that makes the image
+    // width match the screen width or makes the image height
+    // match the screen height, whichever is smaller.
+    case BG_IMAGE_CONTAIN: {
+      float scale = min(screen_size.x / tex_size.x, screen_size.y / tex_size.y);
+      dest_size = tex_size * scale;
+    } break;
+
+    // For `cover` we scale by a factor that makes the image
+    // width match the screen width or makes the image height
+    // match the screen height, whichever is larger.
+    case BG_IMAGE_COVER: {
+      float scale = max(screen_size.x / tex_size.x, screen_size.y / tex_size.y);
+      dest_size = tex_size * scale;
+    } break;
+
+    // For `stretch` we stretch the image to the size of
+    // the screen without worrying about aspect ratio.
+    case BG_IMAGE_STRETCH: {
+      dest_size = screen_size;
+    } break;
+
+    // For `none` we just use the original texture size.
+    case BG_IMAGE_NO_FIT: {
+      dest_size = tex_size;
+    } break;
+  }
+
+  float2 start = float2(0.0);
+  float2 mid = (screen_size - dest_size) / 2;
+  float2 end = screen_size - dest_size;
+
+  float2 dest_offset = mid;
+  switch (in.info & BG_IMAGE_POSITION) {
+    case BG_IMAGE_TL: {
+      dest_offset = float2(start.x, start.y);
+    } break;
+    case BG_IMAGE_TC: {
+      dest_offset = float2(mid.x, start.y);
+    } break;
+    case BG_IMAGE_TR: {
+      dest_offset = float2(end.x, start.y);
+    } break;
+    case BG_IMAGE_ML: {
+      dest_offset = float2(start.x, mid.y);
+    } break;
+    case BG_IMAGE_MC: {
+      dest_offset = float2(mid.x, mid.y);
+    } break;
+    case BG_IMAGE_MR: {
+      dest_offset = float2(end.x, mid.y);
+    } break;
+    case BG_IMAGE_BL: {
+      dest_offset = float2(start.x, end.y);
+    } break;
+    case BG_IMAGE_BC: {
+      dest_offset = float2(mid.x, end.y);
+    } break;
+    case BG_IMAGE_BR: {
+      dest_offset = float2(end.x, end.y);
+    } break;
+  }
+
+  out.offset = dest_offset;
+  out.scale = tex_size / dest_size;
+
+  // We load a fully opaque version of the bg color and combine it with
+  // the alpha separately, because we need these as separate values in
+  // the framgment shader.
+  out.bg_color = float4(load_color(
+    uchar4(uniforms.bg_color.rgb, 255),
     uniforms.use_display_p3,
     uniforms.use_linear_blending
-  );
+  ).rgb, float(uniforms.bg_color.a) / 255.0);
 
   return out;
 }
 
+fragment float4 bg_image_fragment(
+  BgImageVertexOut in [[stage_in]],
+  texture2d<float> image [[texture(0)]],
+  constant Uniforms& uniforms [[buffer(1)]]
+) {
+  constexpr sampler textureSampler(
+    coord::pixel,
+    address::clamp_to_zero,
+    filter::linear
+  );
+
+  // Our texture coordinate is based on the screen position, offset by the
+  // dest rect origin, and scaled by the ratio between the dest rect size
+  // and the original texture size, which effectively scales the original
+  // size of the texture to the dest rect size.
+  float2 tex_coord = (in.position.xy - in.offset) * in.scale;
+
+  // If we need to repeat the texture, wrap the coordinates.
+  if (in.repeat) {
+    float2 tex_size = float2(image.get_width(), image.get_height());
+
+    tex_coord = fmod(fmod(tex_coord, tex_size) + tex_size, tex_size);
+  }
+
+  float4 rgba = image.sample(textureSampler, tex_coord);
+
+  if (!uniforms.use_linear_blending) {
+    rgba = unlinearize(rgba);
+  }
+
+  // Premultiply the bg image.
+  rgba.rgb *= rgba.a;
+
+  // Multiply it by the configured opacity, but cap it at
+  // the value that will make it fully opaque relative to
+  // the background color alpha, so it isn't overexposed.
+  rgba *= min(in.opacity, 1.0 / in.bg_color.a);
+
+  // Blend it on to a fully opaque version of the background color.
+  rgba += max(float4(0.0), float4(in.bg_color.rgb, 1.0) * (1.0 - rgba.a));
+
+  // Multiply everything by the background color alpha.
+  rgba *= in.bg_color.a;
+
+  return rgba;
+}
+
+//-------------------------------------------------------------------
+// Cell Background Shader
+//-------------------------------------------------------------------
+#pragma mark - Cell BG Shader
+
 fragment float4 cell_bg_fragment(
-  CellBgVertexOut in [[stage_in]],
+  FullScreenVertexOut in [[stage_in]],
   constant Uniforms& uniforms [[buffer(1)]],
   constant uchar4 *cells [[buffer(2)]]
 ) {
   int2 grid_pos = int2(floor((in.position.xy - uniforms.grid_padding.wx) / uniforms.cell_size));
 
-  float4 bg = in.bg_color;
+  float4 bg = float4(0.0);
 
   // Clamp x position, extends edge bg colors in to padding on sides.
   if (grid_pos.x < 0) {
@@ -289,16 +490,7 @@ fragment float4 cell_bg_fragment(
   // Load the color for the cell.
   uchar4 cell_color = cells[grid_pos.y * uniforms.grid_size.x + grid_pos.x];
 
-  // We have special case handling for when the cell color matches the bg color.
-  if (all(cell_color == uniforms.bg_color)) {
-    return bg;
-  }
-
   // Convert the color and return it.
-  //
-  // TODO: We may want to blend the color with the background
-  //       color, rather than purely replacing it, this needs
-  //       some consideration about config options though.
   //
   // TODO: It might be a good idea to do a pass before this
   //       to convert all of the bg colors, so we don't waste
@@ -462,6 +654,13 @@ vertex CellTextVertexOut cell_text_vertex(
     uniforms.use_display_p3,
     true
   );
+  // Blend it with the global bg color
+  float4 global_bg = load_color(
+    uniforms.bg_color,
+    uniforms.use_display_p3,
+    true
+  );
+  out.bg_color += global_bg * (1.0 - out.bg_color.a);
 
   // If we have a minimum contrast, we need to check if we need to
   // change the color of the text to ensure it has enough contrast
@@ -566,19 +765,19 @@ fragment float4 cell_text_fragment(
     }
 
     case MODE_TEXT_COLOR: {
-      // For now, we assume that color glyphs are
-      // already premultiplied Display P3 colors.
+      // For now, we assume that color glyphs
+      // are already premultiplied linear colors.
       float4 color = textureColor.sample(textureSampler, in.tex_coord);
 
-      // If we aren't doing linear blending, we can return this right away.
-      if (!uniforms.use_linear_blending) {
+      // If we're doing linear blending, we can return this right away.
+      if (uniforms.use_linear_blending) {
         return color;
       }
 
-      // Otherwise we need to linearize the color. Since the alpha is
-      // premultiplied, we need to divide it out before linearizing.
+      // Otherwise we need to unlinearize the color. Since the alpha is
+      // premultiplied, we need to divide it out before unlinearizing.
       color.rgb /= color.a;
-      color = linearize(color);
+      color = unlinearize(color);
       color.rgb *= color.a;
 
       return color;

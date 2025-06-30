@@ -74,6 +74,9 @@ pub const InternalFormat = enum(c_int) {
     srgb = c.GL_SRGB8,
     srgba = c.GL_SRGB8_ALPHA8,
 
+    rgba_compressed = c.GL_COMPRESSED_RGBA_BPTC_UNORM,
+    srgba_compressed = c.GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM,
+
     // There are so many more that I haven't filled in.
     _,
 };
@@ -126,7 +129,6 @@ pub const Binding = struct {
         internal_format: InternalFormat,
         width: c.GLsizei,
         height: c.GLsizei,
-        border: c.GLint,
         format: Format,
         typ: DataType,
         data: ?*const anyopaque,
@@ -137,7 +139,7 @@ pub const Binding = struct {
             @intFromEnum(internal_format),
             width,
             height,
-            border,
+            0,
             @intFromEnum(format),
             @intFromEnum(typ),
             data,

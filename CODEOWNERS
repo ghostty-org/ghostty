@@ -81,6 +81,10 @@
 # - @ghostty-org/localization/* - Anything related to localization
 #   for a specific locale.
 #
+# - @ghosty-org/localization/manager - Manage all localization tasks
+#   and tooling. They are not responsible for any specific locale but
+#   are responsible for the overall localization process and tooling.
+#
 # - @ghostty-org/macos - The Ghostty macOS app and any macOS-specific
 #   features, configurations, etc.
 #
@@ -161,6 +165,7 @@
 /po/ca_ES.UTF-8.po @ghostty-org/ca_ES
 /po/de_DE.UTF-8.po @ghostty-org/de_DE
 /po/es_BO.UTF-8.po @ghostty-org/es_BO
+/po/es_AR.UTF-8.po @ghostty-org/es_AR
 /po/fr_FR.UTF-8.po @ghostty-org/fr_FR
 /po/ga_IE.UTF-8.po @ghostty-org/ga_IE
 /po/hu_HU.UTF-8.po @ghostty-org/hu_HU
@@ -175,6 +180,7 @@
 /po/tr_TR.UTF-8.po @ghostty-org/tr_TR
 /po/uk_UA.UTF-8.po @ghostty-org/uk_UA
 /po/zh_CN.UTF-8.po @ghostty-org/zh_CN
+/po/ga_IE.UTF-8.po @ghostty-org/ga_IE
 
 # Packaging - Snap
 /snap/ @ghostty-org/snap

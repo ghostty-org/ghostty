@@ -87,19 +87,19 @@ void main() {
         case MODE_TEXT_COLOR:
         {
             // For now, we assume that color glyphs
-            // are already premultiplied sRGB colors.
+            // are already premultiplied linear colors.
             vec4 color = texture(atlas_color, in_data.tex_coord);
 
-            // If we aren't doing linear blending, we can return this right away.
-            if (!use_linear_blending) {
+            // If we are doing linear blending, we can return this right away.
+            if (use_linear_blending) {
                 out_FragColor = color;
                 return;
             }
 
-            // Otherwise we need to linearize the color. Since the alpha is
-            // premultiplied, we need to divide it out before linearizing.
+            // Otherwise we need to unlinearize the color. Since the alpha is
+            // premultiplied, we need to divide it out before unlinearizing.
             color.rgb /= vec3(color.a);
-            color = linearize(color);
+            color = unlinearize(color);
             color.rgb *= vec3(color.a);
 
             out_FragColor = color;

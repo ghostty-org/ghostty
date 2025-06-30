@@ -1,5 +1,5 @@
 # SOME DESCRIPTIVE TITLE.
-# Copyright (C) YEAR Mitchell Hashimoto, Ghostty contributors
+# Copyright (C) YEAR "Mitchell Hashimoto, Ghostty contributors"
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
 #
@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-04-23 16:58+0800\n"
+"POT-Creation-Date: 2025-06-28 17:01+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -26,7 +26,8 @@ msgid "Leave blank to restore the default title."
 msgstr ""
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:9
-#: src/apprt/gtk/ui/1.5/ccw-paste.blp:10 src/apprt/gtk/CloseDialog.zig:44
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:10 src/apprt/gtk/ui/1.2/ccw-paste.blp:10
+#: src/apprt/gtk/CloseDialog.zig:44
 msgid "Cancel"
 msgstr ""
 
@@ -35,22 +36,26 @@ msgid "OK"
 msgstr ""
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:5
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:5
 msgid "Configuration Errors"
 msgstr ""
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:6
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:6
 msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:9
 msgid "Ignore"
 msgstr ""
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:10
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:97
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:100
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:10
 msgid "Reload Configuration"
 msgstr ""
 
@@ -89,7 +94,7 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:11
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:11
-#: src/apprt/gtk/ui/1.5/ccw-paste.blp:11
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:11 src/apprt/gtk/ui/1.2/ccw-paste.blp:11
 msgid "Paste"
 msgstr ""
 
@@ -119,7 +124,7 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:62
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:30
-#: src/apprt/gtk/Window.zig:255
+#: src/apprt/gtk/Window.zig:263
 msgid "New Tab"
 msgstr ""
 
@@ -160,7 +165,7 @@ msgid "Terminal Inspector"
 msgstr ""
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:107
-#: src/apprt/gtk/Window.zig:1024
+#: src/apprt/gtk/Window.zig:1036
 msgid "About Ghostty"
 msgstr ""
 
@@ -170,10 +175,13 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:6
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:6
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-read.blp:6
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:6
 msgid "Authorize Clipboard Access"
 msgstr ""
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:7
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-read.blp:7
 msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
@@ -181,52 +189,67 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:10
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:10
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-read.blp:10
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:10
 msgid "Deny"
 msgstr ""
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:11
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:11
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-read.blp:11
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:11
 msgid "Allow"
 msgstr ""
 
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:81
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:77
+msgid "Remember choice for this split"
+msgstr ""
+
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:82
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:78
+msgid "Reload configuration to show this prompt again"
+msgstr ""
+
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:7
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:7
 msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
 msgstr ""
 
-#: src/apprt/gtk/ui/1.5/ccw-paste.blp:6
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:6 src/apprt/gtk/ui/1.2/ccw-paste.blp:6
 msgid "Warning: Potentially Unsafe Paste"
 msgstr ""
 
-#: src/apprt/gtk/ui/1.5/ccw-paste.blp:7
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:7 src/apprt/gtk/ui/1.2/ccw-paste.blp:7
 msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
 msgstr ""
 
-#: src/apprt/gtk/Window.zig:208
+#: src/apprt/gtk/Window.zig:216
 msgid "Main Menu"
 msgstr ""
 
-#: src/apprt/gtk/Window.zig:229
+#: src/apprt/gtk/Window.zig:238
 msgid "View Open Tabs"
 msgstr ""
 
-#: src/apprt/gtk/Window.zig:256
+#: src/apprt/gtk/Window.zig:264
 msgid "New Split"
 msgstr ""
 
-#: src/apprt/gtk/Window.zig:319
+#: src/apprt/gtk/Window.zig:327
 msgid ""
 "⚠️ You're running a debug build of Ghostty! Performance will be degraded."
 msgstr ""
 
-#: src/apprt/gtk/Window.zig:765
+#: src/apprt/gtk/Window.zig:773
 msgid "Reloaded the configuration"
 msgstr ""
 
-#: src/apprt/gtk/Window.zig:1005
+#: src/apprt/gtk/Window.zig:1017
 msgid "Ghostty Developers"
 msgstr ""
 
@@ -270,6 +293,6 @@ msgstr ""
 msgid "The currently running process in this split will be terminated."
 msgstr ""
 
-#: src/apprt/gtk/Surface.zig:1243
+#: src/apprt/gtk/Surface.zig:1257
 msgid "Copied to clipboard"
 msgstr ""

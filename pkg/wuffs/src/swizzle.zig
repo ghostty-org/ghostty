@@ -33,6 +33,24 @@ pub fn rgbToRgba(alloc: Allocator, src: []const u8) Error![]u8 {
     );
 }
 
+pub fn bgrToRgba(alloc: Allocator, src: []const u8) Error![]u8 {
+    return swizzle(
+        alloc,
+        src,
+        c.WUFFS_BASE__PIXEL_FORMAT__BGR,
+        c.WUFFS_BASE__PIXEL_FORMAT__RGBA_PREMUL,
+    );
+}
+
+pub fn bgraToRgba(alloc: Allocator, src: []const u8) Error![]u8 {
+    return swizzle(
+        alloc,
+        src,
+        c.WUFFS_BASE__PIXEL_FORMAT__BGRA_PREMUL,
+        c.WUFFS_BASE__PIXEL_FORMAT__RGBA_PREMUL,
+    );
+}
+
 fn swizzle(
     alloc: Allocator,
     src: []const u8,

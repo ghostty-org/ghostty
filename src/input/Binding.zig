@@ -379,6 +379,10 @@ pub const Action = union(enum) {
     ///
     /// Valid actions are:
     ///
+    ///   - `copy`
+    ///
+    ///     Copy the file path into the clipboard.
+    ///
     ///   - `paste`
     ///
     ///     Paste the file path into the terminal.
@@ -813,6 +817,7 @@ pub const Action = union(enum) {
     };
 
     pub const WriteScreenAction = enum {
+        copy,
         paste,
         open,
     };

@@ -94,9 +94,8 @@ pub fn deinit(self: *CommandPalette) void {
 
 pub fn toggle(self: *CommandPalette) void {
     self.dialog.present(self.window.window.as(gtk.Widget));
-
     // Focus on the search bar when opening the dialog
-    self.dialog.setFocus(self.search.as(gtk.Widget));
+    _ = self.search.as(gtk.Widget).grabFocus();
 }
 
 pub fn updateConfig(self: *CommandPalette, config: *const configpkg.Config) !void {
@@ -104,13 +103,17 @@ pub fn updateConfig(self: *CommandPalette, config: *const configpkg.Config) !voi
     self.source.removeAll();
     _ = self.arena.reset(.retain_capacity);
 
-    // TODO: Allow user-configured palette entries
-    for (inputpkg.command.defaults) |command| {
+    for (config.@"command-palette-entry".value.items) |command| {
         // Filter out actions that are not implemented
         // or don't make sense for GTK
         switch (command.action) {
             .close_all_windows,
             .toggle_secure_input,
+            .check_for_updates,
+            .redo,
+            .undo,
+            .reset_window_size,
+            .toggle_window_float_on_top,
             => continue,
 
             else => {},

@@ -37,6 +37,19 @@ pub const App = struct {
         default_deco_mode: ?org.KdeKwinServerDecorationManager.Mode = null,
 
         xdg_activation: ?*xdg.ActivationV1 = null,
+
+        /// Whether the xdg_wm_dialog_v1 protocol is present.
+        ///
+        /// If it is present, gtk4-layer-shell < 1.0.4 may crash when the user
+        /// creates a quick terminal, and we need to ensure this fails
+        /// gracefully if this situation occurs.
+        ///
+        /// FIXME: This is a temporary workaround - we should remove this when
+        /// all of our supported distros drop support for affected old
+        /// gtk4-layer-shell versions.
+        ///
+        /// See https://github.com/wmww/gtk4-layer-shell/issues/50
+        xdg_wm_dialog_present: bool = false,
     };
 
     pub fn init(
@@ -95,11 +108,21 @@ pub const App = struct {
         return null;
     }
 
-    pub fn supportsQuickTerminal(_: App) bool {
+    pub fn supportsQuickTerminal(self: App) bool {
         if (!layer_shell.isSupported()) {
             log.warn("your compositor does not support the wlr-layer-shell protocol; disabling quick terminal", .{});
             return false;
         }
+
+        if (self.context.xdg_wm_dialog_present and layer_shell.getLibraryVersion().order(.{
+            .major = 1,
+            .minor = 0,
+            .patch = 4,
+        }) == .lt) {
+            log.warn("the version of gtk4-layer-shell installed on your system is too old (must be 1.0.4 or newer); disabling quick terminal", .{});
+            return false;
+        }
+
         return true;
     }
 
@@ -111,26 +134,38 @@ pub const App = struct {
         layer_shell.setNamespace(window, "ghostty-quick-terminal");
     }
 
+    fn getInterfaceType(comptime field: std.builtin.Type.StructField) ?type {
+        // Globals should be optional pointers
+        const T = switch (@typeInfo(field.type)) {
+            .optional => |o| switch (@typeInfo(o.child)) {
+                .pointer => |v| v.child,
+                else => return null,
+            },
+            else => return null,
+        };
+
+        // Only process Wayland interfaces
+        if (!@hasDecl(T, "interface")) return null;
+        return T;
+    }
+
     fn registryListener(
         registry: *wl.Registry,
         event: wl.Registry.Event,
         context: *Context,
     ) void {
-        inline for (@typeInfo(Context).@"struct".fields) |field| {
-            // Globals should be optional pointers
-            const T = switch (@typeInfo(field.type)) {
-                .optional => |o| switch (@typeInfo(o.child)) {
-                    .pointer => |v| v.child,
-                    else => continue,
-                },
-                else => continue,
-            };
+        const ctx_fields = @typeInfo(Context).@"struct".fields;
 
-            // Only process Wayland interfaces
-            if (!@hasDecl(T, "interface")) continue;
+        switch (event) {
+            .global => |v| global: {
+                // We don't actually do anything with this other than checking
+                // for its existence, so we process this separately.
+                if (std.mem.orderZ(u8, v.interface, "xdg_wm_dialog_v1") == .eq)
+                    context.xdg_wm_dialog_present = true;
 
-            switch (event) {
-                .global => |v| global: {
+                inline for (ctx_fields) |field| {
+                    const T = getInterfaceType(field) orelse continue;
+
                     if (std.mem.orderZ(
                         u8,
                         v.interface,
@@ -148,19 +183,22 @@ pub const App = struct {
                         );
                         return;
                     };
-                },
+                }
+            },
 
-                // This should be a rare occurrence, but in case a global
-                // is suddenly no longer available, we destroy and unset it
-                // as the protocol mandates.
-                .global_remove => |v| remove: {
+            // This should be a rare occurrence, but in case a global
+            // is suddenly no longer available, we destroy and unset it
+            // as the protocol mandates.
+            .global_remove => |v| remove: {
+                inline for (ctx_fields) |field| {
+                    if (getInterfaceType(field) == null) continue;
                     const global = @field(context, field.name) orelse break :remove;
                     if (global.getId() == v.name) {
                         global.destroy();
                         @field(context, field.name) = null;
                     }
-                },
-            }
+                }
+            },
         }
     }
 

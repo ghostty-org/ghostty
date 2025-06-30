@@ -7,18 +7,84 @@ const Pipeline = @import("Pipeline.zig");
 
 const log = std.log.scoped(.opengl);
 
+const pipeline_descs: []const struct { [:0]const u8, PipelineDescription } =
+    &.{
+        .{ "bg_color", .{
+            .vertex_fn = loadShaderCode("../shaders/glsl/full_screen.v.glsl"),
+            .fragment_fn = loadShaderCode("../shaders/glsl/bg_color.f.glsl"),
+            .blending_enabled = false,
+        } },
+        .{ "cell_bg", .{
+            .vertex_fn = loadShaderCode("../shaders/glsl/full_screen.v.glsl"),
+            .fragment_fn = loadShaderCode("../shaders/glsl/cell_bg.f.glsl"),
+            .blending_enabled = true,
+        } },
+        .{ "cell_text", .{
+            .vertex_attributes = CellText,
+            .vertex_fn = loadShaderCode("../shaders/glsl/cell_text.v.glsl"),
+            .fragment_fn = loadShaderCode("../shaders/glsl/cell_text.f.glsl"),
+            .step_fn = .per_instance,
+            .blending_enabled = true,
+        } },
+        .{ "image", .{
+            .vertex_attributes = Image,
+            .vertex_fn = loadShaderCode("../shaders/glsl/image.v.glsl"),
+            .fragment_fn = loadShaderCode("../shaders/glsl/image.f.glsl"),
+            .step_fn = .per_instance,
+            .blending_enabled = true,
+        } },
+        .{ "bg_image", .{
+            .vertex_attributes = BgImage,
+            .vertex_fn = loadShaderCode("../shaders/glsl/bg_image.v.glsl"),
+            .fragment_fn = loadShaderCode("../shaders/glsl/bg_image.f.glsl"),
+            .step_fn = .per_instance,
+            .blending_enabled = true,
+        } },
+    };
+
+/// All the comptime-known info about a pipeline, so that
+/// we can define them ahead-of-time in an ergonomic way.
+const PipelineDescription = struct {
+    vertex_attributes: ?type = null,
+    vertex_fn: [:0]const u8,
+    fragment_fn: [:0]const u8,
+    step_fn: Pipeline.Options.StepFunction = .per_vertex,
+    blending_enabled: bool = true,
+
+    fn initPipeline(self: PipelineDescription) !Pipeline {
+        return try .init(self.vertex_attributes, .{
+            .vertex_fn = self.vertex_fn,
+            .fragment_fn = self.fragment_fn,
+            .step_fn = self.step_fn,
+            .blending_enabled = self.blending_enabled,
+        });
+    }
+};
+
+/// We create a type for the pipeline collection based on our desc array.
+const PipelineCollection = t: {
+    var fields: [pipeline_descs.len]std.builtin.Type.StructField = undefined;
+    for (pipeline_descs, 0..) |pipeline, i| {
+        fields[i] = .{
+            .name = pipeline[0],
+            .type = Pipeline,
+            .default_value_ptr = null,
+            .is_comptime = false,
+            .alignment = @alignOf(Pipeline),
+        };
+    }
+    break :t @Type(.{ .@"struct" = .{
+        .layout = .auto,
+        .fields = &fields,
+        .decls = &.{},
+        .is_tuple = false,
+    } });
+};
+
 /// This contains the state for the shaders used by the Metal renderer.
 pub const Shaders = struct {
-    /// Renders cell foreground elements (text, decorations).
-    cell_text_pipeline: Pipeline,
-
-    /// The cell background shader is the shader used to render the
-    /// background of terminal cells.
-    cell_bg_pipeline: Pipeline,
-
-    /// The image shader is the shader used to render images for things
-    /// like the Kitty image protocol.
-    image_pipeline: Pipeline,
+    /// Collection of available render pipelines.
+    pipelines: PipelineCollection,
 
     /// Custom shaders to run against the final drawable texture. This
     /// can be used to apply a lot of effects. Each shader is run in sequence
@@ -38,14 +104,20 @@ pub const Shaders = struct {
         alloc: Allocator,
         post_shaders: []const [:0]const u8,
     ) !Shaders {
-        const cell_text_pipeline = try initCellTextPipeline();
-        errdefer cell_text_pipeline.deinit();
+        var pipelines: PipelineCollection = undefined;
 
-        const cell_bg_pipeline = try initCellBgPipeline();
-        errdefer cell_bg_pipeline.deinit();
+        var initialized_pipelines: usize = 0;
 
-        const image_pipeline = try initImagePipeline();
-        errdefer image_pipeline.deinit();
+        errdefer inline for (pipeline_descs, 0..) |pipeline, i| {
+            if (i < initialized_pipelines) {
+                @field(pipelines, pipeline[0]).deinit();
+            }
+        };
+
+        inline for (pipeline_descs) |pipeline| {
+            @field(pipelines, pipeline[0]) = try pipeline[1].initPipeline();
+            initialized_pipelines += 1;
+        }
 
         const post_pipelines: []const Pipeline = initPostPipelines(
             alloc,
@@ -63,9 +135,7 @@ pub const Shaders = struct {
         };
 
         return .{
-            .cell_text_pipeline = cell_text_pipeline,
-            .cell_bg_pipeline = cell_bg_pipeline,
-            .image_pipeline = image_pipeline,
+            .pipelines = pipelines,
             .post_pipelines = post_pipelines,
         };
     }
@@ -75,9 +145,9 @@ pub const Shaders = struct {
         self.defunct = true;
 
         // Release our primary shaders
-        self.cell_text_pipeline.deinit();
-        self.cell_bg_pipeline.deinit();
-        self.image_pipeline.deinit();
+        inline for (pipeline_descs) |pipeline| {
+            @field(self.pipelines, pipeline[0]).deinit();
+        }
 
         // Release our postprocess shaders
         if (self.post_pipelines.len > 0) {
@@ -89,19 +159,14 @@ pub const Shaders = struct {
     }
 };
 
-/// Single parameter for the image shader. See shader for field details.
-pub const Image = extern struct {
-    grid_pos: [2]f32 align(8),
-    cell_offset: [2]f32 align(8),
-    source_rect: [4]f32 align(16),
-    dest_size: [2]f32 align(8),
-};
-
-/// The uniforms that are passed to the terminal cell shader.
+/// The uniforms that are passed to our shaders.
 pub const Uniforms = extern struct {
     /// The projection matrix for turning world coordinates to normalized.
     /// This is calculated based on the size of the screen.
     projection_matrix: math.Mat align(16),
+
+    /// Size of the screen (render target) in pixels.
+    screen_size: [2]f32 align(8),
 
     /// Size of a single cell in pixels, unscaled.
     cell_size: [2]f32 align(8),
@@ -165,6 +230,74 @@ pub const Uniforms = extern struct {
     };
 };
 
+/// This is a single parameter for the terminal cell shader.
+pub const CellText = extern struct {
+    glyph_pos: [2]u32 align(8) = .{ 0, 0 },
+    glyph_size: [2]u32 align(8) = .{ 0, 0 },
+    bearings: [2]i16 align(4) = .{ 0, 0 },
+    grid_pos: [2]u16 align(4),
+    color: [4]u8 align(4),
+    mode: Mode align(4),
+    constraint_width: u32 align(4) = 0,
+
+    pub const Mode = enum(u32) {
+        fg = 1,
+        fg_constrained = 2,
+        fg_color = 3,
+        cursor = 4,
+        fg_powerline = 5,
+    };
+
+    // test {
+    //     // Minimizing the size of this struct is important,
+    //     // so we test it in order to be aware of any changes.
+    //     try std.testing.expectEqual(32, @sizeOf(CellText));
+    // }
+};
+
+/// This is a single parameter for the cell bg shader.
+pub const CellBg = [4]u8;
+
+/// Single parameter for the image shader. See shader for field details.
+pub const Image = extern struct {
+    grid_pos: [2]f32 align(8),
+    cell_offset: [2]f32 align(8),
+    source_rect: [4]f32 align(16),
+    dest_size: [2]f32 align(8),
+};
+
+/// Single parameter for the bg image shader.
+pub const BgImage = extern struct {
+    opacity: f32 align(4),
+    info: Info align(1),
+
+    pub const Info = packed struct(u8) {
+        position: Position,
+        fit: Fit,
+        repeat: bool,
+        _padding: u1 = 0,
+
+        pub const Position = enum(u4) {
+            tl = 0,
+            tc = 1,
+            tr = 2,
+            ml = 3,
+            mc = 4,
+            mr = 5,
+            bl = 6,
+            bc = 7,
+            br = 8,
+        };
+
+        pub const Fit = enum(u2) {
+            contain = 0,
+            cover = 1,
+            stretch = 2,
+            none = 3,
+        };
+    };
+};
+
 /// Initialize our custom shader pipelines. The shaders argument is a
 /// set of shader source code, not file paths.
 fn initPostPipelines(
@@ -201,60 +334,6 @@ fn initPostPipeline(data: [:0]const u8) !Pipeline {
     return try Pipeline.init(null, .{
         .vertex_fn = loadShaderCode("../shaders/glsl/full_screen.v.glsl"),
         .fragment_fn = data,
-    });
-}
-
-/// This is a single parameter for the terminal cell shader.
-pub const CellText = extern struct {
-    glyph_pos: [2]u32 align(8) = .{ 0, 0 },
-    glyph_size: [2]u32 align(8) = .{ 0, 0 },
-    bearings: [2]i16 align(4) = .{ 0, 0 },
-    grid_pos: [2]u16 align(4),
-    color: [4]u8 align(4),
-    mode: Mode align(4),
-    constraint_width: u32 align(4) = 0,
-
-    pub const Mode = enum(u32) {
-        fg = 1,
-        fg_constrained = 2,
-        fg_color = 3,
-        cursor = 4,
-        fg_powerline = 5,
-    };
-
-    // test {
-    //     // Minimizing the size of this struct is important,
-    //     // so we test it in order to be aware of any changes.
-    //     try std.testing.expectEqual(32, @sizeOf(CellText));
-    // }
-};
-
-/// Initialize the cell render pipeline.
-fn initCellTextPipeline() !Pipeline {
-    return try Pipeline.init(CellText, .{
-        .vertex_fn = loadShaderCode("../shaders/glsl/cell_text.v.glsl"),
-        .fragment_fn = loadShaderCode("../shaders/glsl/cell_text.f.glsl"),
-        .step_fn = .per_instance,
-    });
-}
-
-/// This is a single parameter for the cell bg shader.
-pub const CellBg = [4]u8;
-
-/// Initialize the cell background render pipeline.
-fn initCellBgPipeline() !Pipeline {
-    return try Pipeline.init(null, .{
-        .vertex_fn = loadShaderCode("../shaders/glsl/full_screen.v.glsl"),
-        .fragment_fn = loadShaderCode("../shaders/glsl/cell_bg.f.glsl"),
-    });
-}
-
-/// Initialize the image render pipeline.
-fn initImagePipeline() !Pipeline {
-    return try Pipeline.init(Image, .{
-        .vertex_fn = loadShaderCode("../shaders/glsl/image.v.glsl"),
-        .fragment_fn = loadShaderCode("../shaders/glsl/image.f.glsl"),
-        .step_fn = .per_instance,
     });
 }
 

@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const glfw = @import("glfw");
 const xev = @import("xev");
+const wuffs = @import("wuffs");
 const apprt = @import("../apprt.zig");
 const configpkg = @import("../config.zig");
 const font = @import("../font/main.zig");
@@ -11,14 +12,21 @@ const renderer = @import("../renderer.zig");
 const math = @import("../math.zig");
 const Surface = @import("../Surface.zig");
 const link = @import("link.zig");
-const fgMode = @import("cell.zig").fgMode;
-const isCovering = @import("cell.zig").isCovering;
+const cellpkg = @import("cell.zig");
+const fgMode = cellpkg.fgMode;
+const isCovering = cellpkg.isCovering;
+const imagepkg = @import("image.zig");
+const Image = imagepkg.Image;
+const ImageMap = imagepkg.ImageMap;
+const ImagePlacementList = std.ArrayListUnmanaged(imagepkg.Placement);
 const shadertoy = @import("shadertoy.zig");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const Terminal = terminal.Terminal;
 const Health = renderer.Health;
+
+const FileType = @import("../file_type.zig").FileType;
 
 const macos = switch (builtin.os.tag) {
     .macos => @import("macos"),
@@ -71,20 +79,15 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
     return struct {
         const Self = @This();
 
+        pub const API = GraphicsAPI;
+
         const Target = GraphicsAPI.Target;
         const Buffer = GraphicsAPI.Buffer;
         const Texture = GraphicsAPI.Texture;
         const RenderPass = GraphicsAPI.RenderPass;
+
         const shaderpkg = GraphicsAPI.shaders;
-
-        const cellpkg = GraphicsAPI.cellpkg;
-        const imagepkg = GraphicsAPI.imagepkg;
-        const Image = imagepkg.Image;
-        const ImageMap = imagepkg.ImageMap;
-
         const Shaders = shaderpkg.Shaders;
-
-        const ImagePlacementList = std.ArrayListUnmanaged(imagepkg.Placement);
 
         /// Allocator that can be used
         alloc: std.mem.Allocator,
@@ -180,6 +183,21 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         image_bg_end: u32 = 0,
         image_text_end: u32 = 0,
         image_virtual: bool = false,
+
+        /// Background image, if we have one.
+        bg_image: ?imagepkg.Image = null,
+        /// Set whenever the background image changes, singalling
+        /// that the new background image needs to be uploaded to
+        /// the GPU.
+        ///
+        /// This is initialized as true so that we load the image
+        /// on renderer initialization, not just on config change.
+        bg_image_changed: bool = true,
+        /// Background image vertex buffer.
+        bg_image_buffer: shaderpkg.BgImage,
+        /// This value is used to force-update the swap chain copy
+        /// of the background image buffer whenever we change it.
+        bg_image_buffer_modified: usize = 0,
 
         /// Graphics API state.
         api: GraphicsAPI,
@@ -298,13 +316,21 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             /// See property of same name on Renderer for explanation.
             target_config_modified: usize = 0,
 
+            /// Buffer with the vertex data for our background image.
+            ///
+            /// TODO: Make this an optional and only create it
+            ///       if we actually have a background image.
+            bg_image_buffer: BgImageBuffer,
+            /// See property of same name on Renderer for explanation.
+            bg_image_buffer_modified: usize = 0,
+
             /// Custom shader state, this is null if we have no custom shaders.
             custom_shader_state: ?CustomShaderState = null,
 
-            /// A buffer containing the uniform data.
             const UniformBuffer = Buffer(shaderpkg.Uniforms);
             const CellBgBuffer = Buffer(shaderpkg.CellBg);
             const CellTextBuffer = Buffer(shaderpkg.CellText);
+            const BgImageBuffer = Buffer(shaderpkg.BgImage);
 
             pub fn init(api: GraphicsAPI, custom_shaders: bool) !FrameState {
                 // Uniform buffer contains exactly 1 uniform struct. The
@@ -324,6 +350,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 var cells_bg = try CellBgBuffer.init(api.bgBufferOptions(), 1);
                 errdefer cells_bg.deinit();
 
+                // Create a GPU buffer for our background image info.
+                var bg_image_buffer = try BgImageBuffer.init(
+                    api.bgImageBufferOptions(),
+                    1,
+                );
+                errdefer bg_image_buffer.deinit();
+
                 // Initialize our textures for our font atlas.
                 //
                 // As with the buffers above, we start these off as small
@@ -337,7 +370,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 const color = try api.initAtlasTexture(&.{
                     .data = undefined,
                     .size = 1,
-                    .format = .rgba,
+                    .format = .bgra,
                 });
                 errdefer color.deinit();
 
@@ -356,6 +389,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .uniforms = uniforms,
                     .cells = cells,
                     .cells_bg = cells_bg,
+                    .bg_image_buffer = bg_image_buffer,
                     .grayscale = grayscale,
                     .color = color,
                     .target = target,
@@ -369,6 +403,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 self.cells_bg.deinit();
                 self.grayscale.deinit();
                 self.color.deinit();
+                self.bg_image_buffer.deinit();
                 if (self.custom_shader_state) |*state| state.deinit();
             }
 
@@ -395,12 +430,20 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             front_texture: Texture,
             back_texture: Texture,
 
+            uniforms: UniformBuffer,
+
+            const UniformBuffer = Buffer(shadertoy.Uniforms);
+
             /// Swap the front and back textures.
             pub fn swap(self: *CustomShaderState) void {
                 std.mem.swap(Texture, &self.front_texture, &self.back_texture);
             }
 
             pub fn init(api: GraphicsAPI) !CustomShaderState {
+                // Create a GPU buffer to hold our uniforms.
+                var uniforms = try UniformBuffer.init(api.uniformBufferOptions(), 1);
+                errdefer uniforms.deinit();
+
                 // Initialize the front and back textures at 1x1 px, this
                 // is slightly wasteful but it's only done once so whatever.
                 const front_texture = try Texture.init(
@@ -417,15 +460,18 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     null,
                 );
                 errdefer back_texture.deinit();
+
                 return .{
                     .front_texture = front_texture,
                     .back_texture = back_texture,
+                    .uniforms = uniforms,
                 };
             }
 
             pub fn deinit(self: *CustomShaderState) void {
                 self.front_texture.deinit();
                 self.back_texture.deinit();
+                self.uniforms.deinit();
             }
 
             pub fn resize(
@@ -467,6 +513,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             font_thicken_strength: u8,
             font_features: std.ArrayListUnmanaged([:0]const u8),
             font_styles: font.CodepointResolver.StyleStatus,
+            font_shaping_break: configpkg.FontShapingBreak,
             cursor_color: ?terminal.color.RGB,
             cursor_invert: bool,
             cursor_opacity: f64,
@@ -481,6 +528,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             min_contrast: f32,
             padding_color: configpkg.WindowPaddingColor,
             custom_shaders: configpkg.RepeatablePath,
+            bg_image: ?configpkg.Path,
+            bg_image_opacity: f32,
+            bg_image_position: configpkg.BackgroundImagePosition,
+            bg_image_fit: configpkg.BackgroundImageFit,
+            bg_image_repeat: bool,
             links: link.Set,
             vsync: bool,
             colorspace: configpkg.Config.WindowColorspace,
@@ -496,6 +548,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                 // Copy our shaders
                 const custom_shaders = try config.@"custom-shader".clone(alloc);
+
+                // Copy our background image
+                const bg_image =
+                    if (config.@"background-image") |bg|
+                        try bg.clone(alloc)
+                    else
+                        null;
 
                 // Copy our font features
                 const font_features = try config.@"font-feature".clone(alloc);
@@ -520,6 +579,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .font_thicken_strength = config.@"font-thicken-strength",
                     .font_features = font_features.list,
                     .font_styles = font_styles,
+                    .font_shaping_break = config.@"font-shaping-break",
 
                     .cursor_color = if (!cursor_invert and config.@"cursor-color" != null)
                         config.@"cursor-color".?.toTerminalRGB()
@@ -553,6 +613,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         null,
 
                     .custom_shaders = custom_shaders,
+                    .bg_image = bg_image,
+                    .bg_image_opacity = config.@"background-image-opacity",
+                    .bg_image_position = config.@"background-image-position",
+                    .bg_image_fit = config.@"background-image-fit",
+                    .bg_image_repeat = config.@"background-image-repeat",
                     .links = links,
                     .vsync = config.@"window-vsync",
                     .colorspace = config.@"window-colorspace",
@@ -647,6 +712,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .cell_size = undefined,
                     .grid_size = undefined,
                     .grid_padding = undefined,
+                    .screen_size = undefined,
                     .padding_extend = .{},
                     .min_contrast = options.config.min_contrast,
                     .cursor_pos = .{ std.math.maxInt(u16), std.math.maxInt(u16) },
@@ -670,7 +736,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .time_delta = 0,
                     .frame_rate = 60, // not currently updated
                     .frame = 0,
-                    .channel_time = @splat(@splat(0)),
+                    .channel_time = @splat(@splat(0)), // not currently updated
                     .channel_resolution = @splat(@splat(0)),
                     .mouse = @splat(0), // not currently updated
                     .date = @splat(0), // not currently updated
@@ -681,6 +747,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .previous_cursor_color = @splat(0),
                     .cursor_change_time = 0,
                 },
+                .bg_image_buffer = undefined,
 
                 // Fonts
                 .font_grid = options.font_grid,
@@ -701,6 +768,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // Ensure our undefined values above are correctly initialized.
             result.updateFontGridUniforms();
             result.updateScreenSizeUniforms();
+            result.updateBgImageBuffer();
+            try result.prepBackgroundImage();
 
             return result;
         }
@@ -728,6 +797,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 self.images.deinit(self.alloc);
             }
             self.image_placements.deinit(self.alloc);
+
+            if (self.bg_image) |img| img.deinit(self.alloc);
 
             self.deinitShaders();
 
@@ -1324,32 +1395,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             }
 
             // Upload images to the GPU as necessary.
-            {
-                var image_it = self.images.iterator();
-                while (image_it.next()) |kv| {
-                    switch (kv.value_ptr.image) {
-                        .ready => {},
+            try self.uploadKittyImages();
 
-                        .pending_gray,
-                        .pending_gray_alpha,
-                        .pending_rgb,
-                        .pending_rgba,
-                        .replace_gray,
-                        .replace_gray_alpha,
-                        .replace_rgb,
-                        .replace_rgba,
-                        => try kv.value_ptr.image.upload(self.alloc, &self.api),
-
-                        .unload_pending,
-                        .unload_replace,
-                        .unload_ready,
-                        => {
-                            kv.value_ptr.image.deinit(self.alloc);
-                            self.images.removeByPtr(kv.key_ptr);
-                        },
-                    }
-                }
-            }
+            // Upload the background image to the GPU as necessary.
+            try self.uploadBackgroundImage();
 
             // Update custom shader uniforms if necessary.
             try self.updateCustomShaderUniforms();
@@ -1358,6 +1407,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             try frame.uniforms.sync(&.{self.uniforms});
             try frame.cells_bg.sync(self.cells.bg_cells);
             const fg_count = try frame.cells.syncFromArrayLists(self.cells.fg_rows.lists);
+
+            // If our background image buffer has changed, sync it.
+            if (frame.bg_image_buffer_modified != self.bg_image_buffer_modified) {
+                try frame.bg_image_buffer.sync(&.{self.bg_image_buffer});
+
+                frame.bg_image_buffer_modified = self.bg_image_buffer_modified;
+            }
 
             // If our font atlas changed, sync the texture data
             texture: {
@@ -1391,23 +1447,58 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 }});
                 defer pass.complete();
 
-                // bg images
-                try self.drawImagePlacements(&pass, self.image_placements.items[0..self.image_bg_end]);
-                // bg
+                // First we draw our background image, if we have one.
+                // The bg image shader also draws the main bg color.
+                //
+                // Otherwise, if we don't have a background image, we
+                // draw the background color by itself in its own step.
+                //
+                // NOTE: We don't use the clear_color for this because that
+                //       would require us to do color space conversion on the
+                //       CPU-side. In the future when we have utilities for
+                //       that we should remove this step and use clear_color.
+                if (self.bg_image) |img| switch (img) {
+                    .ready => |texture| pass.step(.{
+                        .pipeline = self.shaders.pipelines.bg_image,
+                        .uniforms = frame.uniforms.buffer,
+                        .buffers = &.{frame.bg_image_buffer.buffer},
+                        .textures = &.{texture},
+                        .draw = .{ .type = .triangle, .vertex_count = 3 },
+                    }),
+                    else => {},
+                } else {
+                    pass.step(.{
+                        .pipeline = self.shaders.pipelines.bg_color,
+                        .uniforms = frame.uniforms.buffer,
+                        .buffers = &.{ null, frame.cells_bg.buffer },
+                        .draw = .{ .type = .triangle, .vertex_count = 3 },
+                    });
+                }
+
+                // Then we draw any kitty images that need
+                // to be behind text AND cell backgrounds.
+                try self.drawImagePlacements(
+                    &pass,
+                    self.image_placements.items[0..self.image_bg_end],
+                );
+
+                // Then we draw any opaque cell backgrounds.
                 pass.step(.{
-                    .pipeline = self.shaders.cell_bg_pipeline,
+                    .pipeline = self.shaders.pipelines.cell_bg,
                     .uniforms = frame.uniforms.buffer,
                     .buffers = &.{ null, frame.cells_bg.buffer },
-                    .draw = .{
-                        .type = .triangle,
-                        .vertex_count = 3,
-                    },
+                    .draw = .{ .type = .triangle, .vertex_count = 3 },
                 });
-                // mg images
-                try self.drawImagePlacements(&pass, self.image_placements.items[self.image_bg_end..self.image_text_end]);
-                // text
+
+                // Kitty images between cell backgrounds and text.
+                try self.drawImagePlacements(
+                    &pass,
+                    self.image_placements.items[self.image_bg_end..self.image_text_end],
+                );
+
+                // Text.
                 pass.step(.{
-                    .pipeline = self.shaders.cell_text_pipeline,
+                    .pipeline = self.shaders.pipelines.cell_text,
                     .uniforms = frame.uniforms.buffer,
                     .buffers = &.{
                         frame.cells.buffer,
@@ -1423,20 +1514,18 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         .instance_count = fg_count,
                     },
                 });
-                // fg images
-                try self.drawImagePlacements(&pass, self.image_placements.items[self.image_text_end..]);
+
+                // Kitty images in front of text.
+                try self.drawImagePlacements(
+                    &pass,
+                    self.image_placements.items[self.image_text_end..],
+                );
             }
 
             // If we have custom shaders, then we render them.
             if (frame.custom_shader_state) |*state| {
-                // We create a buffer on the GPU for our post uniforms.
-                // TODO: This should be a part of the frame state tbqh.
-                const PostBuffer = Buffer(shadertoy.Uniforms);
-                const uniform_buffer = try PostBuffer.initFill(
-                    self.api.bufferOptions(),
-                    &.{self.custom_shader_uniforms},
-                );
-                defer uniform_buffer.deinit();
+                // Sync our uniforms.
+                try state.uniforms.sync(&.{self.custom_shader_uniforms});
 
                 for (self.shaders.post_pipelines, 0..) |pipeline, i| {
                     defer state.swap();
@@ -1452,7 +1541,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                     pass.step(.{
                         .pipeline = pipeline,
-                        .uniforms = uniform_buffer.buffer,
+                        .uniforms = state.uniforms.buffer,
                         .textures = &.{state.back_texture},
                         .draw = .{
                             .type = .triangle,
@@ -1539,7 +1628,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 defer buf.deinit();
 
                 pass.step(.{
-                    .pipeline = self.shaders.image_pipeline,
+                    .pipeline = self.shaders.pipelines.image,
                     .buffers = &.{buf.buffer},
                     .textures = &.{texture},
                     .draw = .{
@@ -1551,8 +1640,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         }
 
         /// This goes through the Kitty graphic placements and accumulates the
-        /// placements we need to render on our viewport. It also ensures that
-        /// the visible images are loaded on the GPU.
+        /// placements we need to render on our viewport.
         fn prepKittyGraphics(
             self: *Self,
             t: *terminal.Terminal,
@@ -1589,7 +1677,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             const top_y = t.screen.pages.pointFromPin(.screen, top).?.screen.y;
             const bot_y = t.screen.pages.pointFromPin(.screen, bot).?.screen.y;
 
-            // Go through the placements and ensure the image is loaded on the GPU.
+            // Go through the placements and ensure the image is
+            // on the GPU or else is ready to be sent to the GPU.
             var it = storage.placements.iterator();
             while (it.next()) |kv| {
                 const p = kv.value_ptr;
@@ -1648,8 +1737,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 }.lessThan,
             );
 
-            // Find our indices. The values are sorted by z so we can find the
-            // first placement out of bounds to find the limits.
+            // Find our indices. The values are sorted by z so we can
+            // find the first placement out of bounds to find the limits.
             var bg_end: ?u32 = null;
             var text_end: ?u32 = null;
             const bg_limit = std.math.minInt(i32) / 2;
@@ -1662,8 +1751,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 }
             }
 
-            self.image_bg_end = bg_end orelse 0;
-            self.image_text_end = text_end orelse self.image_bg_end;
+            // If we didn't see any images with a z > the bg limit,
+            // then our bg end is the end of our placement list.
+            self.image_bg_end =
+                bg_end orelse @intCast(self.image_placements.items.len);
+
+            // Same idea for the image_text_end.
+            self.image_text_end =
+                text_end orelse @intCast(self.image_placements.items.len);
         }
 
         fn prepKittyVirtualPlacement(
@@ -1704,7 +1799,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 unreachable;
             };
 
-            // Send our image to the GPU and store the placement for rendering.
+            // Prepare the image for the GPU and store the placement.
             try self.prepKittyImage(&image);
             try self.image_placements.append(self.alloc, .{
                 .image_id = image.id,
@@ -1722,6 +1817,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             });
         }
 
+        /// Get the viewport-relative position for this
+        /// placement and add it to the placements list.
         fn prepKittyPlacement(
             self: *Self,
             t: *terminal.Terminal,
@@ -1742,9 +1839,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             if (img_top_y > bot_y) return;
             if (img_bot_y < top_y) return;
 
-            // We need to prep this image for upload if it isn't in the cache OR
-            // it is in the cache but the transmit time doesn't match meaning this
-            // image is different.
+            // We need to prep this image for upload if it isn't in the
+            // cache OR it is in the cache but the transmit time doesn't
+            // match meaning this image is different.
             try self.prepKittyImage(image);
 
             // Calculate the dimensions of our image, taking in to
@@ -1785,6 +1882,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             }
         }
 
+        /// Prepare the provided image for upload to the GPU by copying its
+        /// data with our allocator and setting it to the pending state.
         fn prepKittyImage(
             self: *Self,
             image: *const terminal.kitty.graphics.Image,
@@ -1806,16 +1905,17 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             const pending: Image.Pending = .{
                 .width = image.width,
                 .height = image.height,
+                .pixel_format = switch (image.format) {
+                    .gray => .gray,
+                    .gray_alpha => .gray_alpha,
+                    .rgb => .rgb,
+                    .rgba => .rgba,
+                    .png => unreachable, // should be decoded by now
+                },
                 .data = data.ptr,
             };
 
-            const new_image: Image = switch (image.format) {
-                .gray => .{ .pending_gray = pending },
-                .gray_alpha => .{ .pending_gray_alpha = pending },
-                .rgb => .{ .pending_rgb = pending },
-                .rgba => .{ .pending_rgba = pending },
-                .png => unreachable, // should be decoded by now
-            };
+            const new_image: Image = .{ .pending = pending };
 
             if (!gop.found_existing) {
                 gop.value_ptr.* = .{
@@ -1829,7 +1929,120 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 );
             }
 
+            try gop.value_ptr.image.prepForUpload(self.alloc);
+
             gop.value_ptr.transmit_time = image.transmit_time;
+        }
+
+        /// Upload any images to the GPU that need to be uploaded,
+        /// and remove any images that are no longer needed on the GPU.
+        fn uploadKittyImages(self: *Self) !void {
+            var image_it = self.images.iterator();
+            while (image_it.next()) |kv| {
+                const img = &kv.value_ptr.image;
+                if (img.isUnloading()) {
+                    img.deinit(self.alloc);
+                    self.images.removeByPtr(kv.key_ptr);
+                    return;
+                }
+                if (img.isPending()) try img.upload(self.alloc, &self.api);
+            }
+        }
+
+        /// Call this any time the background image path changes.
+        ///
+        /// Caller must hold the draw mutex.
+        fn prepBackgroundImage(self: *Self) !void {
+            // Then we try to load the background image if we have a path.
+            if (self.config.bg_image) |p| load_background: {
+                const path = switch (p) {
+                    .required, .optional => |slice| slice,
+                };
+
+                // Open the file
+                var file = std.fs.openFileAbsolute(path, .{}) catch |err| {
+                    log.warn(
+                        "error opening background image file \"{s}\": {}",
+                        .{ path, err },
+                    );
+                    break :load_background;
+                };
+                defer file.close();
+
+                // Read it
+                const contents = file.readToEndAlloc(
+                    self.alloc,
+                    std.math.maxInt(u32), // Max size of 4 GiB, for now.
+                ) catch |err| {
+                    log.warn(
+                        "error reading background image file \"{s}\": {}",
+                        .{ path, err },
+                    );
+                    break :load_background;
+                };
+                defer self.alloc.free(contents);
+
+                // Figure out what type it probably is.
+                const file_type = switch (FileType.detect(contents)) {
+                    .unknown => FileType.guessFromExtension(
+                        std.fs.path.extension(path),
+                    ),
+                    else => |t| t,
+                };
+
+                // Decode it if we know how.
+                const image_data = switch (file_type) {
+                    .png => try wuffs.png.decode(self.alloc, contents),
+                    .jpeg => try wuffs.jpeg.decode(self.alloc, contents),
+                    .unknown => {
+                        log.warn(
+                            "Cannot determine file type for background image file \"{s}\"!",
+                            .{path},
+                        );
+                        break :load_background;
+                    },
+                    else => |f| {
+                        log.warn(
+                            "Unsupported file type {} for background image file \"{s}\"!",
+                            .{ f, path },
+                        );
+                        break :load_background;
+                    },
+                };
+
+                const image: imagepkg.Image = .{
+                    .pending = .{
+                        .width = image_data.width,
+                        .height = image_data.height,
+                        .pixel_format = .rgba,
+                        .data = image_data.data.ptr,
+                    },
+                };
+
+                // If we have an existing background image, replace it.
+                // Otherwise, set this as our background image directly.
+                if (self.bg_image) |*img| {
+                    try img.markForReplace(self.alloc, image);
+                } else {
+                    self.bg_image = image;
+                }
+            } else {
+                // If we don't have a background image path, mark our
+                // background image for unload if we currently have one.
+                if (self.bg_image) |*img| img.markForUnload();
+            }
+        }
+
+        fn uploadBackgroundImage(self: *Self) !void {
+            // Make sure our bg image is uploaded if it needs to be.
+            if (self.bg_image) |*bg| {
+                if (bg.isUnloading()) {
+                    bg.deinit(self.alloc);
+                    self.bg_image = null;
+                    return;
+                }
+                if (bg.isPending()) try bg.upload(self.alloc, &self.api);
+            }
         }
 
         /// Update the configuration.
@@ -1869,11 +2082,32 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self.default_cursor_color = if (!config.cursor_invert) config.cursor_color else null;
             self.cursor_invert = config.cursor_invert;
 
+            const bg_image_config_changed =
+                self.config.bg_image_fit != config.bg_image_fit or
+                self.config.bg_image_position != config.bg_image_position or
+                self.config.bg_image_repeat != config.bg_image_repeat or
+                self.config.bg_image_opacity != config.bg_image_opacity;
+
+            const bg_image_changed =
+                if (self.config.bg_image) |old|
+                    if (config.bg_image) |new|
+                        !old.equal(new)
+                    else
+                        true
+                else
+                    config.bg_image != null;
+
             const old_blending = self.config.blending;
             const custom_shaders_changed = !self.config.custom_shaders.equal(config.custom_shaders);
 
             self.config.deinit();
             self.config = config.*;
+
+            // If our background image path changed, prepare the new bg image.
+            if (bg_image_changed) try self.prepBackgroundImage();
+
+            // If our background image config changed, update the vertex buffer.
+            if (bg_image_config_changed) self.updateBgImageBuffer();
 
             // Reset our viewport to force a rebuild, in case of a font change.
             self.cells_viewport = null;
@@ -1944,14 +2178,50 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 @floatFromInt(blank.bottom),
                 @floatFromInt(blank.left),
             };
+            self.uniforms.screen_size = .{
+                @floatFromInt(self.size.screen.width),
+                @floatFromInt(self.size.screen.height),
+            };
+        }
+
+        /// Update the background image vertex buffer (CPU-side).
+        ///
+        /// This should be called if and when configs change that
+        /// could affect the background image.
+        ///
+        /// Caller must hold the draw mutex.
+        fn updateBgImageBuffer(self: *Self) void {
+            self.bg_image_buffer = .{
+                .opacity = self.config.bg_image_opacity,
+                .info = .{
+                    .position = switch (self.config.bg_image_position) {
+                        .@"top-left" => .tl,
+                        .@"top-center" => .tc,
+                        .@"top-right" => .tr,
+                        .@"center-left" => .ml,
+                        .@"center-center", .center => .mc,
+                        .@"center-right" => .mr,
+                        .@"bottom-left" => .bl,
+                        .@"bottom-center" => .bc,
+                        .@"bottom-right" => .br,
+                    },
+                    .fit = switch (self.config.bg_image_fit) {
+                        .contain => .contain,
+                        .cover => .cover,
+                        .stretch => .stretch,
+                        .none => .none,
+                    },
+                    .repeat = self.config.bg_image_repeat,
+                },
+            };
+            // Signal that the buffer was modified.
+            self.bg_image_buffer_modified +%= 1;
         }
 
         /// Update uniforms for the custom shaders, if necessary.
         ///
         /// This should be called exactly once per frame, inside `drawFrame`.
-        fn updateCustomShaderUniforms(
-            self: *Self,
-        ) !void {
+        fn updateCustomShaderUniforms(self: *Self) !void {
             // We only need to do this if we have custom shaders.
             if (!self.has_custom_shaders) return;
 
@@ -2199,13 +2469,15 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 }
 
                 // Iterator of runs for shaping.
-                var run_iter = self.font_shaper.runIterator(
-                    self.font_grid,
-                    screen,
-                    row,
-                    row_selection,
-                    if (shape_cursor) screen.cursor.x else null,
-                );
+                var run_iter_opts: font.shape.RunOptions = .{
+                    .grid = self.font_grid,
+                    .screen = screen,
+                    .row = row,
+                    .selection = row_selection,
+                    .cursor_x = if (shape_cursor) screen.cursor.x else null,
+                };
+                run_iter_opts.applyBreakConfig(self.config.font_shaping_break);
+                var run_iter = self.font_shaper.runIterator(run_iter_opts);
                 var shaper_run: ?font.shape.TextRun = try run_iter.next(self.alloc);
                 var shaper_cells: ?[]const font.shape.Cell = null;
                 var shaper_cells_i: usize = 0;
@@ -2378,8 +2650,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         const bg_alpha: u8 = bg_alpha: {
                             const default: u8 = 255;
 
-                            if (self.config.background_opacity >= 1) break :bg_alpha default;
-
                             // Cells that are selected should be fully opaque.
                             if (selected) break :bg_alpha default;
 
@@ -2387,12 +2657,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                             if (style.flags.inverse) break :bg_alpha default;
 
                             // Cells that have an explicit bg color should be fully opaque.
-                            if (bg_style != null) {
-                                break :bg_alpha default;
-                            }
+                            if (bg_style != null) break :bg_alpha default;
 
-                            // Otherwise, we use the configured background opacity.
-                            break :bg_alpha @intFromFloat(@round(self.config.background_opacity * 255.0));
+                            // Otherwise, we won't draw the bg for this cell,
+                            // we'll let the already-drawn background color
+                            // show through.
+                            break :bg_alpha 0;
                         };
 
                         self.cells.bgCell(y, x).* = .{
@@ -2769,7 +3039,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 return;
             }
 
-            const mode: shaderpkg.CellText.Mode = switch (try fgMode(
+            const mode: shaderpkg.CellText.Mode = switch (fgMode(
                 render.presentation,
                 cell_pin,
             )) {

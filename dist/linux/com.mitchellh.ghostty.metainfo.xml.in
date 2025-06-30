@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>com.mitchellh.ghostty</id>
-  <launchable type="desktop-id">com.mitchellh.ghostty.desktop</launchable>
-  <name>Ghostty</name>
+  <id>@APPID@</id>
+  <launchable type="desktop-id">@APPID@.desktop</launchable>
+  <name>@NAME@</name>
   <url type="homepage">https://ghostty.org</url>
   <url type="help">https://ghostty.org/docs</url>
   <url type="bugtracker">https://github.com/ghostty-org/ghostty/discussions</url>

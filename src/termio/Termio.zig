@@ -168,8 +168,7 @@ pub const DerivedConfig = struct {
     foreground: configpkg.Config.Color,
     background: configpkg.Config.Color,
     osc_color_report_format: configpkg.Config.OSCColorReportFormat,
-    abnormal_runtime_threshold_ms: u32,
-    wait_after_command: bool,
+    clipboard_write: configpkg.ClipboardAccess,
     enquiry_response: []const u8,
 
     pub fn init(
@@ -190,8 +189,7 @@ pub const DerivedConfig = struct {
             .foreground = config.foreground,
             .background = config.background,
             .osc_color_report_format = config.@"osc-color-report-format",
-            .abnormal_runtime_threshold_ms = config.@"abnormal-command-exit-runtime",
-            .wait_after_command = config.@"wait-after-command",
+            .clipboard_write = config.@"clipboard-write",
             .enquiry_response = try alloc.dupe(u8, config.@"enquiry-response"),
 
             // This has to be last so that we copy AFTER the arena allocations
@@ -282,6 +280,7 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
             .size = &self.size,
             .terminal = &self.terminal,
             .osc_color_report_format = opts.config.osc_color_report_format,
+            .clipboard_write = opts.config.clipboard_write,
             .enquiry_response = opts.config.enquiry_response,
             .default_foreground_color = opts.config.foreground.toTerminalRGB(),
             .default_background_color = opts.config.background.toTerminalRGB(),
@@ -658,15 +657,6 @@ pub fn jumpToPrompt(self: *Termio, delta: isize) !void {
     }
 
     try self.renderer_wakeup.notify();
-}
-
-/// Called when the child process exited abnormally but before
-/// the surface is notified.
-pub fn childExitedAbnormally(self: *Termio, exit_code: u32, runtime_ms: u64) !void {
-    self.renderer_state.mutex.lock();
-    defer self.renderer_state.mutex.unlock();
-    const t = self.renderer_state.terminal;
-    try self.backend.childExitedAbnormally(self.alloc, t, exit_code, runtime_ms);
 }
 
 /// Called when focus is gained or lost (when focus events are enabled)

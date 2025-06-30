@@ -29,9 +29,6 @@ pub const Buffer = bufferpkg.Buffer;
 pub const Texture = @import("metal/Texture.zig");
 pub const shaders = @import("metal/shaders.zig");
 
-pub const cellpkg = @import("metal/cell.zig");
-pub const imagepkg = @import("metal/image.zig");
-
 pub const custom_shader_target: shadertoy.Target = .msl;
 // The fragCoord for Metal shaders is +Y = down.
 pub const custom_shader_y_is_down = true;
@@ -285,6 +282,7 @@ pub const uniformBufferOptions = bufferOptions;
 pub const fgBufferOptions = bufferOptions;
 pub const bgBufferOptions = bufferOptions;
 pub const imageBufferOptions = bufferOptions;
+pub const bgImageBufferOptions = bufferOptions;
 
 /// Returns the options to use when constructing textures.
 pub inline fn textureOptions(self: Metal) Texture.Options {
@@ -305,6 +303,44 @@ pub inline fn textureOptions(self: Metal) Texture.Options {
     };
 }
 
+/// Pixel format for image texture options.
+pub const ImageTextureFormat = enum {
+    /// 1 byte per pixel grayscale.
+    gray,
+    /// 4 bytes per pixel RGBA.
+    rgba,
+    /// 4 bytes per pixel BGRA.
+    bgra,
+
+    fn toPixelFormat(
+        self: ImageTextureFormat,
+        srgb: bool,
+    ) mtl.MTLPixelFormat {
+        return switch (self) {
+            .gray => if (srgb) .r8unorm_srgb else .r8unorm,
+            .rgba => if (srgb) .rgba8unorm_srgb else .rgba8unorm,
+            .bgra => if (srgb) .bgra8unorm_srgb else .bgra8unorm,
+        };
+    }
+};
+
+/// Returns the options to use when constructing textures for images.
+pub inline fn imageTextureOptions(
+    self: Metal,
+    format: ImageTextureFormat,
+    srgb: bool,
+) Texture.Options {
+    return .{
+        .device = self.device,
+        .pixel_format = format.toPixelFormat(srgb),
+        .resource_options = .{
+            // Indicate that the CPU writes to this resource but never reads it.
+            .cpu_cache_mode = .write_combined,
+            .storage_mode = self.default_storage_mode,
+        },
+    };
+}
+
 /// Initializes a Texture suitable for the provided font atlas.
 pub fn initAtlasTexture(
     self: *const Metal,
@@ -312,7 +348,7 @@ pub fn initAtlasTexture(
 ) Texture.Error!Texture {
     const pixel_format: mtl.MTLPixelFormat = switch (atlas.format) {
         .grayscale => .r8unorm,
-        .rgba => .bgra8unorm,
+        .bgra => .bgra8unorm_srgb,
         else => @panic("unsupported atlas format for Metal texture"),
     };
 

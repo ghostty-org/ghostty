@@ -40,11 +40,14 @@ pub const Error = error{
 /// "DiagnosticList" and any diagnostic messages will be added to that list.
 /// When diagnostics are present, only allocation errors will be returned.
 ///
-/// If the destination type has a decl "renamed", it must be of type
-/// std.StaticStringMap([]const u8) and contains a mapping from the old
-/// field name to the new field name. This is used to allow renaming fields
-/// while still supporting the old name. If a renamed field is set, parsing
-/// will automatically set the new field name.
+/// If the destination type has a decl "compatibility", it must be of type
+/// std.StaticStringMap(CompatibilityHandler(T)), and it will be used to
+/// handle backwards compatibility for fields with the given name. The
+/// field name doesn't need to exist (so you can setup compatibility for
+/// removed fields). The value is a function that will be called when
+/// all other parsing fails for that field. If a field changes such that
+/// the old values would NOT error, then the caller should handle that
+/// downstream after parsing is done, not through this method.
 ///
 /// Note: If the arena is already non-null, then it will be used. In this
 /// case, in the case of an error some memory might be leaked into the arena.
@@ -56,24 +59,6 @@ pub fn parse(
 ) !void {
     const info = @typeInfo(T);
     assert(info == .@"struct");
-
-    comptime {
-        // Verify all renamed fields are valid (source does not exist,
-        // destination does exist).
-        if (@hasDecl(T, "renamed")) {
-            for (T.renamed.keys(), T.renamed.values()) |key, value| {
-                if (@hasField(T, key)) {
-                    @compileLog(key);
-                    @compileError("renamed field source exists");
-                }
-
-                if (!@hasField(T, value)) {
-                    @compileLog(value);
-                    @compileError("renamed field destination does not exist");
-                }
-            }
-        }
-    }
 
     // Make an arena for all our allocations if we support it. Otherwise,
     // use an allocator that always fails. If the arena is already set on
@@ -147,7 +132,23 @@ pub fn parse(
             break :value null;
         };
 
-        parseIntoField(T, arena_alloc, dst, key, value) catch |err| {
+        parseIntoField(T, arena_alloc, dst, key, value) catch |err| err: {
+            // If we get an error parsing a field, then we try to fall
+            // back to compatibility handlers if able.
+            if (@hasDecl(T, "compatibility")) {
+                // If we have a compatibility handler for this key, then
+                // we call it and see if it handles the error.
+                if (T.compatibility.get(key)) |handler| {
+                    if (handler(dst, arena_alloc, key, value)) {
+                        log.info(
+                            "compatibility handler for {s} handled error, you may be using a deprecated field: {}",
+                            .{ key, err },
+                        );
+                        break :err;
+                    }
+                }
+            }
+
             if (comptime !canTrackDiags(T)) return err;
 
             // The error set is dependent on comptime T, so we always add
@@ -175,6 +176,58 @@ pub fn parse(
             });
         };
     }
+}
+
+/// The function type for a compatibility handler. The compatibility
+/// handler is documented in the `parse` function documentation.
+///
+/// The function type should return bool if the compatibility was
+/// handled, and false otherwise. If false is returned then the
+/// naturally occurring error will continue to be processed as if
+/// this compatibility handler was not present.
+///
+/// Compatibility handlers aren't allowed to return errors because
+/// they're generally only called in error cases, so we already have
+/// an error message to show users. If there is an error in handling
+/// the compatibility, then the handler should return false.
+pub fn CompatibilityHandler(comptime T: type) type {
+    return *const fn (
+        dst: *T,
+        alloc: Allocator,
+        key: []const u8,
+        value: ?[]const u8,
+    ) bool;
+}
+
+/// Convenience function to create a compatibility handler that
+/// renames a field from `from` to `to`.
+pub fn compatibilityRenamed(
+    comptime T: type,
+    comptime to: []const u8,
+) CompatibilityHandler(T) {
+    comptime assert(@hasField(T, to));
+
+    return (struct {
+        fn compat(
+            dst: *T,
+            alloc: Allocator,
+            key: []const u8,
+            value: ?[]const u8,
+        ) bool {
+            _ = key;
+
+            parseIntoField(T, alloc, dst, to, value) catch |err| {
+                log.warn("error parsing renamed field {s}: {}", .{
+                    to,
+                    err,
+                });
+
+                return false;
+            };
+
+            return true;
+        }
+    }).compat;
 }
 
 fn formatValueRequired(
@@ -398,16 +451,6 @@ pub fn parseIntoField(
             };
 
             return;
-        }
-    }
-
-    // Unknown field, is the field renamed?
-    if (@hasDecl(T, "renamed")) {
-        for (T.renamed.keys(), T.renamed.values()) |old, new| {
-            if (mem.eql(u8, old, key)) {
-                try parseIntoField(T, alloc, dst, new, value);
-                return;
-            }
         }
     }
 
@@ -750,6 +793,77 @@ test "parse: diagnostic location" {
         try testing.expectEqualStrings("test", diag.location.file.path);
         try testing.expectEqual(2, diag.location.file.line);
     }
+}
+
+test "parse: compatibility handler" {
+    const testing = std.testing;
+
+    var data: struct {
+        a: bool = false,
+        _arena: ?ArenaAllocator = null,
+
+        pub const compatibility: std.StaticStringMap(
+            CompatibilityHandler(@This()),
+        ) = .initComptime(&.{
+            .{ "a", compat },
+        });
+
+        fn compat(
+            self: *@This(),
+            alloc: Allocator,
+            key: []const u8,
+            value: ?[]const u8,
+        ) bool {
+            _ = alloc;
+            if (std.mem.eql(u8, key, "a")) {
+                if (value) |v| {
+                    if (mem.eql(u8, v, "yuh")) {
+                        self.a = true;
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+    } = .{};
+    defer if (data._arena) |arena| arena.deinit();
+
+    var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        testing.allocator,
+        "--a=yuh",
+    );
+    defer iter.deinit();
+    try parse(@TypeOf(data), testing.allocator, &data, &iter);
+    try testing.expect(data._arena != null);
+    try testing.expect(data.a);
+}
+
+test "parse: compatibility renamed" {
+    const testing = std.testing;
+
+    var data: struct {
+        a: bool = false,
+        b: bool = false,
+        _arena: ?ArenaAllocator = null,
+
+        pub const compatibility: std.StaticStringMap(
+            CompatibilityHandler(@This()),
+        ) = .initComptime(&.{
+            .{ "old", compatibilityRenamed(@This(), "a") },
+        });
+    } = .{};
+    defer if (data._arena) |arena| arena.deinit();
+
+    var iter = try std.process.ArgIteratorGeneral(.{}).init(
+        testing.allocator,
+        "--old=true --b=true",
+    );
+    defer iter.deinit();
+    try parse(@TypeOf(data), testing.allocator, &data, &iter);
+    try testing.expect(data._arena != null);
+    try testing.expect(data.a);
+    try testing.expect(data.b);
 }
 
 test "parseIntoField: ignore underscore-prefixed fields" {
@@ -1174,24 +1288,6 @@ test "parseIntoField: tagged union missing tag" {
         error.InvalidValue,
         parseIntoField(@TypeOf(data), alloc, &data, "value", ":a"),
     );
-}
-
-test "parseIntoField: renamed field" {
-    const testing = std.testing;
-    var arena = ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
-
-    var data: struct {
-        a: []const u8,
-
-        const renamed = std.StaticStringMap([]const u8).initComptime(&.{
-            .{ "old", "a" },
-        });
-    } = undefined;
-
-    try parseIntoField(@TypeOf(data), alloc, &data, "old", "42");
-    try testing.expectEqualStrings("42", data.a);
 }
 
 /// An iterator that considers its location to be CLI args. It

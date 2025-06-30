@@ -70,19 +70,11 @@ pub const Shaper = struct {
 
     pub fn runIterator(
         self: *Shaper,
-        grid: *SharedGrid,
-        screen: *const terminal.Screen,
-        row: terminal.Pin,
-        selection: ?terminal.Selection,
-        cursor_x: ?usize,
+        opts: font.shape.RunOptions,
     ) font.shape.RunIterator {
         return .{
             .hooks = .{ .shaper = self },
-            .grid = grid,
-            .screen = screen,
-            .row = row,
-            .selection = selection,
-            .cursor_x = cursor_x,
+            .opts = opts,
         };
     }
 

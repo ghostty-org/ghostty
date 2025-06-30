@@ -8,9 +8,6 @@ const Offset = size.Offset;
 const OffsetBuf = size.OffsetBuf;
 const RefCountedSet = @import("ref_counted_set.zig").RefCountedSet;
 
-const XxHash3 = std.hash.XxHash3;
-const autoHash = std.hash.autoHash;
-
 /// The unique identifier for a style. This is at most the number of cells
 /// that can fit into a terminal page.
 pub const Id = size.CellCountInt;
@@ -313,12 +310,15 @@ pub const Style = struct {
 
     pub fn hash(self: *const Style) u64 {
         const packed_style = PackedStyle.fromStyle(self.*);
-        return XxHash3.hash(0, std.mem.asBytes(&packed_style));
+        return std.hash.XxHash3.hash(0, std.mem.asBytes(&packed_style));
     }
 
     comptime {
         assert(@sizeOf(PackedStyle) == 16);
         assert(std.meta.hasUniqueRepresentation(PackedStyle));
+        for (@typeInfo(PackedStyle.Data).@"union".fields) |field| {
+            assert(@bitSizeOf(field.type) == @bitSizeOf(PackedStyle.Data));
+        }
     }
 };
 

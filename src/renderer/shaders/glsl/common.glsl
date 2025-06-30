@@ -13,6 +13,7 @@
 //----------------------------------------------------------------------------//
 layout(binding = 1, std140) uniform Globals {
     uniform mat4 projection_matrix;
+    uniform vec2 screen_size;
     uniform vec2 cell_size;
     uniform uint grid_size_packed_2u16;
     uniform vec4 grid_padding;

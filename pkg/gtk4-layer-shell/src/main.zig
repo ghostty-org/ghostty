@@ -1,3 +1,5 @@
+const std = @import("std");
+
 const c = @cImport({
     @cInclude("gtk4-layer-shell.h");
 });
@@ -29,6 +31,14 @@ pub fn isSupported() bool {
 
 pub fn getProtocolVersion() c_uint {
     return c.gtk_layer_get_protocol_version();
+}
+
+pub fn getLibraryVersion() std.SemanticVersion {
+    return .{
+        .major = c.gtk_layer_get_major_version(),
+        .minor = c.gtk_layer_get_minor_version(),
+        .patch = c.gtk_layer_get_micro_version(),
+    };
 }
 
 pub fn initForWindow(window: *gtk.Window) void {

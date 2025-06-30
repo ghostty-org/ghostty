@@ -74,6 +74,9 @@ pub const StreamHandler = struct {
     /// The color reporting format for OSC requests.
     osc_color_report_format: configpkg.Config.OSCColorReportFormat,
 
+    /// The clipboard write access configuration.
+    clipboard_write: configpkg.ClipboardAccess,
+
     //---------------------------------------------------------------
     // Internal state
 
@@ -112,6 +115,7 @@ pub const StreamHandler = struct {
     /// Change the configuration for this handler.
     pub fn changeConfig(self: *StreamHandler, config: *termio.DerivedConfig) void {
         self.osc_color_report_format = config.osc_color_report_format;
+        self.clipboard_write = config.clipboard_write;
         self.enquiry_response = config.enquiry_response;
         self.default_foreground_color = config.foreground.toTerminalRGB();
         self.default_background_color = config.background.toTerminalRGB();
@@ -723,7 +727,13 @@ pub const StreamHandler = struct {
         // a 420 because we don't support DCS sequences.
         switch (req) {
             .primary => self.messageWriter(.{
-                .write_stable = "\x1B[?62;22c",
+                // 62 = Level 2 conformance
+                // 22 = Color text
+                // 52 = Clipboard access
+                .write_stable = if (self.clipboard_write != .deny)
+                    "\x1B[?62;22;52c"
+                else
+                    "\x1B[?62;22c",
             }),
 
             .secondary => self.messageWriter(.{
@@ -1081,7 +1091,7 @@ pub const StreamHandler = struct {
             return;
         }
 
-        const uri = std.Uri.parse(url) catch |e| {
+        const uri: std.Uri = internal_os.hostname.parseUrl(url) catch |e| {
             log.warn("invalid url in OSC 7: {}", .{e});
             return;
         };

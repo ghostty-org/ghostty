@@ -10,6 +10,7 @@ const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const posix = std.posix;
 const xev = @import("../global.zig").xev;
+const apprt = @import("../apprt.zig");
 const build_config = @import("../build_config.zig");
 const configpkg = @import("../config.zig");
 const crash = @import("../crash/main.zig");
@@ -153,8 +154,6 @@ pub fn threadEnter(
     // Setup our threadata backend state to be our own
     td.backend = .{ .exec = .{
         .start = process_start,
-        .abnormal_runtime_threshold_ms = io.config.abnormal_runtime_threshold_ms,
-        .wait_after_command = io.config.wait_after_command,
         .write_stream = stream,
         .process = process,
         .read_thread = read_thread,
@@ -273,83 +272,6 @@ pub fn resize(
     return try self.subprocess.resize(grid_size, screen_size);
 }
 
-/// Called when the child process exited abnormally but before the surface
-/// is notified.
-pub fn childExitedAbnormally(
-    self: *Exec,
-    gpa: Allocator,
-    t: *terminal.Terminal,
-    exit_code: u32,
-    runtime_ms: u64,
-) !void {
-    var arena = ArenaAllocator.init(gpa);
-    defer arena.deinit();
-    const alloc = arena.allocator();
-
-    // Build up our command for the error message
-    const command = try std.mem.join(alloc, " ", self.subprocess.args);
-    const runtime_str = try std.fmt.allocPrint(alloc, "{d} ms", .{runtime_ms});
-
-    // No matter what move the cursor back to the column 0.
-    t.carriageReturn();
-
-    // Reset styles
-    try t.setAttribute(.{ .unset = {} });
-
-    // If there is data in the viewport, we want to scroll down
-    // a little bit and write a horizontal rule before writing
-    // our message. This lets the use see the error message the
-    // command may have output.
-    const viewport_str = try t.plainString(alloc);
-    if (viewport_str.len > 0) {
-        try t.linefeed();
-        for (0..t.cols) |_| try t.print(0x2501);
-        t.carriageReturn();
-        try t.linefeed();
-        try t.linefeed();
-    }
-
-    // Output our error message
-    try t.setAttribute(.{ .@"8_fg" = .bright_red });
-    try t.setAttribute(.{ .bold = {} });
-    try t.printString("Ghostty failed to launch the requested command:");
-    try t.setAttribute(.{ .unset = {} });
-
-    t.carriageReturn();
-    try t.linefeed();
-    try t.linefeed();
-    try t.printString(command);
-    try t.setAttribute(.{ .unset = {} });
-
-    t.carriageReturn();
-    try t.linefeed();
-    try t.linefeed();
-    try t.printString("Runtime: ");
-    try t.setAttribute(.{ .@"8_fg" = .red });
-    try t.printString(runtime_str);
-    try t.setAttribute(.{ .unset = {} });
-
-    // We don't print this on macOS because the exit code is always 0
-    // due to the way we launch the process.
-    if (comptime !builtin.target.os.tag.isDarwin()) {
-        const exit_code_str = try std.fmt.allocPrint(alloc, "{d}", .{exit_code});
-        t.carriageReturn();
-        try t.linefeed();
-        try t.printString("Exit Code: ");
-        try t.setAttribute(.{ .@"8_fg" = .red });
-        try t.printString(exit_code_str);
-        try t.setAttribute(.{ .unset = {} });
-    }
-
-    t.carriageReturn();
-    try t.linefeed();
-    try t.linefeed();
-    try t.printString("Press any key to close the window.");
-
-    // Hide the cursor
-    t.modes.set(.cursor_visible, false);
-}
-
 /// This outputs an error message when exec failed and we are the
 /// child process. This returns so the caller should probably exit
 /// after calling this.
@@ -386,63 +308,13 @@ fn processExitCommon(td: *termio.Termio.ThreadData, exit_code: u32) void {
         .{ exit_code, runtime_ms orelse 0 },
     );
 
-    // If our runtime was below some threshold then we assume that this
-    // was an abnormal exit and we show an error message.
-    if (runtime_ms) |runtime| runtime: {
-        // On macOS, our exit code detection doesn't work, possibly
-        // because of our `login` wrapper. More investigation required.
-        if (comptime !builtin.target.os.tag.isDarwin()) {
-            // If our exit code is zero, then the command was successful
-            // and we don't ever consider it abnormal.
-            if (exit_code == 0) break :runtime;
-        }
-
-        // Our runtime always has to be under the threshold to be
-        // considered abnormal. This is because a user can always
-        // manually do something like `exit 1` in their shell to
-        // force the exit code to be non-zero. We only want to detect
-        // abnormal exits that happen so quickly the user can't react.
-        if (runtime > execdata.abnormal_runtime_threshold_ms) break :runtime;
-        log.warn("abnormal process exit detected, showing error message", .{});
-
-        // Notify our main writer thread which has access to more
-        // information so it can show a better error message.
-        td.mailbox.send(.{
-            .child_exited_abnormally = .{
-                .exit_code = exit_code,
-                .runtime_ms = runtime,
-            },
-        }, null);
-        td.mailbox.notify();
-
-        return;
-    }
-
-    // We output a message so that the user knows whats going on and
-    // doesn't think their terminal just froze. We show this unconditionally
-    // on close even if `wait_after_command` is false and the surface closes
-    // immediately because if a user does an `undo` to restore a closed
-    // surface then they will see this message and know the process has
-    // completed.
-    terminal: {
-        td.renderer_state.mutex.lock();
-        defer td.renderer_state.mutex.unlock();
-        const t = td.renderer_state.terminal;
-        t.carriageReturn();
-        t.linefeed() catch break :terminal;
-        t.printString("Process exited. Press any key to close the terminal.") catch
-            break :terminal;
-        t.modes.set(.cursor_visible, false);
-    }
-
-    // If we're purposely waiting then we just return since the process
-    // exited flag is set to true. This allows the terminal window to remain
-    // open.
-    if (execdata.wait_after_command) return;
-
-    // Notify our surface we want to close
+    // We always notify the surface immediately that the child has
+    // exited and some metadata about the exit.
     _ = td.surface_mailbox.push(.{
-        .child_exited = {},
+        .child_exited = .{
+            .exit_code = exit_code,
+            .runtime_ms = runtime_ms orelse 0,
+        },
     }, .{ .forever = {} });
 }
 
@@ -563,14 +435,8 @@ pub fn queueWrite(
     _ = self;
     const exec = &td.backend.exec;
 
-    // If our process is exited then we send our surface a message
-    // about it but we don't queue any more writes.
-    if (exec.exited) {
-        _ = td.surface_mailbox.push(.{
-            .child_exited = {},
-        }, .{ .forever = {} });
-        return;
-    }
+    // If our process is exited then we don't send any more writes.
+    if (exec.exited) return;
 
     // We go through and chunk the data if necessary to fit into
     // our cached buffers that we can queue to the stream.
@@ -657,17 +523,6 @@ pub const ThreadData = struct {
     /// Process start time and boolean of whether its already exited.
     start: std.time.Instant,
     exited: bool = false,
-
-    /// The number of milliseconds below which we consider a process
-    /// exit to be abnormal. This is used to show an error message
-    /// when the process exits too quickly.
-    abnormal_runtime_threshold_ms: u32,
-
-    /// If true, do not immediately send a child exited message to the
-    /// surface to close the surface when the command exits. If this is
-    /// false we'll show a process exited message and wait for user input
-    /// to close the surface.
-    wait_after_command: bool,
 
     /// The data stream is the main IO for the pty.
     write_stream: xev.Stream,

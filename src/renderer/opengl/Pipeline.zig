@@ -98,6 +98,7 @@ fn autoAttribute(
         const offset = @offsetOf(T, field.name);
 
         const FT = switch (@typeInfo(field.type)) {
+            .@"struct" => |s| s.backing_integer.?,
             .@"enum" => |e| e.tag_type,
             else => field.type,
         };

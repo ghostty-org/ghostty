@@ -139,6 +139,12 @@ void main() {
             unpack4u8(bg_colors[grid_pos.y * grid_size.x + grid_pos.x]),
             true
         );
+    // Blend it with the global bg color
+    vec4 global_bg = load_color(
+            unpack4u8(bg_color_packed_4u8),
+            true
+        );
+    out_data.bg_color += global_bg * vec4(1.0 - out_data.bg_color.a);
 
     // If we have a minimum contrast, we need to check if we need to
     // change the color of the text to ensure it has enough contrast

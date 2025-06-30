@@ -15,7 +15,7 @@ vec4 cell_bg() {
     ivec2 grid_pos = ivec2(floor((gl_FragCoord.xy - grid_padding.wx) / cell_size));
     bool use_linear_blending = (bools & USE_LINEAR_BLENDING) != 0;
 
-    vec4 bg = load_color(unpack4u8(bg_color_packed_4u8), use_linear_blending);
+    vec4 bg = vec4(0.0);
 
     // Clamp x position, extends edge bg colors in to padding on sides.
     if (grid_pos.x < 0) {

@@ -75,7 +75,7 @@ fn initTarget(
     self.metallib = .create(b, .{
         .name = "Ghostty",
         .target = target,
-        .sources = &.{b.path("src/renderer/shaders/cell.metal")},
+        .sources = &.{b.path("src/renderer/shaders/shaders.metal")},
     });
 
     // Change our config
@@ -652,14 +652,13 @@ fn addGTK(
             // IMPORTANT: gtk4-layer-shell must be linked BEFORE
             // wayland-client, as it relies on shimming libwayland's APIs.
             if (b.systemIntegrationOption("gtk4-layer-shell", .{})) {
-                step.linkSystemLibrary2(
-                    "gtk4-layer-shell-0",
-                    dynamic_link_opts,
-                );
+                step.linkSystemLibrary2("gtk4-layer-shell-0", dynamic_link_opts);
             } else {
                 // gtk4-layer-shell *must* be dynamically linked,
                 // so we don't add it as a static library
-                step.linkLibrary(gtk4_layer_shell.artifact("gtk4-layer-shell"));
+                const shared_lib = gtk4_layer_shell.artifact("gtk4-layer-shell");
+                b.installArtifact(shared_lib);
+                step.linkLibrary(shared_lib);
             }
         }
 

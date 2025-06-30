@@ -176,7 +176,7 @@ const Boo = struct {
 pub fn run(gpa: Allocator) !u8 {
     // Disable on non-desktop systems.
     switch (builtin.os.tag) {
-        .windows, .macos, .linux => {},
+        .windows, .macos, .linux, .freebsd => {},
         else => return 1,
     }
 

@@ -61,17 +61,11 @@ pub const Shaper = struct {
     /// for a Shaper struct since they share state.
     pub fn runIterator(
         self: *Shaper,
-        group: *font.GroupCache,
-        row: terminal.Screen.Row,
-        selection: ?terminal.Selection,
-        cursor_x: ?usize,
+        opts: font.shape.RunOptions,
     ) font.shape.RunIterator {
         return .{
             .hooks = .{ .shaper = self },
-            .group = group,
-            .row = row,
-            .selection = selection,
-            .cursor_x = cursor_x,
+            .opts = opts,
         };
     }
 

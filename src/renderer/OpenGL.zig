@@ -24,9 +24,6 @@ pub const Buffer = bufferpkg.Buffer;
 pub const Texture = @import("opengl/Texture.zig");
 pub const shaders = @import("opengl/shaders.zig");
 
-pub const cellpkg = @import("opengl/cell.zig");
-pub const imagepkg = @import("opengl/image.zig");
-
 pub const custom_shader_target: shadertoy.Target = .glsl;
 // The fragCoord for OpenGL shaders is +Y = up.
 pub const custom_shader_y_is_down = false;
@@ -391,6 +388,7 @@ pub const uniformBufferOptions = bufferOptions;
 pub const fgBufferOptions = bufferOptions;
 pub const bgBufferOptions = bufferOptions;
 pub const imageBufferOptions = bufferOptions;
+pub const bgImageBufferOptions = bufferOptions;
 
 /// Returns the options to use when constructing textures.
 pub inline fn textureOptions(self: OpenGL) Texture.Options {
@@ -398,6 +396,38 @@ pub inline fn textureOptions(self: OpenGL) Texture.Options {
     return .{
         .format = .rgba,
         .internal_format = .srgba,
+        .target = .@"2D",
+    };
+}
+
+/// Pixel format for image texture options.
+pub const ImageTextureFormat = enum {
+    /// 1 byte per pixel grayscale.
+    gray,
+    /// 4 bytes per pixel RGBA.
+    rgba,
+    /// 4 bytes per pixel BGRA.
+    bgra,
+
+    fn toPixelFormat(self: ImageTextureFormat) gl.Texture.Format {
+        return switch (self) {
+            .gray => .red,
+            .rgba => .rgba,
+            .bgra => .bgra,
+        };
+    }
+};
+
+/// Returns the options to use when constructing textures for images.
+pub inline fn imageTextureOptions(
+    self: OpenGL,
+    format: ImageTextureFormat,
+    srgb: bool,
+) Texture.Options {
+    _ = self;
+    return .{
+        .format = format.toPixelFormat(),
+        .internal_format = if (srgb) .srgba else .rgba,
         .target = .@"2D",
     };
 }
@@ -411,7 +441,7 @@ pub fn initAtlasTexture(
     const format: gl.Texture.Format, const internal_format: gl.Texture.InternalFormat =
         switch (atlas.format) {
             .grayscale => .{ .red, .red },
-            .rgba => .{ .rgba, .srgba },
+            .bgra => .{ .bgra, .srgba },
             else => @panic("unsupported atlas format for OpenGL texture"),
         };
 

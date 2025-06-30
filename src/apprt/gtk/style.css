@@ -64,14 +64,18 @@ window.ssd.no-border-radius {
   padding: 0;
 }
 
+.clipboard-overlay {
+  border-radius: 10px;
+}
+
 .clipboard-content-view {
   filter: blur(0px);
   transition: filter 0.3s ease;
+  border-radius: 10px;
 }
 
 .clipboard-content-view.blurred {
   filter: blur(5px);
-  transition: filter 0.3s ease;
 }
 
 .command-palette-search {

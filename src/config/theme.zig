@@ -56,7 +56,7 @@ pub const Location = enum {
             },
 
             .resources => try std.fs.path.join(arena_alloc, &.{
-                global_state.resources_dir orelse return null,
+                global_state.resources_dir.app() orelse return null,
                 "themes",
             }),
         };

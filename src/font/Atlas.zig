@@ -50,15 +50,18 @@ modified: std.atomic.Value(usize) = .{ .raw = 0 },
 resized: std.atomic.Value(usize) = .{ .raw = 0 },
 
 pub const Format = enum(u8) {
+    /// 1 byte per pixel grayscale.
     grayscale = 0,
-    rgb = 1,
-    rgba = 2,
+    /// 3 bytes per pixel BGR.
+    bgr = 1,
+    /// 4 bytes per pixel BGRA.
+    bgra = 2,
 
     pub fn depth(self: Format) u8 {
         return switch (self) {
             .grayscale => 1,
-            .rgb => 3,
-            .rgba => 4,
+            .bgr => 3,
+            .bgra => 4,
         };
     }
 };
@@ -303,7 +306,12 @@ pub fn clear(self: *Atlas) void {
 }
 
 /// Dump the atlas as a PPM to a writer, for debug purposes.
-/// Only supports grayscale and rgb atlases.
+/// Only supports grayscale and bgr atlases.
+///
+/// NOTE: BGR atlases will have the red and blue channels
+///       swapped because PPM expects RGB. This would be
+///       easy enough to fix so next time someone needs
+///       to debug a color atlas they should fix it.
 pub fn dump(self: Atlas, writer: anytype) !void {
     try writer.print(
         \\P{c}
@@ -313,7 +321,7 @@ pub fn dump(self: Atlas, writer: anytype) !void {
     , .{
         @as(u8, switch (self.format) {
             .grayscale => '5',
-            .rgb => '6',
+            .bgr => '6',
             else => {
                 log.err("Unsupported format for dump: {}", .{self.format});
                 @panic("Cannot dump this atlas format.");
@@ -418,8 +426,16 @@ pub const Wasm = struct {
 
         // We need to draw pixels so this is format dependent.
         const buf: []u8 = switch (self.format) {
-            // RGBA is the native ImageData format
-            .rgba => self.data,
+            .bgra => buf: {
+                // Convert from BGRA to RGBA by swapping every R and B.
+                var buf: []u8 = try alloc.dupe(u8, self.data);
+                errdefer alloc.free(buf);
+                var i: usize = 0;
+                while (i < self.data.len) : (i += 4) {
+                    std.mem.swap(u8, &buf[i], &buf[i + 2]);
+                }
+                break :buf buf;
+            },
 
             .grayscale => buf: {
                 // Convert from A8 to RGBA so every 4th byte is set to a value.
@@ -572,12 +588,12 @@ test "grow" {
     try testing.expectEqual(@as(u8, 4), atlas.data[atlas.size * 2 + 2]);
 }
 
-test "writing RGB data" {
+test "writing BGR data" {
     const alloc = testing.allocator;
-    var atlas = try init(alloc, 32, .rgb);
+    var atlas = try init(alloc, 32, .bgr);
     defer atlas.deinit(alloc);
 
-    // This is RGB so its 3 bpp
+    // This is BGR so its 3 bpp
     const reg = try atlas.reserve(alloc, 1, 2);
     atlas.set(reg, &[_]u8{
         1, 2, 3,
@@ -594,18 +610,18 @@ test "writing RGB data" {
     try testing.expectEqual(@as(u8, 6), atlas.data[65 * depth + 2]);
 }
 
-test "grow RGB" {
+test "grow BGR" {
     const alloc = testing.allocator;
 
     // Atlas is 4x4 so its a 1px border meaning we only have 2x2 available
-    var atlas = try init(alloc, 4, .rgb);
+    var atlas = try init(alloc, 4, .bgr);
     defer atlas.deinit(alloc);
 
     // Get our 2x2, which should be ALL our usable space
     const reg = try atlas.reserve(alloc, 2, 2);
     try testing.expectError(Error.AtlasFull, atlas.reserve(alloc, 1, 1));
 
-    // This is RGB so its 3 bpp
+    // This is BGR so its 3 bpp
     atlas.set(reg, &[_]u8{
         10, 11, 12, // (0, 0) (x, y) from top-left
         13, 14, 15, // (1, 0)

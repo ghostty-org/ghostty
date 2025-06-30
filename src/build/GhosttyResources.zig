@@ -2,6 +2,7 @@ const GhosttyResources = @This();
 
 const std = @import("std");
 const builtin = @import("builtin");
+const assert = std.debug.assert;
 const buildpkg = @import("main.zig");
 const Config = @import("Config.zig");
 const config_vim = @import("../config/vim.zig");
@@ -220,83 +221,178 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
     }
 
     // App (Linux)
-    if (cfg.target.result.os.tag == .linux) {
-        // https://developer.gnome.org/documentation/guidelines/maintainer/integrating.html
+    if (cfg.target.result.os.tag == .linux) try addLinuxAppResources(
+        b,
+        cfg,
+        &steps,
+    );
+
+    return .{ .steps = steps.items };
+}
+
+/// Add the resource files needed to make Ghostty a proper
+/// Linux desktop application (for various desktop environments).
+fn addLinuxAppResources(
+    b: *std.Build,
+    cfg: *const Config,
+    steps: *std.ArrayList(*std.Build.Step),
+) !void {
+    assert(cfg.target.result.os.tag == .linux);
+
+    // Background:
+    // https://developer.gnome.org/documentation/guidelines/maintainer/integrating.html
+
+    const name = b.fmt("Ghostty{s}", .{
+        switch (cfg.optimize) {
+            .Debug, .ReleaseSafe => " (Debug)",
+            .ReleaseFast, .ReleaseSmall => "",
+        },
+    });
+
+    const app_id = b.fmt("com.mitchellh.ghostty{s}", .{
+        switch (cfg.optimize) {
+            .Debug, .ReleaseSafe => "-debug",
+            .ReleaseFast, .ReleaseSmall => "",
+        },
+    });
+
+    const exe_abs_path = b.fmt(
+        "{s}/bin/ghostty",
+        .{b.install_prefix},
+    );
+
+    // The templates that we will process. The templates are in
+    // cmake format and will be processed and saved to the
+    // second element of the tuple.
+    const Template = struct { std.Build.LazyPath, []const u8 };
+    const templates: []const Template = templates: {
+        var ts: std.ArrayList(Template) = .init(b.allocator);
 
         // Desktop file so that we have an icon and other metadata
-        try steps.append(&b.addInstallFile(
-            b.path("dist/linux/app.desktop"),
-            "share/applications/com.mitchellh.ghostty.desktop",
-        ).step);
+        try ts.append(.{
+            b.path("dist/linux/app.desktop.in"),
+            b.fmt("share/applications/{s}.desktop", .{app_id}),
+        });
 
-        // AppStream metainfo so that application has rich metadata within app stores
-        try steps.append(&b.addInstallFile(
-            b.path("dist/linux/com.mitchellh.ghostty.metainfo.xml"),
-            "share/metainfo/com.mitchellh.ghostty.metainfo.xml",
-        ).step);
+        // Service for DBus activation.
+        try ts.append(.{
+            if (cfg.flatpak)
+                b.path("dist/linux/dbus.service.flatpak.in")
+            else
+                b.path("dist/linux/dbus.service.in"),
+            b.fmt("share/dbus-1/services/{s}.service", .{app_id}),
+        });
 
-        // Right click menu action for Plasma desktop
-        try steps.append(&b.addInstallFile(
-            b.path("dist/linux/ghostty_dolphin.desktop"),
-            "share/kio/servicemenus/com.mitchellh.ghostty.desktop",
-        ).step);
+        // systemd user service. This is kind of nasty but systemd
+        // looks for user services in different paths depending on
+        // if we are installed as a system package or not (lib vs.
+        // share) so we have to handle that here. We might be able
+        // to get away with always installing to both because it
+        // only ever searches in one... but I don't want to do that hack
+        // until we have to.
+        if (!cfg.flatpak) try ts.append(.{
+            b.path("dist/linux/systemd.service.in"),
+            b.fmt(
+                "{s}/systemd/user/{s}.service",
+                .{
+                    if (b.graph.system_package_mode) "lib" else "share",
+                    app_id,
+                },
+            ),
+        });
 
-        // Right click menu action for Nautilus. Note that this _must_ be named
-        // `ghostty.py`. Using the full app id causes problems (see #5468).
-        try steps.append(&b.addInstallFile(
-            b.path("dist/linux/ghostty_nautilus.py"),
-            "share/nautilus-python/extensions/ghostty.py",
-        ).step);
+        // AppStream metainfo so that application has rich metadata
+        // within app stores
+        try ts.append(.{
+            b.path("dist/linux/com.mitchellh.ghostty.metainfo.xml.in"),
+            b.fmt("share/metainfo/{s}.metainfo.xml", .{app_id}),
+        });
 
-        // Various icons that our application can use, including the icon
-        // that will be used for the desktop.
-        try steps.append(&b.addInstallFile(
-            b.path("images/icons/icon_16.png"),
-            "share/icons/hicolor/16x16/apps/com.mitchellh.ghostty.png",
-        ).step);
-        try steps.append(&b.addInstallFile(
-            b.path("images/icons/icon_32.png"),
-            "share/icons/hicolor/32x32/apps/com.mitchellh.ghostty.png",
-        ).step);
-        try steps.append(&b.addInstallFile(
-            b.path("images/icons/icon_128.png"),
-            "share/icons/hicolor/128x128/apps/com.mitchellh.ghostty.png",
-        ).step);
-        try steps.append(&b.addInstallFile(
-            b.path("images/icons/icon_256.png"),
-            "share/icons/hicolor/256x256/apps/com.mitchellh.ghostty.png",
-        ).step);
-        try steps.append(&b.addInstallFile(
-            b.path("images/icons/icon_512.png"),
-            "share/icons/hicolor/512x512/apps/com.mitchellh.ghostty.png",
-        ).step);
-        // Flatpaks only support icons up to 512x512.
-        if (!cfg.flatpak) {
-            try steps.append(&b.addInstallFile(
-                b.path("images/icons/icon_1024.png"),
-                "share/icons/hicolor/1024x1024/apps/com.mitchellh.ghostty.png",
-            ).step);
-        }
+        break :templates ts.items;
+    };
 
+    // Process all our templates
+    for (templates) |template| {
+        const tpl = b.addConfigHeader(.{
+            .style = .{ .cmake = template[0] },
+        }, .{
+            .NAME = name,
+            .APPID = app_id,
+            .GHOSTTY = exe_abs_path,
+        });
+
+        // Template output has a single header line we want to remove.
+        // We use `tail` to do it since its part of the POSIX standard.
+        const tail = b.addSystemCommand(&.{ "tail", "-n", "+2" });
+        tail.setStdIn(.{ .lazy_path = tpl.getOutput() });
+
+        const copy = b.addInstallFile(
+            tail.captureStdOut(),
+            template[1],
+        );
+
+        try steps.append(&copy.step);
+    }
+
+    // Right click menu action for Plasma desktop
+    try steps.append(&b.addInstallFile(
+        b.path("dist/linux/ghostty_dolphin.desktop"),
+        "share/kio/servicemenus/com.mitchellh.ghostty.desktop",
+    ).step);
+
+    // Right click menu action for Nautilus. Note that this _must_ be named
+    // `ghostty.py`. Using the full app id causes problems (see #5468).
+    try steps.append(&b.addInstallFile(
+        b.path("dist/linux/ghostty_nautilus.py"),
+        "share/nautilus-python/extensions/ghostty.py",
+    ).step);
+
+    // Various icons that our application can use, including the icon
+    // that will be used for the desktop.
+    try steps.append(&b.addInstallFile(
+        b.path("images/icons/icon_16.png"),
+        "share/icons/hicolor/16x16/apps/com.mitchellh.ghostty.png",
+    ).step);
+    try steps.append(&b.addInstallFile(
+        b.path("images/icons/icon_32.png"),
+        "share/icons/hicolor/32x32/apps/com.mitchellh.ghostty.png",
+    ).step);
+    try steps.append(&b.addInstallFile(
+        b.path("images/icons/icon_128.png"),
+        "share/icons/hicolor/128x128/apps/com.mitchellh.ghostty.png",
+    ).step);
+    try steps.append(&b.addInstallFile(
+        b.path("images/icons/icon_256.png"),
+        "share/icons/hicolor/256x256/apps/com.mitchellh.ghostty.png",
+    ).step);
+    try steps.append(&b.addInstallFile(
+        b.path("images/icons/icon_512.png"),
+        "share/icons/hicolor/512x512/apps/com.mitchellh.ghostty.png",
+    ).step);
+    // Flatpaks only support icons up to 512x512.
+    if (!cfg.flatpak) {
         try steps.append(&b.addInstallFile(
-            b.path("images/icons/icon_16@2x.png"),
-            "share/icons/hicolor/16x16@2/apps/com.mitchellh.ghostty.png",
-        ).step);
-        try steps.append(&b.addInstallFile(
-            b.path("images/icons/icon_32@2x.png"),
-            "share/icons/hicolor/32x32@2/apps/com.mitchellh.ghostty.png",
-        ).step);
-        try steps.append(&b.addInstallFile(
-            b.path("images/icons/icon_128@2x.png"),
-            "share/icons/hicolor/128x128@2/apps/com.mitchellh.ghostty.png",
-        ).step);
-        try steps.append(&b.addInstallFile(
-            b.path("images/icons/icon_256@2x.png"),
-            "share/icons/hicolor/256x256@2/apps/com.mitchellh.ghostty.png",
+            b.path("images/icons/icon_1024.png"),
+            "share/icons/hicolor/1024x1024/apps/com.mitchellh.ghostty.png",
         ).step);
     }
 
-    return .{ .steps = steps.items };
+    try steps.append(&b.addInstallFile(
+        b.path("images/icons/icon_16@2x.png"),
+        "share/icons/hicolor/16x16@2/apps/com.mitchellh.ghostty.png",
+    ).step);
+    try steps.append(&b.addInstallFile(
+        b.path("images/icons/icon_32@2x.png"),
+        "share/icons/hicolor/32x32@2/apps/com.mitchellh.ghostty.png",
+    ).step);
+    try steps.append(&b.addInstallFile(
+        b.path("images/icons/icon_128@2x.png"),
+        "share/icons/hicolor/128x128@2/apps/com.mitchellh.ghostty.png",
+    ).step);
+    try steps.append(&b.addInstallFile(
+        b.path("images/icons/icon_256@2x.png"),
+        "share/icons/hicolor/256x256@2/apps/com.mitchellh.ghostty.png",
+    ).step);
 }
 
 pub fn install(self: *const GhosttyResources) void {

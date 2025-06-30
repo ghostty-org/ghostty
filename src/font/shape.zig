@@ -2,6 +2,9 @@ const builtin = @import("builtin");
 const options = @import("main.zig").options;
 const run = @import("shaper/run.zig");
 const feature = @import("shaper/feature.zig");
+const configpkg = @import("../config.zig");
+const terminal = @import("../terminal/main.zig");
+const SharedGrid = @import("main.zig").SharedGrid;
 pub const noop = @import("shaper/noop.zig");
 pub const harfbuzz = @import("shaper/harfbuzz.zig");
 pub const coretext = @import("shaper/coretext.zig");
@@ -59,6 +62,38 @@ pub const Options = struct {
     /// want to support per-face feature configuration. For now, we only
     /// support applying features globally.
     features: []const []const u8 = &.{},
+};
+
+/// Options for runIterator.
+pub const RunOptions = struct {
+    /// The font state for the terminal screen. This is mutable because
+    /// cached values may be updated during shaping.
+    grid: *SharedGrid,
+
+    /// The terminal screen to shape.
+    screen: *const terminal.Screen,
+
+    /// The row within the screen to shape. This row must exist within
+    /// screen; it is not validated.
+    row: terminal.Pin,
+
+    /// The selection boundaries. This is used to break shaping on
+    /// selection boundaries. This can be disabled by setting this to
+    /// null.
+    selection: ?terminal.Selection = null,
+
+    /// The cursor position within this row. This is used to break shaping
+    /// on cursor boundaries. This can be disabled by setting this to
+    /// null.
+    cursor_x: ?usize = null,
+
+    /// Apply the font break configuration to the run.
+    pub fn applyBreakConfig(
+        self: *RunOptions,
+        config: configpkg.FontShapingBreak,
+    ) void {
+        if (!config.cursor) self.cursor_x = null;
+    }
 };
 
 test {

@@ -6,11 +6,7 @@ sdk-extensions:
   - org.freedesktop.Sdk.Extension.ziglang
 default-branch: tip
 command: ghostty
-# Integrate the rename into zig build, maybe?
-rename-desktop-file: com.mitchellh.ghostty.desktop
-rename-appdata-file: com.mitchellh.ghostty.metainfo.xml
 rename-icon: com.mitchellh.ghostty
-desktop-file-name-suffix: " (Debug)"
 finish-args:
   # 3D rendering
   - --device=dri

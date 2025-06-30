@@ -29,6 +29,7 @@ pub const shell = @import("shell.zig");
 // Functions and types
 pub const CFReleaseThread = @import("cf_release_thread.zig");
 pub const TempDir = @import("TempDir.zig");
+pub const GetEnvResult = env.GetEnvResult;
 pub const getEnvMap = env.getEnvMap;
 pub const appendEnv = env.appendEnv;
 pub const appendEnvAlways = env.appendEnvAlways;
@@ -55,6 +56,7 @@ pub const open = openpkg.open;
 pub const OpenType = openpkg.Type;
 pub const pipe = pipepkg.pipe;
 pub const resourcesDir = resourcesdir.resourcesDir;
+pub const ResourcesDir = resourcesdir.ResourcesDir;
 pub const ShellEscapeWriter = shell.ShellEscapeWriter;
 
 test {

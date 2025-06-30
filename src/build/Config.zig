@@ -87,7 +87,7 @@ pub fn init(b: *std.Build) !Config {
     // This is set to true when we're building a system package. For now
     // this is trivially detected using the "system_package_mode" bool
     // but we may want to make this more sophisticated in the future.
-    const system_package: bool = b.graph.system_package_mode;
+    const system_package = b.graph.system_package_mode;
 
     // This specifies our target wasm runtime. For now only one semi-usable
     // one exists so this is hardcoded.
@@ -361,7 +361,6 @@ pub fn init(b: *std.Build) !Config {
             "libpng",
             "zlib",
             "oniguruma",
-            "gtk4-layer-shell",
         }) |dep| {
             _ = b.systemIntegrationOption(
                 dep,
@@ -386,6 +385,15 @@ pub fn init(b: *std.Build) !Config {
             "glfw3",
         }) |dep| {
             _ = b.systemIntegrationOption(dep, .{ .default = false });
+        }
+
+        // These are dynamic libraries we default to true, preferring
+        // to use system packages over building and installing libs
+        // as they require additional ldconfig of library paths or
+        // patching the rpath of the program to discover the dynamic library
+        // at runtime
+        for (&[_][]const u8{"gtk4-layer-shell"}) |dep| {
+            _ = b.systemIntegrationOption(dep, .{ .default = true });
         }
     }
 
