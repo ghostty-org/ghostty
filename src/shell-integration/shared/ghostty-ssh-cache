@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Minimal Ghostty SSH terminfo host cache
+
+readonly CACHE_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/ghostty/terminfo_hosts"
+
+case "${1:-}" in
+  chk) [[ -f "$CACHE_FILE" ]] && grep -qFx "$2" "$CACHE_FILE" 2>/dev/null ;;
+  add) mkdir -p "${CACHE_FILE%/*}"; { [[ -f "$CACHE_FILE" ]] && cat "$CACHE_FILE"; echo "$2"; } | sort -u > "$CACHE_FILE.tmp" && mv "$CACHE_FILE.tmp" "$CACHE_FILE" && chmod 600 "$CACHE_FILE" ;;
+  list) [[ -s "$CACHE_FILE" ]] && echo "Hosts with Ghostty terminfo installed:" && cat "$CACHE_FILE" || echo "No cached hosts found." ;;
+  clear) rm -f "$CACHE_FILE" 2>/dev/null && echo "Ghostty SSH terminfo cache cleared." || echo "No Ghostty SSH terminfo cache found." ;;
+esac

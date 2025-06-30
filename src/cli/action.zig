@@ -9,6 +9,8 @@ const list_keybinds = @import("list_keybinds.zig");
 const list_themes = @import("list_themes.zig");
 const list_colors = @import("list_colors.zig");
 const list_actions = @import("list_actions.zig");
+const list_ssh_cache = @import("list_ssh_cache.zig");
+const clear_ssh_cache = @import("clear_ssh_cache.zig");
 const edit_config = @import("edit_config.zig");
 const show_config = @import("show_config.zig");
 const validate_config = @import("validate_config.zig");
@@ -40,6 +42,12 @@ pub const Action = enum {
 
     /// List keybind actions
     @"list-actions",
+
+    /// List hosts cached by SSH shell integration for terminfo installation
+    @"list-ssh-cache",
+
+    /// Clear hosts cached by SSH shell integration for terminfo installation
+    @"clear-ssh-cache",
 
     /// Edit the config file in the configured terminal editor.
     @"edit-config",
@@ -155,6 +163,8 @@ pub const Action = enum {
             .@"list-themes" => try list_themes.run(alloc),
             .@"list-colors" => try list_colors.run(alloc),
             .@"list-actions" => try list_actions.run(alloc),
+            .@"list-ssh-cache" => try list_ssh_cache.run(alloc),
+            .@"clear-ssh-cache" => try clear_ssh_cache.run(alloc),
             .@"edit-config" => try edit_config.run(alloc),
             .@"show-config" => try show_config.run(alloc),
             .@"validate-config" => try validate_config.run(alloc),
@@ -192,6 +202,8 @@ pub const Action = enum {
                 .@"list-themes" => list_themes.Options,
                 .@"list-colors" => list_colors.Options,
                 .@"list-actions" => list_actions.Options,
+                .@"list-ssh-cache" => list_ssh_cache.Options,
+                .@"clear-ssh-cache" => clear_ssh_cache.Options,
                 .@"edit-config" => edit_config.Options,
                 .@"show-config" => show_config.Options,
                 .@"validate-config" => validate_config.Options,

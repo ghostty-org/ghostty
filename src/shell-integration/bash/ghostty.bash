@@ -95,6 +95,78 @@ if [[ "$GHOSTTY_SHELL_FEATURES" == *"sudo"* && -n "$TERMINFO" ]]; then
   }
 fi
 
+# SSH Integration
+if [[ "$GHOSTTY_SHELL_FEATURES" =~ ssh-(env|terminfo) ]]; then
+
+  if [[ "$GHOSTTY_SHELL_FEATURES" =~ ssh-terminfo ]]; then
+    readonly _CACHE="${GHOSTTY_RESOURCES_DIR}/shell-integration/shared/ghostty-ssh-cache"
+  fi
+
+  # SSH wrapper
+  ssh() {
+    local env=() opts=() ctrl=()
+
+    # Set up env vars first so terminfo installation inherits them
+    if [[ "$GHOSTTY_SHELL_FEATURES" =~ ssh-env ]]; then
+      local vars=(
+        COLORTERM=truecolor 
+        TERM_PROGRAM=ghostty
+        ${TERM_PROGRAM_VERSION:+TERM_PROGRAM_VERSION=$TERM_PROGRAM_VERSION}
+      )
+      for v in "${vars[@]}"; do
+        builtin export "${v?}"
+        opts+=(-o "SendEnv ${v%=*}" -o "SetEnv $v")
+      done
+    fi
+
+    # Install terminfo if needed, reuse control connection for main session
+    if [[ "$GHOSTTY_SHELL_FEATURES" =~ ssh-terminfo ]]; then
+      # Get target (only when needed for terminfo)
+      builtin local target
+      target=$(builtin command ssh -G "$@" 2>/dev/null | awk '/^(user|hostname) /{print $2}' | paste -sd'@')
+      
+      if [[ -n "$target" ]] && "$_CACHE" chk "$target"; then
+        env+=(TERM=xterm-ghostty)
+      elif builtin command -v infocmp >/dev/null 2>&1; then
+        builtin local tinfo
+        tinfo=$(infocmp -x xterm-ghostty 2>/dev/null) || builtin echo "Warning: xterm-ghostty terminfo not found locally." >&2
+        if [[ -n "$tinfo" ]]; then
+          builtin echo "Setting up Ghostty terminfo on remote host..." >&2
+          builtin local cpath
+          cpath="/tmp/ghostty-ssh-$USER-$RANDOM-$(date +%s)"
+          case $(builtin echo "$tinfo" | builtin command ssh "${opts[@]}" -o ControlMaster=yes -o ControlPath="$cpath" -o ControlPersist=60s "$@" '
+            infocmp xterm-ghostty >/dev/null 2>&1 && echo OK && exit
+            command -v tic >/dev/null 2>&1 || { echo NO_TIC; exit 1; }
+            mkdir -p ~/.terminfo 2>/dev/null && tic -x - 2>/dev/null && echo OK || echo FAIL
+          ') in
+          OK)
+            builtin echo "Terminfo setup complete." >&2
+            [[ -n "$target" ]] && "$_CACHE" add "$target"
+            env+=(TERM=xterm-ghostty)
+            ctrl+=(-o "ControlPath=$cpath")
+            ;;
+          *) builtin echo "Warning: Failed to install terminfo." >&2 ;;
+          esac
+        fi
+      else
+        builtin echo "Warning: infocmp not found locally. Terminfo installation unavailable." >&2
+      fi
+    fi
+
+    # Fallback TERM only if terminfo didn't set it
+    if [[ "$GHOSTTY_SHELL_FEATURES" =~ ssh-env ]]; then
+      [[ $TERM == xterm-ghostty && ! " ${env[*]} " =~ " TERM=" ]] && env+=(TERM=xterm-256color)
+    fi
+
+    # Execute
+    if [[ ${#env[@]} -gt 0 ]]; then
+      env "${env[@]}" ssh "${opts[@]}" "${ctrl[@]}" "$@"
+    else
+      builtin command ssh "${opts[@]}" "${ctrl[@]}" "$@"
+    fi
+  }
+fi
+
 # Import bash-preexec, safe to do multiple times
 builtin source "$(dirname -- "${BASH_SOURCE[0]}")/bash-preexec.sh"
 

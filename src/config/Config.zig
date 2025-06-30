@@ -2085,6 +2085,8 @@ keybind: Keybinds = .{},
 /// its default value is used, so you must explicitly disable features you don't
 /// want. You can also use `true` or `false` to turn all features on or off.
 ///
+/// Example: `cursor`, `no-cursor`, `sudo`, `no-sudo`, `title`, `no-title`
+///
 /// Available features:
 ///
 ///   * `cursor` - Set the cursor to a blinking bar at the prompt.
@@ -2093,7 +2095,23 @@ keybind: Keybinds = .{},
 ///
 ///   * `title` - Set the window title via shell integration.
 ///
-/// Example: `cursor`, `no-cursor`, `sudo`, `no-sudo`, `title`, `no-title`
+///   * `ssh-env` - Enable SSH environment variable compatibility. Automatically
+///     converts TERM from `xterm-ghostty` to `xterm-256color` when connecting to
+///     remote hosts and propagates COLORTERM, TERM_PROGRAM, and TERM_PROGRAM_VERSION.
+///     Whether or not these variables will be accepted by the remote host(s) will
+///     depend on whether or not the variables are allowed in their sshd_config.
+///
+///   * `ssh-terminfo` - Enable automatic terminfo installation on remote hosts.
+///     Attempts to install Ghostty's terminfo entry using `infocmp` and `tic` when
+///     connecting to hosts that lack it. Requires `infocmp` to be available locally
+///     and `tic` to be available on remote hosts. Provides `+list-ssh-cache` and
+///     `+clear-ssh-cache` CLI actions for managing the installation cache (caching
+///     is otherwise automatic and requires no user intervention).
+///
+/// SSH features work independently and can be combined for optimal experience:
+/// when both `ssh-env` and `ssh-terminfo` are enabled, Ghostty will install its
+/// terminfo on remote hosts and use `xterm-ghostty` as TERM, falling back to
+/// `xterm-256color` with environment variables if terminfo installation fails.
 @"shell-integration-features": ShellIntegrationFeatures = .{},
 
 /// Custom entries into the command palette.
@@ -6294,6 +6312,8 @@ pub const ShellIntegrationFeatures = packed struct {
     cursor: bool = true,
     sudo: bool = false,
     title: bool = true,
+    @"ssh-env": bool = false,
+    @"ssh-terminfo": bool = false,
 };
 
 pub const RepeatableCommand = struct {

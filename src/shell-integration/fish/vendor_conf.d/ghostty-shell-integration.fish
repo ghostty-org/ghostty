@@ -86,6 +86,91 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
         end
     end
 
+    # SSH Integration
+    if string match -qr 'ssh-(env|terminfo)' $GHOSTTY_SHELL_FEATURES
+
+        if string match -q '*ssh-terminfo*' $GHOSTTY_SHELL_FEATURES
+            set -g _CACHE "$GHOSTTY_RESOURCES_DIR/shell-integration/shared/ghostty-ssh-cache"
+        end
+
+        # SSH wrapper
+        function ssh
+            set -l env
+            set -l opts
+            set -l ctrl
+
+            # Set up env vars first so terminfo installation inherits them
+            if string match -q '*ssh-env*' $GHOSTTY_SHELL_FEATURES
+                set -l vars \
+                    COLORTERM=truecolor \
+                    TERM_PROGRAM=ghostty
+
+                if test -n "$TERM_PROGRAM_VERSION"
+                    set -a vars "TERM_PROGRAM_VERSION=$TERM_PROGRAM_VERSION"
+                end
+
+                for v in $vars
+                    set -l parts (string split = $v)
+                    set -gx $parts[1] $parts[2]
+                    set -a opts -o "SendEnv $parts[1]" -o "SetEnv $v"
+                end
+            end
+
+            # Install terminfo if needed, reuse control connection for main session
+            if string match -q '*ssh-terminfo*' $GHOSTTY_SHELL_FEATURES
+                # Get target
+                set -l target (command ssh -G $argv 2>/dev/null | awk '/^(user|hostname) /{print $2}' | paste -sd'@')
+
+                if test -n "$target" -a ("$_CACHE" chk "$target")
+                    set -a env TERM=xterm-ghostty
+                else if command -v infocmp >/dev/null 2>&1
+                    set -l tinfo (infocmp -x xterm-ghostty 2>/dev/null)
+                    set -l status_code $status
+
+                    if test $status_code -ne 0
+                        echo "Warning: xterm-ghostty terminfo not found locally." >&2
+                    end
+
+                    if test -n "$tinfo"
+                        echo "Setting up Ghostty terminfo on remote host..." >&2
+                        set -l cpath "/tmp/ghostty-ssh-$USER-"(random)"-"(date +%s)
+                        set -l result (echo "$tinfo" | command ssh $opts -o ControlMaster=yes -o ControlPath="$cpath" -o ControlPersist=60s $argv '
+                            infocmp xterm-ghostty >/dev/null 2>&1 && echo OK && exit
+                            command -v tic >/dev/null 2>&1 || { echo NO_TIC; exit 1; }
+                            mkdir -p ~/.terminfo 2>/dev/null && tic -x - 2>/dev/null && echo OK || echo FAIL
+                        ')
+
+                        switch $result
+                            case OK
+                                echo "Terminfo setup complete." >&2
+                                test -n "$target" && "$_CACHE" add "$target"
+                                set -a env TERM=xterm-ghostty
+                                set -a ctrl -o "ControlPath=$cpath"
+                            case '*'
+                                echo "Warning: Failed to install terminfo." >&2
+                        end
+                    end
+                else
+                    echo "Warning: infocmp not found locally. Terminfo installation unavailable." >&2
+                end
+            end
+
+            # Fallback TERM only if terminfo didn't set it
+            if string match -q '*ssh-env*' $GHOSTTY_SHELL_FEATURES
+                if test "$TERM" = xterm-ghostty -a ! (string join ' ' $env | string match -q '*TERM=*')
+                    set -a env TERM=xterm-256color
+                end
+            end
+
+            # Execute
+            if test (count $env) -gt 0
+                env $env command ssh $opts $ctrl $argv
+            else
+                command ssh $opts $ctrl $argv
+            end
+        end
+    end
+
     # Setup prompt marking
     function __ghostty_mark_prompt_start --on-event fish_prompt --on-event fish_cancel --on-event fish_posterror
         # If we never got the output end event, then we need to send it now.
