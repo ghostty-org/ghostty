@@ -71,7 +71,7 @@ be running.
 
 ### If Ghostty is Already Running
 
-If Ghostty is already running, the broker will send a D-Bus signal directy to
+If Ghostty is already running, the broker will send a D-Bus signal directly to
 Ghostty asking it to create a new window.
 
 ```mermaid
