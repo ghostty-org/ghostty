@@ -23,7 +23,7 @@ msgstr "Terminál címének módosítása"
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:6
 msgid "Leave blank to restore the default title."
-msgstr "Hagyd üresen az alapértelmezett cím visszaállításához."
+msgstr "Hagyja üresen az alapértelmezett cím visszaállításához."
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:9
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:10 src/apprt/gtk/CloseDialog.zig:44
@@ -42,7 +42,7 @@ msgstr "Konfigurációs hibák"
 msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
-msgstr "Egy vagy több konfigurációs hiba található. Kérjük, ellenőrizze az alábbi hibákat, és töltse be újra a konfigurációt, vagy hagyja figyelmen kívül ezeket a hibákat."
+msgstr "Egy vagy több konfigurációs hiba található. Kérjük, ellenőrizze az alábbi hibákat, és frissítse a konfigurációt, vagy hagyja figyelmen kívül ezeket a hibákat."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
 msgid "Ignore"
@@ -52,7 +52,7 @@ msgstr "Figyelmen kívül hagyás"
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:97
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:100
 msgid "Reload Configuration"
-msgstr "Konfiguráció újratöltése"
+msgstr "Konfiguráció frissítése"
 
 #: src/apprt/gtk/ui/1.0/menu-headerbar-split_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:38
@@ -177,7 +177,7 @@ msgstr "Vágólap-hozzáférés engedélyezése"
 msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
-msgstr "Egy alkalmazás megpróbál olvasni a vágólapról. A vágólap jelenlegi tartalma alább látható."
+msgstr "Egy alkalmazás megpróbál olvasni a vágólapról. A vágólap jelenlegi tartalma lent látható."
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:10
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:10
@@ -193,17 +193,17 @@ msgstr "Engedélyezés"
 msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
-msgstr "Egy alkalmazás megpróbál írni a vágólapra. A vágólap jelenlegi tartalma alább látható."
+msgstr "Egy alkalmazás megpróbál írni a vágólapra. A vágólap jelenlegi tartalma lent látható."
 
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:6
 msgid "Warning: Potentially Unsafe Paste"
-msgstr "Figyelem: Potenciálisan nem biztonságos beillesztés"
+msgstr "Figyelem: potenciálisan veszélyes beillesztés"
 
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:7
 msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
-msgstr "Ennek a szövegnek a terminálba való beillesztése veszélyes lehet, mivel úgy tűnik, hogy néhány parancs végrehajtásra kerülhet."
+msgstr "Ennek a szövegnek a terminálba való beillesztése veszélyes lehet, mivel néhány parancs végrehajtásra kerülhet."
 
 #: src/apprt/gtk/Window.zig:208
 msgid "Main Menu"
@@ -224,7 +224,7 @@ msgstr "⚠️ A Ghostty hibakereső verzióját futtatja! A teljesítmény csö
 
 #: src/apprt/gtk/Window.zig:765
 msgid "Reloaded the configuration"
-msgstr "Konfiguráció újratöltve"
+msgstr "Konfiguráció frissítve"
 
 #: src/apprt/gtk/Window.zig:1005
 msgid "Ghostty Developers"
