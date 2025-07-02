@@ -73,7 +73,7 @@ log in by running this command:
 systemctl enable --user com.mitchell.ghostty.service
 ```
 
-By doing so any startup delay will be "hidden" by the time that your system
+By doing so, any startup delay will be "hidden" by the time that your system
 needs to finish setting up everything after logging in.
 
 ## Stopping Ghostty
