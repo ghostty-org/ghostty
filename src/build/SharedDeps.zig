@@ -405,12 +405,11 @@ pub fn add(
     })) |dep| {
         step.root_module.addImport("xev", dep.module("xev"));
     }
-    if (b.lazyDependency("z2d", .{})) |dep| {
-        step.root_module.addImport("z2d", b.addModule("z2d", .{
-            .root_source_file = dep.path("src/z2d.zig"),
-            .target = target,
-            .optimize = optimize,
-        }));
+    if (b.lazyDependency("z2d", .{
+        .target = target,
+        .optimize = optimize,
+    })) |dep| {
+        step.root_module.addImport("z2d", dep.module("z2d"));
     }
     if (b.lazyDependency("ziglyph", .{
         .target = target,

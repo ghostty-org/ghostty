@@ -32,12 +32,7 @@ pub const Sprite = enum(u32) {
     cursor_rect,
     cursor_hollow_rect,
     cursor_bar,
-
-    // Note: we don't currently put the box drawing glyphs in here because
-    // there are a LOT and I'm lazy. What I want to do is spend more time
-    // studying the patterns to see if we can programmatically build our
-    // enum perhaps and comptime generate the drawing code at the same time.
-    // I'm not sure if that's advisable yet though.
+    cursor_underline,
 
     test {
         const testing = std.testing;

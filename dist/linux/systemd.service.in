@@ -1,7 +1,11 @@
 [Unit]
 Description=@NAME@
+After=graphical-session.target
 
 [Service]
 Type=dbus
 BusName=@APPID@
 ExecStart=@GHOSTTY@ --launched-from=systemd
+
+[Install]
+WantedBy=graphical-session.target

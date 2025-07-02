@@ -373,6 +373,13 @@ pub fn init(self: *App, core_app: *CoreApp, opts: Options) !void {
         .{},
     );
 
+    // Setup a listener for SIGUSR2 to reload the configuration.
+    _ = glib.unixSignalAdd(
+        std.posix.SIG.USR2,
+        sigusr2,
+        self,
+    );
+
     // We don't use g_application_run, we want to manually control the
     // loop so we have to do the same things the run function does:
     // https://github.com/GNOME/glib/blob/a8e8b742e7926e33eb635a8edceac74cf239d6ed/gio/gapplication.c#L2533
@@ -1506,6 +1513,22 @@ pub fn quitNow(self: *App) void {
     }.callback, null);
 
     self.running = false;
+}
+
+// SIGUSR2 signal handler via g_unix_signal_add
+fn sigusr2(ud: ?*anyopaque) callconv(.c) c_int {
+    const self: *App = @ptrCast(@alignCast(ud orelse
+        return @intFromBool(glib.SOURCE_CONTINUE)));
+
+    log.info("received SIGUSR2, reloading configuration", .{});
+    self.reloadConfig(.app, .{ .soft = false }) catch |err| {
+        log.err(
+            "error reloading configuration for SIGUSR2: {}",
+            .{err},
+        );
+    };
+
+    return @intFromBool(glib.SOURCE_CONTINUE);
 }
 
 /// This is called by the `activate` signal. This is sent on program startup and

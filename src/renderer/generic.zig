@@ -3039,15 +3039,22 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 return;
             }
 
-            const mode: shaderpkg.CellText.Mode = switch (fgMode(
-                render.presentation,
-                cell_pin,
-            )) {
-                .normal => .fg,
-                .color => .fg_color,
-                .constrained => .fg_constrained,
-                .powerline => .fg_powerline,
-            };
+            // We always use fg mode for sprite glyphs, since we know we never
+            // need to constrain them, and we don't have any color sprites.
+            //
+            // Otherwise we defer to `fgMode`.
+            const mode: shaderpkg.CellText.Mode =
+                if (render.glyph.sprite)
+                    .fg
+                else switch (fgMode(
+                    render.presentation,
+                    cell_pin,
+                )) {
+                    .normal => .fg,
+                    .color => .fg_color,
+                    .constrained => .fg_constrained,
+                    .powerline => .fg_powerline,
+                };
 
             try self.cells.add(self.alloc, .text, .{
                 .mode = mode,
@@ -3098,7 +3105,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         .block => .cursor_rect,
                         .block_hollow => .cursor_hollow_rect,
                         .bar => .cursor_bar,
-                        .underline => .underline,
+                        .underline => .cursor_underline,
                         .lock => unreachable,
                     };
 

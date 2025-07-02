@@ -1002,10 +1002,11 @@ fn childExited(self: *Surface, info: apprt.surface.Message.ChildExited) void {
     if (info.runtime_ms <= self.config.abnormal_command_exit_runtime_ms) runtime: {
         // On macOS, our exit code detection doesn't work, possibly
         // because of our `login` wrapper. More investigation required.
-        if (comptime builtin.target.os.tag.isDarwin()) break :runtime;
+        if (comptime !builtin.target.os.tag.isDarwin()) {
+            // If the exit code is 0 then it was a good exit.
+            if (info.exit_code == 0) break :runtime;
+        }
 
-        // If the exit code is 0 then we it was a good exit.
-        if (info.exit_code == 0) break :runtime;
         log.warn("abnormal process exit detected, showing error message", .{});
 
         // Update our terminal to note the abnormal exit. In the future we

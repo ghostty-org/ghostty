@@ -20,3 +20,6 @@ atlas_y: u32,
 
 /// horizontal position to increase drawing position for strings
 advance_x: f32,
+
+/// Whether we drew this glyph ourselves with the sprite font.
+sprite: bool = false,

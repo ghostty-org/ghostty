@@ -32,13 +32,13 @@ extend-ignore-re = [
   # Ignore typos in test expectations
   "testing\\.expect[^;]*;",
   "kHOM\\d*",
+  # Ignore "typos" in sprite font draw fn names
+  "draw[0-9A-F]+(_[0-9A-F]+)?\\(",
 ]
 
 [default.extend-words]
 Pn = "Pn"
 thr = "thr"
-# Should be "halves", but for now skip it as it would make diff huge
-halfs = "halfs"
 # Swift oddities
 Requestor = "Requestor"
 iterm = "iterm"
