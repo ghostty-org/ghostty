@@ -87,7 +87,7 @@ msgstr "दायाँ विभाजन गर्नुहोस्"
 
 #: src/apprt/gtk/ui/1.5/command-palette.blp:16
 msgid "Execute a command…"
-msgstr "कमाण्ड चलाउनुहोस्..."
+msgstr "कमाण्ड चलाउनुहोस्…"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
