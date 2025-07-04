@@ -416,8 +416,9 @@ pub fn add(
         .optimize = optimize,
     })) |dep| {
         step.root_module.addImport("CaseFolding", dep.module("CaseFolding"));
-        // Only needed for table gen, but still include to have build succeeed
-        step.root_module.addImport("DisplayWidth", dep.module("DisplayWidth"));
+        if (self.config.emit_unicode_test) {
+            step.root_module.addImport("DisplayWidth", dep.module("DisplayWidth"));
+        }
         step.root_module.addImport("Emoji", dep.module("Emoji"));
         step.root_module.addImport("GeneralCategories", dep.module("GeneralCategories"));
         step.root_module.addImport("Graphemes", dep.module("Graphemes"));

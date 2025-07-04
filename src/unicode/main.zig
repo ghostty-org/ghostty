@@ -41,7 +41,7 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(alloc);
     defer std.process.argsFree(alloc, args);
 
-    var zg = try props.init(alloc);
+    var zg = try props.Context.init(alloc);
     defer zg.deinit(alloc);
 
     const ziglyph = @import("ziglyph");

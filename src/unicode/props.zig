@@ -1,30 +1,55 @@
-const props = @This();
 const std = @import("std");
 const assert = std.debug.assert;
-const Graphemes = @import("Graphemes");
-const DisplayWidth = @import("DisplayWidth");
 const lut = @import("lut.zig");
+const Graphemes = @import("Graphemes");
 
-graphemes: Graphemes,
-display_width: DisplayWidth,
+/// The context needed for lut generation.
+pub const Context = struct {
+    graphemes: Graphemes,
+    display_width: DisplayWidth,
 
-// Whether to use the old implementation based on ziglyph.
-old: bool = false,
+    // Whether to use the old implementation based on ziglyph.
+    old: bool = false,
 
-// Public only for unicode-test
-pub fn init(alloc: std.mem.Allocator) !props {
-    const graphemes = try Graphemes.init(alloc);
-    return .{
-        .graphemes = graphemes,
-        .display_width = try DisplayWidth.initWithGraphemes(alloc, graphemes),
-    };
-}
+    const DisplayWidth = @import("DisplayWidth");
 
-// Public only for unicode-test
-pub fn deinit(self: *props, alloc: std.mem.Allocator) void {
-    self.graphemes.deinit(alloc);
-    self.display_width.deinit(alloc);
-}
+    // Public only for unicode-test
+    pub fn init(alloc: std.mem.Allocator) !Context {
+        const graphemes = try Graphemes.init(alloc);
+        return .{
+            .graphemes = graphemes,
+            .display_width = try DisplayWidth.initWithGraphemes(alloc, graphemes),
+        };
+    }
+
+    // Public only for unicode-test
+    pub fn deinit(self: *Context, alloc: std.mem.Allocator) void {
+        self.graphemes.deinit(alloc);
+        self.display_width.deinit(alloc);
+    }
+
+    pub fn get(self: Context, cp: u21) !Properties {
+        if (cp > 0x10FFFF) {
+            return .{
+                .width = 0,
+                .grapheme_boundary_class = .invalid,
+            };
+        } else {
+            const zg_width = DisplayWidth.codePointWidth(self.display_width, cp);
+
+            return .{
+                .width = @intCast(@min(2, @max(0, zg_width))),
+                //.grapheme_boundary_class = .init(self, cp),
+                .grapheme_boundary_class = if (self.old) .initOld(cp) else .init(self, cp),
+            };
+        }
+    }
+
+    pub fn eql(self: Context, a: Properties, b: Properties) bool {
+        _ = self;
+        return a.eql(b);
+    }
+};
 
 /// The lookup tables for Ghostty.
 pub const table = table: {
@@ -114,7 +139,7 @@ pub const GraphemeBoundaryClass = enum(u4) {
 
     /// Gets the grapheme boundary class for a codepoint. This is VERY
     /// SLOW. The use case for this is only in generating lookup tables.
-    pub fn init(ctx: props, cp: u21) GraphemeBoundaryClass {
+    pub fn init(ctx: Context, cp: u21) GraphemeBoundaryClass {
         return switch (Graphemes.gbp(ctx.graphemes, cp)) {
             .Emoji_Modifier_Base => .extended_pictographic_base,
             .Emoji_Modifier => .emoji_modifier,
@@ -180,28 +205,6 @@ pub const GraphemeBoundaryClass = enum(u4) {
     }
 };
 
-pub fn get(ctx: props, cp: u21) !Properties {
-    if (cp > 0x10FFFF) {
-        return .{
-            .width = 0,
-            .grapheme_boundary_class = .invalid,
-        };
-    } else {
-        const zg_width = DisplayWidth.codePointWidth(ctx.display_width, cp);
-
-        return .{
-            .width = @intCast(@min(2, @max(0, zg_width))),
-            //.grapheme_boundary_class = .init(ctx, cp),
-            .grapheme_boundary_class = if (ctx.old) .initOld(cp) else .init(ctx, cp),
-        };
-    }
-}
-
-pub fn eql(ctx: props, a: Properties, b: Properties) bool {
-    _ = ctx;
-    return a.eql(b);
-}
-
 /// Runnable binary to generate the lookup tables and output to stdout.
 pub fn main() !void {
     var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -211,17 +214,17 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(alloc);
     defer std.process.argsFree(alloc, args);
 
-    var self = try init(alloc);
-    defer self.deinit(alloc);
+    var ctx = try Context.init(alloc);
+    defer ctx.deinit(alloc);
 
     if (args.len > 1 and std.mem.eql(u8, args[1], "old")) {
-        self.old = true;
+        ctx.old = true;
     }
 
     const gen: lut.Generator(
         Properties,
-        props,
-    ) = .{ .ctx = self };
+        Context,
+    ) = .{ .ctx = ctx };
 
     const t = try gen.generate(alloc);
     defer alloc.free(t.stage1);
