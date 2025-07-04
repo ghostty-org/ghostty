@@ -148,6 +148,18 @@ const locales = [_][]const u8{
 
 You should then be able to run `zig build` and see your translations in action.
 
+Before opening a pull request with the new translation file, you should also add
+your locale to the `CODEOWNERS` file. Find the `# Localization` section near the
+bottom and add a line like so (where `xx_YY` is your locale):
+
+```diff
+ # Localization
+ /po/README_TRANSLATORS.md @ghostty-org/localization
+ /po/com.mitchellh.ghostty.pot @ghostty-org/localization
+ /po/zh_CN.UTF-8.po @ghostty-org/zh_CN
++/po/xx_YY.UTF-8.po @ghostty-org/xx_YY
+```
+
 ## Style Guide
 
 These are general style guidelines for translations. Naturally, the specific

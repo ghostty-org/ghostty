@@ -188,10 +188,31 @@ fn startPosix(self: *Command, arena: Allocator) !void {
     // Finally, replace our process.
     // Note: we must use the "p"-variant of exec here because we
     // do not guarantee our command is looked up already in the path.
-    _ = posix.execvpeZ(self.path, argsZ, envp) catch null;
+    const err = posix.execvpeZ(self.path, argsZ, envp);
 
-    // If we are executing this code, the exec failed. In that scenario,
-    // we return a very specific error that can be detected to determine
+    // If we are executing this code, the exec failed. We're in the
+    // child process so there isn't much we can do. We try to output
+    // something reasonable. Its important to note we MUST NOT return
+    // any other error condition from here on out.
+    const stderr = std.io.getStdErr().writer();
+    switch (err) {
+        error.FileNotFound => stderr.print(
+            \\Requested executable not found. Please verify the command is on
+            \\the PATH and try again.
+            \\
+        ,
+            .{},
+        ) catch {},
+
+        else => stderr.print(
+            \\exec syscall failed with unexpected error: {}
+            \\
+        ,
+            .{err},
+        ) catch {},
+    }
+
+    // We return a very specific error that can be detected to determine
     // we're in the child.
     return error.ExecFailedInChild;
 }

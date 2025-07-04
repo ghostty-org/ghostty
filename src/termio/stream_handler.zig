@@ -121,10 +121,16 @@ pub const StreamHandler = struct {
         self.default_background_color = config.background.toTerminalRGB();
         self.default_cursor_style = config.cursor_style;
         self.default_cursor_blink = config.cursor_blink;
-        self.default_cursor_color = if (!config.cursor_invert and config.cursor_color != null)
-            config.cursor_color.?.toTerminalRGB()
-        else
-            null;
+        self.default_cursor_color = color: {
+            if (config.cursor_color) |color| switch (color) {
+                .color => break :color color.color.toTerminalRGB(),
+                .@"cell-foreground",
+                .@"cell-background",
+                => {},
+            };
+
+            break :color null;
+        };
 
         // If our cursor is the default, then we update it immediately.
         if (self.default_cursor) self.setCursorStyle(.default) catch |err| {

@@ -1034,6 +1034,12 @@ fn childExited(self: *Surface, info: apprt.surface.Message.ChildExited) void {
         t.printString("Process exited. Press any key to close the terminal.") catch
             break :terminal;
         t.modes.set(.cursor_visible, false);
+
+        // We also want to ensure that normal keyboard encoding is on
+        // so that we can close the terminal. We close the terminal on
+        // any key press that encodes a character.
+        t.modes.set(.disable_keyboard, false);
+        t.screen.kitty_keyboard.set(.set, .{});
     }
 
     // Waiting after command we stop here. The terminal is updated, our
@@ -2129,14 +2135,6 @@ pub fn keyCallback(
         if (self.io.terminal.modes.get(.disable_keyboard)) return .consumed;
     }
 
-    // If our process is exited and we press a key then we close the
-    // surface. We may want to eventually move this to the apprt rather
-    // than in core.
-    if (self.child_exited and event.action == .press) {
-        self.close();
-        return .closed;
-    }
-
     // If this input event has text, then we hide the mouse if configured.
     // We only do this on pressed events to avoid hiding the mouse when we
     // change focus due to a keybinding (i.e. switching tabs).
@@ -2231,6 +2229,14 @@ pub fn keyCallback(
         event,
         if (insp_ev) |*ev| ev else null,
     )) |write_req| {
+        // If our process is exited and we press a key that results in
+        // an encoded value, we close the surface. We want to eventually
+        // move this behavior to the apprt probably.
+        if (self.child_exited) {
+            self.close();
+            return .closed;
+        }
+
         errdefer write_req.deinit();
         self.io.queueMessage(switch (write_req) {
             .small => |v| .{ .write_small = v },
