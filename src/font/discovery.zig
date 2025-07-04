@@ -831,6 +831,9 @@ pub const CoreText = struct {
         i: usize,
 
         pub fn deinit(self: *DiscoverIterator) void {
+            for (self.list) |desc| {
+                desc.release();
+            }
             self.alloc.free(self.list);
             self.* = undefined;
         }

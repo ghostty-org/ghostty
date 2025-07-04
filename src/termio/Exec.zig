@@ -90,15 +90,13 @@ pub fn threadEnter(
     // Start our subprocess
     const pty_fds = self.subprocess.start(alloc) catch |err| {
         // If we specifically got this error then we are in the forked
-        // process and our child failed to execute. In that case
-        if (err != error.Termio) return err;
+        // process and our child failed to execute. If we DIDN'T
+        // get this specific error then we're in the parent and
+        // we need to bubble it up.
+        if (err != error.ExecFailedInChild) return err;
 
-        // Output an error message about the exec faililng and exit.
-        // This generally should NOT happen because we always wrap
-        // our command execution either in login (macOS) or /bin/sh
-        // (Linux) which are usually guaranteed to exist. Still, we
-        // want to handle this scenario.
-        execFailedInChild() catch {};
+        // We're in the child. Nothing more we can do but abnormal exit.
+        // The Command will output some additional information.
         posix.exit(1);
     };
     errdefer self.subprocess.stop();
@@ -270,25 +268,6 @@ pub fn resize(
     screen_size: renderer.ScreenSize,
 ) !void {
     return try self.subprocess.resize(grid_size, screen_size);
-}
-
-/// This outputs an error message when exec failed and we are the
-/// child process. This returns so the caller should probably exit
-/// after calling this.
-///
-/// Note that this usually is only called under very very rare
-/// circumstances because we wrap our command execution in login
-/// (macOS) or /bin/sh (Linux). So this output can be pretty crude
-/// because it should never happen. Notably, this is not the error
-/// users see when `command` is invalid.
-fn execFailedInChild() !void {
-    const stderr = std.io.getStdErr().writer();
-    try stderr.writeAll("exec failed\n");
-    try stderr.writeAll("press any key to exit\n");
-
-    var buf: [1]u8 = undefined;
-    var reader = std.io.getStdIn().reader();
-    _ = try reader.read(&buf);
 }
 
 fn processExitCommon(td: *termio.Termio.ThreadData, exit_code: u32) void {
@@ -847,6 +826,15 @@ const Subprocess = struct {
         else
             null;
 
+        // Propagate the current working directory (CWD) to the shell, enabling
+        // the shell to display the current directory name rather than the
+        // resolved path for symbolic links. This is important and based
+        // on the same behavior in Konsole and Kitty (see the linked issues):
+        // https://bugs.kde.org/show_bug.cgi?id=242114
+        // https://github.com/kovidgoyal/kitty/issues/1595
+        // https://github.com/ghostty-org/ghostty/discussions/7769
+        if (cwd) |pwd| try env.put("PWD", pwd);
+
         // If we have a cgroup, then we copy that into our arena so the
         // memory remains valid when we start.
         const linux_cgroup: Command.LinuxCgroup = cgroup: {
@@ -886,6 +874,12 @@ const Subprocess = struct {
     } {
         assert(self.pty == null and self.command == null);
 
+        // This function is funny because on POSIX systems it can
+        // fail in the forked process. This is flipped to true if
+        // we're in an error state in the forked process (child
+        // process).
+        var in_child: bool = false;
+
         // Create our pty
         var pty = try Pty.open(.{
             .ws_row = @intCast(self.grid_size.rows),
@@ -894,14 +888,14 @@ const Subprocess = struct {
             .ws_ypixel = @intCast(self.screen_size.height),
         });
         self.pty = pty;
-        errdefer {
+        errdefer if (!in_child) {
             if (comptime builtin.os.tag != .windows) {
                 _ = posix.close(pty.slave);
             }
 
             pty.deinit();
             self.pty = null;
-        }
+        };
 
         log.debug("starting command command={s}", .{self.args});
 
@@ -1004,7 +998,22 @@ const Subprocess = struct {
             .data = self,
             .linux_cgroup = self.linux_cgroup,
         };
-        try cmd.start(alloc);
+
+        cmd.start(alloc) catch |err| {
+            // We have to do this because start on Windows can't
+            // ever return ExecFailedInChild
+            const StartError = error{ExecFailedInChild} || @TypeOf(err);
+            switch (@as(StartError, err)) {
+                // If we fail in our child we need to flag it so our
+                // errdefers don't run.
+                error.ExecFailedInChild => {
+                    in_child = true;
+                    return err;
+                },
+
+                else => return err,
+            }
+        };
         errdefer killCommand(&cmd) catch |err| {
             log.warn("error killing command during cleanup err={}", .{err});
         };

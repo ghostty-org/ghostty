@@ -109,7 +109,8 @@ pub const Shaper = struct {
     /// settings the font features of a CoreText font.
     fn makeFeaturesDict(feats: []const Feature) !*macos.foundation.Dictionary {
         const list = try macos.foundation.MutableArray.create();
-        errdefer list.release();
+        // The list will be retained by the dict once we add it to it.
+        defer list.release();
 
         for (feats) |feat| {
             const value_num: c_int = @intCast(feat.value);

@@ -175,9 +175,9 @@
   },
   {
     "type": "archive",
-    "url": "https://github.com/mitchellh/zig-objc/archive/3ab0d37c7d6b933d6ded1b3a35b6b60f05590a98.tar.gz",
-    "dest": "vendor/p/zig_objc-0.0.0-Ir_Sp3TyAADEVRTxXlScq3t_uKAM91MYNerZkHfbD0yt",
-    "sha256": "ce7d6d47ac614a60e56b8509dedf869e2e0d8b747c75e48aded11eec31b3357c"
+    "url": "https://github.com/mitchellh/zig-objc/archive/c9e917a4e15a983b672ca779c7985d738a2d517c.tar.gz",
+    "dest": "vendor/p/zig_objc-0.0.0-Ir_SpwsPAQBJgi9YRm2ubJMfdoysSq5gKpsIj3izQ8Zk",
+    "sha256": "a37be5eea7e44a2d1b2976ba256b85f76a8c1063fc01ffec85c8a9e67468e4dc"
   },
   {
     "type": "archive",
