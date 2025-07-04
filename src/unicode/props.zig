@@ -8,6 +8,9 @@ const lut = @import("lut.zig");
 graphemes: Graphemes,
 display_width: DisplayWidth,
 
+// Whether to use the old implementation based on ziglyph.
+old: bool = false,
+
 // Public only for unicode-test
 pub fn init(alloc: std.mem.Allocator) !props {
     const graphemes = try Graphemes.init(alloc);
@@ -28,6 +31,19 @@ pub const table = table: {
     // This is only available after running main() below as part of the Ghostty
     // build.zig, but due to Zig's lazy analysis we can still reference it here.
     const generated = @import("unicode_tables").Tables(Properties);
+    const Tables = lut.Tables(Properties);
+    break :table Tables{
+        .stage1 = &generated.stage1,
+        .stage2 = &generated.stage2,
+        .stage3 = &generated.stage3,
+    };
+};
+
+/// The old lookup tables for Ghostty. Only used for unicode-test.
+pub const oldTable = table: {
+    // This is only available after running main() below as part of the Ghostty
+    // build.zig, but due to Zig's lazy analysis we can still reference it here.
+    const generated = @import("old_unicode_tables").Tables(Properties);
     const Tables = lut.Tables(Properties);
     break :table Tables{
         .stage1 = &generated.stage1,
@@ -120,6 +136,36 @@ pub const GraphemeBoundaryClass = enum(u4) {
         };
     }
 
+    pub fn initOld(cp: u21) GraphemeBoundaryClass {
+        const ziglyph = @import("ziglyph");
+
+        // We special-case modifier bases because we should not break
+        // if a modifier isn't next to a base.
+        if (ziglyph.emoji.isEmojiModifierBase(cp)) {
+            assert(ziglyph.emoji.isExtendedPictographic(cp));
+            return .extended_pictographic_base;
+        }
+
+        if (ziglyph.emoji.isEmojiModifier(cp)) return .emoji_modifier;
+        if (ziglyph.emoji.isExtendedPictographic(cp)) return .extended_pictographic;
+        if (ziglyph.grapheme_break.isL(cp)) return .L;
+        if (ziglyph.grapheme_break.isV(cp)) return .V;
+        if (ziglyph.grapheme_break.isT(cp)) return .T;
+        if (ziglyph.grapheme_break.isLv(cp)) return .LV;
+        if (ziglyph.grapheme_break.isLvt(cp)) return .LVT;
+        if (ziglyph.grapheme_break.isPrepend(cp)) return .prepend;
+        if (ziglyph.grapheme_break.isExtend(cp)) return .extend;
+        if (ziglyph.grapheme_break.isZwj(cp)) return .zwj;
+        if (ziglyph.grapheme_break.isSpacingmark(cp)) return .spacing_mark;
+        if (ziglyph.grapheme_break.isRegionalIndicator(cp)) return .regional_indicator;
+
+        // This is obviously not INVALID invalid, there is SOME grapheme
+        // boundary class for every codepoint. But we don't care about
+        // anything that doesn't fit into the above categories.
+
+        return .invalid;
+    }
+
     /// Returns true if this is an extended pictographic type. This
     /// should be used instead of comparing the enum value directly
     /// because we classify multiple.
@@ -145,7 +191,8 @@ pub fn get(ctx: props, cp: u21) !Properties {
 
         return .{
             .width = @intCast(@min(2, @max(0, zg_width))),
-            .grapheme_boundary_class = .init(ctx, cp),
+            //.grapheme_boundary_class = .init(ctx, cp),
+            .grapheme_boundary_class = if (ctx.old) .initOld(cp) else .init(ctx, cp),
         };
     }
 }
@@ -161,8 +208,15 @@ pub fn main() !void {
     defer arena_state.deinit();
     const alloc = arena_state.allocator();
 
+    const args = try std.process.argsAlloc(alloc);
+    defer std.process.argsFree(alloc, args);
+
     var self = try init(alloc);
     defer self.deinit(alloc);
+
+    if (args.len > 1 and std.mem.eql(u8, args[1], "old")) {
+        self.old = true;
+    }
 
     const gen: lut.Generator(
         Properties,

@@ -3,6 +3,7 @@ const UnicodeTest = @This();
 const std = @import("std");
 const Config = @import("Config.zig");
 const SharedDeps = @import("SharedDeps.zig");
+const UnicodeTables = @import("UnicodeTables.zig");
 
 /// The unicode test executable.
 exe: *std.Build.Step.Compile,
@@ -27,12 +28,22 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Unicode
     // Add the shared dependencies
     _ = try deps.add(exe);
 
+    // Add ziglyph just for unicode-test
     if (b.lazyDependency("ziglyph", .{
         .target = cfg.target,
         .optimize = cfg.optimize,
     })) |dep| {
         exe.root_module.addImport("ziglyph", dep.module("ziglyph"));
     }
+
+    // Add the old version of the unicode tables
+    const old_unicode_tables = try UnicodeTables.init(b);
+    old_unicode_tables.run.addArg("old");
+
+    old_unicode_tables.output.addStepDependencies(&exe.step);
+    exe.root_module.addAnonymousImport("old_unicode_tables", .{
+        .root_source_file = old_unicode_tables.output,
+    });
 
     return .{
         .exe = exe,

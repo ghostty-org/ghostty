@@ -2,6 +2,7 @@ const std = @import("std");
 const props = @import("props.zig");
 const GraphemeBoundaryClass = props.GraphemeBoundaryClass;
 const table = props.table;
+const oldTable = props.oldTable;
 
 /// Determines if there is a grapheme break between two codepoints. This
 /// must be called sequentially maintaining the state between calls.
@@ -15,6 +16,19 @@ pub fn graphemeBreak(cp1: u21, cp2: u21, state: *BreakState) bool {
         (Precompute.Key{
             .gbc1 = table.get(cp1).grapheme_boundary_class,
             .gbc2 = table.get(cp2).grapheme_boundary_class,
+            .state = state.*,
+        }).index()
+    ];
+    state.* = value.state;
+    return value.result;
+}
+
+/// Only used for unicode-test.
+pub fn oldGraphemeBreak(cp1: u21, cp2: u21, state: *BreakState) bool {
+    const value = Precompute.data[
+        (Precompute.Key{
+            .gbc1 = oldTable.get(cp1).grapheme_boundary_class,
+            .gbc2 = oldTable.get(cp2).grapheme_boundary_class,
             .state = state.*,
         }).index()
     ];
