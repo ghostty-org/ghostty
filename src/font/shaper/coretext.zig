@@ -576,6 +576,8 @@ pub const Shaper = struct {
 test "run iterator" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
@@ -656,6 +658,8 @@ test "run iterator" {
 test "run iterator: empty cells with background set" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
@@ -704,6 +708,8 @@ test "run iterator: empty cells with background set" {
 test "shape" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
@@ -737,6 +743,8 @@ test "shape" {
 test "shape nerd fonts" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var testdata = try testShaperWithFont(alloc, .nerd_font);
     defer testdata.deinit();
@@ -770,6 +778,8 @@ test "shape nerd fonts" {
 test "shape inconsolata ligs" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
@@ -824,6 +834,8 @@ test "shape inconsolata ligs" {
 test "shape monaspace ligs" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var testdata = try testShaperWithFont(alloc, .monaspace_neon);
     defer testdata.deinit();
@@ -856,6 +868,8 @@ test "shape monaspace ligs" {
 test "shape left-replaced lig in last run" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var testdata = try testShaperWithFont(alloc, .geist_mono);
     defer testdata.deinit();
@@ -888,6 +902,8 @@ test "shape left-replaced lig in last run" {
 test "shape left-replaced lig in early run" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var testdata = try testShaperWithFont(alloc, .geist_mono);
     defer testdata.deinit();
@@ -917,6 +933,8 @@ test "shape left-replaced lig in early run" {
 test "shape U+3C9 with JB Mono" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var testdata = try testShaperWithFont(alloc, .jetbrains_mono);
     defer testdata.deinit();
@@ -948,6 +966,8 @@ test "shape U+3C9 with JB Mono" {
 test "shape emoji width" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
@@ -977,6 +997,8 @@ test "shape emoji width" {
 test "shape emoji width long" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
@@ -1024,6 +1046,8 @@ test "shape emoji width long" {
 test "shape variation selector VS15" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
@@ -1057,6 +1081,8 @@ test "shape variation selector VS15" {
 test "shape variation selector VS16" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
@@ -1090,6 +1116,8 @@ test "shape variation selector VS16" {
 test "shape with empty cells in between" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
@@ -1121,6 +1149,8 @@ test "shape with empty cells in between" {
 test "shape Chinese characters" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
@@ -1161,6 +1191,8 @@ test "shape Chinese characters" {
 test "shape box glyphs" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
@@ -1198,6 +1230,8 @@ test "shape box glyphs" {
 test "shape selection boundary" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
@@ -1321,6 +1355,8 @@ test "shape selection boundary" {
 test "shape cursor boundary" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
@@ -1458,6 +1494,8 @@ test "shape cursor boundary" {
 test "shape cursor boundary and colored emoji" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
@@ -1552,6 +1590,8 @@ test "shape cursor boundary and colored emoji" {
 test "shape cell attribute change" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();
@@ -1680,6 +1720,8 @@ test "shape high plane sprite font codepoint" {
 
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var testdata = try testShaper(alloc);
     defer testdata.deinit();

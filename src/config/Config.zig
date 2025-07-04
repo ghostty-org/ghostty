@@ -16,7 +16,6 @@ const build_config = @import("../build_config.zig");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const global_state = &@import("../global.zig").state;
 const fontpkg = @import("../font/main.zig");
 const inputpkg = @import("../input.zig");
 const terminal = @import("../terminal/main.zig");
@@ -5765,6 +5764,8 @@ pub const Keybinds = struct {
         var arena = ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
         const alloc = arena.allocator();
+        const zg = try @import("../global.zig").Zg.initForTesting();
+        defer zg.deinitForTesting();
 
         var set: Keybinds = .{};
         try set.parseCLI(alloc, "shift+a=copy_to_clipboard");
@@ -5779,6 +5780,8 @@ pub const Keybinds = struct {
         var arena = ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
         const alloc = arena.allocator();
+        const zg = try @import("../global.zig").Zg.initForTesting();
+        defer zg.deinitForTesting();
 
         var list: Keybinds = .{};
         try list.parseCLI(alloc, "shift+a=csi:hello");
@@ -5795,6 +5798,8 @@ pub const Keybinds = struct {
         var arena = ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
         const alloc = arena.allocator();
+        const zg = try @import("../global.zig").Zg.initForTesting();
+        defer zg.deinitForTesting();
 
         var list: Keybinds = .{};
         try list.parseCLI(alloc, "ctrl+z>1=goto_tab:1");
@@ -5819,6 +5824,8 @@ pub const Keybinds = struct {
         var arena = ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
         const alloc = arena.allocator();
+        const zg = try @import("../global.zig").Zg.initForTesting();
+        defer zg.deinitForTesting();
 
         var list: Keybinds = .{};
         try list.parseCLI(alloc, "ctrl+a>ctrl+b>n=new_window");
@@ -6030,6 +6037,8 @@ pub const RepeatableCodepointMap = struct {
         var arena = ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
         const alloc = arena.allocator();
+        const zg = try @import("../global.zig").Zg.initForTesting();
+        defer zg.deinitForTesting();
 
         var list: Self = .{};
         try list.parseCLI(alloc, "U+ABCD=Comic Sans");
@@ -6067,6 +6076,8 @@ pub const RepeatableCodepointMap = struct {
         var arena = ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
         const alloc = arena.allocator();
+        const zg = try @import("../global.zig").Zg.initForTesting();
+        defer zg.deinitForTesting();
 
         var list: Self = .{};
         try list.parseCLI(alloc, "U+ABCD=Comic Sans");
@@ -6082,6 +6093,8 @@ pub const RepeatableCodepointMap = struct {
         var arena = ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
         const alloc = arena.allocator();
+        const zg = try @import("../global.zig").Zg.initForTesting();
+        defer zg.deinitForTesting();
 
         var list: Self = .{};
         try list.parseCLI(alloc, "U+0001 - U+0005=Verdana");
@@ -6097,6 +6110,8 @@ pub const RepeatableCodepointMap = struct {
         var arena = ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
         const alloc = arena.allocator();
+        const zg = try @import("../global.zig").Zg.initForTesting();
+        defer zg.deinitForTesting();
 
         var list: Self = .{};
         try list.parseCLI(alloc, "U+0006-U+0009, U+ABCD=Courier");
@@ -6175,6 +6190,8 @@ pub const FontStyle = union(enum) {
         var arena = ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
         const alloc = arena.allocator();
+        const zg = try @import("../global.zig").Zg.initForTesting();
+        defer zg.deinitForTesting();
 
         var p: Self = .{ .default = {} };
         try p.parseCLI(alloc, "default");
@@ -6195,6 +6212,8 @@ pub const FontStyle = union(enum) {
         var arena = ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
         const alloc = arena.allocator();
+        const zg = try @import("../global.zig").Zg.initForTesting();
+        defer zg.deinitForTesting();
 
         var p: Self = .{ .default = {} };
         try p.parseCLI(alloc, "default");
@@ -6210,6 +6229,8 @@ pub const FontStyle = union(enum) {
         var arena = ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
         const alloc = arena.allocator();
+        const zg = try @import("../global.zig").Zg.initForTesting();
+        defer zg.deinitForTesting();
 
         var p: Self = .{ .default = {} };
         try p.parseCLI(alloc, "false");
@@ -6225,6 +6246,8 @@ pub const FontStyle = union(enum) {
         var arena = ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
         const alloc = arena.allocator();
+        const zg = try @import("../global.zig").Zg.initForTesting();
+        defer zg.deinitForTesting();
 
         var p: Self = .{ .default = {} };
         try p.parseCLI(alloc, "bold");
@@ -6402,6 +6425,8 @@ pub const RepeatableCommand = struct {
         var arena = ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
         const alloc = arena.allocator();
+        const zg = try @import("../global.zig").Zg.initForTesting();
+        defer zg.deinitForTesting();
 
         var list: RepeatableCommand = .{};
         try list.parseCLI(alloc, "title:Foo,action:ignore");
@@ -6447,6 +6472,8 @@ pub const RepeatableCommand = struct {
         var arena = ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
         const alloc = arena.allocator();
+        const zg = try @import("../global.zig").Zg.initForTesting();
+        defer zg.deinitForTesting();
 
         var list: RepeatableCommand = .{};
         try list.parseCLI(alloc, "title:Bobr, action:text:Bober");
@@ -6462,6 +6489,8 @@ pub const RepeatableCommand = struct {
         var arena = ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
         const alloc = arena.allocator();
+        const zg = try @import("../global.zig").Zg.initForTesting();
+        defer zg.deinitForTesting();
 
         var list: RepeatableCommand = .{};
         try list.parseCLI(alloc, "title:Bobr, action:text:kurwa");
@@ -7180,6 +7209,8 @@ pub const Theme = struct {
         var arena = ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
         const alloc = arena.allocator();
+        const zg = try @import("../global.zig").Zg.initForTesting();
+        defer zg.deinitForTesting();
 
         // Single
         {
@@ -7597,6 +7628,8 @@ const TestIterator = struct {
 
 test "parse hook: invalid command" {
     const testing = std.testing;
+    const zg = try @import("../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
     var cfg = try Config.default(testing.allocator);
     defer cfg.deinit();
     const alloc = cfg._arena.?.allocator();
@@ -7608,6 +7641,8 @@ test "parse hook: invalid command" {
 
 test "parse e: command only" {
     const testing = std.testing;
+    const zg = try @import("../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
     var cfg = try Config.default(testing.allocator);
     defer cfg.deinit();
     const alloc = cfg._arena.?.allocator();
@@ -7623,6 +7658,8 @@ test "parse e: command only" {
 
 test "parse e: command and args" {
     const testing = std.testing;
+    const zg = try @import("../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
     var cfg = try Config.default(testing.allocator);
     defer cfg.deinit();
     const alloc = cfg._arena.?.allocator();
@@ -7641,6 +7678,8 @@ test "parse e: command and args" {
 test "clone default" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var source = try Config.default(alloc);
     defer source.deinit();
@@ -7658,6 +7697,8 @@ test "clone default" {
 test "clone preserves conditional state" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var a = try Config.default(alloc);
     defer a.deinit();
@@ -7686,6 +7727,8 @@ test "clone can then change conditional state" {
     var arena = ArenaAllocator.init(alloc);
     defer arena.deinit();
     const alloc_arena = arena.allocator();
+    const zg = try @import("../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     // Setup our test theme
     var td = try internal_os.TempDir.init();
@@ -7746,6 +7789,8 @@ test "clone can then change conditional state" {
 test "clone preserves conditional set" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var cfg = try Config.default(alloc);
     defer cfg.deinit();
@@ -7765,6 +7810,8 @@ test "clone preserves conditional set" {
 test "changed" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var source = try Config.default(alloc);
     defer source.deinit();
@@ -7779,6 +7826,8 @@ test "changed" {
 test "changeConditionalState ignores irrelevant changes" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     {
         var cfg = try Config.default(alloc);
@@ -7798,6 +7847,8 @@ test "changeConditionalState ignores irrelevant changes" {
 test "changeConditionalState applies relevant changes" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     {
         var cfg = try Config.default(alloc);
@@ -7820,6 +7871,8 @@ test "theme loading" {
     var arena = ArenaAllocator.init(alloc);
     defer arena.deinit();
     const alloc_arena = arena.allocator();
+    const zg = try @import("../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     // Setup our test theme
     var td = try internal_os.TempDir.init();
@@ -7856,6 +7909,8 @@ test "theme loading preserves conditional state" {
     var arena = ArenaAllocator.init(alloc);
     defer arena.deinit();
     const alloc_arena = arena.allocator();
+    const zg = try @import("../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     // Setup our test theme
     var td = try internal_os.TempDir.init();
@@ -7886,6 +7941,8 @@ test "theme priority is lower than config" {
     var arena = ArenaAllocator.init(alloc);
     defer arena.deinit();
     const alloc_arena = arena.allocator();
+    const zg = try @import("../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     // Setup our test theme
     var td = try internal_os.TempDir.init();
@@ -7920,6 +7977,8 @@ test "theme loading correct light/dark" {
     var arena = ArenaAllocator.init(alloc);
     defer arena.deinit();
     const alloc_arena = arena.allocator();
+    const zg = try @import("../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     // Setup our test theme
     var td = try internal_os.TempDir.init();
@@ -8009,6 +8068,8 @@ test "theme loading correct light/dark" {
 test "theme specifying light/dark changes window-theme from auto" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     {
         var cfg = try Config.default(alloc);
@@ -8027,6 +8088,8 @@ test "theme specifying light/dark changes window-theme from auto" {
 test "theme specifying light/dark sets theme usage in conditional state" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     {
         var cfg = try Config.default(alloc);

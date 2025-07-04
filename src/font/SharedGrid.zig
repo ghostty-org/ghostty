@@ -369,6 +369,8 @@ fn testGrid(mode: TestMode, alloc: Allocator, lib: Library) !SharedGrid {
 test getIndex {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
     // const testEmoji = @import("test.zig").fontEmoji;
 
     var lib = try Library.init(alloc);

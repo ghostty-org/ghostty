@@ -11,7 +11,7 @@ const Allocator = std.mem.Allocator;
 /// can in theory be generated at runtime.
 ///
 /// Context must have two functions:
-///   - `get(Context, u21) Elem`: returns the mapping for a given codepoint
+///   - `get(Context, u21) !Elem`: returns the mapping for a given codepoint
 ///   - `eql(Context, Elem, Elem) bool`: returns true if two mappings are equal
 ///
 pub fn Generator(

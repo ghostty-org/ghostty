@@ -1,8 +1,25 @@
 const props = @This();
 const std = @import("std");
 const assert = std.debug.assert;
-const ziglyph = @import("ziglyph");
+const Graphemes = @import("Graphemes");
+const DisplayWidth = @import("DisplayWidth");
 const lut = @import("lut.zig");
+
+graphemes: Graphemes,
+display_width: DisplayWidth,
+
+fn init(alloc: std.mem.Allocator) !props {
+    const graphemes = try Graphemes.init(alloc);
+    return .{
+        .graphemes = graphemes,
+        .display_width = try DisplayWidth.initWithGraphemes(alloc, graphemes),
+    };
+}
+
+fn deinit(self: *props, alloc: std.mem.Allocator) void {
+    self.graphemes.deinit(alloc);
+    self.display_width.deinit(alloc);
+}
 
 /// The lookup tables for Ghostty.
 pub const table = table: {
@@ -79,31 +96,26 @@ pub const GraphemeBoundaryClass = enum(u4) {
 
     /// Gets the grapheme boundary class for a codepoint. This is VERY
     /// SLOW. The use case for this is only in generating lookup tables.
-    pub fn init(cp: u21) GraphemeBoundaryClass {
-        // We special-case modifier bases because we should not break
-        // if a modifier isn't next to a base.
-        if (ziglyph.emoji.isEmojiModifierBase(cp)) {
-            assert(ziglyph.emoji.isExtendedPictographic(cp));
-            return .extended_pictographic_base;
-        }
-
-        if (ziglyph.emoji.isEmojiModifier(cp)) return .emoji_modifier;
-        if (ziglyph.emoji.isExtendedPictographic(cp)) return .extended_pictographic;
-        if (ziglyph.grapheme_break.isL(cp)) return .L;
-        if (ziglyph.grapheme_break.isV(cp)) return .V;
-        if (ziglyph.grapheme_break.isT(cp)) return .T;
-        if (ziglyph.grapheme_break.isLv(cp)) return .LV;
-        if (ziglyph.grapheme_break.isLvt(cp)) return .LVT;
-        if (ziglyph.grapheme_break.isPrepend(cp)) return .prepend;
-        if (ziglyph.grapheme_break.isExtend(cp)) return .extend;
-        if (ziglyph.grapheme_break.isZwj(cp)) return .zwj;
-        if (ziglyph.grapheme_break.isSpacingmark(cp)) return .spacing_mark;
-        if (ziglyph.grapheme_break.isRegionalIndicator(cp)) return .regional_indicator;
-
-        // This is obviously not INVALID invalid, there is SOME grapheme
-        // boundary class for every codepoint. But we don't care about
-        // anything that doesn't fit into the above categories.
-        return .invalid;
+    pub fn init(ctx: props, cp: u21) GraphemeBoundaryClass {
+        return switch (Graphemes.gbp(ctx.graphemes, cp)) {
+            .Emoji_Modifier_Base => .extended_pictographic_base,
+            .Emoji_Modifier => .emoji_modifier,
+            .Extended_Pictographic => .extended_pictographic,
+            .L => .L,
+            .V => .V,
+            .T => .T,
+            .LV => .LV,
+            .LVT => .LVT,
+            .Prepend => .prepend,
+            .Extend => .extend,
+            .ZWJ => .zwj,
+            .SpacingMark => .spacing_mark,
+            .Regional_Indicator => .regional_indicator,
+            // This is obviously not INVALID invalid, there is SOME grapheme
+            // boundary class for every codepoint. But we don't care about
+            // anything that doesn't fit into the above categories.
+            .none, .Control, .CR, .LF => .invalid,
+        };
     }
 
     /// Returns true if this is an extended pictographic type. This
@@ -120,13 +132,25 @@ pub const GraphemeBoundaryClass = enum(u4) {
     }
 };
 
-pub fn get(cp: u21) Properties {
-    const zg_width = ziglyph.display_width.codePointWidth(cp, .half);
+pub fn get(ctx: props, cp: u21) !Properties {
+    if (cp > 0x10FFFF) {
+        return .{
+            .width = 0,
+            .grapheme_boundary_class = .invalid,
+        };
+    } else {
+        const zg_width = DisplayWidth.codePointWidth(ctx.display_width, cp);
 
-    return .{
-        .width = @intCast(@min(2, @max(0, zg_width))),
-        .grapheme_boundary_class = .init(cp),
-    };
+        return .{
+            .width = @intCast(@min(2, @max(0, zg_width))),
+            .grapheme_boundary_class = .init(ctx, cp),
+        };
+    }
+}
+
+pub fn eql(ctx: props, a: Properties, b: Properties) bool {
+    _ = ctx;
+    return a.eql(b);
 }
 
 /// Runnable binary to generate the lookup tables and output to stdout.
@@ -135,20 +159,13 @@ pub fn main() !void {
     defer arena_state.deinit();
     const alloc = arena_state.allocator();
 
+    var self = try init(alloc);
+    defer self.deinit(alloc);
+
     const gen: lut.Generator(
         Properties,
-        struct {
-            pub fn get(ctx: @This(), cp: u21) !Properties {
-                _ = ctx;
-                return props.get(cp);
-            }
-
-            pub fn eql(ctx: @This(), a: Properties, b: Properties) bool {
-                _ = ctx;
-                return a.eql(b);
-            }
-        },
-    ) = .{};
+        props,
+    ) = .{ .ctx = self };
 
     const t = try gen.generate(alloc);
     defer alloc.free(t.stage1);
@@ -166,16 +183,19 @@ pub fn main() !void {
 
 // This is not very fast in debug modes, so its commented by default.
 // IMPORTANT: UNCOMMENT THIS WHENEVER MAKING CODEPOINTWIDTH CHANGES.
-// test "tables match ziglyph" {
-//     const testing = std.testing;
+//test "tables match zg" {
+//    const testing = std.testing;
 //
-//     const min = 0xFF + 1; // start outside ascii
-//     for (min..std.math.maxInt(u21)) |cp| {
-//         const t = table.get(@intCast(cp));
-//         const zg = @min(2, @max(0, ziglyph.display_width.codePointWidth(@intCast(cp), .half)));
-//         if (t.width != zg) {
-//             std.log.warn("mismatch cp=U+{x} t={} zg={}", .{ cp, t, zg });
-//             try testing.expect(false);
-//         }
-//     }
-// }
+//    const display_width = try DisplayWidth.init(std.testing.allocator);
+//    defer display_width.deinit(std.testing.allocator);
+//
+//    const min = 0xFF + 1; // start outside ascii
+//    for (min..0x110000) |cp| {
+//        const t = table.get(@intCast(cp));
+//        const zg = @min(2, @max(0, DisplayWidth.codePointWidth(display_width, @intCast(cp))));
+//        if (t.width != zg) {
+//            std.log.warn("mismatch cp=U+{x} t={} zg={}", .{ cp, t, zg });
+//            try testing.expect(false);
+//        }
+//    }
+//}

@@ -121,6 +121,8 @@ fn fieldByKey(self: *const Config, comptime k: Key) Value(k) {
 test "c_get: u8" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var c = try Config.default(alloc);
     defer c.deinit();
@@ -134,6 +136,8 @@ test "c_get: u8" {
 test "c_get: enum" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var c = try Config.default(alloc);
     defer c.deinit();
@@ -149,6 +153,8 @@ test "c_get: enum" {
 test "c_get: color" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var c = try Config.default(alloc);
     defer c.deinit();
@@ -164,6 +170,8 @@ test "c_get: color" {
 test "c_get: optional" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var c = try Config.default(alloc);
     defer c.deinit();
@@ -187,6 +195,8 @@ test "c_get: optional" {
 test "c_get: background-blur" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const zg = try @import("../global.zig").Zg.initForTesting();
+    defer zg.deinitForTesting();
 
     var c = try Config.default(alloc);
     defer c.deinit();

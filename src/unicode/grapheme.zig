@@ -149,21 +149,19 @@ fn graphemeBreakClass(
     return true;
 }
 
-/// If you build this file as a binary, we will verify the grapheme break
-/// implementation. This iterates over billions of codepoints so it is
-/// SLOW. It's not meant to be run in CI, but it's useful for debugging.
-pub fn main() !void {
+// This test will verify the grapheme break implementation. This iterates over billions of codepoints so it is SLOW.
+// It's not meant to be run in CI, but it's useful for debugging.
+test "grapheme break check against ziglyph" {
     const ziglyph = @import("ziglyph");
 
     // Set the min and max to control the test range.
     const min = 0;
     const max = std.math.maxInt(u21) + 1;
+    var success: bool = true;
 
     var state: BreakState = .{};
     var zg_state: u3 = 0;
     for (min..max) |cp1| {
-        if (cp1 % 1000 == 0) std.log.warn("progress cp1={}", .{cp1});
-
         if (cp1 == '\r' or cp1 == '\n' or
             ziglyph.grapheme_break.isControl(@intCast(cp1))) continue;
 
@@ -174,6 +172,7 @@ pub fn main() !void {
             const gb = graphemeBreak(@intCast(cp1), @intCast(cp2), &state);
             const zg_gb = ziglyph.graphemeBreak(@intCast(cp1), @intCast(cp2), &zg_state);
             if (gb != zg_gb) {
+                success = false;
                 std.log.warn("cp1={x} cp2={x} gb={} state={} zg_gb={} zg_state={}", .{
                     cp1,
                     cp2,
@@ -185,6 +184,8 @@ pub fn main() !void {
             }
         }
     }
+
+    try std.testing.expect(success);
 }
 
 pub const std_options = struct {

@@ -21,13 +21,11 @@ pub fn init(b: *std.Build) !UnicodeTables {
         }),
     });
 
-    if (b.lazyDependency("ziglyph", .{
+    if (b.lazyDependency("zg", .{
         .target = b.graph.host,
-    })) |ziglyph_dep| {
-        exe.root_module.addImport(
-            "ziglyph",
-            ziglyph_dep.module("ziglyph"),
-        );
+    })) |dep| {
+        exe.root_module.addImport("Graphemes", dep.module("Graphemes"));
+        exe.root_module.addImport("DisplayWidth", dep.module("DisplayWidth"));
     }
 
     const run = b.addRunArtifact(exe);
