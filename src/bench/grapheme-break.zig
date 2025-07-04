@@ -5,14 +5,13 @@
 //! This will consume all of the available stdin, so you should run it
 //! with `head` in a pipe to restrict. For example, to test ASCII input:
 //!
-//!   bench-stream --mode=gen-ascii | head -c 50M | bench-grapheme-break --mode=ziglyph
+//!   bench-stream --mode=gen-ascii | head -c 50M | bench-grapheme-break --mode=zg
 //!
 
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const ziglyph = @import("ziglyph");
 const Graphemes = @import("Graphemes");
 const cli = @import("../cli.zig");
 const simd = @import("../simd/main.zig");
@@ -41,9 +40,6 @@ const Mode = enum {
     /// is used to show the minimal overhead of reading the fd into memory
     /// and establishes a baseline for the other modes.
     noop,
-
-    /// Use ziglyph library to calculate the display width of each codepoint.
-    ziglyph,
 
     /// Use zg library to calculate the display width of each codepoint.
     zg,
@@ -79,7 +75,6 @@ pub fn main() !void {
     // Handle the modes that do not depend on terminal state first.
     switch (args.mode) {
         .noop => try benchNoop(reader, buf),
-        .ziglyph => try benchZiglyph(reader, buf),
         .zg => try benchZg(&graphemes, reader, buf),
         .table => try benchTable(reader, buf),
     }
@@ -146,31 +141,6 @@ noinline fn benchZg(
             assert(consumed);
             if (cp_) |cp2| {
                 const v = Graphemes.graphemeBreak(cp1, @intCast(cp2), graphemes, &state);
-                buf[0] = @intCast(@intFromBool(v));
-                cp1 = cp2;
-            }
-        }
-    }
-}
-
-noinline fn benchZiglyph(
-    reader: anytype,
-    buf: []u8,
-) !void {
-    var d: UTF8Decoder = .{};
-    var state: u3 = 0;
-    var cp1: u21 = 0;
-    while (true) {
-        const n = try reader.read(buf);
-        if (n == 0) break;
-
-        // Using stream.next directly with a for loop applies a naive
-        // scalar approach.
-        for (buf[0..n]) |c| {
-            const cp_, const consumed = d.next(c);
-            assert(consumed);
-            if (cp_) |cp2| {
-                const v = ziglyph.graphemeBreak(cp1, @intCast(cp2), &state);
                 buf[0] = @intCast(@intFromBool(v));
                 cp1 = cp2;
             }

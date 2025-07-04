@@ -25,8 +25,6 @@ hyperfine \
   --warmup 10 \
   -n noop \
   "./zig-out/bin/bench-grapheme-break --mode=noop${ARGS} </tmp/ghostty_bench_data" \
-  -n ziglyph \
-  "./zig-out/bin/bench-grapheme-break --mode=ziglyph${ARGS} </tmp/ghostty_bench_data" \
   -n zg \
   "./zig-out/bin/bench-grapheme-break --mode=zg${ARGS} </tmp/ghostty_bench_data" \
   -n table \

@@ -8,7 +8,8 @@ const lut = @import("lut.zig");
 graphemes: Graphemes,
 display_width: DisplayWidth,
 
-fn init(alloc: std.mem.Allocator) !props {
+// Public only for unicode-test
+pub fn init(alloc: std.mem.Allocator) !props {
     const graphemes = try Graphemes.init(alloc);
     return .{
         .graphemes = graphemes,
@@ -16,7 +17,8 @@ fn init(alloc: std.mem.Allocator) !props {
     };
 }
 
-fn deinit(self: *props, alloc: std.mem.Allocator) void {
+// Public only for unicode-test
+pub fn deinit(self: *props, alloc: std.mem.Allocator) void {
     self.graphemes.deinit(alloc);
     self.display_width.deinit(alloc);
 }
@@ -180,22 +182,3 @@ pub fn main() !void {
     //     t.stage3.len,
     // });
 }
-
-// This is not very fast in debug modes, so its commented by default.
-// IMPORTANT: UNCOMMENT THIS WHENEVER MAKING CODEPOINTWIDTH CHANGES.
-//test "tables match zg" {
-//    const testing = std.testing;
-//
-//    const display_width = try DisplayWidth.init(std.testing.allocator);
-//    defer display_width.deinit(std.testing.allocator);
-//
-//    const min = 0xFF + 1; // start outside ascii
-//    for (min..0x110000) |cp| {
-//        const t = table.get(@intCast(cp));
-//        const zg = @min(2, @max(0, DisplayWidth.codePointWidth(display_width, @intCast(cp))));
-//        if (t.width != zg) {
-//            std.log.warn("mismatch cp=U+{x} t={} zg={}", .{ cp, t, zg });
-//            try testing.expect(false);
-//        }
-//    }
-//}

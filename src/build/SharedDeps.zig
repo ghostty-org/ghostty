@@ -411,12 +411,6 @@ pub fn add(
     })) |dep| {
         step.root_module.addImport("z2d", dep.module("z2d"));
     }
-    if (b.lazyDependency("ziglyph", .{
-        .target = target,
-        .optimize = optimize,
-    })) |dep| {
-        step.root_module.addImport("ziglyph", dep.module("ziglyph"));
-    }
     if (b.lazyDependency("zg", .{
         .target = target,
         .optimize = optimize,

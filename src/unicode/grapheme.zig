@@ -149,49 +149,6 @@ fn graphemeBreakClass(
     return true;
 }
 
-// This test will verify the grapheme break implementation. This iterates over billions of codepoints so it is SLOW.
-// It's not meant to be run in CI, but it's useful for debugging.
-test "grapheme break check against ziglyph" {
-    const ziglyph = @import("ziglyph");
-
-    // Set the min and max to control the test range.
-    const min = 0;
-    const max = std.math.maxInt(u21) + 1;
-    var success: bool = true;
-
-    var state: BreakState = .{};
-    var zg_state: u3 = 0;
-    for (min..max) |cp1| {
-        if (cp1 == '\r' or cp1 == '\n' or
-            ziglyph.grapheme_break.isControl(@intCast(cp1))) continue;
-
-        for (min..max) |cp2| {
-            if (cp2 == '\r' or cp2 == '\n' or
-                ziglyph.grapheme_break.isControl(@intCast(cp2))) continue;
-
-            const gb = graphemeBreak(@intCast(cp1), @intCast(cp2), &state);
-            const zg_gb = ziglyph.graphemeBreak(@intCast(cp1), @intCast(cp2), &zg_state);
-            if (gb != zg_gb) {
-                success = false;
-                std.log.warn("cp1={x} cp2={x} gb={} state={} zg_gb={} zg_state={}", .{
-                    cp1,
-                    cp2,
-                    gb,
-                    state,
-                    zg_gb,
-                    zg_state,
-                });
-            }
-        }
-    }
-
-    try std.testing.expect(success);
-}
-
-pub const std_options = struct {
-    pub const log_level: std.log.Level = .info;
-};
-
 test "grapheme break: emoji modifier" {
     const testing = std.testing;
 
