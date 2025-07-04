@@ -14,19 +14,19 @@ test {
 
 /// Build Ghostty with `zig build -Doptimize=ReleaseFast -Demit-unicode-test`.
 ///
-/// Usage: ./zig-out/bin/unicode-test [width|class|break|all] [zg|ziglyph|old|all]
+/// Usage: ./zig-out/bin/unicode-test [width|class|break|all] [old|zg|ziglyph|all]
 ///
 ///     width:    this verifies the table codepoint widths match
 ///     class:    this verifies the table grapheme boundary classes match
 ///     break:    this will verify the grapheme break implementation. This
 ///               iterates over billions of codepoints so it is SLOW.
 ///
-///     zg:       compare grapheme/width against zg
-///     ziglyph:  compare grapheme/width against ziglyph
-///     old:      compare grapheme against old implementation
+///     old:      compare against old implementation
+///     zg:       compare against zg
+///     ziglyph:  compare against ziglyph
 ///
-/// Note: To enable `old` comparisons, uncomment sections of these files
-/// (search for "old"):
+/// Note: To disable/enable `old` comparisons, (un)comment sections of these
+/// files (search for "old"):
 ///   * ./main.zig (this file)
 ///   * ./props.zig
 ///   * ./grapheme.zig
@@ -50,9 +50,9 @@ pub fn main() !void {
 
     const testAll = args.len < 2 or std.mem.eql(u8, args[1], "all");
     const compareAll = args.len < 3 or std.mem.eql(u8, args[2], "all");
+    const compareOld = compareAll or std.mem.eql(u8, args[2], "old");
     const compareZg = compareAll or std.mem.eql(u8, args[2], "zg");
     const compareZiglyph = compareAll or std.mem.eql(u8, args[2], "ziglyph");
-    const compareOld = compareAll or std.mem.eql(u8, args[2], "old");
 
     // Set the min and max to control the test range.
     const min = 0;
@@ -65,12 +65,21 @@ pub fn main() !void {
             if (cp % 0x10000 == 0) std.log.info("progress: cp={x}", .{cp});
 
             const t = table.get(@intCast(cp));
+
+            if (compareOld) {
+                const oldT = props.oldTable.get(@intCast(cp));
+                if (oldT.width != t.width) {
+                    std.log.warn("[old mismatch] cp={x} t={} old={}", .{ cp, t.width, oldT.width });
+                }
+            }
+
             if (compareZg) {
                 const zg_width = @min(2, @max(0, DisplayWidth.codePointWidth(zg.display_width, @intCast(cp))));
                 if (t.width != zg_width) {
                     std.log.warn("[zg mismatch] cp={x} t={} zg={}", .{ cp, t.width, zg_width });
                 }
             }
+
             if (compareZiglyph) {
                 const ziglyph_width = @min(2, @max(0, DisplayWidth.codePointWidth(zg.display_width, @intCast(cp))));
                 if (t.width != ziglyph_width) {
@@ -87,6 +96,13 @@ pub fn main() !void {
             if (cp % 0x10000 == 0) std.log.info("progress: cp={x}", .{cp});
 
             const t = table.get(@intCast(cp));
+
+            if (compareOld) {
+                const oldT = props.oldTable.get(@intCast(cp));
+                if (oldT.grapheme_boundary_class != t.grapheme_boundary_class) {
+                    std.log.warn("[old mismatch] cp={x} t={} old={}", .{ cp, t.grapheme_boundary_class, oldT.grapheme_boundary_class });
+                }
+            }
 
             if (compareZg) {
                 const gbp = Graphemes.gbp(zg.graphemes, @intCast(cp));
@@ -146,13 +162,6 @@ pub fn main() !void {
 
                 if (!matches) {
                     std.log.warn("[ziglyph mismatch] cp={x} t={} ziglyph_valid={}", .{ cp, t.grapheme_boundary_class, ziglyph_valid });
-                }
-            }
-
-            if (compareOld) {
-                const oldT = props.oldTable.get(@intCast(cp));
-                if (oldT.grapheme_boundary_class != t.grapheme_boundary_class) {
-                    std.log.warn("[old mismatch] cp={x} t={} old={}", .{ cp, t.grapheme_boundary_class, oldT.grapheme_boundary_class });
                 }
             }
         }
