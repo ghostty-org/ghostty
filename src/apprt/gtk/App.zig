@@ -29,6 +29,7 @@ const apprt = @import("../../apprt.zig");
 const configpkg = @import("../../config.zig");
 const input = @import("../../input.zig");
 const internal_os = @import("../../os/main.zig");
+const systemd = @import("../../os/systemd.zig");
 const terminal = @import("../../terminal/main.zig");
 const Config = configpkg.Config;
 const CoreApp = @import("../../App.zig");
@@ -1034,6 +1035,12 @@ pub fn reloadConfig(
     target: apprt.action.Target,
     opts: apprt.action.ReloadConfig,
 ) !void {
+    // Tell systemd that reloading has started.
+    systemd.notify.reloading();
+
+    // When we exit this function tell systemd that reloading has finished.
+    defer systemd.notify.ready();
+
     if (opts.soft) {
         switch (target) {
             .app => try self.core_app.updateConfig(self, &self.config),
@@ -1365,6 +1372,9 @@ pub fn run(self: *App) !void {
     self.syncConfigChanges(null) catch |err| {
         log.warn("error handling configuration changes err={}", .{err});
     };
+
+    // Tell systemd that we are ready.
+    systemd.notify.ready();
 
     while (self.running) {
         _ = glib.MainContext.iteration(self.ctx, 1);
