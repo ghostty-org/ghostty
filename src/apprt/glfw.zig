@@ -217,6 +217,8 @@ pub const App = struct {
 
             .reload_config => try self.reloadConfig(target, value),
 
+            .open_url => self.openUrl(value),
+
             // Unimplemented
             .new_split,
             .goto_split,
@@ -446,6 +448,13 @@ pub const App = struct {
 
         // Not supported by glfw
         return .unknown;
+    }
+
+    /// Open a URL.
+    fn openUrl(self: *App, value: apprt.action.OpenUrl) void {
+        internal_os.open(self.app.alloc, value.kind, value.url) catch |err| {
+            log.warn("unable to open url: {}", .{err});
+        };
     }
 
     /// Mac-specific settings. This is only enabled when the target is
