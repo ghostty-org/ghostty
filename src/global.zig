@@ -13,7 +13,6 @@ const apprt = @import("apprt.zig");
 const CaseFolding = @import("CaseFolding");
 const Emoji = @import("Emoji");
 const GeneralCategories = @import("GeneralCategories");
-const Graphemes = @import("Graphemes");
 const LetterCasing = @import("LetterCasing");
 const unicode = @import("unicode/main.zig");
 
@@ -232,7 +231,6 @@ pub const Zg = struct {
     case_folding: CaseFolding,
     emoji: Emoji,
     general_categories: GeneralCategories,
-    graphemes: Graphemes,
     letter_casing: LetterCasing,
 
     pub fn init(alloc: std.mem.Allocator) !Zg {
@@ -240,7 +238,6 @@ pub const Zg = struct {
             .case_folding = try CaseFolding.init(alloc),
             .emoji = try Emoji.init(alloc),
             .general_categories = try GeneralCategories.init(alloc),
-            .graphemes = try Graphemes.init(alloc),
             .letter_casing = try LetterCasing.init(alloc),
         };
     }
@@ -249,7 +246,6 @@ pub const Zg = struct {
         self.case_folding.deinit(alloc);
         self.emoji.deinit(alloc);
         self.general_categories.deinit(alloc);
-        self.graphemes.deinit(alloc);
         self.letter_casing.deinit(alloc);
     }
 

@@ -416,12 +416,8 @@ pub fn add(
         .optimize = optimize,
     })) |dep| {
         step.root_module.addImport("CaseFolding", dep.module("CaseFolding"));
-        if (self.config.emit_unicode_test) {
-            step.root_module.addImport("DisplayWidth", dep.module("DisplayWidth"));
-        }
         step.root_module.addImport("Emoji", dep.module("Emoji"));
         step.root_module.addImport("GeneralCategories", dep.module("GeneralCategories"));
-        step.root_module.addImport("Graphemes", dep.module("Graphemes"));
         step.root_module.addImport("LetterCasing", dep.module("LetterCasing"));
     }
     if (b.lazyDependency("zf", .{

@@ -36,6 +36,15 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Unicode
         exe.root_module.addImport("ziglyph", dep.module("ziglyph"));
     }
 
+    // Add zg dependencies used just for unicode-test
+    if (b.lazyDependency("zg", .{
+        .target = cfg.target,
+        .optimize = cfg.optimize,
+    })) |dep| {
+        exe.root_module.addImport("DisplayWidth", dep.module("DisplayWidth"));
+        exe.root_module.addImport("Graphemes", dep.module("Graphemes"));
+    }
+
     // Add the old version of the unicode tables
     const old_unicode_tables = try UnicodeTables.init(b);
     old_unicode_tables.run.addArg("old");
