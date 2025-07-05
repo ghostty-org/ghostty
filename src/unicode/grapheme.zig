@@ -2,6 +2,7 @@ const std = @import("std");
 const props = @import("props.zig");
 const GraphemeBoundaryClass = props.GraphemeBoundaryClass;
 const table = props.table;
+const oldTable = props.oldTable;
 
 /// Determines if there is a grapheme break between two codepoints. This
 /// must be called sequentially maintaining the state between calls.
@@ -15,6 +16,19 @@ pub fn graphemeBreak(cp1: u21, cp2: u21, state: *BreakState) bool {
         (Precompute.Key{
             .gbc1 = table.get(cp1).grapheme_boundary_class,
             .gbc2 = table.get(cp2).grapheme_boundary_class,
+            .state = state.*,
+        }).index()
+    ];
+    state.* = value.state;
+    return value.result;
+}
+
+/// Only used for unicode-test.
+pub fn oldGraphemeBreak(cp1: u21, cp2: u21, state: *BreakState) bool {
+    const value = Precompute.data[
+        (Precompute.Key{
+            .gbc1 = oldTable.get(cp1).grapheme_boundary_class,
+            .gbc2 = oldTable.get(cp2).grapheme_boundary_class,
             .state = state.*,
         }).index()
     ];
@@ -148,48 +162,6 @@ fn graphemeBreakClass(
 
     return true;
 }
-
-/// If you build this file as a binary, we will verify the grapheme break
-/// implementation. This iterates over billions of codepoints so it is
-/// SLOW. It's not meant to be run in CI, but it's useful for debugging.
-pub fn main() !void {
-    const ziglyph = @import("ziglyph");
-
-    // Set the min and max to control the test range.
-    const min = 0;
-    const max = std.math.maxInt(u21) + 1;
-
-    var state: BreakState = .{};
-    var zg_state: u3 = 0;
-    for (min..max) |cp1| {
-        if (cp1 % 1000 == 0) std.log.warn("progress cp1={}", .{cp1});
-
-        if (cp1 == '\r' or cp1 == '\n' or
-            ziglyph.grapheme_break.isControl(@intCast(cp1))) continue;
-
-        for (min..max) |cp2| {
-            if (cp2 == '\r' or cp2 == '\n' or
-                ziglyph.grapheme_break.isControl(@intCast(cp2))) continue;
-
-            const gb = graphemeBreak(@intCast(cp1), @intCast(cp2), &state);
-            const zg_gb = ziglyph.graphemeBreak(@intCast(cp1), @intCast(cp2), &zg_state);
-            if (gb != zg_gb) {
-                std.log.warn("cp1={x} cp2={x} gb={} state={} zg_gb={} zg_state={}", .{
-                    cp1,
-                    cp2,
-                    gb,
-                    state,
-                    zg_gb,
-                    zg_state,
-                });
-            }
-        }
-    }
-}
-
-pub const std_options = struct {
-    pub const log_level: std.log.Level = .info;
-};
 
 test "grapheme break: emoji modifier" {
     const testing = std.testing;

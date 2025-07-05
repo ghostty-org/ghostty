@@ -32,6 +32,10 @@ pub fn build(b: *std.Build) !void {
     const bench = try buildpkg.GhosttyBench.init(b, &deps);
     if (config.emit_bench) bench.install();
 
+    // Ghostty unicode test exe
+    const unicode_test = try buildpkg.GhosttyUnicodeTest.init(b, &config, &deps);
+    if (config.emit_unicode_test) unicode_test.install();
+
     // Ghostty dist tarball
     const dist = try buildpkg.GhosttyDist.init(b, &config);
     {

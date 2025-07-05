@@ -411,11 +411,14 @@ pub fn add(
     })) |dep| {
         step.root_module.addImport("z2d", dep.module("z2d"));
     }
-    if (b.lazyDependency("ziglyph", .{
+    if (b.lazyDependency("zg", .{
         .target = target,
         .optimize = optimize,
     })) |dep| {
-        step.root_module.addImport("ziglyph", dep.module("ziglyph"));
+        step.root_module.addImport("CaseFolding", dep.module("CaseFolding"));
+        step.root_module.addImport("Emoji", dep.module("Emoji"));
+        step.root_module.addImport("GeneralCategories", dep.module("GeneralCategories"));
+        step.root_module.addImport("LetterCasing", dep.module("LetterCasing"));
     }
     if (b.lazyDependency("zf", .{
         .target = target,
