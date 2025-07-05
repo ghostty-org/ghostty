@@ -104,11 +104,12 @@ pub const Contents = struct {
         // form a single grapheme, and multi-substitutions in fonts, the number
         // of glyphs in a row is theoretically unlimited.
         //
-        // We have size.rows + 1 lists because index 0 is used for a special
-        // list containing the cursor cell which needs to be first in the buffer.
+        // We have size.rows + 2 lists because indexes 0 and size.rows - 1 are
+        // used for special lists containing the cursor cell which need to
+        // be first and last in the buffer, respectively.
         var fg_rows = try ArrayListCollection(shaderpkg.CellText).init(
             alloc,
-            size.rows + 1,
+            size.rows + 2,
             size.columns * 3,
         );
         errdefer fg_rows.deinit(alloc);
@@ -119,12 +120,17 @@ pub const Contents = struct {
         self.bg_cells = bg_cells;
         self.fg_rows = fg_rows;
 
-        // We don't need 3*cols worth of cells for the cursor list, so we can
-        // replace it with a smaller list. This is technically a tiny bit of
+        // We don't need 3*cols worth of cells for the cursor lists, so we can
+        // replace them with smaller lists. This is technically a tiny bit of
         // extra work but resize is not a hot function so it's worth it to not
         // waste the memory.
         self.fg_rows.lists[0].deinit(alloc);
         self.fg_rows.lists[0] = try std.ArrayListUnmanaged(
+            shaderpkg.CellText,
+        ).initCapacity(alloc, 1);
+
+        self.fg_rows.lists[size.rows + 1].deinit(alloc);
+        self.fg_rows.lists[size.rows + 1] = try std.ArrayListUnmanaged(
             shaderpkg.CellText,
         ).initCapacity(alloc, 1);
     }
@@ -136,11 +142,18 @@ pub const Contents = struct {
     }
 
     /// Set the cursor value. If the value is null then the cursor is hidden.
-    pub fn setCursor(self: *Contents, v: ?shaderpkg.CellText) void {
+    pub fn setCursor(self: *Contents, v: ?shaderpkg.CellText, cursor_style: ?renderer.CursorStyle) void {
         self.fg_rows.lists[0].clearRetainingCapacity();
+        self.fg_rows.lists[self.size.rows + 1].clearRetainingCapacity();
 
-        if (v) |cell| {
-            self.fg_rows.lists[0].appendAssumeCapacity(cell);
+        const cell = v orelse return;
+        const style = cursor_style orelse return;
+
+        switch (style) {
+            // Block cursors should be drawn first
+            .block => self.fg_rows.lists[0].appendAssumeCapacity(cell),
+            // Other cursor styles should be drawn last
+            .block_hollow, .bar, .underline, .lock => self.fg_rows.lists[self.size.rows + 1].appendAssumeCapacity(cell),
         }
     }
 
@@ -371,18 +384,22 @@ test Contents {
         }
     }
 
-    // Add a cursor.
+    // Add a block cursor.
     const cursor_cell: shaderpkg.CellText = .{
         .mode = .cursor,
         .grid_pos = .{ 2, 3 },
         .color = .{ 0, 0, 0, 1 },
     };
-    c.setCursor(cursor_cell);
+    c.setCursor(cursor_cell, .block);
     try testing.expectEqual(cursor_cell, c.fg_rows.lists[0].items[0]);
 
     // And remove it.
-    c.setCursor(null);
+    c.setCursor(null, null);
     try testing.expectEqual(0, c.fg_rows.lists[0].items.len);
+
+    // Add a hollow cursor.
+    c.setCursor(cursor_cell, .block_hollow);
+    try testing.expectEqual(cursor_cell, c.fg_rows.lists[rows + 1].items[0]);
 }
 
 test "Contents clear retains other content" {

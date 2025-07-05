@@ -2791,7 +2791,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // Setup our cursor rendering information.
             cursor: {
                 // By default, we don't handle cursor inversion on the shader.
-                self.cells.setCursor(null);
+                self.cells.setCursor(null, null);
                 self.uniforms.cursor_pos = .{
                     std.math.maxInt(u16),
                     std.math.maxInt(u16),
@@ -3162,7 +3162,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     @intCast(render.glyph.offset_x),
                     @intCast(render.glyph.offset_y),
                 },
-            });
+            }, cursor_style);
         }
 
         fn addPreeditCell(
