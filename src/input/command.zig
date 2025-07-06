@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Action = @import("Binding.zig").Action;
@@ -166,6 +167,45 @@ fn actionCommands(action: Action.Key) []const Command {
             .title = "Clear Screen",
             .description = "Clear the screen and scrollback.",
         }},
+
+        .set_font_size => comptime &.{
+            .{
+                .action = .{ .set_font_size = .{ .delta = 1.0 } },
+                .title = "Increase Font Size",
+                .description = "Increase the font size by 1 point.",
+            },
+            .{
+                .action = .{ .set_font_size = .{ .delta = -1.0 } },
+                .title = "Decrease Font Size",
+                .description = "Increase the font size by 1 point.",
+            },
+            .{
+                .action = .{
+                    .set_font_size = .{
+                        .absolute = switch (builtin.os.tag) {
+                            // On macOS we default a little bigger since this tends to look better. This
+                            // is purely subjective but this is easy to modify.
+                            .macos => 13,
+                            else => 12,
+                        },
+                    },
+                },
+                .title = "Set Font Size to Ghostty Default",
+                .description = std.fmt.comptimePrint("Set the font size to the Ghostty default ({d} points)", .{
+                    switch (builtin.os.tag) {
+                        // On macOS we default a little bigger since this tends to look better. This
+                        // is purely subjective but this is easy to modify.
+                        .macos => 13,
+                        else => 12,
+                    },
+                }),
+            },
+            .{
+                .action = .{ .set_font_size = .reset },
+                .title = "Reset Font Size to Configured Default",
+                .description = "Reset the font size to your configured default.",
+            },
+        },
 
         .select_all => comptime &.{.{
             .action = .select_all,

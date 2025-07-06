@@ -5153,23 +5153,23 @@ pub const Keybinds = struct {
         try self.set.put(
             alloc,
             .{ .key = .{ .physical = .equal }, .mods = inputpkg.ctrlOrSuper(.{}) },
-            .{ .increase_font_size = 1 },
+            .{ .set_font_size = .{ .delta = 1.0 } },
         );
         try self.set.put(
             alloc,
             .{ .key = .{ .unicode = '+' }, .mods = inputpkg.ctrlOrSuper(.{}) },
-            .{ .increase_font_size = 1 },
+            .{ .set_font_size = .{ .delta = 1.0 } },
         );
 
         try self.set.put(
             alloc,
             .{ .key = .{ .unicode = '-' }, .mods = inputpkg.ctrlOrSuper(.{}) },
-            .{ .decrease_font_size = 1 },
+            .{ .set_font_size = .{ .delta = -1.0 } },
         );
         try self.set.put(
             alloc,
             .{ .key = .{ .unicode = '0' }, .mods = inputpkg.ctrlOrSuper(.{}) },
-            .{ .reset_font_size = {} },
+            .{ .set_font_size = .reset },
         );
 
         try self.set.put(
@@ -6531,8 +6531,10 @@ pub const RepeatableCommand = struct {
         try list.parseCLI(alloc, "title:Foo,action:ignore");
         try list.parseCLI(alloc, "title:Bar,description:bobr,action:text:ale bydle");
         try list.parseCLI(alloc, "title:Quux,description:boo,action:increase_font_size:2.5");
+        try list.parseCLI(alloc, "title:Baz,description:Raspberry Pie,action:set_font_size:3.14");
+        try list.parseCLI(alloc, "title:Ghobr,description:Chainsaw,action:set_font_size:reset");
 
-        try testing.expectEqual(@as(usize, 3), list.value.items.len);
+        try testing.expectEqual(@as(usize, 5), list.value.items.len);
 
         try testing.expectEqual(inputpkg.Binding.Action.ignore, list.value.items[0].action);
         try testing.expectEqualStrings("Foo", list.value.items[0].title);
@@ -6548,6 +6550,20 @@ pub const RepeatableCommand = struct {
         );
         try testing.expectEqualStrings("Quux", list.value.items[2].title);
         try testing.expectEqualStrings("boo", list.value.items[2].description);
+
+        try testing.expectEqual(
+            inputpkg.Binding.Action{ .set_font_size = .{ .absolute = 3.14 } },
+            list.value.items[3].action,
+        );
+        try testing.expectEqualStrings("Baz", list.value.items[3].title);
+        try testing.expectEqualStrings("Raspberry Pie", list.value.items[3].description);
+
+        try testing.expectEqual(
+            inputpkg.Binding.Action{ .set_font_size = .reset },
+            list.value.items[4].action,
+        );
+        try testing.expectEqualStrings("Ghobr", list.value.items[4].title);
+        try testing.expectEqualStrings("Chainsaw", list.value.items[4].description);
 
         try list.parseCLI(alloc, "");
         try testing.expectEqual(@as(usize, 0), list.value.items.len);

@@ -4484,6 +4484,23 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             try self.setFontSize(size);
         },
 
+        .set_font_size => |set_font_size| {
+            var size = self.font_size;
+            switch (set_font_size) {
+                .reset => {
+                    size.points = self.config.original_font_size;
+                },
+                .absolute => |points| {
+                    size.points = std.math.clamp(points, 1.0, 255.0);
+                },
+                .delta => |delta| {
+                    size.points = std.math.clamp(size.points + delta, 1.0, 255.0);
+                },
+            }
+            log.debug("setting font size={}", .{size.points});
+            try self.setFontSize(size);
+        },
+
         .prompt_surface_title => return try self.rt_app.performAction(
             .{ .surface = self },
             .prompt_title,

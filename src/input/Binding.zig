@@ -296,6 +296,26 @@ pub const Action = union(enum) {
     /// Reset the font size to the original configured size.
     reset_font_size,
 
+    /// Adjust the font size according to the supplied parameter.
+    ///
+    /// If the parameter is `reset`, the font size will be reset
+    /// to the user's configured default font size.
+    ///
+    /// If the parameter starts with `+` and is followed by a valid floating
+    /// point number the font size will be increased by the given number of
+    /// points.
+    ///
+    /// If the parameter starts with `-` and is followed by a valid floating
+    /// point number the font size will be decreased by the given number of
+    /// points.
+    ///
+    /// Otherwise if the parameter is a valid floating point number the font
+    /// size will be set to the given size.
+    ///
+    /// The font size cannot be more than 255.0 points or be less than 1.0
+    /// points.
+    set_font_size: SetFontSize,
+
     /// Clear the screen and all scrollback.
     clear_screen,
 
@@ -829,6 +849,78 @@ pub const Action = union(enum) {
         hide,
     };
 
+    pub const ParseParameterErrors = error{InvalidFormat};
+
+    /// See `set_font_size` keybind action.
+    pub const SetFontSize = union(enum) {
+        /// reset font size to user's configured default
+        reset,
+        /// set the font size to an absolute value
+        absolute: f32,
+        /// change the font size by the given delta
+        delta: f32,
+
+        pub fn parse(param: []const u8) ParseParameterErrors!SetFontSize {
+            if (param.len == 0) return error.InvalidFormat;
+
+            if (std.mem.eql(u8, param, "reset")) {
+                return .reset;
+            }
+
+            switch (param[0]) {
+                '+', '-' => |sign| {
+                    const value = std.fmt.parseFloat(f32, param[1..]) catch return error.InvalidFormat;
+                    if (sign == '-') return .{ .delta = -value };
+                    return .{ .delta = value };
+                },
+                else => return .{
+                    .absolute = std.fmt.parseFloat(f32, param) catch return error.InvalidFormat,
+                },
+            }
+        }
+
+        pub fn format(
+            self: SetFontSize,
+            comptime _: []const u8,
+            _: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            switch (self) {
+                .reset => {
+                    try writer.writeAll("reset");
+                },
+                .absolute => |points| {
+                    try writer.print("{d}", .{points});
+                },
+                .delta => |delta| {
+                    try writer.print("{c}{d}", .{
+                        if (delta < 0) @as(u8, '-') else @as(u8, '+'),
+                        @abs(delta),
+                    });
+                },
+            }
+        }
+
+        pub fn clone(self: SetFontSize, _: Allocator) (error{})!SetFontSize {
+            return self;
+        }
+
+        pub fn hashIncremental(self: SetFontSize, hasher: anytype) void {
+            std.hash.autoHash(hasher, @as(usize, @intFromEnum(self)));
+            switch (self) {
+                .reset => {},
+                .absolute => |points| std.hash.autoHash(
+                    hasher,
+                    @as(u32, @bitCast(points)),
+                ),
+                .delta => |delta| std.hash.autoHash(
+                    hasher,
+                    @as(u32, @bitCast(delta)),
+                ),
+            }
+        }
+    };
+
     fn parseEnum(comptime T: type, value: []const u8) !T {
         return std.meta.stringToEnum(T, value) orelse return Error.InvalidFormat;
     }
@@ -890,18 +982,26 @@ pub const Action = union(enum) {
         };
     }
 
+    pub const ParseActionErrors = error{InvalidAction} || ParseParameterErrors;
+
+    pub fn parseCLI(input_: ?[]const u8) ParseActionErrors!Action {
+        const input = input_ orelse return error.InvalidFormat;
+        return try parse(input);
+    }
+
     /// Parse an action in the format of "key=value" where key is the
     /// action name and value is the action parameter. The parameter
     /// is optional depending on the action.
-    pub fn parse(input: []const u8) !Action {
+    pub fn parse(input: []const u8) ParseActionErrors!Action {
         // Split our action by colon. A colon may not exist for some
         // actions so it is optional. The part preceding the colon is the
         // action name.
         const colonIdx = std.mem.indexOf(u8, input, ":");
         const action = input[0..(colonIdx orelse input.len)];
+        const param_ = if (colonIdx) |idx| input[idx + 1 ..] else null;
 
         // An action name is always required
-        if (action.len == 0) return Error.InvalidFormat;
+        if (action.len == 0) return error.InvalidFormat;
 
         const actionInfo = @typeInfo(Action).@"union";
         inline for (actionInfo.fields) |field| {
@@ -909,24 +1009,23 @@ pub const Action = union(enum) {
                 // If the field type is void we expect no value
                 switch (field.type) {
                     void => {
-                        if (colonIdx != null) return Error.InvalidFormat;
+                        if (param_) |_| return error.InvalidFormat;
                         return @unionInit(Action, field.name, {});
                     },
 
                     []const u8 => {
-                        const idx = colonIdx orelse return Error.InvalidFormat;
-                        const param = input[idx + 1 ..];
+                        const param = param_ orelse return error.InvalidFormat;
                         return @unionInit(Action, field.name, param);
                     },
 
                     // Cursor keys can't be set currently
-                    Action.CursorKey => return Error.InvalidAction,
+                    Action.CursorKey => return error.InvalidAction,
 
                     else => {
                         // Get the parameter after the colon. The parameter
                         // can be optional for action types that can have a
                         // "default" decl.
-                        const idx = colonIdx orelse {
+                        const param = param_ orelse {
                             switch (@typeInfo(field.type)) {
                                 .@"struct",
                                 .@"union",
@@ -942,10 +1041,9 @@ pub const Action = union(enum) {
                                 else => {},
                             }
 
-                            return Error.InvalidFormat;
+                            return error.InvalidFormat;
                         };
 
-                        const param = input[idx + 1 ..];
                         return @unionInit(
                             Action,
                             field.name,
@@ -956,7 +1054,7 @@ pub const Action = union(enum) {
             }
         }
 
-        return Error.InvalidAction;
+        return error.InvalidAction;
     }
 
     /// The scope of an action. The scope is the context in which an action
@@ -1004,6 +1102,7 @@ pub const Action = union(enum) {
             .increase_font_size,
             .decrease_font_size,
             .reset_font_size,
+            .set_font_size,
             .prompt_surface_title,
             .clear_screen,
             .select_all,
@@ -1121,19 +1220,29 @@ pub const Action = union(enum) {
         opts: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        _ = layout;
-        _ = opts;
-
         switch (self) {
-            inline else => |value| {
+            inline else => |value| write: {
                 // All actions start with the tag.
                 try writer.print("{s}", .{@tagName(self)});
 
+                const Value = @TypeOf(value);
+                const ValueInfo = @typeInfo(Value);
+                const canHaveDecls = switch (ValueInfo) {
+                    .@"struct", .@"union", .@"enum" => true,
+                    else => false,
+                };
+
                 // Only write the value depending on the type if it's not void
-                if (@TypeOf(value) != void) {
-                    try writer.writeAll(":");
-                    try formatValue(writer, value);
+                if (Value == void) break :write;
+
+                try writer.writeAll(":");
+
+                if (canHaveDecls and @hasDecl(Value, "format")) {
+                    try value.format(layout, opts, writer);
+                    break :write;
                 }
+
+                try formatValue(writer, value);
             },
         }
     }
@@ -1201,6 +1310,11 @@ pub const Action = union(enum) {
             else
                 try value.clone(alloc),
 
+            .@"union" => if (@hasDecl(@TypeOf(value), "clone"))
+                try value.clone(alloc)
+            else
+                value,
+
             else => {
                 @compileLog(@TypeOf(value));
                 @compileError("unexpected type");
@@ -1243,12 +1357,25 @@ pub const Action = union(enum) {
                         @as(u64, @bitCast(field)),
                     ),
 
-                    // Everything else automatically handle.
-                    else => std.hash.autoHashStrat(
-                        hasher,
-                        field,
-                        .DeepRecursive,
-                    ),
+                    else => hash: {
+                        // Check to see if the type has custom hash function
+                        const FieldTypeInfo = @typeInfo(FieldType);
+                        switch (FieldTypeInfo) {
+                            .@"struct", .@"union", .@"enum" => {
+                                if (@hasDecl(FieldType, "hashIncremental")) {
+                                    field.hashIncremental(hasher);
+                                    break :hash;
+                                }
+                            },
+                            else => {},
+                        }
+                        // Everything else automatically handle.
+                        std.hash.autoHashStrat(
+                            hasher,
+                            field,
+                            .DeepRecursive,
+                        );
+                    },
                 }
             },
         }
@@ -3081,5 +3208,30 @@ test "Action: clone" {
         var a: Action = .{ .text = "foo" };
         const b = try a.clone(alloc);
         try testing.expect(b == .text);
+    }
+}
+
+test "parse: set_font_size" {
+    const testing = std.testing;
+
+    {
+        const binding = try parseSingle("a=set_font_size:reset");
+        try testing.expect(binding.action == .set_font_size);
+        try testing.expectEqual(Action.SetFontSize.reset, binding.action.set_font_size);
+    }
+    {
+        const binding = try parseSingle("a=set_font_size:13.5");
+        try testing.expect(binding.action == .set_font_size);
+        try testing.expectEqual(Action.SetFontSize{ .absolute = 13.5 }, binding.action.set_font_size);
+    }
+    {
+        const binding = try parseSingle("a=set_font_size:+1.5");
+        try testing.expect(binding.action == .set_font_size);
+        try testing.expectEqual(Action.SetFontSize{ .delta = 1.5 }, binding.action.set_font_size);
+    }
+    {
+        const binding = try parseSingle("a=set_font_size:-2.7");
+        try testing.expect(binding.action == .set_font_size);
+        try testing.expectEqual(Action.SetFontSize{ .delta = -2.7 }, binding.action.set_font_size);
     }
 }
