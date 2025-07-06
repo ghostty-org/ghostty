@@ -1,4 +1,4 @@
-//! This is a generate file, produced by nerd_font_codegen.py
+//! This is a generated file, produced by nerd_font_codegen.py
 //! DO NOT EDIT BY HAND!
 //!
 //! This file provides info extracted from the nerd fonts patcher script,
