@@ -48,6 +48,26 @@ extension Ghostty {
     }
 }
 
+// MARK: General Helpers
+
+extension Ghostty {
+    enum LaunchSource: String {
+        case cli
+        case app
+        case zig_run
+    }
+    
+    /// Returns the mechanism that launched the app. This is based on an env var so
+    /// its up to the env var being set in the correct circumstance.
+    static var launchSource: LaunchSource {
+        guard let envValue = ProcessInfo.processInfo.environment["GHOSTTY_MAC_LAUNCH_SOURCE"] else {
+            return .app
+        }
+        
+        return LaunchSource(rawValue: envValue) ?? .app
+    }
+}
+
 // MARK: Swift Types for C Types
 
 extension Ghostty {

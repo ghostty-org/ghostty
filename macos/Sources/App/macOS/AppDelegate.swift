@@ -256,9 +256,8 @@ class AppDelegate: NSObject,
         // Setup signal handlers
         setupSignals()
         
-        // This is a hack used by our build scripts, specifically `zig build run`,
-        // to force our app to the foreground.
-        if ProcessInfo.processInfo.environment["GHOSTTY_MAC_ACTIVATE"] == "1" {
+        // If we launched via zig run then we need to force foreground.
+        if Ghostty.launchSource == .zig_run {
             // This never gets called until we click the dock icon. This forces it
             // activate immediately.
             applicationDidBecomeActive(.init(name: NSApplication.didBecomeActiveNotification))

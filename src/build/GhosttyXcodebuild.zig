@@ -88,6 +88,19 @@ pub fn init(
 
     // Our step to open the resulting Ghostty app.
     const open = open: {
+        const disable_save_state = RunStep.create(b, "disable save state");
+        disable_save_state.has_side_effects = true;
+        disable_save_state.addArgs(&.{
+            "/usr/libexec/PlistBuddy",
+            "-c",
+            // We'll have to change this to `Set` if we ever put this
+            // into our Info.plist.
+            "Add :NSQuitAlwaysKeepsWindows bool false",
+            b.fmt("{s}/Contents/Info.plist", .{app_path}),
+        });
+        disable_save_state.expectExitCode(0);
+        disable_save_state.step.dependOn(&build.step);
+
         const open = RunStep.create(b, "run Ghostty app");
         open.has_side_effects = true;
         open.cwd = b.path("");
@@ -98,15 +111,14 @@ pub fn init(
 
         // Open depends on the app
         open.step.dependOn(&build.step);
+        open.step.dependOn(&disable_save_state.step);
 
         // This overrides our default behavior and forces logs to show
         // up on stderr (in addition to the centralized macOS log).
         open.setEnvironmentVariable("GHOSTTY_LOG", "1");
 
-        // This is hack so that we can activate the app and bring it to
-        // the front forcibly even though we're executing directly
-        // via the binary and not launch services.
-        open.setEnvironmentVariable("GHOSTTY_MAC_ACTIVATE", "1");
+        // Configure how we're launching
+        open.setEnvironmentVariable("GHOSTTY_MAC_LAUNCH_SOURCE", "zig_run");
 
         if (b.args) |args| {
             open.addArgs(args);
