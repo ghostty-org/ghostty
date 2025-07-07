@@ -4,9 +4,7 @@ const std = @import("std");
 extern "c" fn ghostty_simd_codepoint_width(u32) i8;
 
 pub fn codepointWidth(cp: u32) i8 {
-    // const zg = try @import("../../global.zig").Zg.initForTesting();
-    // defer zg.deinitForTesting();
-    // try testing.expectEqual(@as(i8, 1), @import("DisplayWidth").codePointWidth(zg.display_width, @intCast(cp)));
+    // try testing.expectEqual(@as(i8, 1), @import("DisplayWidth").codePointWidth(@intCast(cp)));
     return ghostty_simd_codepoint_width(cp);
 }
 
@@ -21,9 +19,7 @@ test "codepointWidth basic" {
     try testing.expectEqual(@as(i8, 2), codepointWidth(0xF900)); // 豈
     try testing.expectEqual(@as(i8, 2), codepointWidth(0x20000)); // 𠀀
     try testing.expectEqual(@as(i8, 2), codepointWidth(0x30000)); // 𠀀
-    // const zg = try @import("../../global.zig").Zg.initForTesting();
-    // defer zg.deinitForTesting();
-    // try testing.expectEqual(@as(i8, 1), @import("DisplayWidth").codePointWidth(zg.display_width, 0x100));
+    // try testing.expectEqual(@as(i8, 1), @import("DisplayWidth").codePointWidth(0x100));
 }
 
 // This is not very fast in debug modes, so its commented by default.
@@ -31,14 +27,12 @@ test "codepointWidth basic" {
 //test "codepointWidth matches zg" {
 //    const testing = std.testing;
 //    const DisplayWidth = @import("DisplayWidth");
-//    const display_width = try DisplayWidth.init(std.testing.allocator);
-//    defer display_width.deinit(std.testing.allocator);
 //    var success: bool = true;
 //
 //    const min = 0xFF + 1; // start outside ascii
 //    for (min..0x110000) |cp| {
 //        const simd = codepointWidth(@intCast(cp));
-//        const zg_width = DisplayWidth.codePointWidth(display_width, @intCast(cp));
+//        const zg_width = DisplayWidth.codePointWidth(@intCast(cp));
 //        if (simd != zg_width) mismatch: {
 //            if (cp == 0x2E3B) {
 //                try testing.expectEqual(@as(i8, 2), simd);
