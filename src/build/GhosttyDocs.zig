@@ -93,5 +93,32 @@ pub fn init(
 
 pub fn install(self: *const GhosttyDocs) void {
     const b = self.steps[0].owner;
-    for (self.steps) |step| b.getInstallStep().dependOn(step);
+    self.addStepDependencies(b.getInstallStep());
+}
+
+pub fn addStepDependencies(
+    self: *const GhosttyDocs,
+    other_step: *std.Build.Step,
+) void {
+    for (self.steps) |step| other_step.dependOn(step);
+}
+
+/// Installs some dummy files to satisfy the folder structure of docs
+/// without actually generating any documentation. This is useful
+/// when the `emit-docs` option is not set to true, but we still
+/// need the rough directory structure to exist, such as for the macOS
+/// app.
+pub fn installDummy(self: *const GhosttyDocs, step: *std.Build.Step) void {
+    _ = self;
+
+    const b = step.owner;
+    var wf = b.addWriteFiles();
+    const path = "share/man/.placeholder";
+    step.dependOn(&b.addInstallFile(
+        wf.add(
+            path,
+            "emit-docs not true so no man pages",
+        ),
+        path,
+    ).step);
 }

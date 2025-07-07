@@ -15,7 +15,6 @@ pub const GhosttyFrameData = @import("GhosttyFrameData.zig");
 pub const GhosttyLib = @import("GhosttyLib.zig");
 pub const GhosttyResources = @import("GhosttyResources.zig");
 pub const GhosttyI18n = @import("GhosttyI18n.zig");
-pub const GhosttyUnicodeTest = @import("GhosttyUnicodeTest.zig");
 pub const GhosttyXCFramework = @import("GhosttyXCFramework.zig");
 pub const GhosttyWebdata = @import("GhosttyWebdata.zig");
 pub const HelpStrings = @import("HelpStrings.zig");

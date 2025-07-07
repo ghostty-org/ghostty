@@ -15,22 +15,22 @@ layout(location = 3) in uvec2 grid_pos;
 // The color of the rendered text glyph.
 layout(location = 4) in uvec4 color;
 
-// The mode for this cell.
-layout(location = 5) in uint mode;
+// Which atlas this glyph is in.
+layout(location = 5) in uint atlas;
 
-// The width to constrain the glyph to, in cells, or 0 for no constraint.
-layout(location = 6) in uint constraint_width;
+// Misc glyph properties.
+layout(location = 6) in uint glyph_bools;
 
-// These are the possible modes that "mode" can be set to. This is
-// used to multiplex multiple render modes into a single shader.
-const uint MODE_TEXT = 1u;
-const uint MODE_TEXT_CONSTRAINED = 2u;
-const uint MODE_TEXT_COLOR = 3u;
-const uint MODE_TEXT_CURSOR = 4u;
-const uint MODE_TEXT_POWERLINE = 5u;
+// Values `atlas` can take.
+const uint ATLAS_GRAYSCALE = 0u;
+const uint ATLAS_COLOR = 1u;
+
+// Masks for the `glyph_bools` attribute
+const uint NO_MIN_CONTRAST = 1u;
+const uint IS_CURSOR_GLYPH = 2u;
 
 out CellTextVertexOut {
-    flat uint mode;
+    flat uint atlas;
     flat vec4 color;
     flat vec4 bg_color;
     vec2 tex_coord;
@@ -69,7 +69,7 @@ void main() {
     corner.x = float(vid == 1 || vid == 3);
     corner.y = float(vid == 2 || vid == 3);
 
-    out_data.mode = mode;
+    out_data.atlas = atlas;
 
     //              === Grid Cell ===
     //      +X
@@ -102,25 +102,6 @@ void main() {
 
     offset.y = cell_size.y - offset.y;
 
-    // If we're constrained then we need to scale the glyph.
-    if (mode == MODE_TEXT_CONSTRAINED) {
-        float max_width = cell_size.x * constraint_width;
-        // If this glyph is wider than the constraint width,
-        // fit it to the width and remove its horizontal offset.
-        if (size.x > max_width) {
-            float new_y = size.y * (max_width / size.x);
-            offset.y += (size.y - new_y) / 2.0;
-            offset.x = 0.0;
-            size.y = new_y;
-            size.x = max_width;
-        } else if (max_width - size.x > offset.x) {
-            // However, if it does fit in the constraint width, make
-            // sure the offset is small enough to not push it over the
-            // right edge of the constraint width.
-            offset.x = max_width - size.x;
-        }
-    }
-
     // Calculate the final position of the cell which uses our glyph size
     // and glyph offset to create the correct bounding box for the glyph.
     cell_pos = cell_pos + size * corner + offset;
@@ -149,11 +130,7 @@ void main() {
     // If we have a minimum contrast, we need to check if we need to
     // change the color of the text to ensure it has enough contrast
     // with the background.
-    // We only apply this adjustment to "normal" text with MODE_TEXT,
-    // since we want color glyphs to appear in their original color
-    // and Powerline glyphs to be unaffected (else parts of the line would
-    // have different colors as some parts are displayed via background colors).
-    if (min_contrast > 1.0f && mode == MODE_TEXT) {
+    if (min_contrast > 1.0f && (glyph_bools & NO_MIN_CONTRAST) == 0) {
         // Ensure our minimum contrast
         out_data.color = contrasted_color(min_contrast, out_data.color, out_data.bg_color);
     }
@@ -161,8 +138,9 @@ void main() {
     // Check if current position is under cursor (including wide cursor)
     bool is_cursor_pos = ((grid_pos.x == cursor_pos.x) || (cursor_wide && (grid_pos.x == (cursor_pos.x + 1)))) && (grid_pos.y == cursor_pos.y);
 
-    // If this cell is the cursor cell, then we need to change the color.
-    if (mode != MODE_TEXT_CURSOR && is_cursor_pos) {
+    // If this cell is the cursor cell, but we're not processing
+    // the cursor glyph itself, then we need to change the color.
+    if ((glyph_bools & IS_CURSOR_GLYPH) == 0 && is_cursor_pos) {
         out_data.color = load_color(unpack4u8(cursor_color_packed_4u8), use_linear_blending);
     }
 }

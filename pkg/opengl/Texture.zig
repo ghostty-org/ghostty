@@ -92,6 +92,30 @@ pub const Format = enum(c_uint) {
     _,
 };
 
+/// Minification filter for textures.
+pub const MinFilter = enum(c_int) {
+    nearest = c.GL_NEAREST,
+    linear = c.GL_LINEAR,
+    nearest_mipmap_nearest = c.GL_NEAREST_MIPMAP_NEAREST,
+    linear_mipmap_nearest = c.GL_LINEAR_MIPMAP_NEAREST,
+    nearest_mipmap_linear = c.GL_NEAREST_MIPMAP_LINEAR,
+    linear_mipmap_linear = c.GL_LINEAR_MIPMAP_LINEAR,
+};
+
+/// Magnification filter for textures.
+pub const MagFilter = enum(c_int) {
+    nearest = c.GL_NEAREST,
+    linear = c.GL_LINEAR,
+};
+
+/// Texture coordinate wrapping mode.
+pub const Wrap = enum(c_int) {
+    clamp_to_edge = c.GL_CLAMP_TO_EDGE,
+    clamp_to_border = c.GL_CLAMP_TO_BORDER,
+    mirrored_repeat = c.GL_MIRRORED_REPEAT,
+    repeat = c.GL_REPEAT,
+};
+
 /// Data type for texture images.
 pub const DataType = enum(c_uint) {
     UnsignedByte = c.GL_UNSIGNED_BYTE,

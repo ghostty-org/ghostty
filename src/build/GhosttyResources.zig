@@ -397,5 +397,12 @@ fn addLinuxAppResources(
 
 pub fn install(self: *const GhosttyResources) void {
     const b = self.steps[0].owner;
-    for (self.steps) |step| b.getInstallStep().dependOn(step);
+    self.addStepDependencies(b.getInstallStep());
+}
+
+pub fn addStepDependencies(
+    self: *const GhosttyResources,
+    other_step: *std.Build.Step,
+) void {
+    for (self.steps) |step| other_step.dependOn(step);
 }

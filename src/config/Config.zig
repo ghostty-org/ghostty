@@ -68,6 +68,10 @@ pub const compatibility = std.StaticStringMap(
     // this behavior. This applies to selection too.
     .{ "cursor-invert-fg-bg", compatCursorInvertFgBg },
     .{ "selection-invert-fg-bg", compatSelectionInvertFgBg },
+
+    // Ghostty 1.2 merged `bold-is-bright` into the new `bold-color`
+    // by setting the value to "bright".
+    .{ "bold-is-bright", compatBoldIsBright },
 });
 
 /// The font families to use.
@@ -431,13 +435,16 @@ pub const compatibility = std.StaticStringMap(
 ///
 /// Available flags:
 ///
-///   * `hinting` - Enable or disable hinting, enabled by default.
-///   * `force-autohint` - Use the freetype auto-hinter rather than the
-///     font's native hinter. Enabled by default.
-///   * `monochrome` - Instructs renderer to use 1-bit monochrome
-///     rendering. This option doesn't impact the hinter.
-///     Enabled by default.
-///   * `autohint` - Use the freetype auto-hinter. Enabled by default.
+///   * `hinting` - Enable or disable hinting. Enabled by default.
+///
+///   * `force-autohint` - Always use the freetype auto-hinter instead of
+///     the font's native hinter. Disabled by default.
+///
+///   * `monochrome` - Instructs renderer to use 1-bit monochrome rendering.
+///     This will disable anti-aliasing, and probably not look very good unless
+///     you're using a pixel font. Disabled by default.
+///
+///   * `autohint` - Enable the freetype auto-hinter. Enabled by default.
 ///
 /// Example: `hinting`, `no-hinting`, `force-autohint`, `no-force-autohint`
 @"freetype-load-flags": FreetypeLoadFlags = .{},
@@ -1042,6 +1049,14 @@ link: RepeatableLink = .{},
 /// `link`). If you want to customize URL matching, use `link` and disable this.
 @"link-url": bool = true,
 
+/// Show link previews for a matched URL.
+///
+/// When true, link previews are shown for all matched URLs. When false, link
+/// previews are never shown. When set to "osc8", link previews are only shown
+/// for hyperlinks created with the OSC 8 sequence (in this case, the link text
+/// can differ from the link destination).
+@"link-previews": LinkPreviews = .true,
+
 /// Whether to start the window in a maximized state. This setting applies
 /// to new windows and does not apply to tabs, splits, etc. However, this setting
 /// will apply to all new windows, not just the first one.
@@ -1581,9 +1596,9 @@ keybind: Keybinds = .{},
 /// the visible screen area. This means that if the menu bar is visible, the
 /// window will be placed below the menu bar.
 ///
-/// Note: this is only supported on macOS and Linux GLFW builds. The GTK
-/// runtime does not support setting the window position, as windows are
-/// only allowed position themselves in X11 and not Wayland.
+/// Note: this is only supported on macOS. The GTK runtime does not support
+/// setting the window position, as windows are only allowed position
+/// themselves in X11 and not Wayland.
 @"window-position-x": ?i16 = null,
 @"window-position-y": ?i16 = null,
 
@@ -2503,8 +2518,6 @@ keybind: Keybinds = .{},
 ///
 /// The values `left` or `right` enable this for the left or right *Option*
 /// key, respectively.
-///
-/// This does not work with GLFW builds.
 @"macos-option-as-alt": ?OptionAsAlt = null,
 
 /// Whether to enable the macOS window shadow. The default value is true.
@@ -2794,8 +2807,24 @@ else
 /// notifications using certain escape sequences such as OSC 9 or OSC 777.
 @"desktop-notifications": bool = true,
 
-/// If `true`, the bold text will use the bright color palette.
-@"bold-is-bright": bool = false,
+/// Modifies the color used for bold text in the terminal.
+///
+/// This can be set to a specific color, using the same format as
+/// `background` or `foreground` (e.g. `#RRGGBB` but other formats
+/// are also supported; see the aforementioned documentation). If a
+/// specific color is set, this color will always be used for all
+/// bold text regardless of the terminal's color scheme.
+///
+/// This can also be set to `bright`, which uses the bright color palette
+/// for bold text. For example, if the text is red, then the bold will
+/// use the bright red color. The terminal palette is set with `palette`
+/// but can also be overridden by the terminal application itself using
+/// escape sequences such as OSC 4. (Since Ghostty 1.2.0, the previous
+/// configuration `bold-is-bright` is deprecated and replaced by this
+/// usage).
+///
+/// Available since Ghostty 1.2.0.
+@"bold-color": ?BoldColor = null,
 
 /// This will be used to set the `TERM` environment variable.
 /// HACK: We set this with an `xterm` prefix because vim uses that to enable key
@@ -3900,6 +3929,23 @@ fn compatSelectionInvertFgBg(
     return true;
 }
 
+fn compatBoldIsBright(
+    self: *Config,
+    alloc: Allocator,
+    key: []const u8,
+    value_: ?[]const u8,
+) bool {
+    _ = alloc;
+    assert(std.mem.eql(u8, key, "bold-is-bright"));
+
+    const set = cli.args.parseBool(value_ orelse "t") catch return false;
+    if (set) {
+        self.@"bold-color" = .bright;
+    }
+
+    return true;
+}
+
 /// Create a shallow copy of this config. This will share all the memory
 /// allocated with the previous config but will have a new arena for
 /// any changes or new allocations. The config should have `deinit`
@@ -4324,6 +4370,12 @@ pub const WindowSubtitle = enum {
     @"working-directory",
 };
 
+pub const LinkPreviews = enum {
+    false,
+    true,
+    osc8,
+};
+
 /// Color represents a color using RGB.
 ///
 /// This is a packed struct so that the C API to read color values just
@@ -4518,6 +4570,58 @@ pub const TerminalColor = union(enum) {
         var sc: TerminalColor = .@"cell-foreground";
         try sc.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
         try testing.expectEqualSlices(u8, "a = cell-foreground\n", buf.items);
+    }
+};
+
+/// Represents color values that can be used for bold. See `bold-color`.
+pub const BoldColor = union(enum) {
+    color: Color,
+    bright,
+
+    pub fn parseCLI(input_: ?[]const u8) !BoldColor {
+        const input = input_ orelse return error.ValueRequired;
+        if (std.mem.eql(u8, input, "bright")) return .bright;
+        return .{ .color = try Color.parseCLI(input) };
+    }
+
+    /// Used by Formatter
+    pub fn formatEntry(self: BoldColor, formatter: anytype) !void {
+        switch (self) {
+            .color => try self.color.formatEntry(formatter),
+            .bright => try formatter.formatEntry(
+                [:0]const u8,
+                @tagName(self),
+            ),
+        }
+    }
+
+    test "parseCLI" {
+        const testing = std.testing;
+
+        try testing.expectEqual(
+            BoldColor{ .color = Color{ .r = 78, .g = 42, .b = 132 } },
+            try BoldColor.parseCLI("#4e2a84"),
+        );
+        try testing.expectEqual(
+            BoldColor{ .color = Color{ .r = 0, .g = 0, .b = 0 } },
+            try BoldColor.parseCLI("black"),
+        );
+        try testing.expectEqual(
+            BoldColor.bright,
+            try BoldColor.parseCLI("bright"),
+        );
+
+        try testing.expectError(error.InvalidValue, BoldColor.parseCLI("a"));
+    }
+
+    test "formatConfig" {
+        const testing = std.testing;
+        var buf = std.ArrayList(u8).init(testing.allocator);
+        defer buf.deinit();
+
+        var sc: BoldColor = .bright;
+        try sc.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
+        try testing.expectEqualSlices(u8, "a = bright\n", buf.items);
     }
 };
 
@@ -6555,8 +6659,9 @@ pub const RepeatableCommand = struct {
         try list.parseCLI(alloc, "title:Foo,action:ignore");
         try list.parseCLI(alloc, "title:Bar,description:bobr,action:text:ale bydle");
         try list.parseCLI(alloc, "title:Quux,description:boo,action:increase_font_size:2.5");
+        try list.parseCLI(alloc, "title:Baz,description:Raspberry Pie,action:set_font_size:3.14");
 
-        try testing.expectEqual(@as(usize, 3), list.value.items.len);
+        try testing.expectEqual(@as(usize, 4), list.value.items.len);
 
         try testing.expectEqual(inputpkg.Binding.Action.ignore, list.value.items[0].action);
         try testing.expectEqualStrings("Foo", list.value.items[0].title);
@@ -6572,6 +6677,13 @@ pub const RepeatableCommand = struct {
         );
         try testing.expectEqualStrings("Quux", list.value.items[2].title);
         try testing.expectEqualStrings("boo", list.value.items[2].description);
+
+        try testing.expectEqual(
+            inputpkg.Binding.Action{ .set_font_size = 3.14 },
+            list.value.items[3].action,
+        );
+        try testing.expectEqualStrings("Baz", list.value.items[3].title);
+        try testing.expectEqualStrings("Raspberry Pie", list.value.items[3].description);
 
         try list.parseCLI(alloc, "");
         try testing.expectEqual(@as(usize, 0), list.value.items.len);
@@ -7112,8 +7224,8 @@ pub const FreetypeLoadFlags = packed struct {
     // for Freetype itself. Ghostty hasn't made any opinionated changes
     // to these defaults.
     hinting: bool = true,
-    @"force-autohint": bool = true,
-    monochrome: bool = true,
+    @"force-autohint": bool = false,
+    monochrome: bool = false,
     autohint: bool = true,
 };
 
@@ -8273,6 +8385,26 @@ test "compatibility: removed selection-invert-fg-bg" {
         try testing.expectEqual(
             TerminalColor.@"cell-foreground",
             cfg.@"selection-background",
+        );
+    }
+}
+
+test "compatibility: removed bold-is-bright" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    {
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        var it: TestIterator = .{ .data = &.{
+            "--bold-is-bright",
+        } };
+        try cfg.loadIter(alloc, &it);
+        try cfg.finalize();
+
+        try testing.expectEqual(
+            BoldColor.bright,
+            cfg.@"bold-color",
         );
     }
 }

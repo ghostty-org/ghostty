@@ -1811,7 +1811,7 @@ fn testShaperWithFont(alloc: Allocator, font_req: TestFont) !TestShaper {
         .geist_mono => font.embedded.geist_mono,
         .jetbrains_mono => font.embedded.jetbrains_mono,
         .monaspace_neon => font.embedded.monaspace_neon,
-        .nerd_font => font.embedded.nerd_font,
+        .nerd_font => font.embedded.test_nerd_font,
     };
 
     var lib = try Library.init(alloc);

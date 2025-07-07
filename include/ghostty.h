@@ -662,6 +662,19 @@ typedef struct {
   bool soft;
 } ghostty_action_reload_config_s;
 
+// apprt.action.OpenUrlKind
+typedef enum {
+  GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN,
+  GHOSTTY_ACTION_OPEN_URL_KIND_TEXT,
+} ghostty_action_open_url_kind_e;
+
+// apprt.action.OpenUrl.C
+typedef struct {
+  ghostty_action_open_url_kind_e kind;
+  const char* url;
+  uintptr_t len;
+} ghostty_action_open_url_s;
+
 // apprt.Action.Key
 typedef enum {
   GHOSTTY_ACTION_QUIT,
@@ -711,7 +724,8 @@ typedef enum {
   GHOSTTY_ACTION_RING_BELL,
   GHOSTTY_ACTION_UNDO,
   GHOSTTY_ACTION_REDO,
-  GHOSTTY_ACTION_CHECK_FOR_UPDATES
+  GHOSTTY_ACTION_CHECK_FOR_UPDATES,
+  GHOSTTY_ACTION_OPEN_URL,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -739,6 +753,7 @@ typedef union {
   ghostty_action_color_change_s color_change;
   ghostty_action_reload_config_s reload_config;
   ghostty_action_config_change_s config_change;
+  ghostty_action_open_url_s open_url;
 } ghostty_action_u;
 
 typedef struct {
@@ -778,8 +793,8 @@ typedef struct {
 //-------------------------------------------------------------------
 // Published API
 
-int ghostty_init(void);
-void ghostty_cli_main(uintptr_t, char**);
+int ghostty_init(uintptr_t, char**);
+void ghostty_cli_try_action(void);
 ghostty_info_s ghostty_info(void);
 const char* ghostty_translate(const char*);
 

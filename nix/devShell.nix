@@ -58,6 +58,7 @@
   jq,
   minisign,
   pandoc,
+  pinact,
   hyperfine,
   typos,
   uv,
@@ -98,6 +99,7 @@ in
         # Linting
         nodePackages.prettier
         alejandra
+        pinact
         typos
 
         # Testing

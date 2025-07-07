@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const glfw = @import("glfw");
 const xev = @import("xev");
 const wuffs = @import("wuffs");
 const apprt = @import("../apprt.zig");
@@ -13,7 +12,8 @@ const math = @import("../math.zig");
 const Surface = @import("../Surface.zig");
 const link = @import("link.zig");
 const cellpkg = @import("cell.zig");
-const fgMode = cellpkg.fgMode;
+const noMinContrast = cellpkg.noMinContrast;
+const constraintWidth = cellpkg.constraintWidth;
 const isCovering = cellpkg.isCovering;
 const imagepkg = @import("image.zig");
 const Image = imagepkg.Image;
@@ -25,6 +25,8 @@ const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const Terminal = terminal.Terminal;
 const Health = renderer.Health;
+
+const getConstraint = @import("../font/nerd_font_attributes.zig").getConstraint;
 
 const FileType = @import("../file_type.zig").FileType;
 
@@ -517,7 +519,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             foreground: terminal.color.RGB,
             selection_background: ?configpkg.Config.TerminalColor,
             selection_foreground: ?configpkg.Config.TerminalColor,
-            bold_is_bright: bool,
+            bold_color: ?configpkg.BoldColor,
             min_contrast: f32,
             padding_color: configpkg.WindowPaddingColor,
             custom_shaders: configpkg.RepeatablePath,
@@ -578,7 +580,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                     .background = config.background.toTerminalRGB(),
                     .foreground = config.foreground.toTerminalRGB(),
-                    .bold_is_bright = config.@"bold-is-bright",
+                    .bold_color = config.@"bold-color",
+
                     .min_contrast = @floatCast(config.@"minimum-contrast"),
                     .padding_color = config.@"window-padding-color",
 
@@ -605,20 +608,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 self.arena.deinit();
             }
         };
-
-        /// Returns the hints that we want for this window.
-        pub fn glfwWindowHints(config: *const configpkg.Config) glfw.Window.Hints {
-            // If our graphics API provides hints, use them,
-            // otherwise fall back to generic hints.
-            if (@hasDecl(GraphicsAPI, "glfwWindowHints")) {
-                return GraphicsAPI.glfwWindowHints(config);
-            }
-
-            return .{
-                .client_api = .no_api,
-                .transparent_framebuffer = config.@"background-opacity" < 1,
-            };
-        }
 
         pub fn init(alloc: Allocator, options: renderer.Options) !Self {
             // Initialize our graphics API wrapper, this will prepare the
@@ -2552,10 +2541,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     // the cell style (SGR), before applying any additional
                     // configuration, inversions, selections, etc.
                     const bg_style = style.bg(cell, color_palette);
-                    const fg_style = style.fg(
-                        color_palette,
-                        self.config.bold_is_bright,
-                    ) orelse self.foreground_color orelse self.default_foreground_color;
+                    const fg_style = style.fg(.{
+                        .default = self.foreground_color orelse self.default_foreground_color,
+                        .palette = color_palette,
+                        .bold = self.config.bold_color,
+                    });
 
                     // The final background color for the cell.
                     const bg = bg: {
@@ -2813,10 +2803,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         .@"cell-background",
                         => |_, tag| {
                             const sty = screen.cursor.page_pin.style(screen.cursor.page_cell);
-                            const fg_style = sty.fg(
-                                color_palette,
-                                self.config.bold_is_bright,
-                            ) orelse self.foreground_color orelse self.default_foreground_color;
+                            const fg_style = sty.fg(.{
+                                .default = self.foreground_color orelse self.default_foreground_color,
+                                .palette = color_palette,
+                                .bold = self.config.bold_color,
+                            });
                             const bg_style = sty.bg(
                                 screen.cursor.page_cell,
                                 color_palette,
@@ -2864,7 +2855,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         }
 
                         const sty = screen.cursor.page_pin.style(screen.cursor.page_cell);
-                        const fg_style = sty.fg(color_palette, self.config.bold_is_bright) orelse self.foreground_color orelse self.default_foreground_color;
+                        const fg_style = sty.fg(.{
+                            .default = self.foreground_color orelse self.default_foreground_color,
+                            .palette = color_palette,
+                            .bold = self.config.bold_color,
+                        });
                         const bg_style = sty.bg(screen.cursor.page_cell, color_palette) orelse self.background_color orelse self.default_background_color;
 
                         break :blk switch (txt) {
@@ -2939,9 +2934,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             );
 
             try self.cells.add(self.alloc, .underline, .{
-                .mode = .fg,
+                .atlas = .grayscale,
                 .grid_pos = .{ @intCast(x), @intCast(y) },
-                .constraint_width = 1,
                 .color = .{ color.r, color.g, color.b, alpha },
                 .glyph_pos = .{ render.glyph.atlas_x, render.glyph.atlas_y },
                 .glyph_size = .{ render.glyph.width, render.glyph.height },
@@ -2971,9 +2965,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             );
 
             try self.cells.add(self.alloc, .overline, .{
-                .mode = .fg,
+                .atlas = .grayscale,
                 .grid_pos = .{ @intCast(x), @intCast(y) },
-                .constraint_width = 1,
                 .color = .{ color.r, color.g, color.b, alpha },
                 .glyph_pos = .{ render.glyph.atlas_x, render.glyph.atlas_y },
                 .glyph_size = .{ render.glyph.width, render.glyph.height },
@@ -3003,9 +2996,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             );
 
             try self.cells.add(self.alloc, .strikethrough, .{
-                .mode = .fg,
+                .atlas = .grayscale,
                 .grid_pos = .{ @intCast(x), @intCast(y) },
-                .constraint_width = 1,
                 .color = .{ color.r, color.g, color.b, alpha },
                 .glyph_pos = .{ render.glyph.atlas_x, render.glyph.atlas_y },
                 .glyph_size = .{ render.glyph.width, render.glyph.height },
@@ -3030,6 +3022,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             const rac = cell_pin.rowAndCell();
             const cell = rac.cell;
 
+            const cp = cell.codepoint();
+
             // Render
             const render = try self.font_grid.renderGlyph(
                 self.alloc,
@@ -3039,6 +3033,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .grid_metrics = self.grid_metrics,
                     .thicken = self.config.font_thicken,
                     .thicken_strength = self.config.font_thicken_strength,
+                    .cell_width = cell.gridWidth(),
+                    .constraint = getConstraint(cp),
+                    .constraint_width = constraintWidth(cell_pin),
                 },
             );
 
@@ -3048,27 +3045,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 return;
             }
 
-            // We always use fg mode for sprite glyphs, since we know we never
-            // need to constrain them, and we don't have any color sprites.
-            //
-            // Otherwise we defer to `fgMode`.
-            const mode: shaderpkg.CellText.Mode =
-                if (render.glyph.sprite)
-                    .fg
-                else switch (fgMode(
-                    render.presentation,
-                    cell_pin,
-                )) {
-                    .normal => .fg,
-                    .color => .fg_color,
-                    .constrained => .fg_constrained,
-                    .powerline => .fg_powerline,
-                };
-
             try self.cells.add(self.alloc, .text, .{
-                .mode = mode,
+                .atlas = switch (render.presentation) {
+                    .emoji => .color,
+                    .text => .grayscale,
+                },
+                .bools = .{ .no_min_contrast = noMinContrast(cp) },
                 .grid_pos = .{ @intCast(x), @intCast(y) },
-                .constraint_width = cell.gridWidth(),
                 .color = .{ color.r, color.g, color.b, alpha },
                 .glyph_pos = .{ render.glyph.atlas_x, render.glyph.atlas_y },
                 .glyph_size = .{ render.glyph.width, render.glyph.height },
@@ -3153,7 +3136,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             };
 
             self.cells.setCursor(.{
-                .mode = .cursor,
+                .atlas = .grayscale,
+                .bools = .{ .is_cursor_glyph = true },
                 .grid_pos = .{ x, screen.cursor.y },
                 .color = .{ cursor_color.r, cursor_color.g, cursor_color.b, alpha },
                 .glyph_pos = .{ render.glyph.atlas_x, render.glyph.atlas_y },
@@ -3202,7 +3186,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Add our text
             try self.cells.add(self.alloc, .text, .{
-                .mode = .fg,
+                .atlas = .grayscale,
                 .grid_pos = .{ @intCast(coord.x), @intCast(coord.y) },
                 .color = .{ fg.r, fg.g, fg.b, 255 },
                 .glyph_pos = .{ render.glyph.atlas_x, render.glyph.atlas_y },

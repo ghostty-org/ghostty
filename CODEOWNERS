@@ -155,6 +155,7 @@
 /src/input/KeyEncoder.zig @ghostty-org/terminal
 /src/terminal/ @ghostty-org/terminal
 /src/terminfo/ @ghostty-org/terminal
+/src/termio/ @ghostty-org/terminal
 /src/unicode/ @ghostty-org/terminal
 /src/Surface.zig @ghostty-org/terminal
 /src/surface_mouse.zig @ghostty-org/terminal

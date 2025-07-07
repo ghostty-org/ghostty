@@ -19,7 +19,7 @@ jobs:
     runs-on: namespace-profile-ghostty-sm
     needs: [build-macos]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Tip Tag
         run: |
           git config user.name "github-actions[bot]"
@@ -31,7 +31,7 @@ jobs:
     runs-on: namespace-profile-ghostty-sm
     needs: [build-macos-debug-slow]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install sentry-cli
         run: |
@@ -52,7 +52,7 @@ jobs:
     runs-on: namespace-profile-ghostty-sm
     needs: [build-macos-debug-fast]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install sentry-cli
         run: |
@@ -73,7 +73,7 @@ jobs:
     runs-on: namespace-profile-ghostty-sm
     needs: [build-macos]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install sentry-cli
         run: |
@@ -105,17 +105,17 @@ jobs:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@v1.2.8
+        uses: namespacelabs/nscloud-cache-action@449c929cd5138e6607e7e78458e88cc476e76f89 # v1.2.8
         with:
           path: |
             /nix
             /zig
-      - uses: cachix/install-nix-action@v31
+      - uses: cachix/install-nix-action@f0fe604f8a612776892427721526b4c7cfb23aba # v31.4.1
         with:
           nix_path: nixpkgs=channel:nixos-unstable
-      - uses: cachix/cachix-action@v16
+      - uses: cachix/cachix-action@0fc020193b5a1fa3ac4575aa3a7d3aa6a35435ad # v16
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
@@ -132,7 +132,7 @@ jobs:
           nix develop -c minisign -S -m ghostty-source.tar.gz -s minisign.key < minisign.password
 
       - name: Update Release
-        uses: softprops/action-gh-release@v2.3.2
+        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -158,16 +158,16 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           # Important so that build number generation works
           fetch-depth: 0
 
       # Install Nix and use that to run our tests so our environment matches exactly.
-      - uses: cachix/install-nix-action@v31
+      - uses: cachix/install-nix-action@f0fe604f8a612776892427721526b4c7cfb23aba # v31.4.1
         with:
           nix_path: nixpkgs=channel:nixos-unstable
-      - uses: cachix/cachix-action@v16
+      - uses: cachix/cachix-action@0fc020193b5a1fa3ac4575aa3a7d3aa6a35435ad # v16
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
@@ -196,7 +196,7 @@ jobs:
       # GhosttyKit is the framework that is built from Zig for our native
       # Mac app to access. Build this in release mode.
       - name: Build GhosttyKit
-        run: nix develop -c zig build -Doptimize=ReleaseFast
+        run: nix develop -c zig build -Doptimize=ReleaseFast -Demit-macos-app=false
 
       # The native app is built with native XCode tooling. This also does
       # codesigning. IMPORTANT: this must NOT run in a Nix environment.
@@ -299,7 +299,7 @@ jobs:
 
       # Update Release
       - name: Release
-        uses: softprops/action-gh-release@v2.3.2
+        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -331,7 +331,7 @@ jobs:
           cp Ghostty.dmg blob/${GHOSTTY_COMMIT_LONG}/Ghostty.dmg
 
       - name: Upload to R2
-        uses: ryand56/r2-upload-action@latest
+        uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4
         with:
           r2-account-id: ${{ secrets.CF_R2_TIP_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.CF_R2_TIP_AWS_KEY }}
@@ -349,7 +349,7 @@ jobs:
           cp appcast_new.xml blob/appcast.xml
 
       - name: Upload Appcast to R2
-        uses: ryand56/r2-upload-action@latest
+        uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4
         with:
           r2-account-id: ${{ secrets.CF_R2_TIP_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.CF_R2_TIP_AWS_KEY }}
@@ -373,16 +373,16 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           # Important so that build number generation works
           fetch-depth: 0
 
       # Install Nix and use that to run our tests so our environment matches exactly.
-      - uses: cachix/install-nix-action@v31
+      - uses: cachix/install-nix-action@f0fe604f8a612776892427721526b4c7cfb23aba # v31.4.1
         with:
           nix_path: nixpkgs=channel:nixos-unstable
-      - uses: cachix/cachix-action@v16
+      - uses: cachix/cachix-action@0fc020193b5a1fa3ac4575aa3a7d3aa6a35435ad # v16
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
@@ -411,7 +411,7 @@ jobs:
       # GhosttyKit is the framework that is built from Zig for our native
       # Mac app to access. Build this in release mode.
       - name: Build GhosttyKit
-        run: nix develop -c zig build -Doptimize=Debug
+        run: nix develop -c zig build -Doptimize=Debug -Demit-macos-app=false
 
       # The native app is built with native XCode tooling. This also does
       # codesigning. IMPORTANT: this must NOT run in a Nix environment.
@@ -507,7 +507,7 @@ jobs:
 
       # Update Release
       - name: Release
-        uses: softprops/action-gh-release@v2.3.2
+        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -524,7 +524,7 @@ jobs:
           cp ghostty-macos-universal-debug-slow.zip blob/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-debug-slow.zip
           cp ghostty-macos-universal-debug-slow-dsym.zip blob/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-debug-slow-dsym.zip
       - name: Upload to R2
-        uses: ryand56/r2-upload-action@latest
+        uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4
         with:
           r2-account-id: ${{ secrets.CF_R2_TIP_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.CF_R2_TIP_AWS_KEY }}
@@ -548,16 +548,16 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           # Important so that build number generation works
           fetch-depth: 0
 
       # Install Nix and use that to run our tests so our environment matches exactly.
-      - uses: cachix/install-nix-action@v31
+      - uses: cachix/install-nix-action@f0fe604f8a612776892427721526b4c7cfb23aba # v31.4.1
         with:
           nix_path: nixpkgs=channel:nixos-unstable
-      - uses: cachix/cachix-action@v16
+      - uses: cachix/cachix-action@0fc020193b5a1fa3ac4575aa3a7d3aa6a35435ad # v16
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
@@ -586,7 +586,7 @@ jobs:
       # GhosttyKit is the framework that is built from Zig for our native
       # Mac app to access. Build this in release mode.
       - name: Build GhosttyKit
-        run: nix develop -c zig build -Doptimize=ReleaseSafe
+        run: nix develop -c zig build -Doptimize=ReleaseSafe -Demit-macos-app=false
 
       # The native app is built with native XCode tooling. This also does
       # codesigning. IMPORTANT: this must NOT run in a Nix environment.
@@ -682,7 +682,7 @@ jobs:
 
       # Update Release
       - name: Release
-        uses: softprops/action-gh-release@v2.3.2
+        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -699,7 +699,7 @@ jobs:
           cp ghostty-macos-universal-debug-fast.zip blob/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-debug-fast.zip
           cp ghostty-macos-universal-debug-fast-dsym.zip blob/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-debug-fast-dsym.zip
       - name: Upload to R2
-        uses: ryand56/r2-upload-action@latest
+        uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4
         with:
           r2-account-id: ${{ secrets.CF_R2_TIP_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.CF_R2_TIP_AWS_KEY }}

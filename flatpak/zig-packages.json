@@ -25,12 +25,6 @@
   },
   {
     "type": "archive",
-    "url": "https://github.com/glfw/glfw/archive/e7ea71be039836da3a98cea55ae5569cb5eb885c.tar.gz",
-    "dest": "vendor/p/N-V-__8AAMrJSwAUGb9-vTzkNR-5LXS81MR__ZRVfF3tWgG6",
-    "sha256": "3373755d402531e6c1a395f53f2fbd6318ca5e067a79a72a59109b526c0b290a"
-  },
-  {
-    "type": "archive",
     "url": "https://deps.files.ghostty.org/glslang-12201278a1a05c0ce0b6eb6026c65cd3e9247aa041b1c260324bf29cee559dd23ba1.tar.gz",
     "dest": "vendor/p/N-V-__8AABzkUgISeKGgXAzgtutgJsZc0-kkeqBBscJgMkvy",
     "sha256": "14a2edbb509cb3e51a9a53e3f5e435dbf5971604b4b833e63e6076e8c0a997b5"
@@ -73,6 +67,12 @@
   },
   {
     "type": "archive",
+    "url": "https://deps.files.ghostty.org/JetBrainsMono-2.304.tar.gz",
+    "dest": "vendor/p/N-V-__8AAIC5lwAVPJJzxnCAahSvZTIlG-HhtOvnM1uh-66x",
+    "sha256": "c57a691e8b82ad098b5963f3959032e4038f391087af7715885ba59046105cc4"
+  },
+  {
+    "type": "archive",
     "url": "https://deps.files.ghostty.org/libpng-1220aa013f0c83da3fb64ea6d327f9173fa008d10e28bc9349eac3463457723b1c66.tar.gz",
     "dest": "vendor/p/N-V-__8AAJrvXQCqAT8Mg9o_tk6m0yf5Fz-gCNEOKLyTSerD",
     "sha256": "fecc95b46cf05e8e3fc8a414750e0ba5aad00d89e9fdf175e94ff041caf1a03a"
@@ -88,6 +88,12 @@
     "url": "https://deps.files.ghostty.org/libxml2-2.11.5.tar.gz",
     "dest": "vendor/p/N-V-__8AAG3RoQEyRC2Vw7Qoro5SYBf62IHn3HjqtNVY6aWK",
     "sha256": "6c28059e2e3eeb42b5b4b16489e3916a6346c1095a74fee3bc65cdc5d89a6215"
+  },
+  {
+    "type": "archive",
+    "url": "https://deps.files.ghostty.org/NerdFontsSymbolsOnly-3.4.0.tar.gz",
+    "dest": "vendor/p/N-V-__8AAMVLTABmYkLqhZPLXnMl-KyN38R8UVYqGrxqO26s",
+    "sha256": "1164d1b956d4bde248d7b2f0998c43cc94f5202431a1564a793895b1e73b0d04"
   },
   {
     "type": "archive",

@@ -69,7 +69,6 @@
         .cimgui = .{ .path = "./pkg/cimgui", .lazy = true },
         .fontconfig = .{ .path = "./pkg/fontconfig", .lazy = true },
         .freetype = .{ .path = "./pkg/freetype", .lazy = true },
-        .glfw = .{ .path = "./pkg/glfw", .lazy = true },
         .gtk4_layer_shell = .{ .path = "./pkg/gtk4-layer-shell", .lazy = true },
         .harfbuzz = .{ .path = "./pkg/harfbuzz", .lazy = true },
         .highway = .{ .path = "./pkg/highway", .lazy = true },
@@ -103,6 +102,16 @@
             .url = "https://deps.files.ghostty.org/plasma_wayland_protocols-12207e0851c12acdeee0991e893e0132fc87bb763969a585dc16ecca33e88334c566.tar.gz",
             .hash = "N-V-__8AAKYZBAB-CFHBKs3u4JkeiT4BMvyHu3Y5aaWF3Bbs",
             .lazy = true,
+        },
+
+        // Fonts
+        .jetbrains_mono = .{
+            .url = "https://deps.files.ghostty.org/JetBrainsMono-2.304.tar.gz",
+            .hash = "N-V-__8AAIC5lwAVPJJzxnCAahSvZTIlG-HhtOvnM1uh-66x",
+        },
+        .nerd_fonts_symbols_only = .{
+            .url = "https://deps.files.ghostty.org/NerdFontsSymbolsOnly-3.4.0.tar.gz",
+            .hash = "N-V-__8AAMVLTABmYkLqhZPLXnMl-KyN38R8UVYqGrxqO26s",
         },
 
         // Other

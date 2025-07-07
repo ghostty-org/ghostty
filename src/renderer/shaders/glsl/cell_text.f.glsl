@@ -4,21 +4,15 @@ layout(binding = 0) uniform sampler2DRect atlas_grayscale;
 layout(binding = 1) uniform sampler2DRect atlas_color;
 
 in CellTextVertexOut {
-    flat uint mode;
+    flat uint atlas;
     flat vec4 color;
     flat vec4 bg_color;
     vec2 tex_coord;
 } in_data;
 
-// These are the possible modes that "mode" can be set to. This is
-// used to multiplex multiple render modes into a single shader.
-//
-// NOTE: this must be kept in sync with the fragment shader
-const uint MODE_TEXT = 1u;
-const uint MODE_TEXT_CONSTRAINED = 2u;
-const uint MODE_TEXT_COLOR = 3u;
-const uint MODE_TEXT_CURSOR = 4u;
-const uint MODE_TEXT_POWERLINE = 5u;
+// Values `atlas` can take.
+const uint ATLAS_GRAYSCALE = 0u;
+const uint ATLAS_COLOR = 1u;
 
 // Must declare this output for some versions of OpenGL.
 layout(location = 0) out vec4 out_FragColor;
@@ -27,12 +21,9 @@ void main() {
     bool use_linear_blending = (bools & USE_LINEAR_BLENDING) != 0;
     bool use_linear_correction = (bools & USE_LINEAR_CORRECTION) != 0;
 
-    switch (in_data.mode) {
+    switch (in_data.atlas) {
         default:
-        case MODE_TEXT_CURSOR:
-        case MODE_TEXT_CONSTRAINED:
-        case MODE_TEXT_POWERLINE:
-        case MODE_TEXT:
+        case ATLAS_GRAYSCALE:
         {
             // Our input color is always linear.
             vec4 color = in_data.color;
@@ -84,7 +75,7 @@ void main() {
             return;
         }
 
-        case MODE_TEXT_COLOR:
+        case ATLAS_COLOR:
         {
             // For now, we assume that color glyphs
             // are already premultiplied linear colors.

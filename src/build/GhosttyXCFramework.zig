@@ -7,11 +7,23 @@ const GhosttyLib = @import("GhosttyLib.zig");
 const XCFrameworkStep = @import("XCFrameworkStep.zig");
 
 xcframework: *XCFrameworkStep,
-macos: GhosttyLib,
+target: Target,
 
-pub fn init(b: *std.Build, deps: *const SharedDeps) !GhosttyXCFramework {
-    // Create our universal macOS static library.
-    const macos = try GhosttyLib.initMacOSUniversal(b, deps);
+pub const Target = enum { native, universal };
+
+pub fn init(
+    b: *std.Build,
+    deps: *const SharedDeps,
+    target: Target,
+) !GhosttyXCFramework {
+    // Universal macOS build
+    const macos_universal = try GhosttyLib.initMacOSUniversal(b, deps);
+
+    // Native macOS build
+    const macos_native = try GhosttyLib.initStatic(b, &try deps.retarget(
+        b,
+        Config.genericMacOSTarget(b, null),
+    ));
 
     // iOS
     const ios = try GhosttyLib.initStatic(b, &try deps.retarget(
@@ -47,29 +59,43 @@ pub fn init(b: *std.Build, deps: *const SharedDeps) !GhosttyXCFramework {
     const xcframework = XCFrameworkStep.create(b, .{
         .name = "GhosttyKit",
         .out_path = "macos/GhosttyKit.xcframework",
-        .libraries = &.{
-            .{
-                .library = macos.output,
-                .headers = b.path("include"),
+        .libraries = switch (target) {
+            .universal => &.{
+                .{
+                    .library = macos_universal.output,
+                    .headers = b.path("include"),
+                },
+                .{
+                    .library = ios.output,
+                    .headers = b.path("include"),
+                },
+                .{
+                    .library = ios_sim.output,
+                    .headers = b.path("include"),
+                },
             },
-            .{
-                .library = ios.output,
+
+            .native => &.{.{
+                .library = macos_native.output,
                 .headers = b.path("include"),
-            },
-            .{
-                .library = ios_sim.output,
-                .headers = b.path("include"),
-            },
+            }},
         },
     });
 
     return .{
         .xcframework = xcframework,
-        .macos = macos,
+        .target = target,
     };
 }
 
 pub fn install(self: *const GhosttyXCFramework) void {
     const b = self.xcframework.step.owner;
-    b.getInstallStep().dependOn(self.xcframework.step);
+    self.addStepDependencies(b.getInstallStep());
+}
+
+pub fn addStepDependencies(
+    self: *const GhosttyXCFramework,
+    other_step: *std.Build.Step,
+) void {
+    other_step.dependOn(self.xcframework.step);
 }

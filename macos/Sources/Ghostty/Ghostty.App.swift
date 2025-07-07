@@ -45,12 +45,6 @@ extension Ghostty {
         }
 
         init() {
-            // Initialize ghostty global state. This happens once per process.
-            if ghostty_init() != GHOSTTY_SUCCESS {
-                logger.critical("ghostty_init failed, weird things may happen")
-                readiness = .error
-            }
-
             // Initialize the global configuration.
             self.config = Config()
             if self.config.config == nil {

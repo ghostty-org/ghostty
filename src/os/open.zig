@@ -1,24 +1,23 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
+const apprt = @import("../apprt.zig");
 
 const log = std.log.scoped(.@"os-open");
-
-/// The type of the data at the URL to open. This is used as a hint
-/// to potentially open the URL in a different way.
-pub const Type = enum {
-    text,
-    unknown,
-};
 
 /// Open a URL in the default handling application.
 ///
 /// Any output on stderr is logged as a warning in the application logs.
 /// Output on stdout is ignored. The allocator is used to buffer the
 /// log output and may allocate from another thread.
+///
+/// This function is purposely simple for the sake of providing
+/// some portable way to open URLs. If you are implementing an
+/// apprt for Ghostty, you should consider doing something special-cased
+/// for your platform.
 pub fn open(
     alloc: Allocator,
-    typ: Type,
+    kind: apprt.action.OpenUrl.Kind,
     url: []const u8,
 ) !void {
     var exe: std.process.Child = switch (builtin.os.tag) {
@@ -33,7 +32,7 @@ pub fn open(
         ),
 
         .macos => .init(
-            switch (typ) {
+            switch (kind) {
                 .text => &.{ "open", "-t", url },
                 .unknown => &.{ "open", url },
             },

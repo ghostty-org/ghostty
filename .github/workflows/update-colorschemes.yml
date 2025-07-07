@@ -17,22 +17,22 @@ jobs:
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@v1.2.8
+        uses: namespacelabs/nscloud-cache-action@449c929cd5138e6607e7e78458e88cc476e76f89 # v1.2.8
         with:
           path: |
             /nix
             /zig
 
       - name: Setup Nix
-        uses: cachix/install-nix-action@v31
+        uses: cachix/install-nix-action@f0fe604f8a612776892427721526b4c7cfb23aba # v31.4.1
         with:
           nix_path: nixpkgs=channel:nixos-unstable
-      - uses: cachix/cachix-action@v16
+      - uses: cachix/cachix-action@0fc020193b5a1fa3ac4575aa3a7d3aa6a35435ad # v16
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
@@ -60,7 +60,7 @@ jobs:
         run: nix build .#ghostty
 
       - name: Create pull request
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v7.0.8
         with:
           title: Update iTerm2 colorschemes
           base: main

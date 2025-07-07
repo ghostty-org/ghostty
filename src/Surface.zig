@@ -270,6 +270,7 @@ const DerivedConfig = struct {
     title: ?[:0]const u8,
     title_report: bool,
     links: []Link,
+    link_previews: configpkg.LinkPreviews,
 
     const Link = struct {
         regex: oni.Regex,
@@ -336,6 +337,7 @@ const DerivedConfig = struct {
             .title = config.title,
             .title_report = config.@"title-report",
             .links = links,
+            .link_previews = config.@"link-previews",
 
             // Assignments happen sequentially so we have to do this last
             // so that the memory is captured from allocs above.
@@ -1242,7 +1244,7 @@ fn mouseRefreshLinks(
     // Get our link at the current position. This returns null if there
     // isn't a link OR if we shouldn't be showing links for some reason
     // (see further comments for cases).
-    const link_: ?apprt.action.MouseOverLink = link: {
+    const link_: ?apprt.action.MouseOverLink, const preview: bool = link: {
         // If we clicked and our mouse moved cells then we never
         // highlight links until the mouse is unclicked. This follows
         // standard macOS and Linux behavior where a click and drag cancels
@@ -1257,18 +1259,21 @@ fn mouseRefreshLinks(
 
             if (!click_pt.coord().eql(pos_vp)) {
                 log.debug("mouse moved while left click held, ignoring link hover", .{});
-                break :link null;
+                break :link .{ null, false };
             }
         }
 
-        const link = (try self.linkAtPos(pos)) orelse break :link null;
+        const link = (try self.linkAtPos(pos)) orelse break :link .{ null, false };
         switch (link[0]) {
             .open => {
                 const str = try self.io.terminal.screen.selectionString(alloc, .{
                     .sel = link[1],
                     .trim = false,
                 });
-                break :link .{ .url = str };
+                break :link .{
+                    .{ .url = str },
+                    self.config.link_previews == .true,
+                };
             },
 
             ._open_osc8 => {
@@ -1276,9 +1281,14 @@ fn mouseRefreshLinks(
                 const pin = link[1].start();
                 const uri = self.osc8URI(pin) orelse {
                     log.warn("failed to get URI for OSC8 hyperlink", .{});
-                    break :link null;
+                    break :link .{ null, false };
                 };
-                break :link .{ .url = uri };
+                break :link .{
+                    .{
+                        .url = uri,
+                    },
+                    self.config.link_previews != .false,
+                };
             },
         }
     };
@@ -1294,11 +1304,15 @@ fn mouseRefreshLinks(
             .mouse_shape,
             .pointer,
         );
-        _ = try self.rt_app.performAction(
-            .{ .surface = self },
-            .mouse_over_link,
-            link,
-        );
+
+        if (preview) {
+            _ = try self.rt_app.performAction(
+                .{ .surface = self },
+                .mouse_over_link,
+                link,
+            );
+        }
+
         try self.queueRender();
         return;
     }
@@ -3710,7 +3724,7 @@ fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
                 .trim = false,
             });
             defer self.alloc.free(str);
-            try internal_os.open(self.alloc, .unknown, str);
+            try self.openUrl(.{ .kind = .unknown, .url = str });
         },
 
         ._open_osc8 => {
@@ -3718,11 +3732,33 @@ fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
                 log.warn("failed to get URI for OSC8 hyperlink", .{});
                 return false;
             };
-            try internal_os.open(self.alloc, .unknown, uri);
+            try self.openUrl(.{ .kind = .unknown, .url = uri });
         },
     }
 
     return true;
+}
+
+fn openUrl(
+    self: *Surface,
+    action: apprt.action.OpenUrl,
+) !void {
+    // If the apprt handles it then we're done.
+    if (try self.rt_app.performAction(
+        .{ .surface = self },
+        .open_url,
+        action,
+    )) return;
+
+    // apprt didn't handle it, fallback to our simple cross-platform
+    // URL opener. We log a warning because we want well-behaved
+    // apprts to handle this themselves.
+    log.warn("apprt did not handle open URL action, falling back to default opener", .{});
+    try internal_os.open(
+        self.alloc,
+        action.kind,
+        action.url,
+    );
 }
 
 /// Return the URI for an OSC8 hyperlink at the given position or null
@@ -4443,6 +4479,18 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             return false;
         },
 
+        .copy_title_to_clipboard => {
+            const title = self.rt_surface.getTitle() orelse return false;
+            if (title.len == 0) return false;
+
+            self.rt_surface.setClipboardString(title, .standard, false) catch |err| {
+                log.err("error copying title to clipboard err={}", .{err});
+                return true;
+            };
+
+            return true;
+        },
+
         .paste_from_clipboard => try self.startClipboardRequest(
             .standard,
             .{ .paste = {} },
@@ -4481,6 +4529,14 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
 
             var size = self.font_size;
             size.points = self.config.original_font_size;
+            try self.setFontSize(size);
+        },
+
+        .set_font_size => |points| {
+            log.debug("set font size={d}", .{points});
+
+            var size = self.font_size;
+            size.points = std.math.clamp(points, 1.0, 255.0);
             try self.setFontSize(size);
         },
 
@@ -4923,7 +4979,7 @@ fn writeScreenFile(
             defer self.alloc.free(pathZ);
             try self.rt_surface.setClipboardString(pathZ, .standard, false);
         },
-        .open => try internal_os.open(self.alloc, .text, path),
+        .open => try self.openUrl(.{ .kind = .text, .url = path }),
         .paste => self.io.queueMessage(try termio.Message.writeReq(
             self.alloc,
             path,

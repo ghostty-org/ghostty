@@ -7,7 +7,6 @@ const renderer = @import("../renderer.zig");
 const shaderpkg = renderer.Renderer.API.shaders;
 const ArrayListCollection = @import("../datastruct/array_list_collection.zig").ArrayListCollection;
 const GeneralCategories = @import("GeneralCategories");
-const zg = &@import("../global.zig").state.zg;
 
 /// The possible cell content keys that exist.
 pub const Key = enum {
@@ -219,106 +218,65 @@ pub fn isCovering(cp: u21) bool {
     };
 }
 
-pub const FgMode = enum {
-    /// Normal non-colored text rendering. The text can leave the cell
-    /// size if it is larger than the cell to allow for ligatures.
-    normal,
+/// Returns the appropriate `constraint_width` for
+/// the provided cell when rendering its glyph(s).
+pub fn constraintWidth(cell_pin: terminal.Pin) u2 {
+    const cell = cell_pin.rowAndCell().cell;
+    const cp = cell.codepoint();
 
-    /// Colored text rendering, specifically Emoji.
-    color,
+    if (!ziglyph.general_category.isPrivateUse(cp) and
+        !ziglyph.blocks.isDingbats(cp))
+    {
+        return cell.gridWidth();
+    }
 
-    /// Similar to normal but the text must be constrained to the cell
-    /// size. If a glyph is larger than the cell then it must be resized
-    /// to fit.
-    constrained,
+    // If we are at the end of the screen it must be constrained to one cell.
+    if (cell_pin.x == cell_pin.node.data.size.cols - 1) return 1;
 
-    /// Similar to normal, but the text consists of Powerline glyphs and is
-    /// optionally exempt from padding color extension and minimum contrast requirements.
-    powerline,
-};
+    // If we have a previous cell and it was PUA then we need to
+    // also constrain. This is so that multiple PUA glyphs align.
+    // As an exception, we ignore powerline glyphs since they are
+    // used for box drawing and we consider them whitespace.
+    if (cell_pin.x > 0) prev: {
+        const prev_cp = prev_cp: {
+            var copy = cell_pin;
+            copy.x -= 1;
+            const prev_cell = copy.rowAndCell().cell;
+            break :prev_cp prev_cell.codepoint();
+        };
 
-/// Returns the appropriate foreground mode for the given cell. This is
-/// meant to be called from the typical updateCell function within a
-/// renderer.
-pub fn fgMode(
-    presentation: font.Presentation,
-    cell_pin: terminal.Pin,
-) FgMode {
-    return switch (presentation) {
-        // Emoji is always full size and color.
-        .emoji => .color,
+        // We consider powerline glyphs whitespace.
+        if (isPowerline(prev_cp)) break :prev;
 
-        // If it is text it is slightly more complex. If we are a codepoint
-        // in the private use area and we are at the end or the next cell
-        // is not empty, we need to constrain rendering.
-        //
-        // We do this specifically so that Nerd Fonts can render their
-        // icons without overlapping with subsequent characters. But if
-        // the subsequent character is empty, then we allow it to use
-        // the full glyph size. See #1071.
-        .text => text: {
-            const cell = cell_pin.rowAndCell().cell;
-            const cp = cell.codepoint();
+        // If it's Private Use (Co) use 1 as the width.
+        if (GeneralCategories.gc(cp) == .Co) {
+            return 1;
+        }
+    }
 
-            // If it's not Private Use (Co) or Dingbats (0x2700-0x27bf), use
-            // normal mode.
-            if (GeneralCategories.gc(zg.general_categories, cp) != .Co and
-                !(cp >= 0x2700 and cp <= 0x27bf))
-            {
-                break :text .normal;
-            }
-
-            // Special-case Powerline glyphs. They exhibit box drawing behavior
-            // and should not be constrained. They have their own special category
-            // though because they're used for other logic (i.e. disabling
-            // min contrast).
-            if (isPowerline(cp)) {
-                break :text .powerline;
-            }
-
-            // If we are at the end of the screen its definitely constrained
-            if (cell_pin.x == cell_pin.node.data.size.cols - 1) break :text .constrained;
-
-            // If we have a previous cell and it was PUA then we need to
-            // also constrain. This is so that multiple PUA glyphs align.
-            // As an exception, we ignore powerline glyphs since they are
-            // used for box drawing and we consider them whitespace.
-            if (cell_pin.x > 0) prev: {
-                const prev_cp = prev_cp: {
-                    var copy = cell_pin;
-                    copy.x -= 1;
-                    const prev_cell = copy.rowAndCell().cell;
-                    break :prev_cp prev_cell.codepoint();
-                };
-
-                // Powerline is whitespace
-                if (isPowerline(prev_cp)) break :prev;
-
-                // If it's Private Use (Co), then we use constrained mode.
-                if (GeneralCategories.gc(zg.general_categories, cp) == .Co) {
-                    break :text .constrained;
-                }
-            }
-
-            // If the next cell is empty, then we allow it to use the
-            // full glyph size.
-            const next_cp = next_cp: {
-                var copy = cell_pin;
-                copy.x += 1;
-                const next_cell = copy.rowAndCell().cell;
-                break :next_cp next_cell.codepoint();
-            };
-            if (next_cp == 0 or
-                isSpace(next_cp) or
-                isPowerline(next_cp))
-            {
-                break :text .normal;
-            }
-
-            // Must be constrained
-            break :text .constrained;
-        },
+    // If the next cell is whitespace, then
+    // we allow it to be up to two cells wide.
+    const next_cp = next_cp: {
+        var copy = cell_pin;
+        copy.x += 1;
+        const next_cell = copy.rowAndCell().cell;
+        break :next_cp next_cell.codepoint();
     };
+    if (next_cp == 0 or
+        isSpace(next_cp) or
+        isPowerline(next_cp))
+    {
+        return 2;
+    }
+
+    // Must be constrained
+    return 1;
+}
+
+/// Whether min contrast should be disabled for a given glyph.
+pub fn noMinContrast(cp: u21) bool {
+    // TODO: We should disable for all box drawing type characters.
+    return isPowerline(cp);
 }
 
 // Some general spaces, others intentionally kept
@@ -365,7 +323,7 @@ test Contents {
     // Add some contents.
     const bg_cell: shaderpkg.CellBg = .{ 0, 0, 0, 1 };
     const fg_cell: shaderpkg.CellText = .{
-        .mode = .fg,
+        .atlas = .grayscale,
         .grid_pos = .{ 4, 1 },
         .color = .{ 0, 0, 0, 1 },
     };
@@ -386,7 +344,8 @@ test Contents {
 
     // Add a block cursor.
     const cursor_cell: shaderpkg.CellText = .{
-        .mode = .cursor,
+        .atlas = .grayscale,
+        .bools = .{ .is_cursor_glyph = true },
         .grid_pos = .{ 2, 3 },
         .color = .{ 0, 0, 0, 1 },
     };
@@ -417,7 +376,7 @@ test "Contents clear retains other content" {
     // bg and fg cells in row 1
     const bg_cell_1: shaderpkg.CellBg = .{ 0, 0, 0, 1 };
     const fg_cell_1: shaderpkg.CellText = .{
-        .mode = .fg,
+        .atlas = .grayscale,
         .grid_pos = .{ 4, 1 },
         .color = .{ 0, 0, 0, 1 },
     };
@@ -426,7 +385,7 @@ test "Contents clear retains other content" {
     // bg and fg cells in row 2
     const bg_cell_2: shaderpkg.CellBg = .{ 0, 0, 0, 1 };
     const fg_cell_2: shaderpkg.CellText = .{
-        .mode = .fg,
+        .atlas = .grayscale,
         .grid_pos = .{ 4, 2 },
         .color = .{ 0, 0, 0, 1 },
     };
@@ -457,7 +416,7 @@ test "Contents clear last added content" {
     // bg and fg cells in row 1
     const bg_cell_1: shaderpkg.CellBg = .{ 0, 0, 0, 1 };
     const fg_cell_1: shaderpkg.CellText = .{
-        .mode = .fg,
+        .atlas = .grayscale,
         .grid_pos = .{ 4, 1 },
         .color = .{ 0, 0, 0, 1 },
     };
@@ -466,7 +425,7 @@ test "Contents clear last added content" {
     // bg and fg cells in row 2
     const bg_cell_2: shaderpkg.CellBg = .{ 0, 0, 0, 1 };
     const fg_cell_2: shaderpkg.CellText = .{
-        .mode = .fg,
+        .atlas = .grayscale,
         .grid_pos = .{ 4, 2 },
         .color = .{ 0, 0, 0, 1 },
     };

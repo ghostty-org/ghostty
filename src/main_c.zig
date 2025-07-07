@@ -46,17 +46,11 @@ const Info = extern struct {
     };
 };
 
-/// Initialize ghostty global state. It is possible to have more than
-/// one global state but it has zero practical benefit.
-export fn ghostty_init() c_int {
+/// Initialize ghostty global state.
+export fn ghostty_init(argc: usize, argv: [*][*:0]u8) c_int {
     assert(builtin.link_libc);
 
-    // Since in the lib we don't go through start.zig, we need
-    // to populate argv so that inspecting std.os.argv doesn't
-    // touch uninitialized memory.
-    var argv: [0][*:0]u8 = .{};
-    std.os.argv = &argv;
-
+    std.os.argv = argv[0..argc];
     state.init() catch |err| {
         std.log.err("failed to initialize ghostty error={}", .{err});
         return 1;
@@ -65,15 +59,17 @@ export fn ghostty_init() c_int {
     return 0;
 }
 
-/// This is the entrypoint for the CLI version of Ghostty. This
-/// is mutually exclusive to ghostty_init. Do NOT run ghostty_init
-/// if you are going to run this. This will not return.
-export fn ghostty_cli_main(argc: usize, argv: [*][*:0]u8) noreturn {
-    std.os.argv = argv[0..argc];
-    main.main() catch |err| {
-        std.log.err("failed to run ghostty error={}", .{err});
+/// Runs an action if it is specified. If there is no action this returns
+/// false. If there is an action then this doesn't return.
+export fn ghostty_cli_try_action() void {
+    const action = state.action orelse return;
+    std.log.info("executing CLI action={}", .{action});
+    posix.exit(action.run(state.alloc) catch |err| {
+        std.log.err("CLI action failed error={}", .{err});
         posix.exit(1);
-    };
+    });
+
+    posix.exit(0);
 }
 
 /// Return metadata about Ghostty, such as version, build mode, etc.

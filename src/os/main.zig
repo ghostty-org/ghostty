@@ -14,6 +14,7 @@ const openpkg = @import("open.zig");
 const pipepkg = @import("pipe.zig");
 const resourcesdir = @import("resourcesdir.zig");
 const systemd = @import("systemd.zig");
+const kernelInfo = @import("kernel_info.zig");
 
 // Namespaces
 pub const args = @import("args.zig");
@@ -58,6 +59,7 @@ pub const pipe = pipepkg.pipe;
 pub const resourcesDir = resourcesdir.resourcesDir;
 pub const ResourcesDir = resourcesdir.ResourcesDir;
 pub const ShellEscapeWriter = shell.ShellEscapeWriter;
+pub const getKernelInfo = kernelInfo.getKernelInfo;
 
 test {
     _ = i18n;

@@ -509,13 +509,17 @@ fragment float4 cell_bg_fragment(
 //-------------------------------------------------------------------
 #pragma mark - Cell Text Shader
 
-// The possible modes that a cell fg entry can take.
-enum CellTextMode : uint8_t {
-  MODE_TEXT = 1u,
-  MODE_TEXT_CONSTRAINED = 2u,
-  MODE_TEXT_COLOR = 3u,
-  MODE_TEXT_CURSOR = 4u,
-  MODE_TEXT_POWERLINE = 5u,
+enum CellTextAtlas : uint8_t {
+  ATLAS_GRAYSCALE = 0u,
+  ATLAS_COLOR = 1u,
+};
+
+// We use a packed struct of bools for misc properties of the glyph.
+enum CellTextBools : uint8_t {
+  // Don't apply min contrast to this glyph.
+  NO_MIN_CONTRAST = 1u,
+  // This is the cursor glyph.
+  IS_CURSOR_GLYPH = 2u,
 };
 
 struct CellTextVertexIn {
@@ -534,16 +538,16 @@ struct CellTextVertexIn {
   // The color of the rendered text glyph.
   uchar4 color [[attribute(4)]];
 
-  // The mode for this cell.
-  uint8_t mode [[attribute(5)]];
+  // Which atlas to sample for our glyph.
+  uint8_t atlas [[attribute(5)]];
 
-  // The width to constrain the glyph to, in cells, or 0 for no constraint.
-  uint8_t constraint_width [[attribute(6)]];
+  // Misc properties of the glyph.
+  uint8_t bools [[attribute(6)]];
 };
 
 struct CellTextVertexOut {
   float4 position [[position]];
-  uint8_t mode [[flat]];
+  uint8_t atlas [[flat]];
   float4 color [[flat]];
   float4 bg_color [[flat]];
   float2 tex_coord;
@@ -577,7 +581,7 @@ vertex CellTextVertexOut cell_text_vertex(
   corner.y = float(vid == 2 || vid == 3);
 
   CellTextVertexOut out;
-  out.mode = in.mode;
+  out.atlas = in.atlas;
 
   //              === Grid Cell ===
   //      +X
@@ -609,25 +613,6 @@ vertex CellTextVertexOut cell_text_vertex(
   float2 offset = float2(in.bearings);
 
   offset.y = uniforms.cell_size.y - offset.y;
-
-  // If we're constrained then we need to scale the glyph.
-  if (in.mode == MODE_TEXT_CONSTRAINED) {
-    float max_width = uniforms.cell_size.x * in.constraint_width;
-    // If this glyph is wider than the constraint width,
-    // fit it to the width and remove its horizontal offset.
-    if (size.x > max_width) {
-      float new_y = size.y * (max_width / size.x);
-      offset.y += (size.y - new_y) / 2;
-      offset.x = 0;
-      size.y = new_y;
-      size.x = max_width;
-    } else if (max_width - size.x > offset.x) {
-      // However, if it does fit in the constraint width, make
-      // sure the offset is small enough to not push it over the
-      // right edge of the constraint width.
-      offset.x = max_width - size.x;
-    }
-  }
 
   // Calculate the final position of the cell which uses our glyph size
   // and glyph offset to create the correct bounding box for the glyph.
@@ -665,11 +650,7 @@ vertex CellTextVertexOut cell_text_vertex(
   // If we have a minimum contrast, we need to check if we need to
   // change the color of the text to ensure it has enough contrast
   // with the background.
-  // We only apply this adjustment to "normal" text with MODE_TEXT,
-  // since we want color glyphs to appear in their original color
-  // and Powerline glyphs to be unaffected (else parts of the line would
-  // have different colors as some parts are displayed via background colors).
-  if (uniforms.min_contrast > 1.0f && in.mode == MODE_TEXT) {
+  if (uniforms.min_contrast > 1.0f && (in.bools & NO_MIN_CONTRAST) == 0) {
     // Ensure our minimum contrast
     out.color = contrasted_color(uniforms.min_contrast, out.color, out.bg_color);
   }
@@ -681,8 +662,9 @@ vertex CellTextVertexOut cell_text_vertex(
         in.grid_pos.x == uniforms.cursor_pos.x + 1
     ) && in.grid_pos.y == uniforms.cursor_pos.y;
 
-  // If this cell is the cursor cell, then we need to change the color.
-  if (in.mode != MODE_TEXT_CURSOR && is_cursor_pos) {
+  // If this cell is the cursor cell, but we're not processing
+  // the cursor glyph itself, then we need to change the color.
+  if ((in.bools & IS_CURSOR_GLYPH) == 0 && is_cursor_pos) {
     out.color = load_color(
       uniforms.cursor_color,
       uniforms.use_display_p3,
@@ -702,19 +684,12 @@ fragment float4 cell_text_fragment(
   constexpr sampler textureSampler(
     coord::pixel,
     address::clamp_to_edge,
-    // TODO(qwerasd): This can be changed back to filter::nearest when
-    //                we move the constraint logic out of the GPU code
-    //                which should once again guarantee pixel perfect
-    //                sizing.
-    filter::linear
+    filter::nearest
   );
 
-  switch (in.mode) {
+  switch (in.atlas) {
     default:
-    case MODE_TEXT_CURSOR:
-    case MODE_TEXT_CONSTRAINED:
-    case MODE_TEXT_POWERLINE:
-    case MODE_TEXT: {
+    case ATLAS_GRAYSCALE: {
       // Our input color is always linear.
       float4 color = in.color;
 
@@ -764,7 +739,7 @@ fragment float4 cell_text_fragment(
       return color;
     }
 
-    case MODE_TEXT_COLOR: {
+    case ATLAS_COLOR: {
       // For now, we assume that color glyphs
       // are already premultiplied linear colors.
       float4 color = textureColor.sample(textureSampler, in.tex_coord);

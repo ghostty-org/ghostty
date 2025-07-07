@@ -122,8 +122,8 @@ function __ghostty_precmd() {
 
       # Cursor
       if [[ "$GHOSTTY_SHELL_FEATURES" == *"cursor"* ]]; then
-        PS1=$PS1'\[\e[5 q\]'      # blinking bar for input
-        builtin printf "\e[0 q"   # reset to default cursor
+        [[ "$PS1" != *'\[\e[5 q\]'* ]] && PS1=$PS1'\[\e[5 q\]' # input
+        [[ "$PS0" != *'\[\e[0 q\]'* ]] && PS0=$PS0'\[\e[0 q\]' # reset
       fi
 
       # Title (working directory)

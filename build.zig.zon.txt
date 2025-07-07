@@ -2,6 +2,8 @@ git+https://codeberg.org/atman/zg#4a002763419a34d61dcbb1f415821b83b9bf8ddc
 git+https://github.com/TUSF/zigimg#31268548fe3276c0e95f318a6c0d2ab10565b58d
 git+https://github.com/rockorager/libvaxis#1f41c121e8fc153d9ce8c6eb64b2bbab68ad7d23
 https://codeberg.org/ifreund/zig-wayland/archive/f3c5d503e540ada8cbcb056420de240af0c094f7.tar.gz
+https://deps.files.ghostty.org/JetBrainsMono-2.304.tar.gz
+https://deps.files.ghostty.org/NerdFontsSymbolsOnly-3.4.0.tar.gz
 https://deps.files.ghostty.org/breakpad-b99f444ba5f6b98cac261cbb391d8766b34a5918.tar.gz
 https://deps.files.ghostty.org/fontconfig-2.14.2.tar.gz
 https://deps.files.ghostty.org/freetype-1220b81f6ecfb3fd222f76cf9106fecfa6554ab07ec7fdc4124b9bb063ae2adf969d.tar.gz
@@ -25,7 +27,6 @@ https://deps.files.ghostty.org/wuffs-122037b39d577ec2db3fd7b2130e7b69ef6cc1807d6
 https://deps.files.ghostty.org/zig_js-12205a66d423259567764fa0fc60c82be35365c21aeb76c5a7dc99698401f4f6fefc.tar.gz
 https://deps.files.ghostty.org/ziglyph-b89d43d1e3fb01b6074bc1f7fc980324b04d26a5.tar.gz
 https://deps.files.ghostty.org/zlib-1220fed0c74e1019b3ee29edae2051788b080cd96e90d56836eea857b0b966742efb.tar.gz
-https://github.com/glfw/glfw/archive/e7ea71be039836da3a98cea55ae5569cb5eb885c.tar.gz
 https://github.com/jcollie/ghostty-gobject/releases/download/0.14.0-2025-03-18-21-1/ghostty-gobject-0.14.0-2025-03-18-21-1.tar.zst
 https://github.com/mbadolato/iTerm2-Color-Schemes/archive/6fa671fdc1daf1fcfa025cb960ffa3e7373a2ed8.tar.gz
 https://github.com/mitchellh/libxev/archive/75a10d0fb374e8eb84948dcfc68d865e755e59c2.tar.gz

@@ -291,22 +291,29 @@ pub const Face = struct {
         // in the bottom left and +Y pointing up.
         var rect = self.font.getBoundingRectsForGlyphs(.horizontal, &glyphs, null);
 
+        // Determine whether this is a color glyph.
+        const is_color = self.isColorGlyph(glyph_index);
+        // And whether it's (probably) a bitmap (sbix).
+        const sbix = is_color and self.color != null and self.color.?.sbix;
+
         // If we're rendering a synthetic bold then we will gain 50% of
         // the line width on every edge, which means we should increase
         // our width and height by the line width and subtract half from
         // our origin points.
-        if (self.synthetic_bold) |line_width| {
+        //
+        // We don't add extra size if it's a sbix color font though,
+        // since bitmaps aren't affected by synthetic bold.
+        if (!sbix) if (self.synthetic_bold) |line_width| {
             rect.size.width += line_width;
             rect.size.height += line_width;
             rect.origin.x -= line_width / 2;
             rect.origin.y -= line_width / 2;
-        }
+        };
 
         // We make an assumption that font smoothing ("thicken")
         // adds no more than 1 extra pixel to any edge. We don't
         // add extra size if it's a sbix color font though, since
         // bitmaps aren't affected by smoothing.
-        const sbix = self.color != null and self.color.?.sbix;
         if (opts.thicken and !sbix) {
             rect.size.width += 2.0;
             rect.size.height += 2.0;
@@ -314,29 +321,50 @@ pub const Face = struct {
             rect.origin.y -= 1.0;
         }
 
-        // We compute the minimum and maximum x and y values.
-        // We round our min points down and max points up.
-        const x0: i32, const x1: i32, const y0: i32, const y1: i32 = .{
-            @intFromFloat(@floor(rect.origin.x)),
-            @intFromFloat(@ceil(rect.origin.x) + @ceil(rect.size.width)),
-            @intFromFloat(@floor(rect.origin.y)),
-            @intFromFloat(@ceil(rect.origin.y) + @ceil(rect.size.height)),
-        };
+        // If our rect is smaller than a quarter pixel in either axis
+        // then it has no outlines or they're too small to render.
+        //
+        // In this case we just return 0-sized glyph struct.
+        if (rect.size.width < 0.25 or rect.size.height < 0.25)
+            return font.Glyph{
+                .width = 0,
+                .height = 0,
+                .offset_x = 0,
+                .offset_y = 0,
+                .atlas_x = 0,
+                .atlas_y = 0,
+                .advance_x = 0,
+            };
 
-        // This bitmap is blank. I've seen it happen in a font, I don't know why.
-        // If it is empty, we just return a valid glyph struct that does nothing.
-        if (x1 <= x0 or y1 <= y0) return font.Glyph{
-            .width = 0,
-            .height = 0,
-            .offset_x = 0,
-            .offset_y = 0,
-            .atlas_x = 0,
-            .atlas_y = 0,
-            .advance_x = 0,
-        };
+        const metrics = opts.grid_metrics;
+        const cell_width: f64 = @floatFromInt(metrics.cell_width);
+        const cell_height: f64 = @floatFromInt(metrics.cell_height);
 
-        const width: u32 = @intCast(x1 - x0);
-        const height: u32 = @intCast(y1 - y0);
+        const glyph_size = opts.constraint.constrain(
+            .{
+                .width = rect.size.width,
+                .height = rect.size.height,
+                .x = rect.origin.x,
+                .y = rect.origin.y + @as(f64, @floatFromInt(metrics.cell_baseline)),
+            },
+            cell_width,
+            cell_height,
+            opts.constraint_width,
+        );
+
+        const width = glyph_size.width;
+        const height = glyph_size.height;
+        const x = glyph_size.x;
+        const y = glyph_size.y;
+
+        // We have to include the fractional pixels that we won't be offsetting
+        // in our width and height calculations, that is, we offset by the floor
+        // of the bearings when we render the glyph, meaning there's still a bit
+        // of extra width to the area that's drawn in beyond just the width of
+        // the glyph itself, so we include that extra fraction of a pixel when
+        // calculating the width and height here.
+        const px_width: u32 = @intFromFloat(@ceil(width + rect.origin.x - @floor(rect.origin.x)));
+        const px_height: u32 = @intFromFloat(@ceil(height + rect.origin.y - @floor(rect.origin.y)));
 
         // Settings that are specific to if we are rendering text or emoji.
         const color: struct {
@@ -344,7 +372,7 @@ pub const Face = struct {
             depth: u32,
             space: *macos.graphics.ColorSpace,
             context_opts: c_uint,
-        } = if (!self.isColorGlyph(glyph_index)) .{
+        } = if (!is_color) .{
             .color = false,
             .depth = 1,
             .space = try macos.graphics.ColorSpace.createNamed(.linearGray),
@@ -371,17 +399,17 @@ pub const Face = struct {
         // usually stabilizes pretty quickly and is very infrequent so I think
         // the allocation overhead is acceptable compared to the cost of
         // caching it forever or having to deal with a cache lifetime.
-        const buf = try alloc.alloc(u8, width * height * color.depth);
+        const buf = try alloc.alloc(u8, px_width * px_height * color.depth);
         defer alloc.free(buf);
         @memset(buf, 0);
 
         const context = macos.graphics.BitmapContext.context;
         const ctx = try macos.graphics.BitmapContext.create(
             buf,
-            width,
-            height,
+            px_width,
+            px_height,
             8,
-            width * color.depth,
+            px_width * color.depth,
             color.space,
             color.context_opts,
         );
@@ -390,14 +418,14 @@ pub const Face = struct {
         // Perform an initial fill. This ensures that we don't have any
         // uninitialized pixels in the bitmap.
         if (color.color)
-            context.setRGBFillColor(ctx, 1, 1, 1, 0)
+            context.setRGBFillColor(ctx, 0, 0, 0, 0)
         else
-            context.setGrayFillColor(ctx, 1, 0);
+            context.setGrayFillColor(ctx, 0, 0);
         context.fillRect(ctx, .{
             .origin = .{ .x = 0, .y = 0 },
             .size = .{
-                .width = @floatFromInt(width),
-                .height = @floatFromInt(height),
+                .width = @floatFromInt(px_width),
+                .height = @floatFromInt(px_height),
             },
         });
 
@@ -427,49 +455,34 @@ pub const Face = struct {
             context.setLineWidth(ctx, line_width);
         }
 
+        context.scaleCTM(
+            ctx,
+            width / rect.size.width,
+            height / rect.size.height,
+        );
+
         // We want to render the glyphs at (0,0), but the glyphs themselves
         // are offset by bearings, so we have to undo those bearings in order
         // to get them to 0,0.
-        self.font.drawGlyphs(&glyphs, &.{
-            .{
-                .x = @floatFromInt(-x0),
-                .y = @floatFromInt(-y0),
-            },
-        }, ctx);
+        self.font.drawGlyphs(&glyphs, &.{.{
+            .x = -@floor(rect.origin.x),
+            .y = -@floor(rect.origin.y),
+        }}, ctx);
 
-        const region = region: {
-            // We reserve a region that's 1px wider and taller than we need
-            // in order to create a 1px separation between adjacent glyphs
-            // to prevent interpolation with adjacent glyphs while sampling
-            // from the atlas.
-            var region = try atlas.reserve(
-                alloc,
-                width + 1,
-                height + 1,
-            );
-
-            // We adjust the region width and height back down since we
-            // don't need the extra pixel, we just needed to reserve it
-            // so that it isn't used for other glyphs in the future.
-            region.width -= 1;
-            region.height -= 1;
-            break :region region;
-        };
+        // Write our rasterized glyph to the atlas.
+        const region = try atlas.reserve(alloc, px_width, px_height);
         atlas.set(region, buf);
-
-        const metrics = opts.grid_metrics;
 
         // This should be the distance from the bottom of
         // the cell to the top of the glyph's bounding box.
-        //
-        // The calculation is distance from bottom of cell to
-        // baseline plus distance from baseline to top of glyph.
-        const offset_y: i32 = @as(i32, @intCast(metrics.cell_baseline)) + y1;
+        const offset_y: i32 =
+            @as(i32, @intFromFloat(@floor(y))) +
+            @as(i32, @intCast(px_height));
 
         // This should be the distance from the left of
         // the cell to the left of the glyph's bounding box.
         const offset_x: i32 = offset_x: {
-            var result: i32 = x0;
+            var result: i32 = @intFromFloat(@round(x));
 
             // If our cell was resized then we adjust our glyph's
             // position relative to the new center. This keeps glyphs
@@ -490,8 +503,8 @@ pub const Face = struct {
         _ = self.font.getAdvancesForGlyphs(.horizontal, &glyphs, &advances);
 
         return .{
-            .width = width,
-            .height = height,
+            .width = px_width,
+            .height = px_height,
             .offset_x = offset_x,
             .offset_y = offset_y,
             .atlas_x = region.x,

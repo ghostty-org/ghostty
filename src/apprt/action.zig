@@ -267,6 +267,11 @@ pub const Action = union(Key) {
 
     check_for_updates,
 
+    /// Open a URL using the native OS mechanisms. On macOS this might be `open`
+    /// or on Linux this might be `xdg-open`. The exact mechanism is up to the
+    /// apprt.
+    open_url: OpenUrl,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -317,6 +322,7 @@ pub const Action = union(Key) {
         undo,
         redo,
         check_for_updates,
+        open_url,
     };
 
     /// Sync with: ghostty_action_u
@@ -357,7 +363,11 @@ pub const Action = union(Key) {
         // For ABI compatibility, we expect that this is our union size.
         // At the time of writing, we don't promise ABI compatibility
         // so we can change this but I want to be aware of it.
-        assert(@sizeOf(CValue) == 16);
+        assert(@sizeOf(CValue) == switch (@sizeOf(usize)) {
+            4 => 16,
+            8 => 24,
+            else => unreachable,
+        });
     }
 
     /// Returns the value type for the given key.
@@ -611,6 +621,47 @@ pub const ConfigChange = struct {
     pub fn cval(self: ConfigChange) C {
         return .{
             .config = self.config,
+        };
+    }
+};
+
+/// Open a URL
+pub const OpenUrl = struct {
+    /// The type of data that the URL refers to.
+    kind: Kind,
+
+    /// The URL.
+    url: []const u8,
+
+    /// The type of the data at the URL to open. This is used as a hint to
+    /// potentially open the URL in a different way.
+    ///
+    /// Sync with: ghostty_action_open_url_kind_e
+    pub const Kind = enum(c_int) {
+        /// The type is unknown. This is the default and apprts should
+        /// open the URL in the most generic way possible. For example,
+        /// on macOS this would be the equivalent of `open` or on Linux
+        /// this would be `xdg-open`.
+        unknown,
+
+        /// The URL is known to be a text file. In this case, the apprt
+        /// should try to open the URL in a text editor or viewer or
+        /// some equivalent, if possible.
+        text,
+    };
+
+    // Sync with: ghostty_action_open_url_s
+    pub const C = extern struct {
+        kind: Kind,
+        url: [*]const u8,
+        len: usize,
+    };
+
+    pub fn cval(self: OpenUrl) C {
+        return .{
+            .kind = self.kind,
+            .url = self.url.ptr,
+            .len = self.url.len,
         };
     }
 };

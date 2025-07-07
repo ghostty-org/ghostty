@@ -269,15 +269,16 @@ pub const CellText = extern struct {
     bearings: [2]i16 align(4) = .{ 0, 0 },
     grid_pos: [2]u16 align(4),
     color: [4]u8 align(4),
-    mode: Mode align(1),
-    constraint_width: u8 align(1) = 0,
+    atlas: Atlas align(1),
+    bools: packed struct(u8) {
+        no_min_contrast: bool = false,
+        is_cursor_glyph: bool = false,
+        _padding: u6 = 0,
+    } align(1) = .{},
 
-    pub const Mode = enum(u8) {
-        fg = 1,
-        fg_constrained = 2,
-        fg_color = 3,
-        cursor = 4,
-        fg_powerline = 5,
+    pub const Atlas = enum(u8) {
+        grayscale = 0,
+        color = 1,
     };
 
     test {

@@ -94,6 +94,17 @@ pub const RenderOptions = struct {
     /// optionally by the rasterizer to better layout the glyph.
     cell_width: ?u2 = null,
 
+    /// Constraint and alignment properties for the glyph. The rasterizer
+    /// should call the `constrain` function on this with the original size
+    /// and bearings of the glyph to get remapped values that the glyph
+    /// should be scaled/moved to.
+    constraint: Constraint = .none,
+
+    /// The number of cells, horizontally that the glyph is free to take up
+    /// when resized and aligned by `constraint`. This is usually 1, but if
+    /// there's whitespace to the right of the cell then it can be 2.
+    constraint_width: u2 = 1,
+
     /// Thicken the glyph. This draws the glyph with a thicker stroke width.
     /// This is purely an aesthetic setting.
     ///
@@ -108,6 +119,211 @@ pub const RenderOptions = struct {
     ///
     /// CoreText only.
     thicken_strength: u8 = 255,
+
+    /// See the `constraint` field.
+    pub const Constraint = struct {
+        /// Don't constrain the glyph in any way.
+        pub const none: Constraint = .{};
+
+        /// Vertical sizing rule.
+        size_vertical: Size = .none,
+        /// Horizontal sizing rule.
+        size_horizontal: Size = .none,
+
+        /// Vertical alignment rule.
+        align_vertical: Align = .none,
+        /// Horizontal alignment rule.
+        align_horizontal: Align = .none,
+
+        /// Top padding when resizing.
+        pad_top: f64 = 0.0,
+        /// Left padding when resizing.
+        pad_left: f64 = 0.0,
+        /// Right padding when resizing.
+        pad_right: f64 = 0.0,
+        /// Bottom padding when resizing.
+        pad_bottom: f64 = 0.0,
+
+        /// Maximum ratio of width to height when resizing.
+        max_xy_ratio: ?f64 = null,
+
+        /// Maximum number of cells horizontally to use.
+        max_constraint_width: u2 = 2,
+
+        pub const Size = enum {
+            /// Don't change the size of this glyph.
+            none,
+            /// Move the glyph and optionally scale it down
+            /// proportionally to fit within the given axis.
+            fit,
+            /// Move and resize the glyph proportionally to
+            /// cover the given axis.
+            cover,
+            /// Same as `cover` but not proportional.
+            stretch,
+        };
+
+        pub const Align = enum {
+            /// Don't move the glyph on this axis.
+            none,
+            /// Move the glyph so that its leading (bottom/left)
+            /// edge aligns with the leading edge of the axis.
+            start,
+            /// Move the glyph so that its trailing (top/right)
+            /// edge aligns with the trailing edge of the axis.
+            end,
+            /// Move the glyph so that it is centered on this axis.
+            center,
+        };
+
+        /// The size and position of a glyph.
+        pub const GlyphSize = struct {
+            width: f64,
+            height: f64,
+            x: f64,
+            y: f64,
+        };
+
+        /// Apply this constraint to the provided glyph
+        /// size, given the available width and height.
+        pub fn constrain(
+            self: Constraint,
+            glyph: GlyphSize,
+            /// Width of one cell.
+            cell_width: f64,
+            /// Height of one cell.
+            cell_height: f64,
+            /// Number of cells horizontally available for this glyph.
+            constraint_width: u2,
+        ) GlyphSize {
+            var g = glyph;
+
+            const available_width =
+                cell_width * @as(f64, @floatFromInt(
+                    @min(
+                        self.max_constraint_width,
+                        constraint_width,
+                    ),
+                ));
+
+            const w = available_width -
+                self.pad_left * available_width -
+                self.pad_right * available_width;
+            const h = cell_height -
+                self.pad_top * cell_height -
+                self.pad_bottom * cell_height;
+
+            // Subtract padding from the bearings so that our
+            // alignment and sizing code works correctly. We
+            // re-add before returning.
+            g.x -= self.pad_left * available_width;
+            g.y -= self.pad_bottom * cell_height;
+
+            switch (self.size_horizontal) {
+                .none => {},
+                .fit => if (g.width > w) {
+                    const orig_height = g.height;
+                    // Adjust our height and width to proportionally
+                    // scale them to fit the glyph to the cell width.
+                    g.height *= w / g.width;
+                    g.width = w;
+                    // Set our x to 0 since anything else would mean
+                    // the glyph extends outside of the cell width.
+                    g.x = 0;
+                    // Compensate our y to keep things vertically
+                    // centered as they're scaled down.
+                    g.y += (orig_height - g.height) / 2;
+                } else if (g.width + g.x > w) {
+                    // If the width of the glyph can fit in the cell but
+                    // is currently outside due to the left bearing, then
+                    // we reduce the left bearing just enough to fit it
+                    // back in the cell.
+                    g.x = w - g.width;
+                } else if (g.x < 0) {
+                    g.x = 0;
+                },
+                .cover => {
+                    const orig_height = g.height;
+
+                    g.height *= w / g.width;
+                    g.width = w;
+
+                    g.x = 0;
+
+                    g.y += (orig_height - g.height) / 2;
+                },
+                .stretch => {
+                    g.width = w;
+                    g.x = 0;
+                },
+            }
+
+            switch (self.size_vertical) {
+                .none => {},
+                .fit => if (g.height > h) {
+                    const orig_width = g.width;
+                    // Adjust our height and width to proportionally
+                    // scale them to fit the glyph to the cell height.
+                    g.width *= h / g.height;
+                    g.height = h;
+                    // Set our y to 0 since anything else would mean
+                    // the glyph extends outside of the cell height.
+                    g.y = 0;
+                    // Compensate our x to keep things horizontally
+                    // centered as they're scaled down.
+                    g.x += (orig_width - g.width) / 2;
+                } else if (g.height + g.y > h) {
+                    // If the height of the glyph can fit in the cell but
+                    // is currently outside due to the bottom bearing, then
+                    // we reduce the bottom bearing just enough to fit it
+                    // back in the cell.
+                    g.y = h - g.height;
+                } else if (g.y < 0) {
+                    g.y = 0;
+                },
+                .cover => {
+                    const orig_width = g.width;
+
+                    g.width *= h / g.height;
+                    g.height = h;
+
+                    g.y = 0;
+
+                    g.x += (orig_width - g.width) / 2;
+                },
+                .stretch => {
+                    g.height = h;
+                    g.y = 0;
+                },
+            }
+
+            if (self.max_xy_ratio) |ratio| if (g.width > g.height * ratio) {
+                const orig_width = g.width;
+                g.width = g.height * ratio;
+                g.x += (orig_width - g.width) / 2;
+            };
+
+            switch (self.align_horizontal) {
+                .none => {},
+                .start => g.x = 0,
+                .end => g.x = w - g.width,
+                .center => g.x = (w - g.width) / 2,
+            }
+
+            switch (self.align_vertical) {
+                .none => {},
+                .start => g.y = 0,
+                .end => g.y = h - g.height,
+                .center => g.y = (h - g.height) / 2,
+            }
+
+            // Re-add our padding before returning.
+            g.x += self.pad_left * available_width;
+            g.y += self.pad_bottom * cell_height;
+
+            return g;
+        }
+    };
 };
 
 test {
