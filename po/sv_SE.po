@@ -174,7 +174,7 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:6
 msgid "Warning: Potentially Unsafe Paste"
-msgstr "Varning: Potentiellt osäker infogning"
+msgstr "Varning: Potentiellt osäker inklistring"
 
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:7
 msgid ""
