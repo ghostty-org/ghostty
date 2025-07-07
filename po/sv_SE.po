@@ -196,7 +196,7 @@ msgstr "Visa öppna flikar"
 msgid ""
 "⚠️ You're running a debug build of Ghostty! Performance will be degraded."
 msgstr ""
-"⚠️ Du kör en felsökningsversion av Ghostty! Prestanda kommer att försämras."
+"⚠️ Du använder en felsökningsversion av Ghostty! Prestanda kommer att försämras."
 
 #: src/apprt/gtk/Window.zig:681
 msgid "Reloaded the configuration"
