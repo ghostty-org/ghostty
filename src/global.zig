@@ -51,7 +51,7 @@ pub const GlobalState = struct {
         // defer {
         //     const end = std.time.Instant.now() catch unreachable;
         //     // "[updateFrame critical time] <START us>\t<TIME_TAKEN us>"
-        //     std.log.err("[global init time] start={}us duration={}ns", .{ start_micro, end.since(start) / std.time.ns_per_us });
+        //     std.log.err("[global init time] start={}us duration={}us", .{ start_micro, end.since(start) / std.time.ns_per_us });
         // }
 
         // Initialize ourself to nothing so we don't have any extra state.

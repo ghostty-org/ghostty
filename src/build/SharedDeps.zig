@@ -415,6 +415,10 @@ pub fn add(
         .target = target,
         .optimize = optimize,
     })) |dep| {
+        if (self.config.emit_bench or self.config.emit_unicode_test) {
+            step.root_module.addImport("Graphemes", dep.module("Graphemes"));
+            step.root_module.addImport("DisplayWidth", dep.module("DisplayWidth"));
+        }
         step.root_module.addImport("CaseFolding", dep.module("CaseFolding"));
         step.root_module.addImport("Emoji", dep.module("Emoji"));
         step.root_module.addImport("GeneralCategories", dep.module("GeneralCategories"));
