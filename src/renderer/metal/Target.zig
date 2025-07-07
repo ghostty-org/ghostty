@@ -68,7 +68,7 @@ pub fn init(opts: Options) !Self {
         const id_init = id_alloc.msgSend(objc.Object, objc.sel("init"), .{});
         break :init id_init;
     };
-    errdefer desc.msgSend(void, objc.sel("release"), .{});
+    defer desc.release();
 
     // Set our properties
     desc.setProperty("width", @as(c_ulong, @intCast(opts.width)));

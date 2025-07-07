@@ -405,12 +405,11 @@ pub fn add(
     })) |dep| {
         step.root_module.addImport("xev", dep.module("xev"));
     }
-    if (b.lazyDependency("z2d", .{})) |dep| {
-        step.root_module.addImport("z2d", b.addModule("z2d", .{
-            .root_source_file = dep.path("src/z2d.zig"),
-            .target = target,
-            .optimize = optimize,
-        }));
+    if (b.lazyDependency("z2d", .{
+        .target = target,
+        .optimize = optimize,
+    })) |dep| {
+        step.root_module.addImport("z2d", dep.module("z2d"));
     }
     if (b.lazyDependency("ziglyph", .{
         .target = target,
@@ -501,6 +500,43 @@ pub fn add(
         try static_libs.append(utfcpp_dep.artifact("utfcpp").getEmittedBin());
     }
 
+    // Fonts
+    {
+        // JetBrains Mono
+        const jb_mono = b.dependency("jetbrains_mono", .{});
+        step.root_module.addAnonymousImport(
+            "jetbrains_mono_regular",
+            .{ .root_source_file = jb_mono.path("fonts/ttf/JetBrainsMono-Regular.ttf") },
+        );
+        step.root_module.addAnonymousImport(
+            "jetbrains_mono_bold",
+            .{ .root_source_file = jb_mono.path("fonts/ttf/JetBrainsMono-Bold.ttf") },
+        );
+        step.root_module.addAnonymousImport(
+            "jetbrains_mono_italic",
+            .{ .root_source_file = jb_mono.path("fonts/ttf/JetBrainsMono-Italic.ttf") },
+        );
+        step.root_module.addAnonymousImport(
+            "jetbrains_mono_bold_italic",
+            .{ .root_source_file = jb_mono.path("fonts/ttf/JetBrainsMono-BoldItalic.ttf") },
+        );
+        step.root_module.addAnonymousImport(
+            "jetbrains_mono_variable",
+            .{ .root_source_file = jb_mono.path("fonts/variable/JetBrainsMono[wght].ttf") },
+        );
+        step.root_module.addAnonymousImport(
+            "jetbrains_mono_variable_italic",
+            .{ .root_source_file = jb_mono.path("fonts/variable/JetBrainsMono-Italic[wght].ttf") },
+        );
+
+        // Symbols-only nerd font
+        const nf_symbols = b.dependency("nerd_fonts_symbols_only", .{});
+        step.root_module.addAnonymousImport(
+            "nerd_fonts_symbols_only",
+            .{ .root_source_file = nf_symbols.path("SymbolsNerdFontMono-Regular.ttf") },
+        );
+    }
+
     // If we're building an exe then we have additional dependencies.
     if (step.kind != .lib) {
         // We always statically compile glad
@@ -516,17 +552,6 @@ pub fn add(
 
         switch (self.config.app_runtime) {
             .none => {},
-
-            .glfw => if (b.lazyDependency("glfw", .{
-                .target = target,
-                .optimize = optimize,
-            })) |glfw_dep| {
-                step.root_module.addImport(
-                    "glfw",
-                    glfw_dep.module("glfw"),
-                );
-            },
-
             .gtk => try self.addGTK(step),
         }
     }

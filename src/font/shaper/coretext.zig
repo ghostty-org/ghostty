@@ -109,7 +109,8 @@ pub const Shaper = struct {
     /// settings the font features of a CoreText font.
     fn makeFeaturesDict(feats: []const Feature) !*macos.foundation.Dictionary {
         const list = try macos.foundation.MutableArray.create();
-        errdefer list.release();
+        // The list will be retained by the dict once we add it to it.
+        defer list.release();
 
         for (feats) |feat| {
             const value_num: c_int = @intCast(feat.value);
@@ -1768,7 +1769,7 @@ fn testShaperWithFont(alloc: Allocator, font_req: TestFont) !TestShaper {
         .geist_mono => font.embedded.geist_mono,
         .jetbrains_mono => font.embedded.jetbrains_mono,
         .monaspace_neon => font.embedded.monaspace_neon,
-        .nerd_font => font.embedded.nerd_font,
+        .nerd_font => font.embedded.test_nerd_font,
     };
 
     var lib = try Library.init(alloc);

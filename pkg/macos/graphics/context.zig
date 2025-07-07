@@ -141,6 +141,22 @@ pub fn Context(comptime T: type) type {
                 @bitCast(rect),
             );
         }
+
+        pub fn scaleCTM(self: *T, sx: c.CGFloat, sy: c.CGFloat) void {
+            c.CGContextScaleCTM(
+                @ptrCast(self),
+                sx,
+                sy,
+            );
+        }
+
+        pub fn translateCTM(self: *T, tx: c.CGFloat, ty: c.CGFloat) void {
+            c.CGContextTranslateCTM(
+                @ptrCast(self),
+                tx,
+                ty,
+            );
+        }
     };
 }
 

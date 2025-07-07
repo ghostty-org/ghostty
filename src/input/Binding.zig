@@ -281,6 +281,10 @@ pub const Action = union(enum) {
     /// If there is a URL under the cursor, copy it to the default clipboard.
     copy_url_to_clipboard,
 
+    /// Copy the terminal title to the clipboard. If the terminal title is not
+    /// set or is empty this has no effect.
+    copy_title_to_clipboard,
+
     /// Increase the font size by the specified amount in points (pt).
     ///
     /// For example, `increase_font_size:1.5` will increase the font size
@@ -295,6 +299,12 @@ pub const Action = union(enum) {
 
     /// Reset the font size to the original configured size.
     reset_font_size,
+
+    /// Set the font size to the specified size in points (pt).
+    ///
+    /// For example, `set_font_size:14.5` will set the font size
+    /// to 14.5 points.
+    set_font_size: f32,
 
     /// Clear the screen and all scrollback.
     clear_screen,
@@ -999,11 +1009,13 @@ pub const Action = union(enum) {
             .reset,
             .copy_to_clipboard,
             .copy_url_to_clipboard,
+            .copy_title_to_clipboard,
             .paste_from_clipboard,
             .paste_from_selection,
             .increase_font_size,
             .decrease_font_size,
             .reset_font_size,
+            .set_font_size,
             .prompt_surface_title,
             .clear_screen,
             .select_all,
@@ -3065,6 +3077,7 @@ test "set: getEvent codepoint case folding" {
         try testing.expect(action == null);
     }
 }
+
 test "Action: clone" {
     const testing = std.testing;
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
@@ -3081,5 +3094,44 @@ test "Action: clone" {
         var a: Action = .{ .text = "foo" };
         const b = try a.clone(alloc);
         try testing.expect(b == .text);
+    }
+}
+
+test "parse: increase_font_size" {
+    const testing = std.testing;
+
+    {
+        const binding = try parseSingle("a=increase_font_size:1.5");
+        try testing.expect(binding.action == .increase_font_size);
+        try testing.expectEqual(1.5, binding.action.increase_font_size);
+    }
+}
+
+test "parse: decrease_font_size" {
+    const testing = std.testing;
+
+    {
+        const binding = try parseSingle("a=decrease_font_size:2.5");
+        try testing.expect(binding.action == .decrease_font_size);
+        try testing.expectEqual(2.5, binding.action.decrease_font_size);
+    }
+}
+
+test "parse: reset_font_size" {
+    const testing = std.testing;
+
+    {
+        const binding = try parseSingle("a=reset_font_size");
+        try testing.expect(binding.action == .reset_font_size);
+    }
+}
+
+test "parse: set_font_size" {
+    const testing = std.testing;
+
+    {
+        const binding = try parseSingle("a=set_font_size:13.5");
+        try testing.expect(binding.action == .set_font_size);
+        try testing.expectEqual(13.5, binding.action.set_font_size);
     }
 }

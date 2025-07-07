@@ -54,13 +54,11 @@ pub inline fn setSurface(self: *IOSurfaceLayer, surface: *IOSurface) !void {
     //
     // We release in the callback after setting the contents.
     surface.retain();
-    // We also need to retain the layer itself to make sure it
-    // isn't destroyed before the callback completes, since if
-    // that happens it will try to interact with a deallocated
-    // object.
-    _ = self.layer.retain();
+    // NOTE: Since `self.layer` is passed as an `objc.c.id`, it's
+    //       automatically retained when the block is copied, so we
+    //       don't need to retain it ourselves like with the surface.
 
-    var block = try SetSurfaceBlock.init(.{
+    var block = SetSurfaceBlock.init(.{
         .layer = self.layer.value,
         .surface = surface,
     }, &setSurfaceCallback);
@@ -68,15 +66,15 @@ pub inline fn setSurface(self: *IOSurfaceLayer, surface: *IOSurface) !void {
     // We check if we're on the main thread and run the block directly if so.
     const NSThread = objc.getClass("NSThread").?;
     if (NSThread.msgSend(bool, "isMainThread", .{})) {
-        setSurfaceCallback(block.context);
-        block.deinit();
+        setSurfaceCallback(&block);
     } else {
-        // NOTE: The block will automatically be deallocated by the objc
-        // runtime once it's executed, so there's no need to deinit it.
+        // NOTE: The block will be copied when we pass it to dispatch_async,
+        //       and then automatically be deallocated by the objc runtime
+        //       once it's executed.
 
         macos.dispatch.dispatch_async(
             @ptrCast(macos.dispatch.queue.getMain()),
-            @ptrCast(block.context),
+            @ptrCast(&block),
         );
     }
 }
@@ -100,10 +98,7 @@ fn setSurfaceCallback(
     const surface: *IOSurface = block.surface;
 
     // See explanation of why we retain and release in `setSurface`.
-    defer {
-        surface.release();
-        layer.release();
-    }
+    defer surface.release();
 
     // We check to see if the surface is the appropriate size for
     // the layer, if it's not then we discard it. This is because

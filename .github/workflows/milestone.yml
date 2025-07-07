@@ -15,7 +15,7 @@ jobs:
     name: Milestone Update
     steps:
       - name: Set Milestone for PR
-        uses: hustcer/milestone-action@v2
+        uses: hustcer/milestone-action@09bdc6fda0f43a4df28cda5815cc47df74cfdba7 # v2.8
         if: github.event.pull_request.merged == true
         with:
           action: bind-pr # `bind-pr` is the default action
@@ -24,7 +24,7 @@ jobs:
 
       # Bind milestone to closed issue that has a merged PR fix
       - name: Set Milestone for Issue
-        uses: hustcer/milestone-action@v2
+        uses: hustcer/milestone-action@09bdc6fda0f43a4df28cda5815cc47df74cfdba7 # v2.8
         if: github.event.issue.state == 'closed'
         with:
           action: bind-issue

@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Action = @import("Binding.zig").Action;
@@ -129,6 +130,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .action = .copy_url_to_clipboard,
             .title = "Copy URL to Clipboard",
             .description = "Copy the URL under the cursor to the clipboard.",
+        }},
+
+        .copy_title_to_clipboard => comptime &.{.{
+            .action = .copy_title_to_clipboard,
+            .title = "Copy Terminal Title to Clipboard",
+            .description = "Copy the terminal title to the clipboard. If the terminal title is not set this has no effect.",
         }},
 
         .paste_from_clipboard => comptime &.{.{
@@ -460,6 +467,7 @@ fn actionCommands(action: Action.Key) []const Command {
         .esc,
         .text,
         .cursor_key,
+        .set_font_size,
         .scroll_page_fractional,
         .scroll_page_lines,
         .adjust_selection,

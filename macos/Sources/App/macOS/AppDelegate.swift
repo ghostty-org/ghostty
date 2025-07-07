@@ -112,6 +112,9 @@ class AppDelegate: NSObject,
     /// The observer for the app appearance.
     private var appearanceObserver: NSKeyValueObservation? = nil
 
+    /// Signals
+    private var signals: [DispatchSourceSignal] = []
+
     /// The custom app icon image that is currently in use.
     @Published private(set) var appIcon: NSImage? = nil {
         didSet {
@@ -249,6 +252,24 @@ class AppDelegate: NSObject,
 
         // Setup our menu
         setupMenuImages()
+
+        // Setup signal handlers
+        setupSignals()
+        
+        // If we launched via zig run then we need to force foreground.
+        if Ghostty.launchSource == .zig_run {
+            // This never gets called until we click the dock icon. This forces it
+            // activate immediately.
+            applicationDidBecomeActive(.init(name: NSApplication.didBecomeActiveNotification))
+            
+            // We run in the background, this forces us to the front.
+            DispatchQueue.main.async {
+                NSApp.setActivationPolicy(.regular)
+                NSApp.activate(ignoringOtherApps: true)
+                NSApp.unhide(nil)
+                NSApp.arrangeInFront(nil)
+            }
+        }
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -404,6 +425,34 @@ class AppDelegate: NSObject,
     /// This is called for the dock right-click menu.
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         return dockMenu
+    }
+
+    /// Setup signal handlers
+    private func setupSignals() {
+        // Register a signal handler for config reloading. It appears that all
+        // of this is required. I've commented each line because its a bit unclear.
+        // Warning: signal handlers don't work when run via Xcode. They have to be
+        // run on a real app bundle.
+
+        // We need to ignore signals we register with makeSignalSource or they
+        // don't seem to handle.
+        signal(SIGUSR2, SIG_IGN)
+
+        // Make the signal source and register our event handle. We keep a weak
+        // ref to ourself so we don't create a retain cycle.
+        let sigusr2 = DispatchSource.makeSignalSource(signal: SIGUSR2, queue: .main)
+        sigusr2.setEventHandler { [weak self] in
+            guard let self else { return }
+            Ghostty.logger.info("reloading configuration in response to SIGUSR2")
+            self.ghostty.reloadConfig()
+        }
+
+        // The signal source starts unactivated, so we have to resume it once
+        // we setup the event handler.
+        sigusr2.resume()
+
+        // We need to keep a strong reference to it so it isn't disabled.
+        signals.append(sigusr2)
     }
 
     /// Setup all the images for our menu items.
@@ -883,7 +932,7 @@ class AppDelegate: NSObject,
     //MARK: - IB Actions
 
     @IBAction func openConfig(_ sender: Any?) {
-        ghostty.openConfig()
+        Ghostty.App.openConfig()
     }
 
     @IBAction func reloadConfig(_ sender: Any?) {

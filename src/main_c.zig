@@ -19,7 +19,12 @@ const internal_os = @import("os/main.zig");
 
 // Some comptime assertions that our C API depends on.
 comptime {
-    assert(apprt.runtime == apprt.embedded);
+    // We allow tests to reference this file because we unit test
+    // some of the C API. At runtime though we should never get these
+    // functions unless we are building libghostty.
+    if (!builtin.is_test) {
+        assert(apprt.runtime == apprt.embedded);
+    }
 }
 
 /// Global options so we can log. This is identical to main.
@@ -29,7 +34,9 @@ comptime {
     // These structs need to be referenced so the `export` functions
     // are truly exported by the C API lib.
     _ = @import("config.zig").CAPI;
-    _ = apprt.runtime.CAPI;
+    if (@hasDecl(apprt.runtime, "CAPI")) {
+        _ = apprt.runtime.CAPI;
+    }
 }
 
 /// ghostty_info_s
@@ -46,17 +53,29 @@ const Info = extern struct {
     };
 };
 
-/// Initialize ghostty global state. It is possible to have more than
-/// one global state but it has zero practical benefit.
-export fn ghostty_init() c_int {
+/// ghostty_string_s
+pub const String = extern struct {
+    ptr: ?[*]const u8,
+    len: usize,
+
+    pub const empty: String = .{
+        .ptr = null,
+        .len = 0,
+    };
+
+    pub fn fromSlice(slice: []const u8) String {
+        return .{
+            .ptr = slice.ptr,
+            .len = slice.len,
+        };
+    }
+};
+
+/// Initialize ghostty global state.
+export fn ghostty_init(argc: usize, argv: [*][*:0]u8) c_int {
     assert(builtin.link_libc);
 
-    // Since in the lib we don't go through start.zig, we need
-    // to populate argv so that inspecting std.os.argv doesn't
-    // touch uninitialized memory.
-    var argv: [0][*:0]u8 = .{};
-    std.os.argv = &argv;
-
+    std.os.argv = argv[0..argc];
     state.init() catch |err| {
         std.log.err("failed to initialize ghostty error={}", .{err});
         return 1;
@@ -65,15 +84,17 @@ export fn ghostty_init() c_int {
     return 0;
 }
 
-/// This is the entrypoint for the CLI version of Ghostty. This
-/// is mutually exclusive to ghostty_init. Do NOT run ghostty_init
-/// if you are going to run this. This will not return.
-export fn ghostty_cli_main(argc: usize, argv: [*][*:0]u8) noreturn {
-    std.os.argv = argv[0..argc];
-    main.main() catch |err| {
-        std.log.err("failed to run ghostty error={}", .{err});
+/// Runs an action if it is specified. If there is no action this returns
+/// false. If there is an action then this doesn't return.
+export fn ghostty_cli_try_action() void {
+    const action = state.action orelse return;
+    std.log.info("executing CLI action={}", .{action});
+    posix.exit(action.run(state.alloc) catch |err| {
+        std.log.err("CLI action failed error={}", .{err});
         posix.exit(1);
-    };
+    });
+
+    posix.exit(0);
 }
 
 /// Return metadata about Ghostty, such as version, build mode, etc.
@@ -98,4 +119,9 @@ export fn ghostty_info() Info {
 /// This should only be used for singular strings maintained by Ghostty.
 export fn ghostty_translate(msgid: [*:0]const u8) [*:0]const u8 {
     return internal_os.i18n._(msgid);
+}
+
+/// Free a string allocated by Ghostty.
+export fn ghostty_string_free(str: String) void {
+    state.alloc.free(str.ptr.?[0..str.len]);
 }

@@ -194,12 +194,6 @@ omit the `-Doptimize` flag to build a debug build, and you may require
 additional dependencies since the source tarball includes some processed
 files that are not in the Git repository.
 
-On Linux or macOS, you can use `zig build -Dapp-runtime=glfw run` for a quick
-GLFW-based app for a faster development cycle while developing core
-terminal features. Note that this app is missing many features and is also
-known to crash in certain scenarios, so it is only meant for development
-tasks.
-
 Other useful commands:
 
 - `zig build test` for running unit tests.

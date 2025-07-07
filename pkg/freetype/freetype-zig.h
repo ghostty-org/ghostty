@@ -5,3 +5,5 @@
 #include <freetype/ftoutln.h>
 #include <freetype/ftsnames.h>
 #include <freetype/ttnameid.h>
+#include <freetype/ftbitmap.h>
+#include <freetype/ftbbox.h>

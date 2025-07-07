@@ -20,14 +20,14 @@
         },
         .z2d = .{
             // vancluever/z2d
-            .url = "https://github.com/vancluever/z2d/archive/1bf4bc81819385f4b24596445c9a7cf3b3592b08.tar.gz",
-            .hash = "z2d-0.6.1-j5P_HlerCgBokMgrkl9QhJUKXuZWBGdPnH7cSXwv_ScW",
+            .url = "https://github.com/vancluever/z2d/archive/8bbd035f4101f02b1d27947def0d7da3215df7fe.tar.gz",
+            .hash = "z2d-0.7.0-j5P_Hg_DDACq-2H2Zh7rAq6_TXWdQzv7JAUfnrdeDosg",
             .lazy = true,
         },
         .zig_objc = .{
             // mitchellh/zig-objc
-            .url = "https://github.com/mitchellh/zig-objc/archive/3ab0d37c7d6b933d6ded1b3a35b6b60f05590a98.tar.gz",
-            .hash = "zig_objc-0.0.0-Ir_Sp3TyAADEVRTxXlScq3t_uKAM91MYNerZkHfbD0yt",
+            .url = "https://github.com/mitchellh/zig-objc/archive/c9e917a4e15a983b672ca779c7985d738a2d517c.tar.gz",
+            .hash = "zig_objc-0.0.0-Ir_SpwsPAQBJgi9YRm2ubJMfdoysSq5gKpsIj3izQ8Zk",
             .lazy = true,
         },
         .zig_js = .{
@@ -64,7 +64,6 @@
         .cimgui = .{ .path = "./pkg/cimgui", .lazy = true },
         .fontconfig = .{ .path = "./pkg/fontconfig", .lazy = true },
         .freetype = .{ .path = "./pkg/freetype", .lazy = true },
-        .glfw = .{ .path = "./pkg/glfw", .lazy = true },
         .gtk4_layer_shell = .{ .path = "./pkg/gtk4-layer-shell", .lazy = true },
         .harfbuzz = .{ .path = "./pkg/harfbuzz", .lazy = true },
         .highway = .{ .path = "./pkg/highway", .lazy = true },
@@ -98,6 +97,16 @@
             .url = "https://deps.files.ghostty.org/plasma_wayland_protocols-12207e0851c12acdeee0991e893e0132fc87bb763969a585dc16ecca33e88334c566.tar.gz",
             .hash = "N-V-__8AAKYZBAB-CFHBKs3u4JkeiT4BMvyHu3Y5aaWF3Bbs",
             .lazy = true,
+        },
+
+        // Fonts
+        .jetbrains_mono = .{
+            .url = "https://deps.files.ghostty.org/JetBrainsMono-2.304.tar.gz",
+            .hash = "N-V-__8AAIC5lwAVPJJzxnCAahSvZTIlG-HhtOvnM1uh-66x",
+        },
+        .nerd_fonts_symbols_only = .{
+            .url = "https://deps.files.ghostty.org/NerdFontsSymbolsOnly-3.4.0.tar.gz",
+            .hash = "N-V-__8AAMVLTABmYkLqhZPLXnMl-KyN38R8UVYqGrxqO26s",
         },
 
         // Other

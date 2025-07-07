@@ -9,6 +9,7 @@ const apprt = @import("../apprt.zig");
 const font = @import("../font/main.zig");
 const rendererpkg = @import("../renderer.zig");
 const Command = @import("../Command.zig");
+const XCFramework = @import("GhosttyXCFramework.zig");
 const WasmTarget = @import("../os/wasm/target.zig").Target;
 
 const gtk = @import("gtk.zig");
@@ -24,6 +25,7 @@ const app_version: std.SemanticVersion = .{ .major = 1, .minor = 1, .patch = 4 }
 /// Standard build configuration options.
 optimize: std.builtin.OptimizeMode,
 target: std.Build.ResolvedTarget,
+xcframework_target: XCFramework.Target = .universal,
 wasm_target: WasmTarget,
 
 /// Comptime interfaces
@@ -48,14 +50,15 @@ patch_rpath: ?[]const u8 = null,
 
 /// Artifacts
 flatpak: bool = false,
-emit_test_exe: bool = false,
 emit_bench: bool = false,
-emit_helpgen: bool = false,
 emit_docs: bool = false,
-emit_webdata: bool = false,
-emit_xcframework: bool = false,
+emit_helpgen: bool = false,
+emit_macos_app: bool = false,
 emit_terminfo: bool = false,
 emit_termcap: bool = false,
+emit_test_exe: bool = false,
+emit_xcframework: bool = false,
+emit_webdata: bool = false,
 
 /// Environmental properties
 env: std.process.EnvMap,
@@ -108,6 +111,14 @@ pub fn init(b: *std.Build) !Config {
         .wasm_target = wasm_target,
         .env = env,
     };
+
+    //---------------------------------------------------------------
+    // Target-specific properties
+    config.xcframework_target = b.option(
+        XCFramework.Target,
+        "xcframework-target",
+        "The target for the xcframework.",
+    ) orelse .universal;
 
     //---------------------------------------------------------------
     // Comptime Interfaces
@@ -340,6 +351,12 @@ pub fn init(b: *std.Build) !Config {
             !config.emit_test_exe and
             !config.emit_helpgen);
 
+    config.emit_macos_app = b.option(
+        bool,
+        "emit-macos-app",
+        "Build and install the macOS app bundle.",
+    ) orelse config.emit_xcframework;
+
     //---------------------------------------------------------------
     // System Packages
 
@@ -378,11 +395,6 @@ pub fn init(b: *std.Build) !Config {
             "glslang",
             "spirv-cross",
             "simdutf",
-
-            // This is default false because it is used for testing
-            // primarily and not official packaging. The packaging
-            // guide advises against building the GLFW backend.
-            "glfw3",
         }) |dep| {
             _ = b.systemIntegrationOption(dep, .{ .default = false });
         }

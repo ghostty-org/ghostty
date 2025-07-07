@@ -16,6 +16,10 @@ pub const Options = struct {
     format: gl.Texture.Format,
     internal_format: gl.Texture.InternalFormat,
     target: gl.Texture.Target,
+    min_filter: gl.Texture.MinFilter,
+    mag_filter: gl.Texture.MagFilter,
+    wrap_s: gl.Texture.Wrap,
+    wrap_t: gl.Texture.Wrap,
 };
 
 texture: gl.Texture,
@@ -48,10 +52,10 @@ pub fn init(
     {
         const texbind = tex.bind(opts.target) catch return error.OpenGLFailed;
         defer texbind.unbind();
-        texbind.parameter(.WrapS, gl.c.GL_CLAMP_TO_EDGE) catch return error.OpenGLFailed;
-        texbind.parameter(.WrapT, gl.c.GL_CLAMP_TO_EDGE) catch return error.OpenGLFailed;
-        texbind.parameter(.MinFilter, gl.c.GL_LINEAR) catch return error.OpenGLFailed;
-        texbind.parameter(.MagFilter, gl.c.GL_LINEAR) catch return error.OpenGLFailed;
+        texbind.parameter(.WrapS, @intFromEnum(opts.wrap_s)) catch return error.OpenGLFailed;
+        texbind.parameter(.WrapT, @intFromEnum(opts.wrap_t)) catch return error.OpenGLFailed;
+        texbind.parameter(.MinFilter, @intFromEnum(opts.min_filter)) catch return error.OpenGLFailed;
+        texbind.parameter(.MagFilter, @intFromEnum(opts.mag_filter)) catch return error.OpenGLFailed;
         texbind.image2D(
             0,
             opts.internal_format,

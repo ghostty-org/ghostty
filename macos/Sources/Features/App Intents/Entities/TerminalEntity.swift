@@ -14,26 +14,6 @@ struct TerminalEntity: AppEntity {
     @Property(title: "Kind")
     var kind: Kind
 
-    @MainActor
-    @DeferredProperty(title: "Full Contents")
-    @available(macOS 26.0, *)
-    var screenContents: String? {
-        get async {
-            guard let surfaceView else { return nil }
-            return surfaceView.cachedScreenContents.get()
-        }
-    }
-
-    @MainActor
-    @DeferredProperty(title: "Visible Contents")
-    @available(macOS 26.0, *)
-    var visibleContents: String? {
-        get async {
-            guard let surfaceView else { return nil }
-            return surfaceView.cachedVisibleContents.get()
-        }
-    }
-
     var screenshot: Image?
 
     static var typeDisplayRepresentation: TypeDisplayRepresentation {

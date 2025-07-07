@@ -50,7 +50,14 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyI18n {
 }
 
 pub fn install(self: *const GhosttyI18n) void {
-    for (self.steps) |step| self.owner.getInstallStep().dependOn(step);
+    self.addStepDependencies(self.owner.getInstallStep());
+}
+
+pub fn addStepDependencies(
+    self: *const GhosttyI18n,
+    other_step: *std.Build.Step,
+) void {
+    for (self.steps) |step| other_step.dependOn(step);
 }
 
 fn createUpdateStep(b: *std.Build) !*std.Build.Step {

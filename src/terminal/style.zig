@@ -1,5 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
+const configpkg = @import("../config.zig");
 const color = @import("color.zig");
 const sgr = @import("sgr.zig");
 const page = @import("page.zig");
@@ -115,24 +116,68 @@ pub const Style = struct {
         };
     }
 
-    /// Returns the fg color for a cell with this style given the palette.
+    pub const Fg = struct {
+        /// The default color to use if the style doesn't specify a
+        /// foreground color and no configuration options override
+        /// it.
+        default: color.RGB,
+
+        /// The current color palette. Required to map palette indices to
+        /// real color values.
+        palette: *const color.Palette,
+
+        /// If specified, the color to use for bold text.
+        bold: ?configpkg.BoldColor = null,
+    };
+
+    /// Returns the fg color for a cell with this style given the palette
+    /// and various configuration options.
     pub fn fg(
         self: Style,
-        palette: *const color.Palette,
-        bold_is_bright: bool,
-    ) ?color.RGB {
+        opts: Fg,
+    ) color.RGB {
+        // Note we don't pull the bold check to the top-level here because
+        // we don't want to duplicate the conditional multiple times since
+        // certain colors require more checks (e.g. `bold_is_bright`).
+
         return switch (self.fg_color) {
-            .none => null,
-            .palette => |idx| palette: {
-                if (bold_is_bright and self.flags.bold) {
-                    const bright_offset = @intFromEnum(color.Name.bright_black);
-                    if (idx < bright_offset)
-                        break :palette palette[idx + bright_offset];
+            .none => default: {
+                if (self.flags.bold) {
+                    if (opts.bold) |bold| switch (bold) {
+                        .bright => {},
+                        .color => |v| break :default v.toTerminalRGB(),
+                    };
                 }
 
-                break :palette palette[idx];
+                break :default opts.default;
             },
-            .rgb => |rgb| rgb,
+
+            .palette => |idx| palette: {
+                if (self.flags.bold) {
+                    if (opts.bold) |bold| switch (bold) {
+                        .color => |v| break :palette v.toTerminalRGB(),
+                        .bright => {
+                            const bright_offset = @intFromEnum(color.Name.bright_black);
+                            if (idx < bright_offset) {
+                                break :palette opts.palette[idx + bright_offset];
+                            }
+                        },
+                    };
+                }
+
+                break :palette opts.palette[idx];
+            },
+
+            .rgb => |rgb| rgb: {
+                if (self.flags.bold and rgb.eql(opts.default)) {
+                    if (opts.bold) |bold| switch (bold) {
+                        .color => |v| break :rgb v.toTerminalRGB(),
+                        .bright => {},
+                    };
+                }
+
+                break :rgb rgb;
+            },
         };
     }
 

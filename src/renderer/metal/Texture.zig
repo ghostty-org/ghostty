@@ -50,7 +50,7 @@ pub fn init(
         const id_init = id_alloc.msgSend(objc.Object, objc.sel("init"), .{});
         break :init id_init;
     };
-    errdefer desc.msgSend(void, objc.sel("release"), .{});
+    defer desc.release();
 
     // Set our properties
     desc.setProperty("pixelFormat", @intFromEnum(opts.pixel_format));

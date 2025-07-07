@@ -373,6 +373,13 @@ pub fn init(self: *App, core_app: *CoreApp, opts: Options) !void {
         .{},
     );
 
+    // Setup a listener for SIGUSR2 to reload the configuration.
+    _ = glib.unixSignalAdd(
+        std.posix.SIG.USR2,
+        sigusr2,
+        self,
+    );
+
     // We don't use g_application_run, we want to manually control the
     // loop so we have to do the same things the run function does:
     // https://github.com/GNOME/glib/blob/a8e8b742e7926e33eb635a8edceac74cf239d6ed/gio/gapplication.c#L2533
@@ -489,7 +496,7 @@ pub fn performAction(
         .resize_split => self.resizeSplit(target, value),
         .equalize_splits => self.equalizeSplits(target),
         .goto_split => return self.gotoSplit(target, value),
-        .open_config => try configpkg.edit.open(self.core_app.alloc),
+        .open_config => return self.openConfig(),
         .config_change => self.configChange(target, value.config),
         .reload_config => try self.reloadConfig(target, value),
         .inspector => self.controlInspector(target, value),
@@ -512,6 +519,7 @@ pub fn performAction(
         .secure_input => self.setSecureInput(target, value),
         .ring_bell => try self.ringBell(target),
         .toggle_command_palette => try self.toggleCommandPalette(target),
+        .open_url => self.openUrl(value),
 
         // Unimplemented
         .close_all_windows,
@@ -1508,6 +1516,22 @@ pub fn quitNow(self: *App) void {
     self.running = false;
 }
 
+// SIGUSR2 signal handler via g_unix_signal_add
+fn sigusr2(ud: ?*anyopaque) callconv(.c) c_int {
+    const self: *App = @ptrCast(@alignCast(ud orelse
+        return @intFromBool(glib.SOURCE_CONTINUE)));
+
+    log.info("received SIGUSR2, reloading configuration", .{});
+    self.reloadConfig(.app, .{ .soft = false }) catch |err| {
+        log.err(
+            "error reloading configuration for SIGUSR2: {}",
+            .{err},
+        );
+    };
+
+    return @intFromBool(glib.SOURCE_CONTINUE);
+}
+
 /// This is called by the `activate` signal. This is sent on program startup and
 /// also when a secondary instance launches and requests a new window.
 fn gtkActivate(_: *adw.Application, core_app: *CoreApp) callconv(.c) void {
@@ -1733,4 +1757,35 @@ fn initActions(self: *App) void {
         const action_map = self.app.as(gio.ActionMap);
         action_map.addAction(action.as(gio.Action));
     }
+}
+
+fn openConfig(self: *App) !bool {
+    // Get the config file path
+    const alloc = self.core_app.alloc;
+    const path = configpkg.edit.openPath(alloc) catch |err| {
+        log.warn("error getting config file path: {}", .{err});
+        return false;
+    };
+    defer alloc.free(path);
+
+    // Open it using openURL. "path" isn't actually a URL but
+    // at the time of writing that works just fine for GTK.
+    self.openUrl(.{ .kind = .text, .url = path });
+    return true;
+}
+
+fn openUrl(
+    app: *App,
+    value: apprt.action.OpenUrl,
+) void {
+    // TODO: use https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.OpenURI.html
+
+    // Fallback to the minimal cross-platform way of opening a URL.
+    // This is always a safe fallback and enables for example Windows
+    // to open URLs (GTK on Windows via WSL is a thing).
+    internal_os.open(
+        app.core_app.alloc,
+        value.kind,
+        value.url,
+    ) catch |err| log.warn("unable to open url: {}", .{err});
 }

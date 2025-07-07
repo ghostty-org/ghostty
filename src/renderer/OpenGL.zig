@@ -5,7 +5,6 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const builtin = @import("builtin");
-const glfw = @import("glfw");
 const gl = @import("opengl");
 const shadertoy = @import("shadertoy.zig");
 const apprt = @import("../apprt.zig");
@@ -58,18 +57,6 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) error{}!OpenGL {
 
 pub fn deinit(self: *OpenGL) void {
     self.* = undefined;
-}
-
-/// Returns the hints that we want for this
-pub fn glfwWindowHints(config: *const configpkg.Config) glfw.Window.Hints {
-    _ = config;
-    return .{
-        .context_version_major = MIN_VERSION_MAJOR,
-        .context_version_minor = MIN_VERSION_MINOR,
-        .opengl_profile = .opengl_core_profile,
-        .opengl_forward_compat = true,
-        .transparent_framebuffer = true,
-    };
 }
 
 /// 32-bit windows cross-compilation breaks with `.c` for some reason, so...
@@ -172,16 +159,13 @@ fn prepareContext(getProcAddress: anytype) !void {
 
 /// This is called early right after surface creation.
 pub fn surfaceInit(surface: *apprt.Surface) !void {
-    // Treat this like a thread entry
-    const self: OpenGL = undefined;
+    _ = surface;
 
     switch (apprt.runtime) {
         else => @compileError("unsupported app runtime for OpenGL"),
 
         // GTK uses global OpenGL context so we load from null.
         apprt.gtk => try prepareContext(null),
-
-        apprt.glfw => try self.threadEnter(surface),
 
         apprt.embedded => {
             // TODO(mitchellh): this does nothing today to allow libghostty
@@ -205,17 +189,12 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
 pub fn finalizeSurfaceInit(self: *const OpenGL, surface: *apprt.Surface) !void {
     _ = self;
     _ = surface;
-
-    // For GLFW, we grabbed the OpenGL context in surfaceInit and
-    // we need to release it before we start the renderer thread.
-    if (apprt.runtime == apprt.glfw) {
-        glfw.makeContextCurrent(null);
-    }
 }
 
 /// Callback called by renderer.Thread when it begins.
 pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
     _ = self;
+    _ = surface;
 
     switch (apprt.runtime) {
         else => @compileError("unsupported app runtime for OpenGL"),
@@ -225,21 +204,6 @@ pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
             // tell, so we use the renderer thread to setup all the state
             // but then do the actual draws and texture syncs and all that
             // on the main thread. As such, we don't do anything here.
-        },
-
-        apprt.glfw => {
-            // We need to make the OpenGL context current. OpenGL requires
-            // that a single thread own the a single OpenGL context (if any).
-            // This ensures that the context switches over to our thread.
-            // Important: the prior thread MUST have detached the context
-            // prior to calling this entrypoint.
-            glfw.makeContextCurrent(surface.window);
-            errdefer glfw.makeContextCurrent(null);
-            glfw.swapInterval(1);
-
-            // Load OpenGL bindings. This API is context-aware so this sets
-            // a threadlocal context for these pointers.
-            try prepareContext(&glfw.getProcAddress);
         },
 
         apprt.embedded => {
@@ -260,11 +224,6 @@ pub fn threadExit(self: *const OpenGL) void {
         apprt.gtk => {
             // We don't need to do any unloading for GTK because we may
             // be sharing the global bindings with other windows.
-        },
-
-        apprt.glfw => {
-            gl.glad.unload();
-            glfw.makeContextCurrent(null);
         },
 
         apprt.embedded => {
@@ -397,6 +356,10 @@ pub inline fn textureOptions(self: OpenGL) Texture.Options {
         .format = .rgba,
         .internal_format = .srgba,
         .target = .@"2D",
+        .min_filter = .linear,
+        .mag_filter = .linear,
+        .wrap_s = .clamp_to_edge,
+        .wrap_t = .clamp_to_edge,
     };
 }
 
@@ -429,6 +392,16 @@ pub inline fn imageTextureOptions(
         .format = format.toPixelFormat(),
         .internal_format = if (srgb) .srgba else .rgba,
         .target = .@"2D",
+        // TODO: Generate mipmaps for image textures and use
+        //       linear_mipmap_linear filtering so that they
+        //       look good even when scaled way down.
+        .min_filter = .linear,
+        .mag_filter = .linear,
+        // TODO: Separate out background image options, use
+        //       repeating coordinate modes so we don't have
+        //       to do the modulus in the shader.
+        .wrap_s = .clamp_to_edge,
+        .wrap_t = .clamp_to_edge,
     };
 }
 
@@ -450,6 +423,10 @@ pub fn initAtlasTexture(
             .format = format,
             .internal_format = internal_format,
             .target = .Rectangle,
+            .min_filter = .nearest,
+            .mag_filter = .nearest,
+            .wrap_s = .clamp_to_edge,
+            .wrap_t = .clamp_to_edge,
         },
         atlas.size,
         atlas.size,

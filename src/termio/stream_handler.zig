@@ -15,11 +15,6 @@ const posix = std.posix;
 
 const log = std.log.scoped(.io_handler);
 
-/// True if we should disable the kitty keyboard protocol. We have to
-/// disable this on GLFW because GLFW input events don't support the
-/// correct granularity of events.
-const disable_kitty_keyboard_protocol = apprt.runtime == apprt.glfw;
-
 /// This is used as the handler for the terminal.Stream type. This is
 /// stateful and is expected to live for the entire lifetime of the terminal.
 /// It is NOT VALID to stop a stream handler, create a new one, and use that
@@ -121,10 +116,16 @@ pub const StreamHandler = struct {
         self.default_background_color = config.background.toTerminalRGB();
         self.default_cursor_style = config.cursor_style;
         self.default_cursor_blink = config.cursor_blink;
-        self.default_cursor_color = if (!config.cursor_invert and config.cursor_color != null)
-            config.cursor_color.?.toTerminalRGB()
-        else
-            null;
+        self.default_cursor_color = color: {
+            if (config.cursor_color) |color| switch (color) {
+                .color => break :color color.color.toTerminalRGB(),
+                .@"cell-foreground",
+                .@"cell-background",
+                => {},
+            };
+
+            break :color null;
+        };
 
         // If our cursor is the default, then we update it immediately.
         if (self.default_cursor) self.setCursorStyle(.default) catch |err| {
@@ -907,8 +908,6 @@ pub const StreamHandler = struct {
     }
 
     pub fn queryKittyKeyboard(self: *StreamHandler) !void {
-        if (comptime disable_kitty_keyboard_protocol) return;
-
         log.debug("querying kitty keyboard mode", .{});
         var data: termio.Message.WriteReq.Small.Array = undefined;
         const resp = try std.fmt.bufPrint(&data, "\x1b[?{}u", .{
@@ -927,15 +926,11 @@ pub const StreamHandler = struct {
         self: *StreamHandler,
         flags: terminal.kitty.KeyFlags,
     ) !void {
-        if (comptime disable_kitty_keyboard_protocol) return;
-
         log.debug("pushing kitty keyboard mode: {}", .{flags});
         self.terminal.screen.kitty_keyboard.push(flags);
     }
 
     pub fn popKittyKeyboard(self: *StreamHandler, n: u16) !void {
-        if (comptime disable_kitty_keyboard_protocol) return;
-
         log.debug("popping kitty keyboard mode n={}", .{n});
         self.terminal.screen.kitty_keyboard.pop(@intCast(n));
     }
@@ -945,8 +940,6 @@ pub const StreamHandler = struct {
         mode: terminal.kitty.KeySetMode,
         flags: terminal.kitty.KeyFlags,
     ) !void {
-        if (comptime disable_kitty_keyboard_protocol) return;
-
         log.debug("setting kitty keyboard mode: {} {}", .{ mode, flags });
         self.terminal.screen.kitty_keyboard.set(mode, flags);
     }

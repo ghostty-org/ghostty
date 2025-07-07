@@ -14,6 +14,7 @@ pub const entryFormatter = formatter.entryFormatter;
 pub const formatEntry = formatter.formatEntry;
 
 // Field types
+pub const BoldColor = Config.BoldColor;
 pub const ClipboardAccess = Config.ClipboardAccess;
 pub const Command = Config.Command;
 pub const ConfirmCloseSurface = Config.ConfirmCloseSurface;
@@ -37,6 +38,7 @@ pub const ShellIntegrationFeatures = Config.ShellIntegrationFeatures;
 pub const WindowPaddingColor = Config.WindowPaddingColor;
 pub const BackgroundImagePosition = Config.BackgroundImagePosition;
 pub const BackgroundImageFit = Config.BackgroundImageFit;
+pub const LinkPreviews = Config.LinkPreviews;
 
 // Alternate APIs
 pub const CAPI = @import("config/CAPI.zig");

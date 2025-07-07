@@ -39,6 +39,7 @@ pub const locales = [_][:0]const u8{
     "ru_RU.UTF-8",
     "uk_UA.UTF-8",
     "pl_PL.UTF-8",
+    "ko_KR.UTF-8",
     "mk_MK.UTF-8",
     "tr_TR.UTF-8",
     "id_ID.UTF-8",
@@ -46,7 +47,9 @@ pub const locales = [_][:0]const u8{
     "es_AR.UTF-8",
     "pt_BR.UTF-8",
     "ca_ES.UTF-8",
+    "bg_BG.UTF-8",
     "ga_IE.UTF-8",
+    "he_IL.UTF-8",
 };
 
 /// Set for faster membership lookup of locales.

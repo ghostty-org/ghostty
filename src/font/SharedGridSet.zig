@@ -260,34 +260,51 @@ fn collection(
         .regular,
         .{ .fallback_loaded = try .init(
             self.font_lib,
-            font.embedded.regular,
+            font.embedded.variable,
             load_options.faceOptions(),
         ) },
     );
-    _ = try c.add(
+    try (try c.getFace(try c.add(
         self.alloc,
         .bold,
         .{ .fallback_loaded = try .init(
             self.font_lib,
-            font.embedded.bold,
+            font.embedded.variable,
             load_options.faceOptions(),
         ) },
+    ))).setVariations(
+        &.{.{ .id = .init("wght"), .value = 700 }},
+        load_options.faceOptions(),
     );
     _ = try c.add(
         self.alloc,
         .italic,
         .{ .fallback_loaded = try .init(
             self.font_lib,
-            font.embedded.italic,
+            font.embedded.variable_italic,
             load_options.faceOptions(),
         ) },
     );
-    _ = try c.add(
+    try (try c.getFace(try c.add(
         self.alloc,
         .bold_italic,
         .{ .fallback_loaded = try .init(
             self.font_lib,
-            font.embedded.bold_italic,
+            font.embedded.variable_italic,
+            load_options.faceOptions(),
+        ) },
+    ))).setVariations(
+        &.{.{ .id = .init("wght"), .value = 700 }},
+        load_options.faceOptions(),
+    );
+
+    // Nerd-font symbols fallback.
+    _ = try c.add(
+        self.alloc,
+        .regular,
+        .{ .fallback_loaded = try Face.init(
+            self.font_lib,
+            font.embedded.symbols_nerd_font,
             load_options.faceOptions(),
         ) },
     );

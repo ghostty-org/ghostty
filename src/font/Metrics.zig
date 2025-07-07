@@ -107,6 +107,19 @@ pub const FaceMetrics = struct {
     /// a provided ex height metric or measured from the height of the
     /// lowercase x glyph.
     ex_height: ?f64 = null,
+
+    /// The width of the character "水" (CJK water ideograph, U+6C34),
+    /// if present. This is used for font size adjustment, to normalize
+    /// the width of CJK fonts mixed with latin fonts.
+    ///
+    /// NOTE: IC = Ideograph Character
+    ic_width: ?f64 = null,
+
+    /// Convenience function for getting the line height
+    /// (ascent - descent + line_gap).
+    pub inline fn lineHeight(self: FaceMetrics) f64 {
+        return self.ascent - self.descent + self.line_gap;
+    }
 };
 
 /// Calculate our metrics based on values extracted from a font.

@@ -7,7 +7,6 @@ const Allocator = std.mem.Allocator;
 const posix = std.posix;
 const build_config = @import("build_config.zig");
 const options = @import("build_options");
-const glfw = @import("glfw");
 const glslang = @import("glslang");
 const macos = @import("macos");
 const oni = @import("oniguruma");

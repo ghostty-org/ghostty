@@ -28,7 +28,7 @@ pub const Options = struct {
 /// MTLCommandBuffer
 buffer: objc.Object,
 
-block: CompletionBlock,
+block: CompletionBlock.Context,
 
 /// Begin encoding a frame.
 pub fn begin(
@@ -47,7 +47,7 @@ pub fn begin(
 
     // Create our block to register for completion updates.
     // The block is deallocated by the objC runtime on success.
-    const block = try CompletionBlock.init(
+    const block = CompletionBlock.init(
         .{
             .renderer = renderer,
             .target = target,
@@ -55,7 +55,6 @@ pub fn begin(
         },
         &bufferCompleted,
     );
-    errdefer block.deinit();
 
     return .{ .buffer = buffer, .block = block };
 }
@@ -114,24 +113,23 @@ pub inline fn complete(self: *Self, sync: bool) void {
     // If we don't need to complete synchronously,
     // we add our block as a completion handler.
     //
-    // It will be deallocated by the objc runtime on success.
+    // It will be copied when we add the handler, and then the
+    // copy will be deallocated by the objc runtime on success.
     if (!sync) {
         self.buffer.msgSend(
             void,
             objc.sel("addCompletedHandler:"),
-            .{self.block.context},
+            .{&self.block},
         );
     }
 
     self.buffer.msgSend(void, objc.sel("commit"), .{});
 
     // If we need to complete synchronously, we wait until
-    // the buffer is completed and call the callback directly,
-    // deiniting the block after we're done.
+    // the buffer is completed and invoke the block directly.
     if (sync) {
         self.buffer.msgSend(void, "waitUntilCompleted", .{});
-        self.block.context.sync = true;
-        bufferCompleted(self.block.context, self.buffer.value);
-        self.block.deinit();
+        self.block.sync = true;
+        CompletionBlock.invoke(&self.block, .{self.buffer.value});
     }
 }
