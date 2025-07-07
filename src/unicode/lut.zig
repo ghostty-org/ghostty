@@ -177,3 +177,7 @@ pub fn Tables(comptime Elem: type) type {
         }
     };
 }
+
+test {
+    std.testing.refAllDecls(@This());
+}

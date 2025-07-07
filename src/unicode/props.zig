@@ -222,3 +222,8 @@ pub fn main() !void {
     //     t.stage3.len,
     // });
 }
+
+test {
+    _ = table;
+    _ = Properties;
+}
