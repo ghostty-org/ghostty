@@ -42,8 +42,8 @@
             .lazy = true,
         },
         .zg = .{
-            .url = "https://codeberg.org/jacobsandlund/zg/archive/bfb71988dbef3d11e54637fa7f99a84a2c7c9d1f.tar.gz",
-            .hash = "zg-0.14.0-oGqU3A-9sgKPomBsiqZsVKUayWJ2oIwolsb_6PwM7PnX",
+            .url = "https://codeberg.org/jacobsandlund/zg/archive/4d09cce1c40e0a704e5c1dfab1f4398f5c87b96b.tar.gz",
+            .hash = "zg-0.14.0-oGqU3Oi7sgLDn7I8RF43Fqg8hMbfVbCU5tTJvOZvcGV1",
             .lazy = true,
         },
         .zig_wayland = .{
