@@ -130,7 +130,7 @@ msgstr "Ladda om konfiguration"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:85
 msgid "Terminal Inspector"
-msgstr "Terminalinspektören"
+msgstr "Terminalinspektör"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:102
 #: src/apprt/gtk/Window.zig:933
