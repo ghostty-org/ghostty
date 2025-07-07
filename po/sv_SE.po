@@ -48,7 +48,7 @@ msgstr "Klistra in"
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:18
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:73
 msgid "Clear"
-msgstr "Rensa"
+msgstr "Töm"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:23
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:78
