@@ -228,7 +228,7 @@ msgstr "Vill du stänga uppdelat fönster?"
 
 #: src/apprt/gtk/CloseDialog.zig:96
 msgid "All terminal sessions will be terminated."
-msgstr "Alla terminalsessioner kommer att avslutas."
+msgstr "Alla terminalsessioner kommer avslutas."
 
 #: src/apprt/gtk/CloseDialog.zig:97
 msgid "All terminal sessions in this window will be terminated."
