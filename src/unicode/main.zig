@@ -8,10 +8,6 @@ pub const Properties = props.Properties;
 pub const graphemeBreak = grapheme.graphemeBreak;
 pub const GraphemeBreakState = grapheme.BreakState;
 
-test {
-    @import("std").testing.refAllDecls(@This());
-}
-
 /// Build Ghostty with `zig build -Doptimize=ReleaseFast -Demit-unicode-test`.
 ///
 /// Usage: ./zig-out/bin/unicode-test [width|class|break|all] [old|zg|ziglyph|all]
@@ -40,9 +36,6 @@ pub fn main() !void {
 
     const args = try std.process.argsAlloc(alloc);
     defer std.process.argsFree(alloc, args);
-
-    var zg = try props.Context.init(alloc);
-    defer zg.deinit(alloc);
 
     const ziglyph = @import("ziglyph");
     const Graphemes = @import("Graphemes");
@@ -74,14 +67,14 @@ pub fn main() !void {
             }
 
             if (compareZg) {
-                const zg_width = @min(2, @max(0, DisplayWidth.codePointWidth(zg.display_width, @intCast(cp))));
+                const zg_width = @min(2, @max(0, DisplayWidth.codePointWidth(@intCast(cp))));
                 if (t.width != zg_width) {
                     std.log.warn("[zg mismatch] cp={x} t={} zg={}", .{ cp, t.width, zg_width });
                 }
             }
 
             if (compareZiglyph) {
-                const ziglyph_width = @min(2, @max(0, DisplayWidth.codePointWidth(zg.display_width, @intCast(cp))));
+                const ziglyph_width = @min(2, @max(0, DisplayWidth.codePointWidth(@intCast(cp))));
                 if (t.width != ziglyph_width) {
                     std.log.warn("[ziglyph mismatch] cp={x} t={} zg={}", .{ cp, t.width, ziglyph_width });
                 }
@@ -105,7 +98,7 @@ pub fn main() !void {
             }
 
             if (compareZg) {
-                const gbp = Graphemes.gbp(zg.graphemes, @intCast(cp));
+                const gbp = Graphemes.gbp(@intCast(cp));
                 const matches = switch (t.grapheme_boundary_class) {
                     .extended_pictographic_base => gbp == .Emoji_Modifier_Base,
                     .emoji_modifier => gbp == .Emoji_Modifier,
@@ -179,11 +172,11 @@ pub fn main() !void {
             if (cp1 % 0x100 == 0) std.log.info("progress: cp1={x}", .{cp1});
 
             if (cp1 == '\r' or cp1 == '\n' or
-                Graphemes.gbp(zg.graphemes, @intCast(cp1)) == .Control) continue;
+                Graphemes.gbp(@intCast(cp1)) == .Control) continue;
 
             for (min..max) |cp2| {
                 if (cp2 == '\r' or cp2 == '\n' or
-                    Graphemes.gbp(zg.graphemes, @intCast(cp1)) == .Control) continue;
+                    Graphemes.gbp(@intCast(cp1)) == .Control) continue;
 
                 const gb = graphemeBreak(@intCast(cp1), @intCast(cp2), &state);
 
@@ -202,7 +195,7 @@ pub fn main() !void {
                 }
 
                 if (compareZg) {
-                    const zg_gb = Graphemes.graphemeBreak(@intCast(cp1), @intCast(cp2), &zg.graphemes, &zg_state);
+                    const zg_gb = Graphemes.graphemeBreak(@intCast(cp1), @intCast(cp2), &zg_state);
                     if (gb != zg_gb) {
                         std.log.warn("[zg mismatch] cp1={x} cp2={x} gb={} zg_gb={} state={} zg_state={}", .{
                             cp1,

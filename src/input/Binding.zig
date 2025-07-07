@@ -9,7 +9,6 @@ const LetterCasing = @import("LetterCasing");
 const CaseFolding = @import("CaseFolding");
 const key = @import("key.zig");
 const KeyEvent = key.KeyEvent;
-const zg = &@import("../global.zig").state.zg;
 
 /// The trigger that needs to be performed to execute the action.
 trigger: Trigger,
@@ -1566,7 +1565,7 @@ pub const Trigger = struct {
     fn foldedCodepoint(cp: u21) [3]u21 {
         // ASCII fast path
         if (('A' <= cp and cp <= 'Z') or ('a' <= cp and cp <= 'z')) {
-            return .{ LetterCasing.toLower(zg.letter_casing, cp), 0, 0 };
+            return .{ LetterCasing.toLower(cp), 0, 0 };
         }
 
         // Unicode slow path. Case folding can result in more codepoints.
@@ -1574,7 +1573,7 @@ pub const Trigger = struct {
         // as-is which isn't correct but until we have a failing test
         // then I don't want to handle this.
         var buf: [3]u21 = .{ 0, 0, 0 };
-        _ = CaseFolding.caseFold(&zg.case_folding, cp, &buf);
+        _ = CaseFolding.caseFold(cp, &buf);
         return buf;
     }
 
@@ -2628,8 +2627,6 @@ test "parse: sequences" {
 test "set: parseAndPut typical binding" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    _ = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
 
     var s: Set = .{};
     defer s.deinit(alloc);
@@ -2653,8 +2650,6 @@ test "set: parseAndPut typical binding" {
 test "set: parseAndPut unconsumed binding" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    _ = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
 
     var s: Set = .{};
     defer s.deinit(alloc);
@@ -2679,8 +2674,6 @@ test "set: parseAndPut unconsumed binding" {
 test "set: parseAndPut removed binding" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    _ = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
 
     var s: Set = .{};
     defer s.deinit(alloc);
@@ -2699,8 +2692,6 @@ test "set: parseAndPut removed binding" {
 test "set: parseAndPut sequence" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    _ = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
 
     var s: Set = .{};
     defer s.deinit(alloc);
@@ -2725,8 +2716,6 @@ test "set: parseAndPut sequence" {
 test "set: parseAndPut sequence with two actions" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    _ = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
 
     var s: Set = .{};
     defer s.deinit(alloc);
@@ -2759,8 +2748,6 @@ test "set: parseAndPut sequence with two actions" {
 test "set: parseAndPut overwrite sequence" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    _ = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
 
     var s: Set = .{};
     defer s.deinit(alloc);
@@ -2786,8 +2773,6 @@ test "set: parseAndPut overwrite sequence" {
 test "set: parseAndPut overwrite leader" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    _ = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
 
     var s: Set = .{};
     defer s.deinit(alloc);
@@ -2813,8 +2798,6 @@ test "set: parseAndPut overwrite leader" {
 test "set: parseAndPut unbind sequence unbinds leader" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    _ = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
 
     var s: Set = .{};
     defer s.deinit(alloc);
@@ -2831,8 +2814,6 @@ test "set: parseAndPut unbind sequence unbinds leader" {
 test "set: parseAndPut unbind sequence unbinds leader if not set" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    _ = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
 
     var s: Set = .{};
     defer s.deinit(alloc);
@@ -2848,8 +2829,6 @@ test "set: parseAndPut unbind sequence unbinds leader if not set" {
 test "set: parseAndPut sequence preserves reverse mapping" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    _ = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
 
     var s: Set = .{};
     defer s.deinit(alloc);
@@ -2867,8 +2846,6 @@ test "set: parseAndPut sequence preserves reverse mapping" {
 test "set: put overwrites sequence" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    _ = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
 
     var s: Set = .{};
     defer s.deinit(alloc);
@@ -2889,8 +2866,6 @@ test "set: put overwrites sequence" {
 test "set: maintains reverse mapping" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    _ = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
 
     var s: Set = .{};
     defer s.deinit(alloc);
@@ -2919,8 +2894,6 @@ test "set: maintains reverse mapping" {
 test "set: performable is not part of reverse mappings" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    _ = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
 
     var s: Set = .{};
     defer s.deinit(alloc);
@@ -2954,8 +2927,6 @@ test "set: performable is not part of reverse mappings" {
 test "set: overriding a mapping updates reverse" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    _ = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
 
     var s: Set = .{};
     defer s.deinit(alloc);
@@ -2977,8 +2948,6 @@ test "set: overriding a mapping updates reverse" {
 test "set: consumed state" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    _ = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
 
     var s: Set = .{};
     defer s.deinit(alloc);
@@ -3004,8 +2973,6 @@ test "set: consumed state" {
 test "set: getEvent physical" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    _ = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
 
     var s: Set = .{};
     defer s.deinit(alloc);
@@ -3036,8 +3003,6 @@ test "set: getEvent physical" {
 test "set: getEvent codepoint" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    _ = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
 
     var s: Set = .{};
     defer s.deinit(alloc);
@@ -3078,8 +3043,6 @@ test "set: getEvent codepoint" {
 test "set: getEvent codepoint case folding" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    _ = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
 
     var s: Set = .{};
     defer s.deinit(alloc);
@@ -3123,8 +3086,6 @@ test "Action: clone" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
-    _ = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
 
     {
         var a: Action = .ignore;

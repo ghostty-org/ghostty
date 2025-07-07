@@ -224,9 +224,9 @@ pub fn constraintWidth(cell_pin: terminal.Pin) u2 {
     const cell = cell_pin.rowAndCell().cell;
     const cp = cell.codepoint();
 
-    if (!ziglyph.general_category.isPrivateUse(cp) and
-        !ziglyph.blocks.isDingbats(cp))
-    {
+    // If it's not Private Use (Co) or Dingbats (0x2700-0x27bf), use grid
+    // width.
+    if (GeneralCategories.gc(cp) != .Co and !(cp >= 0x2700 and cp <= 0x27bf)) {
         return cell.gridWidth();
     }
 

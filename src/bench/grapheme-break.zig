@@ -56,10 +56,6 @@ pub fn main() !void {
     // We want to use the c allocator because it is much faster than GPA.
     const alloc = std.heap.c_allocator;
 
-    // Initialize Graphemes for zg
-    const graphemes = try Graphemes.init(alloc);
-    graphemes.deinit(alloc);
-
     // Parse our args
     var args: Args = .{};
     defer args.deinit();
@@ -75,7 +71,7 @@ pub fn main() !void {
     // Handle the modes that do not depend on terminal state first.
     switch (args.mode) {
         .noop => try benchNoop(reader, buf),
-        .zg => try benchZg(&graphemes, reader, buf),
+        .zg => try benchZg(reader, buf),
         .table => try benchTable(reader, buf),
     }
 }
@@ -123,7 +119,6 @@ noinline fn benchTable(
 }
 
 noinline fn benchZg(
-    graphemes: *const Graphemes,
     reader: anytype,
     buf: []u8,
 ) !void {
@@ -140,7 +135,7 @@ noinline fn benchZg(
             const cp_, const consumed = d.next(c);
             assert(consumed);
             if (cp_) |cp2| {
-                const v = Graphemes.graphemeBreak(cp1, @intCast(cp2), graphemes, &state);
+                const v = Graphemes.graphemeBreak(cp1, @intCast(cp2), &state);
                 buf[0] = @intCast(@intFromBool(v));
                 cp1 = cp2;
             }

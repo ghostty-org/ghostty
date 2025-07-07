@@ -193,8 +193,6 @@ pub const FileFormatter = struct {
 test "format default config" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    const zg = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
     var cfg = try Config.default(alloc);
     defer cfg.deinit();
 
@@ -214,8 +212,6 @@ test "format default config" {
 test "format default config changed" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    const zg = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
     var cfg = try Config.default(alloc);
     defer cfg.deinit();
     cfg.@"font-size" = 42;

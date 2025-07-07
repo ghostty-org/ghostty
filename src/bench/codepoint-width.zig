@@ -64,10 +64,6 @@ pub fn main() !void {
     // We want to use the c allocator because it is much faster than GPA.
     const alloc = std.heap.c_allocator;
 
-    // Initialize DisplayWidth for zg
-    const display_width = try DisplayWidth.init(alloc);
-    display_width.deinit(alloc);
-
     // Parse our args
     var args: Args = .{};
     defer args.deinit();
@@ -84,7 +80,7 @@ pub fn main() !void {
     switch (args.mode) {
         .noop => try benchNoop(reader, buf),
         .wcwidth => try benchWcwidth(reader, buf),
-        .zg => try benchZg(display_width, reader, buf),
+        .zg => try benchZg(reader, buf),
         .simd => try benchSimd(reader, buf),
         .table => try benchTable(reader, buf),
     }
@@ -160,7 +156,6 @@ noinline fn benchTable(
 }
 
 noinline fn benchZg(
-    display_width: DisplayWidth,
     reader: anytype,
     buf: []u8,
 ) !void {
@@ -175,7 +170,7 @@ noinline fn benchZg(
             const cp_, const consumed = d.next(c);
             assert(consumed);
             if (cp_) |cp| {
-                const width = DisplayWidth.codePointWidth(display_width, cp);
+                const width = DisplayWidth.codePointWidth(cp);
 
                 // Write the width to the buffer to avoid it being compiled away
                 buf[0] = @intCast(width);

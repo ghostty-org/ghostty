@@ -711,8 +711,6 @@ pub const Key = struct {
 test "Key" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    const zg = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
     var cfg = try Config.default(alloc);
     defer cfg.deinit();
 
@@ -732,8 +730,6 @@ test "Key" {
 test "Key different font points" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    const zg = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
     var cfg = try Config.default(alloc);
     defer cfg.deinit();
 
@@ -752,8 +748,6 @@ test "Key different font points" {
 test "Key different font DPI" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    const zg = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
     var cfg = try Config.default(alloc);
     defer cfg.deinit();
 
@@ -772,8 +766,6 @@ test "Key different font DPI" {
 test SharedGridSet {
     const testing = std.testing;
     const alloc = testing.allocator;
-    const zg = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
 
     var set = try SharedGridSet.init(alloc);
     defer set.deinit();

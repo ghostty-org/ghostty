@@ -15,7 +15,6 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Emoji = @import("Emoji");
 const font = @import("main.zig");
-const zg = &@import("../global.zig").state.zg;
 const Atlas = font.Atlas;
 const CodepointMap = font.CodepointMap;
 const Collection = font.Collection;
@@ -151,7 +150,7 @@ pub fn getIndex(
     // we'll do this multiple times if we recurse, but this is a cached function
     // call higher up (GroupCache) so this should be rare.
     const p_mode: Collection.PresentationMode = if (p) |v| .{ .explicit = v } else .{
-        .default = if (Emoji.isEmojiPresentation(zg.emoji, @intCast(cp)))
+        .default = if (Emoji.isEmojiPresentation(@intCast(cp)))
             .emoji
         else
             .text,
@@ -380,8 +379,6 @@ test getIndex {
     const testFont = font.embedded.regular;
     const testEmoji = font.embedded.emoji;
     const testEmojiText = font.embedded.emoji_text;
-    _ = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
 
     var lib = try Library.init(alloc);
     defer lib.deinit();
@@ -460,8 +457,6 @@ test "getIndex disabled font style" {
     const testing = std.testing;
     const alloc = testing.allocator;
     const testFont = font.embedded.regular;
-    _ = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
 
     var atlas_grayscale = try font.Atlas.init(alloc, 512, .grayscale);
     defer atlas_grayscale.deinit(alloc);
@@ -517,8 +512,6 @@ test "getIndex disabled font style" {
 test "getIndex box glyph" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    _ = try @import("../global.zig").Zg.initForTesting();
-    defer zg.deinitForTesting();
 
     var lib = try Library.init(alloc);
     defer lib.deinit();

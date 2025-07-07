@@ -10,11 +10,6 @@ const oni = @import("oniguruma");
 const crash = @import("crash/main.zig");
 const renderer = @import("renderer.zig");
 const apprt = @import("apprt.zig");
-const CaseFolding = @import("CaseFolding");
-const Emoji = @import("Emoji");
-const GeneralCategories = @import("GeneralCategories");
-const LetterCasing = @import("LetterCasing");
-const unicode = @import("unicode/main.zig");
 
 /// We export the xev backend we want to use so that the rest of
 /// Ghostty can import this once and have access to the proper
@@ -38,7 +33,6 @@ pub const GlobalState = struct {
     action: ?cli.Action,
     logging: Logging,
     rlimits: ResourceLimits = .{},
-    zg: Zg,
 
     /// The app resources directory, equivalent to zig-out/share when we build
     /// from source. This is null if we can't detect it.
@@ -70,7 +64,6 @@ pub const GlobalState = struct {
             .logging = .{ .stderr = {} },
             .rlimits = .{},
             .resources_dir = .{},
-            .zg = undefined,
         };
         errdefer self.deinit();
 
@@ -157,8 +150,6 @@ pub const GlobalState = struct {
             );
         };
 
-        self.zg = try Zg.init(self.alloc);
-
         // const sentrylib = @import("sentry");
         // if (sentrylib.captureEvent(sentrylib.Value.initMessageEvent(
         //     .info,
@@ -197,8 +188,6 @@ pub const GlobalState = struct {
         // Flush our crash logs
         crash.deinit();
 
-        self.zg.deinit(self.alloc);
-
         if (self.gpa) |*value| {
             // We want to ensure that we deinit the GPA because this is
             // the point at which it will output if there were safety violations.
@@ -224,39 +213,6 @@ pub const GlobalState = struct {
         // be fixed one day but for now this helps make this a bit more
         // robust.
         p.sigaction(p.SIG.PIPE, &sa, null);
-    }
-};
-
-pub const Zg = struct {
-    case_folding: CaseFolding,
-    emoji: Emoji,
-    general_categories: GeneralCategories,
-    letter_casing: LetterCasing,
-
-    pub fn init(alloc: std.mem.Allocator) !Zg {
-        return .{
-            .case_folding = try CaseFolding.init(alloc),
-            .emoji = try Emoji.init(alloc),
-            .general_categories = try GeneralCategories.init(alloc),
-            .letter_casing = try LetterCasing.init(alloc),
-        };
-    }
-
-    pub fn deinit(self: *Zg, alloc: std.mem.Allocator) void {
-        self.case_folding.deinit(alloc);
-        self.emoji.deinit(alloc);
-        self.general_categories.deinit(alloc);
-        self.letter_casing.deinit(alloc);
-    }
-
-    pub fn initForTesting() !*Zg {
-        const zg = &state.zg;
-        zg.* = try Zg.init(std.testing.allocator);
-        return zg;
-    }
-
-    pub fn deinitForTesting(self: *Zg) void {
-        self.deinit(std.testing.allocator);
     }
 };
 

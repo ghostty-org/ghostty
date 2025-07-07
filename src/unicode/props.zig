@@ -1,32 +1,14 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const lut = @import("lut.zig");
-const Graphemes = @import("Graphemes");
 
 /// The context needed for lut generation.
 pub const Context = struct {
-    graphemes: Graphemes,
-    display_width: DisplayWidth,
-
     // Whether to use the old implementation based on ziglyph.
     old: bool = false,
 
+    const Graphemes = @import("Graphemes");
     const DisplayWidth = @import("DisplayWidth");
-
-    // Public only for unicode-test
-    pub fn init(alloc: std.mem.Allocator) !Context {
-        const graphemes = try Graphemes.init(alloc);
-        return .{
-            .graphemes = graphemes,
-            .display_width = try DisplayWidth.initWithGraphemes(alloc, graphemes),
-        };
-    }
-
-    // Public only for unicode-test
-    pub fn deinit(self: *Context, alloc: std.mem.Allocator) void {
-        self.graphemes.deinit(alloc);
-        self.display_width.deinit(alloc);
-    }
 
     pub fn get(self: Context, cp: u21) !Properties {
         if (cp > 0x10FFFF) {
@@ -35,12 +17,12 @@ pub const Context = struct {
                 .grapheme_boundary_class = .invalid,
             };
         } else {
-            const zg_width = DisplayWidth.codePointWidth(self.display_width, cp);
+            const zg_width = DisplayWidth.codePointWidth(cp);
 
             return .{
                 .width = @intCast(@min(2, @max(0, zg_width))),
                 //.grapheme_boundary_class = .init(self, cp),
-                .grapheme_boundary_class = if (self.old) .initOld(cp) else .init(self, cp),
+                .grapheme_boundary_class = if (self.old) .initOld(cp) else .init(cp),
             };
         }
     }
@@ -137,10 +119,12 @@ pub const GraphemeBoundaryClass = enum(u4) {
     extended_pictographic_base, // \p{Extended_Pictographic} & \p{Emoji_Modifier_Base}
     emoji_modifier, // \p{Emoji_Modifier}
 
+    const Graphemes = @import("Graphemes");
+
     /// Gets the grapheme boundary class for a codepoint. This is VERY
     /// SLOW. The use case for this is only in generating lookup tables.
-    pub fn init(ctx: Context, cp: u21) GraphemeBoundaryClass {
-        return switch (Graphemes.gbp(ctx.graphemes, cp)) {
+    pub fn init(cp: u21) GraphemeBoundaryClass {
+        return switch (Graphemes.gbp(cp)) {
             .Emoji_Modifier_Base => .extended_pictographic_base,
             .Emoji_Modifier => .emoji_modifier,
             .Extended_Pictographic => .extended_pictographic,
@@ -214,8 +198,7 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(alloc);
     defer std.process.argsFree(alloc, args);
 
-    var ctx = try Context.init(alloc);
-    defer ctx.deinit(alloc);
+    var ctx = Context{};
 
     if (args.len > 1 and std.mem.eql(u8, args[1], "old")) {
         ctx.old = true;
