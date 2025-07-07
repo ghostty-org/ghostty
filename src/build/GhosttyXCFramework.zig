@@ -1,12 +1,15 @@
 const GhosttyXCFramework = @This();
 
 const std = @import("std");
+const RunStep = std.Build.Step.Run;
 const Config = @import("Config.zig");
 const SharedDeps = @import("SharedDeps.zig");
 const GhosttyLib = @import("GhosttyLib.zig");
 const XCFrameworkStep = @import("XCFrameworkStep.zig");
 
 xcframework: *XCFrameworkStep,
+copy: *std.Build.Step,
+
 target: Target,
 
 pub const Target = enum { native, universal };
@@ -58,7 +61,6 @@ pub fn init(
     // it to the final app built with Swift.
     const xcframework = XCFrameworkStep.create(b, .{
         .name = "GhosttyKit",
-        .out_path = "macos/GhosttyKit.xcframework",
         .libraries = switch (target) {
             .universal => &.{
                 .{
@@ -82,8 +84,32 @@ pub fn init(
         },
     });
 
+    // A command to copy the xcframework to the output directory,
+    // because the xcode project needs a stable path.
+    const copy = copy: {
+        const remove = RunStep.create(b, "remove old xcframework");
+        remove.has_side_effects = true;
+        remove.cwd = b.path("");
+        remove.addArgs(&.{
+            "rm",
+            "-rf",
+            "macos/GhosttyKit.xcframework",
+        });
+        remove.expectExitCode(0);
+
+        const step = RunStep.create(b, "copy xcframework");
+        step.has_side_effects = true;
+        step.cwd = b.path("");
+        step.addArgs(&.{ "cp", "-R" });
+        step.addDirectoryArg(xcframework.output);
+        step.addArg("macos/GhosttyKit.xcframework");
+        step.step.dependOn(&remove.step);
+        break :copy step;
+    };
+
     return .{
         .xcframework = xcframework,
+        .copy = &copy.step,
         .target = target,
     };
 }
@@ -97,5 +123,5 @@ pub fn addStepDependencies(
     self: *const GhosttyXCFramework,
     other_step: *std.Build.Step,
 ) void {
-    other_step.dependOn(self.xcframework.step);
+    other_step.dependOn(self.copy);
 }
