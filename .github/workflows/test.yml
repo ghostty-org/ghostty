@@ -561,7 +561,16 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
-      - name: Test GTK Build
+      - name: Test
+        run: |
+          nix develop -c \
+            zig build \
+            -Dapp-runtime=gtk \
+            -Dgtk-x11=${{ matrix.x11 }} \
+            -Dgtk-wayland=${{ matrix.wayland }} \
+            test
+
+      - name: Build
         run: |
           nix develop -c \
             zig build \

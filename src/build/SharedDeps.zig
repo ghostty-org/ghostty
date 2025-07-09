@@ -767,6 +767,9 @@ pub fn gtkDistResources(
     });
     const resources_c = generate_c.addOutputFileArg("ghostty_resources.c");
     generate_c.addFileArg(gresource_xml);
+    for (gresource.dependencies) |file| {
+        generate_c.addFileInput(b.path(file));
+    }
 
     const generate_h = b.addSystemCommand(&.{
         "glib-compile-resources",
@@ -777,6 +780,9 @@ pub fn gtkDistResources(
     });
     const resources_h = generate_h.addOutputFileArg("ghostty_resources.h");
     generate_h.addFileArg(gresource_xml);
+    for (gresource.dependencies) |file| {
+        generate_h.addFileInput(b.path(file));
+    }
 
     return .{
         .resources_c = .{

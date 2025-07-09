@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-04-22 08:57-0700\n"
+"POT-Creation-Date: 2025-07-08 15:13-0500\n"
 "PO-Revision-Date: 2025-03-23 14:17+0100\n"
 "Last-Translator: Andrej Daskalov <andrej.daskalov@gmail.com>\n"
 "Language-Team: Macedonian\n"
@@ -25,7 +25,8 @@ msgid "Leave blank to restore the default title."
 msgstr "Оставете празно за враќање на стандарсниот наслов."
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:9
-#: src/apprt/gtk/ui/1.5/ccw-paste.blp:10 src/apprt/gtk/CloseDialog.zig:44
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:10 src/apprt/gtk/ui/1.2/ccw-paste.blp:10
+#: src/apprt/gtk/CloseDialog.zig:44
 msgid "Cancel"
 msgstr "Откажи"
 
@@ -34,10 +35,12 @@ msgid "OK"
 msgstr "Во ред"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:5
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:5
 msgid "Configuration Errors"
 msgstr "Грешки во конфигурацијата"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:6
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:6
 msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
@@ -47,12 +50,14 @@ msgstr ""
 "овие грешки."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:9
 msgid "Ignore"
 msgstr "Игнорирај"
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:10
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:97
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:95
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:100
+#: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:10
 msgid "Reload Configuration"
 msgstr "Одново вчитај конфигурација"
 
@@ -80,6 +85,10 @@ msgstr "Подели налево"
 msgid "Split Right"
 msgstr "Подели надесно"
 
+#: src/apprt/gtk/ui/1.5/command-palette.blp:16
+msgid "Execute a command…"
+msgstr ""
+
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
 msgid "Copy"
@@ -87,7 +96,7 @@ msgstr "Копирај"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:11
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:11
-#: src/apprt/gtk/ui/1.5/ccw-paste.blp:11
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:11 src/apprt/gtk/ui/1.2/ccw-paste.blp:11
 msgid "Paste"
 msgstr "Вметни"
 
@@ -117,7 +126,7 @@ msgstr "Јазиче"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:62
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:30
-#: src/apprt/gtk/Window.zig:248
+#: src/apprt/gtk/Window.zig:265
 msgid "New Tab"
 msgstr "Ново јазиче"
 
@@ -145,29 +154,36 @@ msgid "Config"
 msgstr "Конфигурација"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:92
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:90
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:95
 msgid "Open Configuration"
 msgstr "Отвори конфигурација"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:85
+msgid "Command Palette"
+msgstr ""
+
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:90
 msgid "Terminal Inspector"
 msgstr "Инспектор на терминал"
 
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:102
-#: src/apprt/gtk/Window.zig:1003
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:107
+#: src/apprt/gtk/Window.zig:1038
 msgid "About Ghostty"
 msgstr "За Ghostty"
 
-#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:107
+#: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:112
 msgid "Quit"
 msgstr "Излез"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:6
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:6
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-read.blp:6
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:6
 msgid "Authorize Clipboard Access"
 msgstr "Авторизирај пристап до привремена меморија"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:7
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-read.blp:7
 msgid ""
 "An application is attempting to read from the clipboard. The current "
 "clipboard contents are shown below."
@@ -177,15 +193,30 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:10
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:10
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-read.blp:10
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:10
 msgid "Deny"
 msgstr "Одбиј"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:11
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:11
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-read.blp:11
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:11
 msgid "Allow"
 msgstr "Дозволи"
 
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:81
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:77
+msgid "Remember choice for this split"
+msgstr ""
+
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:82
+#: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:78
+msgid "Reload configuration to show this prompt again"
+msgstr ""
+
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:7
+#: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:7
 msgid ""
 "An application is attempting to write to the clipboard. The current "
 "clipboard contents are shown below."
@@ -193,43 +224,17 @@ msgstr ""
 "Апликација се обидува да запише во привремената меморија. Содржината е "
 "прикажана подолу."
 
-#: src/apprt/gtk/ui/1.5/ccw-paste.blp:6
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:6 src/apprt/gtk/ui/1.2/ccw-paste.blp:6
 msgid "Warning: Potentially Unsafe Paste"
 msgstr "Предупредување: Потенцијално небезбедно вметнување"
 
-#: src/apprt/gtk/ui/1.5/ccw-paste.blp:7
+#: src/apprt/gtk/ui/1.5/ccw-paste.blp:7 src/apprt/gtk/ui/1.2/ccw-paste.blp:7
 msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
 msgstr ""
 "Вметнувањето на овој текст во терминалот може да биде опасно, бидејќи "
 "изгледа како да ќе се извршат одредени команди."
-
-#: src/apprt/gtk/Window.zig:201
-msgid "Main Menu"
-msgstr "Главно мени"
-
-#: src/apprt/gtk/Window.zig:222
-msgid "View Open Tabs"
-msgstr "Прегледај отворени јазичиња"
-
-#: src/apprt/gtk/Window.zig:249
-msgid "New Split"
-msgstr ""
-
-#: src/apprt/gtk/Window.zig:312
-msgid ""
-"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
-msgstr ""
-"⚠️ Извршувате дебаг верзија на Ghostty! Перформансите ќе бидат намалени."
-
-#: src/apprt/gtk/Window.zig:744
-msgid "Reloaded the configuration"
-msgstr "Конфигурацијата е одново вчитана"
-
-#: src/apprt/gtk/Window.zig:984
-msgid "Ghostty Developers"
-msgstr "Развивачи на Ghostty"
 
 #: src/apprt/gtk/CloseDialog.zig:47
 msgid "Close"
@@ -267,9 +272,35 @@ msgstr "Сите сесии во ова јазиче ќе бидат преки�
 msgid "The currently running process in this split will be terminated."
 msgstr "Процесот кој моментално се извршува во оваа поделба ќе биде прекинат."
 
-#: src/apprt/gtk/Surface.zig:1243
+#: src/apprt/gtk/Surface.zig:1257
 msgid "Copied to clipboard"
 msgstr "Копирано во привремена меморија"
+
+#: src/apprt/gtk/Window.zig:216
+msgid "Main Menu"
+msgstr "Главно мени"
+
+#: src/apprt/gtk/Window.zig:239
+msgid "View Open Tabs"
+msgstr "Прегледај отворени јазичиња"
+
+#: src/apprt/gtk/Window.zig:266
+msgid "New Split"
+msgstr ""
+
+#: src/apprt/gtk/Window.zig:329
+msgid ""
+"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
+msgstr ""
+"⚠️ Извршувате дебаг верзија на Ghostty! Перформансите ќе бидат намалени."
+
+#: src/apprt/gtk/Window.zig:775
+msgid "Reloaded the configuration"
+msgstr "Конфигурацијата е одново вчитана"
+
+#: src/apprt/gtk/Window.zig:1019
+msgid "Ghostty Developers"
+msgstr "Развивачи на Ghostty"
 
 #: src/apprt/gtk/inspector.zig:144
 msgid "Ghostty: Terminal Inspector"

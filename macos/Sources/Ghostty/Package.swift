@@ -74,6 +74,26 @@ extension Ghostty {
 // MARK: Swift Types for C Types
 
 extension Ghostty {
+    class AllocatedString {
+        private let cString: ghostty_string_s
+        
+        init(_ c: ghostty_string_s) {
+            self.cString = c
+        }
+        
+        var string: String {
+            guard let ptr = cString.ptr else { return "" }
+            let data = Data(bytes: ptr, count: Int(cString.len))
+            return String(data: data, encoding: .utf8) ?? ""
+        }
+        
+        deinit {
+            ghostty_string_free(cString)
+        }
+    }
+}
+
+extension Ghostty {
     enum SetFloatWIndow {
         case on
         case off

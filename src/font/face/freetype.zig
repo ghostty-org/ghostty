@@ -59,6 +59,9 @@ pub const Face = struct {
         bold: bool = false,
     } = .{},
 
+    /// The current size this font is set to.
+    size: font.face.DesiredSize,
+
     /// Initialize a new font face with the given source in-memory.
     pub fn initFile(
         lib: Library,
@@ -107,6 +110,7 @@ pub const Face = struct {
             .hb_font = hb_font,
             .ft_mutex = ft_mutex,
             .load_flags = opts.freetype_load_flags,
+            .size = opts.size,
         };
         result.quirks_disable_default_font_features = quirks.disableDefaultFontFeatures(&result);
 
@@ -203,6 +207,7 @@ pub const Face = struct {
     /// for clearing any glyph caches, font atlas data, etc.
     pub fn setSize(self: *Face, opts: font.face.Options) !void {
         try setSize_(self.face, opts.size);
+        self.size = opts.size;
     }
 
     fn setSize_(face: freetype.Face, size: font.face.DesiredSize) !void {
@@ -373,7 +378,6 @@ pub const Face = struct {
                 .offset_y = 0,
                 .atlas_x = 0,
                 .atlas_y = 0,
-                .advance_x = 0,
             };
 
         // For synthetic bold, we embolden the glyph.
@@ -391,7 +395,7 @@ pub const Face = struct {
         const metrics = opts.grid_metrics;
 
         const cell_width: f64 = @floatFromInt(metrics.cell_width);
-        const cell_height: f64 = @floatFromInt(metrics.cell_height);
+        // const cell_height: f64 = @floatFromInt(metrics.cell_height);
 
         const glyph_x: f64 = f26dot6ToF64(glyph.*.metrics.horiBearingX);
         const glyph_y: f64 = f26dot6ToF64(glyph.*.metrics.horiBearingY) - glyph_height;
@@ -403,8 +407,7 @@ pub const Face = struct {
                 .x = glyph_x,
                 .y = glyph_y + @as(f64, @floatFromInt(metrics.cell_baseline)),
             },
-            cell_width,
-            cell_height,
+            metrics,
             opts.constraint_width,
         );
 
@@ -639,20 +642,40 @@ pub const Face = struct {
         // This should be the distance from the left of
         // the cell to the left of the glyph's bounding box.
         const offset_x: i32 = offset_x: {
-            var result: i32 = @intFromFloat(@floor(x));
-
-            // If our cell was resized then we adjust our glyph's
-            // position relative to the new center. This keeps glyphs
-            // centered in the cell whether it was made wider or narrower.
-            if (metrics.original_cell_width) |original_width| {
-                const before: i32 = @intCast(original_width);
-                const after: i32 = @intCast(metrics.cell_width);
-                // Increase the offset by half of the difference
-                // between the widths to keep things centered.
-                result += @divTrunc(after - before, 2);
+            // If the glyph's advance is narrower than the cell width then we
+            // center the advance of the glyph within the cell width. At first
+            // I implemented this to proportionally scale the center position
+            // of the glyph but that messes up glyphs that are meant to align
+            // vertically with others, so this is a compromise.
+            //
+            // This makes it so that when the `adjust-cell-width` config is
+            // used, or when a fallback font with a different advance width
+            // is used, we don't get weirdly aligned glyphs.
+            //
+            // We don't do this if the constraint has a horizontal alignment,
+            // since in that case the position was already calculated with the
+            // new cell width in mind.
+            if (opts.constraint.align_horizontal == .none) {
+                const advance = f26dot6ToFloat(glyph.*.advance.x);
+                const new_advance =
+                    cell_width * @as(f64, @floatFromInt(opts.cell_width orelse 1));
+                // If the original advance is greater than the cell width then
+                // it's possible that this is a ligature or other glyph that is
+                // intended to overflow the cell to one side or the other, and
+                // adjusting the bearings could mess that up, so we just leave
+                // it alone if that's the case.
+                //
+                // We also don't want to do anything if the advance is zero or
+                // less, since this is used for stuff like combining characters.
+                if (advance > new_advance or advance <= 0.0) {
+                    break :offset_x @intFromFloat(@floor(x));
+                }
+                break :offset_x @intFromFloat(
+                    @floor(x + (new_advance - advance) / 2),
+                );
+            } else {
+                break :offset_x @intFromFloat(@floor(x));
             }
-
-            break :offset_x result;
         };
 
         return Glyph{
@@ -662,7 +685,6 @@ pub const Face = struct {
             .offset_y = offset_y,
             .atlas_x = region.x,
             .atlas_y = region.y,
-            .advance_x = f26dot6ToFloat(glyph.*.advance.x),
         };
     }
 
@@ -833,7 +855,7 @@ pub const Face = struct {
             while (c < 127) : (c += 1) {
                 if (face.getCharIndex(c)) |glyph_index| {
                     if (face.loadGlyph(glyph_index, .{
-                        .render = true,
+                        .render = false,
                         .no_svg = true,
                     })) {
                         max = @max(
@@ -871,7 +893,7 @@ pub const Face = struct {
                     defer self.ft_mutex.unlock();
                     if (face.getCharIndex('H')) |glyph_index| {
                         if (face.loadGlyph(glyph_index, .{
-                            .render = true,
+                            .render = false,
                             .no_svg = true,
                         })) {
                             break :cap f26dot6ToF64(face.handle.*.glyph.*.metrics.height);
@@ -884,7 +906,7 @@ pub const Face = struct {
                     defer self.ft_mutex.unlock();
                     if (face.getCharIndex('x')) |glyph_index| {
                         if (face.loadGlyph(glyph_index, .{
-                            .render = true,
+                            .render = false,
                             .no_svg = true,
                         })) {
                             break :ex f26dot6ToF64(face.handle.*.glyph.*.metrics.height);
@@ -893,6 +915,21 @@ pub const Face = struct {
                     break :ex null;
                 },
             };
+        };
+
+        // Measure "水" (CJK water ideograph, U+6C34) for our ic width.
+        const ic_width: ?f64 = ic_width: {
+            self.ft_mutex.lock();
+            defer self.ft_mutex.unlock();
+
+            const glyph = face.getCharIndex('水') orelse break :ic_width null;
+
+            face.loadGlyph(glyph, .{
+                .render = false,
+                .no_svg = true,
+            }) catch break :ic_width null;
+
+            break :ic_width f26dot6ToF64(face.handle.*.glyph.*.advance.x);
         };
 
         return .{
@@ -910,6 +947,7 @@ pub const Face = struct {
 
             .cap_height = cap_height,
             .ex_height = ex_height,
+            .ic_width = ic_width,
         };
     }
 
@@ -1019,6 +1057,7 @@ test "color emoji" {
                 .overline_thickness = 0,
                 .box_thickness = 0,
                 .cursor_height = 0,
+                .icon_height = 0,
             }, .constraint_width = 2, .constraint = .{
                 .size_horizontal = .cover,
                 .size_vertical = .cover,

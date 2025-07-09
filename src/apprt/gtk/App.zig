@@ -29,6 +29,7 @@ const apprt = @import("../../apprt.zig");
 const configpkg = @import("../../config.zig");
 const input = @import("../../input.zig");
 const internal_os = @import("../../os/main.zig");
+const systemd = @import("../../os/systemd.zig");
 const terminal = @import("../../terminal/main.zig");
 const Config = configpkg.Config;
 const CoreApp = @import("../../App.zig");
@@ -496,7 +497,7 @@ pub fn performAction(
         .resize_split => self.resizeSplit(target, value),
         .equalize_splits => self.equalizeSplits(target),
         .goto_split => return self.gotoSplit(target, value),
-        .open_config => try configpkg.edit.open(self.core_app.alloc),
+        .open_config => return self.openConfig(),
         .config_change => self.configChange(target, value.config),
         .reload_config => try self.reloadConfig(target, value),
         .inspector => self.controlInspector(target, value),
@@ -1035,6 +1036,12 @@ pub fn reloadConfig(
     target: apprt.action.Target,
     opts: apprt.action.ReloadConfig,
 ) !void {
+    // Tell systemd that reloading has started.
+    systemd.notify.reloading();
+
+    // When we exit this function tell systemd that reloading has finished.
+    defer systemd.notify.ready();
+
     if (opts.soft) {
         switch (target) {
             .app => try self.core_app.updateConfig(self, &self.config),
@@ -1366,6 +1373,9 @@ pub fn run(self: *App) !void {
     self.syncConfigChanges(null) catch |err| {
         log.warn("error handling configuration changes err={}", .{err});
     };
+
+    // Tell systemd that we are ready.
+    systemd.notify.ready();
 
     while (self.running) {
         _ = glib.MainContext.iteration(self.ctx, 1);
@@ -1759,7 +1769,22 @@ fn initActions(self: *App) void {
     }
 }
 
-pub fn openUrl(
+fn openConfig(self: *App) !bool {
+    // Get the config file path
+    const alloc = self.core_app.alloc;
+    const path = configpkg.edit.openPath(alloc) catch |err| {
+        log.warn("error getting config file path: {}", .{err});
+        return false;
+    };
+    defer alloc.free(path);
+
+    // Open it using openURL. "path" isn't actually a URL but
+    // at the time of writing that works just fine for GTK.
+    self.openUrl(.{ .kind = .text, .url = path });
+    return true;
+}
+
+fn openUrl(
     app: *App,
     value: apprt.action.OpenUrl,
 ) void {

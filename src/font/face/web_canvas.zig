@@ -235,7 +235,6 @@ pub const Face = struct {
             .offset_y = 0,
             .atlas_x = region.x,
             .atlas_y = region.y,
-            .advance_x = 0,
         };
     }
 

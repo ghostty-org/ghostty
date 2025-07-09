@@ -305,6 +305,7 @@ pub const compatibility = std.StaticStringMap(
 ///
 ///   * `cursor` - Break runs under the cursor.
 ///
+/// Available since: 1.2.0
 @"font-shaping-break": FontShapingBreak = .{},
 
 /// What color space to use when performing alpha blending.
@@ -329,6 +330,8 @@ pub const compatibility = std.StaticStringMap(
 /// * `linear-corrected` - Same as `linear`, but with a correction step applied
 ///   for text that makes it look nearly or completely identical to `native`,
 ///   but without any of the darkening artifacts.
+///
+/// Available since: 1.1.0
 @"alpha-blending": AlphaBlending =
     if (builtin.os.tag == .macos)
         .native
@@ -396,6 +399,20 @@ pub const compatibility = std.StaticStringMap(
 /// Thickness in pixels or percentage adjustment of box drawing characters.
 /// See the notes about adjustments in `adjust-cell-width`.
 @"adjust-box-thickness": ?MetricModifier = null,
+/// Height in pixels or percentage adjustment of maximum height for nerd font icons.
+///
+/// Increasing this value will allow nerd font icons to be larger, but won't
+/// necessarily force them to be. Decreasing this value will make nerd font
+/// icons smaller.
+///
+/// The default value for the icon height is 1.2 times the height of capital
+/// letters in your primary font, so something like -16.6% would make icons
+/// roughly the same height as capital letters.
+///
+/// See the notes about adjustments in `adjust-cell-width`.
+///
+/// Available in: 1.2.0
+@"adjust-icon-height": ?MetricModifier = null,
 
 /// The method to use for calculating the cell width of a grapheme cluster.
 /// The default value is `unicode` which uses the Unicode standard to determine
@@ -503,7 +520,6 @@ pub const compatibility = std.StaticStringMap(
 /// be fixed in a future update:
 ///
 ///   - macOS: titlebar tabs style is not updated when switching themes.
-///
 theme: ?Theme = null,
 
 /// Background color for the window.
@@ -527,6 +543,8 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 /// For sufficiently large images, this could lead to a large increase in
 /// memory usage (specifically VRAM usage). A future Ghostty improvement
 /// will resolve this by sharing image textures across terminals.
+///
+/// Available since: 1.2.0
 @"background-image": ?Path = null,
 
 /// Background image opacity.
@@ -546,6 +564,8 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 /// configured `background-opacity` is `0.5` and `background-image-opacity`
 /// is set to `1.5`, then the final opacity of the background image will be
 /// `0.5 * 1.5 = 0.75`.
+///
+/// Available since: 1.2.0
 @"background-image-opacity": f32 = 1.0,
 
 /// Background image position.
@@ -562,6 +582,8 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 ///   * `bottom-right`
 ///
 /// The default value is `center`.
+///
+/// Available since: 1.2.0
 @"background-image-position": BackgroundImagePosition = .center,
 
 /// Background image fit.
@@ -590,6 +612,8 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 ///     Don't scale the background image.
 ///
 /// The default value is `contain`.
+///
+/// Available since: 1.2.0
 @"background-image-fit": BackgroundImageFit = .contain,
 
 /// Whether to repeat the background image or not.
@@ -599,6 +623,8 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 /// fill the terminal area.
 ///
 /// The default value is `false`.
+///
+/// Available since: 1.2.0
 @"background-image-repeat": bool = false,
 
 /// The foreground and background color for selection. If this is not set, then
@@ -624,6 +650,8 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 ///
 /// If this is `false`, then the selection can still be manually
 /// cleared by clicking once or by pressing `escape`.
+///
+/// Available since: 1.2.0
 @"selection-clear-on-typing": bool = true,
 
 /// The minimum contrast ratio between the foreground and background colors.
@@ -661,11 +689,10 @@ palette: Palette = .{},
 /// other colors at runtime:
 ///
 ///   * `cell-foreground` - Match the cell foreground color.
-///     (Available since version 1.2.0)
+///     (Available since: 1.2.0)
 ///
 ///   * `cell-background` - Match the cell background color.
-///     (Available since version 1.2.0)
-///
+///     (Available since: 1.2.0)
 @"cursor-color": ?TerminalColor = null,
 
 /// The opacity level (opposite of transparency) of the cursor. A value of 1
@@ -690,7 +717,6 @@ palette: Palette = .{},
 ///   * `bar`
 ///   * `underline`
 ///   * `block_hollow`
-///
 @"cursor-style": terminal.CursorStyle = .block,
 
 /// Sets the default blinking state of the cursor. This is just the default
@@ -710,7 +736,6 @@ palette: Palette = .{},
 ///   * ` ` (blank)
 ///   * `true`
 ///   * `false`
-///
 @"cursor-style-blink": ?bool = null,
 
 /// The color of the text under the cursor. If this is not set, a default will
@@ -767,7 +792,6 @@ palette: Palette = .{},
 ///   * `false`
 ///   * `always`
 ///   * `never`
-///
 @"mouse-shift-capture": MouseShiftCapture = .false,
 
 /// Multiplier for scrolling distance with the mouse wheel. Any value less
@@ -775,6 +799,8 @@ palette: Palette = .{},
 /// value.
 ///
 /// A value of "3" (default) scrolls 3 lines per tick.
+///
+/// Available since: 1.2.0
 @"mouse-scroll-multiplier": f64 = 3.0,
 
 /// The opacity level (opposite of transparency) of the background. A value of
@@ -843,6 +869,8 @@ palette: Palette = .{},
 
 /// The color of the split divider. If this is not set, a default will be chosen.
 /// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
+///
+/// Available since: 1.1.0
 @"split-divider-color": ?Color = null,
 
 /// The command to run, usually a shell. If this is not an absolute path, it'll
@@ -857,14 +885,14 @@ palette: Palette = .{},
 /// arguments are provided, the command will be executed using `/bin/sh -c`
 /// to offload shell argument expansion.
 ///
-/// To avoid shell expansion altogether, prefix the command with `direct:`,
-/// e.g. `direct:nvim foo`. This will avoid the roundtrip to `/bin/sh` but will
-/// also not support any shell parsing such as arguments with spaces, filepaths
-/// with `~`, globs, etc.
+/// To avoid shell expansion altogether, prefix the command with `direct:`, e.g.
+/// `direct:nvim foo`. This will avoid the roundtrip to `/bin/sh` but will also
+/// not support any shell parsing such as arguments with spaces, filepaths with
+/// `~`, globs, etc. (Available since: 1.2.0)
 ///
-/// You can also explicitly prefix the command with `shell:` to always
-/// wrap the command in a shell. This can be used to ensure our heuristics
-/// to choose the right mode are not used in case they are wrong.
+/// You can also explicitly prefix the command with `shell:` to always wrap the
+/// command in a shell. This can be used to ensure our heuristics to choose the
+/// right mode are not used in case they are wrong. (Available since: 1.2.0)
 ///
 /// This command will be used for all new terminal surfaces, i.e. new windows,
 /// tabs, etc. If you want to run a command only for the first terminal surface
@@ -910,7 +938,6 @@ command: ?Command = null,
 ///     shell integration with a `-e`-executed command, you must either
 ///     name your binary appropriately or source the shell integration script
 ///     manually.
-///
 @"initial-command": ?Command = null,
 
 /// Extra environment variables to pass to commands launched in a terminal
@@ -947,6 +974,8 @@ command: ?Command = null,
 /// These environment variables _will not_ be passed to commands run by Ghostty
 /// for other purposes, like `open` or `xdg-open` used to open URLs in your
 /// browser.
+///
+/// Available since: 1.2.0
 env: RepeatableStringMap = .{},
 
 /// Data to send as input to the command on startup.
@@ -988,6 +1017,8 @@ env: RepeatableStringMap = .{},
 ///
 /// Changing this configuration at runtime will only affect new
 /// terminals.
+///
+/// Available since: 1.2.0
 input: RepeatableReadableIO = .{},
 
 /// If true, keep the terminal open after the command exits. Normally, the
@@ -1056,11 +1087,15 @@ link: RepeatableLink = .{},
 /// previews are never shown. When set to "osc8", link previews are only shown
 /// for hyperlinks created with the OSC 8 sequence (in this case, the link text
 /// can differ from the link destination).
+///
+/// Available since: 1.2.0
 @"link-previews": LinkPreviews = .true,
 
 /// Whether to start the window in a maximized state. This setting applies
 /// to new windows and does not apply to tabs, splits, etc. However, this setting
 /// will apply to all new windows, not just the first one.
+///
+/// Available since: 1.1.0
 maximize: bool = false,
 
 /// Start new windows in fullscreen. This setting applies to new windows and
@@ -1285,6 +1320,8 @@ class: ?[:0]const u8 = null,
 ///     applies to actions that are surface-specific. For actions that
 ///     are already global (e.g. `quit`), this prefix has no effect.
 ///
+///     Available since: 1.0.0
+///
 ///   * `global:` - Make the keybind global. By default, keybinds only work
 ///     within Ghostty and under the right conditions (application focused,
 ///     sometimes terminal focused, etc.). If you want a keybind to work
@@ -1292,6 +1329,9 @@ class: ?[:0]const u8 = null,
 ///     specify this prefix. This prefix implies `all:`. Note: this does not
 ///     work in all environments; see the additional notes below for more
 ///     information.
+///
+///     Available since: 1.0.0 (on macOS)
+///     Available since: 1.2.0 (on GTK)
 ///
 ///   * `unconsumed:` - Do not consume the input. By default, a keybind
 ///     will consume the input, meaning that the associated encoding (if
@@ -1302,6 +1342,8 @@ class: ?[:0]const u8 = null,
 ///     keybinds will always consume the input regardless of this setting.
 ///     Since they are not associated with a specific terminal surface,
 ///     they're never encoded.
+///
+///     Available since: 1.0.0
 ///
 ///   * `performable:` - Only consume the input if the action is able to be
 ///     performed. For example, the `copy_to_clipboard` action will only
@@ -1317,6 +1359,8 @@ class: ?[:0]const u8 = null,
 ///     action to be performed regardless of the state of the terminal.
 ///     Performable keybinds will still work, they just won't appear as
 ///     a shortcut label in the menu.
+///
+///     Available since: 1.1.0
 ///
 /// Keybind triggers are not unique per prefix combination. For example,
 /// `ctrl+a` and `global:ctrl+a` are not two separate keybinds. The keybind
@@ -1427,7 +1471,6 @@ keybind: Keybinds = .{},
 ///   do not look good extended.
 /// * The nearest row contains a perfect fit powerline character. These
 ///   don't look good extended.
-///
 @"window-padding-color": WindowPaddingColor = .background,
 
 /// Synchronize rendering with the screen refresh rate. If true, this will
@@ -1474,6 +1517,8 @@ keybind: Keybinds = .{},
 ///
 ///   * `client` - Prefer client-side decorations.
 ///
+///     Available since: 1.1.0
+///
 ///   * `server` - Prefer server-side decorations. This is only relevant
 ///     on Linux with GTK, either on X11, or Wayland on a compositor that
 ///     supports the `org_kde_kwin_server_decoration` protocol (e.g. KDE Plasma,
@@ -1481,6 +1526,8 @@ keybind: Keybinds = .{},
 ///
 ///     If `server` is set but the environment doesn't support server-side
 ///     decorations, client-side decorations will be used instead.
+///
+///     Available since: 1.1.0
 ///
 /// The default value is `auto`.
 ///
@@ -1504,6 +1551,8 @@ keybind: Keybinds = .{},
 ///
 /// Note: any font available on the system may be used, this font is not
 /// required to be a fixed-width font.
+///
+/// Available since: 1.1.0 (on GTK)
 @"window-title-font-family": ?[:0]const u8 = null,
 
 /// The text that will be displayed in the subtitle of the window. Valid values:
@@ -1513,6 +1562,8 @@ keybind: Keybinds = .{},
 ///      surface.
 ///
 /// This feature is only supported on GTK.
+///
+/// Available since: 1.1.0
 @"window-subtitle": WindowSubtitle = .false,
 
 /// The theme to use for the windows. Valid values:
@@ -1656,6 +1707,8 @@ keybind: Keybinds = .{},
 ///
 ///    Always display the tab bar, even when there's only one tab.
 ///
+///    Available since: 1.2.0
+///
 ///  - `auto` *(default)*
 ///
 ///    Automatically show and hide the tab bar. The tab bar is only
@@ -1740,6 +1793,8 @@ keybind: Keybinds = .{},
 ///
 /// The maximum value is `584y 49w 23h 34m 33s 709ms 551µs 615ns`. Any
 /// value larger than this will be clamped to the maximum value.
+///
+/// Available since 1.0.0
 @"resize-overlay-duration": Duration = .{ .duration = 750 * std.time.ns_per_ms },
 
 /// If true, when there are multiple split panes, the mouse selects the pane
@@ -1785,6 +1840,8 @@ keybind: Keybinds = .{},
 /// Warning: This can expose sensitive information at best and enable
 /// arbitrary code execution at worst (with a maliciously crafted title
 /// and a minor amount of user interaction).
+///
+/// Available since: 1.0.1
 @"title-report": bool = false,
 
 /// The total amount of bytes that can be used for image data (e.g. the Kitty
@@ -1972,6 +2029,8 @@ keybind: Keybinds = .{},
 /// This configuration is only supported on macOS. Linux doesn't
 /// support undo operations at all so this configuration has no
 /// effect.
+///
+/// Available since: 1.2.0
 @"undo-timeout": Duration = .{ .duration = 5 * std.time.ns_per_s },
 
 /// The position of the "quick" terminal window. To learn more about the
@@ -2075,6 +2134,8 @@ keybind: Keybinds = .{},
 ///
 /// Only implemented on macOS.
 /// On Linux the behavior is always equivalent to `move`.
+///
+/// Available since: 1.1.0
 @"quick-terminal-space-behavior": QuickTerminalSpaceBehavior = .move,
 
 /// Determines under which circumstances that the quick terminal should receive
@@ -2103,6 +2164,8 @@ keybind: Keybinds = .{},
 ///
 /// Only has an effect on Linux Wayland.
 /// On macOS the behavior is always equivalent to `on-demand`.
+///
+/// Available since: 1.2.0
 @"quick-terminal-keyboard-interactivity": QuickTerminalKeyboardInteractivity = .@"on-demand",
 
 /// Whether to enable shell integration auto-injection or not. Shell integration
@@ -2139,6 +2202,8 @@ keybind: Keybinds = .{},
 /// its default value is used, so you must explicitly disable features you don't
 /// want. You can also use `true` or `false` to turn all features on or off.
 ///
+/// Example: `cursor`, `no-cursor`, `sudo`, `no-sudo`, `title`, `no-title`
+///
 /// Available features:
 ///
 ///   * `cursor` - Set the cursor to a blinking bar at the prompt.
@@ -2147,7 +2212,26 @@ keybind: Keybinds = .{},
 ///
 ///   * `title` - Set the window title via shell integration.
 ///
-/// Example: `cursor`, `no-cursor`, `sudo`, `no-sudo`, `title`, `no-title`
+///   * `ssh-env` - Enable SSH environment variable compatibility. Automatically
+///     converts TERM from `xterm-ghostty` to `xterm-256color` when connecting to
+///     remote hosts and propagates COLORTERM, TERM_PROGRAM, and TERM_PROGRAM_VERSION.
+///     Whether or not these variables will be accepted by the remote host(s) will
+///     depend on whether or not the variables are allowed in their sshd_config.
+///     (Available since: 1.2.0)
+///
+///   * `ssh-terminfo` - Enable automatic terminfo installation on remote hosts.
+///     Attempts to install Ghostty's terminfo entry using `infocmp` and `tic` when
+///     connecting to hosts that lack it. Requires `infocmp` to be available locally
+///     and `tic` to be available on remote hosts. Once terminfo is installed on a
+///     remote host, it will be automatically "cached" to avoid repeat installations.
+///     If desired, the `+ssh-cache` CLI action can be used to manage the installation
+///     cache manually using various arguments.
+///     (Available since: 1.2.0)
+///
+/// SSH features work independently and can be combined for optimal experience:
+/// when both `ssh-env` and `ssh-terminfo` are enabled, Ghostty will install its
+/// terminfo on remote hosts and use `xterm-ghostty` as TERM, falling back to
+/// `xterm-256color` with environment variables if terminfo installation fails.
 @"shell-integration-features": ShellIntegrationFeatures = .{},
 
 /// Custom entries into the command palette.
@@ -2170,6 +2254,8 @@ keybind: Keybinds = .{},
 /// ```ini
 /// command-palette-entry =
 /// ```
+///
+/// Available since: 1.2.0
 @"command-palette-entry": RepeatableCommand = .{},
 
 /// Sets the reporting format for OSC sequences that request color information.
@@ -2334,6 +2420,8 @@ keybind: Keybinds = .{},
 ///    Only implemented on macOS.
 ///
 /// Example: `audio`, `no-audio`, `system`, `no-system`
+///
+/// Available since: 1.2.0
 @"bell-features": BellFeatures = .{},
 
 /// If `audio` is an enabled bell feature, this is a path to an audio file. If
@@ -2341,12 +2429,16 @@ keybind: Keybinds = .{},
 /// configuration file that it is referenced from, or from the current working
 /// directory if this is used as a CLI flag. The path may be prefixed with `~/`
 /// to reference the user's home directory. (GTK only)
+///
+/// Available since: 1.2.0
 @"bell-audio-path": ?Path = null,
 
 /// If `audio` is an enabled bell feature, this is the volume to play the audio
 /// file at (relative to the system volume). This is a floating point number
 /// ranging from 0.0 (silence) to 1.0 (as loud as possible). The default is 0.5.
 /// (GTK only)
+///
+/// Available since: 1.2.0
 @"bell-audio-volume": f64 = 0.5,
 
 /// Control the in-app notifications that Ghostty shows.
@@ -2372,6 +2464,8 @@ keybind: Keybinds = .{},
 /// enable all notifications.
 ///
 /// This configuration only applies to GTK.
+///
+/// Available since: 1.1.0
 @"app-notifications": AppNotifications = .{},
 
 /// If anything other than false, fullscreen mode on macOS will not use the
@@ -2422,6 +2516,8 @@ keybind: Keybinds = .{},
 /// The default value is `visible`.
 ///
 /// Changing this option at runtime only applies to new windows.
+///
+/// Available since: 1.2.0
 @"macos-window-buttons": MacWindowButtons = .visible,
 
 /// The style of the macOS titlebar. Available values are: "native",
@@ -2544,6 +2640,8 @@ keybind: Keybinds = .{},
 ///
 /// Note: When the macOS application is hidden, keyboard layout changes
 /// will no longer be automatic. This is a limitation of macOS.
+///
+/// Available since: 1.2.0
 @"macos-hidden": MacHidden = .never,
 
 /// If true, Ghostty on macOS will automatically enable the "Secure Input"
@@ -2605,7 +2703,6 @@ keybind: Keybinds = .{},
 ///     This is because the update dialog is managed through a
 ///     separate framework and cannot be customized without significant
 ///     effort.
-///
 @"macos-icon": MacAppIcon = .official,
 
 /// The material to use for the frame of the macOS app icon.
@@ -2619,7 +2716,6 @@ keybind: Keybinds = .{},
 ///
 /// Note: This configuration is required when `macos-icon` is set to
 /// `custom-style`.
-///
 @"macos-icon-frame": MacAppIconFrame = .aluminum,
 
 /// The color of the ghost in the macOS app icon.
@@ -2640,7 +2736,6 @@ keybind: Keybinds = .{},
 ///
 /// Note: This configuration is required when `macos-icon` is set to
 /// `custom-style`.
-///
 @"macos-icon-screen-color": ?ColorList = null,
 
 /// Whether macOS Shortcuts are allowed to control Ghostty.
@@ -2664,6 +2759,7 @@ keybind: Keybinds = .{},
 ///
 /// * `deny` - Deny Shortcuts from controlling Ghostty.
 ///
+/// Available since: 1.2.0
 @"macos-shortcuts": MacShortcuts = .ask,
 
 /// Put every surface (tab, split, window) into a dedicated Linux cgroup.
@@ -2691,7 +2787,6 @@ keybind: Keybinds = .{},
 ///   * `always` - Always use cgroups.
 ///   * `single-instance` - Enable cgroups only for Ghostty instances launched
 ///     as single-instance applications (see gtk-single-instance).
-///
 @"linux-cgroup": LinuxCgroup = if (builtin.os.tag == .linux)
     .@"single-instance"
 else
@@ -2728,6 +2823,8 @@ else
 
 /// Enable or disable GTK's OpenGL debugging logs. The default is `true` for
 /// debug builds, `false` for all others.
+///
+/// Available since: 1.1.0
 @"gtk-opengl-debug": bool = builtin.mode == .Debug,
 
 /// If `true`, the Ghostty GTK application will run in single-instance mode:
@@ -2765,6 +2862,8 @@ else
 
 /// If this is `true`, the titlebar will be hidden when the window is maximized,
 /// and shown when the titlebar is unmaximized. GTK only.
+///
+/// Available since: 1.1.0
 @"gtk-titlebar-hide-when-maximized": bool = false,
 
 /// Determines the appearance of the top and bottom bars tab bar.
@@ -2802,6 +2901,8 @@ else
 /// not exist. If you want to include a file that begins with a literal ?
 /// character, surround the file path in double quotes (").
 /// The file size limit for a single stylesheet is 5MiB.
+///
+/// Available since: 1.1.0
 @"gtk-custom-css": RepeatablePath = .{},
 
 /// If `true` (default), applications running in the terminal can show desktop
@@ -2813,8 +2914,8 @@ else
 /// This can be set to a specific color, using the same format as
 /// `background` or `foreground` (e.g. `#RRGGBB` but other formats
 /// are also supported; see the aforementioned documentation). If a
-/// specific color is set, this color will always be used for all
-/// bold text regardless of the terminal's color scheme.
+/// specific color is set, this color will always be used for the default
+/// bold text color. It will set the rest of the bold colors to `bright`.
 ///
 /// This can also be set to `bright`, which uses the bright color palette
 /// for bold text. For example, if the text is red, then the bold will
@@ -2854,6 +2955,8 @@ term: []const u8 = "xterm-ghostty",
 /// this isn't intended to be modified by users, the documentation is
 /// lighter than the other configurations and users are expected to
 /// refer to the code for details.
+///
+/// Available since: 1.2.0
 @"launched-from": ?LaunchSource = null,
 
 /// Configures the low-level API to use for async IO, eventing, etc.
@@ -2882,6 +2985,8 @@ term: []const u8 = "xterm-ghostty",
 ///
 /// This is only supported on Linux, since this is the only platform
 /// where we have multiple options. On macOS, we always use `kqueue`.
+///
+/// Available since: 1.2.0
 @"async-backend": AsyncBackend = .auto,
 
 /// Control the auto-update functionality of Ghostty. This is only supported
@@ -6552,6 +6657,8 @@ pub const ShellIntegrationFeatures = packed struct {
     cursor: bool = true,
     sudo: bool = false,
     title: bool = true,
+    @"ssh-env": bool = false,
+    @"ssh-terminfo": bool = false,
 };
 
 pub const RepeatableCommand = struct {

@@ -154,15 +154,12 @@ pub const Style = struct {
 
             .palette => |idx| palette: {
                 if (self.flags.bold) {
-                    if (opts.bold) |bold| switch (bold) {
-                        .color => |v| break :palette v.toTerminalRGB(),
-                        .bright => {
-                            const bright_offset = @intFromEnum(color.Name.bright_black);
-                            if (idx < bright_offset) {
-                                break :palette opts.palette[idx + bright_offset];
-                            }
-                        },
-                    };
+                    if (opts.bold) |_| {
+                        const bright_offset = @intFromEnum(color.Name.bright_black);
+                        if (idx < bright_offset) {
+                            break :palette opts.palette[idx + bright_offset];
+                        }
+                    }
                 }
 
                 break :palette opts.palette[idx];

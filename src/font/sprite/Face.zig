@@ -195,7 +195,6 @@ pub fn renderGlyph(
         .offset_y = 0,
         .atlas_x = 0,
         .atlas_y = 0,
-        .advance_x = 0,
     };
 
     const metrics = self.metrics;
@@ -227,8 +226,6 @@ pub fn renderGlyph(
         .offset_y = @as(i32, @intCast(region.height +| canvas.clip_bottom)) - @as(i32, @intCast(padding_y)),
         .atlas_x = region.x,
         .atlas_y = region.y,
-        .advance_x = @floatFromInt(width),
-        .sprite = true,
     };
 }
 

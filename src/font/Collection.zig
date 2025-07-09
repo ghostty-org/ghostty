@@ -69,10 +69,14 @@ pub fn deinit(self: *Collection, alloc: Allocator) void {
     if (self.load_options) |*v| v.deinit(alloc);
 }
 
-pub const AddError = Allocator.Error || error{
-    CollectionFull,
-    DeferredLoadingUnavailable,
-};
+pub const AddError =
+    Allocator.Error ||
+    AdjustSizeError ||
+    error{
+        CollectionFull,
+        DeferredLoadingUnavailable,
+        SetSizeFailed,
+    };
 
 /// Add a face to the collection for the given style. This face will be added
 /// next in priority if others exist already, i.e. it'll be the _last_ to be
@@ -81,10 +85,9 @@ pub const AddError = Allocator.Error || error{
 /// If no error is encountered then the collection takes ownership of the face,
 /// in which case face will be deallocated when the collection is deallocated.
 ///
-/// If a loaded face is added to the collection, it should be the same
-/// size as all the other faces in the collection. This function will not
-/// verify or modify the size until the size of the entire collection is
-/// changed.
+/// If a loaded face is added to the collection, its size will be changed to
+/// match the size specified in load_options, adjusted for harmonization with
+/// the primary face.
 pub fn add(
     self: *Collection,
     alloc: Allocator,
@@ -103,7 +106,105 @@ pub fn add(
         return error.DeferredLoadingUnavailable;
 
     try list.append(alloc, face);
+
+    var owned: *Entry = list.at(idx);
+
+    // If the face is already loaded, apply font size adjustment
+    // now, otherwise we'll apply it whenever we do load it.
+    if (owned.getLoaded()) |loaded| {
+        if (try self.adjustedSize(loaded)) |opts| {
+            loaded.setSize(opts.faceOptions()) catch return error.SetSizeFailed;
+        }
+    }
+
     return .{ .style = style, .idx = @intCast(idx) };
+}
+
+pub const AdjustSizeError = font.Face.GetMetricsError;
+
+// Calculate a size for the provided face that will match it with the primary
+// font, metrically, to improve consistency with fallback fonts. Right now we
+// match the font based on the ex height, or the ideograph width if the font
+// has ideographs in it.
+//
+// This returns null if load options is null or if self.load_options is null.
+//
+// This is very much like the `font-size-adjust` CSS property in how it works.
+// ref: https://developer.mozilla.org/en-US/docs/Web/CSS/font-size-adjust
+//
+// TODO: In the future, provide config options that allow the user to select
+//       which metric should be matched for fallback fonts, instead of hard
+//       coding it as ex height.
+pub fn adjustedSize(
+    self: *Collection,
+    face: *Face,
+) AdjustSizeError!?LoadOptions {
+    const load_options = self.load_options orelse return null;
+
+    // We silently do nothing if we can't get the primary
+    // face, because this might be the primary face itself.
+    const primary_face = self.getFace(.{ .idx = 0 }) catch return null;
+
+    // We do nothing if the primary face and this face are the same.
+    if (@intFromPtr(primary_face) == @intFromPtr(face)) return null;
+
+    const primary_metrics = try primary_face.getMetrics();
+    const face_metrics = try face.getMetrics();
+
+    // We use the ex height to match our font sizes, so that the height of
+    // lower-case letters matches between all fonts in the fallback chain.
+    //
+    // We estimate ex height as 0.75 * cap height if it's not specifically
+    // provided, and we estimate cap height as 0.75 * ascent in the same case.
+    //
+    // If the fallback font has an ic_width we prefer that, for normalization
+    // of CJK font sizes when mixed with latin fonts.
+    //
+    // We estimate the ic_width as twice the cell width if it isn't provided.
+    var primary_cap = primary_metrics.cap_height orelse 0.0;
+    if (primary_cap <= 0) primary_cap = primary_metrics.ascent * 0.75;
+
+    var primary_ex = primary_metrics.ex_height orelse 0.0;
+    if (primary_ex <= 0) primary_ex = primary_cap * 0.75;
+
+    var primary_ic = primary_metrics.ic_width orelse 0.0;
+    if (primary_ic <= 0) primary_ic = primary_metrics.cell_width * 2;
+
+    var face_cap = face_metrics.cap_height orelse 0.0;
+    if (face_cap <= 0) face_cap = face_metrics.ascent * 0.75;
+
+    var face_ex = face_metrics.ex_height orelse 0.0;
+    if (face_ex <= 0) face_ex = face_cap * 0.75;
+
+    var face_ic = face_metrics.ic_width orelse 0.0;
+    if (face_ic <= 0) face_ic = face_metrics.cell_width * 2;
+
+    // If the line height of the scaled font would be larger than
+    // the line height of the primary font, we don't want that, so
+    // we take the minimum between matching the ic/ex and the line
+    // height.
+    //
+    // NOTE: We actually allow the line height to be up to 1.2
+    //       times the primary line height because empirically
+    //       this is usually fine and is better for CJK.
+    //
+    // TODO: We should probably provide a config option that lets
+    //       the user pick what metric to use for size adjustment.
+    const scale = @min(
+        1.2 * primary_metrics.lineHeight() / face_metrics.lineHeight(),
+        if (face_metrics.ic_width != null)
+            primary_ic / face_ic
+        else
+            primary_ex / face_ex,
+    );
+
+    // Make a copy of our load options, set the size to the size of
+    // the provided face, and then multiply that by our scaling factor.
+    var opts = load_options;
+    opts.size = face.size;
+    opts.size.points *= @as(f32, @floatCast(scale));
+
+    return opts;
 }
 
 /// Return the Face represented by a given Index. The returned pointer
@@ -129,21 +230,38 @@ pub fn getFace(self: *Collection, index: Index) !*Face {
         break :item item;
     };
 
-    return try self.getFaceFromEntry(item);
+    const face = try self.getFaceFromEntry(
+        item,
+        // We only want to adjust the size if this isn't the primary face.
+        index.style != .regular or index.idx > 0,
+    );
+
+    return face;
 }
 
 /// Get the face from an entry.
 ///
 /// This entry must not be an alias.
-fn getFaceFromEntry(self: *Collection, entry: *Entry) !*Face {
+fn getFaceFromEntry(
+    self: *Collection,
+    entry: *Entry,
+    /// Whether to adjust the font size to match the primary face after loading.
+    adjust: bool,
+) !*Face {
     assert(entry.* != .alias);
 
     return switch (entry.*) {
         inline .deferred, .fallback_deferred => |*d, tag| deferred: {
             const opts = self.load_options orelse
                 return error.DeferredLoadingUnavailable;
-            const face = try d.load(opts.library, opts.faceOptions());
+            var face = try d.load(opts.library, opts.faceOptions());
             d.deinit();
+
+            // If we need to adjust the size, do so.
+            if (adjust) if (try self.adjustedSize(&face)) |new_opts| {
+                try face.setSize(new_opts.faceOptions());
+            };
+
             entry.* = switch (tag) {
                 .deferred => .{ .loaded = face },
                 .fallback_deferred => .{ .fallback_loaded = face },
@@ -247,7 +365,7 @@ pub fn completeStyles(
         while (it.next()) |entry| {
             // Load our face. If we fail to load it, we just skip it and
             // continue on to try the next one.
-            const face = self.getFaceFromEntry(entry) catch |err| {
+            const face = self.getFaceFromEntry(entry, false) catch |err| {
                 log.warn("error loading regular entry={d} err={}", .{
                     it.index - 1,
                     err,
@@ -371,7 +489,7 @@ fn syntheticBold(self: *Collection, entry: *Entry) !Face {
     const opts = self.load_options orelse return error.DeferredLoadingUnavailable;
 
     // Try to bold it.
-    const regular = try self.getFaceFromEntry(entry);
+    const regular = try self.getFaceFromEntry(entry, false);
     const face = try regular.syntheticBold(opts.faceOptions());
 
     var buf: [256]u8 = undefined;
@@ -391,7 +509,7 @@ fn syntheticItalic(self: *Collection, entry: *Entry) !Face {
     const opts = self.load_options orelse return error.DeferredLoadingUnavailable;
 
     // Try to italicize it.
-    const regular = try self.getFaceFromEntry(entry);
+    const regular = try self.getFaceFromEntry(entry, false);
     const face = try regular.syntheticItalic(opts.faceOptions());
 
     var buf: [256]u8 = undefined;
@@ -420,9 +538,12 @@ pub fn setSize(self: *Collection, size: DesiredSize) !void {
     while (it.next()) |array| {
         var entry_it = array.value.iterator(0);
         while (entry_it.next()) |entry| switch (entry.*) {
-            .loaded, .fallback_loaded => |*f| try f.setSize(
-                opts.faceOptions(),
-            ),
+            .loaded,
+            .fallback_loaded,
+            => |*f| {
+                const new_opts = try self.adjustedSize(f) orelse opts.*;
+                try f.setSize(new_opts.faceOptions());
+            },
 
             // Deferred aren't loaded so we don't need to set their size.
             // The size for when they're loaded is set since `opts` changed.
@@ -547,6 +668,16 @@ pub const Entry = union(enum) {
             // be deallocated by the owner.
             .alias => {},
         }
+    }
+
+    /// If this face is loaded, or is an alias to a loaded face,
+    /// then this returns the `Face`, otherwise returns null.
+    pub fn getLoaded(self: *Entry) ?*Face {
+        return switch (self.*) {
+            .deferred, .fallback_deferred => null,
+            .loaded, .fallback_loaded => |*face| face,
+            .alias => |v| v.getLoaded(),
+        };
     }
 
     /// True if the entry is deferred.
@@ -906,12 +1037,13 @@ test "metrics" {
 
     var c = init();
     defer c.deinit(alloc);
-    c.load_options = .{ .library = lib };
+    const size: DesiredSize = .{ .points = 12, .xdpi = 96, .ydpi = 96 };
+    c.load_options = .{ .library = lib, .size = size };
 
     _ = try c.add(alloc, .regular, .{ .loaded = try .init(
         lib,
         testFont,
-        .{ .size = .{ .points = 12, .xdpi = 96, .ydpi = 96 } },
+        .{ .size = size },
     ) });
 
     try c.updateMetrics();
@@ -940,6 +1072,7 @@ test "metrics" {
         .overline_thickness = 1,
         .box_thickness = 1,
         .cursor_height = 17,
+        .icon_height = 11,
     }, c.metrics);
 
     // Resize should change metrics
@@ -956,5 +1089,65 @@ test "metrics" {
         .overline_thickness = 2,
         .box_thickness = 2,
         .cursor_height = 34,
+        .icon_height = 23,
     }, c.metrics);
+}
+
+// TODO: Also test CJK fallback sizing, we don't currently have a CJK test font.
+test "adjusted sizes" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const testFont = font.embedded.inconsolata;
+    const fallback = font.embedded.monaspace_neon;
+
+    var lib = try Library.init(alloc);
+    defer lib.deinit();
+
+    var c = init();
+    defer c.deinit(alloc);
+    const size: DesiredSize = .{ .points = 12, .xdpi = 96, .ydpi = 96 };
+    c.load_options = .{ .library = lib, .size = size };
+
+    // Add our primary face.
+    _ = try c.add(alloc, .regular, .{ .loaded = try .init(
+        lib,
+        testFont,
+        .{ .size = size },
+    ) });
+
+    try c.updateMetrics();
+
+    // Add the fallback face.
+    const fallback_idx = try c.add(alloc, .regular, .{ .loaded = try .init(
+        lib,
+        fallback,
+        .{ .size = size },
+    ) });
+
+    // The ex heights should match.
+    {
+        const primary_metrics = try (try c.getFace(.{ .idx = 0 })).getMetrics();
+        const fallback_metrics = try (try c.getFace(fallback_idx)).getMetrics();
+
+        try std.testing.expectApproxEqAbs(
+            primary_metrics.ex_height.?,
+            fallback_metrics.ex_height.?,
+            // We accept anything within half a pixel.
+            0.5,
+        );
+    }
+
+    // Resize should keep that relationship.
+    try c.setSize(.{ .points = 37, .xdpi = 96, .ydpi = 96 });
+    {
+        const primary_metrics = try (try c.getFace(.{ .idx = 0 })).getMetrics();
+        const fallback_metrics = try (try c.getFace(fallback_idx)).getMetrics();
+
+        try std.testing.expectApproxEqAbs(
+            primary_metrics.ex_height.?,
+            fallback_metrics.ex_height.?,
+            // We accept anything within half a pixel.
+            0.5,
+        );
+    }
 }

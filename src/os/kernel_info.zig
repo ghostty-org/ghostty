@@ -17,7 +17,7 @@ test "read /proc/sys/kernel/osrelease" {
     if (comptime builtin.os.tag != .linux) return null;
     const allocator = std.testing.allocator;
 
-    const kernel_info = try getKernelInfo(allocator);
+    const kernel_info = getKernelInfo(allocator).?;
     defer allocator.free(kernel_info);
 
     // Since we can't hardcode the info in tests, just check

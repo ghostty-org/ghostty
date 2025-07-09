@@ -2333,6 +2333,7 @@ pub fn defaultTermioEnv(self: *Surface) !std.process.EnvMap {
     env.remove("DBUS_STARTER_BUS_TYPE");
     env.remove("INVOCATION_ID");
     env.remove("JOURNAL_STREAM");
+    env.remove("NOTIFY_SOCKET");
 
     // Unset environment varies set by snaps if we're running in a snap.
     // This allows Ghostty to further launch additional snaps.

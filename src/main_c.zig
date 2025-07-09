@@ -19,7 +19,12 @@ const internal_os = @import("os/main.zig");
 
 // Some comptime assertions that our C API depends on.
 comptime {
-    assert(apprt.runtime == apprt.embedded);
+    // We allow tests to reference this file because we unit test
+    // some of the C API. At runtime though we should never get these
+    // functions unless we are building libghostty.
+    if (!builtin.is_test) {
+        assert(apprt.runtime == apprt.embedded);
+    }
 }
 
 /// Global options so we can log. This is identical to main.
@@ -29,7 +34,9 @@ comptime {
     // These structs need to be referenced so the `export` functions
     // are truly exported by the C API lib.
     _ = @import("config.zig").CAPI;
-    _ = apprt.runtime.CAPI;
+    if (@hasDecl(apprt.runtime, "CAPI")) {
+        _ = apprt.runtime.CAPI;
+    }
 }
 
 /// ghostty_info_s
@@ -44,6 +51,24 @@ const Info = extern struct {
         release_fast,
         release_small,
     };
+};
+
+/// ghostty_string_s
+pub const String = extern struct {
+    ptr: ?[*]const u8,
+    len: usize,
+
+    pub const empty: String = .{
+        .ptr = null,
+        .len = 0,
+    };
+
+    pub fn fromSlice(slice: []const u8) String {
+        return .{
+            .ptr = slice.ptr,
+            .len = slice.len,
+        };
+    }
 };
 
 /// Initialize ghostty global state.
@@ -94,4 +119,9 @@ export fn ghostty_info() Info {
 /// This should only be used for singular strings maintained by Ghostty.
 export fn ghostty_translate(msgid: [*:0]const u8) [*:0]const u8 {
     return internal_os.i18n._(msgid);
+}
+
+/// Free a string allocated by Ghostty.
+export fn ghostty_string_free(str: String) void {
+    state.alloc.free(str.ptr.?[0..str.len]);
 }

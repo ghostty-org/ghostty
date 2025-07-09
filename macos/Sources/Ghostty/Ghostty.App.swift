@@ -114,9 +114,21 @@ extension Ghostty {
             ghostty_app_tick(app)
         }
 
-        func openConfig() {
-            guard let app = self.app else { return }
-            ghostty_app_open_config(app)
+        static func openConfig() {
+            let str = Ghostty.AllocatedString(ghostty_config_open_path()).string
+            guard !str.isEmpty else { return }
+            #if os(macOS)
+            let fileURL = URL(fileURLWithPath: str).absoluteString
+            var action = ghostty_action_open_url_s()
+            action.kind = GHOSTTY_ACTION_OPEN_URL_KIND_TEXT
+            fileURL.withCString { cStr in
+                action.url = cStr
+                action.len = UInt(fileURL.count)
+                _ = openURL(action)
+            }
+            #else
+            fatalError("Unsupported platform for opening config file")
+            #endif
         }
 
         /// Reload the configuration.
@@ -488,7 +500,7 @@ extension Ghostty {
                 pwdChanged(app, target: target, v: action.action.pwd)
 
             case GHOSTTY_ACTION_OPEN_CONFIG:
-                ghostty_config_open()
+                openConfig()
 
             case GHOSTTY_ACTION_FLOAT_WINDOW:
                 toggleFloatWindow(app, target: target, mode: action.action.float_window)
@@ -546,6 +558,9 @@ extension Ghostty {
 
             case GHOSTTY_ACTION_CHECK_FOR_UPDATES:
                 checkForUpdates(app)
+                
+            case GHOSTTY_ACTION_OPEN_URL:
+                return openURL(action.action.open_url)
 
             case GHOSTTY_ACTION_UNDO:
                 return undo(app, target: target)
@@ -597,6 +612,34 @@ extension Ghostty {
             if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
                 appDelegate.checkForUpdates(nil)
             }
+        }
+        
+        private static func openURL(
+            _ v: ghostty_action_open_url_s
+        ) -> Bool {
+            let action = Ghostty.Action.OpenURL(c: v)
+            
+            // Convert the URL string to a URL object
+            guard let url = URL(string: action.url) else {
+                Ghostty.logger.warning("invalid URL for open URL action: \(action.url)")
+                return false
+            }
+            
+            switch action.kind {
+            case .text:
+                // Open with the default text editor
+                if let textEditor = NSWorkspace.shared.defaultTextEditor {
+                    NSWorkspace.shared.open([url], withApplicationAt: textEditor, configuration: NSWorkspace.OpenConfiguration())
+                    return true
+                }
+                
+            case .unknown:
+                break
+            }
+            
+            // Open with the default application for the URL
+            NSWorkspace.shared.open(url)
+            return true
         }
 
         private static func undo(_ app: ghostty_app_t, target: ghostty_target_s) -> Bool {

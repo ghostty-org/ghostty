@@ -40,4 +40,34 @@ extension Ghostty.Action {
             self.amount = c.amount
         }
     }
+    
+    struct OpenURL {
+        enum Kind {
+            case unknown
+            case text
+            
+            init(_ c: ghostty_action_open_url_kind_e) {
+                switch c {
+                case GHOSTTY_ACTION_OPEN_URL_KIND_TEXT:
+                    self = .text
+                default:
+                    self = .unknown
+                }
+            }
+        }
+        
+        let kind: Kind
+        let url: String
+        
+        init(c: ghostty_action_open_url_s) {
+            self.kind = Kind(c.kind)
+            
+            if let urlCString = c.url {
+                let data = Data(bytes: urlCString, count: Int(c.len))
+                self.url = String(data: data, encoding: .utf8) ?? ""
+            } else {
+                self.url = ""
+            }
+        }
+    }
 }

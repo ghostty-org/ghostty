@@ -177,10 +177,28 @@ pub fn setupFeatures(
     };
     var buffer = try std.BoundedArray(u8, capacity).init(0);
 
-    inline for (fields) |field| {
-        if (@field(features, field.name)) {
+    // Sort the fields so that the output is deterministic. This is
+    // done at comptime so it has no runtime cost
+    const fields_sorted: [fields.len][]const u8 = comptime fields: {
+        var fields_sorted: [fields.len][]const u8 = undefined;
+        for (fields, 0..) |field, i| fields_sorted[i] = field.name;
+        std.mem.sortUnstable(
+            []const u8,
+            &fields_sorted,
+            {},
+            (struct {
+                fn lessThan(_: void, lhs: []const u8, rhs: []const u8) bool {
+                    return std.ascii.orderIgnoreCase(lhs, rhs) == .lt;
+                }
+            }).lessThan,
+        );
+        break :fields fields_sorted;
+    };
+
+    inline for (fields_sorted) |name| {
+        if (@field(features, name)) {
             if (buffer.len > 0) try buffer.append(',');
-            try buffer.appendSlice(field.name);
+            try buffer.appendSlice(name);
         }
     }
 
@@ -201,8 +219,8 @@ test "setup features" {
         var env = EnvMap.init(alloc);
         defer env.deinit();
 
-        try setupFeatures(&env, .{ .cursor = true, .sudo = true, .title = true });
-        try testing.expectEqualStrings("cursor,sudo,title", env.get("GHOSTTY_SHELL_FEATURES").?);
+        try setupFeatures(&env, .{ .cursor = true, .sudo = true, .title = true, .@"ssh-env" = true, .@"ssh-terminfo" = true });
+        try testing.expectEqualStrings("cursor,ssh-env,ssh-terminfo,sudo,title", env.get("GHOSTTY_SHELL_FEATURES").?);
     }
 
     // Test: all features disabled
@@ -210,7 +228,7 @@ test "setup features" {
         var env = EnvMap.init(alloc);
         defer env.deinit();
 
-        try setupFeatures(&env, .{ .cursor = false, .sudo = false, .title = false });
+        try setupFeatures(&env, .{ .cursor = false, .sudo = false, .title = false, .@"ssh-env" = false, .@"ssh-terminfo" = false });
         try testing.expect(env.get("GHOSTTY_SHELL_FEATURES") == null);
     }
 
@@ -219,8 +237,8 @@ test "setup features" {
         var env = EnvMap.init(alloc);
         defer env.deinit();
 
-        try setupFeatures(&env, .{ .cursor = false, .sudo = true, .title = false });
-        try testing.expectEqualStrings("sudo", env.get("GHOSTTY_SHELL_FEATURES").?);
+        try setupFeatures(&env, .{ .cursor = false, .sudo = true, .title = false, .@"ssh-env" = true, .@"ssh-terminfo" = false });
+        try testing.expectEqualStrings("ssh-env,sudo", env.get("GHOSTTY_SHELL_FEATURES").?);
     }
 }
 

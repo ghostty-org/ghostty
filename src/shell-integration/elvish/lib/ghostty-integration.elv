@@ -98,6 +98,95 @@
     (external sudo) $@args
   }
 
+  # SSH Integration
+  use str
+
+  if (str:contains $E:GHOSTTY_SHELL_FEATURES ssh-) {
+      fn ssh {|@args|
+          var ssh-term = "xterm-256color"
+          var ssh-opts = []
+
+          # Configure environment variables for remote session
+          if (str:contains $E:GHOSTTY_SHELL_FEATURES ssh-env) {
+              set ssh-opts = (conj $ssh-opts 
+                  -o "SetEnv COLORTERM=truecolor"
+                  -o "SendEnv TERM_PROGRAM TERM_PROGRAM_VERSION"
+              )
+          }
+
+          # Install terminfo on remote host if needed
+          if (str:contains $E:GHOSTTY_SHELL_FEATURES ssh-terminfo) {
+              var ssh-user = ""
+              var ssh-hostname = ""
+
+              # Parse ssh config
+              var ssh-config = (external ssh -G $@args 2>/dev/null | slurp)
+              for line (str:split "\n" $ssh-config) {
+                  var parts = (str:split " " $line)
+                  if (> (count $parts) 1) {
+                      var ssh-key = $parts[0]
+                      var ssh-value = $parts[1]
+                      if (eq $ssh-key user) {
+                          set ssh-user = $ssh-value
+                      } elif (eq $ssh-key hostname) {
+                          set ssh-hostname = $ssh-value
+                      }
+                      if (and (not-eq $ssh-user "") (not-eq $ssh-hostname "")) {
+                          break
+                      }
+                  }
+              }
+
+              if (not-eq $ssh-hostname "") {
+                  var ssh-target = $ssh-user"@"$ssh-hostname
+
+                  # Check if terminfo is already cached
+                  if (and (has-external ghostty) (bool ?(external ghostty +ssh-cache --host=$ssh-target >/dev/null 2>&1))) {
+                      set ssh-term = "xterm-ghostty"
+                  } elif (has-external infocmp) {
+                      var ssh-terminfo = (external infocmp -0 -x xterm-ghostty 2>/dev/null | slurp)
+
+                      if (not-eq $ssh-terminfo "") {
+                          echo "Setting up xterm-ghostty terminfo on "$ssh-hostname"..." >&2
+
+                          var ssh-cpath-dir = ""
+                          try {
+                              set ssh-cpath-dir = (external mktemp -d "/tmp/ghostty-ssh-"$ssh-user".XXXXXX" 2>/dev/null | slurp)
+                          } catch {
+                              set ssh-cpath-dir = "/tmp/ghostty-ssh-"$ssh-user"."(randint 10000 99999)
+                          }
+                          var ssh-cpath = $ssh-cpath-dir"/socket"
+
+                          if (bool ?(echo $ssh-terminfo | external ssh $@ssh-opts -o ControlMaster=yes -o ControlPath=$ssh-cpath -o ControlPersist=60s $@args '
+                                  infocmp xterm-ghostty >/dev/null 2>&1 && exit 0
+                                  command -v tic >/dev/null 2>&1 || exit 1
+                                  mkdir -p ~/.terminfo 2>/dev/null && tic -x - 2>/dev/null && exit 0
+                                  exit 1
+                              ' 2>/dev/null)) {
+                              set ssh-term = "xterm-ghostty"
+                              set ssh-opts = (conj $ssh-opts -o ControlPath=$ssh-cpath)
+
+                              # Cache successful installation
+                              if (has-external ghostty) {
+                                  external ghostty +ssh-cache --add=$ssh-target >/dev/null 2>&1
+                              }
+                          } else {
+                              echo "Warning: Failed to install terminfo." >&2
+                          }
+                      } else {
+                          echo "Warning: Could not generate terminfo data." >&2
+                      }
+                  } else {
+                      echo "Warning: ghostty command not available for cache management." >&2
+                  }
+              }
+          }
+
+          # Execute SSH with TERM environment variable
+          external E:TERM=$ssh-term ssh $@ssh-opts $@args
+      }
+  }
+
   defer {
     mark-prompt-start
     report-pwd

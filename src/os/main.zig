@@ -2,6 +2,8 @@
 //! system. These aren't restricted to syscalls or low-level operations, but
 //! also OS-specific features and conventions.
 
+const builtin = @import("builtin");
+
 const dbus = @import("dbus.zig");
 const desktop = @import("desktop.zig");
 const env = @import("env.zig");
@@ -14,7 +16,7 @@ const openpkg = @import("open.zig");
 const pipepkg = @import("pipe.zig");
 const resourcesdir = @import("resourcesdir.zig");
 const systemd = @import("systemd.zig");
-const kernelInfo = @import("kernel_info.zig");
+const kernel_info = @import("kernel_info.zig");
 
 // Namespaces
 pub const args = @import("args.zig");
@@ -59,8 +61,12 @@ pub const pipe = pipepkg.pipe;
 pub const resourcesDir = resourcesdir.resourcesDir;
 pub const ResourcesDir = resourcesdir.ResourcesDir;
 pub const ShellEscapeWriter = shell.ShellEscapeWriter;
-pub const getKernelInfo = kernelInfo.getKernelInfo;
+pub const getKernelInfo = kernel_info.getKernelInfo;
 
 test {
     _ = i18n;
+
+    if (comptime builtin.os.tag == .linux) {
+        _ = kernel_info;
+    }
 }

@@ -7,11 +7,16 @@ attributes and scaling rules.
 This does include an `eval` call! This is spooky, but we trust the nerd fonts code to
 be safe and not malicious or anything.
 
-This script requires Python 3.12 or greater.
+This script requires Python 3.12 or greater, requires that the `fontTools`
+python module is installed, and requires that the path to a copy of the
+SymbolsNerdFontMono font is passed as the first argument to the script.
 """
 
 import ast
+import sys
 import math
+from fontTools.ttLib import TTFont
+from fontTools.pens.boundsPen import BoundsPen
 from collections import defaultdict
 from contextlib import suppress
 from pathlib import Path
@@ -19,7 +24,18 @@ from types import SimpleNamespace
 from typing import Literal, TypedDict, cast
 
 type PatchSetAttributes = dict[Literal["default"] | int, PatchSetAttributeEntry]
-type AttributeHash = tuple[str | None, str | None, str, float, float, float]
+type AttributeHash = tuple[
+    str | None,
+    str | None,
+    str,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+]
 type ResolvedSymbol = PatchSetAttributes | PatchSetScaleRules | int | None
 
 
@@ -33,6 +49,11 @@ class PatchSetAttributeEntry(TypedDict):
     valign: str
     stretch: str
     params: dict[str, float | bool]
+
+    group_x: float
+    group_y: float
+    group_width: float
+    group_height: float
 
 
 class PatchSet(TypedDict):
@@ -137,6 +158,10 @@ def attr_key(attr: PatchSetAttributeEntry) -> AttributeHash:
         float(params.get("overlap", 0.0)),
         float(params.get("xy-ratio", -1.0)),
         float(params.get("ypadding", 0.0)),
+        float(attr.get("group_x", 0.0)),
+        float(attr.get("group_y", 0.0)),
+        float(attr.get("group_width", 1.0)),
+        float(attr.get("group_height", 1.0)),
     )
 
 
@@ -162,6 +187,11 @@ def emit_zig_entry_multikey(codepoints: list[int], attr: PatchSetAttributeEntry)
     stretch = attr.get("stretch", "")
     params = attr.get("params", {})
 
+    group_x = attr.get("group_x", 0.0)
+    group_y = attr.get("group_y", 0.0)
+    group_width = attr.get("group_width", 1.0)
+    group_height = attr.get("group_height", 1.0)
+
     overlap = params.get("overlap", 0.0)
     xy_ratio = params.get("xy-ratio", -1.0)
     y_padding = params.get("ypadding", 0.0)
@@ -180,15 +210,17 @@ def emit_zig_entry_multikey(codepoints: list[int], attr: PatchSetAttributeEntry)
     if "xy" in stretch:
         s += "            .size_horizontal = .stretch,\n"
         s += "            .size_vertical = .stretch,\n"
-    elif "!" in stretch:
+    elif "!" in stretch or "^" in stretch:
         s += "            .size_horizontal = .cover,\n"
         s += "            .size_vertical = .fit,\n"
-    elif "^" in stretch:
-        s += "            .size_horizontal = .cover,\n"
-        s += "            .size_vertical = .cover,\n"
     else:
         s += "            .size_horizontal = .fit,\n"
         s += "            .size_vertical = .fit,\n"
+
+    # `^` indicates that scaling should fill
+    # the whole cell, not just the icon height.
+    if "^" not in stretch:
+        s += "            .height = .icon,\n"
 
     # There are two cases where we want to limit the constraint width to 1:
     # - If there's a `1` in the stretch mode string.
@@ -200,6 +232,15 @@ def emit_zig_entry_multikey(codepoints: list[int], attr: PatchSetAttributeEntry)
         s += f"            .align_horizontal = {align},\n"
     if valign is not None:
         s += f"            .align_vertical = {valign},\n"
+
+    if group_width != 1.0:
+        s += f"            .group_width = {group_width:.16f},\n"
+    if group_height != 1.0:
+        s += f"            .group_height = {group_height:.16f},\n"
+    if group_x != 0.0:
+        s += f"            .group_x = {group_x:.16f},\n"
+    if group_y != 0.0:
+        s += f"            .group_y = {group_y:.16f},\n"
 
     # `overlap` and `ypadding` are mutually exclusive,
     # this is asserted in the nerd fonts patcher itself.
@@ -223,15 +264,52 @@ def emit_zig_entry_multikey(codepoints: list[int], attr: PatchSetAttributeEntry)
     return s
 
 
-def generate_zig_switch_arms(patch_sets: list[PatchSet]) -> str:
+def generate_zig_switch_arms(
+    patch_sets: list[PatchSet],
+    nerd_font: TTFont,
+) -> str:
+    cmap = nerd_font.getBestCmap()
+    glyphs = nerd_font.getGlyphSet()
+
     entries: dict[int, PatchSetAttributeEntry] = {}
     for entry in patch_sets:
         attributes = entry["Attributes"]
 
         for cp in range(entry["SymStart"], entry["SymEnd"] + 1):
-            entries[cp] = attributes["default"]
+            entries[cp] = attributes["default"].copy()
 
         entries |= {k: v for k, v in attributes.items() if isinstance(k, int)}
+
+        if entry["ScaleRules"] is not None and "ScaleGroups" in entry["ScaleRules"]:
+            for group in entry["ScaleRules"]["ScaleGroups"]:
+                xMin = math.inf
+                yMin = math.inf
+                xMax = -math.inf
+                yMax = -math.inf
+                individual_bounds: dict[int, tuple[int, int, int ,int]] = {}
+                for cp in group:
+                    if cp not in cmap:
+                        continue
+                    glyph = glyphs[cmap[cp]]
+                    bounds = BoundsPen(glyphSet=glyphs)
+                    glyph.draw(bounds)
+                    individual_bounds[cp] = bounds.bounds
+                    xMin = min(bounds.bounds[0], xMin)
+                    yMin = min(bounds.bounds[1], yMin)
+                    xMax = max(bounds.bounds[2], xMax)
+                    yMax = max(bounds.bounds[3], yMax)
+                group_width = xMax - xMin
+                group_height = yMax - yMin
+                for cp in group:
+                    if cp not in cmap or cp not in entries:
+                        continue
+                    this_bounds = individual_bounds[cp]
+                    this_width = this_bounds[2] - this_bounds[0]
+                    this_height = this_bounds[3] - this_bounds[1]
+                    entries[cp]["group_width"] = group_width / this_width
+                    entries[cp]["group_height"] = group_height / this_height
+                    entries[cp]["group_x"] = (this_bounds[0] - xMin) / group_width
+                    entries[cp]["group_y"] = (this_bounds[1] - yMin) / group_height
 
     del entries[0]
 
@@ -253,6 +331,10 @@ def generate_zig_switch_arms(patch_sets: list[PatchSet]) -> str:
 if __name__ == "__main__":
     project_root = Path(__file__).resolve().parents[2]
 
+    nf_path = sys.argv[1]
+
+    nerd_font = TTFont(nf_path)
+
     patcher_path = project_root / "vendor" / "nerd-fonts" / "font-patcher.py"
     source = patcher_path.read_text(encoding="utf-8")
     patch_set = extract_patch_set_values(source)
@@ -272,5 +354,5 @@ const Constraint = @import("face.zig").RenderOptions.Constraint;
 pub fn getConstraint(cp: u21) Constraint {
     return switch (cp) {
 """)
-        f.write(generate_zig_switch_arms(patch_set))
+        f.write(generate_zig_switch_arms(patch_set, nerd_font))
         f.write("\n        else => .none,\n    };\n}\n")

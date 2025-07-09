@@ -86,6 +86,89 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
         end
     end
 
+    # SSH Integration
+    set -l features (string split ',' -- "$GHOSTTY_SHELL_FEATURES")
+    if contains ssh-env $features; or contains ssh-terminfo $features
+        function ssh --wraps=ssh --description "SSH wrapper with Ghostty integration"
+            set -l features (string split ',' -- "$GHOSTTY_SHELL_FEATURES")
+            set -l ssh_term "xterm-256color"
+            set -l ssh_opts
+
+            # Configure environment variables for remote session
+            if contains ssh-env $features
+                set -a ssh_opts -o "SetEnv COLORTERM=truecolor"
+                set -a ssh_opts -o "SendEnv TERM_PROGRAM TERM_PROGRAM_VERSION"
+            end
+
+            # Install terminfo on remote host if needed
+            if contains ssh-terminfo $features
+                set -l ssh_user
+                set -l ssh_hostname
+
+                for line in (command ssh -G $argv 2>/dev/null)
+                    set -l parts (string split ' ' -- $line)
+                    if test (count $parts) -ge 2
+                        switch $parts[1]
+                            case user
+                                set ssh_user $parts[2]
+                            case hostname
+                                set ssh_hostname $parts[2]
+                        end
+                        if test -n "$ssh_user"; and test -n "$ssh_hostname"
+                            break
+                        end
+                    end
+                end
+
+                if test -n "$ssh_hostname"
+                    set -l ssh_target "$ssh_user@$ssh_hostname"
+
+                    # Check if terminfo is already cached
+                    if test -x "$GHOSTTY_BIN_DIR/ghostty"; and "$GHOSTTY_BIN_DIR/ghostty" +ssh-cache --host="$ssh_target" >/dev/null 2>&1
+                        set ssh_term "xterm-ghostty"
+                    else if command -q infocmp
+                        set -l ssh_terminfo
+                        set -l ssh_cpath_dir
+                        set -l ssh_cpath
+
+                        set ssh_terminfo (infocmp -0 -x xterm-ghostty 2>/dev/null)
+
+                        if test -n "$ssh_terminfo"
+                            echo "Setting up xterm-ghostty terminfo on $ssh_hostname..." >&2
+
+                            set ssh_cpath_dir (mktemp -d "/tmp/ghostty-ssh-$ssh_user.XXXXXX" 2>/dev/null; or echo "/tmp/ghostty-ssh-$ssh_user."(random))
+                            set ssh_cpath "$ssh_cpath_dir/socket"
+
+                            if echo "$ssh_terminfo" | command ssh $ssh_opts -o ControlMaster=yes -o ControlPath="$ssh_cpath" -o ControlPersist=60s $argv '
+                                infocmp xterm-ghostty >/dev/null 2>&1 && exit 0
+                                command -v tic >/dev/null 2>&1 || exit 1
+                                mkdir -p ~/.terminfo 2>/dev/null && tic -x - 2>/dev/null && exit 0
+                                exit 1
+                            ' 2>/dev/null
+                                set ssh_term "xterm-ghostty"
+                                set -a ssh_opts -o "ControlPath=$ssh_cpath"
+
+                                # Cache successful installation
+                                if test -x "$GHOSTTY_BIN_DIR/ghostty"
+                                    "$GHOSTTY_BIN_DIR/ghostty" +ssh-cache --add="$ssh_target" >/dev/null 2>&1; or true
+                                end
+                            else
+                                echo "Warning: Failed to install terminfo." >&2
+                            end
+                        else
+                            echo "Warning: Could not generate terminfo data." >&2
+                        end
+                    else
+                        echo "Warning: ghostty command not available for cache management." >&2
+                    end
+                end
+            end
+
+            # Execute SSH with TERM environment variable
+            env TERM="$ssh_term" command ssh $ssh_opts $argv
+        end
+    end
+
     # Setup prompt marking
     function __ghostty_mark_prompt_start --on-event fish_prompt --on-event fish_cancel --on-event fish_posterror
         # If we never got the output end event, then we need to send it now.

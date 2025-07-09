@@ -1,9 +1,12 @@
 [Unit]
 Description=@NAME@
 After=graphical-session.target
+After=dbus.socket
+Requires=dbus.socket
 
 [Service]
-Type=dbus
+Type=notify-reload
+ReloadSignal=SIGUSR2
 BusName=@APPID@
 ExecStart=@GHOSTTY@ --launched-from=systemd
 

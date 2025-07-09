@@ -35,9 +35,8 @@ cursor_thickness: u32 = 1,
 /// The height in pixels of the cursor sprite.
 cursor_height: u32,
 
-/// Original cell width in pixels. This is used to keep
-/// glyphs centered if the cell width is adjusted wider.
-original_cell_width: ?u32 = null,
+/// The constraint height for nerd fonts icons.
+icon_height: u32,
 
 /// Minimum acceptable values for some fields to prevent modifiers
 /// from being able to, for example, cause 0-thickness underlines.
@@ -50,6 +49,7 @@ const Minimums = struct {
     const box_thickness = 1;
     const cursor_thickness = 1;
     const cursor_height = 1;
+    const icon_height = 1;
 };
 
 /// Metrics extracted from a font face, based on
@@ -107,6 +107,19 @@ pub const FaceMetrics = struct {
     /// a provided ex height metric or measured from the height of the
     /// lowercase x glyph.
     ex_height: ?f64 = null,
+
+    /// The width of the character "水" (CJK water ideograph, U+6C34),
+    /// if present. This is used for font size adjustment, to normalize
+    /// the width of CJK fonts mixed with latin fonts.
+    ///
+    /// NOTE: IC = Ideograph Character
+    ic_width: ?f64 = null,
+
+    /// Convenience function for getting the line height
+    /// (ascent - descent + line_gap).
+    pub inline fn lineHeight(self: FaceMetrics) f64 {
+        return self.ascent - self.descent + self.line_gap;
+    }
 };
 
 /// Calculate our metrics based on values extracted from a font.
@@ -120,7 +133,7 @@ pub fn calc(face: FaceMetrics) Metrics {
     // that the cell is large enough for the provided size, since we cast
     // it to an integer later.
     const cell_width = @ceil(face.cell_width);
-    const cell_height = @ceil(face.ascent - face.descent + face.line_gap);
+    const cell_height = @ceil(face.lineHeight());
 
     // We split our line gap in two parts, and put half of it on the top
     // of the cell and the other half on the bottom, so that our text never
@@ -164,6 +177,17 @@ pub fn calc(face: FaceMetrics) Metrics {
         (face.strikethrough_position orelse
             ex_height * 0.5 + strikethrough_thickness * 0.5));
 
+    // The calculation for icon height in the nerd fonts patcher
+    // is two thirds cap height to one third line height, but we
+    // use an opinionated default of 1.2 * cap height instead.
+    //
+    // Doing this prevents fonts with very large line heights
+    // from having excessively oversized icons, and allows fonts
+    // with very small line heights to still have roomy icons.
+    //
+    // We do cap it at `cell_height` though for obvious reasons.
+    const icon_height = @min(cell_height, cap_height * 1.2);
+
     var result: Metrics = .{
         .cell_width = @intFromFloat(cell_width),
         .cell_height = @intFromFloat(cell_height),
@@ -176,6 +200,7 @@ pub fn calc(face: FaceMetrics) Metrics {
         .overline_thickness = @intFromFloat(underline_thickness),
         .box_thickness = @intFromFloat(underline_thickness),
         .cursor_height = @intFromFloat(cell_height),
+        .icon_height = @intFromFloat(icon_height),
     };
 
     // Ensure all metrics are within their allowable range.
@@ -200,11 +225,6 @@ pub fn apply(self: *Metrics, mods: ModifierSet) void {
                 const original = @field(self, @tagName(tag));
                 const new = @max(entry.value_ptr.apply(original), 1);
                 if (new == original) continue;
-
-                // Preserve the original cell width if not set.
-                if (self.original_cell_width == null) {
-                    self.original_cell_width = self.cell_width;
-                }
 
                 // Set the new value
                 @field(self, @tagName(tag)) = new;
@@ -419,6 +439,7 @@ fn init() Metrics {
         .overline_thickness = 0,
         .box_thickness = 0,
         .cursor_height = 0,
+        .icon_height = 0,
     };
 }
 

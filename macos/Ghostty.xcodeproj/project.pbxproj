@@ -14,6 +14,7 @@
 		9351BE8E3D22937F003B3499 /* nvim in Resources */ = {isa = PBXBuildFile; fileRef = 9351BE8E2D22937F003B3499 /* nvim */; };
 		A50297352DFA0F3400B4E924 /* Double+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50297342DFA0F3300B4E924 /* Double+Extension.swift */; };
 		A505D21D2E1A2FA20018808F /* FileHandle+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A505D21C2E1A2F9E0018808F /* FileHandle+Extension.swift */; };
+		A505D21F2E1B6DE00018808F /* NSWorkspace+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A505D21E2E1B6DDC0018808F /* NSWorkspace+Extension.swift */; };
 		A511940F2E050595007258CC /* CloseTerminalIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A511940E2E050590007258CC /* CloseTerminalIntent.swift */; };
 		A51194112E05A483007258CC /* QuickTerminalIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A51194102E05A480007258CC /* QuickTerminalIntent.swift */; };
 		A51194132E05D006007258CC /* Optional+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A51194122E05D003007258CC /* Optional+Extension.swift */; };
@@ -160,6 +161,7 @@
 		9351BE8E2D22937F003B3499 /* nvim */ = {isa = PBXFileReference; lastKnownFileType = folder; name = nvim; path = "../zig-out/share/nvim"; sourceTree = "<group>"; };
 		A50297342DFA0F3300B4E924 /* Double+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Double+Extension.swift"; sourceTree = "<group>"; };
 		A505D21C2E1A2F9E0018808F /* FileHandle+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileHandle+Extension.swift"; sourceTree = "<group>"; };
+		A505D21E2E1B6DDC0018808F /* NSWorkspace+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSWorkspace+Extension.swift"; sourceTree = "<group>"; };
 		A511940E2E050590007258CC /* CloseTerminalIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseTerminalIntent.swift; sourceTree = "<group>"; };
 		A51194102E05A480007258CC /* QuickTerminalIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickTerminalIntent.swift; sourceTree = "<group>"; };
 		A51194122E05D003007258CC /* Optional+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Optional+Extension.swift"; sourceTree = "<group>"; };
@@ -531,6 +533,7 @@
 				AEE8B3442B9AA39600260C5E /* NSPasteboard+Extension.swift */,
 				C1F26EA62B738B9900404083 /* NSView+Extension.swift */,
 				A5874D9C2DAD785F00E83852 /* NSWindow+Extension.swift */,
+				A505D21E2E1B6DDC0018808F /* NSWorkspace+Extension.swift */,
 				A5985CD62C320C4500C57AD3 /* String+Extension.swift */,
 				A58636722DF4813000E04A10 /* UndoManager+Extension.swift */,
 				A5CC36142C9CDA03004D6760 /* View+Extension.swift */,
@@ -819,6 +822,7 @@
 				A5CC36152C9CDA06004D6760 /* View+Extension.swift in Sources */,
 				A56D58892ACDE6CA00508D2C /* ServiceProvider.swift in Sources */,
 				A5CBD0602CA0C90A0017A1AE /* QuickTerminalWindow.swift in Sources */,
+				A505D21F2E1B6DE00018808F /* NSWorkspace+Extension.swift in Sources */,
 				A5CBD05E2CA0C5EC0017A1AE /* QuickTerminalController.swift in Sources */,
 				A5CF66D72D29DDB500139794 /* Ghostty.Event.swift in Sources */,
 				A511940F2E050595007258CC /* CloseTerminalIntent.swift in Sources */,
