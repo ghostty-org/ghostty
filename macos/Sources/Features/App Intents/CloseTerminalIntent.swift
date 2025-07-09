@@ -12,8 +12,10 @@ struct CloseTerminalIntent: AppIntent {
     )
     var terminal: TerminalEntity
 
+    #if SUPPORTS_MACOS_26_FEATURES
     @available(macOS 26.0, *)
     static var supportedModes: IntentModes = .background
+    #endif
 
     @MainActor
     func perform() async throws -> some IntentResult {

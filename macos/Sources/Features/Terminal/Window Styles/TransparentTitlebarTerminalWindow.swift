@@ -67,13 +67,14 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
         // references changed (e.g. tabGroup is new).
         setupKVO()
 
-        if #available(macOS 26.0, *) {
-            syncAppearanceTahoe(surfaceConfig)
-        } else {
-            syncAppearanceVentura(surfaceConfig)
-        }
+        #if SUPPORTS_MACOS_26_FEATURES
+        syncAppearanceTahoe(surfaceConfig)
+        #else
+        syncAppearanceVentura(surfaceConfig)
+        #endif
     }
 
+    #if SUPPORTS_MACOS_26_FEATURES
     @available(macOS 26.0, *)
     private func syncAppearanceTahoe(_ surfaceConfig: Ghostty.SurfaceView.DerivedConfig) {
         // When we have transparency, we need to set the titlebar background to match the
@@ -94,6 +95,7 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
         // that force a background color.
         titlebarBackgroundView?.isHidden = true
     }
+    #endif
 
     @available(macOS 13.0, *)
     private func syncAppearanceVentura(_ surfaceConfig: Ghostty.SurfaceView.DerivedConfig) {

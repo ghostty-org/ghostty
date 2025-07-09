@@ -16,8 +16,10 @@ struct KeybindIntent: AppIntent {
     )
     var action: String
 
+    #if SUPPORTS_MACOS_26_FEATURES
     @available(macOS 26.0, *)
     static var supportedModes: IntentModes = [.background, .foreground]
+    #endif
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<Bool> {

@@ -43,8 +43,10 @@ struct NewTerminalIntent: AppIntent {
     )
     var parent: TerminalEntity?
 
+    #if SUPPORTS_MACOS_26_FEATURES
     @available(macOS 26.0, *)
     static var supportedModes: IntentModes = .foreground(.immediate)
+    #endif
 
     @available(macOS, obsoleted: 26.0, message: "Replaced by supportedModes")
     static var openAppWhenRun = true
