@@ -6,6 +6,9 @@ const Config = @import("Config.zig");
 /// The exe.
 exe: *std.Build.Step.Compile,
 
+/// The run artifact for the exe.
+run: *std.Build.Step.Run,
+
 /// The output path for the unicode tables
 output: std.Build.LazyPath,
 
@@ -21,18 +24,25 @@ pub fn init(b: *std.Build) !UnicodeTables {
         }),
     });
 
+    if (b.lazyDependency("zg", .{
+        .target = b.graph.host,
+    })) |dep| {
+        exe.root_module.addImport("Graphemes", dep.module("Graphemes"));
+        exe.root_module.addImport("DisplayWidth", dep.module("DisplayWidth"));
+    }
+
+    // Only used if we're building the old unicode tables
     if (b.lazyDependency("ziglyph", .{
         .target = b.graph.host,
-    })) |ziglyph_dep| {
-        exe.root_module.addImport(
-            "ziglyph",
-            ziglyph_dep.module("ziglyph"),
-        );
+    })) |dep| {
+        exe.root_module.addImport("ziglyph", dep.module("ziglyph"));
     }
 
     const run = b.addRunArtifact(exe);
+
     return .{
         .exe = exe,
+        .run = run,
         .output = run.captureStdOut(),
     };
 }

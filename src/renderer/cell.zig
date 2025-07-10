@@ -1,12 +1,12 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const ziglyph = @import("ziglyph");
 const font = @import("../font/main.zig");
 const terminal = @import("../terminal/main.zig");
 const renderer = @import("../renderer.zig");
 const shaderpkg = renderer.Renderer.API.shaders;
 const ArrayListCollection = @import("../datastruct/array_list_collection.zig").ArrayListCollection;
+const GeneralCategories = @import("GeneralCategories");
 
 /// The possible cell content keys that exist.
 pub const Key = enum {
@@ -224,9 +224,9 @@ pub fn constraintWidth(cell_pin: terminal.Pin) u2 {
     const cell = cell_pin.rowAndCell().cell;
     const cp = cell.codepoint();
 
-    if (!ziglyph.general_category.isPrivateUse(cp) and
-        !ziglyph.blocks.isDingbats(cp))
-    {
+    // If it's not Private Use (Co) or Dingbats (0x2700-0x27bf), use grid
+    // width.
+    if (GeneralCategories.gc(cp) != .Co and !(cp >= 0x2700 and cp <= 0x27bf)) {
         return cell.gridWidth();
     }
 
@@ -248,7 +248,8 @@ pub fn constraintWidth(cell_pin: terminal.Pin) u2 {
         // We consider powerline glyphs whitespace.
         if (isPowerline(prev_cp)) break :prev;
 
-        if (ziglyph.general_category.isPrivateUse(prev_cp)) {
+        // If it's Private Use (Co) use 1 as the width.
+        if (GeneralCategories.gc(cp) == .Co) {
             return 1;
         }
     }

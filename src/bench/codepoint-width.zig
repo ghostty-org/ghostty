@@ -7,14 +7,14 @@
 //! This will consume all of the available stdin, so you should run it
 //! with `head` in a pipe to restrict. For example, to test ASCII input:
 //!
-//!   bench-stream --mode=gen-ascii | head -c 50M | bench-codepoint-width --mode=ziglyph
+//!   bench-stream --mode=gen-ascii | head -c 50M | bench-codepoint-width --mode=zg
 //!
 
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const ziglyph = @import("ziglyph");
+const DisplayWidth = @import("DisplayWidth");
 const cli = @import("../cli.zig");
 const simd = @import("../simd/main.zig");
 const table = @import("../unicode/main.zig").table;
@@ -46,8 +46,8 @@ const Mode = enum {
     /// libc wcwidth
     wcwidth,
 
-    /// Use ziglyph library to calculate the display width of each codepoint.
-    ziglyph,
+    /// Use zg library to calculate the display width of each codepoint.
+    zg,
 
     /// Our SIMD implementation.
     simd,
@@ -80,7 +80,7 @@ pub fn main() !void {
     switch (args.mode) {
         .noop => try benchNoop(reader, buf),
         .wcwidth => try benchWcwidth(reader, buf),
-        .ziglyph => try benchZiglyph(reader, buf),
+        .zg => try benchZg(reader, buf),
         .simd => try benchSimd(reader, buf),
         .table => try benchTable(reader, buf),
     }
@@ -155,7 +155,7 @@ noinline fn benchTable(
     }
 }
 
-noinline fn benchZiglyph(
+noinline fn benchZg(
     reader: anytype,
     buf: []u8,
 ) !void {
@@ -170,7 +170,7 @@ noinline fn benchZiglyph(
             const cp_, const consumed = d.next(c);
             assert(consumed);
             if (cp_) |cp| {
-                const width = ziglyph.display_width.codePointWidth(cp, .half);
+                const width = DisplayWidth.codePointWidth(cp);
 
                 // Write the width to the buffer to avoid it being compiled away
                 buf[0] = @intCast(width);

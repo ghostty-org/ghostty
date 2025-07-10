@@ -5,7 +5,8 @@ const Binding = @This();
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const ziglyph = @import("ziglyph");
+const LetterCasing = @import("LetterCasing");
+const CaseFolding = @import("CaseFolding");
 const key = @import("key.zig");
 const KeyEvent = key.KeyEvent;
 
@@ -1563,15 +1564,17 @@ pub const Trigger = struct {
     /// in more codepoints so we need to use a 3 element array.
     fn foldedCodepoint(cp: u21) [3]u21 {
         // ASCII fast path
-        if (ziglyph.letter.isAsciiLetter(cp)) {
-            return .{ ziglyph.letter.toLower(cp), 0, 0 };
+        if (('A' <= cp and cp <= 'Z') or ('a' <= cp and cp <= 'z')) {
+            return .{ LetterCasing.toLower(cp), 0, 0 };
         }
 
-        // Unicode slow path. Case folding can resultin more codepoints.
+        // Unicode slow path. Case folding can result in more codepoints.
         // If more codepoints are produced then we return the codepoint
         // as-is which isn't correct but until we have a failing test
         // then I don't want to handle this.
-        return ziglyph.letter.toCaseFold(cp);
+        var buf: [3]u21 = .{ 0, 0, 0 };
+        _ = CaseFolding.caseFold(cp, &buf);
+        return buf;
     }
 
     /// Convert the trigger to a C API compatible trigger.

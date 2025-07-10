@@ -58,7 +58,7 @@ pub fn init(gpa: Allocator) !void {
     // defer {
     //     const end = std.time.Instant.now() catch unreachable;
     //     // "[updateFrame critical time] <START us>\t<TIME_TAKEN us>"
-    //     std.log.err("[sentry init time] start={}us duration={}ns", .{ start_micro, end.since(start) / std.time.ns_per_us });
+    //     std.log.err("[sentry init time] start={}us duration={}us", .{ start_micro, end.since(start) / std.time.ns_per_us });
     // }
 
     // Must only start once

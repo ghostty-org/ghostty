@@ -1,14 +1,56 @@
-const props = @This();
 const std = @import("std");
 const assert = std.debug.assert;
-const ziglyph = @import("ziglyph");
 const lut = @import("lut.zig");
+
+/// The context needed for lut generation.
+pub const Context = struct {
+    // Whether to use the old implementation based on ziglyph.
+    old: bool = false,
+
+    const Graphemes = @import("Graphemes");
+    const DisplayWidth = @import("DisplayWidth");
+
+    pub fn get(self: Context, cp: u21) !Properties {
+        if (cp > 0x10FFFF) {
+            return .{
+                .width = 0,
+                .grapheme_boundary_class = .invalid,
+            };
+        } else {
+            const zg_width = DisplayWidth.codePointWidth(cp);
+
+            return .{
+                .width = @intCast(@min(2, @max(0, zg_width))),
+                //.grapheme_boundary_class = .init(self, cp),
+                .grapheme_boundary_class = if (self.old) .initOld(cp) else .init(cp),
+            };
+        }
+    }
+
+    pub fn eql(self: Context, a: Properties, b: Properties) bool {
+        _ = self;
+        return a.eql(b);
+    }
+};
 
 /// The lookup tables for Ghostty.
 pub const table = table: {
     // This is only available after running main() below as part of the Ghostty
     // build.zig, but due to Zig's lazy analysis we can still reference it here.
     const generated = @import("unicode_tables").Tables(Properties);
+    const Tables = lut.Tables(Properties);
+    break :table Tables{
+        .stage1 = &generated.stage1,
+        .stage2 = &generated.stage2,
+        .stage3 = &generated.stage3,
+    };
+};
+
+/// The old lookup tables for Ghostty. Only used for unicode-test.
+pub const oldTable = table: {
+    // This is only available after running main() below as part of the Ghostty
+    // build.zig, but due to Zig's lazy analysis we can still reference it here.
+    const generated = @import("old_unicode_tables").Tables(Properties);
     const Tables = lut.Tables(Properties);
     break :table Tables{
         .stage1 = &generated.stage1,
@@ -77,9 +119,35 @@ pub const GraphemeBoundaryClass = enum(u4) {
     extended_pictographic_base, // \p{Extended_Pictographic} & \p{Emoji_Modifier_Base}
     emoji_modifier, // \p{Emoji_Modifier}
 
+    const Graphemes = @import("Graphemes");
+
     /// Gets the grapheme boundary class for a codepoint. This is VERY
     /// SLOW. The use case for this is only in generating lookup tables.
     pub fn init(cp: u21) GraphemeBoundaryClass {
+        return switch (Graphemes.gbp(cp)) {
+            .Emoji_Modifier_Base => .extended_pictographic_base,
+            .Emoji_Modifier => .emoji_modifier,
+            .Extended_Pictographic => .extended_pictographic,
+            .L => .L,
+            .V => .V,
+            .T => .T,
+            .LV => .LV,
+            .LVT => .LVT,
+            .Prepend => .prepend,
+            .Extend => .extend,
+            .ZWJ => .zwj,
+            .SpacingMark => .spacing_mark,
+            .Regional_Indicator => .regional_indicator,
+            // This is obviously not INVALID invalid, there is SOME grapheme
+            // boundary class for every codepoint. But we don't care about
+            // anything that doesn't fit into the above categories.
+            .none, .Control, .CR, .LF => .invalid,
+        };
+    }
+
+    pub fn initOld(cp: u21) GraphemeBoundaryClass {
+        const ziglyph = @import("ziglyph");
+
         // We special-case modifier bases because we should not break
         // if a modifier isn't next to a base.
         if (ziglyph.emoji.isEmojiModifierBase(cp)) {
@@ -103,6 +171,7 @@ pub const GraphemeBoundaryClass = enum(u4) {
         // This is obviously not INVALID invalid, there is SOME grapheme
         // boundary class for every codepoint. But we don't care about
         // anything that doesn't fit into the above categories.
+
         return .invalid;
     }
 
@@ -120,35 +189,25 @@ pub const GraphemeBoundaryClass = enum(u4) {
     }
 };
 
-pub fn get(cp: u21) Properties {
-    const zg_width = ziglyph.display_width.codePointWidth(cp, .half);
-
-    return .{
-        .width = @intCast(@min(2, @max(0, zg_width))),
-        .grapheme_boundary_class = .init(cp),
-    };
-}
-
 /// Runnable binary to generate the lookup tables and output to stdout.
 pub fn main() !void {
     var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena_state.deinit();
     const alloc = arena_state.allocator();
 
+    const args = try std.process.argsAlloc(alloc);
+    defer std.process.argsFree(alloc, args);
+
+    var ctx = Context{};
+
+    if (args.len > 1 and std.mem.eql(u8, args[1], "old")) {
+        ctx.old = true;
+    }
+
     const gen: lut.Generator(
         Properties,
-        struct {
-            pub fn get(ctx: @This(), cp: u21) !Properties {
-                _ = ctx;
-                return props.get(cp);
-            }
-
-            pub fn eql(ctx: @This(), a: Properties, b: Properties) bool {
-                _ = ctx;
-                return a.eql(b);
-            }
-        },
-    ) = .{};
+        Context,
+    ) = .{ .ctx = ctx };
 
     const t = try gen.generate(alloc);
     defer alloc.free(t.stage1);
@@ -164,18 +223,7 @@ pub fn main() !void {
     // });
 }
 
-// This is not very fast in debug modes, so its commented by default.
-// IMPORTANT: UNCOMMENT THIS WHENEVER MAKING CODEPOINTWIDTH CHANGES.
-// test "tables match ziglyph" {
-//     const testing = std.testing;
-//
-//     const min = 0xFF + 1; // start outside ascii
-//     for (min..std.math.maxInt(u21)) |cp| {
-//         const t = table.get(@intCast(cp));
-//         const zg = @min(2, @max(0, ziglyph.display_width.codePointWidth(@intCast(cp), .half)));
-//         if (t.width != zg) {
-//             std.log.warn("mismatch cp=U+{x} t={} zg={}", .{ cp, t, zg });
-//             try testing.expect(false);
-//         }
-//     }
-// }
+test {
+    _ = table;
+    _ = Properties;
+}

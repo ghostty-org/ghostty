@@ -51,6 +51,7 @@ patch_rpath: ?[]const u8 = null,
 /// Artifacts
 flatpak: bool = false,
 emit_bench: bool = false,
+emit_unicode_test: bool = false,
 emit_docs: bool = false,
 emit_helpgen: bool = false,
 emit_macos_app: bool = false,
@@ -287,6 +288,12 @@ pub fn init(b: *std.Build) !Config {
         "Build and install the benchmark executables.",
     ) orelse false;
 
+    config.emit_unicode_test = b.option(
+        bool,
+        "emit-unicode-test",
+        "Build and install the unicode test executable.",
+    ) orelse false;
+
     config.emit_helpgen = b.option(
         bool,
         "emit-helpgen",
@@ -300,6 +307,7 @@ pub fn init(b: *std.Build) !Config {
     ) orelse emit_docs: {
         // If we are emitting any other artifacts then we default to false.
         if (config.emit_bench or
+            config.emit_unicode_test or
             config.emit_test_exe or
             config.emit_helpgen) break :emit_docs false;
 
@@ -348,6 +356,7 @@ pub fn init(b: *std.Build) !Config {
         target.result.os.tag == .macos and
         config.app_runtime == .none and
         (!config.emit_bench and
+            !config.emit_unicode_test and
             !config.emit_test_exe and
             !config.emit_helpgen);
 
