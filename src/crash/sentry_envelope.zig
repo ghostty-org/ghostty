@@ -540,7 +540,7 @@ pub const Session = struct {
 
 /// An arbitrary file attachment.
 ///
-/// https://develop.sentry.dev/sdk/envelopes/#attachment
+/// https://develop.sentry.dev/sdk/data-model/envelope-items/#attachment
 pub const Attachment = struct {
     /// "filename" field is the name of the uploaded file without
     /// a path component.
