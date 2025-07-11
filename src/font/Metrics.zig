@@ -38,6 +38,9 @@ cursor_height: u32,
 /// The constraint height for nerd fonts icons.
 icon_height: u32,
 
+/// The constraint width for nerd fonts icons.
+icon_width: u32,
+
 /// Minimum acceptable values for some fields to prevent modifiers
 /// from being able to, for example, cause 0-thickness underlines.
 const Minimums = struct {
@@ -50,6 +53,7 @@ const Minimums = struct {
     const cursor_thickness = 1;
     const cursor_height = 1;
     const icon_height = 1;
+    const icon_width = 1;
 };
 
 /// Metrics extracted from a font face, based on
@@ -188,6 +192,19 @@ pub fn calc(face: FaceMetrics) Metrics {
     // We do cap it at `cell_height` though for obvious reasons.
     const icon_height = @min(cell_height, cap_height * 1.2);
 
+    // We set icon_width using the icon_height / cell_height
+    // ratio, such that
+    // icon_width / (2 * cell_width) == icon_height / cell_height
+    // This only applies when the constraint width is two cells;
+    // icons constrained to a single cell can take up the full
+    // cell width.
+    //
+    // It's important that the icon_width is calculated here using
+    // the cell_width and cell_height derived from the face, and
+    // not in Constraint.constrain, which is called after the
+    // adjust-cell-{width,height} modifiers have been applied.
+    const icon_width = 2 * cell_width * icon_height / cell_height;
+
     var result: Metrics = .{
         .cell_width = @intFromFloat(cell_width),
         .cell_height = @intFromFloat(cell_height),
@@ -201,6 +218,7 @@ pub fn calc(face: FaceMetrics) Metrics {
         .box_thickness = @intFromFloat(underline_thickness),
         .cursor_height = @intFromFloat(cell_height),
         .icon_height = @intFromFloat(icon_height),
+        .icon_width = @intFromFloat(icon_width),
     };
 
     // Ensure all metrics are within their allowable range.
@@ -440,6 +458,7 @@ fn init() Metrics {
         .box_thickness = 0,
         .cursor_height = 0,
         .icon_height = 0,
+        .icon_width = 0,
     };
 }
 
