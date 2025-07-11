@@ -278,6 +278,7 @@ pub const ItemType = enum {
 pub const Item = union(enum) {
     encoded: EncodedItem,
     attachment: Attachment,
+    session: Session,
 
     /// Convert the item to an encoded item. This modify the item
     /// in place.
@@ -288,6 +289,7 @@ pub const Item = union(enum) {
         const result: EncodedItem = switch (self.*) {
             .encoded => |v| return v,
             .attachment => |*v| try v.encode(alloc),
+            .session => |*v| try v.encode(alloc),
         };
         self.* = .{ .encoded = result };
         return result;
@@ -299,6 +301,7 @@ pub const Item = union(enum) {
         return switch (self) {
             .encoded => |v| v.type,
             .attachment => .attachment,
+            .session => .session,
         };
     }
 
@@ -332,6 +335,10 @@ pub const Item = union(enum) {
         // Decode the item.
         self.* = switch (encoded.type) {
             .attachment => .{ .attachment = try .decode(
+                alloc,
+                encoded,
+            ) },
+            .session => .{ .session = try .decode(
                 alloc,
                 encoded,
             ) },
