@@ -424,9 +424,97 @@ pub const Session = struct {
         encoded: EncodedItem,
     ) Item.DecodeError!Session {
         _ = alloc;
-        _ = encoded;
 
         std.debug.print("Decode requested correctly", .{});
+
+        var status: ?SessionStatus = null;
+
+        if (encoded.headers.get("status")) |v| {
+            const temp = switch (v) {
+                .string => |str| std.meta.stringToEnum( SessionStatus, str )
+                    orelse return error.InvalidFieldType,
+                else => return error.InvalidFieldType,
+            };
+            if (temp != SessionStatus.crashed) {
+                log.debug("Found status different than crashed: {s}", .{ @tagName(temp) }) ;
+            }
+            status = temp;
+        }
+
+        const errors: u16 = if (encoded.headers.get("errors")) |v| switch (v) {
+            .integer => |n| @truncate( @as(u64, @intCast(n)) ),
+            else => return error.InvalidFieldType,
+        } else return error.MissingRequiredField;
+
+        if (errors < 1) {
+            log.debug("Found error count < 1, while crashing should count as one. Value: {}", .{ errors });
+        }
+
+        return .{
+
+            .started = if (encoded.headers.get("started")) |v| switch (v) {
+                .string => |str| str,
+                else => return error.InvalidFieldType,
+            } else return error.MissingRequiredField,
+            //
+
+            .sid = if (encoded.headers.get("sid")) |v| switch (v) {
+                .string => |str| str,
+                else => return error.InvalidFieldType
+            } else null,
+            //
+            // did: ?[]const u8,
+            .did = if (encoded.headers.get("did")) |v| switch (v) {
+                .string => |str| str,
+                else => return error.InvalidFieldType
+            } else null,
+
+            .seq = if (encoded.headers.get("seq")) |v| switch (v) {
+                .integer => |num| @intCast(num),
+                else => return error.InvalidFieldType
+            } else null,
+
+            .timestamp = if (encoded.headers.get("timestamp")) |v| switch (v) {
+                .string => |str| str,
+                else => return error.InvalidFieldType
+            } else null,
+
+            // Default to false if not present
+            .init = if (encoded.headers.get("init")) |v| switch (v) {
+                .bool => |b| b,
+                else => return error.InvalidFieldType
+            } else false, 
+            // duration: ?f64,
+            .duration = if (encoded.headers.get("duration")) |v| switch (v) {
+                .float => |f| f,
+                else => return error.InvalidFieldType
+            } else null,
+
+            .status = status,
+
+            .errors = errors,
+            .attrs = if (encoded.headers.get("attrs")) |v| switch (v) {
+                .object => |obj| .{
+                    .release = if (obj.get("release")) |u| switch (u) {
+                        .string => |s| s,
+                        else => return error.InvalidFieldType,
+                    } else return error.MissingRequiredField,
+                    .environment = if (obj.get("environment")) |u| switch(u) {
+                        .string => |s| s,
+                        else => return error.InvalidFieldType,
+                    } else return error.MissingRequiredField,
+                    .ip_address = if (obj.get("ip_address")) |u| switch(u) {
+                        .string => |s| s,
+                        else => return error.InvalidFieldType,
+                    } else null,
+                    .user_agent = if (obj.get("user_agent")) |u| switch(u) {
+                        .string => |s| s,
+                        else => return error.InvalidFieldType,
+                    } else null
+                },
+                else => return error.InvalidFieldType,
+            } else return error.MissingRequiredField,
+        };
     }
 
     pub fn encode(
