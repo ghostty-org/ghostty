@@ -2,14 +2,15 @@
 # Copyright (C) 2025 Mitchell Hashimoto, Ghostty contributors
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
 # Nico Geesink <geesinknico@gmail.com>, 2025.
+# Merijntje Tak <merijntje@tak.io>, 2025.
 #
 msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2025-07-11 22:56-0500\n"
-"PO-Revision-Date: 2025-03-24 15:00+0100\n"
-"Last-Translator: Nico Geesink <geesinknico@gmail.com>\n"
+"PO-Revision-Date: 2025-07-12 08:54+0200\n"
+"Last-Translator: Merijntje Tak <merijntje@tak.io>\n"
 "Language-Team: Dutch <vertaling@vrijschrift.org>\n"
 "Language: nl\n"
 "MIME-Version: 1.0\n"
@@ -23,7 +24,7 @@ msgstr "Titel van de terminal wijzigen"
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:6
 msgid "Leave blank to restore the default title."
-msgstr "Laat leeg om de standaard titel te herstellen."
+msgstr "Laat leeg om de standaardtitel te herstellen."
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:9
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:10 src/apprt/gtk/ui/1.2/ccw-paste.blp:10
@@ -87,7 +88,7 @@ msgstr "Splits naar rechts"
 
 #: src/apprt/gtk/ui/1.5/command-palette.blp:16
 msgid "Execute a command…"
-msgstr ""
+msgstr "Voer een commando uit…"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
@@ -160,11 +161,11 @@ msgstr "Open configuratie"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:85
 msgid "Command Palette"
-msgstr ""
+msgstr "Opdrachtpalet"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:90
 msgid "Terminal Inspector"
-msgstr "Terminal inspecteur"
+msgstr "Terminalinspecteur"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:107
 #: src/apprt/gtk/Window.zig:1038
@@ -208,12 +209,12 @@ msgstr "Toestaan"
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:81
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:77
 msgid "Remember choice for this split"
-msgstr ""
+msgstr "Onthoud keuze voor deze splitsing"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:82
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:78
 msgid "Reload configuration to show this prompt again"
-msgstr ""
+msgstr "Herlaad de configuratie om deze prompt opnieuw weer te geven"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:7
 #: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:7
@@ -271,7 +272,7 @@ msgstr "Alle terminalsessies binnen dit tabblad zullen worden beëindigd."
 #: src/apprt/gtk/CloseDialog.zig:99
 msgid "The currently running process in this split will be terminated."
 msgstr ""
-"Alle processen die nu draaien in deze splitsing zullen worden beëindigd."
+"Alle processen in deze splitsing zullen worden beëindigd."
 
 #: src/apprt/gtk/Surface.zig:1257
 msgid "Copied to clipboard"
@@ -279,11 +280,11 @@ msgstr "Gekopieerd naar klembord"
 
 #: src/apprt/gtk/Surface.zig:2514
 msgid "Command succeeded"
-msgstr ""
+msgstr "Opdracht geslaagd"
 
 #: src/apprt/gtk/Surface.zig:2516
 msgid "Command failed"
-msgstr ""
+msgstr "Opdracht mislukt"
 
 #: src/apprt/gtk/Window.zig:216
 msgid "Main Menu"
@@ -295,13 +296,13 @@ msgstr "Open tabbladen bekijken"
 
 #: src/apprt/gtk/Window.zig:266
 msgid "New Split"
-msgstr ""
+msgstr "Nieuwe splitsing"
 
 #: src/apprt/gtk/Window.zig:329
 msgid ""
 "⚠️ You're running a debug build of Ghostty! Performance will be degraded."
 msgstr ""
-"⚠️ Je draait een debug versie van Ghostty! Prestaties zullen minder zijn dan "
+"⚠️ Je draait een debugversie van Ghostty! Prestaties zullen minder zijn dan "
 "normaal."
 
 #: src/apprt/gtk/Window.zig:775
@@ -310,8 +311,8 @@ msgstr "De configuratie is herladen"
 
 #: src/apprt/gtk/Window.zig:1019
 msgid "Ghostty Developers"
-msgstr "Ghostty ontwikkelaars"
+msgstr "Ghostty-ontwikkelaars"
 
 #: src/apprt/gtk/inspector.zig:144
 msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: terminal inspecteur"
+msgstr "Ghostty: terminalinspecteur"
