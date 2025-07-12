@@ -73,7 +73,9 @@
     },
     "zig": {
       "inputs": {
-        "flake-compat": [],
+        "flake-compat": [
+          "flake-compat"
+        ],
         "flake-utils": [
           "flake-utils"
         ],
