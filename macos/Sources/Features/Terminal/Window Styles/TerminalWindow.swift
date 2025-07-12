@@ -23,7 +23,26 @@ class TerminalWindow: NSWindow {
         windowController as? TerminalController
     }
 
+    /// Whether the window has frame-react constraints applied.
+    var frameRectConstrained: Bool = false {
+        didSet {
+            // If we set this to true, then we need to ensure that the frame is
+            // within the constraints.
+            if frameRectConstrained {
+                setFrame(frame, display: true, animate: false)
+            }
+        }
+    }
+
     // MARK: NSWindow Overrides
+    override func constrainFrameRect(_ frameRect: NSRect,
+                                     to screen: NSScreen?) -> NSRect {
+        if (frameRectConstrained) {
+            return super.constrainFrameRect(frameRect, to: screen)
+        } else {
+            return frameRect
+        }
+    }
 
     override var toolbar: NSToolbar? {
         didSet {
@@ -446,7 +465,7 @@ extension TerminalWindow {
     struct ResetZoomAccessoryView: View {
         @ObservedObject var viewModel: ViewModel
         let action: () -> Void
-        
+
         // The padding from the top that the view appears. This was all just manually
         // measured based on the OS.
         var topPadding: CGFloat {

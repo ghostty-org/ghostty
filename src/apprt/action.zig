@@ -458,6 +458,7 @@ pub const Fullscreen = enum(c_int) {
     macos_non_native,
     macos_non_native_visible_menu,
     macos_non_native_padded_notch,
+    macos_non_native_titled_visible_menu,
 };
 
 pub const FloatWindow = enum(c_int) {
