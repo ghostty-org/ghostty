@@ -3667,7 +3667,7 @@ fn linkAtPos(
     const mouse_mods = self.mouseModsWithCapture(self.mouse.mods);
 
     // If we have the proper modifiers set then we can check for OSC8 links.
-    if (mouse_mods.ctrl or mouse_mods.super) hyperlink: {
+    if (mouse_mods.equal(input.ctrlOrSuper(.{}))) hyperlink: {
         const rac = mouse_pin.rowAndCell();
         const cell = rac.cell;
         if (!cell.hyperlink) break :hyperlink;
@@ -3699,17 +3699,6 @@ fn linkAtPos(
         switch (link.highlight) {
             .always, .hover => {},
             .always_mods, .hover_mods => |v| if (!v.equal(mouse_mods)) continue,
-            // .always_mods, .hover_mods => |_| {
-            //     // Special case: if the expected mods are "ctrl or super" (like the default URL config),
-            //     // then we should match if the user pressed either ctrl or super, just like OSC8 links.
-            //     // const is_ctrl_or_super_expected = (v.ctrl and !v.super and !v.shift and !v.alt) or
-            //     //     (v.super and !v.ctrl and !v.shift and !v.alt);
-            //     // if (is_ctrl_or_super_expected) {
-            //     //     if (!(mouse_mods.ctrl or mouse_mods.super)) continue;
-            //     // } else {
-            //     //     if (!v.equal(mouse_mods)) continue;
-            //     // }
-            // },
         }
 
         var it = strmap.searchIterator(link.regex);
