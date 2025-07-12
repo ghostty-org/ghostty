@@ -203,7 +203,7 @@ pub fn calc(face: FaceMetrics) Metrics {
     // the cell_width and cell_height derived from the face, and
     // not in Constraint.constrain, which is called after the
     // adjust-cell-{width,height} modifiers have been applied.
-    const icon_width = 2 * cell_width * icon_height / cell_height;
+    const icon_width = face.cell_width * 2 * icon_height / cell_height;
 
     var result: Metrics = .{
         .cell_width = @intFromFloat(cell_width),
