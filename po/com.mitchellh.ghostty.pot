@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-07-08 15:13-0500\n"
+"POT-Creation-Date: 2025-07-11 22:56-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -228,7 +228,7 @@ msgid ""
 "commands may be executed."
 msgstr ""
 
-#: src/apprt/gtk/CloseDialog.zig:47
+#: src/apprt/gtk/CloseDialog.zig:47 src/apprt/gtk/Surface.zig:2520
 msgid "Close"
 msgstr ""
 
@@ -266,6 +266,14 @@ msgstr ""
 
 #: src/apprt/gtk/Surface.zig:1257
 msgid "Copied to clipboard"
+msgstr ""
+
+#: src/apprt/gtk/Surface.zig:2514
+msgid "Command succeeded"
+msgstr ""
+
+#: src/apprt/gtk/Surface.zig:2516
+msgid "Command failed"
 msgstr ""
 
 #: src/apprt/gtk/Window.zig:216

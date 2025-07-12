@@ -527,7 +527,7 @@ jobs:
         run: nix develop -c zig build -Dapp-runtime=none test
 
       - name: Test GTK Build
-        run: nix develop -c zig build -Dapp-runtime=gtk -Demit-docs
+        run: nix develop -c zig build -Dapp-runtime=gtk -Demit-docs -Demit-webdata
 
       # This relies on the cache being populated by the commands above.
       - name: Test System Build

@@ -1011,8 +1011,18 @@ fn childExited(self: *Surface, info: apprt.surface.Message.ChildExited) void {
 
         log.warn("abnormal process exit detected, showing error message", .{});
 
-        // Update our terminal to note the abnormal exit. In the future we
-        // may want the apprt to handle this to show some native GUI element.
+        // Try and show a GUI message. If it returns true, don't do anything else.
+        if (self.rt_app.performAction(
+            .{ .surface = self },
+            .show_child_exited,
+            info,
+        ) catch |err| gui: {
+            log.err("error trying to show native child exited GUI err={}", .{err});
+            break :gui false;
+        }) return;
+
+        // If a native GUI notification was not showm. update our terminal to
+        // note the abnormal exit.
         self.childExitedAbnormally(info) catch |err| {
             log.err("error handling abnormal child exit err={}", .{err});
             return;
@@ -1028,6 +1038,18 @@ fn childExited(self: *Surface, info: apprt.surface.Message.ChildExited) void {
     // surface then they will see this message and know the process has
     // completed.
     terminal: {
+        // First try and show a native GUI message.
+        if (self.rt_app.performAction(
+            .{ .surface = self },
+            .show_child_exited,
+            info,
+        ) catch |err| gui: {
+            log.err("error trying to show native child exited GUI err={}", .{err});
+            break :gui false;
+        }) break :terminal;
+
+        // If the native GUI can't be shown, display a text message in the
+        // terminal.
         self.renderer_state.mutex.lock();
         defer self.renderer_state.mutex.unlock();
         const t: *terminal.Terminal = self.renderer_state.terminal;

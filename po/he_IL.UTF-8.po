@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-07-08 15:13-0500\n"
+"POT-Creation-Date: 2025-07-11 22:56-0500\n"
 "PO-Revision-Date: 2025-03-13 00:00+0000\n"
 "Last-Translator: Sl (Shahaf Levi), Sl's Repository Ltd <ghostty@slsrepo."
 "com>\n"
@@ -234,7 +234,7 @@ msgstr ""
 "הדבקת טקסט זה במסוף עלולה להיות מסוכנת, מכיוון שככל הנראה היא תוביל להרצה של "
 "פקודות מסוימות."
 
-#: src/apprt/gtk/CloseDialog.zig:47
+#: src/apprt/gtk/CloseDialog.zig:47 src/apprt/gtk/Surface.zig:2520
 msgid "Close"
 msgstr "סגירה"
 
@@ -273,6 +273,14 @@ msgstr "התהליך שרץ כרגע בפיצול זה יסתיים."
 #: src/apprt/gtk/Surface.zig:1257
 msgid "Copied to clipboard"
 msgstr "הועתק ללוח ההעתקה"
+
+#: src/apprt/gtk/Surface.zig:2514
+msgid "Command succeeded"
+msgstr ""
+
+#: src/apprt/gtk/Surface.zig:2516
+msgid "Command failed"
+msgstr ""
 
 #: src/apprt/gtk/Window.zig:216
 msgid "Main Menu"

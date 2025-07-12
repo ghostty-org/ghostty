@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-07-08 15:13-0500\n"
+"POT-Creation-Date: 2025-07-11 22:56-0500\n"
 "PO-Revision-Date: 2025-07-09 16:11-0400\n"
 "Last-Translator: Hojin You <dev.hojin@gmail.com>\n"
 "Language-Team: Korean <translation-team-ko@googlegroups.com>\n"
@@ -236,7 +236,7 @@ msgstr ""
 "이 텍스트를 터미널에 붙여넣는 것은 위험할 수 있습니다. 일부 명령이 실행될 수 "
 "있는 것으로 보입니다."
 
-#: src/apprt/gtk/CloseDialog.zig:47
+#: src/apprt/gtk/CloseDialog.zig:47 src/apprt/gtk/Surface.zig:2520
 msgid "Close"
 msgstr "닫기"
 
@@ -275,6 +275,14 @@ msgstr "이 분할에서 현재 실행 중인 프로세스가 종료됩니다."
 #: src/apprt/gtk/Surface.zig:1257
 msgid "Copied to clipboard"
 msgstr "클립보드에 복사됨"
+
+#: src/apprt/gtk/Surface.zig:2514
+msgid "Command succeeded"
+msgstr ""
+
+#: src/apprt/gtk/Surface.zig:2516
+msgid "Command failed"
+msgstr ""
 
 #: src/apprt/gtk/Window.zig:216
 msgid "Main Menu"

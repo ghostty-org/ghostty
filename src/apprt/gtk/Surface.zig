@@ -2503,3 +2503,40 @@ fn gtkStreamError(media_file: *gtk.MediaFile, _: *gobject.ParamSpec, _: ?*anyopa
 fn gtkStreamEnded(media_file: *gtk.MediaFile, _: *gobject.ParamSpec, _: ?*anyopaque) callconv(.c) void {
     media_file.unref();
 }
+
+/// Show native GUI element with a notification that the child process has
+/// closed. Return `true` if we are able to show the GUI notification, and
+/// `false` if we are not.
+pub fn showChildExited(self: *Surface, info: apprt.surface.Message.ChildExited) error{}!bool {
+    if (!adw_version.supportsBanner()) return false;
+
+    const warning_text, const css_class = if (info.exit_code == 0)
+        .{ i18n._("Command succeeded"), "child_exited_normally" }
+    else
+        .{ i18n._("Command failed"), "child_exited_abnormally" };
+
+    const banner = adw.Banner.new(warning_text);
+    banner.setRevealed(1);
+    banner.setButtonLabel(i18n._("Close"));
+
+    _ = adw.Banner.signals.button_clicked.connect(
+        banner,
+        *Surface,
+        showChildExitedButtonClosed,
+        self,
+        .{},
+    );
+
+    const banner_widget = banner.as(gtk.Widget);
+    banner_widget.setHalign(.fill);
+    banner_widget.setValign(.end);
+    banner_widget.addCssClass(css_class);
+
+    self.overlay.addOverlay(banner_widget);
+
+    return true;
+}
+
+fn showChildExitedButtonClosed(_: *adw.Banner, self: *Surface) callconv(.c) void {
+    self.close(false);
+}

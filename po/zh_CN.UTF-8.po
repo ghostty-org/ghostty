@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-07-08 15:13-0500\n"
+"POT-Creation-Date: 2025-07-11 22:56-0500\n"
 "PO-Revision-Date: 2025-02-27 09:16+0100\n"
 "Last-Translator: Leah <hi@pluie.me>\n"
 "Language-Team: Chinese (simplified) <i18n-zh@googlegroups.com>\n"
@@ -229,7 +229,7 @@ msgid ""
 "commands may be executed."
 msgstr "将以下内容粘贴至终端内将可能执行有害命令。"
 
-#: src/apprt/gtk/CloseDialog.zig:47
+#: src/apprt/gtk/CloseDialog.zig:47 src/apprt/gtk/Surface.zig:2520
 msgid "Close"
 msgstr "关闭"
 
@@ -268,6 +268,14 @@ msgstr "分屏内正在运行中的进程将被终止。"
 #: src/apprt/gtk/Surface.zig:1257
 msgid "Copied to clipboard"
 msgstr "已复制至剪贴板"
+
+#: src/apprt/gtk/Surface.zig:2514
+msgid "Command succeeded"
+msgstr ""
+
+#: src/apprt/gtk/Surface.zig:2516
+msgid "Command failed"
+msgstr ""
 
 #: src/apprt/gtk/Window.zig:216
 msgid "Main Menu"

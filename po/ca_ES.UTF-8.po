@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-07-08 15:13-0500\n"
+"POT-Creation-Date: 2025-07-11 22:56-0500\n"
 "PO-Revision-Date: 2025-03-20 08:07+0100\n"
 "Last-Translator: Francesc Arpi <francesc.arpi@gmail.com>\n"
 "Language-Team: \n"
@@ -236,7 +236,7 @@ msgstr ""
 "Enganxar aquest text al terminal pot ser perillós, ja que sembla que es "
 "podrien executar algunes ordres."
 
-#: src/apprt/gtk/CloseDialog.zig:47
+#: src/apprt/gtk/CloseDialog.zig:47 src/apprt/gtk/Surface.zig:2520
 msgid "Close"
 msgstr "Tanca"
 
@@ -275,6 +275,14 @@ msgstr "El procés actualment en execució en aquesta divisió es tancarà."
 #: src/apprt/gtk/Surface.zig:1257
 msgid "Copied to clipboard"
 msgstr "Copiat al porta-retalls"
+
+#: src/apprt/gtk/Surface.zig:2514
+msgid "Command succeeded"
+msgstr ""
+
+#: src/apprt/gtk/Surface.zig:2516
+msgid "Command failed"
+msgstr ""
 
 #: src/apprt/gtk/Window.zig:216
 msgid "Main Menu"

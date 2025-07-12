@@ -93,3 +93,15 @@ window.ssd.no-border-radius {
   margin-left: 4px;
   margin-right: 8px;
 }
+
+banner.child_exited_normally revealer widget {
+  background-color: rgba(38, 162, 105, 0.5);
+  /* after GTK 4.16 is a requirement, switch to the following:
+  /* background-color: color-mix(in srgb, var(--success-bg-color), transparent 50%); */
+}
+
+banner.child_exited_abnormally revealer widget {
+  background-color: rgba(192, 28, 40, 0.5);
+  /* after GTK 4.16 is a requirement, switch to the following:
+  /* background-color: color-mix(in srgb, var(--error-bg-color), transparent 50%); */
+}

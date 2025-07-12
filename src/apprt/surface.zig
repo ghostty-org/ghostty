@@ -98,7 +98,7 @@ pub const Message = union(enum) {
         // This enum is a placeholder for future title styles.
     };
 
-    pub const ChildExited = struct {
+    pub const ChildExited = extern struct {
         exit_code: u32,
         runtime_ms: u64,
     };

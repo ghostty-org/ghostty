@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-07-08 15:13-0500\n"
+"POT-Creation-Date: 2025-07-11 22:56-0500\n"
 "PO-Revision-Date: 2025-03-21 00:08+0900\n"
 "Last-Translator: Lon Sagisawa <lon@sagisawa.me>\n"
 "Language-Team: Japanese\n"
@@ -237,7 +237,7 @@ msgstr ""
 "このテキストには実行可能なコマンドが含まれており、ターミナルに貼り付けるのは"
 "危険な可能性があります。"
 
-#: src/apprt/gtk/CloseDialog.zig:47
+#: src/apprt/gtk/CloseDialog.zig:47 src/apprt/gtk/Surface.zig:2520
 msgid "Close"
 msgstr "閉じる"
 
@@ -276,6 +276,14 @@ msgstr "分割ウィンドウ内のすべてのプロセスが終了します。
 #: src/apprt/gtk/Surface.zig:1257
 msgid "Copied to clipboard"
 msgstr "クリップボードにコピーしました"
+
+#: src/apprt/gtk/Surface.zig:2514
+msgid "Command succeeded"
+msgstr ""
+
+#: src/apprt/gtk/Surface.zig:2516
+msgid "Command failed"
+msgstr ""
 
 #: src/apprt/gtk/Window.zig:216
 msgid "Main Menu"

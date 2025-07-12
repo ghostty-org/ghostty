@@ -272,6 +272,9 @@ pub const Action = union(Key) {
     /// apprt.
     open_url: OpenUrl,
 
+    /// Show a native GUI notification that the child process has exited.
+    show_child_exited: apprt.surface.Message.ChildExited,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -323,6 +326,7 @@ pub const Action = union(Key) {
         redo,
         check_for_updates,
         open_url,
+        show_child_exited,
     };
 
     /// Sync with: ghostty_action_u

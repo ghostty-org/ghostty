@@ -10,7 +10,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-07-08 15:13-0500\n"
+"POT-Creation-Date: 2025-07-11 22:56-0500\n"
 "PO-Revision-Date: 2025-04-14 16:25+0200\n"
 "Last-Translator: cryptocode <cryptocode@zolo.io>\n"
 "Language-Team: Norwegian Bokmal <l10n-no@lister.huftis.org>\n"
@@ -239,7 +239,7 @@ msgstr ""
 "Det ser ut som at kommandoer vil bli kjørt hvis du limer inn dette, vurder "
 "om du mener det er trygt."
 
-#: src/apprt/gtk/CloseDialog.zig:47
+#: src/apprt/gtk/CloseDialog.zig:47 src/apprt/gtk/Surface.zig:2520
 msgid "Close"
 msgstr "Lukk"
 
@@ -278,6 +278,14 @@ msgstr "Den kjørende prosessen for denne splitten vil bli avsluttet."
 #: src/apprt/gtk/Surface.zig:1257
 msgid "Copied to clipboard"
 msgstr "Kopiert til utklippstavlen"
+
+#: src/apprt/gtk/Surface.zig:2514
+msgid "Command succeeded"
+msgstr ""
+
+#: src/apprt/gtk/Surface.zig:2516
+msgid "Command failed"
+msgstr ""
 
 #: src/apprt/gtk/Window.zig:216
 msgid "Main Menu"

@@ -680,6 +680,12 @@ typedef struct {
   uintptr_t len;
 } ghostty_action_open_url_s;
 
+// apprt.surface.Message.ChildExited
+typedef struct {
+  uint32_t exit_code;
+  uint64_t timetime_ms;
+} ghostty_surface_message_childexited_s;
+
 // apprt.Action.Key
 typedef enum {
   GHOSTTY_ACTION_QUIT,
@@ -731,6 +737,7 @@ typedef enum {
   GHOSTTY_ACTION_REDO,
   GHOSTTY_ACTION_CHECK_FOR_UPDATES,
   GHOSTTY_ACTION_OPEN_URL,
+  GHOSTTY_ACTION_SHOW_CHILD_EXITED
 } ghostty_action_tag_e;
 
 typedef union {
@@ -759,6 +766,7 @@ typedef union {
   ghostty_action_reload_config_s reload_config;
   ghostty_action_config_change_s config_change;
   ghostty_action_open_url_s open_url;
+  ghostty_surface_message_childexited_s child_exited;
 } ghostty_action_u;
 
 typedef struct {
