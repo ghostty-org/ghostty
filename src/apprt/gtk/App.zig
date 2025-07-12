@@ -43,6 +43,7 @@ const ClipboardConfirmationWindow = @import("ClipboardConfirmationWindow.zig");
 const CloseDialog = @import("CloseDialog.zig");
 const GlobalShortcuts = @import("GlobalShortcuts.zig");
 const Split = @import("Split.zig");
+const OpenURI = @import("portal.zig").OpenURI;
 const inspector = @import("inspector.zig");
 const key = @import("key.zig");
 const winprotopkg = @import("winproto.zig");
@@ -103,6 +104,8 @@ css_provider: *gtk.CssProvider,
 custom_css_providers: std.ArrayListUnmanaged(*gtk.CssProvider) = .{},
 
 global_shortcuts: ?GlobalShortcuts,
+
+open_uri: OpenURI = undefined,
 
 /// The timer used to quit the application after the last window is closed.
 quit_timer: union(enum) {
@@ -447,6 +450,8 @@ pub fn init(self: *App, core_app: *CoreApp, opts: Options) !void {
         .css_provider = css_provider,
         .global_shortcuts = .init(core_app.alloc, gio_app),
     };
+
+    try self.open_uri.init(self);
 }
 
 // Terminate the application. The application will not be restarted after
@@ -470,6 +475,7 @@ pub fn terminate(self: *App) void {
     if (self.global_shortcuts) |*shortcuts| shortcuts.deinit();
 
     self.config.deinit();
+    self.open_uri.deinit();
 }
 
 /// Perform a given action. Returns `true` if the action was able to be
@@ -1793,17 +1799,32 @@ fn openConfig(self: *App) !bool {
 }
 
 fn openUrl(
-    app: *App,
+    self: *App,
     value: apprt.action.OpenUrl,
 ) void {
-    // TODO: use https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.OpenURI.html
+    if (std.mem.startsWith(u8, value.url, "/")) {
+        self.openUrlFallback(value.kind, value.url);
+        return;
+    }
+    if (std.mem.startsWith(u8, value.url, "file://")) {
+        self.openUrlFallback(value.kind, value.url);
+        return;
+    }
 
+    self.open_uri.start(value) catch |err| {
+        log.err("unable to open uri err={}", .{err});
+        self.openUrlFallback(value.kind, value.url);
+        return;
+    };
+}
+
+pub fn openUrlFallback(self: *App, kind: apprt.action.OpenUrl.Kind, url: []const u8) void {
     // Fallback to the minimal cross-platform way of opening a URL.
     // This is always a safe fallback and enables for example Windows
     // to open URLs (GTK on Windows via WSL is a thing).
     internal_os.open(
-        app.core_app.alloc,
-        value.kind,
-        value.url,
+        self.core_app.alloc,
+        kind,
+        url,
     ) catch |err| log.warn("unable to open url: {}", .{err});
 }
