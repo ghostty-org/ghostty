@@ -2358,6 +2358,13 @@ pub fn defaultTermioEnv(self: *Surface) !std.process.EnvMap {
         try window.winproto.addSubprocessEnv(&env);
     }
 
+    class: {
+        const gio_app = self.app.app.as(gio.Application);
+        const class = std.mem.span(gio_app.getApplicationId() orelse break :class);
+
+        try env.put("GHOSTTY_CLASS", class);
+    }
+
     return env;
 }
 
