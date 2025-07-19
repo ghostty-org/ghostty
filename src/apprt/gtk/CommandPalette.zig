@@ -7,6 +7,7 @@ const adw = @import("adw");
 const gio = @import("gio");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
+const gdk = @import("gdk");
 
 const configpkg = @import("../../config.zig");
 const inputpkg = @import("../../input.zig");
@@ -60,6 +61,12 @@ pub fn init(self: *CommandPalette, window: *Window) !void {
     self.dialog.ref();
     errdefer self.dialog.unref();
 
+    // We register a key event controller with the window so
+    // we can catch key events when the palette is open
+    const ec_key_press = gtk.EventControllerKey.new();
+    errdefer ec_key_press.unref();
+    self.search.as(gtk.Widget).addController(ec_key_press.as(gtk.EventController));
+
     _ = gtk.SearchEntry.signals.stop_search.connect(
         self.search,
         *CommandPalette,
@@ -80,6 +87,14 @@ pub fn init(self: *CommandPalette, window: *Window) !void {
         self.view,
         *CommandPalette,
         rowActivated,
+        self,
+        .{},
+    );
+
+    _ = gtk.EventControllerKey.signals.key_pressed.connect(
+        ec_key_press,
+        *CommandPalette,
+        searchKeyPressEvent,
         self,
         .{},
     );
@@ -163,6 +178,30 @@ fn searchActivated(_: *gtk.SearchEntry, self: *CommandPalette) callconv(.c) void
 
 fn rowActivated(_: *gtk.ListView, pos: c_uint, self: *CommandPalette) callconv(.c) void {
     self.activated(pos);
+}
+
+fn searchKeyPressEvent(ec_key: *gtk.EventControllerKey, keyval: c_uint, keycode: c_uint, gtk_mods: gdk.ModifierType, self: *CommandPalette) callconv(.c) c_int {
+    _ = ec_key;
+    _ = keycode;
+    const mods = key.translateMods(gtk_mods);
+    const total = self.model.as(gio.ListModel).getNItems();
+    const current_pos = self.model.getSelected();
+
+    // Ctrl + N selects the next entry
+    if (keyval == gdk.KEY_n and mods.ctrl and current_pos + 1 < total) {
+        self.model.setSelected(current_pos + 1);
+        self.view.scrollTo(current_pos + 1, .{}, null);
+        return 1;
+    }
+
+    // Ctrl + P selects the previous entry
+    if (keyval == gdk.KEY_p and mods.ctrl and current_pos > 0) {
+        self.model.setSelected(current_pos - 1);
+        self.view.scrollTo(current_pos - 1, .{}, null);
+        return 1;
+    }
+
+    return 0;
 }
 
 /// Object that wraps around a command.
