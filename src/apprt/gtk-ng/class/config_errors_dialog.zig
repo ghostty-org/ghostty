@@ -7,18 +7,14 @@ const gresource = @import("../build/gresource.zig");
 const adw_version = @import("../adw_version.zig");
 const Common = @import("../class.zig").Common;
 const Config = @import("config.zig").Config;
+const Dialog = @import("dialog.zig").Dialog;
 
 const log = std.log.scoped(.gtk_ghostty_config_errors_dialog);
 
 pub const ConfigErrorsDialog = extern struct {
     const Self = @This();
     parent_instance: Parent,
-
-    pub const Parent = if (adw_version.supportsDialogs())
-        adw.AlertDialog
-    else
-        adw.MessageDialog;
-
+    pub const Parent = Dialog;
     pub const getGObjectType = gobject.ext.defineClass(Self, .{
         .name = "GhosttyConfigErrorsDialog",
         .instanceInit = &init,
@@ -76,19 +72,11 @@ pub const ConfigErrorsDialog = extern struct {
     }
 
     pub fn present(self: *Self, parent: ?*gtk.Widget) void {
-        switch (Parent) {
-            adw.AlertDialog => self.as(adw.Dialog).present(parent),
-            adw.MessageDialog => self.as(gtk.Window).present(),
-            else => comptime unreachable,
-        }
+        self.as(Dialog).present(parent);
     }
 
     pub fn close(self: *Self) void {
-        switch (Parent) {
-            adw.AlertDialog => self.as(adw.Dialog).forceClose(),
-            adw.MessageDialog => self.as(gtk.Window).close(),
-            else => comptime unreachable,
-        }
+        self.as(Dialog).close();
     }
 
     fn response(
@@ -147,23 +135,14 @@ pub const ConfigErrorsDialog = extern struct {
         pub const Instance = Self;
 
         fn init(class: *Class) callconv(.C) void {
+            gobject.ext.ensureType(Dialog);
             gtk.Widget.Class.setTemplateFromResource(
                 class.as(gtk.Widget.Class),
-                switch (Parent) {
-                    adw.AlertDialog => comptime gresource.blueprint(.{
-                        .major = 1,
-                        .minor = 5,
-                        .name = "config-errors-dialog",
-                    }),
-
-                    adw.MessageDialog => comptime gresource.blueprint(.{
-                        .major = 1,
-                        .minor = 2,
-                        .name = "config-errors-dialog",
-                    }),
-
-                    else => comptime unreachable,
-                },
+                comptime gresource.blueprint(.{
+                    .major = 1,
+                    .minor = 2,
+                    .name = "config-errors-dialog",
+                }),
             );
 
             // Properties
@@ -176,7 +155,7 @@ pub const ConfigErrorsDialog = extern struct {
 
             // Virtual methods
             gobject.Object.virtual_methods.dispose.implement(class, &dispose);
-            Parent.virtual_methods.response.implement(class, &response);
+            Dialog.Parent.virtual_methods.response.implement(class, &response);
         }
 
         pub fn as(class: *Class, comptime T: type) *T {

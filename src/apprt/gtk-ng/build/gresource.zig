@@ -32,7 +32,6 @@ pub const icon_sizes: []const comptime_int = &.{ 16, 32, 128, 256, 512, 1024 };
 pub const blueprints: []const Blueprint = &.{
     .{ .major = 1, .minor = 2, .name = "config-errors-dialog" },
     .{ .major = 1, .minor = 2, .name = "surface" },
-    .{ .major = 1, .minor = 5, .name = "config-errors-dialog" },
     .{ .major = 1, .minor = 5, .name = "window" },
 };
 
