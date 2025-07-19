@@ -233,20 +233,13 @@ pub const RenderOptions = struct {
                 .icon => metrics.icon_height,
             });
 
-            // We make the opinionated choice here to reduce the width
-            // of icon-height symbols by the same amount horizontally,
-            // since otherwise wide aspect ratio icons like folders end
-            // up far too wide.
-            //
-            // But we *only* do this if the constraint width is 2, since
-            // otherwise it would make them way too small when sized for
-            // a single cell.
+            // We use icon_width only for icon-height symbols with
+            // constraint width 2. When the constraint width is 1,
+            // icons can take the up full cell width.
             const is_icon_width = self.height == .icon and @min(self.max_constraint_width, constraint_width) > 1;
             const orig_avail_width = available_width;
             if (is_icon_width) {
-                const cell_height: f64 = @floatFromInt(metrics.cell_height);
-                const ratio = available_height / cell_height;
-                available_width *= ratio;
+                available_width = @floatFromInt(metrics.icon_width);
             }
 
             const w = available_width -
