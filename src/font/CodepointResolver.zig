@@ -190,7 +190,7 @@ pub fn getIndex(
                 // Discovery is supposed to only return faces that have our
                 // codepoint but we can't search presentation in discovery so
                 // we have to check it here.
-                const face: Collection.Entry = .{ .fallback_deferred = deferred_face };
+                const face: Collection.Entry = .init(.{ .fallback_deferred = deferred_face });
                 if (!face.hasCodepoint(cp, p_mode)) {
                     deferred_face.deinit();
                     continue;
@@ -266,7 +266,7 @@ fn getIndexCodepointOverride(
         const idx = try self.collection.add(
             alloc,
             .regular,
-            .{ .deferred = face },
+            .init(.{ .deferred = face }),
         );
         try self.descriptor_cache.put(alloc, desc, idx);
 
@@ -388,31 +388,31 @@ test getIndex {
 
     {
         errdefer c.deinit(alloc);
-        _ = try c.add(alloc, .regular, .{ .loaded = try .init(
+        _ = try c.add(alloc, .regular, .init(.{ .loaded = try .init(
             lib,
             testFont,
             .{ .size = .{ .points = 12, .xdpi = 96, .ydpi = 96 } },
-        ) });
+        ) }));
         if (comptime !font.options.backend.hasCoretext()) {
             // Coretext doesn't support Noto's format
             _ = try c.add(
                 alloc,
                 .regular,
-                .{ .loaded = try .init(
+                .init(.{ .loaded = try .init(
                     lib,
                     testEmoji,
                     .{ .size = .{ .points = 12 } },
-                ) },
+                ) }),
             );
         }
         _ = try c.add(
             alloc,
             .regular,
-            .{ .loaded = try .init(
+            .init(.{ .loaded = try .init(
                 lib,
                 testEmojiText,
                 .{ .size = .{ .points = 12 } },
-            ) },
+            ) }),
         );
     }
 
@@ -467,21 +467,21 @@ test "getIndex disabled font style" {
     var c = Collection.init();
     c.load_options = .{ .library = lib };
 
-    _ = try c.add(alloc, .regular, .{ .loaded = try .init(
+    _ = try c.add(alloc, .regular, .init(.{ .loaded = try .init(
         lib,
         testFont,
         .{ .size = .{ .points = 12, .xdpi = 96, .ydpi = 96 } },
-    ) });
-    _ = try c.add(alloc, .bold, .{ .loaded = try .init(
+    ) }));
+    _ = try c.add(alloc, .bold, .init(.{ .loaded = try .init(
         lib,
         testFont,
         .{ .size = .{ .points = 12, .xdpi = 96, .ydpi = 96 } },
-    ) });
-    _ = try c.add(alloc, .italic, .{ .loaded = try .init(
+    ) }));
+    _ = try c.add(alloc, .italic, .init(.{ .loaded = try .init(
         lib,
         testFont,
         .{ .size = .{ .points = 12, .xdpi = 96, .ydpi = 96 } },
-    ) });
+    ) }));
 
     var r: CodepointResolver = .{ .collection = c };
     defer r.deinit(alloc);

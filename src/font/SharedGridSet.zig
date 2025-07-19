@@ -203,7 +203,7 @@ fn collection(
                         _ = try c.add(
                             self.alloc,
                             style,
-                            .{ .deferred = face },
+                            .init(.{ .deferred = face }),
                         );
 
                         continue;
@@ -233,7 +233,7 @@ fn collection(
                         _ = try c.add(
                             self.alloc,
                             style,
-                            .{ .deferred = face },
+                            .init(.{ .deferred = face }),
                         );
 
                         continue;
@@ -258,20 +258,20 @@ fn collection(
     _ = try c.add(
         self.alloc,
         .regular,
-        .{ .fallback_loaded = try .init(
+        .init(.{ .fallback_loaded = try .init(
             self.font_lib,
             font.embedded.variable,
             load_options.faceOptions(),
-        ) },
+        ) }),
     );
     try (try c.getFace(try c.add(
         self.alloc,
         .bold,
-        .{ .fallback_loaded = try .init(
+        .init(.{ .fallback_loaded = try .init(
             self.font_lib,
             font.embedded.variable,
             load_options.faceOptions(),
-        ) },
+        ) }),
     ))).setVariations(
         &.{.{ .id = .init("wght"), .value = 700 }},
         load_options.faceOptions(),
@@ -279,34 +279,37 @@ fn collection(
     _ = try c.add(
         self.alloc,
         .italic,
-        .{ .fallback_loaded = try .init(
+        .init(.{ .fallback_loaded = try .init(
             self.font_lib,
             font.embedded.variable_italic,
             load_options.faceOptions(),
-        ) },
+        ) }),
     );
     try (try c.getFace(try c.add(
         self.alloc,
         .bold_italic,
-        .{ .fallback_loaded = try .init(
+        .init(.{ .fallback_loaded = try .init(
             self.font_lib,
             font.embedded.variable_italic,
             load_options.faceOptions(),
-        ) },
+        ) }),
     ))).setVariations(
         &.{.{ .id = .init("wght"), .value = 700 }},
         load_options.faceOptions(),
     );
 
     // Nerd-font symbols fallback.
+    // For proper icon scaling, this should be loaded at the same point
+    // size as the primary font and not undergo size normalization,
+    // hence we use the em size as scale reference.
     _ = try c.add(
         self.alloc,
         .regular,
-        .{ .fallback_loaded = try Face.init(
+        .initWithScaleReference(.{ .fallback_loaded = try .init(
             self.font_lib,
             font.embedded.symbols_nerd_font,
             load_options.faceOptions(),
-        ) },
+        ) }, .em_size),
     );
 
     // On macOS, always search for and add the Apple Emoji font
@@ -324,7 +327,7 @@ fn collection(
             _ = try c.add(
                 self.alloc,
                 .regular,
-                .{ .fallback_deferred = face },
+                .init(.{ .fallback_deferred = face }),
             );
         }
     }
@@ -335,20 +338,20 @@ fn collection(
         _ = try c.add(
             self.alloc,
             .regular,
-            .{ .fallback_loaded = try .init(
+            .init(.{ .fallback_loaded = try .init(
                 self.font_lib,
                 font.embedded.emoji,
                 load_options.faceOptions(),
-            ) },
+            ) }),
         );
         _ = try c.add(
             self.alloc,
             .regular,
-            .{ .fallback_loaded = try .init(
+            .init(.{ .fallback_loaded = try .init(
                 self.font_lib,
                 font.embedded.emoji_text,
                 load_options.faceOptions(),
-            ) },
+            ) }),
         );
     }
 

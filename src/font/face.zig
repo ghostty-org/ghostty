@@ -222,7 +222,7 @@ pub const RenderOptions = struct {
         ) GlyphSize {
             var g = glyph;
 
-            var available_width: f64 = @floatFromInt(
+            const available_width: f64 = @floatFromInt(
                 metrics.cell_width * @min(
                     self.max_constraint_width,
                     constraint_width,
@@ -232,22 +232,6 @@ pub const RenderOptions = struct {
                 .cell => metrics.cell_height,
                 .icon => metrics.icon_height,
             });
-
-            // We make the opinionated choice here to reduce the width
-            // of icon-height symbols by the same amount horizontally,
-            // since otherwise wide aspect ratio icons like folders end
-            // up far too wide.
-            //
-            // But we *only* do this if the constraint width is 2, since
-            // otherwise it would make them way too small when sized for
-            // a single cell.
-            const is_icon_width = self.height == .icon and @min(self.max_constraint_width, constraint_width) > 1;
-            const orig_avail_width = available_width;
-            if (is_icon_width) {
-                const cell_height: f64 = @floatFromInt(metrics.cell_height);
-                const ratio = available_height / cell_height;
-                available_width *= ratio;
-            }
 
             const w = available_width -
                 self.pad_left * available_width -
@@ -370,11 +354,6 @@ pub const RenderOptions = struct {
                 .start => g.y = 0,
                 .end => g.y = h - g.height,
                 .center => g.y = (h - g.height) / 2,
-            }
-
-            // Add offset for icon width restriction, to keep it centered.
-            if (is_icon_width) {
-                g.x += (orig_avail_width - available_width) / 2;
             }
 
             // Re-add our padding before returning.

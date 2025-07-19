@@ -1779,19 +1779,19 @@ fn testShaperWithFont(alloc: Allocator, font_req: TestFont) !TestShaper {
     c.load_options = .{ .library = lib };
 
     // Setup group
-    _ = try c.add(alloc, .regular, .{ .loaded = try .init(
+    _ = try c.add(alloc, .regular, .init(.{ .loaded = try .init(
         lib,
         testFont,
         .{ .size = .{ .points = 12 } },
-    ) });
+    ) }));
 
     if (font.options.backend != .coretext) {
         // Coretext doesn't support Noto's format
-        _ = try c.add(alloc, .regular, .{ .loaded = try .init(
+        _ = try c.add(alloc, .regular, .init(.{ .loaded = try .init(
             lib,
             testEmoji,
             .{ .size = .{ .points = 12 } },
-        ) });
+        ) }));
     } else {
         // On CoreText we want to load Apple Emoji, we should have it.
         var disco = font.Discover.init();
@@ -1804,13 +1804,13 @@ fn testShaperWithFont(alloc: Allocator, font_req: TestFont) !TestShaper {
         defer disco_it.deinit();
         var face = (try disco_it.next()).?;
         errdefer face.deinit();
-        _ = try c.add(alloc, .regular, .{ .deferred = face });
+        _ = try c.add(alloc, .regular, .init(.{ .deferred = face }));
     }
-    _ = try c.add(alloc, .regular, .{ .loaded = try .init(
+    _ = try c.add(alloc, .regular, .init(.{ .loaded = try .init(
         lib,
         testEmojiText,
         .{ .size = .{ .points = 12 } },
-    ) });
+    ) }));
 
     const grid_ptr = try alloc.create(SharedGrid);
     errdefer alloc.destroy(grid_ptr);

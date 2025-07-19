@@ -120,6 +120,60 @@ pub const FaceMetrics = struct {
     pub inline fn lineHeight(self: FaceMetrics) f64 {
         return self.ascent - self.descent + self.line_gap;
     }
+
+    /// Convenience function for getting the cap height. If this is not
+    /// defined in the font, we estimate it as 75% of the ascent.
+    pub inline fn capHeight(self: FaceMetrics) f64 {
+        if (self.cap_height) |value| if (value > 0) return value;
+        return 0.75 * self.ascent;
+    }
+
+    /// Convenience function for getting the ex height. If this is not
+    /// defined in the font, we estimate it as 75% of the cap height.
+    pub inline fn exHeight(self: FaceMetrics) f64 {
+        if (self.ex_height) |value| if (value > 0) return value;
+        return 0.75 * self.capHeight();
+    }
+
+    /// Convenience function for getting the ideograph width. If this is
+    /// not defined in the font, we estimate it as two cell widths.
+    pub inline fn icWidth(self: FaceMetrics) f64 {
+        if (self.ic_width) |value| if (value > 0) return value;
+        return 2 * self.cell_width;
+    }
+
+    /// Convenience function for getting the underline thickness. If
+    /// this is not defined in the font, we estimate it as 15% of the ex
+    /// height.
+    pub inline fn underlineThickness(self: FaceMetrics) f64 {
+        if (self.underline_thickness) |value| if (value > 0) return value;
+        return 0.15 * self.exHeight();
+    }
+
+    /// Convenience function for getting the strikethrough thickness. If
+    /// this is not defined in the font, we set it equal to the
+    /// underline thickness.
+    pub inline fn strikethroughThickness(self: FaceMetrics) f64 {
+        if (self.strikethrough_thickness) |value| if (value > 0) return value;
+        return self.underlineThickness();
+    }
+
+    // NOTE: The getters below return positions, not sizes, so both
+    // positive and negative values are valid, hence no sign validation.
+
+    /// Convenience function for getting the underline position. If
+    /// this is not defined in the font, we place it one underline
+    /// thickness below the baseline.
+    pub inline fn underlinePosition(self: FaceMetrics) f64 {
+        return self.underline_position orelse -self.underlineThickness();
+    }
+
+    /// Convenience function for getting the strikethrough position. If
+    /// this is not defined in the font, we center it at half the ex
+    /// height, so that it's perfectly centered on lower case text.
+    pub inline fn strikethroughPosition(self: FaceMetrics) f64 {
+        return self.strikethrough_position orelse (self.exHeight() + self.strikethroughThickness()) * 0.5;
+    }
 };
 
 /// Calculate our metrics based on values extracted from a font.
@@ -147,35 +201,13 @@ pub fn calc(face: FaceMetrics) Metrics {
     // We calculate a top_to_baseline to make following calculations simpler.
     const top_to_baseline = cell_height - cell_baseline;
 
-    // If we don't have a provided cap height,
-    // we estimate it as 75% of the ascent.
-    const cap_height = face.cap_height orelse face.ascent * 0.75;
-
-    // If we don't have a provided ex height,
-    // we estimate it as 75% of the cap height.
-    const ex_height = face.ex_height orelse cap_height * 0.75;
-
-    // If we don't have a provided underline thickness,
-    // we estimate it as 15% of the ex height.
-    const underline_thickness = @max(1, @ceil(face.underline_thickness orelse 0.15 * ex_height));
-
-    // If we don't have a provided strikethrough thickness
-    // then we just use the underline thickness for it.
-    const strikethrough_thickness = @max(1, @ceil(face.strikethrough_thickness orelse underline_thickness));
-
-    // If we don't have a provided underline position then
-    // we place it 1 underline-thickness below the baseline.
-    const underline_position = @round(top_to_baseline -
-        (face.underline_position orelse
-            -underline_thickness));
-
-    // If we don't have a provided strikethrough position
-    // then we center the strikethrough stroke at half the
-    // ex height, so that it's perfectly centered on lower
-    // case text.
-    const strikethrough_position = @round(top_to_baseline -
-        (face.strikethrough_position orelse
-            ex_height * 0.5 + strikethrough_thickness * 0.5));
+    // Get the other font metrics or their estimates. See doc comments
+    // in FaceMetrics for explanations of the estimation heuristics.
+    const cap_height = face.capHeight();
+    const underline_thickness = @max(1, @ceil(face.underlineThickness()));
+    const strikethrough_thickness = @max(1, @ceil(face.strikethroughThickness()));
+    const underline_position = @round(top_to_baseline - face.underlinePosition());
+    const strikethrough_position = @round(top_to_baseline - face.strikethroughPosition());
 
     // The calculation for icon height in the nerd fonts patcher
     // is two thirds cap height to one third line height, but we

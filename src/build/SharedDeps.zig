@@ -531,7 +531,7 @@ pub fn add(
         const nf_symbols = b.dependency("nerd_fonts_symbols_only", .{});
         step.root_module.addAnonymousImport(
             "nerd_fonts_symbols_only",
-            .{ .root_source_file = nf_symbols.path("SymbolsNerdFontMono-Regular.ttf") },
+            .{ .root_source_file = nf_symbols.path("SymbolsNerdFont-Regular.ttf") },
         );
     }
 
