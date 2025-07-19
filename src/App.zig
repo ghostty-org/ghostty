@@ -132,18 +132,6 @@ pub fn destroy(self: *App) void {
 /// events. This should be called by the application runtime on every loop
 /// tick.
 pub fn tick(self: *App, rt_app: *apprt.App) !void {
-    // If any surfaces are closing, destroy them
-    var i: usize = 0;
-    while (i < self.surfaces.items.len) {
-        const surface = self.surfaces.items[i];
-        if (surface.shouldClose()) {
-            surface.close(false);
-            continue;
-        }
-
-        i += 1;
-    }
-
     // Drain our mailbox
     try self.drainMailbox(rt_app);
 }

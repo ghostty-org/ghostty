@@ -54,6 +54,29 @@ pub const Surface = extern struct {
         };
     };
 
+    pub const signals = struct {
+        /// Emitted whenever the surface would like to be closed for any
+        /// reason.
+        ///
+        /// The surface view does NOT handle its own close confirmation.
+        /// If there is a process alive then the boolean parameter will
+        /// specify it and the parent widget should handle this request.
+        ///
+        /// This signal lets the containing widget decide how closure works.
+        /// This lets this Surface widget be used as a split, tab, etc.
+        /// without it having to be aware of its own semantics.
+        pub const @"close-request" = struct {
+            pub const name = "close-request";
+            pub const connect = impl.connect;
+            const impl = gobject.ext.defineSignal(
+                name,
+                Self,
+                &.{bool},
+                void,
+            );
+        };
+    };
+
     const Private = struct {
         /// The configuration that this surface is using.
         config: ?*Config = null,
@@ -373,6 +396,15 @@ pub const Surface = extern struct {
 
     //---------------------------------------------------------------
     // Libghostty Callbacks
+
+    pub fn close(self: *Self, process_active: bool) void {
+        signals.@"close-request".impl.emit(
+            self,
+            null,
+            .{process_active},
+            null,
+        );
+    }
 
     pub fn getContentScale(self: *Self) apprt.ContentScale {
         const priv = self.private();
@@ -1340,6 +1372,9 @@ pub const Surface = extern struct {
             gobject.ext.registerProperties(class, &.{
                 properties.config.impl,
             });
+
+            // Signals
+            signals.@"close-request".impl.register(.{});
 
             // Virtual methods
             gobject.Object.virtual_methods.dispose.implement(class, &dispose);

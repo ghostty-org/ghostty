@@ -705,15 +705,6 @@ pub const Surface = struct {
         );
     }
 
-    pub fn setShouldClose(self: *Surface) void {
-        _ = self;
-    }
-
-    pub fn shouldClose(self: *const Surface) bool {
-        _ = self;
-        return false;
-    }
-
     pub fn getCursorPos(self: *const Surface) !apprt.CursorPos {
         return self.cursor_pos;
     }

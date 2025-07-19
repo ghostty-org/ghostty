@@ -877,15 +877,6 @@ pub fn controlInspector(
     };
 }
 
-pub fn setShouldClose(self: *Surface) void {
-    _ = self;
-}
-
-pub fn shouldClose(self: *const Surface) bool {
-    _ = self;
-    return false;
-}
-
 pub fn getContentScale(self: *const Surface) !apprt.ContentScale {
     const gtk_scale: f32 = scale: {
         const widget = self.gl_area.as(gtk.Widget);

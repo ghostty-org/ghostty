@@ -26,13 +26,7 @@ pub fn rtApp(self: *Self) *ApprtApp {
 }
 
 pub fn close(self: *Self, process_active: bool) void {
-    _ = self;
-    _ = process_active;
-}
-
-pub fn shouldClose(self: *Self) bool {
-    _ = self;
-    return false;
+    self.surface.close(process_active);
 }
 
 pub fn getTitle(self: *Self) ?[:0]const u8 {

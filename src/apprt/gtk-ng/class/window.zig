@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const adw = @import("adw");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
@@ -23,7 +24,9 @@ pub const Window = extern struct {
     });
 
     const Private = struct {
-        _todo: u8,
+        /// The surface in the view.
+        surface: *Surface = undefined,
+
         pub var offset: c_int = 0;
     };
 
@@ -33,7 +36,19 @@ pub const Window = extern struct {
 
     fn init(self: *Self, _: *Class) callconv(.C) void {
         gtk.Widget.initTemplate(self.as(gtk.Widget));
+
+        const surface = self.private().surface;
+        _ = Surface.signals.@"close-request".connect(
+            surface,
+            *Self,
+            surfaceCloseRequest,
+            self,
+            .{},
+        );
     }
+
+    //---------------------------------------------------------------
+    // Virtual methods
 
     fn dispose(self: *Self) callconv(.C) void {
         gtk.Widget.disposeTemplate(
@@ -45,6 +60,21 @@ pub const Window = extern struct {
             Class.parent,
             self.as(Parent),
         );
+    }
+
+    //---------------------------------------------------------------
+    // Signal handlers
+
+    fn surfaceCloseRequest(
+        surface: *Surface,
+        process_active: bool,
+        self: *Self,
+    ) callconv(.c) void {
+        // Todo
+        _ = process_active;
+
+        assert(surface == self.private().surface);
+        self.as(gtk.Window).close();
     }
 
     const C = Common(Self, Private);
@@ -60,7 +90,6 @@ pub const Window = extern struct {
 
         fn init(class: *Class) callconv(.C) void {
             gobject.ext.ensureType(Surface);
-
             gtk.Widget.Class.setTemplateFromResource(
                 class.as(gtk.Widget.Class),
                 comptime gresource.blueprint(.{
@@ -70,11 +99,14 @@ pub const Window = extern struct {
                 }),
             );
 
+            // Bindings
+            class.bindTemplateChildPrivate("surface", .{});
+
+            // Virtual methods
             gobject.Object.virtual_methods.dispose.implement(class, &dispose);
         }
 
-        pub fn as(class: *Class, comptime T: type) *T {
-            return gobject.ext.as(T, class);
-        }
+        pub const as = C.Class.as;
+        pub const bindTemplateChildPrivate = C.Class.bindTemplateChildPrivate;
     };
 };
