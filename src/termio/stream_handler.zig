@@ -1187,7 +1187,6 @@ pub const StreamHandler = struct {
 
     pub fn handleColorOperation(
         self: *StreamHandler,
-        source: terminal.osc.Command.ColorOperation.Source,
         operations: *const terminal.osc.Command.ColorOperation.List,
         terminator: terminal.osc.Terminator,
     ) !void {
@@ -1201,38 +1200,52 @@ pub const StreamHandler = struct {
         var response: std.ArrayListUnmanaged(u8) = .empty;
         const writer = response.writer(alloc);
 
-        var report: bool = false;
-
-        try writer.print("\x1b]{}", .{source});
-
         var it = operations.constIterator(0);
 
         while (it.next()) |op| {
             switch (op.*) {
-                .set => |set| {
+                .set => |set| set: {
                     switch (set.kind) {
                         .palette => |i| {
                             self.terminal.flags.dirty.palette = true;
                             self.terminal.color_palette.colors[i] = set.color;
                             self.terminal.color_palette.mask.set(i);
                         },
-                        .foreground => {
-                            self.foreground_color = set.color;
-                            _ = self.renderer_mailbox.push(.{
-                                .foreground_color = set.color,
-                            }, .{ .forever = {} });
-                        },
-                        .background => {
-                            self.background_color = set.color;
-                            _ = self.renderer_mailbox.push(.{
-                                .background_color = set.color,
-                            }, .{ .forever = {} });
-                        },
-                        .cursor => {
-                            self.cursor_color = set.color;
-                            _ = self.renderer_mailbox.push(.{
-                                .cursor_color = set.color,
-                            }, .{ .forever = {} });
+                        .dynamic_color => |i| {
+                            switch (i) {
+                                .foreground => {
+                                    self.foreground_color = set.color;
+                                    _ = self.renderer_mailbox.push(.{
+                                        .foreground_color = set.color,
+                                    }, .{ .forever = {} });
+                                },
+                                .background => {
+                                    self.background_color = set.color;
+                                    _ = self.renderer_mailbox.push(.{
+                                        .background_color = set.color,
+                                    }, .{ .forever = {} });
+                                },
+                                .cursor => {
+                                    self.cursor_color = set.color;
+                                    _ = self.renderer_mailbox.push(.{
+                                        .cursor_color = set.color,
+                                    }, .{ .forever = {} });
+                                },
+                                .pointer_foreground,
+                                .pointer_background,
+                                .tektronix_foreground,
+                                .tektronix_background,
+                                .highlight_background,
+                                .tektronix_cursor,
+                                .highlight_foreground,
+                                => {
+                                    log.warn("setting dynamic color {} ({s}) not implemented", .{
+                                        i,
+                                        @tagName(i),
+                                    });
+                                    break :set;
+                                },
+                            }
                         },
                     }
 
@@ -1243,7 +1256,7 @@ pub const StreamHandler = struct {
                     } });
                 },
 
-                .reset => |kind| {
+                .reset => |kind| reset: {
                     switch (kind) {
                         .palette => |i| {
                             const mask = &self.terminal.color_palette.mask;
@@ -1258,40 +1271,58 @@ pub const StreamHandler = struct {
                                 },
                             });
                         },
-                        .foreground => {
-                            self.foreground_color = null;
-                            _ = self.renderer_mailbox.push(.{
-                                .foreground_color = self.foreground_color,
-                            }, .{ .forever = {} });
+                        .dynamic_color => |i| {
+                            switch (i) {
+                                .foreground => {
+                                    self.foreground_color = null;
+                                    _ = self.renderer_mailbox.push(.{
+                                        .foreground_color = self.foreground_color,
+                                    }, .{ .forever = {} });
 
-                            self.surfaceMessageWriter(.{ .color_change = .{
-                                .kind = .foreground,
-                                .color = self.default_foreground_color,
-                            } });
-                        },
-                        .background => {
-                            self.background_color = null;
-                            _ = self.renderer_mailbox.push(.{
-                                .background_color = self.background_color,
-                            }, .{ .forever = {} });
+                                    self.surfaceMessageWriter(.{ .color_change = .{
+                                        .kind = kind,
+                                        .color = self.default_foreground_color,
+                                    } });
+                                },
+                                .background => {
+                                    self.background_color = null;
+                                    _ = self.renderer_mailbox.push(.{
+                                        .background_color = self.background_color,
+                                    }, .{ .forever = {} });
 
-                            self.surfaceMessageWriter(.{ .color_change = .{
-                                .kind = .background,
-                                .color = self.default_background_color,
-                            } });
-                        },
-                        .cursor => {
-                            self.cursor_color = null;
+                                    self.surfaceMessageWriter(.{ .color_change = .{
+                                        .kind = kind,
+                                        .color = self.default_background_color,
+                                    } });
+                                },
+                                .cursor => {
+                                    self.cursor_color = null;
 
-                            _ = self.renderer_mailbox.push(.{
-                                .cursor_color = self.cursor_color,
-                            }, .{ .forever = {} });
+                                    _ = self.renderer_mailbox.push(.{
+                                        .cursor_color = self.cursor_color,
+                                    }, .{ .forever = {} });
 
-                            if (self.default_cursor_color) |color| {
-                                self.surfaceMessageWriter(.{ .color_change = .{
-                                    .kind = .cursor,
-                                    .color = color,
-                                } });
+                                    if (self.default_cursor_color) |color| {
+                                        self.surfaceMessageWriter(.{ .color_change = .{
+                                            .kind = kind,
+                                            .color = color,
+                                        } });
+                                    }
+                                },
+                                .pointer_foreground,
+                                .pointer_background,
+                                .tektronix_foreground,
+                                .tektronix_background,
+                                .highlight_background,
+                                .tektronix_cursor,
+                                .highlight_foreground,
+                                => {
+                                    log.warn("resetting dynamic color {} ({s}) not implemented", .{
+                                        i,
+                                        @tagName(i),
+                                    });
+                                    break :reset;
+                                },
                             }
                         },
                     }
@@ -1300,22 +1331,36 @@ pub const StreamHandler = struct {
                 .report => |kind| report: {
                     if (self.osc_color_report_format == .none) break :report;
 
-                    report = true;
-
                     const color = switch (kind) {
                         .palette => |i| self.terminal.color_palette.colors[i],
-                        .foreground => self.foreground_color orelse self.default_foreground_color,
-                        .background => self.background_color orelse self.default_background_color,
-                        .cursor => self.cursor_color orelse
-                            self.default_cursor_color orelse
-                            self.foreground_color orelse
-                            self.default_foreground_color,
+                        .dynamic_color => |i| switch (i) {
+                            .foreground => self.foreground_color orelse self.default_foreground_color,
+                            .background => self.background_color orelse self.default_background_color,
+                            .cursor => self.cursor_color orelse
+                                self.default_cursor_color orelse
+                                self.foreground_color orelse
+                                self.default_foreground_color,
+                            .pointer_foreground,
+                            .pointer_background,
+                            .tektronix_foreground,
+                            .tektronix_background,
+                            .highlight_background,
+                            .tektronix_cursor,
+                            .highlight_foreground,
+                            => {
+                                log.warn("reporting dynamic color {} ({s}) not implemented", .{
+                                    i,
+                                    @tagName(i),
+                                });
+                                break :report;
+                            },
+                        },
                     };
 
                     switch (self.osc_color_report_format) {
                         .@"16-bit" => switch (kind) {
                             .palette => |i| try writer.print(
-                                ";{d};rgb:{x:0>4}/{x:0>4}/{x:0>4}",
+                                "\x1b]4;{d};rgb:{x:0>4}/{x:0>4}/{x:0>4}",
                                 .{
                                     i,
                                     @as(u16, color.r) * 257,
@@ -1323,9 +1368,10 @@ pub const StreamHandler = struct {
                                     @as(u16, color.b) * 257,
                                 },
                             ),
-                            else => try writer.print(
-                                ";rgb:{x:0>4}/{x:0>4}/{x:0>4}",
+                            .dynamic_color => |i| try writer.print(
+                                "\x1b]{};rgb:{x:0>4}/{x:0>4}/{x:0>4}",
                                 .{
+                                    i,
                                     @as(u16, color.r) * 257,
                                     @as(u16, color.g) * 257,
                                     @as(u16, color.b) * 257,
@@ -1335,7 +1381,7 @@ pub const StreamHandler = struct {
 
                         .@"8-bit" => switch (kind) {
                             .palette => |i| try writer.print(
-                                ";{d};rgb:{x:0>2}/{x:0>2}/{x:0>2}",
+                                "\x1b]4;{d};rgb:{x:0>2}/{x:0>2}/{x:0>2}",
                                 .{
                                     i,
                                     @as(u16, color.r),
@@ -1343,9 +1389,10 @@ pub const StreamHandler = struct {
                                     @as(u16, color.b),
                                 },
                             ),
-                            else => try writer.print(
-                                ";rgb:{x:0>2}/{x:0>2}/{x:0>2}",
+                            .dynamic_color => |i| try writer.print(
+                                "\x1b]{};rgb:{x:0>2}/{x:0>2}/{x:0>2}",
                                 .{
+                                    i,
                                     @as(u16, color.r),
                                     @as(u16, color.g),
                                     @as(u16, color.b),
@@ -1355,13 +1402,14 @@ pub const StreamHandler = struct {
 
                         .none => unreachable,
                     }
+
+                    try writer.writeAll(terminator.string());
                 },
             }
         }
-        if (report) {
-            // If any of the operations were reports, finalize the report
-            // string and send it to the terminal.
-            try writer.writeAll(terminator.string());
+
+        if (response.items.len > 0) {
+            // If any of the operations were reports send it to the terminal.
             const msg = try termio.Message.writeReq(self.alloc, response.items);
             self.messageWriter(msg);
         }
