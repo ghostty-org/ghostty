@@ -16,6 +16,11 @@ const kitty = @import("kitty.zig");
 const log = std.log.scoped(.osc);
 
 pub const Command = union(enum) {
+    /// The default value for the Command. We can't leave it as uninitialized
+    /// or we risk crashes due to calling deinit on allocations that were never
+    /// actually allocated.
+    invalid,
+
     /// Set the window title of the terminal
     ///
     /// If title mode 0  is set text is expect to be hex encoded (i.e. utf-8
@@ -288,7 +293,7 @@ pub const Parser = struct {
     state: State = .empty,
 
     /// Current command of the parser, this accumulates.
-    command: Command = undefined,
+    command: Command = .invalid,
 
     /// Buffer that stores the input we see for a single OSC command.
     /// Slices in Command are offsets into this buffer.
@@ -458,17 +463,16 @@ pub const Parser = struct {
         }
 
         // Some commands have their own memory management we need to clear.
-        // After cleaning up these command, we reset the command to
-        // some nonsense (but valid) command so we don't double free.
-        const default: Command = .{ .hyperlink_end = {} };
+        // After cleaning up these command, we reset the command to the
+        // "invalid" command to avoid double frees and other memory bugs.
         switch (self.command) {
             .kitty_color_protocol => |*v| {
                 v.list.deinit();
-                self.command = default;
+                self.command = .invalid;
             },
             .color_operation => |*v| {
                 v.operations.deinit(self.alloc.?);
-                self.command = default;
+                self.command = .invalid;
             },
             else => {},
         }
@@ -3364,4 +3368,20 @@ test "OSC: kitty color protocol no key" {
     const cmd = p.end('\x1b').?;
     try testing.expect(cmd == .kitty_color_protocol);
     try testing.expectEqual(0, cmd.kitty_color_protocol.list.items.len);
+}
+
+// Note that this test doesn't really do much, as the parser seems to
+// be initialized differently when being run with `zig build test` vs a
+// normal build. In a normal build `p.command` appears as if it contained a
+// `.kitty_color_protocol` command even though it was really uninitialized.
+// When run as a test it appears to be initialized with a different value. If
+// `p.command` appears to have a `.kitty_color_protocol` value but it hasn't
+// been initialized properly you'll get a crash when the ArrayList inside is
+// attempted to be deinitialized.
+test "OSC: incomplete OSC doesn't crash when deinitialized" {
+    const testing = std.testing;
+
+    var p: Parser = .{ .alloc = testing.allocator };
+    p.next('1');
+    p.deinit();
 }
