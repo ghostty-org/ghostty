@@ -6,10 +6,13 @@ pub fn build(b: *std.Build) !void {
 
     const upstream = b.dependency("libxml2", .{});
 
-    const lib = b.addStaticLibrary(.{
+    const lib = b.addLibrary(.{
         .name = "xml2",
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+        }),
+        .linkage = .static,
     });
     lib.linkLibC();
 

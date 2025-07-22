@@ -18,7 +18,7 @@ pub fn initStatic(
     b: *std.Build,
     deps: *const SharedDeps,
 ) !GhosttyLib {
-    const lib = b.addStaticLibrary(.{
+    const lib = b.addLibrary(.{
         .name = "ghostty",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main_c.zig"),
@@ -28,6 +28,7 @@ pub fn initStatic(
             .omit_frame_pointer = deps.config.strip,
             .unwind_tables = if (deps.config.strip) .none else .sync,
         }),
+        .linkage = .static,
     });
     lib.linkLibC();
 

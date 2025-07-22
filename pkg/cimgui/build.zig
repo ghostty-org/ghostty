@@ -12,10 +12,13 @@ pub fn build(b: *std.Build) !void {
     });
 
     const imgui = b.dependency("imgui", .{});
-    const lib = b.addStaticLibrary(.{
+    const lib = b.addLibrary(.{
         .name = "cimgui",
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+        }),
+        .linkage = .static,
     });
     lib.linkLibC();
     lib.linkLibCpp();
