@@ -1085,9 +1085,40 @@ pub const Surface = extern struct {
     //---------------------------------------------------------------
     // Properties
 
+    /// Returns the pwd property without a copy.
+    pub fn getPwd(self: *Self) ?[:0]const u8 {
+        return self.private().pwd;
+    }
+
+    /// Set the pwd property.
+    pub fn setPwd(self: *Self, pwd: [:0]const u8) void {
+        const priv = self.private();
+
+        if (priv.title) |v| {
+            glib.free(@constCast(@ptrCast(v)));
+            priv.title = null;
+        }
+
+        priv.pwd = std.mem.span(glib.strdup(pwd));
+        self.as(gobject.Object).notifyByPspec(properties.pwd.impl.param_spec);
+    }
+
     /// Returns the title property without a copy.
     pub fn getTitle(self: *Self) ?[:0]const u8 {
         return self.private().title;
+    }
+
+    /// Set the title property.
+    pub fn setTitle(self: *Self, title: [:0]const u8) void {
+        const priv = self.private();
+
+        if (priv.title) |v| {
+            glib.free(@constCast(@ptrCast(v)));
+            priv.title = null;
+        }
+
+        priv.title = std.mem.span(glib.strdup(title));
+        self.as(gobject.Object).notifyByPspec(properties.title.impl.param_spec);
     }
 
     fn propConfig(

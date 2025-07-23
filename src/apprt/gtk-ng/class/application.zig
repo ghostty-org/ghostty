@@ -1086,6 +1086,7 @@ const Action = struct {
 
         const win = Window.new(self);
         gtk.Window.present(win.as(gtk.Window));
+        win.setupInitialFocus();
     }
 
     pub fn pwd(
@@ -1095,13 +1096,7 @@ const Action = struct {
         switch (target) {
             .app => log.warn("pwd to app is unexpected", .{}),
             .surface => |surface| {
-                var v = gobject.ext.Value.newFrom(value.pwd);
-                defer v.unset();
-                gobject.Object.setProperty(
-                    surface.rt_surface.gobj().as(gobject.Object),
-                    "pwd",
-                    &v,
-                );
+                surface.rt_surface.setPwd(value.pwd);
             },
         }
     }
@@ -1130,13 +1125,7 @@ const Action = struct {
         switch (target) {
             .app => log.warn("set_title to app is unexpected", .{}),
             .surface => |surface| {
-                var v = gobject.ext.Value.newFrom(value.title);
-                defer v.unset();
-                gobject.Object.setProperty(
-                    surface.rt_surface.gobj().as(gobject.Object),
-                    "title",
-                    &v,
-                );
+                surface.rt_surface.setTitle(value.title);
             },
         }
     }

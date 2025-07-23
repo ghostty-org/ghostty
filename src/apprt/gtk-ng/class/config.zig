@@ -52,6 +52,24 @@ pub const Config = extern struct {
             },
         );
 
+        pub const @"gtk-wide-tabs" = gobject.ext.defineProperty(
+            "gtk-wide-tabs",
+            Self,
+            bool,
+            .{
+                .nick = "gtk-wide-tabs",
+                .blurb = null,
+                .default = false,
+                .accessor = gobject.ext.typedAccessor(
+                    Self,
+                    bool,
+                    .{
+                        .getter = Self.gtkWideTabs,
+                    },
+                ),
+            },
+        );
+
         pub const @"has-diagnostics" = gobject.ext.defineProperty(
             "has-diagnostics",
             Self,
@@ -103,6 +121,12 @@ pub const Config = extern struct {
     /// you can use this.
     pub fn getMut(self: *Self) *CoreConfig {
         return &self.private().config;
+    }
+
+    /// Returns the current value of gtk-wide-tabs.
+    pub fn gtkWideTabs(self: *Self) bool {
+        const config = self.get();
+        return config.@"gtk-wide-tabs";
     }
 
     /// Returns whether this configuration has any diagnostics.
@@ -163,6 +187,7 @@ pub const Config = extern struct {
             gobject.Object.virtual_methods.finalize.implement(class, &finalize);
             gobject.ext.registerProperties(class, &.{
                 properties.@"diagnostics-buffer",
+                properties.@"gtk-wide-tabs",
                 properties.@"has-diagnostics",
             });
         }

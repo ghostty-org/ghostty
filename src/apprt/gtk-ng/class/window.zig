@@ -8,6 +8,7 @@ const gresource = @import("../build/gresource.zig");
 const Common = @import("../class.zig").Common;
 const Application = @import("application.zig").Application;
 const Surface = @import("surface.zig").Surface;
+const Config = @import("config.zig").Config;
 
 const log = std.log.scoped(.gtk_ghostty_window);
 
@@ -23,7 +24,34 @@ pub const Window = extern struct {
         .private = .{ .Type = Private, .offset = &Private.offset },
     });
 
+    pub const properties = struct {
+        pub const config = struct {
+            pub const name = "config";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?*Config,
+                .{
+                    .nick = "Config",
+                    .blurb = "The configuration that this window is using.",
+                    .accessor = gobject.ext.privateFieldAccessor(
+                        Self,
+                        Private,
+                        &Private.offset,
+                        "config",
+                    ),
+                },
+            );
+        };
+    };
+
     const Private = struct {
+        /// The configuration that this window is using.
+        config: ?*Config = null,
+
+        /// The window title widget.
+        window_title: *adw.WindowTitle = undefined,
+
         /// The surface in the view.
         surface: *Surface = undefined,
 
@@ -34,16 +62,51 @@ pub const Window = extern struct {
         return gobject.ext.newInstance(Self, .{ .application = app });
     }
 
+    pub fn setupInitialFocus(self: *Self) void {
+        _ = self.private().surface.as(gtk.Widget).grabFocus();
+    }
+
     fn init(self: *Self, _: *Class) callconv(.C) void {
         gtk.Widget.initTemplate(self.as(gtk.Widget));
 
-        const surface = self.private().surface;
+        const priv = self.private();
+
+        const app = Application.default();
+        priv.config = app.getConfig();
+
+        const surface = priv.surface;
         _ = Surface.signals.@"close-request".connect(
             surface,
             *Self,
             surfaceCloseRequest,
             self,
             .{},
+        );
+        _ = gobject.Object.signals.notify.connect(
+            surface,
+            *Self,
+            &surfaceNotifyHasFocus,
+            self,
+            .{ .detail = "has-focus" },
+        );
+        self.setupSurfacePropertyConnections(surface);
+    }
+
+    fn setupSurfacePropertyConnections(self: *Self, surface: *Surface) void {
+        _ = gobject.Object.signals.notify.connect(
+            surface,
+            *Self,
+            &surfaceNotifyTitle,
+            self,
+            .{ .detail = "title" },
+        );
+
+        _ = gobject.Object.signals.notify.connect(
+            surface,
+            *Self,
+            &surfaceNotifyPwd,
+            self,
+            .{ .detail = "pwd" },
         );
     }
 
@@ -56,10 +119,28 @@ pub const Window = extern struct {
             getGObjectType(),
         );
 
+        const priv = self.private();
+        if (priv.config) |v| {
+            v.unref();
+            priv.config = null;
+        }
+
         gobject.Object.virtual_methods.dispose.call(
             Class.parent,
             self.as(Parent),
         );
+    }
+
+    /// Set the title of the window.
+    fn setTitle(self: *Self, title: [:0]const u8) void {
+        const window_title = self.private().window_title;
+        window_title.setTitle(title);
+    }
+
+    /// Set the subtitle of the window.
+    fn setSubtitle(self: *Self, subtitle: [:0]const u8) void {
+        const window_title = self.private().window_title;
+        window_title.setSubtitle(subtitle);
     }
 
     //---------------------------------------------------------------
@@ -75,6 +156,42 @@ pub const Window = extern struct {
 
         assert(surface == self.private().surface);
         self.as(gtk.Window).close();
+    }
+
+    fn surfaceNotifyHasFocus(surface: *Surface, _: *gobject.ParamSpec, self: *Self) callconv(.c) void {
+        assert(surface == self.private().surface);
+
+        self.setTitle(surface.getTitle().?);
+
+        const subtitle: [:0]const u8 = switch (Application.default().getConfig().get().@"window-subtitle") {
+            .@"working-directory" => surface.getPwd() orelse "",
+            .false => "",
+        };
+        self.setSubtitle(subtitle);
+    }
+
+    fn surfaceNotifyTitle(surface: *Surface, _: *gobject.ParamSpec, self: *Self) callconv(.c) void {
+        assert(surface == self.private().surface);
+
+        if (surface.as(gtk.Widget).grabFocus() == 0) {
+            return;
+        }
+
+        self.setTitle(surface.getTitle().?);
+    }
+
+    fn surfaceNotifyPwd(surface: *Surface, _: *gobject.ParamSpec, self: *Self) callconv(.c) void {
+        assert(surface == self.private().surface);
+
+        if (surface.as(gtk.Widget).grabFocus() == 0) {
+            return;
+        }
+
+        if (Application.default().getConfig().get().@"window-subtitle" != .@"working-directory") {
+            return;
+        }
+
+        self.setSubtitle(surface.getPwd() orelse "");
     }
 
     const C = Common(Self, Private);
@@ -100,7 +217,13 @@ pub const Window = extern struct {
             );
 
             // Bindings
+            class.bindTemplateChildPrivate("window_title", .{});
             class.bindTemplateChildPrivate("surface", .{});
+
+            // Properties
+            gobject.ext.registerProperties(class, &.{
+                properties.config.impl,
+            });
 
             // Virtual methods
             gobject.Object.virtual_methods.dispose.implement(class, &dispose);

@@ -39,8 +39,16 @@ pub fn cgroup(self: *Self) ?[]const u8 {
     return self.surface.cgroupPath();
 }
 
+pub fn setPwd(self: *Self, pwd: [:0]const u8) void {
+    return self.surface.setPwd(pwd);
+}
+
 pub fn getTitle(self: *Self) ?[:0]const u8 {
     return self.surface.getTitle();
+}
+
+pub fn setTitle(self: *Self, title: [:0]const u8) void {
+    return self.surface.setTitle(title);
 }
 
 pub fn getContentScale(self: *const Self) !apprt.ContentScale {

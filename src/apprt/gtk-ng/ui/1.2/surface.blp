@@ -2,6 +2,7 @@ using Gtk 4.0;
 using Adw 1;
 
 template $GhosttySurface: Adw.Bin {
+  focusable: true;
   // We need to wrap our Overlay one more time because if you bind a
   // direct child of your widget to a property, it will double free:
   // https://gitlab.gnome.org/GNOME/gtk/-/blob/847571a1e314aba79260e4ef282e2ed9ba91a0d9/gtk/gtkwidget.c#L11423-11425
