@@ -154,7 +154,7 @@ jobs:
         )
       }}
 
-    runs-on: namespace-profile-ghostty-macos-sequoia
+    runs-on: namespace-profile-ghostty-macos-sequoia-edge
     timeout-minutes: 90
     steps:
       - name: Checkout code
@@ -374,7 +374,7 @@ jobs:
         )
       }}
 
-    runs-on: namespace-profile-ghostty-macos-sequoia
+    runs-on: namespace-profile-ghostty-macos-sequoia-edge
     timeout-minutes: 90
     steps:
       - name: Checkout code
@@ -554,7 +554,7 @@ jobs:
         )
       }}
 
-    runs-on: namespace-profile-ghostty-macos-sequoia
+    runs-on: namespace-profile-ghostty-macos-sequoia-edge
     timeout-minutes: 90
     steps:
       - name: Checkout code
