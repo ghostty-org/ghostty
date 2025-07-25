@@ -14,8 +14,6 @@
 				<string>csh</string>
 				<string>pl</string>
 			</array>
-			<key>CFBundleTypeIconFile</key>
-			<string>AppIcon.icns</string>
 			<key>CFBundleTypeName</key>
 			<string>Terminal scripts</string>
 			<key>CFBundleTypeRole</key>
