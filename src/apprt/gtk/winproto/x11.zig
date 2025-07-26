@@ -175,7 +175,7 @@ pub const Window = struct {
     x11_surface: *gdk_x11.X11Surface,
 
     blur_region: Region = .{},
-    
+
     // Cache last applied values to avoid redundant X11 property updates
     last_applied_blur_region: ?Region = null,
     last_applied_decoration_hints: ?MotifWMHints = null,
@@ -254,7 +254,7 @@ pub const Window = struct {
 
     fn syncBlur(self: *Window) !void {
         const blur = self.config.background_blur;
-        
+
         // When blur is disabled, remove the property if it was previously set
         if (!blur.enabled()) {
             if (self.last_applied_blur_region != null) {
@@ -274,7 +274,7 @@ pub const Window = struct {
 
         const gtk_widget = self.gtk_window.as(gtk.Widget);
         const scale = gtk_widget.getScaleFactor();
-        
+
         self.blur_region.width = gtk_widget.getWidth() * scale;
         self.blur_region.height = gtk_widget.getHeight() * scale;
 
