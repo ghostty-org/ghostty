@@ -1600,6 +1600,10 @@ pub fn Stream(comptime Handler: type) type {
                 .sleep, .show_message_box, .change_conemu_tab_title, .wait_input => {
                     log.warn("unimplemented OSC callback: {}", .{cmd});
                 },
+
+                .invalid => {
+                    log.warn("invalid OSC", .{});
+                },
             }
 
             // Fall through for when we don't have a handler.
