@@ -175,6 +175,10 @@ pub const Window = struct {
     x11_surface: *gdk_x11.X11Surface,
 
     blur_region: Region = .{},
+    
+    // Cache last applied values to avoid redundant X11 property updates
+    last_applied_blur_region: ?Region = null,
+    last_applied_decoration_hints: ?MotifWMHints = null,
 
     pub fn init(
         alloc: Allocator,
@@ -249,6 +253,17 @@ pub const Window = struct {
     }
 
     fn syncBlur(self: *Window) !void {
+        const blur = self.config.background_blur;
+        
+        // When blur is disabled, remove the property if it was previously set
+        if (!blur.enabled()) {
+            if (self.last_applied_blur_region != null) {
+                try self.deleteProperty(self.app.atoms.kde_blur);
+                self.last_applied_blur_region = null;
+            }
+            return;
+        }
+
         // FIXME: This doesn't currently factor in rounded corners on Adwaita,
         // which means that the blur region will grow slightly outside of the
         // window borders. Unfortunately, actually calculating the rounded
@@ -258,20 +273,18 @@ pub const Window = struct {
         // (Wayland also has this visual artifact anyway...)
 
         const gtk_widget = self.gtk_window.as(gtk.Widget);
-
-        // Transform surface coordinates to device coordinates.
-        const scale = self.gtk_window.as(gtk.Widget).getScaleFactor();
+        const scale = gtk_widget.getScaleFactor();
+        
         self.blur_region.width = gtk_widget.getWidth() * scale;
         self.blur_region.height = gtk_widget.getHeight() * scale;
 
-        const blur = self.config.background_blur;
-        log.debug("set blur={}, window xid={}, region={}", .{
-            blur,
-            self.x11_surface.getXid(),
-            self.blur_region,
-        });
+        // Only update X11 properties when the blur region actually changes
+        const region_changed = if (self.last_applied_blur_region) |last|
+            !std.meta.eql(self.blur_region, last)
+        else
+            true;
 
-        if (blur.enabled()) {
+        if (region_changed) {
             try self.changeProperty(
                 Region,
                 self.app.atoms.kde_blur,
@@ -280,8 +293,7 @@ pub const Window = struct {
                 .{ .mode = .replace },
                 &self.blur_region,
             );
-        } else {
-            try self.deleteProperty(self.app.atoms.kde_blur);
+            self.last_applied_blur_region = self.blur_region;
         }
     }
 
@@ -311,14 +323,23 @@ pub const Window = struct {
             .auto, .client, .none => false,
         };
 
-        try self.changeProperty(
-            MotifWMHints,
-            self.app.atoms.motif_wm_hints,
-            self.app.atoms.motif_wm_hints,
-            ._32,
-            .{ .mode = .replace },
-            &hints,
-        );
+        // Only update decoration hints when they actually change
+        const hints_changed = if (self.last_applied_decoration_hints) |last|
+            !std.meta.eql(hints, last)
+        else
+            true;
+
+        if (hints_changed) {
+            try self.changeProperty(
+                MotifWMHints,
+                self.app.atoms.motif_wm_hints,
+                self.app.atoms.motif_wm_hints,
+                ._32,
+                .{ .mode = .replace },
+                &hints,
+            );
+            self.last_applied_decoration_hints = hints;
+        }
     }
 
     pub fn addSubprocessEnv(self: *Window, env: *std.process.EnvMap) !void {
