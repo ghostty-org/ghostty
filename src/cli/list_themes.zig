@@ -220,6 +220,11 @@ const Preview = struct {
         search,
         save,
     },
+    color_theme_filter: enum {
+        all,
+        dark,
+        light,
+    },
     color_scheme: vaxis.Color.Scheme,
     text_input: vaxis.widgets.TextInput,
 
@@ -238,6 +243,7 @@ const Preview = struct {
             .window = 0,
             .hex = false,
             .mode = .normal,
+            .color_theme_filter = .all,
             .color_scheme = .light,
             .text_input = vaxis.widgets.TextInput.init(allocator, &self.vx.unicode),
         };
@@ -308,6 +314,9 @@ const Preview = struct {
 
         self.filtered.clearRetainingCapacity();
 
+        var config = try Config.default(self.allocator);
+        defer config.deinit();
+
         if (self.text_input.buf.realLength() > 0) {
             const first_half = self.text_input.buf.firstHalf();
             const second_half = self.text_input.buf.secondHalf();
@@ -328,16 +337,37 @@ const Preview = struct {
             while (it.next()) |token| try tokens.append(token);
 
             for (self.themes, 0..) |*theme, i| {
-                theme.rank = zf.rank(theme.theme, tokens.items, .{
-                    .to_lower = true,
-                    .plain = true,
-                });
-                if (theme.rank != null) try self.filtered.append(i);
+                if (self.color_theme_filter != .all) {
+                    try config.loadFile(config._arena.?.allocator(), theme.path);
+
+                    if (shouldIncludeFiltered(self, config)) {
+                        theme.rank = zf.rank(theme.theme, tokens.items, .{
+                            .to_lower = true,
+                            .plain = true,
+                        });
+                        if (theme.rank != null) try self.filtered.append(i);
+                    }
+                } else {
+                    theme.rank = zf.rank(theme.theme, tokens.items, .{
+                        .to_lower = true,
+                        .plain = true,
+                    });
+                    if (theme.rank != null) try self.filtered.append(i);
+                }
             }
         } else {
             for (self.themes, 0..) |*theme, i| {
-                try self.filtered.append(i);
-                theme.rank = null;
+                if (self.color_theme_filter != .all) {
+                    try config.loadFile(config._arena.?.allocator(), theme.path);
+
+                    if (shouldIncludeFiltered(self, config)) {
+                        try self.filtered.append(i);
+                        theme.rank = null;
+                    }
+                } else {
+                    try self.filtered.append(i);
+                    theme.rank = null;
+                }
             }
         }
 
@@ -426,6 +456,15 @@ const Preview = struct {
                             self.hex = true;
                         if (key.matches('d', .{}))
                             self.hex = false;
+                        if (key.matches('f', .{})) {
+                            switch (self.color_theme_filter) {
+                                .all => self.color_theme_filter = .dark,
+                                .dark => self.color_theme_filter = .light,
+                                .light => self.color_theme_filter = .all,
+                            }
+                            self.filtered.clearRetainingCapacity();
+                            try self.updateFiltered();
+                        }
                         if (key.matches('c', .{}))
                             try self.vx.copyToSystemClipboard(
                                 self.tty.anyWriter(),
@@ -707,6 +746,7 @@ const Preview = struct {
                     .{ .keys = "C", .help = "Copy theme path to the clipboard." },
                     .{ .keys = "Home", .help = "Go to the start of the list." },
                     .{ .keys = "End", .help = "Go to the end of the list." },
+                    .{ .keys = "f", .help = "Toggle all/dark/light theme filter." },
                     .{ .keys = "/", .help = "Start search." },
                     .{ .keys = "^X, ^/", .help = "Clear search." },
                     .{ .keys = "⏎", .help = "Save theme or close search window." },
@@ -1629,4 +1669,14 @@ fn shouldIncludeTheme(opts: Options, theme_config: Config) bool {
     const is_dark = luminance < 0.5;
 
     return (opts.color == .dark and is_dark) or (opts.color == .light and !is_dark);
+}
+
+fn shouldIncludeFiltered(self: *Preview, theme_config: Config) bool {
+    const rf = @as(f32, @floatFromInt(theme_config.background.r)) / 255.0;
+    const gf = @as(f32, @floatFromInt(theme_config.background.g)) / 255.0;
+    const bf = @as(f32, @floatFromInt(theme_config.background.b)) / 255.0;
+    const luminance = 0.2126 * rf + 0.7152 * gf + 0.0722 * bf;
+    const is_dark = luminance < 0.5;
+
+    return (self.color_theme_filter == .all) or (self.color_theme_filter == .dark and is_dark) or (self.color_theme_filter == .light and !is_dark);
 }
