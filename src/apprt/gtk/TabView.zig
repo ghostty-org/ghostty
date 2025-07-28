@@ -21,11 +21,11 @@ window: *Window,
 /// the tab view
 tab_view: *adw.TabView,
 
-/// latest tab to toggle
+/// latest tab used for tracking tab switches (the tab to switch back to)
 latest_tab_used: ?*Tab = null,
 
-/// previous tab for tracking tab switches
-previous_tab: ?*Tab = null,
+/// current tab for tracking tab switches
+current_tab: ?*Tab = null,
 
 
 
@@ -127,8 +127,8 @@ pub fn gotoNthTab(self: *TabView, position: c_int) bool {
 
 pub fn gotoLastUsedTab(self: *TabView) bool {
     log.debug("gotoLastUsedTab called", .{});
-    const previous_tab = self.previous_tab orelse {
-        log.debug("gotoLastUsedTab: no previous_tab", .{});
+    const latest_tab_used = self.latest_tab_used orelse {
+        log.debug("gotoLastUsedTab: no latest_tab_used", .{});
         return false;
     };
     const current_tab = self.currentTab() orelse {
@@ -136,37 +136,37 @@ pub fn gotoLastUsedTab(self: *TabView) bool {
         return false;
     };
     
-    log.debug("gotoLastUsedTab: current_tab={*}, previous_tab={*}", .{current_tab, previous_tab});
+    log.debug("gotoLastUsedTab: current_tab={*}, latest_tab_used={*}", .{current_tab, latest_tab_used});
     
-    // Don't do anything if we're already on the previous tab
-    if (current_tab == previous_tab) {
-        log.debug("gotoLastUsedTab: already on previous tab", .{});
+    // Don't do anything if we're already on the latest tab used
+    if (current_tab == latest_tab_used) {
+        log.debug("gotoLastUsedTab: already on latest tab used", .{});
         return true;
     }
     
-    // Check if the previous tab still exists (hasn't been closed)
-    const previous_tab_page = self.getTabPage(previous_tab) orelse {
-        log.debug("gotoLastUsedTab: previous tab no longer exists (was closed)", .{});
-        // Clear the invalid previous_tab reference
-        self.previous_tab = null;
+    // Check if the latest tab used still exists (hasn't been closed)
+    const latest_tab_used_page = self.getTabPage(latest_tab_used) orelse {
+        log.debug("gotoLastUsedTab: latest tab used no longer exists (was closed)", .{});
+        // Clear the invalid latest_tab_used reference
+        self.latest_tab_used = null;
         return false;
     };
     
-    const previous_tab_idx = self.tab_view.getPagePosition(previous_tab_page);
-    if (previous_tab_idx < 0) {
-        log.debug("gotoLastUsedTab: could not get position for previous tab", .{});
+    const latest_tab_used_idx = self.tab_view.getPagePosition(latest_tab_used_page);
+    if (latest_tab_used_idx < 0) {
+        log.debug("gotoLastUsedTab: could not get position for latest tab used", .{});
         return false;
     }
     
-    log.debug("gotoLastUsedTab: switching to tab at position {}", .{previous_tab_idx});
+    log.debug("gotoLastUsedTab: switching to tab at position {}", .{latest_tab_used_idx});
     
-    // Switch to the previous tab
-    const result = self.gotoNthTab(previous_tab_idx);
+    // Switch to the latest tab used
+    const result = self.gotoNthTab(latest_tab_used_idx);
     
-    // If successful, update previous_tab to the tab we just left
+    // If successful, update latest_tab_used to the tab we just left
     if (result) {
-        self.previous_tab = current_tab;
-        log.debug("gotoLastUsedTab: success, updated previous_tab to current tab", .{});
+        self.latest_tab_used = current_tab;
+        log.debug("gotoLastUsedTab: success, updated latest_tab_used to current tab", .{});
     } else {
         log.debug("gotoLastUsedTab: gotoNthTab failed", .{});
     }
@@ -247,8 +247,6 @@ fn newTabInsertPosition(self: *TabView, tab: *Tab) c_int {
 
 /// Adds a new tab with the given title to the notebook.
 pub fn addTab(self: *TabView, tab: *Tab, title: [:0]const u8) void {
-    log.debug("addTab: setting latest_tab_used to current tab", .{});
-    self.latest_tab_used = self.currentTab() orelse null;
     const position = self.newTabInsertPosition(tab);
     const page = self.tab_view.insert(tab.box.as(gtk.Widget), position);
     self.setTabTitle(tab, title);
@@ -268,13 +266,13 @@ pub fn closeTab(self: *TabView, tab: *Tab) void {
     }
 
     // Clear references to the tab being closed
-    if (self.previous_tab == tab) {
-        log.debug("closeTab: clearing previous_tab reference to closed tab", .{});
-        self.previous_tab = null;
-    }
     if (self.latest_tab_used == tab) {
         log.debug("closeTab: clearing latest_tab_used reference to closed tab", .{});
         self.latest_tab_used = null;
+    }
+    if (self.current_tab == tab) {
+        log.debug("closeTab: clearing current_tab reference to closed tab", .{});
+        self.current_tab = null;
     }
 
     if (self.getTabPage(tab)) |page| self.tab_view.closePage(page);
@@ -354,16 +352,19 @@ fn adwSelectPage(_: *adw.TabView, _: *gobject.ParamSpec, self: *TabView) callcon
     if (child.getData(Tab.GHOSTTY_TAB)) |tab_data| {
         const tab: *Tab = @ptrCast(@alignCast(tab_data));
         
-        // Store the previous tab before updating to the new one
-        if (self.latest_tab_used != null and self.latest_tab_used != tab) {
-            log.debug("adwSelectPage: switching from tab {*} to tab {*}, storing previous tab", .{self.latest_tab_used, tab});
-            self.previous_tab = self.latest_tab_used;
-        } else if (self.latest_tab_used == null) {
-            log.debug("adwSelectPage: first tab selection, no previous tab to store", .{});
+        // If we have a stored current tab and it's different from the new tab,
+        // then we're switching tabs, so store the current tab as previous
+        if (self.current_tab != null and self.current_tab != tab) {
+            log.debug("adwSelectPage: switching from tab {*} to tab {*}, storing current tab as previous", .{self.current_tab, tab});
+            self.latest_tab_used = self.current_tab;
+        } else if (self.current_tab == null) {
+            log.debug("adwSelectPage: first tab selection, no latest tab used to store", .{});
+        } else {
+            log.debug("adwSelectPage: same tab selected, no change needed", .{});
         }
         
-        log.debug("adwSelectPage: updating latest_tab_used to tab={*}", .{tab});
-        self.latest_tab_used = tab;
+        // Update the current tab
+        self.current_tab = tab;
     } else {
         log.debug("adwSelectPage: could not get tab data", .{});
     }
