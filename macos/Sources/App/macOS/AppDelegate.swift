@@ -493,7 +493,7 @@ class AppDelegate: NSObject,
         self.menuMoveSplitDividerDown?.setImageIfDesired(systemSymbolName: "arrow.down.to.line")
         self.menuMoveSplitDividerLeft?.setImageIfDesired(systemSymbolName: "arrow.left.to.line")
         self.menuMoveSplitDividerRight?.setImageIfDesired(systemSymbolName: "arrow.right.to.line")
-        self.menuFloatOnTop?.setImageIfDesired(systemSymbolName: "square.3.layers.3d.top.filled")
+        self.menuFloatOnTop?.setImageIfDesired(systemSymbolName: "square.filled.on.square")
     }
 
     /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.

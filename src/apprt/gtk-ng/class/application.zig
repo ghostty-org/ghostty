@@ -128,6 +128,9 @@ pub const Application = extern struct {
         /// outside of our own lifecycle and that's okay.
         config_errors_dialog: WeakRef(ConfigErrorsDialog) = .{},
 
+        /// glib source for our signal handler.
+        signal_source: ?c_uint = null,
+
         pub var offset: c_int = 0;
     };
 
@@ -698,6 +701,9 @@ pub const Application = extern struct {
         // Setup our style manager (light/dark mode)
         self.startupStyleManager();
 
+        // Setup some signal handlers
+        self.startupSignals();
+
         // Setup our action map
         self.startupActionMap();
 
@@ -783,6 +789,17 @@ pub const Application = extern struct {
             handleStyleManagerDark,
             self,
             .{ .detail = "dark" },
+        );
+    }
+
+    /// Setup signal handlers
+    fn startupSignals(self: *Self) void {
+        const priv = self.private();
+        assert(priv.signal_source == null);
+        priv.signal_source = glib.unixSignalAdd(
+            std.posix.SIG.USR2,
+            handleSigusr2,
+            self,
         );
     }
 
@@ -914,6 +931,12 @@ pub const Application = extern struct {
             diag.close();
             diag.unref(); // strong ref from get()
         }
+        if (priv.signal_source) |v| {
+            if (glib.Source.remove(v) == 0) {
+                log.warn("unable to remove signal source", .{});
+            }
+            priv.signal_source = null;
+        }
 
         gobject.Object.virtual_methods.dispose.call(
             Class.parent,
@@ -931,6 +954,26 @@ pub const Application = extern struct {
 
     //---------------------------------------------------------------
     // Signal Handlers
+
+    /// SIGUSR2 signal handler via g_unix_signal_add
+    fn handleSigusr2(ud: ?*anyopaque) callconv(.c) c_int {
+        const self: *Self = @ptrCast(@alignCast(ud orelse
+            return @intFromBool(glib.SOURCE_CONTINUE)));
+
+        log.info("received SIGUSR2, reloading configuration", .{});
+        Action.reloadConfig(
+            self,
+            .app,
+            .{},
+        ) catch |err| {
+            // If we fail to reload the configuration, then we want the
+            // user to know it. For now we log but we should show another
+            // GUI.
+            log.warn("error reloading config: {}", .{err});
+        };
+
+        return @intFromBool(glib.SOURCE_CONTINUE);
+    }
 
     fn handleCloseConfirmation(
         _: *CloseConfirmationDialog,

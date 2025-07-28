@@ -258,7 +258,7 @@ recreated the next time you run the VM.
 
 We welcome the contribution of new VM definitions, as long as they meet the following criteria:
 
-1. The should be different enough from existing VM definitions that they represent a distinct
+1. They should be different enough from existing VM definitions that they represent a distinct
    user (and developer) experience.
 2. There's a significant Ghostty user population that uses a similar environment.
 3. The VMs can be built using only packages from the current stable NixOS release.
