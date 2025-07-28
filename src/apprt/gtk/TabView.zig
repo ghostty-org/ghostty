@@ -24,6 +24,11 @@ tab_view: *adw.TabView,
 /// latest tab to toggle
 latest_tab_used: ?*Tab = null,
 
+/// previous tab for tracking tab switches
+previous_tab: ?*Tab = null,
+
+
+
 /// Set to true so that the adw close-page handler knows we're forcing
 /// and to allow a close to happen with no confirm. This is a bit of a hack
 /// because we currently use GTK alerts to confirm tab close and they
@@ -113,18 +118,60 @@ pub fn currentTab(self: *TabView) ?*Tab {
 }
 
 pub fn gotoNthTab(self: *TabView, position: c_int) bool {
-    if (self.currentTab()) |current_tab| {
-        self.latest_tab_used = current_tab;
-    }
+    log.debug("gotoNthTab: switching to position {}", .{position});
     const page_to_select = self.tab_view.getNthPage(position);
     self.tab_view.setSelectedPage(page_to_select);
+    log.debug("gotoNthTab: setSelectedPage called", .{});
     return true;
 }
 
 pub fn gotoLastUsedTab(self: *TabView) bool {
-    const latest_tab = self.latest_tab_used orelse return false;
-    const latest_tab_idx = self.getTabPosition(latest_tab) orelse return false;
-    return self.gotoNthTab(latest_tab_idx);
+    log.debug("gotoLastUsedTab called", .{});
+    const previous_tab = self.previous_tab orelse {
+        log.debug("gotoLastUsedTab: no previous_tab", .{});
+        return false;
+    };
+    const current_tab = self.currentTab() orelse {
+        log.debug("gotoLastUsedTab: no current tab", .{});
+        return false;
+    };
+    
+    log.debug("gotoLastUsedTab: current_tab={*}, previous_tab={*}", .{current_tab, previous_tab});
+    
+    // Don't do anything if we're already on the previous tab
+    if (current_tab == previous_tab) {
+        log.debug("gotoLastUsedTab: already on previous tab", .{});
+        return true;
+    }
+    
+    // Check if the previous tab still exists (hasn't been closed)
+    const previous_tab_page = self.getTabPage(previous_tab) orelse {
+        log.debug("gotoLastUsedTab: previous tab no longer exists (was closed)", .{});
+        // Clear the invalid previous_tab reference
+        self.previous_tab = null;
+        return false;
+    };
+    
+    const previous_tab_idx = self.tab_view.getPagePosition(previous_tab_page);
+    if (previous_tab_idx < 0) {
+        log.debug("gotoLastUsedTab: could not get position for previous tab", .{});
+        return false;
+    }
+    
+    log.debug("gotoLastUsedTab: switching to tab at position {}", .{previous_tab_idx});
+    
+    // Switch to the previous tab
+    const result = self.gotoNthTab(previous_tab_idx);
+    
+    // If successful, update previous_tab to the tab we just left
+    if (result) {
+        self.previous_tab = current_tab;
+        log.debug("gotoLastUsedTab: success, updated previous_tab to current tab", .{});
+    } else {
+        log.debug("gotoLastUsedTab: gotoNthTab failed", .{});
+    }
+    
+    return result;
 }
 
 pub fn getTabPage(self: *TabView, tab: *Tab) ?*adw.TabPage {
@@ -200,6 +247,7 @@ fn newTabInsertPosition(self: *TabView, tab: *Tab) c_int {
 
 /// Adds a new tab with the given title to the notebook.
 pub fn addTab(self: *TabView, tab: *Tab, title: [:0]const u8) void {
+    log.debug("addTab: setting latest_tab_used to current tab", .{});
     self.latest_tab_used = self.currentTab() orelse null;
     const position = self.newTabInsertPosition(tab);
     const page = self.tab_view.insert(tab.box.as(gtk.Widget), position);
@@ -217,6 +265,16 @@ pub fn closeTab(self: *TabView, tab: *Tab) void {
         // self becomes invalid if we close the last page because we close
         // the whole window
         if (n > 1) self.forcing_close = false;
+    }
+
+    // Clear references to the tab being closed
+    if (self.previous_tab == tab) {
+        log.debug("closeTab: clearing previous_tab reference to closed tab", .{});
+        self.previous_tab = null;
+    }
+    if (self.latest_tab_used == tab) {
+        log.debug("closeTab: clearing latest_tab_used reference to closed tab", .{});
+        self.latest_tab_used = null;
     }
 
     if (self.getTabPage(tab)) |page| self.tab_view.closePage(page);
@@ -281,6 +339,7 @@ fn adwTabViewCreateWindow(
 }
 
 fn adwSelectPage(_: *adw.TabView, _: *gobject.ParamSpec, self: *TabView) callconv(.c) void {
+    log.debug("adwSelectPage: signal received", .{});
     const page = self.tab_view.getSelectedPage() orelse return;
 
     // If the tab was previously marked as needing attention
@@ -289,6 +348,25 @@ fn adwSelectPage(_: *adw.TabView, _: *gobject.ParamSpec, self: *TabView) callcon
 
     const title = page.getTitle();
     self.window.setTitle(std.mem.span(title));
+
+    // Update the latest tab used when a tab is selected
+    const child = page.getChild().as(gobject.Object);
+    if (child.getData(Tab.GHOSTTY_TAB)) |tab_data| {
+        const tab: *Tab = @ptrCast(@alignCast(tab_data));
+        
+        // Store the previous tab before updating to the new one
+        if (self.latest_tab_used != null and self.latest_tab_used != tab) {
+            log.debug("adwSelectPage: switching from tab {*} to tab {*}, storing previous tab", .{self.latest_tab_used, tab});
+            self.previous_tab = self.latest_tab_used;
+        } else if (self.latest_tab_used == null) {
+            log.debug("adwSelectPage: first tab selection, no previous tab to store", .{});
+        }
+        
+        log.debug("adwSelectPage: updating latest_tab_used to tab={*}", .{tab});
+        self.latest_tab_used = tab;
+    } else {
+        log.debug("adwSelectPage: could not get tab data", .{});
+    }
 }
 
 fn glibIdleOnceCloseTab(data: ?*anyopaque) callconv(.c) void {
