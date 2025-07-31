@@ -303,6 +303,12 @@ extension Ghostty {
         case hidden
     }
 
+    /// Enum for the macos-dock-drop-folder-behavior config option
+    enum MacOSDockDropFolderBehavior: String {
+        case tab
+        case window
+    }
+
     /// Enum for auto-update-channel config option
     enum AutoUpdateChannel: String {
         case tip

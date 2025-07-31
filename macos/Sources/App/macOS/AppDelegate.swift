@@ -399,11 +399,17 @@ class AppDelegate: NSObject,
         var config = Ghostty.SurfaceConfiguration()
 
         if (isDirectory.boolValue) {
-            // When opening a directory, create a new tab in the main
-            // window with that as the working directory.
-            // If no windows exist, a new one will be created.
+            // When opening a directory, check the configuration to decide
+            // whether to open in a new tab or new window.
             config.workingDirectory = filename
-            _ = TerminalController.newTab(ghostty, withBaseConfig: config)
+            
+            let behavior = ghostty.config.macosDockDropFolderBehavior
+            if behavior == .window {
+                _ = TerminalController.newWindow(ghostty, withBaseConfig: config)
+            } else {
+                // Default to tab behavior
+                _ = TerminalController.newTab(ghostty, withBaseConfig: config)
+            }
         } else {
             // When opening a file, we want to execute the file. To do this, we
             // don't override the command directly, because it won't load the
