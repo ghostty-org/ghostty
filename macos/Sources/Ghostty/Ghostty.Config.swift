@@ -282,6 +282,17 @@ extension Ghostty {
             return MacOSTitlebarProxyIcon(rawValue: str) ?? defaultValue
         }
 
+        var macosDockDropFolderBehavior: MacOSDockDropFolderBehavior {
+            let defaultValue = MacOSDockDropFolderBehavior.tab
+            guard let config = self.config else { return defaultValue }
+            var v: UnsafePointer<Int8>? = nil
+            let key = "macos-dock-drop-folder-behavior"
+            guard ghostty_config_get(config, &v, key, UInt(key.count)) else { return defaultValue }
+            guard let ptr = v else { return defaultValue }
+            let str = String(cString: ptr)
+            return MacOSDockDropFolderBehavior(rawValue: str) ?? defaultValue
+        }
+
         var macosWindowShadow: Bool {
             guard let config = self.config else { return false }
             var v = false;
