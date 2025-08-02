@@ -211,6 +211,18 @@ pub const Window = extern struct {
         /// The configuration that this surface is using.
         config: ?*Config = null,
 
+        /// Kind of hacky to have this but this lets us know if we've
+        /// initialized any single surface yet. We need this because we
+        /// gate default size on this so that we don't resize the window
+        /// after surfaces already exist.
+        ///
+        /// I think long term we can probably get rid of this by implementing
+        /// a property or method that gets us all the surfaces in all the
+        /// tabs and checking if we have zero or one that isn't initialized.
+        ///
+        /// For now, this logic is more similar to our legacy GTK side.
+        surface_init: bool = false,
+
         /// See tabOverviewOpen for why we have this.
         tab_overview_focus_timer: ?c_uint = null,
 
@@ -913,6 +925,8 @@ pub const Window = extern struct {
         _: c_int,
         self: *Self,
     ) callconv(.c) void {
+        const priv = self.private();
+
         // Get the attached page which must be a Tab object.
         const child = page.getChild();
         const tab = gobject.ext.cast(Tab, child) orelse return;
@@ -983,6 +997,20 @@ pub const Window = extern struct {
             self,
             .{},
         );
+
+        // If we've never had a surface initialize yet, then we register
+        // this signal. Its theoretically possible to launch multiple surfaces
+        // before init so we could register this on multiple and that is not
+        // a problem because we'll check the flag again in each handler.
+        if (!priv.surface_init) {
+            _ = Surface.signals.init.connect(
+                surface,
+                *Self,
+                surfaceInit,
+                self,
+                .{},
+            );
+        }
     }
 
     fn tabViewPageDetached(
@@ -1170,6 +1198,31 @@ pub const Window = extern struct {
         }
 
         // We react to the changes in the propMaximized callback
+    }
+
+    fn surfaceInit(
+        surface: *Surface,
+        self: *Self,
+    ) callconv(.c) void {
+        const priv = self.private();
+
+        // Make sure we init only once
+        if (priv.surface_init) return;
+        priv.surface_init = true;
+
+        // Setup our default and minimum size.
+        if (surface.getDefaultSize()) |size| {
+            self.as(gtk.Window).setDefaultSize(
+                @intCast(size.width),
+                @intCast(size.height),
+            );
+        }
+        if (surface.getMinSize()) |size| {
+            self.as(gtk.Widget).setSizeRequest(
+                @intCast(size.width),
+                @intCast(size.height),
+            );
+        }
     }
 
     fn actionAbout(

@@ -9,6 +9,20 @@ const assert = std.debug.assert;
 const gobject = @import("gobject");
 const gtk = @import("gtk");
 
+/// Wrapper around `gobject.boxedCopy` to copy a boxed type `T`.
+pub fn boxedCopy(comptime T: type, ptr: *const T) *T {
+    const copy = gobject.boxedCopy(T.getGObjectType(), ptr);
+    return @ptrCast(@alignCast(copy));
+}
+
+/// Wrapper around `gobject.boxedFree` to free a boxed type `T`.
+pub fn boxedFree(comptime T: type, ptr: ?*T) void {
+    if (ptr) |p| gobject.boxedFree(
+        T.getGObjectType(),
+        p,
+    );
+}
+
 /// Wrapper around `gtk.Widget.getAncestor` to get the widget ancestor
 /// of the given type `T`, or null if it doesn't exist.
 pub fn getAncestor(comptime T: type, widget: *gtk.Widget) ?*T {

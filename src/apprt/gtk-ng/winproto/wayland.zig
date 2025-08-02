@@ -157,11 +157,19 @@ pub const App = struct {
         const ctx_fields = @typeInfo(Context).@"struct".fields;
 
         switch (event) {
-            .global => |v| global: {
+            .global => |v| {
+                log.debug("found global {s}", .{v.interface});
+
                 // We don't actually do anything with this other than checking
                 // for its existence, so we process this separately.
-                if (std.mem.orderZ(u8, v.interface, "xdg_wm_dialog_v1") == .eq)
+                if (std.mem.orderZ(
+                    u8,
+                    v.interface,
+                    "xdg_wm_dialog_v1",
+                ) == .eq) {
                     context.xdg_wm_dialog_present = true;
+                    return;
+                }
 
                 inline for (ctx_fields) |field| {
                     const T = getInterfaceType(field) orelse continue;
@@ -170,19 +178,21 @@ pub const App = struct {
                         u8,
                         v.interface,
                         T.interface.name,
-                    ) != .eq) break :global;
+                    ) == .eq) {
+                        log.debug("matched {}", .{T});
 
-                    @field(context, field.name) = registry.bind(
-                        v.name,
-                        T,
-                        T.generated_version,
-                    ) catch |err| {
-                        log.warn(
-                            "error binding interface {s} error={}",
-                            .{ v.interface, err },
-                        );
-                        return;
-                    };
+                        @field(context, field.name) = registry.bind(
+                            v.name,
+                            T,
+                            T.generated_version,
+                        ) catch |err| {
+                            log.warn(
+                                "error binding interface {s} error={}",
+                                .{ v.interface, err },
+                            );
+                            return;
+                        };
+                    }
                 }
             },
 

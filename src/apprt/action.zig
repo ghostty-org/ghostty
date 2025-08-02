@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_config = @import("../build_config.zig");
 const assert = std.debug.assert;
 const apprt = @import("../apprt.zig");
 const configpkg = @import("../config.zig");
@@ -533,6 +534,16 @@ pub const SizeLimit = extern struct {
 pub const InitialSize = extern struct {
     width: u32,
     height: u32,
+
+    /// Make this a valid gobject if we're in a GTK environment.
+    pub const getGObjectType = switch (build_config.app_runtime) {
+        .gtk, .@"gtk-ng" => @import("gobject").ext.defineBoxed(
+            InitialSize,
+            .{ .name = "GhosttyApprtInitialSize" },
+        ),
+
+        .none => void,
+    };
 };
 
 pub const CellSize = extern struct {
