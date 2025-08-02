@@ -101,3 +101,16 @@ label.resize-overlay {
   /* after GTK 4.16 is a requirement, switch to the following: */
   /* background-color: color-mix(in srgb, var(--error-bg-color), transparent); */
 }
+
+/*
+ * Command Palette
+ */
+.command-palette-search > image:first-child {
+  margin-left: 8px;
+  margin-right: 4px;
+}
+
+.command-palette-search > image:last-child {
+  margin-left: 4px;
+  margin-right: 8px;
+}

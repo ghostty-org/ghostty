@@ -29,6 +29,12 @@ pub fn Common(
             return @ptrCast(@alignCast(gobject.Object.ref(self.as(gobject.Object))));
         }
 
+        /// If the reference count is 1 and the object is floating, clear the
+        /// floating attribute. Otherwise, increase the reference count by 1.
+        pub fn refSink(self: *Self) *Self {
+            return @ptrCast(@alignCast(gobject.Object.refSink(self.as(gobject.Object))));
+        }
+
         /// Decrease the reference count of the object.
         pub fn unref(self: *Self) void {
             gobject.Object.unref(self.as(gobject.Object));
