@@ -7,6 +7,7 @@ enum FullscreenMode {
     case nonNative
     case nonNativeVisibleMenu
     case nonNativePaddedNotch
+    case nonNativeTitledVisibleMenu
 
     /// Initializes the fullscreen style implementation for the mode. This will not toggle any
     /// fullscreen properties. This may fail if the window isn't configured properly for a given
@@ -19,11 +20,14 @@ enum FullscreenMode {
         case .nonNative:
             return NonNativeFullscreen(window)
 
-        case  .nonNativeVisibleMenu:
+        case .nonNativeVisibleMenu:
             return NonNativeFullscreenVisibleMenu(window)
 
         case .nonNativePaddedNotch:
             return NonNativeFullscreenPaddedNotch(window)
+
+        case .nonNativeTitledVisibleMenu:
+            return NonNativeTitledFullscreenVisibleMenu(window)
         }
     }
 }
@@ -33,6 +37,7 @@ protocol FullscreenStyle {
     var delegate: FullscreenDelegate? { get set }
     var isFullscreen: Bool { get }
     var supportsTabs: Bool { get }
+    var fullscreenMode: FullscreenMode { get }
     init?(_ window: NSWindow)
     func enter()
     func exit()
@@ -89,6 +94,7 @@ class FullscreenBase {
 class NativeFullscreen: FullscreenBase, FullscreenStyle {
     var isFullscreen: Bool { window.styleMask.contains(.fullScreen) }
     var supportsTabs: Bool { true }
+    var fullscreenMode: FullscreenMode { .native }
 
     required init?(_ window: NSWindow) {
         // TODO: There are many requirements for native fullscreen we should
@@ -130,6 +136,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
     // Non-native fullscreen never supports tabs because tabs require
     // the "titled" style and we don't have it for non-native fullscreen.
     var supportsTabs: Bool { false }
+    var fullscreenMode: FullscreenMode { .nonNative }
 
     // isFullscreen is dependent on if we have saved state currently. We
     // could one day try to do fancier stuff like inspecting the window
@@ -143,6 +150,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
 
     struct Properties {
         var hideMenu: Bool = true
+        var titled: Bool = false
         var paddedNotch: Bool = false
     }
 
@@ -169,6 +177,10 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
     }
 
     func enter() {
+        enter(shouldFocus: true)
+    }
+
+    func enter(shouldFocus: Bool = true) {
         // If we are in fullscreen we don't do it again.
         guard !isFullscreen else { return }
 
@@ -216,15 +228,20 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
             name: NSWindow.didChangeScreenNotification,
             object: window)
 
-        // Being untitled let's our content take up the full frame.
-        window.styleMask.remove(.titled)
+        if (!properties.titled) {
+            // Being untitled let's our content take up the full frame.
+            window.styleMask.remove(.titled)
+        }
 
         // We dont' want the non-native fullscreen window to be resizable
         // from the edges.
         window.styleMask.remove(.resizable)
 
-        // Focus window
-        window.makeKeyAndOrderFront(nil)
+        if (shouldFocus) {
+            // If we are entering fullscreen, we want to focus the window
+            // so that it is the key window.
+            window.makeKeyAndOrderFront(nil)
+        }
 
         // Set frame to screen size, accounting for any elements such as the menu bar.
         // We do this async so that all the style edits above (title removal, dock
@@ -242,6 +259,10 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
     }
 
     func exit() {
+        exit(shouldFocus: true)
+    }
+
+    func exit(shouldFocus: Bool = true) {
         guard isFullscreen else { return }
         guard let savedState else { return }
 
@@ -254,11 +275,16 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         let firstResponder = window.firstResponder
 
         // Unhide our elements
-        if savedState.dock {
+        if (savedState.dock) {
             unhideDock()
         }
         if (properties.hideMenu && savedState.menu) {
             unhideMenu()
+        }
+        if let window = window as? TerminalWindow {
+            // If we are a TerminalWindow, we need to restore the frameRectConstrained
+            // property so that the window can be resized again.
+            window.frameRectConstrained = savedState.frameRectConstrained
         }
 
         // Restore our saved state
@@ -273,7 +299,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
             if let window = window as? TerminalWindow, window.isTabBar(c) {
                 continue
             }
-            
+
             if window.titlebarAccessoryViewControllers.firstIndex(of: c) == nil {
                 window.addTitlebarAccessoryViewController(c)
             }
@@ -282,23 +308,26 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         // Removing "titled" also clears our toolbar
         window.toolbar = savedState.toolbar
         window.toolbarStyle = savedState.toolbarStyle
-        
-        // If the window was previously in a tab group that isn't empty now,
-        // we re-add it. We have to do this because our process of doing non-native
-        // fullscreen removes the window from the tab group.
-        if let tabGroup = savedState.tabGroup,
-           let tabIndex = savedState.tabGroupIndex,
-            !tabGroup.windows.isEmpty {
-            if tabIndex == 0 {
-                // We were previously the first tab. Add it before ("below")
-                // the first window in the tab group currently.
-                tabGroup.windows.first!.addTabbedWindow(window, ordered: .below)
-            } else if tabIndex <= tabGroup.windows.count {
-                // We were somewhere in the middle
-                tabGroup.windows[tabIndex - 1].addTabbedWindow(window, ordered: .above)
-            } else {
-                // We were at the end
-                tabGroup.windows.last!.addTabbedWindow(window, ordered: .below)
+
+        if (!properties.titled) {
+            // If the window was previously in a tab group that isn't empty now,
+            // we re-add it. We have to do this because our process of doing non-native
+            // fullscreen removes the window from the tab group.
+            if let tabGroup = savedState.tabGroup,
+                let tabIndex = savedState.tabGroupIndex,
+                !tabGroup.windows.isEmpty
+            {
+                if tabIndex == 0 {
+                    // We were previously the first tab. Add it before ("below")
+                    // the first window in the tab group currently.
+                    tabGroup.windows.first!.addTabbedWindow(window, ordered: .below)
+                } else if tabIndex <= tabGroup.windows.count {
+                    // We were somewhere in the middle
+                    tabGroup.windows[tabIndex - 1].addTabbedWindow(window, ordered: .above)
+                } else {
+                    // We were at the end
+                    tabGroup.windows.last!.addTabbedWindow(window, ordered: .below)
+                }
             }
         }
 
@@ -309,12 +338,31 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         // Unset our saved state, we're restored!
         self.savedState = nil
 
-        // Focus window
-        window.makeKeyAndOrderFront(nil)
+        if (shouldFocus) {
+            // Focus window
+            window.makeKeyAndOrderFront(nil)
+        }
 
         // Notify the delegate
         NotificationCenter.default.post(name: .fullscreenDidExit, object: self)
         self.delegate?.fullscreenDidChange()
+    }
+
+    // Some of the tweaks we do to the window in non-native fullscreen need to reapply
+    // after specific events, like regaining focus. This is specially the case for tab
+    // supporting styles which use unofficial api of macOS.
+    func reapply() {
+        if !self.isFullscreen {
+            return
+        }
+
+        if self.properties.titled {
+            DispatchQueue.main.async {
+                guard let screen = self.window.screen else { return }
+
+                self.window.setFrame(self.fullscreenFrame(screen), display: true)
+            }
+        }
     }
 
     private func fullscreenFrame(_ screen: NSScreen) -> NSRect {
@@ -396,6 +444,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
         let titlebarAccessoryViewControllers: [NSTitlebarAccessoryViewController]
         let dock: Bool
         let menu: Bool
+        let frameRectConstrained: Bool
 
         init?(_ window: NSWindow) {
             guard let contentView = window.contentView else { return nil }
@@ -409,6 +458,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
             self.toolbarStyle = window.toolbarStyle
             self.titlebarAccessoryViewControllers = window.titlebarAccessoryViewControllers
             self.dock = window.screen?.hasDock ?? false
+            self.frameRectConstrained = (window as? TerminalWindow)?.frameRectConstrained ?? false
 
             if let cgWindowId = window.cgWindowId {
                 // We hide the menu only if this window is not on any fullscreen
@@ -434,10 +484,18 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
 
 class NonNativeFullscreenVisibleMenu: NonNativeFullscreen {
     override var properties: Properties { Properties(hideMenu: false) }
+    override var fullscreenMode: FullscreenMode { .nonNativeVisibleMenu }
 }
 
 class NonNativeFullscreenPaddedNotch: NonNativeFullscreen {
     override var properties: Properties { Properties(paddedNotch: true) }
+    override var fullscreenMode: FullscreenMode { .nonNativePaddedNotch }
+}
+
+class NonNativeTitledFullscreenVisibleMenu: NonNativeFullscreen {
+    override var supportsTabs: Bool { true }
+    override var properties: Properties { Properties(titled: true) }
+    override var fullscreenMode: FullscreenMode { .nonNativeTitledVisibleMenu }
 }
 
 extension Notification.Name {
