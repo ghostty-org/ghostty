@@ -46,6 +46,10 @@ pub const Options = struct {
     /// The parent surface to inherit settings such as font size, working
     /// directory, etc. from.
     parent: ?*CoreSurface = null,
+    
+    /// Context for the new surface creation to determine inheritance behavior.
+    /// Defaults to .window for backward compatibility.
+    context: apprt.surface.NewSurfaceContext = .window,
 };
 
 /// The container that this surface is directly attached to.
@@ -331,29 +335,31 @@ pub const IMKeyEvent = enum {
 /// data since initialization is delayed with GTK (on realize).
 pub const InitConfig = struct {
     parent: bool = false,
-    pwd: ?[]const u8 = null,
+    context: apprt.surface.NewSurfaceContext = .window,
+    parent_surface: ?*CoreSurface = null,
 
     pub fn init(
         alloc: Allocator,
         app: *App,
         opts: Options,
     ) Allocator.Error!InitConfig {
-        const parent = opts.parent orelse return .{};
+        _ = alloc;
+        _ = app;
+        
 
-        const pwd: ?[]const u8 = if (app.config.@"window-inherit-working-directory")
-            try parent.pwd(alloc)
-        else
-            null;
-        errdefer if (pwd) |p| alloc.free(p);
-
+        
+        // Working directory inheritance is now handled in apprt.surface.newConfig()
+        // so we don't pre-calculate it here to avoid conflicts
         return .{
-            .parent = true,
-            .pwd = pwd,
+            .parent = opts.parent != null,
+            .context = opts.context,
+            .parent_surface = opts.parent,
         };
     }
 
     pub fn deinit(self: *InitConfig, alloc: Allocator) void {
-        if (self.pwd) |pwd| alloc.free(pwd);
+        _ = self;
+        _ = alloc;
     }
 };
 
@@ -702,16 +708,10 @@ fn realize(self: *Surface) !void {
     errdefer self.app.core_app.deleteSurface(self);
 
     // Get our new surface config
-    var config = try apprt.surface.newConfig(self.app.core_app, &self.app.config);
+    var config = try apprt.surface.newConfig(self.app.core_app, &self.app.config, self.init_config.context, self.init_config.parent_surface);
     defer config.deinit();
 
-    if (self.init_config.pwd) |pwd| {
-        // If we have a working directory we want, then we force that.
-        config.@"working-directory" = pwd;
-    } else if (!self.init_config.parent) {
-        // A hack, see the "parent_surface" field for more information.
-        config.@"working-directory" = self.app.config.@"working-directory";
-    }
+
 
     // Initialize our surface now that we have the stable pointer.
     try self.core_surface.init(

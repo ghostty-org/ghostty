@@ -1171,11 +1171,12 @@ class: ?[:0]const u8 = null,
 
 /// The directory to change to after starting the command.
 ///
-/// This setting is secondary to the `window-inherit-working-directory`
-/// setting. If a previous Ghostty terminal exists in the same process,
-/// `window-inherit-working-directory` will take precedence. Otherwise, this
-/// setting will be used. Typically, this setting is used only for the first
-/// window.
+/// This setting is secondary to the inheritance settings. For new windows,
+/// `window-inherit-working-directory` takes precedence. For new tabs,
+/// `tab-inherit-working-directory` takes precedence over both this setting
+/// and the window inheritance setting. For new split panes,
+/// `split-inherit-working-directory` takes precedence. If inheritance is
+/// disabled for the specific context (tab, window, or split), this setting will be used.
 ///
 /// The default is `inherit` except in special scenarios listed next. On macOS,
 /// if Ghostty can detect it is launched from launchd (double-clicked) or
@@ -1508,6 +1509,17 @@ keybind: Keybinds = .{},
 /// previously focused window. If no window was previously focused, the default
 /// working directory will be used (the `working-directory` option).
 @"window-inherit-working-directory": bool = true,
+
+/// If true, new tabs will inherit the working directory of the previously
+/// focused window. This setting takes precedence over `window-inherit-working-directory`
+/// for new tabs only. If false, new tabs will use the `working-directory` setting.
+/// This allows different behavior for new tabs vs new windows.
+@"tab-inherit-working-directory": bool = true,
+
+/// If true, new split panes will inherit the working directory of the previously
+/// focused window. If false, new split panes will use the `working-directory` setting.
+/// This allows different behavior for new split panes vs new tabs and windows.
+@"split-inherit-working-directory": bool = true,
 
 /// If true, new windows and tabs will inherit the font size of the previously
 /// focused window. If no window was previously focused, the default font size
@@ -8484,4 +8496,26 @@ test "compatibility: removed bold-is-bright" {
             cfg.@"bold-color",
         );
     }
+}
+
+test "tab-inherit-working-directory field" {
+    const testing = std.testing;
+    
+    var config = Config{};
+    config.@"tab-inherit-working-directory" = false;
+    try testing.expect(config.@"tab-inherit-working-directory" == false);
+    
+    config.@"tab-inherit-working-directory" = true;
+    try testing.expect(config.@"tab-inherit-working-directory" == true);
+}
+
+test "split-inherit-working-directory field" {
+    const testing = std.testing;
+    
+    var config = Config{};
+    config.@"split-inherit-working-directory" = false;
+    try testing.expect(config.@"split-inherit-working-directory" == false);
+    
+    config.@"split-inherit-working-directory" = true;
+    try testing.expect(config.@"split-inherit-working-directory" == true);
 }
