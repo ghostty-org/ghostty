@@ -7080,6 +7080,42 @@ pub const QuickTerminalSize = struct {
         height: u32,
     };
 
+    /// C API structure for QuickTerminalSize
+    pub const C = extern struct {
+        primary: CSize,
+        secondary: CSize,
+    };
+
+    pub const CSize = extern struct {
+        type: Type,
+        value: u32,
+
+        pub const Type = enum(u8) { none, percentage, pixels };
+
+        pub const none: CSize = .{ .type = .none, .value = 0 };
+
+        fn percentage(v: f32) CSize {
+            return .{ .type = .percentage, .value = @bitCast(v) };
+        }
+
+        fn pixels(v: u32) CSize {
+            return .{ .type = .pixels, .value = v };
+        }
+    };
+
+    pub fn cval(self: QuickTerminalSize) C {
+        return .{
+            .primary = if (self.primary) |p| switch (p) {
+                .percentage => |v| .percentage(v),
+                .pixels => |v| .pixels(v),
+            } else .none,
+            .secondary = if (self.secondary) |s| switch (s) {
+                .percentage => |v| .percentage(v),
+                .pixels => |v| .pixels(v),
+            } else .none,
+        };
+    }
+
     pub fn calculate(
         self: QuickTerminalSize,
         position: QuickTerminalPosition,
