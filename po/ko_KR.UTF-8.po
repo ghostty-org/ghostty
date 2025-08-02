@@ -46,7 +46,7 @@ msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
-"설정에 하나 이상의 문제가 발견되었습니다. 아래 오류(를)들을 확인한 후 설정을 "
+"설정에 하나 이상의 문제가 발견되었습니다. 아래 오류를 확인한 후 설정을 "
 "다시 불러오거나 무시하세요."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
@@ -232,9 +232,7 @@ msgstr "경고: 잠재적으로 안전하지 않은 붙여넣기"
 msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
-msgstr ""
-"이 텍스트를 터미널에 붙여넣는 것은 위험할 수 있습니다. 일부 명령이 실행될 수 "
-"있는 것으로 보입니다."
+msgstr "이 텍스트를 터미널에 붙여넣으면 일부 명령이 실행될 수 있어 위험할 수 있습니다."
 
 #: src/apprt/gtk/CloseDialog.zig:47 src/apprt/gtk/Surface.zig:2531
 msgid "Close"
@@ -278,15 +276,15 @@ msgstr "클립보드에 복사됨"
 
 #: src/apprt/gtk/Surface.zig:1268
 msgid "Cleared clipboard"
-msgstr ""
+msgstr "클립보드 지워짐"
 
 #: src/apprt/gtk/Surface.zig:2525
 msgid "Command succeeded"
-msgstr ""
+msgstr "명령 성공"
 
 #: src/apprt/gtk/Surface.zig:2527
 msgid "Command failed"
-msgstr ""
+msgstr "명령 실패"
 
 #: src/apprt/gtk/Window.zig:216
 msgid "Main Menu"
