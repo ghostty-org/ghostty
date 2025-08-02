@@ -468,7 +468,8 @@ pub const Surface = struct {
         errdefer app.core_app.deleteSurface(self);
 
         // Shallow copy the config so that we can modify it.
-        var config = try apprt.surface.newConfig(app.core_app, &app.config);
+        // Embedded surfaces default to window context since they're typically new instances
+        var config = try apprt.surface.newConfig(app.core_app, &app.config, .window, null);
         defer config.deinit();
 
         // If we have a working directory from the options then we set it.
@@ -865,14 +866,38 @@ pub const Surface = struct {
         };
     }
 
-    pub fn newSurfaceOptions(self: *const Surface) apprt.Surface.Options {
-        const font_size: f32 = font_size: {
-            if (!self.app.config.@"window-inherit-font-size") break :font_size 0;
-            break :font_size self.core_surface.font_size.points;
+    pub fn newSurfaceOptions(self: *const Surface, context: apprt.surface.NewSurfaceContext) apprt.Surface.Options {
+        // Use the centralized inheritance logic
+        var cfg = apprt.surface.newConfig(
+            self.app.core_app,
+            &self.app.config,
+            context,
+            &self.core_surface,
+        ) catch {
+            // If allocation fails, fall back to original config
+            return .{
+                .font_size = if (self.app.config.@"window-inherit-font-size")
+                    self.core_surface.font_size.points
+                else
+                    0,
+                .working_directory = null,
+            };
         };
+        defer cfg.deinit();
+
+        const font_size: f32 = if (self.app.config.@"window-inherit-font-size")
+            self.core_surface.font_size.points
+        else
+            0;
+
+        const working_directory: ?[*:0]const u8 = if (cfg.@"working-directory") |wd|
+            self.app.core_app.alloc.dupeZ(u8, wd) catch null
+        else
+            null;
 
         return .{
             .font_size = font_size,
+            .working_directory = working_directory,
         };
     }
 
@@ -1489,8 +1514,30 @@ pub const CAPI = struct {
     }
 
     /// Returns the config to use for surfaces that inherit from this one.
+    ///
+    /// DEPRECATED: This function is kept for backward compatibility only.
+    /// External code should migrate to ghostty_surface_inherited_config_window(),
+    /// ghostty_surface_inherited_config_tab(), or ghostty_surface_inherited_config_split()
+    /// for explicit context.
+    /// This function assumes window context (.window) for legacy behavior.
+    /// TODO: Remove in next major version.
     export fn ghostty_surface_inherited_config(surface: *Surface) Surface.Options {
-        return surface.newSurfaceOptions();
+        return surface.newSurfaceOptions(.window);
+    }
+
+    /// Returns the config to use for new windows that inherit from this surface.
+    export fn ghostty_surface_inherited_config_window(surface: *Surface) Surface.Options {
+        return surface.newSurfaceOptions(.window);
+    }
+
+    /// Returns the config to use for new tabs that inherit from this surface.
+    export fn ghostty_surface_inherited_config_tab(surface: *Surface) Surface.Options {
+        return surface.newSurfaceOptions(.tab);
+    }
+
+    /// Returns the config to use for new split panes that inherit from this surface.
+    export fn ghostty_surface_inherited_config_split(surface: *Surface) Surface.Options {
+        return surface.newSurfaceOptions(.split);
     }
 
     /// Update the configuration to the provided config for only this surface.

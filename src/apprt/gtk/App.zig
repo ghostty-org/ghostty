@@ -1506,8 +1506,8 @@ fn newWindow(self: *App, parent_: ?*CoreSurface) !void {
     // freed when the window is closed.
     var window = try Window.create(alloc, self);
 
-    // Add our initial tab
-    try window.newTab(parent_);
+    // Add our initial tab (for a new window, use window context)
+    try window.newTabWithContext(parent_, .window);
 
     // Show the new window
     window.present();

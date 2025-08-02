@@ -146,12 +146,21 @@ pub const Mailbox = struct {
     }
 };
 
+/// Context for new surface creation to determine inheritance behavior
+pub const NewSurfaceContext = enum {
+    tab,
+    window,
+    split,
+};
+
 /// Returns a new config for a surface for the given app that should be
 /// used for any new surfaces. The resulting config should be deinitialized
 /// after the surface is initialized.
 pub fn newConfig(
     app: *const App,
     config: *const Config,
+    context: NewSurfaceContext,
+    parent: ?*const Surface,
 ) Allocator.Error!Config {
     // Create a shallow clone
     var copy = config.shallowClone(app.alloc);
@@ -159,10 +168,18 @@ pub fn newConfig(
     // Our allocator is our config's arena
     const alloc = copy._arena.?.allocator();
 
-    // Get our previously focused surface for some inherited values.
-    const prev = app.focusedSurface();
-    if (prev) |p| {
-        if (config.@"window-inherit-working-directory") {
+    // Use the parent surface if provided, otherwise fall back to focused surface
+    const inherit_from = parent orelse app.focusedSurface();
+    
+    if (inherit_from) |p| {
+        // Determine if we should inherit working directory based on context
+        const should_inherit = switch (context) {
+            .tab => config.@"tab-inherit-working-directory",
+            .window => config.@"window-inherit-working-directory",
+            .split => config.@"split-inherit-working-directory",
+        };
+        
+        if (should_inherit) {
             if (try p.pwd(alloc)) |pwd| {
                 copy.@"working-directory" = pwd;
             }
@@ -170,4 +187,267 @@ pub fn newConfig(
     }
 
     return copy;
+}
+
+// Tests
+
+const testing = std.testing;
+
+test "newConfig: tab inherits working directory when enabled" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    // Create a test config with tab inheritance enabled
+    var base_config = try Config.default(testing.allocator);
+    defer base_config.deinit();
+    base_config.@"window-inherit-working-directory" = false;
+    base_config.@"tab-inherit-working-directory" = true;
+    base_config.@"working-directory" = "/default";
+
+    // Create a mock app with no focused surface
+    const MockApp = struct {
+        alloc: Allocator,
+        
+        pub fn focusedSurface(self: *const @This()) ?*const Surface {
+            _ = self;
+            return null;
+        }
+    };
+    
+    var mock_app = MockApp{ .alloc = alloc };
+
+    // Create a mock parent surface with a current working directory
+    const MockSurface = struct {
+        current_pwd: []const u8,
+        
+        pub fn pwd(self: *const @This(), allocator: Allocator) !?[]const u8 {
+            return try allocator.dupe(u8, self.current_pwd);
+        }
+    };
+    
+    var parent_surface = MockSurface{ .current_pwd = "/parent/directory" };
+
+    // Test tab creation - should inherit from parent
+    {
+        var config = try newConfig(&mock_app, &base_config, .tab, &parent_surface);
+        defer config.deinit();
+        
+        try testing.expect(config.@"working-directory" != null);
+        try testing.expectEqualStrings("/parent/directory", config.@"working-directory".?);
+    }
+
+    // Test window creation - should NOT inherit (window inheritance disabled)
+    {
+        var config = try newConfig(&mock_app, &base_config, .window, &parent_surface);
+        defer config.deinit();
+        
+        // Should use the default working directory since window inheritance is disabled
+        try testing.expectEqualStrings("/default", config.@"working-directory".?);
+    }
+}
+
+test "newConfig: window inherits working directory when enabled" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    // Create a test config with window inheritance enabled, tab inheritance disabled
+    var base_config = try Config.default(testing.allocator);
+    defer base_config.deinit();
+    base_config.@"window-inherit-working-directory" = true;
+    base_config.@"tab-inherit-working-directory" = false;
+    base_config.@"working-directory" = "/default";
+
+    // Create a mock app with no focused surface
+    const MockApp = struct {
+        alloc: Allocator,
+        
+        pub fn focusedSurface(self: *const @This()) ?*const Surface {
+            _ = self;
+            return null;
+        }
+    };
+    
+    var mock_app = MockApp{ .alloc = alloc };
+
+    // Create a mock parent surface with a current working directory
+    const MockSurface = struct {
+        current_pwd: []const u8,
+        
+        pub fn pwd(self: *const @This(), allocator: Allocator) !?[]const u8 {
+            return try allocator.dupe(u8, self.current_pwd);
+        }
+    };
+    
+    var parent_surface = MockSurface{ .current_pwd = "/parent/directory" };
+
+    // Test window creation - should inherit from parent
+    {
+        var config = try newConfig(&mock_app, &base_config, .window, &parent_surface);
+        defer config.deinit();
+        
+        try testing.expect(config.@"working-directory" != null);
+        try testing.expectEqualStrings("/parent/directory", config.@"working-directory".?);
+    }
+
+    // Test tab creation - should NOT inherit (tab inheritance disabled)
+    {
+        var config = try newConfig(&mock_app, &base_config, .tab, &parent_surface);
+        defer config.deinit();
+        
+        // Should use the default working directory since tab inheritance is disabled
+        try testing.expectEqualStrings("/default", config.@"working-directory".?);
+    }
+}
+
+test "newConfig: no inheritance when both disabled" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    // Create a test config with both inheritance settings disabled
+    var base_config = try Config.default(testing.allocator);
+    defer base_config.deinit();
+    base_config.@"window-inherit-working-directory" = false;
+    base_config.@"tab-inherit-working-directory" = false;
+    base_config.@"working-directory" = "/default";
+
+    // Create a mock app with no focused surface
+    const MockApp = struct {
+        alloc: Allocator,
+        
+        pub fn focusedSurface(self: *const @This()) ?*const Surface {
+            _ = self;
+            return null;
+        }
+    };
+    
+    var mock_app = MockApp{ .alloc = alloc };
+
+    // Create a mock parent surface with a current working directory
+    const MockSurface = struct {
+        current_pwd: []const u8,
+        
+        pub fn pwd(self: *const @This(), allocator: Allocator) !?[]const u8 {
+            return try allocator.dupe(u8, self.current_pwd);
+        }
+    };
+    
+    var parent_surface = MockSurface{ .current_pwd = "/parent/directory" };
+
+    // Test both tab and window creation - neither should inherit
+    {
+        var tab_config = try newConfig(&mock_app, &base_config, .tab, &parent_surface);
+        defer tab_config.deinit();
+        
+        var window_config = try newConfig(&mock_app, &base_config, .window, &parent_surface);
+        defer window_config.deinit();
+        
+        // Both should use the default working directory
+        try testing.expectEqualStrings("/default", tab_config.@"working-directory".?);
+        try testing.expectEqualStrings("/default", window_config.@"working-directory".?);
+    }
+}
+
+test "newConfig: no parent surface uses default directory" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    // Create a test config with inheritance enabled
+    var base_config = try Config.default(testing.allocator);
+    defer base_config.deinit();
+    base_config.@"window-inherit-working-directory" = true;
+    base_config.@"tab-inherit-working-directory" = true;
+    base_config.@"working-directory" = "/default";
+
+    // Create a mock app with no focused surface
+    const MockApp = struct {
+        alloc: Allocator,
+        
+        pub fn focusedSurface(self: *const @This()) ?*const Surface {
+            _ = self;
+            return null;
+        }
+    };
+    
+    var mock_app = MockApp{ .alloc = alloc };
+
+    // Test with no parent surface provided
+    {
+        var tab_config = try newConfig(&mock_app, &base_config, .tab, null);
+        defer tab_config.deinit();
+        
+        var window_config = try newConfig(&mock_app, &base_config, .window, null);
+        defer window_config.deinit();
+        
+        // Both should use the default working directory since there's no parent to inherit from
+        try testing.expectEqualStrings("/default", tab_config.@"working-directory".?);
+        try testing.expectEqualStrings("/default", window_config.@"working-directory".?);
+    }
+}
+
+test "newConfig: split inherits working directory when enabled" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    // Create a test config with split inheritance enabled
+    var base_config = try Config.default(testing.allocator);
+    defer base_config.deinit();
+    base_config.@"window-inherit-working-directory" = false;
+    base_config.@"tab-inherit-working-directory" = false;
+    base_config.@"split-inherit-working-directory" = true;
+    base_config.@"working-directory" = "/default";
+
+    // Create a mock app with no focused surface
+    const MockApp = struct {
+        alloc: Allocator,
+        
+        pub fn focusedSurface(self: *const @This()) ?*const Surface {
+            _ = self;
+            return null;
+        }
+    };
+    
+    var mock_app = MockApp{ .alloc = alloc };
+
+    // Create a mock parent surface with a current working directory
+    const MockSurface = struct {
+        current_pwd: []const u8,
+        
+        pub fn pwd(self: *const @This(), allocator: Allocator) !?[]const u8 {
+            return try allocator.dupe(u8, self.current_pwd);
+        }
+    };
+    
+    var parent_surface = MockSurface{ .current_pwd = "/parent/directory" };
+
+    // Test split creation - should inherit from parent
+    {
+        var config = try newConfig(&mock_app, &base_config, .split, &parent_surface);
+        defer config.deinit();
+        
+        try testing.expect(config.@"working-directory" != null);
+        try testing.expectEqualStrings("/parent/directory", config.@"working-directory".?);
+    }
+
+    // Test window creation - should NOT inherit (window inheritance disabled)
+    {
+        var config = try newConfig(&mock_app, &base_config, .window, &parent_surface);
+        defer config.deinit();
+        
+        // Should use the default working directory since window inheritance is disabled
+        try testing.expectEqualStrings("/default", config.@"working-directory".?);
+    }
+
+    // Test tab creation - should NOT inherit (tab inheritance disabled)
+    {
+        var config = try newConfig(&mock_app, &base_config, .tab, &parent_surface);
+        defer config.deinit();
+        
+        // Should use the default working directory since tab inheritance is disabled
+        try testing.expectEqualStrings("/default", config.@"working-directory".?);
+    }
 }
