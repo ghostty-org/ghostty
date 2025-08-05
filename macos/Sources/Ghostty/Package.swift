@@ -35,6 +35,16 @@ extension Ghostty {
         var mode: ghostty_build_mode_e
         var version: String
     }
+    
+    struct BuildInfo {
+        var version: String
+        var zigVersion: String
+        var buildMode: String
+        var appRuntime: String
+        var fontBackend: String
+        var renderer: String
+        var releaseChannel: String
+    }
 
     static var info: Info {
         let raw = ghostty_info()
@@ -45,6 +55,62 @@ extension Ghostty {
         ) ?? "unknown"
 
         return Info(mode: raw.build_mode, version: String(version))
+    }
+    
+    static var buildInfo: BuildInfo {
+        let raw = ghostty_build_info()
+        
+        let version = NSString(
+            bytes: raw.version,
+            length: Int(raw.version_len),
+            encoding: NSUTF8StringEncoding
+        ) ?? "unknown"
+        
+        let zigVersion = NSString(
+            bytes: raw.zig_version,
+            length: Int(raw.zig_version_len),
+            encoding: NSUTF8StringEncoding
+        ) ?? "unknown"
+        
+        let buildMode = NSString(
+            bytes: raw.build_mode,
+            length: Int(raw.build_mode_len),
+            encoding: NSUTF8StringEncoding
+        ) ?? "unknown"
+        
+        let appRuntime = NSString(
+            bytes: raw.app_runtime,
+            length: Int(raw.app_runtime_len),
+            encoding: NSUTF8StringEncoding
+        ) ?? "unknown"
+        
+        let fontBackend = NSString(
+            bytes: raw.font_backend,
+            length: Int(raw.font_backend_len),
+            encoding: NSUTF8StringEncoding
+        ) ?? "unknown"
+        
+        let renderer = NSString(
+            bytes: raw.renderer,
+            length: Int(raw.renderer_len),
+            encoding: NSUTF8StringEncoding
+        ) ?? "unknown"
+        
+        let releaseChannel = NSString(
+            bytes: raw.release_channel,
+            length: Int(raw.release_channel_len),
+            encoding: NSUTF8StringEncoding
+        ) ?? "unknown"
+        
+        return BuildInfo(
+            version: String(version),
+            zigVersion: String(zigVersion),
+            buildMode: String(buildMode),
+            appRuntime: String(appRuntime),
+            fontBackend: String(fontBackend),
+            renderer: String(renderer),
+            releaseChannel: String(releaseChannel)
+        )
     }
 }
 
