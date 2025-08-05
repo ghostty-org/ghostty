@@ -59,6 +59,27 @@ const Info = extern struct {
     };
 };
 
+/// ghostty_build_info_s
+const BuildInfo = extern struct {
+    // Basic version info
+    version: [*]const u8,
+    version_len: usize,
+    
+    // Build configuration 
+    zig_version: [*]const u8,
+    zig_version_len: usize,
+    build_mode: [*]const u8,
+    build_mode_len: usize,
+    app_runtime: [*]const u8,
+    app_runtime_len: usize,
+    font_backend: [*]const u8,
+    font_backend_len: usize,
+    renderer: [*]const u8,
+    renderer_len: usize,
+    release_channel: [*]const u8,
+    release_channel_len: usize,
+};
+
 /// ghostty_string_s
 pub const String = extern struct {
     ptr: ?[*]const u8,
@@ -114,6 +135,32 @@ pub export fn ghostty_info() Info {
         },
         .version = build_config.version_string.ptr,
         .version_len = build_config.version_string.len,
+    };
+}
+
+pub export fn ghostty_build_info() BuildInfo {
+    const zig_version = builtin.zig_version_string;
+    const build_mode = @tagName(builtin.mode);
+    const app_runtime = @tagName(build_config.app_runtime);
+    const font_backend = @tagName(build_config.font_backend);
+    const renderer = @tagName(build_config.renderer);
+    const release_channel = @tagName(build_config.release_channel);
+    
+    return .{
+        .version = build_config.version_string.ptr,
+        .version_len = build_config.version_string.len,
+        .zig_version = zig_version.ptr,
+        .zig_version_len = zig_version.len,
+        .build_mode = build_mode.ptr,
+        .build_mode_len = build_mode.len,
+        .app_runtime = app_runtime.ptr,
+        .app_runtime_len = app_runtime.len,
+        .font_backend = font_backend.ptr,
+        .font_backend_len = font_backend.len,
+        .renderer = renderer.ptr,
+        .renderer_len = renderer.len,
+        .release_channel = release_channel.ptr,
+        .release_channel_len = release_channel.len,
     };
 }
 
