@@ -120,7 +120,7 @@ jobs:
 
   build-macos:
     needs: [setup]
-    runs-on: namespace-profile-ghostty-macos-sequoia
+    runs-on: namespace-profile-ghostty-macos-sequoia-edge
     timeout-minutes: 90
     env:
       GHOSTTY_VERSION: ${{ needs.setup.outputs.version }}
@@ -140,6 +140,9 @@ jobs:
 
       - name: XCode Select
         run: sudo xcode-select -s /Applications/Xcode_16.4.app
+
+      - name: Xcode Version
+        run: xcodebuild -version
 
       - name: Setup Sparkle
         env:
@@ -291,7 +294,7 @@ jobs:
 
   appcast:
     needs: [setup, build-macos]
-    runs-on: namespace-profile-ghostty-macos-sequoia
+    runs-on: namespace-profile-ghostty-macos-sequoia-edge
     env:
       GHOSTTY_VERSION: ${{ needs.setup.outputs.version }}
       GHOSTTY_BUILD: ${{ needs.setup.outputs.build }}
