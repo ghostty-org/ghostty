@@ -675,6 +675,24 @@ pub fn init(
             .set_title,
             .{ .title = title },
         );
+    } else if (config.@"initial-command") |initial_command| {
+        switch (initial_command) {
+            // If a user specifies a command with `-e` it is appropriate to set the title
+            // as argv[0]
+            .direct => |cmd| {
+                if (cmd.len != 0) {
+                    _ = try rt_app.performAction(
+                        .{ .surface = self },
+                        .set_title,
+                        .{ .title = cmd[0] },
+                    );
+                }
+            },
+            // We won't set the title in the case the shell expands the command
+            // as that should typically be used to launch a shell which should
+            // set its own titles
+            .shell => {},
+        }
     }
 
     // We are no longer the first surface
