@@ -101,6 +101,8 @@ pub fn formatEntry(
             .@"packed" => {
                 try writer.print("{s} = ", .{name});
                 inline for (info.fields, 0..) |field, i| {
+                    // '_' prefixed fields are assumed to be padding and skipped
+                    if (field.name[0] == '_') continue;
                     if (i > 0) try writer.print(",", .{});
                     try writer.print("{s}{s}", .{
                         if (!@field(value, field.name)) "no-" else "",

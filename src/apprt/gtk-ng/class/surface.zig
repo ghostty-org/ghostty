@@ -24,6 +24,8 @@ const ApprtSurface = @import("../Surface.zig");
 const Common = @import("../class.zig").Common;
 const Application = @import("application.zig").Application;
 const Config = @import("config.zig").Config;
+const CoreConfig = @import("../../../config/Config.zig");
+const BellFeatures = CoreConfig.BellFeatures;
 const ResizeOverlay = @import("resize_overlay.zig").ResizeOverlay;
 const ChildExited = @import("surface_child_exited.zig").SurfaceChildExited;
 const ClipboardConfirmationDialog = @import("clipboard_confirmation_dialog.zig").ClipboardConfirmationDialog;
@@ -211,7 +213,10 @@ pub const Surface = extern struct {
                 ?[:0]const u8,
                 .{
                     .default = null,
-                    .accessor = C.privateStringFieldAccessor("title"),
+                    .accessor = .{
+                        .getter = propGetTitle,
+                        .setter = propSetTitle,
+                    },
                 },
             );
         };
@@ -229,6 +234,42 @@ pub const Surface = extern struct {
                         Private,
                         &Private.offset,
                         "zoom",
+                    ),
+                },
+            );
+        };
+
+        pub const @"bell-ringing" = struct {
+            pub const name = "bell-ringing";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                bool,
+                .{
+                    .default = false,
+                    .accessor = gobject.ext.privateFieldAccessor(
+                        Self,
+                        Private,
+                        &Private.offset,
+                        "bell_ringing",
+                    ),
+                },
+            );
+        };
+
+        pub const @"bell-features" = struct {
+            pub const name = "bell-features";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                BellFeatures,
+                .{
+                    .default = .default,
+                    .accessor = gobject.ext.privateFieldAccessor(
+                        Self,
+                        Private,
+                        &Private.offset,
+                        "bell_features",
                     ),
                 },
             );
@@ -253,21 +294,6 @@ pub const Surface = extern struct {
                 name,
                 Self,
                 &.{*const CloseScope},
-                void,
-            );
-        };
-
-        /// The bell is rung.
-        ///
-        /// The surface view handles the audio bell feature but none of the
-        /// others so it is up to the embedding widget to react to this.
-        pub const bell = struct {
-            pub const name = "bell";
-            pub const connect = impl.connect;
-            const impl = gobject.ext.defineSignal(
-                name,
-                Self,
-                &.{},
                 void,
             );
         };
@@ -469,6 +495,12 @@ pub const Surface = extern struct {
         // Progress bar
         progress_bar_timer: ?c_uint = null,
 
+        /// Whether a border should be shown in reaction to BEL.
+        bell_features: BellFeatures = .default,
+
+        /// Whether a BEL was received since last input.
+        bell_ringing: bool = false,
+
         // Template binds
         child_exited_overlay: *ChildExited,
         context_menu: *gtk.PopoverMenu,
@@ -535,14 +567,131 @@ pub const Surface = extern struct {
 
     /// Ring the bell.
     pub fn ringBell(self: *Self) void {
-        // TODO: Audio feature
+        const priv = self.private();
 
-        signals.bell.impl.emit(
-            self,
-            null,
-            .{},
-            null,
+        // Mark the surface as having recently received a BEL.
+        priv.bell_ringing = true;
+
+        // Send a notification that the "bell-ringing" property has changed so
+        // that other widgets (like the "border") can react.
+        self.as(gobject.Object).notifyByPspec(
+            properties.@"bell-ringing".impl.param_spec,
         );
+
+        const config = config: {
+            if (priv.config) |config| break :config config.ref();
+            break :config Application.default().getConfig();
+        };
+        defer config.unref();
+
+        const cfg = config.get();
+
+        if (cfg.@"bell-features".title) {
+            // Send a notification that the "title" property has changed because
+            // now we'll need to prepend a 🔔 to the title.
+            self.as(gobject.Object).notifyByPspec(
+                properties.title.impl.param_spec,
+            );
+        }
+
+        if (cfg.@"bell-features".audio) audio: {
+            // Play a user-specified audio file.
+
+            const pathname, const required = switch (cfg.@"bell-audio-path" orelse break :audio) {
+                .optional => |path| .{ path, false },
+                .required => |path| .{ path, true },
+            };
+
+            const volume = std.math.clamp(cfg.@"bell-audio-volume", 0.0, 1.0);
+
+            assert(std.fs.path.isAbsolute(pathname));
+            const media_file = gtk.MediaFile.newForFilename(pathname);
+
+            // If the audio file is marked as required, we'll emit an error if
+            // there was a problem playing it. Otherwise there will be silence.
+            if (required) {
+                _ = gobject.Object.signals.notify.connect(
+                    media_file,
+                    ?*anyopaque,
+                    gtkStreamError,
+                    null,
+                    .{ .detail = "error" },
+                );
+            }
+
+            // Watch for the "ended" signal so that we can clean up after
+            // ourselves.
+            _ = gobject.Object.signals.notify.connect(
+                media_file,
+                ?*anyopaque,
+                gtkStreamEnded,
+                null,
+                .{ .detail = "ended" },
+            );
+
+            const media_stream = media_file.as(gtk.MediaStream);
+            media_stream.setVolume(volume);
+            media_stream.play();
+        }
+
+        // Forward to the window and tab so that they can do their thing.
+        _ = self.as(gtk.Widget).activateAction("tab.ring-bell", null);
+        _ = self.as(gtk.Widget).activateAction("win.ring-bell", null);
+    }
+
+    /// Mark the bell as no longer being ringing. This should be done
+    /// on input events except a key release events.
+    fn stopBellRinging(self: *Self) void {
+        const priv = self.private();
+
+        priv.bell_ringing = false;
+
+        // Send a notification that the "title" property has changed because we
+        // may need to stop prepending a 🔔 to the title.
+        self.as(gobject.Object).notifyByPspec(
+            properties.title.impl.param_spec,
+        );
+
+        // Send a notification that the "bell-ringing" property has changed so
+        // that other widgets (like the "border") can react.
+        self.as(gobject.Object).notifyByPspec(
+            properties.@"bell-ringing".impl.param_spec,
+        );
+    }
+
+    /// Handle a stream that is in an error state.
+    fn gtkStreamError(media_file: *gtk.MediaFile, _: *gobject.ParamSpec, _: ?*anyopaque) callconv(.c) void {
+        const path = path: {
+            const file = media_file.getFile() orelse break :path null;
+            break :path file.getPath();
+        };
+        defer if (path) |p| glib.free(p);
+
+        const media_stream = media_file.as(gtk.MediaStream);
+        const err = media_stream.getError() orelse return;
+
+        log.warn("error playing bell from {s}: {s} {d} {s}", .{
+            path orelse "<<unknown>>",
+            glib.quarkToString(err.f_domain),
+            err.f_code,
+            err.f_message orelse "",
+        });
+    }
+
+    /// Stream is finished, release the memory.
+    fn gtkStreamEnded(media_file: *gtk.MediaFile, _: *gobject.ParamSpec, _: ?*anyopaque) callconv(.c) void {
+        media_file.unref();
+    }
+
+    /// Callback used to determine whether border should be shown around the
+    /// surface.
+    fn closureShouldBorderBeShown(
+        _: *Self,
+        bell_features: BellFeatures,
+        bell_ringing_: c_int,
+    ) callconv(.c) c_int {
+        const bell_ringing = bell_ringing_ != 0;
+        return @intFromBool(bell_features.border and bell_ringing);
     }
 
     pub fn toggleFullscreen(self: *Self) void {
@@ -1288,6 +1437,51 @@ pub const Surface = extern struct {
     //---------------------------------------------------------------
     // Properties
 
+    /// Get the title, possibly with a 🔔 prepended. Because we may need to
+    /// do allocations we fully manage the value rather than relying on any
+    /// helpers.
+    fn propGetTitle(self: *Self, value: *gobject.Value) void {
+        const priv = self.private();
+
+        if (priv.title) |v| {
+            // If we're not prepending 🔔, just copy the title and return.
+            if (!priv.bell_ringing or !priv.bell_features.title) {
+                value.setString(v);
+                return;
+            }
+
+            // Prepend a 🔔 to the title.
+            const alloc = Application.default().allocator();
+            const title = std.fmt.allocPrintZ(alloc, "🔔 {s}", .{v}) catch {
+                value.setString("🔔");
+                return;
+            };
+            defer alloc.free(title);
+            value.setString(title);
+            return;
+        }
+
+        if (priv.bell_ringing and priv.bell_features.title) {
+            value.setString("🔔");
+            return;
+        }
+
+        value.setString(null);
+    }
+
+    /// Set the title. Since we may need to do allocations in the getter we
+    /// fully manage this property rather than relying on any helpers.
+    fn propSetTitle(self: *Self, value: *const gobject.Value) void {
+        const priv = self.private();
+        if (priv.title) |v| {
+            glib.free(@constCast(@ptrCast(v)));
+            priv.title = null;
+        }
+        assert(priv.title == null);
+        if (!g_value_holds(value, gobject.ext.types.string)) return;
+        priv.title = std.mem.span(value.dupString() orelse return);
+    }
+
     /// Returns the title property without a copy.
     pub fn getTitle(self: *Self) ?[:0]const u8 {
         return self.private().title;
@@ -1449,6 +1643,14 @@ pub const Surface = extern struct {
                 priv.resize_overlay.as(gobject.Object),
                 "overlay-valign",
                 &valign,
+            );
+        }
+
+        {
+            priv.bell_features = config.@"bell-features";
+
+            self.as(gobject.Object).notifyByPspec(
+                properties.@"bell-features".impl.param_spec,
             );
         }
     }
@@ -1655,6 +1857,9 @@ pub const Surface = extern struct {
         gtk_mods: gdk.ModifierType,
         self: *Self,
     ) callconv(.c) c_int {
+        // Cancel any effects of a previous BEL.
+        self.stopBellRinging();
+
         return @intFromBool(self.keyEvent(
             .press,
             ec_key,
@@ -1681,6 +1886,9 @@ pub const Surface = extern struct {
     }
 
     fn ecFocusEnter(_: *gtk.EventControllerFocus, self: *Self) callconv(.c) void {
+        // Cancel any effects of a previous BEL.
+        self.stopBellRinging();
+
         const priv = self.private();
         priv.focused = true;
         priv.im_context.as(gtk.IMContext).focusIn();
@@ -1720,6 +1928,9 @@ pub const Surface = extern struct {
         y: f64,
         self: *Self,
     ) callconv(.c) void {
+        // Cancel any effects of a previous BEL.
+        self.stopBellRinging();
+
         const event = gesture.as(gtk.EventController).getCurrentEvent() orelse return;
 
         // If we don't have focus, grab it.
@@ -2396,6 +2607,7 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("notify_mouse_hover_url", &propMouseHoverUrl);
             class.bindTemplateCallback("notify_mouse_hidden", &propMouseHidden);
             class.bindTemplateCallback("notify_mouse_shape", &propMouseShape);
+            class.bindTemplateCallback("should_border_be_shown", &closureShouldBorderBeShown);
 
             // Properties
             gobject.ext.registerProperties(class, &.{
@@ -2411,11 +2623,12 @@ pub const Surface = extern struct {
                 properties.pwd.impl,
                 properties.title.impl,
                 properties.zoom.impl,
+                properties.@"bell-ringing".impl,
+                properties.@"bell-features".impl,
             });
 
             // Signals
             signals.@"close-request".impl.register(.{});
-            signals.bell.impl.register(.{});
             signals.@"clipboard-read".impl.register(.{});
             signals.@"clipboard-write".impl.register(.{});
             signals.init.impl.register(.{});
@@ -2786,7 +2999,7 @@ const Clipboard = struct {
 
 /// Check a GValue to see what's type its wrapping. This is equivalent to GTK's
 /// `G_VALUE_HOLDS` macro but Zig's C translator does not like it.
-fn g_value_holds(value_: ?*gobject.Value, g_type: gobject.Type) bool {
+fn g_value_holds(value_: ?*const gobject.Value, g_type: gobject.Type) bool {
     if (value_) |value| {
         if (value.f_g_type == g_type) return true;
         return gobject.typeCheckValueHolds(value, g_type) != 0;

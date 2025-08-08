@@ -584,6 +584,8 @@ fn parsePackedStruct(comptime T: type, v: []const u8) !T {
     bools: {
         const b = parseBool(v) catch break :bools;
         inline for (info.fields) |field| {
+            // '_' prefixed fields are assumed to be padding and skipped
+            if (field.name[0] == '_') continue;
             assert(field.type == bool);
             @field(result, field.name) = b;
         }
@@ -606,6 +608,8 @@ fn parsePackedStruct(comptime T: type, v: []const u8) !T {
         };
 
         inline for (info.fields) |field| {
+            // '_' prefixed fields are assumed to be padding and skipped
+            if (field.name[0] == '_') continue;
             assert(field.type == bool);
             if (std.mem.eql(u8, field.name, part)) {
                 @field(result, field.name) = value;

@@ -2433,7 +2433,12 @@ keybind: Keybinds = .{},
 ///    Prepend a bell emoji (🔔) to the title of the alerted surface until the
 ///    terminal is re-focused or interacted with (such as on keyboard input).
 ///
-///    Only implemented on macOS.
+///  * `border`
+///
+///    Display a border around the alerted surface until the terminal is
+///    re-focused or interacted with (such as on keyboard input).
+///
+///    GTK only.
 ///
 /// Example: `audio`, `no-audio`, `system`, `no-system`
 ///
@@ -6982,12 +6987,28 @@ pub const AppNotifications = packed struct {
     @"clipboard-copy": bool = true,
 };
 
-/// See bell-features
-pub const BellFeatures = packed struct {
+/// See bell-features.
+///
+/// Use c_uint as the backing type so that GTK can use it as an object.
+pub const BellFeatures = packed struct(c_uint) {
     system: bool = false,
     audio: bool = false,
     attention: bool = true,
     title: bool = true,
+    border: bool = false,
+    _padding: u27 = 0,
+
+    pub const default: BellFeatures = .{};
+
+    /// Make this a valid gobject if we're in a GTK environment.
+    pub const getGObjectType = switch (build_config.app_runtime) {
+        .gtk, .@"gtk-ng" => @import("gobject").ext.defineFlags(
+            BellFeatures,
+            .{ .name = "GhosttyConfigBellFeatures" },
+        ),
+
+        .none => void,
+    };
 };
 
 /// See mouse-shift-capture
