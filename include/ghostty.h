@@ -347,6 +347,23 @@ typedef struct {
 } ghostty_info_s;
 
 typedef struct {
+  const char* version;
+  uintptr_t version_len;
+  const char* zig_version;
+  uintptr_t zig_version_len;
+  const char* build_mode;
+  uintptr_t build_mode_len;
+  const char* app_runtime;
+  uintptr_t app_runtime_len;
+  const char* font_backend;
+  uintptr_t font_backend_len;
+  const char* renderer;
+  uintptr_t renderer_len;
+  const char* release_channel;
+  uintptr_t release_channel_len;
+} ghostty_build_info_s;
+
+typedef struct {
   const char* message;
 } ghostty_diagnostic_s;
 
@@ -859,6 +876,7 @@ typedef enum {
 int ghostty_init(uintptr_t, char**);
 void ghostty_cli_try_action(void);
 ghostty_info_s ghostty_info(void);
+ghostty_build_info_s ghostty_build_info(void);
 const char* ghostty_translate(const char*);
 void ghostty_string_free(ghostty_string_s);
 
