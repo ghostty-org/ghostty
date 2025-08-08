@@ -102,6 +102,12 @@ label.resize-overlay {
   /* background-color: color-mix(in srgb, var(--error-bg-color), transparent); */
 }
 
+.surface .bell-overlay {
+  border-color: color-mix(in srgb, var(--accent-color), transparent 50%);
+  border-width: 3px;
+  border-style: solid;
+}
+
 /*
  * Command Palette
  */

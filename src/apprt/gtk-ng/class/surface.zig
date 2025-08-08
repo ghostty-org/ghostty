@@ -659,6 +659,17 @@ pub const Surface = extern struct {
         media_file.unref();
     }
 
+    /// Callback used to determine whether border should be shown around the
+    /// surface.
+    fn closureShouldBorderBeShown(
+        _: *Self,
+        bell_features: BellFeatures,
+        bell_ringing_: c_int,
+    ) callconv(.c) c_int {
+        const bell_ringing = bell_ringing_ != 0;
+        return @intFromBool(bell_features.border and bell_ringing);
+    }
+
     pub fn toggleFullscreen(self: *Self) void {
         signals.@"toggle-fullscreen".impl.emit(
             self,
@@ -2522,6 +2533,7 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("notify_mouse_hover_url", &propMouseHoverUrl);
             class.bindTemplateCallback("notify_mouse_hidden", &propMouseHidden);
             class.bindTemplateCallback("notify_mouse_shape", &propMouseShape);
+            class.bindTemplateCallback("should_border_be_shown", &closureShouldBorderBeShown);
 
             // Properties
             gobject.ext.registerProperties(class, &.{
