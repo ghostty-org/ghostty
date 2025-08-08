@@ -23,6 +23,7 @@ const font = @import("../../font/main.zig");
 const i18n = @import("../../os/main.zig").i18n;
 const input = @import("../../input.zig");
 const CoreSurface = @import("../../Surface.zig");
+const apprt = @import("../../apprt.zig");
 
 const App = @import("App.zig");
 const Builder = @import("Builder.zig");
@@ -640,8 +641,12 @@ pub fn setSubtitle(self: *Window, subtitle: [:0]const u8) void {
 
 /// Add a new tab to this window.
 pub fn newTab(self: *Window, parent: ?*CoreSurface) !void {
+    return self.newTabWithContext(parent, .tab);
+}
+
+pub fn newTabWithContext(self: *Window, parent: ?*CoreSurface, context: apprt.surface.NewSurfaceContext) !void {
     const alloc = self.app.core_app.alloc;
-    _ = try Tab.create(alloc, self, parent);
+    _ = try Tab.createWithContext(alloc, self, parent, context);
 
     // TODO: When this is triggered through a GTK action, the new surface
     // redraws correctly. When it's triggered through keyboard shortcuts, it

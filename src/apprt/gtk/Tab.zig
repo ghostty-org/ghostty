@@ -13,6 +13,7 @@ const gtk = @import("gtk");
 const font = @import("../../font/main.zig");
 const input = @import("../../input.zig");
 const CoreSurface = @import("../../Surface.zig");
+const apprt = @import("../../apprt.zig");
 
 const Surface = @import("Surface.zig");
 const Window = @import("Window.zig");
@@ -42,15 +43,19 @@ elem: Surface.Container.Elem,
 focus_child: ?*Surface,
 
 pub fn create(alloc: Allocator, window: *Window, parent_: ?*CoreSurface) !*Tab {
+    return createWithContext(alloc, window, parent_, .tab);
+}
+
+pub fn createWithContext(alloc: Allocator, window: *Window, parent_: ?*CoreSurface, context: apprt.surface.NewSurfaceContext) !*Tab {
     var tab = try alloc.create(Tab);
     errdefer alloc.destroy(tab);
-    try tab.init(window, parent_);
+    try tab.init(window, parent_, context);
     return tab;
 }
 
 /// Initialize the tab, create a surface, and add it to the window. "self" needs
 /// to be a stable pointer, since it is used for GTK events.
-pub fn init(self: *Tab, window: *Window, parent_: ?*CoreSurface) !void {
+pub fn init(self: *Tab, window: *Window, parent_: ?*CoreSurface, context: apprt.surface.NewSurfaceContext) !void {
     self.* = .{
         .window = window,
         .label_text = undefined,
@@ -72,6 +77,7 @@ pub fn init(self: *Tab, window: *Window, parent_: ?*CoreSurface) !void {
     // Create the initial surface since all tabs start as a single non-split
     var surface = try Surface.create(window.app.core_app.alloc, window.app, .{
         .parent = parent_,
+        .context = context,
     });
     errdefer surface.unref();
     surface.container = .{ .tab_ = self };
