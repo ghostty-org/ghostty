@@ -2599,6 +2599,20 @@ keybind: Keybinds = .{},
 /// editor, etc.
 @"macos-titlebar-proxy-icon": MacTitlebarProxyIcon = .visible,
 
+/// Controls the behavior when dropping a folder onto the Ghostty dock icon
+/// on macOS.
+///
+/// Valid values are:
+///
+///   * `tab` - Open the folder in a new tab in the main window (default).
+///   * `window` - Open the folder in a new window.
+///
+/// The default value is `tab`.
+///
+/// This setting is only supported on macOS and has no effect on other
+/// platforms.
+@"macos-dock-drop-folder-behavior": MacOSDockDropFolderBehavior = .tab,
+
 /// macOS doesn't have a distinct "alt" key and instead has the "option"
 /// key which behaves slightly differently. On macOS by default, the
 /// option key plus a character will sometimes produce a Unicode character.
@@ -7016,6 +7030,12 @@ pub const WindowSaveState = enum {
 pub const WindowNewTabPosition = enum {
     current,
     end,
+};
+
+/// See macos-dock-drop-folder-behavior
+pub const MacOSDockDropFolderBehavior = enum {
+    tab,
+    window,
 };
 
 /// See window-show-tab-bar
