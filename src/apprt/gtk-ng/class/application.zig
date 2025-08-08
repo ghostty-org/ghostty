@@ -1074,7 +1074,7 @@ pub const Application = extern struct {
                     .prefer_dark;
             },
             .system => .prefer_light,
-            .dark => .force_dark,
+            .dark => .prefer_dark,
             .light => .force_light,
         });
 
