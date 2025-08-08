@@ -6982,12 +6982,27 @@ pub const AppNotifications = packed struct {
     @"clipboard-copy": bool = true,
 };
 
-/// See bell-features
-pub const BellFeatures = packed struct {
+/// See bell-features.
+///
+/// Use c_uint as the backing type so that GTK can use it as an object.
+pub const BellFeatures = packed struct(c_uint) {
     system: bool = false,
     audio: bool = false,
     attention: bool = true,
     title: bool = true,
+    _padding: u28 = 0,
+
+    pub const default: BellFeatures = .{};
+
+    /// Make this a valid gobject if we're in a GTK environment.
+    pub const getGObjectType = switch (build_config.app_runtime) {
+        .gtk, .@"gtk-ng" => @import("gobject").ext.defineFlags(
+            BellFeatures,
+            .{ .name = "GhosttyConfigBellFeatures" },
+        ),
+
+        .none => void,
+    };
 };
 
 /// See mouse-shift-capture
