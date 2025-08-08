@@ -17,6 +17,8 @@ const zf = @import("zf");
 // scroll position for larger lists.
 const SMALL_LIST_THRESHOLD = 10;
 
+const ColorScheme = enum { all, dark, light };
+
 pub const Options = struct {
     /// If true, print the full path to the theme.
     path: bool = false,
@@ -25,7 +27,7 @@ pub const Options = struct {
     plain: bool = false,
 
     /// Specifies the color scheme of the themes to include in the list.
-    color: enum { all, dark, light } = .all,
+    color: ColorScheme = .all,
 
     pub fn deinit(self: Options) void {
         _ = self;
@@ -146,28 +148,11 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
                     count += 1;
 
                     const path = try std.fs.path.join(alloc, &.{ loc.dir, entry.name });
-                    // if there is no need to filter just append the theme to the list
-                    if (opts.color == .all) {
-                        try themes.append(.{
-                            .path = path,
-                            .location = loc.location,
-                            .theme = try alloc.dupe(u8, entry.name),
-                        });
-                        continue;
-                    }
-
-                    // otherwise check if the theme should be included based on the provided options
-                    var config = try Config.default(alloc);
-                    defer config.deinit();
-                    try config.loadFile(config._arena.?.allocator(), path);
-
-                    if (shouldIncludeTheme(opts, config)) {
-                        try themes.append(.{
-                            .path = path,
-                            .location = loc.location,
-                            .theme = try alloc.dupe(u8, entry.name),
-                        });
-                    }
+                    try themes.append(.{
+                        .path = path,
+                        .location = loc.location,
+                        .theme = try alloc.dupe(u8, entry.name),
+                    });
                 },
                 else => {},
             }
@@ -182,7 +167,7 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
     std.mem.sortUnstable(ThemeListElement, themes.items, {}, ThemeListElement.lessThan);
 
     if (tui.can_pretty_print and !opts.plain and std.posix.isatty(std.io.getStdOut().handle)) {
-        try preview(gpa_alloc, themes.items);
+        try preview(gpa_alloc, themes.items, opts.color);
         return 0;
     }
 
@@ -222,8 +207,9 @@ const Preview = struct {
     },
     color_scheme: vaxis.Color.Scheme,
     text_input: vaxis.widgets.TextInput,
+    theme_filter: ColorScheme,
 
-    pub fn init(allocator: std.mem.Allocator, themes: []ThemeListElement) !*Preview {
+    pub fn init(allocator: std.mem.Allocator, themes: []ThemeListElement, theme_filter: ColorScheme) !*Preview {
         const self = try allocator.create(Preview);
 
         self.* = .{
@@ -240,11 +226,10 @@ const Preview = struct {
             .mode = .normal,
             .color_scheme = .light,
             .text_input = vaxis.widgets.TextInput.init(allocator, &self.vx.unicode),
+            .theme_filter = theme_filter,
         };
 
-        for (0..themes.len) |i| {
-            try self.filtered.append(i);
-        }
+        try self.updateFiltered();
 
         return self;
     }
@@ -308,6 +293,8 @@ const Preview = struct {
 
         self.filtered.clearRetainingCapacity();
 
+        var theme_config = try Config.default(self.allocator);
+        defer theme_config.deinit();
         if (self.text_input.buf.realLength() > 0) {
             const first_half = self.text_input.buf.firstHalf();
             const second_half = self.text_input.buf.secondHalf();
@@ -328,6 +315,9 @@ const Preview = struct {
             while (it.next()) |token| try tokens.append(token);
 
             for (self.themes, 0..) |*theme, i| {
+                try theme_config.loadFile(theme_config._arena.?.allocator(), theme.path);
+                if (!shouldIncludeTheme(self.theme_filter, theme_config)) continue;
+
                 theme.rank = zf.rank(theme.theme, tokens.items, .{
                     .to_lower = true,
                     .plain = true,
@@ -336,8 +326,11 @@ const Preview = struct {
             }
         } else {
             for (self.themes, 0..) |*theme, i| {
-                try self.filtered.append(i);
-                theme.rank = null;
+                try theme_config.loadFile(theme_config._arena.?.allocator(), theme.path);
+                if (shouldIncludeTheme(self.theme_filter, theme_config)) {
+                    try self.filtered.append(i);
+                    theme.rank = null;
+                }
             }
         }
 
@@ -438,6 +431,14 @@ const Preview = struct {
                                 self.themes[self.filtered.items[self.current]].path,
                                 alloc,
                             );
+                        if (key.matches('f', .{})) {
+                            switch (self.theme_filter) {
+                                .all => self.theme_filter = .dark,
+                                .dark => self.theme_filter = .light,
+                                .light => self.theme_filter = .all,
+                            }
+                            try self.updateFiltered();
+                        }
                     },
                     .help => {
                         if (key.matches('q', .{}))
@@ -695,6 +696,7 @@ const Preview = struct {
                 const key_help = [_]struct { keys: []const u8, help: []const u8 }{
                     .{ .keys = "^C, q, ESC", .help = "Quit." },
                     .{ .keys = "F1, ?, ^H", .help = "Toggle help window." },
+                    .{ .keys = "f", .help = "Cycle through theme filters." },
                     .{ .keys = "k, ↑", .help = "Move up 1 theme." },
                     .{ .keys = "ScrollUp", .help = "Move up 1 theme." },
                     .{ .keys = "PgUp", .help = "Move up 20 themes." },
@@ -1615,18 +1617,17 @@ fn color(config: Config, palette: usize) vaxis.Color {
 
 const lorem_ipsum = @embedFile("lorem_ipsum.txt");
 
-fn preview(allocator: std.mem.Allocator, themes: []ThemeListElement) !void {
-    var app = try Preview.init(allocator, themes);
+fn preview(allocator: std.mem.Allocator, themes: []ThemeListElement, theme_filter: ColorScheme) !void {
+    var app = try Preview.init(allocator, themes, theme_filter);
     defer app.deinit();
     try app.run();
 }
 
-fn shouldIncludeTheme(opts: Options, theme_config: Config) bool {
+fn shouldIncludeTheme(theme_filter: ColorScheme, theme_config: Config) bool {
     const rf = @as(f32, @floatFromInt(theme_config.background.r)) / 255.0;
     const gf = @as(f32, @floatFromInt(theme_config.background.g)) / 255.0;
     const bf = @as(f32, @floatFromInt(theme_config.background.b)) / 255.0;
     const luminance = 0.2126 * rf + 0.7152 * gf + 0.0722 * bf;
     const is_dark = luminance < 0.5;
-
-    return (opts.color == .dark and is_dark) or (opts.color == .light and !is_dark);
+    return (theme_filter == .all) or (theme_filter == .dark and is_dark) or (theme_filter == .light and !is_dark);
 }
