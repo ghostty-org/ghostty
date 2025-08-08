@@ -17,6 +17,7 @@ const gresource = @import("../build/gresource.zig");
 const ext = @import("../ext.zig");
 const Common = @import("../class.zig").Common;
 const Config = @import("config.zig").Config;
+const BellFeatures = @import("../../../config/Config.zig").BellFeatures;
 const Application = @import("application.zig").Application;
 const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseConfirmationDialog;
 const SplitTree = @import("split_tree.zig").SplitTree;
@@ -336,26 +337,33 @@ pub const Tab = extern struct {
         _: *Self,
         plain_: ?[*:0]const u8,
         zoomed_: c_int,
+        bell_features: BellFeatures,
+        bell_ringing_: c_int,
     ) callconv(.c) ?[*:0]const u8 {
         const zoomed = zoomed_ != 0;
+        const bell_ringing = bell_ringing_ != 0;
+
         const plain = plain: {
             const default = "Ghostty";
             const plain = plain_ orelse break :plain default;
             break :plain std.mem.span(plain);
         };
 
-        // If we're zoomed, prefix with the magnifying glass emoji.
-        if (zoomed) zoomed: {
-            // This results in an extra allocation (that we free), but I
-            // prefer using the Zig APIs so much more than the libc ones.
+        prefix: {
             const alloc = Application.default().allocator();
-            const slice = std.fmt.allocPrint(
-                alloc,
-                "🔍 {s}",
-                .{plain},
-            ) catch break :zoomed;
-            defer alloc.free(slice);
-            return glib.ext.dupeZ(u8, slice);
+            var buf: std.ArrayListUnmanaged(u8) = .empty;
+            const writer = buf.writer(alloc);
+            defer buf.deinit(alloc);
+
+            // Add a 🔔 prefix if needed
+            if (bell_features.title and bell_ringing) writer.writeAll("🔔 ") catch break :prefix;
+
+            // If we're zoomed, prefix with the magnifying glass emoji.
+            if (zoomed) writer.writeAll("🔍 ") catch break :prefix;
+
+            writer.writeAll(plain) catch break :prefix;
+
+            return glib.ext.dupeZ(u8, buf.items);
         }
 
         return glib.ext.dupeZ(u8, plain);

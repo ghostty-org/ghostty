@@ -8,7 +8,7 @@ template $GhosttyTab: Box {
   orientation: vertical;
   hexpand: true;
   vexpand: true;
-  title: bind $computed_title(split_tree.active-surface as <$GhosttySurface>.title, split_tree.is-zoomed) as <string>;
+  title: bind $computed_title(split_tree.active-surface as <$GhosttySurface>.title, split_tree.is-zoomed, split_tree.active-surface as <$GhosttySurface>.bell-features, split_tree.active-surface as <$GhosttySurface>.bell-ringing) as <string>;
   tooltip: bind split_tree.active-surface as <$GhosttySurface>.pwd;
 
   $GhosttySplitTree split_tree {

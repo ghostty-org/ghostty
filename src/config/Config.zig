@@ -2433,7 +2433,6 @@ keybind: Keybinds = .{},
 ///    Prepend a bell emoji (🔔) to the title of the alerted surface until the
 ///    terminal is re-focused or interacted with (such as on keyboard input).
 ///
-///    Only implemented on macOS.
 ///
 /// Example: `audio`, `no-audio`, `system`, `no-system`
 ///
