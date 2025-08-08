@@ -214,6 +214,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             }
         }
 
+        // All new_window actions force our app to be active, so that the new
+        // window is focused and visible.
+        NSApp.activate(ignoringOtherApps: true)
+
         // We're dispatching this async because otherwise the lastCascadePoint doesn't
         // take effect. Our best theory is there is some next-event-loop-tick logic
         // that Cocoa is doing that we need to be after.
