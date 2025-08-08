@@ -14,6 +14,7 @@ const CoreSurface = @import("../../../Surface.zig");
 const gtk_version = @import("../gtk_version.zig");
 const adw_version = @import("../adw_version.zig");
 const gresource = @import("../build/gresource.zig");
+const ext = @import("../ext.zig");
 const Common = @import("../class.zig").Common;
 const Config = @import("config.zig").Config;
 const Application = @import("application.zig").Application;
@@ -192,6 +193,21 @@ pub const Tab = extern struct {
                 @panic("oom");
             },
         };
+
+        // Initialize our actions.
+        self.initActions();
+    }
+
+    fn initActions(self: *Self) void {
+        const actions = [_]ext.Action(Self){
+            .{
+                .name = "ring-bell",
+                .callback = actionRingBell,
+                .parameter_type = null,
+            },
+        };
+
+        ext.addActionsAsGroup(Self, self, "tab", &actions);
     }
 
     //---------------------------------------------------------------
@@ -260,8 +276,33 @@ pub const Tab = extern struct {
             self.as(Parent),
         );
     }
+
     //---------------------------------------------------------------
     // Signal handlers
+
+    fn getTabPage(self: *Self) ?*adw.TabPage {
+        const tab_view = ext.getAncestor(adw.TabView, self.as(gtk.Widget)) orelse {
+            log.warn("unable to get tab view associated with this tab", .{});
+            return null;
+        };
+        return tab_view.getPage(self.as(gtk.Widget));
+    }
+
+    /// Ring the bell.
+    fn actionRingBell(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        const page = self.getTabPage() orelse {
+            log.warn("unable to get tab page associated with this tab!", .{});
+            return;
+        };
+
+        if (page.getSelected() != 0) return;
+
+        page.setNeedsAttention(@intFromBool(true));
+    }
 
     fn propSplitTree(
         _: *SplitTree,

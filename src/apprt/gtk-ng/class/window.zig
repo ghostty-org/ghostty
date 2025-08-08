@@ -346,6 +346,7 @@ pub const Window = extern struct {
             .{ "clear", actionClear, null },
             // TODO: accept the surface that toggled the command palette
             .{ "toggle-command-palette", actionToggleCommandPalette, null },
+            .{ "ring-bell", actionRingBell, null },
         };
 
         const action_map = self.as(gio.ActionMap);
@@ -1317,6 +1318,10 @@ pub const Window = extern struct {
         // Setup our binding group. This ensures things like the title
         // are synced from the active tab.
         priv.tab_bindings.setSource(child.as(gobject.Object));
+
+        // If the tab was previously marked as needing attention
+        // (e.g. due to a bell character), we now unmark that
+        page.setNeedsAttention(@intFromBool(false));
     }
 
     fn tabViewPageAttached(
@@ -1789,6 +1794,41 @@ pub const Window = extern struct {
         // TODO: accept the surface that toggled the command palette as a
         // parameter
         self.toggleCommandPalette();
+    }
+
+    /// React to an action requesting that the bell be rung.
+    fn actionRingBell(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Window,
+    ) callconv(.c) void {
+        const priv = self.private();
+
+        const config = config: {
+            if (priv.config) |config| break :config config.ref();
+            break :config Application.default().getConfig();
+        };
+        defer config.unref();
+
+        const cfg = config.get();
+
+        if (cfg.@"bell-features".system) system: {
+            // Play a system beep.
+
+            const native = self.as(gtk.Native).getSurface() orelse {
+                log.warn("unable to get native surface from window", .{});
+                break :system;
+            };
+            native.beep();
+        }
+
+        if (cfg.@"bell-features".attention) {
+            // Request user attention
+
+            self.winproto().setUrgent(true) catch |err| {
+                log.err("failed to request user attention={}", .{err});
+            };
+        }
     }
 
     const C = Common(Self, Private);
