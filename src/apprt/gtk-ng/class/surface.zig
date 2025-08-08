@@ -2767,7 +2767,7 @@ const Clipboard = struct {
 
 /// Check a GValue to see what's type its wrapping. This is equivalent to GTK's
 /// `G_VALUE_HOLDS` macro but Zig's C translator does not like it.
-fn g_value_holds(value_: ?*gobject.Value, g_type: gobject.Type) bool {
+fn g_value_holds(value_: ?*const gobject.Value, g_type: gobject.Type) bool {
     if (value_) |value| {
         if (value.f_g_type == g_type) return true;
         return gobject.typeCheckValueHolds(value, g_type) != 0;
