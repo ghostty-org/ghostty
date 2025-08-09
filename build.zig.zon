@@ -55,8 +55,8 @@
         .gobject = .{
             // https://github.com/jcollie/ghostty-gobject based on zig_gobject
             // Temporary until we generate them at build time automatically.
-            .url = "https://github.com/jcollie/ghostty-gobject/releases/download/0.14.1-2025-08-07-34-1/ghostty-gobject-0.14.1-2025-08-07-34-1.tar.zst",
-            .hash = "gobject-0.3.0-Skun7F_XnABQYabYdzLoVbO3bCcJIwxE3NCPs1_fG2ma",
+            .url = "https://github.com/jcollie/ghostty-gobject/releases/download/0.14.1-2025-08-09-37-1/ghostty-gobject-0.14.1-2025-08-09-37-1.tar.zst",
+            .hash = "gobject-0.3.0-Skun7AngnABC2BPiaoobs6YSSzSgMuEIcjb2rYrRyaAM",
             .lazy = true,
         },
 

@@ -174,11 +174,18 @@ pub const CommandPalette = extern struct {
         }
     }
 
-    fn searchStopped(_: *gtk.SearchEntry, self: *CommandPalette) callconv(.c) void {
-        // ESC was pressed - close the palette
+    fn close(self: *CommandPalette) void {
         const priv = self.private();
         _ = priv.dialog.close();
+    }
+
+    fn dialogClosed(_: *adw.Dialog, self: *CommandPalette) callconv(.c) void {
         self.unref();
+    }
+
+    fn searchStopped(_: *gtk.SearchEntry, self: *CommandPalette) callconv(.c) void {
+        // ESC was pressed - close the palette
+        self.close();
     }
 
     fn searchActivated(_: *gtk.SearchEntry, self: *CommandPalette) callconv(.c) void {
@@ -198,11 +205,9 @@ pub const CommandPalette = extern struct {
     pub fn toggle(self: *CommandPalette, window: *Window) void {
         const priv = self.private();
 
-        // If the dialog has been shown, close it and unref ourselves so all of
-        // our memory is reclaimed.
+        // If the dialog has been shown, close it.
         if (priv.dialog.as(gtk.Widget).getRealized() != 0) {
-            _ = priv.dialog.close();
-            self.unref();
+            self.close();
             return;
         }
 
@@ -218,22 +223,17 @@ pub const CommandPalette = extern struct {
     fn activated(self: *CommandPalette, pos: c_uint) void {
         const priv = self.private();
 
+        // Use priv.model and not priv.source here to use the list of *visible* results
+        const object_ = priv.model.as(gio.ListModel).getObject(pos);
+        defer if (object_) |object| object.unref();
+
         // Close before running the action in order to avoid being replaced by
         // another dialog (such as the change title dialog). If that occurs then
         // the command palette dialog won't be counted as having closed properly
         // and cannot receive focus when reopened.
-        _ = priv.dialog.close();
+        self.close();
 
-        // We are always done with the command palette when this finishes, even
-        // if there were errors.
-        defer self.unref();
-
-        // Use priv.model and not priv.source here to use the list of *visible* results
-        const object = priv.model.as(gio.ListModel).getObject(pos) orelse return;
-        defer object.unref();
-
-        const cmd = gobject.ext.cast(Command, object) orelse return;
-
+        const cmd = gobject.ext.cast(Command, object_ orelse return) orelse return;
         const action = cmd.getAction() orelse return;
 
         // Signal that an an action has been selected. Signals are synchronous
@@ -277,6 +277,7 @@ pub const CommandPalette = extern struct {
             class.bindTemplateChildPrivate("source", .{});
 
             // Template Callbacks
+            class.bindTemplateCallback("closed", &dialogClosed);
             class.bindTemplateCallback("notify_config", &propConfig);
             class.bindTemplateCallback("search_stopped", &searchStopped);
             class.bindTemplateCallback("search_activated", &searchActivated);
