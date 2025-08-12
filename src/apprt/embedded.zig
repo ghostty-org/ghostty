@@ -215,8 +215,7 @@ pub const App = struct {
         // Any layout larger than this is not something we can handle.
         var buf: [256]u8 = undefined;
         const id = self.keymap.sourceId(&buf) catch |err| {
-            comptime assert(@TypeOf(3w
-err) == error{OutOfMemory});
+            comptime assert(@TypeOf(err) == error{OutOfMemory});
             return .unknown;
         };
 
