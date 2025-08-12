@@ -1524,9 +1524,15 @@ fn recomputeInitialSize(
 /// Represents text read from the terminal and some metadata about it
 /// that is often useful to apprts.
 pub const Text = struct {
+    /// The text that was read from the terminal.
     text: [:0]const u8,
+
+    /// The linear offset of the start of the selection and the length.
+    /// This is "linear" in the sense that it is the offset in the
+    /// flattened screen buffer as a single array of text.
     offset_start: u32,
     offset_len: u32,
+
     /// If non-null, this describes the pixel coordinates of the top-left corner
     /// of the viewport from which this text was read. This is typically used for
     /// rendering or selection purposes. If null, the viewport is not applicable
@@ -1535,6 +1541,7 @@ pub const Text = struct {
     viewport: ?Viewport,
 
     pub const Viewport = struct {
+        /// The top-left corner of the selection in pixels within the viewport.
         tl_px_x: f64,
         tl_px_y: f64,
     };
@@ -1594,24 +1601,43 @@ pub fn dumpTextLocked(
 
     // Calculate our viewport info if we can.
     const vp: ?Text.Viewport = viewport: {
+        // If our top-left is not in the viewport then we don't
+        // have a viewport. One day we should extend this to support
+        // partial selections that are in the viewport.
         const tl_pt = self.io.terminal.screen.pages.pointFromPin(
             .viewport,
             sel.topLeft(&self.io.terminal.screen),
         ) orelse break :viewport null;
         const tl_coord = tl_pt.coord();
+
+        // Our sizes are all scaled so we need to send the unscaled values back.
         const content_scale = self.rt_surface.getContentScale() catch .{ .x = 1, .y = 1 };
         const x: f64 = x: {
+            // Simple x * cell width gives the left
             var x: f64 = @floatFromInt(tl_coord.x * self.size.cell.width);
+
+            // Add padding
             x += @floatFromInt(self.size.padding.left);
+
+            // Scale
             x /= content_scale.x;
+
             break :x x;
         };
         const y: f64 = y: {
+            // Simple y * cell height gives the top
             var y: f64 = @floatFromInt(tl_coord.y * self.size.cell.height);
+
+            // We want the text baseline
             y += @floatFromInt(self.size.cell.height);
             y -= @floatFromInt(self.font_metrics.cell_baseline);
+
+            // Add padding
             y += @floatFromInt(self.size.padding.top);
+
+            // Scale
             y /= content_scale.y;
+
             break :y y;
         };
 
