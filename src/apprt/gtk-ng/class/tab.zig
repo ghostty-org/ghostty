@@ -102,6 +102,39 @@ pub const Tab = extern struct {
                 },
             );
         };
+
+        /// The subtitle for this tab. It is copied from the active surface.
+        pub const subtitle = struct {
+            pub const name = "subtitle";
+            pub const get = impl.get;
+            pub const set = impl.set;
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?[:0]const u8,
+                .{
+                    .default = null,
+                    .accessor = C.privateStringFieldAccessor("subtitle"),
+                },
+            );
+        };
+
+        /// The working directory for this tab. It is copied from the active
+        /// surface.
+        pub const pwd = struct {
+            pub const name = "pwd";
+            pub const get = impl.get;
+            pub const set = impl.set;
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?[:0]const u8,
+                .{
+                    .default = null,
+                    .accessor = C.privateStringFieldAccessor("pwd"),
+                },
+            );
+        };
     };
 
     pub const signals = struct {
@@ -125,6 +158,14 @@ pub const Tab = extern struct {
         /// The title to show for this tab. This is usually set to a binding
         /// with the active surface but can be manually set to anything.
         title: ?[:0]const u8 = null,
+
+        /// The subtitle for this tab. This is used to sync the surface's
+        /// subtitle property with the window's subtitle property.
+        subtitle: ?[:0]const u8 = null,
+
+        /// The working directory for this tab. This is shown as the tooltip on
+        /// the tab page's header.
+        pwd: ?[:0]const u8 = null,
 
         /// The binding groups for the current active surface.
         surface_bindings: *gobject.BindingGroup,
@@ -161,6 +202,18 @@ pub const Tab = extern struct {
             "title",
             self.as(gobject.Object),
             "title",
+            .{},
+        );
+        priv.surface_bindings.bind(
+            "subtitle",
+            self.as(gobject.Object),
+            "subtitle",
+            .{},
+        );
+        priv.surface_bindings.bind(
+            "pwd",
+            self.as(gobject.Object),
+            "pwd",
             .{},
         );
 
@@ -305,6 +358,8 @@ pub const Tab = extern struct {
                 properties.config.impl,
                 properties.@"surface-tree".impl,
                 properties.title.impl,
+                properties.subtitle.impl,
+                properties.pwd.impl,
             });
 
             // Bindings

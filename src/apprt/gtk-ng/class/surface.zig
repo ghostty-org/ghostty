@@ -216,6 +216,26 @@ pub const Surface = extern struct {
             );
         };
 
+        /// The subtitle for this surface. If `window-subtitle` is set to
+        /// `working-directory` this will be the working directory, otherwise it
+        /// will be null.
+        pub const subtitle = struct {
+            pub const name = "subtitle";
+            pub const get = impl.get;
+            pub const set = impl.set;
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?[:0]const u8,
+                .{
+                    .default = null,
+                    .accessor = .{
+                        .getter = propGetSubTitle,
+                    },
+                },
+            );
+        };
+
         pub const zoom = struct {
             pub const name = "zoom";
             const impl = gobject.ext.defineProperty(
@@ -1270,6 +1290,28 @@ pub const Surface = extern struct {
     //---------------------------------------------------------------
     // Properties
 
+    /// Get the subtitle. If the `window-subtitle` config is set to
+    /// `working-directory` this will be the `pwd`, otherwise it is `null`.
+    fn propGetSubTitle(self: *Self, value: *gobject.Value) void {
+        const priv = self.private();
+
+        const config = priv.config orelse {
+            value.setString(null);
+            return;
+        };
+
+        const cfg = config.get();
+
+        switch (cfg.@"window-subtitle") {
+            .false => {
+                value.setString(null);
+            },
+            .@"working-directory" => {
+                if (priv.pwd) |pwd| value.setString(pwd) else value.setString(null);
+            },
+        }
+    }
+
     /// Returns the title property without a copy.
     pub fn getTitle(self: *Self) ?[:0]const u8 {
         return self.private().title;
@@ -1296,6 +1338,7 @@ pub const Surface = extern struct {
         priv.pwd = null;
         if (pwd) |v| priv.pwd = glib.ext.dupeZ(u8, v);
         self.as(gobject.Object).notifyByPspec(properties.pwd.impl.param_spec);
+        self.as(gobject.Object).notifyByPspec(properties.subtitle.impl.param_spec);
     }
 
     /// Returns the focus state of this surface.
@@ -2392,6 +2435,7 @@ pub const Surface = extern struct {
                 properties.@"mouse-hover-url".impl,
                 properties.pwd.impl,
                 properties.title.impl,
+                properties.subtitle.impl,
                 properties.zoom.impl,
             });
 

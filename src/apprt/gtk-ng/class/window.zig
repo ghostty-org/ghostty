@@ -213,6 +213,24 @@ pub const Window = extern struct {
                 },
             );
         };
+
+        pub const subtitle = struct {
+            pub const name = "subtitle";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?[:0]const u8,
+                .{
+                    .default = null,
+                    .accessor = gobject.ext.privateFieldAccessor(
+                        Self,
+                        Private,
+                        &Private.offset,
+                        "subtitle",
+                    ),
+                },
+            );
+        };
     };
 
     const Private = struct {
@@ -251,6 +269,9 @@ pub const Window = extern struct {
 
         /// A weak reference to a command palette.
         command_palette: WeakRef(CommandPalette) = .empty,
+
+        /// Subtitle
+        subtitle: ?[:0]const u8 = null,
 
         // Template bindings
         tab_overview: *adw.TabOverview,
@@ -292,6 +313,7 @@ pub const Window = extern struct {
         // are only synced from the currently active tab.
         priv.tab_bindings = gobject.BindingGroup.new();
         priv.tab_bindings.bind("title", self.as(gobject.Object), "title", .{});
+        priv.tab_bindings.bind("subtitle", self.as(gobject.Object), "subtitle", .{});
 
         // Set our window icon. We can't set this in the blueprint file
         // because its dependent on the build config.
@@ -414,6 +436,12 @@ pub const Window = extern struct {
             "title",
             page.as(gobject.Object),
             "title",
+            .{ .sync_create = true },
+        );
+        _ = tab.as(gobject.Object).bindProperty(
+            "pwd",
+            page.as(gobject.Object),
+            "tooltip",
             .{ .sync_create = true },
         );
 
@@ -1804,6 +1832,7 @@ pub const Window = extern struct {
                 properties.@"tabs-wide".impl,
                 properties.@"toolbar-style".impl,
                 properties.@"titlebar-style".impl,
+                properties.subtitle.impl,
             });
 
             // Bindings
