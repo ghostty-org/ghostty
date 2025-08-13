@@ -55,7 +55,7 @@ pub fn getAncestor(comptime T: type, widget: *gtk.Widget) ?*T {
 /// Check that an action name is valid.
 ///
 /// Reimplementation of g_action_name_is_valid() so that it can be
-/// use at comptime.
+/// used at comptime.
 ///
 /// See:
 /// https://docs.gtk.org/gio/type_func.Action.name_is_valid.html
