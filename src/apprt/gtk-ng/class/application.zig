@@ -34,6 +34,7 @@ const Common = @import("../class.zig").Common;
 const WeakRef = @import("../weak_ref.zig").WeakRef;
 const Config = @import("config.zig").Config;
 const Surface = @import("surface.zig").Surface;
+const SplitTree = @import("split_tree.zig").SplitTree;
 const Window = @import("window.zig").Window;
 const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseConfirmationDialog;
 const ConfigErrorsDialog = @import("config_errors_dialog.zig").ConfigErrorsDialog;
@@ -79,8 +80,6 @@ pub const Application = extern struct {
                 Self,
                 ?*Config,
                 .{
-                    .nick = "Config",
-                    .blurb = "The current active configuration for the application.",
                     .accessor = gobject.ext.typedAccessor(
                         Self,
                         ?*Config,
@@ -134,7 +133,7 @@ pub const Application = extern struct {
         /// If non-null, we're currently showing a config errors dialog.
         /// This is a WeakRef because the dialog can close on its own
         /// outside of our own lifecycle and that's okay.
-        config_errors_dialog: WeakRef(ConfigErrorsDialog) = .{},
+        config_errors_dialog: WeakRef(ConfigErrorsDialog) = .empty,
 
         /// glib source for our signal handler.
         signal_source: ?c_uint = null,
@@ -554,6 +553,10 @@ pub const Application = extern struct {
 
             .desktop_notification => Action.desktopNotification(self, target, value),
 
+            .equalize_splits => return Action.equalizeSplits(target),
+
+            .goto_split => return Action.gotoSplit(target, value),
+
             .goto_tab => return Action.gotoTab(target, value),
 
             .initial_size => return Action.initialSize(target, value),
@@ -563,6 +566,8 @@ pub const Application = extern struct {
             .mouse_visibility => Action.mouseVisibility(target, value),
 
             .move_tab => return Action.moveTab(target, value),
+
+            .new_split => return Action.newSplit(target, value),
 
             .new_tab => return Action.newTab(target),
 
@@ -584,6 +589,8 @@ pub const Application = extern struct {
 
             .progress_report => return Action.progressReport(target, value),
 
+            .prompt_title => return Action.promptTitle(target),
+
             .quit => self.quit(),
 
             .quit_timer => try Action.quitTimer(self, value),
@@ -591,6 +598,8 @@ pub const Application = extern struct {
             .reload_config => try Action.reloadConfig(self, target, value),
 
             .render => Action.render(target),
+
+            .resize_split => return Action.resizeSplit(target, value),
 
             .ring_bell => Action.ringBell(target),
 
@@ -608,16 +617,11 @@ pub const Application = extern struct {
             .toggle_tab_overview => return Action.toggleTabOverview(target),
             .toggle_window_decorations => return Action.toggleWindowDecorations(target),
             .toggle_command_palette => return Action.toggleCommandPalette(target),
+            .toggle_split_zoom => return Action.toggleSplitZoom(target),
+            .show_on_screen_keyboard => return Action.showOnScreenKeyboard(target),
 
             // Unimplemented but todo on gtk-ng branch
-            .prompt_title,
             .inspector,
-            // TODO: splits
-            .new_split,
-            .resize_split,
-            .equalize_splits,
-            .goto_split,
-            .toggle_split_zoom,
             => {
                 log.warn("unimplemented action={}", .{action});
                 return false;
@@ -744,7 +748,7 @@ pub const Application = extern struct {
 
         if (config.@"split-divider-color") |color| {
             try writer.print(
-                \\.terminal-window .notebook separator {{
+                \\.window .split paned > separator {{
                 \\  color: rgb({[r]d},{[g]d},{[b]d});
                 \\  background: rgb({[r]d},{[g]d},{[b]d});
                 \\}}
@@ -883,6 +887,10 @@ pub const Application = extern struct {
         self.syncActionAccelerator("win.reset", .{ .reset = {} });
         self.syncActionAccelerator("win.clear", .{ .clear_screen = {} });
         self.syncActionAccelerator("win.prompt-title", .{ .prompt_surface_title = {} });
+        self.syncActionAccelerator("split-tree.new-left", .{ .new_split = .left });
+        self.syncActionAccelerator("split-tree.new-right", .{ .new_split = .right });
+        self.syncActionAccelerator("split-tree.new-up", .{ .new_split = .up });
+        self.syncActionAccelerator("split-tree.new-down", .{ .new_split = .down });
     }
 
     fn syncActionAccelerator(
@@ -1259,6 +1267,7 @@ pub const Application = extern struct {
             diag.close();
             diag.unref(); // strong ref from get()
         }
+        priv.config_errors_dialog.set(null);
         if (priv.signal_source) |v| {
             if (glib.Source.remove(v) == 0) {
                 log.warn("unable to remove signal source", .{});
@@ -1646,6 +1655,52 @@ const Action = struct {
         gio_app.sendNotification(n.body, notification);
     }
 
+    pub fn equalizeSplits(target: apprt.Target) bool {
+        switch (target) {
+            .app => {
+                log.warn("equalize splits to app is unexpected", .{});
+                return false;
+            },
+
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                return surface.as(gtk.Widget).activateAction("split-tree.equalize", null) != 0;
+            },
+        }
+    }
+
+    pub fn gotoSplit(
+        target: apprt.Target,
+        to: apprt.action.GotoSplit,
+    ) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |core| {
+                // Design note: we can't use widget actions here because
+                // we need to know whether there is a goto target for returning
+                // the proper perform result (boolean).
+
+                const surface = core.rt_surface.surface;
+                const tree = ext.getAncestor(
+                    SplitTree,
+                    surface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a split tree, ignoring goto_split", .{});
+                    return false;
+                };
+
+                return tree.goto(switch (to) {
+                    .previous => .previous_wrapped,
+                    .next => .next_wrapped,
+                    .up => .{ .spatial = .up },
+                    .down => .{ .spatial = .down },
+                    .left => .{ .spatial = .left },
+                    .right => .{ .spatial = .right },
+                });
+            },
+        }
+    }
+
     pub fn gotoTab(
         target: apprt.Target,
         tab: apprt.action.GotoTab,
@@ -1695,16 +1750,9 @@ const Action = struct {
     ) void {
         switch (target) {
             .app => log.warn("mouse over link to app is unexpected", .{}),
-            .surface => |surface| {
-                var v = gobject.ext.Value.new([:0]const u8);
-                if (value.url.len > 0) gobject.ext.Value.set(&v, value.url);
-                defer v.unset();
-                gobject.Object.setProperty(
-                    surface.rt_surface.gobj().as(gobject.Object),
-                    "mouse-hover-url",
-                    &v,
-                );
-            },
+            .surface => |surface| surface.rt_surface.gobj().setMouseHoverUrl(
+                if (value.url.len > 0) value.url else null,
+            ),
         }
     }
 
@@ -1714,15 +1762,7 @@ const Action = struct {
     ) void {
         switch (target) {
             .app => log.warn("mouse shape to app is unexpected", .{}),
-            .surface => |surface| {
-                var value = gobject.ext.Value.newFrom(shape);
-                defer value.unset();
-                gobject.Object.setProperty(
-                    surface.rt_surface.gobj().as(gobject.Object),
-                    "mouse-shape",
-                    &value,
-                );
-            },
+            .surface => |surface| surface.rt_surface.gobj().setMouseShape(shape),
         }
     }
 
@@ -1732,18 +1772,10 @@ const Action = struct {
     ) void {
         switch (target) {
             .app => log.warn("mouse visibility to app is unexpected", .{}),
-            .surface => |surface| {
-                var value = gobject.ext.Value.newFrom(switch (visibility) {
-                    .visible => false,
-                    .hidden => true,
-                });
-                defer value.unset();
-                gobject.Object.setProperty(
-                    surface.rt_surface.gobj().as(gobject.Object),
-                    "mouse-hidden",
-                    &value,
-                );
-            },
+            .surface => |surface| surface.rt_surface.gobj().setMouseHidden(switch (visibility) {
+                .visible => false,
+                .hidden => true,
+            }),
         }
     }
 
@@ -1767,6 +1799,28 @@ const Action = struct {
                     surface,
                     @intCast(value.amount),
                 );
+            },
+        }
+    }
+
+    pub fn newSplit(
+        target: apprt.Target,
+        direction: apprt.action.SplitDirection,
+    ) bool {
+        switch (target) {
+            .app => {
+                log.warn("new split to app is unexpected", .{});
+                return false;
+            },
+
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                return surface.as(gtk.Widget).activateAction(switch (direction) {
+                    .right => "split-tree.new-right",
+                    .left => "split-tree.new-left",
+                    .down => "split-tree.new-down",
+                    .up => "split-tree.new-up",
+                }, null) != 0;
             },
         }
     }
@@ -1864,15 +1918,7 @@ const Action = struct {
     ) void {
         switch (target) {
             .app => log.warn("pwd to app is unexpected", .{}),
-            .surface => |surface| {
-                var v = gobject.ext.Value.newFrom(value.pwd);
-                defer v.unset();
-                gobject.Object.setProperty(
-                    surface.rt_surface.gobj().as(gobject.Object),
-                    "pwd",
-                    &v,
-                );
-            },
+            .surface => |surface| surface.rt_surface.gobj().setPwd(value.pwd),
         }
     }
 
@@ -1909,6 +1955,16 @@ const Action = struct {
                 break :surface true;
             },
         };
+    }
+
+    pub fn promptTitle(target: apprt.Target) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |v| {
+                v.rt_surface.surface.promptTitle();
+                return true;
+            },
+        }
     }
 
     /// Reload the configuration for the application and propagate it
@@ -1959,10 +2015,47 @@ const Action = struct {
         }
     }
 
+    pub fn resizeSplit(
+        target: apprt.Target,
+        value: apprt.action.ResizeSplit,
+    ) bool {
+        switch (target) {
+            .app => {
+                log.warn("resize_split to app is unexpected", .{});
+                return false;
+            },
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                const tree = ext.getAncestor(
+                    SplitTree,
+                    surface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a split tree, ignoring goto_split", .{});
+                    return false;
+                };
+
+                return tree.resize(
+                    switch (value.direction) {
+                        .up => .up,
+                        .down => .down,
+                        .left => .left,
+                        .right => .right,
+                    },
+                    value.amount,
+                ) catch |err| switch (err) {
+                    error.OutOfMemory => {
+                        log.warn("unable to resize split, out of memory", .{});
+                        return false;
+                    },
+                };
+            },
+        }
+    }
+
     pub fn ringBell(target: apprt.Target) void {
         switch (target) {
             .app => {},
-            .surface => |v| v.rt_surface.surface.ringBell(),
+            .surface => |v| v.rt_surface.surface.setBellRinging(true),
         }
     }
 
@@ -1972,15 +2065,7 @@ const Action = struct {
     ) void {
         switch (target) {
             .app => log.warn("set_title to app is unexpected", .{}),
-            .surface => |surface| {
-                var v = gobject.ext.Value.newFrom(value.title);
-                defer v.unset();
-                gobject.Object.setProperty(
-                    surface.rt_surface.gobj().as(gobject.Object),
-                    "title",
-                    &v,
-                );
-            },
+            .surface => |surface| surface.rt_surface.gobj().setTitle(value.title),
         }
     }
 
@@ -2045,6 +2130,36 @@ const Action = struct {
         assert(win.isQuickTerminal());
         initAndShowWindow(self, win, null);
         return true;
+    }
+
+    pub fn toggleSplitZoom(target: apprt.Target) bool {
+        switch (target) {
+            .app => {
+                log.warn("toggle_split_zoom to app is unexpected", .{});
+                return false;
+            },
+
+            .surface => |core| {
+                // TODO: pass surface ID when we have that
+                const surface = core.rt_surface.surface;
+                return surface.as(gtk.Widget).activateAction("split-tree.zoom", null) != 0;
+            },
+        }
+    }
+
+    pub fn showOnScreenKeyboard(target: apprt.Target) bool {
+        switch (target) {
+            .app => {
+                log.warn("show_on_screen_keyboard to app is unexpected", .{});
+                return false;
+            },
+            // NOTE: Even though `activateOsk` takes a gdk.Event, it's currently
+            // unused by all implementations of `activateOsk` as of GTK 4.18.
+            // The commit that introduced the method (ce6aa73c) clarifies that
+            // the event *may* be used by other IM backends, but for Linux desktop
+            // environments this doesn't matter.
+            .surface => |v| return v.rt_surface.surface.showOnScreenKeyboard(null),
+        }
     }
 
     fn getQuickTerminalWindow() ?*Window {

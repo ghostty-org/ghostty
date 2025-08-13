@@ -5,6 +5,7 @@ const glib = @import("glib");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
 
+const ext = @import("ext.zig");
 pub const Application = @import("class/application.zig").Application;
 pub const Window = @import("class/window.zig").Window;
 pub const Config = @import("class/config.zig").Config;
@@ -52,6 +53,23 @@ pub fn Common(
             }
         }).private else {};
 
+        /// A helper that creates a property that reads and writes a
+        /// private field with only shallow copies. This is good for primitives
+        /// such as bools, numbers, etc.
+        pub fn privateShallowFieldAccessor(
+            comptime name: []const u8,
+        ) gobject.ext.Accessor(
+            Self,
+            @FieldType(Private.?, name),
+        ) {
+            return gobject.ext.privateFieldAccessor(
+                Self,
+                Private.?,
+                &Private.?.offset,
+                name,
+            );
+        }
+
         /// A helper that can be used to create a property that reads and
         /// writes a private boxed gobject field type.
         ///
@@ -79,7 +97,10 @@ pub fn Common(
                     fn set(self: *Self, value: *const gobject.Value) void {
                         const priv = private(self);
                         if (@field(priv, name)) |v| {
-                            glib.ext.destroy(v);
+                            ext.boxedFree(
+                                @typeInfo(@TypeOf(v)).pointer.child,
+                                v,
+                            );
                         }
 
                         const T = @TypeOf(@field(priv, name));
@@ -217,6 +238,11 @@ pub fn Common(
                     const func_ti = @typeInfo(ptr_ti.pointer.child);
                     if (func_ti != .@"fn") {
                         @compileError("bound function must be a function pointer");
+                    }
+                    if (func_ti.@"fn".return_type == bool) {
+                        // glib booleans are ints and returning a Zig bool type
+                        // I think uses a byte and causes ABI issues.
+                        @compileError("bound function must return c_int instead of bool");
                     }
                 }
 

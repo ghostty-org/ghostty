@@ -222,6 +222,16 @@ pub const RenderOptions = struct {
             y: f64,
         };
 
+        /// Returns true if the constraint does anything. If it doesn't,
+        /// because it neither sizes nor positions the glyph, then this
+        /// returns false.
+        pub inline fn doesAnything(self: Constraint) bool {
+            return self.size_horizontal != .none or
+                self.align_horizontal != .none or
+                self.size_vertical != .none or
+                self.align_vertical != .none;
+        }
+
         /// Apply this constraint to the provided glyph
         /// size, given the available width and height.
         pub fn constrain(

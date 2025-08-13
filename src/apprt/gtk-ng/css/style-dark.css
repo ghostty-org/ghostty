@@ -1,3 +1,8 @@
 .transparent {
   background-color: transparent;
 }
+
+.window .split paned > separator {
+  background-color: rgba(36, 36, 36, 1);
+  background-clip: content-box;
+}

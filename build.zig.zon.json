@@ -24,10 +24,10 @@
     "url": "https://deps.files.ghostty.org/glslang-12201278a1a05c0ce0b6eb6026c65cd3e9247aa041b1c260324bf29cee559dd23ba1.tar.gz",
     "hash": "sha256-FKLtu1Ccs+UamlPj9eQ12/WXFgS0uDPmPmB26MCpl7U="
   },
-  "gobject-0.3.0-Skun7EXXnAB96BrWabxhzOw7HY-NzVexaPOIYw5t-dIE": {
+  "gobject-0.3.0-Skun7AngnABC2BPiaoobs6YSSzSgMuEIcjb2rYrRyaAM": {
     "name": "gobject",
-    "url": "https://github.com/jcollie/ghostty-gobject/releases/download/0.14.1-2025-07-23-28-1/ghostty-gobject-0.14.1-2025-07-23-28-1.tar.zst",
-    "hash": "sha256-ybeHo+NwcVZuyU037XB+/OofDoIoLsPnyNCG2jyiXC0="
+    "url": "https://github.com/jcollie/ghostty-gobject/releases/download/0.14.1-2025-08-09-37-1/ghostty-gobject-0.14.1-2025-08-09-37-1.tar.zst",
+    "hash": "sha256-B0ziLzKud+kdKu5T1BTE9GMh8EPM/KhhhoNJlys5QPI="
   },
   "N-V-__8AALiNBAA-_0gprYr92CjrMj1I5bqNu0TSJOnjFNSr": {
     "name": "gtk4_layer_shell",
@@ -49,10 +49,10 @@
     "url": "https://deps.files.ghostty.org/imgui-1220bc6b9daceaf7c8c60f3c3998058045ba0c5c5f48ae255ff97776d9cd8bfc6402.tar.gz",
     "hash": "sha256-oF/QHgTPEat4Hig4fGIdLkIPHmBEyOJ6JeYD6pnveGA="
   },
-  "N-V-__8AAN83XASXgcKp4RDTj_WcQ19E5X24C3FjQoffeMFv": {
+  "N-V-__8AABemXQQj_VhMpwuOSOiSzywW_yGD6aEL9YGI9uBu": {
     "name": "iterm2_themes",
-    "url": "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/b2742b8baf86f556d6be4d9c6515bfd9d9c7a140.tar.gz",
-    "hash": "sha256-w/biUQZ+AJv0atXypwQxJlKkHRUaFS0AlE/VlBJXlVU="
+    "url": "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/3cbeca99efa10beba24b0efe86331736f09f9ed1.tar.gz",
+    "hash": "sha256-gl42NOZ59ok+umHCHbdBQhWCgFVpj5PAZDVGhJRpbiA="
   },
   "N-V-__8AAIC5lwAVPJJzxnCAahSvZTIlG-HhtOvnM1uh-66x": {
     "name": "jetbrains_mono",

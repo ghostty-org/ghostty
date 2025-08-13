@@ -29,8 +29,6 @@ pub const ConfigErrorsDialog = extern struct {
             Self,
             ?*Config,
             .{
-                .nick = "config",
-                .blurb = "The configuration that this dialog is showing errors for.",
                 .accessor = gobject.ext.typedAccessor(
                     Self,
                     ?*Config,

@@ -13,6 +13,66 @@
 # You must gracefully exit Ghostty (do not SIGINT) by closing all windows
 # and quitting. Otherwise, we leave a number of GTK resources around.
 
+
+# Reproduction: 
+# 1. Launch Ghostty (no config)
+# 2. Right Click on the terminal
+# 3. Hover over "Split" to get a submenu
+# 4. Close menu by clicking away
+# 5. Exit
+#
+# The menu model and popover are fully defined in the blueprint so I don't
+# THINK we need to do any manual unrefing. But there's a lot of leaks here
+# so if someone wants to take a closer look I'd appreciate it.
+{
+   GTK PopOver Menu Model Leak
+   Memcheck:Leak
+   match-leak-kinds: possible
+   ...
+   fun:gtk_menu_section_box_insert_func
+   ...
+   fun:gtk_popover_menu_set_menu_model
+   ...
+}
+{
+   GTK/Blueprint Popover GSK Transform
+   Memcheck:Leak
+   match-leak-kinds: possible
+   ...
+   fun:gtk_popover_size_allocate
+   fun:gtk_widget_allocate
+   fun:gtk_popover_native_layout
+   ...
+}
+
+# Reproduction:
+#
+# 1. Launch Ghostty
+# 2. Split Right
+# 3. Hit "X" to close
+{
+   GTK CSS Node State
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:g_malloc
+   fun:g_memdup2
+   fun:gtk_css_node_declaration_set_state
+   fun:gtk_css_node_set_state
+   fun:gtk_widget_propagate_state
+   fun:gtk_widget_update_state_flags
+   fun:gtk_main_do_event
+   fun:surface_event
+   fun:_gdk_marshal_BOOLEAN__POINTERv
+   fun:gdk_surface_event_marshallerv
+   fun:_g_closure_invoke_va
+   fun:signal_emit_valist_unlocked
+   fun:g_signal_emit_valist
+   fun:g_signal_emit
+   fun:gdk_surface_handle_event
+   ...
+}
+
 {
    GTK CSS Provider Leak
    Memcheck:Leak
@@ -484,9 +544,7 @@
    pango font map 
    Memcheck:Leak
    match-leak-kinds: possible
-   fun:calloc
-   fun:g_malloc0
-   fun:g_rc_box_alloc_full
+   ...
    fun:pango_fc_font_map_load_fontset
    ...
 }

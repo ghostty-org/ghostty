@@ -346,89 +346,76 @@ pub const Face = struct {
 
         const metrics = opts.grid_metrics;
         const cell_width: f64 = @floatFromInt(metrics.cell_width);
-        // const cell_height: f64 = @floatFromInt(metrics.cell_height);
+        const cell_height: f64 = @floatFromInt(metrics.cell_height);
+
+        // Next we apply any constraints to get the final size of the glyph.
+        var constraint = opts.constraint;
 
         // We eliminate any negative vertical padding since these overlap
-        // values aren't needed under CoreText with how precisely we apply
-        // constraints, and they can lead to extra height that looks bad
-        // for things like powerline glyphs.
-        var constraint = opts.constraint;
+        // values aren't needed  with how precisely we apply constraints,
+        // and they can lead to extra height that looks bad for things like
+        // powerline glyphs.
         constraint.pad_top = @max(0.0, constraint.pad_top);
         constraint.pad_bottom = @max(0.0, constraint.pad_bottom);
+
+        // We need to add the baseline position before passing to the constrain
+        // function since it operates on cell-relative positions, not baseline.
+        const cell_baseline: f64 = @floatFromInt(metrics.cell_baseline);
+
         const glyph_size = constraint.constrain(
             .{
                 .width = rect.size.width,
                 .height = rect.size.height,
                 .x = rect.origin.x,
-                .y = rect.origin.y + @as(f64, @floatFromInt(metrics.cell_baseline)),
+                .y = rect.origin.y + cell_baseline,
             },
             metrics,
             opts.constraint_width,
         );
 
-        // These calculations are an attempt to mostly imitate the effect of
-        // `shouldSubpixelQuantizeFonts`[^1], which helps maximize legibility
-        // at small pixel sizes (low DPI). We do this math ourselves instead
-        // of letting CoreText do it because it's not entirely clear how the
-        // math in CoreText works and we've run in to edge cases where glyphs
-        // have their bottom or left row cut off due to bad rounding.
-        //
-        // This math seems to have a mostly comparable result to whatever it
-        // is that CoreText does, and is even (in my opinion) better in some
-        // cases.
-        //
-        // I'm not entirely certain but I suspect that when you enable the
-        // CoreText option it also does some sort of rudimentary hinting,
-        // but it doesn't seem to make that big of a difference in terms
-        // of legibility in the end.
-        //
-        // [^1]: https://developer.apple.com/documentation/coregraphics/cgcontext/setshouldsubpixelquantizefonts(_:)?language=objc
+        var x = glyph_size.x;
+        var y = glyph_size.y;
+        var width = glyph_size.width;
+        var height = glyph_size.height;
 
-        // We only want to apply quantization if we don't have any
-        // constraints and this isn't a bitmap glyph, since CoreText
-        // doesn't seem to apply its quantization to bitmap glyphs.
-        //
-        // TODO: Maybe gate this so it only applies at small font sizes,
-        //       or else offer a user config option that can disable it.
-        const should_quantize = !sbix and std.meta.eql(opts.constraint, .none);
+        // If this is a bitmap glyph, it will always render as full pixels,
+        // not fractional pixels, so we need to quantize its position and
+        // size accordingly to align to full pixels so we get good results.
+        if (sbix) {
+            width = cell_width - @round(cell_width - width - x) - @round(x);
+            height = cell_height - @round(cell_height - height - y) - @round(y);
+            x = @round(x);
+            y = @round(y);
+        }
 
-        // We offset our glyph by its bearings when we draw it, using `@floor`
-        // here rounds it *up* since we negate it right outside. Moving it by
-        // whole pixels ensures that we don't disturb the pixel alignment of
-        // the glyph, fractional pixels will still be drawn on all sides as
-        // necessary.
-        const draw_x = -@floor(rect.origin.x);
-        const draw_y = -@floor(rect.origin.y);
+        // If the cell width was adjusted wider, we re-center all glyphs
+        // in the new width, so that they aren't weirdly off to the left.
+        if (metrics.original_cell_width) |original| recenter: {
+            // We don't do this if the constraint has a horizontal alignment,
+            // since in that case the position was already calculated with the
+            // new cell width in mind.
+            if (opts.constraint.align_horizontal != .none) break :recenter;
 
-        // We use `x` and `y` for our full pixel bearings post-raster.
-        // We need to subtract the fractional pixel of difference from
-        // the edge of the draw area to the edge of the actual glyph.
-        const frac_x = rect.origin.x + draw_x;
-        const frac_y = rect.origin.y + draw_y;
-        const x = glyph_size.x - frac_x;
-        const y = glyph_size.y - frac_y;
+            // If the original width was wider then we don't do anything.
+            if (original >= metrics.cell_width) break :recenter;
 
-        // We never modify the width.
-        //
-        // When using the CoreText option the widths do seem to be
-        // modified extremely subtly, but even at very small font
-        // sizes it's hardly a noticeable difference.
-        const width = glyph_size.width;
+            // We add half the difference to re-center.
+            x += (cell_width - @as(f64, @floatFromInt(original))) / 2;
+        }
 
-        // If the top of the glyph (taking in to account the y position)
-        // is within half a pixel of an exact pixel edge, we round up the
-        // height, otherwise leave it alone.
-        //
-        // This seems to match what CoreText does.
-        const frac_top = (glyph_size.height + frac_y) - @floor(glyph_size.height + frac_y);
-        const height =
-            if (should_quantize)
-                if (frac_top >= 0.5)
-                    glyph_size.height + 1 - frac_top
-                else
-                    glyph_size.height
-            else
-                glyph_size.height;
+        // Our whole-pixel bearings for the final glyph.
+        // The fractional portion will be included in the rasterized position.
+        const px_x: i32 = @intFromFloat(@floor(x));
+        const px_y: i32 = @intFromFloat(@floor(y));
+
+        // We offset our glyph by its bearings when we draw it, so that it's
+        // rendered fully inside our canvas area, but we make sure to keep the
+        // fractional pixel offset so that we rasterize with the appropriate
+        // sub-pixel position.
+        const frac_x = x - @floor(x);
+        const frac_y = y - @floor(y);
+        const draw_x = -rect.origin.x + frac_x;
+        const draw_y = -rect.origin.y + frac_y;
 
         // Add the fractional pixel to the width and height and take
         // the ceiling to get a canvas size that will definitely fit
@@ -511,7 +498,9 @@ pub const Face = struct {
         context.setAllowsFontSubpixelPositioning(ctx, true);
         context.setShouldSubpixelPositionFonts(ctx, true);
 
-        // See comments about quantization earlier in the function.
+        // We don't want subpixel quantization, since we very carefully
+        // manage the position of our glyphs ourselves, and dont want to
+        // mess that up.
         context.setAllowsFontSubpixelQuantization(ctx, false);
         context.setShouldSubpixelQuantizeFonts(ctx, false);
 
@@ -553,46 +542,11 @@ pub const Face = struct {
 
         // This should be the distance from the bottom of
         // the cell to the top of the glyph's bounding box.
-        const offset_y: i32 = @as(i32, @intFromFloat(@round(y))) + @as(i32, @intCast(px_height));
+        const offset_y: i32 = px_y + @as(i32, @intCast(px_height));
 
         // This should be the distance from the left of
         // the cell to the left of the glyph's bounding box.
-        const offset_x: i32 = offset_x: {
-            // If the glyph's advance is narrower than the cell width then we
-            // center the advance of the glyph within the cell width. At first
-            // I implemented this to proportionally scale the center position
-            // of the glyph but that messes up glyphs that are meant to align
-            // vertically with others, so this is a compromise.
-            //
-            // This makes it so that when the `adjust-cell-width` config is
-            // used, or when a fallback font with a different advance width
-            // is used, we don't get weirdly aligned glyphs.
-            //
-            // We don't do this if the constraint has a horizontal alignment,
-            // since in that case the position was already calculated with the
-            // new cell width in mind.
-            if (opts.constraint.align_horizontal == .none) {
-                const advance = self.font.getAdvancesForGlyphs(.horizontal, &glyphs, null);
-                const new_advance =
-                    cell_width * @as(f64, @floatFromInt(opts.cell_width orelse 1));
-                // If the original advance is greater than the cell width then
-                // it's possible that this is a ligature or other glyph that is
-                // intended to overflow the cell to one side or the other, and
-                // adjusting the bearings could mess that up, so we just leave
-                // it alone if that's the case.
-                //
-                // We also don't want to do anything if the advance is zero or
-                // less, since this is used for stuff like combining characters.
-                if (advance > new_advance or advance <= 0.0) {
-                    break :offset_x @intFromFloat(@round(x));
-                }
-                break :offset_x @intFromFloat(
-                    @round(x + (new_advance - advance) / 2),
-                );
-            } else {
-                break :offset_x @intFromFloat(@round(x));
-            }
-        };
+        const offset_x: i32 = px_x;
 
         return .{
             .width = px_width,

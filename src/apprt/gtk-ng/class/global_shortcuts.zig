@@ -36,8 +36,6 @@ pub const GlobalShortcuts = extern struct {
                 Self,
                 ?*Config,
                 .{
-                    .nick = "Config",
-                    .blurb = "The configuration that this is using.",
                     .accessor = C.privateObjFieldAccessor("config"),
                 },
             );
@@ -50,8 +48,6 @@ pub const GlobalShortcuts = extern struct {
                 Self,
                 ?*gio.DBusConnection,
                 .{
-                    .nick = "Dbus Connection",
-                    .blurb = "The dbus connection to use.",
                     .accessor = C.privateObjFieldAccessor("dbus_connection"),
                 },
             );

@@ -37,8 +37,6 @@ pub const ClipboardConfirmationDialog = extern struct {
                 Self,
                 bool,
                 .{
-                    .nick = "Can Remember",
-                    .blurb = "Allow remembering the choice.",
                     .default = false,
                     .accessor = gobject.ext.privateFieldAccessor(
                         Self,
@@ -57,8 +55,6 @@ pub const ClipboardConfirmationDialog = extern struct {
                 Self,
                 ?*apprt.ClipboardRequest,
                 .{
-                    .nick = "Request",
-                    .blurb = "The clipboard request.",
                     .accessor = C.privateBoxedFieldAccessor("request"),
                 },
             );
@@ -71,8 +67,6 @@ pub const ClipboardConfirmationDialog = extern struct {
                 Self,
                 ?*gtk.TextBuffer,
                 .{
-                    .nick = "Clipboard Contents",
-                    .blurb = "The clipboard contents being read/written.",
                     .accessor = C.privateObjFieldAccessor("clipboard_contents"),
                 },
             );
@@ -85,8 +79,6 @@ pub const ClipboardConfirmationDialog = extern struct {
                 Self,
                 bool,
                 .{
-                    .nick = "Blur",
-                    .blurb = "Blur the contents, allowing the user to reveal.",
                     .default = false,
                     .accessor = gobject.ext.privateFieldAccessor(
                         Self,

@@ -2433,7 +2433,12 @@ keybind: Keybinds = .{},
 ///    Prepend a bell emoji (🔔) to the title of the alerted surface until the
 ///    terminal is re-focused or interacted with (such as on keyboard input).
 ///
-///    Only implemented on macOS.
+///  * `border`
+///
+///    Display a border around the alerted surface until the terminal is
+///    re-focused or interacted with (such as on keyboard input).
+///
+///    GTK only.
 ///
 /// Example: `audio`, `no-audio`, `system`, `no-system`
 ///
@@ -2891,6 +2896,21 @@ else
 ///  * `raised-border` - Similar to `raised` but the shadow is replaced with a
 ///    more subtle border.
 @"gtk-toolbar-style": GtkToolbarStyle = .raised,
+
+/// The style of the GTK titlbar. Available values are `native` and `tabs`.
+///
+/// The `native` titlebar style is a traditional titlebar with a title, a few
+/// buttons and window controls. A separate tab bar will show up below the
+/// titlebar if you have multiple tabs open in the window.
+///
+/// The `tabs` titlebar merges the tab bar and the traditional titlebar.
+/// This frees up vertical space on your screen if you use multiple tabs. One
+/// limitation of the `tabs` titlebar is that you cannot drag the titlebar
+/// by the titles any longer (as they are tab titles now). Other areas of the
+/// `tabs` title bar can be used to drag the window around.
+///
+/// The default style is `native`.
+@"gtk-titlebar-style": GtkTitlebarStyle = .native,
 
 /// If `true` (default), then the Ghostty GTK tabs will be "wide." Wide tabs
 /// are the new typical Gnome style where tabs fill their available space.
@@ -6947,6 +6967,21 @@ pub const GtkToolbarStyle = enum {
     @"raised-border",
 };
 
+/// See gtk-titlebar-style
+pub const GtkTitlebarStyle = enum(c_int) {
+    native,
+    tabs,
+
+    pub const getGObjectType = switch (build_config.app_runtime) {
+        .gtk, .@"gtk-ng" => @import("gobject").ext.defineEnum(
+            GtkTitlebarStyle,
+            .{ .name = "GhosttyGtkTitlebarStyle" },
+        ),
+
+        .none => void,
+    };
+};
+
 /// See app-notifications
 pub const AppNotifications = packed struct {
     @"clipboard-copy": bool = true,
@@ -6958,6 +6993,7 @@ pub const BellFeatures = packed struct {
     audio: bool = false,
     attention: bool = true,
     title: bool = true,
+    border: bool = false,
 };
 
 /// See mouse-shift-capture

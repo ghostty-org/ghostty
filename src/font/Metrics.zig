@@ -38,6 +38,10 @@ cursor_height: u32,
 /// The constraint height for nerd fonts icons.
 icon_height: u32,
 
+/// Original cell width in pixels. This is used to keep
+/// glyphs centered if the cell width is adjusted wider.
+original_cell_width: ?u32 = null,
+
 /// Minimum acceptable values for some fields to prevent modifiers
 /// from being able to, for example, cause 0-thickness underlines.
 const Minimums = struct {
@@ -262,6 +266,11 @@ pub fn apply(self: *Metrics, mods: ModifierSet) void {
                 const original = @field(self, @tagName(tag));
                 const new = @max(entry.value_ptr.apply(original), 1);
                 if (new == original) continue;
+
+                // Preserve the original cell width if not set.
+                if (self.original_cell_width == null) {
+                    self.original_cell_width = self.cell_width;
+                }
 
                 // Set the new value
                 @field(self, @tagName(tag)) = new;

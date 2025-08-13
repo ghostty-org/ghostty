@@ -539,6 +539,7 @@ pub fn performAction(
         .check_for_updates,
         .undo,
         .redo,
+        .show_on_screen_keyboard,
         => {
             log.warn("unimplemented action={}", .{action});
             return false;

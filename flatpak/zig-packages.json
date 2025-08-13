@@ -31,9 +31,9 @@
   },
   {
     "type": "archive",
-    "url": "https://github.com/jcollie/ghostty-gobject/releases/download/0.14.1-2025-07-23-28-1/ghostty-gobject-0.14.1-2025-07-23-28-1.tar.zst",
-    "dest": "vendor/p/gobject-0.3.0-Skun7EXXnAB96BrWabxhzOw7HY-NzVexaPOIYw5t-dIE",
-    "sha256": "c9b787a3e37071566ec94d37ed707efcea1f0e82282ec3e7c8d086da3ca25c2d"
+    "url": "https://github.com/jcollie/ghostty-gobject/releases/download/0.14.1-2025-08-09-37-1/ghostty-gobject-0.14.1-2025-08-09-37-1.tar.zst",
+    "dest": "vendor/p/gobject-0.3.0-Skun7AngnABC2BPiaoobs6YSSzSgMuEIcjb2rYrRyaAM",
+    "sha256": "074ce22f32ae77e91d2aee53d414c4f46321f043ccfca861868349972b3940f2"
   },
   {
     "type": "archive",
@@ -61,9 +61,9 @@
   },
   {
     "type": "archive",
-    "url": "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/b2742b8baf86f556d6be4d9c6515bfd9d9c7a140.tar.gz",
-    "dest": "vendor/p/N-V-__8AAN83XASXgcKp4RDTj_WcQ19E5X24C3FjQoffeMFv",
-    "sha256": "c3f6e251067e009bf46ad5f2a704312652a41d151a152d00944fd59412579555"
+    "url": "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/3cbeca99efa10beba24b0efe86331736f09f9ed1.tar.gz",
+    "dest": "vendor/p/N-V-__8AABemXQQj_VhMpwuOSOiSzywW_yGD6aEL9YGI9uBu",
+    "sha256": "825e3634e679f6893eba61c21db7414215828055698f93c06435468494696e20"
   },
   {
     "type": "archive",

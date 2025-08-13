@@ -6,6 +6,7 @@ template $GhosttySurface: Adw.Bin {
     "surface",
   ]
 
+  notify::bell-ringing => $notify_bell_ringing();
   notify::config => $notify_config();
   notify::mouse-hover-url => $notify_mouse_hover_url();
   notify::mouse-hidden => $notify_mouse_hidden();
@@ -51,6 +52,27 @@ template $GhosttySurface: Adw.Bin {
       visible: false;
       halign: fill;
       valign: start;
+    }
+
+    [overlay]
+    // The "border" bell feature is implemented here as an overlay rather than
+    // just adding a border to the GLArea or other widget for two reasons.
+    // First, adding a border to an existing widget causes a resize of the
+    // widget which undesirable side effects. Second, we can make it reactive
+    // here in the blueprint with relatively little code.
+    Revealer {
+      reveal-child: bind $should_border_be_shown(template.config, template.bell-ringing) as <bool>;
+      transition-type: crossfade;
+      transition-duration: 500;
+
+      Box bell_overlay {
+        styles [
+          "bell-overlay",
+        ]
+
+        halign: fill;
+        valign: fill;
+      }
     }
 
     [overlay]
@@ -167,27 +189,27 @@ menu context_menu_model {
 
       item {
         label: _("Change Title…");
-        action: "win.prompt-title";
+        action: "surface.prompt-title";
       }
 
       item {
         label: _("Split Up");
-        action: "win.split-up";
+        action: "split-tree.new-up";
       }
 
       item {
         label: _("Split Down");
-        action: "win.split-down";
+        action: "split-tree.new-down";
       }
 
       item {
         label: _("Split Left");
-        action: "win.split-left";
+        action: "split-tree.new-left";
       }
 
       item {
         label: _("Split Right");
-        action: "win.split-right";
+        action: "split-tree.new-right";
       }
     }
 

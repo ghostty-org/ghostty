@@ -32,8 +32,6 @@ pub const CloseConfirmationDialog = extern struct {
                 Self,
                 Target,
                 .{
-                    .nick = "Target",
-                    .blurb = "The target for this close confirmation.",
                     .default = .app,
                     .accessor = gobject.ext.privateFieldAccessor(
                         Self,
@@ -135,6 +133,7 @@ pub const CloseConfirmationDialog = extern struct {
     const C = Common(Self, Private);
     pub const as = C.as;
     pub const ref = C.ref;
+    pub const refSink = C.refSink;
     pub const unref = C.unref;
     const private = C.private;
 
@@ -181,12 +180,14 @@ pub const Target = enum(c_int) {
     app,
     tab,
     window,
+    surface,
 
     pub fn title(self: Target) [*:0]const u8 {
         return switch (self) {
             .app => i18n._("Quit Ghostty?"),
             .tab => i18n._("Close Tab?"),
             .window => i18n._("Close Window?"),
+            .surface => i18n._("Close Split?"),
         };
     }
 
@@ -195,6 +196,7 @@ pub const Target = enum(c_int) {
             .app => i18n._("All terminal sessions will be terminated."),
             .tab => i18n._("All terminal sessions in this tab will be terminated."),
             .window => i18n._("All terminal sessions in this window will be terminated."),
+            .surface => i18n._("The currently running process in this split will be terminated."),
         };
     }
 

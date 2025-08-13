@@ -40,6 +40,13 @@ template $GhosttyWindow: Adw.ApplicationWindow {
 
         title-widget: Adw.WindowTitle {
           title: bind template.title;
+          // Blueprint auto-formatter won't let me split this into multiple
+          // lines. Let me explain myself. All parameters to a closure are used
+          // as notifications to recompute the value of the closure. All
+          // elements of a property chain are also subscribed to for changes.
+          // This one long, ugly line saves us from manually building up this
+          // massive notify chain in code.
+          subtitle: bind $computed_subtitle(template.config, tab_view.selected-page.child as <$GhosttyTab>.active-surface as <$GhosttySurface>.pwd) as <string>;
         };
 
         [start]
@@ -79,6 +86,64 @@ template $GhosttyWindow: Adw.ApplicationWindow {
         expand-tabs: bind template.tabs-wide;
         view: tab_view;
         visible: bind template.tabs-visible;
+
+        [start]
+        Gtk.Box {
+          orientation: horizontal;
+          visible: bind $titlebar_style_is_tabs(template.titlebar-style) as <bool>;
+
+          Gtk.WindowControls {
+            side: start;
+          }
+
+          Adw.SplitButton {
+            styles [
+              "flat",
+            ]
+
+            clicked => $new_tab();
+            icon-name: "tab-new-symbolic";
+            tooltip-text: _("New Tab");
+            dropdown-tooltip: _("New Split");
+            menu-model: split_menu;
+            can-focus: false;
+            focus-on-click: false;
+          }
+        }
+
+        [end]
+        Gtk.Box {
+          orientation: horizontal;
+          visible: bind $titlebar_style_is_tabs(template.titlebar-style) as <bool>;
+
+          Gtk.ToggleButton {
+            styles [
+              "flat",
+            ]
+
+            icon-name: "view-grid-symbolic";
+            tooltip-text: _("View Open Tabs");
+            active: bind tab_overview.open bidirectional;
+            can-focus: false;
+            focus-on-click: false;
+          }
+
+          Gtk.MenuButton {
+            styles [
+              "flat",
+            ]
+
+            notify::active => $notify_menu_active();
+            icon-name: "open-menu-symbolic";
+            menu-model: main_menu;
+            tooltip-text: _("Main Menu");
+            can-focus: false;
+          }
+
+          Gtk.WindowControls {
+            side: end;
+          }
+        }
       }
 
       Box {

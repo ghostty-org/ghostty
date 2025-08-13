@@ -40,8 +40,6 @@ const SurfaceChildExitedBanner = extern struct {
                 Self,
                 ?*apprt.surface.Message.ChildExited,
                 .{
-                    .nick = "Data",
-                    .blurb = "The child exit data.",
                     .accessor = C.privateBoxedFieldAccessor("data"),
                 },
             );

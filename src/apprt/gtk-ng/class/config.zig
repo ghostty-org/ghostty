@@ -39,8 +39,6 @@ pub const Config = extern struct {
             Self,
             ?*gtk.TextBuffer,
             .{
-                .nick = "Diagnostics Buffer",
-                .blurb = "A TextBuffer that contains the diagnostics.",
                 .accessor = gobject.ext.typedAccessor(
                     Self,
                     ?*gtk.TextBuffer,
@@ -57,8 +55,6 @@ pub const Config = extern struct {
             Self,
             bool,
             .{
-                .nick = "has-diagnostics",
-                .blurb = "Whether the configuration has diagnostics.",
                 .default = false,
                 .accessor = gobject.ext.typedAccessor(
                     Self,

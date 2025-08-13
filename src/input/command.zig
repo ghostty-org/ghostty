@@ -369,6 +369,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Show the GTK inspector.",
         }},
 
+        .show_on_screen_keyboard => comptime &.{.{
+            .action = .show_on_screen_keyboard,
+            .title = "Show On-Screen Keyboard",
+            .description = "Show the on-screen keyboard if present.",
+        }},
+
         .open_config => comptime &.{.{
             .action = .open_config,
             .title = "Open Config",

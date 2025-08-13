@@ -9,6 +9,7 @@ const gobject = @import("gobject");
 const gtk = @import("gtk");
 
 const apprt = @import("../../../apprt.zig");
+const datastruct = @import("../../../datastruct/main.zig");
 const font = @import("../../../font/main.zig");
 const input = @import("../../../input.zig");
 const internal_os = @import("../../../os/main.zig");
@@ -26,6 +27,7 @@ const Config = @import("config.zig").Config;
 const ResizeOverlay = @import("resize_overlay.zig").ResizeOverlay;
 const ChildExited = @import("surface_child_exited.zig").SurfaceChildExited;
 const ClipboardConfirmationDialog = @import("clipboard_confirmation_dialog.zig").ClipboardConfirmationDialog;
+const TitleDialog = @import("surface_title_dialog.zig").SurfaceTitleDialog;
 const Window = @import("window.zig").Window;
 
 const log = std.log.scoped(.gtk_ghostty_surface);
@@ -42,7 +44,23 @@ pub const Surface = extern struct {
         .private = .{ .Type = Private, .offset = &Private.offset },
     });
 
+    /// A SplitTree implementation that stores surfaces.
+    pub const Tree = datastruct.SplitTree(Self);
+
     pub const properties = struct {
+        pub const @"bell-ringing" = struct {
+            pub const name = "bell-ringing";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                bool,
+                .{
+                    .default = false,
+                    .accessor = C.privateShallowFieldAccessor("bell_ringing"),
+                },
+            );
+        };
+
         pub const config = struct {
             pub const name = "config";
             const impl = gobject.ext.defineProperty(
@@ -50,8 +68,6 @@ pub const Surface = extern struct {
                 Self,
                 ?*Config,
                 .{
-                    .nick = "Config",
-                    .blurb = "The configuration that this surface is using.",
                     .accessor = C.privateObjFieldAccessor("config"),
                 },
             );
@@ -64,8 +80,6 @@ pub const Surface = extern struct {
                 Self,
                 bool,
                 .{
-                    .nick = "Child Exited",
-                    .blurb = "True when the child process has exited.",
                     .default = false,
                     .accessor = gobject.ext.privateFieldAccessor(
                         Self,
@@ -84,8 +98,6 @@ pub const Surface = extern struct {
                 Self,
                 ?*Size,
                 .{
-                    .nick = "Default Size",
-                    .blurb = "The default size of the window for this surface.",
                     .accessor = C.privateBoxedFieldAccessor("default_size"),
                 },
             );
@@ -98,8 +110,6 @@ pub const Surface = extern struct {
                 Self,
                 ?*font.face.DesiredSize,
                 .{
-                    .nick = "Desired Font Size",
-                    .blurb = "The desired font size, only affects initialization.",
                     .accessor = C.privateBoxedFieldAccessor("font_size_request"),
                 },
             );
@@ -112,8 +122,6 @@ pub const Surface = extern struct {
                 Self,
                 bool,
                 .{
-                    .nick = "Focused",
-                    .blurb = "The focused state of the surface.",
                     .default = false,
                     .accessor = gobject.ext.privateFieldAccessor(
                         Self,
@@ -132,8 +140,6 @@ pub const Surface = extern struct {
                 Self,
                 ?*Size,
                 .{
-                    .nick = "Minimum Size",
-                    .blurb = "The minimum size of the surface.",
                     .accessor = C.privateBoxedFieldAccessor("min_size"),
                 },
             );
@@ -146,14 +152,14 @@ pub const Surface = extern struct {
                 Self,
                 bool,
                 .{
-                    .nick = "Mouse Hidden",
-                    .blurb = "Whether the mouse cursor should be hidden.",
                     .default = false,
-                    .accessor = gobject.ext.privateFieldAccessor(
+                    .accessor = gobject.ext.typedAccessor(
                         Self,
-                        Private,
-                        &Private.offset,
-                        "mouse_hidden",
+                        bool,
+                        .{
+                            .getter = getMouseHidden,
+                            .setter = setMouseHidden,
+                        },
                     ),
                 },
             );
@@ -166,14 +172,14 @@ pub const Surface = extern struct {
                 Self,
                 terminal.MouseShape,
                 .{
-                    .nick = "Mouse Shape",
-                    .blurb = "The current mouse shape to show for the surface.",
                     .default = .text,
-                    .accessor = gobject.ext.privateFieldAccessor(
+                    .accessor = gobject.ext.typedAccessor(
                         Self,
-                        Private,
-                        &Private.offset,
-                        "mouse_shape",
+                        terminal.MouseShape,
+                        .{
+                            .getter = getMouseShape,
+                            .setter = setMouseShape,
+                        },
                     ),
                 },
             );
@@ -181,15 +187,11 @@ pub const Surface = extern struct {
 
         pub const @"mouse-hover-url" = struct {
             pub const name = "mouse-hover-url";
-            pub const get = impl.get;
-            pub const set = impl.set;
             const impl = gobject.ext.defineProperty(
                 name,
                 Self,
                 ?[:0]const u8,
                 .{
-                    .nick = "Mouse Hover URL",
-                    .blurb = "The URL the mouse is currently hovering over (if any).",
                     .default = null,
                     .accessor = C.privateStringFieldAccessor("mouse_hover_url"),
                 },
@@ -198,15 +200,11 @@ pub const Surface = extern struct {
 
         pub const pwd = struct {
             pub const name = "pwd";
-            pub const get = impl.get;
-            pub const set = impl.set;
             const impl = gobject.ext.defineProperty(
                 name,
                 Self,
                 ?[:0]const u8,
                 .{
-                    .nick = "Working Directory",
-                    .blurb = "The current working directory as reported by core.",
                     .default = null,
                     .accessor = C.privateStringFieldAccessor("pwd"),
                 },
@@ -215,17 +213,26 @@ pub const Surface = extern struct {
 
         pub const title = struct {
             pub const name = "title";
-            pub const get = impl.get;
-            pub const set = impl.set;
             const impl = gobject.ext.defineProperty(
                 name,
                 Self,
                 ?[:0]const u8,
                 .{
-                    .nick = "Title",
-                    .blurb = "The title of the surface.",
                     .default = null,
                     .accessor = C.privateStringFieldAccessor("title"),
+                },
+            );
+        };
+
+        pub const @"title-override" = struct {
+            pub const name = "title-override";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?[:0]const u8,
+                .{
+                    .default = null,
+                    .accessor = C.privateStringFieldAccessor("title_override"),
                 },
             );
         };
@@ -237,8 +244,6 @@ pub const Surface = extern struct {
                 Self,
                 bool,
                 .{
-                    .nick = "Zoom",
-                    .blurb = "Whether the surface should be zoomed.",
                     .default = false,
                     .accessor = gobject.ext.privateFieldAccessor(
                         Self,
@@ -269,21 +274,6 @@ pub const Surface = extern struct {
                 name,
                 Self,
                 &.{*const CloseScope},
-                void,
-            );
-        };
-
-        /// The bell is rung.
-        ///
-        /// The surface view handles the audio bell feature but none of the
-        /// others so it is up to the embedding widget to react to this.
-        pub const bell = struct {
-            pub const name = "bell";
-            pub const connect = impl.connect;
-            const impl = gobject.ext.defineSignal(
-                name,
-                Self,
-                &.{},
                 void,
             );
         };
@@ -377,19 +367,6 @@ pub const Surface = extern struct {
                 void,
             );
         };
-
-        /// Emitted when this surface requests that the command palette be
-        /// toggled.
-        pub const @"toggle-command-palette" = struct {
-            pub const name = "toggle-command-palette";
-            pub const connect = impl.connect;
-            const impl = gobject.ext.defineSignal(
-                name,
-                Self,
-                &.{},
-                void,
-            );
-        };
     };
 
     const Private = struct {
@@ -431,6 +408,9 @@ pub const Surface = extern struct {
 
         /// The title of this surface, if any has been set.
         title: ?[:0]const u8 = null,
+
+        /// The manually overridden title of this surface from `promptTitle`.
+        title_override: ?[:0]const u8 = null,
 
         /// The current focus state of the terminal based on the
         /// focus events.
@@ -484,6 +464,11 @@ pub const Surface = extern struct {
 
         // Progress bar
         progress_bar_timer: ?c_uint = null,
+
+        // True while the bell is ringing. This will be set to false (after
+        // true) under various scenarios, but can also manually be set to
+        // false by a parent widget.
+        bell_ringing: bool = false,
 
         // Template binds
         child_exited_overlay: *ChildExited,
@@ -549,16 +534,20 @@ pub const Surface = extern struct {
         priv.gl_area.queueRender();
     }
 
-    /// Ring the bell.
-    pub fn ringBell(self: *Self) void {
-        // TODO: Audio feature
+    /// Callback used to determine whether border should be shown around the
+    /// surface.
+    fn closureShouldBorderBeShown(
+        _: *Self,
+        config_: ?*Config,
+        bell_ringing_: c_int,
+    ) callconv(.c) c_int {
+        const config = if (config_) |v| v.get() else {
+            log.warn("config unavailable for computing whether border should be shown , likely bug", .{});
+            return @intFromBool(false);
+        };
 
-        signals.bell.impl.emit(
-            self,
-            null,
-            .{},
-            null,
-        );
+        const bell_ringing = bell_ringing_ != 0;
+        return @intFromBool(config.@"bell-features".border and bell_ringing);
     }
 
     pub fn toggleFullscreen(self: *Self) void {
@@ -580,13 +569,13 @@ pub const Surface = extern struct {
     }
 
     pub fn toggleCommandPalette(self: *Self) bool {
-        signals.@"toggle-command-palette".impl.emit(
-            self,
-            null,
-            .{},
-            null,
-        );
-        return true;
+        // TODO: pass the surface with the action
+        return self.as(gtk.Widget).activateAction("win.toggle-command-palette", null) != 0;
+    }
+
+    pub fn showOnScreenKeyboard(self: *Self, event: ?*gdk.Event) bool {
+        const priv = self.private();
+        return priv.im_context.as(gtk.IMContext).activateOsk(event) != 0;
     }
 
     /// Set the current progress report state.
@@ -725,7 +714,7 @@ pub const Surface = extern struct {
         keycode: c_uint,
         gtk_mods: gdk.ModifierType,
     ) bool {
-        log.warn("keyEvent action={}", .{action});
+        //log.warn("keyEvent action={}", .{action});
         const event = ec_key.as(gtk.EventController).getCurrentEvent() orelse return false;
         const key_event = gobject.ext.cast(gdk.KeyEvent, event) orelse return false;
         const priv = self.private();
@@ -915,11 +904,35 @@ pub const Surface = extern struct {
                     surface.preeditCallback(null) catch {};
                 }
 
+                // Bell stops ringing when any key is pressed that is used by
+                // the core in any way.
+                self.setBellRinging(false);
+
                 return true;
             },
         }
 
         return false;
+    }
+
+    /// Prompt for a manual title change for the surface.
+    pub fn promptTitle(self: *Self) void {
+        const priv = self.private();
+        const dialog = gobject.ext.newInstance(
+            TitleDialog,
+            .{
+                .@"initial-value" = priv.title_override orelse priv.title,
+            },
+        );
+        _ = TitleDialog.signals.set.connect(
+            dialog,
+            *Self,
+            titleDialogSet,
+            self,
+            .{},
+        );
+
+        dialog.present(self.as(gtk.Widget));
     }
 
     /// Scale x/y by the GDK device scale.
@@ -1184,6 +1197,9 @@ pub const Surface = extern struct {
     fn init(self: *Self, _: *Class) callconv(.c) void {
         gtk.Widget.initTemplate(self.as(gtk.Widget));
 
+        // Initialize our actions
+        self.initActions();
+
         const priv = self.private();
 
         // Initialize some private fields so they aren't undefined
@@ -1228,6 +1244,45 @@ pub const Surface = extern struct {
 
         // Initialize our config
         self.propConfig(undefined, null);
+    }
+
+    fn initActions(self: *Self) void {
+        // The set of actions. Each action has (in order):
+        // [0] The action name
+        // [1] The callback function
+        // [2] The glib.VariantType of the parameter
+        //
+        // For action names:
+        // https://docs.gtk.org/gio/type_func.Action.name_is_valid.html
+        const actions = .{
+            .{ "prompt-title", actionPromptTitle, null },
+        };
+
+        // We need to collect our actions into a group since we're just
+        // a plain widget that doesn't implement ActionGroup directly.
+        const group = gio.SimpleActionGroup.new();
+        errdefer group.unref();
+        const map = group.as(gio.ActionMap);
+        inline for (actions) |entry| {
+            const action = gio.SimpleAction.new(
+                entry[0],
+                entry[2],
+            );
+            defer action.unref();
+            _ = gio.SimpleAction.signals.activate.connect(
+                action,
+                *Self,
+                entry[1],
+                self,
+                .{},
+            );
+            map.addAction(action.as(gio.Action));
+        }
+
+        self.as(gtk.Widget).insertActionGroup(
+            "surface",
+            group.as(gio.ActionGroup),
+        );
     }
 
     fn dispose(self: *Self) callconv(.c) void {
@@ -1293,6 +1348,10 @@ pub const Surface = extern struct {
             glib.free(@constCast(@ptrCast(v)));
             priv.title = null;
         }
+        if (priv.title_override) |v| {
+            glib.free(@constCast(@ptrCast(v)));
+            priv.title_override = null;
+        }
         self.clearCgroup();
 
         gobject.Object.virtual_methods.finalize.call(
@@ -1309,9 +1368,44 @@ pub const Surface = extern struct {
         return self.private().title;
     }
 
+    /// Set the title for this surface, copies the value. This should always
+    /// be the title as set by the terminal program, not any manually set
+    /// title. For manually set titles see `setTitleOverride`.
+    pub fn setTitle(self: *Self, title: ?[:0]const u8) void {
+        const priv = self.private();
+        if (priv.title) |v| glib.free(@constCast(@ptrCast(v)));
+        priv.title = null;
+        if (title) |v| priv.title = glib.ext.dupeZ(u8, v);
+        self.as(gobject.Object).notifyByPspec(properties.title.impl.param_spec);
+    }
+
+    /// Overridden title. This will be generally be shown over the title
+    /// unless this is unset (null).
+    pub fn setTitleOverride(self: *Self, title: ?[:0]const u8) void {
+        const priv = self.private();
+        if (priv.title_override) |v| glib.free(@constCast(@ptrCast(v)));
+        priv.title_override = null;
+        if (title) |v| priv.title_override = glib.ext.dupeZ(u8, v);
+        self.as(gobject.Object).notifyByPspec(properties.@"title-override".impl.param_spec);
+    }
+
     /// Returns the pwd property without a copy.
     pub fn getPwd(self: *Self) ?[:0]const u8 {
         return self.private().pwd;
+    }
+
+    /// Set the pwd for this surface, copies the value.
+    pub fn setPwd(self: *Self, pwd: ?[:0]const u8) void {
+        const priv = self.private();
+        if (priv.pwd) |v| glib.free(@constCast(@ptrCast(v)));
+        priv.pwd = null;
+        if (pwd) |v| priv.pwd = glib.ext.dupeZ(u8, v);
+        self.as(gobject.Object).notifyByPspec(properties.pwd.impl.param_spec);
+    }
+
+    /// Returns the focus state of this surface.
+    pub fn getFocused(self: *Self) bool {
+        return self.private().focused;
     }
 
     /// Change the configuration for this surface.
@@ -1364,6 +1458,45 @@ pub const Surface = extern struct {
             &size,
         );
         self.as(gobject.Object).notifyByPspec(properties.@"min-size".impl.param_spec);
+    }
+
+    pub fn getMouseShape(self: *Self) terminal.MouseShape {
+        return self.private().mouse_shape;
+    }
+
+    pub fn setMouseShape(self: *Self, shape: terminal.MouseShape) void {
+        const priv = self.private();
+        priv.mouse_shape = shape;
+        self.as(gobject.Object).notifyByPspec(properties.@"mouse-shape".impl.param_spec);
+    }
+
+    pub fn getMouseHidden(self: *Self) bool {
+        return self.private().mouse_hidden;
+    }
+
+    pub fn setMouseHidden(self: *Self, hidden: bool) void {
+        const priv = self.private();
+        priv.mouse_hidden = hidden;
+        self.as(gobject.Object).notifyByPspec(properties.@"mouse-hidden".impl.param_spec);
+    }
+
+    pub fn setMouseHoverUrl(self: *Self, url: ?[:0]const u8) void {
+        const priv = self.private();
+        if (priv.mouse_hover_url) |v| glib.free(@constCast(@ptrCast(v)));
+        priv.mouse_hover_url = null;
+        if (url) |v| priv.mouse_hover_url = glib.ext.dupeZ(u8, v);
+        self.as(gobject.Object).notifyByPspec(properties.@"mouse-hover-url".impl.param_spec);
+    }
+
+    pub fn getBellRinging(self: *Self) bool {
+        return self.private().bell_ringing;
+    }
+
+    pub fn setBellRinging(self: *Self, ringing: bool) void {
+        const priv = self.private();
+        if (priv.bell_ringing == ringing) return;
+        priv.bell_ringing = ringing;
+        self.as(gobject.Object).notifyByPspec(properties.@"bell-ringing".impl.param_spec);
     }
 
     fn propConfig(
@@ -1495,11 +1628,80 @@ pub const Surface = extern struct {
         };
 
         // Set our new cursor.
-        self.as(gtk.Widget).setCursorFromName(name.ptr);
+        priv.gl_area.as(gtk.Widget).setCursorFromName(name.ptr);
+    }
+
+    fn propBellRinging(
+        self: *Self,
+        _: *gobject.ParamSpec,
+        _: ?*anyopaque,
+    ) callconv(.c) void {
+        const priv = self.private();
+        if (!priv.bell_ringing) return;
+
+        // Activate actions if they exist
+        _ = self.as(gtk.Widget).activateAction("tab.ring-bell", null);
+        _ = self.as(gtk.Widget).activateAction("win.ring-bell", null);
+
+        // Do our sound
+        const config = if (priv.config) |c| c.get() else return;
+        if (config.@"bell-features".audio) audio: {
+            const config_path = config.@"bell-audio-path" orelse break :audio;
+            const path, const required = switch (config_path) {
+                .optional => |path| .{ path, false },
+                .required => |path| .{ path, true },
+            };
+
+            const volume = std.math.clamp(
+                config.@"bell-audio-volume",
+                0.0,
+                1.0,
+            );
+
+            assert(std.fs.path.isAbsolute(path));
+            const media_file = gtk.MediaFile.newForFilename(path);
+
+            // If the audio file is marked as required, we'll emit an error if
+            // there was a problem playing it. Otherwise there will be silence.
+            if (required) {
+                _ = gobject.Object.signals.notify.connect(
+                    media_file,
+                    ?*anyopaque,
+                    mediaFileError,
+                    null,
+                    .{ .detail = "error" },
+                );
+            }
+
+            // Watch for the "ended" signal so that we can clean up after
+            // ourselves.
+            _ = gobject.Object.signals.notify.connect(
+                media_file,
+                ?*anyopaque,
+                mediaFileEnded,
+                null,
+                .{ .detail = "ended" },
+            );
+
+            const media_stream = media_file.as(gtk.MediaStream);
+            media_stream.setVolume(volume);
+            media_stream.play();
+        }
     }
 
     //---------------------------------------------------------------
     // Signal Handlers
+
+    pub fn actionPromptTitle(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        const surface = self.core() orelse return;
+        _ = surface.performBindingAction(.prompt_surface_title) catch |err| {
+            log.warn("unable to perform prompt title action err={}", .{err});
+        };
+    }
 
     fn childExitedClose(
         _: *ChildExited,
@@ -1650,6 +1852,10 @@ pub const Surface = extern struct {
         priv.focused = true;
         priv.im_context.as(gtk.IMContext).focusIn();
         _ = glib.idleAddOnce(idleFocus, self.ref());
+        self.as(gobject.Object).notifyByPspec(properties.focused.impl.param_spec);
+
+        // Bell stops ringing as soon as we gain focus
+        self.setBellRinging(false);
     }
 
     fn ecFocusLeave(_: *gtk.EventControllerFocus, self: *Self) callconv(.c) void {
@@ -1657,6 +1863,7 @@ pub const Surface = extern struct {
         priv.focused = false;
         priv.im_context.as(gtk.IMContext).focusOut();
         _ = glib.idleAddOnce(idleFocus, self.ref());
+        self.as(gobject.Object).notifyByPspec(properties.focused.impl.param_spec);
     }
 
     /// The focus callback must be triggered on an idle loop source because
@@ -1684,6 +1891,9 @@ pub const Surface = extern struct {
         self: *Self,
     ) callconv(.c) void {
         const event = gesture.as(gtk.EventController).getCurrentEvent() orelse return;
+
+        // Bell stops ringing if any mouse button is pressed.
+        self.setBellRinging(false);
 
         // If we don't have focus, grab it.
         const priv = self.private();
@@ -1741,18 +1951,29 @@ pub const Surface = extern struct {
         const event = gesture.as(gtk.EventController).getCurrentEvent() orelse return;
 
         const priv = self.private();
-        if (priv.core_surface) |surface| {
-            const gtk_mods = event.getModifierState();
-            const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
-            const mods = gtk_key.translateMods(gtk_mods);
-            _ = surface.mouseButtonCallback(
-                .release,
-                button,
-                mods,
-            ) catch |err| {
-                log.warn("error in key callback err={}", .{err});
-                return;
-            };
+        const surface = priv.core_surface orelse return;
+        const gtk_mods = event.getModifierState();
+        const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
+
+        const mods = gtk_key.translateMods(gtk_mods);
+        const consumed = surface.mouseButtonCallback(
+            .release,
+            button,
+            mods,
+        ) catch |err| {
+            log.warn("error in key callback err={}", .{err});
+            return;
+        };
+
+        // Trigger the on-screen keyboard if we have no selection,
+        // and that the mouse event hasn't been intercepted by the callback.
+        //
+        // It's better to do this here rather than within the core callback
+        // since we have direct access to the underlying gdk.Event here.
+        if (!consumed and button == .left and !surface.hasSelection()) {
+            if (!self.showOnScreenKeyboard(event)) {
+                log.warn("failed to activate the on-screen keyboard", .{});
+            }
         }
     }
 
@@ -2295,9 +2516,48 @@ pub const Surface = extern struct {
         right.setVisible(0);
     }
 
+    fn mediaFileError(
+        media_file: *gtk.MediaFile,
+        _: *gobject.ParamSpec,
+        _: ?*anyopaque,
+    ) callconv(.c) void {
+        const path = path: {
+            const file = media_file.getFile() orelse break :path null;
+            break :path file.getPath();
+        };
+        defer if (path) |p| glib.free(p);
+
+        const media_stream = media_file.as(gtk.MediaStream);
+        const err = media_stream.getError() orelse return;
+        log.warn("error playing bell from {s}: {s} {d} {s}", .{
+            path orelse "<<unknown>>",
+            glib.quarkToString(err.f_domain),
+            err.f_code,
+            err.f_message orelse "",
+        });
+    }
+
+    fn mediaFileEnded(
+        media_file: *gtk.MediaFile,
+        _: *gobject.ParamSpec,
+        _: ?*anyopaque,
+    ) callconv(.c) void {
+        media_file.unref();
+    }
+
+    fn titleDialogSet(
+        _: *TitleDialog,
+        title_ptr: [*:0]const u8,
+        self: *Self,
+    ) callconv(.c) void {
+        const title = std.mem.span(title_ptr);
+        self.setTitleOverride(if (title.len == 0) null else title);
+    }
+
     const C = Common(Self, Private);
     pub const as = C.as;
     pub const ref = C.ref;
+    pub const refSink = C.refSink;
     pub const unref = C.unref;
     const private = C.private;
 
@@ -2358,9 +2618,12 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("notify_mouse_hover_url", &propMouseHoverUrl);
             class.bindTemplateCallback("notify_mouse_hidden", &propMouseHidden);
             class.bindTemplateCallback("notify_mouse_shape", &propMouseShape);
+            class.bindTemplateCallback("notify_bell_ringing", &propBellRinging);
+            class.bindTemplateCallback("should_border_be_shown", &closureShouldBorderBeShown);
 
             // Properties
             gobject.ext.registerProperties(class, &.{
+                properties.@"bell-ringing".impl,
                 properties.config.impl,
                 properties.@"child-exited".impl,
                 properties.@"default-size".impl,
@@ -2372,12 +2635,12 @@ pub const Surface = extern struct {
                 properties.@"mouse-hover-url".impl,
                 properties.pwd.impl,
                 properties.title.impl,
+                properties.@"title-override".impl,
                 properties.zoom.impl,
             });
 
             // Signals
             signals.@"close-request".impl.register(.{});
-            signals.bell.impl.register(.{});
             signals.@"clipboard-read".impl.register(.{});
             signals.@"clipboard-write".impl.register(.{});
             signals.init.impl.register(.{});
@@ -2385,7 +2648,6 @@ pub const Surface = extern struct {
             signals.@"present-request".impl.register(.{});
             signals.@"toggle-fullscreen".impl.register(.{});
             signals.@"toggle-maximize".impl.register(.{});
-            signals.@"toggle-command-palette".impl.register(.{});
 
             // Virtual methods
             gobject.Object.virtual_methods.dispose.implement(class, &dispose);

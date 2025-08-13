@@ -11,6 +11,7 @@ const i18n = @import("../../../os/main.zig").i18n;
 const apprt = @import("../../../apprt.zig");
 const input = @import("../../../input.zig");
 const CoreSurface = @import("../../../Surface.zig");
+const ext = @import("../ext.zig");
 const gtk_version = @import("../gtk_version.zig");
 const adw_version = @import("../adw_version.zig");
 const gresource = @import("../build/gresource.zig");
@@ -18,6 +19,7 @@ const Common = @import("../class.zig").Common;
 const Config = @import("config.zig").Config;
 const Application = @import("application.zig").Application;
 const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseConfirmationDialog;
+const SplitTree = @import("split_tree.zig").SplitTree;
 const Surface = @import("surface.zig").Surface;
 
 const log = std.log.scoped(.gtk_ghostty_window);
@@ -35,7 +37,7 @@ pub const Tab = extern struct {
     });
 
     pub const properties = struct {
-        /// The active surface is the focus that should be receiving all
+        /// The active surface is the surface that should be receiving all
         /// surface-targeted actions. This is usually the focused surface,
         /// but may also not be focused if the user has selected a non-surface
         /// widget.
@@ -46,8 +48,6 @@ pub const Tab = extern struct {
                 Self,
                 ?*Surface,
                 .{
-                    .nick = "Active Surface",
-                    .blurb = "The currently active surface.",
                     .accessor = gobject.ext.typedAccessor(
                         Self,
                         ?*Surface,
@@ -66,24 +66,67 @@ pub const Tab = extern struct {
                 Self,
                 ?*Config,
                 .{
-                    .nick = "Config",
-                    .blurb = "The configuration that this surface is using.",
                     .accessor = C.privateObjFieldAccessor("config"),
+                },
+            );
+        };
+
+        pub const @"split-tree" = struct {
+            pub const name = "split-tree";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?*SplitTree,
+                .{
+                    .accessor = gobject.ext.typedAccessor(
+                        Self,
+                        ?*SplitTree,
+                        .{
+                            .getter = getSplitTree,
+                        },
+                    ),
+                },
+            );
+        };
+
+        pub const @"surface-tree" = struct {
+            pub const name = "surface-tree";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?*Surface.Tree,
+                .{
+                    .accessor = gobject.ext.typedAccessor(
+                        Self,
+                        ?*Surface.Tree,
+                        .{
+                            .getter = getSurfaceTree,
+                        },
+                    ),
+                },
+            );
+        };
+
+        pub const tooltip = struct {
+            pub const name = "tooltip";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?[:0]const u8,
+                .{
+                    .default = null,
+                    .accessor = C.privateStringFieldAccessor("tooltip"),
                 },
             );
         };
 
         pub const title = struct {
             pub const name = "title";
-            pub const get = impl.get;
-            pub const set = impl.set;
             const impl = gobject.ext.defineProperty(
                 name,
                 Self,
                 ?[:0]const u8,
                 .{
-                    .nick = "Title",
-                    .blurb = "The title of the active surface.",
                     .default = null,
                     .accessor = C.privateStringFieldAccessor("title"),
                 },
@@ -109,15 +152,14 @@ pub const Tab = extern struct {
         /// The configuration that this surface is using.
         config: ?*Config = null,
 
-        /// The title to show for this tab. This is usually set to a binding
-        /// with the active surface but can be manually set to anything.
+        /// The title of this tab. This is usually bound to the active surface.
         title: ?[:0]const u8 = null,
 
-        /// The binding groups for the current active surface.
-        surface_bindings: *gobject.BindingGroup,
+        /// The tooltip of this tab. This is usually bound to the active surface.
+        tooltip: ?[:0]const u8 = null,
 
         // Template bindings
-        surface: *Surface,
+        split_tree: *SplitTree,
 
         pub var offset: c_int = 0;
     };
@@ -125,16 +167,17 @@ pub const Tab = extern struct {
     /// Set the parent of this tab page. This only affects the first surface
     /// ever created for a tab. If a surface was already created this does
     /// nothing.
-    pub fn setParent(
-        self: *Self,
-        parent: *CoreSurface,
-    ) void {
-        const priv = self.private();
-        priv.surface.setParent(parent);
+    pub fn setParent(self: *Self, parent: *CoreSurface) void {
+        if (self.getActiveSurface()) |surface| {
+            surface.setParent(parent);
+        }
     }
 
     fn init(self: *Self, _: *Class) callconv(.c) void {
         gtk.Widget.initTemplate(self.as(gtk.Widget));
+
+        // Init our actions
+        self.initActions();
 
         // If our configuration is null then we get the configuration
         // from the application.
@@ -144,22 +187,55 @@ pub const Tab = extern struct {
             priv.config = app.getConfig();
         }
 
-        // Setup binding groups for surface properties
-        priv.surface_bindings = gobject.BindingGroup.new();
-        priv.surface_bindings.bind(
-            "title",
-            self.as(gobject.Object),
-            "title",
-            .{},
+        // Create our initial surface in the split tree.
+        priv.split_tree.newSplit(.right, null) catch |err| switch (err) {
+            error.OutOfMemory => {
+                // TODO: We should make our "no surfaces" state more aesthetically
+                // pleasing and show something like an "Oops, something went wrong"
+                // message. For now, this is incredibly unlikely.
+                @panic("oom");
+            },
+        };
+    }
+
+    /// Setup our action map.
+    fn initActions(self: *Self) void {
+        // The set of actions. Each action has (in order):
+        // [0] The action name
+        // [1] The callback function
+        // [2] The glib.VariantType of the parameter
+        //
+        // For action names:
+        // https://docs.gtk.org/gio/type_func.Action.name_is_valid.html
+        const actions = .{
+            .{ "ring-bell", actionRingBell, null },
+        };
+
+        // We need to collect our actions into a group since we're just
+        // a plain widget that doesn't implement ActionGroup directly.
+        const group = gio.SimpleActionGroup.new();
+        errdefer group.unref();
+        const map = group.as(gio.ActionMap);
+        inline for (actions) |entry| {
+            const action = gio.SimpleAction.new(
+                entry[0],
+                entry[2],
+            );
+            defer action.unref();
+            _ = gio.SimpleAction.signals.activate.connect(
+                action,
+                *Self,
+                entry[1],
+                self,
+                .{},
+            );
+            map.addAction(action.as(gio.Action));
+        }
+
+        self.as(gtk.Widget).insertActionGroup(
+            "tab",
+            group.as(gio.ActionGroup),
         );
-
-        // TODO: Eventually this should be set dynamically based on the
-        // current active surface.
-        priv.surface_bindings.setSource(priv.surface.as(gobject.Object));
-
-        // We need to do this so that the title initializes properly,
-        // I think because its a dynamic getter.
-        self.as(gobject.Object).notifyByPspec(properties.@"active-surface".impl.param_spec);
     }
 
     //---------------------------------------------------------------
@@ -167,17 +243,37 @@ pub const Tab = extern struct {
 
     /// Get the currently active surface. See the "active-surface" property.
     /// This does not ref the value.
-    pub fn getActiveSurface(self: *Self) *Surface {
+    pub fn getActiveSurface(self: *Self) ?*Surface {
+        return self.getSplitTree().getActiveSurface();
+    }
+
+    /// Get the surface tree of this tab.
+    pub fn getSurfaceTree(self: *Self) ?*Surface.Tree {
         const priv = self.private();
-        return priv.surface;
+        return priv.split_tree.getTree();
+    }
+
+    /// Get the split tree widget that is in this tab.
+    pub fn getSplitTree(self: *Self) *SplitTree {
+        const priv = self.private();
+        return priv.split_tree;
     }
 
     /// Returns true if this tab needs confirmation before quitting based
     /// on the various Ghostty configurations.
     pub fn getNeedsConfirmQuit(self: *Self) bool {
-        const surface = self.getActiveSurface();
+        const surface = self.getActiveSurface() orelse return false;
         const core_surface = surface.core() orelse return false;
         return core_surface.needsConfirmQuit();
+    }
+
+    /// Get the tab page holding this tab, if any.
+    fn getTabPage(self: *Self) ?*adw.TabPage {
+        const tab_view = ext.getAncestor(
+            adw.TabView,
+            self.as(gtk.Widget),
+        ) orelse return null;
+        return tab_view.getPage(self.as(gtk.Widget));
     }
 
     //---------------------------------------------------------------
@@ -189,7 +285,6 @@ pub const Tab = extern struct {
             v.unref();
             priv.config = null;
         }
-        priv.surface_bindings.setSource(null);
 
         gtk.Widget.disposeTemplate(
             self.as(gtk.Widget),
@@ -204,11 +299,14 @@ pub const Tab = extern struct {
 
     fn finalize(self: *Self) callconv(.c) void {
         const priv = self.private();
+        if (priv.tooltip) |v| {
+            glib.free(@constCast(@ptrCast(v)));
+            priv.tooltip = null;
+        }
         if (priv.title) |v| {
             glib.free(@constCast(@ptrCast(v)));
             priv.title = null;
         }
-        priv.surface_bindings.unref();
 
         gobject.Object.virtual_methods.finalize.call(
             Class.parent,
@@ -218,25 +316,99 @@ pub const Tab = extern struct {
     //---------------------------------------------------------------
     // Signal handlers
 
-    fn surfaceCloseRequest(
-        _: *Surface,
-        scope: *const Surface.CloseScope,
+    fn propSplitTree(
+        _: *SplitTree,
+        _: *gobject.ParamSpec,
         self: *Self,
     ) callconv(.c) void {
-        switch (scope.*) {
-            // Handled upstream... we don't control our window close.
-            .window => return,
+        self.as(gobject.Object).notifyByPspec(properties.@"surface-tree".impl.param_spec);
 
-            // Presently both the same, results in the tab closing.
-            .surface, .tab => {
-                signals.@"close-request".impl.emit(
-                    self,
-                    null,
-                    .{},
-                    null,
-                );
-            },
+        // If our tree is empty we close the tab.
+        const tree: *const Surface.Tree = self.getSurfaceTree() orelse &.empty;
+        if (tree.isEmpty()) {
+            signals.@"close-request".impl.emit(
+                self,
+                null,
+                .{},
+                null,
+            );
+            return;
         }
+    }
+
+    fn propActiveSurface(
+        _: *SplitTree,
+        _: *gobject.ParamSpec,
+        self: *Self,
+    ) callconv(.c) void {
+        self.as(gobject.Object).notifyByPspec(properties.@"active-surface".impl.param_spec);
+    }
+
+    fn actionRingBell(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Self,
+    ) callconv(.c) void {
+        // Future note: I actually don't like this logic living here at all.
+        // I think a better approach will be for the ring bell action to
+        // specify its sending surface and then do all this in the window.
+
+        // If the page is selected already we don't mark it as needing
+        // attention. We only want to mark unfocused pages. This will then
+        // clear when the page is selected.
+        const page = self.getTabPage() orelse return;
+        if (page.getSelected() != 0) return;
+        page.setNeedsAttention(@intFromBool(true));
+    }
+
+    fn closureComputedTitle(
+        _: *Self,
+        config_: ?*Config,
+        terminal_: ?[*:0]const u8,
+        override_: ?[*:0]const u8,
+        zoomed_: c_int,
+        bell_ringing_: c_int,
+        _: *gobject.ParamSpec,
+    ) callconv(.c) ?[*:0]const u8 {
+        const zoomed = zoomed_ != 0;
+        const bell_ringing = bell_ringing_ != 0;
+
+        // Our plain title is the overridden title if it exists, otherwise
+        // the terminal title if it exists, otherwise a default string.
+        const plain = plain: {
+            const default = "Ghostty";
+            const plain = override_ orelse
+                terminal_ orelse
+                break :plain default;
+            break :plain std.mem.span(plain);
+        };
+
+        // We don't need a config in every case, but if we don't have a config
+        // let's just assume something went terribly wrong and use our
+        // default title. Its easier then guarding on the config existing
+        // in every case for something so unlikely.
+        const config = if (config_) |v| v.get() else {
+            log.warn("config unavailable for computed title, likely bug", .{});
+            return glib.ext.dupeZ(u8, plain);
+        };
+
+        // Use an allocator to build up our string as we write it.
+        var buf: std.ArrayList(u8) = .init(Application.default().allocator());
+        defer buf.deinit();
+        const writer = buf.writer();
+
+        // If our bell is ringing, then we prefix the bell icon to the title.
+        if (bell_ringing and config.@"bell-features".title) {
+            writer.writeAll("🔔 ") catch {};
+        }
+
+        // If we're zoomed, prefix with the magnifying glass emoji.
+        if (zoomed) {
+            writer.writeAll("🔍 ") catch {};
+        }
+
+        writer.writeAll(plain) catch return glib.ext.dupeZ(u8, plain);
+        return glib.ext.dupeZ(u8, buf.items);
     }
 
     const C = Common(Self, Private);
@@ -251,6 +423,7 @@ pub const Tab = extern struct {
         pub const Instance = Self;
 
         fn init(class: *Class) callconv(.c) void {
+            gobject.ext.ensureType(SplitTree);
             gobject.ext.ensureType(Surface);
             gtk.Widget.Class.setTemplateFromResource(
                 class.as(gtk.Widget.Class),
@@ -265,14 +438,19 @@ pub const Tab = extern struct {
             gobject.ext.registerProperties(class, &.{
                 properties.@"active-surface".impl,
                 properties.config.impl,
+                properties.@"split-tree".impl,
+                properties.@"surface-tree".impl,
                 properties.title.impl,
+                properties.tooltip.impl,
             });
 
             // Bindings
-            class.bindTemplateChildPrivate("surface", .{});
+            class.bindTemplateChildPrivate("split_tree", .{});
 
             // Template Callbacks
-            class.bindTemplateCallback("surface_close_request", &surfaceCloseRequest);
+            class.bindTemplateCallback("computed_title", &closureComputedTitle);
+            class.bindTemplateCallback("notify_active_surface", &propActiveSurface);
+            class.bindTemplateCallback("notify_tree", &propSplitTree);
 
             // Signals
             signals.@"close-request".impl.register(.{});

@@ -524,6 +524,14 @@ pub const Action = union(enum) {
     /// Has no effect on macOS.
     show_gtk_inspector,
 
+    /// Show the on-screen keyboard if one is present.
+    ///
+    /// Only implemented on Linux (GTK). On GNOME, the "Screen Keyboard"
+    /// accessibility feature must be turned on, which can be found under
+    /// Settings > Accessibility > Typing. Other platforms are as of now
+    /// untested.
+    show_on_screen_keyboard,
+
     /// Open the configuration file in the default OS editor.
     ///
     /// If your default OS editor isn't configured then this will fail.
@@ -1051,6 +1059,7 @@ pub const Action = union(enum) {
             .toggle_window_float_on_top,
             .toggle_secure_input,
             .toggle_command_palette,
+            .show_on_screen_keyboard,
             .reset_window_size,
             .crash,
             => .surface,

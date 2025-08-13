@@ -229,23 +229,39 @@ pub fn isCovering(cp: u21) bool {
     };
 }
 
+/// Returns true of the codepoint is a "symbol-like" character, which
+/// for now we define as anything in a private use area and anything
+/// in the "dingbats" unicode block.
+///
+/// In the future it may be prudent to expand this to encompass more
+/// symbol-like characters, and/or exclude some PUA sections.
+pub fn isSymbol(cp: u21) bool {
+    return ziglyph.general_category.isPrivateUse(cp) or
+        ziglyph.blocks.isDingbats(cp);
+}
+
 /// Returns the appropriate `constraint_width` for
 /// the provided cell when rendering its glyph(s).
 pub fn constraintWidth(cell_pin: terminal.Pin) u2 {
     const cell = cell_pin.rowAndCell().cell;
     const cp = cell.codepoint();
 
-    if (!ziglyph.general_category.isPrivateUse(cp) and
-        !ziglyph.blocks.isDingbats(cp))
-    {
-        return cell.gridWidth();
-    }
+    const grid_width = cell.gridWidth();
+
+    // If the grid width of the cell is 2, the constraint
+    // width will always be 2, so we can just return early.
+    if (grid_width > 1) return grid_width;
+
+    // We allow "symbol-like" glyphs to extend to 2 cells wide if there's
+    // space, and if the previous glyph wasn't also a symbol. So if this
+    // codepoint isn't a symbol then we can return the grid width.
+    if (!isSymbol(cp)) return grid_width;
 
     // If we are at the end of the screen it must be constrained to one cell.
     if (cell_pin.x == cell_pin.node.data.size.cols - 1) return 1;
 
-    // If we have a previous cell and it was PUA then we need to
-    // also constrain. This is so that multiple PUA glyphs align.
+    // If we have a previous cell and it was a symbol then we need
+    // to also constrain. This is so that multiple PUA glyphs align.
     // As an exception, we ignore powerline glyphs since they are
     // used for box drawing and we consider them whitespace.
     if (cell_pin.x > 0) prev: {
@@ -259,13 +275,13 @@ pub fn constraintWidth(cell_pin: terminal.Pin) u2 {
         // We consider powerline glyphs whitespace.
         if (isPowerline(prev_cp)) break :prev;
 
-        if (ziglyph.general_category.isPrivateUse(prev_cp)) {
+        if (isSymbol(prev_cp)) {
             return 1;
         }
     }
 
-    // If the next cell is whitespace, then
-    // we allow it to be up to two cells wide.
+    // If the next cell is whitespace, then we
+    // allow the glyph to be up to two cells wide.
     const next_cp = next_cp: {
         var copy = cell_pin;
         copy.x += 1;
@@ -279,7 +295,7 @@ pub fn constraintWidth(cell_pin: terminal.Pin) u2 {
         return 2;
     }
 
-    // Must be constrained
+    // Otherwise, this has to be 1 cell wide.
     return 1;
 }
 
