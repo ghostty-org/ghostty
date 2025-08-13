@@ -1596,8 +1596,8 @@ pub fn dumpTextLocked(
     const ordered_end_coord = ordered_end_pt.coord();
 
     // Utilize buffer sizing to convert to offsets using the ordered selection
-    const start = coordToOffset(ordered_start_coord, self.io.terminal.screen.pages.cols);
-    const end = coordToOffset(ordered_end_coord, self.io.terminal.screen.pages.cols);
+    const start = self.coordToOffset(ordered_start_coord);
+    const end = self.coordToOffset(ordered_end_coord);
 
     // Calculate our viewport info if we can.
     const vp: ?Text.Viewport = viewport: {
