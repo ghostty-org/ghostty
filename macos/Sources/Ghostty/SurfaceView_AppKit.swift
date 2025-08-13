@@ -1580,7 +1580,6 @@ extension Ghostty.SurfaceView: NSTextInputClient {
         // way I can think of to solve this for AppKit.
         var text = ghostty_text_s()
         guard ghostty_surface_read_selection(surface, &text) else { return NSRange() }
-        defer { ghostty_surface_free_text(surface, &text) }
         return NSRange(location: Int(text.offset_start), length: Int(text.offset_len))
     }
 

@@ -1655,6 +1655,11 @@ pub fn dumpTextLocked(
     };
 }
 
+/// Converts a screen coordinate to a linear offset in the buffer.
+fn coordToOffset(self: *const Surface, coord: terminal.Coordinate) u32 {
+    return coord.y * self.io.terminal.screen.pages.cols + @as(u32, @intCast(coord.x));
+}
+
 /// Returns true if the terminal has a selection.
 pub fn hasSelection(self: *const Surface) bool {
     self.renderer_state.mutex.lock();
