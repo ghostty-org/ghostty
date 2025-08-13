@@ -1655,7 +1655,8 @@ pub fn dumpTextLocked(
     };
 }
 
-/// Converts a screen coordinate to a linear offset in the buffer.
+/// Converts a screen-space coordinate (terminal.Coordinate from `.screen`)
+/// to a linear buffer offset. Do not use with viewport-space coords.
 fn coordToOffset(self: *const Surface, coord: terminal.Coordinate) u32 {
     return coord.y * self.io.terminal.screen.pages.cols + @as(u32, @intCast(coord.x));
 }
@@ -1711,9 +1712,10 @@ pub fn selectionInfo(self: *const Surface) ?apprt.Selection {
     const ordered_start_coord = ordered_start_pt.coord();
     const ordered_end_coord = ordered_end_pt.coord();
 
-    // Utilize viewport sizing to convert to offsets using the ordered selection
-    const start = self.coordToOffset(ordered_start_coord);
-    const end = self.coordToOffset(ordered_end_coord);
+    // Offsets below are viewport-relative (for UI/layout), not buffer offsets.
+    // Keep this consistent with prior behavior of selectionInfo.
+    const start = ordered_start_coord.y * self.io.terminal.screen.pages.cols + @as(u32, @intCast(ordered_start_coord.x));
+    const end = ordered_end_coord.y * self.io.terminal.screen.pages.cols + @as(u32, @intCast(ordered_end_coord.x));
 
     // Our sizes are all scaled so we need to send the unscaled values back.
     const content_scale = self.rt_surface.getContentScale() catch .{ .x = 1, .y = 1 };

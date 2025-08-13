@@ -1575,6 +1575,8 @@ pub const CAPI = struct {
         // We have valid text and offsets, so we can populate the result.
         // If the viewport is null, the px coordinates will be -1, which is
         // handled by the Swift side.
+        // Ownership of text.text is transferred to result; freed by
+        // ghostty_surface_free_text() on the caller side.
         result.* = .{
             .tl_px_x = if (text.viewport) |vp| vp.tl_px_x else -1,
             .tl_px_y = if (text.viewport) |vp| vp.tl_px_y else -1,
