@@ -258,13 +258,13 @@ class AppDelegate: NSObject,
 
         // Setup signal handlers
         setupSignals()
-        
+
         // If we launched via zig run then we need to force foreground.
         if Ghostty.launchSource == .zig_run {
             // This never gets called until we click the dock icon. This forces it
             // activate immediately.
             applicationDidBecomeActive(.init(name: NSApplication.didBecomeActiveNotification))
-            
+
             // We run in the background, this forces us to the front.
             DispatchQueue.main.async {
                 NSApp.setActivationPolicy(.regular)

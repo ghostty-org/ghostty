@@ -164,7 +164,7 @@ extension Ghostty {
             let key = "window-position-x"
             return ghostty_config_get(config, &v, key, UInt(key.count)) ? v : nil
         }
-        
+
         var windowPositionY: Int16? {
             guard let config = self.config else { return nil }
             var v: Int16 = 0
