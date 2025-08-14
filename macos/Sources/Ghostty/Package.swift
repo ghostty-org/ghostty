@@ -280,6 +280,7 @@ extension Ghostty {
         case paper
         case retro
         case xray
+        case custom
         case customStyle = "custom-style"
     }
 

@@ -837,6 +837,13 @@ class AppDelegate: NSObject,
         case .xray:
             self.appIcon = NSImage(named: "XrayImage")!
 
+        case .custom:
+            if let userIcon = NSImage(contentsOfFile: config.macosCustomIcon) {
+                self.appIcon = userIcon
+            } else {
+                self.appIcon = nil // Revert back to official icon if invalid location
+            }
+
         case .customStyle:
             guard let ghostColor = config.macosIconGhostColor else { break }
             guard let screenColors = config.macosIconScreenColor else { break }

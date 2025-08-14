@@ -301,6 +301,20 @@ extension Ghostty {
             return MacOSIcon(rawValue: str) ?? defaultValue
         }
 
+        var macosCustomIcon: String {
+            let homeDirURL = FileManager.default.homeDirectoryForCurrentUser
+            let ghosttyConfigIconPath = homeDirURL.appendingPathComponent(
+                ".config/ghostty/Ghostty.icns",
+                conformingTo: .fileURL).path()
+            let defaultValue = ghosttyConfigIconPath
+            guard let config = self.config else { return defaultValue }
+            var v: UnsafePointer<Int8>? = nil
+            let key = "macos-custom-icon"
+            guard ghostty_config_get(config, &v, key, UInt(key.count)) else { return defaultValue }
+            guard let ptr = v else { return defaultValue }
+            return String(cString: ptr)
+        }
+
         var macosIconFrame: MacOSIconFrame {
             let defaultValue = MacOSIconFrame.aluminum
             guard let config = self.config else { return defaultValue }
