@@ -119,6 +119,9 @@ class AppDelegate: NSObject,
     @Published private(set) var appIcon: NSImage? = nil {
         didSet {
             NSApplication.shared.applicationIconImage = appIcon
+            let appPath = Bundle.main.bundlePath
+            NSWorkspace.shared.setIcon(appIcon, forFile: appPath, options: [])
+            NSWorkspace.shared.noteFileSystemChanged(appPath)
         }
     }
 
