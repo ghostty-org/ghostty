@@ -119,6 +119,9 @@ class AppDelegate: NSObject,
     @Published private(set) var appIcon: NSImage? = nil {
         didSet {
             NSApplication.shared.applicationIconImage = appIcon
+            let appPath = Bundle.main.bundlePath
+            NSWorkspace.shared.setIcon(appIcon, forFile: appPath, options: [])
+            NSWorkspace.shared.noteFileSystemChanged(appPath)
         }
     }
 
@@ -255,13 +258,13 @@ class AppDelegate: NSObject,
 
         // Setup signal handlers
         setupSignals()
-        
+
         // If we launched via zig run then we need to force foreground.
         if Ghostty.launchSource == .zig_run {
             // This never gets called until we click the dock icon. This forces it
             // activate immediately.
             applicationDidBecomeActive(.init(name: NSApplication.didBecomeActiveNotification))
-            
+
             // We run in the background, this forces us to the front.
             DispatchQueue.main.async {
                 NSApp.setActivationPolicy(.regular)
@@ -833,6 +836,13 @@ class AppDelegate: NSObject,
 
         case .xray:
             self.appIcon = NSImage(named: "XrayImage")!
+
+        case .custom:
+            if let userIcon = NSImage(contentsOfFile: config.macosCustomIcon) {
+                self.appIcon = userIcon
+            } else {
+                self.appIcon = nil // Revert back to official icon if invalid location
+            }
 
         case .customStyle:
             guard let ghostColor = config.macosIconGhostColor else { break }

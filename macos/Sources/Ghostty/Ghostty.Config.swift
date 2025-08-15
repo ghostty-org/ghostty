@@ -164,7 +164,7 @@ extension Ghostty {
             let key = "window-position-x"
             return ghostty_config_get(config, &v, key, UInt(key.count)) ? v : nil
         }
-        
+
         var windowPositionY: Int16? {
             guard let config = self.config else { return nil }
             var v: Int16 = 0
@@ -299,6 +299,20 @@ extension Ghostty {
             guard let ptr = v else { return defaultValue }
             let str = String(cString: ptr)
             return MacOSIcon(rawValue: str) ?? defaultValue
+        }
+
+        var macosCustomIcon: String {
+            let homeDirURL = FileManager.default.homeDirectoryForCurrentUser
+            let ghosttyConfigIconPath = homeDirURL.appendingPathComponent(
+                ".config/ghostty/Ghostty.icns",
+                conformingTo: .fileURL).path()
+            let defaultValue = ghosttyConfigIconPath
+            guard let config = self.config else { return defaultValue }
+            var v: UnsafePointer<Int8>? = nil
+            let key = "macos-custom-icon"
+            guard ghostty_config_get(config, &v, key, UInt(key.count)) else { return defaultValue }
+            guard let ptr = v else { return defaultValue }
+            return String(cString: ptr)
         }
 
         var macosIconFrame: MacOSIconFrame {
