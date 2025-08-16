@@ -1,7 +1,11 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 struct AboutView: View {
     @Environment(\.openURL) var openURL
+    @State private var showBuildDetails = false
 
     private let githubURL = URL(string: "https://github.com/ghostty-org/ghostty")
     private let docsURL = URL(string: "https://ghostty.org/docs")
@@ -11,6 +15,9 @@ struct AboutView: View {
     private var commit: String? { Bundle.main.infoDictionary?["GhosttyCommit"] as? String }
     private var version: String? { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String }
     private var copyright: String? { Bundle.main.infoDictionary?["NSHumanReadableCopyright"] as? String }
+    
+    /// Get detailed build information from Ghostty
+    private var buildInfo: Ghostty.BuildInfo { Ghostty.buildInfo }
 
     #if os(macOS)
     // This creates a background style similar to the Apple "About My Mac" Window
@@ -74,6 +81,43 @@ struct AboutView: View {
                        let url = githubURL?.appendingPathComponent("/commits/\(commit)") {
                         PropertyRow(label: "Commit", text: commit, url: url)
                     }
+                    PropertyRow(label: "Channel", text: buildInfo.releaseChannel)
+                }
+                .frame(maxWidth: .infinity)
+                
+                // Build Details Section
+                VStack(spacing: 8) {
+                    HStack {
+                        Text("Build Details")
+                            .font(.callout)
+                            .fontWeight(.medium)
+                        Spacer()
+                        Image(systemName: showBuildDetails ? "chevron.up" : "chevron.down")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                    .padding(.horizontal, 8)
+                    .background(Color.clear)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showBuildDetails.toggle()
+                        }
+                    }
+                    .foregroundColor(.primary)
+                    
+                    if showBuildDetails {
+                        VStack(spacing: 2) {
+                            PropertyRow(label: "Zig Version", text: buildInfo.zigVersion)
+                            PropertyRow(label: "Build Mode", text: buildInfo.buildMode)
+                            PropertyRow(label: "App Runtime", text: buildInfo.appRuntime)
+                            PropertyRow(label: "Font Backend", text: buildInfo.fontBackend)
+                            PropertyRow(label: "Renderer", text: buildInfo.renderer)
+                        }
+                        .padding(.top, 4)
+                        .transition(.opacity.combined(with: .slide))
+                    }
                 }
                 .frame(maxWidth: .infinity)
 
@@ -87,6 +131,9 @@ struct AboutView: View {
                         Button("GitHub") {
                             openURL(url)
                         }
+                    }
+                    Button("Copy Debug Info") {
+                        copyDebugInfo()
                     }
                 }
 
@@ -107,6 +154,33 @@ struct AboutView: View {
         .frame(minWidth: 256)
         #if os(macOS)
         .background(VisualEffectBackground(material: .underWindowBackground).ignoresSafeArea())
+        #endif
+    }
+    
+    /// Copy detailed version and build information to clipboard for bug reports
+    private func copyDebugInfo() {
+        var debugInfo = "Ghostty \(buildInfo.version)\n\n"
+        debugInfo += "Version\n"
+        debugInfo += "  - version: \(buildInfo.version)\n"
+        debugInfo += "  - channel: \(buildInfo.releaseChannel)\n"
+        if let build = build {
+            debugInfo += "  - build: \(build)\n"
+        }
+        if let commit = commit, !commit.isEmpty {
+            debugInfo += "  - commit: \(commit)\n"
+        }
+        
+        debugInfo += "\nBuild Config\n"
+        debugInfo += "  - Zig version   : \(buildInfo.zigVersion)\n"
+        debugInfo += "  - build mode    : \(buildInfo.buildMode)\n"
+        debugInfo += "  - app runtime   : \(buildInfo.appRuntime)\n"
+        debugInfo += "  - font engine   : \(buildInfo.fontBackend)\n"
+        debugInfo += "  - renderer      : \(buildInfo.renderer)\n"
+        
+        #if os(macOS)
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(debugInfo, forType: .string)
         #endif
     }
 
