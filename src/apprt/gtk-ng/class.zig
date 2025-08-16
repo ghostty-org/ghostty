@@ -53,6 +53,54 @@ pub fn Common(
             }
         }).private else {};
 
+        /// Get the class for the object.
+        ///
+        /// This _seems_ ugly and unsafe but this is what GObject is doing
+        /// under the hood when it wants to access the class instance:
+        ///
+        /// https://gitlab.gnome.org/GNOME/glib/-/blob/2c08654b62d52a31c4e4d13d7d85e12b989e72be/gobject/gtype.h#L555-571
+        /// https://gitlab.gnome.org/GNOME/glib/-/blob/2c08654b62d52a31c4e4d13d7d85e12b989e72be/gobject/gtype.h#L2673
+        ///
+        /// This works because when you create a new object in GObject, the pointer
+        /// that you get back wasn't allocated using your original type struct.
+        /// Instead you get the following block of data:
+        ///
+        ///
+        ///                 ┌─────────────────┐
+        ///                 │                 │
+        ///                 │                 │
+        ///                 │    Private      │
+        ///                 │                 │
+        ///                 │                 │
+        ///                 │                 │
+        ///                 │                 │
+        ///            ┌───►├─────────────────┤
+        /// *object────┘    │                 │
+        ///                 │  TypeInstance   │
+        ///                 │                 │   ┌───►┌────────────────┐
+        ///                 │                 │   │    │                │
+        ///                 │                 │   │    │    Class       │
+        ///                 │    *g_class ────┼───┘    │                │
+        ///                 │                 │        │                │
+        ///                 └─────────────────┘        │                │
+        ///                                            │                │
+        ///                                            │                │
+        ///                                            └────────────────┘
+        ///
+        /// First is a block of data that holds the instance's private data. That private
+        /// data is accessed by taking the instance pointer and subtracting the size of the
+        /// private data to get a pointer to the data.
+        ///
+        /// Next is an instance of a TypeInstance, whose purpose is to hold a pointer
+        /// to the class instance.
+        ///
+        /// https://gitlab.gnome.org/GNOME/glib/-/blob/2c08654b62d52a31c4e4d13d7d85e12b989e72be/gobject/gtype.c#L1792-1912
+        ///
+        pub fn getClass(self: *Self) ?*Self.Class {
+            const type_instance: *gobject.TypeInstance = @ptrCast(self);
+            return @ptrCast(type_instance.f_g_class orelse return null);
+        }
+
         /// A helper that creates a property that reads and writes a
         /// private field with only shallow copies. This is good for primitives
         /// such as bools, numbers, etc.

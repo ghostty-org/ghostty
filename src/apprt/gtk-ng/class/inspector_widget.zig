@@ -17,7 +17,7 @@ const log = std.log.scoped(.gtk_ghostty_inspector_widget);
 pub const InspectorWidget = extern struct {
     const Self = @This();
     parent_instance: Parent,
-    pub const Parent = adw.Bin;
+    pub const Parent = ImguiWidget;
     pub const getGObjectType = gobject.ext.defineClass(Self, .{
         .name = "GhosttyInspectorWidget",
         .instanceInit = &init,
@@ -50,9 +50,6 @@ pub const InspectorWidget = extern struct {
         /// We attach a weak notify to the object.
         surface: ?*Surface = null,
 
-        /// The embedded Dear ImGui widget.
-        imgui_widget: *ImguiWidget,
-
         pub var offset: c_int = 0;
     };
 
@@ -78,13 +75,30 @@ pub const InspectorWidget = extern struct {
         );
     }
 
+    /// Called to do initial setup of the UI.
+    fn imguiSetup(
+        _: *Self,
+    ) callconv(.c) void {
+        Inspector.setup();
+    }
+
+    /// Called for every frame to draw the UI.
+    fn imguiRender(
+        self: *Self,
+    ) callconv(.c) void {
+        const priv = self.private();
+        const surface = priv.surface orelse return;
+        const core_surface = surface.core() orelse return;
+        const inspector = core_surface.inspector orelse return;
+        inspector.render();
+    }
+
     //---------------------------------------------------------------
     // Public methods
 
     /// Queue a render of the Dear ImGui widget.
     pub fn queueRender(self: *Self) void {
-        const priv = self.private();
-        priv.imgui_widget.queueRender();
+        self.as(ImguiWidget).queueRender();
     }
 
     //---------------------------------------------------------------
@@ -189,24 +203,6 @@ pub const InspectorWidget = extern struct {
         // for completeness sake we should clean this up.
     }
 
-    fn imguiRender(
-        _: *ImguiWidget,
-        self: *Self,
-    ) callconv(.c) void {
-        const priv = self.private();
-        const surface = priv.surface orelse return;
-        const core_surface = surface.core() orelse return;
-        const inspector = core_surface.inspector orelse return;
-        inspector.render();
-    }
-
-    fn imguiSetup(
-        _: *ImguiWidget,
-        _: *Self,
-    ) callconv(.c) void {
-        Inspector.setup();
-    }
-
     const C = Common(Self, Private);
     pub const as = C.as;
     pub const ref = C.ref;
@@ -230,13 +226,6 @@ pub const InspectorWidget = extern struct {
                 }),
             );
 
-            // Bindings
-            class.bindTemplateChildPrivate("imgui_widget", .{});
-
-            // Template callbacks
-            class.bindTemplateCallback("imgui_render", &imguiRender);
-            class.bindTemplateCallback("imgui_setup", &imguiSetup);
-
             // Properties
             gobject.ext.registerProperties(class, &.{
                 properties.surface.impl,
@@ -245,6 +234,8 @@ pub const InspectorWidget = extern struct {
             // Signals
 
             // Virtual methods
+            ImguiWidget.virtual_methods.setup.implement(class, imguiSetup);
+            ImguiWidget.virtual_methods.render.implement(class, imguiRender);
             gobject.Object.virtual_methods.dispose.implement(class, &dispose);
         }
 

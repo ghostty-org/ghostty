@@ -1,18 +1,10 @@
 using Gtk 4.0;
-using Adw 1;
 
-template $GhosttyInspectorWidget: Adw.Bin {
+template $GhosttyInspectorWidget: $GhosttyImguiWidget {
   styles [
     "inspector",
   ]
 
   hexpand: true;
   vexpand: true;
-
-  Adw.Bin {
-    $GhosttyImguiWidget imgui_widget {
-      render => $imgui_render();
-      setup => $imgui_setup();
-    }
-  }
 }
