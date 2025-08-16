@@ -1572,18 +1572,16 @@ pub const CAPI = struct {
             return false;
         };
 
-        const vp: CoreSurface.Text.Viewport = text.viewport orelse .{
-            .tl_px_x = -1,
-            .tl_px_y = -1,
-            .offset_start = 0,
-            .offset_len = 0,
-        };
-
+        // We have valid text and offsets, so we can populate the result.
+        // If the viewport is null, the px coordinates will be -1, which is
+        // handled by the Swift side.
+        // Ownership of text.text is transferred to result; freed by
+        // ghostty_surface_free_text() on the caller side.
         result.* = .{
-            .tl_px_x = vp.tl_px_x,
-            .tl_px_y = vp.tl_px_y,
-            .offset_start = vp.offset_start,
-            .offset_len = vp.offset_len,
+            .tl_px_x = if (text.viewport) |vp| vp.tl_px_x else -1,
+            .tl_px_y = if (text.viewport) |vp| vp.tl_px_y else -1,
+            .offset_start = text.offset_start,
+            .offset_len = text.offset_len,
             .text = text.text.ptr,
             .text_len = text.text.len,
         };

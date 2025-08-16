@@ -1527,25 +1527,23 @@ pub const Text = struct {
     /// The text that was read from the terminal.
     text: [:0]const u8,
 
-    /// The viewport information about this text, if it is visible in
-    /// the viewport.
-    ///
-    /// NOTE(mitchellh): This will only be non-null currently if the entirety
-    /// of the selection is contained within the viewport. We don't have a
-    /// use case currently for partial bounds but we should support this
-    /// eventually.
-    viewport: ?Viewport = null,
+    /// The linear offset of the start of the selection and the length.
+    /// This is "linear" in the sense that it is the offset in the
+    /// flattened screen buffer as a single array of text.
+    offset_start: u32,
+    offset_len: u32,
+
+    /// If non-null, this describes the pixel coordinates of the top-left corner
+    /// of the viewport from which this text was read. This is typically used for
+    /// rendering or selection purposes. If null, the viewport is not applicable
+    /// (for example, when the text is not associated with a specific region of the
+    /// terminal surface). The offset fields are now separate and do not affect this.
+    viewport: ?Viewport,
 
     pub const Viewport = struct {
         /// The top-left corner of the selection in pixels within the viewport.
         tl_px_x: f64,
         tl_px_y: f64,
-
-        /// The linear offset of the start of the selection and the length.
-        /// This is "linear" in the sense that it is the offset in the
-        /// flattened viewport as a single array of text.
-        offset_start: u32,
-        offset_len: u32,
     };
 
     pub fn deinit(self: *Text, alloc: Allocator) void {
@@ -1583,21 +1581,34 @@ pub fn dumpTextLocked(
     });
     errdefer alloc.free(text);
 
+    // Get the forward-ordered selection to ensure offset_start always represents
+    // the first character in the selection, regardless of selection direction.
+    const ordered_sel = sel.ordered(&self.io.terminal.screen, .forward);
+    const ordered_start_pt = self.io.terminal.screen.pages.pointFromPin(
+        .screen,
+        ordered_sel.start(),
+    ) orelse return error.InvalidSelection;
+    const ordered_end_pt = self.io.terminal.screen.pages.pointFromPin(
+        .screen,
+        ordered_sel.end(),
+    ) orelse return error.InvalidSelection;
+    const ordered_start_coord = ordered_start_pt.coord();
+    const ordered_end_coord = ordered_end_pt.coord();
+
+    // Utilize buffer sizing to convert to offsets using the ordered selection
+    const start = self.coordToOffset(ordered_start_coord);
+    const end = self.coordToOffset(ordered_end_coord);
+
     // Calculate our viewport info if we can.
     const vp: ?Text.Viewport = viewport: {
-        // If our tl or br is not in the viewport then we don't
+        // If our top-left is not in the viewport then we don't
         // have a viewport. One day we should extend this to support
         // partial selections that are in the viewport.
         const tl_pt = self.io.terminal.screen.pages.pointFromPin(
             .viewport,
             sel.topLeft(&self.io.terminal.screen),
         ) orelse break :viewport null;
-        const br_pt = self.io.terminal.screen.pages.pointFromPin(
-            .viewport,
-            sel.bottomRight(&self.io.terminal.screen),
-        ) orelse break :viewport null;
         const tl_coord = tl_pt.coord();
-        const br_coord = br_pt.coord();
 
         // Our sizes are all scaled so we need to send the unscaled values back.
         const content_scale = self.rt_surface.getContentScale() catch .{ .x = 1, .y = 1 };
@@ -1630,22 +1641,24 @@ pub fn dumpTextLocked(
             break :y y;
         };
 
-        // Utilize viewport sizing to convert to offsets
-        const start = tl_coord.y * self.io.terminal.screen.pages.cols + tl_coord.x;
-        const end = br_coord.y * self.io.terminal.screen.pages.cols + br_coord.x;
-
         break :viewport .{
             .tl_px_x = x,
             .tl_px_y = y,
-            .offset_start = start,
-            .offset_len = end - start,
         };
     };
 
     return .{
         .text = text,
+        .offset_start = start,
+        .offset_len = end - start,
         .viewport = vp,
     };
+}
+
+/// Converts a screen-space coordinate (terminal.Coordinate from `.screen`)
+/// to a linear buffer offset. Do not use with viewport-space coords.
+fn coordToOffset(self: *const Surface, coord: terminal.Coordinate) u32 {
+    return coord.y * self.io.terminal.screen.pages.cols + @as(u32, @intCast(coord.x));
 }
 
 /// Returns true if the terminal has a selection.
@@ -1682,15 +1695,27 @@ pub fn selectionInfo(self: *const Surface) ?apprt.Selection {
 
     // Get the TL/BR pins for the selection and convert to viewport.
     const tl = sel.topLeft(&self.io.terminal.screen);
-    const br = sel.bottomRight(&self.io.terminal.screen);
     const tl_pt = self.io.terminal.screen.pages.pointFromPin(.viewport, tl) orelse return null;
-    const br_pt = self.io.terminal.screen.pages.pointFromPin(.viewport, br) orelse return null;
     const tl_coord = tl_pt.coord();
-    const br_coord = br_pt.coord();
 
-    // Utilize viewport sizing to convert to offsets
-    const start = tl_coord.y * self.io.terminal.screen.pages.cols + tl_coord.x;
-    const end = br_coord.y * self.io.terminal.screen.pages.cols + br_coord.x;
+    // Get the forward-ordered selection to ensure offset_start always represents
+    // the first character in the selection, regardless of selection direction.
+    const ordered_sel = sel.ordered(&self.io.terminal.screen, .forward);
+    const ordered_start_pt = self.io.terminal.screen.pages.pointFromPin(
+        .viewport,
+        ordered_sel.start(),
+    ) orelse return null;
+    const ordered_end_pt = self.io.terminal.screen.pages.pointFromPin(
+        .viewport,
+        ordered_sel.end(),
+    ) orelse return null;
+    const ordered_start_coord = ordered_start_pt.coord();
+    const ordered_end_coord = ordered_end_pt.coord();
+
+    // Offsets below are viewport-relative (for UI/layout), not buffer offsets.
+    // Keep this consistent with prior behavior of selectionInfo.
+    const start = ordered_start_coord.y * self.io.terminal.screen.pages.cols + @as(u32, @intCast(ordered_start_coord.x));
+    const end = ordered_end_coord.y * self.io.terminal.screen.pages.cols + @as(u32, @intCast(ordered_end_coord.x));
 
     // Our sizes are all scaled so we need to send the unscaled values back.
     const content_scale = self.rt_surface.getContentScale() catch .{ .x = 1, .y = 1 };
