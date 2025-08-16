@@ -247,6 +247,7 @@ const DerivedConfig = struct {
     clipboard_paste_protection: bool,
     clipboard_paste_bracketed_safe: bool,
     copy_on_select: configpkg.CopyOnSelect,
+    right_click_action: configpkg.RightClickAction,
     confirm_close_surface: configpkg.ConfirmCloseSurface,
     cursor_click_to_move: bool,
     desktop_notifications: bool,
@@ -314,6 +315,7 @@ const DerivedConfig = struct {
             .clipboard_paste_protection = config.@"clipboard-paste-protection",
             .clipboard_paste_bracketed_safe = config.@"clipboard-paste-bracketed-safe",
             .copy_on_select = config.@"copy-on-select",
+            .right_click_action = config.@"right-click-action",
             .confirm_close_surface = config.@"confirm-close-surface",
             .cursor_click_to_move = config.@"cursor-click-to-move",
             .desktop_notifications = config.@"desktop-notifications",
@@ -1833,6 +1835,32 @@ fn clipboardWrite(self: *const Surface, data: []const u8, loc: apprt.Clipboard) 
     };
 }
 
+fn copySelectionToClipboards(
+    self: *Surface,
+    sel: terminal.Selection,
+    clipboards: []const apprt.Clipboard,
+) void {
+    const buf = self.io.terminal.screen.selectionString(self.alloc, .{
+        .sel = sel,
+        .trim = self.config.clipboard_trim_trailing_spaces,
+    }) catch |err| {
+        log.err("error reading selection string err={}", .{err});
+        return;
+    };
+    defer self.alloc.free(buf);
+
+    for (clipboards) |clipboard| self.rt_surface.setClipboardString(
+        buf,
+        clipboard,
+        false,
+    ) catch |err| {
+        log.err(
+            "error setting clipboard string clipboard={} err={}",
+            .{ clipboard, err },
+        );
+    };
+}
+
 /// Set the selection contents.
 ///
 /// This must be called with the renderer mutex held.
@@ -1850,33 +1878,13 @@ fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
     const sel = sel_ orelse return;
     if (prev_) |prev| if (sel.eql(prev)) return;
 
-    const buf = self.io.terminal.screen.selectionString(self.alloc, .{
-        .sel = sel,
-        .trim = self.config.clipboard_trim_trailing_spaces,
-    }) catch |err| {
-        log.err("error reading selection string err={}", .{err});
-        return;
-    };
-    defer self.alloc.free(buf);
-
-    // Set the clipboard. This is not super DRY but it is clear what
-    // we're doing for each setting without being clever.
     switch (self.config.copy_on_select) {
         .false => unreachable, // handled above with an early exit
 
         // Both standard and selection clipboards are set.
         .clipboard => {
             const clipboards: []const apprt.Clipboard = &.{ .standard, .selection };
-            for (clipboards) |clipboard| self.rt_surface.setClipboardString(
-                buf,
-                clipboard,
-                false,
-            ) catch |err| {
-                log.err(
-                    "error setting clipboard string clipboard={} err={}",
-                    .{ clipboard, err },
-                );
-            };
+            copySelectionToClipboards(self, sel, clipboards);
         },
 
         // The selection clipboard is set if supported, otherwise the standard.
@@ -1885,17 +1893,7 @@ fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
                 .selection
             else
                 .standard;
-
-            self.rt_surface.setClipboardString(
-                buf,
-                clipboard,
-                false,
-            ) catch |err| {
-                log.err(
-                    "error setting clipboard string clipboard={} err={}",
-                    .{ clipboard, err },
-                );
-            };
+            copySelectionToClipboards(self, sel, &.{clipboard});
         },
     }
 }
@@ -3582,18 +3580,45 @@ pub fn mouseButtonCallback(
             break :pin pin;
         };
 
-        // If we already have a selection and the selection contains
-        // where we clicked then we don't want to modify the selection.
-        if (self.io.terminal.screen.selection) |prev_sel| {
-            if (prev_sel.contains(screen, pin)) break :sel;
+        switch (self.config.right_click_action) {
+            .ignore => {},
+            .copy => {
+                if (self.io.terminal.screen.selection) |sel| {
+                    copySelectionToClipboards(self, sel, &.{.standard});
+                }
+            },
+            .@"copy-and-paste" => {
+                if (self.io.terminal.screen.selection) |sel| {
+                    copySelectionToClipboards(self, sel, &.{.standard});
+                } else {
+                    try self.startClipboardRequest(.standard, .{ .paste = {} });
+                }
+            },
+            .paste => {
+                try self.startClipboardRequest(.standard, .{ .paste = {} });
+            },
+            .@"context-menu" => {
+                // If we already have a selection and the selection contains
+                // where we clicked then we don't want to modify the selection.
+                if (self.io.terminal.screen.selection) |prev_sel| {
+                    if (prev_sel.contains(screen, pin)) break :sel;
 
-            // The selection doesn't contain our pin, so we create a new
-            // word selection where we clicked.
+                    // The selection doesn't contain our pin, so we create a new
+                    // word selection where we clicked.
+                }
+
+                const sel = screen.selectWord(pin) orelse break :sel;
+                try self.setSelection(sel);
+                try self.queueRender();
+                return false;
+            },
         }
 
-        const sel = screen.selectWord(pin) orelse break :sel;
-        try self.setSelection(sel);
+        try self.setSelection(null);
         try self.queueRender();
+
+        // Consume the event such that the context menu is not displayed.
+        return true;
     }
 
     return false;
