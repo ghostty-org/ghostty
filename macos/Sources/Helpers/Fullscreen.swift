@@ -407,7 +407,14 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
             self.styleMask = window.styleMask
             self.toolbar = window.toolbar
             self.toolbarStyle = window.toolbarStyle
-            self.titlebarAccessoryViewControllers = window.titlebarAccessoryViewControllers
+            
+            if (window.hasTitleBar) {
+                self.titlebarAccessoryViewControllers = window.titlebarAccessoryViewControllers
+            } else {
+                // QuickTerminal has no title bar and does not support
+                // window.titlebarAccessoryViewControllers
+                self.titlebarAccessoryViewControllers = []
+            }
             self.dock = window.screen?.hasDock ?? false
 
             if let cgWindowId = window.cgWindowId {
