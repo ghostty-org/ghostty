@@ -2233,15 +2233,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 );
 
                 pixel_x += @floatFromInt(cursor.bearings[0]);
-                pixel_y += @floatFromInt(cursor.bearings[1]);
+                // Convert the Y coordinate from bottom-to-top to top-to-bottom.
+                // Otherwise we end up with glyphs like underline at the top of the cell.
+                pixel_y += @floatFromInt(@as(i32, @intCast(cell.height)) - cursor.bearings[1]);
 
                 // If +Y is up in our shaders, we need to flip the coordinate.
                 if (!GraphicsAPI.custom_shader_y_is_down) {
                     pixel_y = @as(f32, @floatFromInt(screen.height)) - pixel_y;
-                    // We need to add the cursor height because we need the +Y
-                    // edge for the Y coordinate, and flipping means that it's
-                    // the -Y edge now.
-                    pixel_y += cursor_height;
                 }
 
                 const new_cursor: [4]f32 = .{
