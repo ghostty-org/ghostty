@@ -2510,6 +2510,8 @@ keybind: Keybinds = .{},
 ///   * `false` - Use native macOS fullscreen
 ///   * `visible-menu` - Use non-native macOS fullscreen, keep the menu bar
 ///     visible
+///   * `titled-visible-menu` - Use non-native macOS fullscreen, keep the menu
+///     bar and title bar visible
 ///   * `padded-notch` - Use non-native macOS fullscreen, hide the menu bar,
 ///     but ensure the window is not obscured by the notch on applicable
 ///     devices. The area around the notch will remain transparent currently,
@@ -4508,6 +4510,7 @@ pub const NonNativeFullscreen = enum(c_int) {
     true,
     @"visible-menu",
     @"padded-notch",
+    @"titled-visible-menu",
 };
 
 /// Valid values for macos-option-as-alt.
