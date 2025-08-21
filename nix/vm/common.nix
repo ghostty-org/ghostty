@@ -35,12 +35,6 @@
     initialPassword = "ghostty";
   };
 
-  environment.etc = {
-    "xdg/autostart/com.mitchellh.ghostty.desktop" = {
-      source = "${pkgs.ghostty}/share/applications/com.mitchellh.ghostty.desktop";
-    };
-  };
-
   environment.systemPackages = [
     pkgs.kitty
     pkgs.fish
@@ -61,6 +55,7 @@
 
   services.displayManager = {
     autoLogin = {
+      enable = true;
       user = "ghostty";
     };
   };
