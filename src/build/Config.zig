@@ -66,11 +66,33 @@ emit_webdata: bool = false,
 env: std.process.EnvMap,
 
 pub fn init(b: *std.Build) !Config {
+    // This is set to true when we're building a system package. For now
+    // this is trivially detected using the "system_package_mode" bool
+    // but we may want to make this more sophisticated in the future.
+    const system_package = b.graph.system_package_mode;
+
+    // When we're system packaging, we change our default optimization
+    // to ReleaseFast if it wasn't explicitly set. We do this because we
+    // assume we're building for a release if we're packaging. We use this
+    // over `preferred_optimize_mode` because it still lets people change
+    // it via the `--release` flag.
+    if (system_package) b.release_mode = switch (b.release_mode) {
+        .off, .any => .fast,
+        .fast, .safe, .small => b.release_mode,
+    };
+
     // Setup our standard Zig target and optimize options, i.e.
     // `-Doptimize` and `-Dtarget`.
     const optimize = b.standardOptimizeOption(.{});
     const target = target: {
-        var result = b.standardTargetOptions(.{});
+        var result = b.standardTargetOptions(.{
+            // If we're system packaging, we assume we're creating a package
+            // for general use by other people, so we want to default to
+            // a baseline CPU.
+            .default_target = if (system_package) .{
+                .cpu_model = .baseline,
+            } else .{},
+        });
 
         // If we're building for macOS and we're on macOS, we need to
         // use a generic target to workaround compilation issues.
@@ -88,11 +110,6 @@ pub fn init(b: *std.Build) !Config {
 
         break :target result;
     };
-
-    // This is set to true when we're building a system package. For now
-    // this is trivially detected using the "system_package_mode" bool
-    // but we may want to make this more sophisticated in the future.
-    const system_package = b.graph.system_package_mode;
 
     // This specifies our target wasm runtime. For now only one semi-usable
     // one exists so this is hardcoded.
