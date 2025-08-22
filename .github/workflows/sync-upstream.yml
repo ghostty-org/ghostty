@@ -1,0 +1,70 @@
+name: Sync Fork with Upstream
+
+on:
+  schedule:
+    # Run weekly on Sundays at 6 AM UTC (adjust timezone as needed)
+    - cron: '0 6 * * 0'
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  sync:
+    name: Sync with upstream
+    runs-on: ubuntu-latest
+    if: github.event.repository.fork
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          # Add upstream remote (adjust URL to match the original Ghostty repo)
+          git remote add upstream https://github.com/ghostty-org/ghostty.git
+          git fetch upstream
+
+      - name: Sync main branch
+        run: |
+          git checkout main
+          git merge upstream/main --no-edit
+          
+      - name: Push changes
+        run: git push origin main
+        
+      - name: Check for new commits
+        id: check-commits
+        run: |
+          # Check if there are new commits from upstream
+          BEHIND_COUNT=$(git rev-list --count HEAD..upstream/main)
+          echo "commits_behind=$BEHIND_COUNT" >> $GITHUB_OUTPUT
+          if [ "$BEHIND_COUNT" -gt 0 ]; then
+            echo "new_commits=true" >> $GITHUB_OUTPUT
+          else
+            echo "new_commits=false" >> $GITHUB_OUTPUT
+          fi
+
+  # Trigger build workflow if there are new commits
+  trigger-build:
+    name: Trigger build workflow
+    needs: sync
+    runs-on: ubuntu-latest
+    if: needs.sync.outputs.new_commits == 'true'
+    
+    steps:
+      - name: Trigger macOS build
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'build-macos-arm64.yml',
+              ref: 'main'
+            });
