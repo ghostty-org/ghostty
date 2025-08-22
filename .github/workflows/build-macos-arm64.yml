@@ -101,3 +101,29 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Latest Release (main branch)
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: "Latest Build"
+          body: |
+            🚀 **Latest Ghostty Build**
+            
+            This is an automated build from the latest main branch.
+            Built from commit: ${{ github.sha }}
+            
+            **Installation via Homebrew:**
+            ```bash
+            brew tap fammasmaz/ghostty
+            brew install ghostty
+            ```
+            
+            **Manual Installation:**
+            Download `Ghostty-mac-arm64.zip`, extract, and move to Applications folder.
+          files: dist/Ghostty-mac-arm64.zip
+          prerelease: false
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
