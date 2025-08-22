@@ -43,7 +43,7 @@ pub const Capability = struct {
 /// Encode as a terminfo source file. The encoding is always done in a
 /// human-readable format with whitespace. Fields are always written in the
 /// order of the slices on this struct; this will not do any reordering.
-pub fn encode(self: Source, writer: anytype) !void {
+pub fn encode(self: Source, writer: *std.io.Writer) !void {
     // Encode the names in the order specified
     for (self.names, 0..) |name, i| {
         if (i != 0) try writer.writeAll("|");

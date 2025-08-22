@@ -18,8 +18,8 @@ update_step: *std.Build.Step,
 pub fn init(b: *std.Build, cfg: *const Config) !GhosttyI18n {
     _ = cfg;
 
-    var steps = std.ArrayList(*std.Build.Step).init(b.allocator);
-    defer steps.deinit();
+    var steps: std.ArrayList(*std.Build.Step) = .empty;
+    defer steps.deinit(b.allocator);
 
     inline for (locales) |locale| {
         // There is no encoding suffix in the LC_MESSAGES path on FreeBSD,
@@ -33,7 +33,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyI18n {
         const msgfmt = b.addSystemCommand(&.{ "msgfmt", "-o", "-" });
         msgfmt.addFileArg(b.path("po/" ++ locale ++ ".po"));
 
-        try steps.append(&b.addInstallFile(
+        try steps.append(b.allocator, &b.addInstallFile(
             msgfmt.captureStdOut(),
             std.fmt.comptimePrint(
                 "share/locale/{s}/LC_MESSAGES/{s}.mo",
@@ -45,7 +45,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyI18n {
     return .{
         .owner = b,
         .update_step = try createUpdateStep(b),
-        .steps = try steps.toOwnedSlice(),
+        .steps = try steps.toOwnedSlice(b.allocator),
     };
 }
 

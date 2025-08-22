@@ -64,9 +64,9 @@ fn buildSpirvCross(
         try apple_sdk.addPaths(b, lib);
     }
 
-    var flags = std.ArrayList([]const u8).init(b.allocator);
-    defer flags.deinit();
-    try flags.appendSlice(&.{
+    var flags: std.ArrayList([]const u8) = .empty;
+    defer flags.deinit(b.allocator);
+    try flags.appendSlice(b.allocator, &.{
         "-DSPIRV_CROSS_C_API_GLSL=1",
         "-DSPIRV_CROSS_C_API_MSL=1",
 

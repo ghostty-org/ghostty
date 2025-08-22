@@ -56,7 +56,7 @@ const std_size = Page.layout(std_capacity).total_size;
 /// allocator because we need memory that is zero-initialized and page-aligned.
 const PagePool = std.heap.MemoryPoolAligned(
     [std_size]u8,
-    std.heap.page_size_min,
+    .fromByteUnits(std.heap.page_size_min),
 );
 
 /// List of pins, known as "tracked" pins. These are pins that are kept

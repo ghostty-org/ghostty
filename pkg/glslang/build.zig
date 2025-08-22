@@ -59,9 +59,9 @@ fn buildGlslang(
         try apple_sdk.addPaths(b, lib);
     }
 
-    var flags = std.ArrayList([]const u8).init(b.allocator);
-    defer flags.deinit();
-    try flags.appendSlice(&.{
+    var flags: std.ArrayList([]const u8) = .empty;
+    defer flags.deinit(b.allocator);
+    try flags.appendSlice(b.allocator, &.{
         "-fno-sanitize=undefined",
         "-fno-sanitize-trap=undefined",
     });

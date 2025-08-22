@@ -17,11 +17,11 @@ pub fn build(b: *std.Build) !void {
     });
     unit_tests.linkLibC();
 
-    var flags = std.ArrayList([]const u8).init(b.allocator);
-    defer flags.deinit();
-    try flags.append("-DWUFFS_IMPLEMENTATION");
+    var flags: std.ArrayList([]const u8) = .empty;
+    defer flags.deinit(b.allocator);
+    try flags.append(b.allocator, "-DWUFFS_IMPLEMENTATION");
     inline for (@import("src/c.zig").defines) |key| {
-        try flags.append("-D" ++ key);
+        try flags.append(b.allocator, "-D" ++ key);
     }
 
     if (b.lazyDependency("wuffs", .{})) |wuffs_dep| {

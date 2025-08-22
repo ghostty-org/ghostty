@@ -26,9 +26,9 @@ pub fn build(b: *std.Build) !void {
             .{ .include_extensions = &.{".h"} },
         );
 
-        var flags = std.ArrayList([]const u8).init(b.allocator);
-        defer flags.deinit();
-        try flags.appendSlice(&.{
+        var flags: std.ArrayList([]const u8) = .empty;
+        defer flags.deinit(b.allocator);
+        try flags.appendSlice(b.allocator, &.{
             "-DHAVE_SYS_TYPES_H",
             "-DHAVE_STDINT_H",
             "-DHAVE_STDDEF_H",

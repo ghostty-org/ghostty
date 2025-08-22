@@ -103,8 +103,8 @@ pub fn add(
 
     // We maintain a list of our static libraries and return it so that
     // we can build a single fat static library for the final app.
-    var static_libs = LazyPathList.init(b.allocator);
-    errdefer static_libs.deinit();
+    var static_libs: LazyPathList = .empty;
+    errdefer static_libs.deinit(b.allocator);
 
     // WARNING: This is a hack!
     // If we're cross-compiling to Darwin then we don't add any deps.
@@ -144,6 +144,7 @@ pub fn add(
             } else {
                 step.linkLibrary(freetype_dep.artifact("freetype"));
                 try static_libs.append(
+                    b.allocator,
                     freetype_dep.artifact("freetype").getEmittedBin(),
                 );
             }
@@ -168,6 +169,7 @@ pub fn add(
             } else {
                 step.linkLibrary(harfbuzz_dep.artifact("harfbuzz"));
                 try static_libs.append(
+                    b.allocator,
                     harfbuzz_dep.artifact("harfbuzz").getEmittedBin(),
                 );
             }
@@ -191,6 +193,7 @@ pub fn add(
             } else {
                 step.linkLibrary(fontconfig_dep.artifact("fontconfig"));
                 try static_libs.append(
+                    b.allocator,
                     fontconfig_dep.artifact("fontconfig").getEmittedBin(),
                 );
             }
@@ -208,6 +211,7 @@ pub fn add(
         })) |libpng_dep| {
             step.linkLibrary(libpng_dep.artifact("png"));
             try static_libs.append(
+                b.allocator,
                 libpng_dep.artifact("png").getEmittedBin(),
             );
         }
@@ -221,6 +225,7 @@ pub fn add(
         })) |zlib_dep| {
             step.linkLibrary(zlib_dep.artifact("z"));
             try static_libs.append(
+                b.allocator,
                 zlib_dep.artifact("z").getEmittedBin(),
             );
         }
@@ -240,6 +245,7 @@ pub fn add(
         } else {
             step.linkLibrary(oniguruma_dep.artifact("oniguruma"));
             try static_libs.append(
+                b.allocator,
                 oniguruma_dep.artifact("oniguruma").getEmittedBin(),
             );
         }
@@ -260,6 +266,7 @@ pub fn add(
         } else {
             step.linkLibrary(glslang_dep.artifact("glslang"));
             try static_libs.append(
+                b.allocator,
                 glslang_dep.artifact("glslang").getEmittedBin(),
             );
         }
@@ -279,6 +286,7 @@ pub fn add(
         } else {
             step.linkLibrary(spirv_cross_dep.artifact("spirv_cross"));
             try static_libs.append(
+                b.allocator,
                 spirv_cross_dep.artifact("spirv_cross").getEmittedBin(),
             );
         }
@@ -297,6 +305,7 @@ pub fn add(
             );
             step.linkLibrary(sentry_dep.artifact("sentry"));
             try static_libs.append(
+                b.allocator,
                 sentry_dep.artifact("sentry").getEmittedBin(),
             );
 
@@ -306,6 +315,7 @@ pub fn add(
                 .optimize = optimize,
             })) |breakpad_dep| {
                 try static_libs.append(
+                    b.allocator,
                     breakpad_dep.artifact("breakpad").getEmittedBin(),
                 );
             }
@@ -431,6 +441,7 @@ pub fn add(
                 macos_dep.artifact("macos"),
             );
             try static_libs.append(
+                b.allocator,
                 macos_dep.artifact("macos").getEmittedBin(),
             );
         }
@@ -449,6 +460,7 @@ pub fn add(
         })) |libintl_dep| {
             step.linkLibrary(libintl_dep.artifact("intl"));
             try static_libs.append(
+                b.allocator,
                 libintl_dep.artifact("intl").getEmittedBin(),
             );
         }
@@ -461,7 +473,10 @@ pub fn add(
     })) |cimgui_dep| {
         step.root_module.addImport("cimgui", cimgui_dep.module("cimgui"));
         step.linkLibrary(cimgui_dep.artifact("cimgui"));
-        try static_libs.append(cimgui_dep.artifact("cimgui").getEmittedBin());
+        try static_libs.append(
+            b.allocator,
+            cimgui_dep.artifact("cimgui").getEmittedBin(),
+        );
     }
 
     // Fonts
@@ -583,7 +598,7 @@ fn addGtkNg(
             .{},
         );
         const zig_wayland_import_ = b.lazyImport(
-            @import("../../build.zig"),
+            @import("root"),
             "zig_wayland",
         );
         const zig_wayland_dep_ = b.lazyDependency("zig_wayland", .{});
@@ -685,6 +700,7 @@ pub fn addSimd(
         })) |simdutf_dep| {
             m.linkLibrary(simdutf_dep.artifact("simdutf"));
             if (static_libs) |v| try v.append(
+                b.allocator,
                 simdutf_dep.artifact("simdutf").getEmittedBin(),
             );
         }
@@ -696,7 +712,10 @@ pub fn addSimd(
         .optimize = optimize,
     })) |highway_dep| {
         m.linkLibrary(highway_dep.artifact("highway"));
-        if (static_libs) |v| try v.append(highway_dep.artifact("highway").getEmittedBin());
+        if (static_libs) |v| try v.append(
+            b.allocator,
+            highway_dep.artifact("highway").getEmittedBin(),
+        );
     }
 
     // utfcpp - This is used as a dependency on our hand-written C++ code
@@ -705,7 +724,10 @@ pub fn addSimd(
         .optimize = optimize,
     })) |utfcpp_dep| {
         m.linkLibrary(utfcpp_dep.artifact("utfcpp"));
-        if (static_libs) |v| try v.append(utfcpp_dep.artifact("utfcpp").getEmittedBin());
+        if (static_libs) |v| try v.append(
+            b.allocator,
+            utfcpp_dep.artifact("utfcpp").getEmittedBin(),
+        );
     }
 
     // SIMD C++ files
@@ -749,16 +771,20 @@ pub fn gtkNgDistResources(
     const gresource_xml = gresource_xml: {
         const xml_exe = b.addExecutable(.{
             .name = "generate_gresource_xml",
-            .root_source_file = b.path("src/apprt/gtk/build/gresource.zig"),
-            .target = b.graph.host,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/apprt/gtk/build/gresource.zig"),
+                .target = b.graph.host,
+            }),
         });
         const xml_run = b.addRunArtifact(xml_exe);
 
         // Run our blueprint compiler across all of our blueprint files.
         const blueprint_exe = b.addExecutable(.{
             .name = "gtk_blueprint_compiler",
-            .root_source_file = b.path("src/apprt/gtk/build/blueprint.zig"),
-            .target = b.graph.host,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/apprt/gtk/build/blueprint.zig"),
+                .target = b.graph.host,
+            }),
         });
         blueprint_exe.linkLibC();
         blueprint_exe.linkSystemLibrary2("gtk4", dynamic_link_opts);
