@@ -64,15 +64,15 @@ jobs:
       - name: Build core with Zig (ReleaseFast)
         run: |
           set -euxo pipefail
-          zig build -Doptimize=ReleaseFast
+          zig build -Doptimize=ReleaseFast -Demit-macos-app=false
 
-      - name: Build macOS .app (arm64 only, ReleaseLocal)
+      - name: Build macOS .app (arm64, Release)
         working-directory: macos
         run: |
           set -euxo pipefail
           xcodebuild \
-            -configuration ReleaseLocal \
-            -scheme Ghostty \
+            -configuration Release \
+            -target Ghostty \
             -destination 'generic/platform=macOS,arch=arm64' \
             ONLY_ACTIVE_ARCH=YES \
             EXCLUDED_ARCHS='x86_64' \
@@ -81,7 +81,7 @@ jobs:
       - name: Package app
         run: |
           set -euxo pipefail
-          APPDIR=$(ls -d ~/Library/Developer/Xcode/DerivedData/Ghostty-*/Build/Products/ReleaseLocal/Ghostty.app | head -n1)
+          APPDIR=macos/build/Release/Ghostty.app
           ls -la "$APPDIR"
           mkdir -p dist
           ditto -c -k --sequesterRsrc --keepParent "$APPDIR" dist/Ghostty-mac-arm64.zip
