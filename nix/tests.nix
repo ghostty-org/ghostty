@@ -37,6 +37,65 @@
             return "${pink_value}" in text
   '';
 
+  mkNodeGnome = {
+    config,
+    pkgs,
+    settings,
+    sshPort ? null,
+    ...
+  }: {
+    imports = [
+      ./vm/wayland-gnome.nix
+      settings
+    ];
+
+    virtualisation = {
+      forwardPorts = pkgs.lib.optionals (sshPort != null) [
+        {
+          from = "host";
+          host.port = sshPort;
+          guest.port = 22;
+        }
+      ];
+
+      vmVariant = {
+        virtualisation.host.pkgs = pkgs;
+      };
+    };
+
+    services.openssh = {
+      enable = true;
+      settings = {
+        PermitRootLogin = "yes";
+        PermitEmptyPasswords = "yes";
+      };
+    };
+
+    security.pam.services.sshd.allowNullPassword = true;
+
+    users.groups.ghostty = {
+      gid = 1000;
+    };
+
+    users.users.ghostty = {
+      uid = 1000;
+    };
+
+    home-manager = {
+      users = {
+        ghostty = {
+          home = {
+            username = config.users.users.ghostty.name;
+            homeDirectory = config.users.users.ghostty.home;
+            stateVersion = nixos-version;
+          };
+        };
+      };
+    };
+
+    system.stateVersion = nixos-version;
+  };
+
   mkTestGnome = {
     name,
     settings,
@@ -59,38 +118,11 @@
           config,
           pkgs,
           ...
-        }: {
-          imports = [
-            ./vm/wayland-gnome.nix
-            settings
-          ];
-
-          virtualisation.vmVariant = {
-            virtualisation.host.pkgs = pkgs;
+        }:
+          mkNodeGnome {
+            inherit config pkgs settings;
+            sshPort = 2222;
           };
-
-          users.groups.ghostty = {
-            gid = 1000;
-          };
-
-          users.users.ghostty = {
-            uid = 1000;
-          };
-
-          home-manager = {
-            users = {
-              ghostty = {
-                home = {
-                  username = config.users.users.ghostty.name;
-                  homeDirectory = config.users.users.ghostty.home;
-                  stateVersion = nixos-version;
-                };
-              };
-            };
-          };
-
-          system.stateVersion = nixos-version;
-        };
       };
 
       testScript = testScript;
