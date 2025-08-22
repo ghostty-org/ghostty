@@ -59,14 +59,16 @@ pub const compiler =
 /// Generates the syntax file at comptime.
 fn comptimeGenSyntax() []const u8 {
     comptime {
-        var counting_writer = std.io.countingWriter(std.io.null_writer);
-        try writeSyntax(&counting_writer.writer());
+        // Increase these limits when it gets too large
+        @setEvalBranchQuota(50000);
+        var buf: [8192]u8 = undefined;
+        var stream: std.io.Writer = .fixed(&buf);
+        writeSyntax(&stream) catch @panic("Vim syntax buffer is too small");
 
-        var buf: [counting_writer.bytes_written]u8 = undefined;
-        var stream = std.io.fixedBufferStream(&buf);
-        try writeSyntax(stream.writer());
+        // Finalize the buffer so that the const
+        // does not refer to a comptime var
         const final = buf;
-        return final[0..stream.getWritten().len];
+        return final[0..stream.end];
     }
 }
 

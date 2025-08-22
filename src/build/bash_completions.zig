@@ -18,19 +18,20 @@ pub const completions = comptimeGenerateBashCompletions();
 
 fn comptimeGenerateBashCompletions() []const u8 {
     comptime {
+        // Increase these limits when it gets too large
         @setEvalBranchQuota(50000);
-        var counter = std.io.countingWriter(std.io.null_writer);
-        try writeBashCompletions(&counter.writer());
+        var buf: [32768]u8 = undefined;
+        var stream: std.io.Writer = .fixed(&buf);
+        writeBashCompletions(&stream) catch @panic("Bash completion buffer is too small");
 
-        var buf: [counter.bytes_written]u8 = undefined;
-        var stream = std.io.fixedBufferStream(&buf);
-        try writeBashCompletions(stream.writer());
+        // Finalize the buffer so that the const
+        // does not refer to a comptime var
         const final = buf;
-        return final[0..stream.getWritten().len];
+        return final[0..stream.end];
     }
 }
 
-fn writeBashCompletions(writer: anytype) !void {
+fn writeBashCompletions(writer: *std.io.Writer) !void {
     const pad1 = "  ";
     const pad2 = pad1 ++ pad1;
     const pad3 = pad2 ++ pad1;

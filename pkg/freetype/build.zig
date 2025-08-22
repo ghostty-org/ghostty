@@ -77,9 +77,9 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
         try apple_sdk.addPaths(b, lib);
     }
 
-    var flags = std.ArrayList([]const u8).init(b.allocator);
-    defer flags.deinit();
-    try flags.appendSlice(&.{
+    var flags: std.ArrayList([]const u8) = .empty;
+    defer flags.deinit(b.allocator);
+    try flags.appendSlice(b.allocator, &.{
         "-DFT2_BUILD_LIBRARY",
 
         "-DFT_CONFIG_OPTION_SYSTEM_ZLIB=1",
@@ -103,7 +103,7 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
     // Libpng
     _ = b.systemIntegrationOption("libpng", .{}); // So it shows up in help
     if (libpng_enabled) {
-        try flags.append("-DFT_CONFIG_OPTION_USE_PNG=1");
+        try flags.append(b.allocator, "-DFT_CONFIG_OPTION_USE_PNG=1");
 
         if (b.systemIntegrationOption("libpng", .{})) {
             lib.linkSystemLibrary2("libpng", dynamic_link_opts);

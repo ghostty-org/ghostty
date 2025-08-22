@@ -111,13 +111,13 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
 
     const dynamic_link_opts = options.dynamic_link_opts;
 
-    var flags = std.ArrayList([]const u8).init(b.allocator);
-    defer flags.deinit();
-    try flags.appendSlice(&.{
+    var flags: std.ArrayList([]const u8) = .empty;
+    defer flags.deinit(b.allocator);
+    try flags.appendSlice(b.allocator, &.{
         "-DHAVE_STDBOOL_H",
     });
     if (target.result.os.tag != .windows) {
-        try flags.appendSlice(&.{
+        try flags.appendSlice(b.allocator, &.{
             "-DHAVE_UNISTD_H",
             "-DHAVE_SYS_MMAN_H",
             "-DHAVE_PTHREAD=1",
@@ -127,7 +127,7 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
     // Freetype
     _ = b.systemIntegrationOption("freetype", .{}); // So it shows up in help
     if (freetype_enabled) {
-        try flags.appendSlice(&.{
+        try flags.appendSlice(b.allocator, &.{
             "-DHAVE_FREETYPE=1",
 
             // Let's just assume a new freetype
@@ -153,7 +153,7 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
     }
 
     if (coretext_enabled) {
-        try flags.appendSlice(&.{"-DHAVE_CORETEXT=1"});
+        try flags.appendSlice(b.allocator, &.{"-DHAVE_CORETEXT=1"});
         lib.linkFramework("CoreText");
         module.linkFramework("CoreText", .{});
     }
