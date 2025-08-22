@@ -89,6 +89,13 @@
             homeDirectory = config.users.users.ghostty.home;
             stateVersion = nixos-version;
           };
+          programs.ssh = {
+            enable = true;
+            extraOptionOverrides = {
+              StrictHostKeyChecking = "accept-new";
+              UserKnownHostsFile = "/dev/null";
+            };
+          };
         };
       };
     };
@@ -196,6 +203,81 @@ in {
           ), "Pink was not found on the screen!"
 
       machine.systemctl("stop app-com.mitchellh.ghostty-debug.service", user="${user.name}")
+    '';
+  };
+
+  ssh-integration-test = pkgs.testers.runNixOSTest {
+    name = "ssh-integration-test";
+    extraBaseModules = {
+      imports = [
+        home-manager.nixosModules.home-manager
+      ];
+    };
+    nodes = {
+      server = {...}: {
+        users.groups.ghostty = {};
+        users.users.ghostty = {
+          isNormalUser = true;
+          group = "ghostty";
+          extraGroups = ["wheel"];
+          hashedPassword = "";
+          packages = [];
+        };
+        services.openssh = {
+          enable = true;
+          settings = {
+            PermitRootLogin = "yes";
+            PermitEmptyPasswords = "yes";
+          };
+        };
+        security.pam.services.sshd.allowNullPassword = true;
+      };
+      client = {
+        config,
+        pkgs,
+        ...
+      }:
+        mkNodeGnome {
+          inherit config pkgs;
+          settings = {
+            home-manager.users.ghostty = {
+              xdg.configFile = {
+                "ghostty/config".text = let
+                in ''
+                  shell-integration-features = ssh-terminfo
+                '';
+              };
+            };
+          };
+          sshPort = 2222;
+        };
+    };
+    testScript = {nodes, ...}: let
+      user = nodes.client.users.users.ghostty;
+      bus_path = "/run/user/${toString user.uid}/bus";
+      bus = "DBUS_SESSION_BUS_ADDRESS=unix:path=${bus_path}";
+      gdbus = "${bus} gdbus";
+      ghostty = "${bus} ghostty";
+      su = command: "su - ${user.name} -c '${command}'";
+      gseval = "call --session -d org.gnome.Shell -o /org/gnome/Shell -m org.gnome.Shell.Eval";
+      wm_class = su "${gdbus} ${gseval} global.display.focus_window.wm_class";
+    in ''
+      with subtest("Start server and wait for ssh to be ready."):
+          server.start()
+          server.wait_for_open_port(22)
+
+      with subtest("Start client and wait for ghostty window."):
+          client.start()
+          client.wait_for_x()
+          client.wait_for_file("${bus_path}")
+          client.systemctl("enable app-com.mitchellh.ghostty-debug.service", user="${user.name}")
+          client.succeed("${su "${ghostty} +new-window"}")
+          client.wait_until_succeeds("${wm_class} | grep -q 'com.mitchellh.ghostty-debug'")
+
+      with subtest("SSH from client to server and verify that the Ghostty terminfo is copied.")
+          client.sleep(2)
+          client.send_chars("ssh ghostty@server\n")
+          server.wait_for_file("${user.home}/.terminfo/x/xterm-ghostty", timeout=30)
     '';
   };
 }
