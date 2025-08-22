@@ -136,6 +136,8 @@ in {
         users.users.ghostty = {
           isNormalUser = true;
           group = "ghostty";
+          extraGroups = ["wheel"];
+          hashedPassword = "";
           packages = [
             pkgs.ghostty
           ];
