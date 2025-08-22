@@ -11,19 +11,20 @@ const equals_required = "=-:::";
 
 fn comptimeGenerateZshCompletions() []const u8 {
     comptime {
+        // Increase these limits when it gets too large
         @setEvalBranchQuota(50000);
-        var counter = std.io.countingWriter(std.io.null_writer);
-        try writeZshCompletions(&counter.writer());
+        var buf: [16384]u8 = undefined;
+        var stream: std.io.Writer = .fixed(&buf);
+        writeZshCompletions(&stream) catch @panic("Zsh completion buffer is too small");
 
-        var buf: [counter.bytes_written]u8 = undefined;
-        var stream = std.io.fixedBufferStream(&buf);
-        try writeZshCompletions(stream.writer());
+        // Finalize the buffer so that the const
+        // does not refer to a comptime var
         const final = buf;
-        return final[0..stream.getWritten().len];
+        return final[0..stream.end];
     }
 }
 
-fn writeZshCompletions(writer: anytype) !void {
+fn writeZshCompletions(writer: *std.io.Writer) !void {
     try writer.writeAll(
         \\#compdef ghostty
         \\

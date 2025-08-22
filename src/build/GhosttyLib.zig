@@ -40,7 +40,7 @@ pub fn initStatic(
     // Add our dependencies. Get the list of all static deps so we can
     // build a combined archive if necessary.
     var lib_list = try deps.add(lib);
-    try lib_list.append(lib.getEmittedBin());
+    try lib_list.append(b.allocator, lib.getEmittedBin());
 
     if (!deps.config.target.result.os.tag.isDarwin()) return .{
         .step = &lib.step,
@@ -69,8 +69,9 @@ pub fn initShared(
     b: *std.Build,
     deps: *const SharedDeps,
 ) !GhosttyLib {
-    const lib = b.addSharedLibrary(.{
+    const lib = b.addLibrary(.{
         .name = "ghostty",
+        .linkage = .dynamic,
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main_c.zig"),
             .target = deps.config.target,

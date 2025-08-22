@@ -13,8 +13,8 @@ const RunStep = std.Build.Step.Run;
 steps: []*std.Build.Step,
 
 pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
-    var steps = std.ArrayList(*std.Build.Step).init(b.allocator);
-    errdefer steps.deinit();
+    var steps: std.ArrayList(*std.Build.Step) = .empty;
+    errdefer steps.deinit(b.allocator);
 
     // Terminfo
     terminfo: {
@@ -25,13 +25,13 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
             "terminfo";
 
         // Encode our terminfo
-        var str = std.ArrayList(u8).init(b.allocator);
-        defer str.deinit();
-        try terminfo.ghostty.encode(str.writer());
+        var writer: std.io.Writer.Allocating = .init(b.allocator);
+        defer writer.deinit();
+        try terminfo.ghostty.encode(&writer.writer);
 
         // Write it
         var wf = b.addWriteFiles();
-        const source = wf.add("ghostty.terminfo", str.items);
+        const source = wf.add("ghostty.terminfo", writer.written());
 
         if (cfg.emit_terminfo) {
             const source_install = b.addInstallFile(
@@ -42,7 +42,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
                     "share/terminfo/ghostty.terminfo",
             );
 
-            try steps.append(&source_install.step);
+            try steps.append(b.allocator, &source_install.step);
         }
 
         // Windows doesn't have the binaries below.
@@ -66,7 +66,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
                     "share/terminfo/ghostty.termcap",
             );
 
-            try steps.append(&cap_install.step);
+            try steps.append(b.allocator, &cap_install.step);
         }
 
         // Compile the terminfo source into a terminfo database
@@ -92,7 +92,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
                 .{ b.install_path, terminfo_share_dir },
             ));
 
-            try steps.append(&mkdir_step.step);
+            try steps.append(b.allocator, &mkdir_step.step);
 
             // Use cp -R instead of Step.InstallDir because we need to preserve
             // symlinks in the terminfo database. Zig's InstallDir step doesn't
@@ -102,7 +102,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
             copy_step.addFileArg(path);
             copy_step.addArg(b.fmt("{s}/share", .{b.install_path}));
             copy_step.step.dependOn(&mkdir_step.step);
-            try steps.append(&copy_step.step);
+            try steps.append(b.allocator, &copy_step.step);
         }
     }
 
@@ -114,7 +114,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
             .install_subdir = b.pathJoin(&.{ "ghostty", "shell-integration" }),
             .exclude_extensions = &.{".md"},
         });
-        try steps.append(&install_step.step);
+        try steps.append(b.allocator, &install_step.step);
     }
 
     // Themes
@@ -125,7 +125,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
             .install_subdir = b.pathJoin(&.{ "ghostty", "themes" }),
             .exclude_extensions = &.{".md"},
         });
-        try steps.append(&install_step.step);
+        try steps.append(b.allocator, &install_step.step);
     }
 
     // Fish shell completions
@@ -138,7 +138,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
             .install_dir = .prefix,
             .install_subdir = "share/fish/vendor_completions.d",
         });
-        try steps.append(&install_step.step);
+        try steps.append(b.allocator, &install_step.step);
     }
 
     // zsh shell completions
@@ -151,7 +151,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
             .install_dir = .prefix,
             .install_subdir = "share/zsh/site-functions",
         });
-        try steps.append(&install_step.step);
+        try steps.append(b.allocator, &install_step.step);
     }
 
     // bash shell completions
@@ -164,7 +164,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
             .install_dir = .prefix,
             .install_subdir = "share/bash-completion/completions",
         });
-        try steps.append(&install_step.step);
+        try steps.append(b.allocator, &install_step.step);
     }
 
     // Vim plugin
@@ -180,7 +180,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
             .install_dir = .prefix,
             .install_subdir = "share/vim/vimfiles",
         });
-        try steps.append(&install_step.step);
+        try steps.append(b.allocator, &install_step.step);
     }
 
     // Neovim plugin
@@ -199,7 +199,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
             .install_dir = .prefix,
             .install_subdir = "share/nvim/site",
         });
-        try steps.append(&install_step.step);
+        try steps.append(b.allocator, &install_step.step);
     }
 
     // Sublime syntax highlighting for bat cli tool
@@ -217,7 +217,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
             .install_dir = .prefix,
             .install_subdir = "share/bat/syntaxes",
         });
-        try steps.append(&install_step.step);
+        try steps.append(b.allocator, &install_step.step);
     }
 
     // App (Linux)
@@ -265,17 +265,17 @@ fn addLinuxAppResources(
     // cmake format and will be processed and saved to the
     // second element of the tuple.
     const Template = struct { std.Build.LazyPath, []const u8 };
-    const templates: []const Template = templates: {
-        var ts: std.ArrayList(Template) = .init(b.allocator);
+    const templates: []Template = templates: {
+        var ts: std.ArrayList(Template) = .empty;
 
         // Desktop file so that we have an icon and other metadata
-        try ts.append(.{
+        try ts.append(b.allocator, .{
             b.path("dist/linux/app.desktop.in"),
             b.fmt("share/applications/{s}.desktop", .{app_id}),
         });
 
         // Service for DBus activation.
-        try ts.append(.{
+        try ts.append(b.allocator, .{
             if (cfg.flatpak)
                 b.path("dist/linux/dbus.service.flatpak.in")
             else
@@ -300,7 +300,7 @@ fn addLinuxAppResources(
         // See the following code:
         //
         // https://github.com/flatpak/xdg-desktop-portal/blob/7d4d48cf079147c8887da17ec6c3954acd5a285c/src/xdp-utils.c#L152-L220
-        if (!cfg.flatpak) try ts.append(.{
+        if (!cfg.flatpak) try ts.append(b.allocator, .{
             b.path("dist/linux/systemd.service.in"),
             b.fmt(
                 "{s}/systemd/user/app-{s}.service",
@@ -313,13 +313,14 @@ fn addLinuxAppResources(
 
         // AppStream metainfo so that application has rich metadata
         // within app stores
-        try ts.append(.{
+        try ts.append(b.allocator, .{
             b.path("dist/linux/com.mitchellh.ghostty.metainfo.xml.in"),
             b.fmt("share/metainfo/{s}.metainfo.xml", .{app_id}),
         });
 
-        break :templates ts.items;
+        break :templates try ts.toOwnedSlice(b.allocator);
     };
+    defer b.allocator.free(templates);
 
     // Process all our templates
     for (templates) |template| {
@@ -341,65 +342,65 @@ fn addLinuxAppResources(
             template[1],
         );
 
-        try steps.append(&copy.step);
+        try steps.append(b.allocator, &copy.step);
     }
 
     // Right click menu action for Plasma desktop
-    try steps.append(&b.addInstallFile(
+    try steps.append(b.allocator, &b.addInstallFile(
         b.path("dist/linux/ghostty_dolphin.desktop"),
         "share/kio/servicemenus/com.mitchellh.ghostty.desktop",
     ).step);
 
     // Right click menu action for Nautilus. Note that this _must_ be named
     // `ghostty.py`. Using the full app id causes problems (see #5468).
-    try steps.append(&b.addInstallFile(
+    try steps.append(b.allocator, &b.addInstallFile(
         b.path("dist/linux/ghostty_nautilus.py"),
         "share/nautilus-python/extensions/ghostty.py",
     ).step);
 
     // Various icons that our application can use, including the icon
     // that will be used for the desktop.
-    try steps.append(&b.addInstallFile(
+    try steps.append(b.allocator, &b.addInstallFile(
         b.path("images/gnome/16.png"),
         "share/icons/hicolor/16x16/apps/com.mitchellh.ghostty.png",
     ).step);
-    try steps.append(&b.addInstallFile(
+    try steps.append(b.allocator, &b.addInstallFile(
         b.path("images/gnome/32.png"),
         "share/icons/hicolor/32x32/apps/com.mitchellh.ghostty.png",
     ).step);
-    try steps.append(&b.addInstallFile(
+    try steps.append(b.allocator, &b.addInstallFile(
         b.path("images/gnome/128.png"),
         "share/icons/hicolor/128x128/apps/com.mitchellh.ghostty.png",
     ).step);
-    try steps.append(&b.addInstallFile(
+    try steps.append(b.allocator, &b.addInstallFile(
         b.path("images/gnome/256.png"),
         "share/icons/hicolor/256x256/apps/com.mitchellh.ghostty.png",
     ).step);
-    try steps.append(&b.addInstallFile(
+    try steps.append(b.allocator, &b.addInstallFile(
         b.path("images/gnome/512.png"),
         "share/icons/hicolor/512x512/apps/com.mitchellh.ghostty.png",
     ).step);
     // Flatpaks only support icons up to 512x512.
     if (!cfg.flatpak) {
-        try steps.append(&b.addInstallFile(
+        try steps.append(b.allocator, &b.addInstallFile(
             b.path("images/gnome/1024.png"),
             "share/icons/hicolor/1024x1024/apps/com.mitchellh.ghostty.png",
         ).step);
     }
 
-    try steps.append(&b.addInstallFile(
+    try steps.append(b.allocator, &b.addInstallFile(
         b.path("images/gnome/32.png"),
         "share/icons/hicolor/16x16@2/apps/com.mitchellh.ghostty.png",
     ).step);
-    try steps.append(&b.addInstallFile(
+    try steps.append(b.allocator, &b.addInstallFile(
         b.path("images/gnome/64.png"),
         "share/icons/hicolor/32x32@2/apps/com.mitchellh.ghostty.png",
     ).step);
-    try steps.append(&b.addInstallFile(
+    try steps.append(b.allocator, &b.addInstallFile(
         b.path("images/gnome/256.png"),
         "share/icons/hicolor/128x128@2/apps/com.mitchellh.ghostty.png",
     ).step);
-    try steps.append(&b.addInstallFile(
+    try steps.append(b.allocator, &b.addInstallFile(
         b.path("images/gnome/512.png"),
         "share/icons/hicolor/256x256@2/apps/com.mitchellh.ghostty.png",
     ).step);
