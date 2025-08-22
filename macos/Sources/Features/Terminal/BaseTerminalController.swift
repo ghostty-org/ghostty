@@ -290,8 +290,10 @@ class BaseTerminalController: NSWindowController,
         alert.addButton(withTitle: "Cancel")
         alert.alertStyle = .warning
         alert.beginSheetModal(for: window) { response in
+            let alertWindow = alert.window
             self.alert = nil
             if response == .alertFirstButtonReturn {
+                alertWindow.orderOut(nil)
                 completion()
             }
         }

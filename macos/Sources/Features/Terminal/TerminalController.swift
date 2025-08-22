@@ -747,6 +747,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         alert.alertStyle = .warning
         alert.beginSheetModal(for: alertWindow, completionHandler: { response in
             if (response == .alertFirstButtonReturn) {
+                alert.window.orderOut(nil)
                 closeAllWindowsImmediately()
             }
         })
