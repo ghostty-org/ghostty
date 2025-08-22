@@ -395,8 +395,8 @@ Some test VMs are configured to allow outside SSH access for debugging. To
 access the VM, use a command like the following:
 
 ```
-ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=none -p 2222 root@192.168.122.1
-ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=none -p 2222 ghostty@192.168.122.1
+ssh -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -p 2222 root@192.168.122.1
+ssh -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -p 2222 ghostty@192.168.122.1
 ```
 
 The SSH options are important because the SSH host keys will be regenerated
