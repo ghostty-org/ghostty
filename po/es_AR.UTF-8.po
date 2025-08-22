@@ -208,12 +208,12 @@ msgstr "Permitir"
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:81
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:77
 msgid "Remember choice for this split"
-msgstr ""
+msgstr "Recordar elección para esta división"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:82
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:78
 msgid "Reload configuration to show this prompt again"
-msgstr ""
+msgstr "Recargar la configuración para volver a mostrar este mensaje"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:7
 #: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:7
@@ -278,15 +278,15 @@ msgstr "Copiado al portapapeles"
 
 #: src/apprt/gtk/Surface.zig:1268
 msgid "Cleared clipboard"
-msgstr ""
+msgstr "Portapapeles limpiado"
 
 #: src/apprt/gtk/Surface.zig:2525
 msgid "Command succeeded"
-msgstr ""
+msgstr "Comando ejecutado correctamente"
 
 #: src/apprt/gtk/Surface.zig:2527
 msgid "Command failed"
-msgstr ""
+msgstr "El comando ha fallado"
 
 #: src/apprt/gtk/Window.zig:216
 msgid "Main Menu"
