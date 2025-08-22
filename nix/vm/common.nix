@@ -4,9 +4,6 @@
 
   documentation.nixos.enable = false;
 
-  networking.hostName = "ghostty";
-  networking.domain = "mitchellh.com";
-
   virtualisation.vmVariant = {
     virtualisation.memorySize = 2048;
   };
@@ -28,11 +25,11 @@
   users.groups.ghostty = {};
 
   users.users.ghostty = {
+    isNormalUser = true;
     description = "Ghostty";
     group = "ghostty";
     extraGroups = ["wheel"];
-    isNormalUser = true;
-    initialPassword = "ghostty";
+    hashedPassword = "";
   };
 
   environment.systemPackages = [
