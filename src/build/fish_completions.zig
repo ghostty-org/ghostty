@@ -9,19 +9,20 @@ pub const completions = comptimeGenerateFishCompletions();
 
 fn comptimeGenerateFishCompletions() []const u8 {
     comptime {
+        // Increase these limits when it gets too large
         @setEvalBranchQuota(50000);
-        var counter = std.io.countingWriter(std.io.null_writer);
-        try writeFishCompletions(&counter.writer());
+        var buf: [32768]u8 = undefined;
+        var stream: std.io.Writer = .fixed(&buf);
+        writeFishCompletions(&stream) catch @panic("Fish completion buffer is too small");
 
-        var buf: [counter.bytes_written]u8 = undefined;
-        var stream = std.io.fixedBufferStream(&buf);
-        try writeFishCompletions(stream.writer());
+        // Finalize the buffer so that the const
+        // does not refer to a comptime var
         const final = buf;
-        return final[0..stream.getWritten().len];
+        return final[0..stream.end];
     }
 }
 
-fn writeFishCompletions(writer: anytype) !void {
+fn writeFishCompletions(writer: *std.io.Writer) !void {
     {
         try writer.writeAll("set -l commands \"");
         var count: usize = 0;

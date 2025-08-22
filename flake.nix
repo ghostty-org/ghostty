@@ -48,7 +48,7 @@
           pkgs = nixpkgs.legacyPackages.${system};
         in {
           devShell.${system} = pkgs.callPackage ./nix/devShell.nix {
-            zig = zig.packages.${system}."0.14.1";
+            zig = zig.packages.${system}."0.15.1";
             wraptest = pkgs.callPackage ./nix/wraptest.nix {};
             zon2nix = zon2nix;
           };
