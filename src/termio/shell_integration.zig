@@ -175,7 +175,9 @@ pub fn setupFeatures(
         inline for (fields) |field| n += field.name.len;
         break :capacity n;
     };
-    var buffer = try std.BoundedArray(u8, capacity).init(0);
+
+    var buf: [capacity]u8 = @splat(0);
+    var writer: std.io.Writer = .fixed(&buf);
 
     // Sort the fields so that the output is deterministic. This is
     // done at comptime so it has no runtime cost
@@ -197,13 +199,13 @@ pub fn setupFeatures(
 
     inline for (fields_sorted) |name| {
         if (@field(features, name)) {
-            if (buffer.len > 0) try buffer.append(',');
-            try buffer.appendSlice(name);
+            if (writer.end > 0) try writer.writeByte(',');
+            try writer.writeAll(name);
         }
     }
 
-    if (buffer.len > 0) {
-        try env.put("GHOSTTY_SHELL_FEATURES", buffer.slice());
+    if (writer.end > 0) {
+        try env.put("GHOSTTY_SHELL_FEATURES", buf[0..writer.end]);
     }
 }
 
@@ -257,8 +259,8 @@ fn setupBash(
     resource_dir: []const u8,
     env: *EnvMap,
 ) !?config.Command {
-    var args = try std.ArrayList([:0]const u8).initCapacity(alloc, 3);
-    defer args.deinit();
+    var args: std.ArrayList([:0]const u8) = try .initCapacity(alloc, 3);
+    defer args.deinit(alloc);
 
     // Iterator that yields each argument in the original command line.
     // This will allocate once proportionate to the command line length.
@@ -267,21 +269,22 @@ fn setupBash(
 
     // Start accumulating arguments with the executable and initial flags.
     if (iter.next()) |exe| {
-        try args.append(try alloc.dupeZ(u8, exe));
+        try args.append(alloc, try alloc.dupeZ(u8, exe));
     } else return null;
-    try args.append("--posix");
+    try args.append(alloc, "--posix");
 
     // On macOS, we request a login shell to match that platform's norms.
     if (comptime builtin.target.os.tag.isDarwin()) {
-        try args.append("--login");
+        try args.append(alloc, "--login");
     }
 
     // Stores the list of intercepted command line flags that will be passed
     // to our shell integration script: --norc --noprofile
     // We always include at least "1" so the script can differentiate between
     // being manually sourced or automatically injected (from here).
-    var inject = try std.BoundedArray(u8, 32).init(0);
-    try inject.appendSlice("1");
+    var buf: [32]u8 = @splat(0);
+    var inject: std.Io.Writer = .fixed(&buf);
+    try inject.writeAll("1");
 
     // Walk through the rest of the given arguments. If we see an option that
     // would require complex or unsupported integration behavior, we bail out
@@ -296,9 +299,9 @@ fn setupBash(
         if (std.mem.eql(u8, arg, "--posix")) {
             return null;
         } else if (std.mem.eql(u8, arg, "--norc")) {
-            try inject.appendSlice(" --norc");
+            try inject.writeAll(" --norc");
         } else if (std.mem.eql(u8, arg, "--noprofile")) {
-            try inject.appendSlice(" --noprofile");
+            try inject.writeAll(" --noprofile");
         } else if (std.mem.eql(u8, arg, "--rcfile") or std.mem.eql(u8, arg, "--init-file")) {
             rcfile = iter.next();
         } else if (arg.len > 1 and arg[0] == '-' and arg[1] != '-') {
@@ -306,20 +309,20 @@ fn setupBash(
             if (std.mem.indexOfScalar(u8, arg, 'c') != null) {
                 return null;
             }
-            try args.append(try alloc.dupeZ(u8, arg));
+            try args.append(alloc, try alloc.dupeZ(u8, arg));
         } else if (std.mem.eql(u8, arg, "-") or std.mem.eql(u8, arg, "--")) {
             // All remaining arguments should be passed directly to the shell
             // command. We shouldn't perform any further option processing.
-            try args.append(try alloc.dupeZ(u8, arg));
+            try args.append(alloc, try alloc.dupeZ(u8, arg));
             while (iter.next()) |remaining_arg| {
-                try args.append(try alloc.dupeZ(u8, remaining_arg));
+                try args.append(alloc, try alloc.dupeZ(u8, remaining_arg));
             }
             break;
         } else {
-            try args.append(try alloc.dupeZ(u8, arg));
+            try args.append(alloc, try alloc.dupeZ(u8, arg));
         }
     }
-    try env.put("GHOSTTY_BASH_INJECT", inject.slice());
+    try env.put("GHOSTTY_BASH_INJECT", buf[0..inject.end]);
     if (rcfile) |v| {
         try env.put("GHOSTTY_BASH_RCFILE", v);
     }
@@ -356,7 +359,7 @@ fn setupBash(
 
     // Since we built up a command line, we don't need to wrap it in
     // ANOTHER shell anymore and can do a direct command.
-    return .{ .direct = try args.toOwnedSlice() };
+    return .{ .direct = try args.toOwnedSlice(alloc) };
 }
 
 test "bash" {

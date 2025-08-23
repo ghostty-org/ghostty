@@ -31,9 +31,15 @@ pub fn init(b: *std.Build, cfg: *const Config) !HelpStrings {
     exe.root_module.addOptions("build_options", options);
 
     const help_run = b.addRunArtifact(exe);
+
+    // FIXME: Workaround for a Zig 0.15 regression
+    // https://github.com/ziglang/zig/issues/24957
+    const wf = b.addWriteFiles();
+    const output = wf.addCopyFile(help_run.captureStdOut(), "help_strings.zig");
+
     return .{
         .exe = exe,
-        .output = help_run.captureStdOut(),
+        .output = output,
     };
 }
 

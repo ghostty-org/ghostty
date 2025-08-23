@@ -38,8 +38,8 @@ pub fn loadFromFiles(
     paths: configpkg.RepeatablePath,
     target: Target,
 ) ![]const [:0]const u8 {
-    var list = std.ArrayList([:0]const u8).init(alloc_gpa);
-    defer list.deinit();
+    var list: std.ArrayList([:0]const u8) = .empty;
+    defer list.deinit(alloc_gpa);
     errdefer for (list.items) |shader| alloc_gpa.free(shader);
 
     for (paths.value.items) |item| {
@@ -56,10 +56,10 @@ pub fn loadFromFiles(
             return err;
         };
         log.info("loaded custom shader path={s}", .{path});
-        try list.append(shader);
+        try list.append(alloc_gpa, shader);
     }
 
-    return try list.toOwnedSlice();
+    return try list.toOwnedSlice(alloc_gpa);
 }
 
 /// Load a single shader from a file and convert it to the target language
@@ -79,28 +79,27 @@ pub fn loadFromFile(
     defer file.close();
 
     // Read it all into memory -- we don't expect shaders to be large.
-    var buf_reader = std.io.bufferedReader(file.reader());
-    const src = try buf_reader.reader().readAllAlloc(
+    var buf: [4096]u8 = undefined;
+    var reader = file.reader(&buf);
+    const src = try reader.interface.readAlloc(
         alloc,
         4 * 1024 * 1024, // 4MB
     );
 
     // Convert to full GLSL
     const glsl: [:0]const u8 = glsl: {
-        var list = std.ArrayList(u8).init(alloc);
-        try glslFromShader(list.writer(), src);
-        try list.append(0);
-        break :glsl list.items[0 .. list.items.len - 1 :0];
+        var stream: std.Io.Writer.Allocating = .init(alloc);
+        try glslFromShader(&stream.writer, src);
+        try stream.writer.writeByte(0);
+        break :glsl stream.written()[0 .. stream.written().len - 1 :0];
     };
 
     // Convert to SPIR-V
-    const spirv: []const u8 = spirv: {
-        // SpirV pointer must be aligned to 4 bytes since we expect
-        // a slice of words.
-        var list = std.ArrayListAligned(u8, @alignOf(u32)).init(alloc);
+    const spirv: []align(@alignOf(u32)) const u8 = spirv: {
+        var stream: std.Io.Writer.Allocating = .init(alloc);
         var errlog: SpirvLog = .{ .alloc = alloc };
         defer errlog.deinit();
-        spirvFromGlsl(list.writer(), &errlog, glsl) catch |err| {
+        spirvFromGlsl(&stream.writer, &errlog, glsl) catch |err| {
             if (errlog.info.len > 0 or errlog.debug.len > 0) {
                 log.warn("spirv error path={s} info={s} debug={s}", .{
                     path,
@@ -111,6 +110,13 @@ pub fn loadFromFile(
 
             return err;
         };
+
+        // SpirV pointer must be aligned to 4 bytes since we expect
+        // a slice of words.
+        // FIXME: Find a more efficient way of doing this that doesn't involve
+        // copying the slice
+        var list: std.ArrayListAligned(u8, .of(u32)) = try .initCapacity(alloc, stream.written().len);
+        list.appendSliceAssumeCapacity(stream.written());
         break :spirv list.items;
     };
 

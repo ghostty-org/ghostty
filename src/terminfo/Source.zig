@@ -115,9 +115,10 @@ pub fn xtgettcapMap(comptime self: Source) std.StaticStringMap([]const u8) {
                 },
                 .numeric => |v| numeric: {
                     var buf: [10]u8 = undefined;
-                    const num_len = std.fmt.formatIntBuf(&buf, v, 10, .upper, .{});
+                    var writer: std.Io.Writer = .fixed(&buf);
+                    writer.printInt(v, 10, .upper, .{}) catch unreachable;
                     const final = buf;
-                    break :numeric final[0..num_len];
+                    break :numeric final[0..writer.end];
                 },
             },
         };

@@ -48,11 +48,17 @@ pub fn init(b: *std.Build) !UnicodeTables {
     const props_run = b.addRunArtifact(props_exe);
     const symbols_run = b.addRunArtifact(symbols_exe);
 
+    // Starting from Zig 0.15, generated Zig source files must have
+    // a valid Zig file extension. Slightly annoying, but okay.
+    const wf = b.addWriteFiles();
+    const props_output = wf.addCopyFile(props_run.captureStdOut(), "unicode_props.zig");
+    const symbols_output = wf.addCopyFile(symbols_run.captureStdOut(), "unicode_symbols.zig");
+
     return .{
         .props_exe = props_exe,
         .symbols_exe = symbols_exe,
-        .props_output = props_run.captureStdOut(),
-        .symbols_output = symbols_run.captureStdOut(),
+        .props_output = props_output,
+        .symbols_output = symbols_output,
     };
 }
 

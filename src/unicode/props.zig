@@ -8,6 +8,7 @@ const lut = @import("lut.zig");
 pub const table = table: {
     // This is only available after running main() below as part of the Ghostty
     // build.zig, but due to Zig's lazy analysis we can still reference it here.
+
     const generated = @import("unicode_tables").Tables(Properties);
     const Tables = lut.Tables(Properties);
     break :table Tables{
@@ -38,22 +39,15 @@ pub const Properties = struct {
     }
 
     // Needed for lut.Generator
-    pub fn format(
-        self: Properties,
-        comptime layout: []const u8,
-        opts: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = layout;
-        _ = opts;
-        try std.fmt.format(writer,
+    pub fn format(self: Properties, writer: *std.io.Writer) !void {
+        try writer.print(
             \\.{{
             \\    .width= {},
-            \\    .grapheme_boundary_class= .{s},
+            \\    .grapheme_boundary_class= .{t},
             \\}}
         , .{
             self.width,
-            @tagName(self.grapheme_boundary_class),
+            self.grapheme_boundary_class,
         });
     }
 };
@@ -151,10 +145,20 @@ pub fn main() !void {
     ) = .{};
 
     const t = try gen.generate(alloc);
-    defer alloc.free(t.stage1);
-    defer alloc.free(t.stage2);
-    defer alloc.free(t.stage3);
-    try t.writeZig(std.io.getStdOut().writer());
+    defer {
+        alloc.free(t.stage1);
+        alloc.free(t.stage2);
+        alloc.free(t.stage3);
+    }
+
+    var buffer: [4096]u8 = undefined;
+    var stdout = std.fs.File.stdout().writer(&buffer);
+    const writer = &stdout.interface;
+
+    try t.writeZig(writer);
+
+    // Don't forget to flush!
+    try writer.flush();
 
     // Uncomment when manually debugging to see our table sizes.
     // std.log.warn("stage1={} stage2={} stage3={}", .{
