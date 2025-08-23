@@ -149,7 +149,7 @@ pub fn setup() void {
         font_config.FontDataOwnedByAtlas = false;
         _ = cimgui.c.ImFontAtlas_AddFontFromMemoryTTF(
             io.Fonts,
-            @constCast(@ptrCast(font.embedded.regular)),
+            @ptrCast(@constCast(font.embedded.regular)),
             font.embedded.regular.len,
             font_size,
             font_config,
@@ -600,6 +600,7 @@ fn renderModesWindow(self: *Inspector) void {
 
     const t = self.surface.renderer_state.terminal;
     inline for (@typeInfo(terminal.Mode).@"enum".fields) |field| {
+        @setEvalBranchQuota(6000);
         const tag: terminal.modes.ModeTag = @bitCast(@as(terminal.modes.ModeTag.Backing, field.value));
 
         cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);
