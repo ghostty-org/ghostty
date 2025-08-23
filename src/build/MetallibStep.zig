@@ -44,7 +44,7 @@ pub fn create(b: *std.Build, opts: Options) ?*MetallibStep {
     const self = b.allocator.create(MetallibStep) catch @panic("OOM");
 
     const min_version = if (opts.target.query.os_version_min) |v|
-        b.fmt("{}", .{v.semver})
+        b.fmt("{f}", .{v.semver})
     else switch (opts.target.result.os.tag) {
         .macos => "10.14",
         .ios => "11.0",
