@@ -115,7 +115,7 @@ pub fn loadFromFile(
         // a slice of words.
         // TODO: Replace this with an aligned version of Writer.Allocating
         var list: std.ArrayListAligned(u8, .of(u32)) = .empty;
-        try list.appendSlice(stream.written());
+        try list.appendSlice(alloc, stream.written());
         break :spirv list.items;
     };
 
