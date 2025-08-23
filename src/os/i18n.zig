@@ -49,6 +49,7 @@ pub const locales = [_][:0]const u8{
     "ca_ES.UTF-8",
     "bg_BG.UTF-8",
     "ga_IE.UTF-8",
+    "hu_HU.UTF-8",
     "he_IL.UTF-8",
 };
 
@@ -73,8 +74,6 @@ pub const InitError = error{
 /// want to set the domain for the entire application since this is also
 /// used by libghostty.
 pub fn init(resources_dir: []const u8) InitError!void {
-    if (comptime !build_config.i18n) return;
-
     switch (builtin.os.tag) {
         // i18n is unsupported on Windows
         .windows => return,
@@ -104,13 +103,11 @@ pub fn init(resources_dir: []const u8) InitError!void {
 /// This should only be called for apprts that are fully owning the
 /// Ghostty application. This should not be called for libghostty users.
 pub fn initGlobalDomain() error{OutOfMemory}!void {
-    if (comptime !build_config.i18n) return;
     _ = textdomain(build_config.bundle_id) orelse return error.OutOfMemory;
 }
 
 /// Translate a message for the Ghostty domain.
 pub fn _(msgid: [*:0]const u8) [*:0]const u8 {
-    if (comptime !build_config.i18n) return msgid;
     return dgettext(build_config.bundle_id, msgid);
 }
 
@@ -136,20 +133,8 @@ pub fn canonicalizeLocale(
     buf: []u8,
     locale: []const u8,
 ) error{NoSpaceLeft}![:0]const u8 {
-    if (comptime !build_config.i18n) {
-        if (buf.len < locale.len + 1) return error.NoSpaceLeft;
-        @memcpy(buf[0..locale.len], locale);
-        buf[locale.len] = 0;
-        return buf[0..locale.len :0];
-    }
-
     // Fix zh locales for macOS
-    if (fixZhLocale(locale)) |fixed| {
-        if (buf.len < fixed.len + 1) return error.NoSpaceLeft;
-        @memcpy(buf[0..fixed.len], fixed);
-        buf[fixed.len] = 0;
-        return buf[0..fixed.len :0];
-    }
+    if (fixZhLocale(locale)) |fixed| return fixed;
 
     // Buffer must be 16 or at least as long as the locale and null term
     if (buf.len < @max(16, locale.len + 1)) return error.NoSpaceLeft;
