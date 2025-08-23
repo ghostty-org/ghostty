@@ -270,11 +270,11 @@ pub const Tab = extern struct {
     fn finalize(self: *Self) callconv(.c) void {
         const priv = self.private();
         if (priv.tooltip) |v| {
-            glib.free(@constCast(@ptrCast(v)));
+            glib.free(@ptrCast(@constCast(v)));
             priv.tooltip = null;
         }
         if (priv.title) |v| {
-            glib.free(@constCast(@ptrCast(v)));
+            glib.free(@ptrCast(@constCast(v)));
             priv.title = null;
         }
 
@@ -405,22 +405,21 @@ pub const Tab = extern struct {
         };
 
         // Use an allocator to build up our string as we write it.
-        var buf: std.ArrayList(u8) = .init(Application.default().allocator());
-        defer buf.deinit();
-        const writer = buf.writer();
+        var stream: std.Io.Writer.Allocating = .init(Application.default().allocator());
+        defer stream.deinit();
 
         // If our bell is ringing, then we prefix the bell icon to the title.
         if (bell_ringing and config.@"bell-features".title) {
-            writer.writeAll("🔔 ") catch {};
+            stream.writer.writeAll("🔔 ") catch {};
         }
 
         // If we're zoomed, prefix with the magnifying glass emoji.
         if (zoomed) {
-            writer.writeAll("🔍 ") catch {};
+            stream.writer.writeAll("🔍 ") catch {};
         }
 
-        writer.writeAll(plain) catch return glib.ext.dupeZ(u8, plain);
-        return glib.ext.dupeZ(u8, buf.items);
+        stream.writer.writeAll(plain) catch return glib.ext.dupeZ(u8, plain);
+        return glib.ext.dupeZ(u8, stream.written());
     }
 
     const C = Common(Self, Private);
