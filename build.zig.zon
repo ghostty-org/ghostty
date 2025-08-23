@@ -8,48 +8,48 @@
 
         .libxev = .{
             // mitchellh/libxev
-            .url = "https://github.com/mitchellh/libxev/archive/7f803181b158a10fec8619f793e3b4df515566cb.tar.gz",
-            .hash = "libxev-0.0.0-86vtc2UaEwDfiTKX3iBI-s_hdzfzWQUarT3MUrmUQl-Q",
+            .url = "https://github.com/pluiedev/libxev/archive/a767897735f7dc9b16c09887d52c205aa1917645.tar.gz",
+            .hash = "libxev-0.0.0-86vtc6scEwCrajQNitQ2BQA2RhyovuY3RbTk6l5WiPJJ",
             .lazy = true,
         },
-        .vaxis = .{
-            // rockorager/libvaxis
-            .url = "git+https://github.com/rockorager/libvaxis#1f41c121e8fc153d9ce8c6eb64b2bbab68ad7d23",
-            .hash = "vaxis-0.1.0-BWNV_FUICQAFZnTCL11TUvnUr1Y0_ZdqtXHhd51d76Rn",
-            .lazy = true,
-        },
+        // .vaxis = .{
+        //     // rockorager/libvaxis
+        //     .url = "https://github.com/rockorager/libvaxis/archive/1bf887aa7e3736bad69fd4e277a378946edb0f2a.tar.gz",
+        //     .hash = "vaxis-0.5.1-BWNV_H0PCQAeMusmtLzh9P9xO2IW242GZ2IRe9iKYhcA",
+        //     .lazy = true,
+        // },
         .z2d = .{
             // vancluever/z2d
-            .url = "https://github.com/vancluever/z2d/archive/refs/tags/v0.7.2.tar.gz",
-            .hash = "z2d-0.7.2-j5P_Hm1oDQDQsWpGfSCMARhowBnuTHlQ_sBfij6TuG7l",
+            .url = "https://github.com/vancluever/z2d/archive/1ec3a71e326dc93aed0681dccc08fe58fc16e9de.tar.gz",
+            .hash = "z2d-0.7.3-pre-j5P_Hvz8EQA3XRKYlWjVzmAKgoQlImUPLSamKx79dHV7",
             .lazy = true,
         },
         .zig_objc = .{
             // mitchellh/zig-objc
-            .url = "https://github.com/mitchellh/zig-objc/archive/c9e917a4e15a983b672ca779c7985d738a2d517c.tar.gz",
-            .hash = "zig_objc-0.0.0-Ir_SpwsPAQBJgi9YRm2ubJMfdoysSq5gKpsIj3izQ8Zk",
+            .url = "https://github.com/pluiedev/zig-objc/archive/e2d4d08d75784f1c4055bb3dec4a2a21a49d0cf4.tar.gz",
+            .hash = "zig_objc-0.0.0-Ir_Sp6YTAQBkxwpOIbn8O3sMtioJjCN1PoOuaMwx-sOZ",
             .lazy = true,
         },
         .zig_js = .{
             // mitchellh/zig-js
-            .url = "https://deps.files.ghostty.org/zig_js-12205a66d423259567764fa0fc60c82be35365c21aeb76c5a7dc99698401f4f6fefc.tar.gz",
-            .hash = "N-V-__8AAB9YCQBaZtQjJZVndk-g_GDIK-NTZcIa63bFp9yZ",
+            .url = "https://github.com/pluiedev/zig-js/archive/ed36e95815b2ef0e1885cfcfea00484612d89ae3.tar.gz",
+            .hash = "zig_js-0.0.0-rjCAV-6GAADxFug7rDmPH-uM_XcnJ5NmuAMJCAscMjhi",
             .lazy = true,
         },
         .ziglyph = .{
-            .url = "https://deps.files.ghostty.org/ziglyph-b89d43d1e3fb01b6074bc1f7fc980324b04d26a5.tar.gz",
-            .hash = "ziglyph-0.11.2-AAAAAHPtHwB4Mbzn1KvOV7Wpjo82NYEc_v0WC8oCLrkf",
+            .url = "https://codeberg.org/pluiedev/ziglyph/archive/4a37b1282cdd35e0410482d09c6f068691e79eaf.tar.gz",
+            .hash = "ziglyph-0.12.0-PJbp-XX8HwD7VRYrqJl7ktlYvcI5HShflUWl2nT_9MeV",
             .lazy = true,
         },
         .zig_wayland = .{
             // codeberg ifreund/zig-wayland
-            .url = "https://codeberg.org/ifreund/zig-wayland/archive/f3c5d503e540ada8cbcb056420de240af0c094f7.tar.gz",
-            .hash = "wayland-0.4.0-dev-lQa1kjfIAQCmhhQu3xF0KH-94-TzeMXOqfnP0-Dg6Wyy",
+            .url = "https://codeberg.org/ifreund/zig-wayland/archive/1b5c038ec10da20ed3a15b0b2a6db1c21383e8ea.tar.gz",
+            .hash = "wayland-0.5.0-dev-lQa1khrMAQDJDwYFKpdH3HizherB7sHo5dKMECfvxQHe",
         },
         .zf = .{
             // natecraddock/zf
-            .url = "https://github.com/natecraddock/zf/archive/7aacbe6d155d64d15937ca95ca6c014905eb531f.tar.gz",
-            .hash = "zf-0.10.3-OIRy8aiIAACLrBllz0zjxaH0aOe5oNm3KtEMyCntST-9",
+            .url = "https://github.com/jcollie/zf/archive/52ad2e5528ab754f77437edf08a07b5ec843661c.tar.gz",
+            .hash = "zf-0.10.3-OIRy8QGJAACJcu3tCGtfbJnnd3Y4QL7OW_X8PJ8u_ASR",
             .lazy = true,
         },
         .gobject = .{
