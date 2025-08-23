@@ -62,6 +62,10 @@ extension SplitView {
                     .frame(width: visibleWidth, height: visibleHeight)
             }
             .backport.pointerStyle(pointerStyle)
+            .onTapGesture(count: 2) {
+                // Double-click to equalize splits
+                split = 0.5
+            }
             .onHover { isHovered in
                 // macOS 15+ we use the pointerStyle helper which is much less
                 // error-prone versus manual NSCursor push/pop
