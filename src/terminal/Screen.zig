@@ -2169,13 +2169,13 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
     // Use an ArrayList so that we can grow the array as we go. We
     // build an initial capacity of just our rows in our selection times
     // columns. It can be more or less based on graphemes, newlines, etc.
-    var strbuilder = std.ArrayList(u8).init(alloc);
-    defer strbuilder.deinit();
+    var writer: std.Io.Writer.Allocating = .init(alloc);
+    defer writer.deinit();
 
     // If we're building a stringmap, create our builder for the pins.
     const MapBuilder = std.ArrayList(Pin);
-    var mapbuilder: ?MapBuilder = if (opts.map != null) MapBuilder.init(alloc) else null;
-    defer if (mapbuilder) |*b| b.deinit();
+    var mapbuilder: ?MapBuilder = if (opts.map != null) .empty else null;
+    defer if (mapbuilder) |*b| b.deinit(alloc);
 
     const sel_ordered = opts.sel.ordered(self, .forward);
     const sel_start: Pin = start: {
@@ -2232,9 +2232,9 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
                     const raw: u21 = if (cell.hasText()) cell.content.codepoint else 0;
                     const char = if (raw > 0) raw else ' ';
                     const encode_len = try std.unicode.utf8Encode(char, &buf);
-                    try strbuilder.appendSlice(buf[0..encode_len]);
+                    try writer.writer.writeAll(buf[0..encode_len]);
                     if (mapbuilder) |*b| {
-                        for (0..encode_len) |_| try b.append(.{
+                        for (0..encode_len) |_| try b.append(alloc, .{
                             .node = chunk.node,
                             .y = @intCast(y),
                             .x = @intCast(x),
@@ -2245,9 +2245,9 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
                     const cps = chunk.node.data.lookupGrapheme(cell).?;
                     for (cps) |cp| {
                         const encode_len = try std.unicode.utf8Encode(cp, &buf);
-                        try strbuilder.appendSlice(buf[0..encode_len]);
+                        try writer.writer.writeAll(buf[0..encode_len]);
                         if (mapbuilder) |*b| {
-                            for (0..encode_len) |_| try b.append(.{
+                            for (0..encode_len) |_| try b.append(alloc, .{
                                 .node = chunk.node,
                                 .y = @intCast(y),
                                 .x = @intCast(x),
@@ -2262,8 +2262,8 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
             if (!is_final_row and
                 (!row.wrap or sel_ordered.rectangle))
             {
-                try strbuilder.append('\n');
-                if (mapbuilder) |*b| try b.append(.{
+                try writer.writer.writeByte('\n');
+                if (mapbuilder) |*b| try b.append(alloc, .{
                     .node = chunk.node,
                     .y = @intCast(y),
                     .x = chunk.node.data.size.cols - 1,
@@ -2273,16 +2273,15 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
     }
 
     if (comptime std.debug.runtime_safety) {
-        if (mapbuilder) |b| assert(strbuilder.items.len == b.items.len);
+        if (mapbuilder) |b| assert(writer.written().len == b.items.len);
     }
 
     // If we have a mapbuilder, we need to setup our string map.
     if (mapbuilder) |*b| {
-        var strclone = try strbuilder.clone();
-        defer strclone.deinit();
-        const str = try strclone.toOwnedSliceSentinel(0);
+        const str = try alloc.dupeZ(u8, writer.written());
         errdefer alloc.free(str);
-        const map = try b.toOwnedSlice();
+
+        const map = try b.toOwnedSlice(alloc);
         errdefer alloc.free(map);
         opts.map.?.* = .{ .string = str, .map = map };
     }
@@ -2291,30 +2290,32 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
     // doing this in the loop above but this isn't very hot path code and
     // this is simple.
     if (opts.trim) {
-        var it = std.mem.tokenizeScalar(u8, strbuilder.items, '\n');
+        var it = std.mem.tokenizeScalar(u8, writer.written(), '\n');
 
         // Reset our items. We retain our capacity. Because we're only
         // removing bytes, we know that the trimmed string must be no longer
         // than the original string so we copy directly back into our
         // allocated memory.
-        strbuilder.clearRetainingCapacity();
+        var dup: std.Io.Writer.Allocating = .init(alloc);
         while (it.next()) |line| {
-            const trimmed = std.mem.trimRight(u8, line, " \t");
-            const i = strbuilder.items.len;
-            strbuilder.items.len += trimmed.len;
-            std.mem.copyForwards(u8, strbuilder.items[i..], trimmed);
-            try strbuilder.append('\n');
+            const trimmed = std.mem.trimEnd(u8, line, " \t");
+            try dup.writer.writeAll(trimmed);
+            try dup.writer.writeByte('\n');
         }
 
         // Remove all trailing newlines
-        for (0..strbuilder.items.len) |_| {
-            if (strbuilder.items[strbuilder.items.len - 1] != '\n') break;
-            strbuilder.items.len -= 1;
+        for (0..dup.writer.end) |_| {
+            if (dup.written()[dup.writer.end - 1] != '\n') break;
+            dup.writer.end -= 1;
         }
+
+        // Replace the original string
+        writer.deinit();
+        writer = dup;
     }
 
     // Get our final string
-    const string = try strbuilder.toOwnedSliceSentinel(0);
+    const string = try writer.toOwnedSliceSentinel(0);
     errdefer alloc.free(string);
 
     return string;
@@ -2899,7 +2900,7 @@ pub fn promptPath(
 /// one byte at a time.
 pub fn dumpString(
     self: *const Screen,
-    writer: anytype,
+    writer: *std.Io.Writer,
     opts: PageList.EncodeUtf8Options,
 ) anyerror!void {
     try self.pages.encodeUtf8(writer, opts);
@@ -2912,10 +2913,10 @@ pub fn dumpStringAlloc(
     alloc: Allocator,
     tl: point.Point,
 ) ![]const u8 {
-    var builder = std.ArrayList(u8).init(alloc);
+    var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    try self.dumpString(builder.writer(), .{
+    try self.dumpString(&builder.writer, .{
         .tl = self.pages.getTopLeft(tl),
         .br = self.pages.getBottomRight(tl) orelse return error.UnknownPoint,
         .unwrap = false,

@@ -57,8 +57,6 @@ pub fn clear(self: DiskCache) !void {
 
 pub const AddResult = enum { added, updated };
 
-pub const AddError = std.fs.Dir.MakeError || std.fs.File.OpenError || std.fs.File.LockError || std.fs.File.ReadError || std.fs.File.WriteError || std.posix.RealPathError || std.posix.RenameError || Allocator.Error || error{ HostnameIsInvalid, CacheIsLocked };
-
 /// Add or update a hostname entry in the cache.
 /// Returns AddResult.added for new entries or AddResult.updated for existing ones.
 /// The cache file is created if it doesn't exist with secure permissions (0600).
@@ -66,7 +64,7 @@ pub fn add(
     self: DiskCache,
     alloc: Allocator,
     hostname: []const u8,
-) AddError!AddResult {
+) !AddResult {
     if (!isValidCacheKey(hostname)) return error.HostnameIsInvalid;
 
     // Create cache directory if needed
@@ -130,15 +128,13 @@ pub fn add(
     return result;
 }
 
-pub const RemoveError = std.fs.Dir.OpenError || std.fs.File.OpenError || std.fs.File.ReadError || std.fs.File.WriteError || std.posix.RealPathError || std.posix.RenameError || Allocator.Error || error{ HostnameIsInvalid, CacheIsLocked };
-
 /// Remove a hostname entry from the cache.
 /// No error is returned if the hostname doesn't exist or the cache file is missing.
 pub fn remove(
     self: DiskCache,
     alloc: Allocator,
     hostname: []const u8,
-) RemoveError!void {
+) !void {
     if (!isValidCacheKey(hostname)) return error.HostnameIsInvalid;
 
     // Open our file
@@ -199,7 +195,7 @@ pub fn contains(
     return entries.contains(hostname);
 }
 
-fn fixupPermissions(file: std.fs.File) !void {
+fn fixupPermissions(file: std.fs.File) (std.fs.File.StatError || std.fs.File.ChmodError)!void {
     // Windows does not support chmod
     if (comptime builtin.os.tag == .windows) return;
 
@@ -211,14 +207,12 @@ fn fixupPermissions(file: std.fs.File) !void {
     }
 }
 
-pub const WriteCacheFileError = std.fs.Dir.OpenError || std.fs.File.OpenError || std.fs.File.WriteError || std.fs.Dir.RealPathAllocError || std.posix.RealPathError || std.posix.RenameError || error{FileTooBig};
-
 fn writeCacheFile(
     self: DiskCache,
     alloc: Allocator,
     entries: std.StringHashMap(Entry),
     expire_days: ?u32,
-) WriteCacheFileError!void {
+) !void {
     var td: TempDir = try .init();
     defer td.deinit();
 
@@ -227,12 +221,13 @@ fn writeCacheFile(
     const tmp_path = try td.dir.realpathAlloc(alloc, "ssh-cache");
     defer alloc.free(tmp_path);
 
-    const writer = tmp_file.writer();
+    var buf: [1024]u8 = undefined;
+    var writer = tmp_file.writer(&buf);
     var iter = entries.iterator();
     while (iter.next()) |kv| {
         // Only write non-expired entries
         if (kv.value_ptr.isExpired(expire_days)) continue;
-        try kv.value_ptr.format(writer);
+        try kv.value_ptr.format(&writer.interface);
     }
 
     // Atomic replace
@@ -278,7 +273,7 @@ pub fn deinitEntries(
 fn readEntries(
     alloc: Allocator,
     file: std.fs.File,
-) (std.fs.File.ReadError || Allocator.Error || error{FileTooBig})!std.StringHashMap(Entry) {
+) !std.StringHashMap(Entry) {
     const content = try file.readToEndAlloc(alloc, MAX_CACHE_SIZE);
     defer alloc.free(content);
 
