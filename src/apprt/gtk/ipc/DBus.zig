@@ -29,7 +29,10 @@ payload_builder: *glib.VariantBuilder,
 parameters_builder: *glib.VariantBuilder,
 
 /// Initialize the helper.
-pub fn init(alloc: Allocator, target: apprt.ipc.Target, action: [:0]const u8) (Allocator.Error || std.posix.WriteError || apprt.ipc.Errors)!Self {
+pub fn init(alloc: Allocator, target: apprt.ipc.Target, action: [:0]const u8) (Allocator.Error || std.Io.Writer.Error || apprt.ipc.Errors)!Self {
+    var buf: [256]u8 = undefined;
+    var stderr_writer = std.fs.File.stderr().writer(&buf);
+    const stderr = &stderr_writer.interface;
 
     // Get the appropriate bus name and object path for contacting the
     // Ghostty instance we're interested in.
@@ -37,7 +40,7 @@ pub fn init(alloc: Allocator, target: apprt.ipc.Target, action: [:0]const u8) (A
         .class => |class| result: {
             // Force the usage of the class specified on the CLI to determine the
             // bus name and object path.
-            const object_path = try std.fmt.allocPrintZ(alloc, "/{s}", .{class});
+            const object_path = try std.fmt.allocPrintSentinel(alloc, "/{s}", .{class}, 0);
 
             std.mem.replaceScalar(u8, object_path, '.', '/');
             std.mem.replaceScalar(u8, object_path, '-', '_');
@@ -54,14 +57,14 @@ pub fn init(alloc: Allocator, target: apprt.ipc.Target, action: [:0]const u8) (A
     }
 
     if (gio.Application.idIsValid(bus_name.ptr) == 0) {
-        const stderr = std.io.getStdErr().writer();
         try stderr.print("D-Bus bus name is not valid: {s}\n", .{bus_name});
+        try stderr.flush();
         return error.IPCFailed;
     }
 
     if (glib.Variant.isObjectPath(object_path.ptr) == 0) {
-        const stderr = std.io.getStdErr().writer();
         try stderr.print("D-Bus object path is not valid: {s}\n", .{object_path});
+        try stderr.flush();
         return error.IPCFailed;
     }
 
@@ -72,17 +75,17 @@ pub fn init(alloc: Allocator, target: apprt.ipc.Target, action: [:0]const u8) (A
 
         const dbus_ = gio.busGetSync(.session, null, &err_);
         if (err_) |err| {
-            const stderr = std.io.getStdErr().writer();
             try stderr.print(
                 "Unable to establish connection to D-Bus session bus: {s}\n",
                 .{err.f_message orelse "(unknown)"},
             );
+            try stderr.flush();
             return error.IPCFailed;
         }
 
         break :dbus dbus_ orelse {
-            const stderr = std.io.getStdErr().writer();
             try stderr.print("gio.busGetSync returned null\n", .{});
+            try stderr.flush();
             return error.IPCFailed;
         };
     };
@@ -128,7 +131,11 @@ pub fn addParameter(self: *Self, variant: *glib.Variant) void {
 
 /// Send the IPC to the remote Ghostty. Once it completes, nothing further
 /// should be done with this object other than call `deinit`.
-pub fn send(self: *Self) (std.posix.WriteError || apprt.ipc.Errors)!void {
+pub fn send(self: *Self) (std.Io.Writer.Error || apprt.ipc.Errors)!void {
+    var buf: [256]u8 = undefined;
+    var stderr_writer = std.fs.File.stderr().writer(&buf);
+    const stderr = &stderr_writer.interface;
+
     // finish building the parameters
     const parameters = self.parameters_builder.end();
 
@@ -167,11 +174,11 @@ pub fn send(self: *Self) (std.posix.WriteError || apprt.ipc.Errors)!void {
         defer if (result_) |result| result.unref();
 
         if (err_) |err| {
-            const stderr = std.io.getStdErr().writer();
             try stderr.print(
                 "D-Bus method call returned an error err={s}\n",
                 .{err.f_message orelse "(unknown)"},
             );
+            try stderr.flush();
             return error.IPCFailed;
         }
     }

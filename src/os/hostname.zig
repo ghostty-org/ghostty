@@ -4,7 +4,7 @@ const posix = std.posix;
 
 pub const HostnameParsingError = error{
     NoHostnameInUri,
-    NoSpaceLeft,
+    WriteFailed,
 };
 
 pub const UrlParsingError = std.Uri.ParseError || error{
@@ -132,7 +132,7 @@ pub fn bufPrintHostnameFromFileUri(
     // URI hostname.
     if (port > 99) return host;
 
-    var writer: std.Io.Writer = .fixed(&buf);
+    var writer: std.Io.Writer = .fixed(buf);
     try writer.print(
         // Make sure "port" is always 2 digits, prefixed with a 0 when "port" is a 1-digit number.
         "{s}:{d:0>2}",

@@ -127,7 +127,7 @@ pub fn main() !void {
     const alloc = debug_allocator.allocator();
 
     // Collect the UI files that are passed in as arguments.
-    var ui_files: std.ArrayListUnmanaged([]const u8) = .empty;
+    var ui_files: std.ArrayList([]const u8) = .empty;
     defer {
         for (ui_files.items) |item| alloc.free(item);
         ui_files.deinit(alloc);
@@ -142,7 +142,10 @@ pub fn main() !void {
         );
     }
 
-    const writer = std.io.getStdOut().writer();
+    var buffer: [1024]u8 = undefined;
+    var stdout = std.fs.File.stdout().writer(&buffer);
+    const writer = &stdout.interface;
+
     try writer.writeAll(
         \\<?xml version="1.0" encoding="UTF-8"?>
         \\<gresources>
@@ -157,6 +160,9 @@ pub fn main() !void {
         \\</gresources>
         \\
     );
+
+    // Don't forget to flush!
+    try writer.flush();
 }
 
 /// Generate the icon resources. This works by looking up all the icons

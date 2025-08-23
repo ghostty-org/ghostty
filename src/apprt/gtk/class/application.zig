@@ -277,7 +277,7 @@ pub const Application = extern struct {
 
         // Setup our GTK init env vars
         setGtkEnv(&config) catch |err| switch (err) {
-            error.NoSpaceLeft => {
+            error.WriteFailed => {
                 // If we fail to set GTK environment variables then we still
                 // try to start the application...
                 log.warn(
@@ -291,7 +291,6 @@ pub const Application = extern struct {
         const single_instance = switch (config.@"gtk-single-instance") {
             .true => true,
             .false => false,
-            // This should have been resolved to true/false during config loading.
             .detect => unreachable,
         };
 
@@ -799,23 +798,20 @@ pub const Application = extern struct {
         }
     }
 
-    fn loadRuntimeCss(self: *Self) Allocator.Error!void {
-        const alloc = self.allocator();
-
+    fn loadRuntimeCss(self: *Self) (Allocator.Error || std.Io.Writer.Error)!void {
         const config = self.private().config.get();
 
-        var buf: std.ArrayListUnmanaged(u8) = try .initCapacity(alloc, 2048);
-        defer buf.deinit(alloc);
-
-        const writer = buf.writer(alloc);
+        const alloc = self.allocator();
+        var buf: std.Io.Writer.Allocating = try .initCapacity(alloc, 2048);
+        defer buf.deinit();
 
         // Load standard css first as it can override some of the user configured styling.
-        try loadRuntimeCss414(config, &writer);
-        try loadRuntimeCss416(config, &writer);
+        try loadRuntimeCss414(config, &buf.writer);
+        try loadRuntimeCss416(config, &buf.writer);
 
         const unfocused_fill: CoreConfig.Color = config.@"unfocused-split-fill" orelse config.background;
 
-        try writer.print(
+        try buf.writer.print(
             \\widget.unfocused-split {{
             \\ opacity: {d:.2};
             \\ background-color: rgb({d},{d},{d});
@@ -829,7 +825,7 @@ pub const Application = extern struct {
         });
 
         if (config.@"split-divider-color") |color| {
-            try writer.print(
+            try buf.writer.print(
                 \\.window .split paned > separator {{
                 \\  color: rgb({[r]d},{[g]d},{[b]d});
                 \\  background: rgb({[r]d},{[g]d},{[b]d});
@@ -843,7 +839,7 @@ pub const Application = extern struct {
         }
 
         if (config.@"window-title-font-family") |font_family| {
-            try writer.print(
+            try buf.writer.print(
                 \\.window headerbar {{
                 \\  font-family: "{[font_family]s}";
                 \\}}
@@ -852,11 +848,11 @@ pub const Application = extern struct {
         }
 
         // ensure that we have a sentinel
-        try writer.writeByte(0);
+        try buf.writer.writeByte(0);
 
-        const data = buf.items[0 .. buf.items.len - 1 :0];
+        const data = buf.writer.buffer[0 .. buf.writer.end - 1 :0];
 
-        log.debug("runtime CSS is {d} bytes", .{data.len + 1});
+        log.debug("runtime CSS is {d} bytes", .{buf.writer.end});
 
         // Clears any previously loaded CSS from this provider
         loadCssProviderFromData(
@@ -868,8 +864,8 @@ pub const Application = extern struct {
     /// Load runtime CSS for older than GTK 4.16
     fn loadRuntimeCss414(
         config: *const CoreConfig,
-        writer: *const std.ArrayListUnmanaged(u8).Writer,
-    ) Allocator.Error!void {
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
         if (gtk_version.runtimeAtLeast(4, 16, 0)) return;
 
         const window_theme = config.@"window-theme";
@@ -904,8 +900,8 @@ pub const Application = extern struct {
     /// Load runtime for GTK 4.16 and newer
     fn loadRuntimeCss416(
         config: *const CoreConfig,
-        writer: *const std.ArrayListUnmanaged(u8).Writer,
-    ) Allocator.Error!void {
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
         if (gtk_version.runtimeUntil(4, 16, 0)) return;
 
         const window_theme = config.@"window-theme";
@@ -1037,7 +1033,10 @@ pub const Application = extern struct {
             defer file.close();
 
             log.info("loading gtk-custom-css path={s}", .{path});
-            const contents = try file.reader().readAllAlloc(
+
+            var buf: [4096]u8 = undefined;
+            var reader = file.reader(&buf);
+            const contents = try reader.interface.readAlloc(
                 alloc,
                 5 * 1024 * 1024, // 5MB,
             );
@@ -1108,8 +1107,8 @@ pub const Application = extern struct {
             // This should really never, never happen. Its not critical enough
             // to actually crash, but this is a bug somewhere. An accelerator
             // for a trigger can't possibly be more than 1024 bytes.
-            error.NoSpaceLeft => {
-                log.warn("accelerator somehow longer than 1024 bytes: {}", .{trigger});
+            error.WriteFailed => {
+                log.warn("accelerator somehow longer than 1024 bytes: {f}", .{trigger});
                 return;
             },
         };
@@ -1155,6 +1154,10 @@ pub const Application = extern struct {
         // just stuck with the old CSS but we don't want to fail the entire
         // config change operation.
         self.loadRuntimeCss() catch |err| switch (err) {
+            error.WriteFailed => log.warn(
+                "failed to write runtime CSS, no runtime CSS applied, err={}",
+                .{err},
+            ),
             error.OutOfMemory => log.warn(
                 "out of memory loading runtime CSS, no runtime CSS applied",
                 .{},
@@ -2457,7 +2460,7 @@ const Action = struct {
 /// given the runtime environment or configuration.
 ///
 /// This must be called BEFORE GTK initialization.
-fn setGtkEnv(config: *const CoreConfig) error{NoSpaceLeft}!void {
+fn setGtkEnv(config: *const CoreConfig) error{WriteFailed}!void {
     assert(gtk.isInitialized() == 0);
 
     var gdk_debug: struct {
@@ -2524,8 +2527,7 @@ fn setGtkEnv(config: *const CoreConfig) error{NoSpaceLeft}!void {
 
     {
         var buf: [1024]u8 = undefined;
-        var fmt = std.Io.fixedBufferStream(&buf);
-        const writer = fmt.writer();
+        var writer: std.Io.Writer = .fixed(&buf);
         var first: bool = true;
         inline for (@typeInfo(@TypeOf(gdk_debug)).@"struct".fields) |field| {
             if (@field(gdk_debug, field.name)) {
@@ -2535,15 +2537,14 @@ fn setGtkEnv(config: *const CoreConfig) error{NoSpaceLeft}!void {
             }
         }
         try writer.writeByte(0);
-        const value = fmt.getWritten();
+        const value = writer.buffered();
         log.warn("setting GDK_DEBUG={s}", .{value[0 .. value.len - 1]});
         _ = internal_os.setenv("GDK_DEBUG", value[0 .. value.len - 1 :0]);
     }
 
     {
         var buf: [1024]u8 = undefined;
-        var fmt = std.Io.fixedBufferStream(&buf);
-        const writer = fmt.writer();
+        var writer: std.Io.Writer = .fixed(&buf);
         var first: bool = true;
         inline for (@typeInfo(@TypeOf(gdk_disable)).@"struct".fields) |field| {
             if (@field(gdk_disable, field.name)) {
@@ -2553,7 +2554,7 @@ fn setGtkEnv(config: *const CoreConfig) error{NoSpaceLeft}!void {
             }
         }
         try writer.writeByte(0);
-        const value = fmt.getWritten();
+        const value = writer.buffered();
         log.warn("setting GDK_DISABLE={s}", .{value[0 .. value.len - 1]});
         _ = internal_os.setenv("GDK_DISABLE", value[0 .. value.len - 1 :0]);
     }

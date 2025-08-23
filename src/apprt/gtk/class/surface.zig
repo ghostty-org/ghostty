@@ -515,9 +515,6 @@ pub const Surface = extern struct {
         /// if this is true, then it means the terminal is non-functional.
         @"error": bool = false,
 
-        /// The source that handles setting our child property.
-        idle_rechild: ?c_uint = null,
-
         /// A weak reference to an inspector window.
         inspector: ?*InspectorWindow = null,
 
@@ -530,8 +527,6 @@ pub const Surface = extern struct {
         context_menu: *gtk.PopoverMenu,
         drop_target: *gtk.DropTarget,
         progress_bar_overlay: *gtk.ProgressBar,
-        error_page: *adw.StatusPage,
-        terminal_page: *gtk.Overlay,
 
         pub var offset: c_int = 0;
     };
@@ -1462,19 +1457,6 @@ pub const Surface = extern struct {
             priv.progress_bar_timer = null;
         }
 
-        if (priv.idle_rechild) |v| {
-            if (glib.Source.remove(v) == 0) {
-                log.warn("unable to remove idle source", .{});
-            }
-            priv.idle_rechild = null;
-        }
-
-        // This works around a GTK double-free bug where if you bind
-        // to a top-level template child, it frees twice if the widget is
-        // also the root child of the template. By unsetting the child here,
-        // we avoid the double-free.
-        self.as(adw.Bin).setChild(null);
-
         gtk.Widget.disposeTemplate(
             self.as(gtk.Widget),
             getGObjectType(),
@@ -1506,7 +1488,7 @@ pub const Surface = extern struct {
             priv.core_surface = null;
         }
         if (priv.mouse_hover_url) |v| {
-            glib.free(@constCast(@ptrCast(v)));
+            glib.free(@ptrCast(@constCast(v)));
             priv.mouse_hover_url = null;
         }
         if (priv.default_size) |v| {
@@ -1522,15 +1504,15 @@ pub const Surface = extern struct {
             priv.min_size = null;
         }
         if (priv.pwd) |v| {
-            glib.free(@constCast(@ptrCast(v)));
+            glib.free(@ptrCast(@constCast(v)));
             priv.pwd = null;
         }
         if (priv.title) |v| {
-            glib.free(@constCast(@ptrCast(v)));
+            glib.free(@ptrCast(@constCast(v)));
             priv.title = null;
         }
         if (priv.title_override) |v| {
-            glib.free(@constCast(@ptrCast(v)));
+            glib.free(@ptrCast(@constCast(v)));
             priv.title_override = null;
         }
         self.clearCgroup();
@@ -1554,7 +1536,7 @@ pub const Surface = extern struct {
     /// title. For manually set titles see `setTitleOverride`.
     pub fn setTitle(self: *Self, title: ?[:0]const u8) void {
         const priv = self.private();
-        if (priv.title) |v| glib.free(@constCast(@ptrCast(v)));
+        if (priv.title) |v| glib.free(@ptrCast(@constCast(v)));
         priv.title = null;
         if (title) |v| priv.title = glib.ext.dupeZ(u8, v);
         self.as(gobject.Object).notifyByPspec(properties.title.impl.param_spec);
@@ -1564,7 +1546,7 @@ pub const Surface = extern struct {
     /// unless this is unset (null).
     pub fn setTitleOverride(self: *Self, title: ?[:0]const u8) void {
         const priv = self.private();
-        if (priv.title_override) |v| glib.free(@constCast(@ptrCast(v)));
+        if (priv.title_override) |v| glib.free(@ptrCast(@constCast(v)));
         priv.title_override = null;
         if (title) |v| priv.title_override = glib.ext.dupeZ(u8, v);
         self.as(gobject.Object).notifyByPspec(properties.@"title-override".impl.param_spec);
@@ -1578,7 +1560,7 @@ pub const Surface = extern struct {
     /// Set the pwd for this surface, copies the value.
     pub fn setPwd(self: *Self, pwd: ?[:0]const u8) void {
         const priv = self.private();
-        if (priv.pwd) |v| glib.free(@constCast(@ptrCast(v)));
+        if (priv.pwd) |v| glib.free(@ptrCast(@constCast(v)));
         priv.pwd = null;
         if (pwd) |v| priv.pwd = glib.ext.dupeZ(u8, v);
         self.as(gobject.Object).notifyByPspec(properties.pwd.impl.param_spec);
@@ -1663,7 +1645,7 @@ pub const Surface = extern struct {
 
     pub fn setMouseHoverUrl(self: *Self, url: ?[:0]const u8) void {
         const priv = self.private();
-        if (priv.mouse_hover_url) |v| glib.free(@constCast(@ptrCast(v)));
+        if (priv.mouse_hover_url) |v| glib.free(@ptrCast(@constCast(v)));
         priv.mouse_hover_url = null;
         if (url) |v| priv.mouse_hover_url = glib.ext.dupeZ(u8, v);
         self.as(gobject.Object).notifyByPspec(properties.@"mouse-hover-url".impl.param_spec);
@@ -1756,26 +1738,8 @@ pub const Surface = extern struct {
             self.as(gtk.Widget).removeCssClass("background");
         }
 
-        // We need to set our child property on an idle tick, because the
-        // error property can be triggered by signals that are in the middle
-        // of widget mapping and changing our child during that time
-        // results in a hard gtk crash.
-        if (priv.idle_rechild == null) priv.idle_rechild = glib.idleAdd(
-            onIdleRechild,
-            self,
-        );
-    }
-
-    fn onIdleRechild(ud: ?*anyopaque) callconv(.c) c_int {
-        const self: *Self = @ptrCast(@alignCast(ud orelse return 0));
-        const priv = self.private();
-        priv.idle_rechild = null;
-        if (priv.@"error") {
-            self.as(adw.Bin).setChild(priv.error_page.as(gtk.Widget));
-        } else {
-            self.as(adw.Bin).setChild(priv.terminal_page.as(gtk.Widget));
-        }
-        return 0;
+        // Note above: in both cases setting our error view is handled by
+        // a Gtk.Stack visible-child-name binding.
     }
 
     fn propMouseHoverUrl(
@@ -1967,13 +1931,11 @@ pub const Surface = extern struct {
         const alloc = Application.default().allocator();
 
         if (ext.gValueHolds(value, gdk.FileList.getGObjectType())) {
-            var data = std.ArrayList(u8).init(alloc);
-            defer data.deinit();
+            var stream: std.Io.Writer.Allocating = .init(alloc);
+            defer stream.deinit();
 
-            var shell_escape_writer: internal_os.ShellEscapeWriter(std.ArrayList(u8).Writer) = .{
-                .child_writer = data.writer(),
-            };
-            const writer = shell_escape_writer.writer();
+            var shell_escape_writer: internal_os.ShellEscapeWriter = .init(&stream.writer);
+            const writer = &shell_escape_writer.writer;
 
             const list: ?*glib.SList = list: {
                 const unboxed = value.getBoxed() orelse return 0;
@@ -2001,7 +1963,7 @@ pub const Surface = extern struct {
                 }
             }
 
-            const string = data.toOwnedSliceSentinel(0) catch |err| {
+            const string = stream.toOwnedSliceSentinel(0) catch |err| {
                 log.err("unable to convert to a slice: {}", .{err});
                 return 0;
             };
@@ -2014,13 +1976,13 @@ pub const Surface = extern struct {
             const object = value.getObject() orelse return 0;
             const file = gobject.ext.cast(gio.File, object) orelse return 0;
             const path = file.getPath() orelse return 0;
-            var data = std.ArrayList(u8).init(alloc);
-            defer data.deinit();
 
-            var shell_escape_writer: internal_os.ShellEscapeWriter(std.ArrayList(u8).Writer) = .{
-                .child_writer = data.writer(),
-            };
-            const writer = shell_escape_writer.writer();
+            var stream: std.Io.Writer.Allocating = .init(alloc);
+            defer stream.deinit();
+
+            var shell_escape_writer: internal_os.ShellEscapeWriter = .init(&stream.writer);
+            const writer = &shell_escape_writer.writer;
+
             writer.writeAll(std.mem.span(path)) catch |err| {
                 log.err("unable to write path to buffer: {}", .{err});
                 return 0;
@@ -2030,7 +1992,7 @@ pub const Surface = extern struct {
                 return 0;
             };
 
-            const string = data.toOwnedSliceSentinel(0) catch |err| {
+            const string = stream.toOwnedSliceSentinel(0) catch |err| {
                 log.err("unable to convert to a slice: {}", .{err});
                 return 0;
             };
@@ -2822,10 +2784,8 @@ pub const Surface = extern struct {
             class.bindTemplateChildPrivate("url_right", .{});
             class.bindTemplateChildPrivate("child_exited_overlay", .{});
             class.bindTemplateChildPrivate("context_menu", .{});
-            class.bindTemplateChildPrivate("error_page", .{});
             class.bindTemplateChildPrivate("progress_bar_overlay", .{});
             class.bindTemplateChildPrivate("resize_overlay", .{});
-            class.bindTemplateChildPrivate("terminal_page", .{});
             class.bindTemplateChildPrivate("drop_target", .{});
             class.bindTemplateChildPrivate("im_context", .{});
 

@@ -279,7 +279,7 @@ pub const StreamHandler = struct {
                 }
 
                 // Our response is valid if we have a response payload
-                const valid = writer.pos > prefix_len;
+                const valid = writer.end > prefix_len;
 
                 // Write the terminator
                 try writer.writeAll("\x1b\\");
@@ -1110,7 +1110,7 @@ pub const StreamHandler = struct {
                 log.warn("OSC 7 uri must contain a hostname: {}", .{err});
                 return;
             },
-            error.NoSpaceLeft => |e| {
+            error.WriteFailed => |e| {
                 log.warn("failed to get full hostname for OSC 7 validation: {}", .{e});
                 return;
             },

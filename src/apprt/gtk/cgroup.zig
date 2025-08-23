@@ -50,7 +50,7 @@ pub fn init(
         ) orelse "";
         if (!std.mem.eql(u8, original, current)) break :transient current;
         alloc.free(current);
-        std.time.sleep(25 * std.time.ns_per_ms);
+        std.Thread.sleep(25 * std.time.ns_per_ms);
     };
     errdefer alloc.free(transient);
     log.info("transient scope created cgroup={s}", .{transient});
@@ -101,21 +101,21 @@ fn enableControllers(alloc: Allocator, cgroup: []const u8) !void {
     defer alloc.free(raw);
 
     // Build our string builder for enabling all controllers
-    var builder = std.ArrayList(u8).init(alloc);
+    var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
     // Controllers are space-separated
     var it = std.mem.splitScalar(u8, raw, ' ');
     while (it.next()) |controller| {
-        try builder.append('+');
-        try builder.appendSlice(controller);
-        if (it.rest().len > 0) try builder.append(' ');
+        try builder.writer.writeByte('+');
+        try builder.writer.writeAll(controller);
+        if (it.rest().len > 0) try builder.writer.writeByte(' ');
     }
 
     // Enable them all
     try internal_os.cgroup.configureControllers(
         cgroup,
-        builder.items,
+        builder.written(),
     );
 }
 
