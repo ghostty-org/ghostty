@@ -8,10 +8,13 @@ const Action = @import("cli.zig").ghostty.Action;
 const KeybindAction = @import("input/Binding.zig").Action;
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
     const alloc = gpa.allocator();
 
-    const stdout = std.io.getStdOut().writer();
+    var buffer: [1024]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&buffer);
+    const stdout = &stdout_writer.interface;
+
     try stdout.writeAll(
         \\// THIS FILE IS AUTO GENERATED
         \\
@@ -21,9 +24,12 @@ pub fn main() !void {
     try genConfig(alloc, stdout);
     try genActions(alloc, stdout);
     try genKeybindActions(alloc, stdout);
+
+    // Don't forget to flush!
+    try stdout.flush();
 }
 
-fn genConfig(alloc: std.mem.Allocator, writer: anytype) !void {
+fn genConfig(alloc: std.mem.Allocator, writer: *std.io.Writer) !void {
     var ast = try std.zig.Ast.parse(alloc, @embedFile("config/Config.zig"), .zig);
     defer ast.deinit(alloc);
 
@@ -149,26 +155,25 @@ fn extractDocComments(
     } else unreachable;
 
     // Go through and build up the lines.
-    var lines = std.ArrayList([]const u8).init(alloc);
-    defer lines.deinit();
+    var lines: std.ArrayList([]const u8) = .empty;
+    defer lines.deinit(alloc);
     for (start_idx..index + 1) |i| {
         const token = tokens[i];
         if (token != .doc_comment) break;
-        try lines.append(ast.tokenSlice(@intCast(i))[3..]);
+        try lines.append(alloc, ast.tokenSlice(@intCast(i))[3..]);
     }
 
     // Convert the lines to a multiline string.
-    var buffer = std.ArrayList(u8).init(alloc);
-    const writer = buffer.writer();
+    var stream: std.io.Writer.Allocating = .init(alloc);
     const prefix = findCommonPrefix(lines);
     for (lines.items) |line| {
-        try writer.writeAll("    \\\\");
-        try writer.writeAll(line[@min(prefix, line.len)..]);
-        try writer.writeAll("\n");
+        try stream.writer.writeAll("    \\\\");
+        try stream.writer.writeAll(line[@min(prefix, line.len)..]);
+        try stream.writer.writeAll("\n");
     }
-    try writer.writeAll(";\n");
+    try stream.writer.writeAll(";\n");
 
-    return buffer.toOwnedSlice();
+    return stream.toOwnedSlice();
 }
 
 fn findCommonPrefix(lines: std.ArrayList([]const u8)) usize {

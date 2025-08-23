@@ -188,19 +188,19 @@ pub const StreamHandler = struct {
 
     pub fn dcsHook(self: *StreamHandler, dcs: terminal.DCS) !void {
         var cmd = self.dcs.hook(self.alloc, dcs) orelse return;
-        defer cmd.deinit();
+        defer cmd.deinit(self.alloc);
         try self.dcsCommand(&cmd);
     }
 
     pub fn dcsPut(self: *StreamHandler, byte: u8) !void {
         var cmd = self.dcs.put(byte) orelse return;
-        defer cmd.deinit();
+        defer cmd.deinit(self.alloc);
         try self.dcsCommand(&cmd);
     }
 
     pub fn dcsUnhook(self: *StreamHandler) !void {
         var cmd = self.dcs.unhook() orelse return;
-        defer cmd.deinit();
+        defer cmd.deinit(self.alloc);
         try self.dcsCommand(&cmd);
     }
 
@@ -314,7 +314,7 @@ pub const StreamHandler = struct {
                     try resp.encode(buf_stream.writer());
                     const final = buf_stream.getWritten();
                     if (final.len > 2) {
-                        log.debug("kitty graphics response: {s}", .{std.fmt.fmtSliceHexLower(final)});
+                        log.debug("kitty graphics response: {f}", .{std.ascii.hexEscape(final, .lower)});
                         self.messageWriter(try termio.Message.writeReq(self.alloc, final));
                     }
                 }
@@ -1136,7 +1136,7 @@ pub const StreamHandler = struct {
 
         // We need to unescape the path. We first try to unescape onto
         // the stack and fall back to heap allocation if we have to.
-        var pathBuf: [1024]u8 = undefined;
+        var path_buf: [1024]u8 = undefined;
         const path, const heap = path: {
             // Get the raw string of the URI. Its unclear to me if the various
             // tags of this enum guarantee no percent-encoding so we just
@@ -1151,15 +1151,16 @@ pub const StreamHandler = struct {
                 break :path .{ path, false };
 
             // First try to stack-allocate
-            var fba = std.heap.FixedBufferAllocator.init(&pathBuf);
-            if (std.fmt.allocPrint(fba.allocator(), "{raw}", .{uri.path})) |v|
-                break :path .{ v, false }
-            else |_| {}
+            var stack_writer: std.Io.Writer = .fixed(&path_buf);
+            if (uri.path.formatRaw(&stack_writer)) |_| {
+                break :path .{ stack_writer.buffered(), false };
+            } else |_| {}
 
             // Fall back to heap
-            if (std.fmt.allocPrint(self.alloc, "{raw}", .{uri.path})) |v|
-                break :path .{ v, true }
-            else |_| {}
+            var alloc_writer: std.Io.Writer.Allocating = .init(self.alloc);
+            if (uri.path.formatRaw(&alloc_writer.writer)) |_| {
+                break :path .{ alloc_writer.written(), true };
+            } else |_| {}
 
             // Fall back to using it directly...
             log.warn("failed to unescape OSC 7 path, using it directly path={s}", .{path});
@@ -1195,15 +1196,10 @@ pub const StreamHandler = struct {
         if (operations.count() == 0) return;
 
         var buffer: [1024]u8 = undefined;
-        var fba: std.heap.FixedBufferAllocator = .init(&buffer);
-        const alloc = fba.allocator();
-
-        var response: std.ArrayListUnmanaged(u8) = .empty;
-        const writer = response.writer(alloc);
-
+        var writer: std.Io.Writer = .fixed(&buffer);
         var report: bool = false;
 
-        try writer.print("\x1b]{}", .{source});
+        try writer.print("\x1b]{f}", .{source});
 
         var it = operations.constIterator(0);
 
@@ -1362,7 +1358,7 @@ pub const StreamHandler = struct {
             // If any of the operations were reports, finalize the report
             // string and send it to the terminal.
             try writer.writeAll(terminator.string());
-            const msg = try termio.Message.writeReq(self.alloc, response.items);
+            const msg = try termio.Message.writeReq(self.alloc, writer.buffered());
             self.messageWriter(msg);
         }
     }
@@ -1399,15 +1395,15 @@ pub const StreamHandler = struct {
         self: *StreamHandler,
         request: terminal.kitty.color.OSC,
     ) !void {
-        var buf = std.ArrayList(u8).init(self.alloc);
+        var buf: std.Io.Writer.Allocating = .init(self.alloc);
         defer buf.deinit();
-        const writer = buf.writer();
+        const writer = &buf.writer;
 
         for (request.list.items) |item| {
             switch (item) {
                 .query => |key| {
                     // If the writer buffer is empty, we need to write our prefix
-                    if (buf.items.len == 0) try writer.writeAll("\x1b]21");
+                    if (buf.written().len == 0) try writer.writeAll("\x1b]21");
 
                     const color: terminal.color.RGB = switch (key) {
                         .palette => |palette| self.terminal.color_palette.colors[palette],
@@ -1416,17 +1412,17 @@ pub const StreamHandler = struct {
                             .background => self.background_color orelse self.default_background_color,
                             .cursor => self.cursor_color orelse self.default_cursor_color,
                             else => {
-                                log.warn("ignoring unsupported kitty color protocol key: {}", .{key});
+                                log.warn("ignoring unsupported kitty color protocol key: {f}", .{key});
                                 continue;
                             },
                         },
                     } orelse {
-                        try writer.print(";{}=", .{key});
+                        try writer.print(";{f}=", .{key});
                         continue;
                     };
 
                     try writer.print(
-                        ";{}=rgb:{x:0>2}/{x:0>2}/{x:0>2}",
+                        ";{f}=rgb:{x:0>2}/{x:0>2}/{x:0>2}",
                         .{ key, color.r, color.g, color.b },
                     );
                 },
@@ -1453,7 +1449,7 @@ pub const StreamHandler = struct {
                             },
                             else => {
                                 log.warn(
-                                    "ignoring unsupported kitty color protocol key: {}",
+                                    "ignoring unsupported kitty color protocol key: {f}",
                                     .{v.key},
                                 );
                                 continue;
@@ -1488,7 +1484,7 @@ pub const StreamHandler = struct {
                             },
                             else => {
                                 log.warn(
-                                    "ignoring unsupported kitty color protocol key: {}",
+                                    "ignoring unsupported kitty color protocol key: {f}",
                                     .{key},
                                 );
                                 continue;
@@ -1504,7 +1500,7 @@ pub const StreamHandler = struct {
         }
 
         // If we had any writes to our buffer, we queue them now
-        if (buf.items.len > 0) {
+        if (buf.written().len > 0) {
             try writer.writeAll(request.terminator.string());
             self.messageWriter(.{
                 .write_alloc = .{

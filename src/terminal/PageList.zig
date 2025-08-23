@@ -389,10 +389,19 @@ pub fn reset(self: *PageList) void {
         var it = page_arena.state.buffer_list.first;
         while (it) |node| : (it = node.next) {
             // The fully allocated buffer
-            const alloc_buf = @as([*]u8, @ptrCast(node))[0..node.data];
+
+            // WARN: Since HeapAllocator's BufNode is not public API,
+            // we have to hardcode its layout here - please check the
+            // implementation in std after every Zig version bump!
+            const BufNode = struct {
+                data: usize,
+                node: std.SinglyLinkedList.Node,
+            };
+
+            const buf_node: *BufNode = @fieldParentPtr("node", node);
+            const alloc_buf = @as([*]u8, @ptrCast(buf_node))[0..buf_node.data];
 
             // The buffer minus our header
-            const BufNode = @TypeOf(page_arena.state.buffer_list).Node;
             const data_buf = alloc_buf[@sizeOf(BufNode)..];
             @memset(data_buf, 0);
         }
@@ -2073,7 +2082,7 @@ fn createPageExt(
     else
         try page_alloc.alignedAlloc(
             u8,
-            std.heap.page_size_min,
+            .fromByteUnits(std.heap.page_size_min),
             layout.total_size,
         );
     errdefer if (pooled)
@@ -2662,7 +2671,10 @@ pub const EncodeUtf8Options = struct {
     unwrap: bool = true,
 
     /// See Page.EncodeUtf8Options.
-    cell_map: ?*Page.CellMap = null,
+    cell_map: ?struct {
+        alloc: Allocator,
+        map: *Page.CellMap,
+    } = null,
 };
 
 /// Encode the pagelist to utf8 to the given writer.
@@ -2674,7 +2686,7 @@ pub const EncodeUtf8Options = struct {
 /// predates this and is a thin wrapper around it so the tests all live there.
 pub fn encodeUtf8(
     self: *const PageList,
-    writer: anytype,
+    writer: *std.Io.Writer,
     opts: EncodeUtf8Options,
 ) anyerror!void {
     // We don't currently use self at all. There is an argument that this
@@ -2684,7 +2696,10 @@ pub fn encodeUtf8(
 
     var page_opts: Page.EncodeUtf8Options = .{
         .unwrap = opts.unwrap,
-        .cell_map = opts.cell_map,
+        .cell_map = if (opts.cell_map) |v| .{
+            .map = v.map,
+            .alloc = v.alloc,
+        } else null,
     };
     var iter = opts.tl.pageIterator(.right_down, opts.br);
     while (iter.next()) |chunk| {

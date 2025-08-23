@@ -97,13 +97,9 @@ pub const Action = union(enum) {
         // Implement formatter for logging
         pub fn format(
             self: CSI,
-            comptime layout: []const u8,
-            opts: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            _ = layout;
-            _ = opts;
-            try std.fmt.format(writer, "ESC [ {s} {any} {c}", .{
+            writer: *std.Io.Writer,
+        ) std.Io.Writer.Error!void {
+            try writer.print("ESC [ {s} {any} {c}", .{
                 self.intermediates,
                 self.params,
                 self.final,
@@ -118,13 +114,9 @@ pub const Action = union(enum) {
         // Implement formatter for logging
         pub fn format(
             self: ESC,
-            comptime layout: []const u8,
-            opts: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            _ = layout;
-            _ = opts;
-            try std.fmt.format(writer, "ESC {s} {c}", .{
+            writer: *std.Io.Writer,
+        ) std.Io.Writer.Error!void {
+            try writer.print("ESC {s} {c}", .{
                 self.intermediates,
                 self.final,
             });
@@ -142,11 +134,8 @@ pub const Action = union(enum) {
     // print out custom formats for some of our primitives.
     pub fn format(
         self: Action,
-        comptime layout: []const u8,
-        opts: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = layout;
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
         const T = Action;
         const info = @typeInfo(T).@"union";
 
@@ -162,21 +151,20 @@ pub const Action = union(enum) {
                     const value = @field(self, u_field.name);
                     switch (@TypeOf(value)) {
                         // Unicode
-                        u21 => try std.fmt.format(writer, "'{u}' (U+{X})", .{ value, value }),
+                        u21 => try writer.print("'{u}' (U+{X})", .{ value, value }),
 
                         // Byte
-                        u8 => try std.fmt.format(writer, "0x{x}", .{value}),
+                        u8 => try writer.print("0x{x}", .{value}),
 
                         // Note: we don't do ASCII (u8) because there are a lot
                         // of invisible characters we don't want to handle right
                         // now.
 
                         // All others do the default behavior
-                        else => try std.fmt.formatType(
-                            @field(self, u_field.name),
+                        else => try writer.printValue(
                             "any",
-                            opts,
-                            writer,
+                            .{},
+                            @field(self, u_field.name),
                             3,
                         ),
                     }
@@ -391,7 +379,7 @@ fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
             // We only allow colon or mixed separators for the 'm' command.
             if (c != 'm' and self.params_sep.count() > 0) {
                 log.warn(
-                    "CSI colon or mixed separators only allowed for 'm' command, got: {}",
+                    "CSI colon or mixed separators only allowed for 'm' command, got: {f}",
                     .{result},
                 );
                 break :csi_dispatch null;

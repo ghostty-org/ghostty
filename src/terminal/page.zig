@@ -1507,7 +1507,10 @@ pub const Page = struct {
         /// The index in the array is the byte offset in the output
         /// where 0 is the cursor of the writer when the function is
         /// called.
-        cell_map: ?*CellMap = null,
+        cell_map: ?struct {
+            alloc: Allocator,
+            map: *CellMap,
+        } = null,
 
         /// Trailing state for UTF-8 encoding.
         pub const TrailingUtf8State = struct {
@@ -1536,7 +1539,7 @@ pub const Page = struct {
     /// it makes it easier to test input contents.
     pub fn encodeUtf8(
         self: *const Page,
-        writer: anytype,
+        writer: *std.Io.Writer,
         opts: EncodeUtf8Options,
     ) anyerror!EncodeUtf8Options.TrailingUtf8State {
         var blank_rows: usize = opts.preceding.rows;
@@ -1572,7 +1575,7 @@ pub const Page = struct {
                 // This is tested in Screen.zig, i.e. one test is
                 // "cell map with newlines"
                 if (opts.cell_map) |cell_map| {
-                    try cell_map.append(.{
+                    try cell_map.map.append(cell_map.alloc, .{
                         .x = last_x,
                         .y = @intCast(y - blank_rows + i - 1),
                     });
@@ -1607,9 +1610,9 @@ pub const Page = struct {
                     continue;
                 }
                 if (blank_cells > 0) {
-                    try writer.writeByteNTimes(' ', blank_cells);
+                    try writer.splatByteAll(' ', blank_cells);
                     if (opts.cell_map) |cell_map| {
-                        for (0..blank_cells) |i| try cell_map.append(.{
+                        for (0..blank_cells) |i| try cell_map.map.append(cell_map.alloc, .{
                             .x = @intCast(x - blank_cells + i),
                             .y = y,
                         });
@@ -1623,7 +1626,7 @@ pub const Page = struct {
                         try writer.print("{u}", .{cell.content.codepoint});
                         if (opts.cell_map) |cell_map| {
                             last_x = x + 1;
-                            try cell_map.append(.{
+                            try cell_map.map.append(cell_map.alloc, .{
                                 .x = x,
                                 .y = y,
                             });
@@ -1634,7 +1637,7 @@ pub const Page = struct {
                         try writer.print("{u}", .{cell.content.codepoint});
                         if (opts.cell_map) |cell_map| {
                             last_x = x + 1;
-                            try cell_map.append(.{
+                            try cell_map.map.append(cell_map.alloc, .{
                                 .x = x,
                                 .y = y,
                             });
@@ -1642,7 +1645,7 @@ pub const Page = struct {
 
                         for (self.lookupGrapheme(cell).?) |cp| {
                             try writer.print("{u}", .{cp});
-                            if (opts.cell_map) |cell_map| try cell_map.append(.{
+                            if (opts.cell_map) |cell_map| try cell_map.map.append(cell_map.alloc, .{
                                 .x = x,
                                 .y = y,
                             });

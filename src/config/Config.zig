@@ -3306,10 +3306,12 @@ pub fn loadFile(self: *Config, alloc: Allocator, path: []const u8) !void {
     defer file.close();
 
     std.log.info("reading configuration file path={s}", .{path});
-    var buf_reader = std.io.bufferedReader(file.reader());
-    const reader = buf_reader.reader();
-    const Iter = cli.args.LineIterator(@TypeOf(reader));
-    var iter: Iter = .{ .r = reader, .filepath = path };
+
+    var buf: [2048]u8 = undefined;
+    var file_reader = file.reader(&buf);
+    const reader = &file_reader.interface;
+
+    var iter: cli.args.LineIterator = .{ .r = reader, .filepath = path };
     try self.loadIter(alloc, &iter);
     try self.expandPaths(std.fs.path.dirname(path).?);
 }
@@ -3346,11 +3348,18 @@ fn writeConfigTemplate(path: []const u8) !void {
     }
     const file = try std.fs.createFileAbsolute(path, .{});
     defer file.close();
-    try std.fmt.format(
-        file.writer(),
+
+    var buf: [2048]u8 = undefined;
+    var file_writer = file.writer(&buf);
+    const writer = &file_writer.interface;
+
+    try writer.print(
         @embedFile("./config-template"),
         .{ .path = path },
     );
+
+    // Don't forget to flush!
+    try writer.flush();
 }
 
 /// Load configurations from the default configuration files. The default
@@ -3517,17 +3526,17 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
 
             // Next, take all remaining args and use that to build up
             // a command to execute.
-            var builder = std.ArrayList([:0]const u8).init(arena_alloc);
-            errdefer builder.deinit();
+            var builder: std.ArrayList([:0]const u8) = .empty;
+            errdefer builder.deinit(arena_alloc);
             for (args) |arg_raw| {
                 const arg = std.mem.sliceTo(arg_raw, 0);
                 const copy = try arena_alloc.dupeZ(u8, arg);
                 try self._replay_steps.append(arena_alloc, .{ .arg = copy });
-                try builder.append(copy);
+                try builder.append(arena_alloc, copy);
             }
 
             self.@"_xdg-terminal-exec" = true;
-            self.@"initial-command" = .{ .direct = try builder.toOwnedSlice() };
+            self.@"initial-command" = .{ .direct = try builder.toOwnedSlice(arena_alloc) };
             return;
         }
     }
@@ -3599,13 +3608,13 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
     // PRIOR to the "-e" in our replay steps, since everything
     // after "-e" becomes an "initial-command". To do this, we
     // dupe the values if we find it.
-    var replay_suffix = std.ArrayList(Replay.Step).init(alloc_gpa);
-    defer replay_suffix.deinit();
+    var replay_suffix: std.ArrayList(Replay.Step) = .empty;
+    defer replay_suffix.deinit(alloc_gpa);
     for (self._replay_steps.items, 0..) |step, i| if (step == .@"-e") {
         // We don't need to clone the steps because they should
         // all be allocated in our arena and we're keeping our
         // arena.
-        try replay_suffix.appendSlice(self._replay_steps.items[i..]);
+        try replay_suffix.appendSlice(alloc_gpa, self._replay_steps.items[i..]);
 
         // Remove our old values. Again, don't need to free any
         // memory here because its all part of our arena.
@@ -3633,10 +3642,11 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
         // We must only load a unique file once
         if (try loaded.fetchPut(path, {}) != null) {
             const diag: cli.Diagnostic = .{
-                .message = try std.fmt.allocPrintZ(
+                .message = try std.fmt.allocPrintSentinel(
                     arena_alloc,
                     "config-file {s}: cycle detected",
                     .{path},
+                    0,
                 ),
             };
 
@@ -3648,10 +3658,11 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
         var file = std.fs.openFileAbsolute(path, .{}) catch |err| {
             if (err != error.FileNotFound or !optional) {
                 const diag: cli.Diagnostic = .{
-                    .message = try std.fmt.allocPrintZ(
+                    .message = try std.fmt.allocPrintSentinel(
                         arena_alloc,
                         "error opening config-file {s}: {}",
                         .{ path, err },
+                        0,
                     ),
                 };
 
@@ -3667,10 +3678,11 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
             .file => {},
             else => |kind| {
                 const diag: cli.Diagnostic = .{
-                    .message = try std.fmt.allocPrintZ(
+                    .message = try std.fmt.allocPrintSentinel(
                         arena_alloc,
-                        "config-file {s}: not reading because file type is {s}",
-                        .{ path, @tagName(kind) },
+                        "config-file {s}: not reading because file type is {t}",
+                        .{ path, kind },
+                        0,
                     ),
                 };
 
@@ -3681,10 +3693,12 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
         }
 
         log.info("loading config-file path={s}", .{path});
-        var buf_reader = std.io.bufferedReader(file.reader());
-        const reader = buf_reader.reader();
-        const Iter = cli.args.LineIterator(@TypeOf(reader));
-        var iter: Iter = .{ .r = reader, .filepath = path };
+
+        var buf: [2048]u8 = undefined;
+        var file_reader = file.reader(&buf);
+        const reader = &file_reader.interface;
+
+        var iter: cli.args.LineIterator = .{ .r = reader, .filepath = path };
         try self.loadIter(alloc_gpa, &iter);
         try self.expandPaths(std.fs.path.dirname(path).?);
     }
@@ -3833,10 +3847,11 @@ fn loadTheme(self: *Config, theme: Theme) !void {
     errdefer new_config.deinit();
 
     // Load our theme
-    var buf_reader = std.io.bufferedReader(file.reader());
-    const reader = buf_reader.reader();
-    const Iter = cli.args.LineIterator(@TypeOf(reader));
-    var iter: Iter = .{ .r = reader, .filepath = path };
+    var buf: [2048]u8 = undefined;
+    var file_reader = file.reader(&buf);
+    const reader = &file_reader.interface;
+
+    var iter: cli.args.LineIterator = .{ .r = reader, .filepath = path };
     try new_config.loadIter(alloc_gpa, &iter);
 
     // Setup our replay to be conditional.
@@ -4078,7 +4093,7 @@ pub fn finalize(self: *Config) !void {
     if (self.@"quit-after-last-window-closed-delay") |duration| {
         if (duration.duration < 5 * std.time.ns_per_s) {
             log.warn(
-                "quit-after-last-window-closed-delay is set to a very short value ({}), which might cause problems",
+                "quit-after-last-window-closed-delay is set to a very short value ({f}), which might cause problems",
                 .{duration},
             );
         }
@@ -4109,22 +4124,23 @@ pub fn parseManuallyHook(
 
         // Build up the command. We don't clean this up because we take
         // ownership in our allocator.
-        var command: std.ArrayList([:0]const u8) = .init(alloc);
-        errdefer command.deinit();
+        var command: std.ArrayList([:0]const u8) = .empty;
+        errdefer command.deinit(alloc);
 
         while (iter.next()) |param| {
             const copy = try alloc.dupeZ(u8, param);
             try self._replay_steps.append(alloc, .{ .arg = copy });
-            try command.append(copy);
+            try command.append(alloc, copy);
         }
 
         if (command.items.len == 0) {
             try self._diagnostics.append(alloc, .{
                 .location = try cli.Location.fromIter(iter, alloc),
-                .message = try std.fmt.allocPrintZ(
+                .message = try std.fmt.allocPrintSentinel(
                     alloc,
                     "missing command after {s}",
                     .{arg},
+                    0,
                 ),
             });
 
@@ -4259,10 +4275,11 @@ pub fn addDiagnosticFmt(
 ) Allocator.Error!void {
     const alloc = self._arena.?.allocator();
     try self._diagnostics.append(alloc, .{
-        .message = try std.fmt.allocPrintZ(
+        .message = try std.fmt.allocPrintSentinel(
             alloc,
             fmt,
             args,
+            0,
         ),
     });
 }
@@ -4773,7 +4790,7 @@ pub const Color = struct {
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: Color, formatter: anytype) !void {
+    pub fn formatEntry(self: Color, formatter: formatterpkg.EntryFormatter) !void {
         var buf: [128]u8 = undefined;
         try formatter.formatEntry(
             []const u8,
@@ -4876,7 +4893,7 @@ pub const TerminalColor = union(enum) {
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: TerminalColor, formatter: anytype) !void {
+    pub fn formatEntry(self: TerminalColor, formatter: formatterpkg.EntryFormatter) !void {
         switch (self) {
             .color => try self.color.formatEntry(formatter),
 
@@ -4932,7 +4949,7 @@ pub const BoldColor = union(enum) {
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: BoldColor, formatter: anytype) !void {
+    pub fn formatEntry(self: BoldColor, formatter: formatterpkg.EntryFormatter) !void {
         switch (self) {
             .color => try self.color.formatEntry(formatter),
             .bright => try formatter.formatEntry(
@@ -5044,7 +5061,7 @@ pub const ColorList = struct {
     /// Used by Formatter
     pub fn formatEntry(
         self: Self,
-        formatter: anytype,
+        formatter: formatterpkg.EntryFormatter,
     ) !void {
         // If no items, we want to render an empty field.
         if (self.colors.items.len == 0) {
@@ -5055,8 +5072,8 @@ pub const ColorList = struct {
         // Build up the value of our config. Our buffer size should be
         // sized to contain all possible maximum values.
         var buf: [1024]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buf);
-        var writer = fbs.writer();
+        var writer: std.Io.Writer = .fixed(&buf);
+
         for (self.colors.items, 0..) |color, i| {
             var color_buf: [128]u8 = undefined;
             const color_str = try color.formatBuf(&color_buf);
@@ -5066,7 +5083,7 @@ pub const ColorList = struct {
 
         try formatter.formatEntry(
             []const u8,
-            fbs.getWritten(),
+            writer.buffered(),
         );
     }
 
@@ -5166,7 +5183,7 @@ pub const Palette = struct {
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: Self, formatter: anytype) !void {
+    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
         var buf: [128]u8 = undefined;
         for (0.., self.value) |k, v| {
             try formatter.formatEntry(
@@ -5320,7 +5337,7 @@ pub const RepeatableString = struct {
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: Self, formatter: anytype) !void {
+    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
         // If no items, we want to render an empty field.
         if (self.list.items.len == 0) {
             try formatter.formatEntry(void, {});
@@ -5458,7 +5475,7 @@ pub const RepeatableFontVariation = struct {
     /// Used by Formatter
     pub fn formatEntry(
         self: Self,
-        formatter: anytype,
+        formatter: formatterpkg.EntryFormatter,
     ) !void {
         if (self.list.items.len == 0) {
             try formatter.formatEntry(void, {});
@@ -6319,7 +6336,7 @@ pub const Keybinds = struct {
     }
 
     /// Like formatEntry but has an option to include docs.
-    pub fn formatEntryDocs(self: Keybinds, formatter: anytype, docs: bool) !void {
+    pub fn formatEntryDocs(self: Keybinds, formatter: formatterpkg.EntryFormatter, docs: bool) !void {
         if (self.set.bindings.size == 0) {
             try formatter.formatEntry(void, {});
             return;
@@ -6348,14 +6365,14 @@ pub const Keybinds = struct {
                 }
             }
 
-            var buffer_stream = std.io.fixedBufferStream(&buf);
-            std.fmt.format(buffer_stream.writer(), "{}", .{k}) catch return error.OutOfMemory;
-            try v.formatEntries(&buffer_stream, formatter);
+            var writer: std.Io.Writer = .fixed(&buf);
+            writer.print("{f}", .{k}) catch return error.OutOfMemory;
+            try v.formatEntries(&writer, formatter);
         }
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: Keybinds, formatter: anytype) !void {
+    pub fn formatEntry(self: Keybinds, formatter: formatterpkg.EntryFormatter) !void {
         try self.formatEntryDocs(formatter, false);
     }
 
@@ -6484,7 +6501,7 @@ pub const RepeatableCodepointMap = struct {
     /// Used by Formatter
     pub fn formatEntry(
         self: Self,
-        formatter: anytype,
+        formatter: formatterpkg.EntryFormatter,
     ) !void {
         if (self.map.list.len == 0) {
             try formatter.formatEntry(void, {});
@@ -6756,7 +6773,7 @@ pub const FontStyle = union(enum) {
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: Self, formatter: anytype) !void {
+    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
         switch (self) {
             .default, .false => try formatter.formatEntry(
                 []const u8,
@@ -6888,7 +6905,7 @@ pub const RepeatableLink = struct {
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: Self, formatter: anytype) !void {
+    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
         // This currently can't be set so we don't format anything.
         _ = self;
         _ = formatter;
@@ -6996,7 +7013,7 @@ pub const RepeatableCommand = struct {
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: RepeatableCommand, formatter: anytype) !void {
+    pub fn formatEntry(self: RepeatableCommand, formatter: formatterpkg.EntryFormatter) !void {
         if (self.value.items.len == 0) {
             try formatter.formatEntry(void, {});
             return;
@@ -7006,11 +7023,11 @@ pub const RepeatableCommand = struct {
         for (self.value.items) |item| {
             const str = if (item.description.len > 0) std.fmt.bufPrint(
                 &buf,
-                "title:{s},description:{s},action:{}",
+                "title:{s},description:{s},action:{f}",
                 .{ item.title, item.description, item.action },
             ) else std.fmt.bufPrint(
                 &buf,
-                "title:{s},action:{}",
+                "title:{s},action:{f}",
                 .{ item.title, item.action },
             );
             try formatter.formatEntry([]const u8, str catch return error.OutOfMemory);
@@ -7354,7 +7371,7 @@ pub const QuickTerminalSize = struct {
             return error.MissingUnit;
         }
 
-        fn format(self: Size, writer: anytype) !void {
+        fn format(self: Size, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             switch (self) {
                 .percentage => |v| try writer.print("{d}%", .{v}),
                 .pixels => |v| try writer.print("{}px", .{v}),
@@ -7472,20 +7489,19 @@ pub const QuickTerminalSize = struct {
         };
     }
 
-    pub fn formatEntry(self: QuickTerminalSize, formatter: anytype) !void {
+    pub fn formatEntry(self: QuickTerminalSize, formatter: formatterpkg.EntryFormatter) !void {
         const primary = self.primary orelse return;
 
         var buf: [4096]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buf);
-        const writer = fbs.writer();
+        var writer: std.Io.Writer = .fixed(&buf);
 
-        primary.format(writer) catch return error.OutOfMemory;
+        primary.format(&writer) catch return error.OutOfMemory;
         if (self.secondary) |secondary| {
             writer.writeByte(',') catch return error.OutOfMemory;
-            secondary.format(writer) catch return error.OutOfMemory;
+            secondary.format(&writer) catch return error.OutOfMemory;
         }
 
-        try formatter.formatEntry([]const u8, fbs.getWritten());
+        try formatter.formatEntry([]const u8, writer.buffered());
     }
 
     test "parse QuickTerminalSize" {
@@ -7737,7 +7753,7 @@ pub const BackgroundBlur = union(enum) {
 
     pub fn formatEntry(
         self: BackgroundBlur,
-        formatter: anytype,
+        formatter: formatterpkg.EntryFormatter,
     ) !void {
         switch (self) {
             .false => try formatter.formatEntry(bool, false),
@@ -7880,7 +7896,7 @@ pub const Theme = struct {
     /// Used by Formatter
     pub fn formatEntry(
         self: Theme,
-        formatter: anytype,
+        formatter: formatterpkg.EntryFormatter,
     ) !void {
         var buf: [4096]u8 = undefined;
         if (std.mem.eql(u8, self.light, self.dark)) {
@@ -8040,15 +8056,14 @@ pub const Duration = struct {
         return if (value) |v| .{ .duration = v } else error.ValueRequired;
     }
 
-    pub fn formatEntry(self: Duration, formatter: anytype) !void {
+    pub fn formatEntry(self: Duration, formatter: formatterpkg.EntryFormatter) !void {
         var buf: [64]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buf);
-        const writer = fbs.writer();
-        try self.format("", .{}, writer);
-        try formatter.formatEntry([]const u8, fbs.getWritten());
+        var writer: std.Io.Writer = .fixed(&buf);
+        try self.format(&writer);
+        try formatter.formatEntry([]const u8, writer.buffered());
     }
 
-    pub fn format(self: Duration, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(self: Duration, writer: *std.Io.Writer) !void {
         var value = self.duration;
         var i: usize = 0;
         for (units) |unit| {
@@ -8115,7 +8130,7 @@ pub const WindowPadding = struct {
         }
     }
 
-    pub fn formatEntry(self: Self, formatter: anytype) !void {
+    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
         var buf: [128]u8 = undefined;
         if (self.top_left == self.bottom_right) {
             try formatter.formatEntry(
