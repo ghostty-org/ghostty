@@ -1,0 +1,20 @@
+using Gtk 4.0;
+using Adw 1;
+
+template $GhosttySplitTreeSplit: Adw.Bin {
+  styles [
+    "split",
+  ]
+
+  // The double-nesting is required due to a GTK bug where you can't
+  // bind the first child of a builder layout. If you do, you get a double
+  // dispose. Easiest way to see that is simply remove this and see the
+  // GTK critical errors (and sometimes crashes).
+  Adw.Bin {
+    Paned paned {
+      notify::max-position => $notify_max_position();
+      notify::min-position => $notify_min_position();
+      notify::position => $notify_position();
+    }
+  }
+}

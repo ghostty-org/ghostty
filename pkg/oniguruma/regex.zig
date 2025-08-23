@@ -45,6 +45,12 @@ pub const Regex = struct {
         options: Option,
     ) !Region {
         var region: Region = .{};
+
+        // As part of the searchAdvanced API call below, onig may allocate
+        // memory even if we fail to match. We need to deinit if there are
+        // any errors to free that memory.
+        errdefer region.deinit();
+
         _ = try self.searchAdvanced(str, 0, str.len, &region, options);
         return region;
     }

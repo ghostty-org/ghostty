@@ -8,8 +8,8 @@
 
         .libxev = .{
             // mitchellh/libxev
-            .url = "https://github.com/mitchellh/libxev/archive/75a10d0fb374e8eb84948dcfc68d865e755e59c2.tar.gz",
-            .hash = "libxev-0.0.0-86vtcyMBEwA-UpcjfOICyI2GYG8o6MiRbinS1_8g1_rw",
+            .url = "https://github.com/mitchellh/libxev/archive/7f803181b158a10fec8619f793e3b4df515566cb.tar.gz",
+            .hash = "libxev-0.0.0-86vtc2UaEwDfiTKX3iBI-s_hdzfzWQUarT3MUrmUQl-Q",
             .lazy = true,
         },
         .vaxis = .{
@@ -20,8 +20,8 @@
         },
         .z2d = .{
             // vancluever/z2d
-            .url = "https://github.com/vancluever/z2d/archive/8bbd035f4101f02b1d27947def0d7da3215df7fe.tar.gz",
-            .hash = "z2d-0.7.0-j5P_Hg_DDACq-2H2Zh7rAq6_TXWdQzv7JAUfnrdeDosg",
+            .url = "https://github.com/vancluever/z2d/archive/refs/tags/v0.7.2.tar.gz",
+            .hash = "z2d-0.7.2-j5P_Hm1oDQDQsWpGfSCMARhowBnuTHlQ_sBfij6TuG7l",
             .lazy = true,
         },
         .zig_objc = .{
@@ -55,8 +55,8 @@
         .gobject = .{
             // https://github.com/jcollie/ghostty-gobject based on zig_gobject
             // Temporary until we generate them at build time automatically.
-            .url = "https://github.com/jcollie/ghostty-gobject/releases/download/0.14.0-2025-03-18-21-1/ghostty-gobject-0.14.0-2025-03-18-21-1.tar.zst",
-            .hash = "gobject-0.2.0-Skun7IWDlQAOKu4BV7LapIxL9Imbq1JRmzvcIkazvAxR",
+            .url = "https://github.com/jcollie/ghostty-gobject/releases/download/0.14.1-2025-08-09-37-1/ghostty-gobject-0.14.1-2025-08-09-37-1.tar.zst",
+            .hash = "gobject-0.3.0-Skun7AngnABC2BPiaoobs6YSSzSgMuEIcjb2rYrRyaAM",
             .lazy = true,
         },
 
@@ -64,7 +64,6 @@
         .cimgui = .{ .path = "./pkg/cimgui", .lazy = true },
         .fontconfig = .{ .path = "./pkg/fontconfig", .lazy = true },
         .freetype = .{ .path = "./pkg/freetype", .lazy = true },
-        .glfw = .{ .path = "./pkg/glfw", .lazy = true },
         .gtk4_layer_shell = .{ .path = "./pkg/gtk4-layer-shell", .lazy = true },
         .harfbuzz = .{ .path = "./pkg/harfbuzz", .lazy = true },
         .highway = .{ .path = "./pkg/highway", .lazy = true },
@@ -100,11 +99,21 @@
             .lazy = true,
         },
 
+        // Fonts
+        .jetbrains_mono = .{
+            .url = "https://deps.files.ghostty.org/JetBrainsMono-2.304.tar.gz",
+            .hash = "N-V-__8AAIC5lwAVPJJzxnCAahSvZTIlG-HhtOvnM1uh-66x",
+        },
+        .nerd_fonts_symbols_only = .{
+            .url = "https://deps.files.ghostty.org/NerdFontsSymbolsOnly-3.4.0.tar.gz",
+            .hash = "N-V-__8AAMVLTABmYkLqhZPLXnMl-KyN38R8UVYqGrxqO26s",
+        },
+
         // Other
         .apple_sdk = .{ .path = "./pkg/apple-sdk" },
         .iterm2_themes = .{
-            .url = "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/6fa671fdc1daf1fcfa025cb960ffa3e7373a2ed8.tar.gz",
-            .hash = "N-V-__8AAGHcWgTaKLjwmFkxToNT4jgz5VXUHR7hz8TQ2_AS",
+            .url = "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/8b639f0c2605557bd23ba1b940842c67bbfd4ed0.tar.gz",
+            .hash = "N-V-__8AAAlgXwSghpDmXBXZM4Rpd80WKOXVWTrcL0ucVmls",
             .lazy = true,
         },
     },

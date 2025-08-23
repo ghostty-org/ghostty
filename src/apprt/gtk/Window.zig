@@ -214,6 +214,7 @@ pub fn init(self: *Window, app: *App) !void {
     {
         const btn = gtk.MenuButton.new();
         btn.as(gtk.Widget).setTooltipText(i18n._("Main Menu"));
+        btn.as(gtk.Widget).setCanFocus(0);
         btn.setIconName("open-menu-symbolic");
         btn.setPopover(self.titlebar_menu.asWidget());
         _ = gobject.Object.signals.notify.connect(
@@ -253,6 +254,7 @@ pub fn init(self: *Window, app: *App) !void {
             },
         };
 
+        btn.setCanFocus(0);
         btn.setFocusOnClick(0);
         self.headerbar.packEnd(btn);
     }
@@ -1119,7 +1121,7 @@ fn gtkActionToggleCommandPalette(
     _: *gio.SimpleAction,
     _: ?*glib.Variant,
     self: *Window,
-) callconv(.C) void {
+) callconv(.c) void {
     self.performBindingAction(.toggle_command_palette);
 }
 

@@ -2824,14 +2824,21 @@ test "Terminal: input glitch text" {
     var t = try init(alloc, .{ .cols = 30, .rows = 30 });
     defer t.deinit(alloc);
 
-    const page = t.screen.pages.pages.first.?;
-    const grapheme_cap = page.data.capacity.grapheme_bytes;
+    // Get our initial grapheme capacity.
+    const grapheme_cap = cap: {
+        const page = t.screen.pages.pages.first.?;
+        break :cap page.data.capacity.grapheme_bytes;
+    };
 
-    while (page.data.capacity.grapheme_bytes == grapheme_cap) {
+    // Print glitch text until our capacity changes
+    while (true) {
+        const page = t.screen.pages.pages.first.?;
+        if (page.data.capacity.grapheme_bytes != grapheme_cap) break;
         try t.printString(glitch);
     }
 
     // We're testing to make sure that grapheme capacity gets increased.
+    const page = t.screen.pages.pages.first.?;
     try testing.expect(page.data.capacity.grapheme_bytes > grapheme_cap);
 }
 

@@ -17,7 +17,7 @@ const icons = [_]struct {
     },
     .{
         .alias = "16x16@2",
-        .source = "16@2x",
+        .source = "32",
     },
     .{
         .alias = "32x32",
@@ -25,7 +25,7 @@ const icons = [_]struct {
     },
     .{
         .alias = "32x32@2",
-        .source = "32@2x",
+        .source = "64",
     },
     .{
         .alias = "128x128",
@@ -33,7 +33,7 @@ const icons = [_]struct {
     },
     .{
         .alias = "128x128@2",
-        .source = "128@2x",
+        .source = "256",
     },
     .{
         .alias = "256x256",
@@ -41,7 +41,7 @@ const icons = [_]struct {
     },
     .{
         .alias = "256x256@2",
-        .source = "256@2x",
+        .source = "512",
     },
     .{
         .alias = "512x512",
@@ -116,7 +116,7 @@ pub fn main() !void {
     );
     for (icons) |icon| {
         try writer.print(
-            "    <file alias=\"{s}/apps/com.mitchellh.ghostty.png\">images/icons/icon_{s}.png</file>\n",
+            "    <file alias=\"{s}/apps/com.mitchellh.ghostty.png\">images/gnome/{s}.png</file>\n",
             .{ icon.alias, icon.source },
         );
     }
@@ -153,7 +153,7 @@ pub const dependencies = deps: {
         index += 1;
     }
     for (icons) |icon| {
-        deps[index] = std.fmt.comptimePrint("images/icons/icon_{s}.png", .{icon.source});
+        deps[index] = std.fmt.comptimePrint("images/gnome/{s}.png", .{icon.source});
         index += 1;
     }
     for (blueprint_files) |blueprint_file| {

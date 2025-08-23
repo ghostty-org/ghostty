@@ -140,24 +140,7 @@ pub const Canvas = struct {
         const region_height = sfc_height -| self.clip_top -| self.clip_bottom;
 
         // Allocate our texture atlas region
-        const region = region: {
-            // Reserve a region with a 1px margin on the bottom and right edges
-            // so that we can avoid interpolation between adjacent glyphs during
-            // texture sampling.
-            var region = try atlas.reserve(
-                alloc,
-                region_width + 1,
-                region_height + 1,
-            );
-
-            // Modify the region to remove the margin so that we write to the
-            // non-zero location. The data in an Altlas is always initialized
-            // to zero (Atlas.clear) so we don't need to worry about zero-ing
-            // that.
-            region.width -= 1;
-            region.height -= 1;
-            break :region region;
-        };
+        const region = try atlas.reserve(alloc, region_width, region_height);
 
         if (region.width > 0 and region.height > 0) {
             const buffer: []u8 = @ptrCast(self.sfc.image_surface_alpha8.buf);

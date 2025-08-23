@@ -48,8 +48,8 @@
 	<string></string>
 	<key>LSEnvironment</key>
 	<dict>
-		<key>GHOSTTY_MAC_APP</key>
-		<string>1</string>
+		<key>GHOSTTY_MAC_LAUNCH_SOURCE</key>
+		<string>app</string>
 	</dict>
 	<key>MDItemKeywords</key>
 	<string>Terminal</string>

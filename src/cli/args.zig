@@ -153,7 +153,7 @@ pub fn parse(
 
             // The error set is dependent on comptime T, so we always add
             // an extra error so we can have the "else" below.
-            const ErrSet = @TypeOf(err) || error{ Unknown, OutOfMemory };
+            const ErrSet = @TypeOf(err) || error{ Unknown, OutOfMemory } || Error;
             const message: [:0]const u8 = switch (@as(ErrSet, @errorCast(err))) {
                 // OOM is not recoverable since we need to allocate to
                 // track more error messages.

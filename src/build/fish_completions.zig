@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const Config = @import("../config/Config.zig");
-const Action = @import("../cli/action.zig").Action;
+const Action = @import("../cli.zig").ghostty.Action;
 
 /// A fish completions configuration that contains all the available commands
 /// and options.

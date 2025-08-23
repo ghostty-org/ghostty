@@ -247,6 +247,7 @@ const DerivedConfig = struct {
     clipboard_paste_protection: bool,
     clipboard_paste_bracketed_safe: bool,
     copy_on_select: configpkg.CopyOnSelect,
+    right_click_action: configpkg.RightClickAction,
     confirm_close_surface: configpkg.ConfirmCloseSurface,
     cursor_click_to_move: bool,
     desktop_notifications: bool,
@@ -270,6 +271,7 @@ const DerivedConfig = struct {
     title: ?[:0]const u8,
     title_report: bool,
     links: []Link,
+    link_previews: configpkg.LinkPreviews,
 
     const Link = struct {
         regex: oni.Regex,
@@ -313,6 +315,7 @@ const DerivedConfig = struct {
             .clipboard_paste_protection = config.@"clipboard-paste-protection",
             .clipboard_paste_bracketed_safe = config.@"clipboard-paste-bracketed-safe",
             .copy_on_select = config.@"copy-on-select",
+            .right_click_action = config.@"right-click-action",
             .confirm_close_surface = config.@"confirm-close-surface",
             .cursor_click_to_move = config.@"cursor-click-to-move",
             .desktop_notifications = config.@"desktop-notifications",
@@ -336,6 +339,7 @@ const DerivedConfig = struct {
             .title = config.title,
             .title_report = config.@"title-report",
             .links = links,
+            .link_previews = config.@"link-previews",
 
             // Assignments happen sequentially so we have to do this last
             // so that the memory is captured from allocs above.
@@ -949,6 +953,16 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             };
         },
 
+        .progress_report => |v| {
+            _ = self.rt_app.performAction(
+                .{ .surface = self },
+                .progress_report,
+                v,
+            ) catch |err| {
+                log.warn("apprt failed to report progress err={}", .{err});
+            };
+        },
+
         .selection_scroll_tick => |active| {
             self.selection_scroll_active = active;
             try self.selectionScrollTick();
@@ -1009,8 +1023,18 @@ fn childExited(self: *Surface, info: apprt.surface.Message.ChildExited) void {
 
         log.warn("abnormal process exit detected, showing error message", .{});
 
-        // Update our terminal to note the abnormal exit. In the future we
-        // may want the apprt to handle this to show some native GUI element.
+        // Try and show a GUI message. If it returns true, don't do anything else.
+        if (self.rt_app.performAction(
+            .{ .surface = self },
+            .show_child_exited,
+            info,
+        ) catch |err| gui: {
+            log.err("error trying to show native child exited GUI err={}", .{err});
+            break :gui false;
+        }) return;
+
+        // If a native GUI notification was not showm. update our terminal to
+        // note the abnormal exit.
         self.childExitedAbnormally(info) catch |err| {
             log.err("error handling abnormal child exit err={}", .{err});
             return;
@@ -1026,6 +1050,18 @@ fn childExited(self: *Surface, info: apprt.surface.Message.ChildExited) void {
     // surface then they will see this message and know the process has
     // completed.
     terminal: {
+        // First try and show a native GUI message.
+        if (self.rt_app.performAction(
+            .{ .surface = self },
+            .show_child_exited,
+            info,
+        ) catch |err| gui: {
+            log.err("error trying to show native child exited GUI err={}", .{err});
+            break :gui false;
+        }) break :terminal;
+
+        // If the native GUI can't be shown, display a text message in the
+        // terminal.
         self.renderer_state.mutex.lock();
         defer self.renderer_state.mutex.unlock();
         const t: *terminal.Terminal = self.renderer_state.terminal;
@@ -1034,6 +1070,12 @@ fn childExited(self: *Surface, info: apprt.surface.Message.ChildExited) void {
         t.printString("Process exited. Press any key to close the terminal.") catch
             break :terminal;
         t.modes.set(.cursor_visible, false);
+
+        // We also want to ensure that normal keyboard encoding is on
+        // so that we can close the terminal. We close the terminal on
+        // any key press that encodes a character.
+        t.modes.set(.disable_keyboard, false);
+        t.screen.kitty_keyboard.set(.set, .{});
     }
 
     // Waiting after command we stop here. The terminal is updated, our
@@ -1236,7 +1278,7 @@ fn mouseRefreshLinks(
     // Get our link at the current position. This returns null if there
     // isn't a link OR if we shouldn't be showing links for some reason
     // (see further comments for cases).
-    const link_: ?apprt.action.MouseOverLink = link: {
+    const link_: ?apprt.action.MouseOverLink, const preview: bool = link: {
         // If we clicked and our mouse moved cells then we never
         // highlight links until the mouse is unclicked. This follows
         // standard macOS and Linux behavior where a click and drag cancels
@@ -1251,18 +1293,21 @@ fn mouseRefreshLinks(
 
             if (!click_pt.coord().eql(pos_vp)) {
                 log.debug("mouse moved while left click held, ignoring link hover", .{});
-                break :link null;
+                break :link .{ null, false };
             }
         }
 
-        const link = (try self.linkAtPos(pos)) orelse break :link null;
+        const link = (try self.linkAtPos(pos)) orelse break :link .{ null, false };
         switch (link[0]) {
             .open => {
                 const str = try self.io.terminal.screen.selectionString(alloc, .{
                     .sel = link[1],
                     .trim = false,
                 });
-                break :link .{ .url = str };
+                break :link .{
+                    .{ .url = str },
+                    self.config.link_previews == .true,
+                };
             },
 
             ._open_osc8 => {
@@ -1270,9 +1315,12 @@ fn mouseRefreshLinks(
                 const pin = link[1].start();
                 const uri = self.osc8URI(pin) orelse {
                     log.warn("failed to get URI for OSC8 hyperlink", .{});
-                    break :link null;
+                    break :link .{ null, false };
                 };
-                break :link .{ .url = uri };
+                break :link .{
+                    .{ .url = try alloc.dupeZ(u8, uri) },
+                    self.config.link_previews != .false,
+                };
             },
         }
     };
@@ -1288,11 +1336,15 @@ fn mouseRefreshLinks(
             .mouse_shape,
             .pointer,
         );
-        _ = try self.rt_app.performAction(
-            .{ .surface = self },
-            .mouse_over_link,
-            link,
-        );
+
+        if (preview) {
+            _ = try self.rt_app.performAction(
+                .{ .surface = self },
+                .mouse_over_link,
+                link,
+            );
+        }
+
         try self.queueRender();
         return;
     }
@@ -1479,11 +1531,6 @@ pub const Text = struct {
 
     /// The viewport information about this text, if it is visible in
     /// the viewport.
-    ///
-    /// NOTE(mitchellh): This will only be non-null currently if the entirety
-    /// of the selection is contained within the viewport. We don't have a
-    /// use case currently for partial bounds but we should support this
-    /// eventually.
     viewport: ?Viewport = null,
 
     pub const Viewport = struct {
@@ -1494,6 +1541,13 @@ pub const Text = struct {
         /// The linear offset of the start of the selection and the length.
         /// This is "linear" in the sense that it is the offset in the
         /// flattened viewport as a single array of text.
+        ///
+        /// Note: these values are currently wrong if there is a partially
+        /// visible selection in the viewport (i.e. the top-left or
+        /// bottom-right of the selection is outside the viewport). But the
+        /// apprt usecase we have right now doesn't require these to be
+        /// correct so... let's fix this later. The wrong values will always
+        /// be within the text bounds so we aren't risking an overflow.
         offset_start: u32,
         offset_len: u32,
     };
@@ -1535,17 +1589,57 @@ pub fn dumpTextLocked(
 
     // Calculate our viewport info if we can.
     const vp: ?Text.Viewport = viewport: {
-        // If our tl or br is not in the viewport then we don't
-        // have a viewport. One day we should extend this to support
-        // partial selections that are in the viewport.
-        const tl_pt = self.io.terminal.screen.pages.pointFromPin(
+        // If our bottom right pin is before the viewport, then we can't
+        // possibly have this text be within the viewport.
+        const vp_tl_pin = self.io.terminal.screen.pages.getTopLeft(.viewport);
+        const br_pin = sel.bottomRight(&self.io.terminal.screen);
+        if (br_pin.before(vp_tl_pin)) break :viewport null;
+
+        // If our top-left pin is after the viewport, then we can't possibly
+        // have this text be within the viewport.
+        const vp_br_pin = self.io.terminal.screen.pages.getBottomRight(.viewport) orelse {
+            // I don't think this is possible but I don't want to crash on
+            // that assertion so let's just break out...
+            log.warn("viewport bottom-right pin not found, bug?", .{});
+            break :viewport null;
+        };
+        const tl_pin = sel.topLeft(&self.io.terminal.screen);
+        if (vp_br_pin.before(tl_pin)) break :viewport null;
+
+        // We established that our top-left somewhere before the viewport
+        // bottom-right and that our bottom-right is somewhere after
+        // the top-left. This means that at least some portion of our
+        // selection is within the viewport.
+
+        // Our top-left point. If it doesn't exist in the viewport it must
+        // be before and we can return (0,0).
+        const tl_pt: terminal.Point = self.io.terminal.screen.pages.pointFromPin(
             .viewport,
-            sel.topLeft(&self.io.terminal.screen),
-        ) orelse break :viewport null;
+            tl_pin,
+        ) orelse tl: {
+            if (comptime std.debug.runtime_safety) {
+                assert(tl_pin.before(vp_tl_pin));
+            }
+
+            break :tl .{ .viewport = .{} };
+        };
+
+        // Our bottom-right point. If it doesn't exist in the viewport
+        // it must be the bottom-right of the viewport.
         const br_pt = self.io.terminal.screen.pages.pointFromPin(
             .viewport,
-            sel.bottomRight(&self.io.terminal.screen),
-        ) orelse break :viewport null;
+            br_pin,
+        ) orelse br: {
+            if (comptime std.debug.runtime_safety) {
+                assert(vp_br_pin.before(br_pin));
+            }
+
+            break :br self.io.terminal.screen.pages.pointFromPin(
+                .viewport,
+                vp_br_pin,
+            ).?;
+        };
+
         const tl_coord = tl_pt.coord();
         const br_coord = br_pt.coord();
 
@@ -1616,77 +1710,13 @@ pub fn selectionString(self: *Surface, alloc: Allocator) !?[:0]const u8 {
     });
 }
 
-/// Return the apprt selection metadata used by apprt's for implementing
-/// things like contextual information on right click and so on.
-///
-/// This only returns non-null if the selection is fully contained within
-/// the viewport. The use case for this function at the time of authoring
-/// it is for apprt's to implement right-click contextual menus and
-/// those only make sense for selections fully contained within the
-/// viewport. We don't handle the case where you right click a word-wrapped
-/// word at the end of the viewport yet.
-pub fn selectionInfo(self: *const Surface) ?apprt.Selection {
-    self.renderer_state.mutex.lock();
-    defer self.renderer_state.mutex.unlock();
-    const sel = self.io.terminal.screen.selection orelse return null;
-
-    // Get the TL/BR pins for the selection and convert to viewport.
-    const tl = sel.topLeft(&self.io.terminal.screen);
-    const br = sel.bottomRight(&self.io.terminal.screen);
-    const tl_pt = self.io.terminal.screen.pages.pointFromPin(.viewport, tl) orelse return null;
-    const br_pt = self.io.terminal.screen.pages.pointFromPin(.viewport, br) orelse return null;
-    const tl_coord = tl_pt.coord();
-    const br_coord = br_pt.coord();
-
-    // Utilize viewport sizing to convert to offsets
-    const start = tl_coord.y * self.io.terminal.screen.pages.cols + tl_coord.x;
-    const end = br_coord.y * self.io.terminal.screen.pages.cols + br_coord.x;
-
-    // Our sizes are all scaled so we need to send the unscaled values back.
-    const content_scale = self.rt_surface.getContentScale() catch .{ .x = 1, .y = 1 };
-
-    const x: f64 = x: {
-        // Simple x * cell width gives the left
-        var x: f64 = @floatFromInt(tl_coord.x * self.size.cell.width);
-
-        // Add padding
-        x += @floatFromInt(self.size.padding.left);
-
-        // Scale
-        x /= content_scale.x;
-
-        break :x x;
-    };
-
-    const y: f64 = y: {
-        // Simple y * cell height gives the top
-        var y: f64 = @floatFromInt(tl_coord.y * self.size.cell.height);
-
-        // We want the text baseline
-        y += @floatFromInt(self.size.cell.height);
-        y -= @floatFromInt(self.font_metrics.cell_baseline);
-
-        // Add padding
-        y += @floatFromInt(self.size.padding.top);
-
-        // Scale
-        y /= content_scale.y;
-
-        break :y y;
-    };
-
-    return .{
-        .tl_x_px = x,
-        .tl_y_px = y,
-        .offset_start = start,
-        .offset_len = end - start,
-    };
-}
-
 /// Returns the pwd of the terminal, if any. This is always copied because
 /// the pwd can change at any point from termio. If we are calling from the IO
 /// thread you should just check the terminal directly.
-pub fn pwd(self: *const Surface, alloc: Allocator) !?[]const u8 {
+pub fn pwd(
+    self: *const Surface,
+    alloc: Allocator,
+) Allocator.Error!?[]const u8 {
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
     const terminal_pwd = self.io.terminal.getPwd() orelse return null;
@@ -1780,6 +1810,32 @@ fn clipboardWrite(self: *const Surface, data: []const u8, loc: apprt.Clipboard) 
     };
 }
 
+fn copySelectionToClipboards(
+    self: *Surface,
+    sel: terminal.Selection,
+    clipboards: []const apprt.Clipboard,
+) void {
+    const buf = self.io.terminal.screen.selectionString(self.alloc, .{
+        .sel = sel,
+        .trim = self.config.clipboard_trim_trailing_spaces,
+    }) catch |err| {
+        log.err("error reading selection string err={}", .{err});
+        return;
+    };
+    defer self.alloc.free(buf);
+
+    for (clipboards) |clipboard| self.rt_surface.setClipboardString(
+        buf,
+        clipboard,
+        false,
+    ) catch |err| {
+        log.err(
+            "error setting clipboard string clipboard={} err={}",
+            .{ clipboard, err },
+        );
+    };
+}
+
 /// Set the selection contents.
 ///
 /// This must be called with the renderer mutex held.
@@ -1797,33 +1853,12 @@ fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
     const sel = sel_ orelse return;
     if (prev_) |prev| if (sel.eql(prev)) return;
 
-    const buf = self.io.terminal.screen.selectionString(self.alloc, .{
-        .sel = sel,
-        .trim = self.config.clipboard_trim_trailing_spaces,
-    }) catch |err| {
-        log.err("error reading selection string err={}", .{err});
-        return;
-    };
-    defer self.alloc.free(buf);
-
-    // Set the clipboard. This is not super DRY but it is clear what
-    // we're doing for each setting without being clever.
     switch (self.config.copy_on_select) {
         .false => unreachable, // handled above with an early exit
 
         // Both standard and selection clipboards are set.
         .clipboard => {
-            const clipboards: []const apprt.Clipboard = &.{ .standard, .selection };
-            for (clipboards) |clipboard| self.rt_surface.setClipboardString(
-                buf,
-                clipboard,
-                false,
-            ) catch |err| {
-                log.err(
-                    "error setting clipboard string clipboard={} err={}",
-                    .{ clipboard, err },
-                );
-            };
+            self.copySelectionToClipboards(sel, &.{ .standard, .selection });
         },
 
         // The selection clipboard is set if supported, otherwise the standard.
@@ -1832,17 +1867,7 @@ fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
                 .selection
             else
                 .standard;
-
-            self.rt_surface.setClipboardString(
-                buf,
-                clipboard,
-                false,
-            ) catch |err| {
-                log.err(
-                    "error setting clipboard string clipboard={} err={}",
-                    .{ clipboard, err },
-                );
-            };
+            self.copySelectionToClipboards(sel, &.{clipboard});
         },
     }
 }
@@ -2129,14 +2154,6 @@ pub fn keyCallback(
         if (self.io.terminal.modes.get(.disable_keyboard)) return .consumed;
     }
 
-    // If our process is exited and we press a key then we close the
-    // surface. We may want to eventually move this to the apprt rather
-    // than in core.
-    if (self.child_exited and event.action == .press) {
-        self.close();
-        return .closed;
-    }
-
     // If this input event has text, then we hide the mouse if configured.
     // We only do this on pressed events to avoid hiding the mouse when we
     // change focus due to a keybinding (i.e. switching tabs).
@@ -2231,6 +2248,14 @@ pub fn keyCallback(
         event,
         if (insp_ev) |*ev| ev else null,
     )) |write_req| {
+        // If our process is exited and we press a key that results in
+        // an encoded value, we close the surface. We want to eventually
+        // move this behavior to the apprt probably.
+        if (self.child_exited) {
+            self.close();
+            return .closed;
+        }
+
         errdefer write_req.deinit();
         self.io.queueMessage(switch (write_req) {
             .small => |v| .{ .write_small = v },
@@ -3299,7 +3324,7 @@ pub fn mouseButtonCallback(
                 try self.setSelection(terminal.Selection.init(
                     prev.start(),
                     prev.end(),
-                    false,
+                    prev.rectangle,
                 ));
             }
         }
@@ -3529,18 +3554,63 @@ pub fn mouseButtonCallback(
             break :pin pin;
         };
 
-        // If we already have a selection and the selection contains
-        // where we clicked then we don't want to modify the selection.
-        if (self.io.terminal.screen.selection) |prev_sel| {
-            if (prev_sel.contains(screen, pin)) break :sel;
+        switch (self.config.right_click_action) {
+            .ignore => {},
+            .@"context-menu" => {
+                // If we already have a selection and the selection contains
+                // where we clicked then we don't want to modify the selection.
+                if (self.io.terminal.screen.selection) |prev_sel| {
+                    if (prev_sel.contains(screen, pin)) break :sel;
 
-            // The selection doesn't contain our pin, so we create a new
-            // word selection where we clicked.
+                    // The selection doesn't contain our pin, so we create a new
+                    // word selection where we clicked.
+                }
+
+                const sel = screen.selectWord(pin) orelse break :sel;
+                try self.setSelection(sel);
+                try self.queueRender();
+
+                // Don't consume so that we show the context menu in apprt.
+                return false;
+            },
+            .copy => {
+                if (self.io.terminal.screen.selection) |sel| {
+                    self.copySelectionToClipboards(sel, &.{.standard});
+                }
+
+                try self.setSelection(null);
+                try self.queueRender();
+            },
+            .@"copy-or-paste" => if (self.io.terminal.screen.selection) |sel| {
+                self.copySelectionToClipboards(sel, &.{.standard});
+                try self.setSelection(null);
+                try self.queueRender();
+            } else {
+                // Pasting can trigger a lock grab in complete clipboard
+                // request so we need to unlock.
+                self.renderer_state.mutex.unlock();
+                defer self.renderer_state.mutex.lock();
+                try self.startClipboardRequest(.standard, .paste);
+
+                // We don't need to clear selection because we didn't have
+                // one to begin with.
+            },
+            .paste => {
+                // Before we yield the lock, clear our selection if we have
+                // one.
+                try self.setSelection(null);
+                try self.queueRender();
+
+                // Pasting can trigger a lock grab in complete clipboard
+                // request so we need to unlock.
+                self.renderer_state.mutex.unlock();
+                defer self.renderer_state.mutex.lock();
+                try self.startClipboardRequest(.standard, .paste);
+            },
         }
 
-        const sel = screen.selectWord(pin) orelse break :sel;
-        try self.setSelection(sel);
-        try self.queueRender();
+        // Consume the event such that the context menu is not displayed.
+        return true;
     }
 
     return false;
@@ -3704,7 +3774,7 @@ fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
                 .trim = false,
             });
             defer self.alloc.free(str);
-            try internal_os.open(self.alloc, .unknown, str);
+            try self.openUrl(.{ .kind = .unknown, .url = str });
         },
 
         ._open_osc8 => {
@@ -3712,11 +3782,33 @@ fn processLinks(self: *Surface, pos: apprt.CursorPos) !bool {
                 log.warn("failed to get URI for OSC8 hyperlink", .{});
                 return false;
             };
-            try internal_os.open(self.alloc, .unknown, uri);
+            try self.openUrl(.{ .kind = .unknown, .url = uri });
         },
     }
 
     return true;
+}
+
+fn openUrl(
+    self: *Surface,
+    action: apprt.action.OpenUrl,
+) !void {
+    // If the apprt handles it then we're done.
+    if (try self.rt_app.performAction(
+        .{ .surface = self },
+        .open_url,
+        action,
+    )) return;
+
+    // apprt didn't handle it, fallback to our simple cross-platform
+    // URL opener. We log a warning because we want well-behaved
+    // apprts to handle this themselves.
+    log.warn("apprt did not handle open URL action, falling back to default opener", .{});
+    try internal_os.open(
+        self.alloc,
+        action.kind,
+        action.url,
+    );
 }
 
 /// Return the URI for an OSC8 hyperlink at the given position or null
@@ -4416,25 +4508,50 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
 
             const pos = try self.rt_surface.getCursorPos();
             if (try self.linkAtPos(pos)) |link_info| {
-                // Get the URL text from selection
-                const url_text = (self.io.terminal.screen.selectionString(self.alloc, .{
-                    .sel = link_info[1],
-                    .trim = self.config.clipboard_trim_trailing_spaces,
-                })) catch |err| {
-                    log.err("error reading url string err={}", .{err});
-                    return false;
+                const url_text = switch (link_info[0]) {
+                    .open => url_text: {
+                        // For regex links, get the text from selection
+                        break :url_text (self.io.terminal.screen.selectionString(self.alloc, .{
+                            .sel = link_info[1],
+                            .trim = self.config.clipboard_trim_trailing_spaces,
+                        })) catch |err| {
+                            log.err("error reading url string err={}", .{err});
+                            return false;
+                        };
+                    },
+
+                    ._open_osc8 => url_text: {
+                        // For OSC8 links, get the URI directly from hyperlink data
+                        const uri = self.osc8URI(link_info[1].start()) orelse {
+                            log.warn("failed to get URI for OSC8 hyperlink", .{});
+                            return false;
+                        };
+                        break :url_text try self.alloc.dupeZ(u8, uri);
+                    },
                 };
                 defer self.alloc.free(url_text);
 
                 self.rt_surface.setClipboardString(url_text, .standard, false) catch |err| {
                     log.err("error copying url to clipboard err={}", .{err});
-                    return true;
+                    return false;
                 };
 
                 return true;
             }
 
             return false;
+        },
+
+        .copy_title_to_clipboard => {
+            const title = self.rt_surface.getTitle() orelse return false;
+            if (title.len == 0) return false;
+
+            self.rt_surface.setClipboardString(title, .standard, false) catch |err| {
+                log.err("error copying title to clipboard err={}", .{err});
+                return true;
+            };
+
+            return true;
         },
 
         .paste_from_clipboard => try self.startClipboardRequest(
@@ -4475,6 +4592,14 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
 
             var size = self.font_size;
             size.points = self.config.original_font_size;
+            try self.setFontSize(size);
+        },
+
+        .set_font_size => |points| {
+            log.debug("set font size={d}", .{points});
+
+            var size = self.font_size;
+            size.points = std.math.clamp(points, 1.0, 255.0);
             try self.setFontSize(size);
         },
 
@@ -4709,6 +4834,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             {},
         ),
 
+        .show_on_screen_keyboard => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .show_on_screen_keyboard,
+            {},
+        ),
+
         .select_all => {
             const sel = self.io.terminal.screen.selectAll();
             if (sel) |s| {
@@ -4917,7 +5048,7 @@ fn writeScreenFile(
             defer self.alloc.free(pathZ);
             try self.rt_surface.setClipboardString(pathZ, .standard, false);
         },
-        .open => try internal_os.open(self.alloc, .text, path),
+        .open => try self.openUrl(.{ .kind = .text, .url = path }),
         .paste => self.io.queueMessage(try termio.Message.writeReq(
             self.alloc,
             path,

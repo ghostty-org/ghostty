@@ -209,24 +209,42 @@ const MAX_INTERMEDIATE = 4;
 const MAX_PARAMS = 24;
 
 /// Current state of the state machine
-state: State = .ground,
+state: State,
 
 /// Intermediate tracking.
-intermediates: [MAX_INTERMEDIATE]u8 = undefined,
-intermediates_idx: u8 = 0,
+intermediates: [MAX_INTERMEDIATE]u8,
+intermediates_idx: u8,
 
 /// Param tracking, building
-params: [MAX_PARAMS]u16 = undefined,
-params_sep: Action.CSI.SepList = .initEmpty(),
-params_idx: u8 = 0,
-param_acc: u16 = 0,
-param_acc_idx: u8 = 0,
+params: [MAX_PARAMS]u16,
+params_sep: Action.CSI.SepList,
+params_idx: u8,
+param_acc: u16,
+param_acc_idx: u8,
 
 /// Parser for OSC sequences
-osc_parser: osc.Parser = .{},
+osc_parser: osc.Parser,
 
 pub fn init() Parser {
-    return .{};
+    var result: Parser = .{
+        .state = .ground,
+        .intermediates_idx = 0,
+        .params_sep = .initEmpty(),
+        .params_idx = 0,
+        .param_acc = 0,
+        .param_acc_idx = 0,
+        .osc_parser = .init(),
+
+        .intermediates = undefined,
+        .params = undefined,
+    };
+    if (std.valgrind.runningOnValgrind() > 0) {
+        // Initialize our undefined fields so Valgrind can catch it.
+        // https://github.com/ziglang/zig/issues/19148
+        result.intermediates = undefined;
+        result.params = undefined;
+    }
+    return result;
 }
 
 pub fn deinit(self: *Parser) void {

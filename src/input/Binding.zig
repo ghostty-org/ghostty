@@ -5,6 +5,7 @@ const Binding = @This();
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+const build_config = @import("../build_config.zig");
 const ziglyph = @import("ziglyph");
 const key = @import("key.zig");
 const KeyEvent = key.KeyEvent;
@@ -281,6 +282,10 @@ pub const Action = union(enum) {
     /// If there is a URL under the cursor, copy it to the default clipboard.
     copy_url_to_clipboard,
 
+    /// Copy the terminal title to the clipboard. If the terminal title is not
+    /// set or is empty this has no effect.
+    copy_title_to_clipboard,
+
     /// Increase the font size by the specified amount in points (pt).
     ///
     /// For example, `increase_font_size:1.5` will increase the font size
@@ -295,6 +300,12 @@ pub const Action = union(enum) {
 
     /// Reset the font size to the original configured size.
     reset_font_size,
+
+    /// Set the font size to the specified size in points (pt).
+    ///
+    /// For example, `set_font_size:14.5` will set the font size
+    /// to 14.5 points.
+    set_font_size: f32,
 
     /// Clear the screen and all scrollback.
     clear_screen,
@@ -513,6 +524,14 @@ pub const Action = union(enum) {
     /// Has no effect on macOS.
     show_gtk_inspector,
 
+    /// Show the on-screen keyboard if one is present.
+    ///
+    /// Only implemented on Linux (GTK). On GNOME, the "Screen Keyboard"
+    /// accessibility feature must be turned on, which can be found under
+    /// Settings > Accessibility > Typing. Other platforms are as of now
+    /// untested.
+    show_on_screen_keyboard,
+
     /// Open the configuration file in the default OS editor.
     ///
     /// If your default OS editor isn't configured then this will fail.
@@ -718,6 +737,16 @@ pub const Action = union(enum) {
     crash: CrashThread,
 
     pub const Key = @typeInfo(Action).@"union".tag_type.?;
+
+    /// Make this a valid gobject if we're in a GTK environment.
+    pub const getGObjectType = switch (build_config.app_runtime) {
+        .gtk, .@"gtk-ng" => @import("gobject").ext.defineBoxed(
+            Action,
+            .{ .name = "GhosttyBindingAction" },
+        ),
+
+        .none => void,
+    };
 
     pub const CrashThread = enum {
         main,
@@ -999,11 +1028,13 @@ pub const Action = union(enum) {
             .reset,
             .copy_to_clipboard,
             .copy_url_to_clipboard,
+            .copy_title_to_clipboard,
             .paste_from_clipboard,
             .paste_from_selection,
             .increase_font_size,
             .decrease_font_size,
             .reset_font_size,
+            .set_font_size,
             .prompt_surface_title,
             .clear_screen,
             .select_all,
@@ -1028,6 +1059,7 @@ pub const Action = union(enum) {
             .toggle_window_float_on_top,
             .toggle_secure_input,
             .toggle_command_palette,
+            .show_on_screen_keyboard,
             .reset_window_size,
             .crash,
             => .surface,
@@ -3065,6 +3097,7 @@ test "set: getEvent codepoint case folding" {
         try testing.expect(action == null);
     }
 }
+
 test "Action: clone" {
     const testing = std.testing;
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
@@ -3081,5 +3114,44 @@ test "Action: clone" {
         var a: Action = .{ .text = "foo" };
         const b = try a.clone(alloc);
         try testing.expect(b == .text);
+    }
+}
+
+test "parse: increase_font_size" {
+    const testing = std.testing;
+
+    {
+        const binding = try parseSingle("a=increase_font_size:1.5");
+        try testing.expect(binding.action == .increase_font_size);
+        try testing.expectEqual(1.5, binding.action.increase_font_size);
+    }
+}
+
+test "parse: decrease_font_size" {
+    const testing = std.testing;
+
+    {
+        const binding = try parseSingle("a=decrease_font_size:2.5");
+        try testing.expect(binding.action == .decrease_font_size);
+        try testing.expectEqual(2.5, binding.action.decrease_font_size);
+    }
+}
+
+test "parse: reset_font_size" {
+    const testing = std.testing;
+
+    {
+        const binding = try parseSingle("a=reset_font_size");
+        try testing.expect(binding.action == .reset_font_size);
+    }
+}
+
+test "parse: set_font_size" {
+    const testing = std.testing;
+
+    {
+        const binding = try parseSingle("a=set_font_size:13.5");
+        try testing.expect(binding.action == .set_font_size);
+        try testing.expectEqual(13.5, binding.action.set_font_size);
     }
 }

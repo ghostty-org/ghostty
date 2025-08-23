@@ -13,6 +13,8 @@
 //! is not limited to that and we may want to extract this to a
 //! standalone package one day.
 
+pub const cli = @import("cli.zig");
+
 pub const Generator = @import("Generator.zig");
 pub const Bytes = @import("Bytes.zig");
 pub const Utf8 = @import("Utf8.zig");

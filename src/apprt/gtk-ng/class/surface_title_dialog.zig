@@ -1,0 +1,190 @@
+const std = @import("std");
+const adw = @import("adw");
+const gio = @import("gio");
+const glib = @import("glib");
+const gobject = @import("gobject");
+const gtk = @import("gtk");
+
+const gresource = @import("../build/gresource.zig");
+const adw_version = @import("../adw_version.zig");
+const ext = @import("../ext.zig");
+const Common = @import("../class.zig").Common;
+
+const log = std.log.scoped(.gtk_ghostty_surface_title_dialog);
+
+pub const SurfaceTitleDialog = extern struct {
+    const Self = @This();
+    parent_instance: Parent,
+    pub const Parent = adw.AlertDialog;
+    pub const getGObjectType = gobject.ext.defineClass(Self, .{
+        .name = "GhosttySurfaceTitleDialog",
+        .instanceInit = &init,
+        .classInit = &Class.init,
+        .parent_class = &Class.parent,
+        .private = .{ .Type = Private, .offset = &Private.offset },
+    });
+
+    pub const properties = struct {
+        pub const @"initial-value" = struct {
+            pub const name = "initial-value";
+            pub const get = impl.get;
+            pub const set = impl.set;
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?[:0]const u8,
+                .{
+                    .default = null,
+                    .accessor = C.privateStringFieldAccessor("initial_value"),
+                },
+            );
+        };
+    };
+
+    pub const signals = struct {
+        /// Set the title to the given value.
+        pub const set = struct {
+            pub const name = "set";
+            pub const connect = impl.connect;
+            const impl = gobject.ext.defineSignal(
+                name,
+                Self,
+                &.{[*:0]const u8},
+                void,
+            );
+        };
+    };
+
+    const Private = struct {
+        /// The initial value of the entry field.
+        initial_value: ?[:0]const u8 = null,
+
+        // Template bindings
+        entry: *gtk.Entry,
+
+        pub var offset: c_int = 0;
+    };
+
+    fn init(self: *Self, _: *Class) callconv(.c) void {
+        gtk.Widget.initTemplate(self.as(gtk.Widget));
+    }
+
+    pub fn present(self: *Self, parent_: *gtk.Widget) void {
+        // If we have a window we can attach to, we prefer that.
+        const parent: *gtk.Widget = if (ext.getAncestor(
+            adw.ApplicationWindow,
+            parent_,
+        )) |window|
+            window.as(gtk.Widget)
+        else if (ext.getAncestor(
+            adw.Window,
+            parent_,
+        )) |window|
+            window.as(gtk.Widget)
+        else
+            parent_;
+
+        // Set our initial value
+        const priv = self.private();
+        if (priv.initial_value) |v| {
+            priv.entry.getBuffer().setText(v, -1);
+        }
+
+        // Show it. We could also just use virtual methods to bind to
+        // response but this is pretty simple.
+        self.as(adw.AlertDialog).choose(
+            parent,
+            null,
+            alertDialogReady,
+            self,
+        );
+    }
+
+    fn alertDialogReady(
+        _: ?*gobject.Object,
+        result: *gio.AsyncResult,
+        ud: ?*anyopaque,
+    ) callconv(.c) void {
+        const self: *Self = @ptrCast(@alignCast(ud));
+        const response = self.as(adw.AlertDialog).chooseFinish(result);
+
+        // If we didn't hit "okay" then we do nothing.
+        if (std.mem.orderZ(u8, "ok", response) != .eq) return;
+
+        // Emit our signal with the new title.
+        const title = std.mem.span(self.private().entry.getBuffer().getText());
+        signals.set.impl.emit(
+            self,
+            null,
+            .{title.ptr},
+            null,
+        );
+    }
+
+    fn dispose(self: *Self) callconv(.c) void {
+        gtk.Widget.disposeTemplate(
+            self.as(gtk.Widget),
+            getGObjectType(),
+        );
+
+        gobject.Object.virtual_methods.dispose.call(
+            Class.parent,
+            self.as(Parent),
+        );
+    }
+
+    fn finalize(self: *Self) callconv(.c) void {
+        const priv = self.private();
+        if (priv.initial_value) |v| {
+            glib.free(@constCast(@ptrCast(v)));
+            priv.initial_value = null;
+        }
+
+        gobject.Object.virtual_methods.finalize.call(
+            Class.parent,
+            self.as(Parent),
+        );
+    }
+
+    const C = Common(Self, Private);
+    pub const as = C.as;
+    pub const ref = C.ref;
+    pub const unref = C.unref;
+    const private = C.private;
+
+    pub const Class = extern struct {
+        parent_class: Parent.Class,
+        var parent: *Parent.Class = undefined;
+        pub const Instance = Self;
+
+        fn init(class: *Class) callconv(.c) void {
+            gtk.Widget.Class.setTemplateFromResource(
+                class.as(gtk.Widget.Class),
+                comptime gresource.blueprint(.{
+                    .major = 1,
+                    .minor = 5,
+                    .name = "surface-title-dialog",
+                }),
+            );
+
+            // Signals
+            signals.set.impl.register(.{});
+
+            // Bindings
+            class.bindTemplateChildPrivate("entry", .{});
+
+            // Properties
+            gobject.ext.registerProperties(class, &.{
+                properties.@"initial-value".impl,
+            });
+
+            // Virtual methods
+            gobject.Object.virtual_methods.dispose.implement(class, &dispose);
+            gobject.Object.virtual_methods.finalize.implement(class, &finalize);
+        }
+
+        pub const as = C.Class.as;
+        pub const bindTemplateChildPrivate = C.Class.bindTemplateChildPrivate;
+        pub const bindTemplateCallback = C.Class.bindTemplateCallback;
+    };
+};

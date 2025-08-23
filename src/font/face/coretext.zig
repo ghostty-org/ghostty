@@ -31,6 +31,9 @@ pub const Face = struct {
     /// tables).
     color: ?ColorState = null,
 
+    /// The current size this font is set to.
+    size: font.face.DesiredSize,
+
     /// True if our build is using Harfbuzz. If we're not, we can avoid
     /// some Harfbuzz-specific code paths.
     const harfbuzz_shaper = font.options.backend.hasHarfbuzz();
@@ -75,7 +78,7 @@ pub const Face = struct {
         // but we need to scale the points by the DPI and to do that we use our
         // function called "pixels".
         const ct_font = try base.copyWithAttributes(
-            @floatFromInt(opts.size.pixels()),
+            opts.size.pixels(),
             null,
             null,
         );
@@ -91,7 +94,8 @@ pub const Face = struct {
 
         var hb_font = if (comptime harfbuzz_shaper) font: {
             var hb_font = try harfbuzz.coretext.createFont(ct_font);
-            hb_font.setScale(opts.size.pixels(), opts.size.pixels());
+            const pixels: opentype.sfnt.F26Dot6 = .from(opts.size.pixels());
+            hb_font.setScale(@bitCast(pixels), @bitCast(pixels));
             break :font hb_font;
         } else {};
         errdefer if (comptime harfbuzz_shaper) hb_font.destroy();
@@ -106,6 +110,7 @@ pub const Face = struct {
             .font = ct_font,
             .hb_font = hb_font,
             .color = color,
+            .size = opts.size,
         };
         result.quirks_disable_default_font_features = quirks.disableDefaultFontFeatures(&result);
 
@@ -236,10 +241,14 @@ pub const Face = struct {
             desc = next;
         }
 
+        // Put our current size in the opts so that we don't change size.
+        var new_opts = opts;
+        new_opts.size = self.size;
+
         // Initialize a font based on these attributes.
         const ct_font = try self.font.copyWithAttributes(0, null, desc);
         errdefer ct_font.release();
-        const face = try initFont(ct_font, opts);
+        const face = try initFont(ct_font, new_opts);
         self.deinit();
         self.* = face;
     }
@@ -291,22 +300,29 @@ pub const Face = struct {
         // in the bottom left and +Y pointing up.
         var rect = self.font.getBoundingRectsForGlyphs(.horizontal, &glyphs, null);
 
+        // Determine whether this is a color glyph.
+        const is_color = self.isColorGlyph(glyph_index);
+        // And whether it's (probably) a bitmap (sbix).
+        const sbix = is_color and self.color != null and self.color.?.sbix;
+
         // If we're rendering a synthetic bold then we will gain 50% of
         // the line width on every edge, which means we should increase
         // our width and height by the line width and subtract half from
         // our origin points.
-        if (self.synthetic_bold) |line_width| {
+        //
+        // We don't add extra size if it's a sbix color font though,
+        // since bitmaps aren't affected by synthetic bold.
+        if (!sbix) if (self.synthetic_bold) |line_width| {
             rect.size.width += line_width;
             rect.size.height += line_width;
             rect.origin.x -= line_width / 2;
             rect.origin.y -= line_width / 2;
-        }
+        };
 
         // We make an assumption that font smoothing ("thicken")
         // adds no more than 1 extra pixel to any edge. We don't
         // add extra size if it's a sbix color font though, since
         // bitmaps aren't affected by smoothing.
-        const sbix = self.color != null and self.color.?.sbix;
         if (opts.thicken and !sbix) {
             rect.size.width += 2.0;
             rect.size.height += 2.0;
@@ -314,29 +330,95 @@ pub const Face = struct {
             rect.origin.y -= 1.0;
         }
 
-        // We compute the minimum and maximum x and y values.
-        // We round our min points down and max points up.
-        const x0: i32, const x1: i32, const y0: i32, const y1: i32 = .{
-            @intFromFloat(@floor(rect.origin.x)),
-            @intFromFloat(@ceil(rect.origin.x) + @ceil(rect.size.width)),
-            @intFromFloat(@floor(rect.origin.y)),
-            @intFromFloat(@ceil(rect.origin.y) + @ceil(rect.size.height)),
-        };
+        // If our rect is smaller than a quarter pixel in either axis
+        // then it has no outlines or they're too small to render.
+        //
+        // In this case we just return 0-sized glyph struct.
+        if (rect.size.width < 0.25 or rect.size.height < 0.25)
+            return font.Glyph{
+                .width = 0,
+                .height = 0,
+                .offset_x = 0,
+                .offset_y = 0,
+                .atlas_x = 0,
+                .atlas_y = 0,
+            };
 
-        // This bitmap is blank. I've seen it happen in a font, I don't know why.
-        // If it is empty, we just return a valid glyph struct that does nothing.
-        if (x1 <= x0 or y1 <= y0) return font.Glyph{
-            .width = 0,
-            .height = 0,
-            .offset_x = 0,
-            .offset_y = 0,
-            .atlas_x = 0,
-            .atlas_y = 0,
-            .advance_x = 0,
-        };
+        const metrics = opts.grid_metrics;
+        const cell_width: f64 = @floatFromInt(metrics.cell_width);
+        const cell_height: f64 = @floatFromInt(metrics.cell_height);
 
-        const width: u32 = @intCast(x1 - x0);
-        const height: u32 = @intCast(y1 - y0);
+        // Next we apply any constraints to get the final size of the glyph.
+        var constraint = opts.constraint;
+
+        // We eliminate any negative vertical padding since these overlap
+        // values aren't needed  with how precisely we apply constraints,
+        // and they can lead to extra height that looks bad for things like
+        // powerline glyphs.
+        constraint.pad_top = @max(0.0, constraint.pad_top);
+        constraint.pad_bottom = @max(0.0, constraint.pad_bottom);
+
+        // We need to add the baseline position before passing to the constrain
+        // function since it operates on cell-relative positions, not baseline.
+        const cell_baseline: f64 = @floatFromInt(metrics.cell_baseline);
+
+        const glyph_size = constraint.constrain(
+            .{
+                .width = rect.size.width,
+                .height = rect.size.height,
+                .x = rect.origin.x,
+                .y = rect.origin.y + cell_baseline,
+            },
+            metrics,
+            opts.constraint_width,
+        );
+
+        var x = glyph_size.x;
+        var y = glyph_size.y;
+        var width = glyph_size.width;
+        var height = glyph_size.height;
+
+        // If this is a bitmap glyph, it will always render as full pixels,
+        // not fractional pixels, so we need to quantize its position and
+        // size accordingly to align to full pixels so we get good results.
+        if (sbix) {
+            width = cell_width - @round(cell_width - width - x) - @round(x);
+            height = cell_height - @round(cell_height - height - y) - @round(y);
+            x = @round(x);
+            y = @round(y);
+        }
+
+        // If the cell width was adjusted wider, we re-center all glyphs
+        // in the new width, so that they aren't weirdly off to the left.
+        if (metrics.original_cell_width) |original| recenter: {
+            // We don't do this if the constraint has a horizontal alignment,
+            // since in that case the position was already calculated with the
+            // new cell width in mind.
+            if (opts.constraint.align_horizontal != .none) break :recenter;
+
+            // If the original width was wider then we don't do anything.
+            if (original >= metrics.cell_width) break :recenter;
+
+            // We add half the difference to re-center.
+            x += (cell_width - @as(f64, @floatFromInt(original))) / 2;
+        }
+
+        // Our whole-pixel bearings for the final glyph.
+        // The fractional portion will be included in the rasterized position.
+        const px_x: i32 = @intFromFloat(@floor(x));
+        const px_y: i32 = @intFromFloat(@floor(y));
+
+        // We keep track of the fractional part of the pixel bearings, which
+        // we will add as an offset when rasterizing to make sure we get the
+        // correct sub-pixel position.
+        const frac_x = x - @floor(x);
+        const frac_y = y - @floor(y);
+
+        // Add the fractional pixel to the width and height and take
+        // the ceiling to get a canvas size that will definitely fit
+        // our drawn glyph, including the fractional offset.
+        const px_width: u32 = @intFromFloat(@ceil(width + frac_x));
+        const px_height: u32 = @intFromFloat(@ceil(height + frac_y));
 
         // Settings that are specific to if we are rendering text or emoji.
         const color: struct {
@@ -344,7 +426,7 @@ pub const Face = struct {
             depth: u32,
             space: *macos.graphics.ColorSpace,
             context_opts: c_uint,
-        } = if (!self.isColorGlyph(glyph_index)) .{
+        } = if (!is_color) .{
             .color = false,
             .depth = 1,
             .space = try macos.graphics.ColorSpace.createNamed(.linearGray),
@@ -371,17 +453,17 @@ pub const Face = struct {
         // usually stabilizes pretty quickly and is very infrequent so I think
         // the allocation overhead is acceptable compared to the cost of
         // caching it forever or having to deal with a cache lifetime.
-        const buf = try alloc.alloc(u8, width * height * color.depth);
+        const buf = try alloc.alloc(u8, px_width * px_height * color.depth);
         defer alloc.free(buf);
         @memset(buf, 0);
 
         const context = macos.graphics.BitmapContext.context;
         const ctx = try macos.graphics.BitmapContext.create(
             buf,
-            width,
-            height,
+            px_width,
+            px_height,
             8,
-            width * color.depth,
+            px_width * color.depth,
             color.space,
             color.context_opts,
         );
@@ -390,23 +472,36 @@ pub const Face = struct {
         // Perform an initial fill. This ensures that we don't have any
         // uninitialized pixels in the bitmap.
         if (color.color)
-            context.setRGBFillColor(ctx, 1, 1, 1, 0)
+            context.setRGBFillColor(ctx, 0, 0, 0, 0)
         else
-            context.setGrayFillColor(ctx, 1, 0);
+            context.setGrayFillColor(ctx, 0, 0);
         context.fillRect(ctx, .{
             .origin = .{ .x = 0, .y = 0 },
             .size = .{
-                .width = @floatFromInt(width),
-                .height = @floatFromInt(height),
+                .width = @floatFromInt(px_width),
+                .height = @floatFromInt(px_height),
             },
         });
 
+        // "Font smoothing" is what we call "thickening", it's an attempt
+        // to compensate for optical thinning of fonts, but at this point
+        // it's just something that makes the text look closer to system
+        // applications if users want that.
         context.setAllowsFontSmoothing(ctx, true);
-        context.setShouldSmoothFonts(ctx, opts.thicken); // The amadeus "enthicken"
-        context.setAllowsFontSubpixelQuantization(ctx, true);
-        context.setShouldSubpixelQuantizeFonts(ctx, true);
+        context.setShouldSmoothFonts(ctx, opts.thicken);
+
+        // Subpixel positioning allows glyphs to be placed at non-integer
+        // coordinates. We need this for our alignment.
         context.setAllowsFontSubpixelPositioning(ctx, true);
         context.setShouldSubpixelPositionFonts(ctx, true);
+
+        // We don't want subpixel quantization, since we very carefully
+        // manage the position of our glyphs ourselves, and dont want to
+        // mess that up.
+        context.setAllowsFontSubpixelQuantization(ctx, false);
+        context.setShouldSubpixelQuantizeFonts(ctx, false);
+
+        // Anti-aliasing is self explanatory.
         context.setAllowsAntialiasing(ctx, true);
         context.setShouldAntialias(ctx, true);
 
@@ -427,76 +522,55 @@ pub const Face = struct {
             context.setLineWidth(ctx, line_width);
         }
 
-        // We want to render the glyphs at (0,0), but the glyphs themselves
-        // are offset by bearings, so we have to undo those bearings in order
-        // to get them to 0,0.
-        self.font.drawGlyphs(&glyphs, &.{
-            .{
-                .x = @floatFromInt(-x0),
-                .y = @floatFromInt(-y0),
-            },
-        }, ctx);
+        // Translate our drawing context so that when we draw our
+        // glyph the bottom/left edge is at the correct sub-pixel
+        // position. The bottom/left edges are guaranteed to be at
+        // exactly [0, 0] relative to this because when we call to
+        // `drawGlyphs`, we pass the negated bearings.
+        context.translateCTM(
+            ctx,
+            frac_x,
+            frac_y,
+        );
 
-        const region = region: {
-            // We reserve a region that's 1px wider and taller than we need
-            // in order to create a 1px separation between adjacent glyphs
-            // to prevent interpolation with adjacent glyphs while sampling
-            // from the atlas.
-            var region = try atlas.reserve(
-                alloc,
-                width + 1,
-                height + 1,
-            );
+        // Scale the drawing context so that when we draw
+        // our glyph it's stretched to the constrained size.
+        context.scaleCTM(
+            ctx,
+            width / rect.size.width,
+            height / rect.size.height,
+        );
 
-            // We adjust the region width and height back down since we
-            // don't need the extra pixel, we just needed to reserve it
-            // so that it isn't used for other glyphs in the future.
-            region.width -= 1;
-            region.height -= 1;
-            break :region region;
-        };
+        // Draw our glyph.
+        //
+        // We offset the position by the negated bearings so that the
+        // glyph is drawn at exactly [0, 0], which is then offset to
+        // the appropriate fractional position by the translation we
+        // did before scaling.
+        self.font.drawGlyphs(&glyphs, &.{.{
+            .x = -rect.origin.x,
+            .y = -rect.origin.y,
+        }}, ctx);
+
+        // Write our rasterized glyph to the atlas.
+        const region = try atlas.reserve(alloc, px_width, px_height);
         atlas.set(region, buf);
-
-        const metrics = opts.grid_metrics;
 
         // This should be the distance from the bottom of
         // the cell to the top of the glyph's bounding box.
-        //
-        // The calculation is distance from bottom of cell to
-        // baseline plus distance from baseline to top of glyph.
-        const offset_y: i32 = @as(i32, @intCast(metrics.cell_baseline)) + y1;
+        const offset_y: i32 = px_y + @as(i32, @intCast(px_height));
 
         // This should be the distance from the left of
         // the cell to the left of the glyph's bounding box.
-        const offset_x: i32 = offset_x: {
-            var result: i32 = x0;
-
-            // If our cell was resized then we adjust our glyph's
-            // position relative to the new center. This keeps glyphs
-            // centered in the cell whether it was made wider or narrower.
-            if (metrics.original_cell_width) |original_width| {
-                const before: i32 = @intCast(original_width);
-                const after: i32 = @intCast(metrics.cell_width);
-                // Increase the offset by half of the difference
-                // between the widths to keep things centered.
-                result += @divTrunc(after - before, 2);
-            }
-
-            break :offset_x result;
-        };
-
-        // Get our advance
-        var advances: [glyphs.len]macos.graphics.Size = undefined;
-        _ = self.font.getAdvancesForGlyphs(.horizontal, &glyphs, &advances);
+        const offset_x: i32 = px_x;
 
         return .{
-            .width = width,
-            .height = height,
+            .width = px_width,
+            .height = px_height,
             .offset_x = offset_x,
             .offset_y = offset_y,
             .atlas_x = region.x,
             .atlas_y = region.y,
-            .advance_x = @floatCast(advances[0].width),
         };
     }
 
@@ -728,17 +802,38 @@ pub const Face = struct {
             break :cell_width max;
         };
 
+        // Measure "水" (CJK water ideograph, U+6C34) for our ic width.
+        const ic_width: ?f64 = ic_width: {
+            const glyph = self.glyphIndex('水') orelse break :ic_width null;
+
+            var advances: [1]macos.graphics.Size = undefined;
+            _ = ct_font.getAdvancesForGlyphs(
+                .horizontal,
+                &.{@intCast(glyph)},
+                &advances,
+            );
+
+            break :ic_width advances[0].width;
+        };
+
         return .{
+            .px_per_em = px_per_em,
+
             .cell_width = cell_width,
+
             .ascent = ascent,
             .descent = descent,
             .line_gap = line_gap,
+
             .underline_position = underline_position,
             .underline_thickness = underline_thickness,
+
             .strikethrough_position = strikethrough_position,
             .strikethrough_thickness = strikethrough_thickness,
+
             .cap_height = cap_height,
             .ex_height = ex_height,
+            .ic_width = ic_width,
         };
     }
 
@@ -887,7 +982,7 @@ test "name" {
 
     var buf: [1024]u8 = undefined;
     const font_name = try face.name(&buf);
-    try testing.expect(std.mem.eql(u8, font_name, "Menlo"));
+    try testing.expectEqualStrings(font_name, "Menlo");
 }
 
 test "emoji" {

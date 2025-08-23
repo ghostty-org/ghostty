@@ -103,11 +103,12 @@ pub const Contents = struct {
         // form a single grapheme, and multi-substitutions in fonts, the number
         // of glyphs in a row is theoretically unlimited.
         //
-        // We have size.rows + 1 lists because index 0 is used for a special
-        // list containing the cursor cell which needs to be first in the buffer.
+        // We have size.rows + 2 lists because indexes 0 and size.rows - 1 are
+        // used for special lists containing the cursor cell which need to
+        // be first and last in the buffer, respectively.
         var fg_rows = try ArrayListCollection(shaderpkg.CellText).init(
             alloc,
-            size.rows + 1,
+            size.rows + 2,
             size.columns * 3,
         );
         errdefer fg_rows.deinit(alloc);
@@ -118,12 +119,17 @@ pub const Contents = struct {
         self.bg_cells = bg_cells;
         self.fg_rows = fg_rows;
 
-        // We don't need 3*cols worth of cells for the cursor list, so we can
-        // replace it with a smaller list. This is technically a tiny bit of
+        // We don't need 3*cols worth of cells for the cursor lists, so we can
+        // replace them with smaller lists. This is technically a tiny bit of
         // extra work but resize is not a hot function so it's worth it to not
         // waste the memory.
         self.fg_rows.lists[0].deinit(alloc);
         self.fg_rows.lists[0] = try std.ArrayListUnmanaged(
+            shaderpkg.CellText,
+        ).initCapacity(alloc, 1);
+
+        self.fg_rows.lists[size.rows + 1].deinit(alloc);
+        self.fg_rows.lists[size.rows + 1] = try std.ArrayListUnmanaged(
             shaderpkg.CellText,
         ).initCapacity(alloc, 1);
     }
@@ -135,12 +141,36 @@ pub const Contents = struct {
     }
 
     /// Set the cursor value. If the value is null then the cursor is hidden.
-    pub fn setCursor(self: *Contents, v: ?shaderpkg.CellText) void {
+    pub fn setCursor(
+        self: *Contents,
+        v: ?shaderpkg.CellText,
+        cursor_style: ?renderer.CursorStyle,
+    ) void {
+        if (self.size.rows == 0) return;
         self.fg_rows.lists[0].clearRetainingCapacity();
+        self.fg_rows.lists[self.size.rows + 1].clearRetainingCapacity();
 
-        if (v) |cell| {
-            self.fg_rows.lists[0].appendAssumeCapacity(cell);
+        const cell = v orelse return;
+        const style = cursor_style orelse return;
+
+        switch (style) {
+            // Block cursors should be drawn first
+            .block => self.fg_rows.lists[0].appendAssumeCapacity(cell),
+            // Other cursor styles should be drawn last
+            .block_hollow, .bar, .underline, .lock => self.fg_rows.lists[self.size.rows + 1].appendAssumeCapacity(cell),
         }
+    }
+
+    /// Returns the current cursor glyph if present, checking both cursor lists.
+    pub fn getCursorGlyph(self: *Contents) ?shaderpkg.CellText {
+        if (self.size.rows == 0) return null;
+        if (self.fg_rows.lists[0].items.len > 0) {
+            return self.fg_rows.lists[0].items[0];
+        }
+        if (self.fg_rows.lists[self.size.rows + 1].items.len > 0) {
+            return self.fg_rows.lists[self.size.rows + 1].items[0];
+        }
+        return null;
     }
 
     /// Access a background cell. Prefer this function over direct indexing
@@ -205,103 +235,80 @@ pub fn isCovering(cp: u21) bool {
     };
 }
 
-pub const FgMode = enum {
-    /// Normal non-colored text rendering. The text can leave the cell
-    /// size if it is larger than the cell to allow for ligatures.
-    normal,
+/// Returns true of the codepoint is a "symbol-like" character, which
+/// for now we define as anything in a private use area and anything
+/// in the "dingbats" unicode block.
+///
+/// In the future it may be prudent to expand this to encompass more
+/// symbol-like characters, and/or exclude some PUA sections.
+pub fn isSymbol(cp: u21) bool {
+    return ziglyph.general_category.isPrivateUse(cp) or
+        ziglyph.blocks.isDingbats(cp);
+}
 
-    /// Colored text rendering, specifically Emoji.
-    color,
+/// Returns the appropriate `constraint_width` for
+/// the provided cell when rendering its glyph(s).
+pub fn constraintWidth(cell_pin: terminal.Pin) u2 {
+    const cell = cell_pin.rowAndCell().cell;
+    const cp = cell.codepoint();
 
-    /// Similar to normal but the text must be constrained to the cell
-    /// size. If a glyph is larger than the cell then it must be resized
-    /// to fit.
-    constrained,
+    const grid_width = cell.gridWidth();
 
-    /// Similar to normal, but the text consists of Powerline glyphs and is
-    /// optionally exempt from padding color extension and minimum contrast requirements.
-    powerline,
-};
+    // If the grid width of the cell is 2, the constraint
+    // width will always be 2, so we can just return early.
+    if (grid_width > 1) return grid_width;
 
-/// Returns the appropriate foreground mode for the given cell. This is
-/// meant to be called from the typical updateCell function within a
-/// renderer.
-pub fn fgMode(
-    presentation: font.Presentation,
-    cell_pin: terminal.Pin,
-) FgMode {
-    return switch (presentation) {
-        // Emoji is always full size and color.
-        .emoji => .color,
+    // We allow "symbol-like" glyphs to extend to 2 cells wide if there's
+    // space, and if the previous glyph wasn't also a symbol. So if this
+    // codepoint isn't a symbol then we can return the grid width.
+    if (!isSymbol(cp)) return grid_width;
 
-        // If it is text it is slightly more complex. If we are a codepoint
-        // in the private use area and we are at the end or the next cell
-        // is not empty, we need to constrain rendering.
-        //
-        // We do this specifically so that Nerd Fonts can render their
-        // icons without overlapping with subsequent characters. But if
-        // the subsequent character is empty, then we allow it to use
-        // the full glyph size. See #1071.
-        .text => text: {
-            const cell = cell_pin.rowAndCell().cell;
-            const cp = cell.codepoint();
+    // If we are at the end of the screen it must be constrained to one cell.
+    if (cell_pin.x == cell_pin.node.data.size.cols - 1) return 1;
 
-            if (!ziglyph.general_category.isPrivateUse(cp) and
-                !ziglyph.blocks.isDingbats(cp))
-            {
-                break :text .normal;
-            }
+    // If we have a previous cell and it was a symbol then we need
+    // to also constrain. This is so that multiple PUA glyphs align.
+    // As an exception, we ignore powerline glyphs since they are
+    // used for box drawing and we consider them whitespace.
+    if (cell_pin.x > 0) prev: {
+        const prev_cp = prev_cp: {
+            var copy = cell_pin;
+            copy.x -= 1;
+            const prev_cell = copy.rowAndCell().cell;
+            break :prev_cp prev_cell.codepoint();
+        };
 
-            // Special-case Powerline glyphs. They exhibit box drawing behavior
-            // and should not be constrained. They have their own special category
-            // though because they're used for other logic (i.e. disabling
-            // min contrast).
-            if (isPowerline(cp)) {
-                break :text .powerline;
-            }
+        // We consider powerline glyphs whitespace.
+        if (isPowerline(prev_cp)) break :prev;
 
-            // If we are at the end of the screen its definitely constrained
-            if (cell_pin.x == cell_pin.node.data.size.cols - 1) break :text .constrained;
+        if (isSymbol(prev_cp)) {
+            return 1;
+        }
+    }
 
-            // If we have a previous cell and it was PUA then we need to
-            // also constrain. This is so that multiple PUA glyphs align.
-            // As an exception, we ignore powerline glyphs since they are
-            // used for box drawing and we consider them whitespace.
-            if (cell_pin.x > 0) prev: {
-                const prev_cp = prev_cp: {
-                    var copy = cell_pin;
-                    copy.x -= 1;
-                    const prev_cell = copy.rowAndCell().cell;
-                    break :prev_cp prev_cell.codepoint();
-                };
-
-                // Powerline is whitespace
-                if (isPowerline(prev_cp)) break :prev;
-
-                if (ziglyph.general_category.isPrivateUse(prev_cp)) {
-                    break :text .constrained;
-                }
-            }
-
-            // If the next cell is empty, then we allow it to use the
-            // full glyph size.
-            const next_cp = next_cp: {
-                var copy = cell_pin;
-                copy.x += 1;
-                const next_cell = copy.rowAndCell().cell;
-                break :next_cp next_cell.codepoint();
-            };
-            if (next_cp == 0 or
-                isSpace(next_cp) or
-                isPowerline(next_cp))
-            {
-                break :text .normal;
-            }
-
-            // Must be constrained
-            break :text .constrained;
-        },
+    // If the next cell is whitespace, then we
+    // allow the glyph to be up to two cells wide.
+    const next_cp = next_cp: {
+        var copy = cell_pin;
+        copy.x += 1;
+        const next_cell = copy.rowAndCell().cell;
+        break :next_cp next_cell.codepoint();
     };
+    if (next_cp == 0 or
+        isSpace(next_cp) or
+        isPowerline(next_cp))
+    {
+        return 2;
+    }
+
+    // Otherwise, this has to be 1 cell wide.
+    return 1;
+}
+
+/// Whether min contrast should be disabled for a given glyph.
+pub fn noMinContrast(cp: u21) bool {
+    // TODO: We should disable for all box drawing type characters.
+    return isPowerline(cp);
 }
 
 // Some general spaces, others intentionally kept
@@ -348,7 +355,7 @@ test Contents {
     // Add some contents.
     const bg_cell: shaderpkg.CellBg = .{ 0, 0, 0, 1 };
     const fg_cell: shaderpkg.CellText = .{
-        .mode = .fg,
+        .atlas = .grayscale,
         .grid_pos = .{ 4, 1 },
         .color = .{ 0, 0, 0, 1 },
     };
@@ -367,18 +374,26 @@ test Contents {
         }
     }
 
-    // Add a cursor.
+    // Add a block cursor.
     const cursor_cell: shaderpkg.CellText = .{
-        .mode = .cursor,
+        .atlas = .grayscale,
+        .bools = .{ .is_cursor_glyph = true },
         .grid_pos = .{ 2, 3 },
         .color = .{ 0, 0, 0, 1 },
     };
-    c.setCursor(cursor_cell);
+    c.setCursor(cursor_cell, .block);
     try testing.expectEqual(cursor_cell, c.fg_rows.lists[0].items[0]);
+    try testing.expectEqual(cursor_cell, c.getCursorGlyph().?);
 
     // And remove it.
-    c.setCursor(null);
+    c.setCursor(null, null);
     try testing.expectEqual(0, c.fg_rows.lists[0].items.len);
+    try testing.expect(c.getCursorGlyph() == null);
+
+    // Add a hollow cursor.
+    c.setCursor(cursor_cell, .block_hollow);
+    try testing.expectEqual(cursor_cell, c.fg_rows.lists[rows + 1].items[0]);
+    try testing.expectEqual(cursor_cell, c.getCursorGlyph().?);
 }
 
 test "Contents clear retains other content" {
@@ -396,7 +411,7 @@ test "Contents clear retains other content" {
     // bg and fg cells in row 1
     const bg_cell_1: shaderpkg.CellBg = .{ 0, 0, 0, 1 };
     const fg_cell_1: shaderpkg.CellText = .{
-        .mode = .fg,
+        .atlas = .grayscale,
         .grid_pos = .{ 4, 1 },
         .color = .{ 0, 0, 0, 1 },
     };
@@ -405,7 +420,7 @@ test "Contents clear retains other content" {
     // bg and fg cells in row 2
     const bg_cell_2: shaderpkg.CellBg = .{ 0, 0, 0, 1 };
     const fg_cell_2: shaderpkg.CellText = .{
-        .mode = .fg,
+        .atlas = .grayscale,
         .grid_pos = .{ 4, 2 },
         .color = .{ 0, 0, 0, 1 },
     };
@@ -436,7 +451,7 @@ test "Contents clear last added content" {
     // bg and fg cells in row 1
     const bg_cell_1: shaderpkg.CellBg = .{ 0, 0, 0, 1 };
     const fg_cell_1: shaderpkg.CellText = .{
-        .mode = .fg,
+        .atlas = .grayscale,
         .grid_pos = .{ 4, 1 },
         .color = .{ 0, 0, 0, 1 },
     };
@@ -445,7 +460,7 @@ test "Contents clear last added content" {
     // bg and fg cells in row 2
     const bg_cell_2: shaderpkg.CellBg = .{ 0, 0, 0, 1 };
     const fg_cell_2: shaderpkg.CellText = .{
-        .mode = .fg,
+        .atlas = .grayscale,
         .grid_pos = .{ 4, 2 },
         .color = .{ 0, 0, 0, 1 },
     };
@@ -459,4 +474,15 @@ test "Contents clear last added content" {
     try testing.expectEqual(bg_cell_1, c.bgCell(1, 4).*);
     // Fg row index is +1 because of cursor list at start
     try testing.expectEqual(fg_cell_1, c.fg_rows.lists[2].items[0]);
+}
+
+test "Contents with zero-sized screen" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Contents = .{};
+    defer c.deinit(alloc);
+
+    c.setCursor(null, null);
+    try testing.expect(c.getCursorGlyph() == null);
 }

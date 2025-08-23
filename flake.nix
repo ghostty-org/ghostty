@@ -19,12 +19,12 @@
       inputs = {
         nixpkgs.follows = "nixpkgs";
         flake-utils.follows = "flake-utils";
-        flake-compat.follows = "";
+        flake-compat.follows = "flake-compat";
       };
     };
 
     zon2nix = {
-      url = "github:jcollie/zon2nix?ref=56c159be489cc6c0e73c3930bd908ddc6fe89613";
+      url = "github:jcollie/zon2nix?rev=56c159be489cc6c0e73c3930bd908ddc6fe89613";
       inputs = {
         nixpkgs.follows = "nixpkgs";
         flake-utils.follows = "flake-utils";

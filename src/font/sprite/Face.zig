@@ -195,7 +195,6 @@ pub fn renderGlyph(
         .offset_y = 0,
         .atlas_x = 0,
         .atlas_y = 0,
-        .advance_x = 0,
     };
 
     const metrics = self.metrics;
@@ -227,8 +226,6 @@ pub fn renderGlyph(
         .offset_y = @as(i32, @intCast(region.height +| canvas.clip_bottom)) - @as(i32, @intCast(padding_y)),
         .atlas_x = region.x,
         .atlas_y = region.y,
-        .advance_x = @floatFromInt(width),
-        .sprite = true,
     };
 }
 
@@ -392,6 +389,9 @@ fn testDrawRanges(
     const alloc = testing.allocator;
 
     const metrics: font.Metrics = .calc(.{
+        // Fudged number, not used in anything we care about here.
+        .px_per_em = 16,
+
         .cell_width = @floatFromInt(width),
         .ascent = @floatFromInt(ascent),
         .descent = -@as(f64, @floatFromInt(descent)),
@@ -511,6 +511,9 @@ fn testDrawRanges(
 }
 
 test "sprite face render all sprites" {
+    // This test is way too slow to run under Valgrind, unfortunately.
+    if (std.valgrind.runningOnValgrind() > 0) return error.SkipZigTest;
+
     // Renders all sprites to an atlas and compares
     // it to a ground truth for regression testing.
 

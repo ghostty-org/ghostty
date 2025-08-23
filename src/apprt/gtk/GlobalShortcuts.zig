@@ -335,6 +335,7 @@ fn request(
 
             var response: u32 = 0;
             var vardict: ?*glib.Variant = null;
+            defer if (vardict) |v| v.unref();
             params_.get("(u@a{sv})", &response, &vardict);
 
             switch (response) {

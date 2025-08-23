@@ -313,15 +313,12 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
         .size = opts.size,
         .backend = backend,
         .mailbox = opts.mailbox,
-        .terminal_stream = .{
-            .handler = handler,
-            .parser = .{
-                .osc_parser = .{
-                    // Populate the OSC parser allocator (optional) because
-                    // we want to support large OSC payloads such as OSC 52.
-                    .alloc = alloc,
-                },
-            },
+        .terminal_stream = stream: {
+            var s: terminalpkg.Stream(StreamHandler) = .init(handler);
+            // Populate the OSC parser allocator (optional) because
+            // we want to support large OSC payloads such as OSC 52.
+            s.parser.osc_parser.alloc = alloc;
+            break :stream s;
         },
         .thread_enter_state = thread_enter_state,
     };

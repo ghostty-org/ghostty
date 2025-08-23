@@ -37,6 +37,7 @@ const CloseDialog = @import("CloseDialog.zig");
 const inspectorpkg = @import("inspector.zig");
 const gtk_key = @import("key.zig");
 const Builder = @import("Builder.zig");
+const ProgressBar = @import("ProgressBar.zig");
 const adw_version = @import("adw_version.zig");
 
 const log = std.log.scoped(.gtk_surface);
@@ -309,6 +310,9 @@ precision_scroll: bool = false,
 /// Flag indicating whether the surface is in secure input mode.
 is_secure_input: bool = false,
 
+/// Structure for managing GUI progress bar
+progress_bar: ProgressBar,
+
 /// The state of the key event while we're doing IM composition.
 /// See gtkKeyPressed for detailed descriptions.
 pub const IMKeyEvent = enum {
@@ -517,6 +521,7 @@ pub fn init(self: *Surface, app: *App, opts: Options) !void {
         .im_context = im_context,
         .cgroup_path = cgroup_path,
         .context_menu = undefined,
+        .progress_bar = .init(self),
     };
     errdefer self.* = undefined;
 
@@ -736,6 +741,9 @@ pub fn deinit(self: *Surface) void {
     // We don't allocate anything if we aren't realized.
     if (!self.realized) return;
 
+    // Cleanup the progress bar.
+    self.progress_bar.deinit();
+
     // Delete our inspector if we have one
     self.controlInspector(.hide);
 
@@ -771,6 +779,14 @@ pub fn deinit(self: *Surface) void {
     if (self.cursor) |cursor| cursor.unref();
     if (self.update_title_timer) |timer| _ = glib.Source.remove(timer);
     self.resize_overlay.deinit();
+}
+
+pub fn core(self: *Surface) *CoreSurface {
+    return &self.core_surface;
+}
+
+pub fn rtApp(self: *const Surface) *App {
+    return self.app;
 }
 
 /// Update our local copy of any configuration that we use.
@@ -859,15 +875,6 @@ pub fn controlInspector(
         log.err("failed to control inspector err={}", .{err});
         return;
     };
-}
-
-pub fn setShouldClose(self: *Surface) void {
-    _ = self;
-}
-
-pub fn shouldClose(self: *const Surface) bool {
-    _ = self;
-    return false;
 }
 
 pub fn getContentScale(self: *const Surface) !apprt.ContentScale {
@@ -1252,9 +1259,13 @@ pub fn setClipboardString(
         // We only toast if we are copying to the standard clipboard.
         if (clipboard_type == .standard and
             self.app.config.@"app-notifications".@"clipboard-copy")
-        {
-            if (self.container.window()) |window|
-                window.sendToast(i18n._("Copied to clipboard"));
+        toast: {
+            const window = self.container.window() orelse break :toast;
+
+            if (val.len > 0)
+                window.sendToast(i18n._("Copied to clipboard"))
+            else
+                window.sendToast(i18n._("Cleared clipboard"));
         }
         return;
     }
@@ -2221,22 +2232,30 @@ fn gtkDrop(
         };
         const writer = shell_escape_writer.writer();
 
-        const unboxed = value.getBoxed() orelse return 0;
-        const fl: *gdk.FileList = @ptrCast(@alignCast(unboxed));
-        var list: ?*glib.SList = fl.getFiles();
+        const list: ?*glib.SList = list: {
+            const unboxed = value.getBoxed() orelse return 0;
+            const fl: *gdk.FileList = @ptrCast(@alignCast(unboxed));
+            break :list fl.getFiles();
+        };
+        defer if (list) |v| v.free();
 
-        while (list) |item| : (list = item.f_next) {
-            const file: *gio.File = @ptrCast(@alignCast(item.f_data orelse continue));
-            const path = file.getPath() orelse continue;
+        {
+            var current: ?*glib.SList = list;
+            while (current) |item| : (current = item.f_next) {
+                const file: *gio.File = @ptrCast(@alignCast(item.f_data orelse continue));
+                const path = file.getPath() orelse continue;
+                const slice = std.mem.span(path);
+                defer glib.free(path);
 
-            writer.writeAll(std.mem.span(path)) catch |err| {
-                log.err("unable to write path to buffer: {}", .{err});
-                continue;
-            };
-            writer.writeAll("\n") catch |err| {
-                log.err("unable to write to buffer: {}", .{err});
-                continue;
-            };
+                writer.writeAll(slice) catch |err| {
+                    log.err("unable to write path to buffer: {}", .{err});
+                    continue;
+                };
+                writer.writeAll("\n") catch |err| {
+                    log.err("unable to write to buffer: {}", .{err});
+                    continue;
+                };
+            }
         }
 
         const string = data.toOwnedSliceSentinel(0) catch |err| {
@@ -2333,6 +2352,7 @@ pub fn defaultTermioEnv(self: *Surface) !std.process.EnvMap {
     env.remove("DBUS_STARTER_BUS_TYPE");
     env.remove("INVOCATION_ID");
     env.remove("JOURNAL_STREAM");
+    env.remove("NOTIFY_SOCKET");
 
     // Unset environment varies set by snaps if we're running in a snap.
     // This allows Ghostty to further launch additional snaps.
@@ -2501,4 +2521,41 @@ fn gtkStreamError(media_file: *gtk.MediaFile, _: *gobject.ParamSpec, _: ?*anyopa
 /// Stream is finished, release the memory.
 fn gtkStreamEnded(media_file: *gtk.MediaFile, _: *gobject.ParamSpec, _: ?*anyopaque) callconv(.c) void {
     media_file.unref();
+}
+
+/// Show native GUI element with a notification that the child process has
+/// closed. Return `true` if we are able to show the GUI notification, and
+/// `false` if we are not.
+pub fn showChildExited(self: *Surface, info: apprt.surface.Message.ChildExited) error{}!bool {
+    if (!adw_version.supportsBanner()) return false;
+
+    const warning_text, const css_class = if (info.exit_code == 0)
+        .{ i18n._("Command succeeded"), "child_exited_normally" }
+    else
+        .{ i18n._("Command failed"), "child_exited_abnormally" };
+
+    const banner = adw.Banner.new(warning_text);
+    banner.setRevealed(1);
+    banner.setButtonLabel(i18n._("Close"));
+
+    _ = adw.Banner.signals.button_clicked.connect(
+        banner,
+        *Surface,
+        showChildExitedButtonClosed,
+        self,
+        .{},
+    );
+
+    const banner_widget = banner.as(gtk.Widget);
+    banner_widget.setHalign(.fill);
+    banner_widget.setValign(.end);
+    banner_widget.addCssClass(css_class);
+
+    self.overlay.addOverlay(banner_widget);
+
+    return true;
+}
+
+fn showChildExitedButtonClosed(_: *adw.Banner, self: *Surface) callconv(.c) void {
+    self.close(false);
 }

@@ -19,20 +19,15 @@
     "url": "https://deps.files.ghostty.org/gettext-0.24.tar.gz",
     "hash": "sha256-yRhQPVk9cNr0hE0XWhPYFq+stmfAb7oeydzVACwVGLc="
   },
-  "N-V-__8AAMrJSwAUGb9-vTzkNR-5LXS81MR__ZRVfF3tWgG6": {
-    "name": "glfw",
-    "url": "https://github.com/glfw/glfw/archive/e7ea71be039836da3a98cea55ae5569cb5eb885c.tar.gz",
-    "hash": "sha256-M3N1XUAlMebBo5X1Py+9YxjKXgZ6eacqWRCbUmwLKQo="
-  },
   "N-V-__8AABzkUgISeKGgXAzgtutgJsZc0-kkeqBBscJgMkvy": {
     "name": "glslang",
     "url": "https://deps.files.ghostty.org/glslang-12201278a1a05c0ce0b6eb6026c65cd3e9247aa041b1c260324bf29cee559dd23ba1.tar.gz",
     "hash": "sha256-FKLtu1Ccs+UamlPj9eQ12/WXFgS0uDPmPmB26MCpl7U="
   },
-  "gobject-0.2.0-Skun7IWDlQAOKu4BV7LapIxL9Imbq1JRmzvcIkazvAxR": {
+  "gobject-0.3.0-Skun7AngnABC2BPiaoobs6YSSzSgMuEIcjb2rYrRyaAM": {
     "name": "gobject",
-    "url": "https://github.com/jcollie/ghostty-gobject/releases/download/0.14.0-2025-03-18-21-1/ghostty-gobject-0.14.0-2025-03-18-21-1.tar.zst",
-    "hash": "sha256-hWcpl0Wd3XydT+RY7+VIoxXPhCzele1Ip76YSh+KmLI="
+    "url": "https://github.com/jcollie/ghostty-gobject/releases/download/0.14.1-2025-08-09-37-1/ghostty-gobject-0.14.1-2025-08-09-37-1.tar.zst",
+    "hash": "sha256-B0ziLzKud+kdKu5T1BTE9GMh8EPM/KhhhoNJlys5QPI="
   },
   "N-V-__8AALiNBAA-_0gprYr92CjrMj1I5bqNu0TSJOnjFNSr": {
     "name": "gtk4_layer_shell",
@@ -54,25 +49,35 @@
     "url": "https://deps.files.ghostty.org/imgui-1220bc6b9daceaf7c8c60f3c3998058045ba0c5c5f48ae255ff97776d9cd8bfc6402.tar.gz",
     "hash": "sha256-oF/QHgTPEat4Hig4fGIdLkIPHmBEyOJ6JeYD6pnveGA="
   },
-  "N-V-__8AAGHcWgTaKLjwmFkxToNT4jgz5VXUHR7hz8TQ2_AS": {
+  "N-V-__8AAAlgXwSghpDmXBXZM4Rpd80WKOXVWTrcL0ucVmls": {
     "name": "iterm2_themes",
-    "url": "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/6fa671fdc1daf1fcfa025cb960ffa3e7373a2ed8.tar.gz",
-    "hash": "sha256-g9o2CIc/TfWYoUS/l/HP5KZECD7qNsdQUlFruaKkVz4="
+    "url": "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/8b639f0c2605557bd23ba1b940842c67bbfd4ed0.tar.gz",
+    "hash": "sha256-PySWF/9IAK4DZCkd5FRpiaIl6et2Qm6t8IKCTzh/Xa0="
+  },
+  "N-V-__8AAIC5lwAVPJJzxnCAahSvZTIlG-HhtOvnM1uh-66x": {
+    "name": "jetbrains_mono",
+    "url": "https://deps.files.ghostty.org/JetBrainsMono-2.304.tar.gz",
+    "hash": "sha256-xXppHouCrQmLWWPzlZAy5AOPORCHr3cViFulkEYQXMQ="
   },
   "N-V-__8AAJrvXQCqAT8Mg9o_tk6m0yf5Fz-gCNEOKLyTSerD": {
     "name": "libpng",
     "url": "https://deps.files.ghostty.org/libpng-1220aa013f0c83da3fb64ea6d327f9173fa008d10e28bc9349eac3463457723b1c66.tar.gz",
     "hash": "sha256-/syVtGzwXo4/yKQUdQ4LparQDYnp/fF16U/wQcrxoDo="
   },
-  "libxev-0.0.0-86vtcyMBEwA-UpcjfOICyI2GYG8o6MiRbinS1_8g1_rw": {
+  "libxev-0.0.0-86vtc2UaEwDfiTKX3iBI-s_hdzfzWQUarT3MUrmUQl-Q": {
     "name": "libxev",
-    "url": "https://github.com/mitchellh/libxev/archive/75a10d0fb374e8eb84948dcfc68d865e755e59c2.tar.gz",
-    "hash": "sha256-/CSKSuZZfn0aIQlVZ0O8ch5O4gCajYBTTuoetRdo0n4="
+    "url": "https://github.com/mitchellh/libxev/archive/7f803181b158a10fec8619f793e3b4df515566cb.tar.gz",
+    "hash": "sha256-KaozYKEhhT/6sInef7/8O/60LDBJN+8QmdLuNY1Gkmc="
   },
   "N-V-__8AAG3RoQEyRC2Vw7Qoro5SYBf62IHn3HjqtNVY6aWK": {
     "name": "libxml2",
     "url": "https://deps.files.ghostty.org/libxml2-2.11.5.tar.gz",
     "hash": "sha256-bCgFni4+60K1tLFkieORamNGwQladP7jvGXNxdiaYhU="
+  },
+  "N-V-__8AAMVLTABmYkLqhZPLXnMl-KyN38R8UVYqGrxqO26s": {
+    "name": "nerd_fonts_symbols_only",
+    "url": "https://deps.files.ghostty.org/NerdFontsSymbolsOnly-3.4.0.tar.gz",
+    "hash": "sha256-EWTRuVbUveJI17LwmYxDzJT1ICQxoVZKeTiVsec7DQQ="
   },
   "N-V-__8AAHjwMQDBXnLq3Q2QhaivE0kE2aD138vtX2Bq1g7c": {
     "name": "oniguruma",
@@ -124,10 +129,10 @@
     "url": "https://deps.files.ghostty.org/wuffs-122037b39d577ec2db3fd7b2130e7b69ef6cc1807d68607a7c232c958315d381b5cd.tar.gz",
     "hash": "sha256-nkzSCr6W5sTG7enDBXEIhgEm574uLD41UVR2wlC+HBM="
   },
-  "z2d-0.7.0-j5P_Hg_DDACq-2H2Zh7rAq6_TXWdQzv7JAUfnrdeDosg": {
+  "z2d-0.7.2-j5P_Hm1oDQDQsWpGfSCMARhowBnuTHlQ_sBfij6TuG7l": {
     "name": "z2d",
-    "url": "https://github.com/vancluever/z2d/archive/8bbd035f4101f02b1d27947def0d7da3215df7fe.tar.gz",
-    "hash": "sha256-wfadegeixcbgxRzRtf6M2H34CTuvDM22XVIhuufFBG4="
+    "url": "https://github.com/vancluever/z2d/archive/refs/tags/v0.7.2.tar.gz",
+    "hash": "sha256-tWrLlEOU4/0ZOlzgGOXB08fW7sqfyAFf3rlv0wl9b/c="
   },
   "zf-0.10.3-OIRy8aiIAACLrBllz0zjxaH0aOe5oNm3KtEMyCntST-9": {
     "name": "zf",

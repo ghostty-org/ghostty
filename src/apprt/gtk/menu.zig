@@ -82,10 +82,6 @@ pub fn Menu(
             return self.menu_widget.as(gtk.Widget).getVisible() != 0;
         }
 
-        pub fn setVisible(self: *const Self, visible: bool) void {
-            self.menu_widget.as(gtk.Widget).setVisible(@intFromBool(visible));
-        }
-
         /// Refresh the menu. Right now that means enabling/disabling the "Copy"
         /// menu item based on whether there is an active selection or not, but
         /// that may change in the future.

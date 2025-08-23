@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_config = @import("../build_config.zig");
 
 /// The possible cursor shapes. Not all app runtimes support these shapes.
 /// The shapes are always based on the W3C supported cursor styles so we
@@ -45,6 +46,16 @@ pub const MouseShape = enum(c_int) {
     pub fn fromString(v: []const u8) ?MouseShape {
         return string_map.get(v);
     }
+
+    /// Make this a valid gobject if we're in a GTK environment.
+    pub const getGObjectType = switch (build_config.app_runtime) {
+        .gtk, .@"gtk-ng" => @import("gobject").ext.defineEnum(
+            MouseShape,
+            .{ .name = "GhosttyMouseShape" },
+        ),
+
+        .none => void,
+    };
 };
 
 const string_map = std.StaticStringMap(MouseShape).initComptime(.{

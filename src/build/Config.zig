@@ -9,6 +9,7 @@ const apprt = @import("../apprt.zig");
 const font = @import("../font/main.zig");
 const rendererpkg = @import("../renderer.zig");
 const Command = @import("../Command.zig");
+const XCFramework = @import("GhosttyXCFramework.zig");
 const WasmTarget = @import("../os/wasm/target.zig").Target;
 
 const gtk = @import("gtk.zig");
@@ -24,6 +25,7 @@ const app_version: std.SemanticVersion = .{ .major = 1, .minor = 1, .patch = 4 }
 /// Standard build configuration options.
 optimize: std.builtin.OptimizeMode,
 target: std.Build.ResolvedTarget,
+xcframework_target: XCFramework.Target = .universal,
 wasm_target: WasmTarget,
 
 /// Comptime interfaces
@@ -35,6 +37,7 @@ font_backend: font.Backend = .freetype,
 x11: bool = false,
 wayland: bool = false,
 sentry: bool = true,
+i18n: bool = true,
 wasm_shared: bool = true,
 
 /// Ghostty exe properties
@@ -48,14 +51,16 @@ patch_rpath: ?[]const u8 = null,
 
 /// Artifacts
 flatpak: bool = false,
-emit_test_exe: bool = false,
 emit_bench: bool = false,
-emit_helpgen: bool = false,
 emit_docs: bool = false,
-emit_webdata: bool = false,
-emit_xcframework: bool = false,
+emit_exe: bool = false,
+emit_helpgen: bool = false,
+emit_macos_app: bool = false,
 emit_terminfo: bool = false,
 emit_termcap: bool = false,
+emit_test_exe: bool = false,
+emit_xcframework: bool = false,
+emit_webdata: bool = false,
 
 /// Environmental properties
 env: std.process.EnvMap,
@@ -108,6 +113,14 @@ pub fn init(b: *std.Build) !Config {
         .wasm_target = wasm_target,
         .env = env,
     };
+
+    //---------------------------------------------------------------
+    // Target-specific properties
+    config.xcframework_target = b.option(
+        XCFramework.Target,
+        "xcframework-target",
+        "The target for the xcframework.",
+    ) orelse .universal;
 
     //---------------------------------------------------------------
     // Comptime Interfaces
@@ -163,6 +176,16 @@ pub fn init(b: *std.Build) !Config {
         "gtk-x11",
         "Enables linking against X11 libraries when using the GTK rendering backend.",
     ) orelse gtk_targets.x11;
+
+    config.i18n = b.option(
+        bool,
+        "i18n",
+        "Enables gettext-based internationalization. Enabled by default only for macOS, and other Unix-like systems like Linux and FreeBSD when using glibc.",
+    ) orelse switch (target.result.os.tag) {
+        .macos, .ios => true,
+        .linux, .freebsd => target.result.isGnuLibC(),
+        else => false,
+    };
 
     //---------------------------------------------------------------
     // Ghostty Exe Properties
@@ -264,6 +287,12 @@ pub fn init(b: *std.Build) !Config {
     //---------------------------------------------------------------
     // Artifacts to Emit
 
+    config.emit_exe = b.option(
+        bool,
+        "emit-exe",
+        "Build and install main executables with 'build'",
+    ) orelse true;
+
     config.emit_test_exe = b.option(
         bool,
         "emit-test-exe",
@@ -340,6 +369,12 @@ pub fn init(b: *std.Build) !Config {
             !config.emit_test_exe and
             !config.emit_helpgen);
 
+    config.emit_macos_app = b.option(
+        bool,
+        "emit-macos-app",
+        "Build and install the macOS app bundle.",
+    ) orelse config.emit_xcframework;
+
     //---------------------------------------------------------------
     // System Packages
 
@@ -378,11 +413,6 @@ pub fn init(b: *std.Build) !Config {
             "glslang",
             "spirv-cross",
             "simdutf",
-
-            // This is default false because it is used for testing
-            // primarily and not official packaging. The packaging
-            // guide advises against building the GLFW backend.
-            "glfw3",
         }) |dep| {
             _ = b.systemIntegrationOption(dep, .{ .default = false });
         }
@@ -408,6 +438,7 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
     step.addOption(bool, "x11", self.x11);
     step.addOption(bool, "wayland", self.wayland);
     step.addOption(bool, "sentry", self.sentry);
+    step.addOption(bool, "i18n", self.i18n);
     step.addOption(apprt.Runtime, "app_runtime", self.app_runtime);
     step.addOption(font.Backend, "font_backend", self.font_backend);
     step.addOption(rendererpkg.Impl, "renderer", self.renderer);
@@ -436,6 +467,22 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
     );
 }
 
+/// Returns a baseline CPU target retaining all the other CPU configs.
+pub fn baselineTarget(self: *const Config) std.Build.ResolvedTarget {
+    // Set our cpu model as baseline. There may need to be other modifications
+    // we need to make such as resetting CPU features but for now this works.
+    var q = self.target.query;
+    q.cpu_model = .baseline;
+
+    // Same logic as build.resolveTargetQuery but we don't need to
+    // handle the native case.
+    return .{
+        .query = q,
+        .result = std.zig.system.resolveTargetQuery(q) catch
+            @panic("unable to resolve baseline query"),
+    };
+}
+
 /// Rehydrate our Config from the comptime options. Note that not all
 /// options are available at comptime, so look closely at this implementation
 /// to see what is and isn't available.
@@ -455,6 +502,7 @@ pub fn fromOptions() Config {
         .exe_entrypoint = std.meta.stringToEnum(ExeEntrypoint, @tagName(options.exe_entrypoint)).?,
         .wasm_target = std.meta.stringToEnum(WasmTarget, @tagName(options.wasm_target)).?,
         .wasm_shared = options.wasm_shared,
+        .i18n = options.i18n,
     };
 }
 
@@ -516,11 +564,6 @@ pub const ExeEntrypoint = enum {
     webgen_config,
     webgen_actions,
     webgen_commands,
-    bench_parser,
-    bench_stream,
-    bench_codepoint_width,
-    bench_grapheme_break,
-    bench_page_init,
 };
 
 /// The release channel for the build.

@@ -1,0 +1,86 @@
+using Gtk 4.0;
+// This is unused but if we remove it we get a blueprint-compiler error.
+using Adw 1;
+
+template $GhosttyClipboardConfirmationDialog: $GhosttyDialog {
+  styles [
+    "clipboard-confirmation-dialog",
+  ]
+
+  notify::blur => $notify_blur();
+  notify::request => $notify_request();
+  heading: _("Authorize Clipboard Access");
+  // Not localized because this is a placeholder users never see.
+  body: "If you see this text, there is a bug in Ghostty. Please report it.";
+
+  responses [
+    cancel: _("Deny") suggested,
+    ok: _("Allow") destructive,
+  ]
+
+  default-response: "cancel";
+  close-response: "cancel";
+
+  extra-child: ListBox {
+    selection-mode: none;
+
+    Overlay {
+      styles [
+        "osd",
+        "clipboard-overlay",
+      ]
+
+      ScrolledWindow text_view_scroll {
+        width-request: 500;
+        height-request: 200;
+
+        TextView text_view {
+          styles [
+            "clipboard-contents",
+          ]
+
+          cursor-visible: false;
+          editable: false;
+          monospace: true;
+          top-margin: 8;
+          left-margin: 8;
+          bottom-margin: 8;
+          right-margin: 8;
+          buffer: bind template.clipboard-contents;
+        }
+      }
+
+      [overlay]
+      Button reveal_button {
+        clicked => $reveal_clicked();
+        visible: false;
+        halign: end;
+        valign: start;
+        margin-end: 12;
+        margin-top: 12;
+
+        Image {
+          icon-name: "view-reveal-symbolic";
+        }
+      }
+
+      [overlay]
+      Button hide_button {
+        clicked => $hide_clicked();
+        visible: false;
+        halign: end;
+        valign: start;
+        margin-end: 12;
+        margin-top: 12;
+
+        styles [
+          "opaque",
+        ]
+
+        Image {
+          icon-name: "view-conceal-symbolic";
+        }
+      }
+    }
+  };
+}

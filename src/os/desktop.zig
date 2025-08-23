@@ -24,8 +24,15 @@ pub fn launchedFromDesktop() bool {
             // This special case is so that if we launch the app via the
             // app bundle (i.e. via open) then we still treat it as if it
             // was launched from the desktop.
-            if (build_config.artifact == .lib and
-                posix.getenv("GHOSTTY_MAC_APP") != null) break :macos true;
+            if (build_config.artifact == .lib) lib: {
+                const env = "GHOSTTY_MAC_LAUNCH_SOURCE";
+                const source = posix.getenv(env) orelse break :lib;
+
+                // Source can be "app", "cli", or "zig_run". We assume
+                // its the desktop only if its "app". We may want to do
+                // "zig_run" but at the moment there's no reason.
+                if (std.mem.eql(u8, source, "app")) break :macos true;
+            }
 
             break :macos c.getppid() == 1;
         },

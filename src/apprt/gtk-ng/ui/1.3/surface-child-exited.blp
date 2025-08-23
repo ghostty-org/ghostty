@@ -1,0 +1,22 @@
+using Gtk 4.0;
+using Adw 1;
+
+template $GhosttySurfaceChildExited: Adw.Bin {
+  styles [
+    "child-exited",
+  ]
+
+  notify::data => $notify_data();
+
+  Adw.Bin {
+    Adw.Banner banner {
+      button-clicked => $clicked();
+      revealed: true;
+      // Not localized on purpose because it should never be seen.
+      title: "This is a bug in Ghostty. Please report it.";
+      button-label: _("Close");
+      halign: fill;
+      valign: end;
+    }
+  }
+}

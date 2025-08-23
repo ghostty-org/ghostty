@@ -238,7 +238,13 @@ const Command = extern struct {
                         ?[:0]const u8,
                         .{
                             .default = null,
-                            .accessor = .{ .getter = &accessor.getter },
+                            .accessor = gobject.ext.typedAccessor(
+                                Command,
+                                ?[:0]const u8,
+                                .{
+                                    .getter = &accessor.getter,
+                                },
+                            ),
                         },
                     );
                 }

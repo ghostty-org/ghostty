@@ -30,7 +30,7 @@ pub const GlobalState = struct {
 
     gpa: ?GPA,
     alloc: std.mem.Allocator,
-    action: ?cli.Action,
+    action: ?cli.ghostty.Action,
     logging: Logging,
     rlimits: ResourceLimits = .{},
 
@@ -92,7 +92,10 @@ pub const GlobalState = struct {
             unreachable;
 
         // We first try to parse any action that we may be executing.
-        self.action = try cli.Action.detectCLI(self.alloc);
+        self.action = try cli.action.detectArgs(
+            cli.ghostty.Action,
+            self.alloc,
+        );
 
         // If we have an action executing, we disable logging by default
         // since we write to stderr we don't want logs messing up our

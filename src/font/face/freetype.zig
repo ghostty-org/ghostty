@@ -15,11 +15,12 @@ const Allocator = std.mem.Allocator;
 const font = @import("../main.zig");
 const Glyph = font.Glyph;
 const Library = font.Library;
-const convert = @import("freetype_convert.zig");
 const opentype = @import("../opentype.zig");
 const fastmem = @import("../../fastmem.zig");
 const quirks = @import("../../quirks.zig");
 const config = @import("../../config.zig");
+
+const F26Dot6 = opentype.sfnt.F26Dot6;
 
 const log = std.log.scoped(.font_face);
 
@@ -58,13 +59,8 @@ pub const Face = struct {
         bold: bool = false,
     } = .{},
 
-    /// The matrix applied to a regular font to create a synthetic italic.
-    const italic_matrix: freetype.c.FT_Matrix = .{
-        .xx = 0x10000,
-        .xy = 0x044ED, // approx. tan(15)
-        .yx = 0,
-        .yy = 0x10000,
-    };
+    /// The current size this font is set to.
+    size: font.face.DesiredSize,
 
     /// Initialize a new font face with the given source in-memory.
     pub fn initFile(
@@ -114,6 +110,7 @@ pub const Face = struct {
             .hb_font = hb_font,
             .ft_mutex = ft_mutex,
             .load_flags = opts.freetype_load_flags,
+            .size = opts.size,
         };
         result.quirks_disable_default_font_features = quirks.disableDefaultFontFeatures(&result);
 
@@ -159,21 +156,56 @@ pub const Face = struct {
     /// but sometimes allocation isn't required and a static string is
     /// returned.
     pub fn name(self: *const Face, buf: []u8) Allocator.Error![]const u8 {
-        // We don't use this today but its possible the table below
-        // returns UTF-16 in which case we'd want to use this for conversion.
-        _ = buf;
-
         const count = self.face.getSfntNameCount();
 
         // We look for the font family entry.
         for (0..count) |i| {
             const entry = self.face.getSfntName(i) catch continue;
             if (entry.name_id == freetype.c.TT_NAME_ID_FONT_FAMILY) {
-                return entry.string[0..entry.string_len];
+                const string = entry.string[0..entry.string_len];
+                // There are other encodings that are something other than UTF-8
+                // but this is one we've seen "in the wild" so far.
+                if (entry.platform_id == freetype.c.TT_PLATFORM_MICROSOFT and entry.encoding_id == freetype.c.TT_MS_ID_UNICODE_CS) skip: {
+                    if (string.len % 2 != 0) break :skip;
+                    if (string.len > 1024) break :skip;
+                    var tmp: [512]u16 = undefined;
+                    const max = string.len / 2;
+                    for (@as([]const u16, @alignCast(@ptrCast(string))), 0..) |c, j| tmp[j] = @byteSwap(c);
+                    const len = std.unicode.utf16LeToUtf8(buf, tmp[0..max]) catch return string;
+                    return buf[0..len];
+                }
+                return string;
             }
         }
 
         return "";
+    }
+
+    test "face name" {
+        const embedded = @import("../embedded.zig");
+
+        var lib: Library = try .init(testing.allocator);
+        defer lib.deinit();
+
+        {
+            var face: Face = try .init(lib, embedded.variable, .{ .size = .{ .points = 14 } });
+            defer face.deinit();
+
+            var buf: [1024]u8 = undefined;
+            const actual = try face.name(&buf);
+
+            try testing.expectEqualStrings("JetBrains Mono", actual);
+        }
+
+        {
+            var face: Face = try .init(lib, embedded.inconsolata, .{ .size = .{ .points = 14 } });
+            defer face.deinit();
+
+            var buf: [1024]u8 = undefined;
+            const actual = try face.name(&buf);
+
+            try testing.expectEqualStrings("Inconsolata", actual);
+        }
     }
 
     /// Return a new face that is the same as this but also has synthetic
@@ -210,6 +242,7 @@ pub const Face = struct {
     /// for clearing any glyph caches, font atlas data, etc.
     pub fn setSize(self: *Face, opts: font.face.Options) !void {
         try setSize_(self.face, opts.size);
+        self.size = opts.size;
     }
 
     fn setSize_(face: freetype.Face, size: font.face.DesiredSize) !void {
@@ -219,7 +252,7 @@ pub const Face = struct {
         if (face.isScalable()) {
             const size_26dot6: i32 = @intFromFloat(@round(size.points * 64));
             try face.setCharSize(0, size_26dot6, size.xdpi, size.ydpi);
-        } else try selectSizeNearest(face, size.pixels());
+        } else try selectSizeNearest(face, @intFromFloat(@round(size.pixels())));
     }
 
     /// Selects the fixed size in the loaded face that is closest to the
@@ -330,27 +363,30 @@ pub const Face = struct {
         self.ft_mutex.lock();
         defer self.ft_mutex.unlock();
 
-        const metrics = opts.grid_metrics;
+        // Hinting should only be enabled if the configured load flags specify
+        // it and the provided constraint doesn't actually do anything, since
+        // if it does, then it'll mess up the hinting anyway when it moves or
+        // resizes the glyph.
+        const do_hinting = self.load_flags.hinting and !opts.constraint.doesAnything();
 
-        // If we have synthetic italic, then we apply a transformation matrix.
-        // We have to undo this because synthetic italic works by increasing
-        // the ref count of the base face.
-        if (self.synthetic.italic) self.face.setTransform(&italic_matrix, null);
-        defer if (self.synthetic.italic) self.face.setTransform(null, null);
-
-        // If our glyph has color, we want to render the color
+        // Load the glyph.
         try self.face.loadGlyph(glyph_index, .{
+            // If our glyph has color, we want to render the color
             .color = self.face.hasColor(),
 
-            // If we have synthetic bold, we have to set some additional
-            // glyph properties before render so we don't render here.
-            .render = !self.synthetic.bold,
+            // We don't render, because we'll invoke the render
+            // manually after applying constraints further down.
+            .render = false,
 
             // use options from config
-            .no_hinting = !self.load_flags.hinting,
-            .force_autohint = !self.load_flags.@"force-autohint",
-            .monochrome = !self.load_flags.monochrome,
+            .no_hinting = !do_hinting,
+            .force_autohint = self.load_flags.@"force-autohint",
             .no_autohint = !self.load_flags.autohint,
+
+            // If we're gonna be rendering this glyph in monochrome,
+            // then we should use the monochrome hinter as well, or
+            // else it won't look very good at all.
+            .target_mono = self.load_flags.monochrome,
 
             // NO_SVG set to true because we don't currently support rendering
             // SVG glyphs under FreeType, since that requires bundling another
@@ -359,260 +395,374 @@ pub const Face = struct {
         });
         const glyph = self.face.handle.*.glyph;
 
-        // For synthetic bold, we embolden the glyph and render it.
+        // We get a rect that represents the position
+        // and size of the glyph before any changes.
+        const rect: struct {
+            x: f64,
+            y: f64,
+            width: f64,
+            height: f64,
+        } = metrics: {
+            // If we're dealing with an outline glyph then we get the
+            // outline's bounding box instead of using the built-in
+            // metrics, since that's more precise and allows better
+            // cell-fitting.
+            if (glyph.*.format == freetype.c.FT_GLYPH_FORMAT_OUTLINE) {
+                // Get the glyph's bounding box before we transform it at all.
+                // We use this rather than the metrics, since it's more precise.
+                var bbox: freetype.c.FT_BBox = undefined;
+                _ = freetype.c.FT_Outline_Get_BBox(&glyph.*.outline, &bbox);
+
+                break :metrics .{
+                    .x = f26dot6ToF64(bbox.xMin),
+                    .y = f26dot6ToF64(bbox.yMin),
+                    .width = f26dot6ToF64(bbox.xMax - bbox.xMin),
+                    .height = f26dot6ToF64(bbox.yMax - bbox.yMin),
+                };
+            }
+
+            break :metrics .{
+                .x = f26dot6ToF64(glyph.*.metrics.horiBearingX),
+                .y = f26dot6ToF64(glyph.*.metrics.horiBearingY - glyph.*.metrics.height),
+                .width = f26dot6ToF64(glyph.*.metrics.width),
+                .height = f26dot6ToF64(glyph.*.metrics.height),
+            };
+        };
+
+        // If our glyph is smaller than a quarter pixel in either axis
+        // then it has no outlines or they're too small to render.
+        //
+        // In this case we just return 0-sized glyph struct.
+        if (rect.width < 0.25 or rect.height < 0.25)
+            return font.Glyph{
+                .width = 0,
+                .height = 0,
+                .offset_x = 0,
+                .offset_y = 0,
+                .atlas_x = 0,
+                .atlas_y = 0,
+            };
+
+        // For synthetic bold, we embolden the glyph.
         if (self.synthetic.bold) {
             // We need to scale the embolden amount based on the font size.
             // This is a heuristic I found worked well across a variety of
             // founts: 1 pixel per 64 units of height.
-            const height: f64 = @floatFromInt(self.face.handle.*.size.*.metrics.height);
+            const font_height: f64 = @floatFromInt(self.face.handle.*.size.*.metrics.height);
             const ratio: f64 = 64.0 / 2048.0;
-            const amount = @ceil(height * ratio);
+            const amount = @ceil(font_height * ratio);
             _ = freetype.c.FT_Outline_Embolden(&glyph.*.outline, @intFromFloat(amount));
-            try self.face.renderGlyph(.normal);
         }
 
-        // This bitmap is blank. I've seen it happen in a font, I don't know why.
-        // If it is empty, we just return a valid glyph struct that does nothing.
-        const bitmap_ft = glyph.*.bitmap;
-        if (bitmap_ft.rows == 0) return .{
-            .width = 0,
-            .height = 0,
-            .offset_x = 0,
-            .offset_y = 0,
-            .atlas_x = 0,
-            .atlas_y = 0,
-            .advance_x = 0,
-        };
+        const metrics = opts.grid_metrics;
+        const cell_width: f64 = @floatFromInt(metrics.cell_width);
+        const cell_height: f64 = @floatFromInt(metrics.cell_height);
 
-        // Ensure we know how to work with the font format. And assure that
-        // or color depth is as expected on the texture atlas. If format is null
-        // it means there is no native color format for our Atlas and we must try
-        // conversion.
-        const format: ?font.Atlas.Format = switch (bitmap_ft.pixel_mode) {
-            freetype.c.FT_PIXEL_MODE_MONO => null,
-            freetype.c.FT_PIXEL_MODE_GRAY => .grayscale,
-            freetype.c.FT_PIXEL_MODE_BGRA => .bgra,
+        // Next we apply any constraints to get the final size of the glyph.
+        var constraint = opts.constraint;
+
+        // We eliminate any negative vertical padding since these overlap
+        // values aren't needed  with how precisely we apply constraints,
+        // and they can lead to extra height that looks bad for things like
+        // powerline glyphs.
+        constraint.pad_top = @max(0.0, constraint.pad_top);
+        constraint.pad_bottom = @max(0.0, constraint.pad_bottom);
+
+        // We need to add the baseline position before passing to the constrain
+        // function since it operates on cell-relative positions, not baseline.
+        const cell_baseline: f64 = @floatFromInt(metrics.cell_baseline);
+
+        const glyph_size = constraint.constrain(
+            .{
+                .width = rect.width,
+                .height = rect.height,
+                .x = rect.x,
+                .y = rect.y + cell_baseline,
+            },
+            metrics,
+            opts.constraint_width,
+        );
+
+        var width = glyph_size.width;
+        var height = glyph_size.height;
+        var x = glyph_size.x;
+        var y = glyph_size.y;
+
+        // If this is a bitmap glyph, it will always render as full pixels,
+        // not fractional pixels, so we need to quantize its position and
+        // size accordingly to align to full pixels so we get good results.
+        if (glyph.*.format == freetype.c.FT_GLYPH_FORMAT_BITMAP) {
+            width = cell_width - @round(cell_width - width - x) - @round(x);
+            height = cell_height - @round(cell_height - height - y) - @round(y);
+            x = @round(x);
+            y = @round(y);
+        }
+
+        // If the cell width was adjusted wider, we re-center all glyphs
+        // in the new width, so that they aren't weirdly off to the left.
+        if (metrics.original_cell_width) |original| recenter: {
+            // We don't do this if the constraint has a horizontal alignment,
+            // since in that case the position was already calculated with the
+            // new cell width in mind.
+            if (opts.constraint.align_horizontal != .none) break :recenter;
+
+            // If the original width was wider then we don't do anything.
+            if (original >= metrics.cell_width) break :recenter;
+
+            // We add half the difference to re-center.
+            //
+            // NOTE: We round this to a whole-pixel amount because under
+            //       FreeType, the outlines will be hinted, which isn't
+            //       the case under CoreText. If we move the outlines by
+            //       a non-whole-pixel amount, it completely ruins the
+            //       hinting.
+            x += @round((cell_width - @as(f64, @floatFromInt(original))) / 2);
+        }
+
+        // Now we can render the glyph.
+        var bitmap: freetype.c.FT_Bitmap = undefined;
+        _ = freetype.c.FT_Bitmap_Init(&bitmap);
+        defer _ = freetype.c.FT_Bitmap_Done(self.lib.lib.handle, &bitmap);
+        switch (glyph.*.format) {
+            freetype.c.FT_GLYPH_FORMAT_OUTLINE => {
+                // Manually adjust the glyph outline with this transform.
+                //
+                // This offers better precision than using the freetype transform
+                // matrix, since that has 16.16 coefficients, and also I was having
+                // weird issues that I can only assume where due to freetype doing
+                // some bad caching or something when I did this using the matrix.
+                const scale_x = width / rect.width;
+                const scale_y = height / rect.height;
+                const skew: f64 =
+                    if (self.synthetic.italic)
+                        // We skew by 12 degrees to synthesize italics.
+                        @tan(std.math.degreesToRadians(12))
+                    else
+                        0.0;
+
+                const outline = &glyph.*.outline;
+                for (outline.points[0..@intCast(outline.n_points)]) |*p| {
+                    // Convert to f64 for processing
+                    var px = f26dot6ToF64(p.x);
+                    var py = f26dot6ToF64(p.y);
+
+                    // Subtract original bearings
+                    px -= rect.x;
+                    py -= rect.y;
+
+                    // Scale
+                    px *= scale_x;
+                    py *= scale_y;
+
+                    // Add new bearings
+                    px += x;
+                    py += y - cell_baseline;
+
+                    // Skew
+                    px += py * skew;
+
+                    // Convert back and store
+                    p.x = @as(i32, @bitCast(F26Dot6.from(px)));
+                    p.y = @as(i32, @bitCast(F26Dot6.from(py)));
+                }
+
+                try self.face.renderGlyph(
+                    if (self.load_flags.monochrome)
+                        .mono
+                    else
+                        .normal,
+                );
+
+                // Copy the glyph's bitmap, making sure
+                // that it's 8bpp and densely packed.
+                if (freetype.c.FT_Bitmap_Convert(
+                    self.lib.lib.handle,
+                    &glyph.*.bitmap,
+                    &bitmap,
+                    1,
+                ) != 0) {
+                    return error.BitmapHandlingError;
+                }
+            },
+
+            freetype.c.FT_GLYPH_FORMAT_BITMAP => {
+                // If our glyph has a non-color bitmap, we need
+                // to convert it to dense 8bpp so that the scale
+                // operation works correctly.
+                switch (glyph.*.bitmap.pixel_mode) {
+                    freetype.c.FT_PIXEL_MODE_BGRA,
+                    freetype.c.FT_PIXEL_MODE_GRAY,
+                    => {},
+                    else => {
+                        var converted: freetype.c.FT_Bitmap = undefined;
+                        freetype.c.FT_Bitmap_Init(&converted);
+                        if (freetype.c.FT_Bitmap_Convert(
+                            self.lib.lib.handle,
+                            &glyph.*.bitmap,
+                            &converted,
+                            1,
+                        ) != 0) {
+                            return error.BitmapHandlingError;
+                        }
+                        // Free the existing glyph bitmap and
+                        // replace it with the converted one.
+                        _ = freetype.c.FT_Bitmap_Done(
+                            self.lib.lib.handle,
+                            &glyph.*.bitmap,
+                        );
+                        glyph.*.bitmap = converted;
+                    },
+                }
+
+                const glyph_bitmap = glyph.*.bitmap;
+
+                // Round our target width and height
+                // as the size for our scaled bitmap.
+                const w: u32 = @intFromFloat(@round(width));
+                const h: u32 = @intFromFloat(@round(height));
+                const pitch = w * atlas.format.depth();
+
+                // Allocate a buffer for our scaled bitmap.
+                //
+                // We'll copy this to the original bitmap once we're
+                // done so we can free it at the end of this scope.
+                const buf = try alloc.alloc(u8, pitch * h);
+                defer alloc.free(buf);
+
+                // Resize
+                if (stb.stbir_resize_uint8(
+                    glyph_bitmap.buffer,
+                    @intCast(glyph_bitmap.width),
+                    @intCast(glyph_bitmap.rows),
+                    glyph_bitmap.pitch,
+                    buf.ptr,
+                    @intCast(w),
+                    @intCast(h),
+                    @intCast(pitch),
+                    atlas.format.depth(),
+                ) == 0) {
+                    // This should never fail because this is a
+                    // fairly straightforward in-memory operation...
+                    return error.GlyphResizeFailed;
+                }
+
+                const scaled_bitmap: freetype.c.FT_Bitmap = .{
+                    .buffer = buf.ptr,
+                    .width = @intCast(w),
+                    .rows = @intCast(h),
+                    .pitch = @intCast(pitch),
+                    .pixel_mode = glyph_bitmap.pixel_mode,
+                    .num_grays = glyph_bitmap.num_grays,
+                };
+
+                // Replace the bitmap's buffer and size info.
+                if (freetype.c.FT_Bitmap_Copy(
+                    self.lib.lib.handle,
+                    &scaled_bitmap,
+                    &bitmap,
+                ) != 0) {
+                    return error.BitmapHandlingError;
+                }
+
+                // Update the bearings to account for the new positioning.
+                glyph.*.bitmap_top = @intFromFloat(@floor(y - cell_baseline + height));
+                glyph.*.bitmap_left = @intFromFloat(@floor(x));
+            },
+
+            else => |f| {
+                // Glyph formats are tags, so we can
+                // output a semi-readable error here.
+                log.err(
+                    "Can't render glyph with unsupported glyph format \"{s}\"",
+                    .{[4]u8{
+                        @truncate(f >> 24),
+                        @truncate(f >> 16),
+                        @truncate(f >> 8),
+                        @truncate(f >> 0),
+                    }},
+                );
+                return error.UnsupportedGlyphFormat;
+            },
+        }
+
+        // If this is a color glyph but we're trying to render it to the
+        // grayscale atlas, or vice versa, then we throw and error. Maybe
+        // in the future we could convert, but for now it should be fine.
+        switch (bitmap.pixel_mode) {
+            freetype.c.FT_PIXEL_MODE_GRAY => if (atlas.format != .grayscale) {
+                return error.WrongAtlas;
+            },
+            freetype.c.FT_PIXEL_MODE_BGRA => if (atlas.format != .bgra) {
+                return error.WrongAtlas;
+            },
             else => {
-                log.warn("glyph={} pixel mode={}", .{ glyph_index, bitmap_ft.pixel_mode });
+                log.warn("glyph={} pixel mode={}", .{ glyph_index, bitmap.pixel_mode });
                 @panic("unsupported pixel mode");
             },
-        };
-
-        // If our atlas format doesn't match, look for conversions if possible.
-        const bitmap_converted = if (format == null or atlas.format != format.?) blk: {
-            const func = convert.map[bitmap_ft.pixel_mode].get(atlas.format) orelse {
-                log.warn("glyph={} pixel mode={}", .{ glyph_index, bitmap_ft.pixel_mode });
-                return error.UnsupportedPixelMode;
-            };
-
-            log.debug("converting from pixel_mode={} to atlas_format={}", .{
-                bitmap_ft.pixel_mode,
-                atlas.format,
-            });
-            break :blk try func(alloc, bitmap_ft);
-        } else null;
-        defer if (bitmap_converted) |bm| {
-            const len = @as(usize, @intCast(bm.pitch)) * @as(usize, @intCast(bm.rows));
-            alloc.free(bm.buffer[0..len]);
-        };
-
-        // Now we need to see if we need to resize this bitmap. This can happen
-        // in scenarios where we have fixed size glyphs. For example, emoji
-        // can be quite large (i.e. 128x128) when we have a cell width of 24!
-        // The issue with large bitmaps is they take a huge amount of space in
-        // the atlas and force resizes quite frequently. We pay some CPU cost
-        // up front to resize the glyph to avoid significant CPU cost to resize
-        // and copy the atlas.
-        const bitmap_original = bitmap_converted orelse bitmap_ft;
-        const bitmap_resized: ?freetype.c.struct_FT_Bitmap_ = resized: {
-            const original_width = bitmap_original.width;
-            const original_height = bitmap_original.rows;
-            var result = bitmap_original;
-            // TODO: We are limiting this to only color glyphs, so mainly emoji.
-            // We can rework this after a future improvement (promised by Qwerasd)
-            // which implements more flexible resizing rules.
-            if (atlas.format != .grayscale and opts.cell_width != null) {
-                const cell_width = opts.cell_width orelse unreachable;
-                // If we have a cell_width, we constrain
-                // the glyph to fit within the cell(s).
-                result.width = metrics.cell_width * @as(u32, cell_width);
-                result.rows = (result.width * original_height) / original_width;
-            } else {
-                // If we don't have a cell_width, we scale to fill vertically
-                result.rows = metrics.cell_height;
-                result.width = (metrics.cell_height * original_width) / original_height;
-            }
-
-            // If we already fit, we don't need to resize
-            if (original_height <= result.rows and original_width <= result.width) {
-                break :resized null;
-            }
-
-            result.pitch = @as(c_int, @intCast(result.width)) * atlas.format.depth();
-
-            const buf = try alloc.alloc(
-                u8,
-                @as(usize, @intCast(result.pitch)) * @as(usize, @intCast(result.rows)),
-            );
-            result.buffer = buf.ptr;
-            errdefer alloc.free(buf);
-
-            if (stb.stbir_resize_uint8(
-                bitmap_original.buffer,
-                @intCast(original_width),
-                @intCast(original_height),
-                bitmap_original.pitch,
-                result.buffer,
-                @intCast(result.width),
-                @intCast(result.rows),
-                result.pitch,
-                atlas.format.depth(),
-            ) == 0) {
-                // This should never fail because this is a fairly straightforward
-                // in-memory operation...
-                return error.GlyphResizeFailed;
-            }
-
-            break :resized result;
-        };
-        defer if (bitmap_resized) |bm| {
-            const len = @as(usize, @intCast(bm.pitch)) * @as(usize, @intCast(bm.rows));
-            alloc.free(bm.buffer[0..len]);
-        };
-
-        const bitmap = bitmap_resized orelse (bitmap_converted orelse bitmap_ft);
-        const tgt_w = bitmap.width;
-        const tgt_h = bitmap.rows;
-
-        // Must have non-empty bitmap because we return earlier
-        // if zero. We assume the rest of this that it is nont-zero so
-        // this is important.
-        assert(tgt_w > 0 and tgt_h > 0);
-
-        // If we resized our bitmap, we need to recalculate some metrics that
-        // we use such as the top/left offsets. These need to be scaled by the
-        // same ratio as the resize.
-        const glyph_metrics = if (bitmap_resized) |bm| metrics: {
-            // Our ratio for the resize
-            const ratio = ratio: {
-                const new: f64 = @floatFromInt(bm.rows);
-                const old: f64 = @floatFromInt(bitmap_original.rows);
-                break :ratio new / old;
-            };
-
-            var copy = glyph.*;
-            copy.bitmap_top = @as(c_int, @intFromFloat(@round(@as(f64, @floatFromInt(copy.bitmap_top)) * ratio)));
-            copy.bitmap_left = @as(c_int, @intFromFloat(@round(@as(f64, @floatFromInt(copy.bitmap_left)) * ratio)));
-            break :metrics copy;
-        } else glyph.*;
-
-        // Allocate our texture atlas region
-        const region = region: {
-            // We need to add a 1px padding to the font so that we don't
-            // get fuzzy issues when blending textures.
-            const padding = 1;
-
-            // Get the full padded region
-            var region = try atlas.reserve(
-                alloc,
-                tgt_w + (padding * 2), // * 2 because left+right
-                tgt_h + (padding * 2), // * 2 because top+bottom
-            );
-
-            // Modify the region so that we remove the padding so that
-            // we write to the non-zero location. The data in an Altlas
-            // is always initialized to zero (Atlas.clear) so we don't
-            // need to worry about zero-ing that.
-            region.x += padding;
-            region.y += padding;
-            region.width -= padding * 2;
-            region.height -= padding * 2;
-            break :region region;
-        };
-
-        // Copy the image into the region.
-        assert(region.width > 0 and region.height > 0);
-        {
-            const depth = atlas.format.depth();
-
-            // We can avoid a buffer copy if our atlas width and bitmap
-            // width match and the bitmap pitch is just the width (meaning
-            // the data is tightly packed).
-            const needs_copy = !(tgt_w == bitmap.width and (bitmap.width * depth) == bitmap.pitch);
-
-            // If we need to copy the data, we copy it into a temporary buffer.
-            const buffer = if (needs_copy) buffer: {
-                const temp = try alloc.alloc(u8, tgt_w * tgt_h * depth);
-                var dst_ptr = temp;
-                var src_ptr = bitmap.buffer;
-                var i: usize = 0;
-                while (i < bitmap.rows) : (i += 1) {
-                    fastmem.copy(u8, dst_ptr, src_ptr[0 .. bitmap.width * depth]);
-                    dst_ptr = dst_ptr[tgt_w * depth ..];
-                    src_ptr += @as(usize, @intCast(bitmap.pitch));
-                }
-                break :buffer temp;
-            } else bitmap.buffer[0..(tgt_w * tgt_h * depth)];
-            defer if (buffer.ptr != bitmap.buffer) alloc.free(buffer);
-
-            // Write the glyph information into the atlas
-            assert(region.width == tgt_w);
-            assert(region.height == tgt_h);
-            atlas.set(region, buffer);
         }
 
-        const offset_y: c_int = offset_y: {
-            // For non-scalable colorized fonts, we assume they are pictographic
-            // and just center the glyph. So far this has only applied to emoji
-            // fonts. Emoji fonts don't always report a correct ascender/descender
-            // (mainly Apple Emoji) so we just center them. Also, since emoji font
-            // aren't scalable, cell_baseline is incorrect anyways.
-            //
-            // NOTE(mitchellh): I don't know if this is right, this doesn't
-            // _feel_ right, but it makes all my limited test cases work.
-            if (self.face.hasColor() and !self.face.isScalable()) {
-                break :offset_y @intCast(tgt_h + (metrics.cell_height -| tgt_h) / 2);
+        // Our whole-pixel bearings for the final glyph.
+        // The fractional portion will be included in the rasterized position.
+        //
+        // For the Y position, FreeType's `bitmap_top` is the distance from the
+        // baseline to the top of the glyph, but we need the distance from the
+        // bottom of the cell to the bottom of the glyph, so first we add the
+        // baseline to get the distance from the bottom of the cell to the top
+        // of the glyph, then we subtract the height of the glyph to get the
+        // bottom.
+        const px_x: i32 = glyph.*.bitmap_left;
+        const px_y: i32 = glyph.*.bitmap_top +
+            @as(i32, @intCast(metrics.cell_baseline)) -
+            @as(i32, @intCast(bitmap.rows));
+
+        const px_width = bitmap.width;
+        const px_height = bitmap.rows;
+        const len: usize = @intCast(
+            @as(c_uint, @intCast(@abs(bitmap.pitch))) * bitmap.rows,
+        );
+
+        // If our bitmap is grayscale, make sure to multiply all pixel
+        // values by the right factor to bring `num_grays` up to 256.
+        //
+        // This is necessary because FT_Bitmap_Convert doesn't do this,
+        // it just sets num_grays to the correct number and uses the
+        // original smaller pixel values.
+        if (bitmap.pixel_mode == freetype.c.FT_PIXEL_MODE_GRAY and
+            bitmap.num_grays < 256)
+        {
+            const factor: u8 = @intCast(255 / (bitmap.num_grays - 1));
+            for (bitmap.buffer[0..len]) |*p| {
+                p.* *= factor;
             }
+            bitmap.num_grays = 256;
+        }
 
-            // The Y offset is the offset of the top of our bitmap PLUS our
-            // baseline calculation. The baseline calculation is so that everything
-            // is properly centered when we render it out into a monospace grid.
-            // Note: we add here because our X/Y is actually reversed, adding goes UP.
-            break :offset_y glyph_metrics.bitmap_top + @as(c_int, @intCast(metrics.cell_baseline));
-        };
+        // Must have non-empty bitmap because we return earlier if zero.
+        // We assume the rest of this that it is non-zero so this is important.
+        assert(px_width > 0 and px_height > 0);
 
-        const offset_x: i32 = offset_x: {
-            var result: i32 = glyph_metrics.bitmap_left;
+        // If this doesn't match then something is wrong.
+        assert(px_width * atlas.format.depth() == bitmap.pitch);
 
-            // If our cell was resized to be wider then we center our
-            // glyph in the cell.
-            if (metrics.original_cell_width) |original_width| {
-                if (original_width < metrics.cell_width) {
-                    const diff = (metrics.cell_width - original_width) / 2;
-                    result += @intCast(diff);
-                }
-            }
+        // Allocate our texture atlas region and copy our bitmap in to it.
+        const region = try atlas.reserve(alloc, px_width, px_height);
+        atlas.set(region, bitmap.buffer[0..len]);
 
-            break :offset_x result;
-        };
+        // This should be the distance from the bottom of
+        // the cell to the top of the glyph's bounding box.
+        const offset_y: i32 = px_y + @as(i32, @intCast(px_height));
 
-        // log.warn("renderGlyph width={} height={} offset_x={} offset_y={} glyph_metrics={}", .{
-        //     tgt_w,
-        //     tgt_h,
-        //     glyph_metrics.bitmap_left,
-        //     offset_y,
-        //     glyph_metrics,
-        // });
+        // This should be the distance from the left of
+        // the cell to the left of the glyph's bounding box.
+        const offset_x: i32 = px_x;
 
-        // Store glyph metadata
         return Glyph{
-            .width = tgt_w,
-            .height = tgt_h,
+            .width = px_width,
+            .height = px_height,
             .offset_x = offset_x,
             .offset_y = offset_y,
             .atlas_x = region.x,
             .atlas_y = region.y,
-            .advance_x = f26dot6ToFloat(glyph_metrics.advance.x),
         };
     }
 
@@ -631,7 +781,7 @@ pub const Face = struct {
     }
 
     fn f26dot6ToF64(v: freetype.c.FT_F26Dot6) f64 {
-        return @as(opentype.sfnt.F26Dot6, @bitCast(@as(u32, @intCast(v)))).to(f64);
+        return @as(F26Dot6, @bitCast(@as(i32, @intCast(v)))).to(f64);
     }
 
     pub const GetMetricsError = error{
@@ -783,7 +933,7 @@ pub const Face = struct {
             while (c < 127) : (c += 1) {
                 if (face.getCharIndex(c)) |glyph_index| {
                     if (face.loadGlyph(glyph_index, .{
-                        .render = true,
+                        .render = false,
                         .no_svg = true,
                     })) {
                         max = @max(
@@ -821,7 +971,7 @@ pub const Face = struct {
                     defer self.ft_mutex.unlock();
                     if (face.getCharIndex('H')) |glyph_index| {
                         if (face.loadGlyph(glyph_index, .{
-                            .render = true,
+                            .render = false,
                             .no_svg = true,
                         })) {
                             break :cap f26dot6ToF64(face.handle.*.glyph.*.metrics.height);
@@ -834,7 +984,7 @@ pub const Face = struct {
                     defer self.ft_mutex.unlock();
                     if (face.getCharIndex('x')) |glyph_index| {
                         if (face.loadGlyph(glyph_index, .{
-                            .render = true,
+                            .render = false,
                             .no_svg = true,
                         })) {
                             break :ex f26dot6ToF64(face.handle.*.glyph.*.metrics.height);
@@ -845,7 +995,24 @@ pub const Face = struct {
             };
         };
 
+        // Measure "水" (CJK water ideograph, U+6C34) for our ic width.
+        const ic_width: ?f64 = ic_width: {
+            self.ft_mutex.lock();
+            defer self.ft_mutex.unlock();
+
+            const glyph = face.getCharIndex('水') orelse break :ic_width null;
+
+            face.loadGlyph(glyph, .{
+                .render = false,
+                .no_svg = true,
+            }) catch break :ic_width null;
+
+            break :ic_width f26dot6ToF64(face.handle.*.glyph.*.advance.x);
+        };
+
         return .{
+            .px_per_em = px_per_em,
+
             .cell_width = cell_width,
 
             .ascent = ascent,
@@ -860,6 +1027,7 @@ pub const Face = struct {
 
             .cap_height = cap_height,
             .ex_height = ex_height,
+            .ic_width = ic_width,
         };
     }
 
@@ -950,13 +1118,15 @@ test "color emoji" {
     }
 
     // resize
+    // TODO: Comprehensive tests for constraints,
+    //       this is just an adapted legacy test.
     {
         const glyph = try ft_font.renderGlyph(
             alloc,
             &atlas,
             ft_font.glyphIndex('🥸').?,
             .{ .grid_metrics = .{
-                .cell_width = 10,
+                .cell_width = 13,
                 .cell_height = 24,
                 .cell_baseline = 0,
                 .underline_position = 0,
@@ -967,6 +1137,12 @@ test "color emoji" {
                 .overline_thickness = 0,
                 .box_thickness = 0,
                 .cursor_height = 0,
+                .icon_height = 0,
+            }, .constraint_width = 2, .constraint = .{
+                .size_horizontal = .cover,
+                .size_vertical = .cover,
+                .align_horizontal = .center,
+                .align_vertical = .center,
             } },
         );
         try testing.expectEqual(@as(u32, 24), glyph.height);

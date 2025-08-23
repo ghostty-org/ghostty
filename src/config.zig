@@ -14,10 +14,12 @@ pub const entryFormatter = formatter.entryFormatter;
 pub const formatEntry = formatter.formatEntry;
 
 // Field types
+pub const BoldColor = Config.BoldColor;
 pub const ClipboardAccess = Config.ClipboardAccess;
 pub const Command = Config.Command;
 pub const ConfirmCloseSurface = Config.ConfirmCloseSurface;
 pub const CopyOnSelect = Config.CopyOnSelect;
+pub const RightClickAction = Config.RightClickAction;
 pub const CustomShaderAnimation = Config.CustomShaderAnimation;
 pub const FontSyntheticStyle = Config.FontSyntheticStyle;
 pub const FontShapingBreak = Config.FontShapingBreak;
@@ -34,12 +36,14 @@ pub const RepeatableStringMap = @import("config/RepeatableStringMap.zig");
 pub const RepeatablePath = Config.RepeatablePath;
 pub const Path = Config.Path;
 pub const ShellIntegrationFeatures = Config.ShellIntegrationFeatures;
+pub const WindowDecoration = Config.WindowDecoration;
 pub const WindowPaddingColor = Config.WindowPaddingColor;
 pub const BackgroundImagePosition = Config.BackgroundImagePosition;
 pub const BackgroundImageFit = Config.BackgroundImageFit;
+pub const LinkPreviews = Config.LinkPreviews;
 
 // Alternate APIs
-pub const CAPI = @import("config/CAPI.zig");
+pub const CApi = @import("config/CApi.zig");
 pub const Wasm = if (!builtin.target.cpu.arch.isWasm()) struct {} else @import("config/Wasm.zig");
 
 test {

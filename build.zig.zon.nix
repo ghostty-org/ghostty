@@ -114,14 +114,6 @@ in
       };
     }
     {
-      name = "N-V-__8AAMrJSwAUGb9-vTzkNR-5LXS81MR__ZRVfF3tWgG6";
-      path = fetchZigArtifact {
-        name = "glfw";
-        url = "https://github.com/glfw/glfw/archive/e7ea71be039836da3a98cea55ae5569cb5eb885c.tar.gz";
-        hash = "sha256-M3N1XUAlMebBo5X1Py+9YxjKXgZ6eacqWRCbUmwLKQo=";
-      };
-    }
-    {
       name = "N-V-__8AABzkUgISeKGgXAzgtutgJsZc0-kkeqBBscJgMkvy";
       path = fetchZigArtifact {
         name = "glslang";
@@ -130,11 +122,11 @@ in
       };
     }
     {
-      name = "gobject-0.2.0-Skun7IWDlQAOKu4BV7LapIxL9Imbq1JRmzvcIkazvAxR";
+      name = "gobject-0.3.0-Skun7AngnABC2BPiaoobs6YSSzSgMuEIcjb2rYrRyaAM";
       path = fetchZigArtifact {
         name = "gobject";
-        url = "https://github.com/jcollie/ghostty-gobject/releases/download/0.14.0-2025-03-18-21-1/ghostty-gobject-0.14.0-2025-03-18-21-1.tar.zst";
-        hash = "sha256-hWcpl0Wd3XydT+RY7+VIoxXPhCzele1Ip76YSh+KmLI=";
+        url = "https://github.com/jcollie/ghostty-gobject/releases/download/0.14.1-2025-08-09-37-1/ghostty-gobject-0.14.1-2025-08-09-37-1.tar.zst";
+        hash = "sha256-B0ziLzKud+kdKu5T1BTE9GMh8EPM/KhhhoNJlys5QPI=";
       };
     }
     {
@@ -170,11 +162,19 @@ in
       };
     }
     {
-      name = "N-V-__8AAGHcWgTaKLjwmFkxToNT4jgz5VXUHR7hz8TQ2_AS";
+      name = "N-V-__8AAAlgXwSghpDmXBXZM4Rpd80WKOXVWTrcL0ucVmls";
       path = fetchZigArtifact {
         name = "iterm2_themes";
-        url = "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/6fa671fdc1daf1fcfa025cb960ffa3e7373a2ed8.tar.gz";
-        hash = "sha256-g9o2CIc/TfWYoUS/l/HP5KZECD7qNsdQUlFruaKkVz4=";
+        url = "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/8b639f0c2605557bd23ba1b940842c67bbfd4ed0.tar.gz";
+        hash = "sha256-PySWF/9IAK4DZCkd5FRpiaIl6et2Qm6t8IKCTzh/Xa0=";
+      };
+    }
+    {
+      name = "N-V-__8AAIC5lwAVPJJzxnCAahSvZTIlG-HhtOvnM1uh-66x";
+      path = fetchZigArtifact {
+        name = "jetbrains_mono";
+        url = "https://deps.files.ghostty.org/JetBrainsMono-2.304.tar.gz";
+        hash = "sha256-xXppHouCrQmLWWPzlZAy5AOPORCHr3cViFulkEYQXMQ=";
       };
     }
     {
@@ -186,11 +186,11 @@ in
       };
     }
     {
-      name = "libxev-0.0.0-86vtcyMBEwA-UpcjfOICyI2GYG8o6MiRbinS1_8g1_rw";
+      name = "libxev-0.0.0-86vtc2UaEwDfiTKX3iBI-s_hdzfzWQUarT3MUrmUQl-Q";
       path = fetchZigArtifact {
         name = "libxev";
-        url = "https://github.com/mitchellh/libxev/archive/75a10d0fb374e8eb84948dcfc68d865e755e59c2.tar.gz";
-        hash = "sha256-/CSKSuZZfn0aIQlVZ0O8ch5O4gCajYBTTuoetRdo0n4=";
+        url = "https://github.com/mitchellh/libxev/archive/7f803181b158a10fec8619f793e3b4df515566cb.tar.gz";
+        hash = "sha256-KaozYKEhhT/6sInef7/8O/60LDBJN+8QmdLuNY1Gkmc=";
       };
     }
     {
@@ -199,6 +199,14 @@ in
         name = "libxml2";
         url = "https://deps.files.ghostty.org/libxml2-2.11.5.tar.gz";
         hash = "sha256-bCgFni4+60K1tLFkieORamNGwQladP7jvGXNxdiaYhU=";
+      };
+    }
+    {
+      name = "N-V-__8AAMVLTABmYkLqhZPLXnMl-KyN38R8UVYqGrxqO26s";
+      path = fetchZigArtifact {
+        name = "nerd_fonts_symbols_only";
+        url = "https://deps.files.ghostty.org/NerdFontsSymbolsOnly-3.4.0.tar.gz";
+        hash = "sha256-EWTRuVbUveJI17LwmYxDzJT1ICQxoVZKeTiVsec7DQQ=";
       };
     }
     {
@@ -282,11 +290,11 @@ in
       };
     }
     {
-      name = "z2d-0.7.0-j5P_Hg_DDACq-2H2Zh7rAq6_TXWdQzv7JAUfnrdeDosg";
+      name = "z2d-0.7.2-j5P_Hm1oDQDQsWpGfSCMARhowBnuTHlQ_sBfij6TuG7l";
       path = fetchZigArtifact {
         name = "z2d";
-        url = "https://github.com/vancluever/z2d/archive/8bbd035f4101f02b1d27947def0d7da3215df7fe.tar.gz";
-        hash = "sha256-wfadegeixcbgxRzRtf6M2H34CTuvDM22XVIhuufFBG4=";
+        url = "https://github.com/vancluever/z2d/archive/refs/tags/v0.7.2.tar.gz";
+        hash = "sha256-tWrLlEOU4/0ZOlzgGOXB08fW7sqfyAFf3rlv0wl9b/c=";
       };
     }
     {

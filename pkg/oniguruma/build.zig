@@ -23,9 +23,11 @@ pub fn build(b: *std.Build) !void {
     if (target.query.isNative()) {
         test_exe = b.addTest(.{
             .name = "test",
-            .root_source_file = b.path("main.zig"),
-            .target = target,
-            .optimize = optimize,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("main.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
         });
         const tests_run = b.addRunArtifact(test_exe.?);
         const test_step = b.step("test", "Run tests");
@@ -57,10 +59,13 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
     const target = options.target;
     const optimize = options.optimize;
 
-    const lib = b.addStaticLibrary(.{
+    const lib = b.addLibrary(.{
         .name = "oniguruma",
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+        }),
+        .linkage = .static,
     });
     const t = target.result;
     lib.linkLibC();

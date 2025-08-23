@@ -1,7 +1,7 @@
 const std = @import("std");
 const args = @import("args.zig");
 const Allocator = std.mem.Allocator;
-const Action = @import("action.zig").Action;
+const Action = @import("ghostty.zig").Action;
 const configpkg = @import("../config.zig");
 const Config = configpkg.Config;
 

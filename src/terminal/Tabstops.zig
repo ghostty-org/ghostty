@@ -129,6 +129,7 @@ pub fn resize(self: *Tabstops, alloc: Allocator, cols: usize) !void {
 
     // Note: we can probably try to realloc here but I'm not sure it matters.
     const new = try alloc.alloc(Unit, size);
+    @memset(new, 0);
     if (self.dynamic_stops.len > 0) {
         fastmem.copy(Unit, new, self.dynamic_stops);
         alloc.free(self.dynamic_stops);

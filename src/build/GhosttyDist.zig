@@ -25,6 +25,11 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
         try resources.append(alloc, gtk.resources_c);
         try resources.append(alloc, gtk.resources_h);
     }
+    {
+        const gtk = SharedDeps.gtkNgDistResources(b);
+        try resources.append(alloc, gtk.resources_c);
+        try resources.append(alloc, gtk.resources_h);
+    }
 
     // git archive to create the final tarball. "git archive" is the
     // easiest way I can find to create a tarball that ignores stuff
@@ -115,7 +120,8 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
         // Capture stderr so it doesn't spew into the parent build.
         // On the flip side, if the test fails we won't know why so
         // that sucks but we should have already ran tests at this point.
-        _ = step.captureStdErr();
+        // NOTE(mitchellh): temporarily disabled to diagnose heisenbug
+        //_ = step.captureStdErr();
 
         break :step step;
     };

@@ -20,6 +20,8 @@ extend-exclude = [
   "*.png",
   "*.ico",
   "*.icns",
+  # Valgrind nonsense
+  "valgrind.supp",
   # Other
   "*.pdf",
   "*.data",
@@ -51,6 +53,8 @@ DECID = "DECID"
 flate = "flate"
 typ = "typ"
 kend = "kend"
+# GTK
+GIR = "GIR"
 
 [type.po]
 extend-glob = ["*.po"]

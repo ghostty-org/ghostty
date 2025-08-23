@@ -1,0 +1,110 @@
+using Gtk 4.0;
+using Gio 2.0;
+using Adw 1;
+
+Adw.Dialog dialog {
+  content-width: 700;
+  closed => $closed();
+
+  Adw.ToolbarView {
+    top-bar-style: flat;
+
+    [top]
+    Adw.HeaderBar {
+      [title]
+      Gtk.SearchEntry search {
+        hexpand: true;
+        placeholder-text: _("Execute a command…");
+        stop-search => $search_stopped();
+        activate => $search_activated();
+
+        styles [
+          "command-palette-search",
+        ]
+      }
+    }
+
+    Gtk.ScrolledWindow {
+      min-content-height: 300;
+
+      Gtk.ListView view {
+        show-separators: true;
+        single-click-activate: true;
+        activate => $row_activated();
+
+        model: Gtk.SingleSelection model {
+          model: Gtk.FilterListModel {
+            incremental: true;
+
+            filter: Gtk.AnyFilter {
+              Gtk.StringFilter {
+                expression: expr item as <$GhosttyCommand>.title;
+                search: bind search.text;
+              }
+
+              Gtk.StringFilter {
+                expression: expr item as <$GhosttyCommand>.action-key;
+                search: bind search.text;
+              }
+            };
+
+            model: Gio.ListStore source {
+              item-type: typeof<$GhosttyCommand>;
+            };
+          };
+        };
+
+        styles [
+          "rich-list",
+        ]
+
+        factory: Gtk.BuilderListItemFactory {
+          template Gtk.ListItem {
+            child: Gtk.Box {
+              orientation: horizontal;
+              spacing: 10;
+              tooltip-text: bind template.item as <$GhosttyCommand>.description;
+
+              Gtk.Box {
+                orientation: vertical;
+                hexpand: true;
+
+                Gtk.Label {
+                  ellipsize: end;
+                  halign: start;
+                  wrap: false;
+                  single-line-mode: true;
+
+                  styles [
+                    "title",
+                  ]
+
+                  label: bind template.item as <$GhosttyCommand>.title;
+                }
+
+                Gtk.Label {
+                  ellipsize: end;
+                  halign: start;
+                  wrap: false;
+                  single-line-mode: true;
+
+                  styles [
+                    "subtitle",
+                    "monospace",
+                  ]
+
+                  label: bind template.item as <$GhosttyCommand>.action-key;
+                }
+              }
+
+              Gtk.ShortcutLabel {
+                accelerator: bind template.item as <$GhosttyCommand>.action;
+                valign: center;
+              }
+            };
+          }
+        };
+      }
+    }
+  }
+}

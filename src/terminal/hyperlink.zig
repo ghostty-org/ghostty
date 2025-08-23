@@ -185,6 +185,25 @@ pub const PageEntry = struct {
             other.uri.offset.ptr(other_base)[0..other.uri.len],
         );
     }
+
+    /// Free the memory for this entry from its page.
+    pub fn free(
+        self: *const PageEntry,
+        page: *Page,
+    ) void {
+        const alloc = &page.string_alloc;
+        switch (self.id) {
+            .implicit => {},
+            .explicit => |v| alloc.free(
+                page.memory,
+                v.offset.ptr(page.memory)[0..v.len],
+            ),
+        }
+        alloc.free(
+            page.memory,
+            self.uri.offset.ptr(page.memory)[0..self.uri.len],
+        );
+    }
 };
 
 /// The set of hyperlinks. This is ref-counted so that a set of cells
@@ -215,19 +234,7 @@ pub const Set = RefCountedSet(
         }
 
         pub fn deleted(self: *const @This(), link: PageEntry) void {
-            const page = self.page.?;
-            const alloc = &page.string_alloc;
-            switch (link.id) {
-                .implicit => {},
-                .explicit => |v| alloc.free(
-                    page.memory,
-                    v.offset.ptr(page.memory)[0..v.len],
-                ),
-            }
-            alloc.free(
-                page.memory,
-                link.uri.offset.ptr(page.memory)[0..link.uri.len],
-            );
+            link.free(self.page.?);
         }
     },
 );

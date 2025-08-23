@@ -8,7 +8,7 @@ jobs:
     runs-on: namespace-profile-ghostty-sm
     needs: [build-macos-debug]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Install sentry-cli
         run: |
@@ -29,7 +29,7 @@ jobs:
     runs-on: namespace-profile-ghostty-sm
     needs: [build-macos]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Install sentry-cli
         run: |
@@ -47,20 +47,20 @@ jobs:
           sentry-cli dif upload --project ghostty --wait dsym.zip
 
   build-macos:
-    runs-on: namespace-profile-ghostty-macos-sequoia
+    runs-on: namespace-profile-ghostty-macos-tahoe
     timeout-minutes: 90
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           # Important so that build number generation works
           fetch-depth: 0
 
       # Install Nix and use that to run our tests so our environment matches exactly.
-      - uses: cachix/install-nix-action@v31
+      - uses: DeterminateSystems/nix-installer-action@main
         with:
-          nix_path: nixpkgs=channel:nixos-unstable
-      - uses: cachix/cachix-action@v16
+          determinate: true
+      - uses: cachix/cachix-action@0fc020193b5a1fa3ac4575aa3a7d3aa6a35435ad # v16
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
@@ -68,7 +68,7 @@ jobs:
       # Setup Sparkle
       - name: Setup Sparkle
         env:
-          SPARKLE_VERSION: 2.6.4
+          SPARKLE_VERSION: 2.7.1
         run: |
           mkdir -p .action/sparkle
           cd .action/sparkle
@@ -86,7 +86,7 @@ jobs:
       # GhosttyKit is the framework that is built from Zig for our native
       # Mac app to access. Build this in release mode.
       - name: Build GhosttyKit
-        run: nix develop -c zig build -Doptimize=ReleaseSafe
+        run: nix develop -c zig build -Doptimize=ReleaseSafe -Demit-macos-app=false
 
       # The native app is built with native XCode tooling. This also does
       # codesigning. IMPORTANT: this must NOT run in a Nix environment.
@@ -95,6 +95,7 @@ jobs:
         run: |
           cd macos
           sudo xcode-select -s /Applications/Xcode_26.0.app
+          xcodebuild -version
           xcodebuild -target Ghostty -configuration Release
 
       # We inject the "build number" as simply the number of commits since HEAD.
@@ -147,14 +148,16 @@ jobs:
 
       - name: "Notarize app bundle"
         env:
-          PROD_MACOS_NOTARIZATION_APPLE_ID: ${{ secrets.PROD_MACOS_NOTARIZATION_APPLE_ID }}
-          PROD_MACOS_NOTARIZATION_TEAM_ID: ${{ secrets.PROD_MACOS_NOTARIZATION_TEAM_ID }}
-          PROD_MACOS_NOTARIZATION_PWD: ${{ secrets.PROD_MACOS_NOTARIZATION_PWD }}
+          APPLE_NOTARIZATION_ISSUER: ${{ secrets.APPLE_NOTARIZATION_ISSUER }}
+          APPLE_NOTARIZATION_KEY_ID: ${{ secrets.APPLE_NOTARIZATION_KEY_ID }}
+          APPLE_NOTARIZATION_KEY: ${{ secrets.APPLE_NOTARIZATION_KEY }}
         run: |
           # Store the notarization credentials so that we can prevent a UI password dialog
           # from blocking the CI
           echo "Create keychain profile"
-          xcrun notarytool store-credentials "notarytool-profile" --apple-id "$PROD_MACOS_NOTARIZATION_APPLE_ID" --team-id "$PROD_MACOS_NOTARIZATION_TEAM_ID" --password "$PROD_MACOS_NOTARIZATION_PWD"
+          echo "$APPLE_NOTARIZATION_KEY" > notarization_key.p8
+          xcrun notarytool store-credentials "notarytool-profile" --key notarization_key.p8 --key-id "$APPLE_NOTARIZATION_KEY_ID" --issuer "$APPLE_NOTARIZATION_ISSUER"
+          rm notarization_key.p8
 
           # We can't notarize an app bundle directly, but we need to compress it as an archive.
           # Therefore, we create a zip file containing our app bundle, so that we can send it to the
@@ -189,7 +192,7 @@ jobs:
           cp ghostty-macos-universal.zip blob/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal.zip
           cp ghostty-macos-universal-dsym.zip blob/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-dsym.zip
       - name: Upload to R2
-        uses: ryand56/r2-upload-action@latest
+        uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4
         with:
           r2-account-id: ${{ secrets.CF_R2_PR_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.CF_R2_PR_AWS_KEY }}
@@ -199,20 +202,20 @@ jobs:
           destination-dir: ./
 
   build-macos-debug:
-    runs-on: namespace-profile-ghostty-macos-sequoia
+    runs-on: namespace-profile-ghostty-macos-tahoe
     timeout-minutes: 90
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           # Important so that build number generation works
           fetch-depth: 0
 
       # Install Nix and use that to run our tests so our environment matches exactly.
-      - uses: cachix/install-nix-action@v31
+      - uses: DeterminateSystems/nix-installer-action@main
         with:
-          nix_path: nixpkgs=channel:nixos-unstable
-      - uses: cachix/cachix-action@v16
+          determinate: true
+      - uses: cachix/cachix-action@0fc020193b5a1fa3ac4575aa3a7d3aa6a35435ad # v16
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
@@ -220,7 +223,7 @@ jobs:
       # Setup Sparkle
       - name: Setup Sparkle
         env:
-          SPARKLE_VERSION: 2.5.1
+          SPARKLE_VERSION: 2.7.1
         run: |
           mkdir -p .action/sparkle
           cd .action/sparkle
@@ -238,7 +241,7 @@ jobs:
       # GhosttyKit is the framework that is built from Zig for our native
       # Mac app to access. Build this in release mode.
       - name: Build GhosttyKit
-        run: nix develop -c zig build -Doptimize=Debug
+        run: nix develop -c zig build -Doptimize=Debug -Demit-macos-app=false
 
       # The native app is built with native XCode tooling. This also does
       # codesigning. IMPORTANT: this must NOT run in a Nix environment.
@@ -247,6 +250,7 @@ jobs:
         run: |
           cd macos
           sudo xcode-select -s /Applications/Xcode_26.0.app
+          xcodebuild -version
           xcodebuild -target Ghostty -configuration Release
 
       # We inject the "build number" as simply the number of commits since HEAD.
@@ -299,14 +303,16 @@ jobs:
 
       - name: "Notarize app bundle"
         env:
-          PROD_MACOS_NOTARIZATION_APPLE_ID: ${{ secrets.PROD_MACOS_NOTARIZATION_APPLE_ID }}
-          PROD_MACOS_NOTARIZATION_TEAM_ID: ${{ secrets.PROD_MACOS_NOTARIZATION_TEAM_ID }}
-          PROD_MACOS_NOTARIZATION_PWD: ${{ secrets.PROD_MACOS_NOTARIZATION_PWD }}
+          APPLE_NOTARIZATION_ISSUER: ${{ secrets.APPLE_NOTARIZATION_ISSUER }}
+          APPLE_NOTARIZATION_KEY_ID: ${{ secrets.APPLE_NOTARIZATION_KEY_ID }}
+          APPLE_NOTARIZATION_KEY: ${{ secrets.APPLE_NOTARIZATION_KEY }}
         run: |
           # Store the notarization credentials so that we can prevent a UI password dialog
           # from blocking the CI
           echo "Create keychain profile"
-          xcrun notarytool store-credentials "notarytool-profile" --apple-id "$PROD_MACOS_NOTARIZATION_APPLE_ID" --team-id "$PROD_MACOS_NOTARIZATION_TEAM_ID" --password "$PROD_MACOS_NOTARIZATION_PWD"
+          echo "$APPLE_NOTARIZATION_KEY" > notarization_key.p8
+          xcrun notarytool store-credentials "notarytool-profile" --key notarization_key.p8 --key-id "$APPLE_NOTARIZATION_KEY_ID" --issuer "$APPLE_NOTARIZATION_ISSUER"
+          rm notarization_key.p8
 
           # We can't notarize an app bundle directly, but we need to compress it as an archive.
           # Therefore, we create a zip file containing our app bundle, so that we can send it to the
@@ -341,7 +347,7 @@ jobs:
           cp ghostty-macos-universal-debug.zip blob/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-debug.zip
           cp ghostty-macos-universal-debug-dsym.zip blob/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-debug-dsym.zip
       - name: Upload to R2
-        uses: ryand56/r2-upload-action@latest
+        uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4
         with:
           r2-account-id: ${{ secrets.CF_R2_PR_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.CF_R2_PR_AWS_KEY }}

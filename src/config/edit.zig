@@ -5,18 +5,19 @@ const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const internal_os = @import("../os/main.zig");
 
-/// Open the configuration in the OS default editor according to the default
-/// paths the main config file could be in.
+/// The path to the configuration that should be opened for editing.
 ///
-/// On Linux, this will open the file at the XDG config path. This is the
+/// On Linux, this will use the file at the XDG config path. This is the
 /// only valid path for Linux so we don't need to check for other paths.
 ///
 /// On macOS, both XDG and AppSupport paths are valid. Because Ghostty
-/// prioritizes AppSupport over XDG, we will open AppSupport if it exists,
+/// prioritizes AppSupport over XDG, we will use AppSupport if it exists,
 /// followed by XDG if it exists, and finally AppSupport if neither exist.
 /// For the existence check, we also prefer non-empty files over empty
 /// files.
-pub fn open(alloc_gpa: Allocator) !void {
+///
+/// The returned value is allocated using the provided allocator.
+pub fn openPath(alloc_gpa: Allocator) ![:0]const u8 {
     // Use an arena to make memory management easier in here.
     var arena = ArenaAllocator.init(alloc_gpa);
     defer arena.deinit();
@@ -41,7 +42,7 @@ pub fn open(alloc_gpa: Allocator) !void {
         }
     };
 
-    try internal_os.open(alloc_gpa, .text, config_path);
+    return try alloc_gpa.dupeZ(u8, config_path);
 }
 
 /// Returns the config path to use for open for the current OS.

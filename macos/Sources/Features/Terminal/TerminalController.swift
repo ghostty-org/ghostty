@@ -196,7 +196,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         if let parent {
             if parent.styleMask.contains(.fullScreen) {
-                parent.toggleFullScreen(nil)
+                // If our previous window was fullscreen then we want our new window to
+                // be fullscreen. This behavior actually doesn't match the native tabbing
+                // behavior of macOS apps where new windows create tabs when in native
+                // fullscreen but this is how we've always done it. This matches iTerm2
+                // behavior.
+                c.toggleFullscreen(mode: .native)
             } else if ghostty.config.windowFullscreen {
                 switch (ghostty.config.windowFullscreenMode) {
                 case .native:
@@ -226,6 +231,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             }
 
             c.showWindow(self)
+
+            // All new_window actions force our app to be active, so that the new
+            // window is focused and visible.
+            NSApp.activate(ignoringOtherApps: true)
         }
 
         // Setup our undo
@@ -332,6 +341,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
             controller.showWindow(self)
             window.makeKeyAndOrderFront(self)
+
+            // We also activate our app so that it becomes front. This may be
+            // necessary for the dock menu.
+            NSApp.activate(ignoringOtherApps: true)
         }
 
         // It takes an event loop cycle until the macOS tabGroup state becomes
@@ -739,6 +752,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         alert.alertStyle = .warning
         alert.beginSheetModal(for: alertWindow, completionHandler: { response in
             if (response == .alertFirstButtonReturn) {
+                // This is important so that we avoid losing focus when Stage
+                // Manager is used (#8336)
+                alert.window.orderOut(nil)
                 closeAllWindowsImmediately()
             }
         })

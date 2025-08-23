@@ -158,16 +158,11 @@ pub const Shaper = struct {
                 .glyph_index = info_v.codepoint,
             });
 
-            if (font.options.backend.hasFreetype()) {
-                // Freetype returns 26.6 fixed point values, so we need to
-                // divide by 64 to get the actual value. I can't find any
-                // HB API to stop this.
-                cell_offset.x += pos_v.x_advance >> 6;
-                cell_offset.y += pos_v.y_advance >> 6;
-            } else {
-                cell_offset.x += pos_v.x_advance;
-                cell_offset.y += pos_v.y_advance;
-            }
+            // Under both FreeType and CoreText the harfbuzz scale is
+            // in 26.6 fixed point units, so we round to the nearest
+            // whole value here.
+            cell_offset.x += (pos_v.x_advance + 0b100_000) >> 6;
+            cell_offset.y += (pos_v.y_advance + 0b100_000) >> 6;
 
             // const i = self.cell_buf.items.len - 1;
             // log.warn("i={} info={} pos={} cell={}", .{ i, info_v, pos_v, self.cell_buf.items[i] });
@@ -1247,19 +1242,27 @@ fn testShaperWithFont(alloc: Allocator, font_req: TestFont) !TestShaper {
     c.load_options = .{ .library = lib };
 
     // Setup group
-    _ = try c.add(alloc, .regular, .{ .loaded = try .init(
+    _ = try c.add(alloc, try .init(
         lib,
         testFont,
         .{ .size = .{ .points = 12 } },
-    ) });
+    ), .{
+        .style = .regular,
+        .fallback = false,
+        .size_adjustment = .none,
+    });
 
     if (comptime !font.options.backend.hasCoretext()) {
         // Coretext doesn't support Noto's format
-        _ = try c.add(alloc, .regular, .{ .loaded = try .init(
+        _ = try c.add(alloc, try .init(
             lib,
             testEmoji,
             .{ .size = .{ .points = 12 } },
-        ) });
+        ), .{
+            .style = .regular,
+            .fallback = false,
+            .size_adjustment = .none,
+        });
     } else {
         // On CoreText we want to load Apple Emoji, we should have it.
         var disco = font.Discover.init();
@@ -1272,20 +1275,31 @@ fn testShaperWithFont(alloc: Allocator, font_req: TestFont) !TestShaper {
         defer disco_it.deinit();
         var face = (try disco_it.next()).?;
         errdefer face.deinit();
-        _ = try c.add(alloc, .regular, .{ .deferred = face });
+        _ = try c.addDeferred(alloc, face, .{
+            .style = .regular,
+            .fallback = false,
+            .size_adjustment = .none,
+        });
     }
-    _ = try c.add(alloc, .regular, .{ .loaded = try .init(
+    _ = try c.add(alloc, try .init(
         lib,
         testEmojiText,
         .{ .size = .{ .points = 12 } },
-    ) });
+    ), .{
+        .style = .regular,
+        .fallback = false,
+        .size_adjustment = .none,
+    });
 
     const grid_ptr = try alloc.create(SharedGrid);
     errdefer alloc.destroy(grid_ptr);
     grid_ptr.* = try .init(alloc, .{ .collection = c });
     errdefer grid_ptr.*.deinit(alloc);
 
-    var shaper = try Shaper.init(alloc, .{});
+    var shaper = try Shaper.init(alloc, .{
+        // Some of our tests rely on dlig being enabled by default
+        .features = &.{"dlig"},
+    });
     errdefer shaper.deinit();
 
     return TestShaper{

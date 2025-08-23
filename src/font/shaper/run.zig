@@ -247,7 +247,7 @@ pub const RunIterator = struct {
             if (j == self.i) current_font = font_info.idx;
 
             // If our fonts are not equal, then we're done with our run.
-            if (font_info.idx.int() != current_font.int()) break;
+            if (font_info.idx != current_font) break;
 
             // If we're a fallback character, add that and continue; we
             // don't want to add the entire grapheme.

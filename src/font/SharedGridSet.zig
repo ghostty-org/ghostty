@@ -200,11 +200,12 @@ fn collection(
                             try face.name(&name_buf),
                         });
 
-                        _ = try c.add(
-                            self.alloc,
-                            style,
-                            .{ .deferred = face },
-                        );
+                        _ = try c.addDeferred(self.alloc, face, .{
+                            .style = style,
+                            .fallback = false,
+                            // No size adjustment for primary fonts.
+                            .size_adjustment = .none,
+                        });
 
                         continue;
                     }
@@ -230,11 +231,12 @@ fn collection(
                             try face.name(&name_buf),
                         });
 
-                        _ = try c.add(
-                            self.alloc,
-                            style,
-                            .{ .deferred = face },
-                        );
+                        _ = try c.addDeferred(self.alloc, face, .{
+                            .style = style,
+                            .fallback = false,
+                            // No size adjustment for primary fonts.
+                            .size_adjustment = .none,
+                        });
 
                         continue;
                     }
@@ -257,39 +259,77 @@ fn collection(
     // Our built-in font will be used as a backup
     _ = try c.add(
         self.alloc,
-        .regular,
-        .{ .fallback_loaded = try .init(
+        try .init(
             self.font_lib,
-            font.embedded.regular,
+            font.embedded.variable,
             load_options.faceOptions(),
-        ) },
+        ),
+        .{
+            .style = .regular,
+            .fallback = true,
+            .size_adjustment = font.default_fallback_adjustment,
+        },
+    );
+    try (try c.getFace(try c.add(
+        self.alloc,
+        try .init(
+            self.font_lib,
+            font.embedded.variable,
+            load_options.faceOptions(),
+        ),
+        .{
+            .style = .bold,
+            .fallback = true,
+            .size_adjustment = font.default_fallback_adjustment,
+        },
+    ))).setVariations(
+        &.{.{ .id = .init("wght"), .value = 700 }},
+        load_options.faceOptions(),
     );
     _ = try c.add(
         self.alloc,
-        .bold,
-        .{ .fallback_loaded = try .init(
+        try .init(
             self.font_lib,
-            font.embedded.bold,
+            font.embedded.variable_italic,
             load_options.faceOptions(),
-        ) },
+        ),
+        .{
+            .style = .italic,
+            .fallback = true,
+            .size_adjustment = font.default_fallback_adjustment,
+        },
     );
+    try (try c.getFace(try c.add(
+        self.alloc,
+        try .init(
+            self.font_lib,
+            font.embedded.variable_italic,
+            load_options.faceOptions(),
+        ),
+        .{
+            .style = .bold_italic,
+            .fallback = true,
+            .size_adjustment = font.default_fallback_adjustment,
+        },
+    ))).setVariations(
+        &.{.{ .id = .init("wght"), .value = 700 }},
+        load_options.faceOptions(),
+    );
+
+    // Nerd-font symbols fallback.
     _ = try c.add(
         self.alloc,
-        .italic,
-        .{ .fallback_loaded = try .init(
+        try .init(
             self.font_lib,
-            font.embedded.italic,
+            font.embedded.symbols_nerd_font,
             load_options.faceOptions(),
-        ) },
-    );
-    _ = try c.add(
-        self.alloc,
-        .bold_italic,
-        .{ .fallback_loaded = try .init(
-            self.font_lib,
-            font.embedded.bold_italic,
-            load_options.faceOptions(),
-        ) },
+        ),
+        .{
+            .style = .regular,
+            .fallback = true,
+            // No size adjustment for the symbols font.
+            .size_adjustment = .none,
+        },
     );
 
     // On macOS, always search for and add the Apple Emoji font
@@ -304,11 +344,12 @@ fn collection(
         });
         defer disco_it.deinit();
         if (try disco_it.next()) |face| {
-            _ = try c.add(
-                self.alloc,
-                .regular,
-                .{ .fallback_deferred = face },
-            );
+            _ = try c.addDeferred(self.alloc, face, .{
+                .style = .regular,
+                .fallback = true,
+                // No size adjustment for emojis.
+                .size_adjustment = .none,
+            });
         }
     }
 
@@ -317,21 +358,31 @@ fn collection(
     if (comptime !builtin.target.os.tag.isDarwin() or Discover == void) {
         _ = try c.add(
             self.alloc,
-            .regular,
-            .{ .fallback_loaded = try .init(
+            try .init(
                 self.font_lib,
                 font.embedded.emoji,
                 load_options.faceOptions(),
-            ) },
+            ),
+            .{
+                .style = .regular,
+                .fallback = true,
+                // No size adjustment for emojis.
+                .size_adjustment = .none,
+            },
         );
         _ = try c.add(
             self.alloc,
-            .regular,
-            .{ .fallback_loaded = try .init(
+            try .init(
                 self.font_lib,
                 font.embedded.emoji_text,
                 load_options.faceOptions(),
-            ) },
+            ),
+            .{
+                .style = .regular,
+                .fallback = true,
+                // No size adjustment for emojis.
+                .size_adjustment = .none,
+            },
         );
     }
 
@@ -432,6 +483,7 @@ pub const DerivedConfig = struct {
     @"adjust-cursor-thickness": ?Metrics.Modifier,
     @"adjust-cursor-height": ?Metrics.Modifier,
     @"adjust-box-thickness": ?Metrics.Modifier,
+    @"adjust-icon-height": ?Metrics.Modifier,
     @"freetype-load-flags": font.face.FreetypeLoadFlags,
 
     /// Initialize a DerivedConfig. The config should be either a
@@ -471,6 +523,7 @@ pub const DerivedConfig = struct {
             .@"adjust-cursor-thickness" = config.@"adjust-cursor-thickness",
             .@"adjust-cursor-height" = config.@"adjust-cursor-height",
             .@"adjust-box-thickness" = config.@"adjust-box-thickness",
+            .@"adjust-icon-height" = config.@"adjust-icon-height",
             .@"freetype-load-flags" = if (font.face.FreetypeLoadFlags != void) config.@"freetype-load-flags" else {},
 
             // This must be last so the arena contains all our allocations
@@ -617,6 +670,7 @@ pub const Key = struct {
             if (config.@"adjust-cursor-thickness") |m| try set.put(alloc, .cursor_thickness, m);
             if (config.@"adjust-cursor-height") |m| try set.put(alloc, .cursor_height, m);
             if (config.@"adjust-box-thickness") |m| try set.put(alloc, .box_thickness, m);
+            if (config.@"adjust-icon-height") |m| try set.put(alloc, .icon_height, m);
             break :set set;
         };
 

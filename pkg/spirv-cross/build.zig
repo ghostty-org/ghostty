@@ -15,9 +15,11 @@ pub fn build(b: *std.Build) !void {
     if (target.query.isNative()) {
         const test_exe = b.addTest(.{
             .name = "test",
-            .root_source_file = b.path("main.zig"),
-            .target = target,
-            .optimize = optimize,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("main.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
         });
         test_exe.linkLibrary(lib);
         const tests_run = b.addRunArtifact(test_exe);
@@ -35,10 +37,13 @@ fn buildSpirvCross(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) !*std.Build.Step.Compile {
-    const lib = b.addStaticLibrary(.{
+    const lib = b.addLibrary(.{
         .name = "spirv_cross",
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+        }),
+        .linkage = .static,
     });
     lib.linkLibC();
     lib.linkLibCpp();

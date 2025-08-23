@@ -95,7 +95,7 @@ test "ASCII" {
         }
     }
 
-    try testing.expect(std.mem.eql(u8, &out, "Hello, World!"));
+    try testing.expectEqualStrings(&out, "Hello, World!");
 }
 
 test "Well formed utf-8" {

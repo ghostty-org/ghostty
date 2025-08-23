@@ -6,7 +6,7 @@
 
 set -e  # Exit immediately if a command exits with a non-zero status
 
-SCRIPT_PATH="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+SCRIPT_PATH="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 INPUT_FILE="$SCRIPT_PATH/../../build.zig.zon2json-lock"
 OUTPUT_DIR="blob"
 

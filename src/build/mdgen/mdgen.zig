@@ -2,7 +2,7 @@ const std = @import("std");
 const help_strings = @import("help_strings");
 const build_config = @import("../../build_config.zig");
 const Config = @import("../../config/Config.zig");
-const Action = @import("../../cli/action.zig").Action;
+const Action = @import("../../cli/ghostty.zig").Action;
 const KeybindAction = @import("../../input/Binding.zig").Action;
 
 pub fn substitute(alloc: std.mem.Allocator, input: []const u8, writer: anytype) !void {

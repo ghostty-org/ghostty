@@ -1,6 +1,6 @@
 const std = @import("std");
 const args = @import("args.zig");
-const Action = @import("action.zig").Action;
+const Action = @import("ghostty.zig").Action;
 const Allocator = std.mem.Allocator;
 const helpgen_actions = @import("../input/helpgen_actions.zig");
 

@@ -147,6 +147,8 @@ pub const FileFormatter = struct {
         opts: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
+        @setEvalBranchQuota(10_000);
+
         _ = layout;
         _ = opts;
 

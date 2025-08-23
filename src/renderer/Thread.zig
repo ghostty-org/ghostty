@@ -248,7 +248,7 @@ fn threadMain_(self: *Thread) !void {
     self.cursor_h.run(
         &self.loop,
         &self.cursor_c,
-        CURSOR_BLINK_INTERVAL,
+        cursorBlinkInterval(),
         Thread,
         self,
         cursorTimerCallback,
@@ -408,7 +408,7 @@ fn drainMailbox(self: *Thread) !void {
                         self.cursor_h.run(
                             &self.loop,
                             &self.cursor_c,
-                            CURSOR_BLINK_INTERVAL,
+                            cursorBlinkInterval(),
                             Thread,
                             self,
                             cursorTimerCallback,
@@ -424,7 +424,7 @@ fn drainMailbox(self: *Thread) !void {
                         &self.loop,
                         &self.cursor_c,
                         &self.cursor_c_cancel,
-                        CURSOR_BLINK_INTERVAL,
+                        cursorBlinkInterval(),
                         Thread,
                         self,
                         cursorTimerCallback,
@@ -641,7 +641,14 @@ fn cursorTimerCallback(
     t.flags.cursor_blink_visible = !t.flags.cursor_blink_visible;
     t.wakeup.notify() catch {};
 
-    t.cursor_h.run(&t.loop, &t.cursor_c, CURSOR_BLINK_INTERVAL, Thread, t, cursorTimerCallback);
+    t.cursor_h.run(
+        &t.loop,
+        &t.cursor_c,
+        cursorBlinkInterval(),
+        Thread,
+        t,
+        cursorTimerCallback,
+    );
     return .disarm;
 }
 
@@ -686,4 +693,20 @@ fn stopCallback(
     _ = r catch unreachable;
     self_.?.loop.stop();
     return .disarm;
+}
+
+/// Returns the interval for the blinking cursor in milliseconds.
+fn cursorBlinkInterval() u64 {
+    if (std.valgrind.runningOnValgrind() > 0) {
+        // If we're running under Valgrind, the cursor blink adds enough
+        // churn that it makes some stalls annoying unless you're on a
+        // super powerful computer, so we delay it.
+        //
+        // This is a hack, we should change some of our cursor timer
+        // logic to be more efficient:
+        // https://github.com/ghostty-org/ghostty/issues/8003
+        return CURSOR_BLINK_INTERVAL * 5;
+    }
+
+    return CURSOR_BLINK_INTERVAL;
 }

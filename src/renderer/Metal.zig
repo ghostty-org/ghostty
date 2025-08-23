@@ -5,7 +5,6 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const builtin = @import("builtin");
-const glfw = @import("glfw");
 const objc = @import("objc");
 const macos = @import("macos");
 const graphics = macos.graphics;
@@ -37,11 +36,6 @@ pub const custom_shader_y_is_down = true;
 pub const swap_chain_count = 3;
 
 const log = std.log.scoped(.metal);
-
-// Get native API access on certain platforms so we can do more customization.
-const glfwNative = glfw.Native(.{
-    .cocoa = builtin.os.tag == .macos,
-});
 
 layer: IOSurfaceLayer,
 
@@ -87,27 +81,6 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) !Metal {
 
     // Get the metadata about our underlying view that we'll be rendering to.
     const info: ViewInfo = switch (apprt.runtime) {
-        apprt.glfw => info: {
-            // Everything in glfw is window-oriented so we grab the backing
-            // window, then derive everything from that.
-            const nswindow = objc.Object.fromId(glfwNative.getCocoaWindow(
-                opts.rt_surface.window,
-            ).?);
-
-            const contentView = objc.Object.fromId(
-                nswindow.getProperty(?*anyopaque, "contentView").?,
-            );
-            const scaleFactor = nswindow.getProperty(
-                graphics.c.CGFloat,
-                "backingScaleFactor",
-            );
-
-            break :info .{
-                .view = contentView,
-                .scaleFactor = scaleFactor,
-            };
-        },
-
         apprt.embedded => .{
             .scaleFactor = @floatCast(opts.rt_surface.content_scale.x),
             .view = switch (opts.rt_surface.platform) {

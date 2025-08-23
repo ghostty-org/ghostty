@@ -30,14 +30,6 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
     override func awakeFromNib() {
         super.awakeFromNib()
 
-        // Handle titlebar tabs config option. Something about what we do while setting up the
-        // titlebar tabs interferes with the window restore process unless window.tabbingMode
-        // is set to .preferred, so we set it, and switch back to automatic as soon as we can.
-        tabbingMode = .preferred
-        DispatchQueue.main.async {
-            self.tabbingMode = .automatic
-        }
-
         titlebarTabs = true
 
         // Set the background color of the window

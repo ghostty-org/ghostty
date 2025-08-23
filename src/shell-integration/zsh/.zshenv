@@ -29,14 +29,15 @@ fi
 
 # Use try-always to have the right error code.
 {
-    # Zsh treats empty $ZDOTDIR as if it was "/". We do the same.
+    # Zsh treats unset ZDOTDIR as if it was HOME. We do the same.
     #
-    # Source the user's zshenv before sourcing ghostty.zsh because the former
-    # might set fpath and other things without which ghostty.zsh won't work.
+    # Source the user's .zshenv before sourcing ghostty-integration because the
+    # former might set fpath and other things without which ghostty-integration
+    # won't work.
     #
     # Use typeset in case we are in a function with warn_create_global in
     # effect. Unlikely but better safe than sorry.
-    'builtin' 'typeset' _ghostty_file=${ZDOTDIR-~}"/.zshenv"
+    'builtin' 'typeset' _ghostty_file=${ZDOTDIR-$HOME}"/.zshenv"
     # Zsh ignores unreadable rc files. We do the same.
     # Zsh ignores rc files that are directories, and so does source.
     [[ ! -r "$_ghostty_file" ]] || 'builtin' 'source' '--' "$_ghostty_file"
@@ -45,6 +46,7 @@ fi
         'builtin' 'autoload' '--' 'is-at-least'
         'is-at-least' "5.1" || {
             builtin echo "ZSH ${ZSH_VERSION} is too old for ghostty shell integration" > /dev/stderr
+            'builtin' 'unset' '_ghostty_file'
             return
         }
         # ${(%):-%x} is the path to the current file.

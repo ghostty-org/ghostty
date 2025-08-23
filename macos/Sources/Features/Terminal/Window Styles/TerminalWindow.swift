@@ -35,9 +35,16 @@ class TerminalWindow: NSWindow {
     }
 
     override func awakeFromNib() {
-        guard let appDelegate = NSApp.delegate as? AppDelegate else { return }
-
+        // This is required so that window restoration properly creates our tabs
+        // again. I'm not sure why this is required. If you don't do this, then
+        // tabs restore as separate windows.
+        tabbingMode = .preferred
+        DispatchQueue.main.async {
+            self.tabbingMode = .automatic
+        }
+        
         // All new windows are based on the app config at the time of creation.
+        guard let appDelegate = NSApp.delegate as? AppDelegate else { return }
         let config = appDelegate.ghostty.config
 
         // Setup our initial config

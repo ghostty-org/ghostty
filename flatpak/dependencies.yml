@@ -3,6 +3,24 @@ buildsystem: simple
 build-commands:
   - true
 modules:
+  - name: zig
+    buildsystem: simple
+    cleanup:
+      - "*"
+    build-commands:
+      - mkdir -p /app/zig
+      - cp -r ./* /app/zig
+      - chmod a+x /app/zig/zig
+    sources:
+      - type: archive
+        sha256: 24aeeec8af16c381934a6cd7d95c807a8cb2cf7df9fa40d359aa884195c4716c
+        url: https://ziglang.org/download/0.14.1/zig-x86_64-linux-0.14.1.tar.xz
+        only-arches: [x86_64]
+      - type: archive
+        sha256: f7a654acc967864f7a050ddacfaa778c7504a0eca8d2b678839c21eea47c992b
+        url: https://ziglang.org/download/0.14.1/zig-aarch64-linux-0.14.1.tar.xz
+        only-arches: [aarch64]
+
   - name: bzip2-redirect
     buildsystem: simple
     build-commands:

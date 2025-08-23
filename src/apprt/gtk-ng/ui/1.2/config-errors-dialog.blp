@@ -1,0 +1,28 @@
+using Gtk 4.0;
+// This is unused but if we remove it we get a blueprint-compiler error.
+using Adw 1;
+
+template $GhosttyConfigErrorsDialog: $GhosttyDialog {
+  heading: _("Configuration Errors");
+  body: _("One or more configuration errors were found. Please review the errors below, and either reload your configuration or ignore these errors.");
+
+  responses [
+    ignore: _("Ignore"),
+    reload: _("Reload Configuration") suggested,
+  ]
+
+  extra-child: ScrolledWindow {
+    min-content-width: 500;
+    min-content-height: 100;
+
+    TextView {
+      editable: false;
+      cursor-visible: false;
+      top-margin: 8;
+      bottom-margin: 8;
+      left-margin: 8;
+      right-margin: 8;
+      buffer: bind (template.config as <$GhosttyConfig>).diagnostics-buffer;
+    }
+  };
+}

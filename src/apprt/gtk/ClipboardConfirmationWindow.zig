@@ -184,14 +184,14 @@ fn handleResponse(self: *ClipboardConfirmation, response: [*:0]const u8) void {
 
     self.destroy();
 }
-fn gtkChoose(dialog_: ?*gobject.Object, result: *gio.AsyncResult, ud: ?*anyopaque) callconv(.C) void {
+fn gtkChoose(dialog_: ?*gobject.Object, result: *gio.AsyncResult, ud: ?*anyopaque) callconv(.c) void {
     const dialog = gobject.ext.cast(DialogType, dialog_.?).?;
     const self: *ClipboardConfirmation = @ptrCast(@alignCast(ud.?));
     const response = dialog.chooseFinish(result);
     self.handleResponse(response);
 }
 
-fn gtkResponse(_: *DialogType, response: [*:0]u8, self: *ClipboardConfirmation) callconv(.C) void {
+fn gtkResponse(_: *DialogType, response: [*:0]u8, self: *ClipboardConfirmation) callconv(.c) void {
     self.handleResponse(response);
 }
 

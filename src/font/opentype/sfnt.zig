@@ -76,24 +76,22 @@ fn FixedPoint(comptime T: type, int_bits: u64, frac_bits: u64) type {
         ));
         const half = @as(T, 1) << @intCast(frac_bits - 1);
 
-        frac: std.meta.Int(.unsigned, frac_bits),
-        int: std.meta.Int(type_info.signedness, int_bits),
+        const Frac = std.meta.Int(.unsigned, frac_bits);
+        const Int = std.meta.Int(type_info.signedness, int_bits);
+
+        frac: Frac,
+        int: Int,
 
         pub fn to(self: Self, comptime FloatType: type) FloatType {
-            const i: FloatType = @floatFromInt(self.int);
-            const f: FloatType = @floatFromInt(self.frac);
-
-            return i + f / frac_factor;
+            return @as(FloatType, @floatFromInt(
+                @as(T, @bitCast(self)),
+            )) / frac_factor;
         }
 
         pub fn from(float: anytype) Self {
-            const int = @floor(float);
-            const frac = @abs(float - int);
-
-            return .{
-                .int = @intFromFloat(int),
-                .frac = @intFromFloat(@round(frac * frac_factor)),
-            };
+            return @bitCast(
+                @as(T, @intFromFloat(@round(float * frac_factor))),
+            );
         }
 
         /// Round to the nearest integer, .5 rounds away from 0.

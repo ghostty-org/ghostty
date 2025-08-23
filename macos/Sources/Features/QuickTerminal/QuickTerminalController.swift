@@ -111,12 +111,27 @@ class QuickTerminalController: BaseTerminalController {
         // Setup our initial size based on our configured position
         position.setLoaded(window)
 
+        // Upon first adding this Window to its host view, older SwiftUI
+        // seems to have a "hiccup" and corrupts the frameRect,
+        // sometimes setting the size to zero, sometimes corrupting it.
+        // We pass the actual window's frame as "initial" frame directly
+        // to the window, so it can use that instead of the frameworks
+        // "interpretation"
+        if let qtWindow = window as? QuickTerminalWindow {
+            qtWindow.initialFrame = window.frame
+        }
+        
         // Setup our content
         window.contentView = NSHostingView(rootView: TerminalView(
             ghostty: self.ghostty,
             viewModel: self,
             delegate: self
         ))
+        
+        // Clear out our frame at this point, the fixup from above is complete.
+        if let qtWindow = window as? QuickTerminalWindow {
+            qtWindow.initialFrame = nil
+        }
 
         // Animate the window in
         animateIn()

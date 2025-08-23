@@ -287,7 +287,6 @@ pub const FeatureList = struct {
 /// These features are hardcoded to always be on by default. Users
 /// can turn them off by setting the features to "-liga" for example.
 pub const default_features = [_]Feature{
-    .{ .tag = "dlig".*, .value = 1 },
     .{ .tag = "liga".*, .value = 1 },
 };
 

@@ -29,4 +29,19 @@ class QuickTerminalWindow: NSPanel {
         // We don't want to activate the owning app when quick terminal is triggered.
         self.styleMask.insert(.nonactivatingPanel)
     }
+
+    /// This is set to the frame prior to setting `contentView`. This is purely a hack to workaround
+    /// bugs in older macOS versions (Ventura): https://github.com/ghostty-org/ghostty/pull/8026
+    var initialFrame: NSRect? = nil
+    
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        // Upon first adding this Window to its host view, older SwiftUI
+        // seems to have a "hiccup" and corrupts the frameRect,
+        // sometimes setting the size to zero, sometimes corrupting it.
+        // If we find we have cached the "initial" frame, use that instead
+        // the propagated one through the framework
+        //
+        // https://github.com/ghostty-org/ghostty/pull/8026
+        super.setFrame(initialFrame ?? frameRect, display: flag)
+    }
 }

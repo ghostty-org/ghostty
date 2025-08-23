@@ -29,10 +29,12 @@ const apprt = @import("../../apprt.zig");
 const configpkg = @import("../../config.zig");
 const input = @import("../../input.zig");
 const internal_os = @import("../../os/main.zig");
+const systemd = @import("../../os/systemd.zig");
 const terminal = @import("../../terminal/main.zig");
 const Config = configpkg.Config;
 const CoreApp = @import("../../App.zig");
 const CoreSurface = @import("../../Surface.zig");
+const ipc = @import("ipc.zig");
 
 const cgroup = @import("cgroup.zig");
 const Surface = @import("Surface.zig");
@@ -496,7 +498,7 @@ pub fn performAction(
         .resize_split => self.resizeSplit(target, value),
         .equalize_splits => self.equalizeSplits(target),
         .goto_split => return self.gotoSplit(target, value),
-        .open_config => try configpkg.edit.open(self.core_app.alloc),
+        .open_config => return self.openConfig(),
         .config_change => self.configChange(target, value.config),
         .reload_config => try self.reloadConfig(target, value),
         .inspector => self.controlInspector(target, value),
@@ -519,6 +521,10 @@ pub fn performAction(
         .secure_input => self.setSecureInput(target, value),
         .ring_bell => try self.ringBell(target),
         .toggle_command_palette => try self.toggleCommandPalette(target),
+        .open_url => self.openUrl(value),
+        .show_child_exited => return try self.showChildExited(target, value),
+        .progress_report => return try self.handleProgressReport(target, value),
+        .render => self.render(target),
 
         // Unimplemented
         .close_all_windows,
@@ -533,6 +539,7 @@ pub fn performAction(
         .check_for_updates,
         .undo,
         .redo,
+        .show_on_screen_keyboard,
         => {
             log.warn("unimplemented action={}", .{action});
             return false;
@@ -542,6 +549,23 @@ pub fn performAction(
     // We can assume it was handled because all unknown/unimplemented actions
     // are caught above.
     return true;
+}
+
+/// Send the given IPC to a running Ghostty. Returns `true` if the action was
+/// able to be performed, `false` otherwise.
+///
+/// Note that this is a static function. Since this is called from a CLI app (or
+/// some other process that is not Ghostty) there is no full-featured apprt App
+/// to use.
+pub fn performIpc(
+    alloc: Allocator,
+    target: apprt.ipc.Target,
+    comptime action: apprt.ipc.Action.Key,
+    value: apprt.ipc.Action.Value(action),
+) (Allocator.Error || std.posix.WriteError || apprt.ipc.Errors)!bool {
+    switch (action) {
+        .new_window => return try ipc.openNewWindow(alloc, target, value),
+    }
 }
 
 fn newTab(_: *App, target: apprt.Target) !void {
@@ -844,6 +868,28 @@ fn toggleCommandPalette(_: *App, target: apprt.Target) !void {
     }
 }
 
+fn showChildExited(_: *App, target: apprt.Target, value: apprt.surface.Message.ChildExited) error{}!bool {
+    switch (target) {
+        .app => return false,
+        .surface => |surface| return try surface.rt_surface.showChildExited(value),
+    }
+}
+
+/// Show a native GUI element to indicate the progress of a TUI operation.
+fn handleProgressReport(_: *App, target: apprt.Target, value: terminal.osc.Command.ProgressReport) error{}!bool {
+    switch (target) {
+        .app => return false,
+        .surface => |surface| return try surface.rt_surface.progress_bar.handleProgressReport(value),
+    }
+}
+
+fn render(_: *App, target: apprt.Target) void {
+    switch (target) {
+        .app => {},
+        .surface => |v| v.rt_surface.redraw(),
+    }
+}
+
 fn quitTimer(self: *App, mode: apprt.action.QuitTimer) void {
     switch (mode) {
         .start => self.startQuitTimer(),
@@ -1034,6 +1080,12 @@ pub fn reloadConfig(
     target: apprt.action.Target,
     opts: apprt.action.ReloadConfig,
 ) !void {
+    // Tell systemd that reloading has started.
+    systemd.notify.reloading();
+
+    // When we exit this function tell systemd that reloading has finished.
+    defer systemd.notify.ready();
+
     if (opts.soft) {
         switch (target) {
             .app => try self.core_app.updateConfig(self, &self.config),
@@ -1366,6 +1418,9 @@ pub fn run(self: *App) !void {
         log.warn("error handling configuration changes err={}", .{err});
     };
 
+    // Tell systemd that we are ready.
+    systemd.notify.ready();
+
     while (self.running) {
         _ = glib.MainContext.iteration(self.ctx, 1);
 
@@ -1431,12 +1486,6 @@ fn stopQuitTimer(self: *App) void {
             self.quit_timer = .{ .off = {} };
         },
     }
-}
-
-/// Close the given surface.
-pub fn redrawSurface(self: *App, surface: *Surface) void {
-    _ = self;
-    surface.redraw();
 }
 
 /// Redraw the inspector for the given surface.
@@ -1508,7 +1557,22 @@ pub fn quitNow(self: *App) void {
         fn callback(data: ?*anyopaque, _: ?*anyopaque) callconv(.c) void {
             const ptr = data orelse return;
             const window: *gtk.Window = @ptrCast(@alignCast(ptr));
-            window.destroy();
+
+            // We only want to destroy our windows. These windows own
+            // every other type of window that is possible so this will
+            // trigger a proper shutdown sequence.
+            //
+            // We previously just destroyed ALL windows but this leads to
+            // a double-free with the fcitx ime, because it has a nested
+            // gtk.Window as a property that we don't own and it later
+            // tries to free on its own. I think this is probably a bug in
+            // the fcitx ime widget but still, we don't want a double free!
+            //
+            // Since we don't use gobject directly we can't check class,
+            // so we use a heuristic based on CSS class.
+            if (window.as(gtk.Widget).hasCssClass("terminal-window") != 0) {
+                window.destroy();
+            }
         }
     }.callback, null);
 
@@ -1712,10 +1776,44 @@ fn gtkActionShowGTKInspector(
 
 fn gtkActionNewWindow(
     _: *gio.SimpleAction,
-    _: ?*glib.Variant,
+    parameter_: ?*glib.Variant,
     self: *App,
 ) callconv(.c) void {
-    log.info("received new window action", .{});
+    log.debug("received new window action", .{});
+
+    parameter: {
+        // were we given a parameter?
+        const parameter = parameter_ orelse break :parameter;
+
+        const as = glib.VariantType.new("as");
+        defer as.free();
+
+        // ensure that the supplied parameter is an array of strings
+        if (glib.Variant.isOfType(parameter, as) == 0) {
+            log.warn("parameter is of type {s}", .{parameter.getTypeString()});
+            break :parameter;
+        }
+
+        const s = glib.VariantType.new("s");
+        defer s.free();
+
+        var it: glib.VariantIter = undefined;
+        _ = it.init(parameter);
+
+        while (it.nextValue()) |value| {
+            defer value.unref();
+
+            // just to be sure
+            if (value.isOfType(s) == 0) continue;
+
+            var len: usize = undefined;
+            const buf = value.getString(&len);
+            const str = buf[0..len];
+
+            log.debug("new-window command argument: {s}", .{str});
+        }
+    }
+
     _ = self.core_app.mailbox.push(.{
         .new_window = .{},
     }, .{ .forever = {} });
@@ -1732,7 +1830,10 @@ fn initActions(self: *App) void {
     // For action names:
     // https://docs.gtk.org/gio/type_func.Action.name_is_valid.html
     const t = glib.ext.VariantType.newFor(u64);
-    defer glib.VariantType.free(t);
+    defer t.free();
+
+    const as = glib.VariantType.new("as");
+    defer as.free();
 
     const actions = .{
         .{ "quit", gtkActionQuit, null },
@@ -1741,6 +1842,7 @@ fn initActions(self: *App) void {
         .{ "present-surface", gtkActionPresentSurface, t },
         .{ "show-gtk-inspector", gtkActionShowGTKInspector, null },
         .{ "new-window", gtkActionNewWindow, null },
+        .{ "new-window-command", gtkActionNewWindow, as },
     };
 
     inline for (actions) |entry| {
@@ -1756,4 +1858,35 @@ fn initActions(self: *App) void {
         const action_map = self.app.as(gio.ActionMap);
         action_map.addAction(action.as(gio.Action));
     }
+}
+
+fn openConfig(self: *App) !bool {
+    // Get the config file path
+    const alloc = self.core_app.alloc;
+    const path = configpkg.edit.openPath(alloc) catch |err| {
+        log.warn("error getting config file path: {}", .{err});
+        return false;
+    };
+    defer alloc.free(path);
+
+    // Open it using openURL. "path" isn't actually a URL but
+    // at the time of writing that works just fine for GTK.
+    self.openUrl(.{ .kind = .text, .url = path });
+    return true;
+}
+
+fn openUrl(
+    app: *App,
+    value: apprt.action.OpenUrl,
+) void {
+    // TODO: use https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.OpenURI.html
+
+    // Fallback to the minimal cross-platform way of opening a URL.
+    // This is always a safe fallback and enables for example Windows
+    // to open URLs (GTK on Windows via WSL is a thing).
+    internal_os.open(
+        app.core_app.alloc,
+        value.kind,
+        value.url,
+    ) catch |err| log.warn("unable to open url: {}", .{err});
 }

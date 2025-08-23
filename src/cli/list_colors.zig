@@ -1,5 +1,5 @@
 const std = @import("std");
-const Action = @import("action.zig").Action;
+const Action = @import("ghostty.zig").Action;
 const args = @import("args.zig");
 const x11_color = @import("../terminal/main.zig").x11_color;
 

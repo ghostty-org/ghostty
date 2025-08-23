@@ -244,6 +244,7 @@ pub fn init(
 
     // We always track our viewport pin to ensure this is never an allocation
     const viewport_pin = try pool.pins.create();
+    viewport_pin.* = .{ .node = page_list.first.? };
     var tracked_pins: PinSet = .{};
     errdefer tracked_pins.deinit(pool.alloc);
     try tracked_pins.putNoClobber(pool.alloc, viewport_pin, {});
@@ -1003,23 +1004,34 @@ const ReflowCursor = struct {
                 // Copy the graphemes
                 const cps = src_page.lookupGrapheme(cell).?;
 
-                // If our page can't support an additional cell with
-                // graphemes then we create a new page for this row.
+                // If our page can't support an additional cell
+                // with graphemes then we increase capacity.
                 if (self.page.graphemeCount() >= self.page.graphemeCapacity()) {
-                    try self.moveLastRowToNewPage(list, cap);
-                } else {
-                    // Attempt to allocate the space that would be required for
-                    // these graphemes, and if it's not available, create a new
-                    // page for this row.
-                    if (self.page.grapheme_alloc.alloc(
-                        u21,
-                        self.page.memory,
-                        cps.len,
-                    )) |slice| {
-                        self.page.grapheme_alloc.free(self.page.memory, slice);
-                    } else |_| {
-                        try self.moveLastRowToNewPage(list, cap);
+                    try self.adjustCapacity(list, .{
+                        .hyperlink_bytes = cap.grapheme_bytes * 2,
+                    });
+                }
+
+                // Attempt to allocate the space that would be required
+                // for these graphemes, and if it's not available, then
+                // increase capacity.
+                if (self.page.grapheme_alloc.alloc(
+                    u21,
+                    self.page.memory,
+                    cps.len,
+                )) |slice| {
+                    self.page.grapheme_alloc.free(self.page.memory, slice);
+                } else |_| {
+                    // Grow our capacity until we can
+                    // definitely fit the extra bytes.
+                    const required = cps.len * @sizeOf(u21);
+                    var new_grapheme_capacity: usize = cap.grapheme_bytes;
+                    while (new_grapheme_capacity - cap.grapheme_bytes < required) {
+                        new_grapheme_capacity *= 2;
                     }
+                    try self.adjustCapacity(list, .{
+                        .grapheme_bytes = new_grapheme_capacity,
+                    });
                 }
 
                 // This shouldn't fail since we made sure we have space above.
@@ -1031,25 +1043,67 @@ const ReflowCursor = struct {
                 const src_id = src_page.lookupHyperlink(cell).?;
                 const src_link = src_page.hyperlink_set.get(src_page.memory, src_id);
 
-                // If our page can't support an additional cell with
-                // a hyperlink ID then we create a new page for this row.
+                // If our page can't support an additional cell
+                // with a hyperlink then we increase capacity.
                 if (self.page.hyperlinkCount() >= self.page.hyperlinkCapacity()) {
-                    try self.moveLastRowToNewPage(list, cap);
+                    try self.adjustCapacity(list, .{
+                        .hyperlink_bytes = cap.hyperlink_bytes * 2,
+                    });
+                }
+
+                // Ensure that the string alloc has sufficient capacity
+                // to dupe the link (and the ID if it's not implicit).
+                const additional_required_string_capacity =
+                    src_link.uri.len +
+                    switch (src_link.id) {
+                        .explicit => |v| v.len,
+                        .implicit => 0,
+                    };
+                if (self.page.string_alloc.alloc(
+                    u8,
+                    self.page.memory,
+                    additional_required_string_capacity,
+                )) |slice| {
+                    // We have enough capacity, free the test alloc.
+                    self.page.string_alloc.free(self.page.memory, slice);
+                } else |_| {
+                    // Grow our capacity until we can
+                    // definitely fit the extra bytes.
+                    var new_string_capacity: usize = cap.string_bytes;
+                    while (new_string_capacity - cap.string_bytes < additional_required_string_capacity) {
+                        new_string_capacity *= 2;
+                    }
+                    try self.adjustCapacity(list, .{
+                        .string_bytes = new_string_capacity,
+                    });
                 }
 
                 const dst_id = self.page.hyperlink_set.addWithIdContext(
                     self.page.memory,
+                    // We made sure there was enough capacity for this above.
                     try src_link.dupe(src_page, self.page),
                     src_id,
                     .{ .page = self.page },
-                ) catch id: {
-                    // We have no space for this link,
-                    // so make a new page for this row.
-                    try self.moveLastRowToNewPage(list, cap);
+                ) catch |err| id: {
+                    // If the add failed then either the set needs to grow
+                    // or it needs to be rehashed. Either one of those can
+                    // be accomplished by adjusting capacity, either with
+                    // no actual change or with an increased hyperlink cap.
+                    try self.adjustCapacity(list, switch (err) {
+                        error.OutOfMemory => .{
+                            .hyperlink_bytes = cap.hyperlink_bytes * 2,
+                        },
+                        error.NeedsRehash => .{},
+                    });
 
-                    break :id try self.page.hyperlink_set.addContext(
+                    // We assume this one will succeed. We dupe the link
+                    // again, and don't have to worry about the other one
+                    // because adjusting the capacity naturally clears up
+                    // any managed memory not associated with a cell yet.
+                    break :id try self.page.hyperlink_set.addWithIdContext(
                         self.page.memory,
                         try src_link.dupe(src_page, self.page),
+                        src_id,
                         .{ .page = self.page },
                     );
                 } orelse src_id;
@@ -1074,14 +1128,23 @@ const ReflowCursor = struct {
                     self.page.memory,
                     style,
                     cell.style_id,
-                ) catch id: {
-                    // We have no space for this style,
-                    // so make a new page for this row.
-                    try self.moveLastRowToNewPage(list, cap);
+                ) catch |err| id: {
+                    // If the add failed then either the set needs to grow
+                    // or it needs to be rehashed. Either one of those can
+                    // be accomplished by adjusting capacity, either with
+                    // no actual change or with an increased style cap.
+                    try self.adjustCapacity(list, switch (err) {
+                        error.OutOfMemory => .{
+                            .styles = cap.styles * 2,
+                        },
+                        error.NeedsRehash => .{},
+                    });
 
-                    break :id try self.page.styles.add(
+                    // We assume this one will succeed.
+                    break :id try self.page.styles.addWithId(
                         self.page.memory,
                         style,
+                        cell.style_id,
                     );
                 } orelse cell.style_id;
 
@@ -1147,6 +1210,22 @@ const ReflowCursor = struct {
             list.pages.remove(old_node);
             list.destroyNode(old_node);
         }
+    }
+
+    /// Adjust the capacity of the current page.
+    fn adjustCapacity(
+        self: *ReflowCursor,
+        list: *PageList,
+        adjustment: AdjustCapacity,
+    ) !void {
+        const old_x = self.x;
+        const old_y = self.y;
+
+        self.* = .init(try list.adjustCapacity(
+            self.node,
+            adjustment,
+        ));
+        self.cursorAbsolute(old_x, old_y);
     }
 
     /// True if this cursor is at the bottom of the page by capacity,
@@ -1400,6 +1479,15 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
                 } else {
                     assert(count < rows);
                     for (count..rows) |_| _ = try self.grow();
+                }
+
+                // Make sure that the viewport pin isn't below the active
+                // area, since that will lead to all sorts of problems.
+                switch (self.viewport) {
+                    .pin => if (self.pinIsActive(self.viewport_pin.*)) {
+                        self.viewport = .{ .active = {} };
+                    },
+                    .active, .top => {},
                 }
             },
         }
@@ -2307,8 +2395,8 @@ pub fn eraseRows(
                 break;
             }
 
-            self.erasePage(chunk.node);
             erased += chunk.node.data.size.rows;
+            self.erasePage(chunk.node);
             continue;
         }
 
@@ -3798,6 +3886,10 @@ test "PageList" {
     try testing.expect(s.viewport == .active);
     try testing.expect(s.pages.first != null);
     try testing.expectEqual(@as(usize, s.rows), s.totalRows());
+
+    // Our viewport pin must be defined. It isn't used until the
+    // viewport is a pin but it prevents undefined access on clone.
+    try testing.expect(s.viewport_pin.node == s.pages.first.?);
 
     // Active area should be the top
     try testing.expectEqual(Pin{
@@ -5975,6 +6067,36 @@ test "PageList resize (no reflow) more rows extends blank lines" {
     }
 }
 
+test "PageList resize (no reflow) more rows contains viewport" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // When the rows are increased we need to make sure that the viewport
+    // doesn't end up below the active area if it's currently in pin mode.
+
+    var s = try init(alloc, 5, 5, 1);
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+
+    // Make it so we have scrollback
+    _ = try s.grow();
+
+    try testing.expectEqual(@as(usize, 5), s.rows);
+    try testing.expectEqual(@as(usize, 6), s.totalRows());
+
+    // Set viewport above active by scrolling up one.
+    s.scroll(.{ .delta_row = -1 });
+    // The viewport should be a pin now.
+    try testing.expectEqual(Viewport.pin, s.viewport);
+
+    // Resize
+    try s.resize(.{ .rows = 7, .reflow = false });
+    try testing.expectEqual(@as(usize, 7), s.rows);
+    try testing.expectEqual(@as(usize, 7), s.totalRows());
+    // The viewport should now be active, not a pin.
+    try testing.expectEqual(Viewport.active, s.viewport);
+}
+
 test "PageList resize (no reflow) less cols" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -6985,6 +7107,7 @@ test "PageList resize reflow less cols wrap across page boundary cursor in secon
         try testing.expect(!cells[3].hasText());
     }
 }
+
 test "PageList resize reflow more cols cursor in wrapped row" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -7176,6 +7299,296 @@ test "PageList resize reflow more cols no reflow preserves semantic prompt" {
         const rac = page.getRowAndCell(0, 1);
         try testing.expect(rac.row.semantic_prompt == .prompt);
     }
+}
+
+test "PageList resize reflow exceeds hyperlink memory forcing capacity increase" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 10, 0);
+    defer s.deinit();
+    try testing.expectEqual(@as(usize, 1), s.totalPages());
+
+    // Grow to the capacity of the first page and add
+    // one more row so that we have two pages total.
+    {
+        const page = &s.pages.first.?.data;
+        page.pauseIntegrityChecks(true);
+        for (page.size.rows..page.capacity.rows) |_| {
+            _ = try s.grow();
+        }
+        page.pauseIntegrityChecks(false);
+        try testing.expectEqual(@as(usize, 1), s.totalPages());
+        try s.growRows(1);
+        try testing.expectEqual(@as(usize, 2), s.totalPages());
+
+        // We now have two pages.
+        try std.testing.expect(s.pages.first.? != s.pages.last.?);
+        try std.testing.expectEqual(s.pages.last.?, s.pages.first.?.next);
+    }
+
+    // We use almost all string alloc capacity with a hyperlink in the final
+    // row of the first page, and do the same on the first row of the second
+    // page. We also mark the row as wrapped so that when we resize with more
+    // cols the row unwraps and we have a single row that requires almost two
+    // times the base string alloc capacity.
+    //
+    // This forces the reflow to increase capacity.
+    //
+    //  +--+ = PAGE 0
+    //  :  :
+    //  | X… <- where X is hyperlinked with almost all string cap.
+    //  +--+
+    //  +--+ = PAGE 1
+    //  …X | <- X here also almost hits string cap with a hyperlink.
+    //  +--+
+
+    // Almost hit string alloc cap in bottom right of first page.
+    // Mark the final row as wrapped.
+    {
+        const page = &s.pages.first.?.data;
+        const id = try page.insertHyperlink(.{
+            .id = .{ .implicit = 0 },
+            .uri = "a" ** (pagepkg.string_bytes_default - 1),
+        });
+        const rac = page.getRowAndCell(page.size.cols - 1, page.size.rows - 1);
+        rac.row.wrap = true;
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = 'X' },
+        };
+        try page.setHyperlink(rac.row, rac.cell, id);
+        try std.testing.expectError(
+            error.StringsOutOfMemory,
+            page.insertHyperlink(.{
+                .id = .{ .implicit = 1 },
+                .uri = "AAAAAAAAAAAAAAAAAAAAAAAAAA",
+            }),
+        );
+    }
+
+    // Almost hit string alloc cap in top left of second page.
+    // Mark the first row as a wrap continuation.
+    {
+        const page = &s.pages.last.?.data;
+        const id = try page.insertHyperlink(.{
+            .id = .{ .implicit = 1 },
+            .uri = "a" ** (pagepkg.string_bytes_default - 1),
+        });
+        const rac = page.getRowAndCell(0, 0);
+        rac.row.wrap_continuation = true;
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = 'X' },
+        };
+        try page.setHyperlink(rac.row, rac.cell, id);
+        try std.testing.expectError(
+            error.StringsOutOfMemory,
+            page.insertHyperlink(.{
+                .id = .{ .implicit = 2 },
+                .uri = "AAAAAAAAAAAAAAAAAAAAAAAAAA",
+            }),
+        );
+    }
+
+    // Resize to 1 column wider, unwrapping the row.
+    try s.resize(.{ .cols = s.cols + 1, .reflow = true });
+}
+
+test "PageList resize reflow exceeds grapheme memory forcing capacity increase" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 10, 0);
+    defer s.deinit();
+    try testing.expectEqual(@as(usize, 1), s.totalPages());
+
+    // Grow to the capacity of the first page and add
+    // one more row so that we have two pages total.
+    {
+        const page = &s.pages.first.?.data;
+        page.pauseIntegrityChecks(true);
+        for (page.size.rows..page.capacity.rows) |_| {
+            _ = try s.grow();
+        }
+        page.pauseIntegrityChecks(false);
+        try testing.expectEqual(@as(usize, 1), s.totalPages());
+        try s.growRows(1);
+        try testing.expectEqual(@as(usize, 2), s.totalPages());
+
+        // We now have two pages.
+        try std.testing.expect(s.pages.first.? != s.pages.last.?);
+        try std.testing.expectEqual(s.pages.last.?, s.pages.first.?.next);
+    }
+
+    // We use almost all grapheme alloc capacity with a grapheme in the final
+    // row of the first page, and do the same on the first row of the second
+    // page. We also mark the row as wrapped so that when we resize with more
+    // cols the row unwraps and we have a single row that requires almost two
+    // times the base grapheme alloc capacity.
+    //
+    // This forces the reflow to increase capacity.
+    //
+    //  +--+ = PAGE 0
+    //  :  :
+    //  | X… <- where X is a grapheme which uses almost all the capacity.
+    //  +--+
+    //  +--+ = PAGE 1
+    //  …X | <- X here also almost hits grapheme cap.
+    //  +--+
+
+    // Almost hit grapheme alloc cap in bottom right of first page.
+    // Mark the final row as wrapped.
+    {
+        const page = &s.pages.first.?.data;
+        const rac = page.getRowAndCell(page.size.cols - 1, page.size.rows - 1);
+        rac.row.wrap = true;
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = 'X' },
+        };
+        try page.setGraphemes(
+            rac.row,
+            rac.cell,
+            &@as(
+                [
+                    @divFloor(
+                        pagepkg.grapheme_bytes_default - 1,
+                        @sizeOf(u21),
+                    )
+                ]u21,
+                @splat('a'),
+            ),
+        );
+        try std.testing.expectError(
+            error.OutOfMemory,
+            page.grapheme_alloc.alloc(
+                u21,
+                page.memory,
+                16,
+            ),
+        );
+    }
+
+    // Almost hit grapheme alloc cap in top left of second page.
+    // Mark the first row as a wrap continuation.
+    {
+        const page = &s.pages.last.?.data;
+        const rac = page.getRowAndCell(0, 0);
+        rac.row.wrap = true;
+        rac.cell.* = .{
+            .content_tag = .codepoint,
+            .content = .{ .codepoint = 'X' },
+        };
+        try page.setGraphemes(
+            rac.row,
+            rac.cell,
+            &@as(
+                [
+                    @divFloor(
+                        pagepkg.grapheme_bytes_default - 1,
+                        @sizeOf(u21),
+                    )
+                ]u21,
+                @splat('a'),
+            ),
+        );
+        try std.testing.expectError(
+            error.OutOfMemory,
+            page.grapheme_alloc.alloc(
+                u21,
+                page.memory,
+                16,
+            ),
+        );
+    }
+
+    // Resize to 1 column wider, unwrapping the row.
+    try s.resize(.{ .cols = s.cols + 1, .reflow = true });
+}
+
+test "PageList resize reflow exceeds style memory forcing capacity increase" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, pagepkg.std_capacity.styles - 1, 10, 0);
+    defer s.deinit();
+    try testing.expectEqual(@as(usize, 1), s.totalPages());
+
+    // Grow to the capacity of the first page and add
+    // one more row so that we have two pages total.
+    {
+        const page = &s.pages.first.?.data;
+        page.pauseIntegrityChecks(true);
+        for (page.size.rows..page.capacity.rows) |_| {
+            _ = try s.grow();
+        }
+        page.pauseIntegrityChecks(false);
+        try testing.expectEqual(@as(usize, 1), s.totalPages());
+        try s.growRows(1);
+        try testing.expectEqual(@as(usize, 2), s.totalPages());
+
+        // We now have two pages.
+        try std.testing.expect(s.pages.first.? != s.pages.last.?);
+        try std.testing.expectEqual(s.pages.last.?, s.pages.first.?.next);
+    }
+
+    // Give each cell in the final row of the first page a unique style.
+    // Mark the final row as wrapped.
+    {
+        const page = &s.pages.first.?.data;
+        for (0..s.cols) |x| {
+            const id = page.styles.add(
+                page.memory,
+                .{
+                    .bg_color = .{ .rgb = .{
+                        .r = @truncate(x),
+                        .g = @truncate(x >> 8),
+                        .b = @truncate(x >> 16),
+                    } },
+                },
+            ) catch break;
+
+            const rac = page.getRowAndCell(x, page.size.rows - 1);
+            rac.row.wrap = true;
+            rac.row.styled = true;
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = 'X' },
+                .style_id = id,
+            };
+        }
+    }
+
+    // Do the same for the first row of the second page.
+    // Mark the first row as a wrap continuation.
+    {
+        const page = &s.pages.last.?.data;
+        for (0..s.cols) |x| {
+            const id = page.styles.add(
+                page.memory,
+                .{
+                    .fg_color = .{ .rgb = .{
+                        .r = @truncate(x),
+                        .g = @truncate(x >> 8),
+                        .b = @truncate(x >> 16),
+                    } },
+                },
+            ) catch break;
+
+            const rac = page.getRowAndCell(x, 0);
+            rac.row.wrap_continuation = true;
+            rac.row.styled = true;
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = 'X' },
+                .style_id = id,
+            };
+        }
+    }
+
+    // Resize to twice as wide, fully unwrapping the row.
+    try s.resize(.{ .cols = s.cols * 2, .reflow = true });
 }
 
 test "PageList resize reflow more cols unwrap wide spacer head" {
@@ -7723,6 +8136,7 @@ test "PageList resize reflow less cols wrapped rows with graphemes" {
         try testing.expectEqual(@as(u21, 'A'), cps[0]);
     }
 }
+
 test "PageList resize reflow less cols cursor in wrapped row" {
     const testing = std.testing;
     const alloc = testing.allocator;

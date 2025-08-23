@@ -3,7 +3,7 @@
 //! getting user input (mouse/keyboard), etc.
 //!
 //! This enables compile-time interfaces to be built to swap out the underlying
-//! application runtime. For example: glfw, pure macOS Cocoa, GTK+, browser, etc.
+//! application runtime. For example: pure macOS Cocoa, GTK+, browser, etc.
 //!
 //! The goal is to have different implementations share as much of the core
 //! logic as possible, and to only reach out to platform-specific implementation
@@ -15,8 +15,9 @@ const build_config = @import("build_config.zig");
 const structs = @import("apprt/structs.zig");
 
 pub const action = @import("apprt/action.zig");
-pub const glfw = @import("apprt/glfw.zig");
+pub const ipc = @import("apprt/ipc.zig");
 pub const gtk = @import("apprt/gtk.zig");
+pub const gtk_ng = @import("apprt/gtk-ng.zig");
 pub const none = @import("apprt/none.zig");
 pub const browser = @import("apprt/browser.zig");
 pub const embedded = @import("apprt/embedded.zig");
@@ -42,8 +43,8 @@ pub const SurfaceSize = structs.SurfaceSize;
 pub const runtime = switch (build_config.artifact) {
     .exe => switch (build_config.app_runtime) {
         .none => none,
-        .glfw => glfw,
         .gtk => gtk,
+        .@"gtk-ng" => gtk_ng,
     },
     .lib => embedded,
     .wasm_module => browser,
@@ -53,31 +54,28 @@ pub const App = runtime.App;
 pub const Surface = runtime.Surface;
 
 /// Runtime is the runtime to use for Ghostty. All runtimes do not provide
-/// equivalent feature sets. For example, GTK offers tabbing and more features
-/// that glfw does not provide. However, glfw may require many less
-/// dependencies.
+/// equivalent feature sets.
 pub const Runtime = enum {
     /// Will not produce an executable at all when `zig build` is called.
     /// This is only useful if you're only interested in the lib only (macOS).
     none,
 
-    /// Glfw-backed. Very simple. Glfw is statically linked. Tabbing and
-    /// other rich windowing features are not supported.
-    glfw,
+    /// GTK4. Rich windowed application. This uses a full GObject-based
+    /// approach to building the application.
+    @"gtk-ng",
 
     /// GTK-backed. Rich windowed application. GTK is dynamically linked.
+    /// WARNING: Deprecated. This will be removed very soon. All bug fixes
+    /// and features should go into the gtk-ng backend.
     gtk,
 
     pub fn default(target: std.Target) Runtime {
-        // The Linux default is GTK because it is full featured.
-        if (target.os.tag == .linux) return .gtk;
+        // The Linux default is GTK because it is a full featured application.
+        if (target.os.tag == .linux) return .@"gtk-ng";
 
-        // Windows we currently only support glfw
-        if (target.os.tag == .windows) return .glfw;
-
-        // Otherwise, we do NONE so we don't create an exe. The GLFW
-        // build is opt-in because it is missing so many features compared
-        // to the other builds that are impossible due to the GLFW interface.
+        // Otherwise, we do NONE so we don't create an exe and we
+        // create libghostty. On macOS, Xcode is used to build the app
+        // that links to libghostty.
         return .none;
     }
 };

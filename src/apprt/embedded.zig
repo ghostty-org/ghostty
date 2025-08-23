@@ -236,7 +236,7 @@ pub const App = struct {
         var surface = try self.core_app.alloc.create(Surface);
         errdefer self.core_app.alloc.destroy(surface);
 
-        // Create the surface -- because windows are surfaces for glfw.
+        // Create the surface
         try surface.init(self, opts);
         errdefer surface.deinit();
 
@@ -247,12 +247,6 @@ pub const App = struct {
     pub fn closeSurface(self: *App, surface: *Surface) void {
         surface.deinit();
         self.core_app.alloc.destroy(surface);
-    }
-
-    pub fn redrawSurface(self: *App, surface: *Surface) void {
-        _ = self;
-        _ = surface;
-        // No-op, we use a threaded interface so we're constantly drawing.
     }
 
     pub fn redrawInspector(self: *App, surface: *Surface) void {
@@ -317,6 +311,23 @@ pub const App = struct {
             },
 
             else => {},
+        }
+    }
+
+    /// Send the given IPC to a running Ghostty. Returns `true` if the action was
+    /// able to be performed, `false` otherwise.
+    ///
+    /// Note that this is a static function. Since this is called from a CLI app (or
+    /// some other process that is not Ghostty) there is no full-featured apprt App
+    /// to use.
+    pub fn performIpc(
+        _: Allocator,
+        _: apprt.ipc.Target,
+        comptime action: apprt.ipc.Action.Key,
+        _: apprt.ipc.Action.Value(action),
+    ) (Allocator.Error || std.posix.WriteError || apprt.ipc.Errors)!bool {
+        switch (action) {
+            .new_window => return false,
         }
     }
 };
@@ -584,6 +595,14 @@ pub const Surface = struct {
         }
     }
 
+    pub fn core(self: *Surface) *CoreSurface {
+        return &self.core_surface;
+    }
+
+    pub fn rtApp(self: *const Surface) *App {
+        return self.app;
+    }
+
     pub fn close(self: *const Surface, process_alive: bool) void {
         const func = self.app.opts.close_surface orelse {
             log.info("runtime embedder does not support closing a surface", .{});
@@ -684,15 +703,6 @@ pub const Surface = struct {
             @intCast(@intFromEnum(clipboard_type)),
             confirm,
         );
-    }
-
-    pub fn setShouldClose(self: *Surface) void {
-        _ = self;
-    }
-
-    pub fn shouldClose(self: *const Surface) bool {
-        _ = self;
-        return false;
     }
 
     pub fn getCursorPos(self: *const Surface) !apprt.CursorPos {
@@ -884,7 +894,7 @@ pub const Surface = struct {
             }
 
             // Remove this so that running `ghostty` within Ghostty works.
-            env.remove("GHOSTTY_MAC_APP");
+            env.remove("GHOSTTY_MAC_LAUNCH_SOURCE");
 
             // If we were launched from the desktop then we want to
             // remove the LANGUAGE env var so that we don't inherit

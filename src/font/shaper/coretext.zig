@@ -1769,7 +1769,7 @@ fn testShaperWithFont(alloc: Allocator, font_req: TestFont) !TestShaper {
         .geist_mono => font.embedded.geist_mono,
         .jetbrains_mono => font.embedded.jetbrains_mono,
         .monaspace_neon => font.embedded.monaspace_neon,
-        .nerd_font => font.embedded.nerd_font,
+        .nerd_font => font.embedded.test_nerd_font,
     };
 
     var lib = try Library.init(alloc);
@@ -1779,19 +1779,27 @@ fn testShaperWithFont(alloc: Allocator, font_req: TestFont) !TestShaper {
     c.load_options = .{ .library = lib };
 
     // Setup group
-    _ = try c.add(alloc, .regular, .{ .loaded = try .init(
+    _ = try c.add(alloc, try .init(
         lib,
         testFont,
         .{ .size = .{ .points = 12 } },
-    ) });
+    ), .{
+        .style = .regular,
+        .fallback = false,
+        .size_adjustment = .none,
+    });
 
     if (font.options.backend != .coretext) {
         // Coretext doesn't support Noto's format
-        _ = try c.add(alloc, .regular, .{ .loaded = try .init(
+        _ = try c.add(alloc, try .init(
             lib,
             testEmoji,
             .{ .size = .{ .points = 12 } },
-        ) });
+        ), .{
+            .style = .regular,
+            .fallback = false,
+            .size_adjustment = .none,
+        });
     } else {
         // On CoreText we want to load Apple Emoji, we should have it.
         var disco = font.Discover.init();
@@ -1804,20 +1812,31 @@ fn testShaperWithFont(alloc: Allocator, font_req: TestFont) !TestShaper {
         defer disco_it.deinit();
         var face = (try disco_it.next()).?;
         errdefer face.deinit();
-        _ = try c.add(alloc, .regular, .{ .deferred = face });
+        _ = try c.addDeferred(alloc, face, .{
+            .style = .regular,
+            .fallback = false,
+            .size_adjustment = .none,
+        });
     }
-    _ = try c.add(alloc, .regular, .{ .loaded = try .init(
+    _ = try c.add(alloc, try .init(
         lib,
         testEmojiText,
         .{ .size = .{ .points = 12 } },
-    ) });
+    ), .{
+        .style = .regular,
+        .fallback = false,
+        .size_adjustment = .none,
+    });
 
     const grid_ptr = try alloc.create(SharedGrid);
     errdefer alloc.destroy(grid_ptr);
     grid_ptr.* = try .init(alloc, .{ .collection = c });
     errdefer grid_ptr.*.deinit(alloc);
 
-    var shaper = try Shaper.init(alloc, .{});
+    var shaper = try Shaper.init(alloc, .{
+        // Some of our tests rely on dlig being enabled by default
+        .features = &.{"dlig"},
+    });
     errdefer shaper.deinit();
 
     return TestShaper{

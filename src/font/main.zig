@@ -174,6 +174,11 @@ pub const Presentation = enum(u1) {
 /// A FontIndex that can be used to use the sprite font directly.
 pub const sprite_index = Collection.Index.initSpecial(.sprite);
 
+/// The default font size adjustment we use when loading fallback fonts.
+///
+/// TODO: Add user configuration for this instead of hard-coding it.
+pub const default_fallback_adjustment: Collection.SizeAdjustment = .ic_width;
+
 test {
     // For non-wasm we want to test everything we can
     if (!comptime builtin.target.cpu.arch.isWasm()) {

@@ -23,6 +23,7 @@ pub const c = @cImport({
     @cInclude("IOSurface/IOSurfaceRef.h");
     @cInclude("dispatch/dispatch.h");
     @cInclude("os/log.h");
+    @cInclude("os/signpost.h");
 
     if (builtin.os.tag == .macos) {
         @cInclude("Carbon/Carbon.h");

@@ -480,7 +480,10 @@ extension Ghostty {
             // Add buttons
             alert.addButton(withTitle: "OK")
             alert.addButton(withTitle: "Cancel")
-
+            
+            // Make the text field the first responder so it gets focus
+            alert.window.initialFirstResponder = textField
+            
             let response = alert.runModal()
 
             // Check if the user clicked "OK"
@@ -1324,7 +1327,7 @@ extension Ghostty {
             var item: NSMenuItem
 
             // If we have a selection, add copy
-            if self.selectedRange().length > 0 {
+            if let text = self.accessibilitySelectedText(), text.count > 0 {
                 menu.addItem(withTitle: "Copy", action: #selector(copy(_:)), keyEquivalent: "")
             }
             menu.addItem(withTitle: "Paste", action: #selector(paste(_:)), keyEquivalent: "")
@@ -1516,6 +1519,8 @@ extension Ghostty {
         enum CodingKeys: String, CodingKey {
             case pwd
             case uuid
+            case title
+            case isUserSetTitle
         }
 
         required convenience init(from decoder: Decoder) throws {
@@ -1530,14 +1535,27 @@ extension Ghostty {
             let uuid = UUID(uuidString: try container.decode(String.self, forKey: .uuid))
             var config = Ghostty.SurfaceConfiguration()
             config.workingDirectory = try container.decode(String?.self, forKey: .pwd)
+            let savedTitle = try container.decodeIfPresent(String.self, forKey: .title)
+            let isUserSetTitle = try container.decodeIfPresent(Bool.self, forKey: .isUserSetTitle) ?? false
 
             self.init(app, baseConfig: config, uuid: uuid)
+            
+            // Restore the saved title after initialization
+            if let title = savedTitle {
+                self.title = title
+                // If this was a user-set title, we need to prevent it from being overwritten
+                if isUserSetTitle {
+                    self.titleFromTerminal = title
+                }
+            }
         }
 
         func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode(pwd, forKey: .pwd)
             try container.encode(uuid.uuidString, forKey: .uuid)
+            try container.encode(title, forKey: .title)
+            try container.encode(titleFromTerminal != nil, forKey: .isUserSetTitle)
         }
     }
 }

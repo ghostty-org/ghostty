@@ -589,6 +589,84 @@ pub const Key = enum(c_int) {
         };
     }
 
+    /// Whether this key should be remappable by the operating system.
+    ///
+    /// On certain OSes (namely Linux and the BSDs) certain keys like the
+    /// functional keys are expected to be remappable by the user, such as
+    /// in the very common use case of swapping the Caps Lock key with the
+    /// Escape key with the XKB option `caps:swapescape`.
+    ///
+    /// However, the way XKB implements this is by essentially acting as a
+    /// software key remapper that destroys all information about the original
+    /// physical key, leading to very annoying bugs like #7309 where the
+    /// physical key `XKB_KEY_c` gets remapped into `XKB_KEY_Cyrillic_tse`,
+    /// which causes all of our physical key handling to completely break down.
+    /// _Very naughty._
+    ///
+    /// As a compromise, given that writing system keys (§3.1.1) comprise the
+    /// majority of keys that "change meaning [...] based on the current locale
+    /// and keyboard layout", we allow all other keys to be remapped by default
+    /// since they should be fairly harmless. We might consider making this
+    /// configurable, but for now this should at least placate most people.
+    pub fn shouldBeRemappable(self: Key) bool {
+        return switch (self) {
+            // "Writing System Keys" § 3.1.1
+            .backquote,
+            .backslash,
+            .bracket_left,
+            .bracket_right,
+            .comma,
+            .digit_0,
+            .digit_1,
+            .digit_2,
+            .digit_3,
+            .digit_4,
+            .digit_5,
+            .digit_6,
+            .digit_7,
+            .digit_8,
+            .digit_9,
+            .equal,
+            .intl_backslash,
+            .intl_ro,
+            .intl_yen,
+            .key_a,
+            .key_b,
+            .key_c,
+            .key_d,
+            .key_e,
+            .key_f,
+            .key_g,
+            .key_h,
+            .key_i,
+            .key_j,
+            .key_k,
+            .key_l,
+            .key_m,
+            .key_n,
+            .key_o,
+            .key_p,
+            .key_q,
+            .key_r,
+            .key_s,
+            .key_t,
+            .key_u,
+            .key_v,
+            .key_w,
+            .key_x,
+            .key_y,
+            .key_z,
+            .minus,
+            .period,
+            .quote,
+            .semicolon,
+            .slash,
+            => false,
+
+            else => true,
+        };
+    }
+
     /// Returns true if this is a keypad key.
     pub fn keypad(self: Key) bool {
         return switch (self) {
