@@ -162,10 +162,11 @@ pub fn parse(
                 error.InvalidField => "unknown field",
                 error.ValueRequired => formatValueRequired(T, arena_alloc, key) catch "value required",
                 error.InvalidValue => formatInvalidValue(T, arena_alloc, key, value) catch "invalid value",
-                else => try std.fmt.allocPrintZ(
+                else => try std.fmt.allocPrintSentinel(
                     arena_alloc,
                     "unknown error {}",
                     .{err},
+                    0,
                 ),
             };
 
@@ -235,14 +236,16 @@ fn formatValueRequired(
     comptime T: type,
     arena_alloc: std.mem.Allocator,
     key: []const u8,
-) std.mem.Allocator.Error![:0]const u8 {
-    var buf = std.ArrayList(u8).init(arena_alloc);
-    errdefer buf.deinit();
-    const writer = buf.writer();
+) std.Io.Writer.Error![:0]const u8 {
+    var stream: std.io.Writer.Allocating = .init(arena_alloc);
+    const writer = &stream.writer;
+
     try writer.print("value required", .{});
     try formatValues(T, key, writer);
     try writer.writeByte(0);
-    return buf.items[0 .. buf.items.len - 1 :0];
+
+    const written = stream.written();
+    return written[0 .. written.len - 1 :0];
 }
 
 fn formatInvalidValue(
@@ -250,17 +253,23 @@ fn formatInvalidValue(
     arena_alloc: std.mem.Allocator,
     key: []const u8,
     value: ?[]const u8,
-) std.mem.Allocator.Error![:0]const u8 {
-    var buf = std.ArrayList(u8).init(arena_alloc);
-    errdefer buf.deinit();
-    const writer = buf.writer();
+) std.Io.Writer.Error![:0]const u8 {
+    var stream: std.Io.Writer.Allocating = .init(arena_alloc);
+    const writer = &stream.writer;
+
     try writer.print("invalid value \"{?s}\"", .{value});
     try formatValues(T, key, writer);
     try writer.writeByte(0);
-    return buf.items[0 .. buf.items.len - 1 :0];
+
+    const written = stream.written();
+    return written[0 .. written.len - 1 :0];
 }
 
-fn formatValues(comptime T: type, key: []const u8, writer: anytype) std.mem.Allocator.Error!void {
+fn formatValues(
+    comptime T: type,
+    key: []const u8,
+    writer: *std.io.Writer,
+) std.Io.Writer.Error!void {
     @setEvalBranchQuota(2000);
     const typeinfo = @typeInfo(T);
     inline for (typeinfo.@"struct".fields) |f| {
@@ -324,7 +333,7 @@ pub fn parseIntoField(
                     return;
                 }
                 const raw = field.default_value_ptr orelse break :default;
-                const ptr: *const field.type = @alignCast(@ptrCast(raw));
+                const ptr: *const field.type = @ptrCast(@alignCast(raw));
                 @field(dst, field.name) = ptr.*;
                 return;
             }
@@ -537,8 +546,8 @@ pub fn parseAutoStruct(comptime T: type, alloc: Allocator, v: []const u8) !T {
         const key = std.mem.trim(u8, entry[0..idx], whitespace);
 
         // used if we need to decode a double-quoted string.
-        var buf: std.ArrayListUnmanaged(u8) = .empty;
-        defer buf.deinit(alloc);
+        var buf: std.Io.Writer.Allocating = .init(alloc);
+        defer buf.deinit();
 
         const value = value: {
             const value = std.mem.trim(u8, entry[idx + 1 ..], whitespace);
@@ -549,10 +558,9 @@ pub fn parseAutoStruct(comptime T: type, alloc: Allocator, v: []const u8) !T {
                 value[value.len - 1] == '"')
             {
                 // Decode a double-quoted string as a Zig string literal.
-                const writer = buf.writer(alloc);
-                const parsed = try std.zig.string_literal.parseWrite(writer, value);
+                const parsed = try std.zig.string_literal.parseWrite(&buf.writer, value);
                 if (parsed == .failure) return error.InvalidValue;
-                break :value buf.items;
+                break :value buf.written();
             }
 
             break :value value;
@@ -574,7 +582,7 @@ pub fn parseAutoStruct(comptime T: type, alloc: Allocator, v: []const u8) !T {
     inline for (info.fields, 0..) |field, i| {
         if (!fields_set.isSet(i)) {
             const default_ptr = field.default_value_ptr orelse return error.InvalidValue;
-            const typed_ptr: *const field.type = @alignCast(@ptrCast(default_ptr));
+            const typed_ptr: *const field.type = @ptrCast(@alignCast(default_ptr));
             @field(result, field.name) = typed_ptr.*;
         }
     }
@@ -1370,110 +1378,108 @@ test "ArgsIterator" {
 /// Returns an iterator (implements "next") that reads CLI args by line.
 /// Each CLI arg is expected to be a single line. This is used to implement
 /// configuration files.
-pub fn LineIterator(comptime ReaderType: type) type {
-    return struct {
-        const Self = @This();
+pub const LineIterator = struct {
+    const Self = @This();
 
-        /// The maximum size a single line can be. We don't expect any
-        /// CLI arg to exceed this size. Can't wait to git blame this in
-        /// like 4 years and be wrong about this.
-        pub const MAX_LINE_SIZE = 4096;
+    /// The maximum size a single line can be. We don't expect any
+    /// CLI arg to exceed this size. Can't wait to git blame this in
+    /// like 4 years and be wrong about this.
+    pub const MAX_LINE_SIZE = 4096;
 
-        /// Our stateful reader.
-        r: ReaderType,
+    /// Our stateful reader.
+    r: *std.io.Reader,
 
-        /// Filepath that is used for diagnostics. This is only used for
-        /// diagnostic messages so it can be formatted however you want.
-        /// It is prefixed to the messages followed by the line number.
-        filepath: []const u8 = "",
+    /// Filepath that is used for diagnostics. This is only used for
+    /// diagnostic messages so it can be formatted however you want.
+    /// It is prefixed to the messages followed by the line number.
+    filepath: []const u8 = "",
 
-        /// The current line that we're on. This is 1-indexed because
-        /// lines are generally 1-indexed in the real world. The value
-        /// can be zero if we haven't read any lines yet.
-        line: usize = 0,
+    /// The current line that we're on. This is 1-indexed because
+    /// lines are generally 1-indexed in the real world. The value
+    /// can be zero if we haven't read any lines yet.
+    line: usize = 0,
 
-        /// This is the buffer where we store the current entry that
-        /// is formatted to be compatible with the parse function.
-        entry: [MAX_LINE_SIZE]u8 = [_]u8{ '-', '-' } ++ ([_]u8{0} ** (MAX_LINE_SIZE - 2)),
+    /// This is the buffer where we store the current entry that
+    /// is formatted to be compatible with the parse function.
+    entry: [MAX_LINE_SIZE]u8 = [_]u8{ '-', '-' } ++ ([_]u8{0} ** (MAX_LINE_SIZE - 2)),
 
-        pub fn next(self: *Self) ?[]const u8 {
-            // TODO: detect "--" prefixed lines and give a friendlier error
-            const buf = buf: {
-                while (true) {
-                    // Read the full line
-                    var entry = self.r.readUntilDelimiterOrEof(self.entry[2..], '\n') catch |err| switch (err) {
-                        inline else => |e| {
-                            log.warn("cannot read from \"{s}\": {}", .{ self.filepath, e });
-                            return null;
-                        },
-                    } orelse return null;
+    pub fn next(self: *Self) ?[]const u8 {
+        // TODO: detect "--" prefixed lines and give a friendlier error
+        const buf = buf: {
+            while (true) {
+                // Read the full line
+                var entry = self.r.takeDelimiterInclusive('\n') catch |err| switch (err) {
+                    inline else => |e| {
+                        log.warn("cannot read from \"{s}\": {}", .{ self.filepath, e });
+                        return null;
+                    },
+                };
 
-                    // Increment our line counter
-                    self.line += 1;
+                // Increment our line counter
+                self.line += 1;
 
-                    // Trim any whitespace (including CR) around it
-                    const trim = std.mem.trim(u8, entry, whitespace ++ "\r");
-                    if (trim.len != entry.len) {
-                        std.mem.copyForwards(u8, entry, trim);
-                        entry = entry[0..trim.len];
-                    }
-
-                    // Ignore blank lines and comments
-                    if (entry.len == 0 or entry[0] == '#') continue;
-
-                    // Trim spaces around '='
-                    if (mem.indexOf(u8, entry, "=")) |idx| {
-                        const key = std.mem.trim(u8, entry[0..idx], whitespace);
-                        const value = value: {
-                            var value = std.mem.trim(u8, entry[idx + 1 ..], whitespace);
-
-                            // Detect a quoted string.
-                            if (value.len >= 2 and
-                                value[0] == '"' and
-                                value[value.len - 1] == '"')
-                            {
-                                // Trim quotes since our CLI args processor expects
-                                // quotes to already be gone.
-                                value = value[1 .. value.len - 1];
-                            }
-
-                            break :value value;
-                        };
-
-                        const len = key.len + value.len + 1;
-                        if (entry.len != len) {
-                            std.mem.copyForwards(u8, entry, key);
-                            entry[key.len] = '=';
-                            std.mem.copyForwards(u8, entry[key.len + 1 ..], value);
-                            entry = entry[0..len];
-                        }
-                    }
-
-                    break :buf entry;
+                // Trim any whitespace (including CR) around it
+                const trim = std.mem.trim(u8, entry, whitespace ++ "\r");
+                if (trim.len != entry.len) {
+                    std.mem.copyForwards(u8, entry, trim);
+                    entry = entry[0..trim.len];
                 }
-            };
 
-            // We need to reslice so that we include our '--' at the beginning
-            // of our buffer so that we can trick the CLI parser to treat it
-            // as CLI args.
-            return self.entry[0 .. buf.len + 2];
-        }
+                // Ignore blank lines and comments
+                if (entry.len == 0 or entry[0] == '#') continue;
 
-        /// Returns a location for a diagnostic message.
-        pub fn location(
-            self: *const Self,
-            alloc: Allocator,
-        ) Allocator.Error!?diags.Location {
-            // If we have no filepath then we have no location.
-            if (self.filepath.len == 0) return null;
+                // Trim spaces around '='
+                if (mem.indexOf(u8, entry, "=")) |idx| {
+                    const key = std.mem.trim(u8, entry[0..idx], whitespace);
+                    const value = value: {
+                        var value = std.mem.trim(u8, entry[idx + 1 ..], whitespace);
 
-            return .{ .file = .{
-                .path = try alloc.dupe(u8, self.filepath),
-                .line = self.line,
-            } };
-        }
-    };
-}
+                        // Detect a quoted string.
+                        if (value.len >= 2 and
+                            value[0] == '"' and
+                            value[value.len - 1] == '"')
+                        {
+                            // Trim quotes since our CLI args processor expects
+                            // quotes to already be gone.
+                            value = value[1 .. value.len - 1];
+                        }
+
+                        break :value value;
+                    };
+
+                    const len = key.len + value.len + 1;
+                    if (entry.len != len) {
+                        std.mem.copyForwards(u8, entry, key);
+                        entry[key.len] = '=';
+                        std.mem.copyForwards(u8, entry[key.len + 1 ..], value);
+                        entry = entry[0..len];
+                    }
+                }
+
+                break :buf entry;
+            }
+        };
+
+        // We need to reslice so that we include our '--' at the beginning
+        // of our buffer so that we can trick the CLI parser to treat it
+        // as CLI args.
+        return self.entry[0 .. buf.len + 2];
+    }
+
+    /// Returns a location for a diagnostic message.
+    pub fn location(
+        self: *const Self,
+        alloc: Allocator,
+    ) Allocator.Error!?diags.Location {
+        // If we have no filepath then we have no location.
+        if (self.filepath.len == 0) return null;
+
+        return .{ .file = .{
+            .path = try alloc.dupe(u8, self.filepath),
+            .line = self.line,
+        } };
+    }
+};
 
 // Constructs a LineIterator (see docs for that).
 fn lineIterator(reader: anytype) LineIterator(@TypeOf(reader)) {

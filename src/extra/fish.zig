@@ -11,14 +11,14 @@ pub const completions = comptimeGenerateCompletions();
 fn comptimeGenerateCompletions() []const u8 {
     comptime {
         @setEvalBranchQuota(50000);
-        var counter = std.io.countingWriter(std.io.null_writer);
-        try writeCompletions(&counter.writer());
+        var counter: std.Io.Writer.Discarding = .init(&.{});
+        try writeCompletions(&counter.writer);
 
-        var buf: [counter.bytes_written]u8 = undefined;
-        var stream = std.io.fixedBufferStream(&buf);
-        try writeCompletions(stream.writer());
+        var buf: [counter.count]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&buf);
+        try writeCompletions(&writer);
         const final = buf;
-        return final[0..stream.getWritten().len];
+        return final[0..writer.end];
     }
 }
 

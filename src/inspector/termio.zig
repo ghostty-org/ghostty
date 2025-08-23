@@ -43,9 +43,10 @@ pub const VTEvent = struct {
     ) !VTEvent {
         var md = Metadata.init(alloc);
         errdefer md.deinit();
-        var buf = std.ArrayList(u8).init(alloc);
+
+        var buf: std.Io.Writer.Allocating = .init(alloc);
         defer buf.deinit();
-        try encodeAction(alloc, buf.writer(), &md, action);
+        try encodeAction(alloc, &buf.writer, &md, action);
         const str = try buf.toOwnedSliceSentinel(0);
         errdefer alloc.free(str);
 
@@ -125,7 +126,7 @@ pub const VTEvent = struct {
             .csi_dispatch => |v| try encodeCSI(writer, v),
             .esc_dispatch => |v| try encodeEsc(writer, v),
             .osc_dispatch => |v| try encodeOSC(alloc, writer, md, v),
-            else => try writer.print("{}", .{action}),
+            else => try writer.print("{f}", .{action}),
         }
     }
 
@@ -180,7 +181,7 @@ pub const VTEvent = struct {
         osc: terminal.osc.Command,
     ) !void {
         // The description is just the tag
-        try writer.print("{s} ", .{@tagName(osc)});
+        try writer.print("{t} ", .{osc});
 
         // Add additional fields to metadata
         switch (osc) {
@@ -263,9 +264,10 @@ pub const VTEvent = struct {
                         const s = if (field.type == void)
                             try alloc.dupeZ(u8, tag_name)
                         else
-                            try std.fmt.allocPrintZ(alloc, "{s}={}", .{
+                            try std.fmt.allocPrintSentinel(alloc, "{s}={}", .{
                                 tag_name,
                                 @field(value, field.name),
+                                0,
                             });
 
                         try md.put(key, s);
@@ -281,7 +283,7 @@ pub const VTEvent = struct {
             else => switch (Value) {
                 u8, u16 => try md.put(
                     key,
-                    try std.fmt.allocPrintZ(alloc, "{}", .{value}),
+                    try std.fmt.allocPrintSentinel(alloc, "{}", .{value}, 0),
                 ),
 
                 []const u8 => try md.put(key, try alloc.dupeZ(u8, value)),

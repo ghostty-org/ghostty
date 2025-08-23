@@ -7,9 +7,9 @@ const SpecialCase = actionpkg.SpecialCase;
 const list_fonts = @import("list_fonts.zig");
 const help = @import("help.zig");
 const version = @import("version.zig");
-const list_keybinds = @import("list_keybinds.zig");
+// const list_keybinds = @import("list_keybinds.zig");
 // const list_themes = @import("list_themes.zig");
-const list_colors = @import("list_colors.zig");
+// const list_colors = @import("list_colors.zig");
 const list_actions = @import("list_actions.zig");
 const ssh_cache = @import("ssh_cache.zig");
 const edit_config = @import("edit_config.zig");
@@ -17,7 +17,7 @@ const show_config = @import("show_config.zig");
 const validate_config = @import("validate_config.zig");
 const crash_report = @import("crash_report.zig");
 const show_face = @import("show_face.zig");
-const boo = @import("boo.zig");
+// const boo = @import("boo.zig");
 const new_window = @import("new_window.zig");
 
 /// Special commands that can be invoked via CLI flags. These are all
@@ -34,13 +34,13 @@ pub const Action = enum {
     @"list-fonts",
 
     /// List available keybinds
-    @"list-keybinds",
+    // @"list-keybinds",
 
     /// List available themes
     // @"list-themes",
 
     /// List named RGB colors
-    @"list-colors",
+    // @"list-colors",
 
     /// List keybind actions
     @"list-actions",
@@ -96,7 +96,7 @@ pub const Action = enum {
     pub const help_error = error.ActionHelpRequested;
 
     /// Run the action. This returns the exit code to exit with.
-    pub fn run(self: Action, alloc: Allocator) !u8 {
+    pub fn run(self: Action, alloc: Allocator, stdout: *std.Io.Writer) !u8 {
         return self.runMain(alloc) catch |err| switch (err) {
             // If help is requested, then we use some comptime trickery
             // to find this action in the help strings and output that.
@@ -107,7 +107,6 @@ pub const Action = enum {
                     // for all commands by just changing this one place.
 
                     if (std.mem.eql(u8, field.name, @tagName(self))) {
-                        const stdout = std.io.getStdOut().writer();
                         const text = @field(help_strings.Action, field.name) ++ "\n";
                         stdout.writeAll(text) catch |write_err| {
                             std.log.warn("failed to write help text: {}\n", .{write_err});
@@ -129,9 +128,9 @@ pub const Action = enum {
             .version => try version.run(alloc),
             .help => try help.run(alloc),
             .@"list-fonts" => try list_fonts.run(alloc),
-            .@"list-keybinds" => try list_keybinds.run(alloc),
+            // .@"list-keybinds" => try list_keybinds.run(alloc),
             // .@"list-themes" => try list_themes.run(alloc),
-            .@"list-colors" => try list_colors.run(alloc),
+            // .@"list-colors" => try list_colors.run(alloc),
             .@"list-actions" => try list_actions.run(alloc),
             .@"ssh-cache" => try ssh_cache.run(alloc),
             .@"edit-config" => try edit_config.run(alloc),
@@ -168,9 +167,9 @@ pub const Action = enum {
                 .version => version.Options,
                 .help => help.Options,
                 .@"list-fonts" => list_fonts.Options,
-                .@"list-keybinds" => list_keybinds.Options,
+                // .@"list-keybinds" => list_keybinds.Options,
                 // .@"list-themes" => list_themes.Options,
-                .@"list-colors" => list_colors.Options,
+                // .@"list-colors" => list_colors.Options,
                 .@"list-actions" => list_actions.Options,
                 .@"ssh-cache" => ssh_cache.Options,
                 .@"edit-config" => edit_config.Options,

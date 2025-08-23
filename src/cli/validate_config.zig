@@ -40,8 +40,20 @@ pub fn run(alloc: std.mem.Allocator) !u8 {
         try args.parse(Options, alloc, &opts, &iter);
     }
 
-    const stdout = std.io.getStdOut().writer();
+    var buffer: [1024]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&buffer);
+    const stdout = &stdout_writer.interface;
 
+    const result = runInner(alloc, opts, stdout);
+    stdout.flush() catch {};
+    return result;
+}
+
+fn runInner(
+    alloc: std.mem.Allocator,
+    opts: Options,
+    stdout: *std.Io.Writer,
+) !u8 {
     var cfg = try Config.default(alloc);
     defer cfg.deinit();
 
@@ -58,13 +70,13 @@ pub fn run(alloc: std.mem.Allocator) !u8 {
     try cfg.finalize();
 
     if (cfg._diagnostics.items().len > 0) {
-        var buf = std.ArrayList(u8).init(alloc);
-        defer buf.deinit();
+        var stream: std.Io.Writer.Allocating = .init(alloc);
+        defer stream.deinit();
 
         for (cfg._diagnostics.items()) |diag| {
-            try diag.write(buf.writer());
-            try stdout.print("{s}\n", .{buf.items});
-            buf.clearRetainingCapacity();
+            try diag.write(&stream.writer);
+            try stdout.print("{s}\n", .{stream.written()});
+            stream.clearRetainingCapacity();
         }
 
         return 1;

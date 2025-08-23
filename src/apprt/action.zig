@@ -572,10 +572,8 @@ pub const SetTitle = struct {
 
     pub fn format(
         value: @This(),
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
         try writer.print("{s}{{ {s} }}", .{ @typeName(@This()), value.title });
     }
 };
@@ -596,10 +594,8 @@ pub const Pwd = struct {
 
     pub fn format(
         value: @This(),
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
         try writer.print("{s}{{ {s} }}", .{ @typeName(@This()), value.pwd });
     }
 };
@@ -624,10 +620,8 @@ pub const DesktopNotification = struct {
 
     pub fn format(
         value: @This(),
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
         try writer.print("{s}{{ title: {s}, body: {s} }}", .{
             @typeName(@This()),
             value.title,

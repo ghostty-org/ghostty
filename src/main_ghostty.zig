@@ -35,25 +35,30 @@ pub fn main() !MainReturn {
     // a global is because the C API needs to be able to access this state;
     // no other Zig code should EVER access the global state.
     state.init() catch |err| {
-        const stderr = std.io.getStdErr().writer();
+        var buffer: [1024]u8 = undefined;
+        var stderr = std.fs.File.stderr().writer(&buffer);
+        const writer = &stderr.interface;
         defer posix.exit(1);
+
         const ErrSet = @TypeOf(err) || error{Unknown};
         switch (@as(ErrSet, @errorCast(err))) {
-            error.MultipleActions => try stderr.print(
+            error.MultipleActions => try writer.print(
                 "Error: multiple CLI actions specified. You must specify only one\n" ++
                     "action starting with the `+` character.\n",
                 .{},
             ),
 
-            error.InvalidAction => try stderr.print(
+            error.InvalidAction => try writer.print(
                 "Error: unknown CLI action specified. CLI actions are specified with\n" ++
                     "the '+' character.\n\n" ++
                     "All valid CLI actions can be listed with `ghostty +help`\n",
                 .{},
             ),
 
-            else => try stderr.print("invalid CLI invocation err={}\n", .{err}),
+            else => try writer.print("invalid CLI invocation err={}\n", .{err}),
         }
+        // Don't forget to flush!
+        try writer.flush();
     };
     defer state.deinit();
     const alloc = state.alloc;
@@ -64,18 +69,23 @@ pub fn main() !MainReturn {
         std.log.warn("Otherwise, please rebuild in a release mode.", .{});
     }
 
+    var buffer: [1024]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&buffer);
+    const stdout = &stdout_writer.interface;
+
     // Execute our action if we have one
     if (state.action) |action| {
         std.log.info("executing CLI action={}", .{action});
-        posix.exit(action.run(alloc) catch |err| err: {
+        const result = action.run(alloc, stdout) catch |err| err: {
             std.log.err("CLI action failed error={}", .{err});
             break :err 1;
-        });
+        };
+        try stdout.flush();
+        posix.exit(result);
         return;
     }
 
     if (comptime build_config.app_runtime == .none) {
-        const stdout = std.io.getStdOut().writer();
         try stdout.print("Usage: ghostty +<action> [flags]\n\n", .{});
         try stdout.print(
             \\This is the Ghostty helper CLI that accompanies the graphical Ghostty app.
@@ -92,7 +102,7 @@ pub fn main() !MainReturn {
         ,
             .{},
         );
-
+        try stdout.flush();
         posix.exit(0);
     }
 
@@ -117,7 +127,7 @@ pub fn main() !MainReturn {
 // The function std.log will call.
 fn logFn(
     comptime level: std.log.Level,
-    comptime scope: @TypeOf(.EnumLiteral),
+    comptime scope: @TypeOf(.enum_literal),
     comptime format: []const u8,
     args: anytype,
 ) void {
@@ -154,8 +164,15 @@ fn logFn(
 
         .stderr => {
             // Always try default to send to stderr
-            const stderr = std.io.getStdErr().writer();
-            nosuspend stderr.print(level_txt ++ prefix ++ format ++ "\n", args) catch return;
+            var buffer: [1024]u8 = undefined;
+            var stderr = std.fs.File.stderr().writer(&buffer);
+            const writer = &stderr.interface;
+
+            nosuspend writer.print(level_txt ++ prefix ++ format ++ "\n", args) catch return;
+
+            // Intentionally don't flush the log output.
+            // We want it to be fast and if it's not completely up to date,
+            // that's okay!
         },
     }
 }

@@ -11,7 +11,7 @@ const log = std.log.scoped(.terminal_dcs);
 /// The hook/put/unhook functions are meant to be called from the
 /// terminal.stream dcsHook, dcsPut, and dcsUnhook functions, respectively.
 pub const Handler = struct {
-    state: State = .{ .inactive = {} },
+    state: State = .inactive,
 
     /// Maximum bytes any DCS command can take. This is to prevent
     /// malicious input from causing us to allocate too much memory.
@@ -26,7 +26,7 @@ pub const Handler = struct {
         assert(self.state == .inactive);
 
         // Initialize our state to ignore in case of error
-        self.state = .{ .ignore = {} };
+        self.state = .ignore;
 
         // Try to parse the hook.
         const hk_ = self.tryHook(alloc, dcs) catch |err| {
@@ -64,7 +64,7 @@ pub const Handler = struct {
                         .state = .{
                             .tmux = .{
                                 .max_bytes = self.max_bytes,
-                                .buffer = try std.ArrayList(u8).initCapacity(
+                                .buffer = try .initCapacity(
                                     alloc,
                                     128, // Arbitrary choice to limit initial reallocs
                                 ),
@@ -83,7 +83,7 @@ pub const Handler = struct {
                     // https://github.com/mitchellh/ghostty/issues/517
                     'q' => .{
                         .state = .{
-                            .xtgettcap = try std.ArrayList(u8).initCapacity(
+                            .xtgettcap = try .initCapacity(
                                 alloc,
                                 128, // Arbitrary choice
                             ),
@@ -116,7 +116,7 @@ pub const Handler = struct {
             // On error we just discard our state and ignore the rest
             log.info("error putting byte into DCS handler err={}", .{err});
             self.discard();
-            self.state = .{ .ignore = {} };
+            self.state = .ignore;
             return null;
         };
     }
@@ -133,12 +133,12 @@ pub const Handler = struct {
                 };
             } else unreachable,
 
-            .xtgettcap => |*list| {
-                if (list.items.len >= self.max_bytes) {
+            .xtgettcap => |*buf| {
+                if (buf.written().len >= self.max_bytes) {
                     return error.OutOfMemory;
                 }
 
-                try list.append(byte);
+                try buf.writer.writeByte(byte);
             },
 
             .decrqss => |*buffer| {
@@ -158,7 +158,7 @@ pub const Handler = struct {
         // Note: we do NOT call deinit here on purpose because some commands
         // transfer memory ownership. If state needs cleanup, the switch
         // prong below should handle it.
-        defer self.state = .{ .inactive = {} };
+        defer self.state = .inactive;
 
         return switch (self.state) {
             .inactive,
@@ -167,14 +167,12 @@ pub const Handler = struct {
 
             .tmux => if (comptime build_options.tmux_control_mode) tmux: {
                 self.state.deinit();
-                break :tmux .{ .tmux = .{ .exit = {} } };
+                break :tmux .{ .tmux = .exit };
             } else unreachable,
 
-            .xtgettcap => |list| xtgettcap: {
-                for (list.items, 0..) |b, i| {
-                    list.items[i] = std.ascii.toUpper(b);
-                }
-                break :xtgettcap .{ .xtgettcap = .{ .data = list } };
+            .xtgettcap => |*list| xtgettcap: {
+                for (list.written()) |*b| b.* = std.ascii.toUpper(b.*);
+                break :xtgettcap .{ .xtgettcap = .{ .data = list.written() } };
             },
 
             .decrqss => |buffer| .{ .decrqss = switch (buffer.len) {
@@ -199,7 +197,7 @@ pub const Handler = struct {
 
     fn discard(self: *Handler) void {
         self.state.deinit();
-        self.state = .{ .inactive = {} };
+        self.state = .inactive;
     }
 };
 
@@ -216,25 +214,25 @@ pub const Command = union(enum) {
     else
         void,
 
-    pub fn deinit(self: Command) void {
+    pub fn deinit(self: Command, alloc: Allocator) void {
         switch (self) {
-            .xtgettcap => |*v| v.data.deinit(),
+            .xtgettcap => |*v| alloc.free(v.data),
             .decrqss => {},
             .tmux => {},
         }
     }
 
     pub const XTGETTCAP = struct {
-        data: std.ArrayList(u8),
+        data: []const u8,
         i: usize = 0,
 
         /// Returns the next terminfo key being requested and null
         /// when there are no more keys. The returned value is NOT hex-decoded
         /// because we expect to use a comptime lookup table.
         pub fn next(self: *XTGETTCAP) ?[]const u8 {
-            if (self.i >= self.data.items.len) return null;
+            if (self.i >= self.data.len) return null;
 
-            var rem = self.data.items[self.i..];
+            var rem = self.data[self.i..];
             const idx = std.mem.indexOf(u8, rem, ";") orelse rem.len;
 
             // Note that if we're at the end, idx + 1 is len + 1 so we're over
@@ -271,7 +269,7 @@ const State = union(enum) {
     ignore: void,
 
     /// XTGETTCAP
-    xtgettcap: std.ArrayList(u8),
+    xtgettcap: std.Io.Writer.Allocating,
 
     /// DECRQSS
     decrqss: struct {

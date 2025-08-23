@@ -24,20 +24,16 @@ pub fn eql(a: Properties, b: Properties) bool {
 // Needed for lut.Generator
 pub fn format(
     self: Properties,
-    comptime layout: []const u8,
-    opts: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = layout;
-    _ = opts;
-    try std.fmt.format(writer,
+    writer: *std.Io.Writer,
+) std.Io.Writer.Error!void {
+    try writer.print(
         \\.{{
         \\    .width= {},
-        \\    .grapheme_boundary_class= .{s},
+        \\    .grapheme_boundary_class= .{t},
         \\}}
     , .{
         self.width,
-        @tagName(self.grapheme_boundary_class),
+        self.grapheme_boundary_class,
     });
 }
 

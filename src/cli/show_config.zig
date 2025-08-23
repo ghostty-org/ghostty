@@ -77,7 +77,14 @@ pub fn run(alloc: Allocator) !u8 {
 
     // For some reason `std.fmt.format` isn't working here but it works in
     // tests so we just do configfmt.format.
-    const stdout = std.io.getStdOut().writer();
-    try configfmt.format("", .{}, stdout);
+    //
+    var buffer: [1024]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&buffer);
+    const stdout = &stdout_writer.interface;
+
+    try configfmt.format(stdout);
+
+    // Don't forget to flush!
+    try stdout.flush();
     return 0;
 }

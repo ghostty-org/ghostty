@@ -34,19 +34,19 @@ pub const Set = struct {
         alloc: Allocator,
         config: []const inputpkg.Link,
     ) !Set {
-        var links = std.ArrayList(Link).init(alloc);
-        defer links.deinit();
+        var links: std.ArrayList(Link) = .empty;
+        defer links.deinit(alloc);
 
         for (config) |link| {
             var regex = try link.oniRegex();
             errdefer regex.deinit();
-            try links.append(.{
+            try links.append(alloc, .{
                 .regex = regex,
                 .highlight = link.highlight,
             });
         }
 
-        return .{ .links = try links.toOwnedSlice() };
+        return .{ .links = try links.toOwnedSlice(alloc) };
     }
 
     pub fn deinit(self: *Set, alloc: Allocator) void {
@@ -77,8 +77,8 @@ pub const Set = struct {
         // as selections which contain the start and end points of
         // the match. There is no way to map these back to the link
         // configuration right now because we don't need to.
-        var matches = std.ArrayList(terminal.Selection).init(alloc);
-        defer matches.deinit();
+        var matches: std.ArrayList(terminal.Selection) = .empty;
+        defer matches.deinit(alloc);
 
         // If our mouse is over an OSC8 link, then we can skip the regex
         // matches below since OSC8 takes priority.
@@ -101,7 +101,7 @@ pub const Set = struct {
             );
         }
 
-        return .{ .matches = try matches.toOwnedSlice() };
+        return .{ .matches = try matches.toOwnedSlice(alloc) };
     }
 
     fn matchSetFromOSC8(
@@ -112,8 +112,6 @@ pub const Set = struct {
         mouse_pin: terminal.Pin,
         mouse_mods: inputpkg.Mods,
     ) !void {
-        _ = alloc;
-
         // If the right mods aren't pressed, then we can't match.
         if (!mouse_mods.equal(inputpkg.ctrlOrSuper(.{}))) return;
 
@@ -135,6 +133,7 @@ pub const Set = struct {
         if (link.id == .implicit) {
             const uri = link.uri.offset.ptr(page.memory)[0..link.uri.len];
             return try self.matchSetFromOSC8Implicit(
+                alloc,
                 matches,
                 mouse_pin,
                 uri,
@@ -154,7 +153,7 @@ pub const Set = struct {
             // building our matching selection.
             if (!row.hyperlink) {
                 if (current) |sel| {
-                    try matches.append(sel);
+                    try matches.append(alloc, sel);
                     current = null;
                 }
 
@@ -191,7 +190,7 @@ pub const Set = struct {
 
                 // No match, if we have a current selection then complete it.
                 if (current) |sel| {
-                    try matches.append(sel);
+                    try matches.append(alloc, sel);
                     current = null;
                 }
             }
@@ -203,6 +202,7 @@ pub const Set = struct {
     /// around the mouse pin.
     fn matchSetFromOSC8Implicit(
         self: *const Set,
+        alloc: Allocator,
         matches: *std.ArrayList(terminal.Selection),
         mouse_pin: terminal.Pin,
         uri: []const u8,
@@ -264,7 +264,7 @@ pub const Set = struct {
             sel.endPtr().* = cell_pin;
         }
 
-        try matches.append(sel);
+        try matches.append(alloc, sel);
     }
 
     /// Fills matches with the matches from regex link matches.
@@ -334,7 +334,7 @@ pub const Set = struct {
                         => if (!sel.contains(screen, mouse_pin)) continue,
                     }
 
-                    try matches.append(sel);
+                    try matches.append(alloc, sel);
                 }
             }
         }

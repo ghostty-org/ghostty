@@ -58,12 +58,8 @@ pub const Style = struct {
         /// by only including non-default attributes.
         pub fn format(
             self: Color,
-            comptime fmt: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            _ = fmt;
-            _ = options;
+            writer: *std.Io.Writer,
+        ) std.Io.Writer.Error!void {
             switch (self) {
                 .none => {
                     _ = try writer.write("Color.none");
@@ -226,13 +222,8 @@ pub const Style = struct {
     /// by only including non-default attributes.
     pub fn format(
         self: Style,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = fmt;
-        _ = options;
-
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
         const dflt: Style = .{};
 
         _ = try writer.write("Style{ ");

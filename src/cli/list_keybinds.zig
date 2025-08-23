@@ -64,7 +64,10 @@ pub fn run(alloc: Allocator) !u8 {
     var config = if (opts.default) try Config.default(alloc) else try Config.load(alloc);
     defer config.deinit();
 
-    const stdout = std.io.getStdOut();
+    var buffer: [1024]u8 = undefined;
+    const stdout: std.fs.File = .stdout();
+    var stdout_writer = stdout.writer(&buffer);
+    const writer = &stdout_writer.interface;
 
     // Despite being under the posix namespace, this also works on Windows as of zig 0.13.0
     if (tui.can_pretty_print and !opts.plain and std.posix.isatty(stdout.handle)) {
@@ -73,11 +76,13 @@ pub fn run(alloc: Allocator) !u8 {
         return prettyPrint(arena.allocator(), config.keybind);
     } else {
         try config.keybind.formatEntryDocs(
-            configpkg.entryFormatter("keybind", stdout.writer()),
+            configpkg.entryFormatter("keybind", writer),
             opts.docs,
         );
     }
 
+    // Don't forget to flush!
+    try writer.flush();
     return 0;
 }
 

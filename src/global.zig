@@ -206,7 +206,7 @@ pub const GlobalState = struct {
 
         var sa: p.Sigaction = .{
             .handler = .{ .handler = p.SIG.IGN },
-            .mask = p.empty_sigset,
+            .mask = p.sigemptyset(),
             .flags = 0,
         };
 

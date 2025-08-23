@@ -19,6 +19,7 @@ pub const Parser = struct {
     /// The memory used by the parser is stored in an arena because it is
     /// all freed at the end of the command.
     arena: ArenaAllocator,
+    alloc: Allocator,
 
     /// This is the list of KV pairs that we're building up.
     kv: KV,
@@ -59,7 +60,8 @@ pub const Parser = struct {
         errdefer arena.deinit();
         var result: Parser = .{
             .arena = arena,
-            .data = std.ArrayList(u8).init(alloc),
+            .alloc = alloc,
+            .data = .empty,
             .kv = .{},
             .kv_temp_len = 0,
             .kv_current = 0,
@@ -78,7 +80,7 @@ pub const Parser = struct {
     pub fn deinit(self: *Parser) void {
         // We don't free the hash map because its in the arena
         self.arena.deinit();
-        self.data.deinit();
+        self.data.deinit(self.alloc);
     }
 
     /// Parse a complete command string.
@@ -136,7 +138,7 @@ pub const Parser = struct {
                 else => {},
             },
 
-            .data => try self.data.append(c),
+            .data => try self.data.append(self.alloc, c),
         }
     }
 
@@ -225,7 +227,7 @@ pub const Parser = struct {
         // Remove the extra bytes.
         self.data.items.len = decoded.len;
 
-        return try self.data.toOwnedSlice();
+        return try self.data.toOwnedSlice(self.alloc);
     }
 
     fn accumulateValue(self: *Parser, c: u8, overflow_state: State) !void {

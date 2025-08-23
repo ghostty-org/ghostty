@@ -64,13 +64,32 @@ pub const Options = struct {
 pub fn run(alloc: Allocator) !u8 {
     var iter = try args.argsIterator(alloc);
     defer iter.deinit();
-    return try runArgs(alloc, &iter);
+
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
+
+    var stderr_buffer: [1024]u8 = undefined;
+    var stderr_writer = std.fs.File.stdout().writer(&stderr_buffer);
+    const stderr = &stderr_writer.interface;
+
+    const result = runArgs(
+        alloc,
+        &iter,
+        stdout,
+        stderr,
+    );
+    stdout.flush() catch {};
+    stderr.flush() catch {};
+    return result;
 }
 
-fn runArgs(alloc_gpa: Allocator, argsIter: anytype) !u8 {
-    const stdout = std.io.getStdOut().writer();
-    const stderr = std.io.getStdErr().writer();
-
+fn runArgs(
+    alloc_gpa: Allocator,
+    argsIter: anytype,
+    stdout: *std.Io.Writer,
+    stderr: *std.Io.Writer,
+) !u8 {
     // Its possible to build Ghostty without font discovery!
     if (comptime font.Discover == void) {
         try stderr.print(

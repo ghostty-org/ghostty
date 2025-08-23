@@ -3,7 +3,7 @@ const fs = std.fs;
 
 /// Generates a compressed file of all the ghostty frames
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
 
     var arg_iter = try std.process.argsWithAllocator(gpa.allocator());
     // Skip the exe name
@@ -14,24 +14,31 @@ pub fn main() !void {
     const zig_out = "framedata.zig";
 
     const out_dir = try fs.cwd().openDir(out_dir_path, .{});
+
     const compressed_file = try out_dir.createFile(compressed_out, .{});
+    var buffer: [4096]u8 = undefined;
+    var writer = compressed_file.writer(&buffer);
 
     // Join the frames with a null byte. We'll split on this later
     const all_frames = try std.mem.join(gpa.allocator(), "\x01", &frames);
-    var fbs = std.io.fixedBufferStream(all_frames);
 
-    const reader = fbs.reader();
-    try std.compress.flate.compress(reader, compressed_file.writer(), .{});
+    var flate: std.compress.flate.Compress = .init(&writer.interface, all_frames, .{});
+    try flate.end();
 
     const compressed_path = try std.fs.path.join(gpa.allocator(), &.{ out_dir_path, compressed_out });
 
     const zig_file = try out_dir.createFile(zig_out, .{});
+    var file_writer = zig_file.writer(&buffer);
+    const out_writer = &file_writer.interface;
 
-    try zig_file.writer().print(
+    try out_writer.print(
         \\//! This file is auto-generated. Do not edit.
         \\
         \\pub const compressed = @embedFile("{s}");
     , .{compressed_path});
+
+    // Don't forget to flush!
+    try out_writer.flush();
 }
 
 const frames = [_][]const u8{

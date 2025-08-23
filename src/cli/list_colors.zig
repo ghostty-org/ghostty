@@ -39,11 +39,12 @@ pub fn run(alloc: Allocator) !u8 {
         try args.parse(Options, alloc, &opts, &iter);
     }
 
-    const stdout = std.io.getStdOut();
+    var buffer: [1024]u8 = undefined;
+    var stdout: std.fs.File = .stdout();
 
-    var keys = std.ArrayList([]const u8).init(alloc);
-    defer keys.deinit();
-    for (x11_color.map.keys()) |key| try keys.append(key);
+    var keys: std.ArrayList([]const u8) = .empty;
+    defer keys.deinit(alloc);
+    for (x11_color.map.keys()) |key| try keys.append(alloc, key);
 
     std.mem.sortUnstable([]const u8, keys.items, {}, struct {
         fn lessThan(_: void, lhs: []const u8, rhs: []const u8) bool {
@@ -57,7 +58,8 @@ pub fn run(alloc: Allocator) !u8 {
         defer arena.deinit();
         return prettyPrint(arena.allocator(), keys.items);
     } else {
-        const writer = stdout.writer();
+        var stdout_writer = stdout.writer(&buffer);
+        const writer = &stdout_writer.interface;
         for (keys.items) |name| {
             const rgb = x11_color.map.get(name).?;
             try writer.print("{s} = #{x:0>2}{x:0>2}{x:0>2}\n", .{
@@ -209,5 +211,7 @@ fn prettyPrint(alloc: Allocator, keys: [][]const u8) !u8 {
     // be sure to flush!
     try buf_writer.flush();
 
+    // Don't forget to flush!
+    try stdout.flush();
     return 0;
 }

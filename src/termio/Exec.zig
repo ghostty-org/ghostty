@@ -897,7 +897,17 @@ const Subprocess = struct {
             self.pty = null;
         };
 
-        log.debug("starting command command={s}", .{self.args});
+        const Args = struct {
+            args: []const [:0]const u8,
+            pub fn format(this: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
+                for (this.args, 0..) |a, i| {
+                    if (i > 0) try writer.writeAll(", ");
+                    try writer.print("`{s}`", .{a});
+                }
+            }
+        };
+
+        log.debug("starting command command={f}", .{Args{ .args = self.args }});
 
         // If we can't access the cwd, then don't set any cwd and inherit.
         // This is important because our cwd can be set by the shell (OSC 7)
@@ -1157,7 +1167,7 @@ const Subprocess = struct {
                         const res = posix.waitpid(pid, std.c.W.NOHANG);
                         log.debug("waitpid result={}", .{res.pid});
                         if (res.pid != 0) break;
-                        std.time.sleep(10 * std.time.ns_per_ms);
+                        std.Thread.sleep(10 * std.time.ns_per_ms);
                     }
                 },
             }
@@ -1180,7 +1190,7 @@ const Subprocess = struct {
             const pgid = c.getpgid(pid);
             if (pgid == my_pgid) {
                 log.warn("pgid is our own, retrying", .{});
-                std.time.sleep(10 * std.time.ns_per_ms);
+                std.Thread.sleep(10 * std.time.ns_per_ms);
                 continue;
             }
 
@@ -1518,7 +1528,7 @@ fn execCommand(
 
         .shell => |v| shell: {
             var args: std.ArrayList([:0]const u8) = try .initCapacity(alloc, 4);
-            defer args.deinit();
+            defer args.deinit(alloc);
 
             if (comptime builtin.os.tag == .windows) {
                 // We run our shell wrapped in `cmd.exe` so that we don't have
@@ -1539,21 +1549,21 @@ fn execCommand(
                     "cmd.exe",
                 });
 
-                try args.append(cmd);
-                try args.append("/C");
+                try args.append(alloc, cmd);
+                try args.append(alloc, "/C");
             } else {
                 // We run our shell wrapped in `/bin/sh` so that we don't have
                 // to parse the command line ourselves if it has arguments.
                 // Additionally, some environments (NixOS, I found) use /bin/sh
                 // to setup some environment variables that are important to
                 // have set.
-                try args.append("/bin/sh");
-                if (internal_os.isFlatpak()) try args.append("-l");
-                try args.append("-c");
+                try args.append(alloc, "/bin/sh");
+                if (internal_os.isFlatpak()) try args.append(alloc, "-l");
+                try args.append(alloc, "-c");
             }
 
-            try args.append(v);
-            break :shell try args.toOwnedSlice();
+            try args.append(alloc, v);
+            break :shell try args.toOwnedSlice(alloc);
         },
     };
 }

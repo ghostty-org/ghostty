@@ -194,7 +194,10 @@ fn startPosix(self: *Command, arena: Allocator) !void {
     // child process so there isn't much we can do. We try to output
     // something reasonable. Its important to note we MUST NOT return
     // any other error condition from here on out.
-    const stderr = std.io.getStdErr().writer();
+    var stderr_buf: [1024]u8 = undefined;
+    var stderr_writer = std.fs.File.stderr().writer(&stderr_buf);
+    const stderr = &stderr_writer.interface;
+
     switch (err) {
         error.FileNotFound => stderr.print(
             \\Requested executable not found. Please verify the command is on
@@ -212,6 +215,7 @@ fn startPosix(self: *Command, arena: Allocator) !void {
         ) catch {},
     }
 
+    stderr.flush() catch {};
     // We return a very specific error that can be detected to determine
     // we're in the child.
     return error.ExecFailedInChild;
