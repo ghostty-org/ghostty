@@ -200,7 +200,7 @@ test "format default config" {
     };
     try buf.writer.print("{f}", .{fmt});
 
-    //std.log.warn("{s}", .{buf.items});
+    //std.log.warn("{s}", .{buf.written()});
 }
 
 test "format default config changed" {
@@ -221,7 +221,7 @@ test "format default config changed" {
     };
     try buf.writer.print("{f}", .{fmt});
 
-    //std.log.warn("{s}", .{buf.items});
+    //std.log.warn("{s}", .{buf.written()});
 }
 
 test "formatEntry bool" {
@@ -231,14 +231,14 @@ test "formatEntry bool" {
         var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
         try formatEntry(bool, "a", true, &buf.writer);
-        try testing.expectEqualStrings("a = true\n", buf.items);
+        try testing.expectEqualStrings("a = true\n", buf.written());
     }
 
     {
         var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
         try formatEntry(bool, "a", false, &buf.writer);
-        try testing.expectEqualStrings("a = false\n", buf.items);
+        try testing.expectEqualStrings("a = false\n", buf.written());
     }
 }
 
@@ -248,8 +248,8 @@ test "formatEntry int" {
     {
         var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
-        try formatEntry(bool, "a", 123, &buf.writer);
-        try testing.expectEqualStrings("a = 123\n", buf.items);
+        try formatEntry(u32, "a", 123, &buf.writer);
+        try testing.expectEqualStrings("a = 123\n", buf.written());
     }
 }
 
@@ -260,7 +260,7 @@ test "formatEntry float" {
         var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
         try formatEntry(f64, "a", 0.7, &buf.writer);
-        try testing.expectEqualStrings("a = 0.7\n", buf.items);
+        try testing.expectEqualStrings("a = 0.7\n", buf.written());
     }
 }
 
@@ -272,7 +272,7 @@ test "formatEntry enum" {
         var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
         try formatEntry(Enum, "a", .two, &buf.writer);
-        try testing.expectEqualStrings("a = two\n", buf.items);
+        try testing.expectEqualStrings("a = two\n", buf.written());
     }
 }
 
@@ -283,7 +283,7 @@ test "formatEntry void" {
         var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
         try formatEntry(void, "a", {}, &buf.writer);
-        try testing.expectEqualStrings("a = \n", buf.items);
+        try testing.expectEqualStrings("a = \n", buf.written());
     }
 }
 
@@ -294,14 +294,14 @@ test "formatEntry optional" {
         var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
         try formatEntry(?bool, "a", null, &buf.writer);
-        try testing.expectEqualStrings("a = \n", buf.items);
+        try testing.expectEqualStrings("a = \n", buf.written());
     }
 
     {
         var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
         try formatEntry(?bool, "a", false, &buf.writer);
-        try testing.expectEqualStrings("a = false\n", buf.items);
+        try testing.expectEqualStrings("a = false\n", buf.written());
     }
 }
 
@@ -312,7 +312,7 @@ test "formatEntry string" {
         var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
         try formatEntry([]const u8, "a", "hello", &buf.writer);
-        try testing.expectEqualStrings("a = hello\n", buf.items);
+        try testing.expectEqualStrings("a = hello\n", buf.written());
     }
 }
 
@@ -327,6 +327,6 @@ test "formatEntry packed struct" {
         var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
         try formatEntry(Value, "a", .{}, &buf.writer);
-        try testing.expectEqualStrings("a = one,no-two\n", buf.items);
+        try testing.expectEqualStrings("a = one,no-two\n", buf.written());
     }
 }

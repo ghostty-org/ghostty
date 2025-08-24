@@ -151,8 +151,7 @@ fn preferredLanguageFromCocoa(
     buf: []u8,
     NSLocale: objc.Class,
 ) error{NoSpaceLeft}!?[:0]const u8 {
-    var fbs = std.Io.fixedBufferStream(buf);
-    const writer = fbs.writer();
+    var writer: std.Io.Writer = .fixed(buf);
 
     // We need to get our app's preferred languages. These may not
     // match the system locale (NSLocale.currentLocale).
@@ -175,7 +174,7 @@ fn preferredLanguageFromCocoa(
         };
 
         // Append our separator if we have any previous languages
-        if (fbs.pos > 0) {
+        if (writer.end > 0) {
             _ = writer.writeByte(':') catch
                 return error.NoSpaceLeft;
         }
@@ -183,10 +182,10 @@ fn preferredLanguageFromCocoa(
         // Apple languages are in BCP-47 format, and we need to
         // canonicalize them to the POSIX format.
         const canon = try i18n.canonicalizeLocale(
-            fbs.buffer[fbs.pos..],
+            writer.unusedCapacitySlice(),
             c_str,
         );
-        fbs.seekBy(@intCast(canon.len)) catch unreachable;
+        writer.end += canon.len;
 
         // The canonicalized locale never contains the encoding and
         // all of our translations require UTF-8 so we add that.
@@ -194,14 +193,14 @@ fn preferredLanguageFromCocoa(
     }
 
     // If we had no preferred languages then we return nothing.
-    if (fbs.pos == 0) return null;
+    if (writer.end == 0) return null;
 
     // Null terminate it
     _ = writer.writeByte(0) catch return error.NoSpaceLeft;
 
     // Get our slice, this won't be null terminated so we have to
     // reslice it with the null terminator.
-    const slice = fbs.getWritten();
+    const slice = writer.buffered();
     return slice[0 .. slice.len - 1 :0];
 }
 

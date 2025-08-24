@@ -95,42 +95,42 @@ fn nextUnwrapped(self: *Osc, buf: []u8) Generator.Error![]const u8 {
 }
 
 fn nextUnwrappedValidExact(self: *const Osc, buf: []u8, k: ValidKind) Generator.Error![]const u8 {
-    var fbs = std.Io.fixedBufferStream(buf);
+    var writer: std.Io.Writer = .fixed(buf);
     switch (k) {
         .change_window_title => {
-            try fbs.writer().writeAll("0;"); // Set window title
+            writer.writeAll("0;") catch return error.NoSpaceLeft; // Set window title
             var bytes_gen = self.bytes();
-            const title = try bytes_gen.next(fbs.buffer[fbs.pos..]);
-            try fbs.seekBy(@intCast(title.len));
+            const title = try bytes_gen.next(writer.unusedCapacitySlice());
+            writer.end += title.len;
         },
 
         .prompt_start => {
-            try fbs.writer().writeAll("133;A"); // Start prompt
+            writer.writeAll("133;A") catch return error.NoSpaceLeft; // Start prompt
 
             // aid
             if (self.rand.boolean()) {
                 var bytes_gen = self.bytes();
                 bytes_gen.max_len = 16;
-                try fbs.writer().writeAll(";aid=");
-                const aid = try bytes_gen.next(fbs.buffer[fbs.pos..]);
-                try fbs.seekBy(@intCast(aid.len));
+                writer.writeAll(";aid=") catch return error.NoSpaceLeft;
+                const aid = try bytes_gen.next(writer.unusedCapacitySlice());
+                writer.end += aid.len;
             }
 
             // redraw
             if (self.rand.boolean()) {
-                try fbs.writer().writeAll(";redraw=");
+                writer.writeAll(";redraw=") catch return error.NoSpaceLeft;
                 if (self.rand.boolean()) {
-                    try fbs.writer().writeAll("1");
+                    writer.writeAll("1") catch return error.NoSpaceLeft;
                 } else {
-                    try fbs.writer().writeAll("0");
+                    writer.writeAll("0") catch return error.NoSpaceLeft;
                 }
             }
         },
 
-        .prompt_end => try fbs.writer().writeAll("133;B"), // End prompt
+        .prompt_end => writer.writeAll("133;B") catch return error.NoSpaceLeft, // End prompt
     }
 
-    return fbs.getWritten();
+    return writer.buffered();
 }
 
 fn nextUnwrappedInvalidExact(
@@ -145,12 +145,12 @@ fn nextUnwrappedInvalidExact(
         },
 
         .good_prefix => {
-            var fbs = std.Io.fixedBufferStream(buf);
-            try fbs.writer().writeAll("133;");
+            var writer: std.Io.Writer = .fixed(buf);
+            writer.writeAll("133;") catch return error.NoSpaceLeft;
             var bytes_gen = self.bytes();
-            const data = try bytes_gen.next(fbs.buffer[fbs.pos..]);
-            try fbs.seekBy(@intCast(data.len));
-            return fbs.getWritten();
+            const data = try bytes_gen.next(writer.unusedCapacitySlice());
+            writer.end += data.len;
+            return writer.buffered();
         },
     }
 }

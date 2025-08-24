@@ -86,7 +86,7 @@ pub const Page = struct {
         assert(std.heap.page_size_min % @max(
             @alignOf(Row),
             @alignOf(Cell),
-            style.Set.base_align,
+            style.Set.base_align.toByteUnits(),
         ) == 0);
     }
 
@@ -1735,25 +1735,25 @@ pub const Page = struct {
         const dirty_end: usize = dirty_start + (dirty_usize_length * @sizeOf(usize));
 
         const styles_layout: style.Set.Layout = .init(cap.styles);
-        const styles_start = alignForward(usize, dirty_end, style.Set.base_align);
+        const styles_start = style.Set.base_align.forward(dirty_end);
         const styles_end = styles_start + styles_layout.total_size;
 
         const grapheme_alloc_layout = GraphemeAlloc.layout(cap.grapheme_bytes);
-        const grapheme_alloc_start = alignForward(usize, styles_end, GraphemeAlloc.base_align);
+        const grapheme_alloc_start = GraphemeAlloc.base_align.forward(styles_end);
         const grapheme_alloc_end = grapheme_alloc_start + grapheme_alloc_layout.total_size;
 
         const grapheme_count = @divFloor(cap.grapheme_bytes, grapheme_chunk);
         const grapheme_map_layout = GraphemeMap.layout(@intCast(grapheme_count));
-        const grapheme_map_start = alignForward(usize, grapheme_alloc_end, GraphemeMap.base_align);
+        const grapheme_map_start = GraphemeMap.base_align.forward(grapheme_alloc_end);
         const grapheme_map_end = grapheme_map_start + grapheme_map_layout.total_size;
 
         const string_layout = StringAlloc.layout(cap.string_bytes);
-        const string_start = alignForward(usize, grapheme_map_end, StringAlloc.base_align);
+        const string_start = StringAlloc.base_align.forward(grapheme_map_end);
         const string_end = string_start + string_layout.total_size;
 
         const hyperlink_count = @divFloor(cap.hyperlink_bytes, @sizeOf(hyperlink.Set.Item));
         const hyperlink_set_layout: hyperlink.Set.Layout = .init(@intCast(hyperlink_count));
-        const hyperlink_set_start = alignForward(usize, string_end, hyperlink.Set.base_align);
+        const hyperlink_set_start = hyperlink.Set.base_align.forward(string_end);
         const hyperlink_set_end = hyperlink_set_start + hyperlink_set_layout.total_size;
 
         const hyperlink_map_count: u32 = count: {
@@ -1765,7 +1765,7 @@ pub const Page = struct {
             break :count std.math.ceilPowerOfTwoAssert(u32, mult);
         };
         const hyperlink_map_layout = hyperlink.Map.layout(hyperlink_map_count);
-        const hyperlink_map_start = alignForward(usize, hyperlink_set_end, hyperlink.Map.base_align);
+        const hyperlink_map_start = hyperlink.Map.base_align.forward(hyperlink_set_end);
         const hyperlink_map_end = hyperlink_map_start + hyperlink_map_layout.total_size;
 
         const total_size = alignForward(usize, hyperlink_map_end, std.heap.page_size_min);
@@ -1859,12 +1859,22 @@ pub const Capacity = struct {
             // for rows & cells (which will allow us to calculate the number of
             // rows we can fit at a certain column width) we need to layout the
             // "meta" members of the page (i.e. everything else) from the end.
-            const hyperlink_map_start = alignBackward(usize, layout.total_size - layout.hyperlink_map_layout.total_size, hyperlink.Map.base_align);
-            const hyperlink_set_start = alignBackward(usize, hyperlink_map_start - layout.hyperlink_set_layout.total_size, hyperlink.Set.base_align);
-            const string_alloc_start = alignBackward(usize, hyperlink_set_start - layout.string_alloc_layout.total_size, StringAlloc.base_align);
-            const grapheme_map_start = alignBackward(usize, string_alloc_start - layout.grapheme_map_layout.total_size, GraphemeMap.base_align);
-            const grapheme_alloc_start = alignBackward(usize, grapheme_map_start - layout.grapheme_alloc_layout.total_size, GraphemeAlloc.base_align);
-            const styles_start = alignBackward(usize, grapheme_alloc_start - layout.styles_layout.total_size, style.Set.base_align);
+            const hyperlink_map_start = hyperlink.Map.base_align.backward(
+                layout.total_size - layout.hyperlink_map_layout.total_size,
+            );
+            const hyperlink_set_start = hyperlink.Set.base_align.backward(
+                hyperlink_map_start - layout.hyperlink_set_layout.total_size,
+            );
+            const string_alloc_start = StringAlloc.base_align.backward(
+                hyperlink_set_start - layout.string_alloc_layout.total_size,
+            );
+            const grapheme_map_start = GraphemeMap.base_align.backward(
+                string_alloc_start - layout.grapheme_map_layout.total_size,
+            );
+            const grapheme_alloc_start = GraphemeAlloc.base_align.backward(
+                grapheme_map_start - layout.grapheme_alloc_layout.total_size,
+            );
+            const styles_start = GraphemeAlloc.base_align.backward(grapheme_alloc_start - layout.styles_layout.total_size);
 
             // The size per row is:
             //   - The row metadata itself

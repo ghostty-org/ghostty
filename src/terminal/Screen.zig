@@ -2932,10 +2932,10 @@ pub fn dumpStringAllocUnwrapped(
     alloc: Allocator,
     tl: point.Point,
 ) ![]const u8 {
-    var builder = std.ArrayList(u8).init(alloc);
+    var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    try self.dumpString(builder.writer(), .{
+    try self.dumpString(&builder.writer, .{
         .tl = self.pages.getTopLeft(tl),
         .br = self.pages.getBottomRight(tl) orelse return error.UnknownPoint,
         .unwrap = true,
@@ -9026,19 +9026,22 @@ test "Screen UTF8 cell map with newlines" {
     defer s.deinit();
     try s.testWriteString("A\n\nB\n\nC");
 
-    var cell_map = Page.CellMap.init(alloc);
-    defer cell_map.deinit();
-    var builder = std.ArrayList(u8).init(alloc);
+    var cell_map: Page.CellMap = .empty;
+    defer cell_map.deinit(alloc);
+    var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
-    try s.dumpString(builder.writer(), .{
+    try s.dumpString(&builder.writer, .{
         .tl = s.pages.getTopLeft(.screen),
         .br = s.pages.getBottomRight(.screen),
-        .cell_map = &cell_map,
+        .cell_map = .{
+            .map = &cell_map,
+            .alloc = alloc,
+        },
     });
 
-    try testing.expectEqual(7, builder.items.len);
-    try testing.expectEqualStrings("A\n\nB\n\nC", builder.items);
-    try testing.expectEqual(builder.items.len, cell_map.items.len);
+    try testing.expectEqual(7, builder.written().len);
+    try testing.expectEqualStrings("A\n\nB\n\nC", builder.written());
+    try testing.expectEqual(builder.written().len, cell_map.items.len);
     try testing.expectEqual(Page.CellMapEntry{
         .x = 0,
         .y = 0,
@@ -9066,18 +9069,21 @@ test "Screen UTF8 cell map with blank prefix" {
     s.cursorAbsolute(2, 1);
     try s.testWriteString("B");
 
-    var cell_map = Page.CellMap.init(alloc);
-    defer cell_map.deinit();
-    var builder = std.ArrayList(u8).init(alloc);
+    var cell_map: Page.CellMap = .empty;
+    defer cell_map.deinit(alloc);
+    var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
-    try s.dumpString(builder.writer(), .{
+    try s.dumpString(&builder.writer, .{
         .tl = s.pages.getTopLeft(.screen),
         .br = s.pages.getBottomRight(.screen),
-        .cell_map = &cell_map,
+        .cell_map = .{
+            .map = &cell_map,
+            .alloc = alloc,
+        },
     });
 
-    try testing.expectEqualStrings("\n  B", builder.items);
-    try testing.expectEqual(builder.items.len, cell_map.items.len);
+    try testing.expectEqualStrings("\n  B", builder.written());
+    try testing.expectEqual(builder.written().len, cell_map.items.len);
     try testing.expectEqual(Page.CellMapEntry{
         .x = 0,
         .y = 0,
