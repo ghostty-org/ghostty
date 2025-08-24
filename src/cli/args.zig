@@ -236,7 +236,7 @@ fn formatValueRequired(
     arena_alloc: std.mem.Allocator,
     key: []const u8,
 ) std.Io.Writer.Error![:0]const u8 {
-    var stream: std.io.Writer.Allocating = .init(arena_alloc);
+    var stream: std.Io.Writer.Allocating = .init(arena_alloc);
     const writer = &stream.writer;
 
     try writer.print("value required", .{});
@@ -267,7 +267,7 @@ fn formatInvalidValue(
 fn formatValues(
     comptime T: type,
     key: []const u8,
-    writer: *std.io.Writer,
+    writer: *std.Io.Writer,
 ) std.Io.Writer.Error!void {
     @setEvalBranchQuota(2000);
     const typeinfo = @typeInfo(T);
@@ -782,7 +782,7 @@ test "parse: diagnostic location" {
     } = .{};
     defer if (data._arena) |arena| arena.deinit();
 
-    var fbs = std.io.fixedBufferStream(
+    var fbs = std.Io.fixedBufferStream(
         \\a=42
         \\what
         \\b=two
@@ -1380,7 +1380,7 @@ pub const LineIterator = struct {
     pub const MAX_LINE_SIZE = 4096;
 
     /// Our stateful reader.
-    r: *std.io.Reader,
+    r: *std.Io.Reader,
 
     /// Filepath that is used for diagnostics. This is only used for
     /// diagnostic messages so it can be formatted however you want.
@@ -1500,7 +1500,7 @@ pub fn sliceIterator(slice: []const []const u8) SliceIterator {
 
 test "LineIterator" {
     const testing = std.testing;
-    var fbs = std.io.fixedBufferStream(
+    var fbs = std.Io.fixedBufferStream(
         \\A
         \\B=42
         \\C
@@ -1528,7 +1528,7 @@ test "LineIterator" {
 
 test "LineIterator end in newline" {
     const testing = std.testing;
-    var fbs = std.io.fixedBufferStream("A\n\n");
+    var fbs = std.Io.fixedBufferStream("A\n\n");
 
     var iter = lineIterator(fbs.reader());
     try testing.expectEqualStrings("--A", iter.next().?);
@@ -1538,7 +1538,7 @@ test "LineIterator end in newline" {
 
 test "LineIterator spaces around '='" {
     const testing = std.testing;
-    var fbs = std.io.fixedBufferStream("A = B\n\n");
+    var fbs = std.Io.fixedBufferStream("A = B\n\n");
 
     var iter = lineIterator(fbs.reader());
     try testing.expectEqualStrings("--A=B", iter.next().?);
@@ -1548,7 +1548,7 @@ test "LineIterator spaces around '='" {
 
 test "LineIterator no value" {
     const testing = std.testing;
-    var fbs = std.io.fixedBufferStream("A = \n\n");
+    var fbs = std.Io.fixedBufferStream("A = \n\n");
 
     var iter = lineIterator(fbs.reader());
     try testing.expectEqualStrings("--A=", iter.next().?);
@@ -1557,7 +1557,7 @@ test "LineIterator no value" {
 
 test "LineIterator with CRLF line endings" {
     const testing = std.testing;
-    var fbs = std.io.fixedBufferStream("A\r\nB = C\r\n");
+    var fbs = std.Io.fixedBufferStream("A\r\nB = C\r\n");
 
     var iter = lineIterator(fbs.reader());
     try testing.expectEqualStrings("--A", iter.next().?);

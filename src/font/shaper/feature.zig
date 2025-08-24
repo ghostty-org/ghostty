@@ -19,12 +19,12 @@ pub const Feature = struct {
     value: u32,
 
     pub fn fromString(str: []const u8) ?Feature {
-        var fbs = std.io.fixedBufferStream(str);
+        var fbs = std.Io.fixedBufferStream(str);
         const reader = fbs.reader();
         return .fromReader(reader);
     }
 
-    /// Parse a single font feature setting from a std.io.Reader, with a version
+    /// Parse a single font feature setting from a std.Io.Reader, with a version
     /// of the syntax of HarfBuzz's font feature strings. Stops at end of stream
     /// or when a ',' is encountered.
     ///
@@ -192,7 +192,7 @@ pub const Feature = struct {
     /// Serialize this feature to the provided buffer.
     /// The string that this produces should be valid to parse.
     pub fn toString(self: *const Feature, buf: []u8) !void {
-        var fbs = std.io.fixedBufferStream(buf);
+        var fbs = std.Io.fixedBufferStream(buf);
         try self.format("", .{}, fbs.writer());
     }
 
@@ -244,7 +244,7 @@ pub const FeatureList = struct {
         alloc: Allocator,
         str: []const u8,
     ) !void {
-        var fbs = std.io.fixedBufferStream(str);
+        var fbs = std.Io.fixedBufferStream(str);
         const reader = fbs.reader();
         while (fbs.pos < fbs.buffer.len) {
             const i = fbs.pos;

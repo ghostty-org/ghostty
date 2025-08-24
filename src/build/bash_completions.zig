@@ -21,7 +21,7 @@ fn comptimeGenerateBashCompletions() []const u8 {
         // Increase these limits when it gets too large
         @setEvalBranchQuota(50000);
         var buf: [32768]u8 = undefined;
-        var stream: std.io.Writer = .fixed(&buf);
+        var stream: std.Io.Writer = .fixed(&buf);
         writeBashCompletions(&stream) catch @panic("Bash completion buffer is too small");
 
         // Finalize the buffer so that the const
@@ -31,7 +31,7 @@ fn comptimeGenerateBashCompletions() []const u8 {
     }
 }
 
-fn writeBashCompletions(writer: *std.io.Writer) !void {
+fn writeBashCompletions(writer: *std.Io.Writer) !void {
     const pad1 = "  ";
     const pad2 = pad1 ++ pad1;
     const pad3 = pad2 ++ pad1;

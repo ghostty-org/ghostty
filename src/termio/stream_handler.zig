@@ -222,7 +222,7 @@ pub const StreamHandler = struct {
 
             .decrqss => |decrqss| {
                 var response: [128]u8 = undefined;
-                var stream = std.io.fixedBufferStream(&response);
+                var stream = std.Io.fixedBufferStream(&response);
                 const writer = stream.writer();
 
                 // Offset the stream position to just past the response prefix.
@@ -310,7 +310,7 @@ pub const StreamHandler = struct {
             .kitty => |*kitty_cmd| {
                 if (self.terminal.kittyGraphics(self.alloc, kitty_cmd)) |resp| {
                     var buf: [1024]u8 = undefined;
-                    var buf_stream = std.io.fixedBufferStream(&buf);
+                    var buf_stream = std.Io.fixedBufferStream(&buf);
                     try resp.encode(buf_stream.writer());
                     const final = buf_stream.getWritten();
                     if (final.len > 2) {

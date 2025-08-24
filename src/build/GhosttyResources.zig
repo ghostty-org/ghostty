@@ -25,7 +25,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
             "terminfo";
 
         // Encode our terminfo
-        var writer: std.io.Writer.Allocating = .init(b.allocator);
+        var writer: std.Io.Writer.Allocating = .init(b.allocator);
         defer writer.deinit();
         try terminfo.ghostty.encode(&writer.writer);
 

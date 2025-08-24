@@ -95,7 +95,7 @@ fn nextUnwrapped(self: *Osc, buf: []u8) Generator.Error![]const u8 {
 }
 
 fn nextUnwrappedValidExact(self: *const Osc, buf: []u8, k: ValidKind) Generator.Error![]const u8 {
-    var fbs = std.io.fixedBufferStream(buf);
+    var fbs = std.Io.fixedBufferStream(buf);
     switch (k) {
         .change_window_title => {
             try fbs.writer().writeAll("0;"); // Set window title
@@ -145,7 +145,7 @@ fn nextUnwrappedInvalidExact(
         },
 
         .good_prefix => {
-            var fbs = std.io.fixedBufferStream(buf);
+            var fbs = std.Io.fixedBufferStream(buf);
             try fbs.writer().writeAll("133;");
             var bytes_gen = self.bytes();
             const data = try bytes_gen.next(fbs.buffer[fbs.pos..]);

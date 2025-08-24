@@ -14,7 +14,7 @@ fn comptimeGenerateZshCompletions() []const u8 {
         // Increase these limits when it gets too large
         @setEvalBranchQuota(50000);
         var buf: [16384]u8 = undefined;
-        var stream: std.io.Writer = .fixed(&buf);
+        var stream: std.Io.Writer = .fixed(&buf);
         writeZshCompletions(&stream) catch @panic("Zsh completion buffer is too small");
 
         // Finalize the buffer so that the const
@@ -24,7 +24,7 @@ fn comptimeGenerateZshCompletions() []const u8 {
     }
 }
 
-fn writeZshCompletions(writer: *std.io.Writer) !void {
+fn writeZshCompletions(writer: *std.Io.Writer) !void {
     try writer.writeAll(
         \\#compdef ghostty
         \\

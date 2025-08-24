@@ -351,7 +351,7 @@ test "spirv" {
     defer alloc.free(src);
 
     var buf: [4096 * 4]u8 = undefined;
-    var buf_stream = std.io.fixedBufferStream(&buf);
+    var buf_stream = std.Io.fixedBufferStream(&buf);
     const writer = buf_stream.writer();
     try spirvFromGlsl(writer, null, src);
 }
@@ -364,7 +364,7 @@ test "spirv invalid" {
     defer alloc.free(src);
 
     var buf: [4096 * 4]u8 = undefined;
-    var buf_stream = std.io.fixedBufferStream(&buf);
+    var buf_stream = std.Io.fixedBufferStream(&buf);
     const writer = buf_stream.writer();
 
     var errlog: SpirvLog = .{ .alloc = alloc };
