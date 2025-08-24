@@ -265,8 +265,8 @@ pub const Transport = struct {
         const json = envelope.serialize();
         defer sentry.free(@ptrCast(json.ptr));
         var parsed: crash.Envelope = parsed: {
-            var fbs = std.Io.fixedBufferStream(json);
-            break :parsed try crash.Envelope.parse(alloc, fbs.reader());
+            var reader: std.Io.Reader = .fixed(json);
+            break :parsed try crash.Envelope.parse(alloc, &reader);
         };
         defer parsed.deinit();
 

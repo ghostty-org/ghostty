@@ -72,10 +72,8 @@ pub const Hhea = extern struct {
 
     /// Parse the table from raw data.
     pub fn init(data: []const u8) !Hhea {
-        var fbs = std.Io.fixedBufferStream(data);
-        const reader = fbs.reader();
-
-        return try reader.readStructEndian(Hhea, .big);
+        var reader: std.Io.Reader = .fixed(data);
+        return try reader.takeStruct(Hhea, .big);
     }
 };
 

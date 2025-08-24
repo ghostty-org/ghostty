@@ -25,24 +25,25 @@ pub const SVG = struct {
     pub fn init(data: []const u8) error{
         EndOfStream,
         SVGVersionNotSupported,
+        ReadFailed, // Should technically never happen
     }!SVG {
-        var fbs = std.Io.fixedBufferStream(data);
-        const reader = fbs.reader();
+        var reader: std.Io.Reader = .fixed(data);
 
         // Version
-        if (try reader.readInt(u16, .big) != 0) {
+        if (try reader.takeInt(u16, .big) != 0) {
             return error.SVGVersionNotSupported;
         }
 
         // Offset
-        const offset = try reader.readInt(u32, .big);
+        const offset = try reader.takeInt(u32, .big);
 
         // Seek to the offset to get our document list
-        try fbs.seekTo(offset);
+        try reader.discardAll(offset - reader.seek);
 
         // Get our document records along with the start/end glyph range.
-        const len = try reader.readInt(u16, .big);
-        const records: [*]const [12]u8 = @ptrCast(data[try fbs.getPos()..]);
+        const len = try reader.takeInt(u16, .big);
+        const records: [*]const [12]u8 = @ptrCast(reader.buffered());
+
         const start_range = try glyphRange(&records[0]);
         const end_range = if (len == 1) start_range else try glyphRange(&records[(len - 1)]);
 
@@ -85,11 +86,10 @@ pub const SVG = struct {
     }
 
     fn glyphRange(record: []const u8) !struct { u16, u16 } {
-        var fbs = std.Io.fixedBufferStream(record);
-        const reader = fbs.reader();
+        var reader: std.Io.Reader = .fixed(record);
         return .{
-            try reader.readInt(u16, .big),
-            try reader.readInt(u16, .big),
+            try reader.takeInt(u16, .big),
+            try reader.takeInt(u16, .big),
         };
     }
 };

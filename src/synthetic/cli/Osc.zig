@@ -60,8 +60,6 @@ test Osc {
     const rand = prng.random();
 
     var buf: [1024]u8 = undefined;
-    var fbs = std.Io.fixedBufferStream(&buf);
-    const writer = fbs.writer();
-
-    try impl.run(writer, rand);
+    var writer: std.Io.Writer = .fixed(&buf);
+    try impl.run(&writer, rand);
 }

@@ -39,8 +39,7 @@ pub const Event = struct {
     /// Returns a label that can be used for this event. This is null-terminated
     /// so it can be easily used with C APIs.
     pub fn label(self: *const Event, buf: []u8) ![:0]const u8 {
-        var buf_stream = std.Io.fixedBufferStream(buf);
-        const writer = buf_stream.writer();
+        var writer: std.Io.Writer = .fixed(buf);
 
         switch (self.event.action) {
             .press => try writer.writeAll("Press: "),
@@ -65,7 +64,7 @@ pub const Event = struct {
 
         // Null-terminator
         try writer.writeByte(0);
-        return buf[0..(buf_stream.getWritten().len - 1) :0];
+        return buf[0 .. writer.end - 1 :0];
     }
 
     /// Render this event in the inspector GUI.
@@ -156,8 +155,7 @@ pub const Event = struct {
 
         // Format the codepoint sequence
         var buf: [1024]u8 = undefined;
-        var buf_stream = std.Io.fixedBufferStream(&buf);
-        const writer = buf_stream.writer();
+        var writer: std.Io.Writer = .fixed(&buf);
         if (std.unicode.Utf8View.init(utf8)) |view| {
             var it = view.iterator();
             while (it.nextCodepoint()) |cp| {
@@ -172,7 +170,7 @@ pub const Event = struct {
         _ = cimgui.c.igInputText(
             "##utf8",
             &buf,
-            buf_stream.getWritten().len - 1,
+            writer.end - 1,
             cimgui.c.ImGuiInputTextFlags_ReadOnly,
             null,
             null,
@@ -182,8 +180,7 @@ pub const Event = struct {
     fn renderPty(self: *const Event) !void {
         // Format the codepoint sequence
         var buf: [1024]u8 = undefined;
-        var buf_stream = std.Io.fixedBufferStream(&buf);
-        const writer = buf_stream.writer();
+        var writer: std.Io.Writer = .fixed(&buf);
 
         for (self.pty) |byte| {
             // Print ESC special because its so common
@@ -208,7 +205,7 @@ pub const Event = struct {
         _ = cimgui.c.igInputText(
             "##pty",
             &buf,
-            buf_stream.getWritten().len - 1,
+            writer.end - 1,
             cimgui.c.ImGuiInputTextFlags_ReadOnly,
             null,
             null,

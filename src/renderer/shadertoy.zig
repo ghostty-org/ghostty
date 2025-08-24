@@ -113,10 +113,9 @@ pub fn loadFromFile(
 
         // SpirV pointer must be aligned to 4 bytes since we expect
         // a slice of words.
-        // FIXME: Find a more efficient way of doing this that doesn't involve
-        // copying the slice
-        var list: std.ArrayListAligned(u8, .of(u32)) = try .initCapacity(alloc, stream.written().len);
-        list.appendSliceAssumeCapacity(stream.written());
+        // TODO: Replace this with an aligned version of Writer.Allocating
+        var list: std.ArrayListAligned(u8, .of(u32)) = .empty;
+        try list.appendSlice(stream.written());
         break :spirv list.items;
     };
 
@@ -135,7 +134,7 @@ pub fn loadFromFile(
 /// mainImage function and don't define any of the uniforms. This function
 /// will convert the ShaderToy shader into a valid GLSL shader that can be
 /// compiled and linked.
-pub fn glslFromShader(writer: anytype, src: []const u8) !void {
+pub fn glslFromShader(writer: *std.Io.Writer, src: []const u8) !void {
     const prefix = @embedFile("shaders/shadertoy_prefix.glsl");
     try writer.writeAll(prefix);
     try writer.writeAll("\n\n");
@@ -144,7 +143,7 @@ pub fn glslFromShader(writer: anytype, src: []const u8) !void {
 
 /// Convert a GLSL shader into SPIR-V assembly.
 pub fn spirvFromGlsl(
-    writer: anytype,
+    writer: *std.Io.Writer,
     errlog: ?*SpirvLog,
     src: [:0]const u8,
 ) !void {
@@ -337,10 +336,10 @@ fn spvCross(
 
 /// Convert ShaderToy shader to null-terminated glsl for testing.
 fn testGlslZ(alloc: Allocator, src: []const u8) ![:0]const u8 {
-    var list = std.ArrayList(u8).init(alloc);
-    defer list.deinit();
-    try glslFromShader(list.writer(), src);
-    return try list.toOwnedSliceSentinel(0);
+    var buf: std.Io.Writer.Allocating = .init(alloc);
+    defer buf.deinit();
+    try glslFromShader(&buf.writer, src);
+    return try buf.toOwnedSliceSentinel(0);
 }
 
 test "spirv" {
@@ -351,9 +350,8 @@ test "spirv" {
     defer alloc.free(src);
 
     var buf: [4096 * 4]u8 = undefined;
-    var buf_stream = std.Io.fixedBufferStream(&buf);
-    const writer = buf_stream.writer();
-    try spirvFromGlsl(writer, null, src);
+    var writer: std.Io.Writer = .fixed(&buf);
+    try spirvFromGlsl(&writer, null, src);
 }
 
 test "spirv invalid" {
@@ -364,12 +362,11 @@ test "spirv invalid" {
     defer alloc.free(src);
 
     var buf: [4096 * 4]u8 = undefined;
-    var buf_stream = std.Io.fixedBufferStream(&buf);
-    const writer = buf_stream.writer();
+    var writer: std.Io.Writer = .fixed(&buf);
 
     var errlog: SpirvLog = .{ .alloc = alloc };
     defer errlog.deinit();
-    try testing.expectError(error.GlslangFailed, spirvFromGlsl(writer, &errlog, src));
+    try testing.expectError(error.GlslangFailed, spirvFromGlsl(&writer, &errlog, src));
     try testing.expect(errlog.info.len > 0);
 }
 
@@ -380,9 +377,14 @@ test "shadertoy to msl" {
     const src = try testGlslZ(alloc, test_crt);
     defer alloc.free(src);
 
-    var spvlist = std.ArrayListAligned(u8, @alignOf(u32)).init(alloc);
-    defer spvlist.deinit();
-    try spirvFromGlsl(spvlist.writer(), null, src);
+    var buf: std.Io.Writer.Allocating = .init(alloc);
+    defer buf.deinit();
+    try spirvFromGlsl(&buf.writer, null, src);
+
+    // TODO: Replace this with an aligned version of Writer.Allocating
+    var spvlist: std.ArrayListAligned(u8, .of(u32)) = .empty;
+    defer spvlist.deinit(alloc);
+    try spvlist.appendSlice(alloc, buf.written());
 
     const msl = try mslFromSpv(alloc, spvlist.items);
     defer alloc.free(msl);
@@ -395,9 +397,14 @@ test "shadertoy to glsl" {
     const src = try testGlslZ(alloc, test_crt);
     defer alloc.free(src);
 
-    var spvlist = std.ArrayListAligned(u8, @alignOf(u32)).init(alloc);
-    defer spvlist.deinit();
-    try spirvFromGlsl(spvlist.writer(), null, src);
+    var buf: std.Io.Writer.Allocating = .init(alloc);
+    defer buf.deinit();
+    try spirvFromGlsl(&buf.writer, null, src);
+
+    // TODO: Replace this with an aligned version of Writer.Allocating
+    var spvlist: std.ArrayListAligned(u8, .of(u32)) = .empty;
+    defer spvlist.deinit(alloc);
+    try spvlist.appendSlice(alloc, buf.written());
 
     const glsl = try glslFromSpv(alloc, spvlist.items);
     defer alloc.free(glsl);

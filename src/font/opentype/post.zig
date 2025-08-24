@@ -48,9 +48,9 @@ pub const Post = extern struct {
 
     /// Parse the table from raw data.
     pub fn init(data: []const u8) error{EndOfStream}!Post {
-        var fbs = std.Io.fixedBufferStream(data);
-        const reader = fbs.reader();
-        return try reader.readStructEndian(Post, .big);
+        var reader: std.Io.Reader = .fixed(data);
+        // The only error that *should* occur for a fixed reader is EOS anyway
+        return reader.takeStruct(Post, .big) catch return error.EndOfStream;
     }
 };
 

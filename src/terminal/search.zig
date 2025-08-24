@@ -63,8 +63,8 @@ pub const PageListSearch = struct {
         };
     }
 
-    pub fn deinit(self: *PageListSearch, alloc: Allocator) void {
-        self.window.deinit(alloc);
+    pub fn deinit(self: *PageListSearch) void {
+        self.window.deinit();
     }
 
     /// Find the next match for the needle in the pagelist. This returns
@@ -115,6 +115,8 @@ pub const PageListSearch = struct {
 /// and repeat the process. This will always maintain the minimum
 /// required memory to search for the needle.
 const SlidingWindow = struct {
+    alloc: Allocator,
+
     /// The data buffer is a circular buffer of u8 that contains the
     /// encoded page text that we can use to search for the needle.
     data: DataBuf,
@@ -144,8 +146,8 @@ const SlidingWindow = struct {
         node: *PageList.List.Node,
         cell_map: Page.CellMap,
 
-        pub fn deinit(self: *Meta) void {
-            self.cell_map.deinit();
+        pub fn deinit(self: *Meta, alloc: Allocator) void {
+            self.cell_map.deinit(alloc);
         }
     };
 
@@ -163,6 +165,7 @@ const SlidingWindow = struct {
         errdefer alloc.free(overlap_buf);
 
         return .{
+            .alloc = alloc,
             .data = data,
             .meta = meta,
             .needle = needle,
@@ -170,19 +173,19 @@ const SlidingWindow = struct {
         };
     }
 
-    pub fn deinit(self: *SlidingWindow, alloc: Allocator) void {
-        alloc.free(self.overlap_buf);
-        self.data.deinit(alloc);
+    pub fn deinit(self: *SlidingWindow) void {
+        self.alloc.free(self.overlap_buf);
+        self.data.deinit(self.alloc);
 
         var meta_it = self.meta.iterator(.forward);
-        while (meta_it.next()) |meta| meta.deinit();
-        self.meta.deinit(alloc);
+        while (meta_it.next()) |meta| meta.deinit(self.alloc);
+        self.meta.deinit(self.alloc);
     }
 
     /// Clear all data but retain allocated capacity.
     pub fn clearAndRetainCapacity(self: *SlidingWindow) void {
         var meta_it = self.meta.iterator(.forward);
-        while (meta_it.next()) |meta| meta.deinit();
+        while (meta_it.next()) |meta| meta.deinit(self.alloc);
         self.meta.clear();
         self.data.clear();
         self.data_offset = 0;
@@ -285,7 +288,7 @@ const SlidingWindow = struct {
             for (0..prune_count) |_| {
                 const meta = meta_it.next().?;
                 prune_data_len += meta.cell_map.items.len;
-                meta.deinit();
+                meta.deinit(self.alloc);
             }
             self.meta.deleteOldest(prune_count);
             self.data.deleteOldest(prune_data_len);
@@ -352,7 +355,7 @@ const SlidingWindow = struct {
             // match.
             const meta_count = tl_meta_idx;
             meta_it.reset();
-            for (0..meta_count) |_| meta_it.next().?.deinit();
+            for (0..meta_count) |_| meta_it.next().?.deinit(self.alloc);
             if (comptime std.debug.runtime_safety) {
                 assert(meta_it.idx == meta_count);
                 assert(meta_it.next().?.node == tl.node);
@@ -417,35 +420,38 @@ const SlidingWindow = struct {
         // Initialize our metadata for the node.
         var meta: Meta = .{
             .node = node,
-            .cell_map = .init(alloc),
+            .cell_map = .empty,
         };
-        errdefer meta.deinit();
+        errdefer meta.deinit(alloc);
 
         // This is suboptimal but we need to encode the page once to
         // temporary memory, and then copy it into our circular buffer.
         // In the future, we should benchmark and see if we can encode
         // directly into the circular buffer.
-        var encoded: std.ArrayList(u8) = .{};
-        defer encoded.deinit(alloc);
+        var encoded: std.Io.Writer.Allocating = .init(alloc);
+        defer encoded.deinit();
 
         // Encode the page into the buffer.
         const page: *const Page = &meta.node.data;
         _ = page.encodeUtf8(
-            encoded.writer(alloc),
-            .{ .cell_map = &meta.cell_map },
+            &encoded.writer,
+            .{ .cell_map = .{
+                .map = &meta.cell_map,
+                .alloc = alloc,
+            } },
         ) catch {
             // writer uses anyerror but the only realistic error on
             // an ArrayList is out of memory.
             return error.OutOfMemory;
         };
-        assert(meta.cell_map.items.len == encoded.items.len);
+        assert(meta.cell_map.items.len == encoded.written().len);
 
         // Ensure our buffers are big enough to store what we need.
-        try self.data.ensureUnusedCapacity(alloc, encoded.items.len);
+        try self.data.ensureUnusedCapacity(alloc, encoded.written().len);
         try self.meta.ensureUnusedCapacity(alloc, 1);
 
         // Append our new node to the circular buffer.
-        try self.data.appendSlice(encoded.items);
+        try self.data.appendSlice(encoded.written());
         try self.meta.append(meta);
 
         self.assertIntegrity();
@@ -480,7 +486,7 @@ test "PageListSearch single page" {
     try testing.expect(s.pages.pages.first == s.pages.pages.last);
 
     var search = try PageListSearch.init(alloc, &s.pages, "boo!");
-    defer search.deinit(alloc);
+    defer search.deinit();
 
     // We should be able to find two matches.
     {
@@ -514,7 +520,7 @@ test "SlidingWindow empty on init" {
     const alloc = testing.allocator;
 
     var w = try SlidingWindow.init(alloc, "boo!");
-    defer w.deinit(alloc);
+    defer w.deinit();
     try testing.expectEqual(0, w.data.len());
     try testing.expectEqual(0, w.meta.len());
 }
@@ -524,7 +530,7 @@ test "SlidingWindow single append" {
     const alloc = testing.allocator;
 
     var w = try SlidingWindow.init(alloc, "boo!");
-    defer w.deinit(alloc);
+    defer w.deinit();
 
     var s = try Screen.init(alloc, 80, 24, 0);
     defer s.deinit();
@@ -567,7 +573,7 @@ test "SlidingWindow single append no match" {
     const alloc = testing.allocator;
 
     var w = try SlidingWindow.init(alloc, "nope!");
-    defer w.deinit(alloc);
+    defer w.deinit();
 
     var s = try Screen.init(alloc, 80, 24, 0);
     defer s.deinit();
@@ -591,7 +597,7 @@ test "SlidingWindow two pages" {
     const alloc = testing.allocator;
 
     var w = try SlidingWindow.init(alloc, "boo!");
-    defer w.deinit(alloc);
+    defer w.deinit();
 
     var s = try Screen.init(alloc, 80, 24, 1000);
     defer s.deinit();
@@ -644,7 +650,7 @@ test "SlidingWindow two pages match across boundary" {
     const alloc = testing.allocator;
 
     var w = try SlidingWindow.init(alloc, "hello, world");
-    defer w.deinit(alloc);
+    defer w.deinit();
 
     var s = try Screen.init(alloc, 80, 24, 1000);
     defer s.deinit();
@@ -688,7 +694,7 @@ test "SlidingWindow two pages no match prunes first page" {
     const alloc = testing.allocator;
 
     var w = try SlidingWindow.init(alloc, "nope!");
-    defer w.deinit(alloc);
+    defer w.deinit();
 
     var s = try Screen.init(alloc, 80, 24, 1000);
     defer s.deinit();
@@ -737,13 +743,13 @@ test "SlidingWindow two pages no match keeps both pages" {
     try s.testWriteString("hello. boo!");
 
     // Imaginary needle for search. Doesn't match!
-    var needle_list = std.ArrayList(u8).init(alloc);
+    var needle_list: std.Io.Writer.Allocating = .init(alloc);
     defer needle_list.deinit();
-    try needle_list.appendNTimes('x', first_page_rows * s.pages.cols);
-    const needle: []const u8 = needle_list.items;
+    try needle_list.writer.splatByteAll('x', first_page_rows * s.pages.cols);
+    const needle = needle_list.written();
 
     var w = try SlidingWindow.init(alloc, needle);
-    defer w.deinit(alloc);
+    defer w.deinit();
 
     // Add both pages
     const node: *PageList.List.Node = s.pages.pages.first.?;
@@ -763,7 +769,7 @@ test "SlidingWindow single append across circular buffer boundary" {
     const alloc = testing.allocator;
 
     var w = try SlidingWindow.init(alloc, "abc");
-    defer w.deinit(alloc);
+    defer w.deinit();
 
     var s = try Screen.init(alloc, 80, 24, 0);
     defer s.deinit();
@@ -818,7 +824,7 @@ test "SlidingWindow single append match on boundary" {
     const alloc = testing.allocator;
 
     var w = try SlidingWindow.init(alloc, "abcd");
-    defer w.deinit(alloc);
+    defer w.deinit();
 
     var s = try Screen.init(alloc, 80, 24, 0);
     defer s.deinit();

@@ -506,8 +506,7 @@ pub const Key = enum(c_int) {
         )) |key| return key;
 
         // We need to convert FooBar to foo_bar
-        var fbs = std.Io.fixedBufferStream(&result);
-        const w = fbs.writer();
+        var w: std.Io.Writer = .fixed(&result);
         for (code, 0..) |ch, i| switch (ch) {
             'a'...'z' => w.writeByte(ch) catch return null,
 
@@ -521,7 +520,7 @@ pub const Key = enum(c_int) {
             else => return null,
         };
 
-        return std.meta.stringToEnum(Key, fbs.getWritten());
+        return std.meta.stringToEnum(Key, w.buffered());
     }
 
     /// Converts a Ghostty key enum value to a W3C key code.
@@ -533,8 +532,7 @@ pub const Key = enum(c_int) {
                 const name = @tagName(tag);
 
                 var buf: [128]u8 = undefined;
-                var fbs = std.Io.fixedBufferStream(&buf);
-                const w = fbs.writer();
+                var w: std.Io.Writer = .fixed(&buf);
                 var i: usize = 0;
                 while (i < name.len) {
                     if (i == 0) {
@@ -549,9 +547,9 @@ pub const Key = enum(c_int) {
                     i += 1;
                 }
 
-                const written = buf;
-                const result = written[0..fbs.getWritten().len];
-                break :w3c result;
+                // Make it not refer to a comptime var
+                const final = buf[0..w.end].*;
+                break :w3c &final;
             },
         };
     }
