@@ -398,10 +398,12 @@ test "disk cache clear" {
     // Create our path
     var td: TempDir = try .init();
     defer td.deinit();
+    var buf: [4096]u8 = undefined;
     {
         var file = try td.dir.createFile("cache", .{});
         defer file.close();
-        try file.writer().writeAll("HELLO!");
+        var file_writer = file.writer(&buf);
+        try file_writer.interface.writeAll("HELLO!");
     }
     const path = try td.dir.realpathAlloc(alloc, "cache");
     defer alloc.free(path);
@@ -424,10 +426,12 @@ test "disk cache operations" {
     // Create our path
     var td: TempDir = try .init();
     defer td.deinit();
+    var buf: [4096]u8 = undefined;
     {
         var file = try td.dir.createFile("cache", .{});
         defer file.close();
-        try file.writer().writeAll("HELLO!");
+        var file_writer = file.writer(&buf);
+        try file_writer.interface.writeAll("HELLO!");
     }
     const path = try td.dir.realpathAlloc(alloc, "cache");
     defer alloc.free(path);

@@ -313,7 +313,7 @@ test "tmux begin/end empty" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var c: Client = .{ .buffer = std.ArrayList(u8).init(alloc) };
+    var c: Client = .{ .buffer = .init(alloc) };
     defer c.deinit();
     for ("%begin 1578922740 269 1\n") |byte| try testing.expect(try c.put(byte) == null);
     for ("%end 1578922740 269 1") |byte| try testing.expect(try c.put(byte) == null);
@@ -326,7 +326,7 @@ test "tmux begin/error empty" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var c: Client = .{ .buffer = std.ArrayList(u8).init(alloc) };
+    var c: Client = .{ .buffer = .init(alloc) };
     defer c.deinit();
     for ("%begin 1578922740 269 1\n") |byte| try testing.expect(try c.put(byte) == null);
     for ("%error 1578922740 269 1") |byte| try testing.expect(try c.put(byte) == null);
@@ -339,7 +339,7 @@ test "tmux begin/end data" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var c: Client = .{ .buffer = std.ArrayList(u8).init(alloc) };
+    var c: Client = .{ .buffer = .init(alloc) };
     defer c.deinit();
     for ("%begin 1578922740 269 1\n") |byte| try testing.expect(try c.put(byte) == null);
     for ("hello\nworld\n") |byte| try testing.expect(try c.put(byte) == null);
@@ -353,7 +353,7 @@ test "tmux output" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var c: Client = .{ .buffer = std.ArrayList(u8).init(alloc) };
+    var c: Client = .{ .buffer = .init(alloc) };
     defer c.deinit();
     for ("%output %42 foo bar baz") |byte| try testing.expect(try c.put(byte) == null);
     const n = (try c.put('\n')).?;
@@ -366,7 +366,7 @@ test "tmux session-changed" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var c: Client = .{ .buffer = std.ArrayList(u8).init(alloc) };
+    var c: Client = .{ .buffer = .init(alloc) };
     defer c.deinit();
     for ("%session-changed $42 foo") |byte| try testing.expect(try c.put(byte) == null);
     const n = (try c.put('\n')).?;
@@ -379,7 +379,7 @@ test "tmux sessions-changed" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var c: Client = .{ .buffer = std.ArrayList(u8).init(alloc) };
+    var c: Client = .{ .buffer = .init(alloc) };
     defer c.deinit();
     for ("%sessions-changed") |byte| try testing.expect(try c.put(byte) == null);
     const n = (try c.put('\n')).?;
@@ -390,7 +390,7 @@ test "tmux sessions-changed carriage return" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var c: Client = .{ .buffer = std.ArrayList(u8).init(alloc) };
+    var c: Client = .{ .buffer = .init(alloc) };
     defer c.deinit();
     for ("%sessions-changed\r") |byte| try testing.expect(try c.put(byte) == null);
     const n = (try c.put('\n')).?;
@@ -401,7 +401,7 @@ test "tmux window-add" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var c: Client = .{ .buffer = std.ArrayList(u8).init(alloc) };
+    var c: Client = .{ .buffer = .init(alloc) };
     defer c.deinit();
     for ("%window-add @14") |byte| try testing.expect(try c.put(byte) == null);
     const n = (try c.put('\n')).?;
@@ -413,7 +413,7 @@ test "tmux window-renamed" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var c: Client = .{ .buffer = std.ArrayList(u8).init(alloc) };
+    var c: Client = .{ .buffer = .init(alloc) };
     defer c.deinit();
     for ("%window-renamed @42 bar") |byte| try testing.expect(try c.put(byte) == null);
     const n = (try c.put('\n')).?;

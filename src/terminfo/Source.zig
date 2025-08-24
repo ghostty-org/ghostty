@@ -230,8 +230,8 @@ test "encode" {
 
     // Encode
     var buf: [1024]u8 = undefined;
-    var buf_stream = std.Io.fixedBufferStream(&buf);
-    try src.encode(buf_stream.writer());
+    var writer: std.Io.Writer = .fixed(&buf);
+    try src.encode(&writer);
 
     const expected =
         "ghostty|xterm-ghostty|Ghostty,\n" ++
@@ -239,5 +239,5 @@ test "encode" {
         "\tccc@,\n" ++
         "\tcolors#256,\n" ++
         "\tbel=^G,\n";
-    try std.testing.expectEqualStrings(@as([]const u8, expected), buf_stream.getWritten());
+    try std.testing.expectEqualStrings(expected, writer.buffered());
 }

@@ -62,23 +62,19 @@ pub const Envelope = struct {
 
     fn parseHeader(
         alloc: Allocator,
-        reader: anytype,
+        reader: *std.Io.Reader,
     ) !std.json.ObjectMap {
-        var buf: std.ArrayList(u8) = .{};
-        reader.streamUntilDelimiter(
-            buf.writer(alloc),
+        var buf: std.Io.Writer.Allocating = .init(alloc);
+        _ = try reader.streamDelimiterLimit(
+            &buf.writer,
             '\n',
-            1024 * 1024, // 1MB, arbitrary choice
-        ) catch |err| switch (err) {
-            // Envelope can be header-only.
-            error.EndOfStream => {},
-            else => |v| return v,
-        };
+            .limited(1024 * 1024), // 1MB, arbitrary choice
+        );
 
         const value = try std.json.parseFromSliceLeaky(
             std.json.Value,
             alloc,
-            buf.items,
+            buf.written(),
             .{ .allocate = .alloc_if_needed },
         );
 
@@ -90,7 +86,7 @@ pub const Envelope = struct {
 
     fn parseItems(
         alloc: Allocator,
-        reader: anytype,
+        reader: *std.Io.Reader,
     ) !std.ArrayList(Item) {
         var items: std.ArrayList(Item) = .{};
         errdefer items.deinit(alloc);
@@ -103,22 +99,22 @@ pub const Envelope = struct {
 
     fn parseOneItem(
         alloc: Allocator,
-        reader: anytype,
+        reader: *std.Io.Reader,
     ) !?Item {
         // Get the next item which must start with a header.
-        var buf: std.ArrayList(u8) = .{};
-        reader.streamUntilDelimiter(
-            buf.writer(alloc),
+        var buf: std.Io.Writer.Allocating = .init(alloc);
+        _ = reader.streamDelimiterLimit(
+            &buf.writer,
             '\n',
-            1024 * 1024, // 1MB, arbitrary choice
+            .limited(1024 * 1024), // 1MB, arbitrary choice
         ) catch |err| switch (err) {
-            error.EndOfStream => return null,
-            else => |v| return v,
+            error.StreamTooLong => return null,
+            else => return err,
         };
 
         // Parse the header JSON
         const headers: std.json.ObjectMap = headers: {
-            const line = std.mem.trim(u8, buf.items, " \t");
+            const line = std.mem.trim(u8, buf.written(), " \t");
             if (line.len == 0) return null;
 
             const value = try std.json.parseFromSliceLeaky(
@@ -156,18 +152,16 @@ pub const Envelope = struct {
         // Get the payload
         const payload: []const u8 = if (len_) |len| payload: {
             // The payload length is specified so read the exact length.
-            var payload = std.ArrayList(u8).init(alloc);
+            var payload: std.Io.Writer.Allocating = .init(alloc);
             defer payload.deinit();
-            for (0..len) |_| {
-                const byte = reader.readByte() catch |err| switch (err) {
-                    error.EndOfStream => return error.EnvelopeItemPayloadTooShort,
-                    else => return err,
-                };
-                try payload.append(byte);
-            }
+
+            reader.streamExact(&payload.writer, len) catch |err| switch (err) {
+                error.EndOfStream => return error.EnvelopeItemPayloadTooShort,
+                else => return err,
+            };
 
             // The next byte must be a newline.
-            if (reader.readByte()) |byte| {
+            if (reader.takeByte()) |byte| {
                 if (byte != '\n') return error.EnvelopeItemPayloadNoNewline;
             } else |err| switch (err) {
                 error.EndOfStream => {},
@@ -177,14 +171,13 @@ pub const Envelope = struct {
             break :payload try payload.toOwnedSlice();
         } else payload: {
             // The payload is the next line ending in `\n`. It is required.
-            var payload = std.ArrayList(u8).init(alloc);
-            defer payload.deinit();
-            reader.streamUntilDelimiter(
-                payload.writer(),
+            var payload: std.Io.Writer.Allocating = .init(alloc);
+            _ = reader.streamDelimiterLimit(
+                &payload.writer,
                 '\n',
-                1024 * 1024 * 50, // 50MB, arbitrary choice
+                .limited(1024 * 1024), // 50MB, arbitrary choice
             ) catch |err| switch (err) {
-                error.EndOfStream => return error.EnvelopeItemPayloadTooShort,
+                error.StreamTooLong => return error.EnvelopeItemPayloadTooShort,
                 else => |v| return v,
             };
             break :payload try payload.toOwnedSlice();
@@ -212,15 +205,13 @@ pub const Envelope = struct {
     /// therefore may allocate.
     pub fn serialize(
         self: *Envelope,
-        writer: anytype,
+        writer: *std.Io.Writer,
     ) !void {
         // Header line first
-        try std.json.stringify(
+        try writer.print("{f}\n", .{std.json.fmt(
             std.json.Value{ .object = self.headers },
             json_opts,
-            writer,
-        );
-        try writer.writeByte('\n');
+        )});
 
         // Write each item
         const alloc = self.allocator();
@@ -230,13 +221,13 @@ pub const Envelope = struct {
             const encoded = try item.encode(alloc);
             assert(item.* == .encoded);
 
-            try std.json.stringify(
-                std.json.Value{ .object = encoded.headers },
-                json_opts,
-                writer,
-            );
-            try writer.writeByte('\n');
-            try writer.writeAll(encoded.payload);
+            try writer.print("{f}\n{s}", .{
+                std.json.fmt(
+                    std.json.Value{ .object = encoded.headers },
+                    json_opts,
+                ),
+                encoded.payload,
+            });
         }
     }
 };
@@ -425,7 +416,7 @@ pub const Attachment = struct {
 pub const ObjectMapUnmanaged = std.StringArrayHashMapUnmanaged(std.json.Value);
 
 /// The options we must use for serialization.
-const json_opts: std.json.StringifyOptions = .{
+const json_opts: std.json.Stringify.Options = .{
     // This is the default but I want to be explicit because its
     // VERY important for the correctness of the envelope. This is
     // the only whitespace type in std.json that doesn't emit newlines.
@@ -437,10 +428,10 @@ test "Envelope parse" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var fbs = std.Io.fixedBufferStream(
+    var reader: std.Io.Reader = .fixed(
         \\{}
     );
-    var v = try Envelope.parse(alloc, fbs.reader());
+    var v = try Envelope.parse(alloc, &reader);
     defer v.deinit();
 }
 
@@ -448,12 +439,12 @@ test "Envelope parse session" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var fbs = std.Io.fixedBufferStream(
+    var reader: std.Io.Reader = .fixed(
         \\{}
         \\{"type":"session","length":218}
         \\{"init":true,"sid":"c148cc2f-5f9f-4231-575c-2e85504d6434","status":"abnormal","errors":0,"started":"2024-08-29T02:38:57.607016Z","duration":0.000343,"attrs":{"release":"0.1.0-HEAD+d37b7d09","environment":"production"}}
     );
-    var v = try Envelope.parse(alloc, fbs.reader());
+    var v = try Envelope.parse(alloc, &reader);
     defer v.deinit();
 
     try testing.expectEqual(@as(usize, 1), v.items.items.len);
@@ -464,14 +455,14 @@ test "Envelope parse multiple" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var fbs = std.Io.fixedBufferStream(
+    var reader: std.Io.Reader = .fixed(
         \\{}
         \\{"type":"session","length":218}
         \\{"init":true,"sid":"c148cc2f-5f9f-4231-575c-2e85504d6434","status":"abnormal","errors":0,"started":"2024-08-29T02:38:57.607016Z","duration":0.000343,"attrs":{"release":"0.1.0-HEAD+d37b7d09","environment":"production"}}
         \\{"type":"attachment","length":4,"filename":"test.txt"}
         \\ABCD
     );
-    var v = try Envelope.parse(alloc, fbs.reader());
+    var v = try Envelope.parse(alloc, &reader);
     defer v.deinit();
 
     try testing.expectEqual(@as(usize, 2), v.items.items.len);
@@ -483,14 +474,14 @@ test "Envelope parse multiple no length" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var fbs = std.Io.fixedBufferStream(
+    var reader: std.Io.Reader = .fixed(
         \\{}
         \\{"type":"session"}
         \\{}
         \\{"type":"attachment","length":4,"filename":"test.txt"}
         \\ABCD
     );
-    var v = try Envelope.parse(alloc, fbs.reader());
+    var v = try Envelope.parse(alloc, &reader);
     defer v.deinit();
 
     try testing.expectEqual(@as(usize, 2), v.items.items.len);
@@ -502,13 +493,13 @@ test "Envelope parse end in new line" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var fbs = std.Io.fixedBufferStream(
+    var reader: std.Io.Reader = .fixed(
         \\{}
         \\{"type":"session","length":218}
         \\{"init":true,"sid":"c148cc2f-5f9f-4231-575c-2e85504d6434","status":"abnormal","errors":0,"started":"2024-08-29T02:38:57.607016Z","duration":0.000343,"attrs":{"release":"0.1.0-HEAD+d37b7d09","environment":"production"}}
         \\
     );
-    var v = try Envelope.parse(alloc, fbs.reader());
+    var v = try Envelope.parse(alloc, &reader);
     defer v.deinit();
 
     try testing.expectEqual(@as(usize, 1), v.items.items.len);
@@ -519,12 +510,12 @@ test "Envelope parse attachment" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var fbs = std.Io.fixedBufferStream(
+    var reader: std.Io.Reader = .fixed(
         \\{}
         \\{"type":"attachment","length":4,"filename":"test.txt"}
         \\ABCD
     );
-    var v = try Envelope.parse(alloc, fbs.reader());
+    var v = try Envelope.parse(alloc, &reader);
     defer v.deinit();
 
     try testing.expectEqual(@as(usize, 1), v.items.items.len);
@@ -537,14 +528,14 @@ test "Envelope parse attachment" {
 
     // Serialization test
     {
-        var output = std.ArrayList(u8).init(alloc);
+        var output: std.Io.Writer.Allocating = .init(alloc);
         defer output.deinit();
-        try v.serialize(output.writer());
+        try v.serialize(&output.writer);
         try testing.expectEqualStrings(
             \\{}
             \\{"type":"attachment","length":4,"filename":"test.txt"}
             \\ABCD
-        , std.mem.trim(u8, output.items, "\n"));
+        , std.mem.trim(u8, output.written(), "\n"));
     }
 }
 
@@ -552,42 +543,42 @@ test "Envelope serialize empty" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var fbs = std.Io.fixedBufferStream(
+    var reader: std.Io.Reader = .fixed(
         \\{}
     );
-    var v = try Envelope.parse(alloc, fbs.reader());
+    var v = try Envelope.parse(alloc, &reader);
     defer v.deinit();
 
-    var output = std.ArrayList(u8).init(alloc);
+    var output: std.Io.Writer.Allocating = .init(alloc);
     defer output.deinit();
-    try v.serialize(output.writer());
+    try v.serialize(&output.writer);
 
     try testing.expectEqualStrings(
         \\{}
-    , std.mem.trim(u8, output.items, "\n"));
+    , std.mem.trim(u8, output.written(), "\n"));
 }
 
 test "Envelope serialize session" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var fbs = std.Io.fixedBufferStream(
+    var reader: std.Io.Reader = .fixed(
         \\{}
         \\{"type":"session","length":218}
         \\{"init":true,"sid":"c148cc2f-5f9f-4231-575c-2e85504d6434","status":"abnormal","errors":0,"started":"2024-08-29T02:38:57.607016Z","duration":0.000343,"attrs":{"release":"0.1.0-HEAD+d37b7d09","environment":"production"}}
     );
-    var v = try Envelope.parse(alloc, fbs.reader());
+    var v = try Envelope.parse(alloc, &reader);
     defer v.deinit();
 
-    var output = std.ArrayList(u8).init(alloc);
+    var output: std.Io.Writer.Allocating = .init(alloc);
     defer output.deinit();
-    try v.serialize(output.writer());
+    try v.serialize(&output.writer);
 
     try testing.expectEqualStrings(
         \\{}
         \\{"type":"session","length":218}
         \\{"init":true,"sid":"c148cc2f-5f9f-4231-575c-2e85504d6434","status":"abnormal","errors":0,"started":"2024-08-29T02:38:57.607016Z","duration":0.000343,"attrs":{"release":"0.1.0-HEAD+d37b7d09","environment":"production"}}
-    , std.mem.trim(u8, output.items, "\n"));
+    , std.mem.trim(u8, output.written(), "\n"));
 }
 
 // // Uncomment this test if you want to extract a minidump file from an
@@ -596,8 +587,8 @@ test "Envelope serialize session" {
 //     const testing = std.testing;
 //     const alloc = testing.allocator;
 //
-//     var fbs = std.Io.fixedBufferStream(@embedFile("in.crash"));
-//     var v = try Envelope.parse(alloc, fbs.reader());
+//     var reader: std.Io.Reader = .fixed(@embedFile("in.crash"));
+//     var v = try Envelope.parse(alloc, &reader);
 //     defer v.deinit();
 //
 //     try testing.expect(v.items.items.len > 0);
@@ -621,7 +612,9 @@ test "Envelope serialize session" {
 //         log.warn("found minidump i={}", .{i});
 //         var f = try std.fs.cwd().createFile("out.mdmp", .{});
 //         defer f.close();
-//         try f.writer().writeAll(attach.payload);
+//         var buf: [4096]u8 = undefined;
+//         var writer = f.writer(&buf);
+//         try writer.interface.writeAll(attach.payload);
 //         return;
 //     }
 // }
