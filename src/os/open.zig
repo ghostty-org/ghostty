@@ -65,8 +65,8 @@ fn openThread(alloc: Allocator, exe_: std.process.Child) !void {
     // be enough to get the output we care about.
     const output_max_size = 50 * 1024;
 
-    var stdout: std.ArrayListUnmanaged(u8) = .{};
-    var stderr: std.ArrayListUnmanaged(u8) = .{};
+    var stdout: std.ArrayList(u8) = .{};
+    var stderr: std.ArrayList(u8) = .{};
     defer {
         stdout.deinit(alloc);
         stderr.deinit(alloc);

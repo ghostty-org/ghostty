@@ -26,7 +26,7 @@ pub const Options = struct {
         // If it's not `-e` continue with the standard argument parsning.
         if (!std.mem.eql(u8, arg, "-e")) return true;
 
-        var arguments: std.ArrayListUnmanaged([:0]const u8) = .empty;
+        var arguments: std.ArrayList([:0]const u8) = .empty;
         errdefer {
             for (arguments.items) |argument| alloc.free(argument);
             arguments.deinit(alloc);

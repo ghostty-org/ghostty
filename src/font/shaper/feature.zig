@@ -223,7 +223,7 @@ pub const Feature = struct {
 
 /// A list of font feature settings (see `Feature` for more documentation).
 pub const FeatureList = struct {
-    features: std.ArrayListUnmanaged(Feature) = .{},
+    features: std.ArrayList(Feature) = .{},
 
     pub fn deinit(self: *FeatureList, alloc: Allocator) void {
         self.features.deinit(alloc);

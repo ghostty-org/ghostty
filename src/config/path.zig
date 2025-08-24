@@ -343,7 +343,7 @@ pub const Path = union(enum) {
 /// be automatically expanded relative to the path of the config file (or the home
 /// directory).
 pub const RepeatablePath = struct {
-    value: std.ArrayListUnmanaged(Path) = .{},
+    value: std.ArrayList(Path) = .{},
 
     pub fn parseCLI(self: *RepeatablePath, alloc: Allocator, input: ?[]const u8) ParseError!void {
         const item = try Path.parse(alloc, input) orelse {

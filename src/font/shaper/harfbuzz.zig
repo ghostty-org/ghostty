@@ -33,7 +33,7 @@ pub const Shaper = struct {
     /// The features to use for shaping.
     hb_feats: []harfbuzz.Feature,
 
-    const CellBuf = std.ArrayListUnmanaged(font.shape.Cell);
+    const CellBuf = std.ArrayList(font.shape.Cell);
 
     /// The cell_buf argument is the buffer to use for storing shaped results.
     /// This should be at least the number of columns in the terminal.

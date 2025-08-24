@@ -907,7 +907,7 @@ const KittySequence = struct {
         // over our buffer (but no more).
         var fba = std.heap.FixedBufferAllocator.init(buf);
         const alloc = fba.allocator();
-        var builder = try std.ArrayListUnmanaged(u8).initCapacity(alloc, buf.len);
+        var builder = try std.ArrayList(u8).initCapacity(alloc, buf.len);
         const writer = builder.writer(alloc);
 
         // Key section

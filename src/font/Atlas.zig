@@ -31,7 +31,7 @@ data: []u8,
 size: u32 = 0,
 
 /// The nodes (rectangles) of available space.
-nodes: std.ArrayListUnmanaged(Node) = .{},
+nodes: std.ArrayList(Node) = .{},
 
 /// The format of the texture data being written into the Atlas. This must be
 /// uniform for all textures in the Atlas. If you have some textures with

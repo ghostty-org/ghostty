@@ -19,7 +19,7 @@ check_step: *std.Build.Step,
 pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
     // Get the resources we're going to inject into the source tarball.
     const alloc = b.allocator;
-    var resources: std.ArrayListUnmanaged(Resource) = .empty;
+    var resources: std.ArrayList(Resource) = .empty;
     {
         const gtk = SharedDeps.gtkNgDistResources(b);
         try resources.append(alloc, gtk.resources_c);

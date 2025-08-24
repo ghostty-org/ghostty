@@ -26,7 +26,7 @@ pub const Envelope = struct {
     headers: std.json.ObjectMap,
 
     /// The items in the envelope in the order they're encoded.
-    items: std.ArrayListUnmanaged(Item),
+    items: std.ArrayList(Item),
 
     /// Parse an envelope from a reader.
     ///
@@ -64,7 +64,7 @@ pub const Envelope = struct {
         alloc: Allocator,
         reader: anytype,
     ) !std.json.ObjectMap {
-        var buf: std.ArrayListUnmanaged(u8) = .{};
+        var buf: std.ArrayList(u8) = .{};
         reader.streamUntilDelimiter(
             buf.writer(alloc),
             '\n',
@@ -91,8 +91,8 @@ pub const Envelope = struct {
     fn parseItems(
         alloc: Allocator,
         reader: anytype,
-    ) !std.ArrayListUnmanaged(Item) {
-        var items: std.ArrayListUnmanaged(Item) = .{};
+    ) !std.ArrayList(Item) {
+        var items: std.ArrayList(Item) = .{};
         errdefer items.deinit(alloc);
         while (try parseOneItem(alloc, reader)) |item| {
             try items.append(alloc, item);
@@ -106,7 +106,7 @@ pub const Envelope = struct {
         reader: anytype,
     ) !?Item {
         // Get the next item which must start with a header.
-        var buf: std.ArrayListUnmanaged(u8) = .{};
+        var buf: std.ArrayList(u8) = .{};
         reader.streamUntilDelimiter(
             buf.writer(alloc),
             '\n',

@@ -211,7 +211,7 @@ pub const Application = extern struct {
         css_provider: *gtk.CssProvider,
 
         /// Providers for loading custom stylesheets defined by user
-        custom_css_providers: std.ArrayListUnmanaged(*gtk.CssProvider) = .empty,
+        custom_css_providers: std.ArrayList(*gtk.CssProvider) = .empty,
 
         pub var offset: c_int = 0;
     };
