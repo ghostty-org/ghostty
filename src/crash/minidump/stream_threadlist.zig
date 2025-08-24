@@ -91,7 +91,7 @@ test "minidump: threadlist" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var fbs = std.io.fixedBufferStream(@embedFile("../testdata/macos.dmp"));
+    var fbs = std.Io.fixedBufferStream(@embedFile("../testdata/macos.dmp"));
     const R = Reader(*@TypeOf(fbs));
     const r = try R.init(&fbs);
 

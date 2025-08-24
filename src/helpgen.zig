@@ -29,7 +29,7 @@ pub fn main() !void {
     try stdout.flush();
 }
 
-fn genConfig(alloc: std.mem.Allocator, writer: *std.io.Writer) !void {
+fn genConfig(alloc: std.mem.Allocator, writer: *std.Io.Writer) !void {
     var ast = try std.zig.Ast.parse(alloc, @embedFile("config/Config.zig"), .zig);
     defer ast.deinit(alloc);
 
@@ -164,7 +164,7 @@ fn extractDocComments(
     }
 
     // Convert the lines to a multiline string.
-    var stream: std.io.Writer.Allocating = .init(alloc);
+    var stream: std.Io.Writer.Allocating = .init(alloc);
     const prefix = findCommonPrefix(lines);
     for (lines.items) |line| {
         try stream.writer.writeAll("    \\\\");

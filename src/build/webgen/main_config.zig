@@ -3,7 +3,7 @@ const Config = @import("../../config/Config.zig");
 const help_strings = @import("help_strings");
 
 pub fn main() !void {
-    const output = std.io.getStdOut().writer();
+    const output = std.Io.getStdOut().writer();
     try genConfig(output);
 }
 

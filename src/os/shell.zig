@@ -66,7 +66,7 @@ pub const ShellEscapeWriter = struct {
 
 test "shell escape 1" {
     var buf: [128]u8 = undefined;
-    var fmt = std.io.fixedBufferStream(&buf);
+    var fmt = std.Io.fixedBufferStream(&buf);
     var shell: ShellEscapeWriter(@TypeOf(fmt).Writer) = .{ .child_writer = fmt.writer() };
     const writer = shell.writer();
     try writer.writeAll("abc");
@@ -75,7 +75,7 @@ test "shell escape 1" {
 
 test "shell escape 2" {
     var buf: [128]u8 = undefined;
-    var fmt = std.io.fixedBufferStream(&buf);
+    var fmt = std.Io.fixedBufferStream(&buf);
     var shell: ShellEscapeWriter(@TypeOf(fmt).Writer) = .{ .child_writer = fmt.writer() };
     const writer = shell.writer();
     try writer.writeAll("a c");
@@ -84,7 +84,7 @@ test "shell escape 2" {
 
 test "shell escape 3" {
     var buf: [128]u8 = undefined;
-    var fmt = std.io.fixedBufferStream(&buf);
+    var fmt = std.Io.fixedBufferStream(&buf);
     var shell: ShellEscapeWriter(@TypeOf(fmt).Writer) = .{ .child_writer = fmt.writer() };
     const writer = shell.writer();
     try writer.writeAll("a?c");
@@ -93,7 +93,7 @@ test "shell escape 3" {
 
 test "shell escape 4" {
     var buf: [128]u8 = undefined;
-    var fmt = std.io.fixedBufferStream(&buf);
+    var fmt = std.Io.fixedBufferStream(&buf);
     var shell: ShellEscapeWriter(@TypeOf(fmt).Writer) = .{ .child_writer = fmt.writer() };
     const writer = shell.writer();
     try writer.writeAll("a\\c");
@@ -102,7 +102,7 @@ test "shell escape 4" {
 
 test "shell escape 5" {
     var buf: [128]u8 = undefined;
-    var fmt = std.io.fixedBufferStream(&buf);
+    var fmt = std.Io.fixedBufferStream(&buf);
     var shell: ShellEscapeWriter(@TypeOf(fmt).Writer) = .{ .child_writer = fmt.writer() };
     const writer = shell.writer();
     try writer.writeAll("a|c");
@@ -111,7 +111,7 @@ test "shell escape 5" {
 
 test "shell escape 6" {
     var buf: [128]u8 = undefined;
-    var fmt = std.io.fixedBufferStream(&buf);
+    var fmt = std.Io.fixedBufferStream(&buf);
     var shell: ShellEscapeWriter(@TypeOf(fmt).Writer) = .{ .child_writer = fmt.writer() };
     const writer = shell.writer();
     try writer.writeAll("a\"c");
@@ -120,7 +120,7 @@ test "shell escape 6" {
 
 test "shell escape 7" {
     var buf: [128]u8 = undefined;
-    var fmt = std.io.fixedBufferStream(&buf);
+    var fmt = std.Io.fixedBufferStream(&buf);
     var shell: ShellEscapeWriter(@TypeOf(fmt).Writer) = .{ .child_writer = fmt.writer() };
     const writer = shell.writer();
     try writer.writeAll("a(1)");

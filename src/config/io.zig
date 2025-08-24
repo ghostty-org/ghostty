@@ -96,7 +96,7 @@ pub const ReadableIO = union(enum) {
 
     pub fn formatEntry(self: Self, formatter: anytype) !void {
         var buf: [4096]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buf);
+        var fbs = std.Io.fixedBufferStream(&buf);
         const writer = fbs.writer();
         switch (self) {
             inline else => |v, tag| {

@@ -353,7 +353,7 @@ pub const OS2 = struct {
         EndOfStream,
         OS2VersionNotSupported,
     }!OS2 {
-        var fbs = std.io.fixedBufferStream(data);
+        var fbs = std.Io.fixedBufferStream(data);
         const reader = fbs.reader();
 
         const version = try reader.readInt(sfnt.uint16, .big);

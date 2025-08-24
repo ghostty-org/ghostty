@@ -2524,7 +2524,7 @@ fn setGtkEnv(config: *const CoreConfig) error{NoSpaceLeft}!void {
 
     {
         var buf: [1024]u8 = undefined;
-        var fmt = std.io.fixedBufferStream(&buf);
+        var fmt = std.Io.fixedBufferStream(&buf);
         const writer = fmt.writer();
         var first: bool = true;
         inline for (@typeInfo(@TypeOf(gdk_debug)).@"struct".fields) |field| {
@@ -2542,7 +2542,7 @@ fn setGtkEnv(config: *const CoreConfig) error{NoSpaceLeft}!void {
 
     {
         var buf: [1024]u8 = undefined;
-        var fmt = std.io.fixedBufferStream(&buf);
+        var fmt = std.Io.fixedBufferStream(&buf);
         const writer = fmt.writer();
         var first: bool = true;
         inline for (@typeInfo(@TypeOf(gdk_disable)).@"struct".fields) |field| {

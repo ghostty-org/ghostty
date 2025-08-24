@@ -55,7 +55,7 @@ pub fn Reader(comptime S: type) type {
         const SourceSeeker = @typeInfo(@TypeOf(SourceCallable.seekableStream)).@"fn".return_type.?;
 
         /// A limited reader for reading data from the source.
-        pub const LimitedReader = std.io.LimitedReader(SourceReader);
+        pub const LimitedReader = std.Io.LimitedReader(SourceReader);
 
         /// The source type for the reader.
         pub const Source = S;
@@ -212,7 +212,7 @@ fn readHeader(comptime T: type, source: T) !struct {
 
 // Uncomment to dump some debug information for a minidump file.
 test "minidump debug" {
-    var fbs = std.io.fixedBufferStream(@embedFile("../testdata/macos.dmp"));
+    var fbs = std.Io.fixedBufferStream(@embedFile("../testdata/macos.dmp"));
     const r = try Reader(*@TypeOf(fbs)).init(&fbs);
     var it = r.streamIterator();
     while (try it.next()) |s| {
@@ -224,7 +224,7 @@ test "minidump read" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var fbs = std.io.fixedBufferStream(@embedFile("../testdata/macos.dmp"));
+    var fbs = std.Io.fixedBufferStream(@embedFile("../testdata/macos.dmp"));
     const r = try Reader(*@TypeOf(fbs)).init(&fbs);
     try testing.expectEqual(std.builtin.Endian.little, r.endian);
     try testing.expectEqual(7, r.stream_count);

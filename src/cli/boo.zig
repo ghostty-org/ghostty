@@ -218,7 +218,7 @@ var frames: []const []const u8 = undefined;
 
 /// Decompress the frames into a slice of individual frames
 fn decompressFrames(gpa: Allocator) !void {
-    var fbs = std.io.fixedBufferStream(framedata.compressed);
+    var fbs = std.Io.fixedBufferStream(framedata.compressed);
     var list = std.ArrayList(u8).init(gpa);
 
     try std.compress.flate.decompress(fbs.reader(), list.writer());

@@ -90,7 +90,7 @@ fn mainActionImpl(
     const rand = prng.random();
 
     // Our output always goes to stdout.
-    const writer = std.io.getStdOut().writer();
+    const writer = std.Io.getStdOut().writer();
 
     // Create our implementation
     const impl = try Impl.create(alloc, opts);

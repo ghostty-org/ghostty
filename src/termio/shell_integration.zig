@@ -177,7 +177,7 @@ pub fn setupFeatures(
     };
 
     var buf: [capacity]u8 = @splat(0);
-    var writer: std.io.Writer = .fixed(&buf);
+    var writer: std.Io.Writer = .fixed(&buf);
 
     // Sort the fields so that the output is deterministic. This is
     // done at comptime so it has no runtime cost

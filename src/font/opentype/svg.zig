@@ -26,7 +26,7 @@ pub const SVG = struct {
         EndOfStream,
         SVGVersionNotSupported,
     }!SVG {
-        var fbs = std.io.fixedBufferStream(data);
+        var fbs = std.Io.fixedBufferStream(data);
         const reader = fbs.reader();
 
         // Version
@@ -85,7 +85,7 @@ pub const SVG = struct {
     }
 
     fn glyphRange(record: []const u8) !struct { u16, u16 } {
-        var fbs = std.io.fixedBufferStream(record);
+        var fbs = std.Io.fixedBufferStream(record);
         const reader = fbs.reader();
         return .{
             try reader.readInt(u16, .big),

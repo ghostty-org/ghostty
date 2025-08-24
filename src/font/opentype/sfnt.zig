@@ -235,7 +235,7 @@ pub const SFNT = struct {
     /// Parse a font from raw data. The struct will keep a
     /// reference to `data` and use it for future operations.
     pub fn init(data: []const u8, alloc: Allocator) !SFNT {
-        var fbs = std.io.fixedBufferStream(data);
+        var fbs = std.Io.fixedBufferStream(data);
         const reader = fbs.reader();
 
         // SFNT files use big endian, if our native endian is

@@ -1216,7 +1216,7 @@ test "all i32 values" {
 test "response: encode nothing without ID or image number" {
     const testing = std.testing;
     var buf: [1024]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
+    var fbs = std.Io.fixedBufferStream(&buf);
 
     var r: Response = .{};
     try r.encode(fbs.writer());
@@ -1226,7 +1226,7 @@ test "response: encode nothing without ID or image number" {
 test "response: encode with only image id" {
     const testing = std.testing;
     var buf: [1024]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
+    var fbs = std.Io.fixedBufferStream(&buf);
 
     var r: Response = .{ .id = 4 };
     try r.encode(fbs.writer());
@@ -1236,7 +1236,7 @@ test "response: encode with only image id" {
 test "response: encode with only image number" {
     const testing = std.testing;
     var buf: [1024]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
+    var fbs = std.Io.fixedBufferStream(&buf);
 
     var r: Response = .{ .image_number = 4 };
     try r.encode(fbs.writer());
@@ -1246,7 +1246,7 @@ test "response: encode with only image number" {
 test "response: encode with image ID and number" {
     const testing = std.testing;
     var buf: [1024]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
+    var fbs = std.Io.fixedBufferStream(&buf);
 
     var r: Response = .{ .id = 12, .image_number = 4 };
     try r.encode(fbs.writer());

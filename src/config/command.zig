@@ -172,7 +172,7 @@ pub const Command = union(enum) {
 
             .direct => |v| {
                 var buf: [4096]u8 = undefined;
-                var fbs = std.io.fixedBufferStream(&buf);
+                var fbs = std.Io.fixedBufferStream(&buf);
                 const writer = fbs.writer();
                 writer.writeAll("direct:") catch return error.OutOfMemory;
                 for (v) |arg| {
