@@ -437,7 +437,7 @@ test "Envelope parse" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var fbs = std.io.fixedBufferStream(
+    var fbs = std.Io.fixedBufferStream(
         \\{}
     );
     var v = try Envelope.parse(alloc, fbs.reader());
@@ -448,7 +448,7 @@ test "Envelope parse session" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var fbs = std.io.fixedBufferStream(
+    var fbs = std.Io.fixedBufferStream(
         \\{}
         \\{"type":"session","length":218}
         \\{"init":true,"sid":"c148cc2f-5f9f-4231-575c-2e85504d6434","status":"abnormal","errors":0,"started":"2024-08-29T02:38:57.607016Z","duration":0.000343,"attrs":{"release":"0.1.0-HEAD+d37b7d09","environment":"production"}}
@@ -464,7 +464,7 @@ test "Envelope parse multiple" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var fbs = std.io.fixedBufferStream(
+    var fbs = std.Io.fixedBufferStream(
         \\{}
         \\{"type":"session","length":218}
         \\{"init":true,"sid":"c148cc2f-5f9f-4231-575c-2e85504d6434","status":"abnormal","errors":0,"started":"2024-08-29T02:38:57.607016Z","duration":0.000343,"attrs":{"release":"0.1.0-HEAD+d37b7d09","environment":"production"}}
@@ -483,7 +483,7 @@ test "Envelope parse multiple no length" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var fbs = std.io.fixedBufferStream(
+    var fbs = std.Io.fixedBufferStream(
         \\{}
         \\{"type":"session"}
         \\{}
@@ -502,7 +502,7 @@ test "Envelope parse end in new line" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var fbs = std.io.fixedBufferStream(
+    var fbs = std.Io.fixedBufferStream(
         \\{}
         \\{"type":"session","length":218}
         \\{"init":true,"sid":"c148cc2f-5f9f-4231-575c-2e85504d6434","status":"abnormal","errors":0,"started":"2024-08-29T02:38:57.607016Z","duration":0.000343,"attrs":{"release":"0.1.0-HEAD+d37b7d09","environment":"production"}}
@@ -519,7 +519,7 @@ test "Envelope parse attachment" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var fbs = std.io.fixedBufferStream(
+    var fbs = std.Io.fixedBufferStream(
         \\{}
         \\{"type":"attachment","length":4,"filename":"test.txt"}
         \\ABCD
@@ -552,7 +552,7 @@ test "Envelope serialize empty" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var fbs = std.io.fixedBufferStream(
+    var fbs = std.Io.fixedBufferStream(
         \\{}
     );
     var v = try Envelope.parse(alloc, fbs.reader());
@@ -571,7 +571,7 @@ test "Envelope serialize session" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var fbs = std.io.fixedBufferStream(
+    var fbs = std.Io.fixedBufferStream(
         \\{}
         \\{"type":"session","length":218}
         \\{"init":true,"sid":"c148cc2f-5f9f-4231-575c-2e85504d6434","status":"abnormal","errors":0,"started":"2024-08-29T02:38:57.607016Z","duration":0.000343,"attrs":{"release":"0.1.0-HEAD+d37b7d09","environment":"production"}}
@@ -596,7 +596,7 @@ test "Envelope serialize session" {
 //     const testing = std.testing;
 //     const alloc = testing.allocator;
 //
-//     var fbs = std.io.fixedBufferStream(@embedFile("in.crash"));
+//     var fbs = std.Io.fixedBufferStream(@embedFile("in.crash"));
 //     var v = try Envelope.parse(alloc, fbs.reader());
 //     defer v.deinit();
 //

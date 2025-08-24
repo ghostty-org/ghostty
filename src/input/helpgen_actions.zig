@@ -13,7 +13,7 @@ pub const Format = enum {
     /// Markdown formatted output
     markdown,
 
-    fn formatFieldName(self: Format, writer: *std.io.Writer, field_name: []const u8) !void {
+    fn formatFieldName(self: Format, writer: *std.Io.Writer, field_name: []const u8) !void {
         switch (self) {
             .plaintext => {
                 try writer.writeAll(field_name);
@@ -27,7 +27,7 @@ pub const Format = enum {
         }
     }
 
-    fn formatDocLine(self: Format, writer: *std.io.Writer, line: []const u8) !void {
+    fn formatDocLine(self: Format, writer: *std.Io.Writer, line: []const u8) !void {
         switch (self) {
             .plaintext => {
                 try writer.writeAll("  ");

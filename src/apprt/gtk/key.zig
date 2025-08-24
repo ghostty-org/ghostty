@@ -13,7 +13,7 @@ pub fn accelFromTrigger(
     buf: []u8,
     trigger: input.Binding.Trigger,
 ) error{NoSpaceLeft}!?[:0]const u8 {
-    var buf_stream = std.io.fixedBufferStream(buf);
+    var buf_stream = std.Io.fixedBufferStream(buf);
     const writer = buf_stream.writer();
 
     // Modifiers
@@ -37,7 +37,7 @@ pub fn xdgShortcutFromTrigger(
     buf: []u8,
     trigger: input.Binding.Trigger,
 ) error{NoSpaceLeft}!?[:0]const u8 {
-    var buf_stream = std.io.fixedBufferStream(buf);
+    var buf_stream = std.Io.fixedBufferStream(buf);
     const writer = buf_stream.writer();
 
     // Modifiers

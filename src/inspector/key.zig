@@ -39,7 +39,7 @@ pub const Event = struct {
     /// Returns a label that can be used for this event. This is null-terminated
     /// so it can be easily used with C APIs.
     pub fn label(self: *const Event, buf: []u8) ![:0]const u8 {
-        var buf_stream = std.io.fixedBufferStream(buf);
+        var buf_stream = std.Io.fixedBufferStream(buf);
         const writer = buf_stream.writer();
 
         switch (self.event.action) {
@@ -156,7 +156,7 @@ pub const Event = struct {
 
         // Format the codepoint sequence
         var buf: [1024]u8 = undefined;
-        var buf_stream = std.io.fixedBufferStream(&buf);
+        var buf_stream = std.Io.fixedBufferStream(&buf);
         const writer = buf_stream.writer();
         if (std.unicode.Utf8View.init(utf8)) |view| {
             var it = view.iterator();
@@ -182,7 +182,7 @@ pub const Event = struct {
     fn renderPty(self: *const Event) !void {
         // Format the codepoint sequence
         var buf: [1024]u8 = undefined;
-        var buf_stream = std.io.fixedBufferStream(&buf);
+        var buf_stream = std.Io.fixedBufferStream(&buf);
         const writer = buf_stream.writer();
 
         for (self.pty) |byte| {
