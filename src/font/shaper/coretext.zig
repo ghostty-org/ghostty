@@ -62,7 +62,7 @@ pub const Shaper = struct {
     ///
     /// Fonts are cached as attribute dictionaries to be applied directly to
     /// attributed strings.
-    cached_fonts: std.ArrayListUnmanaged(?*macos.foundation.Dictionary),
+    cached_fonts: std.ArrayList(?*macos.foundation.Dictionary),
 
     /// The grid that our cached fonts correspond to.
     /// If the grid changes then we need to reset our cache.
@@ -71,7 +71,7 @@ pub const Shaper = struct {
     /// The list of CoreFoundation objects to release on the dedicated
     /// release thread. This is built up over the course of shaping and
     /// sent to the release thread when endFrame is called.
-    cf_release_pool: std.ArrayListUnmanaged(*anyopaque),
+    cf_release_pool: std.ArrayList(*anyopaque),
 
     /// Dedicated thread for releasing CoreFoundation objects. Some objects,
     /// such as those produced by CoreText, have excessively slow release
@@ -79,8 +79,8 @@ pub const Shaper = struct {
     cf_release_thread: *CFReleaseThread,
     cf_release_thr: std.Thread,
 
-    const CellBuf = std.ArrayListUnmanaged(font.shape.Cell);
-    const CodepointList = std.ArrayListUnmanaged(Codepoint);
+    const CellBuf = std.ArrayList(font.shape.Cell);
+    const CodepointList = std.ArrayList(Codepoint);
     const Codepoint = struct {
         codepoint: u32,
         cluster: u32,
@@ -88,7 +88,7 @@ pub const Shaper = struct {
 
     const RunState = struct {
         codepoints: CodepointList,
-        unichars: std.ArrayListUnmanaged(u16),
+        unichars: std.ArrayList(u16),
 
         fn init() RunState {
             return .{ .codepoints = .{}, .unichars = .{} };

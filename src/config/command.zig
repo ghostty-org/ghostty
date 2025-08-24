@@ -74,7 +74,7 @@ pub const Command = union(enum) {
             .direct => {
                 // We're not shell expanding, so the arguments are naively
                 // split on spaces.
-                var builder: std.ArrayListUnmanaged([:0]const u8) = .empty;
+                var builder: std.ArrayList([:0]const u8) = .empty;
                 var args = std.mem.splitScalar(
                     u8,
                     std.mem.trim(u8, str, " "),
