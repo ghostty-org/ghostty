@@ -425,7 +425,7 @@ const SlidingWindow = struct {
         // temporary memory, and then copy it into our circular buffer.
         // In the future, we should benchmark and see if we can encode
         // directly into the circular buffer.
-        var encoded: std.ArrayListUnmanaged(u8) = .{};
+        var encoded: std.ArrayList(u8) = .{};
         defer encoded.deinit(alloc);
 
         // Encode the page into the buffer.

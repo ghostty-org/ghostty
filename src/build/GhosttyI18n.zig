@@ -98,7 +98,7 @@ fn createUpdateStep(b: *std.Build) !*std.Build.Step {
         // order. That will minimize code churn as directory walking is not
         // guaranteed to happen in any particular order.
 
-        var gtk_files: std.ArrayListUnmanaged([]const u8) = .empty;
+        var gtk_files: std.ArrayList([]const u8) = .empty;
         defer {
             for (gtk_files.items) |item| b.allocator.free(item);
             gtk_files.deinit(b.allocator);
