@@ -235,7 +235,7 @@ pub const Keyboard = struct {
     ///
     /// This is naturally bounded due to the configuration maximum
     /// length of a sequence.
-    queued: std.ArrayListUnmanaged(termio.Message.WriteReq) = .{},
+    queued: std.ArrayList(termio.Message.WriteReq) = .{},
 };
 
 /// The configuration that a surface has, this is copied from the main
@@ -2110,7 +2110,7 @@ pub fn preeditCallback(self: *Surface, preedit_: ?[]const u8) !void {
 
     // Allocate the codepoints slice
     const Codepoint = rendererpkg.State.Preedit.Codepoint;
-    var codepoints: std.ArrayListUnmanaged(Codepoint) = .{};
+    var codepoints: std.ArrayList(Codepoint) = .{};
     defer codepoints.deinit(self.alloc);
     while (it.nextCodepoint()) |cp| {
         const width: usize = @intCast(unicode.table.get(cp).width);

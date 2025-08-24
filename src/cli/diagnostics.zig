@@ -93,7 +93,7 @@ pub const Location = union(enum) {
 /// and potentially in the future structure them differently.
 pub const DiagnosticList = struct {
     /// The list of diagnostics.
-    list: std.ArrayListUnmanaged(Diagnostic) = .{},
+    list: std.ArrayList(Diagnostic) = .{},
 
     /// Precomputed data for diagnostics. This is used specifically
     /// when we build libghostty so that we can precompute the messages
@@ -111,7 +111,7 @@ pub const DiagnosticList = struct {
     };
 
     const Precompute = if (precompute_enabled) struct {
-        messages: std.ArrayListUnmanaged([:0]const u8) = .{},
+        messages: std.ArrayList([:0]const u8) = .{},
 
         pub fn clone(
             self: *const Precompute,

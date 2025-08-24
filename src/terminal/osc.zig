@@ -267,7 +267,7 @@ pub const Parser = struct {
     buf: [MAX_BUF]u8,
     buf_start: usize,
     buf_idx: usize,
-    buf_dynamic: ?*std.ArrayListUnmanaged(u8),
+    buf_dynamic: ?*std.ArrayList(u8),
 
     /// True when a command is complete/valid to return.
     complete: bool,
@@ -1364,7 +1364,7 @@ pub const Parser = struct {
         };
 
         // Allocate our dynamic buffer
-        const list = alloc.create(std.ArrayListUnmanaged(u8)) catch {
+        const list = alloc.create(std.ArrayList(u8)) catch {
             self.state = .string;
             return;
         };
