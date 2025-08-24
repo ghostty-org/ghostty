@@ -292,13 +292,13 @@ pub const Command = union(enum) {
         defer arena.deinit();
         const alloc = arena.allocator();
 
-        var buf = std.ArrayList(u8).init(alloc);
+        var buf: std.Io.Writer.Allocating = .init(alloc);
         defer buf.deinit();
 
         var v: Self = undefined;
         try v.parseCLI(alloc, "echo hello");
-        try v.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = echo hello\n", buf.items);
+        try v.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = echo hello\n", buf.written());
     }
 
     test "Command: formatConfig direct" {
@@ -307,13 +307,13 @@ pub const Command = union(enum) {
         defer arena.deinit();
         const alloc = arena.allocator();
 
-        var buf = std.ArrayList(u8).init(alloc);
+        var buf: std.Io.Writer.Allocating = .init(alloc);
         defer buf.deinit();
 
         var v: Self = undefined;
         try v.parseCLI(alloc, "direct: echo hello");
-        try v.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = direct:echo hello\n", buf.items);
+        try v.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = direct:echo hello\n", buf.written());
     }
 };
 

@@ -222,26 +222,25 @@ pub const StreamHandler = struct {
 
             .decrqss => |decrqss| {
                 var response: [128]u8 = undefined;
-                var stream = std.Io.fixedBufferStream(&response);
-                const writer = stream.writer();
+                var writer: std.Io.Writer = .fixed(&response);
 
                 // Offset the stream position to just past the response prefix.
                 // We will write the "payload" (if any) below. If no payload is
                 // written then we send an invalid DECRPSS response.
                 const prefix_fmt = "\x1bP{d}$r";
                 const prefix_len = std.fmt.comptimePrint(prefix_fmt, .{0}).len;
-                stream.pos = prefix_len;
+                writer.end = prefix_len;
 
                 switch (decrqss) {
                     // Invalid or unhandled request
                     .none => {},
 
                     .sgr => {
-                        const buf = try self.terminal.printAttributes(stream.buffer[stream.pos..]);
+                        const buf = try self.terminal.printAttributes(writer.unusedCapacitySlice());
 
                         // printAttributes wrote into our buffer, so adjust the stream
                         // position
-                        stream.pos += buf.len;
+                        writer.end += buf.len;
 
                         try writer.writeByte('m');
                     },
@@ -280,14 +279,15 @@ pub const StreamHandler = struct {
                 }
 
                 // Our response is valid if we have a response payload
-                const valid = stream.pos > prefix_len;
+                const valid = writer.pos > prefix_len;
 
                 // Write the terminator
                 try writer.writeAll("\x1b\\");
 
                 // Write the response prefix into the buffer
-                _ = try std.fmt.bufPrint(response[0..prefix_len], prefix_fmt, .{@intFromBool(valid)});
-                const msg = try termio.Message.writeReq(self.alloc, response[0..stream.pos]);
+                var prefix_writer: std.Io.Writer = .fixed(&response);
+                try prefix_writer.print(prefix_fmt, .{@intFromBool(valid)});
+                const msg = try termio.Message.writeReq(self.alloc, writer.buffered());
                 self.messageWriter(msg);
             },
         }
@@ -310,9 +310,9 @@ pub const StreamHandler = struct {
             .kitty => |*kitty_cmd| {
                 if (self.terminal.kittyGraphics(self.alloc, kitty_cmd)) |resp| {
                     var buf: [1024]u8 = undefined;
-                    var buf_stream = std.Io.fixedBufferStream(&buf);
-                    try resp.encode(buf_stream.writer());
-                    const final = buf_stream.getWritten();
+                    var writer: std.Io.Writer = .fixed(&buf);
+                    try resp.encode(&writer);
+                    const final = writer.buffered();
                     if (final.len > 2) {
                         log.debug("kitty graphics response: {f}", .{std.ascii.hexEscape(final, .lower)});
                         self.messageWriter(try termio.Message.writeReq(self.alloc, final));

@@ -1216,41 +1216,41 @@ test "all i32 values" {
 test "response: encode nothing without ID or image number" {
     const testing = std.testing;
     var buf: [1024]u8 = undefined;
-    var fbs = std.Io.fixedBufferStream(&buf);
+    var writer: std.Io.Writer = .fixed(&buf);
 
     var r: Response = .{};
-    try r.encode(fbs.writer());
-    try testing.expectEqualStrings("", fbs.getWritten());
+    try r.encode(&writer);
+    try testing.expectEqualStrings("", writer.buffered());
 }
 
 test "response: encode with only image id" {
     const testing = std.testing;
     var buf: [1024]u8 = undefined;
-    var fbs = std.Io.fixedBufferStream(&buf);
+    var writer: std.Io.Writer = .fixed(&buf);
 
     var r: Response = .{ .id = 4 };
-    try r.encode(fbs.writer());
-    try testing.expectEqualStrings("\x1b_Gi=4;OK\x1b\\", fbs.getWritten());
+    try r.encode(&writer);
+    try testing.expectEqualStrings("\x1b_Gi=4;OK\x1b\\", writer.buffered());
 }
 
 test "response: encode with only image number" {
     const testing = std.testing;
     var buf: [1024]u8 = undefined;
-    var fbs = std.Io.fixedBufferStream(&buf);
+    var writer: std.Io.Writer = .fixed(&buf);
 
     var r: Response = .{ .image_number = 4 };
-    try r.encode(fbs.writer());
-    try testing.expectEqualStrings("\x1b_GI=4;OK\x1b\\", fbs.getWritten());
+    try r.encode(&writer);
+    try testing.expectEqualStrings("\x1b_GI=4;OK\x1b\\", writer.buffered());
 }
 
 test "response: encode with image ID and number" {
     const testing = std.testing;
     var buf: [1024]u8 = undefined;
-    var fbs = std.Io.fixedBufferStream(&buf);
+    var writer: std.Io.Writer = .fixed(&buf);
 
     var r: Response = .{ .id = 12, .image_number = 4 };
-    try r.encode(fbs.writer());
-    try testing.expectEqualStrings("\x1b_Gi=12,I=4;OK\x1b\\", fbs.getWritten());
+    try r.encode(&writer);
+    try testing.expectEqualStrings("\x1b_Gi=12,I=4;OK\x1b\\", writer.buffered());
 }
 
 test "delete range command 1" {

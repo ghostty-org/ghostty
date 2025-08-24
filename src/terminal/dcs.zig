@@ -164,7 +164,7 @@ pub const Handler = struct {
 
             .xtgettcap => |*list| xtgettcap: {
                 for (list.written()) |*b| b.* = std.ascii.toUpper(b.*);
-                break :xtgettcap .{ .xtgettcap = .{ .data = list.written() } };
+                break :xtgettcap .{ .xtgettcap = .{ .data = list.toArrayList() } };
             },
 
             .decrqss => |buffer| .{ .decrqss = switch (buffer.len) {
@@ -203,25 +203,25 @@ pub const Command = union(enum) {
     /// Tmux control mode
     tmux: terminal.tmux.Notification,
 
-    pub fn deinit(self: Command, alloc: Allocator) void {
-        switch (self) {
-            .xtgettcap => |*v| alloc.free(v.data),
+    pub fn deinit(self: *Command, alloc: Allocator) void {
+        switch (self.*) {
+            .xtgettcap => |*v| v.data.deinit(alloc),
             .decrqss => {},
             .tmux => {},
         }
     }
 
     pub const XTGETTCAP = struct {
-        data: []const u8,
+        data: std.ArrayList(u8),
         i: usize = 0,
 
         /// Returns the next terminfo key being requested and null
         /// when there are no more keys. The returned value is NOT hex-decoded
         /// because we expect to use a comptime lookup table.
         pub fn next(self: *XTGETTCAP) ?[]const u8 {
-            if (self.i >= self.data.len) return null;
+            if (self.i >= self.data.items.len) return null;
 
-            var rem = self.data[self.i..];
+            var rem = self.data.items[self.i..];
             const idx = std.mem.indexOf(u8, rem, ";") orelse rem.len;
 
             // Note that if we're at the end, idx + 1 is len + 1 so we're over
@@ -303,7 +303,7 @@ test "XTGETTCAP command" {
     try testing.expect(h.hook(alloc, .{ .intermediates = "+", .final = 'q' }) == null);
     for ("536D756C78") |byte| _ = h.put(byte);
     var cmd = h.unhook().?;
-    defer cmd.deinit();
+    defer cmd.deinit(alloc);
     try testing.expect(cmd == .xtgettcap);
     try testing.expectEqualStrings("536D756C78", cmd.xtgettcap.next().?);
     try testing.expect(cmd.xtgettcap.next() == null);
@@ -318,7 +318,7 @@ test "XTGETTCAP mixed case" {
     try testing.expect(h.hook(alloc, .{ .intermediates = "+", .final = 'q' }) == null);
     for ("536d756C78") |byte| _ = h.put(byte);
     var cmd = h.unhook().?;
-    defer cmd.deinit();
+    defer cmd.deinit(alloc);
     try testing.expect(cmd == .xtgettcap);
     try testing.expectEqualStrings("536D756C78", cmd.xtgettcap.next().?);
     try testing.expect(cmd.xtgettcap.next() == null);
@@ -333,7 +333,7 @@ test "XTGETTCAP command multiple keys" {
     try testing.expect(h.hook(alloc, .{ .intermediates = "+", .final = 'q' }) == null);
     for ("536D756C78;536D756C78") |byte| _ = h.put(byte);
     var cmd = h.unhook().?;
-    defer cmd.deinit();
+    defer cmd.deinit(alloc);
     try testing.expect(cmd == .xtgettcap);
     try testing.expectEqualStrings("536D756C78", cmd.xtgettcap.next().?);
     try testing.expectEqualStrings("536D756C78", cmd.xtgettcap.next().?);
@@ -349,7 +349,7 @@ test "XTGETTCAP command invalid data" {
     try testing.expect(h.hook(alloc, .{ .intermediates = "+", .final = 'q' }) == null);
     for ("who;536D756C78") |byte| _ = h.put(byte);
     var cmd = h.unhook().?;
-    defer cmd.deinit();
+    defer cmd.deinit(alloc);
     try testing.expect(cmd == .xtgettcap);
     try testing.expectEqualStrings("WHO", cmd.xtgettcap.next().?);
     try testing.expectEqualStrings("536D756C78", cmd.xtgettcap.next().?);
@@ -365,7 +365,7 @@ test "DECRQSS command" {
     try testing.expect(h.hook(alloc, .{ .intermediates = "$", .final = 'q' }) == null);
     _ = h.put('m');
     var cmd = h.unhook().?;
-    defer cmd.deinit();
+    defer cmd.deinit(alloc);
     try testing.expect(cmd == .decrqss);
     try testing.expect(cmd.decrqss == .sgr);
 }
@@ -379,7 +379,7 @@ test "DECRQSS invalid command" {
     try testing.expect(h.hook(alloc, .{ .intermediates = "$", .final = 'q' }) == null);
     _ = h.put('z');
     var cmd = h.unhook().?;
-    defer cmd.deinit();
+    defer cmd.deinit(alloc);
     try testing.expect(cmd == .decrqss);
     try testing.expect(cmd.decrqss == .none);
 
@@ -401,14 +401,14 @@ test "tmux enter and implicit exit" {
 
     {
         var cmd = h.hook(alloc, .{ .params = &.{1000}, .final = 'p' }).?;
-        defer cmd.deinit();
+        defer cmd.deinit(alloc);
         try testing.expect(cmd == .tmux);
         try testing.expect(cmd.tmux == .enter);
     }
 
     {
         var cmd = h.unhook().?;
-        defer cmd.deinit();
+        defer cmd.deinit(alloc);
         try testing.expect(cmd == .tmux);
         try testing.expect(cmd.tmux == .exit);
     }
