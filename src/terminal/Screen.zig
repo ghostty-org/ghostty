@@ -4588,7 +4588,7 @@ test "Screen: scroll above same page" {
     //   +----------+ :
     //  +-------------+
 
-    // try s.pages.diagram(std.io.getStdErr().writer());
+    // try s.pages.diagram(std.Io.getStdErr().writer());
 
     {
         const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
@@ -4668,7 +4668,7 @@ test "Screen: scroll above same page but cursor on previous page" {
     //      +----------+ :
     //     +-------------+
 
-    // try s.pages.diagram(std.io.getStdErr().writer());
+    // try s.pages.diagram(std.Io.getStdErr().writer());
 
     {
         const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
@@ -4749,7 +4749,7 @@ test "Screen: scroll above same page but cursor on previous page last row" {
     //      +----------+ :
     //     +-------------+
 
-    // try s.pages.diagram(std.io.getStdErr().writer());
+    // try s.pages.diagram(std.Io.getStdErr().writer());
 
     {
         const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
@@ -4831,7 +4831,7 @@ test "Screen: scroll above creates new page" {
     //      +----------+ :
     //     +-------------+
 
-    // try s.pages.diagram(std.io.getStdErr().writer());
+    // try s.pages.diagram(std.Io.getStdErr().writer());
 
     {
         const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
@@ -4908,7 +4908,7 @@ test "Screen: scroll above with cursor on non-final row" {
     //    1 |4FG0000000| | 3
     //      +----------+ :
     //     +-------------+
-    // try s.pages.diagram(std.io.getStdErr().writer());
+    // try s.pages.diagram(std.Io.getStdErr().writer());
 
     {
         const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
@@ -4973,7 +4973,7 @@ test "Screen: scroll above no scrollback bottom of page" {
     //   +----------+ :
     //  +-------------+
 
-    //try s.pages.diagram(std.io.getStdErr().writer());
+    //try s.pages.diagram(std.Io.getStdErr().writer());
 
     {
         const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });

@@ -151,7 +151,7 @@ fn preferredLanguageFromCocoa(
     buf: []u8,
     NSLocale: objc.Class,
 ) error{NoSpaceLeft}!?[:0]const u8 {
-    var fbs = std.io.fixedBufferStream(buf);
+    var fbs = std.Io.fixedBufferStream(buf);
     const writer = fbs.writer();
 
     // We need to get our app's preferred languages. These may not

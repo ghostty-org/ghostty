@@ -12,7 +12,7 @@ fn comptimeGenerateFishCompletions() []const u8 {
         // Increase these limits when it gets too large
         @setEvalBranchQuota(50000);
         var buf: [32768]u8 = undefined;
-        var stream: std.io.Writer = .fixed(&buf);
+        var stream: std.Io.Writer = .fixed(&buf);
         writeFishCompletions(&stream) catch @panic("Fish completion buffer is too small");
 
         // Finalize the buffer so that the const
@@ -22,7 +22,7 @@ fn comptimeGenerateFishCompletions() []const u8 {
     }
 }
 
-fn writeFishCompletions(writer: *std.io.Writer) !void {
+fn writeFishCompletions(writer: *std.Io.Writer) !void {
     {
         try writer.writeAll("set -l commands \"");
         var count: usize = 0;

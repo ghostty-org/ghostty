@@ -506,7 +506,7 @@ pub const Key = enum(c_int) {
         )) |key| return key;
 
         // We need to convert FooBar to foo_bar
-        var fbs = std.io.fixedBufferStream(&result);
+        var fbs = std.Io.fixedBufferStream(&result);
         const w = fbs.writer();
         for (code, 0..) |ch, i| switch (ch) {
             'a'...'z' => w.writeByte(ch) catch return null,
@@ -533,7 +533,7 @@ pub const Key = enum(c_int) {
                 const name = @tagName(tag);
 
                 var buf: [128]u8 = undefined;
-                var fbs = std.io.fixedBufferStream(&buf);
+                var fbs = std.Io.fixedBufferStream(&buf);
                 const w = fbs.writer();
                 var i: usize = 0;
                 while (i < name.len) {

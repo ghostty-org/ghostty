@@ -62,7 +62,7 @@ fn comptimeGenSyntax() []const u8 {
         // Increase these limits when it gets too large
         @setEvalBranchQuota(50000);
         var buf: [8192]u8 = undefined;
-        var stream: std.io.Writer = .fixed(&buf);
+        var stream: std.Io.Writer = .fixed(&buf);
         writeSyntax(&stream) catch @panic("Vim syntax buffer is too small");
 
         // Finalize the buffer so that the const

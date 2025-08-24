@@ -148,7 +148,7 @@ pub fn Tables(comptime Elem: type) type {
         /// Writes the lookup table as Zig to the given writer. The
         /// written file exports three constants: stage1, stage2, and
         /// stage3. These can be used to rebuild the lookup table in Zig.
-        pub fn writeZig(self: *const Self, writer: *std.io.Writer) !void {
+        pub fn writeZig(self: *const Self, writer: *std.Io.Writer) !void {
             try writer.print(
                 \\//! This file is auto-generated. Do not edit.
                 \\

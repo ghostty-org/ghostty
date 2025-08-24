@@ -2328,7 +2328,7 @@ pub fn setAttribute(self: *Terminal, attr: sgr.Attribute) !void {
 /// Boolean attributes are printed first, followed by foreground color, then
 /// background color. Each attribute is separated by a semicolon.
 pub fn printAttributes(self: *Terminal, buf: []u8) ![]const u8 {
-    var stream = std.io.fixedBufferStream(buf);
+    var stream = std.Io.fixedBufferStream(buf);
     const writer = stream.writer();
 
     // The SGR response always starts with a 0. See https://vt100.net/docs/vt510-rm/DECRPSS

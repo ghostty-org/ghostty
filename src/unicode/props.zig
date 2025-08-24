@@ -39,7 +39,7 @@ pub const Properties = struct {
     }
 
     // Needed for lut.Generator
-    pub fn format(self: Properties, writer: *std.io.Writer) !void {
+    pub fn format(self: Properties, writer: *std.Io.Writer) !void {
         try writer.print(
             \\.{{
             \\    .width= {},
