@@ -3,14 +3,15 @@
 # Copyright (C) 2025 Mitchell Hashimoto, Ghostty contributors
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
 # Gustavo Peres <gsodevel@gmail.com>, 2025.
+# Guilherme Tiscoski <github@guilhermetiscoski.com>, 2025.
 #
 msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2025-07-22 17:18+0000\n"
-"PO-Revision-Date: 2025-06-20 10:19-0300\n"
-"Last-Translator: Mário Victor Ribeiro Silva <mariovictorrs@gmail.com>\n"
+"PO-Revision-Date: 2025-08-25 11:46-0500\n"
+"Last-Translator: Guilherme Tiscoski <github@guihermetiscoski.com>\n"
 "Language-Team: Brazilian Portuguese <ldpbr-translation@lists.sourceforge."
 "net>\n"
 "Language: pt_BR\n"
