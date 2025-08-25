@@ -8,6 +8,9 @@ extension SplitView {
         let invisibleSize: CGFloat
         let color: Color
         @Binding var split: CGFloat
+        
+        @EnvironmentObject private var ghostty: Ghostty.App
+        @FocusedValue(\.ghosttySurfaceView) private var focusedSurface
 
         private var visibleWidth: CGFloat? {
             switch (direction) {
@@ -64,7 +67,8 @@ extension SplitView {
             .backport.pointerStyle(pointerStyle)
             .onTapGesture(count: 2) {
                 // Double-click to equalize splits
-                split = 0.5
+                guard let surface = focusedSurface?.surface else { return }
+                ghostty.splitEqualize(surface: surface)
             }
             .onHover { isHovered in
                 // macOS 15+ we use the pointerStyle helper which is much less
