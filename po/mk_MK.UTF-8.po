@@ -2,6 +2,7 @@
 # Copyright (C) 2025 Mitchell Hashimoto, Ghostty contributors
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
 # Andrej Daskalov <andrej.daskalov@gmail.com>, 2025.
+# Marija Gjorgjieva Gjondeva <mgjorgjieva2013@gmail.com>, 2025.
 #
 msgid ""
 msgstr ""
