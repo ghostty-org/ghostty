@@ -1076,7 +1076,7 @@ fn gtkActionCloseTab(
     _: ?*glib.Variant,
     self: *Window,
 ) callconv(.c) void {
-    self.performBindingAction(.{ .close_tab = {} });
+    self.performBindingAction(.{ .close_tab = .this });
 }
 
 fn gtkActionSplitRight(

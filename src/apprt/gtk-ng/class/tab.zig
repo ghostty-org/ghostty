@@ -199,8 +199,11 @@ pub const Tab = extern struct {
     }
 
     fn initActionMap(self: *Self) void {
+        const s_param_type = glib.ext.VariantType.newFor([:0]const u8);
+        defer s_param_type.free();
+
         const actions = [_]ext.actions.Action(Self){
-            .init("close", actionClose, null),
+            .init("close", actionClose, s_param_type),
             .init("ring-bell", actionRingBell, null),
         };
 
@@ -314,18 +317,48 @@ pub const Tab = extern struct {
 
     fn actionClose(
         _: *gio.SimpleAction,
-        _: ?*glib.Variant,
+        param_: ?*glib.Variant,
         self: *Self,
     ) callconv(.c) void {
+        const param = param_ orelse {
+            log.warn("tab.close-tab called without a parameter", .{});
+            return;
+        };
+
+        var str: ?[*:0]const u8 = null;
+        param.get("&s", &str);
+
         const tab_view = ext.getAncestor(
             adw.TabView,
             self.as(gtk.Widget),
         ) orelse return;
+
         const page = tab_view.getPage(self.as(gtk.Widget));
+
+        const mode = std.meta.stringToEnum(
+            apprt.action.CloseTabMode,
+            std.mem.span(
+                str orelse {
+                    log.warn("invalid mode provided to tab.close-tab", .{});
+                    return;
+                },
+            ),
+        ) orelse {
+            // Need to be defensive here since actions can be triggered externally.
+            log.warn("invalid mode provided to tab.close-tab: {s}", .{str.?});
+            return;
+        };
 
         // Delegate to our parent to handle this, since this will emit
         // a close-page signal that the parent can intercept.
-        tab_view.closePage(page);
+        switch (mode) {
+            .this => {
+                tab_view.closePage(page);
+            },
+            .other => {
+                tab_view.closeOtherPages(page);
+            },
+        }
     }
 
     fn actionRingBell(

@@ -542,7 +542,7 @@ pub const Application = extern struct {
         value: apprt.Action.Value(action),
     ) !bool {
         switch (action) {
-            .close_tab => return Action.closeTab(target),
+            .close_tab => return Action.closeTab(target, value),
             .close_window => return Action.closeWindow(target),
 
             .config_change => try Action.configChange(
@@ -625,7 +625,6 @@ pub const Application = extern struct {
             // Unimplemented
             .secure_input,
             .close_all_windows,
-            .close_other_tabs,
             .float_window,
             .toggle_visibility,
             .cell_size,
@@ -873,7 +872,8 @@ pub const Application = extern struct {
         self.syncActionAccelerator("win.close", .{ .close_window = {} });
         self.syncActionAccelerator("win.new-window", .{ .new_window = {} });
         self.syncActionAccelerator("win.new-tab", .{ .new_tab = {} });
-        self.syncActionAccelerator("win.close-tab", .{ .close_tab = {} });
+        self.syncActionAccelerator("win.close-tab::this", .{ .close_tab = .this });
+        self.syncActionAccelerator("tab.close::this", .{ .close_tab = .this });
         self.syncActionAccelerator("win.split-right", .{ .new_split = .right });
         self.syncActionAccelerator("win.split-down", .{ .new_split = .down });
         self.syncActionAccelerator("win.split-left", .{ .new_split = .left });
@@ -1577,12 +1577,16 @@ pub const Application = extern struct {
 
 /// All apprt action handlers
 const Action = struct {
-    pub fn closeTab(target: apprt.Target) bool {
+    pub fn closeTab(target: apprt.Target, value: apprt.Action.Value(.close_tab)) bool {
         switch (target) {
             .app => return false,
             .surface => |core| {
                 const surface = core.rt_surface.surface;
-                return surface.as(gtk.Widget).activateAction("tab.close", null) != 0;
+                return surface.as(gtk.Widget).activateAction(
+                    "tab.close",
+                    glib.ext.VariantType.stringFor([:0]const u8),
+                    @as([*:0]const u8, @tagName(value)),
+                ) != 0;
             },
         }
     }

@@ -5598,7 +5598,7 @@ pub const Keybinds = struct {
             try self.set.put(
                 alloc,
                 .{ .key = .{ .unicode = 'w' }, .mods = .{ .ctrl = true, .shift = true } },
-                .{ .close_tab = {} },
+                .{ .close_tab = .this },
             );
             try self.set.putFlags(
                 alloc,
@@ -5904,7 +5904,7 @@ pub const Keybinds = struct {
             try self.set.put(
                 alloc,
                 .{ .key = .{ .unicode = 'w' }, .mods = .{ .super = true, .alt = true } },
-                .{ .close_tab = {} },
+                .{ .close_tab = .this },
             );
             try self.set.put(
                 alloc,

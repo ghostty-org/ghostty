@@ -528,7 +528,6 @@ pub fn performAction(
 
         // Unimplemented
         .close_all_windows,
-        .close_other_tabs,
         .float_window,
         .toggle_visibility,
         .cell_size,
@@ -1146,7 +1145,7 @@ fn syncActionAccelerators(self: *App) !void {
     try self.syncActionAccelerator("win.close", .{ .close_window = {} });
     try self.syncActionAccelerator("win.new-window", .{ .new_window = {} });
     try self.syncActionAccelerator("win.new-tab", .{ .new_tab = {} });
-    try self.syncActionAccelerator("win.close-tab", .{ .close_tab = {} });
+    try self.syncActionAccelerator("win.close-tab", .{ .close_tab = .this });
     try self.syncActionAccelerator("win.split-right", .{ .new_split = .right });
     try self.syncActionAccelerator("win.split-down", .{ .new_split = .down });
     try self.syncActionAccelerator("win.split-left", .{ .new_split = .left });

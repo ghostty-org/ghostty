@@ -556,13 +556,7 @@ pub const Action = union(enum) {
     ///
     /// This might trigger a close confirmation popup, depending on the value
     /// of the `confirm-close-surface` configuration setting.
-    close_tab,
-
-    /// Close all tabs other than the currently focused one within the same
-    /// window.
-    ///
-    /// Only available on macOS currently.
-    close_other_tabs,
+    close_tab: CloseTabMode,
 
     /// Close the current window and all tabs and splits therein.
     ///
@@ -864,6 +858,11 @@ pub const Action = union(enum) {
         hide,
     };
 
+    pub const CloseTabMode = enum {
+        this,
+        other,
+    };
+
     fn parseEnum(comptime T: type, value: []const u8) !T {
         return std.meta.stringToEnum(T, value) orelse return Error.InvalidFormat;
     }
@@ -1058,7 +1057,6 @@ pub const Action = union(enum) {
             .write_selection_file,
             .close_surface,
             .close_tab,
-            .close_other_tabs,
             .close_window,
             .toggle_maximize,
             .toggle_fullscreen,

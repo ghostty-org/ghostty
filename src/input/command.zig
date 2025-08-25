@@ -375,12 +375,6 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Show the on-screen keyboard if present.",
         }},
 
-        .close_other_tabs => comptime &.{.{
-            .action = .close_other_tabs,
-            .title = "Close Other Tabs",
-            .description = "Close all tabs in this window except the current one.",
-        }},
-
         .open_config => comptime &.{.{
             .action = .open_config,
             .title = "Open Config",
@@ -399,11 +393,18 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Close the current terminal.",
         }},
 
-        .close_tab => comptime &.{.{
-            .action = .close_tab,
-            .title = "Close Tab",
-            .description = "Close the current tab.",
-        }},
+        .close_tab => comptime &.{
+            .{
+                .action = .{ .close_tab = .this },
+                .title = "Close Tab",
+                .description = "Close the current tab.",
+            },
+            .{
+                .action = .{ .close_tab = .other },
+                .title = "Close Other Tabs",
+                .description = "Close all tabs in this window except the current one.",
+            },
+        },
 
         .close_window => comptime &.{.{
             .action = .close_window,

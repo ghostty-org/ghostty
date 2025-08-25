@@ -680,6 +680,12 @@ typedef struct {
   uintptr_t len;
 } ghostty_action_open_url_s;
 
+// apprt.action.CloseTabMode
+typedef enum {
+  GHOSTTY_ACTION_CLOSE_TAB_MODE_THIS,
+  GHOSTTY_ACTION_CLOSE_TAB_MODE_OTHER,
+} ghostty_action_close_tab_mode_e;
+
 // apprt.surface.Message.ChildExited
 typedef struct {
   uint32_t exit_code;
@@ -709,7 +715,6 @@ typedef enum {
   GHOSTTY_ACTION_NEW_WINDOW,
   GHOSTTY_ACTION_NEW_TAB,
   GHOSTTY_ACTION_CLOSE_TAB,
-  GHOSTTY_ACTION_CLOSE_OTHER_TABS,
   GHOSTTY_ACTION_NEW_SPLIT,
   GHOSTTY_ACTION_CLOSE_ALL_WINDOWS,
   GHOSTTY_ACTION_TOGGLE_MAXIMIZE,
@@ -787,6 +792,7 @@ typedef union {
   ghostty_action_reload_config_s reload_config;
   ghostty_action_config_change_s config_change;
   ghostty_action_open_url_s open_url;
+  ghostty_action_close_tab_mode_e close_tab_mode;
   ghostty_surface_message_childexited_s child_exited;
   ghostty_terminal_osc_command_progressreport_s progress_report;
 } ghostty_action_u;

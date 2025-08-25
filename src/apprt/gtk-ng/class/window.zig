@@ -320,10 +320,13 @@ pub const Window = extern struct {
 
     /// Setup our action map.
     fn initActionMap(self: *Self) void {
+        const s_variant_type = glib.ext.VariantType.newFor([:0]const u8);
+        defer s_variant_type.free();
+
         const actions = [_]ext.actions.Action(Self){
             .init("about", actionAbout, null),
             .init("close", actionClose, null),
-            .init("close-tab", actionCloseTab, null),
+            .init("close-tab", actionCloseTab, s_variant_type),
             .init("new-tab", actionNewTab, null),
             .init("new-window", actionNewWindow, null),
             .init("ring-bell", actionRingBell, null),
@@ -1663,10 +1666,31 @@ pub const Window = extern struct {
 
     fn actionCloseTab(
         _: *gio.SimpleAction,
-        _: ?*glib.Variant,
+        param_: ?*glib.Variant,
         self: *Window,
     ) callconv(.c) void {
-        self.performBindingAction(.close_tab);
+        const param = param_ orelse {
+            log.warn("win.close-tab called without a parameter", .{});
+            return;
+        };
+
+        var str: ?[*:0]const u8 = null;
+        param.get("&s", &str);
+
+        const mode = std.meta.stringToEnum(
+            input.Binding.Action.CloseTabMode,
+            std.mem.span(
+                str orelse {
+                    log.warn("invalid mode provided to win.close-tab", .{});
+                    return;
+                },
+            ),
+        ) orelse {
+            log.warn("invalid mode provided to win.close-tab: {s}", .{str.?});
+            return;
+        };
+
+        self.performBindingAction(.{ .close_tab = mode });
     }
 
     fn actionNewWindow(

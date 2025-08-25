@@ -156,7 +156,6 @@ pub const CommandPalette = extern struct {
             // for GTK.
             switch (command.action) {
                 .close_all_windows,
-                .close_other_tabs,
                 .toggle_secure_input,
                 .check_for_updates,
                 .redo,

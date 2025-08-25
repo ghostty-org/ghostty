@@ -455,10 +455,7 @@ extension Ghostty {
                 newSplit(app, target: target, direction: action.action.new_split)
 
             case GHOSTTY_ACTION_CLOSE_TAB:
-                closeTab(app, target: target)
-
-            case GHOSTTY_ACTION_CLOSE_OTHER_TABS:
-                closeOtherTabs(app, target: target)
+                closeTab(app, target: target, mode: action.action.close_tab_mode)
 
             case GHOSTTY_ACTION_CLOSE_WINDOW:
                 closeWindow(app, target: target)
@@ -781,7 +778,7 @@ extension Ghostty {
             }
         }
 
-        private static func closeTab(_ app: ghostty_app_t, target: ghostty_target_s) {
+        private static func closeTab(_ app: ghostty_app_t, target: ghostty_target_s, mode: ghostty_action_close_tab_mode_e) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("close tabs does nothing with an app target")
@@ -791,31 +788,24 @@ extension Ghostty {
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
 
-                NotificationCenter.default.post(
-                    name: .ghosttyCloseTab,
-                    object: surfaceView
-                )
+                switch (mode) {
+                case GHOSTTY_ACTION_CLOSE_TAB_MODE_THIS:
+                    NotificationCenter.default.post(
+                        name: .ghosttyCloseTab,
+                        object: surfaceView
+                    )
+                    return
 
+                case GHOSTTY_ACTION_CLOSE_TAB_MODE_OTHER:
+                    NotificationCenter.default.post(
+                        name: .ghosttyCloseOtherTabs,
+                        object: surfaceView
+                    )
+                    return
 
-            default:
-                assertionFailure()
-            }
-        }
-
-        private static func closeOtherTabs(_ app: ghostty_app_t, target: ghostty_target_s) {
-            switch (target.tag) {
-            case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("close other tabs does nothing with an app target")
-                return
-
-            case GHOSTTY_TARGET_SURFACE:
-                guard let surface = target.target.surface else { return }
-                guard let surfaceView = self.surfaceView(from: surface) else { return }
-
-                NotificationCenter.default.post(
-                    name: .ghosttyCloseOtherTabs,
-                    object: surfaceView
-                )
+                default:
+                    assertionFailure()
+                }
 
 
             default:
