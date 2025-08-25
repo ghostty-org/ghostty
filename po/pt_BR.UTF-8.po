@@ -89,7 +89,7 @@ msgstr "Dividir à direita"
 
 #: src/apprt/gtk/ui/1.5/command-palette.blp:16
 msgid "Execute a command…"
-msgstr ""
+msgstr "Executar um comando…"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
@@ -162,7 +162,7 @@ msgstr "Abrir configuração"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:85
 msgid "Command Palette"
-msgstr ""
+msgstr "Paleta de comandos"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:90
 msgid "Terminal Inspector"
@@ -210,12 +210,12 @@ msgstr "Permitir"
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:81
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:77
 msgid "Remember choice for this split"
-msgstr ""
+msgstr "Lembrar escolha para esta divisão"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:82
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:78
 msgid "Reload configuration to show this prompt again"
-msgstr ""
+msgstr "Recarregue a configuração para mostrar este aviso novamente"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:7
 #: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:7
@@ -280,15 +280,15 @@ msgstr "Copiado para a área de transferência"
 
 #: src/apprt/gtk/Surface.zig:1268
 msgid "Cleared clipboard"
-msgstr ""
+msgstr "Área de transferência limpa"
 
 #: src/apprt/gtk/Surface.zig:2525
 msgid "Command succeeded"
-msgstr ""
+msgstr "Comando executado com sucesso"
 
 #: src/apprt/gtk/Surface.zig:2527
 msgid "Command failed"
-msgstr ""
+msgstr "Comando falhou"
 
 #: src/apprt/gtk/Window.zig:216
 msgid "Main Menu"
