@@ -223,10 +223,6 @@ pub const Application = extern struct {
         const single_instance = switch (config.@"gtk-single-instance") {
             .true => true,
             .false => false,
-            .desktop => switch (config.@"launched-from".?) {
-                .desktop, .systemd, .dbus => true,
-                .cli => false,
-            },
         };
 
         // Setup the flags for our application.

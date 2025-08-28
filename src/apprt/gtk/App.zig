@@ -280,10 +280,6 @@ pub fn init(self: *App, core_app: *CoreApp, opts: Options) !void {
     const single_instance = switch (config.@"gtk-single-instance") {
         .true => true,
         .false => false,
-        .desktop => switch (config.@"launched-from".?) {
-            .desktop, .systemd, .dbus => true,
-            .cli => false,
-        },
     };
 
     // Setup the flags for our application.
