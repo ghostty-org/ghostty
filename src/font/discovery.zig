@@ -372,6 +372,7 @@ pub const CoreText = struct {
             .alloc = alloc,
             .list = zig_list,
             .variations = desc.variations,
+            .charset_restriction = true,
             .i = 0,
         };
     }
@@ -409,6 +410,7 @@ pub const CoreText = struct {
                 .alloc = alloc,
                 .list = list,
                 .variations = desc.variations,
+                .charset_restriction = false,
                 .i = 0,
             };
         }
@@ -433,6 +435,7 @@ pub const CoreText = struct {
                 .alloc = alloc,
                 .list = list,
                 .variations = desc.variations,
+                .charset_restriction = false,
                 .i = 0,
             };
         }
@@ -828,6 +831,8 @@ pub const CoreText = struct {
         alloc: Allocator,
         list: []const *macos.text.FontDescriptor,
         variations: []const Variation,
+        // We used a charset restriction to filter, and need to remove it
+        charset_restriction: bool,
         i: usize,
 
         pub fn deinit(self: *DiscoverIterator) void {
@@ -848,6 +853,11 @@ pub const CoreText = struct {
             //const desc = self.list.getValueAtIndex(macos.text.FontDescriptor, self.i);
             const desc = desc: {
                 const original = self.list[self.i];
+
+                if (!self.charset_restriction) {
+                    original.retain();
+                    break :desc original;
+                }
 
                 // For some reason simply copying the attributes and recreating
                 // the descriptor removes the charset restriction. This is tested.
