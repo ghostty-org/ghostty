@@ -59,12 +59,12 @@ pub fn RefCountedSet(
     return struct {
         const Self = @This();
 
-        pub const base_align = @max(
+        pub const base_align: std.mem.Alignment = .fromByteUnits(@max(
             @alignOf(Context),
             @alignOf(Layout),
             @alignOf(Item),
             @alignOf(Id),
-        );
+        ));
 
         /// Set item
         pub const Item = struct {

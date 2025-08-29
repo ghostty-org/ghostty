@@ -10,7 +10,7 @@ const winproto = @import("winproto.zig");
 
 /// Returns a GTK accelerator string from a trigger.
 pub fn accelFromTrigger(buf: []u8, trigger: input.Binding.Trigger) !?[:0]const u8 {
-    var buf_stream = std.io.fixedBufferStream(buf);
+    var buf_stream = std.Io.fixedBufferStream(buf);
     const writer = buf_stream.writer();
 
     // Modifiers
@@ -31,7 +31,7 @@ pub fn accelFromTrigger(buf: []u8, trigger: input.Binding.Trigger) !?[:0]const u
 /// Returns a XDG-compliant shortcuts string from a trigger.
 /// Spec: https://specifications.freedesktop.org/shortcuts-spec/latest/
 pub fn xdgShortcutFromTrigger(buf: []u8, trigger: input.Binding.Trigger) !?[:0]const u8 {
-    var buf_stream = std.io.fixedBufferStream(buf);
+    var buf_stream = std.Io.fixedBufferStream(buf);
     const writer = buf_stream.writer();
 
     // Modifiers

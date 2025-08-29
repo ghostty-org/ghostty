@@ -26,7 +26,7 @@ pub const Options = struct {
         // If it's not `-e` continue with the standard argument parsning.
         if (!std.mem.eql(u8, arg, "-e")) return true;
 
-        var arguments: std.ArrayListUnmanaged([:0]const u8) = .empty;
+        var arguments: std.ArrayList([:0]const u8) = .empty;
         errdefer {
             for (arguments.items) |argument| alloc.free(argument);
             arguments.deinit(alloc);
@@ -99,12 +99,21 @@ pub const Options = struct {
 pub fn run(alloc: Allocator) !u8 {
     var iter = try args.argsIterator(alloc);
     defer iter.deinit();
-    return try runArgs(alloc, &iter);
+
+    var buffer: [1024]u8 = undefined;
+    var stderr_writer = std.fs.File.stderr().writer(&buffer);
+    const stderr = &stderr_writer.interface;
+
+    const result = runArgs(alloc, &iter, stderr);
+    stderr.flush() catch {};
+    return result;
 }
 
-fn runArgs(alloc_gpa: Allocator, argsIter: anytype) !u8 {
-    const stderr = std.io.getStdErr().writer();
-
+fn runArgs(
+    alloc_gpa: Allocator,
+    argsIter: anytype,
+    stderr: *std.Io.Writer,
+) !u8 {
     var opts: Options = .{};
     defer opts.deinit();
 

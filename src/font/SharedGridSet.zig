@@ -596,10 +596,10 @@ pub const Key = struct {
         // from DerivedConfig below.
         var config = try DerivedConfig.init(alloc, config_src);
 
-        var descriptors = std.ArrayList(discovery.Descriptor).init(alloc);
-        defer descriptors.deinit();
+        var descriptors: std.ArrayList(discovery.Descriptor) = .empty;
+        defer descriptors.deinit(alloc);
         for (config.@"font-family".list.items) |family| {
-            try descriptors.append(.{
+            try descriptors.append(alloc, .{
                 .family = family,
                 .style = config.@"font-style".nameValue(),
                 .size = font_size.points,
@@ -617,7 +617,7 @@ pub const Key = struct {
         // italic.
         for (config.@"font-family-bold".list.items) |family| {
             const style = config.@"font-style-bold".nameValue();
-            try descriptors.append(.{
+            try descriptors.append(alloc, .{
                 .family = family,
                 .style = style,
                 .size = font_size.points,
@@ -627,7 +627,7 @@ pub const Key = struct {
         }
         for (config.@"font-family-italic".list.items) |family| {
             const style = config.@"font-style-italic".nameValue();
-            try descriptors.append(.{
+            try descriptors.append(alloc, .{
                 .family = family,
                 .style = style,
                 .size = font_size.points,
@@ -637,7 +637,7 @@ pub const Key = struct {
         }
         for (config.@"font-family-bold-italic".list.items) |family| {
             const style = config.@"font-style-bold-italic".nameValue();
-            try descriptors.append(.{
+            try descriptors.append(alloc, .{
                 .family = family,
                 .style = style,
                 .size = font_size.points,
@@ -681,7 +681,7 @@ pub const Key = struct {
 
         return .{
             .arena = arena,
-            .descriptors = try descriptors.toOwnedSlice(),
+            .descriptors = try descriptors.toOwnedSlice(alloc),
             .style_offsets = .{
                 regular_offset,
                 bold_offset,

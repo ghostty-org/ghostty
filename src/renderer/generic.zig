@@ -18,7 +18,7 @@ const isCovering = cellpkg.isCovering;
 const imagepkg = @import("image.zig");
 const Image = imagepkg.Image;
 const ImageMap = imagepkg.ImageMap;
-const ImagePlacementList = std.ArrayListUnmanaged(imagepkg.Placement);
+const ImagePlacementList = std.ArrayList(imagepkg.Placement);
 const shadertoy = @import("shadertoy.zig");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
@@ -509,7 +509,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             font_thicken: bool,
             font_thicken_strength: u8,
-            font_features: std.ArrayListUnmanaged([:0]const u8),
+            font_features: std.ArrayList([:0]const u8),
             font_styles: font.CodepointResolver.StyleStatus,
             font_shaping_break: configpkg.FontShapingBreak,
             cursor_color: ?configpkg.Config.TerminalColor,

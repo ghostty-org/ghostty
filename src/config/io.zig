@@ -94,22 +94,18 @@ pub const ReadableIO = union(enum) {
         };
     }
 
-    pub fn formatEntry(self: Self, formatter: anytype) !void {
+    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
         var buf: [4096]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buf);
-        const writer = fbs.writer();
+        var writer: std.Io.Writer = .fixed(&buf);
         switch (self) {
             inline else => |v, tag| {
-                writer.writeAll(@tagName(tag)) catch return error.OutOfMemory;
-                writer.writeByte(':') catch return error.OutOfMemory;
-                writer.writeAll(v) catch return error.OutOfMemory;
+                writer.print("{t}:{s}", .{ tag, v }) catch return error.OutOfMemory;
             },
         }
 
-        const written = fbs.getWritten();
         try formatter.formatEntry(
             []const u8,
-            written,
+            writer.buffered(),
         );
     }
 
@@ -144,13 +140,13 @@ pub const ReadableIO = union(enum) {
         defer arena.deinit();
         const alloc = arena.allocator();
 
-        var buf = std.ArrayList(u8).init(alloc);
+        var buf: std.Io.Writer.Allocating = .init(alloc);
         defer buf.deinit();
 
         var v: Self = undefined;
         try v.parseCLI(alloc, "raw:foo");
-        try v.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = raw:foo\n", buf.items);
+        try v.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = raw:foo\n", buf.written());
     }
 };
 
@@ -158,7 +154,7 @@ pub const RepeatableReadableIO = struct {
     const Self = @This();
 
     // Allocator for the list is the arena for the parent config.
-    list: std.ArrayListUnmanaged(ReadableIO) = .{},
+    list: std.ArrayList(ReadableIO) = .{},
 
     pub fn parseCLI(
         self: *Self,
@@ -180,7 +176,7 @@ pub const RepeatableReadableIO = struct {
 
     /// Deep copy of the struct. Required by Config.
     pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
-        var list = try std.ArrayListUnmanaged(ReadableIO).initCapacity(
+        var list = try std.ArrayList(ReadableIO).initCapacity(
             alloc,
             self.list.items.len,
         );
@@ -197,7 +193,7 @@ pub const RepeatableReadableIO = struct {
         self: *const Self,
         alloc: Allocator,
     ) Allocator.Error!Self {
-        var list = try std.ArrayListUnmanaged(ReadableIO).initCapacity(
+        var list = try std.ArrayList(ReadableIO).initCapacity(
             alloc,
             self.list.items.len,
         );

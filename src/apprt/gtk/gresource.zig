@@ -80,7 +80,7 @@ pub fn main() !void {
     defer _ = debug_allocator.deinit();
     const alloc = debug_allocator.allocator();
 
-    var extra_ui_files: std.ArrayListUnmanaged([]const u8) = .empty;
+    var extra_ui_files: std.ArrayList([]const u8) = .empty;
     defer {
         for (extra_ui_files.items) |item| alloc.free(item);
         extra_ui_files.deinit(alloc);
@@ -95,7 +95,7 @@ pub fn main() !void {
         }
     }
 
-    const writer = std.io.getStdOut().writer();
+    const writer = std.Io.getStdOut().writer();
 
     try writer.writeAll(
         \\<?xml version="1.0" encoding="UTF-8"?>

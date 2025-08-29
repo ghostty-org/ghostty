@@ -16,7 +16,7 @@ pub const Diagnostic = struct {
     message: [:0]const u8,
 
     /// Write the full user-friendly diagnostic message to the writer.
-    pub fn write(self: *const Diagnostic, writer: anytype) !void {
+    pub fn write(self: *const Diagnostic, writer: *std.Io.Writer) !void {
         switch (self.location) {
             .none => {},
             .cli => |index| try writer.print("cli:{}:", .{index}),
@@ -93,7 +93,7 @@ pub const Location = union(enum) {
 /// and potentially in the future structure them differently.
 pub const DiagnosticList = struct {
     /// The list of diagnostics.
-    list: std.ArrayListUnmanaged(Diagnostic) = .{},
+    list: std.ArrayList(Diagnostic) = .{},
 
     /// Precomputed data for diagnostics. This is used specifically
     /// when we build libghostty so that we can precompute the messages
@@ -111,7 +111,7 @@ pub const DiagnosticList = struct {
     };
 
     const Precompute = if (precompute_enabled) struct {
-        messages: std.ArrayListUnmanaged([:0]const u8) = .{},
+        messages: std.ArrayList([:0]const u8) = .{},
 
         pub fn clone(
             self: *const Precompute,
@@ -157,11 +157,15 @@ pub const DiagnosticList = struct {
         errdefer _ = self.list.pop();
 
         if (comptime precompute_enabled) {
-            var buf = std.ArrayList(u8).init(alloc);
-            defer buf.deinit();
-            try diag.write(buf.writer());
+            var stream: std.Io.Writer.Allocating = .init(alloc);
+            defer stream.deinit();
 
-            const owned: [:0]const u8 = try buf.toOwnedSliceSentinel(0);
+            diag.write(&stream.writer) catch |err| switch (err) {
+                // WriteFailed in this instance can only mean an OOM
+                error.WriteFailed => return error.OutOfMemory,
+            };
+
+            const owned: [:0]const u8 = try stream.toOwnedSliceSentinel(0);
             errdefer alloc.free(owned);
 
             try self.precompute.messages.append(alloc, owned);

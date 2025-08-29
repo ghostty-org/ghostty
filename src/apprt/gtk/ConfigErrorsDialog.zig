@@ -63,7 +63,7 @@ pub fn maybePresent(app: *App, window: ?*Window) void {
     }
 
     var msg_buf: [4095:0]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&msg_buf);
+    var fbs = std.Io.fixedBufferStream(&msg_buf);
 
     for (app.config._diagnostics.items()) |diag| {
         fbs.reset();

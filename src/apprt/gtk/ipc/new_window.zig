@@ -21,7 +21,7 @@ const apprt = @import("../../../apprt.zig");
 // gdbus call --session --dest com.mitchellh.ghostty --object-path /com/mitchellh/ghostty --method org.gtk.Actions.Activate new-window-command '[<@as ["echo" "hello"]>]' []
 // ```
 pub fn openNewWindow(alloc: Allocator, target: apprt.ipc.Target, value: apprt.ipc.Action.NewWindow) (Allocator.Error || std.posix.WriteError || apprt.ipc.Errors)!bool {
-    const stderr = std.io.getStdErr().writer();
+    const stderr = std.Io.getStdErr().writer();
 
     // Get the appropriate bus name and object path for contacting the
     // Ghostty instance we're interested in.

@@ -15,8 +15,12 @@ pub const Options = struct {};
 /// The `version` command is used to display information about Ghostty. Recognized as
 /// either `+version` or `--version`.
 pub fn run(alloc: Allocator) !u8 {
-    const stdout = std.io.getStdOut().writer();
-    const tty = std.io.getStdOut().isTty();
+    var buffer: [1024]u8 = undefined;
+    const stdout_file: std.fs.File = .stdout();
+    var stdout_writer = stdout_file.writer(&buffer);
+
+    const stdout = &stdout_writer.interface;
+    const tty = stdout_file.isTty();
 
     if (tty) if (build_config.version.build) |commit_hash| {
         try stdout.print(
@@ -65,5 +69,8 @@ pub fn run(alloc: Allocator) !u8 {
             try stdout.print("  - libwayland    : disabled\n", .{});
         }
     }
+
+    // Don't forget to flush!
+    try stdout.flush();
     return 0;
 }

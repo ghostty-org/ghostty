@@ -26,22 +26,21 @@ pub fn build(b: *std.Build) !void {
         try apple_sdk.addPaths(b, lib);
     }
 
-    var flags = std.ArrayList([]const u8).init(b.allocator);
-    defer flags.deinit();
-    try flags.appendSlice(&.{});
+    var flags: std.ArrayList([]const u8) = .empty;
+    defer flags.deinit(b.allocator);
     if (target.result.os.tag == .windows) {
-        try flags.appendSlice(&.{
+        try flags.appendSlice(b.allocator, &.{
             "-DSENTRY_WITH_UNWINDER_DBGHELP",
         });
     } else {
-        try flags.appendSlice(&.{
+        try flags.appendSlice(b.allocator, &.{
             "-DSENTRY_WITH_UNWINDER_LIBBACKTRACE",
         });
     }
     switch (backend) {
-        .crashpad => try flags.append("-DSENTRY_BACKEND_CRASHPAD"),
-        .breakpad => try flags.append("-DSENTRY_BACKEND_BREAKPAD"),
-        .inproc => try flags.append("-DSENTRY_BACKEND_INPROC"),
+        .crashpad => try flags.append(b.allocator, "-DSENTRY_BACKEND_CRASHPAD"),
+        .breakpad => try flags.append(b.allocator, "-DSENTRY_BACKEND_BREAKPAD"),
+        .inproc => try flags.append(b.allocator, "-DSENTRY_BACKEND_INPROC"),
         .none => {},
     }
 

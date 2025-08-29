@@ -114,8 +114,8 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
     var arena = std.heap.ArenaAllocator.init(gpa_alloc);
     const alloc = arena.allocator();
 
-    const stderr = std.io.getStdErr().writer();
-    const stdout = std.io.getStdOut().writer();
+    const stderr = std.Io.getStdErr().writer();
+    const stdout = std.Io.getStdOut().writer();
 
     const resources_dir = global_state.resources_dir.app();
     if (resources_dir == null)
@@ -166,7 +166,7 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
 
     std.mem.sortUnstable(ThemeListElement, themes.items, {}, ThemeListElement.lessThan);
 
-    if (tui.can_pretty_print and !opts.plain and std.posix.isatty(std.io.getStdOut().handle)) {
+    if (tui.can_pretty_print and !opts.plain and std.posix.isatty(std.Io.getStdOut().handle)) {
         try preview(gpa_alloc, themes.items, opts.color);
         return 0;
     }
@@ -1283,7 +1283,7 @@ const Preview = struct {
                         .{ .text = "const ", .style = color5 },
                         .{ .text = "stdout ", .style = standard },
                         .{ .text = "=", .style = color5 },
-                        .{ .text = " std.io.getStdOut().writer();", .style = standard },
+                        .{ .text = " std.Io.getStdOut().writer();", .style = standard },
                     },
                     .{
                         .row_offset = 7,

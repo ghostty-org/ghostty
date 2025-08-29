@@ -31,9 +31,15 @@ pub fn init(b: *std.Build) !UnicodeTables {
     }
 
     const run = b.addRunArtifact(exe);
+
+    // FIXME: Workaround for a Zig 0.15 regression
+    // https://github.com/ziglang/zig/issues/24957
+    const wf = b.addWriteFiles();
+    const output = wf.addCopyFile(run.captureStdOut(), "unicode_tables.zig");
+
     return .{
         .exe = exe,
-        .output = run.captureStdOut(),
+        .output = output,
     };
 }
 

@@ -237,7 +237,7 @@ fn genRoot(writer: anytype) !void {
 fn genUi(
     alloc: Allocator,
     writer: anytype,
-    files: *const std.ArrayListUnmanaged([]const u8),
+    files: *const std.ArrayList([]const u8),
 ) !void {
     try writer.print(
         \\  <gresource prefix="{s}/ui">

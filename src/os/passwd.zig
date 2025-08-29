@@ -93,7 +93,7 @@ pub fn get(alloc: Allocator) !Entry {
 
         // Read all of our output
         const output = output: {
-            var output: std.ArrayListUnmanaged(u8) = .{};
+            var output: std.ArrayList(u8) = .{};
             while (true) {
                 const n = posix.read(pty.master, &buf) catch |err| {
                     switch (err) {

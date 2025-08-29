@@ -54,9 +54,9 @@ pub fn main() !void {
 
     // Version checks
     {
-        var stdout: std.ArrayListUnmanaged(u8) = .empty;
+        var stdout: std.ArrayList(u8) = .empty;
         defer stdout.deinit(alloc);
-        var stderr: std.ArrayListUnmanaged(u8) = .empty;
+        var stderr: std.ArrayList(u8) = .empty;
         defer stderr.deinit(alloc);
 
         var blueprint_compiler = std.process.Child.init(
@@ -116,9 +116,9 @@ pub fn main() !void {
 
     // Compilation
     {
-        var stdout: std.ArrayListUnmanaged(u8) = .empty;
+        var stdout: std.ArrayList(u8) = .empty;
         defer stdout.deinit(alloc);
-        var stderr: std.ArrayListUnmanaged(u8) = .empty;
+        var stderr: std.ArrayList(u8) = .empty;
         defer stderr.deinit(alloc);
 
         var blueprint_compiler = std.process.Child.init(
