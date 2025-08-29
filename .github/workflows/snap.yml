@@ -1,0 +1,53 @@
+on:
+  workflow_dispatch:
+    inputs:
+      source-tarball-id:
+        description: source tarball built during build-dist
+        required: true
+        type: string
+
+name: Snap
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          [namespace-profile-ghostty-snap, namespace-profile-ghostty-snap-arm64]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      ZIG_LOCAL_CACHE_DIR: /zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
+    steps:
+      - name: Download Source Tarball Artifacts
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          artifact-ids: ${{ inputs.source-tarball-id }}
+
+      - name: Extract tarball
+        run: |
+          mkdir dist
+          tar --verbose --extract --strip-components 1 --directory dist --file ghostty-source.tar.gz
+
+      - name: Setup Cache
+        uses: namespacelabs/nscloud-cache-action@305bfa7ea980a858d511af4899414a84847c7991 # v1.2.16
+        with:
+          path: |
+            /nix
+            /zig
+
+      - run: sudo apt install -y udev
+
+      - run: sudo systemctl start systemd-udevd
+
+      # Workaround until this is fixed: https://github.com/canonical/lxd-pkg-snap/pull/789
+      - run: |
+          _LXD_SNAP_DEVCGROUP_CONFIG="/var/lib/snapd/cgroup/snap.lxd.device"
+          sudo mkdir -p /var/lib/snapd/cgroup
+          echo 'self-managed=true' | sudo tee  "${_LXD_SNAP_DEVCGROUP_CONFIG}"
+
+      - uses: snapcore/action-build@3bdaa03e1ba6bf59a65f84a751d943d549a54e79 # v1.3.0
+        with:
+          path: dist
