@@ -281,17 +281,25 @@ pub fn apply(self: *Metrics, mods: ModifierSet) void {
                 // centered in the cell.
                 if (comptime tag == .cell_height) {
                     // We split the difference in half because we want to
-                    // center the baseline in the cell.
+                    // center the baseline in the cell. If the difference
+                    // is odd, one more pixel is added/removed on top than
+                    // on the bottom.
                     if (new > original) {
-                        const diff = (new - original) / 2;
-                        self.cell_baseline +|= diff;
-                        self.underline_position +|= diff;
-                        self.strikethrough_position +|= diff;
+                        const diff = new - original;
+                        const diff_bottom = diff / 2;
+                        const diff_top = diff - diff_bottom;
+                        self.cell_baseline +|= diff_bottom;
+                        self.underline_position +|= diff_top;
+                        self.strikethrough_position +|= diff_top;
+                        self.overline_position +|= @as(i32, @intCast(diff_top));
                     } else {
-                        const diff = (original - new) / 2;
-                        self.cell_baseline -|= diff;
-                        self.underline_position -|= diff;
-                        self.strikethrough_position -|= diff;
+                        const diff = original - new;
+                        const diff_bottom = diff / 2;
+                        const diff_top = diff - diff_bottom;
+                        self.cell_baseline -|= diff_bottom;
+                        self.underline_position -|= diff_top;
+                        self.strikethrough_position -|= diff_top;
+                        self.overline_position -|= @as(i32, @intCast(diff_top));
                     }
                 }
             },
@@ -509,19 +517,24 @@ test "Metrics: adjust cell height smaller" {
 
     var set: ModifierSet = .{};
     defer set.deinit(alloc);
-    try set.put(alloc, .cell_height, .{ .percent = 0.5 });
+    // We choose numbers such that the subtracted number of pixels is odd,
+    // as that's the case that could most easily have off-by-one errors.
+    // Here we're removing 25 pixels: 12 on the bottom, 13 on top.
+    try set.put(alloc, .cell_height, .{ .percent = 0.75 });
 
     var m: Metrics = init();
     m.cell_baseline = 50;
     m.underline_position = 55;
     m.strikethrough_position = 30;
+    m.overline_position = 0;
     m.cell_height = 100;
     m.cursor_height = 100;
     m.apply(set);
-    try testing.expectEqual(@as(u32, 50), m.cell_height);
-    try testing.expectEqual(@as(u32, 25), m.cell_baseline);
-    try testing.expectEqual(@as(u32, 30), m.underline_position);
-    try testing.expectEqual(@as(u32, 5), m.strikethrough_position);
+    try testing.expectEqual(@as(u32, 75), m.cell_height);
+    try testing.expectEqual(@as(u32, 38), m.cell_baseline);
+    try testing.expectEqual(@as(u32, 42), m.underline_position);
+    try testing.expectEqual(@as(u32, 17), m.strikethrough_position);
+    try testing.expectEqual(@as(i32, -13), m.overline_position);
     // Cursor height is separate from cell height and does not follow it.
     try testing.expectEqual(@as(u32, 100), m.cursor_height);
 }
@@ -532,19 +545,24 @@ test "Metrics: adjust cell height larger" {
 
     var set: ModifierSet = .{};
     defer set.deinit(alloc);
-    try set.put(alloc, .cell_height, .{ .percent = 2 });
+    // We choose numbers such that the added number of pixels is odd,
+    // as that's the case that could most easily have off-by-one errors.
+    // Here we're adding 75 pixels: 37 on the bottom, 38 on top.
+    try set.put(alloc, .cell_height, .{ .percent = 1.75 });
 
     var m: Metrics = init();
     m.cell_baseline = 50;
     m.underline_position = 55;
     m.strikethrough_position = 30;
+    m.overline_position = 0;
     m.cell_height = 100;
     m.cursor_height = 100;
     m.apply(set);
-    try testing.expectEqual(@as(u32, 200), m.cell_height);
-    try testing.expectEqual(@as(u32, 100), m.cell_baseline);
-    try testing.expectEqual(@as(u32, 105), m.underline_position);
-    try testing.expectEqual(@as(u32, 80), m.strikethrough_position);
+    try testing.expectEqual(@as(u32, 175), m.cell_height);
+    try testing.expectEqual(@as(u32, 87), m.cell_baseline);
+    try testing.expectEqual(@as(u32, 93), m.underline_position);
+    try testing.expectEqual(@as(u32, 68), m.strikethrough_position);
+    try testing.expectEqual(@as(i32, 38), m.overline_position);
     // Cursor height is separate from cell height and does not follow it.
     try testing.expectEqual(@as(u32, 100), m.cursor_height);
 }
