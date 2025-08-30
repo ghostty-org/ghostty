@@ -286,7 +286,7 @@ msgstr "Comando ejecutado exitosamente"
 
 #: src/apprt/gtk/Surface.zig:2527
 msgid "Command failed"
-msgstr "Comando falló"
+msgstr "El comando falló"
 
 #: src/apprt/gtk/Window.zig:216
 msgid "Main Menu"

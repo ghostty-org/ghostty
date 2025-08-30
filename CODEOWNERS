@@ -166,6 +166,8 @@
 /po/com.mitchellh.ghostty.pot @ghostty-org/localization
 /po/ca_ES.UTF-8.po @ghostty-org/ca_ES
 /po/de_DE.UTF-8.po @ghostty-org/de_DE
+/po/es_ES.UTF-8.po @ghostty-org/es_ES
+/po/es_MX.UTF-8.po @ghostty-org/es_MX
 /po/es_BO.UTF-8.po @ghostty-org/es_BO
 /po/es_AR.UTF-8.po @ghostty-org/es_AR
 /po/fr_FR.UTF-8.po @ghostty-org/fr_FR
