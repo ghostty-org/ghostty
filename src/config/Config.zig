@@ -637,6 +637,17 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 @"selection-foreground": ?TerminalColor = null,
 @"selection-background": ?TerminalColor = null,
 
+/// Whether to clear selected text after copying. This defaults to `false`.
+///
+/// When set to `true`, the selection will be automatically cleared after
+/// any copy operation to the clipboard is performed (via keyboard shortcut)
+/// This provides a cleaner interface by removing visual clutter after copying.
+///
+/// When set to `false`, the selection remains visible after copying, allowing
+/// to see what was copied and potentially perform additional operations
+/// on the same selection.
+@"selection-clear-on-copy": bool = false,
+
 /// Whether to clear selected text when typing. This defaults to `true`.
 /// This is typical behavior for most terminal emulators as well as
 /// text input fields. If you set this to `false`, then the selected text
