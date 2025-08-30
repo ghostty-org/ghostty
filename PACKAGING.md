@@ -81,9 +81,7 @@ ZIG_GLOBAL_CACHE_DIR=/tmp/offline-cache ./nix/build-support/fetch-zig-cache.sh
 DESTDIR=/tmp/ghostty \
 zig build \
   --prefix /usr \
-  --system /tmp/offline-cache/p \
-  -Doptimize=ReleaseFast \
-  -Dcpu=baseline
+  --system /tmp/offline-cache/p
 ```
 
 The build options are covered in the next section, but this will build
@@ -96,8 +94,8 @@ to wherever the package manager expects it).
 ### Build Options
 
 Ghostty uses the Zig build system. You can see all available build options by
-running `zig build --help`. The following are options that are particularly
-relevant to package maintainers:
+running `zig build --help`. The following are options are very important
+and should always be used:
 
 - `--prefix`: The installation prefix. Combine with the `DESTDIR` environment
   variable to install to a temporary directory for packaging.
@@ -106,17 +104,20 @@ relevant to package maintainers:
   any package fetching from the internet. This flag also triggers all
   dependencies to be dynamically linked by default. This flag also makes
   the binary a PIE (Position Independent Executable) by default (override
-  with `-Dpie`).
+  with `-Dpie`). This flag also enables a default baseline CPU and enables
+  all optimizations.
+
+Additional options packagers may find useful:
 
 - `-Doptimize=ReleaseFast`: Build with optimizations enabled and safety checks
   disabled. This is the recommended build mode for distribution. I'd prefer
   a safe build but terminal emulators are performance-sensitive and the
-  safe build is currently too slow. I plan to improve this in the future.
-  Other build modes are available: `Debug`, `ReleaseSafe`, and `ReleaseSmall`.
+  safe build is currently too slow. This is the default when `--system`
+  is specified.
 
 - `-Dcpu=baseline`: Build for the "baseline" CPU of the target architecture.
   This avoids building for newer CPU features that may not be available on
-  all target machines.
+  all target machines. This is the default when `--system` is specified.
 
 - `-Dtarget=$arch-$os-$abi`: Build for a specific target triple. This is
   often necessary for system packages to specify a specific minimum Linux

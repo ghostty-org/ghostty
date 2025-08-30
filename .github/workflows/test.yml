@@ -300,7 +300,11 @@ jobs:
       # GhosttyKit is the framework that is built from Zig for our native
       # Mac app to access.
       - name: Build GhosttyKit
-        run: nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false
+        run: |
+          nix develop -c zig build \
+            --system ${{ steps.deps.outputs.deps }} \
+            -Doptimize=Debug \
+            -Demit-macos-app=false
 
       # The native app is built with native Xcode tooling. This also does
       # codesigning. IMPORTANT: this must NOT run in a Nix environment.
@@ -350,11 +354,11 @@ jobs:
 
       - name: Build All
         run: |
-          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false -Drenderer=metal -Dfont-backend=freetype
-          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false -Drenderer=metal -Dfont-backend=coretext
-          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false -Drenderer=metal -Dfont-backend=coretext_freetype
-          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false -Drenderer=metal -Dfont-backend=coretext_harfbuzz
-          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false -Drenderer=metal -Dfont-backend=coretext_noshape
+          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false -Doptimize=Debug -Drenderer=metal -Dfont-backend=freetype
+          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false -Doptimize=Debug -Drenderer=metal -Dfont-backend=coretext
+          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false -Doptimize=Debug -Drenderer=metal -Dfont-backend=coretext_freetype
+          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false -Doptimize=Debug -Drenderer=metal -Dfont-backend=coretext_harfbuzz
+          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false -Doptimize=Debug -Drenderer=metal -Dfont-backend=coretext_noshape
 
   build-snap:
     strategy:
@@ -500,7 +504,10 @@ jobs:
 
       # This relies on the cache being populated by the commands above.
       - name: Test System Build
-        run: nix develop -c zig build --system ${ZIG_GLOBAL_CACHE_DIR}/p
+        run: |
+          nix develop -c zig build \
+            --system ${ZIG_GLOBAL_CACHE_DIR}/p \
+            -Doptimize=Debug
 
   test-gtk:
     strategy:
