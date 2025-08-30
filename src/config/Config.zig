@@ -2925,14 +2925,14 @@ else
 ///
 /// If `false`, each new ghostty process will launch a separate application.
 ///
-/// The default value is `desktop` which will default to `true` if Ghostty
-/// detects that it was launched from the `.desktop` file such as an app
-/// launcher (like Gnome Shell)  or by D-Bus activation. If Ghostty is launched
-/// from the command line, it will default to `false`.
+/// The pre-1.2 option `desktop` has been deprecated. If encountered it will be
+/// treated as `true`.
+///
+/// The default value is `true`.
 ///
 /// Note that debug builds of Ghostty have a separate single-instance ID
 /// so you can test single instance without conflicting with release builds.
-@"gtk-single-instance": GtkSingleInstance = .desktop,
+@"gtk-single-instance": GtkSingleInstance = .default,
 
 /// When enabled, the full GTK titlebar is displayed instead of your window
 /// manager's simple titlebar. The behavior of this option will vary with your
@@ -7040,9 +7040,22 @@ pub const MacShortcuts = enum {
 
 /// See gtk-single-instance
 pub const GtkSingleInstance = enum {
-    desktop,
     false,
     true,
+
+    pub const default: GtkSingleInstance = .true;
+
+    pub fn parseCLI(input_: ?[]const u8) error{ ValueRequired, InvalidValue }!GtkSingleInstance {
+        const input = std.mem.trim(
+            u8,
+            input_ orelse return error.ValueRequired,
+            cli.args.whitespace,
+        );
+
+        if (std.mem.eql(u8, input, "desktop")) return .true;
+
+        return std.meta.stringToEnum(GtkSingleInstance, input) orelse error.InvalidValue;
+    }
 };
 
 /// See gtk-tabs-location
