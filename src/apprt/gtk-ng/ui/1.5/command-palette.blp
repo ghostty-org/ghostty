@@ -37,12 +37,17 @@ Adw.Dialog dialog {
             incremental: true;
 
             filter: Gtk.AnyFilter {
-              Gtk.StringFilter {
+              $GhosttyZfFilter {
                 expression: expr item as <$GhosttyCommand>.title;
                 search: bind search.text;
               }
 
-              Gtk.StringFilter {
+              $GhosttyZfFilter {
+                expression: expr item as <$GhosttyCommand>.description;
+                search: bind search.text;
+              }
+
+              $GhosttyZfFilter {
                 expression: expr item as <$GhosttyCommand>.action-key;
                 search: bind search.text;
               }

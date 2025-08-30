@@ -14,6 +14,7 @@ const Common = @import("../class.zig").Common;
 const Application = @import("application.zig").Application;
 const Window = @import("window.zig").Window;
 const Config = @import("config.zig").Config;
+const ZfFilter = @import("zf_filter.zig").ZfFilter;
 
 const log = std.log.scoped(.gtk_ghostty_command_palette);
 
@@ -260,6 +261,7 @@ pub const CommandPalette = extern struct {
 
         fn init(class: *Class) callconv(.c) void {
             gobject.ext.ensureType(Command);
+            gobject.ext.ensureType(ZfFilter);
             gtk.Widget.Class.setTemplateFromResource(
                 class.as(gtk.Widget.Class),
                 comptime gresource.blueprint(.{
