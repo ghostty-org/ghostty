@@ -627,6 +627,7 @@ fn gotoTab(_: *App, target: apprt.Target, tab: apprt.action.GotoTab) bool {
                 .previous => window.gotoPreviousTab(v.rt_surface),
                 .next => window.gotoNextTab(v.rt_surface),
                 .last => window.gotoLastTab(),
+                .last_used_tab => window.gotoLastUsedTab(),
                 else => window.gotoTab(@intCast(@intFromEnum(tab))),
             };
         },
