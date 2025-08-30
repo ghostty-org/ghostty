@@ -258,6 +258,7 @@ const DerivedConfig = struct {
     mouse_shift_capture: configpkg.MouseShiftCapture,
     macos_non_native_fullscreen: configpkg.NonNativeFullscreen,
     macos_option_as_alt: ?configpkg.OptionAsAlt,
+    selection_clear_on_copy: bool,
     selection_clear_on_typing: bool,
     vt_kam_allowed: bool,
     wait_after_command: bool,
@@ -327,6 +328,7 @@ const DerivedConfig = struct {
             .mouse_shift_capture = config.@"mouse-shift-capture",
             .macos_non_native_fullscreen = config.@"macos-non-native-fullscreen",
             .macos_option_as_alt = config.@"macos-option-as-alt",
+            .selection_clear_on_copy = config.@"selection-clear-on-copy",
             .selection_clear_on_typing = config.@"selection-clear-on-typing",
             .vt_kam_allowed = config.@"vt-kam-allowed",
             .wait_after_command = config.@"wait-after-command",
@@ -4511,6 +4513,16 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                     log.err("error setting clipboard string err={}", .{err});
                     return true;
                 };
+
+                // Clear the selection if configured to do so.
+                if (self.config.selection_clear_on_copy) {
+                    self.io.terminal.screen.select(null) catch |err| {
+                        log.warn("failed to clear selection after copy err={}", .{err});
+                    };
+                    self.queueRender() catch |err| {
+                        log.warn("failed to queue render after clear selection err={}", .{err});
+                    };
+                }
 
                 return true;
             }
