@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		29C15B1D2CDC3B2900520DD4 /* bat in Resources */ = {isa = PBXBuildFile; fileRef = 29C15B1C2CDC3B2000520DD4 /* bat */; };
+		4D3E45E22E6514F300AB5B7D /* QuickTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D3E45E12E6514F300AB5B7D /* QuickTerminalView.swift */; };
 		55154BE02B33911F001622DC /* ghostty in Resources */ = {isa = PBXBuildFile; fileRef = 55154BDF2B33911F001622DC /* ghostty */; };
 		552964E62B34A9B400030505 /* vim in Resources */ = {isa = PBXBuildFile; fileRef = 552964E52B34A9B400030505 /* vim */; };
 		857F63812A5E64F200CA4815 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = 857F63802A5E64F200CA4815 /* MainMenu.xib */; };
@@ -171,6 +172,7 @@
 /* Begin PBXFileReference section */
 		29C15B1C2CDC3B2000520DD4 /* bat */ = {isa = PBXFileReference; lastKnownFileType = folder; name = bat; path = "../zig-out/share/bat"; sourceTree = "<group>"; };
 		3B39CAA42B33949B00DABEB8 /* GhosttyReleaseLocal.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = GhosttyReleaseLocal.entitlements; sourceTree = "<group>"; };
+		4D3E45E12E6514F300AB5B7D /* QuickTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickTerminalView.swift; sourceTree = "<group>"; };
 		55154BDF2B33911F001622DC /* ghostty */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ghostty; path = "../zig-out/share/ghostty"; sourceTree = "<group>"; };
 		552964E52B34A9B400030505 /* vim */ = {isa = PBXFileReference; lastKnownFileType = folder; name = vim; path = "../zig-out/share/vim"; sourceTree = "<group>"; };
 		857F63802A5E64F200CA4815 /* MainMenu.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = MainMenu.xib; sourceTree = "<group>"; };
@@ -651,6 +653,7 @@
 				A52FFF562CA90481000C6A5B /* QuickTerminalScreen.swift */,
 				A5BB78B82DF9D8CE009AC3FA /* QuickTerminalSize.swift */,
 				A5CBD05F2CA0C9080017A1AE /* QuickTerminalWindow.swift */,
+				4D3E45E12E6514F300AB5B7D /* QuickTerminalView.swift */,
 			);
 			path = QuickTerminal;
 			sourceTree = "<group>";
@@ -921,6 +924,7 @@
 				A5593FE72DF927D200B47B10 /* TransparentTitlebarTerminalWindow.swift in Sources */,
 				A5A2A3CA2D4445E30033CF96 /* Dock.swift in Sources */,
 				A586365F2DEE6C2300E04A10 /* SplitTree.swift in Sources */,
+				4D3E45E22E6514F300AB5B7D /* QuickTerminalView.swift in Sources */,
 				A51BFC222B2FB6B400E92F16 /* AboutView.swift in Sources */,
 				A5278A9B2AA05B2600CD3039 /* Ghostty.Input.swift in Sources */,
 				A53A29812DB44A6100B6E02C /* KeyboardShortcut+Extension.swift in Sources */,
