@@ -429,36 +429,11 @@ pub const Face = struct {
             };
         };
 
-        // If our glyph is smaller than a quarter pixel in either axis
-        // then it has no outlines or they're too small to render.
-        //
-        // In this case we just return 0-sized glyph struct.
-        if (rect.width < 0.25 or rect.height < 0.25)
-            return font.Glyph{
-                .width = 0,
-                .height = 0,
-                .offset_x = 0,
-                .offset_y = 0,
-                .atlas_x = 0,
-                .atlas_y = 0,
-            };
-
-        // For synthetic bold, we embolden the glyph.
-        if (self.synthetic.bold) {
-            // We need to scale the embolden amount based on the font size.
-            // This is a heuristic I found worked well across a variety of
-            // founts: 1 pixel per 64 units of height.
-            const font_height: f64 = @floatFromInt(self.face.handle.*.size.*.metrics.height);
-            const ratio: f64 = 64.0 / 2048.0;
-            const amount = @ceil(font_height * ratio);
-            _ = freetype.c.FT_Outline_Embolden(&glyph.*.outline, @intFromFloat(amount));
-        }
-
         const metrics = opts.grid_metrics;
         const cell_width: f64 = @floatFromInt(metrics.cell_width);
         const cell_height: f64 = @floatFromInt(metrics.cell_height);
 
-        // Next we apply any constraints to get the final size of the glyph.
+        // Next we apply any constraints to size and align the glyph.
         var constraint = opts.constraint;
 
         // We eliminate any negative vertical padding since these overlap
@@ -482,6 +457,31 @@ pub const Face = struct {
             metrics,
             opts.constraint_width,
         );
+
+        // For synthetic bold, we embolden the glyph.
+        if (self.synthetic.bold) {
+            // We need to scale the embolden amount based on the font size.
+            // This is a heuristic I found worked well across a variety of
+            // founts: 1 pixel per 64 units of height.
+            const font_height: f64 = @floatFromInt(self.face.handle.*.size.*.metrics.height);
+            const ratio: f64 = 64.0 / 2048.0;
+            const amount = @ceil(font_height * ratio);
+            _ = freetype.c.FT_Outline_Embolden(&glyph.*.outline, @intFromFloat(amount));
+        }
+
+        // If our glyph is smaller than a quarter pixel in either axis
+        // then it has no outlines or they're too small to render.
+        //
+        // In this case we just return 0-sized glyph struct.
+        if (glyph_size.width < 0.25 or glyph_size.height < 0.25)
+            return font.Glyph{
+                .width = 0,
+                .height = 0,
+                .offset_x = 0,
+                .offset_y = 0,
+                .atlas_x = 0,
+                .atlas_y = 0,
+            };
 
         var width = glyph_size.width;
         var height = glyph_size.height;
