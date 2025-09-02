@@ -304,6 +304,8 @@ pub const Face = struct {
         const is_color = self.isColorGlyph(glyph_index);
         // And whether it's (probably) a bitmap (sbix).
         const sbix = is_color and self.color != null and self.color.?.sbix;
+        // And whether it's subject to constraints (mostly icons and emoji).
+        const is_constrained = opts.constraint.doesAnything();
 
         // If we're rendering a synthetic bold then we will gain 50% of
         // the line width on every edge, which means we should increase
@@ -311,8 +313,9 @@ pub const Face = struct {
         // our origin points.
         //
         // We don't add extra size if it's a sbix color font though,
-        // since bitmaps aren't affected by synthetic bold.
-        if (!sbix) if (self.synthetic_bold) |line_width| {
+        // since bitmaps aren't affected by synthetic bold. We also don't
+        // embolden constrained glyphs.
+        if (!sbix and !is_constrained) if (self.synthetic_bold) |line_width| {
             rect.size.width += line_width;
             rect.size.height += line_width;
             rect.origin.x -= line_width / 2;
@@ -322,8 +325,9 @@ pub const Face = struct {
         // We make an assumption that font smoothing ("thicken")
         // adds no more than 1 extra pixel to any edge. We don't
         // add extra size if it's a sbix color font though, since
-        // bitmaps aren't affected by smoothing.
-        if (opts.thicken and !sbix) {
+        // bitmaps aren't affected by smoothing. We also don't
+        // smooth constrained glyphs.
+        if (opts.thicken and !sbix and !is_constrained) {
             rect.size.width += 2.0;
             rect.size.height += 2.0;
             rect.origin.x -= 1.0;
@@ -486,9 +490,10 @@ pub const Face = struct {
         // "Font smoothing" is what we call "thickening", it's an attempt
         // to compensate for optical thinning of fonts, but at this point
         // it's just something that makes the text look closer to system
-        // applications if users want that.
+        // applications if users want that. We don't smooth constrained
+        // glyphs.
         context.setAllowsFontSmoothing(ctx, true);
-        context.setShouldSmoothFonts(ctx, opts.thicken);
+        context.setShouldSmoothFonts(ctx, opts.thicken and !is_constrained);
 
         // Subpixel positioning allows glyphs to be placed at non-integer
         // coordinates. We need this for our alignment.
@@ -517,10 +522,10 @@ pub const Face = struct {
 
         // If we are drawing with synthetic bold then use a fill stroke
         // which strokes the outlines of the glyph making a more bold look.
-        if (self.synthetic_bold) |line_width| {
+        if (!is_constrained) if (self.synthetic_bold) |line_width| {
             context.setTextDrawingMode(ctx, .fill_stroke);
             context.setLineWidth(ctx, line_width);
-        }
+        };
 
         // Translate our drawing context so that when we draw our
         // glyph the bottom/left edge is at the correct sub-pixel

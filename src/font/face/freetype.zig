@@ -443,8 +443,11 @@ pub const Face = struct {
                 .atlas_y = 0,
             };
 
-        // For synthetic bold, we embolden the glyph.
-        if (self.synthetic.bold) {
+        // Determine whether this is a constrained glyph (mostly icons and emoji).
+        const is_constrained = opts.constraint.doesAnything();
+
+        // For synthetic bold, we embolden the glyph, unless it's constrained.
+        if (!is_constrained and self.synthetic.bold) {
             // We need to scale the embolden amount based on the font size.
             // This is a heuristic I found worked well across a variety of
             // founts: 1 pixel per 64 units of height.
@@ -534,7 +537,7 @@ pub const Face = struct {
                 const scale_x = width / rect.width;
                 const scale_y = height / rect.height;
                 const skew: f64 =
-                    if (self.synthetic.italic)
+                    if (!is_constrained and self.synthetic.italic)
                         // We skew by 12 degrees to synthesize italics.
                         @tan(std.math.degreesToRadians(12))
                     else
