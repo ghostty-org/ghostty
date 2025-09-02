@@ -491,16 +491,6 @@ pub const Face = struct {
         var x = glyph_size.x;
         var y = glyph_size.y;
 
-        // If this is a bitmap glyph, it will always render as full pixels,
-        // not fractional pixels, so we need to quantize its position and
-        // size accordingly to align to full pixels so we get good results.
-        if (glyph.*.format == freetype.c.FT_GLYPH_FORMAT_BITMAP) {
-            width = cell_width - @round(cell_width - width - x) - @round(x);
-            height = cell_height - @round(cell_height - height - y) - @round(y);
-            x = @round(x);
-            y = @round(y);
-        }
-
         // If the cell width was adjusted wider, we re-center all glyphs
         // in the new width, so that they aren't weirdly off to the left.
         if (metrics.original_cell_width) |original| recenter: {
@@ -520,6 +510,16 @@ pub const Face = struct {
             //       a non-whole-pixel amount, it completely ruins the
             //       hinting.
             x += @round((cell_width - @as(f64, @floatFromInt(original))) / 2);
+        }
+
+        // If this is a bitmap glyph, it will always render as full pixels,
+        // not fractional pixels, so we need to quantize its position and
+        // size accordingly to align to full pixels so we get good results.
+        if (glyph.*.format == freetype.c.FT_GLYPH_FORMAT_BITMAP) {
+            width = cell_width - @round(cell_width - width - x) - @round(x);
+            height = cell_height - @round(cell_height - height - y) - @round(y);
+            x = @round(x);
+            y = @round(y);
         }
 
         // Now we can render the glyph.
