@@ -244,7 +244,7 @@ pub const Terminator = enum {
         self: Terminator,
         comptime _: []const u8,
         _: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: *std.Io.Writer,
     ) !void {
         try writer.writeAll(self.string());
     }

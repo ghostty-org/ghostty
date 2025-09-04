@@ -104,7 +104,10 @@ pub fn equal(self: RepeatableStringMap, other: RepeatableStringMap) bool {
 }
 
 /// Used by formatter
-pub fn formatEntry(self: RepeatableStringMap, formatter: anytype) !void {
+pub fn formatEntry(
+    self: RepeatableStringMap,
+    formatter: formatterpkg.EntryFormatter,
+) !void {
     // If no items, we want to render an empty field.
     if (self.map.count() == 0) {
         try formatter.formatEntry(void, {});

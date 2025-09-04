@@ -23,7 +23,7 @@ pub fn destroy(self: *Utf8, alloc: Allocator) void {
     alloc.destroy(self);
 }
 
-pub fn run(self: *Utf8, writer: anytype, rand: std.Random) !void {
+pub fn run(self: *Utf8, writer: *std.Io.Writer, rand: std.Random) !void {
     _ = self;
 
     var gen: synthetic.Utf8 = .{

@@ -29,7 +29,7 @@ pub fn destroy(self: *Osc, alloc: Allocator) void {
     alloc.destroy(self);
 }
 
-pub fn run(self: *Osc, writer: anytype, rand: std.Random) !void {
+pub fn run(self: *Osc, writer: *std.Io.Writer, rand: std.Random) !void {
     var gen: synthetic.Osc = .{
         .rand = rand,
         .p_valid = self.opts.@"p-valid",

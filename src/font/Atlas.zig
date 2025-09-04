@@ -355,7 +355,7 @@ pub fn clear(self: *Atlas) void {
 ///       swapped because PPM expects RGB. This would be
 ///       easy enough to fix so next time someone needs
 ///       to debug a color atlas they should fix it.
-pub fn dump(self: Atlas, writer: anytype) !void {
+pub fn dump(self: Atlas, writer: *std.Io.Writer) !void {
     try writer.print(
         \\P{c}
         \\{d} {d}
