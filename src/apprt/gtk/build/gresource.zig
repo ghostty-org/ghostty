@@ -162,7 +162,7 @@ pub fn main() !void {
 /// Generate the icon resources. This works by looking up all the icons
 /// specified by `icon_sizes` in `images/icons/`. They are asserted to exist
 /// by trying to access the file.
-fn genIcons(writer: anytype) !void {
+fn genIcons(writer: *std.Io.Writer) !void {
     try writer.print(
         \\  <gresource prefix="{s}/icons">
         \\
@@ -204,7 +204,7 @@ fn genIcons(writer: anytype) !void {
 }
 
 /// Generate the resources at the root prefix.
-fn genRoot(writer: anytype) !void {
+fn genRoot(writer: *std.Io.Writer) !void {
     try writer.print(
         \\  <gresource prefix="{s}">
         \\
@@ -236,7 +236,7 @@ fn genRoot(writer: anytype) !void {
 /// assuming these will be
 fn genUi(
     alloc: Allocator,
-    writer: anytype,
+    writer: *std.Io.Writer,
     files: *const std.ArrayList([]const u8),
 ) !void {
     try writer.print(

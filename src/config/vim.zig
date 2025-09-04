@@ -73,7 +73,7 @@ fn comptimeGenSyntax() []const u8 {
 }
 
 /// Writes the syntax file to the given writer.
-fn writeSyntax(writer: anytype) !void {
+fn writeSyntax(writer: *std.Io.Writer) !void {
     try writer.writeAll(
         \\" Vim syntax file
         \\" Language: Ghostty config file

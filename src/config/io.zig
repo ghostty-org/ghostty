@@ -218,7 +218,7 @@ pub const RepeatableReadableIO = struct {
     /// Used by Formatter
     pub fn formatEntry(
         self: Self,
-        formatter: anytype,
+        formatter: formatterpkg.EntryFormatter,
     ) !void {
         if (self.list.items.len == 0) {
             try formatter.formatEntry(void, {});
