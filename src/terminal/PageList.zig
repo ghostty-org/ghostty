@@ -2731,7 +2731,7 @@ pub fn encodeUtf8(
 ///    1 | etc.| | 4
 ///      +-----+ :
 ///     +--------+
-pub fn diagram(self: *const PageList, writer: anytype) !void {
+pub fn diagram(self: *const PageList, writer: *std.Io.Writer) !void {
     const active_pin = self.getTopLeft(.active);
 
     var active = false;

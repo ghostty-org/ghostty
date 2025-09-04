@@ -10,7 +10,7 @@ pub fn main() !void {
 // Note: as a shortcut for defining inline editOnGithubLinks per cli action the user
 // is directed to the folder view on Github. This includes a README pointing them to
 // the files to edit.
-pub fn genActions(writer: anytype) !void {
+pub fn genActions(writer: *std.Io.Writer) !void {
     // Write the header
     try writer.writeAll(
         \\---

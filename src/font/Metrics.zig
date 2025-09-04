@@ -1,6 +1,7 @@
 const Metrics = @This();
 
 const std = @import("std");
+const formatterpkg = @import("../config/formatter.zig");
 
 /// Recommended cell width and height for a monospace grid using this font.
 cell_width: u32,
@@ -387,7 +388,7 @@ pub const Modifier = union(enum) {
     }
 
     /// Used by config formatter
-    pub fn formatEntry(self: Modifier, formatter: anytype) !void {
+    pub fn formatEntry(self: Modifier, formatter: formatterpkg.EntryFormatter) !void {
         var buf: [1024]u8 = undefined;
         switch (self) {
             .percent => |v| {

@@ -278,7 +278,7 @@ pub const Response = struct {
     placement_id: u32 = 0,
     message: []const u8 = "OK",
 
-    pub fn encode(self: Response, writer: anytype) !void {
+    pub fn encode(self: Response, writer: *std.Io.Writer) !void {
         // We only encode a result if we have either an id or an image number.
         if (self.id == 0 and self.image_number == 0) return;
 

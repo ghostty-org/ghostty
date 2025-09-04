@@ -23,7 +23,7 @@ pub fn destroy(self: *Ascii, alloc: Allocator) void {
     alloc.destroy(self);
 }
 
-pub fn run(self: *Ascii, writer: anytype, rand: std.Random) !void {
+pub fn run(self: *Ascii, writer: *std.Io.Writer, rand: std.Random) !void {
     _ = self;
 
     var gen: synthetic.Bytes = .{

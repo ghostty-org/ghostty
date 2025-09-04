@@ -37,7 +37,7 @@ pub const Envelope = struct {
     /// parsing in our use case is not a hot path.
     pub fn parse(
         alloc_gpa: Allocator,
-        reader: anytype,
+        reader: *std.Io.Reader,
     ) !Envelope {
         // We use an arena allocator to read from reader. We pair this
         // with `alloc_if_needed` when parsing json to allow the json

@@ -166,7 +166,7 @@ pub const Command = union(enum) {
         };
     }
 
-    pub fn formatEntry(self: Self, formatter: anytype) !void {
+    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
         switch (self) {
             .shell => |v| try formatter.formatEntry([]const u8, v),
 

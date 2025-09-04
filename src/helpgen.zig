@@ -50,7 +50,7 @@ fn genConfig(alloc: std.mem.Allocator, writer: *std.Io.Writer) !void {
 
 fn genConfigField(
     alloc: std.mem.Allocator,
-    writer: anytype,
+    writer: *std.Io.Writer,
     ast: std.zig.Ast,
     comptime field: []const u8,
 ) !void {
@@ -75,7 +75,7 @@ fn genConfigField(
     }
 }
 
-fn genActions(alloc: std.mem.Allocator, writer: anytype) !void {
+fn genActions(alloc: std.mem.Allocator, writer: *std.Io.Writer) !void {
     try writer.writeAll(
         \\
         \\/// Actions help
@@ -121,7 +121,7 @@ fn genActions(alloc: std.mem.Allocator, writer: anytype) !void {
     try writer.writeAll("};\n");
 }
 
-fn genKeybindActions(alloc: std.mem.Allocator, writer: anytype) !void {
+fn genKeybindActions(alloc: std.mem.Allocator, writer: *std.Io.Writer) !void {
     var ast = try std.zig.Ast.parse(alloc, @embedFile("input/Binding.zig"), .zig);
     defer ast.deinit(alloc);
 

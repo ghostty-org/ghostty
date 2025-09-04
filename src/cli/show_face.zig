@@ -208,8 +208,8 @@ fn runArgs(
 
 fn lookup(
     alloc: std.mem.Allocator,
-    stdout: anytype,
-    stderr: anytype,
+    stdout: *std.Io.Writer,
+    stderr: *std.Io.Writer,
     font_grid: *font.SharedGrid,
     style: font.Style,
     presentation: ?font.Presentation,

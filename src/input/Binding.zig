@@ -1199,7 +1199,7 @@ pub const Action = union(enum) {
     }
 
     fn formatValue(
-        writer: anytype,
+        writer: *std.Io.Writer,
         value: anytype,
     ) !void {
         const Value = @TypeOf(value);

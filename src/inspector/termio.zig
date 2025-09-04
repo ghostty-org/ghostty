@@ -116,7 +116,7 @@ pub const VTEvent = struct {
     /// Encode a parser action as a string that we show in the logs.
     fn encodeAction(
         alloc: Allocator,
-        writer: anytype,
+        writer: *std.Io.Writer,
         md: *Metadata,
         action: terminal.Parser.Action,
     ) !void {
@@ -130,12 +130,12 @@ pub const VTEvent = struct {
         }
     }
 
-    fn encodePrint(writer: anytype, action: terminal.Parser.Action) !void {
+    fn encodePrint(writer: *std.Io.Writer, action: terminal.Parser.Action) !void {
         const ch = action.print;
         try writer.print("'{u}' (U+{X})", .{ ch, ch });
     }
 
-    fn encodeExecute(writer: anytype, action: terminal.Parser.Action) !void {
+    fn encodeExecute(writer: *std.Io.Writer, action: terminal.Parser.Action) !void {
         const ch = action.execute;
         switch (ch) {
             0x00 => try writer.writeAll("NUL"),
@@ -159,7 +159,7 @@ pub const VTEvent = struct {
         try writer.print(" (0x{X})", .{ch});
     }
 
-    fn encodeCSI(writer: anytype, csi: terminal.Parser.Action.CSI) !void {
+    fn encodeCSI(writer: *std.Io.Writer, csi: terminal.Parser.Action.CSI) !void {
         for (csi.intermediates) |v| try writer.print("{c} ", .{v});
         for (csi.params, 0..) |v, i| {
             if (i != 0) try writer.writeByte(';');
@@ -169,14 +169,14 @@ pub const VTEvent = struct {
         try writer.writeByte(csi.final);
     }
 
-    fn encodeEsc(writer: anytype, esc: terminal.Parser.Action.ESC) !void {
+    fn encodeEsc(writer: *std.Io.Writer, esc: terminal.Parser.Action.ESC) !void {
         for (esc.intermediates) |v| try writer.print("{c} ", .{v});
         try writer.writeByte(esc.final);
     }
 
     fn encodeOSC(
         alloc: Allocator,
-        writer: anytype,
+        writer: *std.Io.Writer,
         md: *Metadata,
         osc: terminal.osc.Command,
     ) !void {

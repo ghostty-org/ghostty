@@ -79,7 +79,10 @@ pub const Path = union(enum) {
     }
 
     /// Used by formatter.
-    pub fn formatEntry(self: *const Path, formatter: anytype) !void {
+    pub fn formatEntry(
+        self: *const Path,
+        formatter: formatterpkg.EntryFormatter,
+    ) !void {
         var buf: [std.fs.max_path_bytes + 1]u8 = undefined;
         const value = switch (self.*) {
             .optional => |path| std.fmt.bufPrint(
@@ -384,7 +387,10 @@ pub const RepeatablePath = struct {
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: RepeatablePath, formatter: anytype) !void {
+    pub fn formatEntry(
+        self: RepeatablePath,
+        formatter: formatterpkg.EntryFormatter,
+    ) !void {
         if (self.value.items.len == 0) {
             try formatter.formatEntry(void, {});
             return;
