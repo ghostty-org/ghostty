@@ -439,6 +439,9 @@ pub const Action = union(enum) {
     /// Go to the last tab.
     last_tab,
 
+    /// Go to latest used tab.
+    last_used_tab,
+
     /// Go to the tab with the specific index, starting from 1.
     ///
     /// If the tab number is higher than the number of tabs,
@@ -1083,6 +1086,7 @@ pub const Action = union(enum) {
             .previous_tab,
             .next_tab,
             .last_tab,
+            .last_used_tab,
             .goto_tab,
             .move_tab,
             .toggle_tab_overview,

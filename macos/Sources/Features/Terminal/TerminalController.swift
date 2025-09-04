@@ -56,6 +56,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// This will be set to the initial frame of the window from the xib on load.
     private var initialFrame: NSRect? = nil
 
+    /// This is the last used tab window for tab switching
+    private weak var lastUsedTabWindow: NSWindow?
+
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
          withSurfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil,
@@ -317,6 +320,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // If we don't allow tabs then we create a new window instead.
         if (window.tabbingMode != .disallowed) {
+            // Store the currently selected window before adding the new tab
+            let currentlySelectedWindow = parent.tabGroup?.selectedWindow
+            
             // Add the window to the tab group and show it.
             switch ghostty.config.windowNewTabPosition {
             case "end":
@@ -331,6 +337,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             case "current": fallthrough
             default:
                 parent.addTabbedWindow(window, ordered: .above)
+            }
+            
+            // Set the previously selected window as the last used tab for the new controller
+            if let previousWindow = currentlySelectedWindow {
+                controller.lastUsedTabWindow = previousWindow
             }
         }
 
@@ -1017,6 +1028,15 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         super.windowDidBecomeKey(notification)
         self.relabelTabs()
         self.fixTabBar()
+        
+        if let window = window, let tabGroup = window.tabGroup, tabGroup.windows.count > 1 {
+            for tabWindow in tabGroup.windows {
+                if let controller = tabWindow.windowController as? TerminalController,
+                   tabWindow != window { 
+                    controller.lastUsedTabWindow = window
+                }
+            }
+        }
     }
 
     override func windowDidMove(_ notification: Notification) {
@@ -1270,6 +1290,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 }
             } else if (tabIndex == GHOSTTY_GOTO_TAB_LAST.rawValue) {
                 finalIndex = tabbedWindows.count - 1
+            } else if (tabIndex == GHOSTTY_GOTO_TAB_LAST_USED.rawValue) {
+                // Handle last used tab - find it in the current tab group
+                guard let lastUsedWindow = lastUsedTabWindow,
+                      let lastUsedIndex = tabbedWindows.firstIndex(where: { $0 == lastUsedWindow }),
+                      lastUsedWindow != selectedWindow else {
+                    return
+                }
+                finalIndex = lastUsedIndex
             } else {
                 return
             }
@@ -1283,6 +1311,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         guard finalIndex >= 0 else { return }
         let targetWindow = tabbedWindows[finalIndex]
+        
+        // Update the target window's controller to track the current window as last used
+        if let targetController = targetWindow.windowController as? TerminalController,
+           let currentWindow = tabGroup.selectedWindow {
+            targetController.lastUsedTabWindow = currentWindow
+        }
+        
         targetWindow.makeKeyAndOrderFront(nil)
     }
 
