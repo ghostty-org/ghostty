@@ -5,7 +5,7 @@ const Config = @import("../../config/Config.zig");
 const Action = @import("../../cli/ghostty.zig").Action;
 const KeybindAction = @import("../../input/Binding.zig").Action;
 
-pub fn substitute(alloc: std.mem.Allocator, input: []const u8, writer: anytype) !void {
+pub fn substitute(alloc: std.mem.Allocator, input: []const u8, writer: *std.Io.Writer) !void {
     const output = try alloc.alloc(u8, std.mem.replacementSize(
         u8,
         input,
@@ -18,7 +18,7 @@ pub fn substitute(alloc: std.mem.Allocator, input: []const u8, writer: anytype) 
     try writer.writeAll(output);
 }
 
-pub fn genConfig(writer: anytype, cli: bool) !void {
+pub fn genConfig(writer: *std.Io.Writer, cli: bool) !void {
     try writer.writeAll(
         \\
         \\# CONFIGURATION OPTIONS
@@ -48,7 +48,7 @@ pub fn genConfig(writer: anytype, cli: bool) !void {
     }
 }
 
-pub fn genActions(writer: anytype) !void {
+pub fn genActions(writer: *std.Io.Writer) !void {
     try writer.writeAll(
         \\
         \\# COMMAND LINE ACTIONS
@@ -83,7 +83,7 @@ pub fn genActions(writer: anytype) !void {
     }
 }
 
-pub fn genKeybindActions(writer: anytype) !void {
+pub fn genKeybindActions(writer: *std.Io.Writer) !void {
     try writer.writeAll(
         \\
         \\# KEYBIND ACTIONS
