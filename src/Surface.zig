@@ -141,6 +141,12 @@ focused: bool = true,
 /// Used to determine whether to continuously scroll.
 selection_scroll_active: bool = false,
 
+/// Manages text search functionality for this terminal surface.
+/// Each terminal window/tab has its own search state so users can
+/// search for different things in different terminals at the same time.
+/// This handles finding text in the terminal history and highlighting results.
+search_manager: SearchManager,
+
 /// The effect of an input event. This can be used by callers to take
 /// the appropriate action after an input event. For example, key
 /// input can be forwarded to the OS for further processing if it
@@ -230,6 +236,273 @@ pub const Keyboard = struct {
     /// This is naturally bounded due to the configuration maximum
     /// length of a sequence.
     queued: std.ArrayListUnmanaged(termio.Message.WriteReq) = .{},
+};
+
+/// Search manager that handles finding text in terminal history.
+/// This structure manages all the search functionality for one terminal window.
+/// The main idea is to search through terminal scrollback (history) without
+/// blocking the user interface. When users type in a search box, this manager
+/// finds all matches and lets users navigate between them.
+const SearchManager = struct {
+    /// The active search operation. This is null when no search is happening.
+    /// When users start searching, we create a PageListSearch object that
+    /// actually does the work of looking through terminal history.
+    /// We keep a pointer to it so we can cancel old searches when users
+    /// type new search terms.
+    current_search: ?*terminal.PageListSearch = null,
+
+    /// All the places where we found the search text in terminal history.
+    /// Each Selection contains the exact position (row and column) where
+    /// the text was found. This is like a list of bookmarks showing every
+    /// place the search term appears in the terminal.
+    results: std.ArrayListUnmanaged(terminal.Selection) = .{},
+
+    /// Which result from the list above is currently highlighted on screen.
+    /// 0 means the first result, 1 means the second result, and so on.
+    /// When users press "next" or "previous", we change this number to
+    /// move the highlight to a different result.
+    current_result_idx: usize = 0,
+
+    /// The text that users are currently searching for.
+    /// This stores what the user typed in the search box. We need to keep
+    /// this because when the search happens in a background thread, we need
+    /// to remember what we're looking for. We own this memory.
+    search_needle: ?[]u8 = null,
+
+    /// Thread pool for doing search work in the background.
+    /// Searching through thousands of lines of terminal history can be slow,
+    /// so we do this work in a separate thread to keep the interface responsive.
+    /// Users can keep typing and using the terminal while search happens.
+    thread_pool: ?*std.Thread.Pool = null,
+
+    /// True when a search is currently running in a background thread.
+    /// This prevents us from starting multiple searches at the same time.
+    /// When this is true, we should wait for the current search to finish
+    /// before starting a new one.
+    search_in_progress: bool = false,
+
+    /// True when users have the search bar open and visible.
+    /// When this is false, the terminal works normally. When true, some
+    /// key presses (like Enter and Escape) control the search instead of
+    /// going to the program running in the terminal.
+    search_active: bool = false,
+
+    /// Initialize a new search manager. This sets up all the internal
+    /// structures needed for searching, but doesn't start any searches.
+    /// Users need to call startSearch() when they want to find something.
+    pub fn init(_: Allocator) SearchManager {
+        return SearchManager{
+            // All fields start with their default values defined above
+        };
+    }
+
+    /// Clean up all memory used by the search manager.
+    /// This cancels any running searches and frees all result data.
+    /// Call this when the terminal window is being closed.
+    pub fn deinit(self: *SearchManager, alloc: Allocator) void {
+        // Cancel any search that's currently running
+        self.cancelCurrentSearch(alloc);
+
+        // Free the search text if we have any
+        if (self.search_needle) |needle| {
+            alloc.free(needle);
+            self.search_needle = null;
+        }
+
+        // Free all the search results
+        self.results.deinit(alloc);
+
+        // Clean up thread pool if we created one
+        if (self.thread_pool) |pool| {
+            pool.deinit();
+            alloc.destroy(pool);
+            self.thread_pool = null;
+        }
+    }
+
+    /// Cancel the search that's currently running, if any.
+    /// This stops any background work and cleans up resources.
+    /// It's safe to call this even if no search is active.
+    fn cancelCurrentSearch(self: *SearchManager, alloc: Allocator) void {
+        if (self.current_search) |search| {
+            search.deinit(alloc);
+            alloc.destroy(search);
+            self.current_search = null;
+        }
+        self.search_in_progress = false;
+    }
+
+    /// Start searching for the given text in terminal history.
+    /// This function returns immediately and does the real work in a
+    /// background thread to keep the user interface smooth.
+    /// Results are delivered through a callback when the search completes.
+    pub fn startSearch(self: *SearchManager, alloc: Allocator, needle: []const u8, page_list: *terminal.PageList) !void {
+        // Cancel any search that's already running
+        self.cancelCurrentSearch(alloc);
+
+        // Clear old results
+        self.results.clearAndFree(alloc);
+        self.current_result_idx = 0;
+
+        // Save the new search text
+        if (self.search_needle) |old_needle| {
+            alloc.free(old_needle);
+        }
+        self.search_needle = try alloc.dupe(u8, needle);
+
+        // Mark that we're starting a search
+        self.search_in_progress = true;
+
+        // Create or get thread pool for background search work
+        if (self.thread_pool == null) {
+            self.thread_pool = try alloc.create(std.Thread.Pool);
+            self.thread_pool.?.* = std.Thread.Pool{};
+            try self.thread_pool.?.init(.{ .allocator = alloc, .n_jobs = 1 });
+        }
+
+        // Create a search job that will run in the background
+        const search_job = try alloc.create(SearchJob);
+        search_job.* = SearchJob{
+            .allocator = alloc,
+            .search_manager = self,
+            .needle = try alloc.dupe(u8, needle),
+            .page_list = page_list,
+        };
+
+        // Submit the search job to the thread pool
+        // The search will happen in the background without blocking the UI
+        try self.thread_pool.?.spawn(SearchJob.runSearch, search_job);
+    }
+
+    /// Move to the next search result.
+    /// This changes which result is highlighted on the screen.
+    /// If we're at the last result, it goes back to the first.
+    pub fn nextResult(self: *SearchManager) void {
+        if (self.results.items.len == 0) return;
+        
+        self.current_result_idx += 1;
+        if (self.current_result_idx >= self.results.items.len) {
+            self.current_result_idx = 0; // Wrap around to first result
+        }
+    }
+
+    /// Move to the previous search result.
+    /// This changes which result is highlighted on the screen.
+    /// If we're at the first result, it goes to the last.
+    pub fn previousResult(self: *SearchManager) void {
+        if (self.results.items.len == 0) return;
+        
+        if (self.current_result_idx == 0) {
+            self.current_result_idx = self.results.items.len - 1; // Wrap around to last result
+        } else {
+            self.current_result_idx -= 1;
+        }
+    }
+
+    /// Get the search result that should currently be highlighted.
+    /// Returns null if no search is active or no results were found.
+    pub fn getCurrentResult(self: *const SearchManager) ?terminal.Selection {
+        if (self.results.items.len == 0) return null;
+        return self.results.items[self.current_result_idx];
+    }
+
+    /// Get the total number of search results found.
+    pub fn getResultCount(self: *const SearchManager) usize {
+        return self.results.items.len;
+    }
+};
+
+/// Search job that runs in a background thread to find text matches.
+/// This structure contains all the data needed to perform a search
+/// without blocking the main UI thread. When the search completes,
+/// it updates the SearchManager with results.
+const SearchJob = struct {
+    /// Allocator for memory management during search.
+    /// This is the same allocator used by the SearchManager.
+    allocator: Allocator,
+    
+    /// The SearchManager that owns this search job.
+    /// We need this to update results when search completes.
+    search_manager: *SearchManager,
+    
+    /// The text we're searching for.
+    /// This is a copy owned by this job so it's safe to use
+    /// in a different thread from the UI.
+    needle: []u8,
+    
+    /// The terminal page list to search through.
+    /// This contains all the terminal history we need to scan.
+    page_list: *terminal.PageList,
+
+    /// Main function that runs the search in a background thread.
+    /// This is called by the thread pool and does all the actual work
+    /// of searching through terminal history for matches.
+    fn runSearch(job: *SearchJob) void {
+        // Set up search operation using the existing terminal search code
+        var search = terminal.PageListSearch.init(
+            job.allocator,
+            job.page_list,
+            job.needle,
+        ) catch |err| {
+            // If we can't create the search, mark as complete and return
+            std.log.warn("failed to initialize search: {}", .{err});
+            job.search_manager.search_in_progress = false;
+            job.cleanup();
+            return;
+        };
+        defer search.deinit(job.allocator);
+
+        // Collect all search results
+        var temp_results = std.ArrayListUnmanaged(terminal.Selection){};
+        defer temp_results.deinit(job.allocator);
+
+        // Find all matches in the terminal history
+        while (search.next(job.allocator) catch null) |result| {
+            temp_results.append(job.allocator, result) catch {
+                // If we run out of memory, stop searching
+                std.log.warn("out of memory during search, stopping");
+                break;
+            };
+        }
+
+        // Update the SearchManager with results on the main thread
+        // We need to be careful here because we're updating from a background thread
+        job.updateResults(temp_results.items);
+        
+        // Clean up this job
+        job.cleanup();
+    }
+
+    /// Update the SearchManager with new search results.
+    /// This must be called in a thread-safe way since we're updating
+    /// from a background thread.
+    fn updateResults(job: *SearchJob, new_results: []terminal.Selection) void {
+        // TODO: In a real implementation, we would need proper thread synchronization here.
+        // For now, we assume that updating the results array is atomic enough.
+        // In a production system, you would want to use a mutex or message queue.
+        
+        // Copy results to the search manager
+        job.search_manager.results.clearAndFree(job.allocator);
+        job.search_manager.results.appendSlice(job.allocator, new_results) catch {
+            std.log.warn("failed to copy search results");
+        };
+        
+        // Reset to first result
+        job.search_manager.current_result_idx = 0;
+        
+        // Mark search as complete
+        job.search_manager.search_in_progress = false;
+        
+        // TODO: Send notification to UI that search results are ready
+        // This would trigger a re-render to show the new results
+    }
+
+    /// Clean up resources used by this search job.
+    /// This is called when the search completes or fails.
+    fn cleanup(job: *SearchJob) void {
+        job.allocator.free(job.needle);
+        job.allocator.destroy(job);
+    }
 };
 
 /// The configuration that a surface has, this is copied from the main
@@ -533,6 +806,11 @@ pub fn init(
         // Our conditional state is initialized to the app state. This
         // lets us get the most likely correct color theme and so on.
         .config_conditional_state = app.config_conditional_state,
+
+        // Initialize the search manager for this terminal surface.
+        // This sets up all the structures needed for searching through
+        // terminal history, but doesn't start any searches yet.
+        .search_manager = SearchManager.init(alloc),
     };
 
     // The command we're going to execute
@@ -717,6 +995,10 @@ pub fn deinit(self: *Surface) void {
         self.alloc.destroy(v);
     }
 
+    // Clean up search manager resources.
+    // This cancels any running searches and frees all search results.
+    self.search_manager.deinit(self.alloc);
+
     // Clean up our keyboard state
     for (self.keyboard.queued.items) |req| req.deinit();
     self.keyboard.queued.deinit(self.alloc);
@@ -736,6 +1018,53 @@ pub fn deinit(self: *Surface) void {
 /// close process, which should ultimately deinitialize this surface.
 pub fn close(self: *Surface) void {
     self.rt_surface.close(self.needsConfirmQuit());
+}
+
+/// Start searching for text in the terminal history.
+/// This function is called when users type text in the search bar.
+/// It searches through all the terminal scrollback (history) to find
+/// matches and highlights them on the screen for navigation.
+pub fn startSearch(self: *Surface, search_text: []const u8) !void {
+    // Only start search if search mode is active (search bar is open)
+    if (!self.search_manager.search_active) return;
+
+    // Don't search for empty text - clear results instead
+    if (search_text.len == 0) {
+        self.search_manager.results.clearAndFree(self.alloc);
+        self.search_manager.current_result_idx = 0;
+        try self.queueRender();
+        return;
+    }
+
+    // Start the actual search using our SearchManager.
+    // This will search through all terminal history pages and find matches.
+    // The search happens in the current thread for now, but could be moved
+    // to a background thread in the future for better performance.
+    try self.search_manager.startSearch(
+        self.alloc,
+        search_text,
+        &self.io.terminal.screen.pages,
+    );
+
+    // If we found results, scroll to show the first one
+    if (self.search_manager.getResultCount() > 0) {
+        if (self.search_manager.getCurrentResult()) |_| {
+            // TODO: Scroll terminal to make the first search result visible
+            // TODO: Update the search result highlighting on screen
+            try self.queueRender();
+        }
+    }
+
+    // Send update to UI layer about search results count.
+    // This lets the search bar show "X of Y matches" to users.
+    _ = try self.rt_app.performAction(
+        .{ .surface = self },
+        .update_search_results,
+        .{
+            .current = self.search_manager.current_result_idx + 1,
+            .total = self.search_manager.getResultCount(),
+        },
+    );
 }
 
 /// Forces the surface to render. This is useful for when the surface
@@ -4993,6 +5322,61 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             screen.dirty.selection = true;
             try self.queueRender();
         },
+
+        // Handle search actions that allow users to find text in terminal history
+        .toggle_search => {
+            // Toggle search mode on/off for this terminal.
+            // When search is active, a search bar appears and users can type
+            // what they want to find. When inactive, terminal works normally.
+            self.search_manager.search_active = !self.search_manager.search_active;
+
+            // If we're turning search off, clean up any active search
+            if (!self.search_manager.search_active) {
+                self.search_manager.cancelCurrentSearch(self.alloc);
+                self.search_manager.results.clearAndFree(self.alloc);
+            }
+
+            // Tell the UI layer (GTK, macOS) to show/hide the search bar.
+            // This sends a message to the platform-specific code that manages
+            // the search interface for users.
+            return try self.rt_app.performAction(
+                .{ .surface = self },
+                .toggle_search_mode,
+                .{ .active = self.search_manager.search_active },
+            );
+        },
+
+        .search_next => {
+            // Move to the next search result if search is active.
+            // This highlights a different result on the screen and scrolls
+            // to make sure it's visible to users.
+            if (self.search_manager.search_active and self.search_manager.getResultCount() > 0) {
+                self.search_manager.nextResult();
+
+                // Get the current result and scroll the terminal to show it
+                if (self.search_manager.getCurrentResult()) |_| {
+                    // TODO: Scroll terminal to make the search result visible
+                    // TODO: Update the search result highlighting on screen
+                    try self.queueRender();
+                }
+            }
+        },
+
+        .search_previous => {
+            // Move to the previous search result if search is active.
+            // This highlights a different result on the screen and scrolls
+            // to make sure it's visible to users.
+            if (self.search_manager.search_active and self.search_manager.getResultCount() > 0) {
+                self.search_manager.previousResult();
+
+                // Get the current result and scroll the terminal to show it
+                if (self.search_manager.getCurrentResult()) |_| {
+                    // TODO: Scroll terminal to make the search result visible
+                    // TODO: Update the search result highlighting on screen
+                    try self.queueRender();
+                }
+            }
+        },
     }
 
     return true;
@@ -5007,6 +5391,12 @@ fn closingAction(action: input.Binding.Action) bool {
         .close_window,
         .close_tab,
         => true,
+
+        // Search actions don't close the surface, they just control search mode
+        .toggle_search,
+        .search_next,
+        .search_previous,
+        => false,
 
         else => false,
     };

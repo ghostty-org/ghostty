@@ -295,6 +295,16 @@ pub const Action = union(Key) {
     /// Show the on-screen keyboard.
     show_on_screen_keyboard,
 
+    /// Toggle search mode on/off for a terminal surface.
+    /// When active, shows a search bar where users can type to find text
+    /// in terminal scrollback history. When inactive, hides search bar.
+    toggle_search_mode: ToggleSearchMode,
+
+    /// Update search results display with current match information.
+    /// This tells the UI layer how many matches were found and which
+    /// one is currently selected, so it can show "X of Y matches".
+    update_search_results: UpdateSearchResults,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -350,6 +360,8 @@ pub const Action = union(Key) {
         show_child_exited,
         progress_report,
         show_on_screen_keyboard,
+        toggle_search_mode,
+        update_search_results,
     };
 
     /// Sync with: ghostty_action_u
@@ -701,6 +713,40 @@ pub const OpenUrl = struct {
             .len = self.url.len,
         };
     }
+};
+
+/// Information about toggling search mode in a terminal.
+/// This tells the UI layer whether to show or hide the search bar
+/// and any other search-related interface elements.
+pub const ToggleSearchMode = extern struct {
+    /// True to show search bar, false to hide it.
+    /// When true, the terminal surface should display a search interface
+    /// where users can type search terms. When false, search interface
+    /// should be hidden and terminal returns to normal mode.
+    active: bool,
+
+    // Sync with: ghostty_action_toggle_search_mode_s in ghostty.h
+    // This structure is already C-compatible (extern struct with simple types)
+    // so no additional C conversion is needed.
+};
+
+/// Information about current search results to display to users.
+/// This tells the UI layer how many matches were found and which
+/// one is currently selected, so it can show "X of Y matches".
+pub const UpdateSearchResults = extern struct {
+    /// Which result is currently highlighted (1-based for display).
+    /// This is the result number shown to users, starting from 1.
+    /// 0 means no results or search not active.
+    current: usize,
+
+    /// Total number of search results found.
+    /// 0 means no matches were found for the search term.
+    /// This combined with current gives "current of total" display.
+    total: usize,
+
+    // Sync with: ghostty_action_update_search_results_s in ghostty.h
+    // This structure is already C-compatible (extern struct with simple types)
+    // so no additional C conversion is needed.
 };
 
 /// sync with ghostty_action_close_tab_mode_e in ghostty.h

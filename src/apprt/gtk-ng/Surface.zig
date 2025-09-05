@@ -101,3 +101,18 @@ pub fn defaultTermioEnv(self: *Self) !std.process.EnvMap {
 pub fn redrawInspector(self: *Self) void {
     self.surface.redrawInspector();
 }
+
+/// Handle the toggle_search_mode action from the core terminal.
+/// This shows or hides the search bar widget in the GTK interface.
+/// When toggled on, the search bar appears and gets keyboard focus.
+/// When toggled off, the search bar disappears and focus returns to terminal.
+pub fn actionToggleSearchMode(self: *Self, action: *const apprt.action.ToggleSearchMode) !void {
+    self.surface.toggleSearchMode(action.visible);
+}
+
+/// Handle the update_search_results action from the core terminal.
+/// This updates the search bar display to show current search results.
+/// The search bar will show "X of Y matches" or "No results" based on the data.
+pub fn actionUpdateSearchResults(self: *Self, action: *const apprt.action.UpdateSearchResults) !void {
+    self.surface.updateSearchResults(action.current, action.total);
+}

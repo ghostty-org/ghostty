@@ -740,6 +740,27 @@ pub const Action = union(enum) {
     ///
     crash: CrashThread,
 
+    /// Start or stop the search mode in the terminal.
+    /// This opens a search bar where users can type text to find in their
+    /// terminal history. It works like pressing Ctrl+F in web browsers.
+    /// When search mode is active, users can type what they want to find.
+    /// Press this action again to close the search bar and return to normal mode.
+    toggle_search,
+
+    /// Go to the next search result found in the terminal history.
+    /// This moves the highlight from the current result to the next one.
+    /// If you are at the last result, it goes back to the first result.
+    /// Does nothing if no search is active or no results were found.
+    /// This is like pressing F3 or Enter in most search interfaces.
+    search_next,
+
+    /// Go to the previous search result found in the terminal history.
+    /// This moves the highlight from the current result to the previous one.
+    /// If you are at the first result, it goes to the last result.
+    /// Does nothing if no search is active or no results were found.
+    /// This is like pressing Shift+F3 in most search interfaces.
+    search_previous,
+
     pub const Key = @typeInfo(Action).@"union".tag_type.?;
 
     /// Make this a valid gobject if we're in a GTK environment.

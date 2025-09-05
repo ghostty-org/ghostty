@@ -49,6 +49,9 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
 
     // This seems like a crutch after switching from SwiftUI to AppKit lifecycle.
     @FocusState private var focused: Bool
+    
+    // Search integration for finding text in terminal scrollback
+    @StateObject private var searchIntegration = TerminalSearchIntegration()
 
     // Various state values sent back up from the currently focused terminals.
     @FocusedValue(\.ghosttySurfaceView) private var focusedSurface
@@ -76,18 +79,27 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                         DebugBuildWarningView()
                     }
 
-                    TerminalSplitTreeView(
-                        tree: viewModel.surfaceTree,
-                        onResize: { delegate?.splitDidResize(node: $0, to: $1) })
-                        .environmentObject(ghostty)
-                        .focused($focused)
-                        .onAppear { self.focused = true }
+                    // Wrap terminal in search functionality
+                    TerminalWithSearch(searchIntegration: searchIntegration) {
+                        TerminalSplitTreeView(
+                            tree: viewModel.surfaceTree,
+                            onResize: { delegate?.splitDidResize(node: $0, to: $1) })
+                            .environmentObject(ghostty)
+                            .focused($focused)
+                            .onAppear { self.focused = true }
+                    }
                         .onChange(of: focusedSurface) { newValue in
                             // We want to keep track of our last focused surface so even if
                             // we lose focus we keep this set to the last non-nil value.
                             if newValue != nil {
                                 lastFocusedSurface = .init(newValue)
                                 self.delegate?.focusedSurfaceDidChange(to: newValue)
+                                
+                                // Connect search integration to the active terminal surface
+                                // This allows search to work on the currently focused terminal
+                                if let surfaceView = newValue {
+                                    searchIntegration.setTerminalSurface(surfaceView.surface)
+                                }
                             }
                         }
                         .onChange(of: pwdURL) { newValue in
