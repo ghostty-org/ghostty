@@ -70,6 +70,11 @@ pub const Envelope = struct {
             '\n',
             .limited(1024 * 1024), // 1MB, arbitrary choice
         );
+        _ = reader.discardDelimiterInclusive('\n') catch |err| switch (err) {
+            // It's okay if there isn't a trailing newline
+            error.EndOfStream => {},
+            else => return err,
+        };
 
         const value = try std.json.parseFromSliceLeaky(
             std.json.Value,
@@ -109,6 +114,11 @@ pub const Envelope = struct {
             .limited(1024 * 1024), // 1MB, arbitrary choice
         ) catch |err| switch (err) {
             error.StreamTooLong => return null,
+            else => return err,
+        };
+        _ = reader.discardDelimiterInclusive('\n') catch |err| switch (err) {
+            // It's okay if there isn't a trailing newline
+            error.EndOfStream => {},
             else => return err,
         };
 
@@ -179,6 +189,11 @@ pub const Envelope = struct {
             ) catch |err| switch (err) {
                 error.StreamTooLong => return error.EnvelopeItemPayloadTooShort,
                 else => |v| return v,
+            };
+            _ = reader.discardDelimiterInclusive('\n') catch |err| switch (err) {
+                // It's okay if there isn't a trailing newline
+                error.EndOfStream => {},
+                else => return err,
             };
             break :payload try payload.toOwnedSlice();
         };

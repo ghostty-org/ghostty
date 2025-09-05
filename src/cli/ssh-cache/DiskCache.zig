@@ -230,6 +230,9 @@ fn writeCacheFile(
         try kv.value_ptr.format(&writer.interface);
     }
 
+    // Don't forget to flush!!
+    try writer.interface.flush();
+
     // Atomic replace
     try std.fs.renameAbsolute(tmp_path, self.path);
 }
@@ -274,7 +277,11 @@ fn readEntries(
     alloc: Allocator,
     file: std.fs.File,
 ) !std.StringHashMap(Entry) {
-    const content = try file.readToEndAlloc(alloc, MAX_CACHE_SIZE);
+    var reader = file.reader(&.{});
+    const content = try reader.interface.allocRemaining(
+        alloc,
+        .limited(MAX_CACHE_SIZE),
+    );
     defer alloc.free(content);
 
     var entries = std.StringHashMap(Entry).init(alloc);
@@ -431,7 +438,9 @@ test "disk cache operations" {
         var file = try td.dir.createFile("cache", .{});
         defer file.close();
         var file_writer = file.writer(&buf);
-        try file_writer.interface.writeAll("HELLO!");
+        const writer = &file_writer.interface;
+        try writer.writeAll("HELLO!");
+        try writer.flush();
     }
     const path = try td.dir.realpathAlloc(alloc, "cache");
     defer alloc.free(path);

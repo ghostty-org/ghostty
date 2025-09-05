@@ -37,7 +37,7 @@ pub fn run(self: *Utf8, writer: *std.Io.Writer, rand: std.Random) !void {
             const Error = error{ NoSpaceLeft, BrokenPipe } || @TypeOf(err);
             switch (@as(Error, err)) {
                 error.BrokenPipe => return, // stdout closed
-                error.NoSpaceLeft => return, // fixed buffer full
+                error.WriteFailed => return, // fixed buffer full
                 else => return err,
             }
         };
