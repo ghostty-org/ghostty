@@ -35,10 +35,10 @@ pub fn run(self: *Ascii, writer: *std.Io.Writer, rand: std.Random) !void {
     while (true) {
         const data = try gen.next(&buf);
         writer.writeAll(data) catch |err| {
-            const Error = error{ NoSpaceLeft, BrokenPipe } || @TypeOf(err);
+            const Error = error{ WriteFailed, BrokenPipe } || @TypeOf(err);
             switch (@as(Error, err)) {
                 error.BrokenPipe => return, // stdout closed
-                error.NoSpaceLeft => return, // fixed buffer full
+                error.WriteFailed => return, // fixed buffer full
                 else => return err,
             }
         };

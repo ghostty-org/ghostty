@@ -778,9 +778,6 @@ test "parse: diagnostic tracking" {
 }
 
 test "parse: diagnostic location" {
-    // FIXME: Test hangs. Why?
-    if (true) return error.SkipZigTest;
-
     const testing = std.testing;
 
     var data: struct {
@@ -1409,68 +1406,73 @@ pub const LineIterator = struct {
     }
 
     pub fn next(self: *Self) ?[]const u8 {
-        // TODO: detect "--" prefixed lines and give a friendlier error
-        const buf = buf: {
-            while (true) {
-                // Read the full line
-                var writer: std.Io.Writer = .fixed(self.entry[2..]);
-                _ = self.r.streamDelimiterEnding(&writer, '\n') catch |err| switch (err) {
-                    inline else => |e| {
-                        log.warn("cannot read from \"{s}\": {}", .{ self.filepath, e });
-                        return null;
-                    },
-                };
-                var entry = writer.buffered();
+        // First prime the reader.
+        // File readers at least are initialized with a size of 0,
+        // and this will actually prompt the reader to get the actual
+        // size of the file, which will be used in the EOF check below.
+        //
+        // This will also optimize reads down the line as we're
+        // more likely to beworking with buffered data.
+        self.r.fillMore() catch {};
 
-                // Increment our line counter
-                self.line += 1;
+        var writer: std.Io.Writer = .fixed(self.entry[2..]);
 
-                // Trim any whitespace (including CR) around it
-                const trim = std.mem.trim(u8, entry, whitespace ++ "\r");
-                if (trim.len != entry.len) {
-                    std.mem.copyForwards(u8, entry, trim);
-                    entry = entry[0..trim.len];
-                }
+        var entry = while (self.r.seek != self.r.end) {
+            // Reset write head
+            writer.end = 0;
 
-                // Ignore blank lines and comments
-                if (entry.len == 0 or entry[0] == '#') continue;
+            _ = self.r.streamDelimiterEnding(&writer, '\n') catch |e| {
+                log.warn("cannot read from \"{s}\": {}", .{ self.filepath, e });
+                return null;
+            };
+            _ = self.r.discardDelimiterInclusive('\n') catch {};
 
-                // Trim spaces around '='
-                if (mem.indexOf(u8, entry, "=")) |idx| {
-                    const key = std.mem.trim(u8, entry[0..idx], whitespace);
-                    const value = value: {
-                        var value = std.mem.trim(u8, entry[idx + 1 ..], whitespace);
+            var entry = writer.buffered();
+            self.line += 1;
 
-                        // Detect a quoted string.
-                        if (value.len >= 2 and
-                            value[0] == '"' and
-                            value[value.len - 1] == '"')
-                        {
-                            // Trim quotes since our CLI args processor expects
-                            // quotes to already be gone.
-                            value = value[1 .. value.len - 1];
-                        }
-
-                        break :value value;
-                    };
-
-                    const len = key.len + value.len + 1;
-                    if (entry.len != len) {
-                        std.mem.copyForwards(u8, entry, key);
-                        entry[key.len] = '=';
-                        std.mem.copyForwards(u8, entry[key.len + 1 ..], value);
-                        entry = entry[0..len];
-                    }
-                }
-
-                break :buf entry;
+            // Trim any whitespace (including CR) around it
+            const trim = std.mem.trim(u8, entry, whitespace ++ "\r");
+            if (trim.len != entry.len) {
+                std.mem.copyForwards(u8, entry, trim);
+                entry = entry[0..trim.len];
             }
-        };
+
+            // Ignore blank lines and comments
+            if (entry.len == 0 or entry[0] == '#') continue;
+            break entry;
+        } else return null;
+
+        if (mem.indexOf(u8, entry, "=")) |idx| {
+            const key = std.mem.trim(u8, entry[0..idx], whitespace);
+            const value = value: {
+                var value = std.mem.trim(u8, entry[idx + 1 ..], whitespace);
+
+                // Detect a quoted string.
+                if (value.len >= 2 and
+                    value[0] == '"' and
+                    value[value.len - 1] == '"')
+                {
+                    // Trim quotes since our CLI args processor expects
+                    // quotes to already be gone.
+                    value = value[1 .. value.len - 1];
+                }
+
+                break :value value;
+            };
+
+            const len = key.len + value.len + 1;
+            if (entry.len != len) {
+                std.mem.copyForwards(u8, entry, key);
+                entry[key.len] = '=';
+                std.mem.copyForwards(u8, entry[key.len + 1 ..], value);
+                entry = entry[0..len];
+            }
+        }
 
         // We need to reslice so that we include our '--' at the beginning
         // of our buffer so that we can trick the CLI parser to treat it
         // as CLI args.
-        return self.entry[0 .. buf.len + 2];
+        return self.entry[0 .. entry.len + 2];
     }
 
     /// Returns a location for a diagnostic message.
@@ -1508,9 +1510,6 @@ pub fn sliceIterator(slice: []const []const u8) SliceIterator {
 }
 
 test "LineIterator" {
-    // FIXME: Test hangs. Why?
-    if (true) return error.SkipZigTest;
-
     const testing = std.testing;
     var reader: std.Io.Reader = .fixed(
         \\A
@@ -1539,9 +1538,6 @@ test "LineIterator" {
 }
 
 test "LineIterator end in newline" {
-    // FIXME: Test hangs. Why?
-    if (true) return error.SkipZigTest;
-
     const testing = std.testing;
     var reader: std.Io.Reader = .fixed("A\n\n");
 
@@ -1552,9 +1548,6 @@ test "LineIterator end in newline" {
 }
 
 test "LineIterator spaces around '='" {
-    // FIXME: Test hangs. Why?
-    if (true) return error.SkipZigTest;
-
     const testing = std.testing;
     var reader: std.Io.Reader = .fixed("A = B\n\n");
 
@@ -1565,9 +1558,6 @@ test "LineIterator spaces around '='" {
 }
 
 test "LineIterator no value" {
-    // FIXME: Test hangs. Why?
-    if (true) return error.SkipZigTest;
-
     const testing = std.testing;
     var reader: std.Io.Reader = .fixed("A = \n\n");
 
@@ -1577,9 +1567,6 @@ test "LineIterator no value" {
 }
 
 test "LineIterator with CRLF line endings" {
-    // FIXME: Test hangs. Why?
-    if (true) return error.SkipZigTest;
-
     const testing = std.testing;
     var reader: std.Io.Reader = .fixed("A\r\nB = C\r\n");
 

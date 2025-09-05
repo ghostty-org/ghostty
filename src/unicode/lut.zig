@@ -171,7 +171,15 @@ pub fn Tables(comptime Elem: type) type {
                 \\
                 \\pub const stage3: [{}]Elem = .{{
             , .{self.stage3.len});
-            for (self.stage3) |entry| try writer.print("{f},", .{entry});
+            for (self.stage3) |entry| {
+                if (@typeInfo(@TypeOf(entry)) == .@"struct" and
+                    @hasDecl(@TypeOf(entry), "format"))
+                {
+                    try writer.print("{f},", .{entry});
+                } else {
+                    try writer.print("{},", .{entry});
+                }
+            }
             try writer.writeAll(
                 \\};
                 \\    };

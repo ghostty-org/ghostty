@@ -64,7 +64,7 @@ pub fn generator(self: *Osc) Generator {
 /// The buffer must be at least 3 bytes long to accommodate the
 /// prefix and terminator.
 pub fn next(self: *Osc, buf: []u8) Generator.Error![]const u8 {
-    if (buf.len < 3) return error.NoSpaceLeft;
+    if (buf.len < 3) return error.WriteFailed;
     const unwrapped = try self.nextUnwrapped(buf[2 .. buf.len - 1]);
     buf[0] = 0x1B; // ESC
     buf[1] = ']';
@@ -98,36 +98,36 @@ fn nextUnwrappedValidExact(self: *const Osc, buf: []u8, k: ValidKind) Generator.
     var writer: std.Io.Writer = .fixed(buf);
     switch (k) {
         .change_window_title => {
-            writer.writeAll("0;") catch return error.NoSpaceLeft; // Set window title
+            try writer.writeAll("0;"); // Set window title
             var bytes_gen = self.bytes();
             const title = try bytes_gen.next(writer.unusedCapacitySlice());
             writer.end += title.len;
         },
 
         .prompt_start => {
-            writer.writeAll("133;A") catch return error.NoSpaceLeft; // Start prompt
+            try writer.writeAll("133;A"); // Start prompt
 
             // aid
             if (self.rand.boolean()) {
                 var bytes_gen = self.bytes();
                 bytes_gen.max_len = 16;
-                writer.writeAll(";aid=") catch return error.NoSpaceLeft;
+                try writer.writeAll(";aid=");
                 const aid = try bytes_gen.next(writer.unusedCapacitySlice());
                 writer.end += aid.len;
             }
 
             // redraw
             if (self.rand.boolean()) {
-                writer.writeAll(";redraw=") catch return error.NoSpaceLeft;
+                try writer.writeAll(";redraw=");
                 if (self.rand.boolean()) {
-                    writer.writeAll("1") catch return error.NoSpaceLeft;
+                    try writer.writeAll("1");
                 } else {
-                    writer.writeAll("0") catch return error.NoSpaceLeft;
+                    try writer.writeAll("0");
                 }
             }
         },
 
-        .prompt_end => writer.writeAll("133;B") catch return error.NoSpaceLeft, // End prompt
+        .prompt_end => try writer.writeAll("133;B"), // End prompt
     }
 
     return writer.buffered();
@@ -146,7 +146,7 @@ fn nextUnwrappedInvalidExact(
 
         .good_prefix => {
             var writer: std.Io.Writer = .fixed(buf);
-            writer.writeAll("133;") catch return error.NoSpaceLeft;
+            try writer.writeAll("133;");
             var bytes_gen = self.bytes();
             const data = try bytes_gen.next(writer.unusedCapacitySlice());
             writer.end += data.len;

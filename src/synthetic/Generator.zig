@@ -6,7 +6,7 @@ const assert = std.debug.assert;
 
 /// For generators, this is the only error that is allowed to be
 /// returned by the next function.
-pub const Error = error{NoSpaceLeft};
+pub const Error = error{WriteFailed};
 
 /// The vtable for the generator.
 ptr: *anyopaque,

@@ -10,8 +10,14 @@ pub const ResourcesDir = struct {
     /// Free resources held. Requires the same allocator as when resourcesDir()
     /// is called.
     pub fn deinit(self: *ResourcesDir, alloc: Allocator) void {
-        if (self.app_path) |p| alloc.free(p);
-        if (self.host_path) |p| alloc.free(p);
+        if (self.app_path) |p| {
+            alloc.free(p);
+            self.app_path = null;
+        }
+        if (self.host_path) |p| {
+            alloc.free(p);
+            self.host_path = null;
+        }
     }
 
     /// Get the directory to the bundled resources directory accessible

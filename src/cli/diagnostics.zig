@@ -16,7 +16,7 @@ pub const Diagnostic = struct {
     message: [:0]const u8,
 
     /// Write the full user-friendly diagnostic message to the writer.
-    pub fn write(self: *const Diagnostic, writer: *std.Io.Writer) !void {
+    pub fn format(self: *const Diagnostic, writer: *std.Io.Writer) !void {
         switch (self.location) {
             .none => {},
             .cli => |index| try writer.print("cli:{}:", .{index}),
@@ -160,7 +160,7 @@ pub const DiagnosticList = struct {
             var stream: std.Io.Writer.Allocating = .init(alloc);
             defer stream.deinit();
 
-            diag.write(&stream.writer) catch |err| switch (err) {
+            diag.format(&stream.writer) catch |err| switch (err) {
                 // WriteFailed in this instance can only mean an OOM
                 error.WriteFailed => return error.OutOfMemory,
             };

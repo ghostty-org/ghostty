@@ -3845,6 +3845,7 @@ fn loadTheme(self: *Config, theme: Theme) !void {
         name,
         &self._diagnostics,
     )) orelse return;
+
     const path = themefile.path;
     const file = themefile.file;
     defer file.close();
@@ -8447,7 +8448,6 @@ test "clone default" {
 }
 
 test "clone preserves conditional state" {
-    if (true) return error.SkipZigTest;
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -8467,7 +8467,9 @@ test "clone preserves conditional state" {
 }
 
 test "clone can then change conditional state" {
-    if (true) return error.SkipZigTest;
+    // Global state needs to be initialized for themes to function.
+    try global_state.init();
+
     // This tests a particular bug sequence where:
     //   1. Load light
     //   2. Convert to dark
@@ -8546,7 +8548,9 @@ test "clone can then change conditional state" {
 }
 
 test "clone preserves conditional set" {
-    if (true) return error.SkipZigTest;
+    // Global state needs to be initialized for themes to function.
+    try global_state.init();
+
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -8580,7 +8584,9 @@ test "changed" {
 }
 
 test "changeConditionalState ignores irrelevant changes" {
-    if (true) return error.SkipZigTest;
+    // Global state needs to be initialized for themes to function.
+    try global_state.init();
+
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -8600,7 +8606,9 @@ test "changeConditionalState ignores irrelevant changes" {
 }
 
 test "changeConditionalState applies relevant changes" {
-    if (true) return error.SkipZigTest;
+    // Global state needs to be initialized for themes to function.
+    try global_state.init();
+
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -8620,7 +8628,9 @@ test "changeConditionalState applies relevant changes" {
     }
 }
 test "theme loading" {
-    if (true) return error.SkipZigTest;
+    // Global state needs to be initialized for themes to function.
+    try global_state.init();
+
     const testing = std.testing;
     const alloc = testing.allocator;
     var arena = ArenaAllocator.init(alloc);
@@ -8662,7 +8672,9 @@ test "theme loading" {
 }
 
 test "theme loading preserves conditional state" {
-    if (true) return error.SkipZigTest;
+    // Global state needs to be initialized for themes to function.
+    try global_state.init();
+
     const testing = std.testing;
     const alloc = testing.allocator;
     var arena = ArenaAllocator.init(alloc);
@@ -8698,7 +8710,9 @@ test "theme loading preserves conditional state" {
 }
 
 test "theme priority is lower than config" {
-    if (true) return error.SkipZigTest;
+    // Global state needs to be initialized for themes to function.
+    try global_state.init();
+
     const testing = std.testing;
     const alloc = testing.allocator;
     var arena = ArenaAllocator.init(alloc);
@@ -8738,7 +8752,9 @@ test "theme priority is lower than config" {
 }
 
 test "theme loading correct light/dark" {
-    if (true) return error.SkipZigTest;
+    // Global state needs to be initialized for themes to function.
+    try global_state.init();
+
     const testing = std.testing;
     const alloc = testing.allocator;
     var arena = ArenaAllocator.init(alloc);
@@ -8840,7 +8856,9 @@ test "theme loading correct light/dark" {
 }
 
 test "theme specifying light/dark changes window-theme from auto" {
-    if (true) return error.SkipZigTest;
+    // Global state needs to be initialized for themes to function.
+    try global_state.init();
+
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -8859,7 +8877,9 @@ test "theme specifying light/dark changes window-theme from auto" {
 }
 
 test "theme specifying light/dark sets theme usage in conditional state" {
-    if (true) return error.SkipZigTest;
+    // Global state needs to be initialized for themes to function.
+    try global_state.init();
+
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -8900,7 +8920,6 @@ test "compatibility: gtk-single-instance desktop" {
 }
 
 test "compatibility: removed cursor-invert-fg-bg" {
-    if (true) return error.SkipZigTest;
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -8925,7 +8944,6 @@ test "compatibility: removed cursor-invert-fg-bg" {
 }
 
 test "compatibility: removed selection-invert-fg-bg" {
-    if (true) return error.SkipZigTest;
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -8950,7 +8968,6 @@ test "compatibility: removed selection-invert-fg-bg" {
 }
 
 test "compatibility: removed bold-is-bright" {
-    if (true) return error.SkipZigTest;
     const testing = std.testing;
     const alloc = testing.allocator;
 
