@@ -63,6 +63,96 @@ pub fn gValueHolds(value_: ?*const gobject.Value, g_type: gobject.Type) bool {
     return gobject.typeCheckValueHolds(value, g_type) != 0;
 }
 
+/// Defines functions for getting and setting a property of `Owner` of type
+/// `gtk.Expression`.
+pub fn ExpressionAccessor(comptime Owner: type) type {
+    return struct {
+        getter: ?*const fn (*Owner) ?*gtk.Expression = null,
+        setter: ?*const fn (*Owner, ?*gtk.Expression) void = null,
+    };
+}
+
+/// Options for defining expression properties.
+pub fn DefineExpressionPropertyOptions(comptime Owner: type) type {
+    return struct {
+        nick: ?[:0]const u8 = null,
+        blurb: ?[:0]const u8 = null,
+        accessor: ExpressionAccessor(Owner),
+        construct: bool = false,
+        construct_only: bool = false,
+        lax_validation: bool = false,
+        explicit_notify: bool = false,
+        deprecated: bool = false,
+    };
+}
+
+/// Define a property that holds a GTK Expression value.
+pub fn defineExpressionProperty(
+    comptime name: [:0]const u8,
+    comptime Owner: type,
+    comptime options: DefineExpressionPropertyOptions(Owner),
+) type {
+    return struct {
+        /// The `gobject.ParamSpec` of the property. Initialized once the
+        /// property is registered.
+        pub var param_spec: *gobject.ParamSpec = undefined;
+
+        /// Registers the property.
+        ///
+        /// This is a lower-level function which should generally not be used
+        /// directly. Users should generally call `registerProperties` instead,
+        /// which handles registration of all a class's properties at once,
+        /// along with configuring behavior for
+        /// `gobject.Object.virtual_methods.get_property` and
+        /// `gobject.Object.virtual_methods.set_property`.
+        pub fn register(class: *Owner.Class, id: c_uint) void {
+            param_spec = newParamSpec();
+            gobject.Object.Class.installProperty(gobject.ext.as(gobject.Object.Class, class), id, param_spec);
+        }
+
+        /// Gets the value of the property from `object` and stores it in
+        /// `value`.
+        pub fn get(object: *Owner, value: *gobject.Value) void {
+            if (options.accessor.getter) |getter| {
+                const expression = getter(object) orelse return;
+                gtk.valueSetExpression(value, expression);
+            }
+        }
+
+        /// Sets the value of the property on `object` from `value`.
+        pub fn set(object: *Owner, value: *const gobject.Value) void {
+            if (options.accessor.setter) |setter| {
+                const expression = gtk.valueGetExpression(value);
+                setter(object, expression);
+            }
+        }
+
+        fn newParamSpec() *gobject.ParamSpec {
+            const flags: gobject.ParamFlags = .{
+                .readable = options.accessor.getter != null,
+                .writable = options.accessor.setter != null,
+                .construct = options.construct,
+                .construct_only = options.construct_only,
+                .lax_validation = options.lax_validation,
+                .explicit_notify = options.explicit_notify,
+                .deprecated = options.deprecated,
+                // Since the name and options are comptime, we can set these flags
+                // unconditionally.
+                .static_name = true,
+                .static_nick = true,
+                .static_blurb = true,
+            };
+
+            return gtk.paramSpecExpression(
+                name,
+                options.nick orelse "",
+                options.nick orelse "",
+                flags,
+            );
+        }
+    };
+}
+
 test {
     _ = actions;
 }
