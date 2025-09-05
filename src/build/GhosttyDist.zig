@@ -20,11 +20,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
     // Get the resources we're going to inject into the source tarball.
     const alloc = b.allocator;
     var resources: std.ArrayListUnmanaged(Resource) = .empty;
-    {
-        const gtk = SharedDeps.gtkDistResources(b);
-        try resources.append(alloc, gtk.resources_c);
-        try resources.append(alloc, gtk.resources_h);
-    }
+    try resources.append(alloc, SharedDeps.gtkDistResources(b));
 
     // git archive to create the final tarball. "git archive" is the
     // easiest way I can find to create a tarball that ignores stuff

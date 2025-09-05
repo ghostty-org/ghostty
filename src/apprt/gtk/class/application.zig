@@ -1673,19 +1673,20 @@ pub const Application = extern struct {
 
         fn init(class: *Class) callconv(.c) void {
             // Register our compiled resources exactly once.
-            {
-                const c = @cImport({
-                    // generated header files
-                    @cInclude("ghostty_resources.h");
+            const gresource = @embedFile("gresource");
+            const bytes = glib.Bytes.newStatic(gresource, gresource.len);
+
+            var err: ?*glib.Error = null;
+            if (gio.Resource.newFromData(bytes, &err)) |resource| {
+                gio.resourcesRegister(resource);
+            } else {
+                // If we fail to load resources then things will
+                // probably look really bad but it shouldn't stop our
+                // app from loading.
+                log.warn("unable to load resources={?s} ({})", .{
+                    err.?.f_message,
+                    err.?.f_code,
                 });
-                if (c.ghostty_get_resource()) |ptr| {
-                    gio.resourcesRegister(@ptrCast(@alignCast(ptr)));
-                } else {
-                    // If we fail to load resources then things will
-                    // probably look really bad but it shouldn't stop our
-                    // app from loading.
-                    log.warn("unable to load resources", .{});
-                }
             }
 
             // Properties
