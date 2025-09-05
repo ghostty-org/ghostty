@@ -51,7 +51,7 @@ pub const Line = opaque {
     }
 
     pub fn getGlyphRuns(self: *Line) *foundation.Array {
-        return @constCast(@ptrCast(c.CTLineGetGlyphRuns(@ptrCast(self))));
+        return @ptrCast(@constCast(c.CTLineGetGlyphRuns(@ptrCast(self))));
     }
 };
 
