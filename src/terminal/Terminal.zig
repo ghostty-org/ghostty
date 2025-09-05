@@ -391,6 +391,15 @@ pub fn print(self: *Terminal, c: u21) !void {
                         const cell = self.screen.cursorCellLeft(prev.left - 1);
                         cell.wide = .narrow;
 
+                        // Back track the cursor so that we don't end up with
+                        // an extra space after the character. Since xterm is
+                        // not VS aware, it cannot be used as a reference for
+                        // this behavior; but it does follow the principle of
+                        // least surprise, and also matches the behavior that
+                        // can be observed in Kitty, which is one of the only
+                        // other VS aware terminals.
+                        self.cursorLeft(1);
+
                         break :narrow;
                     },
 
