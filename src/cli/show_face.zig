@@ -123,9 +123,7 @@ fn runArgs(
             inner: inline for (@typeInfo(Options).@"struct".fields) |field| {
                 if (field.name[0] == '_') continue :inner;
                 if (std.mem.eql(u8, field.name, diagnostic.key)) {
-                    try stderr.writeAll("config error: ");
-                    try diagnostic.write(stderr);
-                    try stderr.writeAll("\n");
+                    try stderr.print("config error: {f}\n", .{diagnostic});
                     exit = true;
                 }
             }
@@ -157,9 +155,7 @@ fn runArgs(
                 if (field.name[0] == '_') continue :inner;
                 if (std.mem.eql(u8, field.name, diagnostic.key) and (diagnostic.location == .none or diagnostic.location == .cli)) continue :outer;
             }
-            try stderr.writeAll("config error: ");
-            try diagnostic.write(stderr);
-            try stderr.writeAll("\n");
+            try stderr.print("config error: {f}\n", .{diagnostic});
         }
     }
 

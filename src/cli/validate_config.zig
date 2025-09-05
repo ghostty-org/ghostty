@@ -70,15 +70,9 @@ fn runInner(
     try cfg.finalize();
 
     if (cfg._diagnostics.items().len > 0) {
-        var stream: std.Io.Writer.Allocating = .init(alloc);
-        defer stream.deinit();
-
         for (cfg._diagnostics.items()) |diag| {
-            try diag.write(&stream.writer);
-            try stdout.print("{s}\n", .{stream.written()});
-            stream.clearRetainingCapacity();
+            try stdout.print("{f}\n", .{diag});
         }
-
         return 1;
     }
 

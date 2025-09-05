@@ -63,10 +63,20 @@ pub fn main() !void {
     ) = .{};
 
     const t = try gen.generate(alloc);
-    defer alloc.free(t.stage1);
-    defer alloc.free(t.stage2);
-    defer alloc.free(t.stage3);
-    try t.writeZig(std.io.getStdOut().writer());
+    defer {
+        alloc.free(t.stage1);
+        alloc.free(t.stage2);
+        alloc.free(t.stage3);
+    }
+
+    var buffer: [4096]u8 = undefined;
+    var stdout = std.fs.File.stdout().writer(&buffer);
+    const writer = &stdout.interface;
+
+    try t.writeZig(writer);
+
+    // Don't forget to flush!
+    try writer.flush();
 
     // Uncomment when manually debugging to see our table sizes.
     // std.log.warn("stage1={} stage2={} stage3={}", .{

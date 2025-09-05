@@ -33,7 +33,7 @@ pub fn HashMap(
 ) type {
     return struct {
         const Self = @This();
-        const Map = std.HashMapUnmanaged(K, *Queue.Node, Context, max_load_percentage);
+        const Map = std.HashMapUnmanaged(K, *Node, Context, max_load_percentage);
         const Queue = std.DoublyLinkedList;
 
         /// Map to maintain our entries.
@@ -51,15 +51,14 @@ pub fn HashMap(
             value: V,
         };
 
-        const QueueNode = struct {
+        const Node = struct {
             data: KV,
-            node: Queue.Node,
-        };
+            qnode: Queue.Node,
 
-        fn getData(node: *Queue.Node) *KV {
-            const qnode: *QueueNode = @fieldParentPtr("node", node);
-            return &qnode.data;
-        }
+            fn fromQnode(node: *Queue.Node) *Node {
+                return @fieldParentPtr("qnode", node);
+            }
+        };
 
         /// The result of a getOrPut operation.
         pub const GetOrPutResult = struct {
@@ -92,7 +91,7 @@ pub fn HashMap(
             var it = self.queue.first;
             while (it) |node| {
                 it = node.next;
-                alloc.destroy(node);
+                alloc.destroy(Node.fromQnode(node));
             }
 
             self.map.deinit(alloc);
@@ -118,12 +117,12 @@ pub fn HashMap(
             const map_gop = try self.map.getOrPutContext(alloc, key, ctx);
             if (map_gop.found_existing) {
                 // Move to end to mark as most recently used
-                self.queue.remove(map_gop.value_ptr.*);
-                self.queue.append(map_gop.value_ptr.*);
+                self.queue.remove(&map_gop.value_ptr.*.qnode);
+                self.queue.append(&map_gop.value_ptr.*.qnode);
 
-                return GetOrPutResult{
+                return .{
                     .found_existing = true,
-                    .value_ptr = &getData(map_gop.value_ptr.*).value,
+                    .value_ptr = &map_gop.value_ptr.*.data.value,
                     .evicted = null,
                 };
             }
@@ -135,17 +134,14 @@ pub fn HashMap(
             // Get our node. If we're not evicting then we allocate a new
             // node. If we are evicting then we avoid allocation by just
             // reusing the node we would've evicted.
-            const node = if (!evict) try alloc.create(Queue.Node) else node: {
+            const node = if (!evict) try alloc.create(Node) else node: {
                 // Our first node is the least recently used.
-                const least_used = self.queue.first.?;
-
                 // Move our least recently used to the end to make
                 // it the most recently used.
-                self.queue.remove(least_used);
+                const least_used: *Node = .fromQnode(self.queue.popFirst().?);
 
                 // Remove the least used from the map
-                _ = self.map.remove(getData(least_used).key);
-
+                _ = self.map.remove(least_used.data.key);
                 break :node least_used;
             };
             errdefer if (!evict) alloc.destroy(node);
@@ -154,15 +150,15 @@ pub fn HashMap(
             map_gop.value_ptr.* = node;
 
             // Mark the node as most recently used
-            self.queue.append(node);
+            self.queue.append(&node.qnode);
 
             // Set our key
-            getData(node).key = key;
+            node.data.key = key;
 
-            return GetOrPutResult{
+            return .{
                 .found_existing = map_gop.found_existing,
-                .value_ptr = &getData(node).value,
-                .evicted = if (!evict) null else getData(node).*,
+                .value_ptr = &node.data.value,
+                .evicted = if (!evict) null else node.data,
             };
         }
 
@@ -177,7 +173,7 @@ pub fn HashMap(
         /// See get
         pub fn getContext(self: *const Self, key: K, ctx: Context) ?V {
             const node = self.map.getContext(key, ctx) orelse return null;
-            return getData(node).value;
+            return node.data.value;
         }
 
         /// Resize the LRU. If this shrinks the LRU then LRU items will be
@@ -203,11 +199,10 @@ pub fn HashMap(
 
             var i: Map.Size = 0;
             while (i < delta) : (i += 1) {
-                const node = self.queue.first.?;
-                const data = getData(node);
-                evicted[i] = data.value;
-                self.queue.remove(node);
-                _ = self.map.remove(data.key);
+                const qnode = self.queue.popFirst().?;
+                const node: *Node = .fromQnode(qnode);
+                evicted[i] = node.data.value;
+                _ = self.map.remove(node.data.key);
                 alloc.destroy(node);
             }
 
@@ -220,7 +215,6 @@ pub fn HashMap(
 }
 
 test "getOrPut" {
-    if (true) return error.SkipZigTest;
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -269,7 +263,6 @@ test "getOrPut" {
 }
 
 test "get" {
-    if (true) return error.SkipZigTest;
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -291,7 +284,6 @@ test "get" {
 }
 
 test "resize shrink without removal" {
-    if (true) return error.SkipZigTest;
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -317,7 +309,6 @@ test "resize shrink without removal" {
 }
 
 test "resize shrink and remove" {
-    if (true) return error.SkipZigTest;
     const testing = std.testing;
     const alloc = testing.allocator;
 
