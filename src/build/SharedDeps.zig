@@ -551,7 +551,7 @@ pub fn add(
 
         switch (self.config.app_runtime) {
             .none => {},
-            .gtk => try self.addGtkNg(step),
+            .gtk => try self.addGtk(step),
         }
     }
 
@@ -563,7 +563,7 @@ pub fn add(
 }
 
 /// Setup the dependencies for the GTK apprt build.
-fn addGtkNg(
+fn addGtk(
     self: *const SharedDeps,
     step: *std.Build.Step.Compile,
 ) !void {
@@ -689,14 +689,14 @@ fn addGtkNg(
 
     {
         // Get our gresource c/h files and add them to our build.
-        const dist = gtkNgDistResources(b);
+        const dist = gtkDistResources(b);
         step.addCSourceFile(.{ .file = dist.resources_c.path(b), .flags = &.{} });
         step.addIncludePath(dist.resources_h.path(b).dirname());
     }
 }
 
 /// Creates the resources that can be prebuilt for our dist build.
-pub fn gtkNgDistResources(
+pub fn gtkDistResources(
     b: *std.Build,
 ) struct {
     resources_c: DistResource,
