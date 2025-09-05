@@ -123,6 +123,8 @@ pub fn open(
             theme,
             diags,
         ) orelse return null;
+        errdefer file.close();
+
         const stat = file.stat() catch |err| {
             try diags.append(arena_alloc, .{
                 .message = try std.fmt.allocPrintSentinel(

@@ -170,9 +170,8 @@ fn logFn(
 
             nosuspend writer.print(level_txt ++ prefix ++ format ++ "\n", args) catch return;
 
-            // Intentionally don't flush the log output.
-            // We want it to be fast and if it's not completely up to date,
-            // that's okay!
+            // TODO: Do we want to use flushless stderr in the future?
+            writer.flush() catch {};
         },
     }
 }
