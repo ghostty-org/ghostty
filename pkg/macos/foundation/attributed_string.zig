@@ -10,7 +10,7 @@ pub const AttributedString = opaque {
         str: *foundation.String,
         attributes: *foundation.Dictionary,
     ) Allocator.Error!*AttributedString {
-        return @constCast(@ptrCast(c.CFAttributedStringCreate(
+        return @ptrCast(@constCast(c.CFAttributedStringCreate(
             null,
             @ptrCast(str),
             @ptrCast(attributes),

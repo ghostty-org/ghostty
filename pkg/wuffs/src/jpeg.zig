@@ -31,7 +31,7 @@ pub fn decode(alloc: Allocator, data: []const u8) Error!ImageData {
     }
 
     var source_buffer: c.wuffs_base__io_buffer = .{
-        .data = .{ .ptr = @constCast(@ptrCast(data.ptr)), .len = data.len },
+        .data = .{ .ptr = @ptrCast(@constCast(data.ptr)), .len = data.len },
         .meta = .{
             .wi = data.len,
             .ri = 0,

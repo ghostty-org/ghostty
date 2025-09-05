@@ -172,7 +172,7 @@ pub const ResizeOverlay = extern struct {
     /// overlay if it is currently hidden; you must call schedule.
     pub fn setLabel(self: *Self, label: ?[:0]const u8) void {
         const priv = self.private();
-        if (priv.label_text) |v| glib.free(@constCast(@ptrCast(v)));
+        if (priv.label_text) |v| glib.free(@ptrCast(@constCast(v)));
         priv.label_text = null;
         if (label) |v| priv.label_text = glib.ext.dupeZ(u8, v);
         self.as(gobject.Object).notifyByPspec(properties.label.impl.param_spec);
@@ -285,7 +285,7 @@ pub const ResizeOverlay = extern struct {
     fn finalize(self: *Self) callconv(.c) void {
         const priv = self.private();
         if (priv.label_text) |v| {
-            glib.free(@constCast(@ptrCast(v)));
+            glib.free(@ptrCast(@constCast(v)));
             priv.label_text = null;
         }
 
