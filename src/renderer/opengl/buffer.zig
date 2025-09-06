@@ -94,7 +94,7 @@ pub fn Buffer(comptime T: type) type {
 
         /// Like Buffer.sync but takes data from an array of ArrayLists,
         /// rather than a single array. Returns the number of items synced.
-        pub fn syncFromArrayLists(self: *Self, lists: []const std.ArrayListUnmanaged(T)) !usize {
+        pub fn syncFromArrayLists(self: *Self, lists: []const std.ArrayList(T)) !usize {
             const binding = try self.buffer.bind(self.opts.target);
             defer binding.unbind();
 

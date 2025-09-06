@@ -26,7 +26,7 @@ pub fn getRuntimeVersion() std.SemanticVersion {
 }
 
 pub fn logVersion() void {
-    log.info("GTK version build={} runtime={}", .{
+    log.info("GTK version build={f} runtime={f}", .{
         comptime_version,
         getRuntimeVersion(),
     });

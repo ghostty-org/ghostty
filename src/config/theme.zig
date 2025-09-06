@@ -123,12 +123,15 @@ pub fn open(
             theme,
             diags,
         ) orelse return null;
+        errdefer file.close();
+
         const stat = file.stat() catch |err| {
             try diags.append(arena_alloc, .{
-                .message = try std.fmt.allocPrintZ(
+                .message = try std.fmt.allocPrintSentinel(
                     arena_alloc,
                     "not reading theme from \"{s}\": {}",
                     .{ theme, err },
+                    0,
                 ),
             });
             return null;
@@ -137,10 +140,11 @@ pub fn open(
             .file => {},
             else => {
                 try diags.append(arena_alloc, .{
-                    .message = try std.fmt.allocPrintZ(
+                    .message = try std.fmt.allocPrintSentinel(
                         arena_alloc,
-                        "not reading theme from \"{s}\": it is a {s}",
-                        .{ theme, @tagName(stat.kind) },
+                        "not reading theme from \"{s}\": it is a {t}",
+                        .{ theme, stat.kind },
+                        0,
                     ),
                 });
                 return null;
@@ -152,10 +156,11 @@ pub fn open(
     const basename = std.fs.path.basename(theme);
     if (!std.mem.eql(u8, theme, basename)) {
         try diags.append(arena_alloc, .{
-            .message = try std.fmt.allocPrintZ(
+            .message = try std.fmt.allocPrintSentinel(
                 arena_alloc,
                 "theme \"{s}\" cannot include path separators unless it is an absolute path",
                 .{theme},
+                0,
             ),
         });
         return null;
@@ -170,10 +175,11 @@ pub fn open(
         if (cwd.openFile(path, .{})) |file| {
             const stat = file.stat() catch |err| {
                 try diags.append(arena_alloc, .{
-                    .message = try std.fmt.allocPrintZ(
+                    .message = try std.fmt.allocPrintSentinel(
                         arena_alloc,
                         "not reading theme from \"{s}\": {}",
                         .{ theme, err },
+                        0,
                     ),
                 });
                 return null;
@@ -182,10 +188,11 @@ pub fn open(
                 .file => {},
                 else => {
                     try diags.append(arena_alloc, .{
-                        .message = try std.fmt.allocPrintZ(
+                        .message = try std.fmt.allocPrintSentinel(
                             arena_alloc,
-                            "not reading theme from \"{s}\": it is a {s}",
-                            .{ theme, @tagName(stat.kind) },
+                            "not reading theme from \"{s}\": it is a {t}",
+                            .{ theme, stat.kind },
+                            0,
                         ),
                     });
                     return null;
@@ -202,10 +209,11 @@ pub fn open(
             // Anything else is an error we log and give up on.
             else => {
                 try diags.append(arena_alloc, .{
-                    .message = try std.fmt.allocPrintZ(
+                    .message = try std.fmt.allocPrintSentinel(
                         arena_alloc,
                         "failed to load theme \"{s}\" from the file \"{s}\": {}",
                         .{ theme, path, err },
+                        0,
                     ),
                 });
 
@@ -222,10 +230,11 @@ pub fn open(
     while (try it.next()) |loc| {
         const path = try std.fs.path.join(arena_alloc, &.{ loc.dir, theme });
         try diags.append(arena_alloc, .{
-            .message = try std.fmt.allocPrintZ(
+            .message = try std.fmt.allocPrintSentinel(
                 arena_alloc,
                 "theme \"{s}\" not found, tried path \"{s}\"",
                 .{ theme, path },
+                0,
             ),
         });
     }
@@ -249,17 +258,19 @@ pub fn openAbsolute(
     return std.fs.openFileAbsolute(theme, .{}) catch |err| {
         switch (err) {
             error.FileNotFound => try diags.append(arena_alloc, .{
-                .message = try std.fmt.allocPrintZ(
+                .message = try std.fmt.allocPrintSentinel(
                     arena_alloc,
                     "failed to load theme from the path \"{s}\"",
                     .{theme},
+                    0,
                 ),
             }),
             else => try diags.append(arena_alloc, .{
-                .message = try std.fmt.allocPrintZ(
+                .message = try std.fmt.allocPrintSentinel(
                     arena_alloc,
                     "failed to load theme from the path \"{s}\": {}",
                     .{ theme, err },
+                    0,
                 ),
             }),
         }

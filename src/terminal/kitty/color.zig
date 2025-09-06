@@ -9,9 +9,10 @@ pub const OSC = struct {
         set: struct { key: Kind, color: RGB },
         reset: Kind,
     };
+    alloc: std.mem.Allocator,
 
     /// list of requests
-    list: std.ArrayList(Request),
+    list: std.ArrayList(Request) = .empty,
 
     /// We must reply with the same string terminator (ST) as used in the
     /// request.
@@ -42,16 +43,11 @@ pub const Kind = union(enum) {
 
     pub fn format(
         self: Kind,
-        comptime layout: []const u8,
-        opts: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = layout;
-        _ = opts;
-
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
         switch (self) {
             .palette => |p| try writer.print("{d}", .{p}),
-            .special => |s| try writer.print("{s}", .{@tagName(s)}),
+            .special => |s| try writer.print("{t}", .{s}),
         }
     }
 };
@@ -61,11 +57,11 @@ test "OSC: kitty color protocol kind string" {
 
     var buf: [256]u8 = undefined;
     {
-        const actual = try std.fmt.bufPrint(&buf, "{}", .{Kind{ .special = .foreground }});
+        const actual = try std.fmt.bufPrint(&buf, "{f}", .{Kind{ .special = .foreground }});
         try testing.expectEqualStrings("foreground", actual);
     }
     {
-        const actual = try std.fmt.bufPrint(&buf, "{}", .{Kind{ .palette = 42 }});
+        const actual = try std.fmt.bufPrint(&buf, "{f}", .{Kind{ .palette = 42 }});
         try testing.expectEqualStrings("42", actual);
     }
 }

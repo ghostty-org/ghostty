@@ -28,8 +28,8 @@ pub const Shaper = struct {
     /// The shared memory used for shaping results.
     cell_buf: CellBuf,
 
-    const CellBuf = std.ArrayListUnmanaged(font.shape.Cell);
-    const CodepointList = std.ArrayListUnmanaged(Codepoint);
+    const CellBuf = std.ArrayList(font.shape.Cell);
+    const CodepointList = std.ArrayList(Codepoint);
     const Codepoint = struct {
         codepoint: u32,
         cluster: u32,

@@ -21,6 +21,8 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
             .omit_frame_pointer = cfg.strip,
             .unwind_tables = if (cfg.strip) .none else .sync,
         }),
+        // FIXME: the x86 linker does NOT link dylibs properly yet.
+        .use_llvm = true,
     });
     const install_step = b.addInstallArtifact(exe, .{});
 
