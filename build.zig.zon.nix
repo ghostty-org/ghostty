@@ -5,7 +5,7 @@
   fetchurl,
   fetchgit,
   runCommandLocal,
-  zig_0_14,
+  zig_0_15,
   name ? "zig-packages",
 }: let
   unpackZigArtifact = {
@@ -14,7 +14,7 @@
   }:
     runCommandLocal name
     {
-      nativeBuildInputs = [zig_0_14];
+      nativeBuildInputs = [zig_0_15];
     }
     ''
       hash="$(zig fetch --global-cache-dir "$TMPDIR" ${artifact})"
