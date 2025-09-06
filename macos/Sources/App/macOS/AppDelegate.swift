@@ -119,6 +119,9 @@ class AppDelegate: NSObject,
     @Published private(set) var appIcon: NSImage? = nil {
         didSet {
             NSApplication.shared.applicationIconImage = appIcon
+            let appPath = Bundle.main.bundlePath
+            NSWorkspace.shared.setIcon(appIcon, forFile: appPath, options: [])
+            NSWorkspace.shared.noteFileSystemChanged(appPath)
         }
     }
 
@@ -255,13 +258,13 @@ class AppDelegate: NSObject,
 
         // Setup signal handlers
         setupSignals()
-        
+
         // If we launched via zig run then we need to force foreground.
         if Ghostty.launchSource == .zig_run {
             // This never gets called until we click the dock icon. This forces it
             // activate immediately.
             applicationDidBecomeActive(.init(name: NSApplication.didBecomeActiveNotification))
-            
+
             // We run in the background, this forces us to the front.
             DispatchQueue.main.async {
                 NSApp.setActivationPolicy(.regular)
@@ -391,34 +394,69 @@ class AppDelegate: NSObject,
         // Ghostty will validate as well but we can avoid creating an entirely new
         // surface by doing our own validation here. We can also show a useful error
         // this way.
-
+        
         var isDirectory = ObjCBool(true)
         guard FileManager.default.fileExists(atPath: filename, isDirectory: &isDirectory) else { return false }
-
+        
+        // Set to true if confirmation is required before starting up the
+        // new terminal.
+        var requiresConfirm: Bool = false
+        
         // Initialize the surface config which will be used to create the tab or window for the opened file.
         var config = Ghostty.SurfaceConfiguration()
-
+        
         if (isDirectory.boolValue) {
-            // When opening a directory, create a new tab in the main
-            // window with that as the working directory.
-            // If no windows exist, a new one will be created.
+            // When opening a directory, check the configuration to decide
+            // whether to open in a new tab or new window.
             config.workingDirectory = filename
-            _ = TerminalController.newTab(ghostty, withBaseConfig: config)
         } else {
+            // Unconditionally require confirmation in the file execution case.
+            // In the future I have ideas about making this more fine-grained if
+            // we can not inherit of unsandboxed state. For now, we need to confirm
+            // because there is a sandbox escape possible if a sandboxed application
+            // somehow is tricked into `open`-ing a non-sandboxed application.
+            requiresConfirm = true
+            
             // When opening a file, we want to execute the file. To do this, we
             // don't override the command directly, because it won't load the
             // profile/rc files for the shell, which is super important on macOS
             // due to things like Homebrew. Instead, we set the command to
             // `<filename>; exit` which is what Terminal and iTerm2 do.
             config.initialInput = "\(filename); exit\n"
-
+            
+            // For commands executed directly, we want to ensure we wait after exit
+            // because in most cases scripts don't block on exit and we don't want
+            // the window to just flash closed once complete.
+            config.waitAfterCommand = true
+            
             // Set the parent directory to our working directory so that relative
             // paths in scripts work.
             config.workingDirectory = (filename as NSString).deletingLastPathComponent
-
-            _ = TerminalController.newWindow(ghostty, withBaseConfig: config)
         }
-
+        
+        if requiresConfirm {
+            // Confirmation required. We use an app-wide NSAlert for now. In the future we
+            // may want to show this as a sheet on the focused window (especially if we're
+            // opening a tab). I'm not sure.
+            let alert = NSAlert()
+            alert.messageText = "Allow Ghostty to execute \"\(filename)\"?"
+            alert.addButton(withTitle: "Allow")
+            alert.addButton(withTitle: "Cancel")
+            alert.alertStyle = .warning
+            switch (alert.runModal()) {
+            case .alertFirstButtonReturn:
+                break
+                
+            default:
+                return false
+            }
+        }
+        
+        switch ghostty.config.macosDockDropBehavior {
+        case .new_tab: _ = TerminalController.newTab(ghostty, withBaseConfig: config)
+        case .new_window: _ = TerminalController.newWindow(ghostty, withBaseConfig: config)
+        }
+        
         return true
     }
 
@@ -471,6 +509,7 @@ class AppDelegate: NSObject,
         self.menuSplitUp?.setImageIfDesired(systemSymbolName: "rectangle.tophalf.inset.filled")
         self.menuSplitDown?.setImageIfDesired(systemSymbolName: "rectangle.bottomhalf.inset.filled")
         self.menuClose?.setImageIfDesired(systemSymbolName: "xmark")
+        self.menuPasteSelection?.setImageIfDesired(systemSymbolName: "doc.on.clipboard.fill")
         self.menuIncreaseFontSize?.setImageIfDesired(systemSymbolName: "textformat.size.larger")
         self.menuResetFontSize?.setImageIfDesired(systemSymbolName: "textformat.size")
         self.menuDecreaseFontSize?.setImageIfDesired(systemSymbolName: "textformat.size.smaller")
@@ -492,7 +531,7 @@ class AppDelegate: NSObject,
         self.menuMoveSplitDividerDown?.setImageIfDesired(systemSymbolName: "arrow.down.to.line")
         self.menuMoveSplitDividerLeft?.setImageIfDesired(systemSymbolName: "arrow.left.to.line")
         self.menuMoveSplitDividerRight?.setImageIfDesired(systemSymbolName: "arrow.right.to.line")
-        self.menuFloatOnTop?.setImageIfDesired(systemSymbolName: "square.3.layers.3d.top.filled")
+        self.menuFloatOnTop?.setImageIfDesired(systemSymbolName: "square.filled.on.square")
     }
 
     /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.
@@ -833,6 +872,13 @@ class AppDelegate: NSObject,
         case .xray:
             self.appIcon = NSImage(named: "XrayImage")!
 
+        case .custom:
+            if let userIcon = NSImage(contentsOfFile: config.macosCustomIcon) {
+                self.appIcon = userIcon
+            } else {
+                self.appIcon = nil // Revert back to official icon if invalid location
+            }
+
         case .customStyle:
             guard let ghostColor = config.macosIconGhostColor else { break }
             guard let screenColors = config.macosIconScreenColor else { break }
@@ -891,7 +937,7 @@ class AppDelegate: NSObject,
     func findSurface(forUUID uuid: UUID) -> Ghostty.SurfaceView? {
         for c in TerminalController.all {
             for view in c.surfaceTree {
-                if view.uuid == uuid {
+                if view.id == uuid {
                     return view
                 }
             }
@@ -945,18 +991,10 @@ class AppDelegate: NSObject,
 
     @IBAction func newWindow(_ sender: Any?) {
         _ = TerminalController.newWindow(ghostty)
-
-        // We also activate our app so that it becomes front. This may be
-        // necessary for the dock menu.
-        NSApp.activate(ignoringOtherApps: true)
     }
 
     @IBAction func newTab(_ sender: Any?) {
         _ = TerminalController.newTab(ghostty)
-
-        // We also activate our app so that it becomes front. This may be
-        // necessary for the dock menu.
-        NSApp.activate(ignoringOtherApps: true)
     }
 
     @IBAction func closeAllWindows(_ sender: Any?) {

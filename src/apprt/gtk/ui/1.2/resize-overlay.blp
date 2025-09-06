@@ -1,0 +1,27 @@
+using Gtk 4.0;
+using Adw 1;
+// We can't inherit directly from Label because its an opaque
+// type in zig-gobject.
+template $GhosttyResizeOverlay: Adw.Bin {
+  visible: false;
+  duration: 750;
+  first-delay: 250;
+  overlay-halign: center;
+  overlay-valign: center;
+  // See surface.blp for why we need to wrap this.
+  Adw.Bin {
+    Label label {
+      styles [
+        "background",
+        "resize-overlay",
+      ]
+
+      focusable: false;
+      focus-on-click: false;
+      justify: center;
+      selectable: false;
+      halign: bind template.overlay-halign;
+      valign: bind template.overlay-valign;
+    }
+  }
+}

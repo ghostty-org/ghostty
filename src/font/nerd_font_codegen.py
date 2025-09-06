@@ -9,7 +9,7 @@ be safe and not malicious or anything.
 
 This script requires Python 3.12 or greater, requires that the `fontTools`
 python module is installed, and requires that the path to a copy of the
-SymbolsNerdFontMono font is passed as the first argument to the script.
+SymbolsNerdFont (not Mono!) font is passed as the first argument to it.
 """
 
 import ast
@@ -351,8 +351,8 @@ if __name__ == "__main__":
 const Constraint = @import("face.zig").RenderOptions.Constraint;
 
 /// Get the a constraints for the provided codepoint.
-pub fn getConstraint(cp: u21) Constraint {
+pub fn getConstraint(cp: u21) ?Constraint {
     return switch (cp) {
 """)
         f.write(generate_zig_switch_arms(patch_set, nerd_font))
-        f.write("\n        else => .none,\n    };\n}\n")
+        f.write("\n        else => null,\n    };\n}\n")

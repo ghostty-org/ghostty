@@ -166,7 +166,7 @@ pub fn main() !void {
 
 // This is not very fast in debug modes, so its commented by default.
 // IMPORTANT: UNCOMMENT THIS WHENEVER MAKING CODEPOINTWIDTH CHANGES.
-// test "tables match ziglyph" {
+// test "unicode props: tables match ziglyph" {
 //     const testing = std.testing;
 //
 //     const min = 0xFF + 1; // start outside ascii

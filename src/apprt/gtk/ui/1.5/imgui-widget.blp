@@ -1,0 +1,51 @@
+using Gtk 4.0;
+using Adw 1;
+
+template $GhosttyImguiWidget: Adw.Bin {
+  styles [
+    "imgui",
+  ]
+
+  Adw.Bin {
+    Gtk.GLArea gl_area {
+      auto-render: true;
+      // needs to be focusable so that we can receive events
+      focusable: true;
+      focus-on-click: true;
+      allowed-apis: gl;
+      realize => $realize();
+      unrealize => $unrealize();
+      resize => $resize();
+      render => $render();
+
+      EventControllerFocus {
+        enter => $focus_enter();
+        leave => $focus_leave();
+      }
+
+      EventControllerKey {
+        key-pressed => $key_pressed();
+        key-released => $key_released();
+      }
+
+      GestureClick {
+        pressed => $mouse_pressed();
+        released => $mouse_released();
+        button: 0;
+      }
+
+      EventControllerMotion {
+        motion => $mouse_motion();
+      }
+
+      EventControllerScroll {
+        scroll => $scroll();
+        flags: both_axes;
+      }
+    }
+  }
+}
+
+IMMulticontext im_context {
+  commit => $im_commit();
+}

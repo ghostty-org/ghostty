@@ -2,23 +2,34 @@
 /// each individual surface into its own cgroup.
 const std = @import("std");
 const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
 
 const gio = @import("gio");
 const glib = @import("glib");
 const gobject = @import("gobject");
 
-const Allocator = std.mem.Allocator;
 const App = @import("App.zig");
 const internal_os = @import("../../os/main.zig");
 
 const log = std.log.scoped(.gtk_systemd_cgroup);
 
+pub const Options = struct {
+    memory_high: ?u64 = null,
+    pids_max: ?u64 = null,
+};
+
 /// Initialize the cgroup for the app. This will create our
 /// transient scope, initialize the cgroups we use for the app,
 /// configure them, and return the cgroup path for the app.
-pub fn init(app: *App) ![]const u8 {
+///
+/// Returns the path of the current cgroup for the app, which is
+/// allocated with the given allocator.
+pub fn init(
+    alloc: Allocator,
+    dbus: *gio.DBusConnection,
+    opts: Options,
+) ![]const u8 {
     const pid = std.os.linux.getpid();
-    const alloc = app.core_app.alloc;
 
     // Get our initial cgroup. We need this so we can compare
     // and detect when we've switched to our transient group.
@@ -31,7 +42,7 @@ pub fn init(app: *App) ![]const u8 {
     // Create our transient scope. If this succeeds then the unit
     // was created, but we may not have moved into it yet, so we need
     // to do a dumb busy loop to wait for the move to complete.
-    try createScope(app, pid);
+    try createScope(dbus, pid);
     const transient = transient: while (true) {
         const current = try internal_os.cgroup.current(
             alloc,
@@ -67,7 +78,7 @@ pub fn init(app: *App) ![]const u8 {
     // of "max" because it's a soft limit that can be exceeded and
     // can be monitored by things like systemd-oomd to kill if needed,
     // versus an instant hard kill.
-    if (app.config.@"linux-cgroup-memory-limit") |limit| {
+    if (opts.memory_high) |limit| {
         try internal_os.cgroup.configureLimit(surfaces, .{
             .memory_high = limit,
         });
@@ -75,7 +86,7 @@ pub fn init(app: *App) ![]const u8 {
 
     // Configure the "max" pids limit. This is a hard limit and cannot be
     // exceeded.
-    if (app.config.@"linux-cgroup-processes-limit") |limit| {
+    if (opts.pids_max) |limit| {
         try internal_os.cgroup.configureLimit(surfaces, .{
             .pids_max = limit,
         });
@@ -108,15 +119,12 @@ fn enableControllers(alloc: Allocator, cgroup: []const u8) !void {
     );
 }
 
-/// Create a transient systemd scope unit for the current process.
-///
-/// On success this will return the name of the transient scope
-/// cgroup prefix, allocated with the given allocator.
-fn createScope(app: *App, pid_: std.os.linux.pid_t) !void {
-    const gio_app = app.app.as(gio.Application);
-    const connection = gio_app.getDbusConnection() orelse
-        return error.DbusConnectionRequired;
-
+/// Create a transient systemd scope unit for the current process and
+/// move our process into it.
+fn createScope(
+    dbus: *gio.DBusConnection,
+    pid_: std.os.linux.pid_t,
+) !void {
     const pid: u32 = @intCast(pid_);
 
     // The unit name needs to be unique. We use the pid for this.
@@ -180,7 +188,7 @@ fn createScope(app: *App, pid_: std.os.linux.pid_t) !void {
 
     const value = builder.end();
 
-    const reply = connection.callSync(
+    const reply = dbus.callSync(
         "org.freedesktop.systemd1",
         "/org/freedesktop/systemd1",
         "org.freedesktop.systemd1.Manager",

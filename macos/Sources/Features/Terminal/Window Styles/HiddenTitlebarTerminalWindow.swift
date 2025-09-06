@@ -31,9 +31,16 @@ class HiddenTitlebarTerminalWindow: TerminalWindow {
         .closable,
         .miniaturizable,
     ]
-
+    
     /// Apply the hidden titlebar style.
     private func reapplyHiddenStyle() {
+        // If our window is fullscreen then we don't reapply the hidden style because
+        // it can result in messing up non-native fullscreen. See:
+        // https://github.com/ghostty-org/ghostty/issues/8415
+        if terminalController?.fullscreenStyle?.isFullscreen ?? false {
+            return
+        }
+        
         // Apply our style mask while preserving the .fullScreen option
         if styleMask.contains(.fullScreen) {
             styleMask = Self.hiddenStyleMask.union([.fullScreen])

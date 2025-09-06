@@ -134,7 +134,7 @@ pub const Parser = struct {
                 self.idx += 1;
                 return .{ .unknown = .{
                     .full = self.params,
-                    .partial = slice[0 .. self.idx - start + 1],
+                    .partial = slice[0..@min(self.idx - start + 1, slice.len)],
                 } };
             },
         };

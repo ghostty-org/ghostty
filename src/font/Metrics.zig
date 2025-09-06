@@ -38,6 +38,10 @@ cursor_height: u32,
 /// The constraint height for nerd fonts icons.
 icon_height: u32,
 
+/// Original cell width in pixels. This is used to keep
+/// glyphs centered if the cell width is adjusted wider.
+original_cell_width: ?u32 = null,
+
 /// Minimum acceptable values for some fields to prevent modifiers
 /// from being able to, for example, cause 0-thickness underlines.
 const Minimums = struct {
@@ -55,6 +59,11 @@ const Minimums = struct {
 /// Metrics extracted from a font face, based on
 /// the metadata tables and glyph measurements.
 pub const FaceMetrics = struct {
+    /// Pixels per em, dividing the other values in this struct by this should
+    /// yield sizes in ems, to allow comparing metrics from faces of different
+    /// sizes.
+    px_per_em: f64,
+
     /// The minimum cell width that can contain any glyph in the ASCII range.
     ///
     /// Determined by measuring all printable glyphs in the ASCII range.
@@ -120,6 +129,60 @@ pub const FaceMetrics = struct {
     pub inline fn lineHeight(self: FaceMetrics) f64 {
         return self.ascent - self.descent + self.line_gap;
     }
+
+    /// Convenience function for getting the cap height. If this is not
+    /// defined in the font, we estimate it as 75% of the ascent.
+    pub inline fn capHeight(self: FaceMetrics) f64 {
+        if (self.cap_height) |value| if (value > 0) return value;
+        return 0.75 * self.ascent;
+    }
+
+    /// Convenience function for getting the ex height. If this is not
+    /// defined in the font, we estimate it as 75% of the cap height.
+    pub inline fn exHeight(self: FaceMetrics) f64 {
+        if (self.ex_height) |value| if (value > 0) return value;
+        return 0.75 * self.capHeight();
+    }
+
+    /// Convenience function for getting the ideograph width. If this is
+    /// not defined in the font, we estimate it as two cell widths.
+    pub inline fn icWidth(self: FaceMetrics) f64 {
+        if (self.ic_width) |value| if (value > 0) return value;
+        return 2 * self.cell_width;
+    }
+
+    /// Convenience function for getting the underline thickness. If
+    /// this is not defined in the font, we estimate it as 15% of the ex
+    /// height.
+    pub inline fn underlineThickness(self: FaceMetrics) f64 {
+        if (self.underline_thickness) |value| if (value > 0) return value;
+        return 0.15 * self.exHeight();
+    }
+
+    /// Convenience function for getting the strikethrough thickness. If
+    /// this is not defined in the font, we set it equal to the
+    /// underline thickness.
+    pub inline fn strikethroughThickness(self: FaceMetrics) f64 {
+        if (self.strikethrough_thickness) |value| if (value > 0) return value;
+        return self.underlineThickness();
+    }
+
+    // NOTE: The getters below return positions, not sizes, so both
+    // positive and negative values are valid, hence no sign validation.
+
+    /// Convenience function for getting the underline position. If
+    /// this is not defined in the font, we place it one underline
+    /// thickness below the baseline.
+    pub inline fn underlinePosition(self: FaceMetrics) f64 {
+        return self.underline_position orelse -self.underlineThickness();
+    }
+
+    /// Convenience function for getting the strikethrough position. If
+    /// this is not defined in the font, we center it at half the ex
+    /// height, so that it's perfectly centered on lower case text.
+    pub inline fn strikethroughPosition(self: FaceMetrics) f64 {
+        return self.strikethrough_position orelse (self.exHeight() + self.strikethroughThickness()) * 0.5;
+    }
 };
 
 /// Calculate our metrics based on values extracted from a font.
@@ -147,35 +210,13 @@ pub fn calc(face: FaceMetrics) Metrics {
     // We calculate a top_to_baseline to make following calculations simpler.
     const top_to_baseline = cell_height - cell_baseline;
 
-    // If we don't have a provided cap height,
-    // we estimate it as 75% of the ascent.
-    const cap_height = face.cap_height orelse face.ascent * 0.75;
-
-    // If we don't have a provided ex height,
-    // we estimate it as 75% of the cap height.
-    const ex_height = face.ex_height orelse cap_height * 0.75;
-
-    // If we don't have a provided underline thickness,
-    // we estimate it as 15% of the ex height.
-    const underline_thickness = @max(1, @ceil(face.underline_thickness orelse 0.15 * ex_height));
-
-    // If we don't have a provided strikethrough thickness
-    // then we just use the underline thickness for it.
-    const strikethrough_thickness = @max(1, @ceil(face.strikethrough_thickness orelse underline_thickness));
-
-    // If we don't have a provided underline position then
-    // we place it 1 underline-thickness below the baseline.
-    const underline_position = @round(top_to_baseline -
-        (face.underline_position orelse
-            -underline_thickness));
-
-    // If we don't have a provided strikethrough position
-    // then we center the strikethrough stroke at half the
-    // ex height, so that it's perfectly centered on lower
-    // case text.
-    const strikethrough_position = @round(top_to_baseline -
-        (face.strikethrough_position orelse
-            ex_height * 0.5 + strikethrough_thickness * 0.5));
+    // Get the other font metrics or their estimates. See doc comments
+    // in FaceMetrics for explanations of the estimation heuristics.
+    const cap_height = face.capHeight();
+    const underline_thickness = @max(1, @ceil(face.underlineThickness()));
+    const strikethrough_thickness = @max(1, @ceil(face.strikethroughThickness()));
+    const underline_position = @round(top_to_baseline - face.underlinePosition());
+    const strikethrough_position = @round(top_to_baseline - face.strikethroughPosition());
 
     // The calculation for icon height in the nerd fonts patcher
     // is two thirds cap height to one third line height, but we
@@ -226,6 +267,11 @@ pub fn apply(self: *Metrics, mods: ModifierSet) void {
                 const new = @max(entry.value_ptr.apply(original), 1);
                 if (new == original) continue;
 
+                // Preserve the original cell width if not set.
+                if (self.original_cell_width == null) {
+                    self.original_cell_width = self.cell_width;
+                }
+
                 // Set the new value
                 @field(self, @tagName(tag)) = new;
 
@@ -235,17 +281,25 @@ pub fn apply(self: *Metrics, mods: ModifierSet) void {
                 // centered in the cell.
                 if (comptime tag == .cell_height) {
                     // We split the difference in half because we want to
-                    // center the baseline in the cell.
+                    // center the baseline in the cell. If the difference
+                    // is odd, one more pixel is added/removed on top than
+                    // on the bottom.
                     if (new > original) {
-                        const diff = (new - original) / 2;
-                        self.cell_baseline +|= diff;
-                        self.underline_position +|= diff;
-                        self.strikethrough_position +|= diff;
+                        const diff = new - original;
+                        const diff_bottom = diff / 2;
+                        const diff_top = diff - diff_bottom;
+                        self.cell_baseline +|= diff_bottom;
+                        self.underline_position +|= diff_top;
+                        self.strikethrough_position +|= diff_top;
+                        self.overline_position +|= @as(i32, @intCast(diff_top));
                     } else {
-                        const diff = (original - new) / 2;
-                        self.cell_baseline -|= diff;
-                        self.underline_position -|= diff;
-                        self.strikethrough_position -|= diff;
+                        const diff = original - new;
+                        const diff_bottom = diff / 2;
+                        const diff_top = diff - diff_bottom;
+                        self.cell_baseline -|= diff_bottom;
+                        self.underline_position -|= diff_top;
+                        self.strikethrough_position -|= diff_top;
+                        self.overline_position -|= @as(i32, @intCast(diff_top));
                     }
                 }
             },
@@ -463,19 +517,24 @@ test "Metrics: adjust cell height smaller" {
 
     var set: ModifierSet = .{};
     defer set.deinit(alloc);
-    try set.put(alloc, .cell_height, .{ .percent = 0.5 });
+    // We choose numbers such that the subtracted number of pixels is odd,
+    // as that's the case that could most easily have off-by-one errors.
+    // Here we're removing 25 pixels: 12 on the bottom, 13 on top.
+    try set.put(alloc, .cell_height, .{ .percent = 0.75 });
 
     var m: Metrics = init();
     m.cell_baseline = 50;
     m.underline_position = 55;
     m.strikethrough_position = 30;
+    m.overline_position = 0;
     m.cell_height = 100;
     m.cursor_height = 100;
     m.apply(set);
-    try testing.expectEqual(@as(u32, 50), m.cell_height);
-    try testing.expectEqual(@as(u32, 25), m.cell_baseline);
-    try testing.expectEqual(@as(u32, 30), m.underline_position);
-    try testing.expectEqual(@as(u32, 5), m.strikethrough_position);
+    try testing.expectEqual(@as(u32, 75), m.cell_height);
+    try testing.expectEqual(@as(u32, 38), m.cell_baseline);
+    try testing.expectEqual(@as(u32, 42), m.underline_position);
+    try testing.expectEqual(@as(u32, 17), m.strikethrough_position);
+    try testing.expectEqual(@as(i32, -13), m.overline_position);
     // Cursor height is separate from cell height and does not follow it.
     try testing.expectEqual(@as(u32, 100), m.cursor_height);
 }
@@ -486,19 +545,24 @@ test "Metrics: adjust cell height larger" {
 
     var set: ModifierSet = .{};
     defer set.deinit(alloc);
-    try set.put(alloc, .cell_height, .{ .percent = 2 });
+    // We choose numbers such that the added number of pixels is odd,
+    // as that's the case that could most easily have off-by-one errors.
+    // Here we're adding 75 pixels: 37 on the bottom, 38 on top.
+    try set.put(alloc, .cell_height, .{ .percent = 1.75 });
 
     var m: Metrics = init();
     m.cell_baseline = 50;
     m.underline_position = 55;
     m.strikethrough_position = 30;
+    m.overline_position = 0;
     m.cell_height = 100;
     m.cursor_height = 100;
     m.apply(set);
-    try testing.expectEqual(@as(u32, 200), m.cell_height);
-    try testing.expectEqual(@as(u32, 100), m.cell_baseline);
-    try testing.expectEqual(@as(u32, 105), m.underline_position);
-    try testing.expectEqual(@as(u32, 80), m.strikethrough_position);
+    try testing.expectEqual(@as(u32, 175), m.cell_height);
+    try testing.expectEqual(@as(u32, 87), m.cell_baseline);
+    try testing.expectEqual(@as(u32, 93), m.underline_position);
+    try testing.expectEqual(@as(u32, 68), m.strikethrough_position);
+    try testing.expectEqual(@as(i32, 38), m.overline_position);
     // Cursor height is separate from cell height and does not follow it.
     try testing.expectEqual(@as(u32, 100), m.cursor_height);
 }

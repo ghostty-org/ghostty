@@ -34,7 +34,7 @@ const grapheme_chunk_len = 4;
 const grapheme_chunk = grapheme_chunk_len * @sizeOf(u21);
 const GraphemeAlloc = BitmapAllocator(grapheme_chunk);
 const grapheme_count_default = GraphemeAlloc.bitmap_bit_size;
-const grapheme_bytes_default = grapheme_count_default * grapheme_chunk;
+pub const grapheme_bytes_default = grapheme_count_default * grapheme_chunk;
 const GraphemeMap = AutoOffsetHashMap(Offset(Cell), Offset(u21).Slice);
 
 /// The allocator used for shared utf8-encoded strings within a page.
@@ -53,7 +53,7 @@ const string_chunk_len = 32;
 const string_chunk = string_chunk_len * @sizeOf(u8);
 const StringAlloc = BitmapAllocator(string_chunk);
 const string_count_default = StringAlloc.bitmap_bit_size;
-const string_bytes_default = string_count_default * string_chunk;
+pub const string_bytes_default = string_count_default * string_chunk;
 
 /// Default number of hyperlinks we support.
 ///
@@ -345,6 +345,11 @@ pub const Page = struct {
         // - We only check that we saw less graphemes than the total memory
         //   used for the same reason as styles above.
         //
+
+        // We don't run integrity checks on Valgrind because its soooooo slow,
+        // Valgrind is our integrity checker, and we run these during unit
+        // tests (non-Valgrind) anyways so we're verifying anyways.
+        if (std.valgrind.runningOnValgrind() > 0) return;
 
         if (build_config.slow_runtime_safety) {
             if (self.pause_integrity_checks > 0) return;
@@ -2038,10 +2043,13 @@ pub const Cell = packed struct(u64) {
 
     /// Helper to make a cell that just has a codepoint.
     pub fn init(cp: u21) Cell {
-        return .{
-            .content_tag = .codepoint,
-            .content = .{ .codepoint = cp },
-        };
+        // We have to use this bitCast here to ensure that our memory is
+        // zeroed. Otherwise, the content below will leave some uninitialized
+        // memory in the packed union. Valgrind verifies this.
+        var cell: Cell = @bitCast(@as(u64, 0));
+        cell.content_tag = .codepoint;
+        cell.content = .{ .codepoint = cp };
+        return cell;
     }
 
     pub fn isZero(self: Cell) bool {
@@ -3034,6 +3042,10 @@ test "Page moveCells graphemes" {
 }
 
 test "Page verifyIntegrity graphemes good" {
+    // Too slow, and not really necessary because the integrity tests are
+    // only run in debug builds and unit tests verify they work well enough.
+    if (std.valgrind.runningOnValgrind() > 0) return error.SkipZigTest;
+
     var page = try Page.init(.{
         .cols = 10,
         .rows = 10,
@@ -3055,6 +3067,10 @@ test "Page verifyIntegrity graphemes good" {
 }
 
 test "Page verifyIntegrity grapheme row not marked" {
+    // Too slow, and not really necessary because the integrity tests are
+    // only run in debug builds and unit tests verify they work well enough.
+    if (std.valgrind.runningOnValgrind() > 0) return error.SkipZigTest;
+
     var page = try Page.init(.{
         .cols = 10,
         .rows = 10,
@@ -3082,6 +3098,10 @@ test "Page verifyIntegrity grapheme row not marked" {
 }
 
 test "Page verifyIntegrity styles good" {
+    // Too slow, and not really necessary because the integrity tests are
+    // only run in debug builds and unit tests verify they work well enough.
+    if (std.valgrind.runningOnValgrind() > 0) return error.SkipZigTest;
+
     var page = try Page.init(.{
         .cols = 10,
         .rows = 10,
@@ -3114,6 +3134,10 @@ test "Page verifyIntegrity styles good" {
 }
 
 test "Page verifyIntegrity styles ref count mismatch" {
+    // Too slow, and not really necessary because the integrity tests are
+    // only run in debug builds and unit tests verify they work well enough.
+    if (std.valgrind.runningOnValgrind() > 0) return error.SkipZigTest;
+
     var page = try Page.init(.{
         .cols = 10,
         .rows = 10,
@@ -3152,6 +3176,10 @@ test "Page verifyIntegrity styles ref count mismatch" {
 }
 
 test "Page verifyIntegrity zero rows" {
+    // Too slow, and not really necessary because the integrity tests are
+    // only run in debug builds and unit tests verify they work well enough.
+    if (std.valgrind.runningOnValgrind() > 0) return error.SkipZigTest;
+
     var page = try Page.init(.{
         .cols = 10,
         .rows = 10,
@@ -3166,6 +3194,10 @@ test "Page verifyIntegrity zero rows" {
 }
 
 test "Page verifyIntegrity zero cols" {
+    // Too slow, and not really necessary because the integrity tests are
+    // only run in debug builds and unit tests verify they work well enough.
+    if (std.valgrind.runningOnValgrind() > 0) return error.SkipZigTest;
+
     var page = try Page.init(.{
         .cols = 10,
         .rows = 10,

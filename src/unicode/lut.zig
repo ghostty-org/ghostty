@@ -83,7 +83,7 @@ pub fn Generator(
                 block_len += 1;
 
                 // If we still have space and we're not done with codepoints,
-                // we keep building up the bock. Conversely: we finalize this
+                // we keep building up the block. Conversely: we finalize this
                 // block if we've filled it or are out of codepoints.
                 if (block_len < block_size and cp != std.math.maxInt(u21)) continue;
                 if (block_len < block_size) @memset(block[block_len..block_size], 0);
@@ -136,7 +136,7 @@ pub fn Tables(comptime Elem: type) type {
         stage3: []const Elem,
 
         /// Given a codepoint, returns the mapping for that codepoint.
-        pub fn get(self: *const Self, cp: u21) Elem {
+        pub inline fn get(self: *const Self, cp: u21) Elem {
             const high = cp >> 8;
             const low = cp & 0xFF;
             return self.stage3[self.stage2[self.stage1[high] + low]];
@@ -173,6 +173,7 @@ pub fn Tables(comptime Elem: type) type {
                 \\};
                 \\    };
                 \\}
+                \\
             );
         }
     };

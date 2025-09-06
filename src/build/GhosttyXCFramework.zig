@@ -64,20 +64,24 @@ pub fn init(
                 .{
                     .library = macos_universal.output,
                     .headers = b.path("include"),
+                    .dsym = macos_universal.dsym,
                 },
                 .{
                     .library = ios.output,
                     .headers = b.path("include"),
+                    .dsym = ios.dsym,
                 },
                 .{
                     .library = ios_sim.output,
                     .headers = b.path("include"),
+                    .dsym = ios_sim.dsym,
                 },
             },
 
             .native => &.{.{
                 .library = macos_native.output,
                 .headers = b.path("include"),
+                .dsym = macos_native.dsym,
             }},
         },
     });

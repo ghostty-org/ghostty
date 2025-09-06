@@ -2,8 +2,6 @@ app-id: com.mitchellh.ghostty
 runtime: org.gnome.Platform
 runtime-version: "48"
 sdk: org.gnome.Sdk
-sdk-extensions:
-  - org.freedesktop.Sdk.Extension.ziglang
 default-branch: tip
 command: ghostty
 finish-args:
@@ -36,7 +34,7 @@ modules:
   - name: ghostty
     buildsystem: simple
     build-options:
-      append-path: /usr/lib/sdk/ziglang
+      append-path: /app/zig
     build-commands:
       - zig build
         -Doptimize=ReleaseFast

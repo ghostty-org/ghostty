@@ -9,7 +9,10 @@ const input = @import("../../input.zig");
 const winproto = @import("winproto.zig");
 
 /// Returns a GTK accelerator string from a trigger.
-pub fn accelFromTrigger(buf: []u8, trigger: input.Binding.Trigger) !?[:0]const u8 {
+pub fn accelFromTrigger(
+    buf: []u8,
+    trigger: input.Binding.Trigger,
+) error{NoSpaceLeft}!?[:0]const u8 {
     var buf_stream = std.io.fixedBufferStream(buf);
     const writer = buf_stream.writer();
 
@@ -30,7 +33,10 @@ pub fn accelFromTrigger(buf: []u8, trigger: input.Binding.Trigger) !?[:0]const u
 
 /// Returns a XDG-compliant shortcuts string from a trigger.
 /// Spec: https://specifications.freedesktop.org/shortcuts-spec/latest/
-pub fn xdgShortcutFromTrigger(buf: []u8, trigger: input.Binding.Trigger) !?[:0]const u8 {
+pub fn xdgShortcutFromTrigger(
+    buf: []u8,
+    trigger: input.Binding.Trigger,
+) error{NoSpaceLeft}!?[:0]const u8 {
     var buf_stream = std.io.fixedBufferStream(buf);
     const writer = buf_stream.writer();
 
@@ -54,7 +60,7 @@ pub fn xdgShortcutFromTrigger(buf: []u8, trigger: input.Binding.Trigger) !?[:0]c
     return slice[0 .. slice.len - 1 :0];
 }
 
-fn writeTriggerKey(writer: anytype, trigger: input.Binding.Trigger) !bool {
+fn writeTriggerKey(writer: anytype, trigger: input.Binding.Trigger) error{NoSpaceLeft}!bool {
     switch (trigger.key) {
         .physical => |k| {
             const keyval = keyvalFromKey(k) orelse return false;

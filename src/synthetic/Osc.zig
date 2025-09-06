@@ -196,7 +196,7 @@ test "OSC generator valid" {
     };
     for (0..50) |_| {
         const seq = try gen.next(&buf);
-        var parser: terminal.osc.Parser = .{};
+        var parser: terminal.osc.Parser = .init();
         for (seq[2 .. seq.len - 1]) |c| parser.next(c);
         try testing.expect(parser.end(null) != null);
     }
@@ -214,7 +214,7 @@ test "OSC generator invalid" {
     };
     for (0..50) |_| {
         const seq = try gen.next(&buf);
-        var parser: terminal.osc.Parser = .{};
+        var parser: terminal.osc.Parser = .init();
         for (seq[2 .. seq.len - 1]) |c| parser.next(c);
         try testing.expect(parser.end(null) == null);
     }

@@ -454,6 +454,11 @@ const SlidingWindow = struct {
     fn assertIntegrity(self: *const SlidingWindow) void {
         if (comptime !std.debug.runtime_safety) return;
 
+        // We don't run integrity checks on Valgrind because its soooooo slow,
+        // Valgrind is our integrity checker, and we run these during unit
+        // tests (non-Valgrind) anyways so we're verifying anyways.
+        if (std.valgrind.runningOnValgrind() > 0) return;
+
         // Integrity check: verify our data matches our metadata exactly.
         var meta_it = self.meta.iterator(.forward);
         var data_len: usize = 0;

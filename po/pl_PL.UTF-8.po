@@ -3,14 +3,15 @@
 # Copyright (C) 2025 Mitchell Hashimoto, Ghostty contributors
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
 # Bartosz Sokorski <b.sokorski@gmail.com>, 2025.
+# trag1c <dev@jakubr.me>, 2025.
 #
 msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-07-08 15:13-0500\n"
-"PO-Revision-Date: 2025-03-17 12:15+0100\n"
-"Last-Translator: Bartosz Sokorski <b.sokorski@gmail.com>\n"
+"POT-Creation-Date: 2025-07-22 17:18+0000\n"
+"PO-Revision-Date: 2025-08-05 16:27+0200\n"
+"Last-Translator: trag1c <dev@jakubr.me>\n"
 "Language-Team: Polish <translation-team-pl@lists.sourceforge.net>\n"
 "Language: pl\n"
 "MIME-Version: 1.0\n"
@@ -89,7 +90,7 @@ msgstr "Podziel w prawo"
 
 #: src/apprt/gtk/ui/1.5/command-palette.blp:16
 msgid "Execute a command…"
-msgstr ""
+msgstr "Wykonaj komendę…"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
@@ -162,7 +163,7 @@ msgstr "Otwórz konfigurację"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:85
 msgid "Command Palette"
-msgstr ""
+msgstr "Paleta komend"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:90
 msgid "Terminal Inspector"
@@ -210,12 +211,12 @@ msgstr "Zezwól"
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:81
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:77
 msgid "Remember choice for this split"
-msgstr ""
+msgstr "Zapamiętaj wybór dla tego podziału"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:82
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:78
 msgid "Reload configuration to show this prompt again"
-msgstr ""
+msgstr "Przeładuj konfigurację, by ponownie wyświetlić ten komunikat"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:7
 #: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:7
@@ -238,7 +239,7 @@ msgstr ""
 "Wklejenie tego tekstu do terminala może być niebezpieczne, ponieważ może "
 "spowodować wykonanie komend."
 
-#: src/apprt/gtk/CloseDialog.zig:47
+#: src/apprt/gtk/CloseDialog.zig:47 src/apprt/gtk/Surface.zig:2531
 msgid "Close"
 msgstr "Zamknij"
 
@@ -274,9 +275,21 @@ msgstr "Wszystkie sesje terminala w obecnej karcie zostaną zakończone."
 msgid "The currently running process in this split will be terminated."
 msgstr "Wszyskie trwające procesy w obecnym podziale zostaną zakończone."
 
-#: src/apprt/gtk/Surface.zig:1257
+#: src/apprt/gtk/Surface.zig:1266
 msgid "Copied to clipboard"
 msgstr "Skopiowano do schowka"
+
+#: src/apprt/gtk/Surface.zig:1268
+msgid "Cleared clipboard"
+msgstr "Wyczyszczono schowek"
+
+#: src/apprt/gtk/Surface.zig:2525
+msgid "Command succeeded"
+msgstr "Komenda wykonana pomyślnie"
+
+#: src/apprt/gtk/Surface.zig:2527
+msgid "Command failed"
+msgstr "Komenda nie powiodła się"
 
 #: src/apprt/gtk/Window.zig:216
 msgid "Main Menu"
@@ -288,7 +301,7 @@ msgstr "Zobacz otwarte karty"
 
 #: src/apprt/gtk/Window.zig:266
 msgid "New Split"
-msgstr ""
+msgstr "Nowy podział"
 
 #: src/apprt/gtk/Window.zig:329
 msgid ""

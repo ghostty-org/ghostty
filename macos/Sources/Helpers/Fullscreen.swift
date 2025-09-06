@@ -407,8 +407,14 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
             self.styleMask = window.styleMask
             self.toolbar = window.toolbar
             self.toolbarStyle = window.toolbarStyle
-            self.titlebarAccessoryViewControllers = window.titlebarAccessoryViewControllers
             self.dock = window.screen?.hasDock ?? false
+            
+            self.titlebarAccessoryViewControllers = if (window.hasTitleBar) {
+                // Accessing titlebarAccessoryViewControllers without a titlebar triggers a crash.
+                window.titlebarAccessoryViewControllers
+            } else {
+                []
+            }
 
             if let cgWindowId = window.cgWindowId {
                 // We hide the menu only if this window is not on any fullscreen

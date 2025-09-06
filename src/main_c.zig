@@ -33,10 +33,16 @@ pub const std_options = main.std_options;
 comptime {
     // These structs need to be referenced so the `export` functions
     // are truly exported by the C API lib.
-    _ = @import("config.zig").CAPI;
-    if (@hasDecl(apprt.runtime, "CAPI")) {
-        _ = apprt.runtime.CAPI;
-    }
+
+    // Our config API
+    _ = @import("config.zig").CApi;
+
+    // Any apprt-specific C API, mainly libghostty for apprt.embedded.
+    if (@hasDecl(apprt.runtime, "CAPI")) _ = apprt.runtime.CAPI;
+
+    // Our benchmark API. We probably want to gate this on a build
+    // config in the future but for now we always just export it.
+    _ = @import("benchmark/main.zig").CApi;
 }
 
 /// ghostty_info_s
@@ -72,7 +78,7 @@ pub const String = extern struct {
 };
 
 /// Initialize ghostty global state.
-export fn ghostty_init(argc: usize, argv: [*][*:0]u8) c_int {
+pub export fn ghostty_init(argc: usize, argv: [*][*:0]u8) c_int {
     assert(builtin.link_libc);
 
     std.os.argv = argv[0..argc];
@@ -86,7 +92,7 @@ export fn ghostty_init(argc: usize, argv: [*][*:0]u8) c_int {
 
 /// Runs an action if it is specified. If there is no action this returns
 /// false. If there is an action then this doesn't return.
-export fn ghostty_cli_try_action() void {
+pub export fn ghostty_cli_try_action() void {
     const action = state.action orelse return;
     std.log.info("executing CLI action={}", .{action});
     posix.exit(action.run(state.alloc) catch |err| {
@@ -98,7 +104,7 @@ export fn ghostty_cli_try_action() void {
 }
 
 /// Return metadata about Ghostty, such as version, build mode, etc.
-export fn ghostty_info() Info {
+pub export fn ghostty_info() Info {
     return .{
         .mode = switch (builtin.mode) {
             .Debug => .debug,
@@ -117,11 +123,11 @@ export fn ghostty_info() Info {
 /// the function call.
 ///
 /// This should only be used for singular strings maintained by Ghostty.
-export fn ghostty_translate(msgid: [*:0]const u8) [*:0]const u8 {
+pub export fn ghostty_translate(msgid: [*:0]const u8) [*:0]const u8 {
     return internal_os.i18n._(msgid);
 }
 
 /// Free a string allocated by Ghostty.
-export fn ghostty_string_free(str: String) void {
+pub export fn ghostty_string_free(str: String) void {
     state.alloc.free(str.ptr.?[0..str.len]);
 }

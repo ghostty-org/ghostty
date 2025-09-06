@@ -419,6 +419,7 @@ typedef struct {
   ghostty_env_var_s* env_vars;
   size_t env_var_count;
   const char* initial_input;
+  bool wait_after_command;
 } ghostty_surface_config_s;
 
 typedef struct {
@@ -449,6 +450,28 @@ typedef struct {
 typedef struct {
   ghostty_config_color_s colors[256];
 } ghostty_config_palette_s;
+
+// config.QuickTerminalSize
+typedef enum {
+  GHOSTTY_QUICK_TERMINAL_SIZE_NONE,
+  GHOSTTY_QUICK_TERMINAL_SIZE_PERCENTAGE,
+  GHOSTTY_QUICK_TERMINAL_SIZE_PIXELS,
+} ghostty_quick_terminal_size_tag_e;
+
+typedef union {
+  float percentage;
+  uint32_t pixels;
+} ghostty_quick_terminal_size_value_u;
+
+typedef struct {
+  ghostty_quick_terminal_size_tag_e tag;
+  ghostty_quick_terminal_size_value_u value;
+} ghostty_quick_terminal_size_s;
+
+typedef struct {
+  ghostty_quick_terminal_size_s primary;
+  ghostty_quick_terminal_size_s secondary;
+} ghostty_config_quick_terminal_size_s;
 
 // apprt.Target.Key
 typedef enum {
@@ -680,6 +703,35 @@ typedef struct {
   uintptr_t len;
 } ghostty_action_open_url_s;
 
+// apprt.action.CloseTabMode
+typedef enum {
+  GHOSTTY_ACTION_CLOSE_TAB_MODE_THIS,
+  GHOSTTY_ACTION_CLOSE_TAB_MODE_OTHER,
+} ghostty_action_close_tab_mode_e;
+
+// apprt.surface.Message.ChildExited
+typedef struct {
+  uint32_t exit_code;
+  uint64_t timetime_ms;
+} ghostty_surface_message_childexited_s;
+
+// terminal.osc.Command.ProgressReport.State
+typedef enum {
+  GHOSTTY_PROGRESS_STATE_REMOVE,
+  GHOSTTY_PROGRESS_STATE_SET,
+  GHOSTTY_PROGRESS_STATE_ERROR,
+  GHOSTTY_PROGRESS_STATE_INDETERMINATE,
+  GHOSTTY_PROGRESS_STATE_PAUSE,
+} ghostty_action_progress_report_state_e;
+
+// terminal.osc.Command.ProgressReport.C
+typedef struct {
+  ghostty_action_progress_report_state_e state;
+  // -1 if no progress was reported, otherwise 0-100 indicating percent
+  // completeness.
+  int8_t progress;
+} ghostty_action_progress_report_s;
+
 // apprt.Action.Key
 typedef enum {
   GHOSTTY_ACTION_QUIT,
@@ -706,6 +758,7 @@ typedef enum {
   GHOSTTY_ACTION_RESET_WINDOW_SIZE,
   GHOSTTY_ACTION_INITIAL_SIZE,
   GHOSTTY_ACTION_CELL_SIZE,
+  GHOSTTY_ACTION_RENDER,
   GHOSTTY_ACTION_INSPECTOR,
   GHOSTTY_ACTION_SHOW_GTK_INSPECTOR,
   GHOSTTY_ACTION_RENDER_INSPECTOR,
@@ -731,6 +784,9 @@ typedef enum {
   GHOSTTY_ACTION_REDO,
   GHOSTTY_ACTION_CHECK_FOR_UPDATES,
   GHOSTTY_ACTION_OPEN_URL,
+  GHOSTTY_ACTION_SHOW_CHILD_EXITED,
+  GHOSTTY_ACTION_PROGRESS_REPORT,
+  GHOSTTY_ACTION_SHOW_ON_SCREEN_KEYBOARD,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -759,6 +815,9 @@ typedef union {
   ghostty_action_reload_config_s reload_config;
   ghostty_action_config_change_s config_change;
   ghostty_action_open_url_s open_url;
+  ghostty_action_close_tab_mode_e close_tab_mode;
+  ghostty_surface_message_childexited_s child_exited;
+  ghostty_action_progress_report_s progress_report;
 } ghostty_action_u;
 
 typedef struct {
@@ -794,6 +853,36 @@ typedef struct {
   ghostty_runtime_write_clipboard_cb write_clipboard_cb;
   ghostty_runtime_close_surface_cb close_surface_cb;
 } ghostty_runtime_config_s;
+
+// apprt.ipc.Target.Key
+typedef enum {
+  GHOSTTY_IPC_TARGET_CLASS,
+  GHOSTTY_IPC_TARGET_DETECT,
+} ghostty_ipc_target_tag_e;
+
+typedef union {
+  char *klass;
+} ghostty_ipc_target_u;
+
+typedef struct {
+  ghostty_ipc_target_tag_e tag;
+  ghostty_ipc_target_u target;
+} chostty_ipc_target_s;
+
+// apprt.ipc.Action.NewWindow
+typedef struct {
+  // This should be a null terminated list of strings.
+  const char **arguments;
+} ghostty_ipc_action_new_window_s;
+
+typedef union {
+  ghostty_ipc_action_new_window_s new_window;
+} ghostty_ipc_action_u;
+
+// apprt.ipc.Action.Key
+typedef enum {
+  GHOSTTY_IPC_ACTION_NEW_WINDOW,
+} ghostty_ipc_action_tag_e;
 
 //-------------------------------------------------------------------
 // Published API
@@ -875,7 +964,7 @@ void ghostty_surface_mouse_scroll(ghostty_surface_t,
                                   double,
                                   ghostty_input_scroll_mods_t);
 void ghostty_surface_mouse_pressure(ghostty_surface_t, uint32_t, double);
-void ghostty_surface_ime_point(ghostty_surface_t, double*, double*);
+void ghostty_surface_ime_point(ghostty_surface_t, double*, double*, double*, double*);
 void ghostty_surface_request_close(ghostty_surface_t);
 void ghostty_surface_split(ghostty_surface_t, ghostty_action_split_direction_e);
 void ghostty_surface_split_focus(ghostty_surface_t,
@@ -931,6 +1020,9 @@ bool ghostty_inspector_metal_shutdown(ghostty_inspector_t);
 // APIs I'd like to get rid of eventually but are still needed for now.
 // Don't use these unless you know what you're doing.
 void ghostty_set_window_background_blur(ghostty_app_t, void*);
+
+// Benchmark API, if available.
+bool ghostty_benchmark_cli(const char*, const char*);
 
 #ifdef __cplusplus
 }

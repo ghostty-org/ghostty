@@ -5,6 +5,7 @@ const Binding = @This();
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+const build_config = @import("../build_config.zig");
 const ziglyph = @import("ziglyph");
 const key = @import("key.zig");
 const KeyEvent = key.KeyEvent;
@@ -523,6 +524,14 @@ pub const Action = union(enum) {
     /// Has no effect on macOS.
     show_gtk_inspector,
 
+    /// Show the on-screen keyboard if one is present.
+    ///
+    /// Only implemented on Linux (GTK). On GNOME, the "Screen Keyboard"
+    /// accessibility feature must be turned on, which can be found under
+    /// Settings > Accessibility > Typing. Other platforms are as of now
+    /// untested.
+    show_on_screen_keyboard,
+
     /// Open the configuration file in the default OS editor.
     ///
     /// If your default OS editor isn't configured then this will fail.
@@ -543,11 +552,15 @@ pub const Action = union(enum) {
     /// of the `confirm-close-surface` configuration setting.
     close_surface,
 
-    /// Close the current tab and all splits therein.
+    /// Close the current tab and all splits therein _or_ close all tabs and
+    /// splits thein of tabs _other_ than the current tab, depending on the
+    /// mode.
+    ///
+    /// If the mode is not specified, defaults to closing the current tab.
     ///
     /// This might trigger a close confirmation popup, depending on the value
     /// of the `confirm-close-surface` configuration setting.
-    close_tab,
+    close_tab: CloseTabMode,
 
     /// Close the current window and all tabs and splits therein.
     ///
@@ -729,6 +742,16 @@ pub const Action = union(enum) {
 
     pub const Key = @typeInfo(Action).@"union".tag_type.?;
 
+    /// Make this a valid gobject if we're in a GTK environment.
+    pub const getGObjectType = switch (build_config.app_runtime) {
+        .gtk => @import("gobject").ext.defineBoxed(
+            Action,
+            .{ .name = "GhosttyBindingAction" },
+        ),
+
+        .none => void,
+    };
+
     pub const CrashThread = enum {
         main,
         io,
@@ -837,6 +860,13 @@ pub const Action = union(enum) {
         toggle,
         show,
         hide,
+    };
+
+    pub const CloseTabMode = enum {
+        this,
+        other,
+
+        pub const default: CloseTabMode = .this;
     };
 
     fn parseEnum(comptime T: type, value: []const u8) !T {
@@ -1040,6 +1070,7 @@ pub const Action = union(enum) {
             .toggle_window_float_on_top,
             .toggle_secure_input,
             .toggle_command_palette,
+            .show_on_screen_keyboard,
             .reset_window_size,
             .crash,
             => .surface,

@@ -165,7 +165,8 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
         else => @compileError("unsupported app runtime for OpenGL"),
 
         // GTK uses global OpenGL context so we load from null.
-        apprt.gtk => try prepareContext(null),
+        apprt.gtk,
+        => try prepareContext(null),
 
         apprt.embedded => {
             // TODO(mitchellh): this does nothing today to allow libghostty

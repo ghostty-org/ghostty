@@ -113,6 +113,11 @@ extension Ghostty {
                     }
                 }
                 .ghosttySurfaceView(surfaceView)
+                
+                // Progress report overlay
+                if let progressReport = surfaceView.progressReport {
+                    ProgressReportOverlay(report: progressReport)
+                }
 
 #if canImport(AppKit)
                 // If we are in the middle of a key sequence, then we show a visual element. We only
@@ -264,6 +269,49 @@ extension Ghostty {
                 }
             }
             .padding()
+        }
+    }
+
+    // Progress report overlay that shows a progress bar at the top of the terminal
+    struct ProgressReportOverlay: View {
+        let report: Action.ProgressReport
+        
+        @ViewBuilder
+        private var progressBar: some View {
+            if let progress = report.progress {
+                // Determinate progress bar
+                ProgressView(value: Double(progress), total: 100)
+                    .progressViewStyle(.linear)
+                    .tint(report.state == .error ? .red : report.state == .pause ? .orange : nil)
+                    .animation(.easeInOut(duration: 0.2), value: progress)
+            } else {
+                // Indeterminate states
+                switch report.state {
+                case .indeterminate:
+                    ProgressView()
+                        .progressViewStyle(.linear)
+                case .error:
+                    ProgressView()
+                        .progressViewStyle(.linear)
+                        .tint(.red)
+                case .pause:
+                    Rectangle().fill(Color.orange)
+                default:
+                    EmptyView()
+                }
+            }
+        }
+        
+        var body: some View {
+            VStack(spacing: 0) {
+                progressBar
+                    .scaleEffect(x: 1, y: 0.5, anchor: .center)
+                    .frame(height: 2)
+                
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .allowsHitTesting(false)
         }
     }
 
@@ -424,6 +472,9 @@ extension Ghostty {
 
         /// Extra input to send as stdin
         var initialInput: String? = nil
+        
+        /// Wait after the command
+        var waitAfterCommand: Bool = false
 
         init() {}
 
@@ -475,6 +526,9 @@ extension Ghostty {
 
             // Zero is our default value that means to inherit the font size.
             config.font_size = fontSize ?? 0
+            
+            // Set wait after command
+            config.wait_after_command = waitAfterCommand
 
             // Use withCString to ensure strings remain valid for the duration of the closure
             return try workingDirectory.withCString { cWorkingDir in

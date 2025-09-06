@@ -1,7 +1,7 @@
 import AppKit
 
 /// SplitTree represents a tree of views that can be divided.
-struct SplitTree<ViewType: NSView & Codable>: Codable {
+struct SplitTree<ViewType: NSView & Codable & Identifiable> {
     /// The root of the tree. This can be nil to indicate the tree is empty.
     let root: Node?
 
@@ -29,12 +29,12 @@ struct SplitTree<ViewType: NSView & Codable>: Codable {
     }
 
     /// The path to a specific node in the tree.
-    struct Path {
+    struct Path: Codable {
         let path: [Component]
 
         var isEmpty: Bool { path.isEmpty }
 
-        enum Component {
+        enum Component: Codable {
             case left
             case right
         }
@@ -53,7 +53,7 @@ struct SplitTree<ViewType: NSView & Codable>: Codable {
             let node: Node
             let bounds: CGRect
         }
-        
+
         /// Direction for spatial navigation within the split tree.
         enum Direction {
             case left
@@ -127,44 +127,51 @@ extension SplitTree {
             root: try root.insert(view: view, at: at, direction: direction),
             zoomed: nil)
     }
+    /// Find a node containing a view with the specified ID.
+    /// - Parameter id: The ID of the view to find
+    /// - Returns: The node containing the view if found, nil otherwise
+    func find(id: ViewType.ID) -> Node? {
+        guard let root else { return nil }
+        return root.find(id: id)
+    }
 
     /// Remove a node from the tree. If the node being removed is part of a split,
     /// the sibling node takes the place of the parent split.
     func remove(_ target: Node) -> Self {
         guard let root else { return self }
-        
+
         // If we're removing the root itself, return an empty tree
         if root == target {
             return .init(root: nil, zoomed: nil)
         }
-        
+
         // Otherwise, try to remove from the tree
         let newRoot = root.remove(target)
-        
+
         // Update zoomed if it was the removed node
         let newZoomed = (zoomed == target) ? nil : zoomed
-        
+
         return .init(root: newRoot, zoomed: newZoomed)
     }
 
     /// Replace a node in the tree with a new node.
     func replace(node: Node, with newNode: Node) throws -> Self {
         guard let root else { throw SplitError.viewNotFound }
-        
+
         // Get the path to the node we want to replace
         guard let path = root.path(to: node) else {
             throw SplitError.viewNotFound
         }
-        
+
         // Replace the node
         let newRoot = try root.replaceNode(at: path, with: newNode)
-        
+
         // Update zoomed if it was the replaced node
         let newZoomed = (zoomed == node) ? newNode : zoomed
-        
+
         return .init(root: newRoot, zoomed: newZoomed)
     }
-    
+
     /// Find the next view to focus based on the current focused node and direction
     func focusTarget(for direction: FocusDirection, from currentNode: Node) -> ViewType? {
         guard let root else { return nil }
@@ -230,13 +237,13 @@ extension SplitTree {
         let newRoot = root.equalize()
         return .init(root: newRoot, zoomed: zoomed)
     }
-    
+
     /// Resize a node in the tree by the given pixel amount in the specified direction.
-    /// 
+    ///
     /// This method adjusts the split ratios of the tree to accommodate the requested resize
     /// operation. For up/down resizing, it finds the nearest parent vertical split and adjusts
     /// its ratio. For left/right resizing, it finds the nearest parent horizontal split.
-    /// The bounds parameter is used to construct the spatial tree representation which is 
+    /// The bounds parameter is used to construct the spatial tree representation which is
     /// needed to calculate the current pixel dimensions.
     ///
     /// This will always reset the zoomed state.
@@ -250,22 +257,22 @@ extension SplitTree {
     /// - Throws: SplitError.viewNotFound if the node is not found in the tree or no suitable parent split exists
     func resize(node: Node, by pixels: UInt16, in direction: Spatial.Direction, with bounds: CGRect) throws -> Self {
         guard let root else { throw SplitError.viewNotFound }
-        
+
         // Find the path to the target node
         guard let path = root.path(to: node) else {
             throw SplitError.viewNotFound
         }
-        
+
         // Determine which type of split we need to find based on resize direction
         let targetSplitDirection: Direction = switch direction {
         case .up, .down: .vertical
         case .left, .right: .horizontal
         }
-        
+
         // Find the nearest parent split of the correct type by walking up the path
         var splitPath: Path?
         var splitNode: Node?
-        
+
         for i in stride(from: path.path.count - 1, through: 0, by: -1) {
             let parentPath = Path(path: Array(path.path.prefix(i)))
             if let parent = root.node(at: parentPath), case .split(let split) = parent {
@@ -276,29 +283,29 @@ extension SplitTree {
                 }
             }
         }
-        
-        guard let splitPath = splitPath, 
+
+        guard let splitPath = splitPath,
               let splitNode = splitNode,
               case .split(let split) = splitNode else {
             throw SplitError.viewNotFound
         }
-        
+
         // Get current spatial representation to calculate pixel dimensions
         let spatial = root.spatial(within: bounds.size)
         guard let splitSlot = spatial.slots.first(where: { $0.node == splitNode }) else {
             throw SplitError.viewNotFound
         }
-        
+
         // Calculate the new ratio based on pixel change
         let pixelOffset = Double(pixels)
         let newRatio: Double
-        
+
         switch (split.direction, direction) {
         case (.horizontal, .left):
             // Moving left boundary: decrease left side
             newRatio = Swift.max(0.1, Swift.min(0.9, split.ratio - (pixelOffset / splitSlot.bounds.width)))
         case (.horizontal, .right):
-            // Moving right boundary: increase left side  
+            // Moving right boundary: increase left side
             newRatio = Swift.max(0.1, Swift.min(0.9, split.ratio + (pixelOffset / splitSlot.bounds.width)))
         case (.vertical, .up):
             // Moving top boundary: decrease top side
@@ -310,7 +317,7 @@ extension SplitTree {
             // Direction doesn't match split type - shouldn't happen due to earlier logic
             throw SplitError.viewNotFound
         }
-        
+
         // Create new split with adjusted ratio
         let newSplit = Node.Split(
             direction: split.direction,
@@ -318,12 +325,12 @@ extension SplitTree {
             left: split.left,
             right: split.right
         )
-        
+
         // Replace the split node with the new one
         let newRoot = try root.replaceNode(at: splitPath, with: .split(newSplit))
         return .init(root: newRoot, zoomed: nil)
     }
-    
+
     /// Returns the total bounds of the split hierarchy using NSView bounds.
     /// Ignores x/y coordinates and assumes views are laid out in a perfect grid.
     /// Also ignores any possible padding between views.
@@ -334,6 +341,60 @@ extension SplitTree {
     }
 }
 
+// MARK: SplitTree Codable
+
+fileprivate enum CodingKeys: String, CodingKey {
+    case version
+    case root
+    case zoomed
+
+    static let currentVersion: Int = 1
+}
+
+extension SplitTree: Codable {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        // Check version
+        let version = try container.decode(Int.self, forKey: .version)
+        guard version == CodingKeys.currentVersion else {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Unsupported SplitTree version: \(version)"
+                )
+            )
+        }
+
+        // Decode root
+        self.root = try container.decodeIfPresent(Node.self, forKey: .root)
+
+        // Zoomed is encoded as its path. Get the path and then find it.
+        if let zoomedPath = try container.decodeIfPresent(Path.self, forKey: .zoomed),
+           let root = self.root {
+            self.zoomed = root.node(at: zoomedPath)
+        } else {
+            self.zoomed = nil
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+
+        // Encode version
+        try container.encode(CodingKeys.currentVersion, forKey: .version)
+
+        // Encode root
+        try container.encodeIfPresent(root, forKey: .root)
+
+        // Zoomed is encoded as its path since its a reference type. This lets us
+        // map it on decode back to the correct node in root.
+        if let zoomed, let path = root?.path(to: zoomed) {
+            try container.encode(path, forKey: .zoomed)
+        }
+    }
+}
+
 // MARK: SplitTree.Node
 
 extension SplitTree.Node {
@@ -341,6 +402,23 @@ extension SplitTree.Node {
     typealias NewDirection = SplitTree.NewDirection
     typealias SplitError = SplitTree.SplitError
     typealias Path = SplitTree.Path
+
+    /// Find a node containing a view with the specified ID.
+    /// - Parameter id: The ID of the view to find
+    /// - Returns: The node containing the view if found, nil otherwise
+    func find(id: ViewType.ID) -> Node? {
+        switch self {
+        case .leaf(let view):
+            return view.id == id ? self : nil
+
+        case .split(let split):
+            if let found = split.left.find(id: id) {
+                return found
+            }
+
+            return split.right.find(id: id)
+        }
+    }
 
     /// Returns the node in the tree that contains the given view.
     func node(view: ViewType) -> Node? {
@@ -396,20 +474,20 @@ extension SplitTree.Node {
 
         return search(self) ? Path(path: components) : nil
     }
-    
+
     /// Returns the node at the given path from this node as root.
     func node(at path: Path) -> Node? {
         if path.isEmpty {
             return self
         }
-        
+
         guard case .split(let split) = self else {
             return nil
         }
-        
+
         let component = path.path[0]
         let remainingPath = Path(path: Array(path.path.dropFirst()))
-        
+
         switch component {
         case .left:
             return split.left.node(at: remainingPath)
@@ -521,12 +599,12 @@ extension SplitTree.Node {
         if self == target {
             return nil
         }
-        
+
         switch self {
         case .leaf:
             // A leaf that isn't the target stays as is
             return self
-            
+
         case .split(let split):
             // Neither child is directly the target, so we need to recursively
             // try to remove from both children
@@ -543,7 +621,7 @@ extension SplitTree.Node {
             } else if newRight == nil {
                 return newLeft
             }
-            
+
             // Both children still exist after removal
             return .split(.init(
                 direction: split.direction,
@@ -562,7 +640,7 @@ extension SplitTree.Node {
         case .leaf:
             // Leaf nodes don't have a ratio to resize
             return self
-            
+
         case .split(let split):
             // Create a new split with the updated ratio
             return .split(.init(
@@ -573,7 +651,7 @@ extension SplitTree.Node {
             ))
         }
     }
-    
+
     /// Get the leftmost leaf in this subtree
     func leftmostLeaf() -> ViewType {
         switch self {
@@ -583,7 +661,7 @@ extension SplitTree.Node {
             return split.left.leftmostLeaf()
         }
     }
-    
+
     /// Get the rightmost leaf in this subtree
     func rightmostLeaf() -> ViewType {
         switch self {
@@ -593,7 +671,7 @@ extension SplitTree.Node {
             return split.right.rightmostLeaf()
         }
     }
-    
+
     /// Equalize this node and all its children, returning a new node with splits
     /// adjusted so that each split's ratio is based on the relative weight
     /// (number of leaves) of its children.
@@ -601,14 +679,14 @@ extension SplitTree.Node {
         let (equalizedNode, _) = equalizeWithWeight()
         return equalizedNode
     }
-    
+
     /// Internal helper that equalizes and returns both the node and its weight.
     private func equalizeWithWeight() -> (node: Node, weight: Int) {
         switch self {
         case .leaf:
             // A leaf has weight 1 and doesn't change
             return (self, 1)
-            
+
         case .split(let split):
             // Calculate weights based on split direction
             let leftWeight = split.left.weightForDirection(split.direction)
@@ -629,7 +707,7 @@ extension SplitTree.Node {
                 left: leftNode,
                 right: rightNode
             )
-            
+
             return (.split(newSplit), totalWeight)
         }
     }
@@ -656,12 +734,12 @@ extension SplitTree.Node {
         switch self {
         case .leaf(let view):
             return [(view, bounds)]
-            
+
         case .split(let split):
             // Calculate bounds for left and right based on split direction and ratio
             let leftBounds: CGRect
             let rightBounds: CGRect
-            
+
             switch split.direction {
             case .horizontal:
                 // Split horizontally: left | right
@@ -678,7 +756,7 @@ extension SplitTree.Node {
                     width: bounds.width * (1 - split.ratio),
                     height: bounds.height
                 )
-                
+
             case .vertical:
                 // Split vertically: top / bottom
                 // Note: In our normalized coordinate system, Y increases upward
@@ -696,13 +774,13 @@ extension SplitTree.Node {
                     height: bounds.height * split.ratio
                 )
             }
-            
+
             // Recursively calculate bounds for children
             return split.left.calculateViewBounds(in: leftBounds) +
                    split.right.calculateViewBounds(in: rightBounds)
         }
     }
-    
+
     /// Returns the total bounds of this subtree using NSView bounds.
     /// Ignores x/y coordinates and assumes views are laid out in a perfect grid.
     /// - Returns: The total width and height needed to contain all views in this subtree
@@ -710,11 +788,11 @@ extension SplitTree.Node {
         switch self {
         case .leaf(let view):
             return view.bounds.size
-            
+
         case .split(let split):
             let leftBounds = split.left.viewBounds()
             let rightBounds = split.right.viewBounds()
-            
+
             switch split.direction {
             case .horizontal:
                 // Horizontal split: width is sum, height is max
@@ -722,7 +800,7 @@ extension SplitTree.Node {
                     width: leftBounds.width + rightBounds.width,
                     height: Swift.max(leftBounds.height, rightBounds.height)
                 )
-                
+
             case .vertical:
                 // Vertical split: height is sum, width is max
                 return CGSize(
@@ -760,7 +838,7 @@ extension SplitTree.Node {
     /// // +--------+----+
     /// // |   C    | D  |
     /// // +--------+----+
-    /// // 
+    /// //
     /// // The spatial representation would have:
     /// // - Total dimensions: (width: 2, height: 2)
     /// // - Node bounds based on actual split ratios
@@ -805,7 +883,7 @@ extension SplitTree.Node {
     /// Example:
     /// ```
     /// // Single leaf: (1, 1)
-    /// // Horizontal split with 2 leaves: (2, 1)  
+    /// // Horizontal split with 2 leaves: (2, 1)
     /// // Vertical split with 2 leaves: (1, 2)
     /// // Complex layout with both: (2, 2) or larger
     /// ```
@@ -846,7 +924,7 @@ extension SplitTree.Node {
     ///
     /// The calculation process:
     /// 1. **Leaf nodes**: Create a single slot with the provided bounds
-    /// 2. **Split nodes**: 
+    /// 2. **Split nodes**:
     ///    - Divide the bounds according to the split ratio and direction
     ///    - Create a slot for the split node itself
     ///    - Recursively calculate slots for both children
@@ -926,7 +1004,7 @@ extension SplitTree.Spatial {
     ///
     /// This method finds all slots positioned in the given direction from the reference node:
     /// - **Left**: Slots with bounds to the left of the reference node
-    /// - **Right**: Slots with bounds to the right of the reference node  
+    /// - **Right**: Slots with bounds to the right of the reference node
     /// - **Up**: Slots with bounds above the reference node (Y=0 is top)
     /// - **Down**: Slots with bounds below the reference node
     ///
@@ -955,41 +1033,41 @@ extension SplitTree.Spatial {
             let dy = rect2.minY - rect1.minY
             return sqrt(dx * dx + dy * dy)
         }
-        
+
         let result = switch direction {
         case .left:
             // Slots to the left: their right edge is at or left of reference's left edge
             slots.filter {
-                $0.node != referenceNode && $0.bounds.maxX <= refSlot.bounds.minX 
+                $0.node != referenceNode && $0.bounds.maxX <= refSlot.bounds.minX
             }.sorted {
                 distance(from: refSlot.bounds, to: $0.bounds) < distance(from: refSlot.bounds, to: $1.bounds)
             }
-            
+
         case .right:
             // Slots to the right: their left edge is at or right of reference's right edge
             slots.filter {
-                $0.node != referenceNode && $0.bounds.minX >= refSlot.bounds.maxX 
+                $0.node != referenceNode && $0.bounds.minX >= refSlot.bounds.maxX
             }.sorted {
                 distance(from: refSlot.bounds, to: $0.bounds) < distance(from: refSlot.bounds, to: $1.bounds)
             }
-            
+
         case .up:
             // Slots above: their bottom edge is at or above reference's top edge
             slots.filter {
-                $0.node != referenceNode && $0.bounds.maxY <= refSlot.bounds.minY 
+                $0.node != referenceNode && $0.bounds.maxY <= refSlot.bounds.minY
             }.sorted {
                 distance(from: refSlot.bounds, to: $0.bounds) < distance(from: refSlot.bounds, to: $1.bounds)
             }
-            
+
         case .down:
             // Slots below: their top edge is at or below reference's bottom edge
             slots.filter {
-                $0.node != referenceNode && $0.bounds.minY >= refSlot.bounds.maxY 
+                $0.node != referenceNode && $0.bounds.minY >= refSlot.bounds.maxY
             }.sorted {
                 distance(from: refSlot.bounds, to: $0.bounds) < distance(from: refSlot.bounds, to: $1.bounds)
             }
         }
-        
+
         return result
     }
 
@@ -1008,14 +1086,14 @@ extension SplitTree.Spatial {
     func doesBorder(side: Direction, from node: SplitTree.Node) -> Bool {
         // Find the slot for this node
         guard let slot = slots.first(where: { $0.node == node }) else { return false }
-        
+
         // Calculate the overall bounds of all slots
         let overallBounds = slots.reduce(CGRect.null) { result, slot in
             result.union(slot.bounds)
         }
-        
+
         return switch side {
-        case .up: 
+        case .up:
             slot.bounds.minY == overallBounds.minY
         case .down:
             slot.bounds.maxY == overallBounds.maxY
@@ -1052,10 +1130,10 @@ extension SplitTree.Node {
         case view
         case split
     }
-    
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        
+
         if container.contains(.view) {
             let view = try container.decode(ViewType.self, forKey: .view)
             self = .leaf(view: view)
@@ -1071,14 +1149,14 @@ extension SplitTree.Node {
             )
         }
     }
-    
+
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        
+
         switch self {
         case .leaf(let view):
             try container.encode(view, forKey: .view)
-            
+
         case .split(let split):
             try container.encode(split, forKey: .split)
         }
@@ -1093,7 +1171,7 @@ extension SplitTree.Node {
         switch self {
         case .leaf(let view):
             return [view]
-            
+
         case .split(let split):
             return split.left.leaves() + split.right.leaves()
         }
@@ -1145,7 +1223,7 @@ extension SplitTree.Node {
     var structuralIdentity: StructuralIdentity {
         StructuralIdentity(self)
     }
-    
+
     /// A hashable representation of a node that captures its structural identity.
     ///
     /// This type provides a way to track changes to a node's structure in SwiftUI
@@ -1159,20 +1237,20 @@ extension SplitTree.Node {
     /// for unchanged portions of the tree.
     struct StructuralIdentity: Hashable {
         private let node: SplitTree.Node
-        
+
         init(_ node: SplitTree.Node) {
             self.node = node
         }
-        
+
         static func == (lhs: Self, rhs: Self) -> Bool {
             lhs.node.isStructurallyEqual(to: rhs.node)
         }
-        
+
         func hash(into hasher: inout Hasher) {
             node.hashStructure(into: &hasher)
         }
     }
-    
+
     /// Checks if this node is structurally equal to another node.
     /// Two nodes are structurally equal if they have the same tree structure
     /// and the same views (by identity) in the same positions.
@@ -1181,26 +1259,26 @@ extension SplitTree.Node {
         case let (.leaf(view1), .leaf(view2)):
             // Views must be the same instance
             return view1 === view2
-            
+
         case let (.split(split1), .split(split2)):
             // Splits must have same direction and structurally equal children
             // Note: We intentionally don't compare ratios as they may change slightly
             return split1.direction == split2.direction &&
                    split1.left.isStructurallyEqual(to: split2.left) &&
                    split1.right.isStructurallyEqual(to: split2.right)
-            
+
         default:
             // Different node types
             return false
         }
     }
-    
+
     /// Hash keys for structural identity
     private enum HashKey: UInt8 {
         case leaf = 0
         case split = 1
     }
-    
+
     /// Hashes the structural identity of this node.
     /// Includes the tree structure and view identities in the hash.
     fileprivate func hashStructure(into hasher: inout Hasher) {
@@ -1208,7 +1286,7 @@ extension SplitTree.Node {
         case .leaf(let view):
             hasher.combine(HashKey.leaf)
             hasher.combine(ObjectIdentifier(view))
-            
+
         case .split(let split):
             hasher.combine(HashKey.split)
             hasher.combine(split.direction)
@@ -1247,17 +1325,17 @@ extension SplitTree {
     struct StructuralIdentity: Hashable {
         private let root: Node?
         private let zoomed: Node?
-        
+
         init(_ tree: SplitTree) {
             self.root = tree.root
             self.zoomed = tree.zoomed
         }
-        
+
         static func == (lhs: Self, rhs: Self) -> Bool {
             areNodesStructurallyEqual(lhs.root, rhs.root) &&
             areNodesStructurallyEqual(lhs.zoomed, rhs.zoomed)
         }
-        
+
         func hash(into hasher: inout Hasher) {
             hasher.combine(0) // Tree marker
             if let root = root {
@@ -1268,7 +1346,7 @@ extension SplitTree {
                 zoomed.hashStructure(into: &hasher)
             }
         }
-        
+
         /// Helper to compare optional nodes for structural equality
         private static func areNodesStructurallyEqual(_ lhs: Node?, _ rhs: Node?) -> Bool {
             switch (lhs, rhs) {

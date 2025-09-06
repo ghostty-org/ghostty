@@ -369,6 +369,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Show the GTK inspector.",
         }},
 
+        .show_on_screen_keyboard => comptime &.{.{
+            .action = .show_on_screen_keyboard,
+            .title = "Show On-Screen Keyboard",
+            .description = "Show the on-screen keyboard if present.",
+        }},
+
         .open_config => comptime &.{.{
             .action = .open_config,
             .title = "Open Config",
@@ -387,11 +393,18 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Close the current terminal.",
         }},
 
-        .close_tab => comptime &.{.{
-            .action = .close_tab,
-            .title = "Close Tab",
-            .description = "Close the current tab.",
-        }},
+        .close_tab => comptime &.{
+            .{
+                .action = .{ .close_tab = .this },
+                .title = "Close Tab",
+                .description = "Close the current tab.",
+            },
+            .{
+                .action = .{ .close_tab = .other },
+                .title = "Close Other Tabs",
+                .description = "Close all tabs in this window except the current one.",
+            },
+        },
 
         .close_window => comptime &.{.{
             .action = .close_window,

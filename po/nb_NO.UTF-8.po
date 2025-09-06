@@ -1,7 +1,7 @@
 # Norwegian Bokmal translations for com.mitchellh.ghostty package.
 # Copyright (C) 2025 Mitchell Hashimoto, Ghostty contributors
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
-# Hanna Rose <hanna@hanna.lol>, 2025.
+# Hanna Rose <me@hanna.lol>, 2025.
 # Uzair Aftab <uzaaft@outlook.com>, 2025.
 # Christoffer Tønnessen <christoffer@cto.gg>, 2025.
 # cryptocode <cryptocode@zolo.io>, 2025.
@@ -10,9 +10,9 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-07-08 15:13-0500\n"
-"PO-Revision-Date: 2025-04-14 16:25+0200\n"
-"Last-Translator: cryptocode <cryptocode@zolo.io>\n"
+"POT-Creation-Date: 2025-07-22 17:18+0000\n"
+"PO-Revision-Date: 2025-08-23 12:52+0000\n"
+"Last-Translator: Hanna Rose <me@hanna.lol>\n"
 "Language-Team: Norwegian Bokmal <l10n-no@lister.huftis.org>\n"
 "Language: nb\n"
 "MIME-Version: 1.0\n"
@@ -90,7 +90,7 @@ msgstr "Del til høyre"
 
 #: src/apprt/gtk/ui/1.5/command-palette.blp:16
 msgid "Execute a command…"
-msgstr ""
+msgstr "Kjør en kommando..."
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
@@ -163,7 +163,7 @@ msgstr "Åpne konfigurasjon"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:85
 msgid "Command Palette"
-msgstr ""
+msgstr "Kommandopalett"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:90
 msgid "Terminal Inspector"
@@ -211,12 +211,12 @@ msgstr "Tillat"
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:81
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:77
 msgid "Remember choice for this split"
-msgstr ""
+msgstr "Husk valget for dette delte vinduet?"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:82
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:78
 msgid "Reload configuration to show this prompt again"
-msgstr ""
+msgstr "Last inn konfigurasjonen på nytt for å vise denne meldingen igjen"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:7
 #: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:7
@@ -239,7 +239,7 @@ msgstr ""
 "Det ser ut som at kommandoer vil bli kjørt hvis du limer inn dette, vurder "
 "om du mener det er trygt."
 
-#: src/apprt/gtk/CloseDialog.zig:47
+#: src/apprt/gtk/CloseDialog.zig:47 src/apprt/gtk/Surface.zig:2531
 msgid "Close"
 msgstr "Lukk"
 
@@ -275,9 +275,21 @@ msgstr "Alle terminaløkter i denne fanen vil bli avsluttet."
 msgid "The currently running process in this split will be terminated."
 msgstr "Den kjørende prosessen for denne splitten vil bli avsluttet."
 
-#: src/apprt/gtk/Surface.zig:1257
+#: src/apprt/gtk/Surface.zig:1266
 msgid "Copied to clipboard"
 msgstr "Kopiert til utklippstavlen"
+
+#: src/apprt/gtk/Surface.zig:1268
+msgid "Cleared clipboard"
+msgstr "Utklippstavle tømt"
+
+#: src/apprt/gtk/Surface.zig:2525
+msgid "Command succeeded"
+msgstr "Kommando lyktes"
+
+#: src/apprt/gtk/Surface.zig:2527
+msgid "Command failed"
+msgstr "Kommando mislyktes"
 
 #: src/apprt/gtk/Window.zig:216
 msgid "Main Menu"

@@ -4,7 +4,7 @@ Name=@NAME@
 Type=Application
 Comment=A terminal emulator
 TryExec=@GHOSTTY@
-Exec=@GHOSTTY@ --launched-from=desktop
+Exec=@GHOSTTY@ --gtk-single-instance=true
 Icon=com.mitchellh.ghostty
 Categories=System;TerminalEmulator;
 Keywords=terminal;tty;pty;
@@ -23,4 +23,4 @@ X-KDE-Shortcuts=Ctrl+Alt+T
 
 [Desktop Action new-window]
 Name=New Window
-Exec=@GHOSTTY@ --launched-from=desktop
+Exec=@GHOSTTY@ --gtk-single-instance=true

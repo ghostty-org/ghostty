@@ -7,10 +7,13 @@ pub fn build(b: *std.Build) !void {
     const module = b.addModule("utf8proc", .{ .root_source_file = .{ .path = "main.zig" } });
 
     const upstream = b.dependency("utf8proc", .{});
-    const lib = b.addStaticLibrary(.{
+    const lib = b.addLibrary(.{
         .name = "utf8proc",
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+        }),
+        .linkage = .static,
     });
     lib.linkLibC();
 

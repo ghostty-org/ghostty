@@ -19,7 +19,7 @@ jobs:
     runs-on: namespace-profile-ghostty-sm
     needs: [build-macos]
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - name: Tip Tag
         run: |
           git config user.name "github-actions[bot]"
@@ -31,7 +31,7 @@ jobs:
     runs-on: namespace-profile-ghostty-sm
     needs: [build-macos-debug-slow]
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Install sentry-cli
         run: |
@@ -52,7 +52,7 @@ jobs:
     runs-on: namespace-profile-ghostty-sm
     needs: [build-macos-debug-fast]
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Install sentry-cli
         run: |
@@ -73,7 +73,7 @@ jobs:
     runs-on: namespace-profile-ghostty-sm
     needs: [build-macos]
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Install sentry-cli
         run: |
@@ -105,14 +105,14 @@ jobs:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@449c929cd5138e6607e7e78458e88cc476e76f89 # v1.2.8
+        uses: namespacelabs/nscloud-cache-action@a289cf5d2fcd6874376aa92f0ef7f99dc923592a # v1.2.17
         with:
           path: |
             /nix
             /zig
-      - uses: cachix/install-nix-action@f0fe604f8a612776892427721526b4c7cfb23aba # v31.4.1
+      - uses: cachix/install-nix-action@56a7bb7b56d9a92d4fd1bc05758de7eea4a370a8 # v31.6.0
         with:
           nix_path: nixpkgs=channel:nixos-unstable
       - uses: cachix/cachix-action@0fc020193b5a1fa3ac4575aa3a7d3aa6a35435ad # v16
@@ -154,19 +154,19 @@ jobs:
         )
       }}
 
-    runs-on: namespace-profile-ghostty-macos-sequoia
+    runs-on: namespace-profile-ghostty-macos-tahoe
     timeout-minutes: 90
     steps:
       - name: Checkout code
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           # Important so that build number generation works
           fetch-depth: 0
 
-      # Install Nix and use that to run our tests so our environment matches exactly.
-      - uses: cachix/install-nix-action@f0fe604f8a612776892427721526b4c7cfb23aba # v31.4.1
+      # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
+      - uses: DeterminateSystems/nix-installer-action@main
         with:
-          nix_path: nixpkgs=channel:nixos-unstable
+          determinate: true
       - uses: cachix/cachix-action@0fc020193b5a1fa3ac4575aa3a7d3aa6a35435ad # v16
         with:
           name: ghostty
@@ -175,10 +175,13 @@ jobs:
       - name: XCode Select
         run: sudo xcode-select -s /Applications/Xcode_26.0.app
 
+      - name: Xcode Version
+        run: xcodebuild -version
+
       # Setup Sparkle
       - name: Setup Sparkle
         env:
-          SPARKLE_VERSION: 2.6.4
+          SPARKLE_VERSION: 2.7.1
         run: |
           mkdir -p .action/sparkle
           cd .action/sparkle
@@ -371,19 +374,19 @@ jobs:
         )
       }}
 
-    runs-on: namespace-profile-ghostty-macos-sequoia
+    runs-on: namespace-profile-ghostty-macos-tahoe
     timeout-minutes: 90
     steps:
       - name: Checkout code
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           # Important so that build number generation works
           fetch-depth: 0
 
-      # Install Nix and use that to run our tests so our environment matches exactly.
-      - uses: cachix/install-nix-action@f0fe604f8a612776892427721526b4c7cfb23aba # v31.4.1
+      # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
+      - uses: DeterminateSystems/nix-installer-action@main
         with:
-          nix_path: nixpkgs=channel:nixos-unstable
+          determinate: true
       - uses: cachix/cachix-action@0fc020193b5a1fa3ac4575aa3a7d3aa6a35435ad # v16
         with:
           name: ghostty
@@ -392,10 +395,13 @@ jobs:
       - name: XCode Select
         run: sudo xcode-select -s /Applications/Xcode_26.0.app
 
+      - name: Xcode Version
+        run: xcodebuild -version
+
       # Setup Sparkle
       - name: Setup Sparkle
         env:
-          SPARKLE_VERSION: 2.5.1
+          SPARKLE_VERSION: 2.7.1
         run: |
           mkdir -p .action/sparkle
           cd .action/sparkle
@@ -548,19 +554,19 @@ jobs:
         )
       }}
 
-    runs-on: namespace-profile-ghostty-macos-sequoia
+    runs-on: namespace-profile-ghostty-macos-tahoe
     timeout-minutes: 90
     steps:
       - name: Checkout code
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           # Important so that build number generation works
           fetch-depth: 0
 
-      # Install Nix and use that to run our tests so our environment matches exactly.
-      - uses: cachix/install-nix-action@f0fe604f8a612776892427721526b4c7cfb23aba # v31.4.1
+      # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
+      - uses: DeterminateSystems/nix-installer-action@main
         with:
-          nix_path: nixpkgs=channel:nixos-unstable
+          determinate: true
       - uses: cachix/cachix-action@0fc020193b5a1fa3ac4575aa3a7d3aa6a35435ad # v16
         with:
           name: ghostty
@@ -569,10 +575,13 @@ jobs:
       - name: XCode Select
         run: sudo xcode-select -s /Applications/Xcode_26.0.app
 
+      - name: Xcode Version
+        run: xcodebuild -version
+
       # Setup Sparkle
       - name: Setup Sparkle
         env:
-          SPARKLE_VERSION: 2.5.1
+          SPARKLE_VERSION: 2.7.1
         run: |
           mkdir -p .action/sparkle
           cd .action/sparkle

@@ -233,6 +233,11 @@ pub fn deinit(self: *Screen) void {
 /// ensure they're also calling page integrity checks if necessary.
 pub fn assertIntegrity(self: *const Screen) void {
     if (build_config.slow_runtime_safety) {
+        // We don't run integrity checks on Valgrind because its soooooo slow,
+        // Valgrind is our integrity checker, and we run these during unit
+        // tests (non-Valgrind) anyways so we're verifying anyways.
+        if (std.valgrind.runningOnValgrind() > 0) return;
+
         assert(self.cursor.x < self.pages.cols);
         assert(self.cursor.y < self.pages.rows);
 

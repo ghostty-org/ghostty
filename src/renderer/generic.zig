@@ -395,6 +395,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             }
 
             pub fn deinit(self: *FrameState) void {
+                self.target.deinit();
                 self.uniforms.deinit();
                 self.cells.deinit();
                 self.cells_bg.deinit();
@@ -516,10 +517,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             cursor_text: ?configpkg.Config.TerminalColor,
             background: terminal.color.RGB,
             background_opacity: f64,
+            background_opacity_cells: bool,
             foreground: terminal.color.RGB,
             selection_background: ?configpkg.Config.TerminalColor,
             selection_foreground: ?configpkg.Config.TerminalColor,
             bold_color: ?configpkg.BoldColor,
+            faint_opacity: u8,
             min_contrast: f32,
             padding_color: configpkg.WindowPaddingColor,
             custom_shaders: configpkg.RepeatablePath,
@@ -568,6 +571,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                 return .{
                     .background_opacity = @max(0, @min(1, config.@"background-opacity")),
+                    .background_opacity_cells = config.@"background-opacity-cells",
                     .font_thicken = config.@"font-thicken",
                     .font_thicken_strength = config.@"font-thicken-strength",
                     .font_features = font_features.list,
@@ -581,6 +585,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .background = config.background.toTerminalRGB(),
                     .foreground = config.foreground.toTerminalRGB(),
                     .bold_color = config.@"bold-color",
+                    .faint_opacity = @intFromFloat(@ceil(config.@"faint-opacity" * 255)),
 
                     .min_contrast = @floatCast(config.@"minimum-contrast"),
                     .padding_color = config.@"window-padding-color",
@@ -1546,15 +1551,17 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // Look up the image
                 const image = self.images.get(p.image_id) orelse {
                     log.warn("image not found for placement image_id={}", .{p.image_id});
-                    return;
+                    continue;
                 };
 
                 // Get the texture
                 const texture = switch (image.image) {
-                    .ready => |t| t,
+                    .ready,
+                    .unload_ready,
+                    => |t| t,
                     else => {
                         log.warn("image not ready for placement image_id={}", .{p.image_id});
-                        return;
+                        continue;
                     },
                 };
 
@@ -1904,7 +1911,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 if (img.isUnloading()) {
                     img.deinit(self.alloc);
                     self.images.removeByPtr(kv.key_ptr);
-                    return;
+                    continue;
                 }
                 if (img.isPending()) try img.upload(self.alloc, &self.api);
             }
@@ -2218,30 +2225,48 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             };
 
             // Update custom cursor uniforms, if we have a cursor.
-            if (self.cells.fg_rows.lists[0].items.len > 0) {
-                const cursor: shaderpkg.CellText =
-                    self.cells.fg_rows.lists[0].items[0];
-
+            if (self.cells.getCursorGlyph()) |cursor| {
                 const cursor_width: f32 = @floatFromInt(cursor.glyph_size[0]);
                 const cursor_height: f32 = @floatFromInt(cursor.glyph_size[1]);
 
+                // Left edge of the cell the cursor is in.
                 var pixel_x: f32 = @floatFromInt(
                     cursor.grid_pos[0] * cell.width + padding.left,
                 );
+                // Top edge, relative to the top of the
+                // screen, of the cell the cursor is in.
                 var pixel_y: f32 = @floatFromInt(
                     cursor.grid_pos[1] * cell.height + padding.top,
                 );
 
-                pixel_x += @floatFromInt(cursor.bearings[0]);
-                pixel_y += @floatFromInt(cursor.bearings[1]);
-
-                // If +Y is up in our shaders, we need to flip the coordinate.
+                // If +Y is up in our shaders, we need to flip the coordinate
+                // so that it's instead the top edge of the cell relative to
+                // the *bottom* of the screen.
                 if (!GraphicsAPI.custom_shader_y_is_down) {
                     pixel_y = @as(f32, @floatFromInt(screen.height)) - pixel_y;
-                    // We need to add the cursor height because we need the +Y
-                    // edge for the Y coordinate, and flipping means that it's
-                    // the -Y edge now.
-                    pixel_y += cursor_height;
+                }
+
+                // Add the X bearing to get the -X (left) edge of the cursor.
+                pixel_x += @floatFromInt(cursor.bearings[0]);
+
+                // How we deal with the Y bearing depends on which direction
+                // is "up", since we want our final `pixel_y` value to be the
+                // +Y edge of the cursor.
+                if (GraphicsAPI.custom_shader_y_is_down) {
+                    // As a reminder, the Y bearing is the distance from the
+                    // bottom of the cell to the top of the glyph, so to get
+                    // the +Y edge we need to add the cell height, subtract
+                    // the Y bearing, and add the glyph height to get the +Y
+                    // (bottom) edge of the cursor.
+                    pixel_y += @floatFromInt(cell.height);
+                    pixel_y -= @floatFromInt(cursor.bearings[1]);
+                    pixel_y += @floatFromInt(cursor.glyph_size[1]);
+                } else {
+                    // If the Y direction is reversed though, we instead want
+                    // the *top* edge of the cursor, which means we just need
+                    // to subtract the cell height and add the Y bearing.
+                    pixel_y -= @floatFromInt(cell.height);
+                    pixel_y += @floatFromInt(cursor.bearings[1]);
                 }
 
                 const new_cursor: [4]f32 = .{
@@ -2612,7 +2637,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     };
 
                     // Foreground alpha for this cell.
-                    const alpha: u8 = if (style.flags.faint) 175 else 255;
+                    const alpha: u8 = if (style.flags.faint) self.config.faint_opacity else 255;
 
                     // Set the cell's background color.
                     {
@@ -2630,6 +2655,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                             // Cells that are reversed should be fully opaque.
                             if (style.flags.inverse) break :bg_alpha default;
+
+                            // If the user requested to have opacity on all cells, apply it.
+                            if (self.config.background_opacity_cells and bg_style != null) {
+                                var opacity: f64 = @floatFromInt(default);
+                                opacity *= self.config.background_opacity;
+                                break :bg_alpha @intFromFloat(opacity);
+                            }
 
                             // Cells that have an explicit bg color should be fully opaque.
                             if (bg_style != null) break :bg_alpha default;
@@ -3034,7 +3066,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .thicken = self.config.font_thicken,
                     .thicken_strength = self.config.font_thicken_strength,
                     .cell_width = cell.gridWidth(),
-                    .constraint = getConstraint(cp),
+                    // If there's no Nerd Font constraint for this codepoint
+                    // then, if it's a symbol, we constrain it to fit inside
+                    // its cell(s), we don't modify the alignment at all.
+                    .constraint = getConstraint(cp) orelse
+                        if (cellpkg.isSymbol(cp)) .{
+                            .size_horizontal = .fit,
+                            .size_vertical = .fit,
+                        } else .none,
                     .constraint_width = constraintWidth(cell_pin),
                 },
             );

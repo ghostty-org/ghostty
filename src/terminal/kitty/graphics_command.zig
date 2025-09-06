@@ -21,14 +21,14 @@ pub const Parser = struct {
     arena: ArenaAllocator,
 
     /// This is the list of KV pairs that we're building up.
-    kv: KV = .{},
+    kv: KV,
 
     /// This is used as a buffer to store the key/value of a KV pair. The value
     /// of a KV pair is at most a 32-bit integer which at most is 10 characters
     /// (4294967295), plus one character for the sign bit on signed ints.
-    kv_temp: [11]u8 = undefined,
-    kv_temp_len: u4 = 0,
-    kv_current: u8 = 0, // Current kv key
+    kv_temp: [11]u8,
+    kv_temp_len: u4,
+    kv_current: u8, // Current kv key
 
     /// This is the list we use to collect the bytes from the data payload.
     /// The Kitty Graphics protocol specification seems to imply that the
@@ -38,7 +38,7 @@ pub const Parser = struct {
     data: std.ArrayList(u8),
 
     /// Internal state for parsing.
-    state: State = .control_key,
+    state: State,
 
     const State = enum {
         /// Parsing k/v pairs. The "ignore" variants are in that state
@@ -57,10 +57,22 @@ pub const Parser = struct {
     pub fn init(alloc: Allocator) Parser {
         var arena = ArenaAllocator.init(alloc);
         errdefer arena.deinit();
-        return .{
+        var result: Parser = .{
             .arena = arena,
             .data = std.ArrayList(u8).init(alloc),
+            .kv = .{},
+            .kv_temp_len = 0,
+            .kv_current = 0,
+            .state = .control_key,
+
+            .kv_temp = undefined,
         };
+        if (std.valgrind.runningOnValgrind() > 0) {
+            // Initialize our undefined fields so Valgrind can catch it.
+            // https://github.com/ziglang/zig/issues/19148
+            result.kv_temp = undefined;
+        }
+        return result;
     }
 
     pub fn deinit(self: *Parser) void {

@@ -2,14 +2,15 @@
 # Copyright (C) 2025 Mitchell Hashimoto
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
 # Damyan Bogoev <damyan.bogoev@gmail.com>, 2025.
+# reo101 <pavel.atanasov2001@gmail.com>, 2025.
 #
 msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-07-08 15:13-0500\n"
-"PO-Revision-Date: 2025-05-19 11:34+0300\n"
-"Last-Translator: Damyan Bogoev <damyan.bogoev@gmail.com>\n"
+"POT-Creation-Date: 2025-07-22 17:18+0000\n"
+"PO-Revision-Date: 2025-08-22 14:52+0300\n"
+"Last-Translator: reo101 <pavel.atanasov2001@gmail.com>\n"
 "Language-Team: Bulgarian <dict@ludost.net>\n"
 "Language: bg\n"
 "MIME-Version: 1.0\n"
@@ -208,12 +209,12 @@ msgstr "Позволи"
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:81
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:77
 msgid "Remember choice for this split"
-msgstr ""
+msgstr "Запомни избора за това разделяне"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:82
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:78
 msgid "Reload configuration to show this prompt again"
-msgstr ""
+msgstr "За да покажеш това съобщение отново, презареди конфигурацията"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:7
 #: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:7
@@ -236,7 +237,7 @@ msgstr ""
 "Поставянето на този текст в терминала може да е опасно, тъй като изглежда, "
 "че може да бъдат изпълнени някои команди."
 
-#: src/apprt/gtk/CloseDialog.zig:47
+#: src/apprt/gtk/CloseDialog.zig:47 src/apprt/gtk/Surface.zig:2531
 msgid "Close"
 msgstr "Затвори"
 
@@ -272,9 +273,21 @@ msgstr "Всички терминални сесии в този раздел щ
 msgid "The currently running process in this split will be terminated."
 msgstr "Текущият процес в това разделяне ще бъде прекратен."
 
-#: src/apprt/gtk/Surface.zig:1257
+#: src/apprt/gtk/Surface.zig:1266
 msgid "Copied to clipboard"
 msgstr "Копирано в клипборда"
+
+#: src/apprt/gtk/Surface.zig:1268
+msgid "Cleared clipboard"
+msgstr "Клипбордът е изчистен"
+
+#: src/apprt/gtk/Surface.zig:2525
+msgid "Command succeeded"
+msgstr "Командата завърши успешно"
+
+#: src/apprt/gtk/Surface.zig:2527
+msgid "Command failed"
+msgstr "Командата завърши неуспешно"
 
 #: src/apprt/gtk/Window.zig:216
 msgid "Main Menu"

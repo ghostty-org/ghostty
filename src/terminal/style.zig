@@ -84,10 +84,23 @@ pub const Style = struct {
     }
 
     /// True if the style is equal to another style.
+    /// For performance do direct comparisons first.
     pub fn eql(self: Style, other: Style) bool {
-        // We convert the styles to packed structs and compare as integers
-        // because this is much faster than comparing each field separately.
-        return PackedStyle.fromStyle(self) == PackedStyle.fromStyle(other);
+        inline for (comptime std.meta.fields(Style)) |field| {
+            if (comptime std.meta.hasUniqueRepresentation(field.type)) {
+                if (@field(self, field.name) != @field(other, field.name)) {
+                    return false;
+                }
+            }
+        }
+        inline for (comptime std.meta.fields(Style)) |field| {
+            if (comptime !std.meta.hasUniqueRepresentation(field.type)) {
+                if (!std.meta.eql(@field(self, field.name), @field(other, field.name))) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     /// Returns the bg color for a cell with this style given the cell

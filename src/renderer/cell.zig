@@ -1,12 +1,12 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const ziglyph = @import("ziglyph");
 const font = @import("../font/main.zig");
 const terminal = @import("../terminal/main.zig");
 const renderer = @import("../renderer.zig");
 const shaderpkg = renderer.Renderer.API.shaders;
 const ArrayListCollection = @import("../datastruct/array_list_collection.zig").ArrayListCollection;
+const symbols = @import("../unicode/symbols.zig").table;
 
 /// The possible cell content keys that exist.
 pub const Key = enum {
@@ -141,7 +141,12 @@ pub const Contents = struct {
     }
 
     /// Set the cursor value. If the value is null then the cursor is hidden.
-    pub fn setCursor(self: *Contents, v: ?shaderpkg.CellText, cursor_style: ?renderer.CursorStyle) void {
+    pub fn setCursor(
+        self: *Contents,
+        v: ?shaderpkg.CellText,
+        cursor_style: ?renderer.CursorStyle,
+    ) void {
+        if (self.size.rows == 0) return;
         self.fg_rows.lists[0].clearRetainingCapacity();
         self.fg_rows.lists[self.size.rows + 1].clearRetainingCapacity();
 
@@ -154,6 +159,18 @@ pub const Contents = struct {
             // Other cursor styles should be drawn last
             .block_hollow, .bar, .underline, .lock => self.fg_rows.lists[self.size.rows + 1].appendAssumeCapacity(cell),
         }
+    }
+
+    /// Returns the current cursor glyph if present, checking both cursor lists.
+    pub fn getCursorGlyph(self: *Contents) ?shaderpkg.CellText {
+        if (self.size.rows == 0) return null;
+        if (self.fg_rows.lists[0].items.len > 0) {
+            return self.fg_rows.lists[0].items[0];
+        }
+        if (self.fg_rows.lists[self.size.rows + 1].items.len > 0) {
+            return self.fg_rows.lists[self.size.rows + 1].items[0];
+        }
+        return null;
     }
 
     /// Access a background cell. Prefer this function over direct indexing
@@ -218,23 +235,45 @@ pub fn isCovering(cp: u21) bool {
     };
 }
 
+/// Returns true of the codepoint is a "symbol-like" character, which
+/// for now we define as anything in a private use area and anything
+/// in several unicode blocks:
+/// - Dingbats
+/// - Emoticons
+/// - Miscellaneous Symbols
+/// - Enclosed Alphanumerics
+/// - Enclosed Alphanumeric Supplement
+/// - Miscellaneous Symbols and Pictographs
+/// - Transport and Map Symbols
+///
+/// In the future it may be prudent to expand this to encompass more
+/// symbol-like characters, and/or exclude some PUA sections.
+pub fn isSymbol(cp: u21) bool {
+    return symbols.get(cp);
+}
+
 /// Returns the appropriate `constraint_width` for
 /// the provided cell when rendering its glyph(s).
 pub fn constraintWidth(cell_pin: terminal.Pin) u2 {
     const cell = cell_pin.rowAndCell().cell;
     const cp = cell.codepoint();
 
-    if (!ziglyph.general_category.isPrivateUse(cp) and
-        !ziglyph.blocks.isDingbats(cp))
-    {
-        return cell.gridWidth();
-    }
+    const grid_width = cell.gridWidth();
+
+    // If the grid width of the cell is 2, the constraint
+    // width will always be 2, so we can just return early.
+    if (grid_width > 1) return grid_width;
+
+    // We allow "symbol-like" glyphs to extend to 2 cells wide if there's
+    // space, and if the previous glyph wasn't also a symbol. So if this
+    // codepoint isn't a symbol then we can return the grid width.
+    if (!isSymbol(cp)) return grid_width;
 
     // If we are at the end of the screen it must be constrained to one cell.
     if (cell_pin.x == cell_pin.node.data.size.cols - 1) return 1;
 
-    // If we have a previous cell and it was PUA then we need to
-    // also constrain. This is so that multiple PUA glyphs align.
+    // If we have a previous cell and it was a symbol then we need
+    // to also constrain. This is so that multiple PUA glyphs align.
     // As an exception, we ignore powerline glyphs since they are
     // used for box drawing and we consider them whitespace.
     if (cell_pin.x > 0) prev: {
@@ -248,13 +287,13 @@ pub fn constraintWidth(cell_pin: terminal.Pin) u2 {
         // We consider powerline glyphs whitespace.
         if (isPowerline(prev_cp)) break :prev;
 
-        if (ziglyph.general_category.isPrivateUse(prev_cp)) {
+        if (isSymbol(prev_cp)) {
             return 1;
         }
     }
 
-    // If the next cell is whitespace, then
-    // we allow it to be up to two cells wide.
+    // If the next cell is whitespace, then we
+    // allow the glyph to be up to two cells wide.
     const next_cp = next_cp: {
         var copy = cell_pin;
         copy.x += 1;
@@ -268,7 +307,7 @@ pub fn constraintWidth(cell_pin: terminal.Pin) u2 {
         return 2;
     }
 
-    // Must be constrained
+    // Otherwise, this has to be 1 cell wide.
     return 1;
 }
 
@@ -350,14 +389,17 @@ test Contents {
     };
     c.setCursor(cursor_cell, .block);
     try testing.expectEqual(cursor_cell, c.fg_rows.lists[0].items[0]);
+    try testing.expectEqual(cursor_cell, c.getCursorGlyph().?);
 
     // And remove it.
     c.setCursor(null, null);
     try testing.expectEqual(0, c.fg_rows.lists[0].items.len);
+    try testing.expect(c.getCursorGlyph() == null);
 
     // Add a hollow cursor.
     c.setCursor(cursor_cell, .block_hollow);
     try testing.expectEqual(cursor_cell, c.fg_rows.lists[rows + 1].items[0]);
+    try testing.expectEqual(cursor_cell, c.getCursorGlyph().?);
 }
 
 test "Contents clear retains other content" {
@@ -438,4 +480,15 @@ test "Contents clear last added content" {
     try testing.expectEqual(bg_cell_1, c.bgCell(1, 4).*);
     // Fg row index is +1 because of cursor list at start
     try testing.expectEqual(fg_cell_1, c.fg_rows.lists[2].items[0]);
+}
+
+test "Contents with zero-sized screen" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var c: Contents = .{};
+    defer c.deinit(alloc);
+
+    c.setCursor(null, null);
+    try testing.expect(c.getCursorGlyph() == null);
 }

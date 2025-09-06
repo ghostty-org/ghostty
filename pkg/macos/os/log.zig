@@ -8,10 +8,10 @@ pub const Log = opaque {
         subsystem: [:0]const u8,
         category: [:0]const u8,
     ) *Log {
-        return @as(?*Log, @ptrFromInt(@intFromPtr(c.os_log_create(
+        return @ptrCast(c.os_log_create(
             subsystem.ptr,
             category.ptr,
-        )))).?;
+        ).?);
     }
 
     pub fn release(self: *Log) void {
@@ -32,7 +32,11 @@ pub const Log = opaque {
         comptime format: []const u8,
         args: anytype,
     ) void {
-        const str = nosuspend std.fmt.allocPrintZ(alloc, format, args) catch return;
+        const str = nosuspend std.fmt.allocPrintZ(
+            alloc,
+            format,
+            args,
+        ) catch return;
         defer alloc.free(str);
         zig_os_log_with_type(self, typ, str.ptr);
     }

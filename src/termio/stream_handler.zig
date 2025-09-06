@@ -1518,4 +1518,9 @@ pub const StreamHandler = struct {
         // processed stream will queue a render once it is done processing
         // the read() syscall.
     }
+
+    /// Display a GUI progress report.
+    pub fn handleProgressReport(self: *StreamHandler, report: terminal.osc.Command.ProgressReport) error{}!void {
+        self.surfaceMessageWriter(.{ .progress_report = report });
+    }
 };

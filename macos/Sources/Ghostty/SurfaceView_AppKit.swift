@@ -6,9 +6,11 @@ import GhosttyKit
 
 extension Ghostty {
     /// The NSView implementation for a terminal surface.
-    class SurfaceView: OSView, ObservableObject, Codable {
+    class SurfaceView: OSView, ObservableObject, Codable, Identifiable {
+        typealias ID = UUID
+        
         /// Unique ID per surface
-        let uuid: UUID
+        let id: UUID
 
         // The current title of the surface as defined by the pty. This can be
         // changed with escape codes. This is public because the callbacks go
@@ -41,6 +43,23 @@ extension Ghostty {
 
         // The hovered URL string
         @Published var hoverUrl: String? = nil
+        
+        // The progress report (if any)
+        @Published var progressReport: Action.ProgressReport? = nil {
+            didSet {
+                // Cancel any existing timer
+                progressReportTimer?.invalidate()
+                progressReportTimer = nil
+                
+                // If we have a new progress report, start a timer to remove it after 15 seconds
+                if progressReport != nil {
+                    progressReportTimer = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: false) { [weak self] _ in
+                        self?.progressReport = nil
+                        self?.progressReportTimer = nil
+                    }
+                }
+            }
+        }
 
         // The currently active key sequence. The sequence is not active if this is empty.
         @Published var keySequence: [KeyboardShortcut] = []
@@ -142,6 +161,9 @@ extension Ghostty {
 
         // A timer to fallback to ghost emoji if no title is set within the grace period
         private var titleFallbackTimer: Timer?
+        
+        // Timer to remove progress report after 15 seconds
+        private var progressReportTimer: Timer?
 
         // This is the title from the terminal. This is nil if we're currently using
         // the terminal title as the main title property. If the title is set manually
@@ -160,7 +182,7 @@ extension Ghostty {
 
         init(_ app: ghostty_app_t, baseConfig: SurfaceConfiguration? = nil, uuid: UUID? = nil) {
             self.markedText = NSMutableAttributedString()
-            self.uuid = uuid ?? .init()
+            self.id = uuid ?? .init()
 
             // Our initial config always is our application wide config.
             if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
@@ -348,6 +370,9 @@ extension Ghostty {
             // Remove any notifications associated with this surface
             let identifiers = Array(self.notificationIdentifiers)
             UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: identifiers)
+            
+            // Cancel progress report timer
+            progressReportTimer?.invalidate()
         }
 
         func focusDidChange(_ focused: Bool) {
@@ -480,7 +505,10 @@ extension Ghostty {
             // Add buttons
             alert.addButton(withTitle: "OK")
             alert.addButton(withTitle: "Cancel")
-
+            
+            // Make the text field the first responder so it gets focus
+            alert.window.initialFirstResponder = textField
+            
             let response = alert.runModal()
 
             // Check if the user clicked "OK"
@@ -1238,7 +1266,7 @@ extension Ghostty {
 
             var key_ev = event.ghosttyKeyEvent(action, translationMods: translationEvent?.modifierFlags)
             key_ev.composing = composing
-
+            
             // For text, we only encode UTF8 if we don't have a single control
             // character. Control characters are encoded by Ghostty itself.
             // Without this, `ctrl+enter` does the wrong thing.
@@ -1324,7 +1352,7 @@ extension Ghostty {
             var item: NSMenuItem
 
             // If we have a selection, add copy
-            if self.selectedRange().length > 0 {
+            if let text = self.accessibilitySelectedText(), text.count > 0 {
                 menu.addItem(withTitle: "Copy", action: #selector(copy(_:)), keyEquivalent: "")
             }
             menu.addItem(withTitle: "Paste", action: #selector(paste(_:)), keyEquivalent: "")
@@ -1442,7 +1470,7 @@ extension Ghostty {
             content.body = body
             content.sound = UNNotificationSound.default
             content.categoryIdentifier = Ghostty.userNotificationCategory
-            content.userInfo = ["surface": self.uuid.uuidString]
+            content.userInfo = ["surface": self.id.uuidString]
 
             let uuid = UUID().uuidString
             let request = UNNotificationRequest(
@@ -1516,6 +1544,8 @@ extension Ghostty {
         enum CodingKeys: String, CodingKey {
             case pwd
             case uuid
+            case title
+            case isUserSetTitle
         }
 
         required convenience init(from decoder: Decoder) throws {
@@ -1530,14 +1560,27 @@ extension Ghostty {
             let uuid = UUID(uuidString: try container.decode(String.self, forKey: .uuid))
             var config = Ghostty.SurfaceConfiguration()
             config.workingDirectory = try container.decode(String?.self, forKey: .pwd)
+            let savedTitle = try container.decodeIfPresent(String.self, forKey: .title)
+            let isUserSetTitle = try container.decodeIfPresent(Bool.self, forKey: .isUserSetTitle) ?? false
 
             self.init(app, baseConfig: config, uuid: uuid)
+            
+            // Restore the saved title after initialization
+            if let title = savedTitle {
+                self.title = title
+                // If this was a user-set title, we need to prevent it from being overwritten
+                if isUserSetTitle {
+                    self.titleFromTerminal = title
+                }
+            }
         }
 
         func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode(pwd, forKey: .pwd)
-            try container.encode(uuid.uuidString, forKey: .uuid)
+            try container.encode(id.uuidString, forKey: .uuid)
+            try container.encode(title, forKey: .title)
+            try container.encode(titleFromTerminal != nil, forKey: .isUserSetTitle)
         }
     }
 }
@@ -1642,8 +1685,10 @@ extension Ghostty.SurfaceView: NSTextInputClient {
         }
 
         // Ghostty will tell us where it thinks an IME keyboard should render.
-        var x: Double = 0;
-        var y: Double = 0;
+        var x: Double = 0
+        var y: Double = 0
+        var width: Double = cellSize.width
+        var height: Double = cellSize.height
 
         // QuickLook never gives us a matching range to our selection so if we detect
         // this then we return the top-left selection point rather than the cursor point.
@@ -1661,15 +1706,19 @@ extension Ghostty.SurfaceView: NSTextInputClient {
                 // Free our text
                 ghostty_surface_free_text(surface, &text)
             } else {
-                ghostty_surface_ime_point(surface, &x, &y)
+                ghostty_surface_ime_point(surface, &x, &y, &width, &height)
             }
         } else {
-            ghostty_surface_ime_point(surface, &x, &y)
+            ghostty_surface_ime_point(surface, &x, &y, &width, &height)
         }
 
         // Ghostty coordinates are in top-left (0, 0) so we have to convert to
         // bottom-left since that is what UIKit expects
-        let viewRect = NSMakeRect(x, frame.size.height - y, 0, 0)
+        let viewRect = NSMakeRect(
+            x,
+            frame.size.height - y,
+            max(width, cellSize.width),
+            max(height, cellSize.height))
 
         // Convert the point to the window coordinates
         let winRect = self.convert(viewRect, to: nil)

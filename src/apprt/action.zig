@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_config = @import("../build_config.zig");
 const assert = std.debug.assert;
 const apprt = @import("../apprt.zig");
 const configpkg = @import("../config.zig");
@@ -82,8 +83,9 @@ pub const Action = union(Key) {
     /// the tab should be opened in a new window.
     new_tab,
 
-    /// Closes the tab belonging to the currently focused split.
-    close_tab,
+    /// Closes the tab belonging to the currently focused split, or all other
+    /// tabs, depending on the mode.
+    close_tab: CloseTabMode,
 
     /// Create a new split. The value determines the location of the split
     /// relative to the target.
@@ -162,6 +164,11 @@ pub const Action = union(Key) {
     /// The cell size has changed to the given dimensions in pixels.
     cell_size: CellSize,
 
+    /// The target should be re-rendered. This usually has a specific
+    /// surface target but if the app is targeted then all active
+    /// surfaces should be redrawn.
+    render,
+
     /// Control whether the inspector is shown or hidden.
     inspector: Inspector,
 
@@ -203,9 +210,16 @@ pub const Action = union(Key) {
     open_config,
 
     /// Called when there are no more surfaces and the app should quit
-    /// after the configured delay. This can be cancelled by sending
-    /// another quit_timer action with "stop". Multiple "starts" shouldn't
-    /// happen and can be ignored or cause a restart it isn't that important.
+    /// after the configured delay.
+    ///
+    /// Despite the name, this is the notification that libghostty sends
+    /// when there are no more surfaces regardless of if the configuration
+    /// wants to quit after close, has any delay set, etc. It's up to the
+    /// apprt to implement the proper logic based on the config.
+    ///
+    /// This can be cancelled by sending another quit_timer action with "stop".
+    /// Multiple "starts" shouldn't happen and can be ignored or cause a
+    /// restart it isn't that important.
     quit_timer: QuitTimer,
 
     /// Set the window floating state. A floating window is one that is
@@ -272,6 +286,15 @@ pub const Action = union(Key) {
     /// apprt.
     open_url: OpenUrl,
 
+    /// Show a native GUI notification that the child process has exited.
+    show_child_exited: apprt.surface.Message.ChildExited,
+
+    /// Show a native GUI notification about the progress of some TUI operation.
+    progress_report: terminal.osc.Command.ProgressReport,
+
+    /// Show the on-screen keyboard.
+    show_on_screen_keyboard,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -298,6 +321,7 @@ pub const Action = union(Key) {
         reset_window_size,
         initial_size,
         cell_size,
+        render,
         inspector,
         show_gtk_inspector,
         render_inspector,
@@ -323,6 +347,9 @@ pub const Action = union(Key) {
         redo,
         check_for_updates,
         open_url,
+        show_child_exited,
+        progress_report,
+        show_on_screen_keyboard,
     };
 
     /// Sync with: ghostty_action_u
@@ -486,7 +513,7 @@ pub const MouseVisibility = enum(c_int) {
 };
 
 pub const MouseOverLink = struct {
-    url: []const u8,
+    url: [:0]const u8,
 
     // Sync with: ghostty_action_mouse_over_link_s
     pub const C = extern struct {
@@ -512,6 +539,16 @@ pub const SizeLimit = extern struct {
 pub const InitialSize = extern struct {
     width: u32,
     height: u32,
+
+    /// Make this a valid gobject if we're in a GTK environment.
+    pub const getGObjectType = switch (build_config.app_runtime) {
+        .gtk => @import("gobject").ext.defineBoxed(
+            InitialSize,
+            .{ .name = "GhosttyApprtInitialSize" },
+        ),
+
+        .none => void,
+    };
 };
 
 pub const CellSize = extern struct {
@@ -664,4 +701,12 @@ pub const OpenUrl = struct {
             .len = self.url.len,
         };
     }
+};
+
+/// sync with ghostty_action_close_tab_mode_e in ghostty.h
+pub const CloseTabMode = enum(c_int) {
+    /// Close the current tab.
+    this,
+    /// Close all other tabs.
+    other,
 };

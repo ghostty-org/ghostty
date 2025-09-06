@@ -14,7 +14,7 @@ struct TerminalEntity: AppEntity {
     @Property(title: "Kind")
     var kind: Kind
 
-    var screenshot: Image?
+    var screenshot: NSImage?
 
     static var typeDisplayRepresentation: TypeDisplayRepresentation {
         TypeDisplayRepresentation(name: "Terminal")
@@ -24,8 +24,7 @@ struct TerminalEntity: AppEntity {
     var displayRepresentation: DisplayRepresentation {
         var rep = DisplayRepresentation(title: "\(title)")
         if let screenshot,
-           let nsImage = ImageRenderer(content: screenshot).nsImage,
-           let data = nsImage.tiffRepresentation {
+           let data = screenshot.tiffRepresentation {
             rep.image = .init(data: data)
         }
 
@@ -35,7 +34,7 @@ struct TerminalEntity: AppEntity {
     /// Returns the view associated with this entity. This may no longer exist.
     @MainActor
     var surfaceView: Ghostty.SurfaceView? {
-        Self.defaultQuery.all.first { $0.uuid == self.id }
+        Self.defaultQuery.all.first { $0.id == self.id }
     }
 
     @MainActor
@@ -45,11 +44,14 @@ struct TerminalEntity: AppEntity {
 
     static var defaultQuery = TerminalQuery()
 
+    @MainActor
     init(_ view: Ghostty.SurfaceView) {
-        self.id = view.uuid
+        self.id = view.id
         self.title = view.title
         self.workingDirectory = view.pwd
-        self.screenshot = view.screenshot()
+        if let nsImage = ImageRenderer(content: view.screenshot()).nsImage {
+            self.screenshot = nsImage
+        }
         
         // Determine the kind based on the window controller type
         if view.window?.windowController is QuickTerminalController {
@@ -78,7 +80,7 @@ struct TerminalQuery: EntityStringQuery, EnumerableEntityQuery {
     @MainActor
     func entities(for identifiers: [TerminalEntity.ID]) async throws -> [TerminalEntity] {
         return all.filter {
-            identifiers.contains($0.uuid)
+            identifiers.contains($0.id)
         }.map {
             TerminalEntity($0)
         }

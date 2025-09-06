@@ -249,12 +249,6 @@ pub const App = struct {
         self.core_app.alloc.destroy(surface);
     }
 
-    pub fn redrawSurface(self: *App, surface: *Surface) void {
-        _ = self;
-        _ = surface;
-        // No-op, we use a threaded interface so we're constantly drawing.
-    }
-
     pub fn redrawInspector(self: *App, surface: *Surface) void {
         _ = self;
         surface.queueInspectorRender();
@@ -317,6 +311,23 @@ pub const App = struct {
             },
 
             else => {},
+        }
+    }
+
+    /// Send the given IPC to a running Ghostty. Returns `true` if the action was
+    /// able to be performed, `false` otherwise.
+    ///
+    /// Note that this is a static function. Since this is called from a CLI app (or
+    /// some other process that is not Ghostty) there is no full-featured apprt App
+    /// to use.
+    pub fn performIpc(
+        _: Allocator,
+        _: apprt.ipc.Target,
+        comptime action: apprt.ipc.Action.Key,
+        _: apprt.ipc.Action.Value(action),
+    ) (Allocator.Error || std.posix.WriteError || apprt.ipc.Errors)!bool {
+        switch (action) {
+            .new_window => return false,
         }
     }
 };
@@ -436,6 +447,9 @@ pub const Surface = struct {
 
         /// Input to send to the command after it is started.
         initial_input: ?[*:0]const u8 = null,
+
+        /// Wait after the command exits
+        wait_after_command: bool = false,
     };
 
     pub fn init(self: *Surface, app: *App, opts: Options) !void {
@@ -529,6 +543,11 @@ pub const Surface = struct {
             );
         }
 
+        // Wait after command
+        if (opts.wait_after_command) {
+            config.@"wait-after-command" = true;
+        }
+
         // Initialize our surface right away. We're given a view that is
         // ready to use.
         try self.core_surface.init(
@@ -582,6 +601,14 @@ pub const Surface = struct {
             self.app.core_app.alloc.destroy(v);
             self.inspector = null;
         }
+    }
+
+    pub fn core(self: *Surface) *CoreSurface {
+        return &self.core_surface;
+    }
+
+    pub fn rtApp(self: *const Surface) *App {
+        return self.app;
     }
 
     pub fn close(self: *const Surface, process_alive: bool) void {
@@ -684,15 +711,6 @@ pub const Surface = struct {
             @intCast(@intFromEnum(clipboard_type)),
             confirm,
         );
-    }
-
-    pub fn setShouldClose(self: *Surface) void {
-        _ = self;
-    }
-
-    pub fn shouldClose(self: *const Surface) bool {
-        _ = self;
-        return false;
     }
 
     pub fn getCursorPos(self: *const Surface) !apprt.CursorPos {
@@ -891,10 +909,7 @@ pub const Surface = struct {
             // our translation settings for Ghostty. If we aren't from
             // the desktop then we didn't set our LANGUAGE var so we
             // don't need to remove it.
-            switch (self.app.config.@"launched-from".?) {
-                .desktop => env.remove("LANGUAGE"),
-                .dbus, .systemd, .cli => {},
-            }
+            if (internal_os.launchedFromDesktop()) env.remove("LANGUAGE");
         }
 
         return env;
@@ -1804,10 +1819,18 @@ pub const CAPI = struct {
         surface.mousePressureCallback(stage, pressure);
     }
 
-    export fn ghostty_surface_ime_point(surface: *Surface, x: *f64, y: *f64) void {
+    export fn ghostty_surface_ime_point(
+        surface: *Surface,
+        x: *f64,
+        y: *f64,
+        width: *f64,
+        height: *f64,
+    ) void {
         const pos = surface.core_surface.imePoint();
         x.* = pos.x;
         y.* = pos.y;
+        width.* = pos.width;
+        height.* = pos.height;
     }
 
     /// Request that the surface become closed. This will go through the

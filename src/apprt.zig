@@ -15,6 +15,7 @@ const build_config = @import("build_config.zig");
 const structs = @import("apprt/structs.zig");
 
 pub const action = @import("apprt/action.zig");
+pub const ipc = @import("apprt/ipc.zig");
 pub const gtk = @import("apprt/gtk.zig");
 pub const none = @import("apprt/none.zig");
 pub const browser = @import("apprt/browser.zig");
@@ -57,16 +58,20 @@ pub const Runtime = enum {
     /// This is only useful if you're only interested in the lib only (macOS).
     none,
 
-    /// GTK-backed. Rich windowed application. GTK is dynamically linked.
+    /// GTK4. Rich windowed application. This uses a full GObject-based
+    /// approach to building the application.
     gtk,
 
     pub fn default(target: std.Target) Runtime {
-        // The Linux default is GTK because it is full featured.
-        if (target.os.tag == .linux) return .gtk;
-
-        // Otherwise, we do NONE so we don't create an exe and we
-        // create libghostty.
-        return .none;
+        return switch (target.os.tag) {
+            // The Linux and FreeBSD default is GTK because it is a full
+            // featured application.
+            .linux, .freebsd => .gtk,
+            // Otherwise, we do NONE so we don't create an exe and we create
+            // libghostty. On macOS, Xcode is used to build the app that links
+            // to libghostty.
+            else => .none,
+        };
     }
 };
 

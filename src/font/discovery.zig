@@ -897,6 +897,7 @@ test "fontconfig" {
     const alloc = testing.allocator;
 
     var fc = Fontconfig.init();
+    defer fc.deinit();
     var it = try fc.discover(alloc, .{ .family = "monospace", .size = 12 });
     defer it.deinit();
 }
@@ -908,12 +909,14 @@ test "fontconfig codepoint" {
     const alloc = testing.allocator;
 
     var fc = Fontconfig.init();
+    defer fc.deinit();
     var it = try fc.discover(alloc, .{ .codepoint = 'A', .size = 12 });
     defer it.deinit();
 
     // The first result should have the codepoint. Later ones may not
     // because fontconfig returns all fonts sorted.
-    const face = (try it.next()).?;
+    var face = (try it.next()).?;
+    defer face.deinit();
     try testing.expect(face.hasCodepoint('A', null));
 
     // Should have other codepoints too

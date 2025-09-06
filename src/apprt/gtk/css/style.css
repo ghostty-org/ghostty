@@ -1,0 +1,149 @@
+/* Application CSS that applies to the entire application.
+ *
+ * This is automatically loaded by AdwApplication:
+ * https://gnome.pages.gitlab.gnome.org/libadwaita/doc/1.3/styles-and-appearance.html#custom-styles
+ */
+
+window.ssd.no-border-radius {
+  /* Without clearing the border radius, at least on Mutter with
+   * gtk-titlebar=true and gtk-adwaita=false, there is some window artifacting
+   * that this will mitigate.
+   */
+  border-radius: 0 0;
+}
+
+/*
+ * GhosttySurface URL overlay
+ */
+label.url-overlay {
+  padding: 4px 8px 4px 8px;
+  outline-style: solid;
+  outline-color: #555555;
+  outline-width: 1px;
+}
+
+label.url-overlay:hover {
+  opacity: 0;
+}
+
+label.url-overlay.left {
+  border-radius: 0px 6px 0px 0px;
+}
+
+label.url-overlay.right {
+  border-radius: 6px 0px 0px 0px;
+}
+
+/*
+ * GhosttySurface resize overlay
+ */
+label.resize-overlay {
+  padding: 4px 8px 4px 8px;
+  border-radius: 6px 6px 6px 6px;
+  outline-style: solid;
+  outline-color: #555555;
+  outline-width: 1px;
+}
+
+/*
+ * GhosttyClipboardConfirmationDialog
+ *
+ * Based on boxed-list-separate:
+ * https://gitlab.gnome.org/GNOME/libadwaita/-/blob/ad446167acf3e6d1ee693f98ca636268be8592a1/src/stylesheet/widgets/_lists.scss#L548
+ */
+.clipboard-confirmation-dialog list {
+  background: none;
+}
+
+.clipboard-confirmation-dialog list > row {
+  border: none;
+  margin-bottom: 12px;
+}
+
+.clipboard-confirmation-dialog list > row:last-child {
+  margin-bottom: 0;
+}
+
+.clipboard-confirmation-dialog .clipboard-overlay {
+  border-radius: 10px;
+}
+
+.clipboard-confirmation-dialog .clipboard-contents {
+  filter: blur(0px);
+  transition: filter 0.3s ease;
+  border-radius: 10px;
+}
+
+.clipboard-confirmation-dialog .clipboard-contents.blurred {
+  filter: blur(5px);
+}
+
+/*
+ * Child Exited Overlay
+ */
+.child-exited.normal revealer widget {
+  background-color: rgba(38, 162, 105, 0.5);
+  /* after GTK 4.16 is a requirement, switch to the following: */
+  /* background-color: color-mix(in srgb, var(--success-bg-color), transparent 50%); */
+}
+
+.child-exited.abnormal revealer widget {
+  background-color: rgba(192, 28, 40, 0.5);
+  /* after GTK 4.16 is a requirement, switch to the following: */
+  /* background-color: color-mix(in srgb, var(--error-bg-color), transparent 50%); */
+}
+
+/*
+ * Surface
+ */
+.surface progressbar.error trough progress {
+  background-color: rgba(192, 28, 40, 0.5);
+  /* after GTK 4.16 is a requirement, switch to the following: */
+  /* background-color: color-mix(in srgb, var(--error-bg-color), transparent 50%); */
+}
+
+.surface .bell-overlay {
+  border-color: rgba(58, 148, 74, 0.5);
+  /* after GTK 4.16 is a requirement, switch to the following: */
+  /* background-color: color-mix(in srgb, var(--accent-color), transparent 50%); */
+  border-width: 3px;
+  border-style: solid;
+}
+
+/*
+ * Command Palette
+ */
+.command-palette-search > image:first-child {
+  margin-left: 8px;
+  margin-right: 4px;
+}
+
+.command-palette-search > image:last-child {
+  margin-left: 4px;
+  margin-right: 8px;
+}
+
+/*
+ * Splits
+ */
+
+.window .split paned > separator {
+  background-color: rgba(250, 250, 250, 1);
+  /* after GTK 4.16 is a requirement, switch to the following: */
+  /* background-color: color-mix(in srgb, var(--window-bg-color), transparent 0%); */
+  background-clip: content-box;
+
+  /* This works around the oversized drag area for the right side of GtkPaned.
+   *
+   * Upstream Gtk issue:
+   * https://gitlab.gnome.org/GNOME/gtk/-/issues/4484#note_2362002
+   *
+   * Ghostty issue:
+   * https://github.com/ghostty-org/ghostty/issues/3020
+   *
+   * Without this, it's not possible to select the first character on the
+   * right-hand side of a split.
+   */
+  margin: 0;
+  padding: 0;
+}

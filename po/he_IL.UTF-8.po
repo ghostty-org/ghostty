@@ -2,15 +2,15 @@
 # Copyright (C) 2025 Mitchell Hashimoto
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
 # Sl (Shahaf Levi), Sl's Repository Ltd <ghostty@slsrepo.com>, 2025.
+# CraziestOwl <craziestowl@proton.me>, 2025.
 #
 msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-07-08 15:13-0500\n"
-"PO-Revision-Date: 2025-03-13 00:00+0000\n"
-"Last-Translator: Sl (Shahaf Levi), Sl's Repository Ltd <ghostty@slsrepo."
-"com>\n"
+"POT-Creation-Date: 2025-07-22 17:18+0000\n"
+"PO-Revision-Date: 2025-08-23 08:00+0300\n"
+"Last-Translator: CraziestOwl <craziestowl@proton.me>\n"
 "Language-Team: Hebrew <he_IL@lists.sourceforge.net>\n"
 "Language: he\n"
 "MIME-Version: 1.0\n"
@@ -234,7 +234,7 @@ msgstr ""
 "הדבקת טקסט זה במסוף עלולה להיות מסוכנת, מכיוון שככל הנראה היא תוביל להרצה של "
 "פקודות מסוימות."
 
-#: src/apprt/gtk/CloseDialog.zig:47
+#: src/apprt/gtk/CloseDialog.zig:47 src/apprt/gtk/Surface.zig:2531
 msgid "Close"
 msgstr "סגירה"
 
@@ -270,9 +270,21 @@ msgstr "כל הפעלות המסוף בכרטיסייה זו יסתיימו."
 msgid "The currently running process in this split will be terminated."
 msgstr "התהליך שרץ כרגע בפיצול זה יסתיים."
 
-#: src/apprt/gtk/Surface.zig:1257
+#: src/apprt/gtk/Surface.zig:1266
 msgid "Copied to clipboard"
 msgstr "הועתק ללוח ההעתקה"
+
+#: src/apprt/gtk/Surface.zig:1268
+msgid "Cleared clipboard"
+msgstr "לוח ההעתקה רוקן"
+
+#: src/apprt/gtk/Surface.zig:2525
+msgid "Command succeeded"
+msgstr "הפקודה הצליחה"
+
+#: src/apprt/gtk/Surface.zig:2527
+msgid "Command failed"
+msgstr "הפקודה נכשלה"
 
 #: src/apprt/gtk/Window.zig:216
 msgid "Main Menu"

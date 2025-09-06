@@ -8,8 +8,6 @@ const UnicodeTables = @import("UnicodeTables.zig");
 const GhosttyFrameData = @import("GhosttyFrameData.zig");
 const DistResource = @import("GhosttyDist.zig").Resource;
 
-const gresource = @import("../apprt/gtk/gresource.zig");
-
 config: *const Config,
 
 options: *std.Build.Step.Options,
@@ -33,6 +31,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !SharedDeps {
         .metallib = undefined,
     };
     try result.initTarget(b, cfg.target);
+    if (cfg.emit_unicode_table_gen) result.unicode_tables.install(b);
     return result;
 }
 
@@ -139,7 +138,7 @@ pub fn add(
         if (b.lazyDependency("harfbuzz", .{
             .target = target,
             .optimize = optimize,
-            .@"enable-freetype" = true,
+            .@"enable-freetype" = self.config.font_backend.hasFreetype(),
             .@"enable-coretext" = self.config.font_backend.hasCoretext(),
         })) |harfbuzz_dep| {
             step.root_module.addImport(
@@ -533,7 +532,7 @@ pub fn add(
         const nf_symbols = b.dependency("nerd_fonts_symbols_only", .{});
         step.root_module.addAnonymousImport(
             "nerd_fonts_symbols_only",
-            .{ .root_source_file = nf_symbols.path("SymbolsNerdFontMono-Regular.ttf") },
+            .{ .root_source_file = nf_symbols.path("SymbolsNerdFont-Regular.ttf") },
         );
     }
 
@@ -552,7 +551,7 @@ pub fn add(
 
         switch (self.config.app_runtime) {
             .none => {},
-            .gtk => try self.addGTK(step),
+            .gtk => try self.addGtkNg(step),
         }
     }
 
@@ -563,10 +562,8 @@ pub fn add(
     return static_libs;
 }
 
-/// Setup the dependencies for the GTK apprt build. The GTK apprt
-/// is particularly involved compared to others so we pull this out
-/// into a dedicated function.
-fn addGTK(
+/// Setup the dependencies for the GTK apprt build.
+fn addGtkNg(
     self: *const SharedDeps,
     step: *std.Build.Step.Compile,
 ) !void {
@@ -692,56 +689,59 @@ fn addGTK(
 
     {
         // Get our gresource c/h files and add them to our build.
-        const dist = gtkDistResources(b);
+        const dist = gtkNgDistResources(b);
         step.addCSourceFile(.{ .file = dist.resources_c.path(b), .flags = &.{} });
         step.addIncludePath(dist.resources_h.path(b).dirname());
     }
 }
 
 /// Creates the resources that can be prebuilt for our dist build.
-pub fn gtkDistResources(
+pub fn gtkNgDistResources(
     b: *std.Build,
 ) struct {
     resources_c: DistResource,
     resources_h: DistResource,
 } {
+    const gresource = @import("../apprt/gtk/build/gresource.zig");
     const gresource_xml = gresource_xml: {
         const xml_exe = b.addExecutable(.{
             .name = "generate_gresource_xml",
-            .root_source_file = b.path("src/apprt/gtk/gresource.zig"),
+            .root_source_file = b.path("src/apprt/gtk/build/gresource.zig"),
             .target = b.graph.host,
         });
         const xml_run = b.addRunArtifact(xml_exe);
 
+        // Run our blueprint compiler across all of our blueprint files.
         const blueprint_exe = b.addExecutable(.{
             .name = "gtk_blueprint_compiler",
-            .root_source_file = b.path("src/apprt/gtk/blueprint_compiler.zig"),
+            .root_source_file = b.path("src/apprt/gtk/build/blueprint.zig"),
             .target = b.graph.host,
         });
         blueprint_exe.linkLibC();
         blueprint_exe.linkSystemLibrary2("gtk4", dynamic_link_opts);
         blueprint_exe.linkSystemLibrary2("libadwaita-1", dynamic_link_opts);
 
-        for (gresource.blueprint_files) |blueprint_file| {
+        for (gresource.blueprints) |bp| {
             const blueprint_run = b.addRunArtifact(blueprint_exe);
             blueprint_run.addArgs(&.{
-                b.fmt("{d}", .{blueprint_file.major}),
-                b.fmt("{d}", .{blueprint_file.minor}),
+                b.fmt("{d}", .{bp.major}),
+                b.fmt("{d}", .{bp.minor}),
             });
             const ui_file = blueprint_run.addOutputFileArg(b.fmt(
                 "{d}.{d}/{s}.ui",
                 .{
-                    blueprint_file.major,
-                    blueprint_file.minor,
-                    blueprint_file.name,
+                    bp.major,
+                    bp.minor,
+                    bp.name,
                 },
             ));
             blueprint_run.addFileArg(b.path(b.fmt(
-                "src/apprt/gtk/ui/{d}.{d}/{s}.blp",
+                "{s}/{d}.{d}/{s}.blp",
                 .{
-                    blueprint_file.major,
-                    blueprint_file.minor,
-                    blueprint_file.name,
+                    gresource.ui_path,
+                    bp.major,
+                    bp.minor,
+                    bp.name,
                 },
             )));
 
@@ -760,8 +760,8 @@ pub fn gtkDistResources(
     });
     const resources_c = generate_c.addOutputFileArg("ghostty_resources.c");
     generate_c.addFileArg(gresource_xml);
-    for (gresource.dependencies) |file| {
-        generate_c.addFileInput(b.path(file));
+    for (gresource.file_inputs) |path| {
+        generate_c.addFileInput(b.path(path));
     }
 
     const generate_h = b.addSystemCommand(&.{
@@ -773,8 +773,8 @@ pub fn gtkDistResources(
     });
     const resources_h = generate_h.addOutputFileArg("ghostty_resources.h");
     generate_h.addFileArg(gresource_xml);
-    for (gresource.dependencies) |file| {
-        generate_h.addFileInput(b.path(file));
+    for (gresource.file_inputs) |path| {
+        generate_h.addFileInput(b.path(path));
     }
 
     return .{

@@ -1,4 +1,4 @@
 [D-BUS Service]
 Name=@APPID@
-SystemdService=@APPID@.service
-Exec=@GHOSTTY@ --launched-from=dbus
+SystemdService=app-@APPID@.service
+Exec=@GHOSTTY@ --gtk-single-instance=true --initial-window=false

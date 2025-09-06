@@ -455,7 +455,7 @@ extension Ghostty {
                 newSplit(app, target: target, direction: action.action.new_split)
 
             case GHOSTTY_ACTION_CLOSE_TAB:
-                closeTab(app, target: target)
+                closeTab(app, target: target, mode: action.action.close_tab_mode)
 
             case GHOSTTY_ACTION_CLOSE_WINDOW:
                 closeWindow(app, target: target)
@@ -543,6 +543,9 @@ extension Ghostty {
 
             case GHOSTTY_ACTION_KEY_SEQUENCE:
                 keySequence(app, target: target, v: action.action.key_sequence)
+                
+            case GHOSTTY_ACTION_PROGRESS_REPORT:
+                progressReport(app, target: target, v: action.action.progress_report)
 
             case GHOSTTY_ACTION_CONFIG_CHANGE:
                 configChange(app, target: target, v: action.action.config_change)
@@ -579,6 +582,8 @@ extension Ghostty {
             case GHOSTTY_ACTION_SIZE_LIMIT:
                 fallthrough
             case GHOSTTY_ACTION_QUIT_TIMER:
+                fallthrough
+            case GHOSTTY_ACTION_SHOW_CHILD_EXITED:
                 Ghostty.logger.info("known but unimplemented action action=\(action.tag.rawValue)")
                 return false
             default:
@@ -776,20 +781,34 @@ extension Ghostty {
             }
         }
 
-        private static func closeTab(_ app: ghostty_app_t, target: ghostty_target_s) {
+        private static func closeTab(_ app: ghostty_app_t, target: ghostty_target_s, mode: ghostty_action_close_tab_mode_e) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("close tab does nothing with an app target")
+                Ghostty.logger.warning("close tabs does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
 
-                NotificationCenter.default.post(
-                    name: .ghosttyCloseTab,
-                    object: surfaceView
-                )
+                switch (mode) {
+                case GHOSTTY_ACTION_CLOSE_TAB_MODE_THIS:
+                    NotificationCenter.default.post(
+                        name: .ghosttyCloseTab,
+                        object: surfaceView
+                    )
+                    return
+
+                case GHOSTTY_ACTION_CLOSE_TAB_MODE_OTHER:
+                    NotificationCenter.default.post(
+                        name: .ghosttyCloseOtherTabs,
+                        object: surfaceView
+                    )
+                    return
+
+                default:
+                    assertionFailure()
+                }
 
 
             default:
@@ -1501,6 +1520,33 @@ extension Ghostty {
                         name: Notification.didEndKeySequence,
                         object: surfaceView
                     )
+                }
+
+            default:
+                assertionFailure()
+            }
+        }
+        
+        private static func progressReport(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_progress_report_s) {
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("progress report does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                
+                let progressReport = Ghostty.Action.ProgressReport(c: v)
+                DispatchQueue.main.async {
+                    if progressReport.state == .remove {
+                        surfaceView.progressReport = nil
+                    } else {
+                        surfaceView.progressReport = progressReport
+                    }
                 }
 
             default:

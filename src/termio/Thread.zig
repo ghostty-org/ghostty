@@ -310,7 +310,7 @@ fn drainMailbox(
         // If we have a message we always redraw
         redraw = true;
 
-        log.debug("mailbox message={}", .{message});
+        log.debug("mailbox message={s}", .{@tagName(message)});
         switch (message) {
             .crash => @panic("crash request, crashing intentionally"),
             .change_config => |config| {

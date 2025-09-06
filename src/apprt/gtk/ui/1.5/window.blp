@@ -1,0 +1,309 @@
+using Gtk 4.0;
+using Adw 1;
+
+template $GhosttyWindow: Adw.ApplicationWindow {
+  styles [
+    "window",
+  ]
+
+  close-request => $close_request();
+  realize => $realize();
+  notify::config => $notify_config();
+  notify::fullscreened => $notify_fullscreened();
+  notify::is-active => $notify_is_active();
+  notify::maximized => $notify_maximized();
+  notify::quick-terminal => $notify_quick_terminal();
+  notify::scale-factor => $notify_scale_factor();
+  default-width: 800;
+  default-height: 600;
+  // GTK4 grabs F10 input by default to focus the menubar icon. We want
+  // to disable this so that terminal programs can capture F10 (such as htop)
+  handle-menubar-accel: false;
+
+  content: Adw.TabOverview tab_overview {
+    create-tab => $overview_create_tab();
+    notify::open => $overview_notify_open();
+    view: tab_view;
+    enable-new-tab: true;
+    // Disable the title buttons (close, maximize, minimize, ...)
+    // *inside* the tab overview if CSDs are disabled.
+    // We do spare the search button, though.
+    show-start-title-buttons: bind template.decorated;
+    show-end-title-buttons: bind template.decorated;
+
+    Adw.ToolbarView toolbar {
+      top-bar-style: bind template.toolbar-style;
+      bottom-bar-style: bind template.toolbar-style;
+
+      [top]
+      Adw.HeaderBar {
+        visible: bind template.headerbar-visible;
+
+        title-widget: Adw.WindowTitle {
+          title: bind template.title;
+          // Blueprint auto-formatter won't let me split this into multiple
+          // lines. Let me explain myself. All parameters to a closure are used
+          // as notifications to recompute the value of the closure. All
+          // elements of a property chain are also subscribed to for changes.
+          // This one long, ugly line saves us from manually building up this
+          // massive notify chain in code.
+          subtitle: bind $computed_subtitle(template.config, tab_view.selected-page.child as <$GhosttyTab>.active-surface as <$GhosttySurface>.pwd) as <string>;
+        };
+
+        [start]
+        Adw.SplitButton {
+          clicked => $new_tab();
+          icon-name: "tab-new-symbolic";
+          tooltip-text: _("New Tab");
+          dropdown-tooltip: _("New Split");
+          menu-model: split_menu;
+          can-focus: false;
+          focus-on-click: false;
+        }
+
+        [end]
+        Gtk.Box {
+          Gtk.ToggleButton {
+            icon-name: "view-grid-symbolic";
+            tooltip-text: _("View Open Tabs");
+            active: bind tab_overview.open bidirectional;
+            can-focus: false;
+            focus-on-click: false;
+          }
+
+          Gtk.MenuButton {
+            notify::active => $notify_menu_active();
+            icon-name: "open-menu-symbolic";
+            menu-model: main_menu;
+            tooltip-text: _("Main Menu");
+            can-focus: false;
+          }
+        }
+      }
+
+      [top]
+      Adw.TabBar tab_bar {
+        autohide: bind template.tabs-autohide;
+        expand-tabs: bind template.tabs-wide;
+        view: tab_view;
+        visible: bind template.tabs-visible;
+
+        [start]
+        Gtk.Box {
+          orientation: horizontal;
+          visible: bind $titlebar_style_is_tabs(template.titlebar-style) as <bool>;
+
+          Gtk.WindowControls {
+            side: start;
+          }
+
+          Adw.SplitButton {
+            styles [
+              "flat",
+            ]
+
+            clicked => $new_tab();
+            icon-name: "tab-new-symbolic";
+            tooltip-text: _("New Tab");
+            dropdown-tooltip: _("New Split");
+            menu-model: split_menu;
+            can-focus: false;
+            focus-on-click: false;
+          }
+        }
+
+        [end]
+        Gtk.Box {
+          orientation: horizontal;
+          visible: bind $titlebar_style_is_tabs(template.titlebar-style) as <bool>;
+
+          Gtk.ToggleButton {
+            styles [
+              "flat",
+            ]
+
+            icon-name: "view-grid-symbolic";
+            tooltip-text: _("View Open Tabs");
+            active: bind tab_overview.open bidirectional;
+            can-focus: false;
+            focus-on-click: false;
+          }
+
+          Gtk.MenuButton {
+            styles [
+              "flat",
+            ]
+
+            notify::active => $notify_menu_active();
+            icon-name: "open-menu-symbolic";
+            menu-model: main_menu;
+            tooltip-text: _("Main Menu");
+            can-focus: false;
+          }
+
+          Gtk.WindowControls {
+            side: end;
+          }
+        }
+      }
+
+      Box {
+        orientation: vertical;
+
+        $GhosttyDebugWarning {
+          visible: bind template.debug;
+        }
+
+        Adw.ToastOverlay toast_overlay {
+          Adw.TabView tab_view {
+            notify::n-pages => $notify_n_pages();
+            notify::selected-page => $notify_selected_page();
+            close-page => $close_page();
+            page-attached => $page_attached();
+            page-detached => $page_detached();
+            create-window => $tab_create_window();
+            shortcuts: none;
+          }
+        }
+      }
+    }
+  };
+}
+
+menu split_menu {
+  item {
+    label: _("Split Up");
+    action: "win.split-up";
+  }
+
+  item {
+    label: _("Split Down");
+    action: "win.split-down";
+  }
+
+  item {
+    label: _("Split Left");
+    action: "win.split-left";
+  }
+
+  item {
+    label: _("Split Right");
+    action: "win.split-right";
+  }
+}
+
+menu main_menu {
+  section {
+    item {
+      label: _("Copy");
+      action: "win.copy";
+    }
+
+    item {
+      label: _("Paste");
+      action: "win.paste";
+    }
+  }
+
+  section {
+    item {
+      label: _("New Window");
+      action: "win.new-window";
+    }
+
+    item {
+      label: _("Close Window");
+      action: "win.close";
+    }
+  }
+
+  section {
+    item {
+      label: _("New Tab");
+      action: "win.new-tab";
+    }
+
+    item {
+      label: _("Close Tab");
+      action: "win.close-tab";
+      target: "this";
+    }
+  }
+
+  section {
+    submenu {
+      label: _("Split");
+
+      item {
+        label: _("Change Title…");
+        action: "win.prompt-title";
+      }
+
+      item {
+        label: _("Split Up");
+        action: "win.split-up";
+      }
+
+      item {
+        label: _("Split Down");
+        action: "win.split-down";
+      }
+
+      item {
+        label: _("Split Left");
+        action: "win.split-left";
+      }
+
+      item {
+        label: _("Split Right");
+        action: "win.split-right";
+      }
+    }
+  }
+
+  section {
+    item {
+      label: _("Clear");
+      action: "win.clear";
+    }
+
+    item {
+      label: _("Reset");
+      action: "win.reset";
+    }
+  }
+
+  section {
+    item {
+      label: _("Command Palette");
+      action: "win.toggle-command-palette";
+    }
+
+    item {
+      label: _("Terminal Inspector");
+      action: "win.toggle-inspector";
+    }
+
+    item {
+      label: _("Open Configuration");
+      action: "app.open-config";
+    }
+
+    item {
+      label: _("Reload Configuration");
+      action: "app.reload-config";
+    }
+  }
+
+  section {
+    item {
+      label: _("About Ghostty");
+      action: "win.about";
+    }
+
+    item {
+      label: _("Quit");
+      action: "app.quit";
+    }
+  }
+}

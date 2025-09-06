@@ -19,14 +19,17 @@
       inputs = {
         nixpkgs.follows = "nixpkgs";
         flake-utils.follows = "flake-utils";
-        flake-compat.follows = "";
+        flake-compat.follows = "flake-compat";
       };
     };
 
     zon2nix = {
-      url = "github:jcollie/zon2nix?ref=56c159be489cc6c0e73c3930bd908ddc6fe89613";
+      url = "github:jcollie/zon2nix?rev=dc78177e2ad28d5a407c9e783ee781bd559d7dd5";
       inputs = {
-        nixpkgs.follows = "nixpkgs";
+        # Don't override nixpkgs until Zig 0.15 is available in the Nix branch
+        # we are using for "normal" builds.
+        #
+        # nixpkgs.follows = "nixpkgs";
         flake-utils.follows = "flake-utils";
       };
     };

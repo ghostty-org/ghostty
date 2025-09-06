@@ -47,8 +47,16 @@ pub fn Stream(comptime Handler: type) type {
         };
 
         handler: Handler,
-        parser: Parser = .{},
-        utf8decoder: UTF8Decoder = .{},
+        parser: Parser,
+        utf8decoder: UTF8Decoder,
+
+        pub fn init(h: Handler) Self {
+            return .{
+                .handler = h,
+                .parser = .init(),
+                .utf8decoder = .{},
+            };
+        }
 
         pub fn deinit(self: *Self) void {
             self.parser.deinit();
@@ -241,7 +249,7 @@ pub fn Stream(comptime Handler: type) type {
                     // the parser state to ground.
                     0x18, 0x1A => self.parser.state = .ground,
                     // A parameter digit:
-                    '0'...'9' => if (self.parser.params_idx < 16) {
+                    '0'...'9' => if (self.parser.params_idx < Parser.MAX_PARAMS) {
                         self.parser.param_acc *|= 10;
                         self.parser.param_acc +|= c - '0';
                         // The parser's CSI param action uses param_acc_idx
@@ -251,7 +259,7 @@ pub fn Stream(comptime Handler: type) type {
                         self.parser.param_acc_idx |= 1;
                     },
                     // A parameter separator:
-                    ':', ';' => if (self.parser.params_idx < 16) {
+                    ':', ';' => if (self.parser.params_idx < Parser.MAX_PARAMS) {
                         self.parser.params[self.parser.params_idx] = self.parser.param_acc;
                         if (c == ':') self.parser.params_sep.set(self.parser.params_idx);
                         self.parser.params_idx += 1;
@@ -1590,8 +1598,26 @@ pub fn Stream(comptime Handler: type) type {
                     } else log.warn("unimplemented OSC callback: {}", .{cmd});
                 },
 
-                .progress, .sleep, .show_message_box, .change_conemu_tab_title, .wait_input => {
+                .conemu_progress_report => |v| {
+                    if (@hasDecl(T, "handleProgressReport")) {
+                        try self.handler.handleProgressReport(v);
+                        return;
+                    } else log.warn("unimplemented OSC callback: {}", .{cmd});
+                },
+
+                .conemu_sleep,
+                .conemu_show_message_box,
+                .conemu_change_tab_title,
+                .conemu_wait_input,
+                .conemu_guimacro,
+                => {
                     log.warn("unimplemented OSC callback: {}", .{cmd});
+                },
+
+                .invalid => {
+                    // This is an invalid internal state, not an invalid OSC
+                    // string being parsed. We shouldn't see this.
+                    log.warn("invalid OSC, should never happen", .{});
                 },
             }
 
@@ -1835,7 +1861,7 @@ test "stream: print" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
     try s.next('x');
     try testing.expectEqual(@as(u21, 'x'), s.handler.c.?);
 }
@@ -1849,7 +1875,7 @@ test "simd: print invalid utf-8" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
     try s.nextSlice(&.{0xFF});
     try testing.expectEqual(@as(u21, 0xFFFD), s.handler.c.?);
 }
@@ -1863,7 +1889,7 @@ test "simd: complete incomplete utf-8" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
     try s.nextSlice(&.{0xE0}); // 3 byte
     try testing.expect(s.handler.c == null);
     try s.nextSlice(&.{0xA0}); // still incomplete
@@ -1881,7 +1907,7 @@ test "stream: cursor right (CUF)" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
     try s.nextSlice("\x1B[C");
     try testing.expectEqual(@as(u16, 1), s.handler.amount);
 
@@ -1906,7 +1932,7 @@ test "stream: dec set mode (SM) and reset mode (RM)" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
     try s.nextSlice("\x1B[?6h");
     try testing.expectEqual(@as(modes.Mode, .origin), s.handler.mode);
 
@@ -1928,7 +1954,7 @@ test "stream: ansi set mode (SM) and reset mode (RM)" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
     try s.nextSlice("\x1B[4h");
     try testing.expectEqual(@as(modes.Mode, .insert), s.handler.mode.?);
 
@@ -1950,7 +1976,7 @@ test "stream: ansi set mode (SM) and reset mode (RM) with unknown value" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
     try s.nextSlice("\x1B[6h");
     try testing.expect(s.handler.mode == null);
 
@@ -1970,7 +1996,7 @@ test "stream: restore mode" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
     for ("\x1B[?42r") |c| try s.next(c);
     try testing.expect(!s.handler.called);
 }
@@ -1985,7 +2011,7 @@ test "stream: pop kitty keyboard with no params defaults to 1" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
     for ("\x1B[<u") |c| try s.next(c);
     try testing.expectEqual(@as(u16, 1), s.handler.n);
 }
@@ -2000,7 +2026,7 @@ test "stream: DECSCA" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
     {
         for ("\x1B[\"q") |c| try s.next(c);
         try testing.expectEqual(ansi.ProtectedMode.off, s.handler.v.?);
@@ -2035,7 +2061,7 @@ test "stream: DECED, DECSED" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
     {
         for ("\x1B[?J") |c| try s.next(c);
         try testing.expectEqual(csi.EraseDisplay.below, s.handler.mode.?);
@@ -2111,7 +2137,7 @@ test "stream: DECEL, DECSEL" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
     {
         for ("\x1B[?K") |c| try s.next(c);
         try testing.expectEqual(csi.EraseLine.right, s.handler.mode.?);
@@ -2170,7 +2196,7 @@ test "stream: DECSCUSR" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
     try s.nextSlice("\x1B[ q");
     try testing.expect(s.handler.style.? == .default);
 
@@ -2191,7 +2217,7 @@ test "stream: DECSCUSR without space" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
     try s.nextSlice("\x1B[q");
     try testing.expect(s.handler.style == null);
 
@@ -2208,7 +2234,7 @@ test "stream: XTSHIFTESCAPE" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
     try s.nextSlice("\x1B[>2s");
     try testing.expect(s.handler.escape == null);
 
@@ -2238,13 +2264,13 @@ test "stream: change window title with invalid utf-8" {
     };
 
     {
-        var s: Stream(H) = .{ .handler = .{} };
+        var s: Stream(H) = .init(.{});
         try s.nextSlice("\x1b]2;abc\x1b\\");
         try testing.expect(s.handler.seen);
     }
 
     {
-        var s: Stream(H) = .{ .handler = .{} };
+        var s: Stream(H) = .init(.{});
         try s.nextSlice("\x1b]2;abc\xc0\x1b\\");
         try testing.expect(!s.handler.seen);
     }
@@ -2261,7 +2287,7 @@ test "stream: insert characters" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
     for ("\x1B[42@") |c| try s.next(c);
     try testing.expect(s.handler.called);
 
@@ -2287,7 +2313,7 @@ test "stream: SCOSC" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
     for ("\x1B[s") |c| try s.next(c);
     try testing.expect(s.handler.called);
 }
@@ -2302,7 +2328,7 @@ test "stream: SCORC" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
     for ("\x1B[u") |c| try s.next(c);
     try testing.expect(s.handler.called);
 }
@@ -2316,7 +2342,7 @@ test "stream: too many csi params" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
     try s.nextSlice("\x1B[1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1C");
 }
 
@@ -2328,7 +2354,7 @@ test "stream: csi param too long" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
     try s.nextSlice("\x1B[1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111C");
 }
 
@@ -2341,7 +2367,7 @@ test "stream: send report with CSI t" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
 
     try s.nextSlice("\x1b[14t");
     try testing.expectEqual(csi.SizeReportStyle.csi_14_t, s.handler.style);
@@ -2365,7 +2391,7 @@ test "stream: invalid CSI t" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
 
     try s.nextSlice("\x1b[19t");
     try testing.expectEqual(null, s.handler.style);
@@ -2380,7 +2406,7 @@ test "stream: CSI t push title" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
 
     try s.nextSlice("\x1b[22;0t");
     try testing.expectEqual(csi.TitlePushPop{
@@ -2398,7 +2424,7 @@ test "stream: CSI t push title with explicit window" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
 
     try s.nextSlice("\x1b[22;2t");
     try testing.expectEqual(csi.TitlePushPop{
@@ -2416,7 +2442,7 @@ test "stream: CSI t push title with explicit icon" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
 
     try s.nextSlice("\x1b[22;1t");
     try testing.expectEqual(null, s.handler.op);
@@ -2431,7 +2457,7 @@ test "stream: CSI t push title with index" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
 
     try s.nextSlice("\x1b[22;0;5t");
     try testing.expectEqual(csi.TitlePushPop{
@@ -2449,7 +2475,7 @@ test "stream: CSI t pop title" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
 
     try s.nextSlice("\x1b[23;0t");
     try testing.expectEqual(csi.TitlePushPop{
@@ -2467,7 +2493,7 @@ test "stream: CSI t pop title with explicit window" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
 
     try s.nextSlice("\x1b[23;2t");
     try testing.expectEqual(csi.TitlePushPop{
@@ -2485,7 +2511,7 @@ test "stream: CSI t pop title with explicit icon" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
 
     try s.nextSlice("\x1b[23;1t");
     try testing.expectEqual(null, s.handler.op);
@@ -2500,7 +2526,7 @@ test "stream: CSI t pop title with index" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
 
     try s.nextSlice("\x1b[23;0;5t");
     try testing.expectEqual(csi.TitlePushPop{
@@ -2518,7 +2544,7 @@ test "stream CSI W clear tab stops" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
 
     try s.nextSlice("\x1b[2W");
     try testing.expectEqual(csi.TabClear.current, s.handler.op.?);
@@ -2536,7 +2562,7 @@ test "stream CSI W tab set" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
 
     try s.nextSlice("\x1b[W");
     try testing.expect(s.handler.called);
@@ -2563,7 +2589,7 @@ test "stream CSI ? W reset tab stops" {
         }
     };
 
-    var s: Stream(H) = .{ .handler = .{} };
+    var s: Stream(H) = .init(.{});
 
     try s.nextSlice("\x1b[?2W");
     try testing.expect(!s.handler.reset);
@@ -2574,4 +2600,23 @@ test "stream CSI ? W reset tab stops" {
     // Invalid and ignored by the handler
     try s.nextSlice("\x1b[?1;2;3W");
     try testing.expect(s.handler.reset);
+}
+
+test "stream: SGR with 17+ parameters for underline color" {
+    const H = struct {
+        attrs: ?sgr.Attribute = null,
+        called: bool = false,
+
+        pub fn setAttribute(self: *@This(), attr: sgr.Attribute) !void {
+            self.attrs = attr;
+            self.called = true;
+        }
+    };
+
+    var s: Stream(H) = .init(.{});
+
+    // Kakoune-style SGR with underline color as 17th parameter
+    // This tests the fix where param 17 was being dropped
+    try s.nextSlice("\x1b[4:3;38;2;51;51;51;48;2;170;170;170;58;2;255;97;136;0m");
+    try testing.expect(s.handler.called);
 }

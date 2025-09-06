@@ -132,18 +132,6 @@ pub fn destroy(self: *App) void {
 /// events. This should be called by the application runtime on every loop
 /// tick.
 pub fn tick(self: *App, rt_app: *apprt.App) !void {
-    // If any surfaces are closing, destroy them
-    var i: usize = 0;
-    while (i < self.surfaces.items.len) {
-        const surface = self.surfaces.items[i];
-        if (surface.shouldClose()) {
-            surface.close(false);
-            continue;
-        }
-
-        i += 1;
-    }
-
     // Drain our mailbox
     try self.drainMailbox(rt_app);
 }
@@ -154,7 +142,7 @@ pub fn tick(self: *App, rt_app: *apprt.App) !void {
 pub fn updateConfig(self: *App, rt_app: *apprt.App, config: *const Config) !void {
     // Go through and update all of the surface configurations.
     for (self.surfaces.items) |surface| {
-        try surface.core_surface.handleMessage(.{ .change_config = config });
+        try surface.core().handleMessage(.{ .change_config = config });
     }
 
     // Apply our conditional state. If we fail to apply the conditional state
@@ -190,7 +178,7 @@ pub fn addSurface(
     // Since we have non-zero surfaces, we can cancel the quit timer.
     // It is up to the apprt if there is a quit timer at all and if it
     // should be canceled.
-    _ = rt_surface.app.performAction(
+    _ = rt_surface.rtApp().performAction(
         .app,
         .quit_timer,
         .stop,
@@ -207,7 +195,7 @@ pub fn deleteSurface(self: *App, rt_surface: *apprt.Surface) void {
     // just let focused surface be but the allocator was reusing addresses
     // after free and giving false positives, so we must clear it.
     if (self.focused_surface) |focused| {
-        if (focused == &rt_surface.core_surface) {
+        if (focused == rt_surface.core()) {
             self.focused_surface = null;
         }
     }
@@ -224,7 +212,7 @@ pub fn deleteSurface(self: *App, rt_surface: *apprt.Surface) void {
 
     // If we have no surfaces, we can start the quit timer. It is up to the
     // apprt to determine if this is necessary.
-    if (self.surfaces.items.len == 0) _ = rt_surface.app.performAction(
+    if (self.surfaces.items.len == 0) _ = rt_surface.rtApp().performAction(
         .app,
         .quit_timer,
         .start,
@@ -245,7 +233,7 @@ pub fn focusedSurface(self: *const App) ?*Surface {
 /// the apprt to call this.
 pub fn needsConfirmQuit(self: *const App) bool {
     for (self.surfaces.items) |v| {
-        if (v.core_surface.needsConfirmQuit()) return true;
+        if (v.core().needsConfirmQuit()) return true;
     }
 
     return false;
@@ -260,7 +248,7 @@ fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
             .new_window => |msg| try self.newWindow(rt_app, msg),
             .close => |surface| self.closeSurface(surface),
             .surface_message => |msg| try self.surfaceMessage(msg.surface, msg.message),
-            .redraw_surface => |surface| self.redrawSurface(rt_app, surface),
+            .redraw_surface => |surface| try self.redrawSurface(rt_app, surface),
             .redraw_inspector => |surface| self.redrawInspector(rt_app, surface),
 
             // If we're quitting, then we set the quit flag and stop
@@ -286,13 +274,22 @@ pub fn focusSurface(self: *App, surface: *Surface) void {
     self.focused_surface = surface;
 }
 
-fn redrawSurface(self: *App, rt_app: *apprt.App, surface: *apprt.Surface) void {
-    if (!self.hasSurface(&surface.core_surface)) return;
-    rt_app.redrawSurface(surface);
+fn redrawSurface(
+    self: *App,
+    rt_app: *apprt.App,
+    surface: *apprt.Surface,
+) !void {
+    if (!self.hasRtSurface(surface)) return;
+
+    _ = try rt_app.performAction(
+        .{ .surface = surface.core() },
+        .render,
+        {},
+    );
 }
 
 fn redrawInspector(self: *App, rt_app: *apprt.App, surface: *apprt.Surface) void {
-    if (!self.hasSurface(&surface.core_surface)) return;
+    if (!self.hasRtSurface(surface)) return;
     rt_app.redrawInspector(surface);
 }
 
@@ -482,7 +479,7 @@ pub fn performAllAction(
         // Surface-scoped actions are performed on all surfaces. Errors
         // are logged but processing continues.
         .surface => for (self.surfaces.items) |surface| {
-            _ = surface.core_surface.performBindingAction(action) catch |err| {
+            _ = surface.core().performBindingAction(action) catch |err| {
                 log.warn("error performing binding action on surface ptr={X} err={}", .{
                     @intFromPtr(surface),
                     err,
@@ -507,7 +504,15 @@ fn surfaceMessage(self: *App, surface: *Surface, msg: apprt.surface.Message) !vo
 
 fn hasSurface(self: *const App, surface: *const Surface) bool {
     for (self.surfaces.items) |v| {
-        if (&v.core_surface == surface) return true;
+        if (v.core() == surface) return true;
+    }
+
+    return false;
+}
+
+fn hasRtSurface(self: *const App, surface: *apprt.Surface) bool {
+    for (self.surfaces.items) |v| {
+        if (v == surface) return true;
     }
 
     return false;

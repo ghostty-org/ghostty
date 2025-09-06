@@ -26,6 +26,9 @@ pub const Library = struct {
 
     /// Path to a directory with the headers.
     headers: LazyPath,
+
+    /// Path to a debug symbols file (.dSYM) if available.
+    dsym: ?LazyPath,
 };
 
 step: *Step,
@@ -52,6 +55,10 @@ pub fn create(b: *std.Build, opts: Options) *XCFrameworkStep {
             run.addFileArg(lib.library);
             run.addArg("-headers");
             run.addFileArg(lib.headers);
+            if (lib.dsym) |dsym| {
+                run.addArg("-debug-symbols");
+                run.addFileArg(dsym);
+            }
         }
         run.addArg("-output");
         run.addArg(opts.out_path);

@@ -63,6 +63,7 @@ if [ $bad -ne 0 ]; then
 fi
 
 # Load our test case
+# shellcheck disable=SC1090
 source ${ARG_CASE}
 if ! has_func "test_do"; then
   echo "Test case is invalid."
@@ -79,7 +80,7 @@ if [ "$ARG_EXEC" = "ghostty" ]; then
   # We build in Nix (maybe). To be sure, we replace the interpreter so
   # it doesn't point to a Nix path. If we don't build in Nix, this should
   # still be safe.
-  patchelf --set-interpreter /lib/ld-linux-$(uname -m).so.1 ${ARG_EXEC}
+  patchelf --set-interpreter /lib/ld-linux-"$(uname -m)".so.1 ${ARG_EXEC}
 fi
 
 #--------------------------------------------------------------------

@@ -1,0 +1,64 @@
+#!/usr/bin/env nu
+
+# A command to generate an agent prompt to diagnose and formulate 
+# a plan for resolving a GitHub issue.
+#
+# IMPORTANT: This command is prompted to NOT write any code and to ONLY
+# produce a plan. You should still be vigilant when running this but that
+# is the expected behavior.
+# 
+# The `<issue>` parameter can be either an issue number or a full GitHub
+# issue URL.
+def main [
+  issue: any, # Ghostty issue number or URL
+  --repo: string = "ghostty-org/ghostty" # GitHub repository in the format "owner/repo"
+] {
+  # TODO: This whole script doesn't handle errors very well. I actually
+  # don't know Nu well enough to know the proper way to handle it all.
+  
+  let issueData = gh issue view $issue --json author,title,number,body,comments | from json
+  let comments = $issueData.comments | each { |comment|
+    $"
+### Comment by ($comment.author.login)
+($comment.body)
+" | str trim
+  } | str join "\n\n"
+
+  $"
+Deep-dive on this GitHub issue. Find the problem and generate a plan. 
+Do not write code. Explain the problem clearly and propose a comprehensive plan 
+to solve it.
+
+# ($issueData.title) \(($issueData.number)\)
+
+## Description
+($issueData.body)
+
+## Comments
+($comments)
+
+## Your Tasks
+
+You are an experienced software developer tasked with diagnosing issues.
+
+1. Review the issue context and details. 
+2. Examine the relevant parts of the codebase. Analyze the code thoroughly
+   until you have a solid understanding of how it works.
+3. Explain the issue in detail, including the problem and its root cause.
+4. Create a comprehensive plan to solve the issue. The plan should include:
+   - Required code changes
+   - Potential impacts on other parts of the system
+   - Necessary tests to be written or updated
+   - Documentation updates
+   - Performance considerations
+   - Security implications
+   - Backwards compatibility \(if applicable\)
+   - Include the reference link to the source issue and any related discussions
+4. Think deeply about all aspects of the task. Consider edge cases, potential
+   challenges, and best practices for addressing the issue. Review the plan 
+   with the oracle and adjust it based on its feedback.
+
+**ONLY CREATE A PLAN. DO NOT WRITE ANY CODE.** Your task is to create
+a thorough, comprehensive strategy for understanding and resolving the issue.
+" | str trim
+}

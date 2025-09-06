@@ -2,14 +2,15 @@
 # Copyright (C) 2025 Mitchell Hashimoto, Ghostty contributors
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
 # Francesc Arpi <francesc.arpi@gmail.com>, 2025.
+# Kristofer Soler <31729650+KristoferSoler@users.noreply.github.com>, 2025.
 #
 msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-07-08 15:13-0500\n"
-"PO-Revision-Date: 2025-03-20 08:07+0100\n"
-"Last-Translator: Francesc Arpi <francesc.arpi@gmail.com>\n"
+"POT-Creation-Date: 2025-07-22 17:18+0000\n"
+"PO-Revision-Date: 2025-08-24 19:22+0200\n"
+"Last-Translator: Kristofer Soler <31729650+KristoferSoler@users.noreply.github.com>\n"
 "Language-Team: \n"
 "Language: ca\n"
 "MIME-Version: 1.0\n"
@@ -87,7 +88,7 @@ msgstr "Divideix a la dreta"
 
 #: src/apprt/gtk/ui/1.5/command-palette.blp:16
 msgid "Execute a command…"
-msgstr ""
+msgstr "Executa una ordre…"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
@@ -160,7 +161,7 @@ msgstr "Obre la configuració"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:85
 msgid "Command Palette"
-msgstr ""
+msgstr "Paleta de comandes"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:90
 msgid "Terminal Inspector"
@@ -208,12 +209,12 @@ msgstr "Permet"
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:81
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:77
 msgid "Remember choice for this split"
-msgstr ""
+msgstr "Recorda l’opció per a aquest panell dividit"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:82
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:78
 msgid "Reload configuration to show this prompt again"
-msgstr ""
+msgstr "Recarrega la configuració per tornar a mostrar aquest missatge"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:7
 #: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:7
@@ -236,7 +237,7 @@ msgstr ""
 "Enganxar aquest text al terminal pot ser perillós, ja que sembla que es "
 "podrien executar algunes ordres."
 
-#: src/apprt/gtk/CloseDialog.zig:47
+#: src/apprt/gtk/CloseDialog.zig:47 src/apprt/gtk/Surface.zig:2531
 msgid "Close"
 msgstr "Tanca"
 
@@ -272,9 +273,21 @@ msgstr "Totes les sessions del terminal en aquesta pestanya es tancaran."
 msgid "The currently running process in this split will be terminated."
 msgstr "El procés actualment en execució en aquesta divisió es tancarà."
 
-#: src/apprt/gtk/Surface.zig:1257
+#: src/apprt/gtk/Surface.zig:1266
 msgid "Copied to clipboard"
 msgstr "Copiat al porta-retalls"
+
+#: src/apprt/gtk/Surface.zig:1268
+msgid "Cleared clipboard"
+msgstr "Porta-retalls netejat"
+
+#: src/apprt/gtk/Surface.zig:2525
+msgid "Command succeeded"
+msgstr "Comanda completada amb èxit"
+
+#: src/apprt/gtk/Surface.zig:2527
+msgid "Command failed"
+msgstr "Comanda fallida"
 
 #: src/apprt/gtk/Window.zig:216
 msgid "Main Menu"
@@ -286,7 +299,7 @@ msgstr "Mostra les pestanyes obertes"
 
 #: src/apprt/gtk/Window.zig:266
 msgid "New Split"
-msgstr ""
+msgstr "Nova divisió"
 
 #: src/apprt/gtk/Window.zig:329
 msgid ""

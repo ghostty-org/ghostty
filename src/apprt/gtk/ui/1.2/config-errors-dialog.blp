@@ -1,7 +1,8 @@
 using Gtk 4.0;
+// This is unused but if we remove it we get a blueprint-compiler error.
 using Adw 1;
 
-Adw.MessageDialog config_errors_dialog {
+template $GhosttyConfigErrorsDialog: $GhosttyDialog {
   heading: _("Configuration Errors");
   body: _("One or more configuration errors were found. Please review the errors below, and either reload your configuration or ignore these errors.");
 
@@ -21,8 +22,7 @@ Adw.MessageDialog config_errors_dialog {
       bottom-margin: 8;
       left-margin: 8;
       right-margin: 8;
-
-      buffer: TextBuffer error_message {};
+      buffer: bind (template.config as <$GhosttyConfig>).diagnostics-buffer;
     }
   };
 }

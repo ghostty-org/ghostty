@@ -182,6 +182,7 @@ test {
     _ = @import("surface_mouse.zig");
 
     // Libraries
+    _ = @import("benchmark/main.zig");
     _ = @import("crash/main.zig");
     _ = @import("datastruct/main.zig");
     _ = @import("inspector/main.zig");

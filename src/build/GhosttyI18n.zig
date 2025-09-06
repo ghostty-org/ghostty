@@ -3,7 +3,7 @@ const GhosttyI18n = @This();
 const std = @import("std");
 const builtin = @import("builtin");
 const Config = @import("Config.zig");
-const gresource = @import("../apprt/gtk/gresource.zig");
+const gresource = @import("../apprt/gtk/build/gresource.zig");
 const internal_os = @import("../os/main.zig");
 
 const domain = "com.mitchellh.ghostty";
@@ -78,7 +78,7 @@ fn createUpdateStep(b: *std.Build) !*std.Build.Step {
     // Not cacheable due to the gresource files
     xgettext.has_side_effects = true;
 
-    inline for (gresource.blueprint_files) |blp| {
+    inline for (gresource.blueprints) |blp| {
         const path = std.fmt.comptimePrint(
             "src/apprt/gtk/ui/{[major]}.{[minor]}/{[name]s}.blp",
             blp,

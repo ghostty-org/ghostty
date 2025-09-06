@@ -389,6 +389,9 @@ fn testDrawRanges(
     const alloc = testing.allocator;
 
     const metrics: font.Metrics = .calc(.{
+        // Fudged number, not used in anything we care about here.
+        .px_per_em = 16,
+
         .cell_width = @floatFromInt(width),
         .ascent = @floatFromInt(ascent),
         .descent = -@as(f64, @floatFromInt(descent)),
@@ -508,6 +511,9 @@ fn testDrawRanges(
 }
 
 test "sprite face render all sprites" {
+    // This test is way too slow to run under Valgrind, unfortunately.
+    if (std.valgrind.runningOnValgrind() > 0) return error.SkipZigTest;
+
     // Renders all sprites to an atlas and compares
     // it to a ground truth for regression testing.
 

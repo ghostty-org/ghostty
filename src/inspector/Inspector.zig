@@ -172,13 +172,10 @@ pub fn init(surface: *Surface) !Inspector {
         .surface = surface,
         .key_events = key_buf,
         .vt_events = vt_events,
-        .vt_stream = .{
-            .handler = vt_handler,
-            .parser = .{
-                .osc_parser = .{
-                    .alloc = surface.alloc,
-                },
-            },
+        .vt_stream = stream: {
+            var s: inspector.termio.Stream = .init(vt_handler);
+            s.parser.osc_parser.alloc = surface.alloc;
+            break :stream s;
         },
     };
 }
@@ -756,7 +753,7 @@ fn renderSizeWindow(self: *Inspector) void {
             {
                 _ = cimgui.c.igTableSetColumnIndex(1);
                 cimgui.c.igText(
-                    "%d px",
+                    "%.2f px",
                     self.surface.font_size.pixels(),
                 );
             }

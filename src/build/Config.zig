@@ -37,6 +37,7 @@ font_backend: font.Backend = .freetype,
 x11: bool = false,
 wayland: bool = false,
 sentry: bool = true,
+i18n: bool = true,
 wasm_shared: bool = true,
 
 /// Ghostty exe properties
@@ -52,6 +53,7 @@ patch_rpath: ?[]const u8 = null,
 flatpak: bool = false,
 emit_bench: bool = false,
 emit_docs: bool = false,
+emit_exe: bool = false,
 emit_helpgen: bool = false,
 emit_macos_app: bool = false,
 emit_terminfo: bool = false,
@@ -59,6 +61,7 @@ emit_termcap: bool = false,
 emit_test_exe: bool = false,
 emit_xcframework: bool = false,
 emit_webdata: bool = false,
+emit_unicode_table_gen: bool = false,
 
 /// Environmental properties
 env: std.process.EnvMap,
@@ -175,6 +178,16 @@ pub fn init(b: *std.Build) !Config {
         "Enables linking against X11 libraries when using the GTK rendering backend.",
     ) orelse gtk_targets.x11;
 
+    config.i18n = b.option(
+        bool,
+        "i18n",
+        "Enables gettext-based internationalization. Enabled by default only for macOS, and other Unix-like systems like Linux and FreeBSD when using glibc.",
+    ) orelse switch (target.result.os.tag) {
+        .macos, .ios => true,
+        .linux, .freebsd => target.result.isGnuLibC(),
+        else => false,
+    };
+
     //---------------------------------------------------------------
     // Ghostty Exe Properties
 
@@ -275,10 +288,22 @@ pub fn init(b: *std.Build) !Config {
     //---------------------------------------------------------------
     // Artifacts to Emit
 
+    config.emit_exe = b.option(
+        bool,
+        "emit-exe",
+        "Build and install main executables with 'build'",
+    ) orelse true;
+
     config.emit_test_exe = b.option(
         bool,
         "emit-test-exe",
         "Build and install test executables with 'build'",
+    ) orelse false;
+
+    config.emit_unicode_table_gen = b.option(
+        bool,
+        "emit-unicode-table-gen",
+        "Build and install executables that generate unicode tables with 'build'",
     ) orelse false;
 
     config.emit_bench = b.option(
@@ -420,6 +445,7 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
     step.addOption(bool, "x11", self.x11);
     step.addOption(bool, "wayland", self.wayland);
     step.addOption(bool, "sentry", self.sentry);
+    step.addOption(bool, "i18n", self.i18n);
     step.addOption(apprt.Runtime, "app_runtime", self.app_runtime);
     step.addOption(font.Backend, "font_backend", self.font_backend);
     step.addOption(rendererpkg.Impl, "renderer", self.renderer);
@@ -448,6 +474,22 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
     );
 }
 
+/// Returns a baseline CPU target retaining all the other CPU configs.
+pub fn baselineTarget(self: *const Config) std.Build.ResolvedTarget {
+    // Set our cpu model as baseline. There may need to be other modifications
+    // we need to make such as resetting CPU features but for now this works.
+    var q = self.target.query;
+    q.cpu_model = .baseline;
+
+    // Same logic as build.resolveTargetQuery but we don't need to
+    // handle the native case.
+    return .{
+        .query = q,
+        .result = std.zig.system.resolveTargetQuery(q) catch
+            @panic("unable to resolve baseline query"),
+    };
+}
+
 /// Rehydrate our Config from the comptime options. Note that not all
 /// options are available at comptime, so look closely at this implementation
 /// to see what is and isn't available.
@@ -467,6 +509,7 @@ pub fn fromOptions() Config {
         .exe_entrypoint = std.meta.stringToEnum(ExeEntrypoint, @tagName(options.exe_entrypoint)).?,
         .wasm_target = std.meta.stringToEnum(WasmTarget, @tagName(options.wasm_target)).?,
         .wasm_shared = options.wasm_shared,
+        .i18n = options.i18n,
     };
 }
 
@@ -528,11 +571,6 @@ pub const ExeEntrypoint = enum {
     webgen_config,
     webgen_actions,
     webgen_commands,
-    bench_parser,
-    bench_stream,
-    bench_codepoint_width,
-    bench_grapheme_break,
-    bench_page_init,
 };
 
 /// The release channel for the build.

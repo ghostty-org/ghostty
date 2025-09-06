@@ -8,11 +8,34 @@ comptime {
 }
 
 pub fn build(b: *std.Build) !void {
+    // This defines all the available build options (e.g. `-D`).
     const config = try buildpkg.Config.init(b);
+    const test_filter = b.option(
+        []const u8,
+        "test-filter",
+        "Filter for test. Only applies to Zig tests.",
+    );
+
+    // All our steps which we'll hook up later. The steps are shown
+    // up here just so that they are more self-documenting.
+    const run_step = b.step("run", "Run the app");
+    const run_valgrind_step = b.step(
+        "run-valgrind",
+        "Run the app under valgrind",
+    );
+    const test_step = b.step("test", "Run tests");
+    const test_valgrind_step = b.step(
+        "test-valgrind",
+        "Run tests under valgrind",
+    );
+    const translations_step = b.step(
+        "update-translations",
+        "Update translation files",
+    );
 
     // Ghostty resources like terminfo, shell integration, themes, etc.
     const resources = try buildpkg.GhosttyResources.init(b, &config);
-    const i18n = try buildpkg.GhosttyI18n.init(b, &config);
+    const i18n = if (config.i18n) try buildpkg.GhosttyI18n.init(b, &config) else null;
 
     // Ghostty dependencies used by many artifacts.
     const deps = try buildpkg.SharedDeps.init(b, &config);
@@ -62,9 +85,11 @@ pub fn build(b: *std.Build) !void {
 
     // Runtime "none" is libghostty, anything else is an executable.
     if (config.app_runtime != .none) {
-        exe.install();
-        resources.install();
-        i18n.install();
+        if (config.emit_exe) {
+            exe.install();
+            resources.install();
+            if (i18n) |v| v.install();
+        }
     } else {
         // Libghostty
         //
@@ -97,7 +122,7 @@ pub fn build(b: *std.Build) !void {
             // The xcframework build always installs resources because our
             // macOS xcode project contains references to them.
             resources.install();
-            i18n.install();
+            if (i18n) |v| v.install();
         }
 
         // Ghostty macOS app
@@ -107,7 +132,7 @@ pub fn build(b: *std.Build) !void {
             .{
                 .xcframework = &xcframework,
                 .docs = &docs,
-                .i18n = &i18n,
+                .i18n = if (i18n) |v| &v else null,
                 .resources = &resources,
             },
         );
@@ -131,7 +156,6 @@ pub fn build(b: *std.Build) !void {
                 b.getInstallPath(.prefix, "share/ghostty"),
             );
 
-            const run_step = b.step("run", "Run the app");
             run_step.dependOn(&run_cmd.step);
             break :run;
         }
@@ -152,27 +176,54 @@ pub fn build(b: *std.Build) !void {
                 .{
                     .xcframework = &xcframework_native,
                     .docs = &docs,
-                    .i18n = &i18n,
+                    .i18n = if (i18n) |v| &v else null,
                     .resources = &resources,
                 },
             );
 
-            const run_step = b.step("run", "Run the app");
+            // Run uses the native macOS app
             run_step.dependOn(&macos_app_native_only.open.step);
+
+            // If we have no test filters, install the tests too
+            if (test_filter == null) {
+                macos_app_native_only.addTestStepDependencies(test_step);
+            }
         }
+    }
+
+    // Valgrind
+    if (config.app_runtime != .none) {
+        // We need to rebuild Ghostty with a baseline CPU target.
+        const valgrind_exe = exe: {
+            var valgrind_config = config;
+            valgrind_config.target = valgrind_config.baselineTarget();
+            break :exe try buildpkg.GhosttyExe.init(
+                b,
+                &valgrind_config,
+                &deps,
+            );
+        };
+
+        const run_cmd = b.addSystemCommand(&.{
+            "valgrind",
+            "--leak-check=full",
+            "--num-callers=50",
+            b.fmt("--suppressions={s}", .{b.pathFromRoot("valgrind.supp")}),
+            "--gen-suppressions=all",
+        });
+        run_cmd.addArtifactArg(valgrind_exe.exe);
+        if (b.args) |args| run_cmd.addArgs(args);
+        run_valgrind_step.dependOn(&run_cmd.step);
     }
 
     // Tests
     {
-        const test_step = b.step("test", "Run all tests");
-        const test_filter = b.option([]const u8, "test-filter", "Filter for test");
-
         const test_exe = b.addTest(.{
             .name = "ghostty-test",
             .filters = if (test_filter) |v| &.{v} else &.{},
             .root_module = b.createModule(.{
                 .root_source_file = b.path("src/main.zig"),
-                .target = config.target,
+                .target = config.baselineTarget(),
                 .optimize = .Debug,
                 .strip = false,
                 .omit_frame_pointer = false,
@@ -180,18 +231,30 @@ pub fn build(b: *std.Build) !void {
             }),
         });
 
-        {
-            if (config.emit_test_exe) b.installArtifact(test_exe);
-            _ = try deps.add(test_exe);
-            const test_run = b.addRunArtifact(test_exe);
-            test_step.dependOn(&test_run.step);
-        }
+        if (config.emit_test_exe) b.installArtifact(test_exe);
+        _ = try deps.add(test_exe);
+
+        // Normal test running
+        const test_run = b.addRunArtifact(test_exe);
+        test_step.dependOn(&test_run.step);
+
+        // Valgrind test running
+        const valgrind_run = b.addSystemCommand(&.{
+            "valgrind",
+            "--leak-check=full",
+            "--num-callers=50",
+            b.fmt("--suppressions={s}", .{b.pathFromRoot("valgrind.supp")}),
+            "--gen-suppressions=all",
+        });
+        valgrind_run.addArtifactArg(test_exe);
+        test_valgrind_step.dependOn(&valgrind_run.step);
     }
 
     // update-translations does what it sounds like and updates the "pot"
     // files. These should be committed to the repo.
-    {
-        const step = b.step("update-translations", "Update translation files");
-        step.dependOn(i18n.update_step);
+    if (i18n) |v| {
+        translations_step.dependOn(v.update_step);
+    } else {
+        try translations_step.addError("cannot update translations when i18n is disabled", .{});
     }
 }

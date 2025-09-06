@@ -1,0 +1,38 @@
+using Gtk 4.0;
+using Adw 1;
+
+template $GhosttyInspectorWindow: Adw.ApplicationWindow {
+  title: _("Ghostty: Terminal Inspector");
+  icon-name: "com.mitchellh.ghostty";
+  default-width: 1000;
+  default-height: 600;
+
+  styles [
+    "inspector",
+  ]
+
+  content: Adw.ToolbarView {
+    [top]
+    Adw.HeaderBar {
+      title-widget: Adw.WindowTitle {
+        title: bind template.title;
+      };
+    }
+
+    Gtk.Box {
+      orientation: vertical;
+      spacing: 0;
+      hexpand: true;
+      vexpand: true;
+
+      $GhosttyDebugWarning {
+        visible: bind template.debug;
+      }
+
+      $GhosttyInspectorWidget inspector_widget {
+        notify::surface => $notify_inspector_surface();
+        surface: bind template.surface;
+      }
+    }
+  };
+}

@@ -29,9 +29,11 @@ pub fn build(b: *std.Build) !void {
 
     const test_exe = b.addTest(.{
         .name = "test",
-        .root_source_file = b.path("main.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     const tests_run = b.addRunArtifact(test_exe);
     const test_step = b.step("test", "Run tests");
@@ -64,10 +66,13 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
     const libxml2_iconv_enabled = options.libxml2_iconv_enabled;
     const freetype_enabled = options.freetype_enabled;
 
-    const lib = b.addStaticLibrary(.{
+    const lib = b.addLibrary(.{
         .name = "fontconfig",
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+        }),
+        .linkage = .static,
     });
     lib.linkLibC();
     if (target.result.os.tag != .windows) {

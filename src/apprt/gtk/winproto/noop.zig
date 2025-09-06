@@ -5,7 +5,7 @@ const gdk = @import("gdk");
 
 const Config = @import("../../../config.zig").Config;
 const input = @import("../../../input.zig");
-const ApprtWindow = @import("../Window.zig");
+const ApprtWindow = @import("../class/window.zig").Window;
 
 const log = std.log.scoped(.winproto_noop);
 

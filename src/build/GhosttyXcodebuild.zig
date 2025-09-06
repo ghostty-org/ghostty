@@ -12,11 +12,12 @@ const XCFramework = @import("GhosttyXCFramework.zig");
 build: *std.Build.Step.Run,
 open: *std.Build.Step.Run,
 copy: *std.Build.Step.Run,
+xctest: *std.Build.Step.Run,
 
 pub const Deps = struct {
     xcframework: *const XCFramework,
     docs: *const Docs,
-    i18n: *const I18n,
+    i18n: ?*const I18n,
     resources: *const Resources,
 };
 
@@ -33,6 +34,21 @@ pub fn init(
         => "Release",
     };
 
+    const xc_arch: ?[]const u8 = switch (deps.xcframework.target) {
+        // Universal is our default target, so we don't have to
+        // add anything.
+        .universal => null,
+
+        // Native we need to override the architecture in the Xcode
+        // project with the -arch flag.
+        .native => switch (builtin.cpu.arch) {
+            .aarch64 => "arm64",
+            .x86_64 => "x86_64",
+            else => @panic("unsupported macOS arch"),
+        },
+    };
+
+    const env = try std.process.getEnvMap(b.allocator);
     const app_path = b.fmt("macos/build/{s}/Ghostty.app", .{xc_config});
 
     // Our step to build the Ghostty macOS app.
@@ -41,12 +57,13 @@ pub fn init(
         // we create a new empty environment.
         const env_map = try b.allocator.create(std.process.EnvMap);
         env_map.* = .init(b.allocator);
+        if (env.get("PATH")) |v| try env_map.put("PATH", v);
 
-        const build = RunStep.create(b, "xcodebuild");
-        build.has_side_effects = true;
-        build.cwd = b.path("macos");
-        build.env_map = env_map;
-        build.addArgs(&.{
+        const step = RunStep.create(b, "xcodebuild");
+        step.has_side_effects = true;
+        step.cwd = b.path("macos");
+        step.env_map = env_map;
+        step.addArgs(&.{
             "xcodebuild",
             "-target",
             "Ghostty",
@@ -54,36 +71,55 @@ pub fn init(
             xc_config,
         });
 
-        switch (deps.xcframework.target) {
-            // Universal is our default target, so we don't have to
-            // add anything.
-            .universal => {},
-
-            // Native we need to override the architecture in the Xcode
-            // project with the -arch flag.
-            .native => build.addArgs(&.{
-                "-arch",
-                switch (builtin.cpu.arch) {
-                    .aarch64 => "arm64",
-                    .x86_64 => "x86_64",
-                    else => @panic("unsupported macOS arch"),
-                },
-            }),
-        }
+        // If we have a specific architecture, we need to pass it
+        // to xcodebuild.
+        if (xc_arch) |arch| step.addArgs(&.{ "-arch", arch });
 
         // We need the xcframework
-        deps.xcframework.addStepDependencies(&build.step);
+        deps.xcframework.addStepDependencies(&step.step);
 
         // We also need all these resources because the xcode project
         // references them via symlinks.
-        deps.resources.addStepDependencies(&build.step);
-        deps.i18n.addStepDependencies(&build.step);
-        deps.docs.installDummy(&build.step);
+        deps.resources.addStepDependencies(&step.step);
+        if (deps.i18n) |v| v.addStepDependencies(&step.step);
+        deps.docs.installDummy(&step.step);
 
         // Expect success
-        build.expectExitCode(0);
+        step.expectExitCode(0);
 
-        break :build build;
+        break :build step;
+    };
+
+    const xctest = xctest: {
+        const env_map = try b.allocator.create(std.process.EnvMap);
+        env_map.* = .init(b.allocator);
+        if (env.get("PATH")) |v| try env_map.put("PATH", v);
+
+        const step = RunStep.create(b, "xcodebuild test");
+        step.has_side_effects = true;
+        step.cwd = b.path("macos");
+        step.env_map = env_map;
+        step.addArgs(&.{
+            "xcodebuild",
+            "test",
+            "-scheme",
+            "Ghostty",
+        });
+        if (xc_arch) |arch| step.addArgs(&.{ "-arch", arch });
+
+        // We need the xcframework
+        deps.xcframework.addStepDependencies(&step.step);
+
+        // We also need all these resources because the xcode project
+        // references them via symlinks.
+        deps.resources.addStepDependencies(&step.step);
+        if (deps.i18n) |v| v.addStepDependencies(&step.step);
+        deps.docs.installDummy(&step.step);
+
+        // Expect success
+        step.expectExitCode(0);
+
+        break :xctest step;
     };
 
     // Our step to open the resulting Ghostty app.
@@ -143,6 +179,7 @@ pub fn init(
         .build = build,
         .open = open,
         .copy = copy,
+        .xctest = xctest,
     };
 }
 
@@ -154,4 +191,11 @@ pub fn install(self: *const Ghostty) void {
 pub fn installXcframework(self: *const Ghostty) void {
     const b = self.build.step.owner;
     b.getInstallStep().dependOn(&self.build.step);
+}
+
+pub fn addTestStepDependencies(
+    self: *const Ghostty,
+    other_step: *std.Build.Step,
+) void {
+    other_step.dependOn(&self.xctest.step);
 }

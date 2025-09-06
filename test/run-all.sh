@@ -9,9 +9,6 @@ DIR=$(cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd)
 # We always copy the bin in case it was rebuilt
 cp ${DIR}/../zig-out/bin/ghostty ${DIR}/
 
-# Build our image once
-IMAGE=$(docker build --file ${DIR}/Dockerfile -q ${DIR})
-
 # Unix shortcut to just execute ./run-host for each one. We can do
 # this less esoterically if we ever wanted.
 find ${DIR}/cases \
@@ -23,4 +20,4 @@ find ${DIR}/cases \
   ${DIR}/run-host.sh \
     --case '{}' \
     --rewrite-abs-path \
-    $@
+    "$@"

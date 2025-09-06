@@ -7,9 +7,9 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2025-07-08 15:13-0500\n"
-"PO-Revision-Date: 2025-03-31 03:08+0200\n"
-"Last-Translator: Ruben Engelbrecht <hey@rme.gg>\n"
+"POT-Creation-Date: 2025-07-22 17:18+0000\n"
+"PO-Revision-Date: 2025-08-03 20:42+0900\n"
+"Last-Translator: Jinhyeok Lee <zenyr@zenyr.com>\n"
 "Language-Team: Korean <translation-team-ko@googlegroups.com>\n"
 "Language: ko\n"
 "MIME-Version: 1.0\n"
@@ -46,7 +46,7 @@ msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
-"설정에 하나 이상의 문제가 발견되었습니다. 아래 오류(를)들을 확인한 후 설정을 "
+"설정에 하나 이상의 문제가 발견되었습니다. 아래 오류를 확인한 후 설정을 "
 "다시 불러오거나 무시하세요."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
@@ -87,7 +87,7 @@ msgstr "오른쪽으로 창 나누기"
 
 #: src/apprt/gtk/ui/1.5/command-palette.blp:16
 msgid "Execute a command…"
-msgstr ""
+msgstr "명령을 실행하세요…"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:6
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:6
@@ -160,7 +160,7 @@ msgstr "설정 열기"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:85
 msgid "Command Palette"
-msgstr ""
+msgstr "명령 팔레트"
 
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:90
 msgid "Terminal Inspector"
@@ -208,12 +208,12 @@ msgstr "허용"
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:81
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:77
 msgid "Remember choice for this split"
-msgstr ""
+msgstr "이 분할에 대한 선택 기억하기"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-read.blp:82
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:78
 msgid "Reload configuration to show this prompt again"
-msgstr ""
+msgstr "이 창을 다시 보려면 설정을 다시 불러오세요"
 
 #: src/apprt/gtk/ui/1.5/ccw-osc-52-write.blp:7
 #: src/apprt/gtk/ui/1.2/ccw-osc-52-write.blp:7
@@ -232,11 +232,9 @@ msgstr "경고: 잠재적으로 안전하지 않은 붙여넣기"
 msgid ""
 "Pasting this text into the terminal may be dangerous as it looks like some "
 "commands may be executed."
-msgstr ""
-"이 텍스트를 터미널에 붙여넣는 것은 위험할 수 있습니다. 일부 명령이 실행될 수 "
-"있는 것으로 보입니다."
+msgstr "이 텍스트를 터미널에 붙여넣으면 일부 명령이 실행될 수 있어 위험할 수 있습니다."
 
-#: src/apprt/gtk/CloseDialog.zig:47
+#: src/apprt/gtk/CloseDialog.zig:47 src/apprt/gtk/Surface.zig:2531
 msgid "Close"
 msgstr "닫기"
 
@@ -272,9 +270,21 @@ msgstr "이 탭의 모든 터미널 세션이 종료됩니다."
 msgid "The currently running process in this split will be terminated."
 msgstr "이 분할에서 현재 실행 중인 프로세스가 종료됩니다."
 
-#: src/apprt/gtk/Surface.zig:1257
+#: src/apprt/gtk/Surface.zig:1266
 msgid "Copied to clipboard"
 msgstr "클립보드에 복사됨"
+
+#: src/apprt/gtk/Surface.zig:1268
+msgid "Cleared clipboard"
+msgstr "클립보드 지워짐"
+
+#: src/apprt/gtk/Surface.zig:2525
+msgid "Command succeeded"
+msgstr "명령 성공"
+
+#: src/apprt/gtk/Surface.zig:2527
+msgid "Command failed"
+msgstr "명령 실패"
 
 #: src/apprt/gtk/Window.zig:216
 msgid "Main Menu"
@@ -285,9 +295,8 @@ msgid "View Open Tabs"
 msgstr "열린 탭 보기"
 
 #: src/apprt/gtk/Window.zig:266
-#, fuzzy
 msgid "New Split"
-msgstr "나누기"
+msgstr "새 분할"
 
 #: src/apprt/gtk/Window.zig:329
 msgid ""

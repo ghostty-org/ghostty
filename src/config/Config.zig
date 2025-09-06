@@ -73,6 +73,10 @@ pub const compatibility = std.StaticStringMap(
     // Ghostty 1.2 merged `bold-is-bright` into the new `bold-color`
     // by setting the value to "bright".
     .{ "bold-is-bright", compatBoldIsBright },
+
+    // Ghostty 1.2 removed the "desktop" option and renamed it to "detect".
+    // The semantics also changed slightly but this is the correct mapping.
+    .{ "gtk-single-instance", compatGtkSingleInstance },
 });
 
 /// The font families to use.
@@ -592,24 +596,24 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 ///
 ///  * `contain`
 ///
-///     Preserving the aspect ratio, scale the background image to the largest
-///     size that can still be contained within the terminal, so that the whole
-///     image is visible.
+///    Preserving the aspect ratio, scale the background image to the largest
+///    size that can still be contained within the terminal, so that the whole
+///    image is visible.
 ///
 ///  * `cover`
 ///
-///     Preserving the aspect ratio, scale the background image to the smallest
-///     size that can completely cover the terminal. This may result in one or
-///     more edges of the image being clipped by the edge of the terminal.
+///    Preserving the aspect ratio, scale the background image to the smallest
+///    size that can completely cover the terminal. This may result in one or
+///    more edges of the image being clipped by the edge of the terminal.
 ///
 ///  * `stretch`
 ///
-///     Stretch the background image to the full size of the terminal, without
-///     preserving the aspect ratio.
+///    Stretch the background image to the full size of the terminal, without
+///    preserving the aspect ratio.
 ///
 ///  * `none`
 ///
-///     Don't scale the background image.
+///    Don't scale the background image.
 ///
 /// The default value is `contain`.
 ///
@@ -654,6 +658,18 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 /// Available since: 1.2.0
 @"selection-clear-on-typing": bool = true,
 
+/// Whether to clear selected text after copying. This defaults to `false`.
+///
+/// When set to `true`, the selection will be automatically cleared after
+/// any copy operation that invokes the `copy_to_clipboard` keyboard binding.
+/// Importantly, this will not clear the selection if the copy operation
+/// was invoked via `copy-on-select`.
+///
+/// When set to `false`, the selection remains visible after copying, allowing
+/// to see what was copied and potentially perform additional operations
+/// on the same selection.
+@"selection-clear-on-copy": bool = false,
+
 /// The minimum contrast ratio between the foreground and background colors.
 /// The contrast ratio is a value between 1 and 21. A value of 1 allows for no
 /// contrast (e.g. black on black). This value is the contrast ratio as defined
@@ -689,10 +705,10 @@ palette: Palette = .{},
 /// other colors at runtime:
 ///
 ///   * `cell-foreground` - Match the cell foreground color.
-///     (Available since version 1.2.0)
+///     (Available since: 1.2.0)
 ///
 ///   * `cell-background` - Match the cell background color.
-///     (Available since version 1.2.0)
+///     (Available since: 1.2.0)
 @"cursor-color": ?TerminalColor = null,
 
 /// The opacity level (opposite of transparency) of the cursor. A value of 1
@@ -767,6 +783,22 @@ palette: Palette = .{},
 /// the mouse is shown again when a new window, tab, or split is created.
 @"mouse-hide-while-typing": bool = false,
 
+/// When to scroll the surface to the bottom. The format of this is a list of
+/// options to enable separated by commas. If you prefix an option with `no-`
+/// then it is disabled. If you omit an option, its default value is used.
+///
+/// Available options:
+///
+/// - `keystroke` If set, scroll the surface to the bottom when the user
+///   presses a key that results in data being sent to the PTY (basically
+///   anything but modifiers or keybinds that are processed by Ghostty).
+///
+/// - `output` If set, scroll the surface to the bottom if there is new data
+///   to display. (Currently unimplemented.)
+///
+/// The default is `keystroke, no-output`.
+@"scroll-to-bottom": ScrollToBottom = .default,
+
 /// Determines whether running programs can detect the shift key pressed with a
 /// mouse click. Typically, the shift key is used to extend mouse selection.
 ///
@@ -813,6 +845,22 @@ palette: Palette = .{},
 ///
 /// On macOS, changing this configuration requires restarting Ghostty completely.
 @"background-opacity": f64 = 1.0,
+
+/// Applies background opacity to cells with an explicit background color
+/// set.
+///
+/// Normally, `background-opacity` is only applied to the window background.
+/// If a cell has an explicit background color set, such as red, then that
+/// background color will be fully opaque. An effect of this is that some
+/// terminal applications that repaint the background color of the terminal
+/// such as a Neovim and Tmux may not respect the `background-opacity`
+/// (by design).
+///
+/// Setting this to `true` will apply the `background-opacity` to all cells
+/// regardless of whether they have an explicit background color set or not.
+///
+/// Available since: 1.2.0
+@"background-opacity-cells": bool = false,
 
 /// Whether to blur the background when `background-opacity` is less than 1.
 ///
@@ -1314,53 +1362,59 @@ class: ?[:0]const u8 = null,
 /// The keybind trigger can be prefixed with some special values to change
 /// the behavior of the keybind. These are:
 ///
-///   * `all:` - Make the keybind apply to all terminal surfaces. By default,
-///     keybinds only apply to the focused terminal surface. If this is true,
-///     then the keybind will be sent to all terminal surfaces. This only
-///     applies to actions that are surface-specific. For actions that
-///     are already global (e.g. `quit`), this prefix has no effect.
+///  * `all:`
 ///
-///     Available since: 1.0.0
+///    Make the keybind apply to all terminal surfaces. By default,
+///    keybinds only apply to the focused terminal surface. If this is true,
+///    then the keybind will be sent to all terminal surfaces. This only
+///    applies to actions that are surface-specific. For actions that
+///    are already global (e.g. `quit`), this prefix has no effect.
 ///
-///   * `global:` - Make the keybind global. By default, keybinds only work
-///     within Ghostty and under the right conditions (application focused,
-///     sometimes terminal focused, etc.). If you want a keybind to work
-///     globally across your system (e.g. even when Ghostty is not focused),
-///     specify this prefix. This prefix implies `all:`. Note: this does not
-///     work in all environments; see the additional notes below for more
-///     information.
+///    Available since: 1.0.0
 ///
-///     Available since: 1.0.0 (on macOS)
-///     Available since: 1.2.0 (on GTK)
+///  * `global:`
 ///
-///   * `unconsumed:` - Do not consume the input. By default, a keybind
-///     will consume the input, meaning that the associated encoding (if
-///     any) will not be sent to the running program in the terminal. If
-///     you wish to send the encoded value to the program, specify the
-///     `unconsumed:` prefix before the entire keybind. For example:
-///     `unconsumed:ctrl+a=reload_config`. `global:` and `all:`-prefixed
-///     keybinds will always consume the input regardless of this setting.
-///     Since they are not associated with a specific terminal surface,
-///     they're never encoded.
+///    Make the keybind global. By default, keybinds only work within Ghostty
+///    and under the right conditions (application focused, sometimes terminal
+///    focused, etc.). If you want a keybind to work globally across your system
+///    (e.g. even when Ghostty is not focused), specify this prefix.
+///    This prefix implies `all:`.
 ///
-///     Available since: 1.0.0
+///    Note: this does not work in all environments; see the additional notes
+///    below for more information.
 ///
-///   * `performable:` - Only consume the input if the action is able to be
-///     performed. For example, the `copy_to_clipboard` action will only
-///     consume the input if there is a selection to copy. If there is no
-///     selection, Ghostty behaves as if the keybind was not set. This has
-///     no effect with `global:` or `all:`-prefixed keybinds. For key
-///     sequences, this will reset the sequence if the action is not
-///     performable (acting identically to not having a keybind set at
-///     all).
+///    Available since: 1.0.0 on macOS, 1.2.0 on GTK
 ///
-///     Performable keybinds will not appear as menu shortcuts in the
-///     application menu. This is because the menu shortcuts force the
-///     action to be performed regardless of the state of the terminal.
-///     Performable keybinds will still work, they just won't appear as
-///     a shortcut label in the menu.
+///  * `unconsumed:`
 ///
-///     Available since: 1.1.0
+///    Do not consume the input. By default, a keybind will consume the input,
+///    meaning that the associated encoding (if any) will not be sent to the
+///    running program in the terminal. If you wish to send the encoded value
+///    to the program, specify the `unconsumed:` prefix before the entire
+///    keybind. For example: `unconsumed:ctrl+a=reload_config`. `global:` and
+///    `all:`-prefixed keybinds will always consume the input regardless of
+///    this setting. Since they are not associated with a specific terminal
+///    surface, they're never encoded.
+///
+///    Available since: 1.0.0
+///
+///  * `performable:`
+///
+///    Only consume the input if the action is able to be performed.
+///    For example, the `copy_to_clipboard` action will only consume the input
+///    if there is a selection to copy. If there is no selection, Ghostty
+///    behaves as if the keybind was not set. This has no effect with `global:`
+///    or `all:`-prefixed keybinds. For key sequences, this will reset the
+///    sequence if the action is not performable (acting identically to not
+///    having a keybind set at all).
+///
+///    Performable keybinds will not appear as menu shortcuts in the
+///    application menu. This is because the menu shortcuts force the
+///    action to be performed regardless of the state of the terminal.
+///    Performable keybinds will still work, they just won't appear as
+///    a shortcut label in the menu.
+///
+///    Available since: 1.1.0
 ///
 /// Keybind triggers are not unique per prefix combination. For example,
 /// `ctrl+a` and `global:ctrl+a` are not two separate keybinds. The keybind
@@ -1506,28 +1560,36 @@ keybind: Keybinds = .{},
 ///
 /// Valid values:
 ///
-///   * `none` - All window decorations will be disabled. Titlebar,
-///     borders, etc. will not be shown. On macOS, this will also disable
-///     tabs (enforced by the system).
+///  * `none`
 ///
-///   * `auto` - Automatically decide to use either client-side or server-side
-///     decorations based on the detected preferences of the current OS and
-///     desktop environment. This option usually makes Ghostty look the most
-///     "native" for your desktop.
+///    All window decorations will be disabled. Titlebar, borders, etc. will
+///    not be shown. On macOS, this will also disable tabs (enforced by the
+///    system).
 ///
-///   * `client` - Prefer client-side decorations.
+///  * `auto`
 ///
-///     Available since: 1.1.0
+///    Automatically decide to use either client-side or server-side
+///    decorations based on the detected preferences of the current OS and
+///    desktop environment. This option usually makes Ghostty look the most
+///    "native" for your desktop.
 ///
-///   * `server` - Prefer server-side decorations. This is only relevant
-///     on Linux with GTK, either on X11, or Wayland on a compositor that
-///     supports the `org_kde_kwin_server_decoration` protocol (e.g. KDE Plasma,
-///     but almost any non-GNOME desktop supports this protocol).
+///  * `client`
 ///
-///     If `server` is set but the environment doesn't support server-side
-///     decorations, client-side decorations will be used instead.
+///    Prefer client-side decorations.
 ///
-///     Available since: 1.1.0
+///    Available since: 1.1.0
+///
+///  * `server`
+///
+///    Prefer server-side decorations. This is only relevant on Linux with GTK,
+///    either on X11, or Wayland on a compositor that supports the
+///    `org_kde_kwin_server_decoration` protocol (e.g. KDE Plasma, but almost
+///    any non-GNOME desktop supports this protocol).
+///
+///    If `server` is set but the environment doesn't support server-side
+///    decorations, client-side decorations will be used instead.
+///
+///    Available since: 1.1.0
 ///
 /// The default value is `auto`.
 ///
@@ -1870,6 +1932,19 @@ keybind: Keybinds = .{},
     else => .false,
 },
 
+/// The action to take when the user right-clicks on the terminal surface.
+///
+/// Valid values:
+///   * `context-menu` - Show the context menu.
+///   * `paste` - Paste the contents of the clipboard.
+///   * `copy` - Copy the selected text to the clipboard.
+///   * `copy-or-paste` - If there is a selection, copy the selected text to
+///      the clipboard; otherwise, paste the contents of the clipboard.
+///   * `ignore` - Do nothing, ignore the right-click.
+///
+/// The default value is `context-menu`.
+@"right-click-action": RightClickAction = .@"context-menu",
+
 /// The time in milliseconds between clicks to consider a click a repeat
 /// (double, triple, etc.) or an entirely new single click. A value of zero will
 /// use a platform-specific default. The default on macOS is determined by the
@@ -2073,6 +2148,44 @@ keybind: Keybinds = .{},
 /// terminal would be half a screen tall, and 500 pixels wide.
 @"quick-terminal-size": QuickTerminalSize = .{},
 
+/// The layer of the quick terminal window. The higher the layer,
+/// the more windows the quick terminal may conceal.
+///
+/// Valid values are:
+///
+///  * `overlay`
+///
+///    The quick terminal appears in front of all windows.
+///
+///  * `top` (default)
+///
+///    The quick terminal appears in front of normal windows but behind
+///    fullscreen overlays like lock screens.
+///
+///  * `bottom`
+///
+///    The quick terminal appears behind normal windows but in front of
+///    wallpapers and other windows in the background layer.
+///
+///  * `background`
+///
+///    The quick terminal appears behind all windows.
+///
+/// GTK Wayland only.
+///
+/// Available since: 1.2.0
+@"gtk-quick-terminal-layer": QuickTerminalLayer = .top,
+/// The namespace for the quick terminal window.
+///
+/// This is an identifier that is used by the Wayland compositor and/or
+/// scripts to determine the type of layer surfaces and to possibly apply
+/// unique effects.
+///
+/// GTK Wayland only.
+///
+/// Available since: 1.2.0
+@"gtk-quick-terminal-namespace": [:0]const u8 = "ghostty-quick-terminal",
+
 /// The screen where the quick terminal should show up.
 ///
 /// Valid values are:
@@ -2202,6 +2315,8 @@ keybind: Keybinds = .{},
 /// its default value is used, so you must explicitly disable features you don't
 /// want. You can also use `true` or `false` to turn all features on or off.
 ///
+/// Example: `cursor`, `no-cursor`, `sudo`, `no-sudo`, `title`, `no-title`
+///
 /// Available features:
 ///
 ///   * `cursor` - Set the cursor to a blinking bar at the prompt.
@@ -2210,7 +2325,26 @@ keybind: Keybinds = .{},
 ///
 ///   * `title` - Set the window title via shell integration.
 ///
-/// Example: `cursor`, `no-cursor`, `sudo`, `no-sudo`, `title`, `no-title`
+///   * `ssh-env` - Enable SSH environment variable compatibility. Automatically
+///     converts TERM from `xterm-ghostty` to `xterm-256color` when connecting to
+///     remote hosts and propagates COLORTERM, TERM_PROGRAM, and TERM_PROGRAM_VERSION.
+///     Whether or not these variables will be accepted by the remote host(s) will
+///     depend on whether or not the variables are allowed in their sshd_config.
+///     (Available since: 1.2.0)
+///
+///   * `ssh-terminfo` - Enable automatic terminfo installation on remote hosts.
+///     Attempts to install Ghostty's terminfo entry using `infocmp` and `tic` when
+///     connecting to hosts that lack it. Requires `infocmp` to be available locally
+///     and `tic` to be available on remote hosts. Once terminfo is installed on a
+///     remote host, it will be automatically "cached" to avoid repeat installations.
+///     If desired, the `+ssh-cache` CLI action can be used to manage the installation
+///     cache manually using various arguments.
+///     (Available since: 1.2.0)
+///
+/// SSH features work independently and can be combined for optimal experience:
+/// when both `ssh-env` and `ssh-terminfo` are enabled, Ghostty will install its
+/// terminfo on remote hosts and use `xterm-ghostty` as TERM, falling back to
+/// `xterm-256color` with environment variables if terminfo installation fails.
 @"shell-integration-features": ShellIntegrationFeatures = .{},
 
 /// Custom entries into the command palette.
@@ -2279,9 +2413,9 @@ keybind: Keybinds = .{},
 ///
 ///  * `sampler2D iChannel0` - Input texture.
 ///
-///     A texture containing the current terminal screen. If multiple custom
-///     shaders are specified, the output of previous shaders is written to
-///     this texture, to allow combining multiple effects.
+///    A texture containing the current terminal screen. If multiple custom
+///    shaders are specified, the output of previous shaders is written to
+///    this texture, to allow combining multiple effects.
 ///
 ///  * `vec3 iResolution` - Output texture size, `[width, height, 1]` (in px).
 ///
@@ -2396,7 +2530,12 @@ keybind: Keybinds = .{},
 ///    Prepend a bell emoji (🔔) to the title of the alerted surface until the
 ///    terminal is re-focused or interacted with (such as on keyboard input).
 ///
-///    Only implemented on macOS.
+///  * `border`
+///
+///    Display a border around the alerted surface until the terminal is
+///    re-focused or interacted with (such as on keyboard input).
+///
+///    GTK only.
 ///
 /// Example: `audio`, `no-audio`, `system`, `no-system`
 ///
@@ -2430,6 +2569,8 @@ keybind: Keybinds = .{},
 ///
 ///   - `clipboard-copy` (default: true) - Show a notification when text is copied
 ///     to the clipboard.
+///   - `config-reload` (default: true) - Show a notification when
+///     the configuration is reloaded.
 ///
 /// To specify a notification to enable, specify the name of the notification.
 /// To specify a notification to disable, prefix the name with `no-`. For
@@ -2562,6 +2703,21 @@ keybind: Keybinds = .{},
 /// editor, etc.
 @"macos-titlebar-proxy-icon": MacTitlebarProxyIcon = .visible,
 
+/// Controls the windowing behavior when dropping a file or folder
+/// onto the Ghostty icon in the macOS dock.
+///
+/// Valid values are:
+///
+///   * `new-tab` - Create a new tab in the current window, or open
+///     a new window if none exist.
+///   * `new-window` - Create a new window unconditionally.
+///
+/// The default value is `new-tab`.
+///
+/// This setting is only supported on macOS and has no effect on other
+/// platforms.
+@"macos-dock-drop-behavior": MacOSDockDropBehavior = .@"new-tab",
+
 /// macOS doesn't have a distinct "alt" key and instead has the "option"
 /// key which behaves slightly differently. On macOS by default, the
 /// option key plus a character will sometimes produce a Unicode character.
@@ -2666,6 +2822,8 @@ keybind: Keybinds = .{},
 ///  * `blueprint`, `chalkboard`, `microchip`, `glass`, `holographic`,
 ///    `paper`, `retro`, `xray` - Official variants of the Ghostty icon
 ///    hand-created by artists (no AI).
+///  * `custom` - Use a completely custom icon. The location must be specified
+///    using the additional `macos-custom-icon` configuration
 ///  * `custom-style` - Use the official Ghostty icon but with custom
 ///    styles applied to various layers. The custom styles must be
 ///    specified using the additional `macos-icon`-prefixed configurations.
@@ -2683,6 +2841,15 @@ keybind: Keybinds = .{},
 ///     separate framework and cannot be customized without significant
 ///     effort.
 @"macos-icon": MacAppIcon = .official,
+
+/// The absolute path to the custom icon file.
+/// Supported formats include PNG, JPEG, and ICNS.
+///
+/// Defaults to `~/.config/ghostty/Ghostty.icns`
+///
+/// Note: This configuration is required when `macos-icon` is set to
+/// `custom`
+@"macos-custom-icon": ?[]const u8 = null,
 
 /// The material to use for the frame of the macOS app icon.
 ///
@@ -2812,14 +2979,29 @@ else
 ///
 /// If `false`, each new ghostty process will launch a separate application.
 ///
-/// The default value is `desktop` which will default to `true` if Ghostty
-/// detects that it was launched from the `.desktop` file such as an app
-/// launcher (like Gnome Shell)  or by D-Bus activation. If Ghostty is launched
-/// from the command line, it will default to `false`.
+/// If `detect`, Ghostty will assume true (single instance) unless one of
+/// the following scenarios is found:
+///
+/// 1. TERM_PROGRAM environment variable is a non-empty value. In this
+/// case, we assume Ghostty is being launched from a graphical terminal
+/// session and you want a dedicated instance.
+///
+/// 2. Any CLI arguments exist. In this case, we assume you are passing
+/// custom Ghostty configuration. Single instance mode inherits the
+/// configuration from when it was launched, so we must disable single
+/// instance to load the new configuration.
+///
+/// If either of these scenarios is producing a false positive, you can
+/// set this configuration explicitly to the behavior you want.
+///
+/// The pre-1.2 option `desktop` has been deprecated. Please replace
+/// this with `detect`.
+///
+/// The default value is `detect`.
 ///
 /// Note that debug builds of Ghostty have a separate single-instance ID
 /// so you can test single instance without conflicting with release builds.
-@"gtk-single-instance": GtkSingleInstance = .desktop,
+@"gtk-single-instance": GtkSingleInstance = .default,
 
 /// When enabled, the full GTK titlebar is displayed instead of your window
 /// manager's simple titlebar. The behavior of this option will vary with your
@@ -2854,6 +3036,21 @@ else
 ///  * `raised-border` - Similar to `raised` but the shadow is replaced with a
 ///    more subtle border.
 @"gtk-toolbar-style": GtkToolbarStyle = .raised,
+
+/// The style of the GTK titlbar. Available values are `native` and `tabs`.
+///
+/// The `native` titlebar style is a traditional titlebar with a title, a few
+/// buttons and window controls. A separate tab bar will show up below the
+/// titlebar if you have multiple tabs open in the window.
+///
+/// The `tabs` titlebar merges the tab bar and the traditional titlebar.
+/// This frees up vertical space on your screen if you use multiple tabs. One
+/// limitation of the `tabs` titlebar is that you cannot drag the titlebar
+/// by the titles any longer (as they are tab titles now). Other areas of the
+/// `tabs` title bar can be used to drag the window around.
+///
+/// The default style is `native`.
+@"gtk-titlebar-style": GtkTitlebarStyle = .native,
 
 /// If `true` (default), then the Ghostty GTK tabs will be "wide." Wide tabs
 /// are the new typical Gnome style where tabs fill their available space.
@@ -2907,6 +3104,13 @@ else
 /// Available since Ghostty 1.2.0.
 @"bold-color": ?BoldColor = null,
 
+/// The opacity level (opposite of transparency) of the faint text. A value of
+/// 1 is fully opaque and a value of 0 is fully transparent. A value less than 0
+/// or greater than 1 will be clamped to the nearest valid value.
+///
+/// Available since Ghostty 1.2.0.
+@"faint-opacity": f64 = 0.5,
+
 /// This will be used to set the `TERM` environment variable.
 /// HACK: We set this with an `xterm` prefix because vim uses that to enable key
 /// protocols (specifically this will enable `modifyOtherKeys`), among other
@@ -2918,25 +3122,6 @@ term: []const u8 = "xterm-ghostty",
 /// String to send when we receive `ENQ` (`0x05`) from the command that we are
 /// running. Defaults to an empty string if not set.
 @"enquiry-response": []const u8 = "",
-
-/// The mechanism used to launch Ghostty. This should generally not be
-/// set by users, see the warning below.
-///
-/// WARNING: This is a low-level configuration that is not intended to be
-/// modified by users. All the values will be automatically detected as they
-/// are needed by Ghostty. This is only here in case our detection logic is
-/// incorrect for your environment or for developers who want to test
-/// Ghostty's behavior in different, forced environments.
-///
-/// This is set using the standard `no-[value]`, `[value]` syntax separated
-/// by commas. Example: "no-desktop,systemd". Specific details about the
-/// available values are documented on LaunchProperties in the code. Since
-/// this isn't intended to be modified by users, the documentation is
-/// lighter than the other configurations and users are expected to
-/// refer to the code for details.
-///
-/// Available since: 1.2.0
-@"launched-from": ?LaunchSource = null,
 
 /// Configures the low-level API to use for async IO, eventing, etc.
 ///
@@ -3302,7 +3487,7 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
     switch (builtin.os.tag) {
         .windows => {},
 
-        // Fast-path if we are Linux and have no args.
+        // Fast-path if we are Linux/BSD and have no args.
         .linux, .freebsd => if (std.os.argv.len <= 1) return,
 
         // Everything else we have to at least try because it may
@@ -3732,10 +3917,9 @@ pub fn finalize(self: *Config) !void {
 
     const alloc = self._arena.?.allocator();
 
-    // Ensure our launch source is properly set.
-    if (self.@"launched-from" == null) {
-        self.@"launched-from" = .detect();
-    }
+    // Used for a variety of defaults. See the function docs as well the
+    // specific variable use sites for more details.
+    const probable_cli = probableCliEnvironment();
 
     // If we have a font-family set and don't set the others, default
     // the others to the font family. This way, if someone does
@@ -3761,12 +3945,14 @@ pub fn finalize(self: *Config) !void {
     }
 
     // The default for the working directory depends on the system.
-    const wd = self.@"working-directory" orelse switch (self.@"launched-from".?) {
-        // If we have no working directory set, our default depends on
-        // whether we were launched from the desktop or elsewhere.
-        .desktop => "home",
-        .cli, .dbus, .systemd => "inherit",
-    };
+    const wd = self.@"working-directory" orelse if (probable_cli)
+        // From the CLI, we want to inherit where we were launched from.
+        "inherit"
+    else
+        // Otherwise we typically just want the home directory because
+        // our pwd is probably a runtime state dir or root or something
+        // (launchers and desktop environments typically do this).
+        "home";
 
     // If we are missing either a command or home directory, we need
     // to look up defaults which is kind of expensive. We only do this
@@ -3786,12 +3972,9 @@ pub fn finalize(self: *Config) !void {
                 if (internal_os.isFlatpak()) break :shell_env;
 
                 // If we were launched from the desktop, our SHELL env var
-                // will represent our SHELL at login time. We want to use the
-                // latest shell from /etc/passwd or directory services.
-                switch (self.@"launched-from".?) {
-                    .desktop, .dbus, .systemd => break :shell_env,
-                    .cli => {},
-                }
+                // will represent our SHELL at login time. We only want to
+                // read from SHELL if we're in a probable CLI environment.
+                if (!probable_cli) break :shell_env;
 
                 if (std.process.getEnvVarOwned(alloc, "SHELL")) |value| {
                     log.info("default shell source=env value={s}", .{value});
@@ -3844,6 +4027,23 @@ pub fn finalize(self: *Config) !void {
         }
     }
 
+    // Apprt-specific defaults
+    switch (build_config.app_runtime) {
+        .none => {},
+        .gtk => {
+            switch (self.@"gtk-single-instance") {
+                .true, .false => {},
+
+                // For detection, we assume single instance unless we're
+                // in a CLI environment, then we disable single instance.
+                .detect => self.@"gtk-single-instance" = if (probable_cli)
+                    .false
+                else
+                    .true,
+            }
+        },
+    }
+
     // If we have the special value "inherit" then set it to null which
     // does the same. In the future we should change to a tagged union.
     if (std.mem.eql(u8, wd, "inherit")) self.@"working-directory" = null;
@@ -3889,6 +4089,8 @@ pub fn finalize(self: *Config) !void {
     if (self.@"auto-update-channel" == null) {
         self.@"auto-update-channel" = build_config.release_channel;
     }
+
+    self.@"faint-opacity" = std.math.clamp(self.@"faint-opacity", 0.0, 1.0);
 }
 
 /// Callback for src/cli/args.zig to allow us to handle special cases
@@ -3969,6 +4171,23 @@ fn compatGtkTabsLocation(
     return false;
 }
 
+fn compatGtkSingleInstance(
+    self: *Config,
+    alloc: Allocator,
+    key: []const u8,
+    value: ?[]const u8,
+) bool {
+    _ = alloc;
+    assert(std.mem.eql(u8, key, "gtk-single-instance"));
+
+    if (std.mem.eql(u8, value orelse "", "desktop")) {
+        self.@"gtk-single-instance" = .detect;
+        return true;
+    }
+
+    return false;
+}
+
 fn compatCursorInvertFgBg(
     self: *Config,
     alloc: Allocator,
@@ -4029,6 +4248,23 @@ fn compatBoldIsBright(
     }
 
     return true;
+}
+
+/// Add a diagnostic message to the config with the given string.
+/// This is always added with a location of "none".
+pub fn addDiagnosticFmt(
+    self: *Config,
+    comptime fmt: []const u8,
+    args: anytype,
+) Allocator.Error!void {
+    const alloc = self._arena.?.allocator();
+    try self._diagnostics.append(alloc, .{
+        .message = try std.fmt.allocPrintZ(
+            alloc,
+            fmt,
+            args,
+        ),
+    });
 }
 
 /// Create a shallow copy of this config. This will share all the memory
@@ -4287,6 +4523,32 @@ fn equalField(comptime T: type, old: T, new: T) bool {
             @compileError("unsupported field type");
         },
     }
+}
+
+/// This runs a heuristic to determine if we are likely running
+/// Ghostty in a CLI environment. We need this to change some behaviors.
+/// We should keep the set of behaviors that depend on this as small
+/// as possible because magic sucks, but each place is well documented.
+fn probableCliEnvironment() bool {
+    switch (builtin.os.tag) {
+        // Windows has its own problems, just ignore it for now since
+        // its not a real supported target and GTK via WSL2 assuming
+        // single instance is probably fine.
+        .windows => return false,
+        else => {},
+    }
+
+    // If we have TERM_PROGRAM set to a non-empty value, we assume
+    // a graphical terminal environment.
+    if (std.posix.getenv("TERM_PROGRAM")) |v| {
+        if (v.len > 0) return true;
+    }
+
+    // CLI arguments makes things probable
+    if (std.os.argv.len > 1) return true;
+
+    // Unlikely CLI environment
+    return false;
 }
 
 /// This is used to "replay" the configuration. See loadTheme for details.
@@ -5321,10 +5583,11 @@ pub const Keybinds = struct {
             else
                 .{ .ctrl = true, .shift = true };
 
-            try self.set.put(
+            try self.set.putFlags(
                 alloc,
                 .{ .key = .{ .unicode = 'c' }, .mods = mods },
                 .{ .copy_to_clipboard = {} },
+                .{ .performable = true },
             );
             try self.set.put(
                 alloc,
@@ -5469,7 +5732,7 @@ pub const Keybinds = struct {
             try self.set.put(
                 alloc,
                 .{ .key = .{ .unicode = 'w' }, .mods = .{ .ctrl = true, .shift = true } },
-                .{ .close_tab = {} },
+                .{ .close_tab = .this },
             );
             try self.set.putFlags(
                 alloc,
@@ -5631,15 +5894,24 @@ pub const Keybinds = struct {
             else
                 .{ .alt = true };
 
-            // Cmd+N for goto tab N
+            // Cmd/Alt+N for goto tab N
             const start: u21 = '1';
             const end: u21 = '8';
-            var i: u21 = start;
-            while (i <= end) : (i += 1) {
+            comptime var i: u21 = start;
+            inline while (i <= end) : (i += 1) {
+                // We register BOTH the physical `digit_N` key and the unicode
+                // `N` key. This allows most keyboard layouts to work with
+                // this shortcut. Namely, AZERTY doesn't produce unicode `N`
+                // for their digit keys (they're on shifted keys on the same
+                // physical keys).
+
                 try self.set.putFlags(
                     alloc,
                     .{
-                        .key = .{ .unicode = i },
+                        .key = .{ .physical = @field(
+                            inputpkg.Key,
+                            std.fmt.comptimePrint("digit_{u}", .{i}),
+                        ) },
                         .mods = mods,
                     },
                     .{ .goto_tab = (i - start) + 1 },
@@ -5649,6 +5921,22 @@ pub const Keybinds = struct {
                         // correct fix is to fix the reverse mapping lookup
                         // to allow us to lookup performable keybinds
                         // conditionally.
+                        .performable = !builtin.target.os.tag.isDarwin(),
+                    },
+                );
+
+                // Important: this must be the LAST binding set so that the
+                // libghostty trigger API returns this one for the action,
+                // so that things like the macOS tab bar key equivalent label
+                // work properly.
+                try self.set.putFlags(
+                    alloc,
+                    .{
+                        .key = .{ .unicode = i },
+                        .mods = mods,
+                    },
+                    .{ .goto_tab = (i - start) + 1 },
+                    .{
                         .performable = !builtin.target.os.tag.isDarwin(),
                     },
                 );
@@ -5775,7 +6063,7 @@ pub const Keybinds = struct {
             try self.set.put(
                 alloc,
                 .{ .key = .{ .unicode = 'w' }, .mods = .{ .super = true, .alt = true } },
-                .{ .close_tab = {} },
+                .{ .close_tab = .this },
             );
             try self.set.put(
                 alloc,
@@ -6621,6 +6909,25 @@ pub const CopyOnSelect = enum {
     clipboard,
 };
 
+/// Options for right-click actions.
+pub const RightClickAction = enum {
+    /// No action is taken on right-click.
+    ignore,
+
+    /// Pastes from the system clipboard.
+    paste,
+
+    /// Copies the selected text to the system clipboard.
+    copy,
+
+    /// Copies the selected text to the system clipboard and
+    /// pastes the clipboard if no text is selected.
+    @"copy-or-paste",
+
+    /// Shows a context menu with options.
+    @"context-menu",
+};
+
 /// Shell integration values
 pub const ShellIntegration = enum {
     none,
@@ -6636,6 +6943,8 @@ pub const ShellIntegrationFeatures = packed struct {
     cursor: bool = true,
     sudo: bool = false,
     title: bool = true,
+    @"ssh-env": bool = false,
+    @"ssh-terminfo": bool = false,
 };
 
 pub const RepeatableCommand = struct {
@@ -6853,6 +7162,7 @@ pub const MacAppIcon = enum {
     paper,
     retro,
     xray,
+    custom,
     @"custom-style",
 };
 
@@ -6873,9 +7183,11 @@ pub const MacShortcuts = enum {
 
 /// See gtk-single-instance
 pub const GtkSingleInstance = enum {
-    desktop,
     false,
     true,
+    detect,
+
+    pub const default: GtkSingleInstance = .detect;
 };
 
 /// See gtk-tabs-location
@@ -6891,9 +7203,25 @@ pub const GtkToolbarStyle = enum {
     @"raised-border",
 };
 
+/// See gtk-titlebar-style
+pub const GtkTitlebarStyle = enum(c_int) {
+    native,
+    tabs,
+
+    pub const getGObjectType = switch (build_config.app_runtime) {
+        .gtk => @import("gobject").ext.defineEnum(
+            GtkTitlebarStyle,
+            .{ .name = "GhosttyGtkTitlebarStyle" },
+        ),
+
+        .none => void,
+    };
+};
+
 /// See app-notifications
 pub const AppNotifications = packed struct {
     @"clipboard-copy": bool = true,
+    @"config-reload": bool = true,
 };
 
 /// See bell-features
@@ -6902,6 +7230,7 @@ pub const BellFeatures = packed struct {
     audio: bool = false,
     attention: bool = true,
     title: bool = true,
+    border: bool = false,
 };
 
 /// See mouse-shift-capture
@@ -6930,6 +7259,12 @@ pub const WindowSaveState = enum {
 pub const WindowNewTabPosition = enum {
     current,
     end,
+};
+
+/// See macos-dock-drop-behavior
+pub const MacOSDockDropBehavior = enum {
+    @"new-tab",
+    window,
 };
 
 /// See window-show-tab-bar
@@ -6964,6 +7299,14 @@ pub const QuickTerminalPosition = enum {
     left,
     right,
     center,
+};
+
+/// See quick-terminal-layer
+pub const QuickTerminalLayer = enum {
+    overlay,
+    top,
+    bottom,
+    background,
 };
 
 /// See quick-terminal-size
@@ -7023,6 +7366,53 @@ pub const QuickTerminalSize = struct {
         width: u32,
         height: u32,
     };
+
+    /// C API structure for QuickTerminalSize
+    pub const C = extern struct {
+        primary: C.Size,
+        secondary: C.Size,
+
+        pub const Size = extern struct {
+            tag: Tag,
+            value: Value,
+
+            pub const Tag = enum(u8) { none, percentage, pixels };
+
+            pub const Value = extern union {
+                percentage: f32,
+                pixels: u32,
+            };
+
+            pub const none: C.Size = .{ .tag = .none, .value = undefined };
+
+            pub fn percentage(v: f32) C.Size {
+                return .{
+                    .tag = .percentage,
+                    .value = .{ .percentage = v },
+                };
+            }
+
+            pub fn pixels(v: u32) C.Size {
+                return .{
+                    .tag = .pixels,
+                    .value = .{ .pixels = v },
+                };
+            }
+        };
+    };
+
+    pub fn cval(self: QuickTerminalSize) C {
+        return .{
+            .primary = if (self.primary) |p| switch (p) {
+                .percentage => |v| .percentage(v),
+                .pixels => |v| .pixels(v),
+            } else .none,
+            .secondary = if (self.secondary) |s| switch (s) {
+                .percentage => |v| .percentage(v),
+                .pixels => |v| .pixels(v),
+            } else .none,
+        };
+    }
 
     pub fn calculate(
         self: QuickTerminalSize,
@@ -7097,6 +7487,7 @@ pub const QuickTerminalSize = struct {
 
         try formatter.formatEntry([]const u8, fbs.getWritten());
     }
+
     test "parse QuickTerminalSize" {
         const testing = std.testing;
         var v: QuickTerminalSize = undefined;
@@ -7378,11 +7769,21 @@ pub const BackgroundBlur = union(enum) {
 };
 
 /// See window-decoration
-pub const WindowDecoration = enum {
+pub const WindowDecoration = enum(c_int) {
     auto,
     client,
     server,
     none,
+
+    /// Make this a valid gobject if we're in a GTK environment.
+    pub const getGObjectType = switch (build_config.app_runtime) {
+        .gtk => @import("gobject").ext.defineEnum(
+            WindowDecoration,
+            .{ .name = "GhosttyConfigWindowDecoration" },
+        ),
+
+        .none => void,
+    };
 
     pub fn parseCLI(input_: ?[]const u8) !WindowDecoration {
         const input = input_ orelse return .auto;
@@ -7678,34 +8079,6 @@ pub const Duration = struct {
     }
 };
 
-pub const LaunchSource = enum {
-    /// Ghostty was launched via the CLI. This is the default if
-    /// no other source is detected.
-    cli,
-
-    /// Ghostty was launched in a desktop environment (not via the CLI).
-    /// This is used to determine some behaviors such as how to read
-    /// settings, whether single instance defaults to true, etc.
-    desktop,
-
-    /// Ghostty was started via dbus activation.
-    dbus,
-
-    /// Ghostty was started via systemd activation.
-    systemd,
-
-    pub fn detect() LaunchSource {
-        return if (internal_os.launchedFromDesktop())
-            .desktop
-        else if (internal_os.launchedByDbusActivation())
-            .dbus
-        else if (internal_os.launchedBySystemd())
-            .systemd
-        else
-            .cli;
-    }
-};
-
 pub const WindowPadding = struct {
     const Self = @This();
 
@@ -7797,6 +8170,14 @@ pub const WindowPadding = struct {
         try testing.expectError(error.InvalidValue, WindowPadding.parseCLI(""));
         try testing.expectError(error.InvalidValue, WindowPadding.parseCLI("a"));
     }
+};
+
+/// See scroll-to-bottom
+pub const ScrollToBottom = packed struct {
+    keystroke: bool = true,
+    output: bool = false,
+
+    pub const default: ScrollToBottom = .{};
 };
 
 test "parse duration" {
@@ -8359,6 +8740,27 @@ test "theme specifying light/dark sets theme usage in conditional state" {
 
         try testing.expect(cfg.@"window-theme" == .system);
         try testing.expect(cfg._conditional_set.contains(.theme));
+    }
+}
+
+test "compatibility: gtk-single-instance desktop" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    {
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        var it: TestIterator = .{ .data = &.{
+            "--gtk-single-instance=desktop",
+        } };
+        try cfg.loadIter(alloc, &it);
+
+        // We need to test this BEFORE finalize, because finalize will
+        // convert our detect to a real value.
+        try testing.expectEqual(
+            GtkSingleInstance.detect,
+            cfg.@"gtk-single-instance",
+        );
     }
 }
 

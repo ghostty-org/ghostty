@@ -30,6 +30,9 @@ extension Ghostty {
 
         // The hovered URL
         @Published var hoverUrl: String? = nil
+        
+        // The progress report (if any)
+        @Published var progressReport: Action.ProgressReport? = nil
 
         // The time this surface last became focused. This is a ContinuousClock.Instant
         // on supported platforms.

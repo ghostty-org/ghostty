@@ -283,17 +283,27 @@ fn addLinuxAppResources(
             b.fmt("share/dbus-1/services/{s}.service", .{app_id}),
         });
 
-        // systemd user service. This is kind of nasty but systemd
-        // looks for user services in different paths depending on
-        // if we are installed as a system package or not (lib vs.
-        // share) so we have to handle that here. We might be able
-        // to get away with always installing to both because it
-        // only ever searches in one... but I don't want to do that hack
-        // until we have to.
+        // `systemd` user service. This is kind of nasty but `systemd` looks for
+        // user services in different paths depending on if we are installed
+        // as a system package or not (lib vs. share) so we have to handle that
+        // here. We might be able to get away with always installing to both
+        // because it only ever searches in one... but I don't want to do that
+        // hack until we have to.
+        //
+        // The XDG Freedesktop Portal has a major undocumented requirement
+        // for programs that are launched/controlled by `systemd` to interact
+        // with the Portal. The unit must be named `app-<appid>.service`. The
+        // Portal uses the `systemd` unit name figure out what the program's
+        // application ID is and it will only look at unit names that begin with
+        // `app-`. I can find no place that this is documented other than by
+        // inspecting the code or the issue and PR that introduced this feature.
+        // See the following code:
+        //
+        // https://github.com/flatpak/xdg-desktop-portal/blob/7d4d48cf079147c8887da17ec6c3954acd5a285c/src/xdp-utils.c#L152-L220
         if (!cfg.flatpak) try ts.append(.{
             b.path("dist/linux/systemd.service.in"),
             b.fmt(
-                "{s}/systemd/user/{s}.service",
+                "{s}/systemd/user/app-{s}.service",
                 .{
                     if (b.graph.system_package_mode) "lib" else "share",
                     app_id,
@@ -350,47 +360,47 @@ fn addLinuxAppResources(
     // Various icons that our application can use, including the icon
     // that will be used for the desktop.
     try steps.append(&b.addInstallFile(
-        b.path("images/icons/icon_16.png"),
+        b.path("images/gnome/16.png"),
         "share/icons/hicolor/16x16/apps/com.mitchellh.ghostty.png",
     ).step);
     try steps.append(&b.addInstallFile(
-        b.path("images/icons/icon_32.png"),
+        b.path("images/gnome/32.png"),
         "share/icons/hicolor/32x32/apps/com.mitchellh.ghostty.png",
     ).step);
     try steps.append(&b.addInstallFile(
-        b.path("images/icons/icon_128.png"),
+        b.path("images/gnome/128.png"),
         "share/icons/hicolor/128x128/apps/com.mitchellh.ghostty.png",
     ).step);
     try steps.append(&b.addInstallFile(
-        b.path("images/icons/icon_256.png"),
+        b.path("images/gnome/256.png"),
         "share/icons/hicolor/256x256/apps/com.mitchellh.ghostty.png",
     ).step);
     try steps.append(&b.addInstallFile(
-        b.path("images/icons/icon_512.png"),
+        b.path("images/gnome/512.png"),
         "share/icons/hicolor/512x512/apps/com.mitchellh.ghostty.png",
     ).step);
     // Flatpaks only support icons up to 512x512.
     if (!cfg.flatpak) {
         try steps.append(&b.addInstallFile(
-            b.path("images/icons/icon_1024.png"),
+            b.path("images/gnome/1024.png"),
             "share/icons/hicolor/1024x1024/apps/com.mitchellh.ghostty.png",
         ).step);
     }
 
     try steps.append(&b.addInstallFile(
-        b.path("images/icons/icon_16@2x.png"),
+        b.path("images/gnome/32.png"),
         "share/icons/hicolor/16x16@2/apps/com.mitchellh.ghostty.png",
     ).step);
     try steps.append(&b.addInstallFile(
-        b.path("images/icons/icon_32@2x.png"),
+        b.path("images/gnome/64.png"),
         "share/icons/hicolor/32x32@2/apps/com.mitchellh.ghostty.png",
     ).step);
     try steps.append(&b.addInstallFile(
-        b.path("images/icons/icon_128@2x.png"),
+        b.path("images/gnome/256.png"),
         "share/icons/hicolor/128x128@2/apps/com.mitchellh.ghostty.png",
     ).step);
     try steps.append(&b.addInstallFile(
-        b.path("images/icons/icon_256@2x.png"),
+        b.path("images/gnome/512.png"),
         "share/icons/hicolor/256x256@2/apps/com.mitchellh.ghostty.png",
     ).step);
 }
