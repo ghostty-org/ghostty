@@ -915,14 +915,13 @@ test "osc: 112 incomplete sequence" {
         const cmd = a[0].?.osc_dispatch;
         try testing.expect(cmd == .color_operation);
         try testing.expectEqual(cmd.color_operation.terminator, .bel);
-        try testing.expect(cmd.color_operation.source == .reset_cursor);
         try testing.expect(cmd.color_operation.operations.count() == 1);
         var it = cmd.color_operation.operations.constIterator(0);
         {
             const op = it.next().?;
             try testing.expect(op.* == .reset);
             try testing.expectEqual(
-                osc.Command.ColorOperation.Kind.cursor,
+                osc.Command.ColorOperation.Kind{ .dynamic_color = .cursor },
                 op.reset,
             );
         }

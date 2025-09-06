@@ -863,7 +863,7 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             }, .unlocked);
         },
 
-        .color_change => |change| {
+        .color_change => |change| color_change: {
             // Notify our apprt, but don't send a mode 2031 DSR report
             // because VT sequences were used to change the color.
             _ = try self.rt_app.performAction(
@@ -871,10 +871,26 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
                 .color_change,
                 .{
                     .kind = switch (change.kind) {
-                        .background => .background,
-                        .foreground => .foreground,
-                        .cursor => .cursor,
-                        .palette => |v| @enumFromInt(v),
+                        .palette => |color| @enumFromInt(color),
+                        .dynamic_color => |color| switch (color) {
+                            .foreground => .background,
+                            .background => .foreground,
+                            .cursor => .cursor,
+                            .pointer_foreground,
+                            .pointer_background,
+                            .tektronix_foreground,
+                            .tektronix_background,
+                            .highlight_background,
+                            .tektronix_cursor,
+                            .highlight_foreground,
+                            => {
+                                log.warn("changing dynamic color {d} ({s}) is not implemented", .{
+                                    @intFromEnum(color),
+                                    @tagName(color),
+                                });
+                                break :color_change;
+                            },
+                        },
                     },
                     .r = change.color.r,
                     .g = change.color.g,

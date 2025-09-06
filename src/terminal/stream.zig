@@ -1565,7 +1565,7 @@ pub fn Stream(comptime Handler: type) type {
 
                 .color_operation => |v| {
                     if (@hasDecl(T, "handleColorOperation")) {
-                        try self.handler.handleColorOperation(v.source, &v.operations, v.terminator);
+                        try self.handler.handleColorOperation(&v.operations, v.terminator);
                         return;
                     } else log.warn("unimplemented OSC callback: {}", .{cmd});
                 },

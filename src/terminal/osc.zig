@@ -123,9 +123,15 @@ pub const Command = union(enum) {
     ///
     /// 4, 10, 11, 12, 104, 110, 111, 112
     color_operation: struct {
-        source: ColorOperation.Source,
         operations: ColorOperation.List = .{},
         terminator: Terminator = .st,
+        next_dynamic_color: ?ColorOperation.DynamicColor = null,
+
+        pub fn incrementNextDynamicColor(self: *@This()) void {
+            if (self.next_dynamic_color) |color| {
+                self.next_dynamic_color = color.next() catch null;
+            }
+        }
     },
 
     /// Kitty color protocol, OSC 21
@@ -171,35 +177,47 @@ pub const Command = union(enum) {
     conemu_guimacro: []const u8,
 
     pub const ColorOperation = union(enum) {
-        pub const Source = enum(u16) {
-            // these numbers are based on the OSC operation code
-            // see https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h3-Operating-System-Commands
-            get_set_palette = 4,
-            get_set_foreground = 10,
-            get_set_background = 11,
-            get_set_cursor = 12,
-            reset_palette = 104,
-            reset_foreground = 110,
-            reset_background = 111,
-            reset_cursor = 112,
+        pub const List = std.SegmentedList(ColorOperation, 2);
+
+        pub const DynamicColor = enum(u8) {
+            foreground = 10,
+            background = 11,
+            cursor = 12,
+            pointer_foreground = 13,
+            pointer_background = 14,
+            tektronix_foreground = 15,
+            tektronix_background = 16,
+            highlight_background = 17,
+            tektronix_cursor = 18,
+            highlight_foreground = 19,
 
             pub fn format(
-                self: Source,
+                self: DynamicColor,
                 comptime _: []const u8,
                 options: std.fmt.FormatOptions,
                 writer: anytype,
             ) !void {
                 try std.fmt.formatInt(@intFromEnum(self), 10, .lower, options, writer);
             }
-        };
 
-        pub const List = std.SegmentedList(ColorOperation, 2);
+            pub fn next(self: DynamicColor) error{IllegalDynamicColor}!DynamicColor {
+                if (self == .highlight_foreground) return error.IllegalDynamicColor;
+                return @enumFromInt(@intFromEnum(self) + 1);
+            }
+
+            test "DynamicColor" {
+                {
+                    try std.testing.expectEqual(.background, DynamicColor.foreground.next());
+                }
+                {
+                    try std.testing.expectError(error.IllegalDynamicColor, DynamicColor.highlight_foreground.next());
+                }
+            }
+        };
 
         pub const Kind = union(enum) {
             palette: u8,
-            foreground,
-            background,
-            cursor,
+            dynamic_color: DynamicColor,
         };
 
         set: struct {
@@ -345,6 +363,12 @@ pub const Parser = struct {
         @"12",
         @"13",
         @"133",
+        @"14",
+        @"15",
+        @"16",
+        @"17",
+        @"18",
+        @"19",
         @"2",
         @"21",
         @"22",
@@ -382,6 +406,27 @@ pub const Parser = struct {
 
         // Get/set cursor color
         osc_12,
+
+        // Get/set pointer foreground color
+        osc_13,
+
+        // Get/set pointer background color
+        osc_14,
+
+        // Get/set tektronix foreground color
+        osc_15,
+
+        // Get/set tektronix background color
+        osc_16,
+
+        // Get/set highlight background color
+        osc_17,
+
+        // Get/set tektronix cursor color
+        osc_18,
+
+        // Get/set highlight foreground color
+        osc_19,
 
         // Reset color palette index
         osc_104,
@@ -579,6 +624,12 @@ pub const Parser = struct {
                 '1' => self.state = .@"11",
                 '2' => self.state = .@"12",
                 '3' => self.state = .@"13",
+                '4' => self.state = .@"14",
+                '5' => self.state = .@"15",
+                '6' => self.state = .@"16",
+                '7' => self.state = .@"17",
+                '8' => self.state = .@"18",
+                '9' => self.state = .@"19",
                 else => self.state = .invalid,
             },
 
@@ -591,7 +642,7 @@ pub const Parser = struct {
                     }
                     self.command = .{
                         .color_operation = .{
-                            .source = .get_set_foreground,
+                            .next_dynamic_color = .foreground,
                         },
                     };
                     self.state = .osc_10;
@@ -602,8 +653,18 @@ pub const Parser = struct {
                 else => self.state = .invalid,
             },
 
-            .osc_10, .osc_11, .osc_12 => switch (c) {
-                ';' => self.parseOSC101112(false),
+            .osc_10,
+            .osc_11,
+            .osc_12,
+            .osc_13,
+            .osc_14,
+            .osc_15,
+            .osc_16,
+            .osc_17,
+            .osc_18,
+            .osc_19,
+            => switch (c) {
+                ';' => self.parseGetSetDynamicColor(false),
                 else => {},
             },
 
@@ -615,9 +676,7 @@ pub const Parser = struct {
                         break :osc_104;
                     }
                     self.command = .{
-                        .color_operation = .{
-                            .source = .reset_palette,
-                        },
+                        .color_operation = .{},
                     };
                     self.state = .osc_104;
                     self.buf_start = self.buf_idx;
@@ -627,7 +686,7 @@ pub const Parser = struct {
             },
 
             .osc_104 => switch (c) {
-                ';' => self.parseOSC104(false),
+                ';' => self.parseResetPalette(false),
                 else => {},
             },
 
@@ -640,14 +699,14 @@ pub const Parser = struct {
                     }
                     self.command = .{
                         .color_operation = .{
-                            .source = .get_set_background,
+                            .next_dynamic_color = .background,
                         },
                     };
                     self.state = .osc_11;
                     self.buf_start = self.buf_idx;
                     self.complete = true;
                 },
-                '0'...'2' => blk: {
+                '0'...'9' => blk: {
                     if (self.alloc == null) {
                         log.warn("OSC 11{c} requires an allocator, but none was provided", .{c});
                         self.state = .invalid;
@@ -656,25 +715,23 @@ pub const Parser = struct {
 
                     const alloc = self.alloc orelse return;
 
-                    self.command = .{
-                        .color_operation = .{
-                            .source = switch (c) {
-                                '0' => .reset_foreground,
-                                '1' => .reset_background,
-                                '2' => .reset_cursor,
-                                else => unreachable,
-                            },
-                        },
-                    };
+                    self.command = .{ .color_operation = .{} };
                     const op = self.command.color_operation.operations.addOne(alloc) catch |err| {
                         log.warn("unable to append color operation: {}", .{err});
                         return;
                     };
                     op.* = .{
                         .reset = switch (c) {
-                            '0' => .foreground,
-                            '1' => .background,
-                            '2' => .cursor,
+                            '0' => .{ .dynamic_color = .foreground },
+                            '1' => .{ .dynamic_color = .background },
+                            '2' => .{ .dynamic_color = .cursor },
+                            '3' => .{ .dynamic_color = .pointer_foreground },
+                            '4' => .{ .dynamic_color = .pointer_background },
+                            '5' => .{ .dynamic_color = .tektronix_foreground },
+                            '6' => .{ .dynamic_color = .tektronix_background },
+                            '7' => .{ .dynamic_color = .highlight_background },
+                            '8' => .{ .dynamic_color = .tektronix_cursor },
+                            '9' => .{ .dynamic_color = .highlight_foreground },
                             else => unreachable,
                         },
                     };
@@ -693,7 +750,7 @@ pub const Parser = struct {
                     }
                     self.command = .{
                         .color_operation = .{
-                            .source = .get_set_cursor,
+                            .next_dynamic_color = .cursor,
                         },
                     };
                     self.state = .osc_12;
@@ -705,11 +762,140 @@ pub const Parser = struct {
 
             .@"13" => switch (c) {
                 '3' => self.state = .@"133",
+                ';' => osc_13: {
+                    if (self.alloc == null) {
+                        log.warn("OSC 13 requires an allocator, but none was provided", .{});
+                        self.state = .invalid;
+                        break :osc_13;
+                    }
+                    self.command = .{
+                        .color_operation = .{
+                            .next_dynamic_color = .pointer_foreground,
+                        },
+                    };
+                    self.state = .osc_13;
+                    self.buf_start = self.buf_idx;
+                    self.complete = true;
+                },
                 else => self.state = .invalid,
             },
 
             .@"133" => switch (c) {
                 ';' => self.state = .semantic_prompt,
+                else => self.state = .invalid,
+            },
+
+            .@"14" => switch (c) {
+                ';' => osc_14: {
+                    if (self.alloc == null) {
+                        log.warn("OSC 14 requires an allocator, but none was provided", .{});
+                        self.state = .invalid;
+                        break :osc_14;
+                    }
+                    self.command = .{
+                        .color_operation = .{
+                            .next_dynamic_color = .pointer_background,
+                        },
+                    };
+                    self.state = .osc_14;
+                    self.buf_start = self.buf_idx;
+                    self.complete = true;
+                },
+                else => self.state = .invalid,
+            },
+
+            .@"15" => switch (c) {
+                ';' => osc_15: {
+                    if (self.alloc == null) {
+                        log.warn("OSC 15 requires an allocator, but none was provided", .{});
+                        self.state = .invalid;
+                        break :osc_15;
+                    }
+                    self.command = .{
+                        .color_operation = .{
+                            .next_dynamic_color = .tektronix_foreground,
+                        },
+                    };
+                    self.state = .osc_15;
+                    self.buf_start = self.buf_idx;
+                    self.complete = true;
+                },
+                else => self.state = .invalid,
+            },
+
+            .@"16" => switch (c) {
+                ';' => osc_16: {
+                    if (self.alloc == null) {
+                        log.warn("OSC 16 requires an allocator, but none was provided", .{});
+                        self.state = .invalid;
+                        break :osc_16;
+                    }
+                    self.command = .{
+                        .color_operation = .{
+                            .next_dynamic_color = .tektronix_background,
+                        },
+                    };
+                    self.state = .osc_16;
+                    self.buf_start = self.buf_idx;
+                    self.complete = true;
+                },
+                else => self.state = .invalid,
+            },
+
+            .@"17" => switch (c) {
+                ';' => osc_17: {
+                    if (self.alloc == null) {
+                        log.warn("OSC 17 requires an allocator, but none was provided", .{});
+                        self.state = .invalid;
+                        break :osc_17;
+                    }
+                    self.command = .{
+                        .color_operation = .{
+                            .next_dynamic_color = .highlight_background,
+                        },
+                    };
+                    self.state = .osc_17;
+                    self.buf_start = self.buf_idx;
+                    self.complete = true;
+                },
+                else => self.state = .invalid,
+            },
+
+            .@"18" => switch (c) {
+                ';' => osc_18: {
+                    if (self.alloc == null) {
+                        log.warn("OSC 18 requires an allocator, but none was provided", .{});
+                        self.state = .invalid;
+                        break :osc_18;
+                    }
+                    self.command = .{
+                        .color_operation = .{
+                            .next_dynamic_color = .tektronix_cursor,
+                        },
+                    };
+                    self.state = .osc_18;
+                    self.buf_start = self.buf_idx;
+                    self.complete = true;
+                },
+                else => self.state = .invalid,
+            },
+
+            .@"19" => switch (c) {
+                ';' => osc_19: {
+                    if (self.alloc == null) {
+                        log.warn("OSC 19 requires an allocator, but none was provided", .{});
+                        self.state = .invalid;
+                        break :osc_19;
+                    }
+                    self.command = .{
+                        .color_operation = .{
+                            .next_dynamic_color = .highlight_foreground,
+                        },
+                    };
+                    self.state = .osc_19;
+                    self.buf_start = self.buf_idx;
+                    self.complete = true;
+                },
                 else => self.state = .invalid,
             },
 
@@ -791,9 +977,7 @@ pub const Parser = struct {
                         break :osc_4;
                     }
                     self.command = .{
-                        .color_operation = .{
-                            .source = .get_set_palette,
-                        },
+                        .color_operation = .{},
                     };
                     self.state = .osc_4_index;
                     self.buf_start = self.buf_idx;
@@ -809,7 +993,7 @@ pub const Parser = struct {
 
             .osc_4_color => switch (c) {
                 ';' => {
-                    self.parseOSC4(false);
+                    self.parseGetSetPalette(false);
                     self.state = .osc_4_index;
                 },
                 else => {},
@@ -1484,10 +1668,10 @@ pub const Parser = struct {
         self.temp_state.str.* = list.items;
     }
 
-    fn parseOSC4(self: *Parser, final: bool) void {
+    /// Handle parsing OSC 4
+    fn parseGetSetPalette(self: *Parser, final: bool) void {
         assert(self.state == .osc_4_color);
         assert(self.command == .color_operation);
-        assert(self.command.color_operation.source == .get_set_palette);
 
         const alloc = self.alloc orelse return;
         const operations = &self.command.color_operation.operations;
@@ -1539,33 +1723,33 @@ pub const Parser = struct {
         }
     }
 
-    fn parseOSC101112(self: *Parser, final: bool) void {
+    /// Parse OSC 10-19
+    fn parseGetSetDynamicColor(self: *Parser, final: bool) void {
         assert(switch (self.state) {
-            .osc_10, .osc_11, .osc_12 => true,
+            .osc_10,
+            .osc_11,
+            .osc_12,
+            .osc_13,
+            .osc_14,
+            .osc_15,
+            .osc_16,
+            .osc_17,
+            .osc_18,
+            .osc_19,
+            => true,
             else => false,
         });
         assert(self.command == .color_operation);
-        assert(self.command.color_operation.source == switch (self.state) {
-            .osc_10 => Command.ColorOperation.Source.get_set_foreground,
-            .osc_11 => Command.ColorOperation.Source.get_set_background,
-            .osc_12 => Command.ColorOperation.Source.get_set_cursor,
-            else => unreachable,
-        });
 
-        const spec_str = self.buf[self.buf_start .. self.buf_idx - (1 - @intFromBool(final))];
-
-        if (self.command.color_operation.operations.count() > 0) {
-            // don't emit the warning if the string is empty
-            if (spec_str.len == 0) return;
-
-            log.warn("OSC 1{s} can only accept 1 color", .{switch (self.state) {
-                .osc_10 => "0",
-                .osc_11 => "1",
-                .osc_12 => "2",
-                else => unreachable,
-            }});
+        const dynamic_color = self.command.color_operation.next_dynamic_color orelse {
+            log.warn("impossible next dynamic color", .{});
             return;
-        }
+        };
+
+        const buf_end = self.buf_idx - (1 - @intFromBool(final));
+        const spec_str = self.buf[self.buf_start..buf_end];
+
+        self.buf_start = self.buf_idx;
 
         if (spec_str.len == 0) {
             log.warn("OSC 1{s} requires an argument", .{switch (self.state) {
@@ -1586,11 +1770,8 @@ pub const Parser = struct {
                 return;
             };
             op.* = .{
-                .report = switch (self.state) {
-                    .osc_10 => .foreground,
-                    .osc_11 => .background,
-                    .osc_12 => .cursor,
-                    else => unreachable,
+                .report = .{
+                    .dynamic_color = dynamic_color,
                 },
             };
         } else {
@@ -1613,22 +1794,21 @@ pub const Parser = struct {
             };
             op.* = .{
                 .set = .{
-                    .kind = switch (self.state) {
-                        .osc_10 => .foreground,
-                        .osc_11 => .background,
-                        .osc_12 => .cursor,
-                        else => unreachable,
+                    .kind = .{
+                        .dynamic_color = dynamic_color,
                     },
                     .color = color,
                 },
             };
         }
+
+        self.command.color_operation.incrementNextDynamicColor();
     }
 
-    fn parseOSC104(self: *Parser, final: bool) void {
+    /// Parse OSC 104
+    fn parseResetPalette(self: *Parser, final: bool) void {
         assert(self.state == .osc_104);
         assert(self.command == .color_operation);
-        assert(self.command.color_operation.source == .reset_palette);
 
         const alloc = self.alloc orelse return;
 
@@ -1694,9 +1874,19 @@ pub const Parser = struct {
             .allocable_string => self.endAllocableString(),
             .kitty_color_protocol_key => self.endKittyColorProtocolOption(.key_only, true),
             .kitty_color_protocol_value => self.endKittyColorProtocolOption(.key_and_value, true),
-            .osc_4_color => self.parseOSC4(true),
-            .osc_10, .osc_11, .osc_12 => self.parseOSC101112(true),
-            .osc_104 => self.parseOSC104(true),
+            .osc_4_color => self.parseGetSetPalette(true),
+            .osc_10,
+            .osc_11,
+            .osc_12,
+            .osc_13,
+            .osc_14,
+            .osc_15,
+            .osc_16,
+            .osc_17,
+            .osc_18,
+            .osc_19,
+            => self.parseGetSetDynamicColor(true),
+            .osc_104 => self.parseResetPalette(true),
             else => {},
         }
 
@@ -1923,14 +2113,13 @@ test "OSC: OSC110: reset foreground color" {
     const cmd = p.end(null).?;
     try testing.expect(cmd == .color_operation);
     try testing.expectEqual(cmd.color_operation.terminator, .st);
-    try testing.expect(cmd.color_operation.source == .reset_foreground);
     try testing.expect(cmd.color_operation.operations.count() == 1);
     var it = cmd.color_operation.operations.constIterator(0);
     {
         const op = it.next().?;
         try testing.expect(op.* == .reset);
         try testing.expectEqual(
-            Command.ColorOperation.Kind.foreground,
+            Command.ColorOperation.Kind{ .dynamic_color = .foreground },
             op.reset,
         );
     }
@@ -1949,14 +2138,13 @@ test "OSC: OSC111: reset background color" {
     const cmd = p.end(null).?;
     try testing.expect(cmd == .color_operation);
     try testing.expectEqual(cmd.color_operation.terminator, .st);
-    try testing.expect(cmd.color_operation.source == .reset_background);
     try testing.expect(cmd.color_operation.operations.count() == 1);
     var it = cmd.color_operation.operations.constIterator(0);
     {
         const op = it.next().?;
         try testing.expect(op.* == .reset);
         try testing.expectEqual(
-            Command.ColorOperation.Kind.background,
+            Command.ColorOperation.Kind{ .dynamic_color = .background },
             op.reset,
         );
     }
@@ -1975,14 +2163,13 @@ test "OSC: OSC112: reset cursor color" {
     const cmd = p.end(null).?;
     try testing.expect(cmd == .color_operation);
     try testing.expectEqual(cmd.color_operation.terminator, .st);
-    try testing.expect(cmd.color_operation.source == .reset_cursor);
     try testing.expect(cmd.color_operation.operations.count() == 1);
     var it = cmd.color_operation.operations.constIterator(0);
     {
         const op = it.next().?;
         try testing.expect(op.* == .reset);
         try testing.expectEqual(
-            Command.ColorOperation.Kind.cursor,
+            Command.ColorOperation.Kind{ .dynamic_color = .cursor },
             op.reset,
         );
     }
@@ -2002,14 +2189,188 @@ test "OSC: OSC112: reset cursor color with semicolon" {
     const cmd = p.end(0x07).?;
     try testing.expect(cmd == .color_operation);
     try testing.expectEqual(cmd.color_operation.terminator, .bel);
-    try testing.expect(cmd.color_operation.source == .reset_cursor);
     try testing.expect(cmd.color_operation.operations.count() == 1);
     var it = cmd.color_operation.operations.constIterator(0);
     {
         const op = it.next().?;
         try testing.expect(op.* == .reset);
         try testing.expectEqual(
-            Command.ColorOperation.Kind.cursor,
+            Command.ColorOperation.Kind{ .dynamic_color = .cursor },
+            op.reset,
+        );
+    }
+    try testing.expect(it.next() == null);
+}
+
+test "OSC: OSC113: reset pointer foreground color" {
+    const testing = std.testing;
+
+    var p: Parser = .initAlloc(testing.allocator);
+    defer p.deinit();
+
+    const input = "113";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?;
+    try testing.expect(cmd == .color_operation);
+    try testing.expectEqual(cmd.color_operation.terminator, .st);
+    try testing.expect(cmd.color_operation.operations.count() == 1);
+    var it = cmd.color_operation.operations.constIterator(0);
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .reset);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .pointer_foreground },
+            op.reset,
+        );
+    }
+    try testing.expect(it.next() == null);
+}
+
+test "OSC: OSC114: reset pointer background color" {
+    const testing = std.testing;
+
+    var p: Parser = .initAlloc(testing.allocator);
+    defer p.deinit();
+
+    const input = "114";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?;
+    try testing.expect(cmd == .color_operation);
+    try testing.expectEqual(cmd.color_operation.terminator, .st);
+    try testing.expect(cmd.color_operation.operations.count() == 1);
+    var it = cmd.color_operation.operations.constIterator(0);
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .reset);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .pointer_background },
+            op.reset,
+        );
+    }
+    try testing.expect(it.next() == null);
+}
+
+test "OSC: OSC115: reset tektronix foreground color" {
+    const testing = std.testing;
+
+    var p: Parser = .initAlloc(testing.allocator);
+    defer p.deinit();
+
+    const input = "115";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?;
+    try testing.expect(cmd == .color_operation);
+    try testing.expectEqual(cmd.color_operation.terminator, .st);
+    try testing.expect(cmd.color_operation.operations.count() == 1);
+    var it = cmd.color_operation.operations.constIterator(0);
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .reset);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .tektronix_foreground },
+            op.reset,
+        );
+    }
+    try testing.expect(it.next() == null);
+}
+
+test "OSC: OSC116: reset tektronix background color" {
+    const testing = std.testing;
+
+    var p: Parser = .initAlloc(testing.allocator);
+    defer p.deinit();
+
+    const input = "116";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?;
+    try testing.expect(cmd == .color_operation);
+    try testing.expectEqual(cmd.color_operation.terminator, .st);
+    try testing.expect(cmd.color_operation.operations.count() == 1);
+    var it = cmd.color_operation.operations.constIterator(0);
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .reset);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .tektronix_background },
+            op.reset,
+        );
+    }
+    try testing.expect(it.next() == null);
+}
+
+test "OSC: OSC117: reset highlight background color" {
+    const testing = std.testing;
+
+    var p: Parser = .initAlloc(testing.allocator);
+    defer p.deinit();
+
+    const input = "117";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?;
+    try testing.expect(cmd == .color_operation);
+    try testing.expectEqual(cmd.color_operation.terminator, .st);
+    try testing.expect(cmd.color_operation.operations.count() == 1);
+    var it = cmd.color_operation.operations.constIterator(0);
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .reset);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .highlight_background },
+            op.reset,
+        );
+    }
+    try testing.expect(it.next() == null);
+}
+
+test "OSC: OSC118: reset tektronix cursor color" {
+    const testing = std.testing;
+
+    var p: Parser = .initAlloc(testing.allocator);
+    defer p.deinit();
+
+    const input = "118";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?;
+    try testing.expect(cmd == .color_operation);
+    try testing.expectEqual(cmd.color_operation.terminator, .st);
+    try testing.expect(cmd.color_operation.operations.count() == 1);
+    var it = cmd.color_operation.operations.constIterator(0);
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .reset);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .tektronix_cursor },
+            op.reset,
+        );
+    }
+    try testing.expect(it.next() == null);
+}
+
+test "OSC: OSC119: reset highlight foreground color" {
+    const testing = std.testing;
+
+    var p: Parser = .initAlloc(testing.allocator);
+    defer p.deinit();
+
+    const input = "119";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?;
+    try testing.expect(cmd == .color_operation);
+    try testing.expectEqual(cmd.color_operation.terminator, .st);
+    try testing.expect(cmd.color_operation.operations.count() == 1);
+    var it = cmd.color_operation.operations.constIterator(0);
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .reset);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .highlight_foreground },
             op.reset,
         );
     }
@@ -2138,14 +2499,142 @@ test "OSC: OSC10: report foreground color" {
 
     try testing.expect(cmd == .color_operation);
     try testing.expectEqual(cmd.color_operation.terminator, .st);
-    try testing.expect(cmd.color_operation.source == .get_set_foreground);
     try testing.expect(cmd.color_operation.operations.count() == 1);
     var it = cmd.color_operation.operations.constIterator(0);
     {
         const op = it.next().?;
         try testing.expect(op.* == .report);
         try testing.expectEqual(
-            Command.ColorOperation.Kind.foreground,
+            Command.ColorOperation.Kind{ .dynamic_color = .foreground },
+            op.report,
+        );
+    }
+    try testing.expect(it.next() == null);
+}
+
+test "OSC: OSC10: report multiple 1" {
+    const testing = std.testing;
+
+    var p: Parser = .initAlloc(testing.allocator);
+    defer p.deinit();
+
+    const input = "10;?;?";
+    for (input) |ch| p.next(ch);
+
+    // This corresponds to ST = ESC followed by \
+    const cmd = p.end('\x1b').?;
+
+    try testing.expect(cmd == .color_operation);
+    try testing.expectEqual(cmd.color_operation.terminator, .st);
+    try testing.expect(cmd.color_operation.operations.count() == 2);
+    var it = cmd.color_operation.operations.constIterator(0);
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .report);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .foreground },
+            op.report,
+        );
+    }
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .report);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .background },
+            op.report,
+        );
+    }
+    try testing.expect(it.next() == null);
+}
+
+test "OSC: OSC10: report multiple 2" {
+    const testing = std.testing;
+
+    var p: Parser = .initAlloc(testing.allocator);
+    defer p.deinit();
+
+    const input = "10;?;?;?";
+    for (input) |ch| p.next(ch);
+
+    // This corresponds to ST = ESC followed by \
+    const cmd = p.end('\x1b').?;
+
+    try testing.expect(cmd == .color_operation);
+    try testing.expectEqual(cmd.color_operation.terminator, .st);
+    try testing.expect(cmd.color_operation.operations.count() == 3);
+    var it = cmd.color_operation.operations.constIterator(0);
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .report);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .foreground },
+            op.report,
+        );
+    }
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .report);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .background },
+            op.report,
+        );
+    }
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .report);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .cursor },
+            op.report,
+        );
+    }
+    try testing.expect(it.next() == null);
+}
+
+test "OSC: OSC10: report multiple 3" {
+    const testing = std.testing;
+
+    var p: Parser = .initAlloc(testing.allocator);
+    defer p.deinit();
+
+    const input = "10;?;?;?;?";
+    for (input) |ch| p.next(ch);
+
+    // This corresponds to ST = ESC followed by \
+    const cmd = p.end('\x1b').?;
+
+    try testing.expect(cmd == .color_operation);
+    try testing.expectEqual(cmd.color_operation.terminator, .st);
+    try testing.expect(cmd.color_operation.operations.count() == 4);
+    var it = cmd.color_operation.operations.constIterator(0);
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .report);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .foreground },
+            op.report,
+        );
+    }
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .report);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .background },
+            op.report,
+        );
+    }
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .report);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .cursor },
+            op.report,
+        );
+    }
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .report);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .pointer_foreground },
             op.report,
         );
     }
@@ -2164,14 +2653,13 @@ test "OSC: OSC10: set foreground color" {
     const cmd = p.end('\x07').?;
     try testing.expect(cmd == .color_operation);
     try testing.expectEqual(cmd.color_operation.terminator, .bel);
-    try testing.expect(cmd.color_operation.source == .get_set_foreground);
     try testing.expect(cmd.color_operation.operations.count() == 1);
     var it = cmd.color_operation.operations.constIterator(0);
     {
         const op = it.next().?;
         try testing.expect(op.* == .set);
         try testing.expectEqual(
-            Command.ColorOperation.Kind.foreground,
+            Command.ColorOperation.Kind{ .dynamic_color = .foreground },
             op.set.kind,
         );
         try testing.expectEqual(
@@ -2195,14 +2683,13 @@ test "OSC: OSC11: report background color" {
     const cmd = p.end('\x07').?;
     try testing.expect(cmd == .color_operation);
     try testing.expectEqual(cmd.color_operation.terminator, .bel);
-    try testing.expect(cmd.color_operation.source == .get_set_background);
     try testing.expect(cmd.color_operation.operations.count() == 1);
     var it = cmd.color_operation.operations.constIterator(0);
     {
         const op = it.next().?;
         try testing.expect(op.* == .report);
         try testing.expectEqual(
-            Command.ColorOperation.Kind.background,
+            Command.ColorOperation.Kind{ .dynamic_color = .background },
             op.report,
         );
     }
@@ -2222,14 +2709,13 @@ test "OSC: OSC11: set background color" {
     const cmd = p.end('\x1b').?;
     try testing.expect(cmd == .color_operation);
     try testing.expectEqual(cmd.color_operation.terminator, .st);
-    try testing.expect(cmd.color_operation.source == .get_set_background);
     try testing.expect(cmd.color_operation.operations.count() == 1);
     var it = cmd.color_operation.operations.constIterator(0);
     {
         const op = it.next().?;
         try testing.expect(op.* == .set);
         try testing.expectEqual(
-            Command.ColorOperation.Kind.background,
+            Command.ColorOperation.Kind{ .dynamic_color = .background },
             op.set.kind,
         );
         try testing.expectEqual(
@@ -2253,14 +2739,13 @@ test "OSC: OSC12: report cursor color" {
     const cmd = p.end('\x07').?;
     try testing.expect(cmd == .color_operation);
     try testing.expectEqual(cmd.color_operation.terminator, .bel);
-    try testing.expect(cmd.color_operation.source == .get_set_cursor);
     try testing.expect(cmd.color_operation.operations.count() == 1);
     var it = cmd.color_operation.operations.constIterator(0);
     {
         const op = it.next().?;
         try testing.expect(op.* == .report);
         try testing.expectEqual(
-            Command.ColorOperation.Kind.cursor,
+            Command.ColorOperation.Kind{ .dynamic_color = .cursor },
             op.report,
         );
     }
@@ -2280,14 +2765,405 @@ test "OSC: OSC12: set cursor color" {
     const cmd = p.end('\x1b').?;
     try testing.expect(cmd == .color_operation);
     try testing.expectEqual(cmd.color_operation.terminator, .st);
-    try testing.expect(cmd.color_operation.source == .get_set_cursor);
     try testing.expect(cmd.color_operation.operations.count() == 1);
     var it = cmd.color_operation.operations.constIterator(0);
     {
         const op = it.next().?;
         try testing.expect(op.* == .set);
         try testing.expectEqual(
-            Command.ColorOperation.Kind.cursor,
+            Command.ColorOperation.Kind{ .dynamic_color = .cursor },
+            op.set.kind,
+        );
+        try testing.expectEqual(
+            RGB{ .r = 0xff, .g = 0xff, .b = 0xff },
+            op.set.color,
+        );
+    }
+    try testing.expect(it.next() == null);
+}
+
+test "OSC: OSC13: report pointer foreground color" {
+    const testing = std.testing;
+
+    var p: Parser = .initAlloc(testing.allocator);
+    defer p.deinit();
+
+    const input = "13;?";
+    for (input) |ch| p.next(ch);
+
+    // This corresponds to ST = BEL character
+    const cmd = p.end('\x07').?;
+    try testing.expect(cmd == .color_operation);
+    try testing.expectEqual(cmd.color_operation.terminator, .bel);
+    try testing.expect(cmd.color_operation.operations.count() == 1);
+    var it = cmd.color_operation.operations.constIterator(0);
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .report);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .pointer_foreground },
+            op.report,
+        );
+    }
+    try testing.expectEqual(cmd.color_operation.terminator, .bel);
+    try testing.expect(it.next() == null);
+}
+
+test "OSC: OSC13: set pointer foreground color" {
+    const testing = std.testing;
+
+    var p: Parser = .initAlloc(testing.allocator);
+    defer p.deinit();
+
+    const input = "13;rgb:f/ff/ffff";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?;
+    try testing.expect(cmd == .color_operation);
+    try testing.expectEqual(cmd.color_operation.terminator, .st);
+    try testing.expect(cmd.color_operation.operations.count() == 1);
+    var it = cmd.color_operation.operations.constIterator(0);
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .set);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .pointer_foreground },
+            op.set.kind,
+        );
+        try testing.expectEqual(
+            RGB{ .r = 0xff, .g = 0xff, .b = 0xff },
+            op.set.color,
+        );
+    }
+    try testing.expect(it.next() == null);
+}
+
+test "OSC: OSC14: report pointer background color" {
+    const testing = std.testing;
+
+    var p: Parser = .initAlloc(testing.allocator);
+    defer p.deinit();
+
+    const input = "14;?";
+    for (input) |ch| p.next(ch);
+
+    // This corresponds to ST = BEL character
+    const cmd = p.end('\x07').?;
+    try testing.expect(cmd == .color_operation);
+    try testing.expectEqual(cmd.color_operation.terminator, .bel);
+    try testing.expect(cmd.color_operation.operations.count() == 1);
+    var it = cmd.color_operation.operations.constIterator(0);
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .report);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .pointer_background },
+            op.report,
+        );
+    }
+    try testing.expectEqual(cmd.color_operation.terminator, .bel);
+    try testing.expect(it.next() == null);
+}
+
+test "OSC: OSC14: set pointer background color" {
+    const testing = std.testing;
+
+    var p: Parser = .initAlloc(testing.allocator);
+    defer p.deinit();
+
+    const input = "14;rgb:f/ff/ffff";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?;
+    try testing.expect(cmd == .color_operation);
+    try testing.expectEqual(cmd.color_operation.terminator, .st);
+    try testing.expect(cmd.color_operation.operations.count() == 1);
+    var it = cmd.color_operation.operations.constIterator(0);
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .set);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .pointer_background },
+            op.set.kind,
+        );
+        try testing.expectEqual(
+            RGB{ .r = 0xff, .g = 0xff, .b = 0xff },
+            op.set.color,
+        );
+    }
+    try testing.expect(it.next() == null);
+}
+
+test "OSC: OSC15: report tektronix foreground color" {
+    const testing = std.testing;
+
+    var p: Parser = .initAlloc(testing.allocator);
+    defer p.deinit();
+
+    const input = "15;?";
+    for (input) |ch| p.next(ch);
+
+    // This corresponds to ST = BEL character
+    const cmd = p.end('\x07').?;
+    try testing.expect(cmd == .color_operation);
+    try testing.expectEqual(cmd.color_operation.terminator, .bel);
+    try testing.expect(cmd.color_operation.operations.count() == 1);
+    var it = cmd.color_operation.operations.constIterator(0);
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .report);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .tektronix_foreground },
+            op.report,
+        );
+    }
+    try testing.expectEqual(cmd.color_operation.terminator, .bel);
+    try testing.expect(it.next() == null);
+}
+
+test "OSC: OSC15: set tektronix foreground color" {
+    const testing = std.testing;
+
+    var p: Parser = .initAlloc(testing.allocator);
+    defer p.deinit();
+
+    const input = "15;rgb:f/ff/ffff";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?;
+    try testing.expect(cmd == .color_operation);
+    try testing.expectEqual(cmd.color_operation.terminator, .st);
+    try testing.expect(cmd.color_operation.operations.count() == 1);
+    var it = cmd.color_operation.operations.constIterator(0);
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .set);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .tektronix_foreground },
+            op.set.kind,
+        );
+        try testing.expectEqual(
+            RGB{ .r = 0xff, .g = 0xff, .b = 0xff },
+            op.set.color,
+        );
+    }
+    try testing.expect(it.next() == null);
+}
+
+test "OSC: OSC16: report tektronix background color" {
+    const testing = std.testing;
+
+    var p: Parser = .initAlloc(testing.allocator);
+    defer p.deinit();
+
+    const input = "16;?";
+    for (input) |ch| p.next(ch);
+
+    // This corresponds to ST = BEL character
+    const cmd = p.end('\x07').?;
+    try testing.expect(cmd == .color_operation);
+    try testing.expectEqual(cmd.color_operation.terminator, .bel);
+    try testing.expect(cmd.color_operation.operations.count() == 1);
+    var it = cmd.color_operation.operations.constIterator(0);
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .report);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .tektronix_background },
+            op.report,
+        );
+    }
+    try testing.expectEqual(cmd.color_operation.terminator, .bel);
+    try testing.expect(it.next() == null);
+}
+
+test "OSC: OSC16: set tektronix background color" {
+    const testing = std.testing;
+
+    var p: Parser = .initAlloc(testing.allocator);
+    defer p.deinit();
+
+    const input = "16;rgb:f/ff/ffff";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?;
+    try testing.expect(cmd == .color_operation);
+    try testing.expectEqual(cmd.color_operation.terminator, .st);
+    try testing.expect(cmd.color_operation.operations.count() == 1);
+    var it = cmd.color_operation.operations.constIterator(0);
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .set);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .tektronix_background },
+            op.set.kind,
+        );
+        try testing.expectEqual(
+            RGB{ .r = 0xff, .g = 0xff, .b = 0xff },
+            op.set.color,
+        );
+    }
+    try testing.expect(it.next() == null);
+}
+
+test "OSC: OSC17: report highlight background color" {
+    const testing = std.testing;
+
+    var p: Parser = .initAlloc(testing.allocator);
+    defer p.deinit();
+
+    const input = "17;?";
+    for (input) |ch| p.next(ch);
+
+    // This corresponds to ST = BEL character
+    const cmd = p.end('\x07').?;
+    try testing.expect(cmd == .color_operation);
+    try testing.expectEqual(cmd.color_operation.terminator, .bel);
+    try testing.expect(cmd.color_operation.operations.count() == 1);
+    var it = cmd.color_operation.operations.constIterator(0);
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .report);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .highlight_background },
+            op.report,
+        );
+    }
+    try testing.expectEqual(cmd.color_operation.terminator, .bel);
+    try testing.expect(it.next() == null);
+}
+
+test "OSC: OSC17: set highlight background color" {
+    const testing = std.testing;
+
+    var p: Parser = .initAlloc(testing.allocator);
+    defer p.deinit();
+
+    const input = "17;rgb:f/ff/ffff";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?;
+    try testing.expect(cmd == .color_operation);
+    try testing.expectEqual(cmd.color_operation.terminator, .st);
+    try testing.expect(cmd.color_operation.operations.count() == 1);
+    var it = cmd.color_operation.operations.constIterator(0);
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .set);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .highlight_background },
+            op.set.kind,
+        );
+        try testing.expectEqual(
+            RGB{ .r = 0xff, .g = 0xff, .b = 0xff },
+            op.set.color,
+        );
+    }
+    try testing.expect(it.next() == null);
+}
+
+test "OSC: OSC18: report tektronix cursor color" {
+    const testing = std.testing;
+
+    var p: Parser = .initAlloc(testing.allocator);
+    defer p.deinit();
+
+    const input = "18;?";
+    for (input) |ch| p.next(ch);
+
+    // This corresponds to ST = BEL character
+    const cmd = p.end('\x07').?;
+    try testing.expect(cmd == .color_operation);
+    try testing.expectEqual(cmd.color_operation.terminator, .bel);
+    try testing.expect(cmd.color_operation.operations.count() == 1);
+    var it = cmd.color_operation.operations.constIterator(0);
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .report);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .tektronix_cursor },
+            op.report,
+        );
+    }
+    try testing.expectEqual(cmd.color_operation.terminator, .bel);
+    try testing.expect(it.next() == null);
+}
+
+test "OSC: OSC18: set tektronix cursor color" {
+    const testing = std.testing;
+
+    var p: Parser = .initAlloc(testing.allocator);
+    defer p.deinit();
+
+    const input = "18;rgb:f/ff/ffff";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?;
+    try testing.expect(cmd == .color_operation);
+    try testing.expectEqual(cmd.color_operation.terminator, .st);
+    try testing.expect(cmd.color_operation.operations.count() == 1);
+    var it = cmd.color_operation.operations.constIterator(0);
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .set);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .tektronix_cursor },
+            op.set.kind,
+        );
+        try testing.expectEqual(
+            RGB{ .r = 0xff, .g = 0xff, .b = 0xff },
+            op.set.color,
+        );
+    }
+    try testing.expect(it.next() == null);
+}
+
+test "OSC: OSC19: report highlight foreground color" {
+    const testing = std.testing;
+
+    var p: Parser = .initAlloc(testing.allocator);
+    defer p.deinit();
+
+    const input = "19;?";
+    for (input) |ch| p.next(ch);
+
+    // This corresponds to ST = BEL character
+    const cmd = p.end('\x07').?;
+    try testing.expect(cmd == .color_operation);
+    try testing.expectEqual(cmd.color_operation.terminator, .bel);
+    try testing.expect(cmd.color_operation.operations.count() == 1);
+    var it = cmd.color_operation.operations.constIterator(0);
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .report);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .highlight_foreground },
+            op.report,
+        );
+    }
+    try testing.expectEqual(cmd.color_operation.terminator, .bel);
+    try testing.expect(it.next() == null);
+}
+
+test "OSC: OSC19: set highlight foreground color" {
+    const testing = std.testing;
+
+    var p: Parser = .initAlloc(testing.allocator);
+    defer p.deinit();
+
+    const input = "19;rgb:f/ff/ffff";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?;
+    try testing.expect(cmd == .color_operation);
+    try testing.expectEqual(cmd.color_operation.terminator, .st);
+    try testing.expect(cmd.color_operation.operations.count() == 1);
+    var it = cmd.color_operation.operations.constIterator(0);
+    {
+        const op = it.next().?;
+        try testing.expect(op.* == .set);
+        try testing.expectEqual(
+            Command.ColorOperation.Kind{ .dynamic_color = .highlight_foreground },
             op.set.kind,
         );
         try testing.expectEqual(
@@ -2309,7 +3185,6 @@ test "OSC: OSC4: get palette color 1" {
 
     const cmd = p.end('\x1b').?;
     try testing.expect(cmd == .color_operation);
-    try testing.expect(cmd.color_operation.source == .get_set_palette);
     try testing.expect(cmd.color_operation.operations.count() == 1);
     var it = cmd.color_operation.operations.constIterator(0);
     {
@@ -2335,7 +3210,6 @@ test "OSC: OSC4: get palette color 2" {
 
     const cmd = p.end('\x1b').?;
     try testing.expect(cmd == .color_operation);
-    try testing.expect(cmd.color_operation.source == .get_set_palette);
     try testing.expect(cmd.color_operation.operations.count() == 2);
     var it = cmd.color_operation.operations.constIterator(0);
     {
@@ -2369,7 +3243,6 @@ test "OSC: OSC4: set palette color 1" {
 
     const cmd = p.end('\x1b').?;
     try testing.expect(cmd == .color_operation);
-    try testing.expect(cmd.color_operation.source == .get_set_palette);
     try testing.expect(cmd.color_operation.operations.count() == 1);
     var it = cmd.color_operation.operations.constIterator(0);
     {
@@ -2398,7 +3271,6 @@ test "OSC: OSC4: set palette color 2" {
 
     const cmd = p.end('\x1b').?;
     try testing.expect(cmd == .color_operation);
-    try testing.expect(cmd.color_operation.source == .get_set_palette);
     try testing.expect(cmd.color_operation.operations.count() == 2);
     var it = cmd.color_operation.operations.constIterator(0);
     {
@@ -2439,7 +3311,6 @@ test "OSC: OSC4: get with invalid index 1" {
 
     const cmd = p.end('\x1b').?;
     try testing.expect(cmd == .color_operation);
-    try testing.expect(cmd.color_operation.source == .get_set_palette);
     try testing.expect(cmd.color_operation.operations.count() == 1);
     var it = cmd.color_operation.operations.constIterator(0);
     {
@@ -2464,7 +3335,6 @@ test "OSC: OSC4: get with invalid index 2" {
 
     const cmd = p.end('\x1b').?;
     try testing.expect(cmd == .color_operation);
-    try testing.expect(cmd.color_operation.source == .get_set_palette);
     try testing.expect(cmd.color_operation.operations.count() == 2);
     var it = cmd.color_operation.operations.constIterator(0);
     {
@@ -2498,7 +3368,6 @@ test "OSC: OSC4: multiple get 8a" {
 
     const cmd = p.end('\x1b').?;
     try testing.expect(cmd == .color_operation);
-    try testing.expect(cmd.color_operation.source == .get_set_palette);
     try testing.expect(cmd.color_operation.operations.count() == 8);
     var it = cmd.color_operation.operations.constIterator(0);
     {
@@ -2580,7 +3449,6 @@ test "OSC: OSC4: multiple get 8b" {
 
     const cmd = p.end('\x1b').?;
     try testing.expect(cmd == .color_operation);
-    try testing.expect(cmd.color_operation.source == .get_set_palette);
     try testing.expect(cmd.color_operation.operations.count() == 8);
     var it = cmd.color_operation.operations.constIterator(0);
     {
@@ -2661,7 +3529,6 @@ test "OSC: OSC4: set with invalid index" {
 
     const cmd = p.end('\x1b').?;
     try testing.expect(cmd == .color_operation);
-    try testing.expect(cmd.color_operation.source == .get_set_palette);
     try testing.expect(cmd.color_operation.operations.count() == 1);
     var it = cmd.color_operation.operations.constIterator(0);
     {
@@ -2690,7 +3557,6 @@ test "OSC: OSC4: mix get/set palette color" {
 
     const cmd = p.end('\x1b').?;
     try testing.expect(cmd == .color_operation);
-    try testing.expect(cmd.color_operation.source == .get_set_palette);
     try testing.expect(cmd.color_operation.operations.count() == 2);
     var it = cmd.color_operation.operations.constIterator(0);
     {
@@ -2727,7 +3593,6 @@ test "OSC: OSC4: incomplete color/spec 1" {
 
     const cmd = p.end('\x1b').?;
     try testing.expect(cmd == .color_operation);
-    try testing.expect(cmd.color_operation.source == .get_set_palette);
     try testing.expect(cmd.color_operation.operations.count() == 0);
     var it = cmd.color_operation.operations.constIterator(0);
     try testing.expect(it.next() == null);
@@ -2744,7 +3609,6 @@ test "OSC: OSC4: incomplete color/spec 2" {
 
     const cmd = p.end('\x1b').?;
     try testing.expect(cmd == .color_operation);
-    try testing.expect(cmd.color_operation.source == .get_set_palette);
     try testing.expect(cmd.color_operation.operations.count() == 1);
     var it = cmd.color_operation.operations.constIterator(0);
     {
@@ -2769,7 +3633,6 @@ test "OSC: OSC104: reset palette color 1" {
 
     const cmd = p.end('\x1b').?;
     try testing.expect(cmd == .color_operation);
-    try testing.expect(cmd.color_operation.source == .reset_palette);
     try testing.expect(cmd.color_operation.operations.count() == 1);
     var it = cmd.color_operation.operations.constIterator(0);
     {
@@ -2794,7 +3657,6 @@ test "OSC: OSC104: reset palette color 2" {
 
     const cmd = p.end('\x1b').?;
     try testing.expect(cmd == .color_operation);
-    try testing.expect(cmd.color_operation.source == .reset_palette);
     try testing.expectEqual(2, cmd.color_operation.operations.count());
     var it = cmd.color_operation.operations.constIterator(0);
     {
@@ -2827,7 +3689,6 @@ test "OSC: OSC104: invalid palette index" {
 
     const cmd = p.end('\x1b').?;
     try testing.expect(cmd == .color_operation);
-    try testing.expect(cmd.color_operation.source == .reset_palette);
     try testing.expect(cmd.color_operation.operations.count() == 1);
     var it = cmd.color_operation.operations.constIterator(0);
     {
@@ -2852,7 +3713,6 @@ test "OSC: OSC104: empty palette index" {
 
     const cmd = p.end('\x1b').?;
     try testing.expect(cmd == .color_operation);
-    try testing.expect(cmd.color_operation.source == .reset_palette);
     try testing.expect(cmd.color_operation.operations.count() == 1);
     var it = cmd.color_operation.operations.constIterator(0);
     {
