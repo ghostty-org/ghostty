@@ -32,7 +32,7 @@ COPY ./build.zig /src
 RUN export ZIG_VERSION=$(sed -n -e 's/^.*requireZig("\(.*\)").*$/\1/p' build.zig) && curl -L -o /tmp/zig.tar.xz "https://ziglang.org/download/$ZIG_VERSION/zig-linux-$(uname -m)-$ZIG_VERSION.tar.xz" && \
     tar -xf /tmp/zig.tar.xz -C /opt && \
     rm /tmp/zig.tar.xz && \
-    ln -s "/opt/zig-linux-$(uname -m)-$ZIG_VERSION/zig" /usr/local/bin/zig
+    ln -s "/opt/zig-$(uname -m)-linux-$ZIG_VERSION/zig" /usr/local/bin/zig
 
 COPY . /src
 
