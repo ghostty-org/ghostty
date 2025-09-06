@@ -35,6 +35,7 @@ type AttributeHash = tuple[
     float,
     float,
     float,
+    bool,
 ]
 type ResolvedSymbol = PatchSetAttributes | PatchSetScaleRules | int | None
 
@@ -54,6 +55,8 @@ class PatchSetAttributeEntry(TypedDict):
     relative_y: float
     relative_width: float
     relative_height: float
+
+    align_grouped: bool
 
 
 class PatchSet(TypedDict):
@@ -162,6 +165,7 @@ def attr_key(attr: PatchSetAttributeEntry) -> AttributeHash:
         float(attr.get("relative_y", 0.0)),
         float(attr.get("relative_width", 1.0)),
         float(attr.get("relative_height", 1.0)),
+        bool(attr.get("align_grouped", False)),
     )
 
 
@@ -191,6 +195,7 @@ def emit_zig_entry_multikey(codepoints: list[int], attr: PatchSetAttributeEntry)
     relative_y = attr.get("relative_y", 0.0)
     relative_width = attr.get("relative_width", 1.0)
     relative_height = attr.get("relative_height", 1.0)
+    align_grouped = str(attr.get("align_grouped", False)).lower()
 
     overlap = params.get("overlap", 0.0)
     xy_ratio = params.get("xy-ratio", -1.0)
@@ -232,6 +237,7 @@ def emit_zig_entry_multikey(codepoints: list[int], attr: PatchSetAttributeEntry)
 
     if align is not None:
         s += f"            .align_horizontal = {align},\n"
+        s += f"            .align_horizontal_grouped = {align_grouped},\n"
     if valign is not None:
         s += f"            .align_vertical = {valign},\n"
 
@@ -282,17 +288,23 @@ def generate_zig_switch_arms(
 
         entries |= {k: v for k, v in attributes.items() if isinstance(k, int)}
 
-        if entry["ScaleRules"] is not None and "ScaleGroups" in entry["ScaleRules"]:
+        if entry["ScaleRules"] is not None:
+            if "ScaleGroups" not in entry["ScaleRules"]:
+                raise ValueError(
+                    f"Scale rule format {entry['ScaleRules']} not implemented."
+                )
             for group in entry["ScaleRules"]["ScaleGroups"]:
                 xMin = math.inf
                 yMin = math.inf
                 xMax = -math.inf
                 yMax = -math.inf
                 individual_bounds: dict[int, tuple[int, int, int, int]] = {}
+                individual_advances: set[float] = set()
                 for cp in group:
                     if cp not in cmap:
                         continue
                     glyph = glyphs[cmap[cp]]
+                    individual_advances.add(glyph.width)
                     bounds = BoundsPen(glyphSet=glyphs)
                     glyph.draw(bounds)
                     individual_bounds[cp] = bounds.bounds
@@ -302,8 +314,19 @@ def generate_zig_switch_arms(
                     yMax = max(bounds.bounds[3], yMax)
                 group_width = xMax - xMin
                 group_height = yMax - yMin
+                group_is_monospace = (len(individual_bounds) > 1) and (
+                    len(individual_advances) == 1
+                )
                 for cp in group:
-                    if cp not in cmap or cp not in entries:
+                    if (
+                        cp not in cmap
+                        or cp not in entries
+                        # Codepoints may contribute to the bounding box of multiple groups,
+                        # but should be scaled according to the first group they are found
+                        # in. Hence, to avoid overwriting, we need to skip codepoints that
+                        # have already been assigned a scale group.
+                        or "align_grouped" in entries[cp]
+                    ):
                         continue
                     this_bounds = individual_bounds[cp]
                     this_width = this_bounds[2] - this_bounds[0]
@@ -312,6 +335,7 @@ def generate_zig_switch_arms(
                     entries[cp]["relative_height"] = this_height / group_height
                     entries[cp]["relative_x"] = (this_bounds[0] - xMin) / group_width
                     entries[cp]["relative_y"] = (this_bounds[1] - yMin) / group_height
+                    entries[cp]["align_grouped"] = group_is_monospace
 
     del entries[0]
 

@@ -143,6 +143,11 @@ pub const RenderOptions = struct {
         align_vertical: Align = .none,
         /// Horizontal alignment rule.
         align_horizontal: Align = .none,
+        /// Whether horizontal alignment should use the glyph's
+        /// scaling group. In font_patcher, many glyphs are aligned
+        /// individually on the horizontal axis even if they are
+        /// part of a scaling group.
+        align_horizontal_grouped: bool = false,
 
         /// Top padding when resizing.
         pad_top: f64 = 0.0,
@@ -293,9 +298,16 @@ pub const RenderOptions = struct {
 
             // Align horizontally
             if (self.align_horizontal != .none) {
-                // Horizontally scale group bounding box.
-                group.width *= width_factor;
-                group.x *= width_factor;
+                // Horizontally scale group bounding box. If horizontal
+                // alignment should not be grouped, instead replace the
+                // horizontal group metrics with the glyph metrics.
+                if (self.align_horizontal_grouped) {
+                    group.width *= width_factor;
+                    group.x *= width_factor;
+                } else {
+                    group.width = constrained_glyph.width;
+                    group.x = constrained_glyph.x;
+                }
 
                 // Calculate offset and shift the glyph
                 constrained_glyph.x += self.offset_horizontal(group, metrics, min_constraint_width);
