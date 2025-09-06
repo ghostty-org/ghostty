@@ -513,7 +513,7 @@ jobs:
           $fileContent = Get-Content -Path "build.zig" -Raw
           $pattern = 'buildpkg\.requireZig\("(.*?)"\);'
           $zigVersion = [regex]::Match($fileContent, $pattern).Groups[1].Value
-          $version = "zig-windows-x86_64-$zigVersion"
+          $version = "zig-x86_64-windows-$zigVersion"
           Write-Output $version
           $uri = "https://ziglang.org/download/$zigVersion/$version.zip"
           Invoke-WebRequest -Uri "$uri" -OutFile ".\zig-windows.zip"
@@ -1138,6 +1138,7 @@ jobs:
     name: Build on FreeBSD
     needs: test
     runs-on: namespace-profile-mitchellh-sm-systemd
+    if: false # FIXME: FreeBSD does not yet ship with Zig 0.15
     strategy:
       matrix:
         release:

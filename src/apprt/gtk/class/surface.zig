@@ -1290,11 +1290,11 @@ pub const Surface = extern struct {
         defer arena.deinit();
         const alloc = arena.allocator();
 
-        var env_to_remove = std.ArrayList([]const u8).init(alloc);
-        var env_to_update = std.ArrayList(struct {
+        var env_to_remove: std.ArrayList([]const u8) = .empty;
+        var env_to_update: std.ArrayList(struct {
             key: []const u8,
             value: []const u8,
-        }).init(alloc);
+        }) = .empty;
 
         var it = env_map.iterator();
         while (it.next()) |entry| {
@@ -1307,12 +1307,12 @@ pub const Surface = extern struct {
 
             // Any env var starting with SNAP must be removed
             if (std.mem.startsWith(u8, key, "SNAP_")) {
-                try env_to_remove.append(key);
+                try env_to_remove.append(alloc, key);
                 continue;
             }
 
-            var filtered_paths = std.ArrayList([]const u8).init(alloc);
-            defer filtered_paths.deinit();
+            var filtered_paths: std.ArrayList([]const u8) = .empty;
+            defer filtered_paths.deinit(alloc);
 
             var modified = false;
             var paths = std.mem.splitAny(u8, value, ":");
@@ -1326,15 +1326,15 @@ pub const Surface = extern struct {
                         break;
                     }
                 };
-                if (include) try filtered_paths.append(path);
+                if (include) try filtered_paths.append(alloc, path);
             }
 
             if (modified) {
                 if (filtered_paths.items.len > 0) {
                     const new_value = try std.mem.join(alloc, ":", filtered_paths.items);
-                    try env_to_update.append(.{ .key = key, .value = new_value });
+                    try env_to_update.append(alloc, .{ .key = key, .value = new_value });
                 } else {
-                    try env_to_remove.append(key);
+                    try env_to_remove.append(alloc, key);
                 }
             }
         }
