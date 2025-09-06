@@ -17,6 +17,10 @@ pub const TextRun = struct {
     /// lower the chance of hash collisions if they become a problem. If
     /// there are hash collisions, it would result in rendering issues but
     /// the core data would be correct.
+    ///
+    /// The hash is position-independent within the row by using relative
+    /// cluster positions. This allows identical runs in different positions
+    /// to share the same cache entry, improving cache efficiency.
     hash: u64,
 
     /// The offset in the row where this run started
@@ -77,7 +81,11 @@ pub const RunIterator = struct {
         // Go through cell by cell and accumulate while we build our run.
         var j: usize = self.i;
         while (j < max) : (j += 1) {
-            const cluster = j;
+            // Use relative cluster positions (offset from run start) to make
+            // the shaping cache position-independent. This ensures that runs
+            // with identical content but different starting positions in the
+            // row produce the same hash, enabling cache reuse.
+            const relative_cluster: u32 = @intCast(j - self.i);
             const cell = &cells[j];
 
             // If we have a selection and we're at a boundary point, then
@@ -252,13 +260,13 @@ pub const RunIterator = struct {
             // If we're a fallback character, add that and continue; we
             // don't want to add the entire grapheme.
             if (font_info.fallback) |cp| {
-                try self.addCodepoint(&hasher, cp, @intCast(cluster));
+                try self.addCodepoint(&hasher, cp, relative_cluster);
                 continue;
             }
 
             // If we're a Kitty unicode placeholder then we add a blank.
             if (cell.codepoint() == terminal.kitty.graphics.unicode.placeholder) {
-                try self.addCodepoint(&hasher, ' ', @intCast(cluster));
+                try self.addCodepoint(&hasher, ' ', relative_cluster);
                 continue;
             }
 
@@ -266,14 +274,14 @@ pub const RunIterator = struct {
             try self.addCodepoint(
                 &hasher,
                 if (cell.codepoint() == 0) ' ' else cell.codepoint(),
-                @intCast(cluster),
+                relative_cluster
             );
             if (cell.hasGrapheme()) {
                 const cps = self.opts.row.grapheme(cell).?;
                 for (cps) |cp| {
                     // Do not send presentation modifiers
                     if (cp == 0xFE0E or cp == 0xFE0F) continue;
-                    try self.addCodepoint(&hasher, cp, @intCast(cluster));
+                    try self.addCodepoint(&hasher, cp, relative_cluster);
                 }
             }
         }
