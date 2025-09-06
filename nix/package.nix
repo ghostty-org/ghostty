@@ -10,7 +10,7 @@
   git,
   ncurses,
   pkg-config,
-  zig_0_14,
+  zig_0_15,
   pandoc,
   revision ? "dirty",
   optimize ? "Debug",
@@ -20,6 +20,7 @@
   wayland-scanner,
   pkgs,
 }: let
+  zig = zig_0_15;
   # The Zig hook has no way to select the release type without actual
   # overriding of the default flags.
   #
@@ -27,7 +28,7 @@
   # https://github.com/ziglang/zig/issues/14281#issuecomment-1624220653 is
   # ultimately acted on and has made its way to a nixpkgs implementation, this
   # can probably be removed in favor of that.
-  zig_hook = zig_0_14.hook.overrideAttrs {
+  zig_hook = zig.hook.overrideAttrs {
     zig_default_flags = "-Dcpu=baseline -Doptimize=${optimize} --color off";
   };
   gi_typelib_path = import ./build-support/gi-typelib-path.nix {
