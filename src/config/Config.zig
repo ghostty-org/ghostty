@@ -4535,6 +4535,11 @@ fn probableCliEnvironment() bool {
         // its not a real supported target and GTK via WSL2 assuming
         // single instance is probably fine.
         .windows => return false,
+        // On macOS there is no direct CLI launch, only `open -a`,
+        // which detaches the process and doesn't provide a working
+        // directory to inherit. This should not be treated as a CLI
+        // environment for the purposes of this function.
+        .macos => return false,
         else => {},
     }
 
