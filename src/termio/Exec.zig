@@ -970,7 +970,7 @@ const Subprocess = struct {
             const pid = try cmd.spawn(alloc);
             errdefer killCommandFlatpak(cmd);
 
-            log.info("started subcommand on host via flatpak API path={s} pid={?}", .{
+            log.info("started subcommand on host via flatpak API path={s} pid={}", .{
                 self.args[0],
                 pid,
             });
