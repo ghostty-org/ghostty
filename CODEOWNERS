@@ -183,6 +183,7 @@
 /po/ga_IE.UTF-8.po @ghostty-org/ga_IE
 /po/ko_KR.UTF-8.po @ghostty-org/ko_KR
 /po/he_IL.UTF-8.po @ghostty-org/he_IL
+/po/it_IT.UTF-8.po @ghostty-org/it_IT
 
 # Packaging - Snap
 /snap/ @ghostty-org/snap
