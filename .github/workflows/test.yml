@@ -273,6 +273,9 @@ jobs:
   build-macos:
     runs-on: namespace-profile-ghostty-macos-tahoe
     needs: test
+    # FIXME: WHY ARE WE BUILDING LLVM FROM SCRATCH
+    # https://github.com/NixOS/nixpkgs/issues/440352
+    if: false
     steps:
       - name: Checkout code
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -316,6 +319,9 @@ jobs:
   build-macos-matrix:
     runs-on: namespace-profile-ghostty-macos-tahoe
     needs: test
+    # FIXME: WHY ARE WE BUILDING LLVM FROM SCRATCH
+    # https://github.com/NixOS/nixpkgs/issues/440352
+    if: false
     steps:
       - name: Checkout code
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -585,6 +591,9 @@ jobs:
   test-macos:
     runs-on: namespace-profile-ghostty-macos-tahoe
     needs: test
+    # FIXME: WHY ARE WE BUILDING LLVM FROM SCRATCH
+    # https://github.com/NixOS/nixpkgs/issues/440352
+    if: false
     steps:
       - name: Checkout code
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
