@@ -333,7 +333,7 @@ jobs:
         run: nix build .#ghostty-releasefast
 
       - name: Check version
-        run: result/bin/ghostty +version | grep -q 'builtin.OptimizeMode.ReleaseFast'
+        run: result/bin/ghostty +version | grep -q '.ReleaseFast'
 
       - name: Check to see if the binary has been stripped
         run: nm result/bin/.ghostty-wrapped 2>&1 | grep -q 'no symbols'
@@ -342,7 +342,7 @@ jobs:
         run: nix build .#ghostty-debug
 
       - name: Check version
-        run: result/bin/ghostty +version | grep -q 'builtin.OptimizeMode.Debug'
+        run: result/bin/ghostty +version | grep -q '.Debug'
 
       - name: Check to see if the binary has not been stripped
         run: nm result/bin/.ghostty-wrapped 2>&1 | grep -q 'main_ghostty.main'
