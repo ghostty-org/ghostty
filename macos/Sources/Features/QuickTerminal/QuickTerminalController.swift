@@ -38,6 +38,15 @@ class QuickTerminalController: BaseTerminalController {
     /// Tracks if we're currently handling a manual resize to prevent recursion
     private var isHandlingResize: Bool = false
 
+    // The tab manager for the quick terminal
+    private lazy var tabManager: QuickTerminalTabManager = {
+        let manager = QuickTerminalTabManager(controller: self, surfaceTree: .init(
+            get: { self.surfaceTree },
+            set: { self.surfaceTree = $0 },
+        ))
+        return manager
+    }()
+
     init(_ ghostty: Ghostty.App,
          position: QuickTerminalPosition = .top,
          baseConfig base: Ghostty.SurfaceConfiguration? = nil,
@@ -78,6 +87,16 @@ class QuickTerminalController: BaseTerminalController {
             self,
             selector: #selector(onNewTab),
             name: Ghostty.Notification.ghosttyNewTab,
+            object: nil)
+        center.addObserver(
+            tabManager,
+            selector: #selector(tabManager.onMoveTab(_:)),
+            name: .ghosttyMoveTab,
+            object: nil)
+        center.addObserver(
+            tabManager,
+            selector: #selector(tabManager.onGoToTab(_:)),
+            name: Ghostty.Notification.ghosttyGotoTab,
             object: nil)
         center.addObserver(
             self,
@@ -129,11 +148,10 @@ class QuickTerminalController: BaseTerminalController {
             qtWindow.initialFrame = window.frame
         }
         
-        // Setup our content
-        window.contentView = NSHostingView(rootView: TerminalView(
+        window.contentView = NSHostingView(rootView: QuickTerminalView(
             ghostty: self.ghostty,
-            viewModel: self,
-            delegate: self
+            controller: self,
+            tabManager: tabManager,
         ))
         
         // Clear out our frame at this point, the fixup from above is complete.
@@ -246,11 +264,16 @@ class QuickTerminalController: BaseTerminalController {
     override func surfaceTreeDidChange(from: SplitTree<Ghostty.SurfaceView>, to: SplitTree<Ghostty.SurfaceView>) {
         super.surfaceTreeDidChange(from: from, to: to)
 
-        // If our surface tree is nil then we animate the window out. We
-        // defer reinitializing the tree to save some memory here.
+        // If we have a tab with surfaces removed from surfaceTree, we need
+        // to remove them from the tab manager by calling closeTab
         if to.isEmpty {
-            animateOut()
-            return
+            tabManager.tabs
+                .filter { tab in
+                    tab.surface.contains { $0.surface == nil }
+                }
+                .forEach { tab in
+                    tabManager.closeTab(tab)
+                }
         }
 
         // If we're not empty (e.g. this isn't the first set) and we're
@@ -568,16 +591,6 @@ class QuickTerminalController: BaseTerminalController {
         }
     }
 
-    private func showNoNewTabAlert() {
-        guard let window else { return }
-        let alert = NSAlert()
-        alert.messageText = "Cannot Create New Tab"
-        alert.informativeText = "Tabs aren't supported in the Quick Terminal."
-        alert.addButton(withTitle: "OK")
-        alert.alertStyle = .warning
-        alert.beginSheetModal(for: window)
-    }
-
     // MARK: First Responder
 
     @IBAction override func closeWindow(_ sender: Any) {
@@ -586,7 +599,7 @@ class QuickTerminalController: BaseTerminalController {
     }
 
     @IBAction func newTab(_ sender: Any?) {
-        showNoNewTabAlert()
+        // no-op, this is never called, since the window is an NSPanel without a title bar
     }
 
     @IBAction func toggleGhosttyFullScreen(_ sender: Any) {
@@ -656,8 +669,7 @@ class QuickTerminalController: BaseTerminalController {
         guard let surfaceView = notification.object as? Ghostty.SurfaceView else { return }
         guard let window = surfaceView.window else { return }
         guard window.windowController is QuickTerminalController else { return }
-        // Tabs aren't supported with Quick Terminals or derivatives
-        showNoNewTabAlert()
+        tabManager.addNewTab()
     }
 
     private struct DerivedConfig {
