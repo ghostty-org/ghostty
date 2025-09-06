@@ -90,12 +90,17 @@ fn mainActionImpl(
     const rand = prng.random();
 
     // Our output always goes to stdout.
-    const writer = std.Io.getStdOut().writer();
+    var buf: [4096]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&buf);
+    const writer = &stdout_writer.interface;
 
     // Create our implementation
     const impl = try Impl.create(alloc, opts);
     defer impl.destroy(alloc);
     try impl.run(writer, rand);
+
+    // Don't forget to flush!
+    try writer.flush();
 }
 
 test {
