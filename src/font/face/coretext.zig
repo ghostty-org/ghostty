@@ -388,19 +388,16 @@ pub const Face = struct {
             y = @round(y);
         }
 
-        // If the cell width was adjusted wider, we re-center all glyphs
-        // in the new width, so that they aren't weirdly off to the left.
-        if (metrics.original_cell_width) |original| recenter: {
-            // We don't do this if the constraint has a horizontal alignment,
-            // since in that case the position was already calculated with the
-            // new cell width in mind.
-            if (opts.constraint.align_horizontal != .none) break :recenter;
-
-            // If the original width was wider then we don't do anything.
-            if (original >= metrics.cell_width) break :recenter;
-
+        // We center all glyphs within the pixel-rounded and adjusted
+        // cell width if it's larger than the face width, so that they
+        // aren't weirdly off to the left.
+        //
+        // We don't do this if the constraint has a horizontal alignment,
+        // since in that case the position was already calculated with the
+        // new cell width in mind.
+        if ((opts.constraint.align_horizontal == .none) and (metrics.face_width < cell_width)) {
             // We add half the difference to re-center.
-            x += (cell_width - @as(f64, @floatFromInt(original))) / 2;
+            x += (cell_width - metrics.face_width) / 2;
         }
 
         // Our whole-pixel bearings for the final glyph.
