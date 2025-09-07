@@ -281,9 +281,9 @@ jobs:
 
       - name: Trigger Snap workflow
         run: |
-          gh workflow run snap.yml --ref ${{ github.ref_name || 'main' }} --field source-tarball-id=${{ needs.build-dist.outputs.artifact-id }}
+          gh workflow run snap.yml --ref ${{ github.ref_name || 'main' }} --field source-run-id=${{ github.run_id }} --field source-artifact-id=${{ needs.build-dist.outputs.artifact-id }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
 
   build-macos:
     runs-on: namespace-profile-ghostty-macos-tahoe

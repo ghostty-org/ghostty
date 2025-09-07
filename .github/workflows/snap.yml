@@ -1,7 +1,11 @@
 on:
   workflow_dispatch:
     inputs:
-      source-tarball-id:
+      source-run-id:
+        description: run id of the workflow that generated the artifact
+        required: true
+        type: string
+      source-artifact-id:
         description: source tarball built during build-dist
         required: true
         type: string
@@ -24,7 +28,9 @@ jobs:
       - name: Download Source Tarball Artifacts
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
-          artifact-ids: ${{ inputs.source-tarball-id }}
+          run-id: ${{ inputs.source-run-id }}
+          artifact-ids: ${{ inputs.source-artifact-id }}
+          github-token: ${{ github.token }}
 
       - name: Extract tarball
         run: |
