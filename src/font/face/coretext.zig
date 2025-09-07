@@ -934,6 +934,7 @@ const ColorState = struct {
             const svg = opentype.SVG.init(ptr[0..len]) catch |err| {
                 return switch (err) {
                     error.EndOfStream,
+                    error.ReadFailed,
                     error.SVGVersionNotSupported,
                     => error.InvalidSVGTable,
                 };

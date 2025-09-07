@@ -1439,7 +1439,7 @@ fn execCommand(
             // grow if necessary for a longer command (uncommon).
             9,
         );
-        defer args.deinit();
+        defer args.deinit(alloc);
 
         // The reason for executing login this way is unclear. This
         // comment will attempt to explain but prepare for a truly
@@ -1486,40 +1486,41 @@ fn execCommand(
         // macOS.
         //
         // Awesome.
-        try args.append("/usr/bin/login");
-        if (hush) try args.append("-q");
-        try args.append("-flp");
-        try args.append(username);
+        try args.append(alloc, "/usr/bin/login");
+        if (hush) try args.append(alloc, "-q");
+        try args.append(alloc, "-flp");
+        try args.append(alloc, username);
 
         switch (command) {
             // Direct args can be passed directly to login, since
             // login uses execvp we don't need to worry about PATH
             // searching.
-            .direct => |v| try args.appendSlice(v),
+            .direct => |v| try args.appendSlice(alloc, v),
 
             .shell => |v| {
                 // Use "exec" to replace the bash process with
                 // our intended command so we don't have a parent
                 // process hanging around.
-                const cmd = try std.fmt.allocPrintZ(
+                const cmd = try std.fmt.allocPrintSentinel(
                     alloc,
                     "exec -l {s}",
                     .{v},
+                    0,
                 );
 
                 // We execute bash with "--noprofile --norc" so that it doesn't
                 // load startup files so that (1) our shell integration doesn't
                 // break and (2) user configuration doesn't mess this process
                 // up.
-                try args.append("/bin/bash");
-                try args.append("--noprofile");
-                try args.append("--norc");
-                try args.append("-c");
-                try args.append(cmd);
+                try args.append(alloc, "/bin/bash");
+                try args.append(alloc, "--noprofile");
+                try args.append(alloc, "--norc");
+                try args.append(alloc, "-c");
+                try args.append(alloc, cmd);
             },
         }
 
-        return try args.toOwnedSlice();
+        return try args.toOwnedSlice(alloc);
     }
 
     return switch (command) {

@@ -468,34 +468,35 @@ fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const EnvMap) ![]u1
 
 /// Copied from Zig. This function could be made public in child_process.zig instead.
 fn windowsCreateCommandLine(allocator: mem.Allocator, argv: []const []const u8) ![:0]u8 {
-    var buf = std.ArrayList(u8).init(allocator);
+    var buf: std.Io.Writer.Allocating = .init(allocator);
     defer buf.deinit();
+    const writer = &buf.writer;
 
     for (argv, 0..) |arg, arg_i| {
-        if (arg_i != 0) try buf.append(' ');
+        if (arg_i != 0) try writer.writeByte(' ');
         if (mem.indexOfAny(u8, arg, " \t\n\"") == null) {
-            try buf.appendSlice(arg);
+            try writer.writeAll(arg);
             continue;
         }
-        try buf.append('"');
+        try writer.writeByte('"');
         var backslash_count: usize = 0;
         for (arg) |byte| {
             switch (byte) {
                 '\\' => backslash_count += 1,
                 '"' => {
-                    try buf.appendNTimes('\\', backslash_count * 2 + 1);
-                    try buf.append('"');
+                    try writer.splatByteAll('\\', backslash_count * 2 + 1);
+                    try writer.writeByte('"');
                     backslash_count = 0;
                 },
                 else => {
-                    try buf.appendNTimes('\\', backslash_count);
-                    try buf.append(byte);
+                    try writer.splatByteAll('\\', backslash_count);
+                    try writer.writeByte(byte);
                     backslash_count = 0;
                 },
             }
         }
-        try buf.appendNTimes('\\', backslash_count * 2);
-        try buf.append('"');
+        try writer.splatByteAll('\\', backslash_count * 2);
+        try writer.writeByte('"');
     }
 
     return buf.toOwnedSliceSentinel(0);
