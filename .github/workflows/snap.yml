@@ -21,9 +21,6 @@ jobs:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
     steps:
-      - name: Checkout code
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-
       - name: Download Source Tarball Artifacts
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:

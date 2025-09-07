@@ -276,6 +276,9 @@ jobs:
     runs-on: namespace-profile-ghostty-xsm
     needs: build-dist
     steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
       - name: Trigger Snap workflow
         run: |
           gh workflow run snap.yml --ref ${{ github.sha }} --field source-tarball-id=${{ needs.build-dist.outputs.artifact-id }}
