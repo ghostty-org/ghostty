@@ -265,8 +265,8 @@ pub const Transport = struct {
         const json = envelope.serialize();
         defer sentry.free(@ptrCast(json.ptr));
         var parsed: crash.Envelope = parsed: {
-            var fbs = std.io.fixedBufferStream(json);
-            break :parsed try crash.Envelope.parse(alloc, fbs.reader());
+            var reader: std.Io.Reader = .fixed(json);
+            break :parsed try crash.Envelope.parse(alloc, &reader);
         };
         defer parsed.deinit();
 
@@ -298,7 +298,12 @@ pub const Transport = struct {
         });
         const file = try std.fs.cwd().createFile(path, .{});
         defer file.close();
-        try file.writer().writeAll(json);
+
+        var buf: [4096]u8 = undefined;
+        var file_writer = file.writer(&buf);
+        try file_writer.interface.writeAll(json);
+        // Don't forget to flush!
+        try file_writer.interface.flush();
 
         log.warn("crash report written to disk path={s}", .{path});
     }

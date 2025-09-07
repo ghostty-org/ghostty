@@ -147,7 +147,7 @@ pub const Application = extern struct {
         css_provider: *gtk.CssProvider,
 
         /// Providers for loading custom stylesheets defined by user
-        custom_css_providers: std.ArrayListUnmanaged(*gtk.CssProvider) = .empty,
+        custom_css_providers: std.ArrayList(*gtk.CssProvider) = .empty,
 
         pub var offset: c_int = 0;
     };
@@ -209,7 +209,7 @@ pub const Application = extern struct {
 
         // Setup our GTK init env vars
         setGtkEnv(&config) catch |err| switch (err) {
-            error.NoSpaceLeft => {
+            error.WriteFailed => {
                 // If we fail to set GTK environment variables then we still
                 // try to start the application...
                 log.warn(
@@ -223,7 +223,6 @@ pub const Application = extern struct {
         const single_instance = switch (config.@"gtk-single-instance") {
             .true => true,
             .false => false,
-            // This should have been resolved to true/false during config loading.
             .detect => unreachable,
         };
 
@@ -968,7 +967,10 @@ pub const Application = extern struct {
             defer file.close();
 
             log.info("loading gtk-custom-css path={s}", .{path});
-            const contents = try file.reader().readAllAlloc(
+
+            var buf: [4096]u8 = undefined;
+            var reader = file.reader(&buf);
+            const contents = try reader.interface.readAlloc(
                 alloc,
                 5 * 1024 * 1024, // 5MB,
             );
@@ -1039,8 +1041,8 @@ pub const Application = extern struct {
             // This should really never, never happen. Its not critical enough
             // to actually crash, but this is a bug somewhere. An accelerator
             // for a trigger can't possibly be more than 1024 bytes.
-            error.NoSpaceLeft => {
-                log.warn("accelerator somehow longer than 1024 bytes: {}", .{trigger});
+            error.WriteFailed => {
+                log.warn("accelerator somehow longer than 1024 bytes: {f}", .{trigger});
                 return;
             },
         };
@@ -2388,7 +2390,7 @@ const Action = struct {
 /// given the runtime environment or configuration.
 ///
 /// This must be called BEFORE GTK initialization.
-fn setGtkEnv(config: *const CoreConfig) error{NoSpaceLeft}!void {
+fn setGtkEnv(config: *const CoreConfig) error{WriteFailed}!void {
     assert(gtk.isInitialized() == 0);
 
     var gdk_debug: struct {
@@ -2455,8 +2457,7 @@ fn setGtkEnv(config: *const CoreConfig) error{NoSpaceLeft}!void {
 
     {
         var buf: [1024]u8 = undefined;
-        var fmt = std.io.fixedBufferStream(&buf);
-        const writer = fmt.writer();
+        var writer: std.Io.Writer = .fixed(&buf);
         var first: bool = true;
         inline for (@typeInfo(@TypeOf(gdk_debug)).@"struct".fields) |field| {
             if (@field(gdk_debug, field.name)) {
@@ -2466,15 +2467,14 @@ fn setGtkEnv(config: *const CoreConfig) error{NoSpaceLeft}!void {
             }
         }
         try writer.writeByte(0);
-        const value = fmt.getWritten();
+        const value = writer.buffered();
         log.warn("setting GDK_DEBUG={s}", .{value[0 .. value.len - 1]});
         _ = internal_os.setenv("GDK_DEBUG", value[0 .. value.len - 1 :0]);
     }
 
     {
         var buf: [1024]u8 = undefined;
-        var fmt = std.io.fixedBufferStream(&buf);
-        const writer = fmt.writer();
+        var writer: std.Io.Writer = .fixed(&buf);
         var first: bool = true;
         inline for (@typeInfo(@TypeOf(gdk_disable)).@"struct".fields) |field| {
             if (@field(gdk_disable, field.name)) {
@@ -2484,7 +2484,7 @@ fn setGtkEnv(config: *const CoreConfig) error{NoSpaceLeft}!void {
             }
         }
         try writer.writeByte(0);
-        const value = fmt.getWritten();
+        const value = writer.buffered();
         log.warn("setting GDK_DISABLE={s}", .{value[0 .. value.len - 1]});
         _ = internal_os.setenv("GDK_DISABLE", value[0 .. value.len - 1 :0]);
     }

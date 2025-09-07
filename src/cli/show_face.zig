@@ -64,13 +64,32 @@ pub const Options = struct {
 pub fn run(alloc: Allocator) !u8 {
     var iter = try args.argsIterator(alloc);
     defer iter.deinit();
-    return try runArgs(alloc, &iter);
+
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
+
+    var stderr_buffer: [1024]u8 = undefined;
+    var stderr_writer = std.fs.File.stdout().writer(&stderr_buffer);
+    const stderr = &stderr_writer.interface;
+
+    const result = runArgs(
+        alloc,
+        &iter,
+        stdout,
+        stderr,
+    );
+    stdout.flush() catch {};
+    stderr.flush() catch {};
+    return result;
 }
 
-fn runArgs(alloc_gpa: Allocator, argsIter: anytype) !u8 {
-    const stdout = std.io.getStdOut().writer();
-    const stderr = std.io.getStdErr().writer();
-
+fn runArgs(
+    alloc_gpa: Allocator,
+    argsIter: anytype,
+    stdout: *std.Io.Writer,
+    stderr: *std.Io.Writer,
+) !u8 {
     // Its possible to build Ghostty without font discovery!
     if (comptime font.Discover == void) {
         try stderr.print(
@@ -104,9 +123,7 @@ fn runArgs(alloc_gpa: Allocator, argsIter: anytype) !u8 {
             inner: inline for (@typeInfo(Options).@"struct".fields) |field| {
                 if (field.name[0] == '_') continue :inner;
                 if (std.mem.eql(u8, field.name, diagnostic.key)) {
-                    try stderr.writeAll("config error: ");
-                    try diagnostic.write(stderr);
-                    try stderr.writeAll("\n");
+                    try stderr.print("config error: {f}\n", .{diagnostic});
                     exit = true;
                 }
             }
@@ -138,9 +155,7 @@ fn runArgs(alloc_gpa: Allocator, argsIter: anytype) !u8 {
                 if (field.name[0] == '_') continue :inner;
                 if (std.mem.eql(u8, field.name, diagnostic.key) and (diagnostic.location == .none or diagnostic.location == .cli)) continue :outer;
             }
-            try stderr.writeAll("config error: ");
-            try diagnostic.write(stderr);
-            try stderr.writeAll("\n");
+            try stderr.print("config error: {f}\n", .{diagnostic});
         }
     }
 
@@ -189,8 +204,8 @@ fn runArgs(alloc_gpa: Allocator, argsIter: anytype) !u8 {
 
 fn lookup(
     alloc: std.mem.Allocator,
-    stdout: anytype,
-    stderr: anytype,
+    stdout: *std.Io.Writer,
+    stderr: *std.Io.Writer,
     font_grid: *font.SharedGrid,
     style: font.Style,
     presentation: ?font.Presentation,

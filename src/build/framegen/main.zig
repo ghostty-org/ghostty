@@ -3,7 +3,7 @@ const fs = std.fs;
 
 /// Generates a compressed file of all the ghostty frames
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
 
     var arg_iter = try std.process.argsWithAllocator(gpa.allocator());
     // Skip the exe name
@@ -15,21 +15,26 @@ pub fn main() !void {
     const out_dir = try fs.cwd().openDir(out_dir_path, .{});
 
     const compressed_file = try out_dir.createFile(fs.path.basename(output_path), .{});
+    var buffer: [4096]u8 = undefined;
+    var writer = compressed_file.writer(&buffer);
 
     // Join the frames with a null byte. We'll split on this later
     const all_frames = try std.mem.join(gpa.allocator(), "\x01", &frames);
-    var fbs = std.io.fixedBufferStream(all_frames);
 
-    const reader = fbs.reader();
-    try std.compress.flate.compress(reader, compressed_file.writer(), .{});
+    var flate: std.compress.flate.Compress = .init(&writer.interface, all_frames, .{});
+    try flate.end();
 
-    const stdout = std.io.getStdOut().writer();
+    var stdout_writer = std.fs.File.stdout().writer(&buffer);
+    const stdout = &stdout_writer.interface;
 
     try stdout.print(
         \\//! This file is auto-generated. Do not edit.
         \\
         \\pub const compressed = @embedFile("{s}");
     , .{output_path});
+
+    // Don't forget to flush!
+    try stdout.flush();
 }
 
 const frames = [_][]const u8{

@@ -136,7 +136,7 @@ pub const SurfaceTitleDialog = extern struct {
     fn finalize(self: *Self) callconv(.c) void {
         const priv = self.private();
         if (priv.initial_value) |v| {
-            glib.free(@constCast(@ptrCast(v)));
+            glib.free(@ptrCast(@constCast(v)));
             priv.initial_value = null;
         }
 

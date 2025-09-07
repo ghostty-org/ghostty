@@ -3218,7 +3218,7 @@ _conditional_set: std.EnumSet(conditional.Key) = .{},
 /// The steps we can use to reload the configuration after it has been loaded
 /// without reopening the files. This is used in very specific cases such
 /// as loadTheme which has more details on why.
-_replay_steps: std.ArrayListUnmanaged(Replay.Step) = .{},
+_replay_steps: std.ArrayList(Replay.Step) = .{},
 
 /// Set to true if Ghostty was executed as xdg-terminal-exec on Linux.
 @"_xdg-terminal-exec": bool = false,
@@ -3306,10 +3306,12 @@ pub fn loadFile(self: *Config, alloc: Allocator, path: []const u8) !void {
     defer file.close();
 
     std.log.info("reading configuration file path={s}", .{path});
-    var buf_reader = std.io.bufferedReader(file.reader());
-    const reader = buf_reader.reader();
-    const Iter = cli.args.LineIterator(@TypeOf(reader));
-    var iter: Iter = .{ .r = reader, .filepath = path };
+
+    var buf: [2048]u8 = undefined;
+    var file_reader = file.reader(&buf);
+    const reader = &file_reader.interface;
+
+    var iter: cli.args.LineIterator = .{ .r = reader, .filepath = path };
     try self.loadIter(alloc, &iter);
     try self.expandPaths(std.fs.path.dirname(path).?);
 }
@@ -3346,11 +3348,18 @@ fn writeConfigTemplate(path: []const u8) !void {
     }
     const file = try std.fs.createFileAbsolute(path, .{});
     defer file.close();
-    try std.fmt.format(
-        file.writer(),
+
+    var buf: [2048]u8 = undefined;
+    var file_writer = file.writer(&buf);
+    const writer = &file_writer.interface;
+
+    try writer.print(
         @embedFile("./config-template"),
         .{ .path = path },
     );
+
+    // Don't forget to flush!
+    try writer.flush();
 }
 
 /// Load configurations from the default configuration files. The default
@@ -3517,17 +3526,17 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
 
             // Next, take all remaining args and use that to build up
             // a command to execute.
-            var builder = std.ArrayList([:0]const u8).init(arena_alloc);
-            errdefer builder.deinit();
+            var builder: std.ArrayList([:0]const u8) = .empty;
+            errdefer builder.deinit(arena_alloc);
             for (args) |arg_raw| {
                 const arg = std.mem.sliceTo(arg_raw, 0);
                 const copy = try arena_alloc.dupeZ(u8, arg);
                 try self._replay_steps.append(arena_alloc, .{ .arg = copy });
-                try builder.append(copy);
+                try builder.append(arena_alloc, copy);
             }
 
             self.@"_xdg-terminal-exec" = true;
-            self.@"initial-command" = .{ .direct = try builder.toOwnedSlice() };
+            self.@"initial-command" = .{ .direct = try builder.toOwnedSlice(arena_alloc) };
             return;
         }
     }
@@ -3599,13 +3608,13 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
     // PRIOR to the "-e" in our replay steps, since everything
     // after "-e" becomes an "initial-command". To do this, we
     // dupe the values if we find it.
-    var replay_suffix = std.ArrayList(Replay.Step).init(alloc_gpa);
-    defer replay_suffix.deinit();
+    var replay_suffix: std.ArrayList(Replay.Step) = .empty;
+    defer replay_suffix.deinit(alloc_gpa);
     for (self._replay_steps.items, 0..) |step, i| if (step == .@"-e") {
         // We don't need to clone the steps because they should
         // all be allocated in our arena and we're keeping our
         // arena.
-        try replay_suffix.appendSlice(self._replay_steps.items[i..]);
+        try replay_suffix.appendSlice(alloc_gpa, self._replay_steps.items[i..]);
 
         // Remove our old values. Again, don't need to free any
         // memory here because its all part of our arena.
@@ -3633,10 +3642,11 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
         // We must only load a unique file once
         if (try loaded.fetchPut(path, {}) != null) {
             const diag: cli.Diagnostic = .{
-                .message = try std.fmt.allocPrintZ(
+                .message = try std.fmt.allocPrintSentinel(
                     arena_alloc,
                     "config-file {s}: cycle detected",
                     .{path},
+                    0,
                 ),
             };
 
@@ -3648,10 +3658,11 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
         var file = std.fs.openFileAbsolute(path, .{}) catch |err| {
             if (err != error.FileNotFound or !optional) {
                 const diag: cli.Diagnostic = .{
-                    .message = try std.fmt.allocPrintZ(
+                    .message = try std.fmt.allocPrintSentinel(
                         arena_alloc,
                         "error opening config-file {s}: {}",
                         .{ path, err },
+                        0,
                     ),
                 };
 
@@ -3667,10 +3678,11 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
             .file => {},
             else => |kind| {
                 const diag: cli.Diagnostic = .{
-                    .message = try std.fmt.allocPrintZ(
+                    .message = try std.fmt.allocPrintSentinel(
                         arena_alloc,
-                        "config-file {s}: not reading because file type is {s}",
-                        .{ path, @tagName(kind) },
+                        "config-file {s}: not reading because file type is {t}",
+                        .{ path, kind },
+                        0,
                     ),
                 };
 
@@ -3681,10 +3693,12 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
         }
 
         log.info("loading config-file path={s}", .{path});
-        var buf_reader = std.io.bufferedReader(file.reader());
-        const reader = buf_reader.reader();
-        const Iter = cli.args.LineIterator(@TypeOf(reader));
-        var iter: Iter = .{ .r = reader, .filepath = path };
+
+        var buf: [2048]u8 = undefined;
+        var file_reader = file.reader(&buf);
+        const reader = &file_reader.interface;
+
+        var iter: cli.args.LineIterator = .{ .r = reader, .filepath = path };
         try self.loadIter(alloc_gpa, &iter);
         try self.expandPaths(std.fs.path.dirname(path).?);
     }
@@ -3810,6 +3824,7 @@ fn loadTheme(self: *Config, theme: Theme) !void {
         name,
         &self._diagnostics,
     )) orelse return;
+
     const path = themefile.path;
     const file = themefile.file;
     defer file.close();
@@ -3833,10 +3848,11 @@ fn loadTheme(self: *Config, theme: Theme) !void {
     errdefer new_config.deinit();
 
     // Load our theme
-    var buf_reader = std.io.bufferedReader(file.reader());
-    const reader = buf_reader.reader();
-    const Iter = cli.args.LineIterator(@TypeOf(reader));
-    var iter: Iter = .{ .r = reader, .filepath = path };
+    var buf: [2048]u8 = undefined;
+    var file_reader = file.reader(&buf);
+    const reader = &file_reader.interface;
+
+    var iter: cli.args.LineIterator = .{ .r = reader, .filepath = path };
     try new_config.loadIter(alloc_gpa, &iter);
 
     // Setup our replay to be conditional.
@@ -4078,7 +4094,7 @@ pub fn finalize(self: *Config) !void {
     if (self.@"quit-after-last-window-closed-delay") |duration| {
         if (duration.duration < 5 * std.time.ns_per_s) {
             log.warn(
-                "quit-after-last-window-closed-delay is set to a very short value ({}), which might cause problems",
+                "quit-after-last-window-closed-delay is set to a very short value ({f}), which might cause problems",
                 .{duration},
             );
         }
@@ -4109,22 +4125,23 @@ pub fn parseManuallyHook(
 
         // Build up the command. We don't clean this up because we take
         // ownership in our allocator.
-        var command: std.ArrayList([:0]const u8) = .init(alloc);
-        errdefer command.deinit();
+        var command: std.ArrayList([:0]const u8) = .empty;
+        errdefer command.deinit(alloc);
 
         while (iter.next()) |param| {
             const copy = try alloc.dupeZ(u8, param);
             try self._replay_steps.append(alloc, .{ .arg = copy });
-            try command.append(copy);
+            try command.append(alloc, copy);
         }
 
         if (command.items.len == 0) {
             try self._diagnostics.append(alloc, .{
                 .location = try cli.Location.fromIter(iter, alloc),
-                .message = try std.fmt.allocPrintZ(
+                .message = try std.fmt.allocPrintSentinel(
                     alloc,
                     "missing command after {s}",
                     .{arg},
+                    0,
                 ),
             });
 
@@ -4259,10 +4276,11 @@ pub fn addDiagnosticFmt(
 ) Allocator.Error!void {
     const alloc = self._arena.?.allocator();
     try self._diagnostics.append(alloc, .{
-        .message = try std.fmt.allocPrintZ(
+        .message = try std.fmt.allocPrintSentinel(
             alloc,
             fmt,
             args,
+            0,
         ),
     });
 }
@@ -4780,7 +4798,7 @@ pub const Color = struct {
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: Color, formatter: anytype) !void {
+    pub fn formatEntry(self: Color, formatter: formatterpkg.EntryFormatter) !void {
         var buf: [128]u8 = undefined;
         try formatter.formatEntry(
             []const u8,
@@ -4847,12 +4865,12 @@ pub const Color = struct {
 
     test "formatConfig" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var color: Color = .{ .r = 10, .g = 11, .b = 12 };
-        try color.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = #0a0b0c\n", buf.items);
+        try color.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = #0a0b0c\n", buf.written());
     }
 
     test "parseCLI with whitespace" {
@@ -4883,7 +4901,7 @@ pub const TerminalColor = union(enum) {
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: TerminalColor, formatter: anytype) !void {
+    pub fn formatEntry(self: TerminalColor, formatter: formatterpkg.EntryFormatter) !void {
         switch (self) {
             .color => try self.color.formatEntry(formatter),
 
@@ -4918,12 +4936,12 @@ pub const TerminalColor = union(enum) {
 
     test "formatConfig" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var sc: TerminalColor = .@"cell-foreground";
-        try sc.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try testing.expectEqualSlices(u8, "a = cell-foreground\n", buf.items);
+        try sc.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try testing.expectEqualSlices(u8, "a = cell-foreground\n", buf.written());
     }
 };
 
@@ -4939,7 +4957,7 @@ pub const BoldColor = union(enum) {
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: BoldColor, formatter: anytype) !void {
+    pub fn formatEntry(self: BoldColor, formatter: formatterpkg.EntryFormatter) !void {
         switch (self) {
             .color => try self.color.formatEntry(formatter),
             .bright => try formatter.formatEntry(
@@ -4970,20 +4988,20 @@ pub const BoldColor = union(enum) {
 
     test "formatConfig" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var sc: BoldColor = .bright;
-        try sc.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try testing.expectEqualSlices(u8, "a = bright\n", buf.items);
+        try sc.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try testing.expectEqualSlices(u8, "a = bright\n", buf.written());
     }
 };
 
 pub const ColorList = struct {
     const Self = @This();
 
-    colors: std.ArrayListUnmanaged(Color) = .{},
-    colors_c: std.ArrayListUnmanaged(Color.C) = .{},
+    colors: std.ArrayList(Color) = .{},
+    colors_c: std.ArrayList(Color.C) = .{},
 
     /// ghostty_config_color_list_s
     pub const C = extern struct {
@@ -5051,7 +5069,7 @@ pub const ColorList = struct {
     /// Used by Formatter
     pub fn formatEntry(
         self: Self,
-        formatter: anytype,
+        formatter: formatterpkg.EntryFormatter,
     ) !void {
         // If no items, we want to render an empty field.
         if (self.colors.items.len == 0) {
@@ -5062,8 +5080,8 @@ pub const ColorList = struct {
         // Build up the value of our config. Our buffer size should be
         // sized to contain all possible maximum values.
         var buf: [1024]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buf);
-        var writer = fbs.writer();
+        var writer: std.Io.Writer = .fixed(&buf);
+
         for (self.colors.items, 0..) |color, i| {
             var color_buf: [128]u8 = undefined;
             const color_str = try color.formatBuf(&color_buf);
@@ -5073,7 +5091,7 @@ pub const ColorList = struct {
 
         try formatter.formatEntry(
             []const u8,
-            fbs.getWritten(),
+            writer.buffered(),
         );
     }
 
@@ -5102,7 +5120,7 @@ pub const ColorList = struct {
 
     test "format" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -5111,8 +5129,8 @@ pub const ColorList = struct {
 
         var p: Self = .{};
         try p.parseCLI(alloc, "black,white");
-        try p.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = #000000,#ffffff\n", buf.items);
+        try p.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = #000000,#ffffff\n", buf.written());
     }
 };
 
@@ -5173,7 +5191,7 @@ pub const Palette = struct {
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: Self, formatter: anytype) !void {
+    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
         var buf: [128]u8 = undefined;
         for (0.., self.value) |k, v| {
             try formatter.formatEntry(
@@ -5228,12 +5246,12 @@ pub const Palette = struct {
 
     test "formatConfig" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var list: Self = .{};
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = 0=#1d1f21\n", buf.items[0..14]);
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = 0=#1d1f21\n", buf.written()[0..14]);
     }
 
     test "parseCLI with whitespace" {
@@ -5266,7 +5284,7 @@ pub const RepeatableString = struct {
     const Self = @This();
 
     // Allocator for the list is the arena for the parent config.
-    list: std.ArrayListUnmanaged([:0]const u8) = .{},
+    list: std.ArrayList([:0]const u8) = .{},
 
     // If true, then the next value will clear the list and start over
     // rather than append. This is a bit of a hack but is here to make
@@ -5295,7 +5313,7 @@ pub const RepeatableString = struct {
     /// Deep copy of the struct. Required by Config.
     pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
         // Copy the list and all the strings in the list.
-        var list = try std.ArrayListUnmanaged([:0]const u8).initCapacity(
+        var list = try std.ArrayList([:0]const u8).initCapacity(
             alloc,
             self.list.items.len,
         );
@@ -5327,7 +5345,7 @@ pub const RepeatableString = struct {
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: Self, formatter: anytype) !void {
+    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
         // If no items, we want to render an empty field.
         if (self.list.items.len == 0) {
             try formatter.formatEntry(void, {});
@@ -5374,17 +5392,17 @@ pub const RepeatableString = struct {
 
     test "formatConfig empty" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var list: Self = .{};
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = \n", buf.items);
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = \n", buf.written());
     }
 
     test "formatConfig single item" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -5393,13 +5411,13 @@ pub const RepeatableString = struct {
 
         var list: Self = .{};
         try list.parseCLI(alloc, "A");
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = A\n", buf.items);
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = A\n", buf.written());
     }
 
     test "formatConfig multiple items" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -5409,8 +5427,8 @@ pub const RepeatableString = struct {
         var list: Self = .{};
         try list.parseCLI(alloc, "A");
         try list.parseCLI(alloc, "B");
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = A\na = B\n", buf.items);
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = A\na = B\n", buf.written());
     }
 };
 
@@ -5430,7 +5448,7 @@ pub const RepeatableFontVariation = struct {
     const Self = @This();
 
     // Allocator for the list is the arena for the parent config.
-    list: std.ArrayListUnmanaged(fontpkg.face.Variation) = .{},
+    list: std.ArrayList(fontpkg.face.Variation) = .{},
 
     pub fn parseCLI(self: *Self, alloc: Allocator, input_: ?[]const u8) !void {
         const input = input_ orelse return error.ValueRequired;
@@ -5465,7 +5483,7 @@ pub const RepeatableFontVariation = struct {
     /// Used by Formatter
     pub fn formatEntry(
         self: Self,
-        formatter: anytype,
+        formatter: formatterpkg.EntryFormatter,
     ) !void {
         if (self.list.items.len == 0) {
             try formatter.formatEntry(void, {});
@@ -5526,7 +5544,7 @@ pub const RepeatableFontVariation = struct {
 
     test "formatConfig single" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -5535,8 +5553,8 @@ pub const RepeatableFontVariation = struct {
 
         var list: Self = .{};
         try list.parseCLI(alloc, "wght = 200");
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = wght=200\n", buf.items);
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = wght=200\n", buf.written());
     }
 };
 
@@ -6326,7 +6344,7 @@ pub const Keybinds = struct {
     }
 
     /// Like formatEntry but has an option to include docs.
-    pub fn formatEntryDocs(self: Keybinds, formatter: anytype, docs: bool) !void {
+    pub fn formatEntryDocs(self: Keybinds, formatter: formatterpkg.EntryFormatter, docs: bool) !void {
         if (self.set.bindings.size == 0) {
             try formatter.formatEntry(void, {});
             return;
@@ -6355,14 +6373,14 @@ pub const Keybinds = struct {
                 }
             }
 
-            var buffer_stream = std.io.fixedBufferStream(&buf);
-            std.fmt.format(buffer_stream.writer(), "{}", .{k}) catch return error.OutOfMemory;
-            try v.formatEntries(&buffer_stream, formatter);
+            var writer: std.Io.Writer = .fixed(&buf);
+            writer.print("{f}", .{k}) catch return error.OutOfMemory;
+            try v.formatEntries(&writer, formatter);
         }
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: Keybinds, formatter: anytype) !void {
+    pub fn formatEntry(self: Keybinds, formatter: formatterpkg.EntryFormatter) !void {
         try self.formatEntryDocs(formatter, false);
     }
 
@@ -6379,7 +6397,7 @@ pub const Keybinds = struct {
 
     test "formatConfig single" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -6388,14 +6406,14 @@ pub const Keybinds = struct {
 
         var list: Keybinds = .{};
         try list.parseCLI(alloc, "shift+a=csi:hello");
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = shift+a=csi:hello\n", buf.items);
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = shift+a=csi:hello\n", buf.written());
     }
 
     // Regression test for https://github.com/ghostty-org/ghostty/issues/2734
     test "formatConfig multiple items" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -6405,7 +6423,7 @@ pub const Keybinds = struct {
         var list: Keybinds = .{};
         try list.parseCLI(alloc, "ctrl+z>1=goto_tab:1");
         try list.parseCLI(alloc, "ctrl+z>2=goto_tab:2");
-        try list.formatEntry(formatterpkg.entryFormatter("keybind", buf.writer()));
+        try list.formatEntry(formatterpkg.entryFormatter("keybind", &buf.writer));
 
         // Note they turn into translated keys because they match
         // their ASCII mapping.
@@ -6414,12 +6432,12 @@ pub const Keybinds = struct {
             \\keybind = ctrl+z>1=goto_tab:1
             \\
         ;
-        try std.testing.expectEqualStrings(want, buf.items);
+        try std.testing.expectEqualStrings(want, buf.written());
     }
 
     test "formatConfig multiple items nested" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -6431,7 +6449,7 @@ pub const Keybinds = struct {
         try list.parseCLI(alloc, "ctrl+a>ctrl+b>w=close_window");
         try list.parseCLI(alloc, "ctrl+a>ctrl+c>t=new_tab");
         try list.parseCLI(alloc, "ctrl+b>ctrl+d>a=previous_tab");
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
 
         // NB: This does not currently retain the order of the keybinds.
         const want =
@@ -6441,7 +6459,7 @@ pub const Keybinds = struct {
             \\a = ctrl+b>ctrl+d>a=previous_tab
             \\
         ;
-        try std.testing.expectEqualStrings(want, buf.items);
+        try std.testing.expectEqualStrings(want, buf.written());
     }
 };
 
@@ -6491,7 +6509,7 @@ pub const RepeatableCodepointMap = struct {
     /// Used by Formatter
     pub fn formatEntry(
         self: Self,
-        formatter: anytype,
+        formatter: formatterpkg.EntryFormatter,
     ) !void {
         if (self.map.list.len == 0) {
             try formatter.formatEntry(void, {});
@@ -6667,7 +6685,7 @@ pub const RepeatableCodepointMap = struct {
 
     test "formatConfig single" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -6676,13 +6694,13 @@ pub const RepeatableCodepointMap = struct {
 
         var list: Self = .{};
         try list.parseCLI(alloc, "U+ABCD=Comic Sans");
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = U+ABCD=Comic Sans\n", buf.items);
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = U+ABCD=Comic Sans\n", buf.written());
     }
 
     test "formatConfig range" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -6691,13 +6709,13 @@ pub const RepeatableCodepointMap = struct {
 
         var list: Self = .{};
         try list.parseCLI(alloc, "U+0001 - U+0005=Verdana");
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = U+0001-U+0005=Verdana\n", buf.items);
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = U+0001-U+0005=Verdana\n", buf.written());
     }
 
     test "formatConfig multiple" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -6706,12 +6724,12 @@ pub const RepeatableCodepointMap = struct {
 
         var list: Self = .{};
         try list.parseCLI(alloc, "U+0006-U+0009, U+ABCD=Courier");
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
         try std.testing.expectEqualSlices(u8,
             \\a = U+0006-U+0009=Courier
             \\a = U+ABCD=Courier
             \\
-        , buf.items);
+        , buf.written());
     }
 };
 
@@ -6763,7 +6781,7 @@ pub const FontStyle = union(enum) {
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: Self, formatter: anytype) !void {
+    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
         switch (self) {
             .default, .false => try formatter.formatEntry(
                 []const u8,
@@ -6795,7 +6813,7 @@ pub const FontStyle = union(enum) {
 
     test "formatConfig default" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -6804,13 +6822,13 @@ pub const FontStyle = union(enum) {
 
         var p: Self = .{ .default = {} };
         try p.parseCLI(alloc, "default");
-        try p.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = default\n", buf.items);
+        try p.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = default\n", buf.written());
     }
 
     test "formatConfig false" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -6819,13 +6837,13 @@ pub const FontStyle = union(enum) {
 
         var p: Self = .{ .default = {} };
         try p.parseCLI(alloc, "false");
-        try p.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = false\n", buf.items);
+        try p.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = false\n", buf.written());
     }
 
     test "formatConfig named" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -6834,8 +6852,8 @@ pub const FontStyle = union(enum) {
 
         var p: Self = .{ .default = {} };
         try p.parseCLI(alloc, "bold");
-        try p.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = bold\n", buf.items);
+        try p.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = bold\n", buf.written());
     }
 };
 
@@ -6855,7 +6873,7 @@ pub const FontShapingBreak = packed struct {
 pub const RepeatableLink = struct {
     const Self = @This();
 
-    links: std.ArrayListUnmanaged(inputpkg.Link) = .{},
+    links: std.ArrayList(inputpkg.Link) = .{},
 
     pub fn parseCLI(self: *Self, alloc: Allocator, input_: ?[]const u8) !void {
         _ = self;
@@ -6872,7 +6890,7 @@ pub const RepeatableLink = struct {
         // Note: we don't do any errdefers below since the allocation
         // is expected to be arena allocated.
 
-        var list = try std.ArrayListUnmanaged(inputpkg.Link).initCapacity(
+        var list = try std.ArrayList(inputpkg.Link).initCapacity(
             alloc,
             self.links.items.len,
         );
@@ -6895,7 +6913,7 @@ pub const RepeatableLink = struct {
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: Self, formatter: anytype) !void {
+    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
         // This currently can't be set so we don't format anything.
         _ = self;
         _ = formatter;
@@ -6955,7 +6973,7 @@ pub const ShellIntegrationFeatures = packed struct {
 };
 
 pub const RepeatableCommand = struct {
-    value: std.ArrayListUnmanaged(inputpkg.Command) = .empty,
+    value: std.ArrayList(inputpkg.Command) = .empty,
 
     pub fn init(self: *RepeatableCommand, alloc: Allocator) !void {
         self.value = .empty;
@@ -7003,7 +7021,7 @@ pub const RepeatableCommand = struct {
     }
 
     /// Used by Formatter
-    pub fn formatEntry(self: RepeatableCommand, formatter: anytype) !void {
+    pub fn formatEntry(self: RepeatableCommand, formatter: formatterpkg.EntryFormatter) !void {
         if (self.value.items.len == 0) {
             try formatter.formatEntry(void, {});
             return;
@@ -7013,11 +7031,11 @@ pub const RepeatableCommand = struct {
         for (self.value.items) |item| {
             const str = if (item.description.len > 0) std.fmt.bufPrint(
                 &buf,
-                "title:{s},description:{s},action:{}",
+                "title:{s},description:{s},action:{f}",
                 .{ item.title, item.description, item.action },
             ) else std.fmt.bufPrint(
                 &buf,
-                "title:{s},action:{}",
+                "title:{s},action:{f}",
                 .{ item.title, item.action },
             );
             try formatter.formatEntry([]const u8, str catch return error.OutOfMemory);
@@ -7066,17 +7084,17 @@ pub const RepeatableCommand = struct {
 
     test "RepeatableCommand formatConfig empty" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var list: RepeatableCommand = .{};
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = \n", buf.items);
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = \n", buf.written());
     }
 
     test "RepeatableCommand formatConfig single item" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -7085,13 +7103,13 @@ pub const RepeatableCommand = struct {
 
         var list: RepeatableCommand = .{};
         try list.parseCLI(alloc, "title:Bobr, action:text:Bober");
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = title:Bobr,action:text:Bober\n", buf.items);
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = title:Bobr,action:text:Bober\n", buf.written());
     }
 
     test "RepeatableCommand formatConfig multiple items" {
         const testing = std.testing;
-        var buf = std.ArrayList(u8).init(testing.allocator);
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
         defer buf.deinit();
 
         var arena = ArenaAllocator.init(testing.allocator);
@@ -7101,8 +7119,8 @@ pub const RepeatableCommand = struct {
         var list: RepeatableCommand = .{};
         try list.parseCLI(alloc, "title:Bobr, action:text:kurwa");
         try list.parseCLI(alloc, "title:Ja,   description: pierdole,  action:text:jakie bydle");
-        try list.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-        try std.testing.expectEqualSlices(u8, "a = title:Bobr,action:text:kurwa\na = title:Ja,description:pierdole,action:text:jakie bydle\n", buf.items);
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = title:Bobr,action:text:kurwa\na = title:Ja,description:pierdole,action:text:jakie bydle\n", buf.written());
     }
 };
 
@@ -7361,7 +7379,7 @@ pub const QuickTerminalSize = struct {
             return error.MissingUnit;
         }
 
-        fn format(self: Size, writer: anytype) !void {
+        fn format(self: Size, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             switch (self) {
                 .percentage => |v| try writer.print("{d}%", .{v}),
                 .pixels => |v| try writer.print("{}px", .{v}),
@@ -7479,20 +7497,19 @@ pub const QuickTerminalSize = struct {
         };
     }
 
-    pub fn formatEntry(self: QuickTerminalSize, formatter: anytype) !void {
+    pub fn formatEntry(self: QuickTerminalSize, formatter: formatterpkg.EntryFormatter) !void {
         const primary = self.primary orelse return;
 
         var buf: [4096]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buf);
-        const writer = fbs.writer();
+        var writer: std.Io.Writer = .fixed(&buf);
 
-        primary.format(writer) catch return error.OutOfMemory;
+        primary.format(&writer) catch return error.OutOfMemory;
         if (self.secondary) |secondary| {
             writer.writeByte(',') catch return error.OutOfMemory;
-            secondary.format(writer) catch return error.OutOfMemory;
+            secondary.format(&writer) catch return error.OutOfMemory;
         }
 
-        try formatter.formatEntry([]const u8, fbs.getWritten());
+        try formatter.formatEntry([]const u8, writer.buffered());
     }
 
     test "parse QuickTerminalSize" {
@@ -7744,7 +7761,7 @@ pub const BackgroundBlur = union(enum) {
 
     pub fn formatEntry(
         self: BackgroundBlur,
-        formatter: anytype,
+        formatter: formatterpkg.EntryFormatter,
     ) !void {
         switch (self) {
             .false => try formatter.formatEntry(bool, false),
@@ -7887,7 +7904,7 @@ pub const Theme = struct {
     /// Used by Formatter
     pub fn formatEntry(
         self: Theme,
-        formatter: anytype,
+        formatter: formatterpkg.EntryFormatter,
     ) !void {
         var buf: [4096]u8 = undefined;
         if (std.mem.eql(u8, self.light, self.dark)) {
@@ -8047,15 +8064,14 @@ pub const Duration = struct {
         return if (value) |v| .{ .duration = v } else error.ValueRequired;
     }
 
-    pub fn formatEntry(self: Duration, formatter: anytype) !void {
+    pub fn formatEntry(self: Duration, formatter: formatterpkg.EntryFormatter) !void {
         var buf: [64]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buf);
-        const writer = fbs.writer();
-        try self.format("", .{}, writer);
-        try formatter.formatEntry([]const u8, fbs.getWritten());
+        var writer: std.Io.Writer = .fixed(&buf);
+        try self.format(&writer);
+        try formatter.formatEntry([]const u8, writer.buffered());
     }
 
-    pub fn format(self: Duration, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(self: Duration, writer: *std.Io.Writer) !void {
         var value = self.duration;
         var i: usize = 0;
         for (units) |unit| {
@@ -8122,7 +8138,7 @@ pub const WindowPadding = struct {
         }
     }
 
-    pub fn formatEntry(self: Self, formatter: anytype) !void {
+    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
         var buf: [128]u8 = undefined;
         if (self.top_left == self.bottom_right) {
             try formatter.formatEntry(
@@ -8271,7 +8287,7 @@ test "test format" {
     inline for (Duration.units) |unit| {
         const d: Duration = .{ .duration = unit.factor };
         var actual_buf: [16]u8 = undefined;
-        const actual = try std.fmt.bufPrint(&actual_buf, "{}", .{d});
+        const actual = try std.fmt.bufPrint(&actual_buf, "{f}", .{d});
         var expected_buf: [16]u8 = undefined;
         const expected = if (!std.mem.eql(u8, unit.name, "us"))
             try std.fmt.bufPrint(&expected_buf, "1{s}", .{unit.name})
@@ -8282,12 +8298,12 @@ test "test format" {
 }
 
 test "test entryFormatter" {
-    var buf = std.ArrayList(u8).init(std.testing.allocator);
+    var buf: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer buf.deinit();
 
     var p: Duration = .{ .duration = std.math.maxInt(u64) };
-    try p.formatEntry(formatterpkg.entryFormatter("a", buf.writer()));
-    try std.testing.expectEqualStrings("a = 584y 49w 23h 34m 33s 709ms 551µs 615ns\n", buf.items);
+    try p.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+    try std.testing.expectEqualStrings("a = 584y 49w 23h 34m 33s 709ms 551µs 615ns\n", buf.written());
 }
 
 const TestIterator = struct {
@@ -8382,6 +8398,9 @@ test "clone preserves conditional state" {
 }
 
 test "clone can then change conditional state" {
+    // Global state needs to be initialized for themes to function.
+    try global_state.init();
+
     // This tests a particular bug sequence where:
     //   1. Load light
     //   2. Convert to dark
@@ -8397,15 +8416,24 @@ test "clone can then change conditional state" {
     // Setup our test theme
     var td = try internal_os.TempDir.init();
     defer td.deinit();
+    var writer_buf: [4096]u8 = undefined;
     {
         var file = try td.dir.createFile("theme_light", .{});
         defer file.close();
-        try file.writer().writeAll(@embedFile("testdata/theme_light"));
+        var file_writer = file.writer(&writer_buf);
+        try file_writer.interface.writeAll(@embedFile("testdata/theme_light"));
+
+        // Don't forget to flush!
+        try file_writer.interface.flush();
     }
     {
         var file = try td.dir.createFile("theme_dark", .{});
         defer file.close();
-        try file.writer().writeAll(@embedFile("testdata/theme_dark"));
+        var file_writer = file.writer(&writer_buf);
+        try file_writer.interface.writeAll(@embedFile("testdata/theme_dark"));
+
+        // Don't forget to flush!
+        try file_writer.interface.flush();
     }
     var light_buf: [std.fs.max_path_bytes]u8 = undefined;
     const light = try td.dir.realpath("theme_light", &light_buf);
@@ -8451,6 +8479,9 @@ test "clone can then change conditional state" {
 }
 
 test "clone preserves conditional set" {
+    // Global state needs to be initialized for themes to function.
+    try global_state.init();
+
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -8484,6 +8515,9 @@ test "changed" {
 }
 
 test "changeConditionalState ignores irrelevant changes" {
+    // Global state needs to be initialized for themes to function.
+    try global_state.init();
+
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -8503,6 +8537,9 @@ test "changeConditionalState ignores irrelevant changes" {
 }
 
 test "changeConditionalState applies relevant changes" {
+    // Global state needs to be initialized for themes to function.
+    try global_state.init();
+
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -8522,6 +8559,9 @@ test "changeConditionalState applies relevant changes" {
     }
 }
 test "theme loading" {
+    // Global state needs to be initialized for themes to function.
+    try global_state.init();
+
     const testing = std.testing;
     const alloc = testing.allocator;
     var arena = ArenaAllocator.init(alloc);
@@ -8531,10 +8571,15 @@ test "theme loading" {
     // Setup our test theme
     var td = try internal_os.TempDir.init();
     defer td.deinit();
+    var writer_buf: [4096]u8 = undefined;
     {
         var file = try td.dir.createFile("theme", .{});
         defer file.close();
-        try file.writer().writeAll(@embedFile("testdata/theme_simple"));
+        var file_writer = file.writer(&writer_buf);
+        try file_writer.interface.writeAll(@embedFile("testdata/theme_simple"));
+
+        // Don't forget to flush!
+        try file_writer.interface.flush();
     }
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const path = try td.dir.realpath("theme", &path_buf);
@@ -8558,6 +8603,9 @@ test "theme loading" {
 }
 
 test "theme loading preserves conditional state" {
+    // Global state needs to be initialized for themes to function.
+    try global_state.init();
+
     const testing = std.testing;
     const alloc = testing.allocator;
     var arena = ArenaAllocator.init(alloc);
@@ -8567,10 +8615,15 @@ test "theme loading preserves conditional state" {
     // Setup our test theme
     var td = try internal_os.TempDir.init();
     defer td.deinit();
+    var writer_buf: [4096]u8 = undefined;
     {
         var file = try td.dir.createFile("theme", .{});
         defer file.close();
-        try file.writer().writeAll(@embedFile("testdata/theme_simple"));
+        var file_writer = file.writer(&writer_buf);
+        try file_writer.interface.writeAll(@embedFile("testdata/theme_simple"));
+
+        // Don't forget to flush!
+        try file_writer.interface.flush();
     }
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const path = try td.dir.realpath("theme", &path_buf);
@@ -8588,6 +8641,9 @@ test "theme loading preserves conditional state" {
 }
 
 test "theme priority is lower than config" {
+    // Global state needs to be initialized for themes to function.
+    try global_state.init();
+
     const testing = std.testing;
     const alloc = testing.allocator;
     var arena = ArenaAllocator.init(alloc);
@@ -8597,10 +8653,15 @@ test "theme priority is lower than config" {
     // Setup our test theme
     var td = try internal_os.TempDir.init();
     defer td.deinit();
+    var writer_buf: [4096]u8 = undefined;
     {
         var file = try td.dir.createFile("theme", .{});
         defer file.close();
-        try file.writer().writeAll(@embedFile("testdata/theme_simple"));
+        var file_writer = file.writer(&writer_buf);
+        try file_writer.interface.writeAll(@embedFile("testdata/theme_simple"));
+
+        // Don't forget to flush!
+        try file_writer.interface.flush();
     }
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const path = try td.dir.realpath("theme", &path_buf);
@@ -8622,6 +8683,9 @@ test "theme priority is lower than config" {
 }
 
 test "theme loading correct light/dark" {
+    // Global state needs to be initialized for themes to function.
+    try global_state.init();
+
     const testing = std.testing;
     const alloc = testing.allocator;
     var arena = ArenaAllocator.init(alloc);
@@ -8630,16 +8694,25 @@ test "theme loading correct light/dark" {
 
     // Setup our test theme
     var td = try internal_os.TempDir.init();
+    var writer_buf: [4096]u8 = undefined;
     defer td.deinit();
     {
         var file = try td.dir.createFile("theme_light", .{});
         defer file.close();
-        try file.writer().writeAll(@embedFile("testdata/theme_light"));
+        var file_writer = file.writer(&writer_buf);
+        try file_writer.interface.writeAll(@embedFile("testdata/theme_light"));
+
+        // Don't forget to flush!
+        try file_writer.interface.flush();
     }
     {
         var file = try td.dir.createFile("theme_dark", .{});
         defer file.close();
-        try file.writer().writeAll(@embedFile("testdata/theme_dark"));
+        var file_writer = file.writer(&writer_buf);
+        try file_writer.interface.writeAll(@embedFile("testdata/theme_dark"));
+
+        // Don't forget to flush!
+        try file_writer.interface.flush();
     }
     var light_buf: [std.fs.max_path_bytes]u8 = undefined;
     const light = try td.dir.realpath("theme_light", &light_buf);
@@ -8714,6 +8787,9 @@ test "theme loading correct light/dark" {
 }
 
 test "theme specifying light/dark changes window-theme from auto" {
+    // Global state needs to be initialized for themes to function.
+    try global_state.init();
+
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -8732,6 +8808,9 @@ test "theme specifying light/dark changes window-theme from auto" {
 }
 
 test "theme specifying light/dark sets theme usage in conditional state" {
+    // Global state needs to be initialized for themes to function.
+    try global_state.init();
+
     const testing = std.testing;
     const alloc = testing.allocator;
 

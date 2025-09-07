@@ -64,7 +64,7 @@ pub fn generator(self: *Osc) Generator {
 /// The buffer must be at least 3 bytes long to accommodate the
 /// prefix and terminator.
 pub fn next(self: *Osc, buf: []u8) Generator.Error![]const u8 {
-    if (buf.len < 3) return error.NoSpaceLeft;
+    if (buf.len < 3) return error.WriteFailed;
     const unwrapped = try self.nextUnwrapped(buf[2 .. buf.len - 1]);
     buf[0] = 0x1B; // ESC
     buf[1] = ']';
@@ -95,42 +95,42 @@ fn nextUnwrapped(self: *Osc, buf: []u8) Generator.Error![]const u8 {
 }
 
 fn nextUnwrappedValidExact(self: *const Osc, buf: []u8, k: ValidKind) Generator.Error![]const u8 {
-    var fbs = std.io.fixedBufferStream(buf);
+    var writer: std.Io.Writer = .fixed(buf);
     switch (k) {
         .change_window_title => {
-            try fbs.writer().writeAll("0;"); // Set window title
+            try writer.writeAll("0;"); // Set window title
             var bytes_gen = self.bytes();
-            const title = try bytes_gen.next(fbs.buffer[fbs.pos..]);
-            try fbs.seekBy(@intCast(title.len));
+            const title = try bytes_gen.next(writer.unusedCapacitySlice());
+            writer.end += title.len;
         },
 
         .prompt_start => {
-            try fbs.writer().writeAll("133;A"); // Start prompt
+            try writer.writeAll("133;A"); // Start prompt
 
             // aid
             if (self.rand.boolean()) {
                 var bytes_gen = self.bytes();
                 bytes_gen.max_len = 16;
-                try fbs.writer().writeAll(";aid=");
-                const aid = try bytes_gen.next(fbs.buffer[fbs.pos..]);
-                try fbs.seekBy(@intCast(aid.len));
+                try writer.writeAll(";aid=");
+                const aid = try bytes_gen.next(writer.unusedCapacitySlice());
+                writer.end += aid.len;
             }
 
             // redraw
             if (self.rand.boolean()) {
-                try fbs.writer().writeAll(";redraw=");
+                try writer.writeAll(";redraw=");
                 if (self.rand.boolean()) {
-                    try fbs.writer().writeAll("1");
+                    try writer.writeAll("1");
                 } else {
-                    try fbs.writer().writeAll("0");
+                    try writer.writeAll("0");
                 }
             }
         },
 
-        .prompt_end => try fbs.writer().writeAll("133;B"), // End prompt
+        .prompt_end => try writer.writeAll("133;B"), // End prompt
     }
 
-    return fbs.getWritten();
+    return writer.buffered();
 }
 
 fn nextUnwrappedInvalidExact(
@@ -145,12 +145,12 @@ fn nextUnwrappedInvalidExact(
         },
 
         .good_prefix => {
-            var fbs = std.io.fixedBufferStream(buf);
-            try fbs.writer().writeAll("133;");
+            var writer: std.Io.Writer = .fixed(buf);
+            try writer.writeAll("133;");
             var bytes_gen = self.bytes();
-            const data = try bytes_gen.next(fbs.buffer[fbs.pos..]);
-            try fbs.seekBy(@intCast(data.len));
-            return fbs.getWritten();
+            const data = try bytes_gen.next(writer.unusedCapacitySlice());
+            writer.end += data.len;
+            return writer.buffered();
         },
     }
 }
