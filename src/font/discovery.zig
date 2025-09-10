@@ -8,6 +8,8 @@ const opentype = @import("opentype.zig");
 const options = @import("main.zig").options;
 const Collection = @import("main.zig").Collection;
 const DeferredFace = @import("main.zig").DeferredFace;
+const Face = @import("main.zig").Face;
+const Library = @import("main.zig").Library;
 const Variation = @import("main.zig").face.Variation;
 
 const log = std.log.scoped(.discovery);
@@ -1052,4 +1054,78 @@ test "coretext sorting" {
         const name = try res.name(&buf);
         try testing.expectEqualStrings("SF Pro Bold Italic", name);
     }
+}
+
+test "coretext discoverFallback system font latin codepoint" {
+    if (options.backend != .coretext and options.backend != .coretext_freetype)
+        return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var ct = CoreText.init();
+    defer ct.deinit();
+
+    var collection = Collection.init();
+    collection.load_options = .{
+        .library = try Library.init(alloc),
+    };
+    defer collection.deinit(alloc);
+
+    var disco_it = try ct.discover(alloc, .{ .family = ".AppleSystemUIFontMonospaced", .size = 12 });
+    defer disco_it.deinit();
+
+    const deferred_face = (try disco_it.next()).?;
+    _ = try collection.addDeferred(alloc, deferred_face, .{
+        .style = .regular,
+        .fallback = false,
+        .size_adjustment = .none,
+    });
+
+    // Test Latin codepoint (A)
+    var it = try ct.discoverFallback(alloc, &collection, .{
+        .codepoint = 'A',
+        .size = 12,
+    });
+    defer it.deinit();
+
+    const face = (try it.next()).?;
+    try testing.expect(face.hasCodepoint('A', null));
+}
+
+test "coretext discoverFallback system font CJK codepoint" {
+    if (options.backend != .coretext and options.backend != .coretext_freetype)
+        return error.SkipZigTest;
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var ct = CoreText.init();
+    defer ct.deinit();
+
+    var collection = Collection.init();
+    collection.load_options = .{
+        .library = try Library.init(alloc),
+    };
+    defer collection.deinit(alloc);
+
+    var disco_it = try ct.discover(alloc, .{ .family = ".AppleSystemUIFontMonospaced", .size = 12 });
+    defer disco_it.deinit();
+
+    const deferred_face = (try disco_it.next()).?;
+    _ = try collection.addDeferred(alloc, deferred_face, .{
+        .style = .regular,
+        .fallback = false,
+        .size_adjustment = .none,
+    });
+
+    // Test CJK codepoint (中)
+    var it = try ct.discoverFallback(alloc, &collection, .{
+        .codepoint = 0x4E2D,
+        .size = 12,
+    });
+    defer it.deinit();
+
+    const face = (try it.next()).?;
+    try testing.expect(face.hasCodepoint(0x4E2D, null));
 }
