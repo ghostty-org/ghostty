@@ -790,6 +790,22 @@ class BaseTerminalController: NSWindowController,
 
     func fullscreenDidChange() {}
 
+    // MARK: Window Decorations
+
+    /// Toggle window decorations for this window
+    func toggleWindowDecorations() {
+        guard let window = self.window as? TerminalWindow else { return }
+        
+        // Toggle the style mask to enable/disable decorations
+        if window.styleMask.contains(.titled) {
+            // Remove decorations (make window borderless)
+            window.styleMask.remove(.titled)
+        } else {
+            // Add decorations back
+            window.styleMask.insert(.titled)
+        }
+    }
+
     // MARK: Clipboard Confirmation
 
     @objc private func onConfirmClipboardRequest(notification: SwiftUI.Notification) {
