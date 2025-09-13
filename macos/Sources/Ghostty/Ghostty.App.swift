@@ -627,7 +627,7 @@ extension Ghostty {
             case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW:
                 fallthrough
             case GHOSTTY_ACTION_TOGGLE_WINDOW_DECORATIONS:
-                fallthrough
+                toggleWindowDecorations(app, target: target)
             case GHOSTTY_ACTION_PRESENT_TERMINAL:
                 fallthrough
             case GHOSTTY_ACTION_SIZE_LIMIT:
@@ -1415,6 +1415,26 @@ extension Ghostty {
         ) {
             guard let appDelegate = NSApplication.shared.delegate as? AppDelegate else { return }
             appDelegate.toggleQuickTerminal(self)
+        }
+
+        private static func toggleWindowDecorations(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s
+        ) {
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("toggle window decorations does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                guard let terminalController = surfaceView.window?.windowController as? BaseTerminalController else { return }
+                terminalController.toggleWindowDecorations()
+
+            default:
+                assertionFailure()
+            }
         }
 
         private static func setTitle(
