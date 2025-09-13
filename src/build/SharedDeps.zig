@@ -551,7 +551,7 @@ pub fn add(
 
         switch (self.config.app_runtime) {
             .none => {},
-            .gtk => try self.addGtkNg(step),
+            .gtk => try self.addGtk(step),
         }
     }
 
@@ -563,7 +563,7 @@ pub fn add(
 }
 
 /// Setup the dependencies for the GTK apprt build.
-fn addGtkNg(
+fn addGtk(
     self: *const SharedDeps,
     step: *std.Build.Step.Compile,
 ) !void {
@@ -688,20 +688,18 @@ fn addGtkNg(
     }
 
     {
-        // Get our gresource c/h files and add them to our build.
-        const dist = gtkNgDistResources(b);
-        step.addCSourceFile(.{ .file = dist.resources_c.path(b), .flags = &.{} });
-        step.addIncludePath(dist.resources_h.path(b).dirname());
+        // Get our gresource file and add them to our build.
+        const dist = gtkDistResources(b);
+        step.root_module.addAnonymousImport("gresource", .{
+            .root_source_file = dist.generated,
+        });
     }
 }
 
 /// Creates the resources that can be prebuilt for our dist build.
-pub fn gtkNgDistResources(
+pub fn gtkDistResources(
     b: *std.Build,
-) struct {
-    resources_c: DistResource,
-    resources_h: DistResource,
-} {
+) DistResource {
     const gresource = @import("../apprt/gtk/build/gresource.zig");
     const gresource_xml = gresource_xml: {
         const xml_exe = b.addExecutable(.{
@@ -751,41 +749,20 @@ pub fn gtkNgDistResources(
         break :gresource_xml xml_run.captureStdOut();
     };
 
-    const generate_c = b.addSystemCommand(&.{
+    const generate = b.addSystemCommand(&.{
         "glib-compile-resources",
-        "--c-name",
-        "ghostty",
-        "--generate-source",
+        "--generate",
         "--target",
     });
-    const resources_c = generate_c.addOutputFileArg("ghostty_resources.c");
-    generate_c.addFileArg(gresource_xml);
+    const resources = generate.addOutputFileArg("ghostty.gresource");
+    generate.addFileArg(gresource_xml);
     for (gresource.file_inputs) |path| {
-        generate_c.addFileInput(b.path(path));
-    }
-
-    const generate_h = b.addSystemCommand(&.{
-        "glib-compile-resources",
-        "--c-name",
-        "ghostty",
-        "--generate-header",
-        "--target",
-    });
-    const resources_h = generate_h.addOutputFileArg("ghostty_resources.h");
-    generate_h.addFileArg(gresource_xml);
-    for (gresource.file_inputs) |path| {
-        generate_h.addFileInput(b.path(path));
+        generate.addFileInput(b.path(path));
     }
 
     return .{
-        .resources_c = .{
-            .dist = "src/apprt/gtk/ghostty_resources.c",
-            .generated = resources_c,
-        },
-        .resources_h = .{
-            .dist = "src/apprt/gtk/ghostty_resources.h",
-            .generated = resources_h,
-        },
+        .dist = "src/apprt/gtk/ghostty.gresource",
+        .generated = resources,
     };
 }
 
