@@ -698,7 +698,7 @@ pub const Action = union(enum) {
     /// All actions are only undoable/redoable for a limited time.
     /// For example, restoring a closed split can only be done for
     /// some number of seconds since the split was closed. The exact
-    /// amount is configured with `TODO`.
+    /// amount is configured with the `undo-timeout` configuration settings.
     ///
     /// The undo/redo actions being limited ensures that there is
     /// bounded memory usage over time, closed surfaces don't continue running
