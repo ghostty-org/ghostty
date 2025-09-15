@@ -123,7 +123,8 @@ struct NewTerminalIntent: AppIntent {
 
             if let view = controller.newSplit(
                 at: parent,
-                direction: location.splitDirection!
+                direction: location.splitDirection!,
+                baseConfig: config
             ) {
                 return .result(value: TerminalEntity(view))
             }
