@@ -48,8 +48,8 @@ msgid ""
 "One or more configuration errors were found. Please review the errors below, "
 "and either reload your configuration or ignore these errors."
 msgstr ""
-"Pronađene su jedna ili više grešaka u postavkama. Pregledaj greške navedene niže,"
-"te ponovno učitaj vaše postavke ili zanemari ove greške."
+"Pronađene su jedna ili više grešaka u postavkama. Pregledaj niže navedene greške,"
+"te ponovno učitaj postavke ili zanemari ove greške."
 
 #: src/apprt/gtk/ui/1.5/config-errors-dialog.blp:9
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:9
@@ -110,7 +110,7 @@ msgstr "Očisti"
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:23
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:78
 msgid "Reset"
-msgstr "Osvježi"
+msgstr "Resetiraj"
 
 #: src/apprt/gtk/ui/1.0/menu-surface-context_menu.blp:30
 #: src/apprt/gtk/ui/1.0/menu-window-titlebar_menu.blp:42
