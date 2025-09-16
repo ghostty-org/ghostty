@@ -4012,7 +4012,7 @@ pub fn cursorPosCallback(
 
     // Stop selection scrolling when inside the viewport within a 1px buffer
     // for fullscreen windows, but only when selection scrolling is active.
-    if (pos.x >= 1 and pos.y >= 1 and self.selection_scroll_active) {
+    if (pos.y >= 1 and self.selection_scroll_active) {
         self.io.queueMessage(
             .{ .selection_scroll = false },
             .locked,
