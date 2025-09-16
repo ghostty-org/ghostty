@@ -518,7 +518,7 @@ pub const compatibility = std.StaticStringMap(
 ///
 /// To specify a different theme for light and dark mode, use the following
 /// syntax: `light:theme-name,dark:theme-name`. For example:
-/// `light:rose-pine-dawn,dark:rose-pine`. Whitespace around all values are
+/// `light:Rose Pine Dawn,dark:Rose Pine`. Whitespace around all values are
 /// trimmed and order of light and dark does not matter. Both light and dark
 /// must be specified in this form. In this form, the theme used will be
 /// based on the current desktop environment theme.
