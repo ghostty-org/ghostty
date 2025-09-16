@@ -4,14 +4,15 @@
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
 # Gustavo Peres <gsodevel@gmail.com>, 2025.
 # Guilherme Tiscoski <github@guilhermetiscoski.com>, 2025.
+# Nilton Perim Neto <niltonperimneto@gmail.com>, 2025.
 #
 msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2025-07-22 17:18+0000\n"
-"PO-Revision-Date: 2025-08-25 11:46-0500\n"
-"Last-Translator: Guilherme Tiscoski <github@guihermetiscoski.com>\n"
+"PO-Revision-Date: 2025-09-15 13:57-0300\n"
+"Last-Translator: Nilton Perim Neto <niltonperimneto@gmail.com>\n"
 "Language-Team: Brazilian Portuguese <ldpbr-translation@lists.sourceforge."
 "net>\n"
 "Language: pt_BR\n"
@@ -26,7 +27,7 @@ msgstr "Mudar título do Terminal"
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:6
 msgid "Leave blank to restore the default title."
-msgstr "Deixe em branco para restaurar o título original."
+msgstr "Deixe em branco para restaurar o título padrão."
 
 #: src/apprt/gtk/ui/1.5/prompt-title-dialog.blp:9
 #: src/apprt/gtk/ui/1.5/ccw-paste.blp:10 src/apprt/gtk/ui/1.2/ccw-paste.blp:10
@@ -315,8 +316,8 @@ msgstr "Configuração recarregada"
 
 #: src/apprt/gtk/Window.zig:1019
 msgid "Ghostty Developers"
-msgstr "Desenvolvedores Ghostty"
+msgstr "Desenvolvedores do Ghostty"
 
 #: src/apprt/gtk/inspector.zig:144
 msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: Inspetor de terminal"
+msgstr "Ghostty: Inspetor do terminal"
