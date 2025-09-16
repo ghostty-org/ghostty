@@ -2149,6 +2149,8 @@ keybind: Keybinds = .{},
 /// from the first by a comma (`,`). Percentage and pixel sizes can be mixed
 /// together: for instance, a size of `50%,500px` for a top-positioned quick
 /// terminal would be half a screen tall, and 500 pixels wide.
+///
+/// Available since: 1.2.0
 @"quick-terminal-size": QuickTerminalSize = .{},
 
 /// The layer of the quick terminal window. The higher the layer,
