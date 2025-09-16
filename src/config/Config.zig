@@ -127,9 +127,6 @@ pub const compatibility = std.StaticStringMap(
 /// this within config files if you want to clear previously set values in
 /// configuration files or on the CLI if you want to clear values set on the
 /// CLI.
-///
-/// Changing this configuration at runtime will only affect new terminals, i.e.
-/// new windows, tabs, etc.
 @"font-family": RepeatableString = .{},
 @"font-family-bold": RepeatableString = .{},
 @"font-family-italic": RepeatableString = .{},
@@ -214,11 +211,12 @@ pub const compatibility = std.StaticStringMap(
 ///
 /// For example, 13.5pt @ 2px/pt = 27px
 ///
-/// Changing this configuration at runtime will only affect new terminals,
-/// i.e. new windows, tabs, etc. Note that you may still not see the change
-/// depending on your `window-inherit-font-size` setting. If that setting is
-/// true, only the first window will be affected by this change since all
-/// subsequent windows will inherit the font size of the previous window.
+/// Changing this configuration at runtime will only affect existing
+/// terminals that have NOT manually adjusted their font size in some way
+/// (e.g. increased or decreased the font size). Terminals that have manually
+/// adjusted their font size will retain their manually adjusted size.
+/// Otherwise, the font size of existing terminals will be updated on
+/// reload.
 ///
 /// On Linux with GTK, font size is scaled according to both display-wide and
 /// text-specific scaling factors, which are often managed by your desktop

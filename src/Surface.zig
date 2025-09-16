@@ -66,6 +66,12 @@ font_grid_key: font.SharedGridSet.Key,
 font_size: font.face.DesiredSize,
 font_metrics: font.Metrics,
 
+/// This keeps track of if the font size was ever modified. If it wasn't,
+/// then config reloading will change the font. If it was manually adjusted,
+/// we don't change it on config reload since we assume the user wants
+/// a specific size.
+font_size_adjusted: bool,
+
 /// The renderer for this surface.
 renderer: Renderer,
 
@@ -514,6 +520,7 @@ pub fn init(
         .rt_surface = rt_surface,
         .font_grid_key = font_grid_key,
         .font_size = font_size,
+        .font_size_adjusted = false,
         .font_metrics = font_grid.metrics,
         .renderer = renderer_impl,
         .renderer_thread = render_thread,
@@ -1446,7 +1453,21 @@ pub fn updateConfig(
     // but this is easier and pretty rare so it's not a performance concern.
     //
     // (Calling setFontSize builds and sends a new font grid to the renderer.)
-    try self.setFontSize(self.font_size);
+    try self.setFontSize(font_size: {
+        // If we have manually adjusted the font size, keep it that way.
+        if (self.font_size_adjusted) {
+            log.info("font size manually adjusted, preserving previous size on config reload", .{});
+            break :font_size self.font_size;
+        }
+
+        // If we haven't, then we update to the configured font size.
+        // This allows config changes to update the font size. We used to
+        // never do this but it was a common source of confusion and people
+        // assumed that Ghostty was broken! This logic makes more sense.
+        var size = self.font_size;
+        size.points = std.math.clamp(config.@"font-size", 1.0, 255.0);
+        break :font_size size;
+    });
 
     // We need to store our configs in a heap-allocated pointer so that
     // our messages aren't huge.
@@ -4637,10 +4658,13 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
 
             log.debug("increase font size={}", .{clamped_delta});
 
-            var size = self.font_size;
             // Max point size is somewhat arbitrary.
+            var size = self.font_size;
             size.points = @min(size.points + clamped_delta, 255);
             try self.setFontSize(size);
+
+            // Mark that we manually adjusted the font size
+            self.font_size_adjusted = true;
         },
 
         .decrease_font_size => |delta| {
@@ -4652,6 +4676,9 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             var size = self.font_size;
             size.points = @max(1, size.points - clamped_delta);
             try self.setFontSize(size);
+
+            // Mark that we manually adjusted the font size
+            self.font_size_adjusted = true;
         },
 
         .reset_font_size => {
@@ -4660,6 +4687,9 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             var size = self.font_size;
             size.points = self.config.original_font_size;
             try self.setFontSize(size);
+
+            // Reset font size also resets the manual adjustment state
+            self.font_size_adjusted = false;
         },
 
         .set_font_size => |points| {
@@ -4668,6 +4698,9 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             var size = self.font_size;
             size.points = std.math.clamp(points, 1.0, 255.0);
             try self.setFontSize(size);
+
+            // Mark that we manually adjusted the font size
+            self.font_size_adjusted = true;
         },
 
         .prompt_surface_title => return try self.rt_app.performAction(
