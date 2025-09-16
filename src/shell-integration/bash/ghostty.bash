@@ -103,7 +103,7 @@ fi
 
 # SSH Integration
 if [[ "$GHOSTTY_SHELL_FEATURES" == *ssh-* ]]; then
-  ssh() {
+  function ssh() {
     builtin local ssh_term ssh_opts
     ssh_term="xterm-256color"
     ssh_opts=()
