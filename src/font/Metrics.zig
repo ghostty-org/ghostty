@@ -125,6 +125,16 @@ pub const FaceMetrics = struct {
     /// lowercase x glyph.
     ex_height: ?f64 = null,
 
+    /// The measured height of the bounding box containing all printable
+    /// ASCII characters. This can be different from ascent - descent for
+    /// two reasons: non-letter symbols like @ and $ often exceed the
+    /// the ascender and descender lines; and fonts often bake the line
+    /// gap into the ascent and descent metrics (as per, e.g., the Google
+    /// Fonts guidelines: https://simoncozens.github.io/gf-docs/metrics.html).
+    ///
+    /// Positive value in px
+    ascii_height: ?f64 = null,
+
     /// The width of the character "水" (CJK water ideograph, U+6C34),
     /// if present. This is used for font size adjustment, to normalize
     /// the width of CJK fonts mixed with latin fonts.
@@ -152,11 +162,20 @@ pub const FaceMetrics = struct {
         return 0.75 * self.capHeight();
     }
 
+    /// Convenience function for getting the ASCII height. If we
+    /// couldn't measure this, we use 1.5 * cap_height as our
+    /// estimator, based on measurements across programming fonts.
+    pub inline fn asciiHeight(self: FaceMetrics) f64 {
+        if (self.ascii_height) |value| if (value > 0) return value;
+        return 1.5 * self.capHeight();
+    }
+
     /// Convenience function for getting the ideograph width. If this is
-    /// not defined in the font, we estimate it as two cell widths.
+    /// not defined in the font, we estimate it as the minimum of the
+    /// ascii height and two cell widths.
     pub inline fn icWidth(self: FaceMetrics) f64 {
         if (self.ic_width) |value| if (value > 0) return value;
-        return 2 * self.cell_width;
+        return @min(self.asciiHeight(), 2 * self.cell_width);
     }
 
     /// Convenience function for getting the underline thickness. If

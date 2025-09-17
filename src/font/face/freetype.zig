@@ -957,13 +957,19 @@ pub const Face = struct {
         // visible ASCII characters. Usually 'M' is widest but we just take
         // whatever is widest.
         //
+        // ASCII height is calculated as the height of the overall bounding
+        // box of the same characters.
+        //
         // If we fail to load any visible ASCII we just use max_advance from
-        // the metrics provided by FreeType.
-        const cell_width: f64 = cell_width: {
+        // the metrics provided by FreeType, and set ascii_height to null as
+        // it's optional.
+        const cell_width: f64, const ascii_height: ?f64 = measurements: {
             self.ft_mutex.lock();
             defer self.ft_mutex.unlock();
 
             var max: f64 = 0.0;
+            var top: f64 = 0.0;
+            var bottom: f64 = 0.0;
             var c: u8 = ' ';
             while (c < 127) : (c += 1) {
                 if (face.getCharIndex(c)) |glyph_index| {
@@ -971,20 +977,37 @@ pub const Face = struct {
                         .render = false,
                         .no_svg = true,
                     })) {
+                        const glyph = face.handle.*.glyph;
                         max = @max(
-                            f26dot6ToF64(face.handle.*.glyph.*.advance.x),
+                            f26dot6ToF64(glyph.*.advance.x),
                             max,
+                        );
+                        top = @max(
+                            f26dot6ToF64(glyph.*.metrics.horiBearingY),
+                            top,
+                        );
+                        bottom = @min(
+                            f26dot6ToF64(glyph.*.metrics.horiBearingY - glyph.*.metrics.height),
+                            bottom,
                         );
                     } else |_| {}
                 }
             }
 
-            // If we couldn't get any widths, just use FreeType's max_advance.
+            // If we couldn't get valid measurements, just use
+            // FreeType's max_advance and null, respectively.
             if (max == 0.0) {
-                break :cell_width f26dot6ToF64(size_metrics.max_advance);
+                max = f26dot6ToF64(size_metrics.max_advance);
             }
+            const rect_height: ?f64 = rect_height: {
+                const estimate = top - bottom;
+                if (estimate <= 0.0) {
+                    break :rect_height null;
+                }
+                break :rect_height estimate;
+            };
 
-            break :cell_width max;
+            break :measurements .{ max, rect_height };
         };
 
         // We use the cap and ex heights specified by the font if they're
@@ -1086,6 +1109,7 @@ pub const Face = struct {
 
             .cap_height = cap_height,
             .ex_height = ex_height,
+            .ascii_height = ascii_height,
             .ic_width = ic_width,
         };
     }

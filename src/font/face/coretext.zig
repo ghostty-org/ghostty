@@ -772,7 +772,10 @@ pub const Face = struct {
         // Cell width is calculated by calculating the widest width of the
         // visible ASCII characters. Usually 'M' is widest but we just take
         // whatever is widest.
-        const cell_width: f64 = cell_width: {
+        //
+        // ASCII height is calculated as the height of the overall bounding
+        // box of the same characters.
+        const cell_width: f64, const ascii_height: f64 = measurements: {
             // Build a comptime array of all the ASCII chars
             const unichars = comptime unichars: {
                 const len = 127 - 32;
@@ -800,7 +803,10 @@ pub const Face = struct {
                 max = @max(advances[i].width, max);
             }
 
-            break :cell_width max;
+            // Get the overall bounding rect for the glyphs
+            const rect = ct_font.getBoundingRectsForGlyphs(.horizontal, &glyphs, null);
+
+            break :measurements .{ max, rect.size.height };
         };
 
         // Measure "水" (CJK water ideograph, U+6C34) for our ic width.
@@ -861,6 +867,7 @@ pub const Face = struct {
 
             .cap_height = cap_height,
             .ex_height = ex_height,
+            .ascii_height = ascii_height,
             .ic_width = ic_width,
         };
     }
