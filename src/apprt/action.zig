@@ -83,6 +83,11 @@ pub const Action = union(Key) {
     /// the tab should be opened in a new window.
     new_tab,
 
+    /// Duplicate the current tab. If the target is a surface it should be
+    /// duplicated in the same window as the surface. If the target is the app
+    /// then the tab should be duplicated in a new window.
+    duplicate_tab,
+
     /// Closes the tab belonging to the currently focused split, or all other
     /// tabs, depending on the mode.
     close_tab: CloseTabMode,
@@ -300,6 +305,7 @@ pub const Action = union(Key) {
         quit,
         new_window,
         new_tab,
+        duplicate_tab,
         close_tab,
         new_split,
         close_all_windows,

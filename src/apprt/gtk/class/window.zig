@@ -362,10 +362,17 @@ pub const Window = extern struct {
     /// at the position dictated by the `window-new-tab-position` config.
     /// The new tab will be selected.
     pub fn newTab(self: *Self, parent_: ?*CoreSurface) void {
-        _ = self.newTabPage(parent_);
+        _ = self.newTabPage(parent_, false);
     }
 
-    fn newTabPage(self: *Self, parent_: ?*CoreSurface) *adw.TabPage {
+    /// Duplicate the current tab with the given parent. The tab will be inserted
+    /// at the position dictated by the `window-new-tab-position` config.
+    /// The new tab will be selected.
+    pub fn duplicateTab(self: *Self, parent_: ?*CoreSurface) void {
+        _ = self.newTabPage(parent_, true);
+    }
+
+    fn newTabPage(self: *Self, parent_: ?*CoreSurface, force_inherit_pwd: bool) *adw.TabPage {
         const priv = self.private();
         const tab_view = priv.tab_view;
 
@@ -373,7 +380,7 @@ pub const Window = extern struct {
         const tab = gobject.ext.newInstance(Tab, .{
             .config = priv.config,
         });
-        if (parent_) |p| tab.setParent(p);
+        if (parent_) |p| tab.setParent(p, force_inherit_pwd);
 
         // Get the position that we should insert the new tab at.
         const config = if (priv.config) |v| v.get() else {

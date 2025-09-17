@@ -187,6 +187,13 @@ extension Ghostty {
             }
         }
 
+        func duplicateTab(surface: ghostty_surface_t) {
+            let action = "duplicate_tab"
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+                logger.warning("action failed action=\(action)")
+            }
+        }
+
         func newWindow(surface: ghostty_surface_t) {
             let action = "new_window"
             if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
@@ -450,6 +457,9 @@ extension Ghostty {
 
             case GHOSTTY_ACTION_NEW_TAB:
                 newTab(app, target: target)
+
+            case GHOSTTY_ACTION_DUPLICATE_TAB:
+                duplicateTab(app, target: target)
 
             case GHOSTTY_ACTION_NEW_SPLIT:
                 newSplit(app, target: target, direction: action.action.new_split)
@@ -746,6 +756,42 @@ extension Ghostty {
                     ]
                 )
 
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func duplicateTab(_ app: ghostty_app_t, target: ghostty_target_s) {
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                NotificationCenter.default.post(
+                    name: Notification.ghosttyDuplicateTab,
+                    object: nil,
+                    userInfo: [:]
+                )
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                guard let appState = self.appState(fromView: surfaceView) else { return }
+                guard appState.config.windowDecorations else {
+                    let alert = NSAlert()
+                    alert.messageText = "Tabs are disabled"
+                    alert.informativeText = "Enable window decorations to use tabs"
+                    alert.addButton(withTitle: "OK")
+                    alert.alertStyle = .warning
+                    _ = alert.runModal()
+                    return
+                }
+
+                NotificationCenter.default.post(
+                    name: Notification.ghosttyDuplicateTab,
+                    object: surfaceView,
+                    userInfo: [
+                        Notification.NewSurfaceConfigKey: SurfaceConfiguration(from: ghostty_surface_inherited_config(surface)),
+                    ]
+                )
 
             default:
                 assertionFailure()

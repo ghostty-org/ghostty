@@ -591,6 +591,8 @@ pub const Application = extern struct {
 
             .new_tab => return Action.newTab(target),
 
+            .duplicate_tab => return Action.duplicateTab(target),
+
             .new_window => try Action.newWindow(
                 self,
                 switch (target) {
@@ -1976,6 +1978,31 @@ const Action = struct {
                     return false;
                 };
                 window.newTab(core);
+                return true;
+            },
+        }
+    }
+
+    pub fn duplicateTab(target: apprt.Target) bool {
+        switch (target) {
+            .app => {
+                log.warn("duplicate tab to app is unexpected", .{});
+                return false;
+            },
+
+            .surface => |core| {
+                // Get the window ancestor of the surface. Surfaces shouldn't
+                // be aware they might be in windows but at the app level we
+                // can do this.
+                const surface = core.rt_surface.surface;
+                const window = ext.getAncestor(
+                    Window,
+                    surface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a window, ignoring duplicate_tab", .{});
+                    return false;
+                };
+                window.duplicateTab(core);
                 return true;
             },
         }

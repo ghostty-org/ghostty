@@ -228,6 +228,11 @@ class AppDelegate: NSObject,
             selector: #selector(ghosttyNewTab(_:)),
             name: Ghostty.Notification.ghosttyNewTab,
             object: nil)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(ghosttyDuplicateTab(_:)),
+            name: Ghostty.Notification.ghosttyDuplicateTab,
+            object: nil)
 
         // Configure user notifications
         let actions = [
@@ -780,6 +785,20 @@ class AppDelegate: NSObject,
         let config = configAny as? Ghostty.SurfaceConfiguration
 
         _ = TerminalController.newTab(ghostty, from: window, withBaseConfig: config)
+    }
+
+    @objc private func ghosttyDuplicateTab(_ notification: Notification) {
+        guard let surfaceView = notification.object as? Ghostty.SurfaceView else { return }
+        guard let window = surfaceView.window else { return }
+
+        // We only want to listen to duplicate tabs if the focused parent is
+        // a regular terminal controller.
+        guard window.windowController is TerminalController else { return }
+
+        let configAny = notification.userInfo?[Ghostty.Notification.NewSurfaceConfigKey]
+        let config = configAny as? Ghostty.SurfaceConfiguration
+
+        _ = TerminalController.duplicateTab(ghostty, from: window, withBaseConfig: config)
     }
 
     private func setDockBadge(_ label: String? = "•") {

@@ -370,6 +370,9 @@ extension Ghostty.Notification {
     /// New tab. Has base surface config requested in userinfo.
     static let ghosttyNewTab = Notification.Name("com.mitchellh.ghostty.newTab")
 
+    /// Duplicate tab. Has base surface config requested in userinfo.
+    static let ghosttyDuplicateTab = Notification.Name("com.mitchellh.ghostty.duplicateTab")
+
     /// New window. Has base surface config requested in userinfo.
     static let ghosttyNewWindow = Notification.Name("com.mitchellh.ghostty.newWindow")
 

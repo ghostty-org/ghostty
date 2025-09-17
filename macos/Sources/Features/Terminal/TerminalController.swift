@@ -388,6 +388,28 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         return controller
     }
 
+    static func duplicateTab(
+        _ ghostty: Ghostty.App,
+        from parent: NSWindow? = nil,
+        withBaseConfig baseConfig: Ghostty.SurfaceConfiguration? = nil
+    ) -> TerminalController? {
+        let parentWindow = parent ?? NSApp.keyWindow
+        
+        guard let parentWindow = parentWindow,
+              let parentController = parentWindow.windowController as? TerminalController else {
+            return newWindow(ghostty, withBaseConfig: baseConfig, withParent: parent)
+        }
+
+        var config = baseConfig ?? Ghostty.SurfaceConfiguration()
+        
+        if let focusedSurface = parentController.focusedSurface,
+           let workingDirectory = focusedSurface.pwd {
+            config.workingDirectory = workingDirectory
+        }
+
+        return newTab(ghostty, from: parentWindow, withBaseConfig: config)
+    }
+
     //MARK: - Methods
 
     @objc private func ghosttyConfigDidChange(_ notification: Notification) {
