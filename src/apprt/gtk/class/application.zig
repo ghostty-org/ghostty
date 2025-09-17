@@ -1001,6 +1001,7 @@ pub const Application = extern struct {
         self.syncActionAccelerator("win.close", .{ .close_window = {} });
         self.syncActionAccelerator("win.new-window", .{ .new_window = {} });
         self.syncActionAccelerator("win.new-tab", .{ .new_tab = {} });
+        self.syncActionAccelerator("win.duplicate-tab", .{ .duplicate_tab = {} });
         self.syncActionAccelerator("win.close-tab::this", .{ .close_tab = .this });
         self.syncActionAccelerator("tab.close::this", .{ .close_tab = .this });
         self.syncActionAccelerator("win.split-right", .{ .new_split = .right });

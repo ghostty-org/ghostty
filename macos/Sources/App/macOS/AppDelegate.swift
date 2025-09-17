@@ -28,6 +28,7 @@ class AppDelegate: NSObject,
 
     @IBOutlet private var menuNewWindow: NSMenuItem?
     @IBOutlet private var menuNewTab: NSMenuItem?
+    @IBOutlet private var menuDuplicateTab: NSMenuItem?
     @IBOutlet private var menuSplitRight: NSMenuItem?
     @IBOutlet private var menuSplitLeft: NSMenuItem?
     @IBOutlet private var menuSplitDown: NSMenuItem?
@@ -527,6 +528,7 @@ class AppDelegate: NSObject,
         self.menuSecureInput?.setImageIfDesired(systemSymbolName: "lock.display")
         self.menuNewWindow?.setImageIfDesired(systemSymbolName: "macwindow.badge.plus")
         self.menuNewTab?.setImageIfDesired(systemSymbolName: "macwindow")
+        self.menuDuplicateTab?.setImageIfDesired(systemSymbolName: "plus.rectangle.on.rectangle")
         self.menuSplitRight?.setImageIfDesired(systemSymbolName: "rectangle.righthalf.inset.filled")
         self.menuSplitLeft?.setImageIfDesired(systemSymbolName: "rectangle.leadinghalf.inset.filled")
         self.menuSplitUp?.setImageIfDesired(systemSymbolName: "rectangle.tophalf.inset.filled")
@@ -568,6 +570,7 @@ class AppDelegate: NSObject,
 
         syncMenuShortcut(config, action: "new_window", menuItem: self.menuNewWindow)
         syncMenuShortcut(config, action: "new_tab", menuItem: self.menuNewTab)
+        syncMenuShortcut(config, action: "duplicate_tab", menuItem: self.menuDuplicateTab)
         syncMenuShortcut(config, action: "close_surface", menuItem: self.menuClose)
         syncMenuShortcut(config, action: "close_tab", menuItem: self.menuCloseTab)
         syncMenuShortcut(config, action: "close_window", menuItem: self.menuCloseWindow)
@@ -1034,6 +1037,10 @@ class AppDelegate: NSObject,
         _ = TerminalController.newTab(ghostty)
     }
 
+    @IBAction func duplicateTab(_ sender: Any?) {
+        _ = TerminalController.duplicateTab(ghostty)
+    }
+
     @IBAction func closeAllWindows(_ sender: Any?) {
         TerminalController.closeAllWindows()
         AboutController.shared.hide()
@@ -1185,6 +1192,14 @@ extension AppDelegate: NSMenuItemValidation {
             // Float on top items only active if the key window is a primary
             // terminal window (not quick terminal).
             return NSApp.keyWindow is TerminalWindow
+
+        case #selector(duplicateTab(_:)):
+            // Only enable duplicate tab if there's a focused surface in the key window
+            guard let keyWindow = NSApp.keyWindow,
+                  let controller = keyWindow.windowController as? TerminalController else {
+                return false
+            }
+            return controller.focusedSurface != nil
 
         case #selector(undo(_:)):
             if undoManager.canUndo {

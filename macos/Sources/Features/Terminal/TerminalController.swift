@@ -1079,6 +1079,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         ghostty.newTab(surface: surface)
     }
 
+    @IBAction func duplicateTab(_ sender: Any?) {
+        _ = TerminalController.duplicateTab(
+            ghostty,
+            from: window,
+            withBaseConfig: Ghostty.SurfaceConfiguration()
+        )
+    }
+
     @IBAction func closeTab(_ sender: Any?) {
         guard let window = window else { return }
         guard window.tabGroup?.windows.count ?? 0 > 1 else {
