@@ -569,6 +569,15 @@ pub const SetTitle = struct {
             .title = self.title.ptr,
         };
     }
+
+    pub fn format(
+        value: @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.print("{s}{{ {s} }}", .{ @typeName(@This()), value.title });
+    }
 };
 
 pub const Pwd = struct {
@@ -583,6 +592,15 @@ pub const Pwd = struct {
         return .{
             .pwd = self.pwd.ptr,
         };
+    }
+
+    pub fn format(
+        value: @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.print("{s}{{ {s} }}", .{ @typeName(@This()), value.pwd });
     }
 };
 
@@ -602,6 +620,19 @@ pub const DesktopNotification = struct {
             .title = self.title.ptr,
             .body = self.body.ptr,
         };
+    }
+
+    pub fn format(
+        value: @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.print("{s}{{ title: {s}, body: {s} }}", .{
+            @typeName(@This()),
+            value.title,
+            value.body,
+        });
     }
 };
 
