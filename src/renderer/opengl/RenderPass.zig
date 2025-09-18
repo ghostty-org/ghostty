@@ -8,6 +8,7 @@ const builtin = @import("builtin");
 const gl = @import("opengl");
 
 const OpenGL = @import("../OpenGL.zig");
+const Sampler = @import("Sampler.zig");
 const Target = @import("Target.zig");
 const Texture = @import("Texture.zig");
 const Pipeline = @import("Pipeline.zig");
@@ -35,6 +36,7 @@ pub const Step = struct {
     uniforms: ?gl.Buffer = null,
     buffers: []const ?gl.Buffer = &.{},
     textures: []const ?Texture = &.{},
+    samplers: []const ?Sampler = &.{},
     draw: Draw,
 
     /// Describes the draw call for this step.
@@ -101,6 +103,11 @@ pub fn step(self: *Self, s: Step) void {
     for (s.textures, 0..) |t, i| if (t) |tex| {
         gl.Texture.active(@intCast(i)) catch return;
         _ = tex.texture.bind(tex.target) catch return;
+    };
+
+    // Bind relevant samplers.
+    for (s.samplers, 0..) |s_, i| if (s_) |sampler| {
+        _ = sampler.sampler.bind(@intCast(i)) catch return;
     };
 
     // Bind 0th buffer as the vertex buffer,

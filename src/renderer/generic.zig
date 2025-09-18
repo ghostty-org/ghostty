@@ -85,6 +85,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
         const Target = GraphicsAPI.Target;
         const Buffer = GraphicsAPI.Buffer;
+        const Sampler = GraphicsAPI.Sampler;
         const Texture = GraphicsAPI.Texture;
         const RenderPass = GraphicsAPI.RenderPass;
 
@@ -428,6 +429,19 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             front_texture: Texture,
             back_texture: Texture,
 
+            /// Shadertoy uses a sampler for accessing the various channel
+            /// textures. In Metal, we need to explicitly create these since
+            /// the glslang-to-msl compiler doesn't do it for us (as we
+            /// normally would in hand-written MSL). To keep it clean and
+            /// consistent, we just force all rendering APIs to provide an
+            /// explicit sampler.
+            ///
+            /// Samplers are immutable and describe sampling properties so
+            /// we can share the sampler across front/back textures (although
+            /// we only need it for the source texture at a time, we don't
+            /// need to "swap" it).
+            sampler: Sampler,
+
             uniforms: UniformBuffer,
 
             const UniformBuffer = Buffer(shadertoy.Uniforms);
@@ -459,9 +473,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 );
                 errdefer back_texture.deinit();
 
+                const sampler = try Sampler.init(api.samplerOptions());
+                errdefer sampler.deinit();
+
                 return .{
                     .front_texture = front_texture,
                     .back_texture = back_texture,
+                    .sampler = sampler,
                     .uniforms = uniforms,
                 };
             }
@@ -469,6 +487,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             pub fn deinit(self: *CustomShaderState) void {
                 self.front_texture.deinit();
                 self.back_texture.deinit();
+                self.sampler.deinit();
                 self.uniforms.deinit();
             }
 
@@ -1509,6 +1528,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         .pipeline = pipeline,
                         .uniforms = state.uniforms.buffer,
                         .textures = &.{state.back_texture},
+                        .samplers = &.{state.sampler},
                         .draw = .{
                             .type = .triangle,
                             .vertex_count = 3,

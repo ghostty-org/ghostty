@@ -20,6 +20,7 @@ pub const RenderPass = @import("opengl/RenderPass.zig");
 pub const Pipeline = @import("opengl/Pipeline.zig");
 const bufferpkg = @import("opengl/buffer.zig");
 pub const Buffer = bufferpkg.Buffer;
+pub const Sampler = @import("opengl/Sampler.zig");
 pub const Texture = @import("opengl/Texture.zig");
 pub const shaders = @import("opengl/shaders.zig");
 
@@ -357,6 +358,17 @@ pub inline fn textureOptions(self: OpenGL) Texture.Options {
         .format = .rgba,
         .internal_format = .srgba,
         .target = .@"2D",
+        .min_filter = .linear,
+        .mag_filter = .linear,
+        .wrap_s = .clamp_to_edge,
+        .wrap_t = .clamp_to_edge,
+    };
+}
+
+/// Returns the options to use when constructing samplers.
+pub inline fn samplerOptions(self: OpenGL) Sampler.Options {
+    _ = self;
+    return .{
         .min_filter = .linear,
         .mag_filter = .linear,
         .wrap_s = .clamp_to_edge,

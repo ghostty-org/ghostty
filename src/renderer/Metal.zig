@@ -25,6 +25,7 @@ pub const RenderPass = @import("metal/RenderPass.zig");
 pub const Pipeline = @import("metal/Pipeline.zig");
 const bufferpkg = @import("metal/buffer.zig");
 pub const Buffer = bufferpkg.Buffer;
+pub const Sampler = @import("metal/Sampler.zig");
 pub const Texture = @import("metal/Texture.zig");
 pub const shaders = @import("metal/shaders.zig");
 
@@ -282,6 +283,18 @@ pub inline fn textureOptions(self: Metal) Texture.Options {
             .shader_read = true,
             .render_target = true,
         },
+    };
+}
+
+pub inline fn samplerOptions(self: Metal) Sampler.Options {
+    return .{
+        .device = self.device,
+
+        // These parameters match Shadertoy behaviors.
+        .min_filter = .linear,
+        .mag_filter = .linear,
+        .s_address_mode = .clamp_to_edge,
+        .t_address_mode = .clamp_to_edge,
     };
 }
 

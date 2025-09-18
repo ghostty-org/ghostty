@@ -9,6 +9,7 @@ const objc = @import("objc");
 
 const mtl = @import("api.zig");
 const Pipeline = @import("Pipeline.zig");
+const Sampler = @import("Sampler.zig");
 const Texture = @import("Texture.zig");
 const Target = @import("Target.zig");
 const Metal = @import("../Metal.zig");
@@ -41,6 +42,9 @@ pub const Step = struct {
     /// MTLBuffer
     buffers: []const ?objc.Object = &.{},
     textures: []const ?Texture = &.{},
+    /// Set of samplers to use for this step. The index maps to an index
+    /// of a fragment texture, set via setFragmentSamplerState(_:index:).
+    samplers: []const ?Sampler = &.{},
     draw: Draw,
 
     /// Describes the draw call for this step.
@@ -197,6 +201,15 @@ pub fn step(self: *const Self, s: Step) void {
             void,
             objc.sel("setFragmentTexture:atIndex:"),
             .{ tex.texture.value, @as(c_ulong, i) },
+        );
+    };
+
+    // Set samplers.
+    for (s.samplers, 0..) |samp, i| if (samp) |sampler| {
+        self.encoder.msgSend(
+            void,
+            objc.sel("setFragmentSamplerState:atIndex:"),
+            .{ sampler.sampler.value, @as(c_ulong, i) },
         );
     };
 
