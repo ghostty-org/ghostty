@@ -57,15 +57,6 @@ extension Ghostty {
 
         @EnvironmentObject private var ghostty: Ghostty.App
 
-        var title: String {
-            var result = surfaceView.title
-            if (surfaceView.bell && ghostty.config.bellFeatures.contains(.title)) {
-                result = "🔔 \(result)"
-            }
-
-            return result
-        }
-
         var body: some View {
             let center = NotificationCenter.default
 

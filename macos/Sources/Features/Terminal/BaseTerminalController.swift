@@ -688,6 +688,8 @@ class BaseTerminalController: NSWindowController,
            surfaceTree.contains(titleSurface) {
             // If we have a surface, we want to listen for title changes.
             titleSurface.$title
+                .combineLatest(titleSurface.$bell)
+                .map { [weak self] in self?.computeTitle(title: $0, bell: $1) ?? "" }
                 .sink { [weak self] in self?.titleDidChange(to: $0) }
                 .store(in: &focusedSurfaceCancellables)
         } else {
@@ -695,8 +697,17 @@ class BaseTerminalController: NSWindowController,
             titleDidChange(to: "👻")
         }
     }
+    
+    private func computeTitle(title: String, bell: Bool) -> String {
+        var result = title
+        if (bell && ghostty.config.bellFeatures.contains(.title)) {
+            result = "🔔 \(result)"
+        }
 
-    func titleDidChange(to: String) {
+        return result
+    }
+
+    private func titleDidChange(to: String) {
         guard let window else { return }
         
         // Set the main window title
