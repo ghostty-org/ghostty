@@ -2713,7 +2713,7 @@ keybind: Keybinds = .{},
 ///
 ///   * `new-tab` - Create a new tab in the current window, or open
 ///     a new window if none exist.
-///   * `new-window` - Create a new window unconditionally.
+///   * `window` - Create a new window unconditionally.
 ///
 /// The default value is `new-tab`.
 ///
