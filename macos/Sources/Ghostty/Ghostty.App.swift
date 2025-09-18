@@ -624,10 +624,15 @@ extension Ghostty {
         ) -> Bool {
             let action = Ghostty.Action.OpenURL(c: v)
             
-            // Convert the URL string to a URL object
-            guard let url = URL(string: action.url) else {
-                Ghostty.logger.warning("invalid URL for open URL action: \(action.url)")
-                return false
+            // If the URL doesn't have a valid scheme we assume its a file path. The URL
+            // initializer will gladly take invalid URLs (e.g. plain file paths) and turn
+            // them into schema-less URLs, but these won't open properly in text editors.
+            // See: https://github.com/ghostty-org/ghostty/issues/8763
+            let url: URL
+            if let candidate = URL(string: action.url), candidate.scheme != nil {
+                url = candidate
+            } else {
+                url = URL(filePath: action.url)
             }
             
             switch action.kind {
