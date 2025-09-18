@@ -198,6 +198,11 @@ extension Ghostty {
                     SecureInputOverlay()
                 }
                 #endif
+                
+                // Show bell border if enabled
+                if (ghostty.config.bellFeatures.contains(.border)) {
+                    BellBorderOverlay(bell: surfaceView.bell)
+                }
 
                 // If our surface is not healthy, then we render an error view over it.
                 if (!surfaceView.healthy) {
@@ -523,6 +528,22 @@ extension Ghostty {
                     }
                 }
             }
+        }
+    }
+
+    /// Visual overlay that shows a border around the edges when the bell rings with border feature enabled.
+    struct BellBorderOverlay: View {
+        let bell: Bool
+        
+        var body: some View {
+            Rectangle()
+                .strokeBorder(
+                    Color(red: 1.0, green: 0.8, blue: 0.0).opacity(0.5),
+                    lineWidth: 3
+                )
+                .allowsHitTesting(false)
+                .opacity(bell ? 1.0 : 0.0)
+                .animation(.easeInOut(duration: 0.3), value: bell)
         }
     }
 
