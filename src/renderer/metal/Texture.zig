@@ -18,6 +18,7 @@ pub const Options = struct {
     device: objc.Object,
     pixel_format: mtl.MTLPixelFormat,
     resource_options: mtl.MTLResourceOptions,
+    usage: mtl.MTLTextureUsage,
 };
 
 /// The underlying MTLTexture Object.
@@ -57,6 +58,7 @@ pub fn init(
     desc.setProperty("width", @as(c_ulong, width));
     desc.setProperty("height", @as(c_ulong, height));
     desc.setProperty("resourceOptions", opts.resource_options);
+    desc.setProperty("usage", opts.usage);
 
     // Initialize
     const id = opts.device.msgSend(

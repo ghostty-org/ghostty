@@ -273,6 +273,15 @@ pub inline fn textureOptions(self: Metal) Texture.Options {
             .cpu_cache_mode = .write_combined,
             .storage_mode = self.default_storage_mode,
         },
+        .usage = .{
+            // textureOptions is currently only used for custom shaders,
+            // which require both the shader read (for when multiple shaders
+            // are chained) and render target (for the final output) usage.
+            // Disabling either of these will lead to metal validation
+            // errors in Xcode.
+            .shader_read = true,
+            .render_target = true,
+        },
     };
 }
 
@@ -311,6 +320,10 @@ pub inline fn imageTextureOptions(
             .cpu_cache_mode = .write_combined,
             .storage_mode = self.default_storage_mode,
         },
+        .usage = .{
+            // We only need to read from this texture from a shader.
+            .shader_read = true,
+        },
     };
 }
 
@@ -333,6 +346,10 @@ pub fn initAtlasTexture(
                 // Indicate that the CPU writes to this resource but never reads it.
                 .cpu_cache_mode = .write_combined,
                 .storage_mode = self.default_storage_mode,
+            },
+            .usage = .{
+                // We only need to read from this texture from a shader.
+                .shader_read = true,
             },
         },
         atlas.size,
