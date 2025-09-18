@@ -143,6 +143,7 @@
 		A5E408432E047D0B0035FEAC /* CommandPaletteIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E408422E047D060035FEAC /* CommandPaletteIntent.swift */; };
 		A5E408452E0483FD0035FEAC /* KeybindIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E408442E0483F80035FEAC /* KeybindIntent.swift */; };
 		A5E408472E04852B0035FEAC /* InputIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E408462E0485270035FEAC /* InputIntent.swift */; };
+		A5F9A1F22E7C7301005AFACE /* SurfaceProgressBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F9A1F12E7C7301005AFACE /* SurfaceProgressBar.swift */; };
 		A5FEB3002ABB69450068369E /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FEB2FF2ABB69450068369E /* main.swift */; };
 		AEE8B3452B9AA39600260C5E /* NSPasteboard+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEE8B3442B9AA39600260C5E /* NSPasteboard+Extension.swift */; };
 		C159E81D2B66A06B00FDFE9C /* OSColor+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = C159E81C2B66A06B00FDFE9C /* OSColor+Extension.swift */; };
@@ -293,6 +294,7 @@
 		A5E408422E047D060035FEAC /* CommandPaletteIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteIntent.swift; sourceTree = "<group>"; };
 		A5E408442E0483F80035FEAC /* KeybindIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeybindIntent.swift; sourceTree = "<group>"; };
 		A5E408462E0485270035FEAC /* InputIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputIntent.swift; sourceTree = "<group>"; };
+		A5F9A1F12E7C7301005AFACE /* SurfaceProgressBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceProgressBar.swift; sourceTree = "<group>"; };
 		A5FEB2FF2ABB69450068369E /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		AEE8B3442B9AA39600260C5E /* NSPasteboard+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSPasteboard+Extension.swift"; sourceTree = "<group>"; };
 		C159E81C2B66A06B00FDFE9C /* OSColor+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OSColor+Extension.swift"; sourceTree = "<group>"; };
@@ -492,6 +494,7 @@
 			isa = PBXGroup;
 			children = (
 				A55B7BB729B6F53A0055DE60 /* Package.swift */,
+				A5F9A1F12E7C7301005AFACE /* SurfaceProgressBar.swift */,
 				A55B7BBB29B6FC330055DE60 /* SurfaceView.swift */,
 				A5333E212B5A2128008AEFF7 /* SurfaceView_AppKit.swift */,
 				A5333E152B59DE8E008AEFF7 /* SurfaceView_UIKit.swift */,
@@ -892,6 +895,7 @@
 				A5CC36152C9CDA06004D6760 /* View+Extension.swift in Sources */,
 				A56D58892ACDE6CA00508D2C /* ServiceProvider.swift in Sources */,
 				A5CBD0602CA0C90A0017A1AE /* QuickTerminalWindow.swift in Sources */,
+				A5F9A1F22E7C7301005AFACE /* SurfaceProgressBar.swift in Sources */,
 				A505D21F2E1B6DE00018808F /* NSWorkspace+Extension.swift in Sources */,
 				A5CBD05E2CA0C5EC0017A1AE /* QuickTerminalController.swift in Sources */,
 				A5CF66D72D29DDB500139794 /* Ghostty.Event.swift in Sources */,

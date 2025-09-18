@@ -99,10 +99,13 @@ extension Ghostty.Action {
         
         let state: State
         let progress: UInt8?
-        
-        init(c: ghostty_action_progress_report_s) {
-            self.state = State(c.state)
-            self.progress = c.progress >= 0 ? UInt8(c.progress) : nil
-        }
+    }
+}
+
+// Putting the initializer in an extension preserves the automatic one.
+extension Ghostty.Action.ProgressReport {
+    init(c: ghostty_action_progress_report_s) {
+        self.state = State(c.state)
+        self.progress = c.progress >= 0 ? UInt8(c.progress) : nil
     }
 }
