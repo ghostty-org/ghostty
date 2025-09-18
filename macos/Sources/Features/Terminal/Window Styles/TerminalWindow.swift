@@ -49,6 +49,14 @@ class TerminalWindow: NSWindow {
 
         // Setup our initial config
         derivedConfig = .init(config)
+        
+        // If there is a hardcoded title in the configuration, we set that
+        // immediately. Future `set_title` apprt actions will override this
+        // if necessary but this ensures our window loads with the proper
+        // title immediately rather than on another event loop tick (see #5934)
+        if let title = derivedConfig.title {
+            self.title = title
+        }
 
         // If window decorations are disabled, remove our title
         if (!config.windowDecorations) { styleMask.remove(.titled) }
@@ -432,17 +440,20 @@ class TerminalWindow: NSWindow {
     // MARK: Config
 
     struct DerivedConfig {
+        let title: String?
         let backgroundColor: NSColor
         let backgroundOpacity: Double
         let macosWindowButtons: Ghostty.MacOSWindowButtons
 
         init() {
+            self.title = nil
             self.backgroundColor = NSColor.windowBackgroundColor
             self.backgroundOpacity = 1
             self.macosWindowButtons = .visible
         }
 
         init(_ config: Ghostty.Config) {
+            self.title = config.title
             self.backgroundColor = NSColor(config.backgroundColor)
             self.backgroundOpacity = config.backgroundOpacity
             self.macosWindowButtons = config.macosWindowButtons

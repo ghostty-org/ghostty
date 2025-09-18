@@ -863,14 +863,6 @@ class BaseTerminalController: NSWindowController,
         // Everything beyond here is setting up the window
         guard let window else { return }
 
-        // If there is a hardcoded title in the configuration, we set that
-        // immediately. Future `set_title` apprt actions will override this
-        // if necessary but this ensures our window loads with the proper
-        // title immediately rather than on another event loop tick (see #5934)
-        if let title = derivedConfig.title {
-            window.title = title
-        }
-
         // We always initialize our fullscreen style to native if we can because
         // initialization sets up some state (i.e. observers). If its set already
         // somehow we don't do this.
@@ -1072,20 +1064,17 @@ class BaseTerminalController: NSWindowController,
     }
 
     private struct DerivedConfig {
-        let title: String?
         let macosTitlebarProxyIcon: Ghostty.MacOSTitlebarProxyIcon
         let windowStepResize: Bool
         let focusFollowsMouse: Bool
 
         init() {
-            self.title = nil
             self.macosTitlebarProxyIcon = .visible
             self.windowStepResize = false
             self.focusFollowsMouse = false
         }
 
         init(_ config: Ghostty.Config) {
-            self.title = config.title
             self.macosTitlebarProxyIcon = config.macosTitlebarProxyIcon
             self.windowStepResize = config.windowStepResize
             self.focusFollowsMouse = config.focusFollowsMouse
